@@ -10,6 +10,7 @@ import { GardSelection, type GardState } from '../core/state'
 import * as T from '../core/types'
 import { Embed, embedAttributes } from '../blocks/embed'
 import { MathBlock, openMathEditor } from '../blocks/math'
+import { isEditableResource, openResourceEditor } from '../blocks/resources'
 import { applyBlockType, blockTypeAt, duplicateBlocks, moveBlocks } from './block-actions'
 import { type CoreBlockType } from './block-catalog'
 import { allTableCells } from './block-selection'
@@ -78,7 +79,7 @@ const selectBlock: Command = wg => {
   return false
 }
 
-/** ⌘Enter opens a referenced page, edits a formula, or toggles a foldable heading. */
+/** ⌘Enter opens a referenced page, edits a formula or resource block, or toggles a foldable heading. */
 const modifyBlock: Command = wg => {
   const { state } = wg
   const units = selectedUnits(state)
@@ -89,6 +90,9 @@ const modifyBlock: Command = wg => {
         ? units[0]!
         : null
   if (!unit) return false
+  if (!state.readOnly && isEditableResource(unit.node)) {
+    return { effects: openResourceEditor.of(unit.before), scrollIntoView: true }
+  }
   if (unit.node.type === Embed.type) {
     const attrs = embedAttributes(unit.node)
     const openPage = editorHost(wg)?.openPage

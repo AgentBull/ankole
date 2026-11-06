@@ -78,7 +78,10 @@ blocks dismissal. Document titles auto-save after 500 ms of idle typing and on
 blur (deferring auto-save until any active IME composition finishes). Pressing
 Enter or Tab in a document title, or pressing Down on its last visual line,
 moves the caret to the start of the body, and pressing Up at the start of the
-body moves it back to the end of the title. Assistive technology receives normal
+body moves it back to the end of the title. On Spreadsheet and Base Pages,
+pressing Enter in the Page title or pressing Down on its last visual line moves
+focus into the active cell editor or the Base grid's first interactive control,
+while Tab follows the toolbar controls in DOM order. Assistive technology receives normal
 save-status announcements, save failures expose an explicit retry control, and
 the block controls occupy the left gutter outside sequential Tab navigation.
 The gutter remains reachable as the pointer crosses from text to the controls,

@@ -87,17 +87,9 @@ function nodeModulePackageName(moduleID: string): string | undefined {
 }
 
 function manualChunks(moduleID: string): string | undefined {
+  if (/\.css(?:$|[?&])/i.test(moduleID)) return undefined
   const packageName = nodeModulePackageName(moduleID)
-  if (!packageName) {
-    const normalized = moduleID.replaceAll('\\', '/')
-    if (
-      normalized.includes('/libs/uikit/src/components/graph') ||
-      (normalized.includes('/libs/uikit/src/viz/') && !normalized.endsWith('/libs/uikit/src/viz/theme.ts'))
-    ) {
-      return undefined
-    }
-    return normalized.includes('/libs/uikit/src/') ? 'uikit' : undefined
-  }
+  if (!packageName) return undefined
   if (packageName === 'react' || packageName === 'react-dom' || packageName === 'scheduler') {
     return 'vendor-react'
   }
@@ -230,7 +222,11 @@ export default defineConfig(({ command }): UserConfig => ({
       name: 'ankole-edition-styles',
       enforce: 'pre',
       transform(code, id) {
-        if (edition === 'saas' && id.replaceAll('\\', '/').endsWith('/webapps/common/styles.css')) {
+        const cleanId = id.split('?', 1)[0]!.replaceAll('\\', '/')
+        if (
+          edition === 'saas' &&
+          (cleanId.endsWith('/webapps/common/styles.css') || cleanId.endsWith('/libs/uikit/src/styles.css'))
+        ) {
           return `${code}\n@source ${JSON.stringify(path.join(internalsRoot, 'webapps'))};\n`
         }
       }
@@ -249,9 +245,71 @@ export default defineConfig(({ command }): UserConfig => ({
         if (existsSync(manifestPath)) {
           const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<
             string,
-            { isEntry?: boolean; name?: string; file?: string; imports?: string[] }
+            {
+              isEntry?: boolean
+              name?: string
+              file?: string
+              css?: string[]
+              imports?: string[]
+              dynamicImports?: string[]
+            }
           >
           const lazyVizChunks = new Set(['vendor-g2', 'vendor-charts', 'vendor-graph', 'vendor-infographic'])
+          const sccIndex = new Map<string, number>()
+          const sccLowlink = new Map<string, number>()
+          const sccStack: string[] = []
+          const sccOnStack = new Set<string>()
+          let nextSccIndex = 0
+          const visitChunkScc = (key: string): void => {
+            sccIndex.set(key, nextSccIndex)
+            sccLowlink.set(key, nextSccIndex)
+            nextSccIndex += 1
+            sccStack.push(key)
+            sccOnStack.add(key)
+            for (const dep of manifest[key]?.imports ?? []) {
+              if (!manifest[dep]) continue
+              if (!sccIndex.has(dep)) {
+                visitChunkScc(dep)
+                sccLowlink.set(key, Math.min(sccLowlink.get(key)!, sccLowlink.get(dep)!))
+              } else if (sccOnStack.has(dep)) {
+                sccLowlink.set(key, Math.min(sccLowlink.get(key)!, sccIndex.get(dep)!))
+              }
+            }
+            if (sccLowlink.get(key) === sccIndex.get(key)) {
+              const component: string[] = []
+              let member: string
+              do {
+                member = sccStack.pop()!
+                sccOnStack.delete(member)
+                component.push(member)
+              } while (member !== key)
+              if (component.length > 1) {
+                throw new Error(
+                  `Static JS chunk import cycle detected (${component.map(item => manifest[item]?.file ?? item).join(' <-> ')}). Avoid codeSplitting merge thresholds or manualChunks rules that merge across CJS/ESM layers.`
+                )
+              }
+            }
+          }
+          for (const key of Object.keys(manifest)) {
+            if (!sccIndex.has(key)) visitChunkScc(key)
+          }
+          const appletUikitCss = new Set<string>()
+          const appletUikitEntry = manifest['entrypoints/applet-vendor/uikit.ts']
+          if (appletUikitEntry) {
+            const seenApplet = new Set<string>()
+            const appletQueue = ['entrypoints/applet-vendor/uikit.ts']
+            while (appletQueue.length > 0) {
+              const key = appletQueue.shift()!
+              if (seenApplet.has(key)) continue
+              seenApplet.add(key)
+              const chunk = manifest[key]
+              if (!chunk) continue
+              for (const cssFile of chunk.css ?? []) appletUikitCss.add(cssFile)
+              for (const child of chunk.imports ?? []) {
+                if (!seenApplet.has(child)) appletQueue.push(child)
+              }
+            }
+          }
           for (const [entryKey, entryMeta] of Object.entries(manifest)) {
             if (!entryMeta?.isEntry) continue
             const visited = new Set<string>()
@@ -270,6 +328,27 @@ export default defineConfig(({ command }): UserConfig => ({
               }
               for (const child of dep.imports ?? []) {
                 if (!visited.has(child)) queue.push(child)
+              }
+            }
+            if (appletUikitCss.size > 0 && !entryMeta.name?.startsWith('applet-')) {
+              const fullVisited = new Set<string>()
+              const fullQueue = [entryKey]
+              while (fullQueue.length > 0) {
+                const key = fullQueue.shift()!
+                if (fullVisited.has(key)) continue
+                fullVisited.add(key)
+                const chunk = manifest[key]
+                if (!chunk) continue
+                for (const cssFile of chunk.css ?? []) {
+                  if (appletUikitCss.has(cssFile)) {
+                    throw new Error(
+                      `Standalone Applet uikit CSS "${cssFile}" leaked into host entry "${entryKey}" via "${key}". Keep CSS modules out of shared JS manualChunks.`
+                    )
+                  }
+                }
+                for (const child of [...(chunk.imports ?? []), ...(chunk.dynamicImports ?? [])]) {
+                  if (!fullVisited.has(child)) fullQueue.push(child)
+                }
               }
             }
           }
@@ -345,16 +424,8 @@ export default defineConfig(({ command }): UserConfig => ({
         chunkFileNames: 'js/[name]-[hash].js',
         entryFileNames: 'js/[name]-[hash].js',
         codeSplitting: {
-          minSize: 16_000,
           // Shared dependencies must not pull applet-only code into every entry.
-          groups: [
-            {
-              name: manualChunks,
-              debugName: 'vendor-packages',
-              entriesAware: true,
-              entriesAwareMergeThreshold: 20_000
-            }
-          ]
+          groups: [{ name: manualChunks, debugName: 'vendor-packages', entriesAware: true }]
         }
       }
     }

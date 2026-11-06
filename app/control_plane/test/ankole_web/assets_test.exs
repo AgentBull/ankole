@@ -59,6 +59,7 @@ defmodule AnkoleWeb.AssetsTest do
 
     for path <- ["/content/recent", "/unknown", "/pages/a-page/unknown"] do
       html = tags(path, "pod")
+      assert stylesheets(html) == ["/assets/css/shared.css", "/assets/css/pod.css"]
       assert preloads(html) == ["/assets/js/shared.js"]
       refute html =~ "/assets/js/page.js"
       refute html =~ "/assets/js/chat.js"
@@ -149,6 +150,12 @@ defmodule AnkoleWeb.AssetsTest do
 
   defp tags(path, entry) do
     Plug.Test.conn(:get, path) |> Assets.entry_tags(entry) |> IO.iodata_to_binary()
+  end
+
+  defp stylesheets(html) do
+    ~r|<link rel="stylesheet"[^>]+href="([^"]+)"|
+    |> Regex.scan(html, capture: :all_but_first)
+    |> List.flatten()
   end
 
   defp preloads(html) do

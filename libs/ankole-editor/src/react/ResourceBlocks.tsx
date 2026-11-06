@@ -1,12 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, Input, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@ankole/uikit'
+import { composingKey } from '@ankole/uikit/lib/keyboard'
 import { RiArrowDownSLine, RiCheckLine, RiExternalLinkLine, RiLink } from '@remixicon/react'
 import { Embed, EmbedHref, EmbedTitle, embedAttributes } from '../blocks/embed'
 import {
+  closeResourceEditor,
   resourceBlocks,
   resourceAttributes,
   resourceChanges,
+  resourceEditorField,
+  resourceEditorOpenKey,
   type ResourceAttributes,
   type ResourceKind
 } from '../blocks/resources'
@@ -20,6 +24,8 @@ import {
   type ResourceView
 } from '../document/resources'
 import { dispatchStep } from '../editor/block-insert'
+import { BlockSelection } from '../editor/block-selection'
+import { unitAt } from '../editor/block-target'
 import type { EditorHost } from '../editor/host-context'
 import { useEditor, useEditorLabel, useEditorState } from './context'
 import { isKnowledge } from '../editor/knowledge'
@@ -52,6 +58,8 @@ export function ResourceBlocks({ host }: { host?: EditorHost }) {
   const [portals, setPortals] = useState<ReactNode[]>([])
   // nodeDOM flushes pending editor updates, so synchronize portals after React renders.
   useLayoutEffect(() => {
+    const activePos = state.field(resourceEditorField, false) ?? null
+    const openKey = state.field(resourceEditorOpenKey, false) ?? 0
     const portals: ReactNode[] = []
     state.doc.iterate((node, pos) => {
       const kind =
@@ -69,7 +77,13 @@ export function ResourceBlocks({ host }: { host?: EditorHost }) {
           : resourceAttributes(node)
       portals.push(
         createPortal(
-          <ResourceBlock kind={kind} attrs={attrs} container={container} host={host} />,
+          <ResourceBlock
+            kind={kind}
+            attrs={attrs}
+            container={container}
+            host={host}
+            openKey={activePos === pos ? openKey : 0}
+          />,
           container,
           String(containerIDs.get(container))
         )
@@ -85,12 +99,14 @@ export function ResourceBlock({
   kind,
   attrs,
   container,
-  host
+  host,
+  openKey = 0
 }: {
   kind: Kind
   attrs: ResourceAttributes
   container: Element
   host?: EditorHost
+  openKey?: number
 }) {
   const editor = useEditor()
   const label = useEditorLabel()
@@ -102,6 +118,9 @@ export function ResourceBlock({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const input = useRef<HTMLInputElement>(null)
+  const addressInput = useRef<HTMLInputElement>(null)
+  const lastOpenKey = useRef(0)
+  const pendingFocus = useRef(false)
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
@@ -109,6 +128,27 @@ export function ResourceBlock({
       alive.current = false
     }
   }, [])
+  useLayoutEffect(() => {
+    if (!openKey) {
+      lastOpenKey.current = 0
+      return
+    }
+    if (openKey === lastOpenKey.current || readOnly) return
+    lastOpenKey.current = openKey
+    pendingFocus.current = true
+    setEdits({})
+    setError('')
+    setEditing(true)
+  }, [openKey, readOnly])
+  useLayoutEffect(() => {
+    if (!pendingFocus.current || !editing || readOnly) return
+    const frame = requestAnimationFrame(() => {
+      pendingFocus.current = false
+      addressInput.current?.focus()
+      addressInput.current?.select()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [openKey, editing, readOnly])
   const view = attrs.view ?? (kind === 'media' || kind === 'embed' ? 'preview' : 'card')
   const src = attrs.src ? assetURL(attrs.src, host?.resolveAsset) : null
   const title = attrs.title || (attrs.src ? attrs.src.split('/').at(-1) || attrs.src : label(`${kind}_title`))
@@ -143,7 +183,25 @@ export function ResourceBlock({
     }
     return true
   }
+  const finishEditing = (selectBlock: boolean) => {
+    setError('')
+    setEdits({})
+    setEditing(false)
+    if (!container.isConnected) return
+    const target = editor.nodeFromDOM(container)
+    const unit = selectBlock && target ? unitAt(editor.state.doc, target.pos, 1) : null
+    const selected = unit && BlockSelection.between(editor.state.doc, unit.before, unit.before)
+    const hasOpen = (editor.state.field(resourceEditorField, false) ?? null) !== null
+    if (hasOpen || selected) {
+      editor.dispatch({
+        ...(hasOpen ? { effects: closeResourceEditor.of(null) } : {}),
+        ...(selected ? { selection: selected, userEvent: 'select.block' } : {})
+      })
+    }
+    editor.focus()
+  }
   const save = () => {
+    const hadSource = Boolean(attrs.src)
     const address = draft.src?.trim() ?? ''
     // Host addresses may be kept while editing a caption, but cannot be entered as external URLs.
     const valid = address.startsWith('ankole:asset/') && address === attrs.src ? address : webURL(address)
@@ -156,9 +214,7 @@ export function ResourceBlock({
       return
     }
     if (update({ ...edits, ...('src' in edits ? { src: valid } : {}) })) {
-      setError('')
-      setEdits({})
-      setEditing(false)
+      finishEditing(hadSource)
     }
   }
   const upload = async (file: File) => {
@@ -167,6 +223,7 @@ export function ResourceBlock({
       setError(label('resource_media_invalid'))
       return
     }
+    const hadSource = Boolean(attrs.src)
     setBusy(true)
     setError('')
     try {
@@ -177,8 +234,7 @@ export function ResourceBlock({
         title: uploaded.title ?? file.name
       }
       if (update(next)) {
-        setEdits({})
-        setEditing(false)
+        finishEditing(hadSource)
       }
     } catch (reason) {
       if (alive.current) setError(reason instanceof Error ? reason.message : label('resource_upload_failed'))
@@ -228,13 +284,35 @@ export function ResourceBlock({
       data-kind={kind}
       data-view={view}
       onMouseDown={event => event.stopPropagation()}
-      onClick={event => event.stopPropagation()}
+      onClick={event => {
+        event.stopPropagation()
+        if (editing || readOnly || !container.isConnected) return
+        const target = event.target instanceof Element ? event.target : null
+        if (target?.closest('a, button, input, iframe, video, [role="menuitem"]')) return
+        const found = editor.nodeFromDOM(container)
+        const unit = found && unitAt(editor.state.doc, found.pos, 1)
+        const selected = unit && BlockSelection.between(editor.state.doc, unit.before, unit.before)
+        if (selected) {
+          editor.dispatch({ selection: selected, userEvent: 'select.block' })
+          editor.focus()
+        }
+      }}
       onKeyDown={event => event.stopPropagation()}
       onPaste={event => event.stopPropagation()}
       onDrop={event => event.stopPropagation()}>
       {editing && !readOnly ? (
         <form
           className="resource-form"
+          onKeyDown={event => {
+            if (composingKey(event.nativeEvent)) {
+              if (event.key === 'Enter') event.preventDefault()
+              return
+            }
+            if (event.key === 'Escape' && !busy) {
+              event.preventDefault()
+              finishEditing(true)
+            }
+          }}
           onSubmit={event => {
             event.preventDefault()
             save()
@@ -263,6 +341,7 @@ export function ResourceBlock({
           <label>
             {label('resource_address')}
             <Input
+              ref={addressInput}
               value={draft.src ?? ''}
               placeholder="https://"
               disabled={busy}
@@ -316,11 +395,9 @@ export function ResourceBlock({
             <Button type="submit" size="sm" disabled={busy}>
               {label('resource_apply')}
             </Button>
-            {attrs.src && (
-              <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>
-                {label('resource_cancel')}
-              </Button>
-            )}
+            <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => finishEditing(true)}>
+              {label('resource_cancel')}
+            </Button>
           </div>
         </form>
       ) : (
@@ -347,6 +424,7 @@ export function ResourceBlock({
                 variant="ghost"
                 size="xs"
                 onClick={() => {
+                  pendingFocus.current = true
                   setEdits({})
                   setError('')
                   setEditing(true)

@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import * as XLSX from 'xlsx'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 import { conversationRoute, pageRoute, uuidShorten } from './pod-browser/routes'
 import type { ConversationDetail } from '../pod/api'
@@ -616,13 +617,14 @@ test('document Page title Tab, last-line ArrowDown, and body Shift+Tab follow No
     if (url.pathname.endsWith('/children') || url.pathname === '/api/v2/pod/pages') {
       return route.fulfill({ json: { pages: [], can_create_space: true, can_create_private: true } })
     }
+    if (url.pathname.endsWith('/attention')) return route.fulfill({ json: [] })
     if (url.pathname.endsWith('/agents')) return route.fulfill({ json: { agents: [] } })
     return route.fulfill({ json: { conversations: [], entries: [] } })
   })
   await page.goto(pageRoute(id))
   const title = page.getByRole('textbox', { name: 'Page title', exact: true })
   const body = page.locator('.pod-document .editor-content')
-  await expect(title).toBeFocused()
+  await expect(title).toBeFocused({ timeout: 15_000 })
 
   const longTitle = 'A document title that wraps naturally as part of the page and keeps the writing flow continuous'
   await title.fill(longTitle)
@@ -657,6 +659,207 @@ test('document Page title Tab, last-line ArrowDown, and body Shift+Tab follow No
   })
   await title.press('ArrowDown')
   await expect(body).toBeFocused()
+})
+
+test('Base and Spreadsheet Page titles move focus into the workspace on Enter and last-line ArrowDown while keeping Tab on toolbar controls', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1100, height: 800 })
+  const baseID = '019a2b00-0000-7000-8000-000000000010'
+  const tableID = '019a2b00-0000-7000-8000-000000000011'
+  const sheetID = '019a2b00-0000-7000-8000-000000000012'
+  let baseTitle = ''
+  let sheetTitle = 'Forecast.xlsx'
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['Metric', 'Value']]), 'Sheet1')
+  const workbookBytes = Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
+  const sha256 = '0'.repeat(64)
+
+  await page.routeWebSocket('**/pod/socket/**', () => {})
+  await page.route('**/api/v2/pod/**', route => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    if (url.pathname === `/api/v2/pod/pages/${baseID}`) {
+      if (method === 'PATCH') baseTitle = route.request().postDataJSON().data.title ?? ''
+      return route.fulfill({
+        json: {
+          actions: ['node_view', 'node_contribute', 'node_edit', 'node_manage'],
+          role: 'manage',
+          ancestors: [],
+          child_count: 0,
+          page: {
+            id: baseID,
+            title: baseTitle,
+            type: 'base',
+            position: 'a0',
+            revision: 1,
+            inherit_permissions: true,
+            created_at: '2026-10-28T00:00:00Z',
+            updated_at: '2026-10-28T00:00:00Z'
+          }
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/bases/${baseID}`) {
+      return route.fulfill({
+        json: {
+          tables: [
+            {
+              id: tableID,
+              page_id: baseID,
+              name: 'Tasks',
+              data_version: 1,
+              record_count: 1,
+              unique_field_ids: [],
+              emit_changes: false
+            }
+          ]
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/tables/${tableID}`) {
+      return route.fulfill({
+        json: {
+          table: {
+            id: tableID,
+            page_id: baseID,
+            name: 'Tasks',
+            data_version: 1,
+            record_count: 1,
+            unique_field_ids: [],
+            emit_changes: false
+          },
+          fields: [{ id: 'f_title', name: 'Name', type: 'text', config: {}, version: 1, is_primary: true }],
+          views: [{ id: 'v_grid', name: 'Grid', type: 'grid', version: 1, config: {} }],
+          mode: 'remote',
+          timezone: 'UTC',
+          limits: { group_count: 50, query_rows: 200, record_bytes: 65536, statement_timeout_ms: 5000 },
+          local_query: { jsonb_compare: true, text_contains_ascii: true }
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/tables/${tableID}/query`) {
+      return route.fulfill({
+        json: {
+          complete: true,
+          data_version: 1,
+          page_token: null,
+          records: [
+            {
+              id: 'rec_1',
+              created_at: '2026-10-28T00:00:00Z',
+              created_by: 'person',
+              updated_at: '2026-10-28T00:00:00Z',
+              updated_by: 'person',
+              versions: { f_title: 1 },
+              data: { f_title: 'Kickoff' }
+            }
+          ]
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/tables/${tableID}/aggregate`) {
+      return route.fulfill({
+        json: {
+          groups: [{ values: [], metrics: { count: 1 } }]
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/pages/${sheetID}`) {
+      if (method === 'PATCH') sheetTitle = route.request().postDataJSON().data.title ?? sheetTitle
+      return route.fulfill({
+        json: {
+          actions: ['node_view', 'node_edit', 'node_manage'],
+          role: 'manage',
+          ancestors: [],
+          child_count: 0,
+          page: {
+            id: sheetID,
+            title: sheetTitle,
+            type: 'file',
+            position: 'a1',
+            revision: 1,
+            inherit_permissions: true,
+            created_at: '2026-10-28T00:00:00Z',
+            updated_at: '2026-10-28T00:00:00Z'
+          }
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/pages/${sheetID}/files`) {
+      return route.fulfill({
+        json: {
+          files: [
+            {
+              path: 'Forecast.xlsx',
+              sha256,
+              size: workbookBytes.byteLength,
+              mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              object_id: 'obj_sheet',
+              role: 'file'
+            }
+          ]
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/pages/${sheetID}/spreadsheet`) {
+      return route.fulfill({
+        json: {
+          revision: 1,
+          file: { path: 'Forecast.xlsx', sha256 },
+          ops: [],
+          metadata: {}
+        }
+      })
+    }
+    if (url.pathname === `/api/v2/pod/pages/${sheetID}/files/content`) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        body: workbookBytes
+      })
+    }
+    if (url.pathname.endsWith('/state')) return route.fulfill({ status: 204 })
+    if (url.pathname === '/api/v2/pod/realtime-token') {
+      return route.fulfill({ json: { token: 'test-token', principal: { uid: 'person', name: 'Person' } } })
+    }
+    if (url.pathname.endsWith('/children') || url.pathname === '/api/v2/pod/pages') {
+      return route.fulfill({ json: { pages: [], can_create_space: true, can_create_private: true } })
+    }
+    if (url.pathname.endsWith('/attention')) return route.fulfill({ json: [] })
+    if (url.pathname.endsWith('/agents')) return route.fulfill({ json: { agents: [] } })
+    return route.fulfill({ json: { conversations: [], entries: [] } })
+  })
+
+  await page.goto(pageRoute(baseID))
+  const title = page.getByRole('textbox', { name: 'Page title', exact: true })
+  const firstBaseCell = page.locator('.pod-base-grid [data-grid-record="rec_1"] input').first()
+  await expect(title).toBeFocused()
+  await expect(firstBaseCell).toBeVisible()
+
+  await title.fill('Roadmap Base')
+  await title.press('Enter')
+  await expect(firstBaseCell).toBeFocused()
+
+  await title.focus()
+  await title.press('ArrowDown')
+  await expect(firstBaseCell).toBeFocused()
+
+  await title.focus()
+  await title.press('Tab')
+  await expect(firstBaseCell).not.toBeFocused()
+
+  await page.goto(pageRoute(sheetID))
+  const cellEditor = page.locator('[data-spreadsheet-cell-editor]')
+  await expect(cellEditor).toBeAttached()
+  await title.click()
+  await title.fill('Q4 Forecast.xlsx')
+  await title.press('Enter')
+  await expect(cellEditor).toBeFocused()
+
+  await title.focus()
+  await title.press('ArrowDown')
+  await expect(cellEditor).toBeFocused()
 })
 
 test('Pod Page URLs canonicalize non-ASCII title slugs, resolve stale or bare short IDs, and fall back to bare short IDs when untitled', async ({

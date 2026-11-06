@@ -192,23 +192,33 @@ defmodule AnkoleWeb.Assets do
     Enum.map(files, &asset_path/1)
   end
 
-  # Recurse the import graph collecting every chunk's CSS. `seen` guards against
+  # Recurse the import graph collecting every chunk's CSS in ES module evaluation
+  # order (dependencies before the chunk that imports them). `seen` guards against
   # the cycles Vite chunk graphs can contain (A imports B imports A) so this
   # terminates; results are de-duped at the end.
   defp collect_manifest_css(chunk, manifest, seen) do
-    chunk
-    |> Map.get("imports", [])
-    |> Enum.reduce({Map.get(chunk, "css", []) |> Enum.reverse(), seen}, fn key, {acc, seen} ->
-      with false <- MapSet.member?(seen, key),
-           %{} = import_chunk <- Map.get(manifest, key) do
-        seen = MapSet.put(seen, key)
-        {css, seen} = collect_manifest_css(import_chunk, manifest, seen)
-        {Enum.reverse(css, acc), seen}
-      else
-        _missing_or_seen -> {acc, seen}
-      end
-    end)
-    |> then(fn {css, seen} -> {css |> Enum.reverse() |> Enum.uniq(), seen} end)
+    {acc, seen} =
+      chunk
+      |> Map.get("imports", [])
+      |> Enum.reduce({[], seen}, fn key, {acc, seen} ->
+        with false <- MapSet.member?(seen, key),
+             %{} = import_chunk <- Map.get(manifest, key) do
+          seen = MapSet.put(seen, key)
+          {css, seen} = collect_manifest_css(import_chunk, manifest, seen)
+          {Enum.reverse(css, acc), seen}
+        else
+          _missing_or_seen -> {acc, seen}
+        end
+      end)
+
+    css =
+      chunk
+      |> Map.get("css", [])
+      |> Enum.reverse(acc)
+      |> Enum.reverse()
+      |> Enum.uniq()
+
+    {css, seen}
   end
 
   # Same cycle-guarded walk, but collecting the JS files of imported chunks so

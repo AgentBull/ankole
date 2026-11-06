@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.0.0-alpha.70 (2026-11-06)
+
+- Keep standalone Applet `@ankole/uikit` stylesheets out of host browser pages,
+  load entry stylesheets after their imported base styles, and avoid circular
+  vendor chunk splits in production frontend builds, restoring the multi-column
+  SaaS landing layout and preventing startup module-order errors.
+- Complete keyboard focus loops across document resource blocks, whole-block
+  selections, and Page titles: inserting or editing an external `embed`,
+  `media`, or `bookmark` block focuses its address field, ignores IME
+  composition `Enter`/`Escape` events, cancels cleanly on `Escape`, reopens via
+  `Space` or `⌘Enter` on a selected block, selects the card when clicking its
+  frame, and returns focus to the editor after saving; `Shift+Enter` inserts a
+  paragraph above a whole-block selection; and pressing `Enter` or last-line
+  `ArrowDown` in a Spreadsheet or Base Page title moves focus into the active
+  cell or Base grid.
+
 ## Version 2.0.0-alpha.69 (2026-11-06)
 
 - Add unified data visualization across Bases, Documents, Knowledge pages,

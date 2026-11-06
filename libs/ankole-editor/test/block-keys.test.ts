@@ -5,6 +5,8 @@ import { deleteCut, deleteRange } from '../src/core/command/commands'
 import { GardState } from '../src/core/state'
 import { CellSelection } from '../src/core/table'
 import { mathEditorField } from '../src/blocks/math'
+import { resourceEditorField, resourceEditorOpenKey } from '../src/blocks/resources'
+import { applyBlockType } from '../src/editor/block-actions'
 import { BlockSelection } from '../src/editor/block-selection'
 import { PageSession } from '../src/editor/page-session'
 import { redo, undo } from '../src/editor/commands'
@@ -385,6 +387,68 @@ test('leaf and formula blocks handle Enter, Space, ArrowLeft, ArrowRight, and Mo
   expect(heading.state.field(foldedHeadings).has(0)).toBe(true)
   expect(press(heading, 'Meta-Enter')).toBe(true)
   expect(heading.state.field(foldedHeadings).has(0)).toBe(false)
+})
+
+test('Shift+Enter in block selection inserts a paragraph above leading blocks and list items', () => {
+  const leadingRule = open('---\n\nafter')
+  leadingRule.dispatch({ selection: BlockSelection.between(leadingRule.state.doc, 0, 0)! })
+  expect(press(leadingRule, 'Shift-Enter')).toBe(true)
+  typeText(leadingRule, 'above')
+  expect(exportMarkdown(leadingRule)).toBe('above\n\n---\n\nafter')
+  expect(undo(leadingRule)).toBe(true)
+  expect(undo(leadingRule)).toBe(true)
+  expect(exportMarkdown(leadingRule)).toBe('---\n\nafter')
+
+  const leadingTable = open('| a | b |\n| - | - |\n| c | d |')
+  select(leadingTable, at(leadingTable, 'a', 0))
+  expect(press(leadingTable, 'Escape')).toBe(true)
+  expect(press(leadingTable, 'Escape')).toBe(true)
+  expect(leadingTable.state.selection).toBeInstanceOf(BlockSelection)
+  expect(press(leadingTable, 'Shift-Enter')).toBe(true)
+  typeText(leadingTable, 'before table')
+  expect(exportMarkdown(leadingTable)).toBe('before table\n\n| a | b |\n| - | - |\n| c | d |')
+
+  const list = open('- one\n- two\n- three')
+  select(list, at(list, 'two', 1))
+  expect(press(list, 'Escape')).toBe(true)
+  expect(press(list, 'Shift-Enter')).toBe(true)
+  typeText(list, 'between')
+  expect(exportMarkdown(list)).toBe('- one\n\nbetween\n\n- two\n- three')
+})
+
+test('external resource blocks open their inline editor on menu insert, Space, and Mod+Enter', () => {
+  for (const kind of ['embed', 'media', 'bookmark'] as const) {
+    const editor = open('')
+    select(editor, 1)
+    expect(applyBlockType(editor, kind), kind).toBe(true)
+    expect(editor.state.field(resourceEditorField), kind).toBe(0)
+    expect(editor.state.field(resourceEditorOpenKey), kind).toBe(1)
+  }
+
+  for (const source of [
+    '<embed href="https://example.com" />',
+    '<media src="https://example.com/a.png" />',
+    '<bookmark src="https://example.com" />'
+  ]) {
+    for (const key of [' ', 'Meta-Enter']) {
+      const editor = open(source)
+      editor.dispatch({ selection: BlockSelection.between(editor.state.doc, 0, 0)! })
+      expect(press(editor, key), `${source} ${key}`).toBe(true)
+      expect(editor.state.field(resourceEditorField), `${source} ${key}`).toBe(0)
+      expect(editor.state.field(resourceEditorOpenKey), `${source} ${key}`).toBe(1)
+    }
+
+    const editor = open(source)
+    editor.dispatch({ selection: BlockSelection.between(editor.state.doc, 0, 0)! })
+    expect(press(editor, 'Enter'), `${source} Enter`).toBe(true)
+    typeText(editor, 'below')
+    expect(exportMarkdown(editor)).toContain('\n\nbelow')
+  }
+
+  const pageRef = open('<embed ref="target-page" />')
+  pageRef.dispatch({ selection: BlockSelection.between(pageRef.state.doc, 0, 0)! })
+  expect(press(pageRef, ' ')).toBe(false)
+  expect(pageRef.state.field(resourceEditorField)).toBeNull()
 })
 
 test('tables escalate Escape from cell to table selection, navigate cells with arrows, and step Mod+A', () => {

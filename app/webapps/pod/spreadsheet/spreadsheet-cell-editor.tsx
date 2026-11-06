@@ -85,6 +85,7 @@ export function SpreadsheetCellEditor({
       <textarea
         ref={inputRef}
         aria-label={t('pod.spreadsheet.cell_editor', { cell: cellName(cell) })}
+        data-spreadsheet-cell-editor=""
         data-editing={draft && here ? '' : undefined}
         readOnly={!editable}
         spellCheck={false}

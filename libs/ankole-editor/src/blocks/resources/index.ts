@@ -1,6 +1,7 @@
 import { Elt, Leaf, Mark, Node, Schema, type ChangeSet } from '../../core/doc'
 import { Decoration, type Wordgard } from '../../core/editor'
 import { Widget } from '../../core/editor/decoration'
+import { GardState, Transaction } from '../../core/state'
 import { element } from '../../document/tree'
 import type { ResourceAttributes, ResourceKind } from '../../document/resources'
 import { vocabulary } from '../../document/vocabulary'
@@ -34,6 +35,53 @@ const leaf = (kind: ResourceKind) =>
   })
 
 const nodes = { media: leaf('media'), bookmark: leaf('bookmark') }
+
+/** Open and focus the resource form for the block at this position. */
+export const openResourceEditor = Transaction.Effect.define<number>()
+/** Close the resource form focus request. */
+export const closeResourceEditor = Transaction.Effect.define<null>()
+
+/** True for media, bookmark, and external URL embed blocks rendered by `ResourceBlock`. */
+export function isEditableResource(node: Node | null | undefined): boolean {
+  return (
+    !!node &&
+    (node.type === nodes.media.type ||
+      node.type === nodes.bookmark.type ||
+      (node.type.name === 'Embed' && node.marks.some(mark => mark.type.name === 'EmbedHref')))
+  )
+}
+
+/** The block position whose resource form was explicitly opened, or null. */
+export const resourceEditorField = GardState.Field.define<number | null>({
+  create: () => null,
+  update(value, tr) {
+    let pos = value
+    if (pos !== null && tr.docChanged) {
+      const left = tr.changes.mapPos(pos, -1)
+      pos = isEditableResource(tr.state.doc.nodeAt(left)) ? left : tr.changes.mapPos(pos, 1)
+    }
+    for (const effect of tr.effects) {
+      if (effect.is(openResourceEditor)) pos = effect.value
+      else if (effect.is(closeResourceEditor)) pos = null
+    }
+    return pos !== null && isEditableResource(tr.state.doc.nodeAt(pos)) ? pos : null
+  }
+})
+
+/**
+ * Increments whenever `openResourceEditor` opens or switches the edited resource block. Mapped
+ * document edits keep the same key so the address input is not refocused unexpectedly.
+ */
+export const resourceEditorOpenKey = GardState.Field.define<number>({
+  create: () => 0,
+  update(value, tr) {
+    let key = value
+    for (const effect of tr.effects) {
+      if (effect.is(openResourceEditor)) key = value + 1
+    }
+    return key
+  }
+})
 
 /** Resource metadata belongs to the document; uploaded bytes belong to the host's asset store. */
 const resourceFields = ['src', 'title', 'description', 'image', 'mime', 'size', 'kind', 'view'] as const
@@ -86,7 +134,10 @@ export const resourceBlocks: readonly BlockDefinition[] = (Object.keys(nodes) as
     ...(index === 0 ? Object.values(fields) : []),
     Schema.Override.markTarget(Attrs, target => [target, nodes[kind]])
   ],
-  extension: [Decoration.Tag.shape(nodes[kind], () => resourceWidget.of(kind))],
+  extension: [
+    ...(index === 0 ? [resourceEditorField, resourceEditorOpenKey] : []),
+    Decoration.Tag.shape(nodes[kind], () => resourceWidget.of(kind))
+  ],
   import: node =>
     nodes[kind].withMarks(
       markSet([
@@ -100,7 +151,7 @@ export const resourceBlocks: readonly BlockDefinition[] = (Object.keys(nodes) as
     detail: editorPhrases.ref(`${kind}_detail`),
     keywords: keywords[kind],
     turnInto: false,
-    insert: editor => insertBlock(editor, nodes[kind])
+    insert: editor => insertBlock(editor, nodes[kind], at => ({ effects: openResourceEditor.of(at) }))
   }
 }))
 

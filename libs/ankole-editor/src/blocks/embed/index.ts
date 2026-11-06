@@ -4,7 +4,7 @@ import { Decoration } from '../../core/editor'
 import { element } from '../../document/tree'
 import { Attrs, extraAttrs, extraOf, markSet, markValue } from '../../editor/attributes'
 import type { BlockDefinition } from '../../editor/block'
-import { resourceWidget } from '../resources'
+import { openResourceEditor, resourceWidget } from '../resources'
 import { insertBlock } from '../../editor/block-insert'
 
 /**
@@ -116,7 +116,7 @@ export const embed: BlockDefinition = {
     detail: editorPhrases.ref('embed_detail'),
     keywords: 'embed iframe figma miro youtube 嵌入 外部 网页 设计',
     turnInto: false,
-    insert: wg => insertBlock(wg, Embed.withMarks([EmbedHref.of('')]))
+    insert: wg => insertBlock(wg, Embed.withMarks([EmbedHref.of('')]), at => ({ effects: openResourceEditor.of(at) }))
   }
 }
 

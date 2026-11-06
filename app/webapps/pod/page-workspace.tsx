@@ -264,6 +264,7 @@ function PageWorkspace({
     () => new PageCommentsModel(`ankole.pod.comments:${podID()}:${principalUID()}:${page.id}`)
   )
   const documentContent = useRef<HTMLDivElement>(null)
+  const pageContent = useRef<HTMLDivElement>(null)
   const [presenceContainer, setPresenceContainer] = useState<HTMLDivElement | null>(null)
   const [insights, setInsights] = useState(false)
   const titleInput = useRef<HTMLTextAreaElement>(null)
@@ -670,6 +671,7 @@ function PageWorkspace({
         )}
         <div className="pod-page-scroll min-h-0 flex-1 overflow-auto">
           <div
+            ref={pageContent}
             className="pod-page-content"
             onKeyDownCapture={event => {
               const editor = documentEditor.current
@@ -759,7 +761,9 @@ function PageWorkspace({
                       if (titleComposing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
                       if (event.key === 'Enter') {
                         event.preventDefault()
-                        if (!focusEditorStart(documentEditor.current)) event.currentTarget.blur()
+                        if (!focusWorkspaceStart(documentEditor.current, pageContent.current)) {
+                          event.currentTarget.blur()
+                        }
                         return
                       }
                       if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return
@@ -767,14 +771,10 @@ function PageWorkspace({
                         if (focusEditorStart(documentEditor.current)) event.preventDefault()
                         return
                       }
-                      if (
-                        event.key === 'ArrowDown' &&
-                        documentEditor.current &&
-                        !documentEditor.current.state.readOnly &&
-                        isCaretOnLastTitleLine(event.currentTarget)
-                      ) {
-                        event.preventDefault()
-                        focusEditorStart(documentEditor.current)
+                      if (event.key === 'ArrowDown' && isCaretOnLastTitleLine(event.currentTarget)) {
+                        if (focusWorkspaceStart(documentEditor.current, pageContent.current)) {
+                          event.preventDefault()
+                        }
                       }
                     }}
                     className="pod-page-title"
@@ -978,6 +978,26 @@ function focusEditorStart(editor: Editor | null): boolean {
   editor.dispatch({ selection: EditorSelection.atStart(editor.state), scrollIntoView: true })
   editor.focus()
   return true
+}
+
+function focusElement(target: HTMLElement | null | undefined): boolean {
+  if (!target) return false
+  target.focus()
+  return document.activeElement === target
+}
+
+function focusWorkspaceStart(editor: Editor | null, root: HTMLElement | null): boolean {
+  if (focusEditorStart(editor)) return true
+  if (!root) return false
+  const cellEditor = root.querySelector<HTMLTextAreaElement>('[data-spreadsheet-cell-editor]')
+  if (focusElement(cellEditor)) return true
+  const baseTarget =
+    root.querySelector<HTMLElement>(
+      '.pod-base-grid [data-grid-record] :is(input, [role="combobox"], textarea, button):not(:disabled)'
+    ) ??
+    root.querySelector<HTMLElement>('.pod-base-grid .pod-base-add-row button:not(:disabled)') ??
+    root.querySelector<HTMLElement>('.pod-base-grid')
+  return focusElement(baseTarget)
 }
 
 function isCaretOnLastTitleLine(input: HTMLTextAreaElement): boolean {

@@ -219,3 +219,66 @@ test('the callout icon field writes only the committed IME candidate', async ({ 
   await expect(icon).toBeHidden()
   await expectMarkdown(page, '<callout icon="星">\n  Important\n</callout>')
 })
+
+test('resource blocks complete a keyboard-first insert, IME guard, card selection, Shift+Enter, Space, and Escape loop', async ({
+  page,
+  baseURL
+}) => {
+  await openDocument(page, '')
+  const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
+  await editor.click()
+  await page.keyboard.type('/embed')
+  await page.getByRole('option', { name: /嵌入/ }).first().click()
+
+  const resource = page.locator('.resource-block')
+  const address = resource.getByLabel('链接地址', { exact: true })
+  await expect(address).toBeFocused()
+
+  for (const key of ['Enter', 'Escape']) {
+    await address.evaluate((input, pressed) => {
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: pressed, keyCode: 229, isComposing: true, bubbles: true, cancelable: true })
+      )
+    }, key)
+    await expect(address).toBeFocused()
+    await expect(resource.getByRole('alert')).toHaveCount(0)
+  }
+
+  await address.fill(`${baseURL}/resource-preview.html`)
+  await address.press('Enter')
+  await expect(resource.locator('form.resource-form')).toHaveCount(0)
+  await expect(editor).toBeFocused()
+  await page.keyboard.insertText('After embed')
+  await expectMarkdown(page, `<embed href="${baseURL}/resource-preview.html" />\n\nAfter embed`)
+
+  await resource.locator('.resource-toolbar').click({ position: { x: 8, y: 8 } })
+  await expect(page.locator('.editor-selected-block')).toHaveCount(1)
+  await expect(editor).toBeFocused()
+
+  await page.keyboard.press('Shift+Enter')
+  await page.keyboard.insertText('Before embed')
+  await expectMarkdown(page, `Before embed\n\n<embed href="${baseURL}/resource-preview.html" />\n\nAfter embed`)
+
+  await resource.locator('.resource-toolbar').click({ position: { x: 8, y: 8 } })
+  await expect(page.locator('.editor-selected-block')).toHaveCount(1)
+  await page.keyboard.press('Space')
+  await expect(address).toBeFocused()
+  await address.fill('https://discarded.example.com')
+  await address.press('Escape')
+  await expect(resource.locator('form.resource-form')).toHaveCount(0)
+  await expect(resource.locator('.resource-summary')).toHaveAttribute('href', `${baseURL}/resource-preview.html`)
+  await expect(page.locator('.editor-selected-block')).toHaveCount(1)
+  await expect(editor).toBeFocused()
+
+  await page.keyboard.press('ControlOrMeta+Enter')
+  await expect(address).toBeFocused()
+  await expect(address).toHaveValue(`${baseURL}/resource-preview.html`)
+  await resource.getByLabel('标题', { exact: true }).fill('Preview frame')
+  await address.press('Enter')
+  await expect(page.locator('.editor-selected-block')).toHaveCount(1)
+  await expect(editor).toBeFocused()
+  await expectMarkdown(
+    page,
+    `Before embed\n\n<embed href="${baseURL}/resource-preview.html" title="Preview frame" />\n\nAfter embed`
+  )
+})

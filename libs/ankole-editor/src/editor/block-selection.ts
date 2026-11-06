@@ -11,6 +11,7 @@ import * as T from '../core/types'
 import { MathBlock, openMathEditor } from '../blocks/math'
 import { InfographicBlock, InfographicView } from '../blocks/infographic'
 import { MermaidBlock, MermaidView } from '../blocks/mermaid'
+import { isEditableResource, openResourceEditor } from '../blocks/resources'
 import { isList } from './block-insert'
 import { adjacentUnit, blockContent, blockRemovalRanges, blocksBetween, targetAt, unitAt } from './block-target'
 import { flattenColumns } from './corrections'
@@ -161,13 +162,14 @@ function moveSelectedCell(state: GardState, dx: -1 | 0 | 1, dy: -1 | 0 | 1): Tra
   return { selection: next, scrollIntoView: true, userEvent: 'select' }
 }
 
-function insertParagraphBelow(state: GardState, block: Pos.Node): Transaction.Spec | false {
+function insertParagraphBeside(state: GardState, block: Pos.Node, before = false): Transaction.Spec | false {
   if (state.readOnly) return false
-  let at = block.after
+  let at = before ? block.before : block.after
   const insert: Token[] = [T.Paragraph.create()]
   const parent = block.parent!
   if (isList(parent.node)) {
-    if (at === parent.end) at = parent.after
+    if (at === parent.start) at = parent.before
+    else if (at === parent.end) at = parent.after
     else insert.splice(0, insert.length, Plot.End, ...insert, parent.node.tag)
   }
   return {
@@ -268,10 +270,10 @@ const enterSelection: Command = ({ state }) => {
     return { effects: openMathEditor.of(first.before), scrollIntoView: true }
   }
   if (blocks.length === 1 && isNonEditableBlock(first.node)) {
-    return insertParagraphBelow(state, first)
+    return insertParagraphBeside(state, first)
   }
   const editable = firstEditableBlock(state.doc, first)
-  if (!editable) return insertParagraphBelow(state, state.selection.last)
+  if (!editable) return insertParagraphBeside(state, state.selection.last)
   return {
     selection: GardSelection.near(state, editable.after - 1, -1),
     scrollIntoView: true
@@ -477,15 +479,29 @@ export const blockSelection: GardState.Extension = [
     KeyBinding.of({ key: 'ArrowDown', run: move(1), shift: move(1, true) }),
     KeyBinding.of({ key: 'ArrowLeft', run: editEdge(false) }),
     KeyBinding.of({ key: 'ArrowRight', run: editEdge(true) }),
-    KeyBinding.of({ key: 'Enter', run: enterSelection }),
+    KeyBinding.of({
+      key: 'Enter',
+      run: enterSelection,
+      shift: ({ state }) =>
+        state.selection instanceof BlockSelection
+          ? insertParagraphBeside(state, state.selection.blocks[0]!, true)
+          : false
+    }),
     KeyBinding.of({
       key: 'Space',
       allowDefault: true,
       run: ({ state }) => {
         if (state.readOnly || !(state.selection instanceof BlockSelection)) return false
         const blocks = state.selection.blocks
-        if (blocks.length !== 1 || blocks[0]!.node.type !== MathBlock) return false
-        return { effects: openMathEditor.of(blocks[0]!.before), scrollIntoView: true }
+        if (blocks.length !== 1) return false
+        const first = blocks[0]!
+        if (first.node.type === MathBlock) {
+          return { effects: openMathEditor.of(first.before), scrollIntoView: true }
+        }
+        if (isEditableResource(first.node)) {
+          return { effects: openResourceEditor.of(first.before), scrollIntoView: true }
+        }
+        return false
       }
     }),
     KeyBinding.of({
