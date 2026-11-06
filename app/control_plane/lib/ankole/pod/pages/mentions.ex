@@ -945,6 +945,10 @@ defmodule Ankole.Pod.Pages.Mentions do
         nil ->
           chain
 
+        # The browser labels the root itself, as it does for Page details.
+        %{parent_id: nil} ->
+          chain
+
         parent ->
           if is_nil(parent.deleted_at) and band(Access.page_bits(parent, reachable), 1) != 0 do
             collect_readable_ancestors(

@@ -360,6 +360,8 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
              })
 
     viewer = human_fixture(%{display_name: "Dave"}).principal
+    # Creating an AI colleague grants every member `chat`; Dave keeps only room visibility.
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(ctx.agent.uid)
 
     assert {:ok, _} =
              NativeRoom.manage(actor_fixture(ctx.alice), ctx.id, %{add_uids: [viewer.uid]})

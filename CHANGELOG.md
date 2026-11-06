@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.0.0-alpha.68 (2026-11-05)
+
+- Show a Page mention's location with its root only once: the path starts with
+  the Space name or Private and no longer repeats the root's internal `Space` or
+  `Private` title.
+
 ## Version 2.0.0-alpha.67 (2026-11-05)
 
 - Label Pages in a Private space as Private again. Page responses and mention

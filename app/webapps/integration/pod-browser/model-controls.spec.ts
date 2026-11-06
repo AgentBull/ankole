@@ -1,6 +1,5 @@
 import { state, request } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
-import { conversationRoute } from './routes'
 
 async function choose(page: Page, option: string | RegExp) {
   const trigger = page.getByRole('combobox', { name: '模型', exact: true })
@@ -23,7 +22,8 @@ test('a model choice reaches the first real input, survives reload and a failed 
   const page = await context.newPage()
   let conversationID: string | undefined
   try {
-    await page.goto('/')
+    // New Chat targets the personal assistant, so the seeded `careful` profile is chosen in the colleague's DM.
+    await page.goto(`/dm/${state.agent_uid}`)
     await choose(page, /^careful/)
     const input = page.getByRole('textbox', { name: '消息', exact: true })
     await input.fill('/mod')
@@ -42,7 +42,7 @@ test('a model choice reaches the first real input, survives reload and a failed 
     expect(response.status()).toBe(201)
     expect(response.request().postDataJSON().data.modelProfile).toBe('careful')
     conversationID = (await response.json()).conversation.id
-    await expect(page).toHaveURL(state.base_url + conversationRoute(conversationID!))
+    await expect(page).toHaveURL(url => url.pathname === `/dm/${state.agent_uid}`)
     await page.reload()
     const picker = page.getByRole('combobox', { name: '模型', exact: true })
     await expect(picker).toHaveText('careful')
@@ -118,6 +118,7 @@ test('a model choice reaches the first real input, survives reload and a failed 
       (await request<{ profile: string | null }>(page, `/conversations/${conversationID}/model-profile`)).profile
     ).toBeNull()
   } finally {
+    if (conversationID) await request(page, `/conversations/${conversationID}?forceStop=true`, 'DELETE')
     await context.close()
   }
 })

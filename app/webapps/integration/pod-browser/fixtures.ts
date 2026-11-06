@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, type BrowserContext, type Page } from '@playwright/test'
+import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 
 export type Login = { uid: string; email: string }
 type Identity = Login & { cookies: Parameters<BrowserContext['addCookies']>[0] }
@@ -56,12 +56,18 @@ type State = {
   site_admin: Identity & { tenant_id: string }
   other_pod: Login & { base_url: string; page_id: string }
   agent_uid: string
-  chat_workspace: { colleague_uid: string }
+  chat_workspace?: { colleague_uid: string }
 }
 
 const statePath = process.env.POD_BROWSER_STATE_PATH
 if (!statePath) throw new Error('Start the dedicated real Pod browser fixture and set POD_BROWSER_STATE_PATH')
 export const state = JSON.parse(readFileSync(statePath, 'utf8')) as State
+
+/** Skips a story unless the fixture runs with POD_BROWSER_CHAT_WORKSPACE=true, which seeds this material. */
+export function chatWorkspace() {
+  test.skip(!state.chat_workspace, 'Start the dedicated fixture with POD_BROWSER_CHAT_WORKSPACE=true')
+  return state.chat_workspace!
+}
 
 export async function closeRealtimeSocket(page: Page) {
   // Chromium's offline emulation leaves established WebSockets open. Close the

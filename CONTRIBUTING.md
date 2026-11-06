@@ -719,6 +719,18 @@ automatically delivered slot time and business payload.
 It also selects Lark task events in the panel, sends signed provider events
 through the real ingress, and verifies event filtering and subscription removal.
 
+The connector stories in `connectors.spec.ts` answer Slack and Lark provider
+calls from a local HTTP peer. Start the fixture with
+`POD_BROWSER_CONNECTOR_PROVIDER_URL=http://127.0.0.1:<free port>`; the spec then
+listens on that address while each story runs.
+
+The chat workspace stories need a fixture started with
+`POD_BROWSER_CHAT_WORKSPACE=true`, which seeds an AI colleague, recorded
+workspace conversations, and the `Chat workspace reference` Page. Because this
+mode leaves the backend Applet unpublished, give it its own `pod_browser_*`
+partition and port, and run only the chat specs (`bun run test:pod chat-`)
+against it. On the default fixture, the stories that need this material skip.
+
 For the document multiplayer suite, build a source-mounted Worker image from the
 repository root with Docker running:
 

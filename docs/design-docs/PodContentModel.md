@@ -248,7 +248,10 @@ document commit path.
 
 Accessible Page mentions render inline with `PageIcon`, wrap naturally across
 lines, preview location and body excerpts on hover, and open the target Page on
-click. Accessible Principal mentions render as unbreakable inline pills
+click. Mention candidates and resolutions list the titles of the readable
+ancestors below the content root, so the browser starts the location with the
+Space name or the Private label and then follows those titles. Accessible
+Principal mentions render as unbreakable inline pills
 (highlighting mentions of the signed-in Principal with a subtle Berry tint) and
 open an identity card popover on click, preserving display names for disabled
 historical Principals.
