@@ -1047,8 +1047,10 @@ relationship refreshes.
 
 Public business Pages offer their managers (`node_manage`) a **Learn business
 facts** control in the Page header, so the title flows straight into the body.
-The control shows only an icon while learning is off and adds a **Learning**
-label once the Page or an ancestor enables it. Its popover holds the switch and
+The control reads **Learn** while learning is off and **Learning** once the
+Page or an ancestor enables it; like the other header buttons, a header narrower
+than 640 px keeps only its icon, and its accessible name stays the full **Learn
+business facts** while learning is off. Its popover holds the switch and
 explains that extracted facts stay visible only to members and Agents who can
 read the Page. The setting updates `metadata.extract_facts` through the ordinary
 Page update operation. Enabling it queues existing documents and eligible

@@ -4580,6 +4580,7 @@ exchange_with = "与{$name}的协作"
 
 [pod.knowledge]
 learn_page = "学习业务事实"
+learn_short = "学习"
 learn_page_description = "从此页面及其子页面提取业务事实，供 AI 回答时参考。开启后也会处理已有内容；关闭后停止后续学习。"
 learn_inherited = "上级页面已开启学习，设置适用于此页面。"
 learning = "学习中"

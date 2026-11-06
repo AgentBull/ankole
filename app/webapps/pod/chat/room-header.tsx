@@ -185,7 +185,10 @@ export function RoomHeader({
             names: room.participants.map(member => member.displayName).join(', ')
           })}
           title={room.participants.map(member => member.displayName).join(', ')}
-          onClick={onInvite}>
+          // The avatars show who is here: a group's member popover, otherwise the summary's member list.
+          // Starting a group from a task or DM stays on its own labelled button.
+          aria-expanded={room.conversationKind === 'group' ? undefined : summaryOpen}
+          onClick={room.conversationKind === 'group' ? onInvite : onSummary}>
           {room.participants.slice(0, 4).map(member => (
             <ChatAvatar
               key={member.uid}

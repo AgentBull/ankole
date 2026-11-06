@@ -71,10 +71,18 @@ export function PageLearningButton({ detail }: { detail: PageDetail }) {
   return (
     <Popover>
       <PopoverTrigger
-        render={<Button size={learning ? 'sm' : 'icon-sm'} variant="ghost" title={t('pod.knowledge.learn_page')} />}>
+        render={
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={t(learning ? 'pod.knowledge.learning' : 'pod.knowledge.learn_page')}
+            title={t('pod.knowledge.learn_page')}
+          />
+        }>
         {learning ? <RiBrainFill aria-hidden className="size-4" /> : <RiBrainLine aria-hidden className="size-4" />}
-        <span className={learning ? '@max-[640px]:sr-only' : 'sr-only'}>
-          {t(learning ? 'pod.knowledge.learning' : 'pod.knowledge.learn_page')}
+        {/* The short label is part of the full accessible name, like the other header buttons' labels. */}
+        <span className="@max-[640px]:sr-only">
+          {t(learning ? 'pod.knowledge.learning' : 'pod.knowledge.learn_short')}
         </span>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))]">

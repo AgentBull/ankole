@@ -120,7 +120,9 @@ historical rooms unbound. Only bound rooms use the colleague DM identity and
 room, even when the same people already share another group.
 
 Adding participants to an assistant task or bound colleague DM requires a new
-group. The browser preselects its current Human and colleague, carries the
+group, which the room header starts only from its labelled button; the
+header's participant avatars show who is in the room, through a group's member
+popover or the summary panel's member list. The browser preselects its current Human and colleague, carries the
 associated Page link, and preserves the original private transcript. A personal
 assistant cannot join a group. In an assistant task, colleague mentions remain
 structured instructions for the assistant; intake neither adds the colleague
