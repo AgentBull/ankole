@@ -4675,6 +4675,7 @@ exchange_with = "Work with {$name}"
 
 [pod.knowledge]
 learn_page = "Learn business facts"
+learn_short = "Learn"
 learn_page_description = "Extract business facts from this page and its subpages for AI answers. Enabling also processes existing content; disabling stops future learning."
 learn_inherited = "Learning is enabled on a parent page and applies to this page."
 learning = "Learning"

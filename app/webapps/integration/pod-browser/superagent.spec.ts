@@ -123,6 +123,16 @@ test('an assistant task carries its referenced pages into a separate group witho
     await page.getByRole('button', { name: '发送消息', exact: true }).click()
     expect((await linked).ok()).toBe(true)
 
+    // The participant avatars show who is in the task; only the labelled button starts a group.
+    const avatars = page.getByRole('button', { name: /^聊天成员：/ })
+    await avatars.click()
+    const summary = page.getByRole('complementary', { name: '会话摘要', exact: true })
+    await expect(summary.getByRole('heading', { name: '成员', exact: true })).toBeVisible()
+    await expect(avatars).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('dialog', { name: '转为群聊', exact: true })).toHaveCount(0)
+    await avatars.click()
+    await expect(summary).toHaveCount(0)
+
     await page.getByRole('button', { name: '转为群聊', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '转为群聊', exact: true })
     const message = dialog.getByRole('textbox', { name: '首条消息', exact: true })

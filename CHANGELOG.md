@@ -2,6 +2,12 @@
 
 ## Version 2.0.0-alpha.67 (2026-11-05)
 
+- Label the Page header's **Learn business facts** button **Learn** while
+  learning is off, beside the other labelled header buttons; a narrow header
+  still shows only its icon, and **Learning** marks an enabled Page as before.
+- Show who is in an assistant task or colleague DM when its participant avatars
+  are clicked: they open the summary panel's member list instead of the
+  **Start a group** dialog, which stays on its own button.
 - Open the Console's Signals, new Signal, Signal detail, and Webhooks pages
   directly on the dedicated SaaS Console host. Only inbound CloudEvents under
   `/signals/v1/` and provider webhooks below `/webhooks/<segment>` stay with
