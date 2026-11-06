@@ -305,7 +305,13 @@ connector webhooks. Single-domain FOSS deployments serve the Console at
 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` (default `/site-admin-console`), failing
 startup if the path is invalid or collides with another route. The authenticated
 shell supplies its mount path through `ankole-site-admin-console-path` metadata
-(`/` on the dedicated SaaS host). The server discloses the Console URL only in
+(`/` on the dedicated SaaS host). On the dedicated host, every path opens the
+Console shell except the protocol endpoints that live beside it: `/api`,
+`/oauth`, `/sessions`, `/setup`, `/internal`, `/runtime-fabric`, `/dev`,
+`/meta`, `/.well-known`, inbound CloudEvents under `/signals/v1/`, and provider
+webhooks below `/webhooks/<segment>`. Console pages such as `/signals`,
+`/signals/new`, `/webhooks`, and `/conversations/<id>` therefore load directly
+and survive a reload. The server discloses the Console URL only in
 authenticated siteadmin responses: signing in without a return URL opens `/` on
 the canonical Pod host, and if the signed-in Human belongs to `siteadmin` in the
 privileged tenant, the Pod session payload includes the Console URL so the Pod

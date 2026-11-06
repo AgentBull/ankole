@@ -2,6 +2,11 @@
 
 ## Version 2.0.0-alpha.67 (2026-11-05)
 
+- Open the Console's Signals, new Signal, Signal detail, and Webhooks pages
+  directly on the dedicated SaaS Console host. Only inbound CloudEvents under
+  `/signals/v1/` and provider webhooks below `/webhooks/<segment>` stay with
+  their endpoints, so these pages no longer return 404 on a direct link or
+  reload.
 - Label Pages in a Private space as Private again. Page responses and mention
   candidates report the owner of each Page's Private root, so Recent and
   Favorites show the Private badge, mention paths start at Private instead of
