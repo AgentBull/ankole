@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.71 (2026-11-06)
+
+- Preserve G2's built-in category legend, axis, label, and tooltip theme defaults
+  when applying Ankole visualization tokens, serialize async chart mount, resize,
+  and spec updates behind a single container lifecycle, pass explicit axis titles
+  instead of internal field keys, and pass root-array hierarchy nodes to sunburst
+  partitions so pie, donut, funnel, multi-series, and sunburst charts render
+  reliably across light and dark themes.
+
 ## Version 2.0.0-alpha.70 (2026-11-06)
 
 - Keep standalone Applet `@ankole/uikit` stylesheets out of host browser pages,

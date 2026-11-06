@@ -86,9 +86,22 @@ export function AnkoleInfographic({
   const [isVisible, setIsVisible] = useState<boolean>(() => eager || typeof IntersectionObserver === 'undefined')
   const [outlineOpen, setOutlineOpen] = useState<boolean>(defaultOutlineOpen)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [themeRevision, setThemeRevision] = useState(0)
 
   const outlineItems = useMemo(() => parseLightweightDslOutline(source), [source])
   const isEmpty = !source || !source.trim()
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+    const observer = new MutationObserver(() => {
+      setThemeRevision(prev => prev + 1)
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    })
+    return () => observer.disconnect()
+  }, [])
 
   useImperativeHandle(
     ref,
@@ -141,6 +154,7 @@ export function AnkoleInfographic({
     if (!host) return
 
     let cancelled = false
+    void themeRevision
 
     const runMount = async () => {
       try {
@@ -154,6 +168,7 @@ export function AnkoleInfographic({
         }
         mountedRef.current?.destroy()
         mountedRef.current = null
+        host.replaceChildren()
         const handle = await mountInfographicAsync(host, source, {
           theme,
           zoom,
@@ -181,7 +196,7 @@ export function AnkoleInfographic({
       mountedRef.current?.destroy()
       mountedRef.current = null
     }
-  }, [height, isEmpty, isVisible, marketConvention, source, theme, tokenOverrides, width, zoom])
+  }, [height, isEmpty, isVisible, marketConvention, source, theme, themeRevision, tokenOverrides, width, zoom])
 
   return (
     <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-background p-4', className)}>

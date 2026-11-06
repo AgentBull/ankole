@@ -128,6 +128,7 @@ export function AnkoleChart({
 }: AnkoleChartProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef<MountedStatisticalChart | null>(null)
+  const opQueueRef = useRef<Promise<void>>(Promise.resolve())
   const latestSpecRef = useRef(spec)
   latestSpecRef.current = spec
 
@@ -136,6 +137,8 @@ export function AnkoleChart({
   const [tableOpen, setTableOpen] = useState<boolean>(defaultTableOpen)
   const [exportingKind, setExportingKind] = useState<'png' | 'svg' | null>(null)
   const [runtimeFallback, setRuntimeFallback] = useState<PercentFallbackReason | undefined>(undefined)
+  const [renderError, setRenderError] = useState<string | null>(null)
+  const [themeRevision, setThemeRevision] = useState(0)
 
   const fallbackReason = runtimeFallback ?? inferNegativePercentFallback(spec)
   const tableData = useMemo(() => deriveSummaryTable(spec, summaryTable), [spec, summaryTable])
@@ -186,12 +189,40 @@ export function AnkoleChart({
   }, [eager, isVisible])
 
   useEffect(() => {
-    if (!isVisible || isEmptyData) return
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+    const observer = new MutationObserver(() => {
+      setThemeRevision(prev => prev + 1)
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    })
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!isVisible || isEmptyData) {
+      setRenderError(null)
+      return
+    }
     const host = hostRef.current
     if (!host) return
 
     let cancelled = false
     let resizeObserver: ResizeObserver | null = null
+    let mountPromise: Promise<void> | null = null
+
+    const enqueueResize = (w: number, h: number) => {
+      const handle = mountedRef.current
+      if (!handle) return
+      opQueueRef.current = opQueueRef.current
+        .catch(() => {})
+        .then(async () => {
+          if (cancelled || mountedRef.current !== handle) return
+          await handle.resize(w, h)
+        })
+        .catch(() => {})
+    }
 
     const mountOrRecover = async () => {
       const rect = host.getBoundingClientRect()
@@ -201,22 +232,55 @@ export function AnkoleChart({
         return
       }
       if (mountedRef.current) {
-        await mountedRef.current.resize(w, h)
+        enqueueResize(w, h)
         return
       }
-      const { mountStatisticalChart } = await import('../viz/statistical')
-      if (cancelled || mountedRef.current) return
-      const handle = await mountStatisticalChart(host, {
-        ...latestSpecRef.current,
-        width: w,
-        height: h
-      })
-      if (cancelled) {
-        handle.destroy()
+      if (mountPromise) {
+        await mountPromise
+        if (!cancelled && mountedRef.current) {
+          const latestRect = host.getBoundingClientRect()
+          const latestW = latestSpecRef.current.width ?? Math.round(latestRect.width)
+          const latestH = latestSpecRef.current.height ?? Math.round(latestRect.height || resolvedHeight)
+          if (latestW > 0 && latestH > 0) {
+            enqueueResize(latestW, latestH)
+          }
+        }
         return
       }
-      mountedRef.current = handle
-      setRuntimeFallback(handle.percentFallbackReason)
+
+      mountPromise = (async () => {
+        try {
+          const { mountStatisticalChart } = await import('../viz/statistical')
+          if (cancelled || mountedRef.current) return
+          const initialSpecSnapshot = latestSpecRef.current
+          const handle = await mountStatisticalChart(host, {
+            ...initialSpecSnapshot,
+            width: w,
+            height: h
+          })
+          if (cancelled) {
+            handle.destroy()
+            return
+          }
+          mountedRef.current = handle
+          setRenderError(null)
+          setRuntimeFallback(handle.percentFallbackReason)
+          if (latestSpecRef.current !== initialSpecSnapshot) {
+            await handle.update(latestSpecRef.current)
+            if (!cancelled && mountedRef.current === handle) {
+              setRuntimeFallback(handle.percentFallbackReason)
+            }
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setRenderError(err instanceof Error ? err.message : String(err))
+          }
+        } finally {
+          mountPromise = null
+        }
+      })()
+
+      await mountPromise
     }
 
     void mountOrRecover()
@@ -237,12 +301,25 @@ export function AnkoleChart({
   }, [isEmptyData, isVisible, resolvedHeight, spec.renderer])
 
   useEffect(() => {
+    void themeRevision
     const handle = mountedRef.current
     if (!handle) return
-    void handle.update(spec).then(() => {
-      setRuntimeFallback(handle.percentFallbackReason)
-    })
-  }, [spec])
+    opQueueRef.current = opQueueRef.current
+      .catch(() => {})
+      .then(async () => {
+        if (mountedRef.current !== handle) return
+        await handle.update(latestSpecRef.current)
+        if (mountedRef.current === handle) {
+          setRenderError(null)
+          setRuntimeFallback(handle.percentFallbackReason)
+        }
+      })
+      .catch(err => {
+        if (mountedRef.current === handle) {
+          setRenderError(err instanceof Error ? err.message : String(err))
+        }
+      })
+  }, [spec, themeRevision])
 
   const accessibleLabel = ariaLabel ?? spec.title ?? `${spec.type} chart`
   const fileStem = sanitizeDownloadStem(exportFilename ?? ariaLabel ?? spec.title)
@@ -267,11 +344,21 @@ export function AnkoleChart({
 
   return (
     <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-background p-4', className)}>
+      {!isEmptyData && renderError && (
+        <div
+          role="alert"
+          data-slot="chart-render-error"
+          className="rounded-mini bg-layer-01 p-3 text-xs text-fg-secondary">
+          {renderError}
+        </div>
+      )}
+
       <div
         ref={hostRef}
         role="img"
         aria-label={accessibleLabel}
-        style={{ minHeight: `${resolvedHeight}px` }}
+        hidden={!isEmptyData && Boolean(renderError)}
+        style={isEmptyData ? { minHeight: `${resolvedHeight}px` } : { height: `${resolvedHeight}px` }}
         className="relative w-full overflow-hidden">
         {isEmptyData && emptyState ? (
           <div className="flex h-full min-h-[inherit] items-center justify-center p-6 text-sm text-fg-tertiary">

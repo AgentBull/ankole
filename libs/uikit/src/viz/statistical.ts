@@ -10,8 +10,10 @@ import {
   type VizThemePalette
 } from './theme'
 
+const BASE_CORELIB = corelib()
+
 const RuntimeChart = extend(Runtime, {
-  ...corelib(),
+  ...BASE_CORELIB,
   ...plotlib(),
   ...graphlib()
 })
@@ -249,34 +251,114 @@ function deriveColorScale(
 }
 
 function buildBaseG2Theme(palette: VizThemePalette): Record<string, unknown> {
+  const themeFactory = (palette.isDark ? BASE_CORELIB['theme.classicDark'] : BASE_CORELIB['theme.classic']) as
+    | ((options?: Record<string, unknown>) => Record<string, unknown>)
+    | undefined
+  const base = themeFactory ? themeFactory() : {}
+  const baseView = (base.view as Record<string, unknown> | undefined) ?? {}
+  const baseAxis = (base.axis as Record<string, unknown> | undefined) ?? {}
+  const baseLegendCategory = (base.legendCategory as Record<string, unknown> | undefined) ?? {}
+  const baseLegendContinuous = (base.legendContinuous as Record<string, unknown> | undefined) ?? {}
+  const baseLabel = (base.label as Record<string, unknown> | undefined) ?? {}
+  const baseTitle = (base.title as Record<string, unknown> | undefined) ?? {}
+  const baseTooltip = (base.tooltip as { css?: Record<string, Record<string, unknown>> } | undefined) ?? {}
+  const baseTooltipCss = baseTooltip.css ?? {}
+
   return {
+    ...base,
     type: palette.isDark ? 'classicDark' : 'classic',
     color: palette.categorical[0],
     category10: [...palette.categorical, ...palette.extendedCategorical],
     category20: [...palette.categorical, ...palette.extendedCategorical],
     view: {
+      ...baseView,
       viewFill: palette.background,
       plotFill: 'transparent',
       mainFill: 'transparent',
       contentFill: 'transparent'
     },
     axis: {
+      ...baseAxis,
       labelFill: palette.fgSecondary,
+      labelOpacity: 1,
       labelFontFamily: palette.fontSans,
       labelFontSize: 11,
       titleFill: palette.foreground,
+      titleOpacity: 1,
       titleFontFamily: palette.fontSans,
       lineStroke: palette.border,
+      lineStrokeOpacity: 1,
       tickStroke: palette.border,
+      tickOpacity: 1,
       gridStroke: palette.border,
+      gridStrokeOpacity: 1,
       gridLineDash: [3, 3]
     },
     legendCategory: {
+      ...baseLegendCategory,
       itemLabelFill: palette.fgSecondary,
+      itemLabelFillOpacity: 1,
       itemLabelFontFamily: palette.fontSans,
       itemLabelFontSize: 11,
+      itemValueFill: palette.fgSecondary,
+      itemValueFillOpacity: 0.85,
+      navButtonFill: palette.fgSecondary,
+      navPageNumFill: palette.fgTertiary,
       titleFill: palette.foreground,
+      titleFillOpacity: 1,
       titleFontFamily: palette.fontSans
+    },
+    legendContinuous: {
+      ...baseLegendContinuous,
+      labelFill: palette.fgSecondary,
+      labelFillOpacity: 1,
+      titleFill: palette.foreground,
+      titleFillOpacity: 1
+    },
+    label: {
+      ...baseLabel,
+      fill: palette.fgSecondary,
+      fillOpacity: 1,
+      fontSize: 11,
+      fontFamily: palette.fontSans,
+      connectorStroke: palette.borderStrong,
+      connectorStrokeOpacity: 0.65
+    },
+    title: {
+      ...baseTitle,
+      titleFill: palette.foreground,
+      titleFillOpacity: 1,
+      titleFontFamily: palette.fontSans,
+      subtitleFill: palette.fgSecondary,
+      subtitleFillOpacity: 1,
+      subtitleFontFamily: palette.fontSans
+    },
+    tooltip: {
+      ...baseTooltip,
+      css: {
+        ...baseTooltipCss,
+        '.g2-tooltip': {
+          ...baseTooltipCss['.g2-tooltip'],
+          'font-family': palette.fontSans,
+          background: palette.layer01,
+          color: palette.foreground,
+          border: `1px solid ${palette.border}`,
+          'box-shadow': '0 4px 12px rgba(0, 0, 0, 0.18)'
+        },
+        '.g2-tooltip-title': {
+          ...baseTooltipCss['.g2-tooltip-title'],
+          color: palette.foreground
+        },
+        '.g2-tooltip-list-item-name-label': {
+          ...baseTooltipCss['.g2-tooltip-list-item-name-label'],
+          color: palette.fgSecondary
+        },
+        '.g2-tooltip-list-item-value': {
+          ...baseTooltipCss['.g2-tooltip-list-item-value'],
+          color: palette.foreground,
+          'font-family': palette.fontMono
+        }
+      }
     }
   }
 }
@@ -473,8 +555,14 @@ export function prepareStatisticalChartSpec(
     ...(effectiveStackMode === 'percent' ? { y: { domain: [0, 1], nice: false } } : {})
   }
 
-  const yAxisConfig =
-    effectiveStackMode === 'percent' ? { labelFormatter: (val: number) => `${Math.round(val * 100)}%` } : true
+  const xAxisConfig: Record<string, unknown> = {
+    title: spec.xTitle ?? false
+  }
+
+  const yAxisConfig: Record<string, unknown> = {
+    title: spec.yTitle ?? false,
+    ...(effectiveStackMode === 'percent' ? { labelFormatter: (val: number) => `${Math.round(val * 100)}%` } : {})
+  }
 
   const buildStackTransforms = (): Record<string, unknown>[] => {
     if (!seriesField) return []
@@ -502,7 +590,7 @@ export function prepareStatisticalChartSpec(
         },
         transform: buildStackTransforms(),
         scale: scaleConfig,
-        axis: { x: true, y: yAxisConfig },
+        axis: { x: xAxisConfig, y: yAxisConfig },
         ...(cartesianTooltip !== false ? { tooltip: cartesianTooltip } : {}),
         ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
         ...(spec.type === 'bar' ? { coordinate: { transform: [{ type: 'transpose' }] } } : {}),
@@ -527,7 +615,7 @@ export function prepareStatisticalChartSpec(
             : [],
         scale: scaleConfig,
         style: { lineWidth: 2 },
-        axis: { x: true, y: yAxisConfig },
+        axis: { x: xAxisConfig, y: yAxisConfig },
         ...(cartesianTooltip !== false ? { tooltip: cartesianTooltip } : {}),
         ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
         ...(animateEnabled === false ? { animate: false } : {})
@@ -544,7 +632,7 @@ export function prepareStatisticalChartSpec(
         type: 'view',
         data: normalizedRows,
         scale: scaleConfig,
-        axis: { x: true, y: yAxisConfig },
+        axis: { x: xAxisConfig, y: yAxisConfig },
         children: [
           {
             type: 'area',
@@ -614,6 +702,7 @@ export function prepareStatisticalChartSpec(
               ...(seriesField ? { color: seriesField } : {})
             },
             style: { fill: palette.categorical[0] },
+            axis: { x: xAxisConfig, y: { title: spec.yTitle ?? false } },
             ...(primaryComboTooltip !== false ? { tooltip: primaryComboTooltip } : {}),
             ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
             ...(animateEnabled === false ? { animate: false } : {})
@@ -627,7 +716,7 @@ export function prepareStatisticalChartSpec(
             },
             scale: { y: { independent: true } },
             style: { stroke: palette.categorical[2], lineWidth: 2 },
-            axis: { y: { position: 'right', grid: null } },
+            axis: { x: false, y: { position: 'right', grid: null, title: spec.secondaryYTitle ?? false } },
             ...(secondaryComboTooltip !== false ? { tooltip: secondaryComboTooltip } : {}),
             ...(animateEnabled === false ? { animate: false } : {})
           }
@@ -821,6 +910,7 @@ export function prepareStatisticalChartSpec(
           ...(spec.sizeField ? { size: spec.sizeField } : {})
         },
         scale: scaleConfig,
+        axis: { x: xAxisConfig, y: { title: spec.yTitle ?? false } },
         ...(scatterTooltip !== false ? { tooltip: scatterTooltip } : {}),
         ...(animateEnabled === false ? { animate: false } : {})
       }
@@ -959,10 +1049,8 @@ export function prepareStatisticalChartSpec(
     case 'sunburst': {
       primaryNode = {
         type: 'partition',
-        data: {
-          value: buildHierarchyRoot(spec.data, xField, valueField)
-        },
-        encode: { value: 'value' },
+        data: [buildHierarchyRoot(spec.data, xField, valueField)],
+        encode: { value: 'value', name: 'name' },
         coordinate: { type: 'polar', innerRadius: 0.2 },
         ...(animateEnabled === false ? { animate: false } : {})
       }
@@ -1107,6 +1195,7 @@ export async function mountStatisticalChart(
   })
 
   const useSvgRenderer = currentSpec.renderer === 'svg'
+  host.replaceChildren()
   const chart = new RuntimeChart({
     container: host,
     width: currentWidth,

@@ -389,6 +389,44 @@ describe('Statistical & financial pure spec builders', () => {
     })
     expect((donutSpec.children?.[1] as { style?: { text?: string } })?.style?.text).toBe('$2,000.00')
     expect((donutSpec.children?.[2] as { style?: { text?: string } })?.style?.text).toBe('SUM(Revenue)')
+
+    for (const mode of ['light', 'dark'] as const) {
+      const modePalette = resolveVizTheme(null, { theme: mode })
+      const piePrepared = prepareStatisticalChartSpec(
+        {
+          type: 'pie',
+          xField: 'x',
+          valueField: 'y',
+          data: [
+            { x: '進行中', y: 5 },
+            { x: '已完成', y: 3 }
+          ]
+        },
+        modePalette
+      )
+      const g2Theme = (piePrepared.g2Spec as { theme?: Record<string, Record<string, unknown>> }).theme
+      expect(Array.isArray(g2Theme?.legendCategory?.itemSpacing)).toBe(true)
+      expect(typeof g2Theme?.legendCategory?.itemMarkerSize).toBe('number')
+      expect(typeof g2Theme?.axis?.labelSpacing).toBe('number')
+    }
+
+    const colAxis = (percentPrepared.g2Spec as { axis?: { x?: { title?: unknown }; y?: { title?: unknown } } }).axis
+    expect(colAxis?.x?.title).toBe(false)
+    expect(colAxis?.y?.title).toBe('SUM(Revenue)')
+
+    const sunburstPrepared = prepareStatisticalChartSpec(
+      {
+        type: 'sunburst',
+        xField: 'x',
+        valueField: 'y',
+        data: [
+          { x: 'Core', y: 60 },
+          { x: 'Edge', y: 40 }
+        ]
+      },
+      palette
+    )
+    expect(Array.isArray((sunburstPrepared.g2Spec as { data?: unknown }).data)).toBe(true)
   })
 })
 

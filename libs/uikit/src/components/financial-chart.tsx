@@ -101,6 +101,7 @@ export function AnkoleFinancialChart({
   const tableId = useId()
   const [isVisible, setIsVisible] = useState<boolean>(() => eager || typeof IntersectionObserver === 'undefined')
   const [tableOpen, setTableOpen] = useState<boolean>(defaultTableOpen)
+  const [themeRevision, setThemeRevision] = useState(0)
 
   const summaryTable = useMemo(() => buildOhlcSummaryTable(spec), [spec])
   const resolvedHeight = spec.height ?? height
@@ -152,12 +153,25 @@ export function AnkoleFinancialChart({
   }, [eager, isVisible])
 
   useEffect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+    const observer = new MutationObserver(() => {
+      setThemeRevision(prev => prev + 1)
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    })
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
     if (!isVisible || isEmpty) return
     const host = hostRef.current
     if (!host) return
 
     let cancelled = false
     let resizeObserver: ResizeObserver | null = null
+    let mountPromise: Promise<void> | null = null
 
     const mountOrResize = async () => {
       const rect = host.getBoundingClientRect()
@@ -168,13 +182,29 @@ export function AnkoleFinancialChart({
         mountedRef.current.resize(w, h)
         return
       }
-      const { mountFinancialChart } = await import('../viz/financial')
-      if (cancelled || mountedRef.current) return
-      mountedRef.current = mountFinancialChart(host, {
-        ...latestSpecRef.current,
-        width: w,
-        height: h
-      })
+      if (mountPromise) {
+        await mountPromise
+        return
+      }
+      mountPromise = (async () => {
+        try {
+          const { mountFinancialChart } = await import('../viz/financial')
+          if (cancelled || mountedRef.current) return
+          const initialSnapshot = latestSpecRef.current
+          host.replaceChildren()
+          mountedRef.current = mountFinancialChart(host, {
+            ...initialSnapshot,
+            width: w,
+            height: h
+          })
+          if (latestSpecRef.current !== initialSnapshot) {
+            mountedRef.current.update(latestSpecRef.current)
+          }
+        } finally {
+          mountPromise = null
+        }
+      })()
+      await mountPromise
     }
 
     void mountOrResize()
@@ -195,8 +225,9 @@ export function AnkoleFinancialChart({
   }, [isEmpty, isVisible, resolvedHeight, spec.mode])
 
   useEffect(() => {
+    void themeRevision
     mountedRef.current?.update(spec)
-  }, [spec])
+  }, [spec, themeRevision])
 
   return (
     <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-background p-4', className)}>
@@ -211,7 +242,7 @@ export function AnkoleFinancialChart({
         ref={hostRef}
         role="img"
         aria-label={ariaLabel}
-        style={{ minHeight: `${resolvedHeight}px` }}
+        style={isEmpty ? { minHeight: `${resolvedHeight}px` } : { height: `${resolvedHeight}px` }}
         className="relative w-full overflow-hidden">
         {isEmpty && emptyState ? (
           <div className="flex h-full min-h-[inherit] items-center justify-center p-6 text-sm text-fg-tertiary">
