@@ -328,9 +328,14 @@ defmodule Ankole.Pod.Pages do
       title ->
         with {:ok, node} <- Nodes.fetch(page.id),
              {:ok, old_path} <- Nodes.path(node),
+             name =
+               if(node.type == :file,
+                 do: Nodes.file_name_from_title(title, node.name),
+                 else: Nodes.name_from_title(title)
+               ),
              {:ok, _} <-
                Nodes.update_in_tx(node, :rename, %{
-                 name: Nodes.available_name(node.parent_id, Nodes.name_from_title(title), node.id)
+                 name: Nodes.available_name(node.parent_id, name, node.id, node.type)
                }),
              :ok <- Ankole.Pod.Pages.Lifecycle.move_node_in_tx(node.id, old_path),
              do: :ok

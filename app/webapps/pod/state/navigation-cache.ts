@@ -226,7 +226,7 @@ export async function applyTreeChange(
   ])
 }
 
-// Drive roots carry private ownership; their descendants do not.
+// Page responses name the owner of each Page's Private root, so a Private change rereads only Private roots.
 const pageDirectory = (page: Page): DirectoryLocation => ({
   parent_id: page.parent_id,
   scope: page.private_owner_uid ? 'private' : undefined

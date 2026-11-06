@@ -66,6 +66,35 @@ defmodule Ankole.Pod.Serialization do
     |> Ankole.JSON.plain()
   end
 
+  @doc """
+  Reports, on every Page inside `value`, the owner of the Private root that holds
+  it. Ankole stores Private ownership on root nodes only, while browser responses
+  label each Page as Space or Private; parent IDs stay physical.
+  """
+  def with_private_owners(value) do
+    owners = value |> collect_pages([]) |> Ankole.Pod.private_owners()
+    put_private_owners(value, owners)
+  end
+
+  defp collect_pages(%Ankole.Pod.Page{id: id}, ids), do: [id | ids]
+  defp collect_pages(list, ids) when is_list(list), do: Enum.reduce(list, ids, &collect_pages/2)
+
+  defp collect_pages(map, ids) when is_map(map) and not is_struct(map),
+    do: map |> Map.values() |> collect_pages(ids)
+
+  defp collect_pages(_value, ids), do: ids
+
+  defp put_private_owners(%Ankole.Pod.Page{} = page, owners),
+    do: %{page | private_owner_uid: Map.get(owners, page.id, page.private_owner_uid)}
+
+  defp put_private_owners(list, owners) when is_list(list),
+    do: Enum.map(list, &put_private_owners(&1, owners))
+
+  defp put_private_owners(map, owners) when is_map(map) and not is_struct(map),
+    do: Map.new(map, fn {key, item} -> {key, put_private_owners(item, owners)} end)
+
+  defp put_private_owners(value, _owners), do: value
+
   def navigation_page(page) do
     page
     |> Map.take([

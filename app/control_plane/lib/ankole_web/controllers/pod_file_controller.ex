@@ -64,7 +64,7 @@ defmodule AnkoleWeb.PodFileController do
       respond(
         conn,
         case result do
-          {:ok, page} -> {:ok, %{page: page}}
+          {:ok, page} -> {:ok, %{page: Ankole.Pod.Serialization.with_private_owners(page)}}
           error -> error
         end
       )

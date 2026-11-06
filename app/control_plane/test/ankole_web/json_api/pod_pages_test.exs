@@ -347,6 +347,37 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
              Ankole.Pod.Pages.get(Ankole.PrincipalsFixtures.actor_fixture(uid), id)
   end
 
+  test "Page responses report the owner of the Private root that holds each Page", %{conn: conn} do
+    {owner, uid} = console_conn_with_principal(conn)
+    top = send_json(owner, :post, "/pages", %{title: "Private plan", private_owner_uid: uid})
+    assert %{"page" => %{"id" => top_id, "private_owner_uid" => ^uid}} = json_response(top, 201)
+
+    nested = send_json(owner, :post, "/pages", %{title: "Private step", parent_id: top_id})
+
+    assert %{"page" => %{"id" => nested_id, "parent_id" => ^top_id, "private_owner_uid" => ^uid}} =
+             json_response(nested, 201)
+
+    space = send_json(owner, :post, "/pages", %{title: "Space plan"})
+
+    assert %{"page" => %{"id" => space_id, "private_owner_uid" => nil}} =
+             json_response(space, 201)
+
+    assert %{"page" => %{"private_owner_uid" => ^uid}} =
+             owner
+             |> recycle_json()
+             |> get("/api/v2/pod/pages/#{nested_id}")
+             |> json_response(200)
+
+    assert %{"pages" => [%{"id" => ^nested_id, "private_owner_uid" => ^uid}]} =
+             owner
+             |> recycle_json()
+             |> get("/api/v2/pod/pages/children", %{parent_id: top_id})
+             |> json_response(200)
+
+    moved = send_json(owner, :post, "/pages/#{space_id}/move", %{private_owner_uid: uid})
+    assert %{"page" => %{"private_owner_uid" => ^uid}} = json_response(moved, 201)
+  end
+
   test "the sharing API preserves exact userset actions on a settings round trip", %{conn: conn} do
     {owner, uid} = console_conn_with_principal(conn)
     actor = Ankole.PrincipalsFixtures.actor_fixture(uid)

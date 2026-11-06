@@ -24,22 +24,39 @@ test('a leaf Doc hides subpages UI, while a Hub Doc appends a Feishu-style colla
       private_owner_uid: state.owner.uid
     })
     const hubID = createdHub.page.id
+    const leafTitle = `Meeting Notes ${suffix()}`
+    const createdLeaf = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'doc',
+      title: leafTitle,
+      private_owner_uid: state.owner.uid,
+      xml: '<page><p>Decisions from the weekly sync.</p></page>'
+    })
+    const leafID = createdLeaf.page.id
 
-    const leafChildRequests: string[] = []
+    const childRequests = new Map<string, string[]>()
     page.on('request', req => {
       const url = new URL(req.url())
-      if (url.pathname.endsWith('/pages/children') && url.searchParams.get('parent_id') === hubID) {
-        leafChildRequests.push(req.url())
+      const parent = url.searchParams.get('parent_id')
+      if (url.pathname.endsWith('/pages/children') && parent) {
+        childRequests.set(parent, [...(childRequests.get(parent) ?? []), req.url()])
       }
     })
 
-    await page.goto(pageRoute(hubID))
-    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(hubTitle)
-
-    // Leaf Doc: no header subpages button, no bottom subpages region, and zero /pages/children requests.
+    // Leaf Doc with a body: no header subpages button, no bottom subpages region, and zero /pages/children requests.
+    await page.goto(pageRoute(leafID))
+    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(leafTitle)
+    await expect(page.getByText('Decisions from the weekly sync.')).toBeVisible()
     await expect(page.locator('.pod-page-header').getByRole('button', { name: '子页面' })).toHaveCount(0)
     await expect(page.locator('[data-pod-subpages]')).toHaveCount(0)
-    expect(leafChildRequests).toHaveLength(0)
+    expect(childRequests.get(leafID) ?? []).toHaveLength(0)
+
+    // An empty Doc offers the subpages directory so editors can create or upload its first child.
+    await page.goto(pageRoute(hubID))
+    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(hubTitle)
+    await expect(page.locator('.pod-page-header').getByRole('button', { name: '子页面' })).toHaveCount(0)
+    const emptyDirectory = page.locator('[data-pod-subpages]')
+    await expect(emptyDirectory.getByRole('button', { name: '新建', exact: true })).toBeVisible()
+    await expect(emptyDirectory.getByRole('button', { name: '上传', exact: true })).toBeVisible()
 
     // Grant viewer read-only access on the private Hub container so we can also verify viewer behavior.
     await requestWithSharingVersion(page, `/pages/${hubID}/sharing`, 'PUT', {
@@ -117,10 +134,10 @@ test('a leaf Doc hides subpages UI, while a Hub Doc appends a Feishu-style colla
     await expect(subpages).toHaveClass(/opacity-55/)
     await expect(subpages.locator('[data-slot="badge"]')).toHaveText('2')
 
-    leafChildRequests.length = 0
+    childRequests.delete(hubID)
     await page.reload()
     await expect(subpages).toHaveAttribute('data-collapsed', '')
-    expect(leafChildRequests).toHaveLength(0)
+    expect(childRequests.get(hubID) ?? []).toHaveLength(0)
 
     // Read-only viewer can expand and switch views locally in session memory without issuing PATCH requests.
     const viewerPatchRequests: string[] = []

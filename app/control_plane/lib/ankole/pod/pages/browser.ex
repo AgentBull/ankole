@@ -319,6 +319,12 @@ defmodule Ankole.Pod.Pages.Browser do
     role: [type: :string, constraints: [allow_empty?: true, trim?: false]]
   ]
 
+  # Browser responses label each Page with its Private root's owner.
+  defp with_private_owners({:ok, value}),
+    do: {:ok, Ankole.Pod.Serialization.with_private_owners(value)}
+
+  defp with_private_owners(error), do: error
+
   defp navigation_directory(result),
     do: Map.update!(result, :pages, &Enum.map(&1, fn page -> navigation_page(page) end))
 
@@ -484,6 +490,7 @@ defmodule Ankole.Pod.Pages.Browser do
              {:ok, days} <- retention do
           {:ok, %{pages: pages, trash_retention_days: days}}
         end
+        |> with_private_owners()
         |> APIError.result()
       end)
     end
@@ -514,6 +521,7 @@ defmodule Ankole.Pod.Pages.Browser do
 
       run(fn input, context ->
         Pages.navigation(context.actor, input.arguments[:active_page_id])
+        |> with_private_owners()
         |> APIError.result(fn result ->
           %{
             directories: Enum.map(result.directories, &navigation_directory/1),
@@ -538,7 +546,8 @@ defmodule Ankole.Pod.Pages.Browser do
             context.actor,
             Map.get(input.arguments, :parent_id),
             input.arguments
-          ),
+          )
+          |> with_private_owners(),
           &children_directory/1
         )
       end)
@@ -580,7 +589,9 @@ defmodule Ankole.Pod.Pages.Browser do
       )
 
       run(fn input, context ->
-        APIError.result(Pages.search(context.actor, input.arguments.query, input.arguments))
+        APIError.result(
+          with_private_owners(Pages.search(context.actor, input.arguments.query, input.arguments))
+        )
       end)
     end
 
@@ -623,7 +634,7 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        APIError.result(Pages.get(context.actor, input.arguments.id))
+        APIError.result(with_private_owners(Pages.get(context.actor, input.arguments.id)))
       end)
     end
 
@@ -662,6 +673,7 @@ defmodule Ankole.Pod.Pages.Browser do
         with {:ok, page} <- result do
           Ankole.Pod.Access.authorize_with_permissions(context.actor, page)
         end
+        |> with_private_owners()
         |> APIError.result(&%{page: &1})
       end)
     end
@@ -700,6 +712,7 @@ defmodule Ankole.Pod.Pages.Browser do
 
       run(fn input, context ->
         Pages.update(context.actor, input.arguments.id, input.arguments)
+        |> with_private_owners()
         |> APIError.result(&%{page: &1})
       end)
     end
@@ -731,6 +744,7 @@ defmodule Ankole.Pod.Pages.Browser do
 
       run(fn input, context ->
         Pages.move(context.actor, input.arguments.id, input.arguments)
+        |> with_private_owners()
         |> APIError.result()
       end)
     end
@@ -744,6 +758,7 @@ defmodule Ankole.Pod.Pages.Browser do
         count = Pages.visible_descendant_count(context.actor, input.arguments.id)
 
         Pages.delete(context.actor, input.arguments.id)
+        |> with_private_owners()
         |> APIError.result(&%{page: &1, descendant_count: count})
       end)
     end
@@ -753,7 +768,9 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        Pages.restore(context.actor, input.arguments.id) |> APIError.result(&%{page: &1})
+        Pages.restore(context.actor, input.arguments.id)
+        |> with_private_owners()
+        |> APIError.result(&%{page: &1})
       end)
     end
 

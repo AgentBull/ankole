@@ -83,6 +83,36 @@ defmodule Ankole.Pod.FilesTest do
     assert {:ok, _, "initial"} = Files.read(reader, empty.id, "empty.txt")
   end
 
+  test "renaming a file Page keeps its extension so a workbook stays a spreadsheet", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner)
+
+    {:ok, page} =
+      Pages.create(actor, %{type: "file", title: "Budget", private_owner_uid: ctx.owner})
+
+    assert {:ok, _} =
+             Files.upload(
+               actor,
+               page.id,
+               "file",
+               nil,
+               "Budget.xlsx",
+               "PK workbook",
+               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+             )
+
+    assert {:ok, _} =
+             Pages.update(actor, page.id, %{title: "Budget 2027", expected_title: "Budget.xlsx"})
+
+    assert {:ok, renamed} = Pages.fetch(page.id)
+    assert {renamed.title, renamed.name} == {"Budget 2027", "Budget 2027.xlsx"}
+    assert Ankole.Pod.Spreadsheets.spreadsheet?(renamed)
+
+    assert {:ok, _} =
+             Pages.update(actor, page.id, %{title: "Forecast.XLSX", expected_title: "Budget 2027"})
+
+    assert {:ok, %{name: "Forecast.XLSX"}} = Pages.fetch(page.id)
+  end
+
   test "file replacement compares object identities across Pod and Drive writers", ctx do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{

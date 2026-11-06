@@ -218,7 +218,8 @@ defmodule Ankole.Pod.Pages.Mentions do
     pages = mru_pages ++ backfill_pages
     ancestor_map = load_ancestor_map(pages)
 
-    {Enum.map(pages, &page_candidate_json(&1, ancestor_map, reachable)), total}
+    owners = Ankole.Pod.private_owners(Enum.map(pages, & &1.id))
+    {Enum.map(pages, &page_candidate_json(&1, ancestor_map, reachable, owners)), total}
   end
 
   defp search_page_candidates(_actor, term, current_page_id, reachable, limit) do
@@ -258,7 +259,8 @@ defmodule Ankole.Pod.Pages.Mentions do
 
     ancestor_map = load_ancestor_map(pages)
 
-    {Enum.map(pages, &page_candidate_json(&1, ancestor_map, reachable)), total}
+    owners = Ankole.Pod.private_owners(Enum.map(pages, & &1.id))
+    {Enum.map(pages, &page_candidate_json(&1, ancestor_map, reachable, owners)), total}
   end
 
   defp fetch_visible_pages_in_order(_base, [], _limit), do: []
@@ -314,14 +316,14 @@ defmodule Ankole.Pod.Pages.Mentions do
     )
   end
 
-  defp page_candidate_json(page, ancestor_map, reachable) do
+  defp page_candidate_json(page, ancestor_map, reachable, owners) do
     %{
       id: page.id,
       type: page.type,
       title: page.title,
       icon: page.icon,
       system_key: page.system_key,
-      private_owner_uid: page.private_owner_uid,
+      private_owner_uid: Map.get(owners, page.id),
       ancestors: readable_ancestor_titles(page, ancestor_map, reachable),
       updated_at: page.updated_at
     }
@@ -704,6 +706,7 @@ defmodule Ankole.Pod.Pages.Mentions do
 
     file_ids = for %{type: :file, id: id} <- accessible_pages, do: id
     files_by_id = Files.primary_files_by_page(file_ids)
+    owners = Ankole.Pod.private_owners(Enum.map(accessible_pages, & &1.id))
 
     Enum.map(page_ids, fn raw_id ->
       with {:ok, id} <- Ecto.UUID.cast(raw_id),
@@ -716,7 +719,7 @@ defmodule Ankole.Pod.Pages.Mentions do
           title: page.title,
           icon: page.icon,
           system_key: page.system_key,
-          private_owner_uid: page.private_owner_uid,
+          private_owner_uid: Map.get(owners, page.id),
           ancestors: readable_ancestor_titles(page, ancestor_map, reachable),
           updated_at: page.updated_at,
           excerpt: Map.get(excerpts_by_id, page.id),

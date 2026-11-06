@@ -60,6 +60,7 @@ defmodule Ankole.Pod do
   defdelegate visible_node_ids(reachable, ids \\ nil, bit \\ 1), to: Nodes, as: :visible_ids
   defdelegate page_live?(id), to: Nodes
   defdelegate ancestor_node_ids(ids), to: Nodes, as: :ancestor_ids
+  defdelegate private_owners(ids), to: Nodes
   defdelegate descendant_node_ids(id), to: Nodes, as: :descendants
   defdelegate shared_root_node_ids(ids, reachable), to: Nodes, as: :shared_root_ids
   defdelegate acl_anchor_nodes(), to: Nodes, as: :anchor_nodes

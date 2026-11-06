@@ -306,6 +306,32 @@ test('private work moves, shares, searches, favorites and restores through the r
   }
 })
 
+test('a Private Page reads as Private in Recent and trashing it returns to the Private list', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const owner = await context.newPage()
+  try {
+    await owner.goto(state.base_url + route(state.report_id))
+    const title = `Private recent ${Date.now()}`
+    const { page } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
+      type: 'doc',
+      title,
+      private_owner_uid: state.owner.uid
+    })
+    await owner.goto(state.base_url + route(page.id))
+    await expect(owner.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(title)
+
+    await owner.goto(state.base_url + listRoute('recent'))
+    await expect(owner.getByRole('main').locator('li', { hasText: title }).first()).toContainText('私人页面')
+
+    await owner.goto(state.base_url + route(page.id))
+    await pageAction(owner, '移到回收站')
+    await expect(owner).toHaveURL(state.base_url + listRoute('private'))
+  } finally {
+    await context.close()
+  }
+})
+
 test('Private creation and moves wait for identity after delayed and failed reads', async ({ browser }) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)

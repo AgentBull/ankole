@@ -122,6 +122,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/pages/tree.ex:delete_root_in_tx" => 2,
     "raw_sql:lib/ankole/pod/pages/tree.ex:hidden_trashed_ids" => 1,
     "raw_sql:lib/ankole/pod/pages/tree.ex:ancestor_ids" => 1,
+    "raw_sql:lib/ankole/pod/pages/tree.ex:private_owners" => 1,
     "raw_sql:lib/ankole/pod/pages/tree.ex:descendants" => 1,
     "raw_sql:lib/ankole/pod/pages/tree.ex:shared_root_ids" => 1,
     "raw_sql:lib/ankole/pod/base_cluster.ex:check_identity!" => 1,
