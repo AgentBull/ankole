@@ -54,6 +54,7 @@ impl HostedResponseSizeBudget {
             provider_options: Value::Null,
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         };
         let response = api_resolver::complete_response_resource(
             &context,
@@ -248,6 +249,7 @@ mod tests {
             provider_options: Value::Null,
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         };
         let response = api_resolver::complete_response_resource(
             &context,

@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::universal_ai_client::spec::{APIResolverKind, StreamSpec, UpstreamKind};
 use crate::universal_ai_client::wire::tests::eventstream_frame;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;

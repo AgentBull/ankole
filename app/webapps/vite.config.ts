@@ -5,6 +5,7 @@ import {
   artifactRoot,
   assetsDirectory,
   edition,
+  internalsRoot,
   localeDirectory,
   prepareEdition,
   prepareLocales,
@@ -168,7 +169,7 @@ function phoenixShellPlugin(): Plugin {
       installPhoenixShutdownGuard()
       installPhoenixRestartGuard(server)
       server.watcher.add(path.join(repositoryRoot, 'app/locales'))
-      if (process.env.ANKOLE_EDITION === 'saas') server.watcher.add(path.join(repositoryRoot, 'internals/locales'))
+      if (process.env.ANKOLE_EDITION === 'saas') server.watcher.add(path.join(internalsRoot, 'locales'))
     },
     handleHotUpdate({ file, modules, server }) {
       if (file.endsWith('.toml') && /\/locales\//.test(file)) {
@@ -230,7 +231,7 @@ export default defineConfig(({ command }): UserConfig => ({
       enforce: 'pre',
       transform(code, id) {
         if (edition === 'saas' && id.replaceAll('\\', '/').endsWith('/webapps/common/styles.css')) {
-          return `${code}\n@source ${JSON.stringify(path.join(repositoryRoot, 'internals/webapps'))};\n`
+          return `${code}\n@source ${JSON.stringify(path.join(internalsRoot, 'webapps'))};\n`
         }
       }
     },
@@ -299,7 +300,7 @@ export default defineConfig(({ command }): UserConfig => ({
   resolve: { alias: { '@ankole/locales': localeDirectory } },
   root: dirname,
   server: {
-    fs: { allow: [repositoryRoot, artifactRoot] },
+    fs: { allow: edition === 'saas' ? [repositoryRoot, artifactRoot, internalsRoot] : [repositoryRoot, artifactRoot] },
     cors: {
       origin: [
         `http://localhost:${phoenixPort}`,

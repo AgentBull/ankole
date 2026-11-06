@@ -58,7 +58,7 @@ impl AnthropicState {
             Some("message_start") => self.message_start(context, &value),
             Some("content_block_start") => self.content_block_start(context, &value),
             Some("content_block_delta") => self.content_block_delta(context, &value),
-            Some("content_block_stop") => self.content_block_stop(context, &value),
+            Some("content_block_stop") => self.content_block_stop(context, &value)?,
             Some("message_delta") => {
                 self.message_delta(&value);
                 Vec::new()
@@ -69,7 +69,7 @@ impl AnthropicState {
                     .as_deref()
                     .map(anthropic_terminal)
                     .unwrap_or(("completed", None));
-                self.finish(context, status, reason)
+                self.finish(context, status, reason)?
             }
             Some("error") => return Err(anthropic_stream_error(&value)),
             Some("ping") | None => Vec::new(),
@@ -283,13 +283,17 @@ impl AnthropicState {
         vec![event]
     }
 
-    fn content_block_stop(&mut self, context: &ResponseContext, value: &Value) -> Vec<Value> {
+    fn content_block_stop(
+        &mut self,
+        context: &ResponseContext,
+        value: &Value,
+    ) -> Result<Vec<Value>, StreamError> {
         let index = value.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
         match self.active_blocks.get(&index).map(String::as_str) {
-            Some("text") => self.finish_text_part(),
+            Some("text") => Ok(self.finish_text_part()),
             Some("tool_use") => self.finish_tool_call(context, index),
-            Some("reasoning") => Vec::new(),
-            _block => Vec::new(),
+            Some("reasoning") => Ok(Vec::new()),
+            _block => Ok(Vec::new()),
         }
     }
 
@@ -366,13 +370,54 @@ impl AnthropicState {
         ]
     }
 
-    fn finish_tool_call(&mut self, context: &ResponseContext, index: usize) -> Vec<Value> {
+    fn validate_strict_tool_call(
+        &mut self,
+        context: &ResponseContext,
+        index: usize,
+    ) -> Result<(), StreamError> {
         if self.tool_done_indices.contains(&index) {
-            return Vec::new();
+            return Ok(());
         }
 
+        if context.policy() == ConversionPolicy::Strict
+            && let Some(call) = self.tool_calls.get_mut(&index)
+            && !provider_custom_tool(context, &call.name)
+        {
+            if call.arguments.is_empty() {
+                call.arguments = "{}".to_string();
+            } else {
+                let parsed = sonic_rs::from_str::<Value>(&call.arguments).map_err(|reason| {
+                    StreamError::new(
+                        "invalid_tool_arguments",
+                        "api_resolver",
+                        format!("Anthropic tool_use arguments are not valid JSON: {reason}"),
+                    )
+                })?;
+                if !parsed.is_object() {
+                    return Err(StreamError::new(
+                        "invalid_tool_arguments",
+                        "api_resolver",
+                        "Anthropic tool_use arguments must be a JSON object",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_tool_call(
+        &mut self,
+        context: &ResponseContext,
+        index: usize,
+    ) -> Result<Vec<Value>, StreamError> {
+        if self.tool_done_indices.contains(&index) {
+            return Ok(Vec::new());
+        }
+
+        self.validate_strict_tool_call(context, index)?;
+
         let Some(call) = self.tool_calls.get(&index).cloned() else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         self.tool_done_indices.insert(index);
         let custom = provider_custom_tool(context, &call.name);
@@ -395,7 +440,7 @@ impl AnthropicState {
                 }),
             )
         };
-        vec![
+        Ok(vec![
             self.event(event_type, payload),
             self.event(
                 "response.output_item.done",
@@ -404,7 +449,7 @@ impl AnthropicState {
                     "item": anthropic_function_call_item(context, &call, "completed")
                 }),
             ),
-        ]
+        ])
     }
 
     fn message_delta(&mut self, value: &Value) {
@@ -425,9 +470,29 @@ impl AnthropicState {
         context: &ResponseContext,
         status: &str,
         incomplete_reason: Option<&str>,
-    ) -> Vec<Value> {
+    ) -> Result<Vec<Value>, StreamError> {
         if self.terminal {
-            return Vec::new();
+            return Ok(Vec::new());
+        }
+
+        if context.policy() == ConversionPolicy::Strict
+            && status == "completed"
+            && self.reasoning_item_id.is_none()
+            && self.message_item_id.is_none()
+            && self.tool_calls.is_empty()
+        {
+            return Err(StreamError::new(
+                "empty_upstream_stream",
+                "api_resolver",
+                "Anthropic stream completed without emitting any output blocks",
+            ));
+        }
+
+        let tool_indices = self.tool_calls.keys().copied().collect::<Vec<_>>();
+        if status == "completed" {
+            for &index in &tool_indices {
+                self.validate_strict_tool_call(context, index)?;
+            }
         }
 
         self.terminal = true;
@@ -445,8 +510,8 @@ impl AnthropicState {
             if self.text_started {
                 events.extend(self.finish_text_part());
             }
-            for index in self.tool_calls.keys().copied().collect::<Vec<_>>() {
-                events.extend(self.finish_tool_call(context, index));
+            for index in tool_indices {
+                events.extend(self.finish_tool_call(context, index)?);
             }
             if let Some(item_id) = self.message_item_id.clone() {
                 events.push(self.event(
@@ -472,7 +537,7 @@ impl AnthropicState {
             terminal_event(status),
             json!({ "response": self.response_body(context, status, incomplete_reason, None) }),
         ));
-        events
+        Ok(events)
     }
 
     fn fail(&mut self, context: &ResponseContext, error: &StreamError) -> Vec<Value> {
@@ -587,7 +652,17 @@ impl APIProtocol for AnthropicState {
     }
 
     fn on_upstream_close(&mut self, context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
-        Ok(self.finish(context, "incomplete", Some("upstream_stream_closed")))
+        if self.terminal {
+            return Ok(Vec::new());
+        }
+        if context.policy() == ConversionPolicy::Strict {
+            return Err(StreamError::new(
+                "upstream_stream_truncated",
+                "api_resolver",
+                "Anthropic stream closed before message_stop",
+            ));
+        }
+        self.finish(context, "incomplete", Some("upstream_stream_closed"))
     }
 
     fn on_transport_error(&mut self, context: &ResponseContext, error: &StreamError) -> Vec<Value> {
@@ -600,10 +675,10 @@ impl APIProtocol for AnthropicState {
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        Ok(anthropic_body_to_response(
+        anthropic_body_to_response(
             context,
             provider_object_body(status, body, "Anthropic Messages")?,
-        ))
+        )
     }
 
     fn is_terminal(&self) -> bool {
@@ -660,7 +735,10 @@ fn anthropic_error_status(error_type: &str) -> Option<u16> {
     }
 }
 
-fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
+fn anthropic_body_to_response(
+    context: &ResponseContext,
+    body: Value,
+) -> Result<Value, StreamError> {
     let mut output = Vec::new();
     let mut text = String::new();
     let content = body
@@ -677,12 +755,42 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
                 }
             }
             Some("tool_use") => {
+                let arguments = if context.policy() == ConversionPolicy::Strict {
+                    let input = block.get("input").ok_or_else(|| {
+                        StreamError::new(
+                            "invalid_tool_arguments",
+                            "api_resolver",
+                            "Anthropic tool_use block is missing input object",
+                        )
+                    })?;
+                    if !input.is_object() {
+                        return Err(StreamError::new(
+                            "invalid_tool_arguments",
+                            "api_resolver",
+                            "Anthropic tool_use input must be a JSON object",
+                        ));
+                    }
+                    sonic_rs::to_string(input).map_err(|reason| {
+                        StreamError::new(
+                            "invalid_tool_arguments",
+                            "api_resolver",
+                            format!("Anthropic tool_use input could not be encoded: {reason}"),
+                        )
+                    })?
+                } else {
+                    block
+                        .get("input")
+                        .map(|input| {
+                            sonic_rs::to_string(input).unwrap_or_else(|_| "{}".to_string())
+                        })
+                        .unwrap_or_else(|| "{}".to_string())
+                };
                 let mut item = json!({
                     "id": generated_id("fc"),
                     "type": "function_call",
                     "call_id": block.get("id").and_then(Value::as_str).unwrap_or("call"),
                     "name": block.get("name").and_then(Value::as_str).unwrap_or("unknown"),
-                    "arguments": block.get("input").map(|input| sonic_rs::to_string(input).unwrap_or_else(|_| "{}".to_string())).unwrap_or_else(|| "{}".to_string()),
+                    "arguments": arguments,
                     "status": "completed"
                 });
                 restore_tool_namespace(context, &mut item);
@@ -725,7 +833,7 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
         .map(anthropic_terminal)
         .unwrap_or(("completed", None));
 
-    complete_response_resource(
+    Ok(complete_response_resource(
         context,
         json!({
             "id": body.get("id").and_then(Value::as_str).map(ToOwned::to_owned).unwrap_or_else(|| generated_id("resp")),
@@ -739,7 +847,7 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
             "usage": normalize_anthropic_usage(body.get("usage").unwrap_or(&Value::Null)),
             "metadata": {}
         }),
-    )
+    ))
 }
 
 // Claude requires the original `thinking` blocks, with their signatures, at the
@@ -784,11 +892,7 @@ fn thinking_blocks(content: &[Value]) -> Vec<Value> {
 
 fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
     let request = context.resolved_provider_request_object();
-    let mut body = context
-        .provider_options
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    let mut body = provider_options_object(context);
 
     maybe_put_from(&mut body, &request, "instructions");
     if let Some(system) = body.remove("instructions") {
@@ -805,7 +909,7 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
             .unwrap_or_else(|| json!(4096)),
     );
 
-    for key in ["temperature", "top_p", "metadata"] {
+    for key in ["temperature", "top_p", "metadata", "thinking"] {
         maybe_put_from(&mut body, &request, key);
     }
 
@@ -813,7 +917,8 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
         body.insert("tools".to_string(), tools);
     }
 
-    if let Some(tool_choice) = anthropic_tool_choice(request.get("tool_choice")) {
+    let thinking_enabled = anthropic_thinking_enabled(body.get("thinking"));
+    if let Some(tool_choice) = anthropic_tool_choice(request.get("tool_choice"), thinking_enabled) {
         body.insert("tool_choice".to_string(), tool_choice);
     }
 
@@ -826,7 +931,7 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
     );
     body.insert(
         "messages".to_string(),
-        anthropic_messages(context, request.get("input")),
+        anthropic_messages(context, request.get("input"))?,
     );
     Ok(body)
 }
@@ -838,16 +943,27 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
 // by adjacency needs no count of derived items, so a history that lost or
 // reordered items degrades into a turn without private reasoning instead of a
 // failed request.
-fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value {
+fn anthropic_messages(
+    context: &ResponseContext,
+    input: Option<&Value>,
+) -> Result<Value, StreamError> {
+    let strict = context.policy() == ConversionPolicy::Strict;
     match input {
-        Some(Value::String(text)) => json!([
+        Some(Value::String(text)) => Ok(json!([
             {"role": "user", "content": [{"type": "text", "text": text}]}
-        ]),
+        ])),
         Some(Value::Array(items)) => {
             let mut replay = AnthropicReplay::default();
 
             for item in items {
                 let Some(map) = item.as_object() else {
+                    if strict {
+                        return Err(StreamError::new(
+                            "invalid_input_item",
+                            "api_resolver",
+                            "Anthropic input item must be a JSON object",
+                        ));
+                    }
                     replay.push_user(json!([{"type": "text", "text": value_to_text(item)}]));
                     continue;
                 };
@@ -860,19 +976,38 @@ fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value
                             .and_then(|encoded| decode_anthropic_reasoning(context, encoded))
                             .unwrap_or_default();
                     }
-                    Some("function_call" | "custom_tool_call") => replay.push_assistant(vec![anthropic_tool_use(map)]),
-                    Some("function_call_output" | "custom_tool_call_output") => replay.push_user(json!([{
-                        "type": "tool_result",
-                        "tool_use_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
-                        "content": map.get("output").map(value_to_text).unwrap_or_default()
-                    }])),
-                    _type => replay.push_item(map),
+                    Some("function_call" | "custom_tool_call") => {
+                        replay.push_assistant(vec![anthropic_tool_use(map, strict)?]);
+                    }
+                    Some("function_call_output" | "custom_tool_call_output") => {
+                        let call_id = if strict {
+                            map.get("call_id")
+                                .and_then(Value::as_str)
+                                .filter(|id| !id.is_empty())
+                                .map(ToOwned::to_owned)
+                                .ok_or_else(|| {
+                                    StreamError::new(
+                                        "invalid_tool_arguments",
+                                        "api_resolver",
+                                        "Anthropic tool_result item requires a non-empty call_id",
+                                    )
+                                })?
+                        } else {
+                            map.get("call_id").map(value_to_text).unwrap_or_default()
+                        };
+                        replay.push_tool_result(json!({
+                            "type": "tool_result",
+                            "tool_use_id": call_id,
+                            "content": map.get("output").map(value_to_text).unwrap_or_default()
+                        }));
+                    }
+                    _type => replay.push_item(map, strict)?,
                 }
             }
 
-            Value::Array(replay.finish())
+            Ok(Value::Array(replay.finish()))
         }
-        _input => json!([]),
+        _input => Ok(json!([])),
     }
 }
 
@@ -880,36 +1015,70 @@ fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value
 struct AnthropicReplay {
     messages: Vec<Value>,
     assistant_blocks: Vec<Value>,
+    tool_result_blocks: Vec<Value>,
     pending_thinking: Vec<Value>,
 }
 
 impl AnthropicReplay {
     fn push_assistant(&mut self, mut blocks: Vec<Value>) {
+        self.flush_tool_results();
         if self.assistant_blocks.is_empty() {
             self.assistant_blocks.append(&mut self.pending_thinking);
         }
         self.assistant_blocks.append(&mut blocks);
     }
 
+    fn push_tool_result(&mut self, block: Value) {
+        self.flush_assistant();
+        self.pending_thinking.clear();
+        self.tool_result_blocks.push(block);
+    }
+
     fn push_user(&mut self, content: Value) {
         self.flush_assistant();
+        self.flush_tool_results();
         self.pending_thinking.clear();
         self.messages
             .push(json!({"role": "user", "content": content}));
     }
 
     // Anthropic rejects an empty content array.
-    fn push_item(&mut self, map: &Map<String, Value>) {
+    fn push_item(&mut self, map: &Map<String, Value>, strict: bool) -> Result<(), StreamError> {
+        let item_type = map.get("type").and_then(Value::as_str);
+        if strict
+            && let Some(item_type) = item_type
+            && !matches!(item_type, "message" | "agent_message")
+        {
+            return Err(StreamError::new(
+                "invalid_input_item",
+                "api_resolver",
+                format!("unsupported Anthropic input item type `{item_type}`"),
+            ));
+        }
         let Some(content) = map.get("content") else {
-            return;
+            if strict {
+                return Err(StreamError::new(
+                    "invalid_input_item",
+                    "api_resolver",
+                    "Anthropic message item is missing content",
+                ));
+            }
+            return Ok(());
         };
-        match anthropic_role(map.get("role").and_then(Value::as_str)) {
-            "assistant" => match anthropic_content(Some(content)) {
+        let role_name = if item_type == Some("agent_message") {
+            Some("user")
+        } else {
+            map.get("role").and_then(Value::as_str)
+        };
+        let role = anthropic_role(role_name, strict)?;
+        match role {
+            "assistant" => match anthropic_content(Some(content), strict)? {
                 Value::Array(blocks) => self.push_assistant(blocks),
                 _content => {}
             },
-            _role => self.push_user(anthropic_content(Some(content))),
+            _role => self.push_user(anthropic_content(Some(content), strict)?),
         }
+        Ok(())
     }
 
     fn flush_assistant(&mut self) {
@@ -921,15 +1090,82 @@ impl AnthropicReplay {
             .push(json!({"role": "assistant", "content": content}));
     }
 
+    fn flush_tool_results(&mut self) {
+        if self.tool_result_blocks.is_empty() {
+            return;
+        }
+        let content = std::mem::take(&mut self.tool_result_blocks);
+        self.messages
+            .push(json!({"role": "user", "content": content}));
+    }
+
     fn finish(mut self) -> Vec<Value> {
         self.flush_assistant();
+        self.flush_tool_results();
         self.messages
     }
 }
 
-fn anthropic_tool_use(call: &Map<String, Value>) -> Value {
+fn anthropic_tool_use(call: &Map<String, Value>, strict: bool) -> Result<Value, StreamError> {
+    let call_id = if strict {
+        call.get("call_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| {
+                StreamError::new(
+                    "invalid_tool_arguments",
+                    "api_resolver",
+                    "Anthropic tool_use item requires a non-empty call_id",
+                )
+            })?
+    } else {
+        call.get("call_id").map(value_to_text).unwrap_or_default()
+    };
+
+    let raw_name = if strict {
+        call.get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| {
+                StreamError::new(
+                    "invalid_tool_arguments",
+                    "api_resolver",
+                    "Anthropic tool_use item requires a non-empty name",
+                )
+            })?
+    } else {
+        call.get("name").and_then(Value::as_str).unwrap_or_default()
+    };
+
     let input = if call.get("type").and_then(Value::as_str) == Some("custom_tool_call") {
         json!({"input": call.get("input").map(value_to_text).unwrap_or_default()})
+    } else if strict {
+        let arguments = call
+            .get("arguments")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                StreamError::new(
+                    "invalid_tool_arguments",
+                    "api_resolver",
+                    "Anthropic tool_use item requires string arguments",
+                )
+            })?;
+        let parsed = sonic_rs::from_str::<Value>(arguments).map_err(|reason| {
+            StreamError::new(
+                "invalid_tool_arguments",
+                "api_resolver",
+                format!("Anthropic tool_use arguments are not valid JSON: {reason}"),
+            )
+        })?;
+        if !parsed.is_object() {
+            return Err(StreamError::new(
+                "invalid_tool_arguments",
+                "api_resolver",
+                "Anthropic tool_use arguments must be a JSON object",
+            ));
+        }
+        parsed
     } else {
         call.get("arguments")
             .and_then(Value::as_str)
@@ -937,97 +1173,145 @@ fn anthropic_tool_use(call: &Map<String, Value>) -> Value {
             .unwrap_or_else(|| json!({}))
     };
 
-    let name = call
-        .get("name")
-        .and_then(Value::as_str)
-        .map(|name| match call.get("namespace").and_then(Value::as_str) {
-            Some(namespace) => flattened_namespace_tool_name(namespace, name),
-            None => flattened_namespace_tool_name("", name),
-        })
-        .unwrap_or_default();
+    let name = if strict {
+        match call.get("namespace").and_then(Value::as_str) {
+            Some(namespace) => flattened_namespace_tool_name(namespace, raw_name),
+            None => flattened_namespace_tool_name("", raw_name),
+        }
+    } else {
+        call.get("name")
+            .and_then(Value::as_str)
+            .map(|name| match call.get("namespace").and_then(Value::as_str) {
+                Some(namespace) => flattened_namespace_tool_name(namespace, name),
+                None => flattened_namespace_tool_name("", name),
+            })
+            .unwrap_or_default()
+    };
 
-    json!({
+    Ok(json!({
         "type": "tool_use",
-        "id": call.get("call_id").map(value_to_text).unwrap_or_default(),
+        "id": call_id,
         "name": name,
         "input": input
-    })
+    }))
 }
 
-fn anthropic_role(role: Option<&str>) -> &'static str {
+fn anthropic_role(role: Option<&str>, strict: bool) -> Result<&'static str, StreamError> {
     match role {
-        Some("assistant") => "assistant",
-        _role => "user",
+        Some("assistant") => Ok("assistant"),
+        Some("user") => Ok("user"),
+        None if !strict => Ok("user"),
+        Some(_other) if !strict => Ok("user"),
+        Some(other) => Err(StreamError::new(
+            "invalid_input_item",
+            "api_resolver",
+            format!("unsupported Anthropic message role `{other}`"),
+        )),
+        None => Err(StreamError::new(
+            "invalid_input_item",
+            "api_resolver",
+            "Anthropic message item requires a role",
+        )),
     }
 }
 
-fn anthropic_content(content: Option<&Value>) -> Value {
+fn anthropic_content(content: Option<&Value>, strict: bool) -> Result<Value, StreamError> {
     match content {
-        Some(Value::String(text)) => json!([{ "type": "text", "text": text }]),
-        Some(Value::Array(parts)) => Value::Array(
-            parts
-                .iter()
-                .map(|part| {
-                    let Some(map) = part.as_object() else {
-                        return json!({ "type": "text", "text": value_to_text(part) });
-                    };
-                    match map.get("type").and_then(Value::as_str) {
-                        Some("input_text" | "output_text" | "text") => json!({
-                            "type": "text",
-                            "text": map.get("text").map(value_to_text).unwrap_or_default()
-                        }),
-                        Some("tool_use") => {
-                            let mut tool = Map::new();
-                            for key in ["type", "id", "name", "input"] {
-                                maybe_put_from(&mut tool, map, key);
-                            }
-                            Value::Object(tool)
-                        }
-                        Some("tool_result") => {
-                            let mut result = Map::new();
-                            for key in ["type", "tool_use_id", "content", "is_error"] {
-                                maybe_put_from(&mut result, map, key);
-                            }
-                            Value::Object(result)
-                        }
-                        Some("input_image" | "image_url" | "image") => anthropic_image_part(map),
-                        _type => unsupported_anthropic_content_part(map, part),
+        Some(Value::String(text)) => Ok(json!([{ "type": "text", "text": text }])),
+        Some(Value::Array(parts)) => {
+            let mut mapped = Vec::with_capacity(parts.len());
+            for part in parts {
+                let Some(map) = part.as_object() else {
+                    if strict {
+                        return Err(StreamError::new(
+                            "invalid_input_item",
+                            "api_resolver",
+                            "Anthropic message content part must be a JSON object",
+                        ));
                     }
-                })
-                .collect(),
-        ),
-        Some(value) => json!([{ "type": "text", "text": value_to_text(value) }]),
-        None => json!([]),
+                    mapped.push(json!({ "type": "text", "text": value_to_text(part) }));
+                    continue;
+                };
+                let block = match map.get("type").and_then(Value::as_str) {
+                    Some("input_text" | "output_text" | "text") => json!({
+                        "type": "text",
+                        "text": map.get("text").map(value_to_text).unwrap_or_default()
+                    }),
+                    Some("tool_use") => {
+                        let mut tool = Map::new();
+                        for key in ["type", "id", "name", "input"] {
+                            maybe_put_from(&mut tool, map, key);
+                        }
+                        Value::Object(tool)
+                    }
+                    Some("tool_result") => {
+                        let mut result = Map::new();
+                        for key in ["type", "tool_use_id", "content", "is_error"] {
+                            maybe_put_from(&mut result, map, key);
+                        }
+                        Value::Object(result)
+                    }
+                    Some("input_image" | "image_url" | "image") => {
+                        anthropic_image_part(map, strict)?
+                    }
+                    _type => unsupported_anthropic_content_part(map, part, strict)?,
+                };
+                mapped.push(block);
+            }
+            Ok(Value::Array(mapped))
+        }
+        Some(value) if !strict => Ok(json!([{ "type": "text", "text": value_to_text(value) }])),
+        Some(_value) => Err(StreamError::new(
+            "invalid_input_item",
+            "api_resolver",
+            "Anthropic message content must be a string or array",
+        )),
+        None => Ok(json!([])),
     }
 }
 
-fn anthropic_image_part(map: &Map<String, Value>) -> Value {
+fn anthropic_image_part(map: &Map<String, Value>, strict: bool) -> Result<Value, StreamError> {
     let Some(url) = anthropic_image_url(map) else {
-        return anthropic_image_placeholder();
+        return anthropic_unsupported_image(strict, "Anthropic image part is missing a valid URL");
     };
 
     if let Some((media_type, data)) = parse_image_data_url(&url) {
-        return json!({
+        return Ok(json!({
             "type": "image",
             "source": {
                 "type": "base64",
                 "media_type": media_type,
                 "data": data
             }
-        });
+        }));
     }
 
     if url.starts_with("https://") || url.starts_with("http://") {
-        return json!({
+        return Ok(json!({
             "type": "image",
             "source": {
                 "type": "url",
                 "url": url
             }
-        });
+        }));
     }
 
-    anthropic_image_placeholder()
+    anthropic_unsupported_image(
+        strict,
+        "Anthropic image part requires an http(s) or base64 image data URL",
+    )
+}
+
+fn anthropic_unsupported_image(strict: bool, message: &'static str) -> Result<Value, StreamError> {
+    if strict {
+        Err(StreamError::new(
+            "unsupported_content_modality",
+            "api_resolver",
+            message,
+        ))
+    } else {
+        Ok(anthropic_image_placeholder())
+    }
 }
 
 fn anthropic_image_url(map: &Map<String, Value>) -> Option<String> {
@@ -1060,12 +1344,27 @@ fn parse_image_data_url(url: &str) -> Option<(String, String)> {
     Some((media_type.to_string(), data.to_string()))
 }
 
-fn unsupported_anthropic_content_part(map: &Map<String, Value>, part: &Value) -> Value {
+fn unsupported_anthropic_content_part(
+    map: &Map<String, Value>,
+    part: &Value,
+    strict: bool,
+) -> Result<Value, StreamError> {
     if binaryish_content_part(map) {
-        return anthropic_image_placeholder();
+        return anthropic_unsupported_image(
+            strict,
+            "unsupported binary or media content part for Anthropic Messages",
+        );
     }
 
-    json!({ "type": "text", "text": value_to_text(part) })
+    if strict {
+        return Err(StreamError::new(
+            "invalid_input_item",
+            "api_resolver",
+            "unsupported Anthropic message content part type",
+        ));
+    }
+
+    Ok(json!({ "type": "text", "text": value_to_text(part) }))
 }
 
 fn binaryish_content_part(map: &Map<String, Value>) -> bool {
@@ -1194,7 +1493,19 @@ fn anthropic_function_call_item(context: &ResponseContext, call: &ToolCall, stat
     item
 }
 
-fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
+// Anthropic rejects `any` and `tool` choices with HTTP 400 when extended or
+// adaptive thinking is active, allowing only `auto` or `none`.
+fn anthropic_thinking_enabled(thinking: Option<&Value>) -> bool {
+    matches!(
+        thinking
+            .and_then(Value::as_object)
+            .and_then(|map| map.get("type"))
+            .and_then(Value::as_str),
+        Some("enabled" | "adaptive")
+    )
+}
+
+fn anthropic_tool_choice(choice: Option<&Value>, thinking_enabled: bool) -> Option<Value> {
     match choice {
         Some(Value::Object(map)) => match map.get("type").and_then(Value::as_str) {
             Some("function" | "custom") => {
@@ -1203,6 +1514,9 @@ fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
                     .and_then(Value::as_object)
                     .unwrap_or(map);
                 let name = function.get("name").and_then(Value::as_str)?;
+                if thinking_enabled {
+                    return Some(json!({ "type": "auto" }));
+                }
                 let namespace = function
                     .get("namespace")
                     .or_else(|| map.get("namespace"))
@@ -1214,6 +1528,9 @@ fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
             }
             Some("tool") => {
                 let name = map.get("name").and_then(Value::as_str)?;
+                if thinking_enabled {
+                    return Some(json!({ "type": "auto" }));
+                }
                 let name = map
                     .get("namespace")
                     .and_then(Value::as_str)
@@ -1221,9 +1538,25 @@ fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
                     .unwrap_or_else(|| flattened_namespace_tool_name("", name));
                 Some(json!({ "type": "tool", "name": name }))
             }
+            Some("any" | "required") => {
+                if thinking_enabled {
+                    Some(json!({ "type": "auto" }))
+                } else {
+                    Some(json!({ "type": "any" }))
+                }
+            }
+            Some("auto") => Some(json!({ "type": "auto" })),
+            Some("none") => Some(json!({ "type": "none" })),
             _type => None,
         },
         Some(Value::String(value)) if value == "auto" => Some(json!({ "type": "auto" })),
+        Some(Value::String(value)) if value == "required" || value == "any" => {
+            if thinking_enabled {
+                Some(json!({ "type": "auto" }))
+            } else {
+                Some(json!({ "type": "any" }))
+            }
+        }
         Some(Value::String(value)) if value == "none" => Some(json!({ "type": "none" })),
         _choice => None,
     }

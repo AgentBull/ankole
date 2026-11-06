@@ -16,5 +16,6 @@ pub(super) fn reasoning_source_context(
         provider_options: json!({}),
         stream: Some(false),
         include_model: true,
+        ..ResponseContext::default()
     }
 }

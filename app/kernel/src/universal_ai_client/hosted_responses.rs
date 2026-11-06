@@ -197,6 +197,7 @@ pub(super) async fn run_hosted_stream(
         provider_options: Value::Null,
         stream: Some(true),
         include_model: true,
+        ..ResponseContext::default()
     };
     let mut sequence = 0u64;
     let created_response = api_resolver::complete_response_resource(
@@ -843,6 +844,7 @@ async fn execute_hosted(
         provider_options: Value::Null,
         stream: Some(false),
         include_model: true,
+        ..ResponseContext::default()
     };
     let final_body = api_resolver::complete_response_resource(&public_context, public_body);
     ensure_public_response_size(

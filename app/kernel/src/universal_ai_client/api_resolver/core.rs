@@ -37,6 +37,8 @@ pub trait APIProtocol: std::fmt::Debug + Send + Sync {
         ))
     }
 
+    fn on_done_sentinel(&mut self) {}
+
     fn on_upstream_close(&mut self, _context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
         Ok(Vec::new())
     }
@@ -109,7 +111,7 @@ impl APIResolver {
         self.protocol.build_body(&self.provider_context)
     }
 
-    pub fn websocket_initial_messages(&self) -> Result<Vec<String>, StreamError> {
+    pub(crate) fn websocket_initial_messages(&self) -> Result<Vec<String>, StreamError> {
         self.check_prepared()?;
         self.protocol
             .websocket_initial_messages(&self.provider_context)
@@ -119,6 +121,12 @@ impl APIResolver {
         self.check_prepared()?;
         let events = self.protocol.on_provider_event(&self.context, value)?;
         self.opaque_tool_fields.lift_events(events)
+    }
+
+    pub fn on_done_sentinel(&mut self) -> Result<(), StreamError> {
+        self.check_prepared()?;
+        self.protocol.on_done_sentinel();
+        Ok(())
     }
 
     pub fn finish(&mut self) -> Result<Vec<Value>, StreamError> {
@@ -150,7 +158,7 @@ impl APIResolver {
             .classify_provider_rejection(&self.context, status, body)
     }
 
-    pub fn provider_exception_status(&self, exception_type: &str) -> Option<u16> {
+    pub(crate) fn provider_exception_status(&self, exception_type: &str) -> Option<u16> {
         self.protocol.provider_exception_status(exception_type)
     }
 

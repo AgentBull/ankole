@@ -18,6 +18,9 @@ export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.met
 export const edition = process.env.ANKOLE_EDITION ?? 'foss'
 if (edition !== 'foss' && edition !== 'saas') throw new Error('ANKOLE_EDITION must be foss or saas')
 
+export const internalsRoot = process.env.ANKOLE_INTERNALS_PATH?.trim()
+  ? path.resolve(repositoryRoot, 'app/control_plane', process.env.ANKOLE_INTERNALS_PATH)
+  : path.join(repositoryRoot, 'internals')
 export const artifactRoot = path.join(repositoryRoot, 'app/control_plane/_build', edition)
 export const localeDirectory = path.join(artifactRoot, 'locales')
 export const assetsDirectory = path.join(artifactRoot, 'webapps/assets')
@@ -25,7 +28,7 @@ export const assetsDirectory = path.join(artifactRoot, 'webapps/assets')
 export function webappEntries(): Record<string, string> {
   const entries = publicEntries()
   if (edition === 'saas') {
-    const privateRoot = path.join(repositoryRoot, 'internals/webapps')
+    const privateRoot = path.join(internalsRoot, 'webapps')
     const manifest = JSON.parse(readFileSync(path.join(privateRoot, 'entries.json'), 'utf8'))
     const privateEntries = readEntries(privateRoot, manifest.entries)
     const overrides = readEntries(privateRoot, manifest.overrides ?? {})
@@ -44,7 +47,7 @@ export function webappEntries(): Record<string, string> {
 export function prepareEdition(): void {
   if (edition === 'saas') {
     const sharedDependencies = path.join(repositoryRoot, 'app/webapps/node_modules')
-    const privateDependencies = path.join(repositoryRoot, 'internals/webapps/node_modules')
+    const privateDependencies = path.join(internalsRoot, 'webapps/node_modules')
     const target = path.relative(path.dirname(privateDependencies), sharedDependencies)
     const current = lstatSync(privateDependencies, { throwIfNoEntry: false })
     if (!current || (current.isSymbolicLink() && readlinkSync(privateDependencies) !== target)) {
@@ -85,7 +88,7 @@ function readEntries(root: string, entries: unknown): Record<string, string> {
 export function prepareLocales(): void {
   const catalogs = new Map<string, Record<string, unknown>>()
   const roots = [path.join(repositoryRoot, 'app/locales')]
-  if (edition === 'saas') roots.push(path.join(repositoryRoot, 'internals/locales'))
+  if (edition === 'saas') roots.push(path.join(internalsRoot, 'locales'))
   for (const root of roots) {
     for (const file of readdirSync(root)
       .filter(file => file.endsWith('.toml'))

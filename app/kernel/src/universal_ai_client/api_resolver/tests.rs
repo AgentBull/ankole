@@ -2,6 +2,7 @@
 
 mod anthropic;
 mod aws_bedrock_converse;
+mod conversion_policy;
 mod embeddings;
 mod encrypted_fields;
 mod openai_chat;

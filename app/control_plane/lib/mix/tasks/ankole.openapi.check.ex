@@ -81,10 +81,16 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
   end
 
   defp committed_spec_path(name) when name in ["saas-v2", "saas-pod-v2", "saas-site-v2"] do
-    Path.expand(
-      "../../internals/webapps/openapi/#{name}.json",
-      Path.dirname(Mix.Project.project_file())
-    )
+    control_plane_root = Path.dirname(Mix.Project.project_file())
+
+    internals_root =
+      case System.get_env("ANKOLE_INTERNALS_PATH") do
+        nil -> Path.expand("../../internals", control_plane_root)
+        "" -> Path.expand("../../internals", control_plane_root)
+        path -> Path.expand(path, control_plane_root)
+      end
+
+    Path.expand("webapps/openapi/#{name}.json", internals_root)
   end
 
   defp committed_spec_path(name) do

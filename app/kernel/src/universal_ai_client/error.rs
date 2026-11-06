@@ -3,15 +3,15 @@ use serde_json::{Map, Value, json};
 
 use crate::common::KernelError;
 
-pub const PROVIDER_BODY_EXCERPT_LIMIT: usize = 4096;
+pub(crate) const PROVIDER_BODY_EXCERPT_LIMIT: usize = 4096;
 
 #[derive(Debug, Clone, Copy)]
-pub enum StreamErrorCode {
+pub(crate) enum StreamErrorCode {
     ProviderTerminalRejected,
 }
 
 impl StreamErrorCode {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::ProviderTerminalRejected => "provider_terminal_rejected",
         }
@@ -64,7 +64,7 @@ impl StreamError {
     /// Records the error type that the Provider names outside the error body,
     /// for example in an AWS eventstream frame header.
     #[must_use]
-    pub fn provider_error_type(mut self, error_type: &str) -> Self {
+    pub(crate) fn provider_error_type(mut self, error_type: &str) -> Self {
         self.provider_error_type = Some(error_type.into());
         self
     }

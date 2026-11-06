@@ -84,11 +84,18 @@ public_entries = Path.expand("../../webapps/entries.json", __DIR__)
 entries = public_entries |> File.read!() |> :json.decode()
 
 if edition == :saas do
-  source = Path.expand("../../../internals/control_plane/config.exs", __DIR__)
+  internals_root =
+    case System.get_env("ANKOLE_INTERNALS_PATH") do
+      nil -> Path.expand("../../../internals", __DIR__)
+      "" -> Path.expand("../../../internals", __DIR__)
+      path -> Path.expand(path, Path.expand("..", __DIR__))
+    end
+
+  source = Path.expand("control_plane/config.exs", internals_root)
   unless File.regular?(source), do: raise("Missing SaaS source: #{source}")
   import_config source
 
-  private_entries = Path.expand("../../../internals/webapps/entries.json", __DIR__)
+  private_entries = Path.expand("webapps/entries.json", internals_root)
   manifest = private_entries |> File.read!() |> :json.decode()
   private = Map.fetch!(manifest, "entries")
   overrides = Map.get(manifest, "overrides", %{})
@@ -108,7 +115,7 @@ if edition == :saas do
 
   config :ankole,
          :internal_migrations_path,
-         Path.expand("../../../internals/control_plane/priv/repo/migrations", __DIR__)
+         Path.expand("control_plane/priv/repo/migrations", internals_root)
 else
   config :ankole, :webapp_entries, entries
 end

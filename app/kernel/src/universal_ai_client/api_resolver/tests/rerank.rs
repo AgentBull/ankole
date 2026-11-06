@@ -10,6 +10,7 @@ fn openrouter_rerank_preserves_provider_and_results() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -46,6 +47,7 @@ fn jina_rerank_reconstructs_document_when_omitted() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -75,6 +77,7 @@ fn jina_rerank_normalizes_string_document_and_preserves_embedding() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 

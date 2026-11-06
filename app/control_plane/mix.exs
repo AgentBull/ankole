@@ -93,9 +93,18 @@ defmodule Ankole.MixProject do
     end
   end
 
+  defp internals_root do
+    case System.get_env("ANKOLE_INTERNALS_PATH") do
+      nil -> Path.expand("../../internals", __DIR__)
+      "" -> Path.expand("../../internals", __DIR__)
+      path -> Path.expand(path, __DIR__)
+    end
+  end
+
   defp internal_paths(paths) do
     if edition() == :saas do
-      Enum.map(paths, &Path.expand("../../internals/#{&1}", __DIR__))
+      root = internals_root()
+      Enum.map(paths, &Path.expand(&1, root))
     else
       []
     end
@@ -106,6 +115,8 @@ defmodule Ankole.MixProject do
 
   defp prepare_webapps(_args) do
     if edition() == :saas do
+      root = internals_root()
+
       for relative <- [
             "control_plane/lib",
             "control_plane/config.exs",
@@ -114,7 +125,7 @@ defmodule Ankole.MixProject do
             "webapps/entries.json",
             "locales"
           ] do
-        unless File.exists?(Path.expand("../../internals/#{relative}", __DIR__)),
+        unless File.exists?(Path.expand(relative, root)),
           do: raise("Missing SaaS source: internals/#{relative}")
       end
     end

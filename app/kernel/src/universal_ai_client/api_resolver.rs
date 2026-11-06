@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{Map, Number, Value, json};
 
 use super::error::{StreamError, StreamErrorCode};
-use super::spec::{APIResolverKind, ResponseContext};
+use super::spec::{APIResolverKind, ConversionPolicy, ResponseContext};
 
 mod anthropic;
 mod aws_bedrock_converse;

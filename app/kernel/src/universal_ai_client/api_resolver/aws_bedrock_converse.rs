@@ -50,7 +50,7 @@ impl AWSBedrockConverseState {
         context: &ResponseContext,
         status: &str,
         incomplete_reason: Option<&str>,
-    ) -> Vec<Value> {
+    ) -> Result<Vec<Value>, StreamError> {
         self.inner.finish(context, status, incomplete_reason)
     }
 
@@ -70,15 +70,15 @@ impl APIProtocol for AWSBedrockConverseState {
 
     fn on_upstream_close(&mut self, context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
         let Some(stop_reason) = self.stop_reason.take() else {
-            return Ok(self.finish(context, "incomplete", Some("upstream_stream_closed")));
+            return self.finish(context, "incomplete", Some("upstream_stream_closed"));
         };
-        Ok(match bedrock_terminal(&stop_reason) {
+        match bedrock_terminal(&stop_reason) {
             ProviderTerminal::Completed => self.finish(context, "completed", None),
             ProviderTerminal::Incomplete(reason) => {
                 self.finish(context, "incomplete", Some(reason))
             }
-            ProviderTerminal::Failed(error) => self.fail(context, &error),
-        })
+            ProviderTerminal::Failed(error) => Ok(self.fail(context, &error)),
+        }
     }
 
     fn on_transport_error(&mut self, context: &ResponseContext, error: &StreamError) -> Vec<Value> {

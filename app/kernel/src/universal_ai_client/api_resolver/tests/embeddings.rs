@@ -10,6 +10,7 @@ fn jina_embeddings_preserves_multivector_items() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -46,6 +47,7 @@ fn jina_embeddings_preserves_string_embedding_and_multimodal_usage() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -88,6 +90,7 @@ fn openrouter_embeddings_normalizes_openrouter_body() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -121,6 +124,7 @@ fn google_embeddings_normalizes_native_embed_content_body() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -145,6 +149,7 @@ fn google_embeddings_normalizes_native_batch_body() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 

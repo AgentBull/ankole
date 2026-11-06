@@ -10,6 +10,7 @@ fn parallel_web_search_builds_search_body() {
             provider_options: json!({}),
             stream: None,
             include_model: false,
+            ..ResponseContext::default()
         },
     );
 
@@ -35,6 +36,7 @@ fn bright_data_serp_web_search_builds_direct_request_body() {
             }),
             stream: None,
             include_model: false,
+            ..ResponseContext::default()
         },
     );
 
@@ -58,6 +60,7 @@ fn jina_search_builds_search_body() {
             provider_options: json!({"gl": "us", "hl": "en"}),
             stream: None,
             include_model: false,
+            ..ResponseContext::default()
         },
     );
 
@@ -80,6 +83,7 @@ fn web_search_normalizes_parallel_results() {
             provider_options: json!({}),
             stream: None,
             include_model: false,
+            ..ResponseContext::default()
         },
     );
 
@@ -114,6 +118,7 @@ fn web_search_normalizes_jina_results() {
             provider_options: json!({}),
             stream: None,
             include_model: false,
+            ..ResponseContext::default()
         },
     );
 
@@ -148,6 +153,7 @@ fn jina_reader_web_fetch_normalizes_data_content() {
             provider_options: json!({}),
             stream: None,
             include_model: false,
+            ..ResponseContext::default()
         },
     );
 

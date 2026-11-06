@@ -24,6 +24,7 @@ fn openai_responses_classifies_only_structured_stateful_replay_rejections() {
         provider_options: json!({}),
         stream: Some(true),
         include_model: true,
+        ..ResponseContext::default()
     };
 
     let resolver = APIResolver::new(APIResolverKind::OpenAIResponses, context.clone());
@@ -73,6 +74,7 @@ fn openai_responses_preserves_provider_native_compaction_input() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -181,6 +183,7 @@ fn openai_responses_preserves_encrypted_reasoning_output_item() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -221,6 +224,7 @@ fn emulated_responses_context(mut request: Value) -> ResponseContext {
         provider_options: json!({}),
         stream: Some(true),
         include_model: true,
+        ..ResponseContext::default()
     }
 }
 
@@ -332,6 +336,7 @@ fn openai_responses_without_marker_passes_custom_tools_through() {
             provider_options: json!({}),
             stream: Some(true),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 

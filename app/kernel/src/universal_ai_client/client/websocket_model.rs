@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 use tokio_tungstenite::tungstenite::{Message, protocol::frame::coding::CloseCode};
 
 pub(in crate::universal_ai_client) struct CollectedWebSocketModelResponse {
-    pub wrapper: Value,
-    pub completed_items: BTreeMap<usize, Value>,
+    pub(in crate::universal_ai_client) wrapper: Value,
+    pub(in crate::universal_ai_client) completed_items: BTreeMap<usize, Value>,
 }
 
 pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
@@ -94,6 +94,7 @@ pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
 
                 raw_body_bytes = raw_body_bytes.saturating_add(text.len());
                 if text == "[DONE]" {
+                    resolver.on_done_sentinel()?;
                     resolver.finish()?;
                     return Err(missing_websocket_terminal_error());
                 }

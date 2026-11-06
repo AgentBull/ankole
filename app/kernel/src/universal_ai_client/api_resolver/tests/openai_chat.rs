@@ -18,6 +18,7 @@ fn chat_output_limit_uses_only_the_selected_provider_field() {
                     provider_options: json!({"max_tokens": 1, "max_completion_tokens": 2}),
                     stream: Some(stream),
                     include_model: true,
+                    ..ResponseContext::default()
                 },
             );
             let body = resolver.build_body().unwrap();
@@ -52,6 +53,7 @@ fn non_responses_wire_rejects_provider_native_compaction_input() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -69,6 +71,7 @@ fn openai_chat_accumulates_text_usage_and_terminal_response() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -119,6 +122,7 @@ fn openai_chat_top_level_error_chunk_becomes_provider_failure() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -157,6 +161,7 @@ fn openai_chat_waits_for_late_openrouter_usage_before_terminal_response() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -213,6 +218,7 @@ fn openai_chat_non_streaming_flattens_assistant_content_parts() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -662,6 +668,7 @@ fn openai_chat_drops_reasoning_that_has_no_message_or_tool_call() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -707,6 +714,7 @@ fn openai_chat_drops_reasoning_that_has_no_message_or_tool_call() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
     let replay_body = Value::Object(replay.build_body().unwrap());
@@ -811,6 +819,7 @@ fn openai_chat_stream_restores_custom_tool_calls() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -918,6 +927,7 @@ fn openai_chat_build_body_keeps_png_data_url_as_chat_image_url() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -949,6 +959,7 @@ fn openai_chat_build_body_flattens_assistant_content_parts() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -987,6 +998,7 @@ fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -1064,6 +1076,7 @@ fn openai_chat_build_body_maps_custom_tool_and_history_to_chat_functions() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -1111,6 +1124,7 @@ fn openai_chat_non_streaming_restores_custom_tool_calls() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -1186,6 +1200,7 @@ fn openai_chat_build_body_keeps_tool_output_images_out_of_tool_text() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -1274,6 +1289,7 @@ fn openai_chat_build_body_coalesces_interleaved_system_messages_at_the_front() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -1333,6 +1349,7 @@ fn openai_chat_build_body_repairs_trailing_function_call_history() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
