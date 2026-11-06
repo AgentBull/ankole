@@ -315,7 +315,8 @@ test('choosing a file creates one named Page with its bytes and replaces it by d
     await download.locator('xpath=ancestor::section[1]').dispatchEvent('drop', { dataTransfer: transfer })
     await expect(download).toHaveAttribute('download', 'Revised.txt')
     expect(await (await page.request.get((await download.getAttribute('href'))!)).text()).toBe('Updated report')
-    await expect(title).toHaveValue('Renamed report')
+    // A file Page's title and Drive name move together, so the replacement's name becomes the title.
+    await expect(title).toHaveValue('Revised.txt')
   } finally {
     if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()

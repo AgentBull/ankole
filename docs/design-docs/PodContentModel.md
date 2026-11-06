@@ -45,7 +45,9 @@ spreadsheet, and file options. Within Brain, creation offers knowledge objects a
   attributes to `POST /api/v2/pod/file-pages`, which creates the Page and file
   reference in a single tree transaction (defaulting an empty title to the
   selected filename). If creation fails, the UI keeps the form entry open for
-  retry.
+  retry. Replacing a file Page's bytes gives the Page the uploaded file's name,
+  and the title follows that name, so the extension always matches the stored
+  file.
 
 Users edit Page titles at the top of the canvas. A Page title holds at most 255
 Unicode code points. Title fields shorten excess inserted text at a grapheme
@@ -344,7 +346,9 @@ offering child creation when the Page grants `node_edit`—which lets
 collaborators navigate shared subtrees whose parent Page is hidden from them.
 Document Pages instead append a collapsible subpages directory below the
 document body whenever the caller can view at least one live direct child
-(`child_count > 0`), and render nothing when zero live children are visible.
+(`child_count > 0`) or the body is empty, so an empty Document offers the
+creation and upload controls for its first child. A Document with body text and
+no visible children renders no directory and requests no child list.
 When a Document Page has visible children, its editor drops its standalone canvas
 minimum height so an empty parent keeps a single-line body placeholder for
 editors while read-only viewers hide the empty body and top divider entirely.

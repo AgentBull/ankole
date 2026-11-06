@@ -91,8 +91,9 @@ test('undo at the end of a loaded directory page restores the full sibling order
     const prefix = `Paged move ${Date.now()}`
     parent = await create(page, prefix)
     const ids: string[] = []
+    // Unpositioned siblings sort by name, so zero-padded names keep creation order.
     for (let index = 0; index < 201; index++) {
-      ids.push(await create(page, `${prefix} ${index}`, parent))
+      ids.push(await create(page, `${prefix} ${String(index).padStart(3, '0')}`, parent))
     }
     await page.goto(pageRoute(parent, undefined, prefix))
     const parentRow = page.locator('.pod-tree-row', {

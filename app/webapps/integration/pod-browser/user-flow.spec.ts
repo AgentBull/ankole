@@ -342,6 +342,9 @@ test('Private creation and moves wait for identity after delayed and failed read
     mode = 'fail'
     await Promise.all(held.splice(0).map(fail))
   }
+  // Ankole records Private ownership on the root, so the sharing scope tells which root holds a Page.
+  const scopeKind = async (id: string) =>
+    (await request<{ scope_kind: 'space' | 'private' }>(owner, `/pages/${id}/sharing`)).scope_kind
   try {
     await owner.goto(`${state.base_url}${listRoute('private')}`)
     const treeCreate = owner
@@ -367,9 +370,7 @@ test('Private creation and moves wait for identity after delayed and failed read
     const privateID = pageIDFromURL(owner.url())
     createdIDs.push(privateID)
     expect(writes.at(-1)?.body.private_owner_uid).toBe(state.owner.uid)
-    expect(
-      (await request<{ page: { private_owner_uid: string } }>(owner, `/pages/${privateID}`)).page.private_owner_uid
-    ).toBe(state.owner.uid)
+    expect(await scopeKind(privateID)).toBe('private')
 
     const { page: shared } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
       type: 'doc',
@@ -394,10 +395,7 @@ test('Private creation and moves wait for identity after delayed and failed read
     await expect(owner.getByRole('dialog').getByRole('alert')).toBeVisible({ timeout: 15000 })
     await expect(submitMove).toBeDisabled()
     expect(writes).toHaveLength(beforeMove)
-    expect(
-      (await request<{ page: { private_owner_uid: string | null } }>(owner, `/pages/${shared.id}`)).page
-        .private_owner_uid
-    ).toBeNull()
+    expect(await scopeKind(shared.id)).toBe('space')
 
     mode = 'pass'
     await owner.getByRole('dialog').getByRole('button', { name: '重试', exact: true }).click()
@@ -406,9 +404,7 @@ test('Private creation and moves wait for identity after delayed and failed read
     await submitMove.click()
     await expect(owner.getByRole('dialog')).toHaveCount(0)
     expect(writes.at(-1)?.body).toMatchObject({ parent_id: null, private_owner_uid: state.owner.uid })
-    expect(
-      (await request<{ page: { private_owner_uid: string } }>(owner, `/pages/${shared.id}`)).page.private_owner_uid
-    ).toBe(state.owner.uid)
+    expect(await scopeKind(shared.id)).toBe('private')
   } finally {
     mode = 'pass'
     for (const intercepted of held.splice(0)) await intercepted.continue().catch(() => {})

@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.67 (2026-11-05)
+
+- Bring four Pod browser stories back in line with the current contracts: a
+  replaced file Page takes the uploaded file's name as its title, an empty
+  Document shows the subpages directory while a Document with text and no
+  children hides it, unpositioned siblings sort by name, and a Private Page's
+  scope comes from its root rather than its own row.
+
 ## Version 2.0.0-alpha.66 (2026-11-05)
 
 - Center text from the bundled IBM Plex Sans CN font on the same line as the
