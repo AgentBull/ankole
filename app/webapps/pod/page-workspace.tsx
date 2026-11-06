@@ -2,7 +2,7 @@ import { agentsQuery } from './api'
 import { pageDomain, canCreateChild, canRenamePage, canTrashPage } from './state/page-location'
 import { useCanonicalPageUrl, usePageMetadata } from './use-page-metadata'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
-import { PageContent, PageLearningMenuItem } from './page-content'
+import { PageContent, PageLearningButton } from './page-content'
 import { KnowledgePage } from './knowledge-page'
 import { DocumentInsights } from './document-insights'
 import { DocumentPage } from './document-editor'
@@ -58,7 +58,7 @@ import {
 import { createModel, effect, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react'
 
 import { Link, useBlocker, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import { podID, principalUID } from '../common/browser-context'
@@ -99,6 +99,10 @@ import { PageChat } from './page-chat'
 import { PageIconPicker } from './page-icon'
 import { canMovePage } from './state/page-move'
 import './page-workspace.css'
+
+const AppletAutomationControl = lazy(() =>
+  import('./applet-page').then(module => ({ default: module.AppletAutomationControl }))
+)
 
 export function PageRoute() {
   const { t } = useTranslation()
@@ -560,6 +564,12 @@ function PageWorkspace({
                 )}
               </Toggle>
             )}
+            {!accessDenied && !trashed && <PageLearningButton detail={contentDetail} />}
+            {!accessDenied && !trashed && page.type === 'applet' && (
+              <Suspense fallback={null}>
+                <AppletAutomationControl detail={contentDetail} />
+              </Suspense>
+            )}
             {commentsAvailable && isMobile && !comments && focusedComment && (
               <Button variant="ghost" size="xs" onClick={() => openComments(focusedComment)}>
                 {t('pod.document.return_to_comment')}
@@ -603,7 +613,6 @@ function PageWorkspace({
                     {t('pod.content.move')}
                   </DropdownMenuItem>
                 )}
-                {!accessDenied && <PageLearningMenuItem detail={contentDetail} />}
                 {toolsAvailable && (
                   <DocumentMenuItems
                     detail={detail}

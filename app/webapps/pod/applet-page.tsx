@@ -1,4 +1,5 @@
 import { Button } from '@ankole/uikit'
+import { RiFlashlightLine } from '@remixicon/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -16,7 +17,8 @@ const AppletAutomationDialog = lazy(() =>
   import('./applet-automation').then(module => ({ default: module.AppletAutomationDialog }))
 )
 
-function AppletAutomationControl({ detail }: { detail: PageDetail }) {
+/** The Applet's automation entry in the Page header; it opens the automation dialog, also when a link names a job. */
+export function AppletAutomationControl({ detail }: { detail: PageDetail }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(
     () => typeof window !== 'undefined' && automationJobID(new URLSearchParams(window.location.search)) !== undefined
@@ -24,17 +26,16 @@ function AppletAutomationControl({ detail }: { detail: PageDetail }) {
   const [everOpened, setEverOpened] = useState(open)
   return (
     <>
-      <div className="flex justify-end py-1.5">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setEverOpened(true)
-            setOpen(true)
-          }}>
-          {t('pod.automation.title')}
-        </Button>
-      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          setEverOpened(true)
+          setOpen(true)
+        }}>
+        <RiFlashlightLine aria-hidden className="size-4" />
+        <span className="@max-[640px]:sr-only">{t('pod.automation.title')}</span>
+      </Button>
       {everOpened && (
         <Suspense fallback={null}>
           <AppletAutomationDialog detail={detail} open={open} onOpenChange={setOpen} />
@@ -143,7 +144,6 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
   }, [detail.page.id, detail.page.revision, instanceID, base, realtime, retry, revoked, client])
   return (
     <section className="min-h-32 text-base leading-normal font-normal">
-      {!revoked && <AppletAutomationControl detail={detail} />}
       <ContentError error={error} />
       {!!error && !revoked && (
         <Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>

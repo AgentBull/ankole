@@ -7,7 +7,8 @@ defmodule Ankole.Brain.Knowledge do
 
   def page_learning(%{type: type, is_root: false} = page)
       when type in [:doc, :knowledge, :base, :applet] do
-    with {:ok, node} <- Nodes.fetch(page.id),
+    with true <- Ankole.Brain.Config.enabled?(),
+         {:ok, node} <- Nodes.fetch(page.id),
          {:ok, path} <- Nodes.path(node),
          true <- is_nil(hd(path).private_owner_uid) and is_nil(hd(path).conversation_id),
          false <- Enum.any?(path, &(Map.get(&1, :system_key) == "ankole_brain")) do

@@ -1039,14 +1039,17 @@ Page title and icon projection; queries still own authorization, membership and
 relationship refreshes.
 
 Public business Pages offer their managers (`node_manage`) a **Learn business
-facts** toggle in the Page header's more-actions menu, so the title flows
-straight into the body. The setting updates `metadata.extract_facts` through
-the ordinary Page update operation. Enabling it queues existing documents and
-eligible knowledge throughout the subtree as well as future edits. A child
-Page reports when learning is enabled by an ancestor. Disabling it stops
-future extraction, including queued work; already extracted facts remain.
-Private Pages and the automatically managed `Brain` tree do not expose
-this setting.
+facts** control in the Page header, so the title flows straight into the body.
+The control shows only an icon while learning is off and adds a **Learning**
+label once the Page or an ancestor enables it. Its popover holds the switch and
+explains that extracted facts stay visible only to members and Agents who can
+read the Page. The setting updates `metadata.extract_facts` through the ordinary
+Page update operation. Enabling it queues existing documents and eligible
+knowledge throughout the subtree as well as future edits. A child Page reports
+when learning is enabled by an ancestor. Disabling it stops future extraction,
+including queued work; already extracted facts remain. Private Pages, the
+automatically managed `Brain` tree, and every Page while Brain is disabled do
+not expose this setting.
 
 Every explicit knowledge save records body, title, icon, metadata, attribution,
 and revision. Knowledge history retains the latest 200 checkpoints regardless of
