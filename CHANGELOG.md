@@ -7,9 +7,6 @@
   `Private` title.
 - Close only the attachment preview when `Escape` arrives right after it opens;
   the conversation summary and the execution inspector stay open.
-
-## Version 2.0.0-alpha.67 (2026-11-05)
-
 - Label the Page header's **Learn business facts** button **Learn** while
   learning is off, beside the other labelled header buttons; a narrow header
   still shows only its icon, and **Learning** marks an enabled Page as before.
@@ -21,6 +18,9 @@
   `/signals/v1/` and provider webhooks below `/webhooks/<segment>` stay with
   their endpoints, so these pages no longer return 404 on a direct link or
   reload.
+
+## Version 2.0.0-alpha.67 (2026-11-05)
+
 - Label Pages in a Private space as Private again. Page responses and mention
   candidates report the owner of each Page's Private root, so Recent and
   Favorites show the Private badge, mention paths start at Private instead of
