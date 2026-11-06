@@ -306,6 +306,32 @@ test('private work moves, shares, searches, favorites and restores through the r
   }
 })
 
+test('a Private Page reads as Private in Recent and trashing it returns to the Private list', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const owner = await context.newPage()
+  try {
+    await owner.goto(state.base_url + route(state.report_id))
+    const title = `Private recent ${Date.now()}`
+    const { page } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
+      type: 'doc',
+      title,
+      private_owner_uid: state.owner.uid
+    })
+    await owner.goto(state.base_url + route(page.id))
+    await expect(owner.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(title)
+
+    await owner.goto(state.base_url + listRoute('recent'))
+    await expect(owner.getByRole('main').locator('li', { hasText: title }).first()).toContainText('私人页面')
+
+    await owner.goto(state.base_url + route(page.id))
+    await pageAction(owner, '移到回收站')
+    await expect(owner).toHaveURL(state.base_url + listRoute('private'))
+  } finally {
+    await context.close()
+  }
+})
+
 test('Private creation and moves wait for identity after delayed and failed reads', async ({ browser }) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)
@@ -342,9 +368,6 @@ test('Private creation and moves wait for identity after delayed and failed read
     mode = 'fail'
     await Promise.all(held.splice(0).map(fail))
   }
-  // Ankole records Private ownership on the root, so the sharing scope tells which root holds a Page.
-  const scopeKind = async (id: string) =>
-    (await request<{ scope_kind: 'space' | 'private' }>(owner, `/pages/${id}/sharing`)).scope_kind
   try {
     await owner.goto(`${state.base_url}${listRoute('private')}`)
     const treeCreate = owner
@@ -370,7 +393,9 @@ test('Private creation and moves wait for identity after delayed and failed read
     const privateID = pageIDFromURL(owner.url())
     createdIDs.push(privateID)
     expect(writes.at(-1)?.body.private_owner_uid).toBe(state.owner.uid)
-    expect(await scopeKind(privateID)).toBe('private')
+    expect(
+      (await request<{ page: { private_owner_uid: string } }>(owner, `/pages/${privateID}`)).page.private_owner_uid
+    ).toBe(state.owner.uid)
 
     const { page: shared } = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
       type: 'doc',
@@ -395,7 +420,10 @@ test('Private creation and moves wait for identity after delayed and failed read
     await expect(owner.getByRole('dialog').getByRole('alert')).toBeVisible({ timeout: 15000 })
     await expect(submitMove).toBeDisabled()
     expect(writes).toHaveLength(beforeMove)
-    expect(await scopeKind(shared.id)).toBe('space')
+    expect(
+      (await request<{ page: { private_owner_uid: string | null } }>(owner, `/pages/${shared.id}`)).page
+        .private_owner_uid
+    ).toBeNull()
 
     mode = 'pass'
     await owner.getByRole('dialog').getByRole('button', { name: '重试', exact: true }).click()
@@ -404,7 +432,9 @@ test('Private creation and moves wait for identity after delayed and failed read
     await submitMove.click()
     await expect(owner.getByRole('dialog')).toHaveCount(0)
     expect(writes.at(-1)?.body).toMatchObject({ parent_id: null, private_owner_uid: state.owner.uid })
-    expect(await scopeKind(shared.id)).toBe('private')
+    expect(
+      (await request<{ page: { private_owner_uid: string } }>(owner, `/pages/${shared.id}`)).page.private_owner_uid
+    ).toBe(state.owner.uid)
   } finally {
     mode = 'pass'
     for (const intercepted of held.splice(0)) await intercepted.continue().catch(() => {})

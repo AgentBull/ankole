@@ -88,6 +88,13 @@ defmodule AnkoleWeb.JSONAPI.PodMentionsTest do
            ] = member_page_candidates["pages"]
 
     assert shared_id == shared_doc.id
+    assert [%{"private_owner_uid" => nil}] = member_page_candidates["pages"]
+
+    assert %{"pages" => [%{"title" => "Private Salary Band", "private_owner_uid" => ^owner_uid}]} =
+             owner_conn
+             |> recycle_json()
+             |> get("/api/v2/pod/mentions/candidates", %{query: "Salary", category: "page"})
+             |> json_response(200)
 
     guest_conn = session_conn_for(conn, guest, "partner-guest")
 

@@ -2,11 +2,18 @@
 
 ## Version 2.0.0-alpha.67 (2026-11-05)
 
-- Bring four Pod browser stories back in line with the current contracts: a
+- Label Pages in a Private space as Private again. Page responses and mention
+  candidates report the owner of each Page's Private root, so Recent and
+  Favorites show the Private badge, mention paths start at Private instead of
+  the Space name, and trashing a top-level Private Page returns to the Private
+  list.
+- Keep a file Page's extension when its title changes, so renaming
+  `Budget.xlsx` to `Budget 2027` still opens a spreadsheet and downloads
+  `Budget 2027.xlsx`.
+- Bring three Pod browser stories back in line with the current contracts: a
   replaced file Page takes the uploaded file's name as its title, an empty
   Document shows the subpages directory while a Document with text and no
-  children hides it, unpositioned siblings sort by name, and a Private Page's
-  scope comes from its root rather than its own row.
+  children hides it, and unpositioned siblings sort by name.
 
 ## Version 2.0.0-alpha.66 (2026-11-05)
 

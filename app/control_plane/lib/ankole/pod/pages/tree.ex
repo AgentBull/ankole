@@ -685,6 +685,25 @@ defmodule Ankole.Pod.Pages.Tree do
       Enum.all?(pages, &(is_nil(&1.deleted_at) and is_nil(&1.purge_started_at)))
   end
 
+  @doc "Maps each given Page in a Private tree to the owner of its Private root."
+  def private_owners([]), do: %{}
+
+  def private_owners(ids) do
+    Repo.query!(
+      """
+      WITH RECURSIVE up AS (
+        SELECT id AS page_id, parent_id, private_owner_uid FROM pages
+        WHERE tenant_id = $1::text::uuid AND id = ANY($2::text[]::uuid[])
+        UNION ALL SELECT up.page_id, parent.parent_id, parent.private_owner_uid FROM pages parent
+        JOIN up ON parent.id = up.parent_id WHERE parent.tenant_id = $1::text::uuid
+      ) SELECT page_id::text, private_owner_uid FROM up
+      WHERE parent_id IS NULL AND private_owner_uid IS NOT NULL
+      """,
+      [Repo.tenant_id!(), Enum.uniq(ids)]
+    ).rows
+    |> Map.new(fn [id, owner] -> {id, owner} end)
+  end
+
   def ancestor_ids(ids) do
     Repo.query!(
       """
@@ -804,6 +823,20 @@ defmodule Ankole.Pod.Pages.Tree do
 
     name = if name in ["", ".", ".."], do: "未命名", else: name
     truncate_name(name, 255)
+  end
+
+  @doc """
+  Names a file Page after a new title while keeping the stored file's extension,
+  so a renamed workbook still opens as a spreadsheet and downloads with its type.
+  A title that already ends with that extension is used as given.
+  """
+  def file_name_from_title(title, current_name) do
+    extension = Path.extname(current_name)
+    name = name_from_title(title)
+
+    if extension == "" or String.ends_with?(String.downcase(name), String.downcase(extension)),
+      do: name,
+      else: truncate_name(name, 255 - byte_size(extension)) <> extension
   end
 
   def available_name(parent_id, name, exclude_id \\ nil, type \\ nil) do
