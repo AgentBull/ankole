@@ -14,7 +14,7 @@ test('a long chat loads real earlier windows without losing messages or the read
     const scroll = page.locator('.pod-chat-history-scroll')
     const earlier = page.getByRole('button', { name: '加载更早的消息', exact: true })
     await expect(messages).toHaveCount(500)
-    await expect(page.getByText('History item 1006', { exact: true })).toBeVisible()
+    await expect(messages.getByText('History item 1006', { exact: true })).toBeVisible()
     await scroll.evaluate(element => element.scrollTo({ top: 0, behavior: 'instant' }))
     await expect(earlier).toBeVisible()
     const anchor = messages.filter({ has: page.getByText('History item 0507', { exact: true }) })
@@ -41,7 +41,7 @@ test('a long chat loads real earlier windows without losing messages or the read
     )
     await page.reload()
     await expect(messages).toHaveCount(500)
-    await expect(page.getByText('History item 1006', { exact: true })).toBeVisible()
+    await expect(messages.getByText('History item 1006', { exact: true })).toBeVisible()
     expect(errors).toEqual([])
   } finally {
     await context.close()

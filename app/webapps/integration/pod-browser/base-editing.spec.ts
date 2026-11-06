@@ -134,6 +134,12 @@ test('an upload transport failure releases the edit snapshot before the next att
     await page.getByRole('button', { name: 'Responses', exact: true }).click()
     const row = page.locator(`[data-grid-record="${record.id}"]`)
     const file = row.getByLabel('添加附件', { exact: true })
+    // Clearing an already empty cell is a no-op, so the cell needs a value for the remote clear to advance its version.
+    await file.setInputFiles({ name: 'kept.txt', mimeType: 'text/plain', buffer: Buffer.from('Kept') })
+    await expect(row.getByRole('link', { name: 'kept.txt', exact: true })).toBeVisible()
+    await expect(file).toBeEnabled()
+    const before = (await request<RecordsResult>(page, `/tables/${saved.tableID}/query`, 'POST', { ids: [record.id] }))
+      .records[0]!
     const uploadURL = `**/api/v2/pod/pages/${saved.pageID}/files`
     await page.route(uploadURL, route => route.abort('connectionfailed'), { times: 1 })
     await file.setInputFiles({ name: 'interrupted.txt', mimeType: 'text/plain', buffer: Buffer.from('Interrupted') })
@@ -145,14 +151,15 @@ test('an upload transport failure releases the edit snapshot before the next att
         {
           id: record.id,
           data: { [saved.primary.id]: 'Changed elsewhere', [field.id]: null },
-          expected_versions: record.versions
+          expected_versions: before.versions
         }
       ]
     })
     await expect(row.getByRole('textbox', { name: saved.primary.name, exact: true })).toHaveValue('Changed elsewhere')
+    await expect(row.getByRole('link', { name: 'kept.txt', exact: true })).toHaveCount(0)
     const current = (await request<RecordsResult>(page, `/tables/${saved.tableID}/query`, 'POST', { ids: [record.id] }))
       .records[0]!
-    expect(current.versions[field.id]).not.toBe(record.versions[field.id])
+    expect(current.versions[field.id]).not.toBe(before.versions[field.id])
 
     await file.setInputFiles({
       name: 'recovered.txt',

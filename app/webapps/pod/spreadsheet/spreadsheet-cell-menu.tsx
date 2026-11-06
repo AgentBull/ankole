@@ -29,7 +29,9 @@ const key = (shortcut: string) =>
 
 /**
  * The grid's context menu: clipboard and paste special, inserting and deleting rows, columns, and
- * cells, clearing, freezing from a header, and the actions of a picture.
+ * cells, clearing, filling, freezing from a header, and the actions of a picture. It also names the
+ * grid's painted controls, the active cell's filter or validation list and the floating pictures,
+ * so that keyboard and screen reader users reach them here.
  */
 export function SpreadsheetCellMenu({
   kind,
@@ -37,7 +39,9 @@ export function SpreadsheetCellMenu({
   pageID,
   onLines,
   onResize,
-  picture
+  picture,
+  list,
+  onSelectPicture
 }: {
   kind: MenuKind
   model: SpreadsheetSession
@@ -45,6 +49,10 @@ export function SpreadsheetCellMenu({
   onLines(axis: 'rows' | 'cols', type: 'line.insert' | 'line.delete', after?: boolean): void
   onResize(axis: 'rows' | 'cols', size: 'hidden' | 'unhide' | 'auto'): void
   picture?: PictureActions
+  /** The list that the active cell offers: its filter column's values or its validation entries. */
+  list?: { label: string; open(): void }
+  /** Selects the next floating picture; absent while the sheet has none. */
+  onSelectPicture?(): void
 }) {
   const perform = (op: Record<string, unknown>) =>
     void model.perform({ type: String(op.type), ...op, sheet_id: model.activeSheetID.peek() })
@@ -113,6 +121,15 @@ export function SpreadsheetCellMenu({
 
   return (
     <>
+      {list && (
+        <>
+          <DropdownMenuItem onClick={list.open}>
+            {list.label}
+            <DropdownMenuShortcut>{key('Alt+↓')}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      )}
       <DropdownMenuItem onClick={() => void copySelection(model, pageID, true)}>
         {t('pod.spreadsheet.cut')}
         <DropdownMenuShortcut>{key('Ctrl+X')}</DropdownMenuShortcut>
@@ -200,6 +217,25 @@ export function SpreadsheetCellMenu({
           <DropdownMenuItem onClick={() => void model.clear('all')}>{t('pod.spreadsheet.clear_all')}</DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>{t('pod.spreadsheet.fill')}</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          <DropdownMenuItem onClick={() => void model.fillSelection('down')}>
+            {t('pod.spreadsheet.fill_down')}
+            <DropdownMenuShortcut>{key('Ctrl+D')}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void model.fillSelection('right')}>
+            {t('pod.spreadsheet.fill_right')}
+            <DropdownMenuShortcut>{key('Ctrl+R')}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void model.fillSelection('down', 'series')}>
+            {t('pod.spreadsheet.fill_series_down')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void model.fillSelection('right', 'series')}>
+            {t('pod.spreadsheet.fill_series_right')}
+          </DropdownMenuItem>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
       <DropdownMenuSeparator />
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>{t('pod.spreadsheet.insert_picture')}</DropdownMenuSubTrigger>
@@ -212,6 +248,10 @@ export function SpreadsheetCellMenu({
           </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
+      <DropdownMenuItem disabled={!onSelectPicture} onClick={onSelectPicture}>
+        {t('pod.spreadsheet.select_picture')}
+        <DropdownMenuShortcut>{key('Ctrl+Alt+P')}</DropdownMenuShortcut>
+      </DropdownMenuItem>
       {pictureItems && (
         <>
           <DropdownMenuSeparator />

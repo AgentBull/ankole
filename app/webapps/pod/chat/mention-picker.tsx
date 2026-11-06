@@ -6,7 +6,7 @@ import { useDebouncedValue } from '../../common/use-debounced-value'
 import { agentsQuery, type ConversationDetail } from '../api'
 import { podChatTeammates } from '../api/generated/sdk.gen'
 import { pageSearchQuery } from '../content-api'
-import { pageAncestors } from '../state/page-location'
+import { pagePathAncestors } from '../state/page-location'
 import { ContentError } from '../content-primitives'
 import { PageIcon } from '../page-icon'
 import { teammatesKey } from './room-api'
@@ -99,7 +99,7 @@ export function MentionPicker({
           }))
       : []),
     ...(searching ? [] : pageResults).map(page => {
-      const parent = pageAncestors(page, pagesByID)
+      const parent = pagePathAncestors(page, pagesByID)
         .map(page => page.title || t('pod.content.untitled'))
         .join(' / ')
       return {

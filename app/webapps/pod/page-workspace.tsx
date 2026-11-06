@@ -2,7 +2,7 @@ import { agentsQuery } from './api'
 import { pageDomain, canCreateChild, canRenamePage, canTrashPage } from './state/page-location'
 import { useCanonicalPageUrl, usePageMetadata } from './use-page-metadata'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
-import { PageContent, PageLearning } from './page-content'
+import { PageContent, PageLearningMenuItem } from './page-content'
 import { KnowledgePage } from './knowledge-page'
 import { DocumentInsights } from './document-insights'
 import { DocumentPage } from './document-editor'
@@ -603,6 +603,7 @@ function PageWorkspace({
                     {t('pod.content.move')}
                   </DropdownMenuItem>
                 )}
+                {!accessDenied && <PageLearningMenuItem detail={contentDetail} />}
                 {toolsAvailable && (
                   <DocumentMenuItems
                     detail={detail}
@@ -842,7 +843,6 @@ function PageWorkspace({
                 )}
               </p>
             )}
-            {!accessDenied && <PageLearning detail={contentDetail} />}
             {!accessDenied &&
               (page.type === 'doc' ? (
                 (() => {

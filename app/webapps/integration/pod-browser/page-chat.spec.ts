@@ -76,7 +76,7 @@ test('page chat sends through the real API and reopens the same conversation in 
     await expect(
       panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
     ).toBeVisible()
-    await panel.getByRole('button', { name: '在对话页面打开', exact: true }).click()
+    await panel.getByRole('link', { name: '在对话页面打开', exact: true }).click()
     await expect(page).toHaveURL(url => url.pathname === conversationRoute(id))
     await expect(
       page.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })

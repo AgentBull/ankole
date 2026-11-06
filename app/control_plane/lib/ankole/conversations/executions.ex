@@ -33,7 +33,8 @@ defmodule Ankole.Conversations.Executions do
                      |> Enum.uniq()
                      |> Enum.sort()
                    ),
-                 :ok <- Native.check_human_in_tx(actor) do
+                 :ok <- Native.check_human_in_tx(actor),
+                 :ok <- Native.authorize_agent(actor, run.agent_uid) do
               stop_in_tx(kind, run, actor.principal)
             end
           end,

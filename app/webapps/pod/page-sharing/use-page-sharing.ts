@@ -64,9 +64,9 @@ export function usePageSharing(
 
   const page = initialPage ?? pageDetail.data?.page
   const pageType = page?.type
-  const hasParent = Boolean(page?.parent_id)
   const roles = availableRolesForPage(pageType)
   const activeSharing = sharingQuery.data ?? cachedSharing
+  const hasParent = activeSharing?.has_parent ?? false
   const restricted = activeSharing
     ? activeSharing.scope_kind === 'private' || !activeSharing.inherit_permissions
     : Boolean(page?.private_owner_uid) || page?.inherit_permissions === false

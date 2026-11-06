@@ -330,7 +330,13 @@ defmodule Ankole.Brain.Merge do
              {:ok, moved} <-
                Ankole.Pod.Access.update_anchor_in_tx(node, :move, %{
                  parent_id: canonical.id,
-                 name: Ankole.Pod.Pages.Tree.available_name(canonical.id, node.name, node.id)
+                 name:
+                   Ankole.Pod.Pages.Tree.available_name(
+                     canonical.id,
+                     node.name,
+                     node.id,
+                     node.type
+                   )
                }),
              :ok <- Ankole.Pod.Pages.Lifecycle.move_node_in_tx(node.id, old_path),
              do: {:ok, moved}

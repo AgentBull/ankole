@@ -39,7 +39,7 @@ defmodule Ankole.Pod.Chat.JobItemProjection do
           _ -> []
         end)
         |> Enum.join("\n")
-        |> String.trim()
+        |> human_steer_text()
 
       if text != "", do: %{kind: "steer_message", text: text}
     end
@@ -431,6 +431,21 @@ defmodule Ankole.Pod.Chat.JobItemProjection do
   end
 
   defp summarize_collab_states(_), do: nil
+
+  # The Worker sends Codex the hidden original Human request before the steer, and Codex
+  # echoes that whole input; the inspector shows only the message the Human sent.
+  defp human_steer_text(text) do
+    case String.split(text, "</original_human_request>", parts: 2) do
+      [_hidden, message] ->
+        message
+        |> String.trim_leading()
+        |> String.replace_prefix("Delegated message:", "")
+        |> String.trim()
+
+      [message] ->
+        String.trim(message)
+    end
+  end
 
   defp pod_text(value) when is_binary(value) do
     trimmed = String.trim(value)

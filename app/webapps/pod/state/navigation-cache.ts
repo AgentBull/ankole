@@ -30,7 +30,12 @@ export const navigationQuery = (client: QueryClient, activePageID?: string) => (
         client.setQueryData(key, { pages: [directory], pageParams: [undefined] })
       }
     }
-    return { path: result.path }
+    // Roots own private ownership, so the active path's scope is the root directory holding its top Page's siblings.
+    const top = result.path[0]
+    const scope = result.directories.find(
+      directory => directory.parent_id == null && directory.pages.some(page => page.parent_id === top?.parent_id)
+    )?.scope as NavigationScope | undefined
+    return { path: result.path, scope }
   }
 })
 

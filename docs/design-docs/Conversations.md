@@ -430,12 +430,15 @@ eligibility, and latest summary preview (omitting internal
 job or workflow starts, checkpoints a turn, changes status, or updates a task,
 the control plane publishes a room status event on `GET /conversations/:id/events`
 so open rooms refresh both timeline cards and inspector queries immediately.
-Calling `GET /conversations/:id/executions/:kind/:run_id` accepts
+When the user is loading another inspector page during such a refresh, the
+browser lets that page finish and then rereads every loaded page, so one click
+always adds the requested page. Calling `GET /conversations/:id/executions/:kind/:run_id` accepts
 `background_agent_job` or `workflow` plus a `ModelIntegerID`, verifies current
 room access and Session ownership on every page, and paginates Background Jobs
 with the bounded `TrajectoryReader` cursor and Workflows in call-sequence order.
 For each page, the Pod API returns structured narrative messages, client steer
-messages, reasoning summaries, plan checklists, pending Clarify questions,
+messages as the text the Human sent (without the original Human request that the
+Worker prepends for the model), reasoning summaries, plan checklists, pending Clarify questions,
 subthread summaries, and typed tool steps (`skill`, `command`, `patch`,
 `search`, `collab`, and `tool`), while stripping `<skill>` system prompt bodies
 and hidden model context. When an authorized Human stops a run through

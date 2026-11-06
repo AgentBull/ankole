@@ -272,6 +272,97 @@ test('pictures float over cells, sit in cells, move, convert and survive the dow
   }
 })
 
+test('the keyboard opens the cell and header menus and the filter list, fills, paints formats, and moves pictures', async ({
+  browser
+}) => {
+  const { context, page } = await session(browser)
+  let id: string | undefined
+  try {
+    id = await create(page, '键盘操作.xlsx')
+    const editor = page.getByRole('textbox', { name: /^编辑单元格/ })
+    await enter(page, 0, 0, '1')
+
+    await cell(page, 0, 0)
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Shift+F10')
+    await page.getByRole('menuitem', { name: '填充', exact: true }).hover()
+    await page.getByRole('menuitem', { name: '向下填充序列', exact: true }).click()
+    await saved(page)
+
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('Shift+Space')
+    await page.keyboard.press('Shift+F10')
+    await page.getByRole('menuitem', { name: '冻结至此行', exact: true }).click()
+    await saved(page)
+
+    await cell(page, 0, 0)
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.getByRole('button', { name: '数据', exact: true }).click()
+    await page.getByRole('menuitem', { name: '创建筛选', exact: true }).click()
+    await saved(page)
+    await cell(page, 0, 0)
+    await page.keyboard.press('Alt+ArrowDown')
+    await expect(page.getByRole('dialog').getByText(/^筛选/)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(editor).toBeFocused()
+
+    await page.getByRole('button', { name: '加粗', exact: true }).click()
+    await saved(page)
+    await page.getByRole('button', { name: '格式刷', exact: true }).click()
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Enter')
+    await saved(page)
+    await expect(page.getByRole('button', { name: '加粗', exact: true })).toHaveAttribute('aria-pressed', 'true')
+
+    await page.getByRole('button', { name: '文字颜色', exact: true }).click()
+    await expect(page.getByRole('button', { name: '红色', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+
+    const png = Buffer.from(
+      await page.evaluate(async () => {
+        const canvas = new OffscreenCanvas(60, 40)
+        canvas.getContext('2d')!.fillRect(0, 0, 60, 40)
+        return [...new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer())]
+      })
+    )
+    await cell(page, 5, 0)
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: '插入图片', exact: true }).click()
+    await page.getByRole('menuitem', { name: '浮动图片', exact: true }).click()
+    await (await chooser).setFiles({ name: 'logo.png', mimeType: 'image/png', buffer: png })
+    await saved(page)
+    // The grid reloads its picture list after the save, so the shortcut selects the picture once that list arrives.
+    await expect(async () => {
+      await editor.press('ControlOrMeta+Alt+KeyP')
+      await expect(page.getByRole('status').filter({ hasText: /已选中图片/ })).toBeVisible({ timeout: 1000 })
+    }).toPass()
+    await page.keyboard.press('ArrowRight')
+    await saved(page)
+
+    let workbook = await download(page)
+    try {
+      expect(['A1', 'A2', 'A3'].map(at => workbook.cell_input(1, at))).toEqual(['1', '2', '3'])
+      expect(JSON.parse(workbook.sheets())[0].freeze).toEqual([1, 0])
+      expect(JSON.parse(workbook.images(1))[0]).toMatchObject({ cell: 'B6' })
+    } finally {
+      workbook.free()
+    }
+    await page.keyboard.press('Delete')
+    await saved(page)
+    workbook = await download(page)
+    try {
+      expect(JSON.parse(workbook.images(1))).toHaveLength(0)
+    } finally {
+      workbook.free()
+    }
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})
+
 test('larger fonts grow their row, and Command+Z undoes formats and merges', async ({ browser }) => {
   const { context, page } = await session(browser)
   let id: string | undefined

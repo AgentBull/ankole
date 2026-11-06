@@ -4,6 +4,7 @@ import { ConnectorConfigFields } from '../common/connector-config-fields'
 import {
   Badge,
   Button,
+  buttonVariants,
   Card,
   CardContent,
   CardHeader,
@@ -31,7 +32,7 @@ import { RiCheckLine, RiFileCopyLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
@@ -74,9 +75,9 @@ export function PodSettings() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto grid w-full max-w-5xl content-start gap-6 px-6 pt-2 pb-10">
         <h1 className="text-2xl">{t('pod.settings.title')}</h1>
-        <Button variant="outline" nativeButton={false} render={<Link to="/connectors" />}>
+        <Link to="/connectors" className={buttonVariants({ variant: 'outline' })}>
           {t('pod.connectors.title')}
-        </Button>
+        </Link>
         <Tabs
           value={model.section.value}
           onValueChange={value => {
@@ -141,7 +142,7 @@ function ManagedAgents() {
   )
 }
 
-function ManagedAgent({
+export function ManagedAgent({
   agent,
   onSuccess
 }: {
@@ -149,6 +150,7 @@ function ManagedAgent({
   onSuccess: () => Promise<unknown>
 }) {
   const { t } = useTranslation()
+  const headingID = useId()
   const rename = useMutation({
     mutationFn: (newUID: string) =>
       api.renamePodAgent({ path: { uid: agent.uid }, body: { data: { new_uid: newUID } } }),
@@ -162,10 +164,10 @@ function ManagedAgent({
     onSuccess
   })
   return (
-    <Card>
+    <Card role="group" aria-labelledby={headingID}>
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <h2>{agent.displayName}</h2>
+          <h2 id={headingID}>{agent.displayName}</h2>
           <Badge variant={agent.status === 'active' ? 'success' : 'secondary'}>
             {t(`console.status.${agent.status}`)}
           </Badge>
@@ -177,7 +179,15 @@ function ManagedAgent({
       <CardContent className="grid gap-3">
         <ErrorBlock error={status.error} />
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" disabled={status.isPending} onClick={() => status.mutate()}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label={t(agent.status === 'active' ? 'pod.settings.disable_agent' : 'pod.settings.enable_agent', {
+              name: agent.displayName
+            })}
+            disabled={status.isPending}
+            onClick={() => status.mutate()}>
             {t(agent.status === 'active' ? 'common.disable' : 'common.enable')}
           </Button>
           <PrincipalRename uid={agent.uid} agent mutation={rename} />

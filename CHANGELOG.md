@@ -1,5 +1,59 @@
 # Changelog
 
+## Version 2.0.0-alpha.64 (2026-11-05)
+
+- Stop a room's Background Agent Job or Workflow only when the Human may command
+  its Agent, as the room execution API documents; room members without `chat` on
+  that Agent are refused.
+- Give Pod chat reply suggestions and generated room titles enough output budget
+  for a reasoning `light` model to answer after it reasons, so both keep
+  appearing after the first turn.
+- Load the next page of the Pod chat execution inspector when **Load more** is
+  clicked during a room update, and show steer messages with only the text the
+  Human sent, without the Background Agent Job's hidden instructions or original
+  request.
+- Label each Page picker target, including the move-page dialog, as Space,
+  Private, or Shared with me from its readable root; Page search returns the
+  readable root among each result's ancestors.
+- Keep other Base embeds on a Page visible after an embed that cannot be
+  displayed is removed.
+- Reach every painted spreadsheet control from the keyboard: Shift+F10 or the
+  context-menu key opens the cell, row, column, and picture menus;
+  Shift+Space and Ctrl+Space select rows and columns; Alt+Down opens filter and
+  validation lists; the cell menu adds a **Fill** submenu; Enter applies a held
+  format painter; and Ctrl+Alt+P selects floating pictures, which arrow keys move
+  and Delete removes.
+- Show the active spreadsheet cell's value, formula, and formatting as soon as a
+  spreadsheet opens, replace the previous fill when the fill option changes so
+  **Formatting only** keeps the original values, name colour swatches with
+  translated colour names, and announce presence avatars by full name.
+- Make the Meta Ankole Brain graph's node links follow the nodes after search
+  filtering, zoom, fit view, and layout changes, keep the hidden graph canvas out
+  of the Tab order, and keep toolbar button names on narrow screens.
+- Announce navigation entries styled as buttons as links, name each Agent card in
+  Pod Settings and its Disable, Enable, and Rename UID buttons after the Agent,
+  name each Console model usage table after its heading, and translate the
+  accessible names of file preview line numbers.
+- Label the Feishu connection dialog's service-network select **Domain**, so it
+  no longer shares the **Platform** name with the platform picker.
+- Keep a Pod chat message's Copy, Quote, and Edit buttons clickable when the
+  same author's next message follows directly below it.
+- Open an Agent's private root when the Console Drive is opened from that
+  Agent's files link, so uploading and creating folders work right away; the
+  Drive listing API resolves `owner_uid` without `relative_path` to that root.
+- Validate Console Drive file and folder names in the browser again; the name
+  fields' slash rule is now a valid pattern for current browsers.
+- Move **Learn business facts** into the Page header's more-actions menu for
+  Page managers, so a document title continues straight into its body.
+- Number a file that collides with an existing name before its extension, so a
+  second `report.xlsx` becomes `report (1).xlsx` and still opens and previews as
+  a spreadsheet.
+- Show **Private page** as the access scope, and the Space instead of
+  **Inherit from parent page**, for a Page directly under its Private or Space
+  root in the share dialog; Page sharing reads return `has_parent`.
+- Expand only the active Page's own sidebar section on reload, so opening a
+  Private Page leaves a folded Space folded.
+
 ## Version 2.0.0-alpha.63 (2026-11-05)
 
 - Remove the **Save as page** action on Pod chat messages and multi-message

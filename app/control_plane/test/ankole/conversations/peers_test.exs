@@ -701,6 +701,9 @@ defmodule Ankole.Conversations.PeersTest do
     })
 
     ref = "#{peer_event.id}:clarify:choose-report"
+
+    # Every active Human may chat with a new colleague by default, so the outsider loses that grant first.
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(ctx.colleague.uid)
     outsider = human_fixture().principal
 
     assert {:ok, %{"state" => "pending", "conversation_kind" => "external"}} =

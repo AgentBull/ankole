@@ -381,7 +381,7 @@ defmodule Ankole.Pod.Pages.Tree do
          :ok <- live(parent),
          :ok <- domain_type(parent, attrs[:type]),
          :ok <- valid_name(attrs[:name]),
-         {:ok, name} <- allocate_name(parent.id, attrs.name, nil, opts) do
+         {:ok, name} <- allocate_name(parent.id, attrs.name, nil, attrs[:type], opts) do
       lock_roots(root_ids([parent.id]))
       id = Map.get_lazy(attrs, :id, &Ankole.Ecto.UUIDv7.autogenerate/0)
 
@@ -463,7 +463,7 @@ defmodule Ankole.Pod.Pages.Tree do
          name_supplied? = Ankole.Attrs.get(attrs, :name, :missing) != :missing,
          name = Ankole.Attrs.get(attrs, :name, node.name),
          :ok <- if(name_supplied?, do: valid_name(name), else: :ok),
-         {:ok, name} <- allocate_name(parent.id, name, node.id, opts) do
+         {:ok, name} <- allocate_name(parent.id, name, node.id, node.type, opts) do
       {:ok, old_path} = path(node)
 
       with {:ok, moved} <-
@@ -559,7 +559,7 @@ defmodule Ankole.Pod.Pages.Tree do
          {:ok, restored} <-
            Access.update_anchor_in_tx(node, :restore, %{
              deleted_at: nil,
-             name: available_name(parent.id, node.name, node.id)
+             name: available_name(parent.id, node.name, node.id, node.type)
            }),
          :ok <- Ankole.Pod.Pages.Lifecycle.restore_node_in_tx(id),
          :ok <- restore_descendants_in_tx(actor, restored),
@@ -694,7 +694,7 @@ defmodule Ankole.Pod.Pages.Tree do
         WHERE child.tenant_id = $1::text::uuid AND child.id = ANY($2::text[]::uuid[])
         UNION SELECT parent.id, parent.parent_id FROM pages parent
         JOIN ancestors child ON parent.id = child.parent_id WHERE parent.tenant_id = $1::text::uuid
-      ) SELECT id::text FROM ancestors WHERE parent_id IS NOT NULL
+      ) SELECT id::text FROM ancestors
       """,
       [Repo.tenant_id!(), ids]
     ).rows
@@ -806,11 +806,20 @@ defmodule Ankole.Pod.Pages.Tree do
     truncate_name(name, 255)
   end
 
-  def available_name(parent_id, name, exclude_id \\ nil) do
+  def available_name(parent_id, name, exclude_id \\ nil, type \\ nil) do
+    # A file keeps its extension last, so a second "report.txt" becomes "report (1).txt".
+    extension = if type in [:file, "file"], do: Path.extname(name), else: ""
+    stem = binary_part(name, 0, byte_size(name) - byte_size(extension))
+
     Stream.iterate(0, &(&1 + 1))
     |> Enum.find_value(fn index ->
-      suffix = if index == 0, do: "", else: " (#{index})"
-      candidate = truncate_name(name, 255 - byte_size(suffix)) <> suffix
+      candidate =
+        if index == 0 do
+          truncate_name(name, 255)
+        else
+          suffix = " (#{index})" <> extension
+          truncate_name(stem, 255 - byte_size(suffix)) <> suffix
+        end
 
       query =
         Node
@@ -821,7 +830,7 @@ defmodule Ankole.Pod.Pages.Tree do
     end)
   end
 
-  defp allocate_name(parent_id, name, exclude_id, opts) do
+  defp allocate_name(parent_id, name, exclude_id, type, opts) do
     if Keyword.get(opts, :exact_name, false) do
       case child(parent_id, name) do
         {:error, :not_found} -> {:ok, name}
@@ -829,7 +838,7 @@ defmodule Ankole.Pod.Pages.Tree do
         {:ok, _} -> {:error, :name_conflict}
       end
     else
-      {:ok, available_name(parent_id, name, exclude_id)}
+      {:ok, available_name(parent_id, name, exclude_id, type)}
     end
   end
 

@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  buttonVariants,
   Card,
   CardHeader,
   CardContent,
@@ -102,9 +103,9 @@ export function AccountSettings() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto grid w-full max-w-3xl content-start gap-6 px-6 pt-2 pb-10">
         <h1 className="text-2xl">{t('pod.account.title')}</h1>
-        <Button variant="outline" nativeButton={false} render={<Link to="/connectors" />}>
+        <Link to="/connectors" className={buttonVariants({ variant: 'outline' })}>
           {t('pod.connectors.title')}
-        </Button>
+        </Link>
         <ErrorBlock error={accountError} />
         {needsReauthentication && (
           <Button variant="outline" disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>

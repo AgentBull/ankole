@@ -234,7 +234,7 @@ export function AgentFilesPage() {
               <Input
                 autoFocus
                 required
-                pattern="[^/]+"
+                pattern="[^\/]+"
                 value={newFolder ?? ''}
                 onChange={event => setNewFolder(event.target.value)}
               />
@@ -333,7 +333,7 @@ function NodeRow({
                 variant="inline"
                 autoFocus
                 required
-                pattern="[^/]+"
+                pattern="[^\/]+"
                 aria-label={t('console.agent_files.name')}
                 value={rename}
                 disabled={pending}

@@ -84,21 +84,17 @@ test('room navigation persists pinning, text search, one inline rename and an in
 }, info) => {
   const { context, page } = await ownerPage(browser)
   const id = material!.conversation_id
+  let original: string | undefined
   try {
     await page.goto(conversationRoute(id))
     const header = page.locator('.pod-room-header')
     await expect(header).toBeVisible()
-    const original = (await detail(page)).conversation.title
+    original = (await detail(page)).conversation.title
     const row = page.locator('.pod-chat-row').filter({ has: page.locator(`a[href="${conversationRoute(id)}"]`) })
     await row.getByRole('button', { name: /的操作$/ }).click()
     await page.getByRole('menuitem', { name: '置顶', exact: true }).click()
     await expect.poll(async () => (await detail(page)).conversation.viewer.pinned).toBe(true)
-    await expect(
-      page
-        .locator('.pod-chat-sidebar > section')
-        .filter({ has: row })
-        .getByRole('heading', { name: '置顶', exact: true })
-    ).toBeVisible()
+    await expect(page.getByRole('region', { name: '置顶', exact: true }).filter({ has: row })).toBeVisible()
     await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
     const command = page.getByRole('dialog', { name: '搜索或跳转', exact: true })
     await command.getByRole('combobox', { name: '搜索或跳转', exact: true }).fill('verified evidence')
@@ -142,8 +138,21 @@ test('room navigation persists pinning, text search, one inline rename and an in
     await page.keyboard.press('Escape')
     await page.reload()
     await expect(header.locator('.pod-chat-header-title')).toHaveText('Workspace UX review')
-    await request(page, `/conversations/${id}`, 'PATCH', { title: original, pinned: false })
   } finally {
+    // The fixture server outlives this test, so every run returns the room to its seeded state.
+    if (original !== undefined) {
+      await request(page, `/conversations/${id}`, 'PATCH', { title: original, pinned: false })
+      const room = (await detail(page)).conversation
+      if (room.participants.some(person => person.uid === state.member.uid)) {
+        await request(page, `/conversations/${id}/participants`, 'POST', { removeUIDs: [state.member.uid] })
+      }
+      if (room.agents.find(agent => agent.uid === material!.colleague_uid)?.mayIntervene) {
+        await request(page, `/conversations/${id}/participants`, 'POST', {
+          agentUID: material!.colleague_uid,
+          mayIntervene: false
+        })
+      }
+    }
     await context.close()
   }
 })
@@ -831,7 +840,8 @@ test('an older pending decision stays actionable and a referenced answer preserv
     await page.getByRole('option').filter({ hasText: 'Chat workspace reference' }).click()
     await input.pressSequentially(' for this answer.')
     await input.pressSequentially(' @Browser member')
-    await page.getByRole('option').filter({ hasText: 'Browser member' }).click()
+    // The person, not a page whose title merely starts with the same name; a non-participant carries the invite hint.
+    await page.getByRole('option', { name: /^Browser member(?: 邀请并点名)?$/ }).click()
     const quoted = initial.messages.findLast(message => message.authorType === 'human')!
     const quotedRow = page.locator(`[data-chat-message-id="${quoted.id}"]`)
     await quotedRow.hover()

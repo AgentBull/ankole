@@ -38,7 +38,7 @@ import { PermanentDeletePageDialog, usePagePurge } from './page-actions'
 import { CreatePageButton } from './page-create-menu'
 import { PageIcon } from './page-icon'
 import { mergeRecentEntries } from './state/navigation'
-import { pageAncestors } from './state/page-location'
+import { pagePathAncestors } from './state/page-location'
 
 /** Retention 0 keeps Trash rows, and a started purge already shows its own state. */
 function purgeDays(page: Page, retentionDays: number | null | undefined, t: TFunction): string {
@@ -164,7 +164,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
             <PageListItem
               key={page.id}
               page={page}
-              ancestors={rootScope ? [] : pageAncestors(page, knownPages)}
+              ancestors={rootScope ? [] : pagePathAncestors(page, knownPages)}
               showPrivateBadge={!rootScope && Boolean(page.private_owner_uid)}
               timestamp={
                 rootScope
@@ -277,7 +277,7 @@ function RecentContentList() {
               <PageListItem
                 key={`page:${entry.id}`}
                 page={entry.page}
-                ancestors={pageAncestors(entry.page, knownPages)}
+                ancestors={pagePathAncestors(entry.page, knownPages)}
                 showPrivateBadge={Boolean(entry.page.private_owner_uid)}
                 timestamp={formatRelativeTime(entry.timestamp, i18n.language)}
               />

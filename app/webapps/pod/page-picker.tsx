@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query'
 import { pageSearchQuery, type Page, type PageSearchOptions } from './content-api'
 import { ContentError } from './content-primitives'
 import { PageIcon } from './page-icon'
-import { pageAncestors } from './state/page-location'
+import { pagePathAncestors } from './state/page-location'
 
 type Location = { id: string; title: string; private?: boolean }
 
@@ -55,17 +55,17 @@ export function PagePicker({
   const visibleRoots = roots.filter(root => root.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
   const byID = new Map([...pages, ...ancestors].map(page => [page.id, page]))
   const parentTitle = (page: Page) => {
-    const chain = pageAncestors(page, byID)
-    const root = chain[0] ?? page
-    const ancestors = chain
-      .filter(parent => domain === 'brain' || parent.parent_id != null)
-      .map(parent => parent.title || t('pod.content.untitled'))
+    const chain = pagePathAncestors(page, byID)
+    const top = chain[0] ?? page
+    // Search returns the root only when the reader can view it, so a missing root means a share.
+    const root = top.parent_id ? byID.get(top.parent_id) : undefined
+    const ancestors = chain.map(parent => parent.title || t('pod.content.untitled'))
     const scope =
       domain === 'brain'
         ? t('pod.meta.brain')
-        : root.private_owner_uid
+        : root?.private_owner_uid
           ? t('pod.content.private')
-          : root.parent_id == null
+          : root
             ? t('pod.content.space')
             : t('pod.content.shared_with_me')
     return ancestors.length > 0 ? `${scope} / ${ancestors.join(' / ')}` : scope

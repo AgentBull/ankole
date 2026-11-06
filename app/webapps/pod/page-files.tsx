@@ -894,7 +894,7 @@ function TextFilePreview({
                   type="button"
                   disabled={!canComment}
                   onClick={event => selectLine(lineNum, event.shiftKey)}
-                  aria-label={`Line ${lineNum}`}
+                  aria-label={t('pod.document.line_number', { line: lineNum })}
                   className="mr-3 w-10 shrink-0 select-none text-right text-fg-tertiary enabled:cursor-pointer enabled:hover:text-foreground">
                   {lineNum}
                 </button>

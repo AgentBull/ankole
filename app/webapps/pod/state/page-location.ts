@@ -1,6 +1,7 @@
 import { podPagePath } from '../../common/pod-url'
 import type { Page } from '../content-api'
 
+/** The loaded ancestors, including the system root, from the top down to the parent. */
 export function pageAncestors(page: Page, byID: ReadonlyMap<string, Page>): Page[] {
   const visited = new Set([page.id])
   const ancestors: Page[] = []
@@ -11,6 +12,11 @@ export function pageAncestors(page: Page, byID: ReadonlyMap<string, Page>): Page
     parent = parent.parent_id ? byID.get(parent.parent_id) : undefined
   }
   return ancestors
+}
+
+/** The loaded ancestors that a path label names: every ancestor below the system root. */
+export function pagePathAncestors(page: Page, byID: ReadonlyMap<string, Page>): Page[] {
+  return pageAncestors(page, byID).filter(parent => parent.parent_id != null)
 }
 
 type PageStructure = Pick<Page, 'system_key' | 'is_root' | 'deleted_at' | 'purge_started_at'> &

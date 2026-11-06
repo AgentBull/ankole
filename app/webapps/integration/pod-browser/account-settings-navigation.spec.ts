@@ -14,7 +14,7 @@ test('self rename keeps this tab identity and self-management restrictions curre
       .locator('[data-slot="card"]')
       .filter({ has: page.getByRole('heading', { name: 'Browser owner', exact: true }) })
     await expect(self.getByRole('button', { name: '暂停访问', exact: true })).toBeDisabled()
-    await self.getByRole('button', { name: '更改 UID', exact: true }).click()
+    await self.getByRole('button', { name: /^更改 UID：/ }).click()
     const dialog = page.getByRole('dialog')
     await dialog.getByLabel('新 UID', { exact: true }).fill(renamed)
     await dialog.getByRole('button', { name: '更改 UID', exact: true }).click()

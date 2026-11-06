@@ -26,7 +26,7 @@ import { agentsQuery, conversationSearchQuery } from './api'
 import { pageSearchQuery } from './content-api'
 import { ContentError, scopeIcons, scopeLabels, typeLabels } from './content-primitives'
 import { PageIcon } from './page-icon'
-import { pageAncestors } from './state/page-location'
+import { pagePathAncestors } from './state/page-location'
 import { useChatDrafts } from './chat-drafts'
 import { ChatAvatar } from './chat/chat-avatar'
 import { AgentName, ConversationGlyph, ConversationTitle, conversationLabel } from './chat/conversation-row'
@@ -207,7 +207,7 @@ export function PodCommandMenu({
                 <CommandGroup heading={t('pod.content.all_pages')}>
                   {pageResults.map(page => {
                     const title = page.title || t('pod.content.untitled')
-                    const parent = pageAncestors(page, pagesByID)
+                    const parent = pagePathAncestors(page, pagesByID)
                       .map(page => page.title || t('pod.content.untitled'))
                       .join(' / ')
                     return (

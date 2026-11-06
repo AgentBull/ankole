@@ -178,7 +178,7 @@ afterEach(() => {
 async function started(
   socket: ReturnType<typeof fakeChannel>,
   engine: SpreadsheetEngine,
-  options: { loads?: number[]; canEdit?: boolean } = {}
+  options: { loads?: number[]; canEdit?: boolean; observe?: (model: SpreadsheetSession) => void } = {}
 ) {
   const notices: SpreadsheetNotice[] = []
   const revisions = [...(options.loads ?? [0])]
@@ -201,6 +201,7 @@ async function started(
     notify: notice => notices.push(notice)
   })
   models.push(model)
+  options.observe?.(model)
   await model.start()
   await until(() => socket.pushes.some(push => push.event === 'sheet:sync'))
   return { model, notices, loads: () => loads }
@@ -664,6 +665,49 @@ test('fills, pastes, and Ctrl+Enter are undoable value edits, and pasting a cut 
     { type: 'range.fill', sheet_id: 1, range: 'C1', to: 'C1:C3', mode: 'copy' },
     { type: 'range.fill', sheet_id: 1, range: 'C1:C3', to: 'C1:D3', mode: 'copy' }
   ])
+})
+
+test('the document version changes once the workbook is ready, so views read while it loaded read it again', async () => {
+  const { engine } = fakeEngine()
+  let published: number | undefined
+  let ready: number | undefined
+  await started(fakeChannel(), engine, {
+    observe: model => {
+      // The page shows the toolbar and the grid as soon as the sheets arrive, before the reads work.
+      model.sheets.subscribe(list => {
+        if (list.length && published === undefined) published = model.version.peek()
+      })
+      model.status.subscribe(status => {
+        if (status === 'ready') ready = model.version.peek()
+      })
+    }
+  })
+  expect(ready).toBeGreaterThan(published!)
+})
+
+test('each fill option replaces the fill before it, so formatting only keeps the values from before the fill', async () => {
+  let values = ''
+  const { engine } = fakeEngine({ inputs: rect => Array.from({ length: rect.r1 - rect.r0 + 1 }, () => [values]) })
+  const apply = engine.applyLocal
+  engine.applyLocal = async op => {
+    if (op.type === 'range.set_values') values = String((op.values as (string | null)[][])[0]![0] ?? '')
+    if (op.type === 'range.fill' && op.mode !== 'formats') values = `${String(op.mode)} fill`
+    return apply(op)
+  }
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model } = await started(socket, engine)
+  const source = { r0: 0, c0: 0, r1: 1, c1: 0 }
+  const target = { r0: 0, c0: 0, r1: 4, c1: 0 }
+  await model.fill(source, target)
+  await model.refill(source, target, 'copy')
+  expect(values).toBe('copy fill')
+  await model.refill(source, target, 'series')
+  expect(values).toBe('series fill')
+  await model.refill(source, target, 'formats')
+  expect(values).toBe('')
+  // The options replaced one another, so one undo puts the cells back as they were before the drag.
+  await model.undo()
+  expect(model.canUndo.value).toBe(false)
 })
 
 test('the format painter repeats the held formats over the target and lets go unless it is sticky', async () => {

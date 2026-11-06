@@ -1,6 +1,14 @@
 import { expect, test } from 'bun:test'
 import type { Page } from '../content-api'
-import { canChangePageStructure, canCreateChild, moveDestinations, pageDomain, pageLocation } from './page-location'
+import {
+  canChangePageStructure,
+  canCreateChild,
+  moveDestinations,
+  pageAncestors,
+  pageDomain,
+  pageLocation,
+  pagePathAncestors
+} from './page-location'
 
 function page(id: string, actions: Page['actions'], parent_id: string | null = null, extra: Partial<Page> = {}): Page {
   return {
@@ -73,4 +81,13 @@ test('Brain objects, file attachments and ontology containers keep their own des
       })
     )
   ).toBe(false)
+})
+
+test('a page under the Brain root stays in Brain, while its path label leaves out the root', () => {
+  const root = page('brain', ['node_view'], null, { system_key: 'ankole_brain', title: 'Brain' })
+  const folder = page('folder', ['node_view'], 'brain')
+  const note = page('note', ['node_view'], 'folder')
+  const byID = new Map([root, folder, note].map(item => [item.id, item]))
+  expect(pageDomain(note, pageAncestors(note, byID))).toBe('brain')
+  expect(pagePathAncestors(note, byID).map(item => item.id)).toEqual(['folder'])
 })

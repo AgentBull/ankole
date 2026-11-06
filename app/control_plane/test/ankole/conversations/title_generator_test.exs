@@ -77,6 +77,8 @@ defmodule Ankole.Conversations.TitleGeneratorTest do
 
     assert_receive {:title_request, body}
     assert body["text"]["format"]["name"] == "pod_conversation_title"
+    # A reasoning light model must have budget left for the title after it reasons.
+    assert body["max_output_tokens"] >= 2_000
     prompt_input = body["input"] |> hd() |> Map.fetch!("content") |> hd() |> Map.fetch!("text")
     assert prompt_input =~ "<user_message>\n#{long_prompt}\n</user_message>"
 

@@ -994,7 +994,7 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
 
     {:ok, movable} = Ankole.Pod.Pages.create(actor, %{title: "Movable Space Page"})
 
-    assert %{"scope_kind" => "space"} =
+    assert %{"scope_kind" => "space", "has_parent" => false} =
              owner
              |> send_json(:patch, "/pages/#{movable.id}/sharing", %{
                upserts: [%{principal_uid: guest.uid, role: "view", target_scope: "container"}]
@@ -1010,6 +1010,13 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
       |> json_response(200)
 
     assert moved_sharing["scope_kind"] == "private"
+    assert moved_sharing["has_parent"]
+
+    assert %{"scope_kind" => "private", "has_parent" => false} =
+             owner
+             |> recycle_json()
+             |> get("/api/v2/pod/pages/#{private_root.id}/sharing")
+             |> json_response(200)
 
     assert %{"inactive_in_private" => true} =
              Enum.find(moved_sharing["grants"], &(&1["principal_uid"] == guest.uid))

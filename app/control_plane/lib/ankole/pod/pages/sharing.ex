@@ -79,6 +79,7 @@ defmodule Ankole.Pod.Pages.Sharing do
        %{
          can_manage: can_manage,
          scope_kind: scope_kind,
+         has_parent: has_parent?(path),
          space_name: Collaborators.current_space_name(),
          space_role: space_role,
          inherit_permissions: page.inherit_permissions,
@@ -276,6 +277,11 @@ defmodule Ankole.Pod.Pages.Sharing do
   defp sharing_provenance(_actor, _id, _reachable, false), do: {:ok, []}
 
   defp scope_kind([root | _]), do: if(root.private_owner_uid, do: :private, else: :space)
+
+  # Pages directly under the Space or a Private root inherit from that root, not from a parent Page.
+  defp has_parent?([%{conversation_id: nil, system_key: nil}, _page]), do: false
+  defp has_parent?([_root]), do: false
+  defp has_parent?(_path), do: true
 
   defp authorize_sharing_read(path, page, reachable) do
     if Enum.any?(path, & &1.deleted_at) do

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MutationObserver, QueryClient, QueryObserver } from '@tanstack/react-query'
+import { InfiniteQueryObserver, MutationObserver, QueryClient, QueryObserver } from '@tanstack/react-query'
 import type { ConversationDetail } from '../api'
 import { podKeys } from '../api'
 import { metaKeys } from '../meta-api'
@@ -502,6 +502,41 @@ describe('Pod remote cache ordering', () => {
       await first.promise
       await Promise.resolve()
       expect(query.getCurrentResult().data?.conversations).toHaveLength(1)
+    } finally {
+      unsubscribe()
+      queryClient.clear()
+    }
+  })
+
+  test('a room event keeps the execution page the user asked for and rereads it with the first page', async () => {
+    const queryClient = client()
+    const nextPage = Promise.withResolvers<{ items: string[]; nextCursor: string | null }>()
+    const requests: (string | null)[] = []
+    const aborted: (string | null)[] = []
+    const query = new InfiniteQueryObserver(queryClient, {
+      queryKey: [...podKeys.detail('conversation'), 'execution', 'workflow', '1'],
+      initialPageParam: null as string | null,
+      queryFn: ({ pageParam, signal }) => {
+        requests.push(pageParam)
+        signal.addEventListener('abort', () => aborted.push(pageParam))
+        if (pageParam === 'older' && requests.length === 2) return nextPage.promise
+        return Promise.resolve(
+          pageParam ? { items: ['older'], nextCursor: null } : { items: ['latest'], nextCursor: 'older' }
+        )
+      },
+      getNextPageParam: page => page.nextCursor ?? undefined
+    })
+    const unsubscribe = query.subscribe(() => {})
+    try {
+      await query.refetch()
+      const loading = query.fetchNextPage()
+      const refreshed = refreshConversationQueries(queryClient, 'conversation')
+      nextPage.resolve({ items: ['older'], nextCursor: null })
+      await loading
+      await refreshed
+      expect(aborted).toEqual([])
+      expect(query.getCurrentResult().data?.pages.flatMap(page => page.items)).toEqual(['latest', 'older'])
+      expect(requests).toEqual([null, 'older', null, 'older'])
     } finally {
       unsubscribe()
       queryClient.clear()

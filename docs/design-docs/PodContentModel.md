@@ -700,7 +700,10 @@ rows.
 
 Tree navigation uses Ash keyset pagination over position, name and ID. Public
 and private lists select children of their corresponding Drive roots. Root
-nodes themselves are omitted from Pod page search and lists. Timestamps use
+nodes themselves are omitted from Pod page search results and lists. Search
+returns, alongside its results, every ancestor the caller can view, including a
+viewable root, so Page pickers label each result as Space, Private, or Shared with
+me; path labels start below the root. Timestamps use
 `Ankole.Ash.Types.Timestamptz` with microsecond precision.
 
 Each directory entry includes `has_children`, indicating whether the caller can
@@ -720,7 +723,8 @@ When the directory identifies a leaf, the browser closes it without fetching a
 child list. Branch choices stay in the current browser document. On reload,
 `pages.navigation` returns Space and Private roots, the visible active Page path,
 and the first child-list page for each ancestor in one response. These reads share
-one evaluated authorization context for the executing subject. The browser expands only that path; section
+one evaluated authorization context for the executing subject. The browser expands only that path and
+its section, which it identifies as the root directory whose rows share the path's top Page parent; section
 folding preferences remain scoped to the Pod and authentication. A path node beyond
 the first 200 siblings appears alongside the loaded directory rows, with duplicates
 removed as pagination reaches it. Dragging can target these path nodes; step-up and
@@ -897,7 +901,9 @@ Within the domain:
   `GET /api/v2/pod/pages/:id/sharing` (`Sharing.sharing/2`, also backing
   `pages.sharing`) authorizes callers who hold `node_view` or `node_manage` on a
   live Page, returning `can_manage`, `scope_kind` (`space` or `private`),
-  `space_name`, `space_role`, inherited collaborator provenance (`space_admin`,
+  `has_parent` (whether the Page sits below another Page rather than directly
+  under the Space root or a Private root, which the share dialog uses to label
+  the access scope), `space_name`, `space_role`, inherited collaborator provenance (`space_admin`,
   `space_default`, `space_agent`, `private_owner`, and `ancestor`), and local
   `grants`. Each local grant carries an authoritative `rule_kind` (`role` for
   unconditional Principal or group grants matching a canonical action bundle in
@@ -1032,8 +1038,9 @@ malformed responses as errors. Graph nodes and backlinks subscribe to the shared
 Page title and icon projection; queries still own authorization, membership and
 relationship refreshes.
 
-Public business Pages expose a **Learn business facts** switch to their
-managers (`node_manage`). The setting updates `metadata.extract_facts` through
+Public business Pages offer their managers (`node_manage`) a **Learn business
+facts** toggle in the Page header's more-actions menu, so the title flows
+straight into the body. The setting updates `metadata.extract_facts` through
 the ordinary Page update operation. Enabling it queues existing documents and
 eligible knowledge throughout the subtree as well as future edits. A child
 Page reports when learning is enabled by an ancestor. Disabling it stops
@@ -1546,45 +1553,66 @@ content, generate VFS projections, or merge knowledge.
 
 ### Agent document reads and writes
 
-Agents read business content within the current requester and room disclosure
-boundary. The broker evaluates each reader's conditional grants with the trusted
-ingress IP and RPC surface carried by the executing actor. Applet Action attempts use their enabling Human or Page owner and their live
-attempt fence.
-Document reads return Markdown, revision, and resolved `references` metadata
-for any `<mention />` targets visible to the caller via `ankole-pod pages.read`,
-which holds a shared page lock across the content read (and across any revision
-replay up to the revision captured under that lock).
+Agents read and write business Pages with the executing Agent's business
+permissions: a personal assistant uses its owner's permissions and an AI
+colleague uses its own, as [AuthZ](AuthZ.md) defines for every business
+resource. `Ankole.Pod.AgentPages.business_visibility/2` computes the reachable
+anchors for those reads. Only Brain knowledge pages additionally apply the
+intersection of the Agent, requester, and strict conversation audience. The
+broker evaluates each reader's conditional grants with the trusted ingress IP
+and RPC surface carried by the executing actor. Applet Action attempts use their
+enabling Human or Page owner and their live attempt fence.
+
+`ankole-pod pages.read` holds a shared page lock across the content read. For a
+document, the control plane exports the stored XML to Markdown with the Rust
+document codec (`Kernel.vfs_document_export/1`), which marks every block with an
+`<!-- ankole:block id="…" kind="…" -->` anchor and keeps rich blocks as opaque
+anchors. The control plane then sends that Markdown to the Worker as a file over
+the signed WorkerFiles relay and returns the revision together with resolved
+`references` metadata for any `<mention />` targets visible to the caller.
+Knowledge pages return their OKF Markdown inline.
 
 `pages.create` accepts a document's initial Markdown with its title and parent.
-The broker converts the Markdown through the kernel's document parser, then
-`Pages.create` commits the Page and its body together. Knowledge creation uses
-the Brain write contract and a parent within the ontology tree.
+The broker parses the Markdown with the same Rust codec
+(`Kernel.vfs_document_reconcile/2` against an empty page), and `Pages.create`
+then commits the Page and its body together. Knowledge creation uses the Brain
+write contract and a parent within the ontology tree.
 
-For `pages.write`, the Worker parses Markdown and prints XML using the shared
-editor parser/printer, and streams the XML bytes over the signed WorkerFiles
-relay rather than consuming the RuntimeFabric RPC frame budget. On the control
-plane, `Documents.write` pre-validates the XML before opening the write
-transaction, verifies Agent write authority, acquires the page row lock, and
-checks page access, page type, and `base_revision` before either returning an
-XML validation error or committing the parsed document. Under that page lock,
-the Rust kernel computes a minimal ChangeSet—aligning unchanged blocks first,
-then diffing changed child nodes and UTF-16 text spans with Myers diff without
-ever splitting surrogate pairs—and verifies that applying the ChangeSet
-reproduces the target document. Paragraph and heading conversions, heading-level
-changes, data-cell and header-cell conversions, and bullet-list and ordered-list
-conversions replace only the opening token while diffing their content in place.
-This keeps pending human text inside the converted block and preserves comment
-anchors on retained content. If the content changed, the transaction writes a
-`PageChange` row with `client_id = "server:" <> principal_uid` and
-`client_seq = new_revision` (browsers cannot claim the reserved `server:`
-prefix); no-op writes leave the current revision unchanged.
+For `pages.write`, the Worker CLI bridge writes the Agent's Markdown unchanged
+to a file and streams it over the signed WorkerFiles relay, so document bytes
+stay outside the RuntimeFabric RPC frame budget. The broker first authorizes
+`node_edit` on the Page, and `Documents.edit_markdown/6` then runs inside the
+Agent's write authority. Under the page row lock it checks the page type and
+`base_revision`, and `Kernel.vfs_document_reconcile/2` reconciles the Markdown
+against the current XML by its `ankole:block` anchors: unchanged anchored
+subtrees, including rich blocks, keep their stored XML, edited blocks take the
+new Markdown, and a damaged or changed opaque anchor returns an error.
+`Documents.write_in_tx` then preserves comment anchors on retained content.
+Knowledge pages instead save through the Brain write contract
+(`Ankole.Pod.AgentPages.save/5`).
 
-Two higher-level Agent commands build on the same revision check and diff path:
-`pages.append` appends Markdown blocks at `base_revision`, and `pages.patch`
-reads Markdown at `base_revision`, applies exact string replacements, and
-submits the resulting XML against that revision—rejecting the patch if a target
-string is missing or matches multiple locations without `replace_all`, and
-returning a revision conflict on any concurrent commit.
+Under that page lock, the Rust kernel computes a minimal ChangeSet—aligning
+unchanged blocks first, then diffing changed child nodes and UTF-16 text spans
+with Myers diff without ever splitting surrogate pairs—and verifies that
+applying the ChangeSet reproduces the target document. Paragraph and heading
+conversions, heading-level changes, data-cell and header-cell conversions, and
+bullet-list and ordered-list conversions replace only the opening token while
+diffing their content in place. This keeps pending human text inside the
+converted block and preserves comment anchors on retained content. If the
+content changed, the transaction writes a `PageChange` row with
+`client_id = "server:" <> principal_uid` and `client_seq = new_revision`
+(browsers cannot claim the reserved `server:` prefix); no-op writes leave the
+current revision unchanged.
+
+Two higher-level Agent commands build on the same revision check and diff path.
+`pages.append` sends a Markdown fragment that the control plane parses on its
+own and appends at `base_revision`; knowledge pages reject it. `pages.patch`
+runs in the Worker CLI bridge: the bridge reads the document, fails if its
+revision differs from `base_revision`, applies exact string replacements to the
+anchored Markdown, and submits the result as `pages.write` against that
+revision. The bridge rejects the patch if a target string is missing or matches
+multiple locations without `replace_all`, and the control plane returns a
+revision conflict on any concurrent commit.
 
 ### Realtime socket, OT batches, and IME composition
 
@@ -2281,11 +2309,14 @@ and including the active row, column, or cell, and a row or column header's
 context menu freezes up to that line; a heavier line marks the frozen panes.
 
 The fill handle at the selection's corner drags out a `range.fill` in series
-mode, and a button at the filled range then offers copying instead or formats
-only, which first undoes the fill's values. Double-clicking the handle fills
-down as far as the data in the column beside the selection reaches. Ctrl+D and
-Ctrl+R copy the first row or column of the selection over the rest, and
-Ctrl+Enter writes the draft into every selected cell, moving a formula's
+mode, and a button at the filled range then offers copying instead, the series
+again, or formats only. Each choice replaces the fill before it: while that fill
+is still this tab's latest undo step, the editor undoes it first, so formats
+only leaves the values that the cells held before the drag. Double-clicking the
+handle fills down as far as the data in the column beside the selection
+reaches. Ctrl+D and Ctrl+R copy the first row or column of the selection over
+the rest, the context menu's **Fill** submenu offers the same fills and
+continues that row or column as a series instead, and Ctrl+Enter writes the draft into every selected cell, moving a formula's
 relative references with each. A copy writes the displayed text as
 tab-separated values and an HTML table whose `data-ankole-spreadsheet`
 attribute carries the kernel's copied block with its source page, sheet, and
@@ -2298,7 +2329,8 @@ system clipboard when the browser allows and this tab's last copy otherwise.
 The context menu also inserts or deletes rows, columns, and cells in a chosen
 direction and clears contents, formats, or both, and the format painter
 repeats the formats of the selection it took over the next selection, or over
-every selection until Escape when double-clicked.
+every selection until Escape when double-clicked. While the painter holds
+formats, Enter paints them over the selection that the keyboard made.
 
 Pictures enter from the toolbar or the context menu, from a pasted image, or
 from an image file dropped on a cell, which places it in that cell. The editor
@@ -2309,6 +2341,21 @@ dragging moves it, its corner handles resize it with its proportions kept,
 Delete removes it, and its context menu places it in its cell, shows it full
 size, or downloads it. A cell picture is drawn inside its cell with its
 proportions kept, and its context menu lifts it out over the cells.
+
+The canvas paints the headers, the filter buttons, the list arrow, the fill
+handle, and the floating pictures, so each of them also has a keyboard path from
+the cell editor, which keeps focus while no cell is edited. Shift+F10 or the
+context-menu key opens the context menu where the selection shows: on the
+selected picture, on the header of whole selected rows or columns, or else on
+the active cell. Shift+Space selects the rows of the selection and Ctrl+Space
+its columns, so the row and column header menus open the same way. Alt+Down
+opens the value list of a filter's header cell, or else the entries of the
+active cell's list validation, and the cell menu names that list as its first
+entry; the list gives focus back to the grid when it closes. Ctrl+Alt+P
+(Command+Option+P on Apple platforms) and the cell menu's **Select next
+picture** select the sheet's floating pictures in turn. A status message then
+names the selected picture, the arrow keys move it by one cell, Delete removes
+it, Shift+F10 opens its menu, and Escape returns to the cells.
 
 Undo and redo are personal, and each step may apply several operations. Before
 this tab types into, pastes over, fills, or clears cells, or puts a picture into
