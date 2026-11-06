@@ -6,7 +6,7 @@ defmodule AnkoleWeb.SiteAdminConsole do
   @default_path "/site-admin-console"
 
   @host_policy Application.compile_env(:ankole, :host_policy)
-  @protocol_roots ~w(api oauth sessions setup webhooks signals internal runtime-fabric dev meta .well-known)
+  @protocol_roots ~w(api oauth sessions setup internal runtime-fabric dev meta .well-known)
 
   def path do
     if dedicated_host?(),
@@ -77,13 +77,20 @@ defmodule AnkoleWeb.SiteAdminConsole do
       List.first(conn.path_info) in @route ->
         raise Phoenix.Router.NoRouteError, conn: conn, router: AnkoleWeb.Router
 
-      String.downcase(conn.host) == host and List.first(conn.path_info) not in @protocol_roots ->
+      String.downcase(conn.host) == host and not protocol_path?(conn.path_info) ->
         %{conn | path_info: @route ++ conn.path_info}
 
       true ->
         conn
     end
   end
+
+  # The Console's Signals and Webhooks pages share their first segment with inbound
+  # protocol endpoints, which always continue below a version or handler segment.
+  defp protocol_path?(["signals", "v1" | _]), do: true
+  defp protocol_path?(["webhooks", _ | _]), do: true
+  defp protocol_path?([root | _]), do: root in @protocol_roots
+  defp protocol_path?([]), do: false
 
   defp rewrite_mount(conn) do
     mount = String.split(path(), "/", trim: true)
