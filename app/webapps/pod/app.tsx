@@ -36,6 +36,7 @@ import { StandaloneActionCardDialog } from './chat/standalone-action-card-dialog
 import { StandaloneInteractionDialog } from './chat/standalone-interaction-dialog'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
 import { SidebarLayoutModel } from './state/sidebar-layout'
+import { watchPodSession } from './session-redirect'
 import './pod.css'
 
 import { SlotGate, validateSlotIDs } from '../common/slots'
@@ -92,6 +93,7 @@ const LazyPageRoute = lazyRouteComponent(() => import('./page-workspace'), 'Page
 export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
   validateSlotIDs(slots.settingsTabs ?? [], podSettingsSections)
   const client = useQueryClient()
+  useEffect(() => watchPodSession(client), [client])
   const router = useMemo(() => {
     const rootRoute = createRootRoute({ component: PodShell, errorComponent: PodShellError })
     const metaRoute = createRoute({

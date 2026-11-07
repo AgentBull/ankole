@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.0.0-alpha.79 (2026-11-08)
+
+- Send an open Pod straight to the sign-in page when its session expires, and
+  return to the same page afterwards, instead of filling the sidebar with a
+  "session expired" error and a Retry button in every section.
+
 ## Version 2.0.0-alpha.78 (2026-11-08)
 
 - Name the sign-in method in the account menu, the sign-in account chooser,

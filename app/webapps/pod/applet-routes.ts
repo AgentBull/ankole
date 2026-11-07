@@ -2,6 +2,13 @@ import type { RouteCall, RoutesAPI } from '@ankole/applet-sdk/types'
 import { contentKeys } from './content-api'
 import { createClientConfig, InternalAPIError } from '../common/internal-api-client'
 
+const appletRouteErrors = new WeakSet<InternalAPIError>()
+
+/** An Applet backend chooses its own status and body, so its 401 says nothing about the Pod session. */
+export function isAppletRouteError(error: unknown): boolean {
+  return error instanceof InternalAPIError && appletRouteErrors.has(error)
+}
+
 /** Each runtime uses the downloaded publication, even if the page changed during loading. */
 export function createAppletRoutes(pageID: string, revision: number, onRevisionChanged: () => void): RoutesAPI {
   const transport = createClientConfig({}).fetch!
@@ -31,6 +38,7 @@ export function createAppletRoutes(pageID: string, revision: number, onRevisionC
         })
         return (response.status === 204 ? undefined : await response.json()) as T
       } catch (error) {
+        if (error instanceof InternalAPIError) appletRouteErrors.add(error)
         if (
           error instanceof InternalAPIError &&
           error.status === 409 &&

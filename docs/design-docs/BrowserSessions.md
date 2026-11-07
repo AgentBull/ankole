@@ -59,6 +59,18 @@ final 30-day window so the authentication reaches its exact absolute limit),
 locking the browser group row before the write. After the absolute limit, the
 user signs in again.
 
+A Pod page load without a valid Pod session redirects to `/sessions/new` and
+carries the requested path as `return_to`. An open Pod shell takes the same
+redirect as soon as one of its requests reports the missing session, either
+through a 401 `unauthorized` response from `RequirePodSession` or a 401
+`unauthenticated` response from `GET /api/v2/browser/session`, so the user signs
+in once and returns to the same page. Other 401 codes, such as a wrong
+verification code, stay with the form that sent the request. Applet route
+responses never trigger the redirect, because each Applet backend chooses its
+own status and body; when the session has really ended, the Pod's own requests
+detect it. Explicit editors with unsaved drafts keep their usual leave-page
+prompt during this redirect.
+
 A browser group without a login lives for 24 hours, whereas an outbound
 `OidcState` and an inbound `AuthorizationRequest` each live for 10 minutes.
 Completing a login extends the browser group's expiry to the new proof's
