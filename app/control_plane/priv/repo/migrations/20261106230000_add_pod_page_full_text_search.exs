@@ -178,6 +178,7 @@ defmodule Ankole.Repo.Migrations.AddPodPageFullTextSearch do
     CREATE INDEX page_search_documents_bm25_idx
       ON page_search_documents
       USING bm25 (page_id, tenant_id, (title::pdb.icu), (meta_text::pdb.icu), (body_text::pdb.icu))
+      WITH (key_field='page_id')
     """
 
     execute "DROP INDEX pod_file_caches_text_trgm_index"

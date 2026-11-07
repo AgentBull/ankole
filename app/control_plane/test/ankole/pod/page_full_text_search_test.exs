@@ -496,12 +496,20 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
   end
 
   test "SearchIndexes.ensure_current verifies and self-heals page_search_documents_bm25_idx" do
+    Repo.query!("DROP INDEX IF EXISTS page_search_documents_bm25_idx")
     assert {:ok, actions} = Ankole.SearchIndexes.ensure_current()
 
     assert Enum.any?(
              actions,
-             &(&1.index == "page_search_documents_bm25_idx" and &1.action in [:current, :created])
+             &(&1.index == "page_search_documents_bm25_idx" and &1.action == :created)
            )
+
+    assert %{rows: [[indexdef]]} =
+             Repo.query!(
+               "SELECT indexdef FROM pg_indexes WHERE indexname = 'page_search_documents_bm25_idx'"
+             )
+
+    assert indexdef =~ "key_field=page_id"
   end
 
   test "PageSearchDocument :put normalizes NFKC compatibility and halfwidth forms to match runtime queries",

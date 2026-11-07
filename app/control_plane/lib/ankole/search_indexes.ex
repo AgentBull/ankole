@@ -229,6 +229,7 @@ defmodule Ankole.SearchIndexes do
     CREATE INDEX #{index}
     ON #{table}
     USING bm25 (#{columns_sql})
+    WITH (key_field='#{key_field}')
     """)
   end
 

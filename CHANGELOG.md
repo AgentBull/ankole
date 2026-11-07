@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.75 (2026-11-08)
+
+- Include explicit `WITH (key_field=...)` clauses when creating or rebuilding
+  `pg_search` BM25 indexes in `AddPodPageFullTextSearch` and
+  `Ankole.SearchIndexes` so migrations and index self-healing succeed on
+  PostgreSQL servers running `pg_search` `0.25.x`.
+
 ## Version 2.0.0-alpha.74 (2026-11-08)
 
 - Preserve live remote adapter connection owners in
