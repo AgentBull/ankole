@@ -662,13 +662,16 @@ Inbound and outbound responsibilities split across dedicated adapter modules:
 - **Transport**: HTTP webhook adapters declare `signals.webhook_handler`,
   verifying provider signatures and committing observation before returning an
   HTTP acknowledgement. Long-lived socket and polling adapters run under
-  `Ankole.Plugins.ConnectionLifecycle`, which coordinates a single owner per
-  `(adapter, connection_key)` across connected Distributed Erlang nodes via
-  `:global` locks and registrations while adapters keep their own socket state
-  and wire protocol. Peer replicas cache the active connection's start
-  arguments, monitor the owner, and take over immediately when the owning
-  replica enters `AnkoleWeb.EndpointDrain` shutdown draining or leaves the
-  cluster. When an event arrives,
+  `Ankole.Plugins.ConnectionLifecycle` and
+  `Ankole.Plugins.ConnectionLifecycle.Cluster`, which coordinate a single owner
+  per `(reconciler_module, connection_key)` across connected Distributed Erlang
+  nodes via `:global` locks and registrations while adapters keep their own
+  socket state and wire protocol. Peer replicas cache the active connection's
+  start arguments, monitor the owner, and take over only once the owning replica
+  confirms handover during `AnkoleWeb.EndpointDrain` shutdown draining, reports
+  its owner absent, or disconnects from the cluster; ambiguous remote RPC
+  timeouts surface as reconciliation errors rather than starting a second live
+  connection. When an event arrives,
   `Ankole.Conversations.AdapterContext.dispatch_chat/2` selects matching chat
   consumers and collects their results in Binding order, with each adapter
   parsing its own payload and supplying its own subject namespace.

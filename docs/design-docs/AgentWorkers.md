@@ -905,6 +905,14 @@ stage in the Worker log.
 
 The root supervisor runs one `rcd`, accessed through a mode-0600 Unix socket.
 `/run/ankole-drives` and `/var/cache/ankole/rclone` are root-only directories.
+`DriveMounts` serializes acquisition, idle retirement, and orphan reclamation
+on one slot per mount key, allows 60 seconds for each `mount/mount` or
+`mount/unmount` call, reconciles uncertain slots against `mount/listmounts` so
+it adopts a live attached mount when `rcd` finished an earlier timed-out mount
+in the background without ever leasing an unconfirmed or retiring directory,
+detaches stale kernel mountpoints under `/run/ankole-drives` with lazy `umount`
+before mounting fresh, and unmounts active drives (`mount/unmountall` followed
+by a kernel unmount sweep and socket cleanup) during Worker shutdown.
 Commands and long-lived Codex processes enter a private mount and PID namespace,
 bind their shared roots, conversation root, and recovery directory, then drop to
 uid/gid 1000 with empty capabilities. Browser file URLs cannot open `/drive` or
@@ -961,9 +969,11 @@ the legacy `/agents/<agent_uid>` symlink before exec'ing
 `tini -s -g -- ankole-worker-supervisor` as `root`. The supervisor spawns the
 Bun Worker in its own process session and forwards termination signals once: a
 clean Worker exit terminates the instance, whereas an unexpected crash kills any
-lingering `uid 1000` processes and pending `root` `setpriv` wrappers before
-restarting the Worker with exponential backoff (`1s`, `2s`, `4s`, up to `60s`)
-under a new `incarnation_id` while preserving `/workspace` and `generation`.
+lingering `uid 1000` processes and leftover `root` `setpriv`, `unshare`, and
+`ankole-rclone` helpers, lazily unmounts residual `/run/ankole-drives` FUSE
+mountpoints, and removes `/run/ankole/rclone.sock` before restarting the Worker
+with exponential backoff (`1s`, `2s`, `4s`, up to `60s`) under a new
+`incarnation_id` while preserving `/workspace` and `generation`.
 
 If the Phoenix Channel drops while work is running, active environment commands
 and Codex Turns keep executing locally: once the same Worker process reconnects

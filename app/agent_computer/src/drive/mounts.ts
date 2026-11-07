@@ -1,30 +1,95 @@
 import { request } from 'node:http'
-import { chmod, chown, mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { chmod, chown, mkdir, readFile, realpath as fsRealpath, rm, stat } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import type { DriveVfsConfig } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { isRootWorker } from '../common/agent-user'
 import { scopedPath, visibleDrivePath } from './paths'
 
-const root = '/run/ankole-drives'
-const cache = '/var/cache/ankole/rclone'
-const socket = '/run/ankole/rclone.sock'
+const defaultRoot = '/run/ankole-drives'
+const defaultCache = '/var/cache/ankole/rclone'
+const defaultSocket = '/run/ankole/rclone.sock'
+const defaultMountTimeoutMs = 60_000
+const defaultIdleTimeoutMs = 15 * 60_000
+const defaultRetryIdleTimeoutMs = 60_000
+
 type WriteResult = { Path: string; NodeID: string; Failure: string; Recovery: string }
+type RcCall = <T>(method: string, body: Record<string, unknown>, signal?: AbortSignal) => Promise<T>
 type Mount = {
   key: string
   path: string
   references: number
-  idle?: ReturnType<typeof setTimeout>
   token: string
   endpoint: string
   refresh?: ReturnType<typeof setInterval>
-  retiring?: Promise<void>
 }
 
-function rc<T>(method: string, body: Record<string, unknown>, signal = AbortSignal.timeout(15_000)): Promise<T> {
+export type DriveMountsOptions = {
+  root?: string
+  cache?: string
+  socket?: string
+  mountTimeoutMs?: number
+  idleTimeoutMs?: number
+  orphanIdleTimeoutMs?: number
+  retryIdleTimeoutMs?: number
+  mountInfoPath?: string
+  isRoot?: () => boolean
+  realpath?: (path: string) => Promise<string>
+  lazyUnmount?: (mountPoint: string) => Promise<void>
+  spawnDaemon?: (socketPath: string, cacheDir: string) => ReturnType<typeof Bun.spawn>
+  onUnexpectedDaemonExit?: () => void
+  configureSystemDirs?: boolean
+}
+
+class MountSlot {
+  live?: Mount
+  uncertain = false
+  idle?: ReturnType<typeof setTimeout>
+  inFlight = 0
+  private queue: Promise<void> = Promise.resolve()
+
+  constructor(
+    readonly key: string,
+    readonly path: string
+  ) {}
+
+  run<T>(fn: () => Promise<T>): Promise<T> {
+    this.inFlight++
+    const next = this.queue.then(fn, fn)
+    this.queue = next.then(
+      () => undefined,
+      () => undefined
+    )
+    return next.finally(() => {
+      this.inFlight--
+    })
+  }
+
+  clearIdle(): void {
+    clearTimeout(this.idle)
+    this.idle = undefined
+  }
+
+  clearAllTimers(): void {
+    this.clearIdle()
+    clearInterval(this.live?.refresh)
+    if (this.live) this.live.refresh = undefined
+  }
+}
+
+function isMountNotFoundError(error: unknown): boolean {
+  return /mount not found/i.test(error instanceof Error ? error.message : String(error))
+}
+
+function rcOnSocket<T>(
+  socketPath: string,
+  method: string,
+  body: Record<string, unknown>,
+  signal = AbortSignal.timeout(15_000)
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const req = request(
       {
-        socketPath: socket,
+        socketPath,
         path: `/${method}`,
         method: 'POST',
         signal,
@@ -36,7 +101,8 @@ function rc<T>(method: string, body: Record<string, unknown>, signal = AbortSign
         response.on('error', reject)
         response.on('end', () => {
           try {
-            const result = JSON.parse(Buffer.concat(chunks).toString())
+            const raw = Buffer.concat(chunks).toString()
+            const result = raw ? JSON.parse(raw) : {}
             if (response.statusCode !== 200) {
               reject(new Error(result.error || `rclone ${method}: HTTP ${response.statusCode}`))
             } else resolve(result as T)
@@ -51,6 +117,68 @@ function rc<T>(method: string, body: Record<string, unknown>, signal = AbortSign
   })
 }
 
+const defaultRc: RcCall = (method, body, signal) => rcOnSocket(defaultSocket, method, body, signal)
+
+async function defaultLazyUnmount(mountPoint: string): Promise<void> {
+  const proc = Bun.spawn(['umount', '-l', mountPoint], {
+    stdin: 'ignore',
+    stdout: 'ignore',
+    stderr: 'ignore'
+  })
+  await proc.exited
+}
+
+function defaultSpawnDaemon(socketPath: string, cacheDir: string): ReturnType<typeof Bun.spawn> {
+  return Bun.spawn(
+    [
+      'ankole-rclone',
+      'rcd',
+      '--config',
+      '/dev/null',
+      '--rc-addr',
+      socketPath,
+      '--rc-no-auth',
+      '--cache-dir',
+      cacheDir,
+      '--transfers',
+      '4',
+      '--low-level-retries',
+      '1'
+    ],
+    {
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'inherit',
+      env: { PATH: process.env.PATH!, ANKOLE_WORKER_CACHE_CAPACITY: process.env.ANKOLE_WORKER_CACHE_CAPACITY }
+    }
+  )
+}
+
+/**
+ * Extracts mount points matching `targetPath` (and optionally descendants) from Linux
+ * `/proc/self/mountinfo` in reverse mount order so stacked and child mounts detach first.
+ */
+export function parseMountPointsUnder(mountinfo: string, targetPath: string, includeDescendants = true): string[] {
+  const normalized = targetPath.replace(/\/+$/, '') || '/'
+  const childPrefix = normalized === '/' ? '/' : `${normalized}/`
+  const matches: string[] = []
+  for (const line of mountinfo.split('\n')) {
+    if (!line) continue
+    const rawMountPoint = line.split(' ')[4]
+    if (!rawMountPoint) continue
+    const mountPoint = rawMountPoint.replace(/\\(040|011|012|134)/g, (_, code: string) => {
+      if (code === '040') return ' '
+      if (code === '011') return '\t'
+      if (code === '012') return '\n'
+      return '\\'
+    })
+    if (mountPoint === normalized || (includeDescendants && mountPoint.startsWith(childPrefix))) {
+      matches.push(mountPoint)
+    }
+  }
+  return matches.reverse()
+}
+
 export class DriveView {
   private released = false
   constructor(
@@ -60,7 +188,8 @@ export class DriveView {
     readonly library: Mount,
     readonly recovery: string,
     private readonly releaseMount: (mount: Mount) => Promise<void>,
-    private readonly releasedView: () => void
+    private readonly releasedView: () => void,
+    private readonly rc: RcCall = defaultRc
   ) {}
 
   /** Runs before setpriv: the supervisor remains outside the mounted view. */
@@ -86,7 +215,7 @@ export class DriveView {
     return new Map(
       await Promise.all(
         this.mounts().map(async mount => {
-          const result = await rc<{ sequence: number }>('ankole/sequence', { fs: mount.key })
+          const result = await this.rc<{ sequence: number }>('ankole/sequence', { fs: mount.key })
           return [mount.key, result.sequence] as const
         })
       )
@@ -95,7 +224,7 @@ export class DriveView {
   async flush(since: Map<string, number>, signal = AbortSignal.timeout(120_000)): Promise<string> {
     const results = await Promise.all(
       this.mounts().map(mount =>
-        rc<{ files?: WriteResult[]; background?: boolean }>(
+        this.rc<{ files?: WriteResult[]; background?: boolean }>(
           'ankole/flush',
           { fs: mount.key, since_seq: since.get(mount.key) ?? 0 },
           signal
@@ -117,13 +246,17 @@ export class DriveView {
     const mount = chat ? this.chat : this.scope
     if (!mount) throw new Error('This execution has no ChatDrive')
     const remote = path.slice(chat ? '/drive/ChatDrive/'.length : '/drive/'.length)
-    const result = await rc<{ files: WriteResult[] }>('ankole/flush-paths', { fs: mount.key, paths: [remote] }, signal)
+    const result = await this.rc<{ files: WriteResult[] }>(
+      'ankole/flush-paths',
+      { fs: mount.key, paths: [remote] },
+      signal
+    )
     const file = result.files.find(item => item.Path === remote)
     if (file?.Failure) throw new Error(`${file.Failure}; saved at ${file.Recovery}`)
     if (file?.NodeID) return file.NodeID
     // A clean file has no pending upload. Its authoritative ID comes from DAV,
     // through the root-held remote, rather than from a guessed path identifier.
-    const listing = await rc<{ item: { ID?: string } | null }>('operations/stat', { fs: `${mount.key}:`, remote })
+    const listing = await this.rc<{ item: { ID?: string } | null }>('operations/stat', { fs: `${mount.key}:`, remote })
     if (!listing.item?.ID) throw new Error(`Drive file is unavailable: ${path}`)
     return listing.item.ID
   }
@@ -141,20 +274,55 @@ export class DriveView {
 /** One rcd and one cache pool per Worker; views lease the existing mounts. */
 export class DriveMounts {
   private starting?: Promise<void>
-  private readonly mounts = new Map<string, Promise<Mount>>()
+  private readonly slots = new Map<string, MountSlot>()
   private readonly views = new Map<string, { view: DriveView; count: number }>()
   private daemon?: ReturnType<typeof Bun.spawn>
   private stopping = false
+  private readonly cfg: Required<DriveMountsOptions>
+  private readonly rc: RcCall
+
+  constructor(options: DriveMountsOptions = {}) {
+    const idleTimeoutMs = options.idleTimeoutMs ?? defaultIdleTimeoutMs
+    this.cfg = {
+      root: options.root ?? defaultRoot,
+      cache: options.cache ?? defaultCache,
+      socket: options.socket ?? defaultSocket,
+      mountTimeoutMs: options.mountTimeoutMs ?? defaultMountTimeoutMs,
+      idleTimeoutMs,
+      orphanIdleTimeoutMs: options.orphanIdleTimeoutMs ?? idleTimeoutMs,
+      retryIdleTimeoutMs: options.retryIdleTimeoutMs ?? defaultRetryIdleTimeoutMs,
+      mountInfoPath: options.mountInfoPath ?? '/proc/self/mountinfo',
+      isRoot: options.isRoot ?? isRootWorker,
+      realpath: options.realpath ?? fsRealpath,
+      lazyUnmount: options.lazyUnmount ?? defaultLazyUnmount,
+      spawnDaemon: options.spawnDaemon ?? defaultSpawnDaemon,
+      onUnexpectedDaemonExit: options.onUnexpectedDaemonExit ?? (() => process.kill(process.pid, 'SIGTERM')),
+      configureSystemDirs: options.configureSystemDirs ?? options.root === undefined
+    }
+    this.rc = (method, body, signal) => rcOnSocket(this.cfg.socket, method, body, signal)
+  }
 
   async resume(): Promise<void> {
-    await Promise.all([...this.mounts.values()].map(async pending => this.refresh(await pending)))
+    await Promise.all(
+      [...this.slots.values()].map(slot =>
+        slot.run(async () => {
+          if (slot.live && !slot.uncertain) await this.refresh(slot.live)
+        })
+      )
+    )
     await this.invalidate()
   }
 
   async drain(): Promise<void> {
     for (;;) {
       const pending = await Promise.all(
-        [...this.mounts.values()].map(async mount => rc<{ count: number }>('ankole/pending', { fs: (await mount).key }))
+        [...this.slots.values()].map(slot =>
+          slot.run(async () =>
+            slot.live && !slot.uncertain
+              ? this.rc<{ count: number }>('ankole/pending', { fs: slot.live.key })
+              : { count: 0 }
+          )
+        )
       )
       if (pending.every(result => result.count === 0)) return
       await Bun.sleep(200)
@@ -163,39 +331,44 @@ export class DriveMounts {
 
   async stop(gracefulTimeoutMs = 5_000, forceKillTimeoutMs = 2_000): Promise<void> {
     this.stopping = true
-    await this.clearSettledMountTimers()
+    for (const slot of this.slots.values()) slot.clearAllTimers()
     const daemon = this.daemon
     this.daemon = undefined
     if (daemon) {
+      const deadline = Date.now() + gracefulTimeoutMs
+      const unmountBudgetMs = Math.max(20, Math.min(2_500, Math.floor(gracefulTimeoutMs / 2)))
+      await this.rc('mount/unmountall', {}, AbortSignal.timeout(unmountBudgetMs)).catch(() => undefined)
       daemon.kill()
-      if (!(await waitForProcessExit(daemon.exited, gracefulTimeoutMs))) {
+      const remainingGraceMs = Math.max(20, deadline - Date.now())
+      if (!(await waitForProcessExit(daemon.exited, remainingGraceMs))) {
         daemon.kill('SIGKILL')
         await waitForProcessExit(daemon.exited, forceKillTimeoutMs)
       }
+      await this.unmountKernelMounts(this.cfg.root, true)
+      await rm(this.cfg.socket, { force: true }).catch(() => undefined)
     }
-    await this.clearSettledMountTimers()
-    this.mounts.clear()
+    for (const slot of this.slots.values()) {
+      slot.clearAllTimers()
+      slot.live = undefined
+      slot.uncertain = false
+    }
+    this.slots.clear()
     this.views.clear()
     this.starting = undefined
-  }
-
-  private async clearSettledMountTimers(): Promise<void> {
-    for (const pending of this.mounts.values()) {
-      const mount = await Promise.race([pending.catch(() => undefined), Promise.resolve(undefined)])
-      if (mount) {
-        clearTimeout(mount.idle)
-        clearInterval(mount.refresh)
-      }
-    }
+    this.stopping = false
   }
 
   async acquire(config: DriveVfsConfig | undefined): Promise<DriveView | undefined> {
     if (!config) return undefined
-    if (!isRootWorker()) throw new Error('Drive FUSE requires the Linux Worker supervisor')
-    await (this.starting ??= this.start())
-    const recovery = join(cache, 'recovery', `scope_${config.scope}`)
+    if (!this.cfg.isRoot()) throw new Error('Drive FUSE requires the Linux Worker supervisor')
+    this.starting ??= this.start().catch(error => {
+      this.starting = undefined
+      throw error
+    })
+    await this.starting
+    const recovery = join(this.cfg.cache, 'recovery', `scope_${config.scope}`)
     await mkdir(recovery, { recursive: true, mode: 0o750 })
-    await chown(recovery, 0, 1000)
+    if (this.cfg.configureSystemDirs) await chown(recovery, 0, 1000)
     const scope = await this.mount(`scope_${config.scope}`, config.endpoint, config.token, recovery)
     let chat: Mount | undefined
     try {
@@ -218,7 +391,8 @@ export class DriveMounts {
         () => {
           const entry = this.views.get(config.view)
           if (entry && --entry.count === 0) this.views.delete(config.view)
-        }
+        },
+        this.rc
       )
       this.views.set(config.view, { view, count: (this.views.get(config.view)?.count ?? 0) + 1 })
       return view
@@ -242,57 +416,74 @@ export class DriveMounts {
 
   async invalidate(nodeIDs: string[] = []): Promise<void> {
     await Promise.all(
-      [...this.mounts.values()].map(async pending => {
-        const mount = await pending
-        await rc(nodeIDs.length ? 'ankole/invalidate' : 'ankole/invalidate-all-clean', {
-          fs: mount.key,
-          paths: nodeIDs.map(id => `id:${id}`)
+      [...this.slots.values()].map(slot =>
+        slot.run(async () => {
+          if (!slot.live || slot.uncertain) return
+          await this.rc(nodeIDs.length ? 'ankole/invalidate' : 'ankole/invalidate-all-clean', {
+            fs: slot.live.key,
+            paths: nodeIDs.map(id => `id:${id}`)
+          })
         })
-      })
+      )
     )
   }
 
+  private getOrCreateSlot(key: string): MountSlot {
+    let slot = this.slots.get(key)
+    if (!slot) {
+      slot = new MountSlot(key, join(this.cfg.root, key))
+      this.slots.set(key, slot)
+    }
+    return slot
+  }
+
+  private armSlotTimer(slot: MountSlot, delayMs: number): void {
+    if (this.stopping || slot.key.startsWith('library_') || this.slots.get(slot.key) !== slot) return
+    slot.clearIdle()
+    const timer = setTimeout(() => {
+      slot.idle = undefined
+      void this.expireSlot(slot)
+    }, delayMs)
+    timer.unref()
+    slot.idle = timer
+  }
+
+  private maybeDeleteIdleSlot(slot: MountSlot): void {
+    if (!slot.live && !slot.uncertain && !slot.idle && slot.inFlight <= 1 && this.slots.get(slot.key) === slot) {
+      this.slots.delete(slot.key)
+    }
+  }
+
+  private async rcUnmount(mountPoint: string): Promise<void> {
+    await this.rc('mount/unmount', { mountPoint }, AbortSignal.timeout(this.cfg.mountTimeoutMs)).catch(error => {
+      if (!isMountNotFoundError(error)) throw error
+    })
+  }
+
   private async start(): Promise<void> {
-    for (const path of [root, cache, '/run/ankole']) {
+    for (const path of [this.cfg.root, this.cfg.cache, dirname(this.cfg.socket)]) {
       await mkdir(path, { recursive: true, mode: 0o700 })
       await chmod(path, 0o700)
     }
-    for (const path of ['/drive', '/drive-recovery']) await mkdir(path, { recursive: true, mode: 0o755 })
-    const daemon = Bun.spawn(
-      [
-        'ankole-rclone',
-        'rcd',
-        '--config',
-        '/dev/null',
-        '--rc-addr',
-        socket,
-        '--rc-no-auth',
-        '--cache-dir',
-        cache,
-        '--transfers',
-        '4',
-        '--low-level-retries',
-        '1'
-      ],
-      {
-        stdin: 'ignore',
-        stdout: 'ignore',
-        stderr: 'inherit',
-        env: { PATH: process.env.PATH!, ANKOLE_WORKER_CACHE_CAPACITY: process.env.ANKOLE_WORKER_CACHE_CAPACITY }
-      }
-    )
+    if (this.cfg.configureSystemDirs) {
+      for (const path of ['/drive', '/drive-recovery']) await mkdir(path, { recursive: true, mode: 0o755 })
+    }
+    await this.unmountKernelMounts(this.cfg.root, true)
+    await rm(this.cfg.socket, { force: true })
+    const daemon = this.cfg.spawnDaemon(this.cfg.socket, this.cfg.cache)
     this.daemon = daemon
     void daemon.exited.then(() => {
-      if (!this.stopping) process.kill(process.pid, 'SIGTERM')
+      if (this.daemon === daemon && !this.stopping) this.cfg.onUnexpectedDaemonExit()
     })
     const deadline = Date.now() + 15_000
     for (;;) {
       try {
-        await rc('core/version', {})
-        await chmod(socket, 0o600)
+        await this.rc('core/version', {})
+        await chmod(this.cfg.socket, 0o600)
         return
       } catch (error) {
         if (daemon.exitCode !== null || Date.now() >= deadline) {
+          if (this.daemon === daemon) this.daemon = undefined
           daemon.kill()
           throw error
         }
@@ -301,68 +492,210 @@ export class DriveMounts {
     }
   }
 
-  private async mount(key: string, url: string, token: string, recovery: string): Promise<Mount> {
-    let pending = this.mounts.get(key)
-    if (!pending) {
-      pending = (async () => {
-        const path = join(root, key)
+  private mount(key: string, url: string, token: string, recovery: string): Promise<Mount> {
+    const slot = this.getOrCreateSlot(key)
+    return slot.run(async () => {
+      if (this.stopping) throw new Error('Drive mounts are stopping')
+      if (this.slots.get(key) !== slot) this.slots.set(key, slot)
+      slot.clearIdle()
+
+      if (slot.live && !slot.uncertain) {
+        const mount = slot.live
+        mount.token = token
+        mount.references++
+        try {
+          await this.rc('ankole/configure', { fs: key, token, recovery })
+          return mount
+        } catch (error) {
+          this.releaseOnSlot(slot, mount)
+          throw error
+        }
+      }
+
+      if (slot.live) {
+        clearInterval(slot.live.refresh)
+        slot.live = undefined
+      }
+
+      try {
+        const path = slot.path
         await mkdir(path, { recursive: true, mode: 0o700 })
-        await rc('config/create', {
-          name: key,
-          type: 'webdav',
-          parameters: {
-            url,
-            vendor: 'ankole',
-            bearer_token: token,
-            ...(key.startsWith('library_') ? { headers: 'X-Ankole-Library,1' } : {}),
-            ...(key.startsWith('scope_') ? { headers: 'X-Ankole-Shared-Scope,1' } : {})
+        const resolvedPath = await this.cfg.realpath(path).catch(() => path)
+        // `mount/listmounts` acquires rclone's global `mountMu`, so any earlier
+        // `mount/mount` or `mount/unmount` that outlived its HTTP client timeout settles before we inspect.
+        const { mountPoints } = await this.rc<{ mountPoints?: Array<{ Fs: string; MountPoint: string }> }>(
+          'mount/listmounts',
+          {},
+          AbortSignal.timeout(this.cfg.mountTimeoutMs)
+        )
+        let adopted = false
+        const existing = mountPoints?.find(item => item.MountPoint === path || item.MountPoint === resolvedPath)
+        if (existing) {
+          slot.uncertain = true
+          try {
+            await this.rc('ankole/invalidate-all-clean', { fs: key })
+            await this.rc('ankole/configure', { fs: key, token, recovery })
+            await stat(path)
+            adopted = true
+          } catch {
+            await this.rcUnmount(existing.MountPoint)
+            slot.uncertain = false
           }
-        })
-        await rc('mount/mount', {
-          fs: `${key}:`,
-          mountPoint: path,
-          mountType: 'mount2',
-          mountOpt: { AllowOther: true, AttrTimeout: 1_000_000_000 },
-          vfsOpt: {
-            CacheMode: 3,
-            WriteBack: 1_000_000_000,
-            CacheMaxAge: 86_400_000_000_000,
-            DirCacheTime: 300_000_000_000,
-            PollInterval: 0,
-            Links: true,
-            UID: 1000,
-            GID: 1000,
-            FilePerms: 511,
-            DirPerms: 511
-          }
-        })
-        const mount: Mount = { key, path, references: 0, token, endpoint: url }
+        } else {
+          slot.uncertain = false
+        }
+
+        if (!adopted) {
+          await this.unmountKernelMounts(path, true)
+          await mkdir(path, { recursive: true, mode: 0o700 })
+          await this.rc('config/create', {
+            name: key,
+            type: 'webdav',
+            parameters: {
+              url,
+              vendor: 'ankole',
+              bearer_token: token,
+              ...(key.startsWith('library_') ? { headers: 'X-Ankole-Library,1' } : {}),
+              ...(key.startsWith('scope_') ? { headers: 'X-Ankole-Shared-Scope,1' } : {})
+            }
+          })
+          slot.uncertain = true
+          await this.rc(
+            'mount/mount',
+            {
+              fs: `${key}:`,
+              mountPoint: path,
+              mountType: 'mount2',
+              mountOpt: { AllowOther: true, AttrTimeout: 1_000_000_000 },
+              vfsOpt: {
+                CacheMode: 3,
+                WriteBack: 1_000_000_000,
+                CacheMaxAge: 86_400_000_000_000,
+                DirCacheTime: 300_000_000_000,
+                PollInterval: 0,
+                Links: true,
+                UID: 1000,
+                GID: 1000,
+                FilePerms: 511,
+                DirPerms: 511
+              }
+            },
+            AbortSignal.timeout(this.cfg.mountTimeoutMs)
+          )
+        }
+
+        if (this.stopping || this.slots.get(key) !== slot) throw new Error('Drive mounts stopped')
+
+        const mount: Mount = { key, path, references: 1, token, endpoint: url }
         mount.refresh = setInterval(
           () => void this.refresh(mount).catch(error => console.error('Drive token refresh failed:', error)),
           20 * 60_000
         )
         mount.refresh.unref()
+        slot.live = mount
+        slot.uncertain = false
+
+        if (!adopted) {
+          try {
+            await this.rc('ankole/configure', { fs: key, token, recovery })
+          } catch (error) {
+            this.releaseOnSlot(slot, mount)
+            throw error
+          }
+        }
         return mount
-      })()
-      this.mounts.set(key, pending)
-      void pending.catch(() => {
-        if (this.mounts.get(key) === pending) this.mounts.delete(key)
-      })
-    }
-    const mount = await pending
-    if (mount.retiring) {
-      await mount.retiring
-      return this.mount(key, url, token, recovery)
-    }
-    mount.token = token
-    if (mount.idle) clearTimeout(mount.idle)
-    mount.references++
+      } catch (error) {
+        if (!slot.live && !this.stopping && this.slots.get(key) === slot) {
+          if (slot.uncertain) this.armSlotTimer(slot, this.cfg.orphanIdleTimeoutMs)
+          else this.maybeDeleteIdleSlot(slot)
+        }
+        throw error
+      }
+    })
+  }
+
+  private expireSlot(slot: MountSlot): Promise<void> {
+    return slot.run(async () => {
+      if (this.stopping || this.slots.get(slot.key) !== slot) return
+      if (slot.live && slot.live.references > 0) return
+      if (!slot.live && !slot.uncertain) {
+        this.maybeDeleteIdleSlot(slot)
+        return
+      }
+      slot.clearIdle()
+
+      if (slot.live) {
+        try {
+          const pending = await this.rc<{ count: number }>(
+            'ankole/pending',
+            { fs: slot.key },
+            AbortSignal.timeout(this.cfg.mountTimeoutMs)
+          )
+          if (this.stopping || (slot.live && slot.live.references > 0)) return
+          if (pending.count > 0) {
+            this.armSlotTimer(slot, this.cfg.retryIdleTimeoutMs)
+            return
+          }
+        } catch {
+          if (!this.stopping && slot.live && slot.live.references === 0) {
+            this.armSlotTimer(slot, this.cfg.retryIdleTimeoutMs)
+          }
+          return
+        }
+
+        // Demote `slot.live` before issuing `mount/unmount`: once an unmount call
+        // starts, no subsequent `acquire()` may reuse this entry without reconciling.
+        clearInterval(slot.live.refresh)
+        slot.live = undefined
+        slot.uncertain = true
+      }
+
+      const path = slot.path
+      const resolvedPath = await this.cfg.realpath(path).catch(() => path)
+      if (this.stopping || this.slots.get(slot.key) !== slot) return
+
+      try {
+        await this.rcUnmount(path)
+        if (resolvedPath !== path) await this.rcUnmount(resolvedPath)
+        await this.unmountKernelMounts(path, true)
+        slot.uncertain = false
+        this.maybeDeleteIdleSlot(slot)
+      } catch {
+        const listed = await this.rc<{ mountPoints?: Array<{ MountPoint: string }> }>(
+          'mount/listmounts',
+          {},
+          AbortSignal.timeout(this.cfg.mountTimeoutMs)
+        ).catch(() => undefined)
+        if (listed && !listed.mountPoints?.some(item => item.MountPoint === path || item.MountPoint === resolvedPath)) {
+          await this.unmountKernelMounts(path, true)
+          slot.uncertain = false
+          this.maybeDeleteIdleSlot(slot)
+          return
+        }
+        slot.uncertain = true
+        if (!this.stopping && this.slots.get(slot.key) === slot) {
+          this.armSlotTimer(slot, this.cfg.retryIdleTimeoutMs)
+        }
+      }
+    })
+  }
+
+  private async unmountKernelMounts(targetPath: string, includeDescendants: boolean): Promise<void> {
+    let mountinfo: string
     try {
-      await rc('ankole/configure', { fs: key, token, recovery })
-      return mount
-    } catch (error) {
-      await this.release(mount)
-      throw error
+      mountinfo = await readFile(this.cfg.mountInfoPath, 'utf8')
+    } catch {
+      return
+    }
+    const resolvedTarget = await this.cfg.realpath(targetPath).catch(() => targetPath)
+    const candidates = parseMountPointsUnder(mountinfo, targetPath, includeDescendants)
+    if (resolvedTarget !== targetPath) {
+      for (const extra of parseMountPointsUnder(mountinfo, resolvedTarget, includeDescendants)) {
+        if (!candidates.includes(extra)) candidates.push(extra)
+      }
+    }
+    for (const mountPoint of candidates) {
+      await this.cfg.lazyUnmount(mountPoint).catch(() => undefined)
     }
   }
 
@@ -378,7 +711,7 @@ export class DriveMounts {
     })
     if (!response.ok) throw new Error(`Drive credential refresh: HTTP ${response.status}`)
     const { token } = (await response.json()) as { token: string }
-    await rc('ankole/configure', {
+    await this.rc('ankole/configure', {
       fs: mount.key,
       token,
       upload_limit: Number(response.headers.get('x-ankole-upload-limit'))
@@ -386,35 +719,23 @@ export class DriveMounts {
     mount.token = token
   }
 
-  private async release(mount: Mount): Promise<void> {
-    mount.references--
-    if (mount.references !== 0 || mount.key.startsWith('library_')) return
-    const expire = async () => {
-      if (mount.references !== 0) return
-      try {
-        const pending = await rc<{ count: number }>('ankole/pending', { fs: mount.key })
-        if (mount.references !== 0) return
-        if (pending.count) {
-          mount.idle = setTimeout(() => void expire(), 60_000)
-          mount.idle.unref()
-          return
-        }
-        mount.retiring = rc('mount/unmount', { mountPoint: mount.path })
-          .then(() => {
-            clearInterval(mount.refresh)
-            this.mounts.delete(mount.key)
-          })
-          .finally(() => {
-            mount.retiring = undefined
-          })
-        await mount.retiring
-      } catch {
-        mount.idle = setTimeout(() => void expire(), 60_000)
-        mount.idle.unref()
-      }
+  private releaseOnSlot(slot: MountSlot, mount: Mount): void {
+    mount.references = Math.max(0, mount.references - 1)
+    if (
+      mount.references === 0 &&
+      !mount.key.startsWith('library_') &&
+      !this.stopping &&
+      this.slots.get(slot.key) === slot &&
+      slot.live === mount &&
+      !slot.uncertain
+    ) {
+      this.armSlotTimer(slot, this.cfg.idleTimeoutMs)
     }
-    mount.idle = setTimeout(() => void expire(), 15 * 60_000)
-    mount.idle.unref()
+  }
+
+  private async release(mount: Mount): Promise<void> {
+    const slot = this.slots.get(mount.key)
+    if (slot) this.releaseOnSlot(slot, mount)
   }
 }
 

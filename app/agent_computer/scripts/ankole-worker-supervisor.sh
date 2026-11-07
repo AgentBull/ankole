@@ -39,17 +39,27 @@ trap 'stop TERM' TERM
 trap 'stop INT' INT
 trap 'stopping=1; end_leftover_processes; if [ "$worker" -ne 0 ]; then kill -KILL "$worker" 2>/dev/null || true; fi' USR1
 
-# Ends the Agent user's processes. Old commands,
-# Codex, and browser processes must not write beside the next Worker. Tini
-# can be a child of a platform command service instead of PID 1. Its subreaper
-# flag reaps the orphaned processes in both cases. This requires a private
-# PID namespace. A direct test or manual run without tini skips this step.
+# Ends the Agent user's processes and leftover root Drive/namespace helpers.
+# Old commands, Codex, browser processes, and rclone daemons must not write
+# beside the next Worker. Tini can be a child of a platform command service
+# instead of PID 1. Its subreaper flag reaps the orphaned processes in both
+# cases. This requires a private PID namespace. A direct test or manual run
+# without tini skips this step.
 end_leftover_processes() {
   if [ "$(cat "/proc/$PPID/comm" 2>/dev/null)" = tini ]; then
     # SIGKILL is a request. A task blocked in disk I/O can still write until
     # it exits. Do not restart or back up while such a task remains.
     while kill_remaining_writers; do sleep 0.05; done
+    unmount_leftover_drives
+    rm -f /run/ankole/rclone.sock
   fi
+}
+
+is_leftover_root_helper() {
+  case "$(readlink "/proc/$1/exe" 2>/dev/null)" in
+    /usr/bin/setpriv|/bin/setpriv|/usr/bin/unshare|/bin/unshare|/usr/local/bin/ankole-rclone) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 kill_remaining_writers() {
@@ -61,15 +71,34 @@ kill_remaining_writers() {
     while read -r key value rest; do
       case "$key" in State:) state=$value ;; Uid:) uid=$value ;; esac
     done < "$file" 2>/dev/null || continue
-    # A spawn can still be in setpriv when the Worker exits. End that root
-    # wrapper too, before it can start another Agent process after this sweep.
-    if { [ "$uid" = 1000 ] || { [ "$uid" = 0 ] && [ "$(readlink "/proc/$pid/exe" 2>/dev/null)" = /usr/bin/setpriv ]; }; } &&
+    # A spawn can still be in setpriv or unshare when the Worker exits, and a
+    # crashed Worker can leave its root ankole-rclone daemon running. End those
+    # root helpers too before starting the next Worker or backing up Home.
+    if { [ "$uid" = 1000 ] || { [ "$uid" = 0 ] && is_leftover_root_helper "$pid"; }; } &&
       [ "$state" != Z ] && [ "$state" != X ]; then
       remaining=0
       kill -s KILL "$pid" 2>/dev/null || true
     fi
   done
   return "$remaining"
+}
+
+unmount_leftover_drives() {
+  [ -r /proc/self/mountinfo ] || return 0
+  local _id _parent _dev _root mount_point _rest i
+  local -a mounts=()
+  while read -r _id _parent _dev _root mount_point _rest; do
+    mount_point=${mount_point//\\040/ }
+    mount_point=${mount_point//\\011/$'\t'}
+    mount_point=${mount_point//\\012/$'\n'}
+    mount_point=${mount_point//\\134/\\}
+    case "$mount_point" in
+      /run/ankole-drives|/run/ankole-drives/*) mounts+=("$mount_point") ;;
+    esac
+  done < /proc/self/mountinfo
+  for ((i = ${#mounts[@]} - 1; i >= 0; i--)); do
+    umount -l "${mounts[i]}" 2>/dev/null || true
+  done
 }
 
 finish() {

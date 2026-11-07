@@ -200,7 +200,9 @@ At container startup, `scripts/ankole-worker-entry.sh` prepares storage and the
 supervisor runs the Worker in its own session and forwards `SIGTERM` and
 `SIGINT` to it once. When the Worker exits with code `0` after finishing a
 drain, the container exits cleanly. On any other exit code, the supervisor
-terminates leftover `uid 1000` processes and pending `setpriv` wrappers, then
+terminates leftover `uid 1000` processes and leftover `root` `setpriv`,
+`unshare`, and `ankole-rclone` helpers, lazily unmounts residual
+`/run/ankole-drives` mountpoints, removes `/run/ankole/rclone.sock`, and
 restarts the Worker with exponential backoff (`1, 2, 4, …` up to `60` seconds).
 The Worker exits on its own after five minutes without a joined Channel, and
 exits immediately if the control plane rejects its join for a stale generation.

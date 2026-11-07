@@ -1,5 +1,20 @@
 # Changelog
 
+## Version 2.0.0-alpha.74 (2026-11-08)
+
+- Preserve live remote adapter connection owners in
+  `Ankole.Plugins.ConnectionLifecycle` when peer reconciliation hits transient
+  RPC timeouts on a still-connected BEAM node, keeping `:global` ownership
+  intact instead of starting duplicate connections.
+- Fix `"directory already mounted"` Drive FUSE failures on reused Agent Computer
+  Workers: serialize mount adoption, idle retirement, and orphan reclamation per
+  mount slot in `DriveMounts`, reconcile uncertain `rclone rc` mount and unmount
+  outcomes against `mount/listmounts` before leasing or remounting, sweep stale
+  `/run/ankole-drives` FUSE mounts and `/run/ankole/rclone.sock` on daemon
+  startup and shutdown, and clean up residual `root` `unshare`/`ankole-rclone`
+  helpers and FUSE mounts in `ankole-worker-supervisor` after abnormal Worker
+  exits.
+
 ## Version 2.0.0-alpha.73 (2026-11-07)
 
 - Support zero-downtime multi-replica control-plane deployments across
