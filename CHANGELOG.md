@@ -5,6 +5,10 @@
 - Show a spinning progress indicator centered in an applet while it loads,
   matching the Assistant's thinking indicator, instead of a single line of
   gray text in the top-left corner.
+- Keep the knowledge graph steady when you move the pointer from one node to
+  another: the spotlight moves straight to the next node instead of flashing
+  the whole graph back to full brightness while the pointer crosses the gap or
+  passes from a node to its label.
 
 ## Version 2.0.0-alpha.75 (2026-11-08)
 

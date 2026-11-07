@@ -49,6 +49,10 @@ export {
   type ProjectedAnchor
 }
 
+// The spotlight outlives a pointer leave long enough to cross the gap to a neighboring node, so moving
+// between nodes switches the spotlight directly instead of flashing the whole graph back to full opacity.
+const HOVER_CLEAR_DELAY_MS = 180
+
 export interface AnkoleGraphHandle {
   zoomIn: () => void
   zoomOut: () => void
@@ -263,6 +267,40 @@ export function AnkoleGraph({
     latestOnHoverRef.current = onHoverNode
   }, [onHoverNode, onSelectNode])
 
+  const hoveredIdRef = useRef<string | null>(null)
+  const hoverClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelHoverClear = useCallback(() => {
+    if (hoverClearTimerRef.current === null) return
+    clearTimeout(hoverClearTimerRef.current)
+    hoverClearTimerRef.current = null
+  }, [])
+  const enterNodeHover = useCallback(
+    (nodeId: string) => {
+      cancelHoverClear()
+      if (hoveredIdRef.current === nodeId) return
+      hoveredIdRef.current = nodeId
+      setInternalHoverId(nodeId)
+      latestOnHoverRef.current?.(nodeId)
+    },
+    [cancelHoverClear]
+  )
+  const leaveNodeHover = useCallback(
+    (nodeId: string) => {
+      // The canvas and the link layer report enter and leave independently, so a late leave from the
+      // previous node must not touch the spotlight that a newer enter already moved.
+      if (hoveredIdRef.current !== nodeId) return
+      cancelHoverClear()
+      hoverClearTimerRef.current = setTimeout(() => {
+        hoverClearTimerRef.current = null
+        if (hoveredIdRef.current !== nodeId) return
+        hoveredIdRef.current = null
+        setInternalHoverId(null)
+        latestOnHoverRef.current?.(null)
+      }, HOVER_CLEAR_DELAY_MS)
+    },
+    [cancelHoverClear]
+  )
+
   useEffect(() => {
     const host = canvasHostRef.current
     if (!host) return
@@ -286,14 +324,11 @@ export function AnkoleGraph({
     }
     const handleNodeEnter = (event: IElementEvent) => {
       const id = event.target.id
-      if (!id) return
-      const key = String(id)
-      setInternalHoverId(key)
-      latestOnHoverRef.current?.(key)
+      if (id) enterNodeHover(String(id))
     }
-    const handleNodeLeave = () => {
-      setInternalHoverId(null)
-      latestOnHoverRef.current?.(null)
+    const handleNodeLeave = (event: IElementEvent) => {
+      const id = event.target.id
+      if (id) leaveNodeHover(String(id))
     }
     const handleCanvasClick = () => {
       latestOnSelectRef.current?.(null)
@@ -311,12 +346,13 @@ export function AnkoleGraph({
     graph.on(GraphEvent.AFTER_SIZE_CHANGE, handleSync)
     graph.on<IElementEvent>(NodeEvent.CLICK, handleNodeClick)
     graph.on<IElementEvent>(NodeEvent.POINTER_ENTER, handleNodeEnter)
-    graph.on(NodeEvent.POINTER_LEAVE, handleNodeLeave)
+    graph.on<IElementEvent>(NodeEvent.POINTER_LEAVE, handleNodeLeave)
     graph.on(CanvasEvent.CLICK, handleCanvasClick)
 
     graphRef.current = graph
 
     return () => {
+      cancelHoverClear()
       prevStructureKeyRef.current = ''
       graphRef.current = null
       graph.destroy()
@@ -454,23 +490,13 @@ export function AnkoleGraph({
                 onPointerDown={(event: PointerEvent<HTMLAnchorElement>) => {
                   pointerDownRef.current = { x: event.clientX, y: event.clientY }
                 }}
-                onPointerEnter={() => {
-                  setInternalHoverId(node.id)
-                  onHoverNode?.(node.id)
-                }}
-                onPointerLeave={() => {
-                  setInternalHoverId(prev => (prev === node.id ? null : prev))
-                  onHoverNode?.(null)
-                }}
+                onPointerEnter={() => enterNodeHover(node.id)}
+                onPointerLeave={() => leaveNodeHover(node.id)}
                 onFocus={() => {
-                  setInternalHoverId(node.id)
-                  onHoverNode?.(node.id)
+                  enterNodeHover(node.id)
                   onSelectNode?.(node.id)
                 }}
-                onBlur={() => {
-                  setInternalHoverId(prev => (prev === node.id ? null : prev))
-                  onHoverNode?.(null)
-                }}
+                onBlur={() => leaveNodeHover(node.id)}
                 onWheel={forwardWheelToCanvas}
                 onClick={event => {
                   const start = pointerDownRef.current
