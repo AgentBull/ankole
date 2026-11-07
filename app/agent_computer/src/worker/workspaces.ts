@@ -90,6 +90,26 @@ export class Workspaces {
     for (const space of this.spaces.values()) this.touch(space)
   }
 
+  async stopAll(timeoutMs = 5_000): Promise<void> {
+    const closing = [...this.spaces.values()].map(space => {
+      void this.close({ run: space.run } as WorkspaceClose).catch(() => undefined)
+      return space.closed
+    })
+    if (closing.length === 0) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        Promise.allSettled(closing),
+        new Promise<void>(resolve => {
+          timer = setTimeout(resolve, timeoutMs)
+          timer.unref?.()
+        })
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
   open(input: WorkspaceOpen): void {
     const run = runRefFromProto(input.run)
     const key = run.session.session_id

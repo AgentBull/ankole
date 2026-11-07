@@ -1,18 +1,9 @@
 import { recordValue, stringArg, type JsonObject } from '@agentbull/active-support'
-import { writeFileAtomicSync } from '../../../common/atomic-write'
-import { chownAgentPathSync, mkdirAgentSync } from '../../../common/agent-user'
+import { writeFileAtomic } from '../../../common/atomic-write'
+import { chownAgentPathSync, mkdirAgent, mkdirAgentSync } from '../../../common/agent-user'
 import { compareCodePointStrings } from '../../../common/ordering'
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  rmSync
-} from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import * as fsPromises from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { type AgentPluginCatalogEntry } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { CodexAppServerClient } from './app-server-client'
@@ -87,16 +78,19 @@ export function prepareAgentPlugins(input: {
  * Builds packages in the Worker-local Codex Home. AgentCodexRuntime serializes
  * the setup in this Codex Home.
  */
-export function materializeAgentPluginPackages(prepared: PreparedAgentPlugins, input: { rebuild: boolean }): void {
+export async function materializeAgentPluginPackages(
+  prepared: PreparedAgentPlugins,
+  input: { rebuild: boolean }
+): Promise<void> {
   const pluginsRoot = join(prepared.materializedRoot, 'plugins')
-  mkdirSync(pluginsRoot, { recursive: true, mode: 0o755 })
-  if (input.rebuild) removeStaleMaterializedPlugins(pluginsRoot, prepared.agentPlugins)
-  for (const agentPlugin of prepared.agentPlugins) {
-    if (input.rebuild || !existsSync(agentPlugin.materializedRoot)) {
-      replaceMaterializedPlugin(agentPlugin)
+  await fsPromises.mkdir(pluginsRoot, { recursive: true, mode: 0o755 })
+  if (input.rebuild) await removeStaleMaterializedPlugins(pluginsRoot, prepared.agentPlugins)
+  await runWithConcurrency(prepared.agentPlugins, 4, async agentPlugin => {
+    if (input.rebuild || !(await pathExists(agentPlugin.materializedRoot))) {
+      await replaceMaterializedPlugin(agentPlugin)
     }
-  }
-  writeMarketplace(prepared)
+  })
+  await writeMarketplace(prepared)
 }
 
 /**
@@ -327,24 +321,24 @@ function agentPluginPackageIDs(libraryRoot: string): string[] {
     .sort(compareCodePointStrings)
 }
 
-function removeStaleMaterializedPlugins(pluginsRoot: string, agentPlugins: PreparedAgentPlugin[]): void {
+async function removeStaleMaterializedPlugins(pluginsRoot: string, agentPlugins: PreparedAgentPlugin[]): Promise<void> {
   const expected = new Set(agentPlugins.map(agentPlugin => agentPlugin.id))
-  for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
+  for (const entry of await fsPromises.readdir(pluginsRoot, { withFileTypes: true })) {
     if (expected.has(entry.name)) continue
-    rmSync(join(pluginsRoot, entry.name), { recursive: true, force: true })
+    await fsPromises.rm(join(pluginsRoot, entry.name), { recursive: true, force: true })
   }
 }
 
-function replaceMaterializedPlugin(agentPlugin: PreparedAgentPlugin): void {
+async function replaceMaterializedPlugin(agentPlugin: PreparedAgentPlugin): Promise<void> {
   const parent = dirname(agentPlugin.materializedRoot)
-  mkdirSync(parent, { recursive: true, mode: 0o755 })
+  await fsPromises.mkdir(parent, { recursive: true, mode: 0o755 })
   const stagedRoot = join(parent, `.plugin-${agentPlugin.id}-${crypto.randomUUID()}`)
   try {
-    copyDirectoryStrict(agentPlugin.sourceRoot, stagedRoot)
-    commitStagedDirectory(stagedRoot, agentPlugin.materializedRoot)
+    await copyDirectoryStrict(agentPlugin.sourceRoot, stagedRoot)
+    await commitStagedDirectory(stagedRoot, agentPlugin.materializedRoot)
   } catch (error) {
     try {
-      rmSync(stagedRoot, { recursive: true, force: true })
+      await fsPromises.rm(stagedRoot, { recursive: true, force: true })
     } catch {
       // The next rebuild removes leftovers. Keep the original setup failure.
     }
@@ -356,35 +350,63 @@ function replaceMaterializedPlugin(agentPlugin: PreparedAgentPlugin): void {
  * Replaces the target with the staged directory. The current target survives
  * as a restored backup when the final rename fails.
  */
-function commitStagedDirectory(stagedRoot: string, targetRoot: string): void {
+async function commitStagedDirectory(stagedRoot: string, targetRoot: string): Promise<void> {
   const backupRoot = `${stagedRoot}.backup`
-  if (existsSync(targetRoot)) renameSync(targetRoot, backupRoot)
+  if (await pathExists(targetRoot)) await fsPromises.rename(targetRoot, backupRoot)
   try {
-    renameSync(stagedRoot, targetRoot)
+    await fsPromises.rename(stagedRoot, targetRoot)
   } catch (error) {
-    if (existsSync(backupRoot)) renameSync(backupRoot, targetRoot)
+    if (await pathExists(backupRoot)) await fsPromises.rename(backupRoot, targetRoot)
     throw error
   }
-  rmSync(backupRoot, { recursive: true, force: true })
+  await fsPromises.rm(backupRoot, { recursive: true, force: true })
 }
 
-function copyDirectoryStrict(sourceRoot: string, targetRoot: string): void {
-  if (existsSync(targetRoot)) throw new Error(`Agent Plugin materialization target already exists: ${targetRoot}`)
-  mkdirSync(targetRoot, { recursive: true, mode: 0o755 })
-  for (const entry of listTemplateEntries(sourceRoot)) {
-    const target = join(targetRoot, ...entry.relativePath.split('/'))
-    if (entry.kind === 'directory') {
-      mkdirSync(target, { recursive: true })
-      continue
-    }
-    mkdirSync(dirname(target), { recursive: true })
-    copyFileSync(entry.absolutePath, target)
-    chmodSync(target, (lstatSync(entry.absolutePath).mode & 0o555) | 0o444)
+async function copyDirectoryStrict(sourceRoot: string, targetRoot: string): Promise<void> {
+  if (await pathExists(targetRoot)) throw new Error(`Agent Plugin materialization target already exists: ${targetRoot}`)
+  await fsPromises.mkdir(targetRoot, { recursive: true, mode: 0o755 })
+  const entries = await listTemplateEntriesAsync(sourceRoot)
+  for (const entry of entries) {
+    if (entry.kind !== 'directory') continue
+    await fsPromises.mkdir(join(targetRoot, ...entry.relativePath.split('/')), { recursive: true })
   }
+  const files = entries.filter(entry => entry.kind === 'file')
+  await runWithConcurrency(files, 16, async entry => {
+    const target = join(targetRoot, ...entry.relativePath.split('/'))
+    const sourceStat = await fsPromises.lstat(entry.absolutePath)
+    await fsPromises.copyFile(entry.absolutePath, target)
+    await fsPromises.chmod(target, (sourceStat.mode & 0o555) | 0o444)
+  })
 }
 
-function writeMarketplace(prepared: PreparedAgentPlugins): void {
-  atomicWriteJSON(prepared.marketplacePath, {
+async function listTemplateEntriesAsync(
+  root: string
+): Promise<Array<{ kind: 'directory' | 'file'; relativePath: string; absolutePath: string }>> {
+  const result: Array<{ kind: 'directory' | 'file'; relativePath: string; absolutePath: string }> = []
+  const visit = async (directory: string): Promise<void> => {
+    const entries = (await fsPromises.readdir(directory, { withFileTypes: true })).sort((left, right) =>
+      Buffer.from(left.name).compare(Buffer.from(right.name))
+    )
+    for (const entry of entries) {
+      const absolutePath = join(directory, entry.name)
+      const relativePath = relative(root, absolutePath).split(sep).join('/')
+      if (entry.isSymbolicLink()) throw new Error(`Agent Plugin packages cannot contain symlinks: ${relativePath}`)
+      if (entry.isDirectory()) {
+        result.push({ kind: 'directory', relativePath, absolutePath })
+        await visit(absolutePath)
+      } else if (entry.isFile()) {
+        result.push({ kind: 'file', relativePath, absolutePath })
+      } else {
+        throw new Error(`Agent Plugin packages can contain only regular files and directories: ${relativePath}`)
+      }
+    }
+  }
+  await visit(root)
+  return result
+}
+
+async function writeMarketplace(prepared: PreparedAgentPlugins): Promise<void> {
+  await atomicWriteJSON(prepared.marketplacePath, {
     name: prepared.marketplaceName,
     plugins: prepared.agentPlugins.map(agentPlugin => ({
       name: agentPlugin.manifestName,
@@ -456,11 +478,50 @@ function pluginKey(agentPlugin: PreparedAgentPlugin, prepared: PreparedAgentPlug
   return `${agentPlugin.manifestName}@${prepared.marketplaceName}`
 }
 
-function atomicWriteJSON(path: string, value: unknown): void {
-  mkdirAgentSync(dirname(path), 0o700)
+async function atomicWriteJSON(path: string, value: unknown): Promise<void> {
+  await mkdirAgent(dirname(path), 0o700)
   const content = `${JSON.stringify(value, null, 2)}\n`
-  if (existsSync(path) && readFileSync(path, 'utf8') === content) return
-  writeFileAtomicSync(path, content, 0o600)
+  if ((await pathExists(path)) && (await fsPromises.readFile(path, 'utf8')) === content) return
+  await writeFileAtomic(path, content, 0o600)
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await fsPromises.lstat(path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return
+  let nextIndex = 0
+  let firstError: unknown
+  let hasError = false
+  const runnerCount = Math.min(Math.max(limit, 1), items.length)
+  const runners = Array.from({ length: runnerCount }, async () => {
+    while (!hasError) {
+      const index = nextIndex++
+      if (index >= items.length) return
+      try {
+        await worker(items[index]!)
+      } catch (error) {
+        if (!hasError) {
+          hasError = true
+          firstError = error
+        }
+        return
+      }
+    }
+  })
+  await Promise.allSettled(runners)
+  if (hasError) throw firstError
 }
 
 function arrayOfObjects(value: unknown): JsonObject[] {

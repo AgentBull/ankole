@@ -326,7 +326,8 @@ defmodule Ankole.Sessions.CodexJob do
     end
   end
 
-  @spec observe(Attempt.t()) :: {:ok, :running | :finished | {:adopt, map()}} | {:error, term()}
+  @spec observe(Attempt.t()) ::
+          {:ok, :running | :disconnected | :finished | {:adopt, map()}} | {:error, term()}
   def observe(run) do
     Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(run.job.id)
 
@@ -338,8 +339,11 @@ defmodule Ankole.Sessions.CodexJob do
                  worker.incarnation_id != run.job_worker.incarnation_id ->
             {:ok, {:adopt, worker}}
 
-          _same_or_unavailable ->
+          {:ok, _same_worker} ->
             {:ok, :running}
+
+          {:error, _unavailable} ->
+            {:ok, :disconnected}
         end
 
       %Job{} ->

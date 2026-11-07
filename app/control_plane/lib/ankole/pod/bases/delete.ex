@@ -25,6 +25,7 @@ defmodule Ankole.Pod.Bases.Delete do
   def mark_in_tx(%Write{table: table} = write) do
     with false <- referenced?(write),
          {:ok, table} <- Ankole.Ash.update(table, :begin_delete, %{}),
+         :ok <- Ankole.Pod.SearchProjection.sync_base_in_tx(table.page_id),
          {:ok, _} <- PurgePage.new(%{table_id: table.id}) |> Oban.insert(),
          do: {:ok, table},
          else: (

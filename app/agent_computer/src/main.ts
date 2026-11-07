@@ -11,6 +11,7 @@ import { configureRuntimeFabricTracing } from './observability/runtime-fabric-ex
 import { forceFlushWorkerTracing } from './observability/turn-tracing'
 import { ActiveTurns } from './worker/active_turns'
 import { Workspaces } from './worker/workspaces'
+import { agentCodexRuntimeManager } from './core/codex-runner/runtime/agent-runtime-manager'
 import { createWorkerBrowserRuntime } from './worker/browser'
 import { loadWorkerConfig } from './worker/config'
 import { WorkerDrainState } from './worker/drain'
@@ -81,6 +82,8 @@ async function runWorker(): Promise<void> {
 
     // The first heartbeat reports the load of this process at once.
     let nextHeartbeatAt = Date.now()
+    let heartbeatTask: Promise<void> | undefined
+    let heartbeatError: unknown
     let shutdownReported = false
     // Span export is an RPC: it needs a reply, and only this loop delivers
     // replies. So the flush starts when the loop is otherwise done and the loop
@@ -139,12 +142,25 @@ async function runWorker(): Promise<void> {
       }
 
       assertNotIsolated(fabric)
+      if (heartbeatError !== undefined) {
+        const error = heartbeatError
+        heartbeatError = undefined
+        throw error
+      }
 
       if (Date.now() >= nextHeartbeatAt) {
         // Without a channel, a heartbeat would wait for the rejoin and stall
-        // this loop; the rejoin renews the row.
-        if (fabric.isReady) {
-          await sendWorkerHeartbeat(sendEnvelope, slots.heartbeat())
+        // this loop; the rejoin renews the row. Keep at most one periodic
+        // heartbeat in flight so slow acknowledgements never pause receive().
+        if (fabric.isReady && !heartbeatTask) {
+          const task = sendWorkerHeartbeat(sendEnvelope, slots.heartbeat())
+            .catch(error => {
+              heartbeatError ??= error
+            })
+            .finally(() => {
+              if (heartbeatTask === task) heartbeatTask = undefined
+            })
+          heartbeatTask = task
         }
         nextHeartbeatAt = Date.now() + heartbeatIntervalMs
       }
@@ -173,19 +189,21 @@ async function runWorker(): Promise<void> {
       await handleEnvelope(sendEnvelope, rpcClient, activeTurns, workspaces, drain, workerRPCHandlers, envelope)
     }
   } finally {
-    // A drained shutdown already flushed its spans inside the loop, where their
-    // export could still be answered. This second flush covers the path that
-    // leaves the loop by throwing; it has nothing to send after a clean drain.
+    // Stop transport and pending RPCs first so an abnormally exiting Worker
+    // disconnects immediately and cannot rejoin as a ready zombie while local
+    // runtimes, browsers, and FUSE mounts tear down.
+    drain.begin('worker_stopped')
+    rpcClient.close()
+    fabric.stop()
     try {
-      await workerRPCHandlers.close()
+      await Promise.allSettled([activeTurns.stopAll(), workspaces.stopAll(), workerRPCHandlers.close()])
+      await agentCodexRuntimeManager.closeAll()
       await browserRuntime.stop()
-      await driveMounts.stop()
     } finally {
       try {
-        await forceFlushWorkerTracing()
+        await driveMounts.stop()
       } finally {
-        rpcClient.close()
-        fabric.stop()
+        await forceFlushWorkerTracing()
       }
     }
   }

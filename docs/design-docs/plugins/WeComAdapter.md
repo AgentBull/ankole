@@ -77,8 +77,11 @@ admin path to update.
 ## Connect to WeCom
 
 `ConnectionReconciler` derives one persistent WebSocket per enabled AI bot,
-supervised by `Ankole.Plugins.ConnectionLifecycle` (the identity side uses
-stateless REST calls without holding a socket).
+supervised by `Ankole.Plugins.ConnectionLifecycle` as a cluster-wide singleton
+owner (the identity side uses stateless REST calls without holding a socket).
+`ConnectionOwner` registers the live `WeComOpenAPI.Bot.Client` both locally and
+in `:global` so outbound sends and `AIStream` updates originating on any
+control-plane replica reach the active WebSocket.
 
 During the HTTP/1.1 WebSocket upgrade, the client preserves canonical header
 casing (`Upgrade`, `Connection`, `Sec-WebSocket-Version`, and

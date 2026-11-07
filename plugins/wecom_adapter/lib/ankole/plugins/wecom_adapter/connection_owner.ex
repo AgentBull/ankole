@@ -3,9 +3,11 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
   Per-bot owner for the WeCom AI-bot long-connection client.
 
   Builds an immutable dispatcher from all active consumers and starts one
-  `WeComOpenAPI.Bot.Client`, registered under `{:client, key}` so Delivery and
-  AIStream can reach the live connection. A changed consumer set restarts the
-  owner so the dispatcher is rebuilt rather than mutated on a live socket.
+  `WeComOpenAPI.Bot.Client`, registered locally under `{:client, key}` and
+  globally under `{__MODULE__, :client, key}` so Delivery and AIStream on any
+  control-plane replica can reach the live connection. A changed consumer set
+  restarts the owner so the dispatcher is rebuilt rather than mutated on a live
+  socket.
 
   The platform allows one connection per bot and kicks the older holder when a
   new one subscribes (`:connection_contended`). Fighting back would kick the
@@ -62,8 +64,9 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
   end
 
   @doc """
-  Resolves the live bot client process for a chat config. Outbound paths call
-  this per send; a missing or parked connection surfaces as a retryable error.
+  Resolves the live bot client process for a chat config across the local
+  registry and connected Erlang cluster. Outbound paths call this per send; a
+  missing or parked connection surfaces as a retryable error.
   """
   @spec bot_client(map()) :: {:ok, pid()} | {:error, :wecom_connection_unavailable}
   def bot_client(config) when is_map(config) do
@@ -71,16 +74,24 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
 
     case Registry.lookup(@registry, {:client, key}) do
       [{pid, _value}] ->
-        if Process.alive?(pid), do: {:ok, pid}, else: {:error, :wecom_connection_unavailable}
+        if Process.alive?(pid), do: {:ok, pid}, else: global_bot_client(key)
 
       [] ->
-        {:error, :wecom_connection_unavailable}
+        global_bot_client(key)
     end
   end
 
   @doc false
   @spec client_name(term()) :: GenServer.name()
   def client_name(key), do: {:via, Registry, {@registry, {:client, key}}}
+
+  @doc false
+  @spec global_client_name(term()) :: {module(), :client, term()}
+  def global_client_name(key), do: {__MODULE__, :client, key}
+
+  @doc false
+  @spec resolve_client_conflict(term(), pid(), pid()) :: pid()
+  def resolve_client_conflict(_name, pid1, _pid2), do: pid1
 
   @impl true
   def format_status(status) do
@@ -168,8 +179,38 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
            dispatcher: state.dispatcher,
            name: client_name(state.key)
          ) do
-      {:ok, pid} -> {:ok, %{state | ws_pid: pid}}
-      {:error, _reason} = error -> error
+      {:ok, pid} ->
+        :yes =
+          :global.re_register_name(
+            global_client_name(state.key),
+            pid,
+            &__MODULE__.resolve_client_conflict/3
+          )
+
+        {:ok, %{state | ws_pid: pid}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp global_bot_client(key) do
+    case :global.whereis_name(global_client_name(key)) do
+      pid when is_pid(pid) ->
+        if client_alive?(pid), do: {:ok, pid}, else: {:error, :wecom_connection_unavailable}
+
+      :undefined ->
+        {:error, :wecom_connection_unavailable}
+    end
+  end
+
+  defp client_alive?(pid) when node(pid) == node(), do: Process.alive?(pid)
+
+  defp client_alive?(pid) do
+    try do
+      :erpc.call(node(pid), Process, :alive?, [pid], 5_000) == true
+    catch
+      _, _ -> false
     end
   end
 

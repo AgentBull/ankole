@@ -171,26 +171,16 @@ defmodule Ankole.Pod.RetrievalRegressionsTest do
     now = DateTime.utc_now(:microsecond)
     Repo.update_all(from(n in Node, where: n.id in ^ids), set: [updated_at: now])
 
-    expected =
-      Repo.query!(
-        """
-        SELECT p.id::text FROM pages p
-        WHERE p.tenant_id = $1::text::uuid AND p.id = ANY($2::text[]::uuid[])
-          AND (p.title ILIKE '%needle%' OR EXISTS (
-            SELECT 1 FROM page_contents c WHERE c.tenant_id = p.tenant_id
-              AND c.page_id = p.id AND c.plain_text ILIKE '%needle%'))
-        ORDER BY similarity(p.title, 'needle') DESC, p.updated_at DESC, p.id ASC LIMIT 30
-        """,
-        [Repo.tenant_id!(), ids]
-      ).rows
-      |> Enum.map(&hd/1)
-
     assert {:ok, %{pages: actual}} = Pages.search(actor, "needle")
-    assert Enum.map(actual, & &1.id) == expected
     assert length(actual) == 30
-    assert Enum.any?(actual, &(&1.id in titled))
-    assert Enum.any?(actual, &(&1.id in named))
-    assert Enum.any?(actual, &(&1.id in body))
+
+    actual_ids = Enum.map(actual, & &1.id)
+    assert Enum.uniq(actual_ids) == actual_ids
+    # Exact title matches ("Needle") outrank title-prefix matches ("Needle N"),
+    # which outrank body-only matches ("Body N"), within the global top-30 cap.
+    assert MapSet.new(Enum.take(actual_ids, 12)) == MapSet.new(titled)
+    assert MapSet.new(Enum.slice(actual_ids, 12, 12)) == MapSet.new(named)
+    assert Enum.all?(Enum.drop(actual_ids, 24), &(&1 in body))
   end
 
   test "destination search checks editable access before the result limit" do

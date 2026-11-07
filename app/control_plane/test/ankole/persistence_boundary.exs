@@ -33,7 +33,7 @@
     Ankole.Pod.BaseRepo => :m7_dynamic_schema,
     Ankole.Pod.Bases.Promote => :m7_dynamic_schema,
     # M8 set maintenance: DDL, tenant teardown, merges, and the one-time upgrade.
-    Ankole.Brain.SearchIndexes => :m8_set_maintenance,
+    Ankole.SearchIndexes => :m8_set_maintenance,
     {Ankole.Brain.Merge,
      [:repoint_timelines, :repoint_unique_rows, :repoint_links, :repoint_link_column]} =>
       :m8_set_maintenance,
@@ -44,6 +44,7 @@
     {Ankole.Pod.Access, [:reanchor_pass_through_children]} => :m8_set_maintenance,
     # M9 retrieval: candidate, rerank, and fusion queries over row sets.
     Ankole.Brain.Recall => :m9_retrieval,
+    Ankole.Pod.Pages.Search => :m9_retrieval,
     {Ankole.Pod.Pages.Queries, [:state_page_ids, :trash_candidates]} => :m9_retrieval,
     {Ankole.Brain.Claims, [:find_dedup_action, :filter_live_parents, :current_external_facts]} =>
       :m9_retrieval

@@ -35,6 +35,9 @@ pub mod brain_chunker;
 #[cfg(feature = "markdown")]
 pub mod markdown;
 
+#[cfg(feature = "file_text")]
+pub mod file_text;
+
 #[cfg(any(test, feature = "nif"))]
 pub mod signals;
 

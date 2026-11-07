@@ -270,6 +270,10 @@ if config_env() == :prod do
 
   config :ankole, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  config :ankole,
+         :endpoint_drain_delay_ms,
+         Ankole.Config.Bootstrap.env_integer("ANKOLE_SHUTDOWN_DRAIN_MS", 5_000)
+
   config :ankole, AnkoleWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [

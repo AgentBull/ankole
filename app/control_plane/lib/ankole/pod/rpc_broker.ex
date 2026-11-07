@@ -104,6 +104,11 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp dispatch("pages.search", actor, params, _ctx) do
+    params =
+      if Map.has_key?(params, "domain") or Map.has_key?(params, :domain),
+        do: params,
+        else: Map.put(params, "domain", "all")
+
     with {:ok, opts} <- page_options(actor, params),
          do: Pages.search(actor, params["query"], opts)
   end

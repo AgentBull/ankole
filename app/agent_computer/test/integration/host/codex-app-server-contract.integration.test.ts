@@ -499,7 +499,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
         libraryRoot,
         initializeProject: true
       })
-      materializeAgentPluginPackages(prepared, { rebuild: true })
+      await materializeAgentPluginPackages(prepared, { rebuild: true })
 
       const baseURL = `http://127.0.0.1:${provider.port}/v1`
       resetCodexAgentRuntimeConfig(codexHome, baseURL)

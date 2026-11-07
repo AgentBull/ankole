@@ -407,18 +407,24 @@ defmodule Ankole.Pod.Pages.Tree do
     author =
       page.created_by || ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: "system"})
 
+    plain_text = (content && content.plain_text) || ""
+
     with {:ok, _} <-
            Ankole.Ash.create(Ankole.Pod.PageContent, :create_in_tx, %{
              page_id: page.id,
              content: (content && content.content) || "<page />",
-             plain_text: (content && content.plain_text) || "",
+             plain_text: plain_text,
              updated_by: author,
              updated_at: page.updated_at
            }),
+         :ok <- Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: plain_text),
          do: {:ok, page}
   end
 
-  defp initialize_content(page, _content), do: {:ok, page}
+  defp initialize_content(page, _content) do
+    with :ok <- Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: ""),
+         do: {:ok, page}
+  end
 
   @doc "Updates an already-authorized node. Object-only writes do not acquire the tree lock."
   def update_in_tx(node, action, attrs) do
@@ -433,7 +439,10 @@ defmodule Ankole.Pod.Pages.Tree do
           do: Map.delete(attrs, :updated_at),
           else: Map.put_new_lazy(attrs, :updated_at, fn -> DateTime.utc_now(:microsecond) end)
 
-      Ankole.Ash.update(current, :update_in_tx, attrs)
+      with {:ok, updated} <- Ankole.Ash.update(current, :update_in_tx, attrs),
+           :ok <- Ankole.Pod.SearchProjection.upsert_in_tx(updated),
+           :ok <- Ankole.Pod.FileExtraction.reconcile_renamed_in_tx(current, updated),
+           do: {:ok, updated}
     end
   end
 

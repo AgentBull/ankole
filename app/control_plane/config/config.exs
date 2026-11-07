@@ -73,6 +73,7 @@ config :ankole, Oban,
        {"* * * * *", Ankole.Connectors.Jobs.ReconcileTriggers},
        {"17 * * * *", Ankole.Pod.Jobs.ExpireDocumentHistory},
        {"23 * * * *", Ankole.Files.Jobs.CollectUnreferenced},
+       {"*/5 * * * *", Ankole.Pod.Jobs.ReconcileSearchIndex},
        {"* * * * *", Ankole.AgentWorkers.SweepJob},
        {"*/5 * * * *", Ankole.AgentWorkers.SweepJob, args: %{objects: true}}
      ]}

@@ -715,7 +715,8 @@ defmodule Ankole.Pod.Bases.Schema do
   defp schema_write(%Ankole.AuthZ.Actor{} = actor, id, fun) do
     with {:ok, write} <- Write.open(actor, id, :manage_schema),
          {:ok, written, write} <- fun.(write),
-         {:ok, changed} <- finish_schema(written, Write.touch(write, write.table.id)) do
+         {:ok, changed} <- finish_schema(written, Write.touch(write, write.table.id)),
+         :ok <- Ankole.Pod.SearchProjection.sync_base_in_tx(write.table.page_id) do
       analyze =
         for {_, %{old: old, candidate: candidate}} <- write.conversions,
             old.type != candidate.type,

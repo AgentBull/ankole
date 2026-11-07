@@ -46,6 +46,7 @@ nif = [
   "dep:stacker",
   "universal_ai_client",
   "markdown",
+  "file_text",
   "object_store",
   "model_image",
 ]
@@ -54,6 +55,7 @@ nif = [
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "web_proxy"]
 web_proxy = ["dep:tokio"]
 markdown = ["dep:comrak", "dep:serde_yaml_ng"]
+file_text = ["dep:lopdf", "dep:zip"]
 object_store = [
   "dep:bytes",
   "dep:futures-util",
@@ -93,6 +95,7 @@ globset = "0.4.21"
 hashcrew = { version = "0.3.0", default-features = false, features = ["std", "xxhash"] }
 hex = "0.4.3"
 jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
+lopdf = { version = "0.47.0", default-features = false, optional = true }
 mimalloc = "0.1.52"
 napi = { version = "3.16.1", optional = true }
 napi-derive = { version = "3.7.0", optional = true }
@@ -130,11 +133,13 @@ tiktoken-rs = "0.12.1"
 tokio = { version = "1.54.1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"], optional = true }
 tokio-socks = { version = "0.5.3", default-features = false, features = ["tokio"], optional = true }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-native-roots"], optional = true }
+unicode-normalization = "0.1.26"
 unicode-segmentation = "1.13.3"
 url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v4", "v7", "fast-rng"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"], optional = true }
 webp = { version = "0.3.1", default-features = false, optional = true }
+zip = { version = "3.0.0", default-features = false, features = ["deflate"], optional = true }
 
 [build-dependencies]
 napi-build = { version = "2.6.0", optional = true }

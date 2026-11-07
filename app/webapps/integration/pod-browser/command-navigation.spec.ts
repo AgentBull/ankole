@@ -68,9 +68,23 @@ test('command search opens a document found by its body and keeps navigation com
     await menu.locator('[cmdk-input]').fill(text)
     const result = menu.locator(`[cmdk-item][data-value="page:${id}"]`)
     await expect(result).toBeVisible()
+    await expect(result.locator('[data-testid="search-snippet"] mark').first()).toBeVisible()
     await result.click()
-    await expect(page).toHaveURL(state.base_url + pageRoute(id, undefined, createdTitles.get(id)))
+    const baseDocRoute = pageRoute(id, undefined, createdTitles.get(id))
+    await expect(page).toHaveURL(`${state.base_url}${baseDocRoute}?${new URLSearchParams({ find: text })}`)
     await expect(page.locator('.editor-content')).toHaveText(text)
+    await expect(page.locator('.pod-page-find')).toBeVisible()
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          all: CSS.highlights?.get('pod-page-find')?.size ?? 0,
+          current: CSS.highlights?.get('pod-page-find-current')?.size ?? 0
+        }))
+      )
+      .toEqual({ all: 1, current: 1 })
+    await page.locator('.pod-page-find input').press('Escape')
+    await expect(page.locator('.pod-page-find')).toBeHidden()
+    await expect(page).toHaveURL(state.base_url + baseDocRoute)
 
     await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
     await menu.locator('[cmdk-input]').fill('空间')
@@ -92,15 +106,17 @@ test('a document search keeps its query when opening a result, going back, and r
     id = await createDocument(page, text)
     await page.goto(listRoute('search'))
     const input = page.getByRole('textbox', { name: '搜索页面', exact: true })
+    const baseDocRoute = pageRoute(id, undefined, createdTitles.get(id))
     const result = page
       .locator('.pod-content-list')
-      .locator(`a[href="${pageRoute(id, undefined, createdTitles.get(id))}"]`)
+      .locator(`a[href="${baseDocRoute}?${new URLSearchParams({ find: text })}"]`)
     await input.pressSequentially(text)
     await expect(input).toBeFocused()
     await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe(text)
     await expect(result).toBeVisible()
     await result.click()
     await expect(page.locator('.editor-content')).toHaveText(text)
+    await expect(page.locator('.pod-page-find')).toBeVisible()
     await page.goBack()
     await expect(input).toHaveValue(text)
     await expect(result).toBeVisible()
@@ -419,6 +435,135 @@ test('mobile keyboard navigation closes its sidebar when new chat keeps the curr
     await expect(sidebar).toBeHidden()
     await expect(composer).toBeFocused()
   } finally {
+    await context.close()
+  }
+})
+
+test('quick find previews sections, filters title-only, records recent searches, and scopes subtree search', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1440, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let parentID: string | undefined
+  let childID: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    const parentTitle = `Search parent ${crypto.randomUUID()}`
+    const childTitle = `Search child ${crypto.randomUUID()}`
+    const token = `UniqueQuickFindToken_${crypto.randomUUID().replaceAll('-', '')}`
+
+    const { page: parent } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'doc',
+      title: parentTitle
+    })
+    parentID = parent.id
+    const { page: child } = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'doc',
+      parent_id: parent.id,
+      title: childTitle
+    })
+    childID = child.id
+    await request(page, `/pages/${child.id}/content`, 'PUT', {
+      base_revision: 0,
+      xml: `<page><h2>部署<strong>核查</strong></h2><p>发布前请确认 ${token} 已就绪（oﬃce）。</p><p>foo</p><p>bar</p></page>`
+    })
+
+    await page.goto(pageRoute(parent.id, undefined, parentTitle))
+    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(parentTitle)
+
+    await page.keyboard.press('ControlOrMeta+k')
+    const menu = page.getByRole('dialog', { name: '搜索或跳转', exact: true })
+    const initialWidth = await menu.evaluate(el => Math.round(el.getBoundingClientRect().width))
+    const input = menu.locator('[cmdk-input]')
+
+    // Pressing ControlOrMeta+f inside the open Command dialog never opens PageFindBar underneath.
+    await page.keyboard.press('ControlOrMeta+f')
+    await expect(page.locator('.pod-page-find')).toBeHidden()
+
+    await input.fill('nonexistent_zero_hit_query_99999')
+    await expect(menu.locator('[cmdk-empty]')).toHaveText('没有匹配项')
+    const emptyWidth = await menu.evaluate(el => Math.round(el.getBoundingClientRect().width))
+    expect(emptyWidth).toBe(initialWidth)
+
+    // Quoted + multi-term query recalls the page and preserves inline heading text without spacing artifacts.
+    await input.fill(`"${token}" 已就绪`)
+
+    const childItem = menu.locator(`[cmdk-item][data-value="page:${child.id}"]`)
+    await expect(childItem).toBeVisible()
+    await expect(childItem).toContainText('§ 部署核查')
+
+    // Pressing Enter on a focused toolbar button toggles the filter instead of selecting the active CommandItem.
+    const titleOnlyBtn = menu.getByRole('button', { name: '仅搜标题', exact: true })
+    await titleOnlyBtn.focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeVisible()
+    await expect(titleOnlyBtn).toHaveAttribute('aria-pressed', 'true')
+    await expect(childItem).toBeHidden()
+    await page.keyboard.press('Enter')
+    await expect(titleOnlyBtn).toHaveAttribute('aria-pressed', 'false')
+    await expect(childItem).toBeVisible()
+
+    // Desktop preview pane lists headings and jumps directly to ?find=<q>&at=heading:部署核查.
+    const previewPane = menu.getByTestId('command-preview-pane')
+    await expect(previewPane).toBeVisible()
+    const sectionBtn = previewPane.getByRole('button', { name: '§ 部署核查', exact: true })
+    await sectionBtn.focus()
+    await page.keyboard.press('Enter')
+
+    await expect.poll(() => new URL(page.url()).searchParams.get('find')).toBe(`"${token}" 已就绪`)
+    await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe('heading:部署核查')
+    await expect(page.locator('.pod-page-find')).toBeVisible()
+    await expect(page.locator('.pod-page-find [aria-live]')).toHaveText('1/2')
+    await expect.poll(() => page.evaluate(() => CSS.highlights.get('pod-page-find')?.size ?? 0)).toBe(2)
+
+    // Pressing ControlOrMeta+f when the Find Bar is already open focuses its input;
+    // NFKC ligatures match and block boundaries prevent false cross-paragraph concatenation.
+    await page.keyboard.press('ControlOrMeta+f')
+    const findInput = page.locator('.pod-page-find input')
+    await expect(findInput).toBeFocused()
+    await findInput.fill('office')
+    await expect(page.locator('.pod-page-find [aria-live]')).toHaveText('1/1')
+    await findInput.fill('foobar')
+    await expect(page.locator('.pod-page-find [aria-live]')).toHaveText('0/0')
+    await findInput.fill('foo bar')
+    await expect(page.locator('.pod-page-find [aria-live]')).toHaveText('1/1')
+    await findInput.press('Escape')
+    await expect(page.locator('.pod-page-find')).toBeHidden()
+
+    // When PageChat is open and focused, ControlOrMeta+f stays scoped out of PageFindBar.
+    const pageChatBtn = page.getByRole('button', { name: '助理', exact: true })
+    if (await pageChatBtn.isVisible()) {
+      await pageChatBtn.click()
+      const pageChat = page.locator('.pod-page-chat')
+      await expect(pageChat).toBeVisible()
+      await pageChat.locator('textarea, input, button').first().focus()
+      await page.keyboard.press('ControlOrMeta+f')
+      await expect(page.locator('.pod-page-find')).toBeHidden()
+      await pageChat.getByRole('button', { name: '关闭助理', exact: true }).click()
+    }
+
+    // Empty-query command menu lists Recent searches and keyboard Enter on the remove button deletes without replaying.
+    await page.keyboard.press('ControlOrMeta+k')
+    const recentEntry = menu.locator('[cmdk-item][data-value^="recent-search:"]').filter({ hasText: token })
+    await expect(recentEntry).toBeVisible()
+    const removeRecentBtn = recentEntry.getByRole('button', { name: /移除最近搜索/ })
+    await removeRecentBtn.focus()
+    await page.keyboard.press('Enter')
+    await expect(recentEntry).toBeHidden()
+    await expect(menu.locator('[cmdk-input]')).toHaveValue('')
+    await page.keyboard.press('Escape')
+
+    // /content/search?ancestor_id=<parentID> scopes results, highlights title matches, and filters by creator.
+    await page.goto(`${listRoute('search')}?${new URLSearchParams({ ancestor_id: parent.id, q: 'Search child' })}`)
+    await expect(page.getByTestId('search-filters')).toContainText(parentTitle)
+    const resultRow = page.locator('a[data-pod-list-item]').filter({ hasText: childTitle })
+    await expect(resultRow).toBeVisible()
+    await expect(resultRow.locator('mark.pod-search-mark').first()).toBeVisible()
+    await expect(page.getByTestId('search-filters').getByRole('combobox', { name: '创建者' })).toBeVisible()
+  } finally {
+    if (childID) await request(page, `/pages/${childID}`, 'DELETE')
+    if (parentID) await request(page, `/pages/${parentID}`, 'DELETE')
     await context.close()
   }
 })

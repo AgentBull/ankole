@@ -213,6 +213,9 @@ import type {
   PodChatTeammatesData,
   PodChatTeammatesErrors,
   PodChatTeammatesResponses,
+  PodClearRecentSearchesData,
+  PodClearRecentSearchesErrors,
+  PodClearRecentSearchesResponses,
   PodCommentAttentionData,
   PodCommentAttentionErrors,
   PodCommentAttentionResponses,
@@ -267,6 +270,9 @@ import type {
   PodConversationsData,
   PodConversationsErrors,
   PodConversationsResponses,
+  PodDeleteRecentSearchData,
+  PodDeleteRecentSearchErrors,
+  PodDeleteRecentSearchResponses,
   PodDocumentWriteData,
   PodDocumentWriteErrors,
   PodDocumentWriteResponses,
@@ -441,6 +447,12 @@ import type {
   PodRealtimeTokenData,
   PodRealtimeTokenErrors,
   PodRealtimeTokenResponses,
+  PodRecentSearchesData,
+  PodRecentSearchesErrors,
+  PodRecentSearchesResponses,
+  PodRecordRecentSearchData,
+  PodRecordRecentSearchErrors,
+  PodRecordRecentSearchResponses,
   PodReplySuggestionData,
   PodReplySuggestionErrors,
   PodReplySuggestionResponses,
@@ -1174,6 +1186,54 @@ export const metaSaveSkill = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podClearRecentSearches operation on pod_page_operation resource
+ */
+export const podClearRecentSearches = <ThrowOnError extends boolean = true>(
+  options?: Options<PodClearRecentSearchesData, ThrowOnError>
+): RequestResult<PodClearRecentSearchesResponses, PodClearRecentSearchesErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).delete<
+    PodClearRecentSearchesResponses,
+    PodClearRecentSearchesErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/recent-searches',
+    ...options
+  })
+
+/**
+ * podRecentSearches operation on pod_page_operation resource
+ */
+export const podRecentSearches = <ThrowOnError extends boolean = true>(
+  options?: Options<PodRecentSearchesData, ThrowOnError>
+): RequestResult<PodRecentSearchesResponses, PodRecentSearchesErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodRecentSearchesResponses, PodRecentSearchesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/recent-searches',
+    ...options
+  })
+
+/**
+ * podRecordRecentSearch operation on pod_page_operation resource
+ */
+export const podRecordRecentSearch = <ThrowOnError extends boolean = true>(
+  options: Options<PodRecordRecentSearchData, ThrowOnError>
+): RequestResult<PodRecordRecentSearchResponses, PodRecordRecentSearchErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodRecordRecentSearchResponses, PodRecordRecentSearchErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/recent-searches',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podConversationAttention operation on pod_chat_operation resource
  */
 export const podConversationAttention = <ThrowOnError extends boolean = true>(
@@ -1888,6 +1948,19 @@ export const podConnectorsCatalog = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/connectors',
+    ...options
+  })
+
+/**
+ * podDeleteRecentSearch operation on pod_page_operation resource
+ */
+export const podDeleteRecentSearch = <ThrowOnError extends boolean = true>(
+  options: Options<PodDeleteRecentSearchData, ThrowOnError>
+): RequestResult<PodDeleteRecentSearchResponses, PodDeleteRecentSearchErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodDeleteRecentSearchResponses, PodDeleteRecentSearchErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/recent-searches/{id}',
     ...options
   })
 

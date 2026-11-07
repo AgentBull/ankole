@@ -824,17 +824,19 @@ Persistent streaming transports (such as Lark, Slack Socket Mode, and DingTalk)
 run under `Ankole.Plugins.ConnectionLifecycle`. From stored configuration alone,
 each adapter derives one connection specification per enabled Binding (and per
 shared active identity provider); specifications with identical connection keys
-share a single connection process, while conflicting app secrets for the same
-key are rejected. Temporary SDK client processes run under that connection,
-retrying a failed connection immediately once, then after 5 seconds and 30
-seconds without disrupting other keys. Ankole stops a running connection only
-after a full reconciliation pass cleanly reads every Binding and identity
-provider and confirms that no active specification references that key.
+share a single cluster-wide connection owner coordinated across connected Erlang
+nodes via `:global`, while conflicting app secrets for the same key are
+rejected. Temporary SDK client processes run under that owner, retrying a failed
+connection immediately once, then after 5 seconds and 30 seconds without
+disrupting other keys. Ankole stops a running connection only after a full
+reconciliation pass cleanly reads every Binding and identity provider and
+confirms that no active specification references that key.
 
-To survive reconciler restarts, the connection Registry caches the last
-successful start configuration and consumer set so a new reconciler can recover
-a blocked Binding; an explicit stop purges that entry so a late retry timer
-cannot resurrect a removed connection.
+To survive reconciler restarts and node handovers, each replica's connection
+Registry caches the last successful start configuration and consumer set so a
+restarted or standby reconciler can recover even a blocked Binding when the
+active owner drains or disconnects; an explicit stop purges that entry across
+the cluster so a late retry timer cannot resurrect a removed connection.
 
 At the boundary between Elixir and persisted JSON, outer observation maps use
 atom keys while provider payloads and stored JSON maps use string keys;

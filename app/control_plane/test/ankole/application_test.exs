@@ -43,7 +43,12 @@ defmodule Ankole.ApplicationTest do
 
     oban_index = Enum.find_index(reverse_start_order, &(&1 == Oban))
     plugins_index = Enum.find_index(reverse_start_order, &(&1 == Ankole.Plugins.Cohort))
+    dns_cluster_index = Enum.find_index(reverse_start_order, &(&1 == DNSCluster))
+    endpoint_index = Enum.find_index(reverse_start_order, &(&1 == AnkoleWeb.Endpoint))
+    drain_index = Enum.find_index(reverse_start_order, &(&1 == AnkoleWeb.EndpointDrain))
     assert plugins_index < oban_index
+    assert oban_index < dns_cluster_index
+    assert drain_index < endpoint_index
 
     runtime_children =
       Ankole.AgentWorkers.Supervisor

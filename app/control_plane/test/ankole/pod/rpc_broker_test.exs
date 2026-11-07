@@ -403,7 +403,14 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert hd(children)["has_children"] == false
     assert hd(children)["role"] == "view"
 
-    assert {:ok, %{"result" => %{"pages" => [found], "ancestors" => ancestors}}} =
+    assert {:ok,
+            %{
+              "result" => %{
+                "pages" => [found],
+                "ancestors" => ancestors,
+                "matches" => [%{"page_id" => matched_id, "match_fields" => match_fields}]
+              }
+            }} =
              RPCBroker.handle_read(
                ctx.ref,
                request("pages.search", %{query: "Broker directory nested"}),
@@ -411,6 +418,8 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
 
     assert found["id"] == child.id
+    assert matched_id == child.id
+    assert match_fields == ["title"]
     assert Enum.map(ancestors, & &1["id"]) == [parent.id]
   end
 

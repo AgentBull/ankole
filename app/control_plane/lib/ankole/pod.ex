@@ -140,6 +140,8 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.PageUserState)
     resource(Ankole.Pod.SpreadsheetOp)
     resource(Ankole.Pod.FileCache)
+    resource(Ankole.Pod.PageSearchDocument)
+    resource(Ankole.Pod.SearchQuery)
 
     resource(Ankole.Pod.BaseTable)
     resource(Ankole.Pod.Bases.ChangeOutbox)
@@ -555,7 +557,7 @@ defmodule Ankole.Pod do
       base_route "/", Ankole.Pod.Pages.Browser do
         route :get, "/pages", :list do
           name("podPageList")
-          query_params([:scope, :query])
+          query_params([:scope, :domain, :query])
         end
 
         route(:get, "/pages/children", :children,
@@ -570,7 +572,38 @@ defmodule Ankole.Pod do
 
         route(:get, "/pages/search", :search,
           name: "podPageSearch",
-          query_params: [:query, :exclude_subtree_of, :required_action, :embeddable]
+          query_params: [
+            :query,
+            :domain,
+            :types,
+            :scope,
+            :ancestor_id,
+            :created_by,
+            :updated_after,
+            :title_only,
+            :sort,
+            :limit,
+            :exclude_subtree_of,
+            :required_action,
+            :embeddable
+          ]
+        )
+
+        route(:get, "/pages/recent-searches", :list_recent_searches,
+          name: "podRecentSearches",
+          query_params: [:limit]
+        )
+
+        route(:post, "/pages/recent-searches", :record_recent_search,
+          name: "podRecordRecentSearch"
+        )
+
+        route(:delete, "/pages/recent-searches/:id", :delete_recent_search,
+          name: "podDeleteRecentSearch"
+        )
+
+        route(:delete, "/pages/recent-searches", :clear_recent_searches,
+          name: "podClearRecentSearches"
         )
 
         route :post, "/pages", :create do

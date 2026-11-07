@@ -139,6 +139,18 @@ export class AgentCodexRuntimeManager {
     return [...this.entries.values()].filter(entry => entry.runtime).length
   }
 
+  async closeAll(timeoutMs = 2_000): Promise<void> {
+    const tasks = [...this.entries.values()].map(entry =>
+      entry.runtime ? entry.runtime.close().finally(() => this.forget(entry)) : this.closeUnusedEntry(entry)
+    )
+    if (tasks.length === 0) return
+    await withTimeout(
+      Promise.allSettled(tasks).then(() => undefined),
+      timeoutMs,
+      'Codex shutdown timed out'
+    ).catch(() => undefined)
+  }
+
   private createEntry(input: AgentCodexRuntimeAcquireInput): RuntimeEntry {
     const entry: RuntimeEntry = {
       key: input.driveView?.key ?? input.agentUID,
@@ -340,7 +352,7 @@ export class AgentCodexRuntime {
         throw new Error(`Agent ${this.agentUID} Plugin catalog changed while its Codex runtime was active`)
       }
 
-      materializeAgentPluginPackages(prepared, { rebuild: !this.pluginsInitialized })
+      await materializeAgentPluginPackages(prepared, { rebuild: !this.pluginsInitialized })
       if (this.pluginsInitialized) return
       if (this.threadOwners.size > 0) {
         throw new Error('Agent Plugin installation must finish before the first Job thread starts')

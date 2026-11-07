@@ -38,6 +38,10 @@ defmodule Ankole.Pod.Pages.Browser do
     allow(:remove_space_agent, check: :guardrail)
     allow(:mention_candidates, check: :guardrail)
     allow(:resolve_mentions, check: :guardrail)
+    allow(:list_recent_searches, check: :guardrail)
+    allow(:record_recent_search, check: :guardrail)
+    allow(:delete_recent_search, check: :guardrail)
+    allow(:clear_recent_searches, check: :guardrail)
   end
 
   alias Ankole.Pod.{Documents, Pages, APIError}
@@ -243,6 +247,133 @@ defmodule Ankole.Pod.Pages.Browser do
       type: {:array, :atom},
       constraints: [items: @children_view_field]
     ]
+  ]
+
+  @search_snippet_segment_fields [
+    text: [type: :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false]],
+    hit: [type: :boolean, allow_nil?: false]
+  ]
+
+  @search_primary_target [
+    type: :union,
+    constraints: [
+      types: [
+        doc_section: [
+          type: :map,
+          tag: :kind,
+          tag_value: :doc_section,
+          constraints: [
+            fields: [
+              kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:doc_section]]],
+              heading: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+              level: [type: :integer, allow_nil?: false, constraints: [min: 1, max: 6]]
+            ]
+          ]
+        ],
+        md_section: [
+          type: :map,
+          tag: :kind,
+          tag_value: :md_section,
+          constraints: [
+            fields: [
+              kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:md_section]]],
+              heading: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+              level: [type: :integer, allow_nil?: false, constraints: [min: 1, max: 6]],
+              start_line: [type: :integer, constraints: [min: 1]]
+            ]
+          ]
+        ],
+        lines: [
+          type: :map,
+          tag: :kind,
+          tag_value: :lines,
+          constraints: [
+            fields: [
+              kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:lines]]],
+              start_line: [type: :integer, allow_nil?: false, constraints: [min: 1]],
+              end_line: [type: :integer, allow_nil?: false, constraints: [min: 1]]
+            ]
+          ]
+        ],
+        csv_rows: [
+          type: :map,
+          tag: :kind,
+          tag_value: :csv_rows,
+          constraints: [
+            fields: [
+              kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:csv_rows]]],
+              start_row: [type: :integer, allow_nil?: false, constraints: [min: 1]],
+              end_row: [type: :integer, allow_nil?: false, constraints: [min: 1]]
+            ]
+          ]
+        ],
+        spreadsheet_cell: [
+          type: :map,
+          tag: :kind,
+          tag_value: :spreadsheet_cell,
+          constraints: [
+            fields: [
+              kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:spreadsheet_cell]]],
+              sheet_name: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+              cell: [type: :string]
+            ]
+          ]
+        ],
+        page_number: [
+          type: :map,
+          tag: :kind,
+          tag_value: :page_number,
+          constraints: [
+            fields: [
+              kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:page_number]]],
+              page: [type: :integer, allow_nil?: false, constraints: [min: 1]]
+            ]
+          ]
+        ],
+        base_table: [
+          type: :map,
+          tag: :kind,
+          tag_value: :base_table,
+          constraints: [
+            fields: [
+              kind: [type: :atom, allow_nil?: false, constraints: [one_of: [:base_table]]],
+              table_id: [type: UUIDv7, allow_nil?: false],
+              view_id: [type: UUIDv7],
+              label: [type: :string, constraints: [allow_empty?: true, trim?: false]]
+            ]
+          ]
+        ]
+      ]
+    ]
+  ]
+
+  @search_match_fields [
+    page_id: [type: UUIDv7, allow_nil?: false],
+    match_fields: [
+      type: {:array, :atom},
+      allow_nil?: false,
+      constraints: [items: [one_of: [:title, :meta, :body]]]
+    ],
+    snippet: [
+      type: :map,
+      constraints: [
+        fields: [
+          segments: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @search_snippet_segment_fields]]
+          ]
+        ]
+      ]
+    ],
+    primary_target: @search_primary_target
+  ]
+
+  @recent_search_fields [
+    id: [type: UUIDv7, allow_nil?: false],
+    query: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+    result_count: [type: :integer, allow_nil?: false, constraints: [min: 0]],
+    updated_at: [type: :utc_datetime_usec, allow_nil?: false]
   ]
 
   @mention_page_candidate_fields [
@@ -561,6 +692,11 @@ defmodule Ankole.Pod.Pages.Browser do
             constraints: [items: struct_constraints(Ankole.Pod.Page)],
             allow_nil?: false
           ],
+          matches: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @search_match_fields]]
+          ],
           ancestors: [
             type: {:array, :struct},
             constraints: [items: struct_constraints(Ankole.Pod.Page)],
@@ -578,7 +714,31 @@ defmodule Ankole.Pod.Pages.Browser do
         allow_nil?: false
       )
 
-      argument(:query, :string, allow_nil?: false, constraints: [allow_empty?: true])
+      argument(:query, :string,
+        allow_nil?: false,
+        constraints: [allow_empty?: true, trim?: false]
+      )
+
+      argument(:types, :string, constraints: [allow_empty?: true])
+
+      argument(:scope, :atom,
+        constraints: [one_of: [:all, :private, :space, :shared, :conversation]],
+        default: :all,
+        allow_nil?: false
+      )
+
+      argument(:ancestor_id, UUIDv7)
+      argument(:created_by, PrincipalKey)
+      argument(:updated_after, :string, constraints: [allow_empty?: true])
+      argument(:title_only, :boolean, allow_nil?: false, default: false)
+
+      argument(:sort, :atom,
+        constraints: [one_of: [:best, :updated_desc, :updated_asc, :created_desc, :created_asc]],
+        default: :best,
+        allow_nil?: false
+      )
+
+      argument(:limit, :integer, allow_nil?: false, default: 30, constraints: [min: 1, max: 100])
       argument(:exclude_subtree_of, UUIDv7)
       argument(:embeddable, :boolean, allow_nil?: false, default: false)
 
@@ -592,6 +752,73 @@ defmodule Ankole.Pod.Pages.Browser do
         APIError.result(
           with_private_owners(Pages.search(context.actor, input.arguments.query, input.arguments))
         )
+      end)
+    end
+
+    action :list_recent_searches, :map do
+      constraints(
+        fields: [
+          queries: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @recent_search_fields]]
+          ]
+        ]
+      )
+
+      argument(:limit, :integer, allow_nil?: false, default: 8, constraints: [min: 1, max: 20])
+
+      run(fn input, context ->
+        case Pages.list_recent_searches(context.actor, input.arguments.limit) do
+          {:ok, queries} -> {:ok, %{queries: queries}}
+          error -> APIError.result(error)
+        end
+      end)
+    end
+
+    action :record_recent_search, :map do
+      constraints(
+        fields: [
+          entry: [
+            type: :map,
+            constraints: [fields: @recent_search_fields]
+          ]
+        ]
+      )
+
+      argument(:query, :string,
+        allow_nil?: false,
+        constraints: [allow_empty?: true, trim?: false]
+      )
+
+      argument(:result_count, :integer, allow_nil?: false, default: 0, constraints: [min: 0])
+
+      run(fn input, context ->
+        case Pages.record_recent_search(
+               context.actor,
+               input.arguments.query,
+               input.arguments.result_count
+             ) do
+          {:ok, entry} -> {:ok, %{entry: entry}}
+          error -> APIError.result(error)
+        end
+      end)
+    end
+
+    action :delete_recent_search, :map do
+      constraints(fields: [deleted: [type: :boolean, allow_nil?: false]])
+      argument(:id, UUIDv7, allow_nil?: false)
+
+      run(fn input, context ->
+        APIError.result(Pages.delete_recent_search(context.actor, input.arguments.id))
+      end)
+    end
+
+    action :clear_recent_searches, :map do
+      constraints(fields: [cleared: [type: :boolean, allow_nil?: false]])
+
+      run(fn _input, context ->
+        APIError.result(Pages.clear_recent_searches(context.actor))
       end)
     end
 

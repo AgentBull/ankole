@@ -8,6 +8,7 @@ defmodule Ankole.Pod.Pages.Lifecycle do
     PageDailyActivity,
     PageComment,
     PageContent,
+    PageSearchDocument,
     PageSnapshot,
     PageUserState,
     SpreadsheetOp
@@ -78,6 +79,7 @@ defmodule Ankole.Pod.Pages.Lifecycle do
           {PageComment, :purge},
           {PageSnapshot, :purge},
           {PageDailyActivity, :purge},
+          {PageSearchDocument, :purge},
           {PageContent, :purge}
         ],
         :ok,

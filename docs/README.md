@@ -246,6 +246,8 @@ tools/e2e/run --real-llm
 | [I18n](design-docs/I18n.md) | Locale resolution and shared translation catalogs |
 | [Logger](design-docs/Logger.md) | Structured JSON and console log formatting |
 | [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) | Deliberate non-goals, trust boundaries, and failure recovery limits |
+| [Auto Ontology source research](research/auto-ontology-source-analysis.md) | Research findings and proposed integration with native Base queries |
+| [Ankole 2.0 structured data and Brain](research/ankole-2-structured-data-brain.md) | Research proposal for external OLTP, OLAP, data lakes, shared semantics, and Agent/Applet queries |
 
 Messaging and identity adapter protocol specifications live under `design-docs/plugins/`, while the `github-adapter` and `linear-adapter` Connector specifications live in [Connectors](design-docs/Connectors.md).
 

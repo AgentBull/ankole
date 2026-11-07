@@ -198,6 +198,30 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
     end
+
+    test "bot_client resolves a globally registered peer client when the local registry has none" do
+      {_binding, config} = setup_chat_binding()
+      key = Config.connection_key(config)
+      global_name = ConnectionOwner.global_client_name(key)
+
+      {:ok, peer_client} = GenServer.start_link(FakeBotClient, {self(), %{}})
+
+      :yes =
+        :global.re_register_name(
+          global_name,
+          peer_client,
+          &ConnectionOwner.resolve_client_conflict/3
+        )
+
+      on_exit(fn -> :global.unregister_name(global_name) end)
+
+      assert Registry.lookup(Ankole.Plugins.WeComAdapter.ConnectionRegistry, {:client, key}) == []
+      assert {:ok, ^peer_client} = ConnectionOwner.bot_client(config)
+
+      Process.unlink(peer_client)
+      GenServer.stop(peer_client, :shutdown)
+      assert {:error, :wecom_connection_unavailable} = ConnectionOwner.bot_client(config)
+    end
   end
 
   defp setup_chat_binding do

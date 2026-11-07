@@ -326,6 +326,33 @@ defmodule Ankole.Kernel do
     source |> page_validate_nif() |> decode_page_result()
   end
 
+  @doc "Extracts NFKC-normalized search text and heading byte spans from page XML."
+  @spec page_sections(String.t()) ::
+          {:ok,
+           %{
+             plain_text: String.t(),
+             sections: [
+               %{level: pos_integer(), heading: String.t(), start_byte: non_neg_integer()}
+             ]
+           }}
+          | {:error, String.t()}
+  def page_sections(source) when is_binary(source) do
+    case page_sections_nif(source) do
+      {:error, _reason} = error ->
+        error
+
+      {plain_text, sections} ->
+        {:ok,
+         %{
+           plain_text: plain_text,
+           sections:
+             Enum.map(sections, fn {level, heading, start_byte} ->
+               %{level: level, heading: heading, start_byte: start_byte}
+             end)
+         }}
+    end
+  end
+
   @doc "Rewrites Principal mention targets through the canonical page XML codec."
   def page_rename_principal(source, old, new),
     do: source |> page_rename_principal_nif(old, new) |> decode_page_result()
@@ -392,6 +419,7 @@ defmodule Ankole.Kernel do
   defp page_diff_nif(_old, _new), do: :erlang.nif_error(:nif_not_loaded)
   defp page_identity_changes_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
   defp page_validate_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+  defp page_sections_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
   defp page_rename_principal_nif(_source, _old, _new), do: :erlang.nif_error(:nif_not_loaded)
   defp page_apply_nif(_source, _changes), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -527,6 +555,70 @@ defmodule Ankole.Kernel do
   @doc false
   @spec markdown_repair_generated_nif(String.t()) :: String.t()
   defp markdown_repair_generated_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+
+  @typedoc "Result of extracting searchable text and locating metadata from a file."
+  @type file_extraction :: %{
+          status: :ok | :skipped | :failed,
+          subtype: :text | :document,
+          format: String.t(),
+          extractor_version: pos_integer(),
+          plain_text: String.t(),
+          metadata: map(),
+          error: String.t() | nil
+        }
+
+  @doc "Returns the current kernel file-text extractor schema version."
+  @spec file_extractor_version() :: pos_integer()
+  def file_extractor_version, do: file_extractor_version_nif()
+
+  @doc "Classifies a filename and optional MIME type into a supported file-text subtype and format."
+  @spec file_classify_format(String.t(), String.t() | nil) ::
+          {:ok, %{subtype: :text | :document, format: String.t()}} | :unsupported
+  def file_classify_format(filename, mime_type \\ nil)
+      when is_binary(filename) and (is_binary(mime_type) or is_nil(mime_type)) do
+    case file_classify_format_nif(filename, mime_type) do
+      {:ok, {subtype, format}} -> {:ok, %{subtype: subtype, format: format}}
+      :unsupported -> :unsupported
+    end
+  end
+
+  @doc "Extracts bounded NFKC-normalized search text and locating metadata from file bytes."
+  @spec file_extract_text(binary(), String.t(), String.t() | nil) ::
+          {:ok, file_extraction()} | {:error, error_reason()}
+  def file_extract_text(bytes, filename, mime_type \\ nil)
+      when is_binary(bytes) and is_binary(filename) and
+             (is_binary(mime_type) or is_nil(mime_type)) do
+    case file_extract_text_nif(bytes, filename, mime_type) do
+      {:error, _reason} = error ->
+        error
+
+      %{
+        status: status,
+        subtype: subtype,
+        format: format,
+        extractor_version: extractor_version,
+        plain_text: plain_text,
+        metadata_json: metadata_json,
+        error: err
+      } ->
+        {:ok,
+         %{
+           status: status,
+           subtype: subtype,
+           format: format,
+           extractor_version: extractor_version,
+           plain_text: plain_text,
+           metadata: Torque.decode!(metadata_json),
+           error: err
+         }}
+    end
+  end
+
+  defp file_extractor_version_nif, do: :erlang.nif_error(:nif_not_loaded)
+  defp file_classify_format_nif(_filename, _mime_type), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp file_extract_text_nif(_bytes, _filename, _mime_type),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Authorizes one exact action on one concrete resource.

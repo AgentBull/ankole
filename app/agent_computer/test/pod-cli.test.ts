@@ -711,4 +711,56 @@ export default { 'POST /total': async ({ body }) => ({total: total(body.a, body.
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('parses pages.search JSON and CLI flags with domain="all" by default', async () => {
+    expect(await commandFromArgs(['pages.search', '{"query":"roadmap"}'])).toEqual({
+      operation: 'pages.search',
+      params: { domain: 'all', query: 'roadmap' },
+      cwd: process.cwd()
+    })
+    expect(await commandFromArgs(['pages.search', '{"query":"roadmap","domain":"pages"}'])).toEqual({
+      operation: 'pages.search',
+      params: { query: 'roadmap', domain: 'pages' },
+      cwd: process.cwd()
+    })
+    expect(
+      await commandFromArgs([
+        'pages.search',
+        'quarterly budget',
+        '--domain',
+        'brain',
+        '--type',
+        'knowledge,file',
+        '--scope',
+        'space',
+        '--ancestor',
+        'page-root',
+        '--title-only',
+        '--sort',
+        'updated_desc',
+        '--limit',
+        '25'
+      ])
+    ).toEqual({
+      operation: 'pages.search',
+      params: {
+        domain: 'brain',
+        query: 'quarterly budget',
+        types: 'knowledge,file',
+        scope: 'space',
+        ancestor_id: 'page-root',
+        title_only: true,
+        sort: 'updated_desc',
+        limit: 25
+      },
+      cwd: process.cwd()
+    })
+    await expect(commandFromArgs(['pages.search', 'q', '--domain', 'invalid'])).rejects.toThrow(
+      '--domain must be all, pages, or brain'
+    )
+    await expect(commandFromArgs(['pages.search', 'q', '--sort', 'random'])).rejects.toThrow('--sort must be')
+    await expect(commandFromArgs(['pages.search', 'q', '--limit', '101'])).rejects.toThrow(
+      '--limit must be at most 100'
+    )
+  })
 })

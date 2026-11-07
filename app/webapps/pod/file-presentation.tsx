@@ -7,10 +7,13 @@ import { getSlides, loadPresentation } from '@office-kit/pptx'
 import { renderSlideToSvg } from '@office-kit/pptx-preview'
 import { ContentError } from './content-primitives'
 
-export default function PresentationPreview({ url }: { url: string }) {
+export default function PresentationPreview({ url, initialPage }: { url: string; initialPage?: number }) {
   const { t } = useTranslation()
-  const [selected, setSelected] = useState(0)
+  const [selected, setSelected] = useState(() => Math.max(0, (initialPage ?? 1) - 1))
   const navRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (initialPage && initialPage > 0) setSelected(initialPage - 1)
+  }, [initialPage])
   const slides = useQuery({
     queryKey: ['file-presentation', url],
     queryFn: async ({ signal }) => {
@@ -22,7 +25,8 @@ export default function PresentationPreview({ url }: { url: string }) {
     retry: false
   })
   const total = slides.data?.length ?? 0
-  const selectedIndex = slides.data?.[selected] ? selected : 0
+  const clamped = total > 0 ? Math.min(selected, total - 1) : 0
+  const selectedIndex = slides.data?.[clamped] ? clamped : 0
   const current = slides.data?.[selectedIndex]
   useEffect(() => {
     navRef.current

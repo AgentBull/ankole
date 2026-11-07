@@ -139,7 +139,7 @@ export class DriveView {
 }
 
 /** One rcd and one cache pool per Worker; views lease the existing mounts. */
-class DriveMounts {
+export class DriveMounts {
   private starting?: Promise<void>
   private readonly mounts = new Map<string, Promise<Mount>>()
   private readonly views = new Map<string, { view: DriveView; count: number }>()
@@ -161,17 +161,32 @@ class DriveMounts {
     }
   }
 
-  async stop(): Promise<void> {
+  async stop(gracefulTimeoutMs = 5_000, forceKillTimeoutMs = 2_000): Promise<void> {
     this.stopping = true
+    await this.clearSettledMountTimers()
+    const daemon = this.daemon
+    this.daemon = undefined
+    if (daemon) {
+      daemon.kill()
+      if (!(await waitForProcessExit(daemon.exited, gracefulTimeoutMs))) {
+        daemon.kill('SIGKILL')
+        await waitForProcessExit(daemon.exited, forceKillTimeoutMs)
+      }
+    }
+    await this.clearSettledMountTimers()
+    this.mounts.clear()
+    this.views.clear()
+    this.starting = undefined
+  }
+
+  private async clearSettledMountTimers(): Promise<void> {
     for (const pending of this.mounts.values()) {
-      const mount = await pending.catch(() => undefined)
+      const mount = await Promise.race([pending.catch(() => undefined), Promise.resolve(undefined)])
       if (mount) {
         clearTimeout(mount.idle)
         clearInterval(mount.refresh)
       }
     }
-    this.daemon?.kill()
-    await this.daemon?.exited
   }
 
   async acquire(config: DriveVfsConfig | undefined): Promise<DriveView | undefined> {
@@ -401,6 +416,22 @@ class DriveMounts {
     mount.idle = setTimeout(() => void expire(), 15 * 60_000)
     mount.idle.unref()
   }
+}
+
+function waitForProcessExit(exited: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    exited.then(
+      () => true,
+      () => true
+    ),
+    new Promise<boolean>(resolve => {
+      timer = setTimeout(() => resolve(false), timeoutMs)
+      timer.unref?.()
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
 }
 
 export const driveMounts = new DriveMounts()

@@ -363,7 +363,8 @@ defmodule Ankole.Pod.Documents do
          {:ok, _pruned} <-
            PageChange
            |> Ash.Query.filter(page_id == ^page.id and revision <= ^(page.revision - window))
-           |> Ankole.Ash.destroy_where(:prune) do
+           |> Ankole.Ash.destroy_where(:prune),
+         :ok <- Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: parsed.plain_text) do
       with :ok <- Ankole.Brain.Knowledge.page_changed_in_tx(page, content),
            do: {:ok, %{page: page, content: content}}
     end

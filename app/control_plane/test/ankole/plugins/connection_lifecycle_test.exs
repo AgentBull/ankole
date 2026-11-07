@@ -620,4 +620,288 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
 
     assert ["shared"] = Connections.registered_keys()
   end
+
+  @primary_registry Ankole.Plugins.ConnectionLifecycleTest.PrimaryRegistry
+  @primary_supervisor Ankole.Plugins.ConnectionLifecycleTest.PrimarySupervisor
+  @primary_drain_key {__MODULE__, :primary_drain}
+  @standby_registry Ankole.Plugins.ConnectionLifecycleTest.StandbyRegistry
+  @standby_supervisor Ankole.Plugins.ConnectionLifecycleTest.StandbySupervisor
+  @standby_drain_key {__MODULE__, :standby_drain}
+
+  defmodule ClusterPrimary do
+    use Ankole.Plugins.ConnectionLifecycle,
+      adapter: "connection_lifecycle_cluster_test",
+      registry: Ankole.Plugins.ConnectionLifecycleTest.PrimaryRegistry,
+      supervisor: Ankole.Plugins.ConnectionLifecycleTest.PrimarySupervisor,
+      cluster_scope: Ankole.Plugins.ConnectionLifecycleTest.ClusterPrimary,
+      cluster_members: [
+        Ankole.Plugins.ConnectionLifecycleTest.ClusterPrimary,
+        Ankole.Plugins.ConnectionLifecycleTest.ClusterStandby
+      ],
+      drain_state_key: {Ankole.Plugins.ConnectionLifecycleTest, :primary_drain}
+
+    @impl true
+    def binding_spec(%{config_ref: "blocked"}, _opts),
+      do: {:blocked, "handover", :runtime_bot_identity_unavailable}
+
+    def binding_spec(binding, opts) do
+      {:ok, spec} = Connections.binding_spec(binding, opts)
+      {:ok, %{spec | config: Map.put(spec.config, "observer", Keyword.fetch!(opts, :observer))}}
+    end
+
+    @impl true
+    def connection_key(config, consumers), do: Connections.connection_key(config, consumers)
+
+    @impl true
+    def owner_child_spec(key, config, consumers) do
+      via =
+        {:via, Registry,
+         {Ankole.Plugins.ConnectionLifecycleTest.PrimaryRegistry, key,
+          Ankole.Plugins.ConnectionLifecycle.registry_value(config, consumers)}}
+
+      %{
+        id: key,
+        start: {TemporaryClient, :start_link, [[name: via, config: config]]},
+        restart: :permanent
+      }
+    end
+  end
+
+  defmodule ClusterStandby do
+    use Ankole.Plugins.ConnectionLifecycle,
+      adapter: "connection_lifecycle_cluster_test",
+      registry: Ankole.Plugins.ConnectionLifecycleTest.StandbyRegistry,
+      supervisor: Ankole.Plugins.ConnectionLifecycleTest.StandbySupervisor,
+      cluster_scope: Ankole.Plugins.ConnectionLifecycleTest.ClusterPrimary,
+      cluster_members: [
+        Ankole.Plugins.ConnectionLifecycleTest.ClusterPrimary,
+        Ankole.Plugins.ConnectionLifecycleTest.ClusterStandby
+      ],
+      drain_state_key: {Ankole.Plugins.ConnectionLifecycleTest, :standby_drain}
+
+    @impl true
+    def binding_spec(binding, opts), do: ClusterPrimary.binding_spec(binding, opts)
+
+    @impl true
+    def connection_key(config, consumers), do: ClusterPrimary.connection_key(config, consumers)
+
+    @impl true
+    def owner_child_spec(key, config, consumers) do
+      via =
+        {:via, Registry,
+         {Ankole.Plugins.ConnectionLifecycleTest.StandbyRegistry, key,
+          Ankole.Plugins.ConnectionLifecycle.registry_value(config, consumers)}}
+
+      %{
+        id: key,
+        start: {TemporaryClient, :start_link, [[name: via, config: config]]},
+        restart: :permanent
+      }
+    end
+  end
+
+  describe "cluster single-owner coordination" do
+    setup do
+      start_supervised!(
+        Supervisor.child_spec({Registry, keys: :unique, name: @primary_registry},
+          id: :primary_reg
+        )
+      )
+
+      start_supervised!(
+        Supervisor.child_spec(
+          {DynamicSupervisor, name: @primary_supervisor, strategy: :one_for_one},
+          id: :primary_sup
+        )
+      )
+
+      start_supervised!(
+        Supervisor.child_spec({Registry, keys: :unique, name: @standby_registry},
+          id: :standby_reg
+        )
+      )
+
+      start_supervised!(
+        Supervisor.child_spec(
+          {DynamicSupervisor, name: @standby_supervisor, strategy: :one_for_one},
+          id: :standby_sup
+        )
+      )
+
+      on_exit(fn ->
+        :persistent_term.erase(@primary_drain_key)
+        :persistent_term.erase(@standby_drain_key)
+      end)
+
+      :ok
+    end
+
+    test "keeps a single owner across replicas and propagates peer updates and disables" do
+      %{principal: agent} = agent_fixture()
+
+      assert {:ok, binding} =
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
+                 agent_uid: agent.uid,
+                 name: "main",
+                 adapter: "connection_lifecycle_cluster_test",
+                 config_ref: "app",
+                 filters: %{"cel" => "v1"}
+               })
+
+      primary_name = {:global, {__MODULE__, :primary, make_ref()}}
+      standby_name = {:global, {__MODULE__, :standby, make_ref()}}
+
+      start_supervised!(
+        Supervisor.child_spec(
+          {ClusterPrimary, name: primary_name, interval_ms: nil, observer: self()},
+          id: :cluster_primary
+        )
+      )
+
+      assert_receive {:client_started, "app", first_owner, _}, 1_000
+
+      start_supervised!(
+        Supervisor.child_spec(
+          {ClusterStandby, name: standby_name, interval_ms: nil, observer: self()},
+          id: :cluster_standby
+        )
+      )
+
+      refute_receive {:client_started, "app", _, _}, 100
+      assert %{started: 1, errors: []} = ClusterStandby.reconcile(standby_name)
+      assert ClusterPrimary.registered_keys() == ["app"]
+      assert ClusterStandby.registered_keys() == []
+
+      # Rotating config via the standby replica updates the live owner on primary.
+      assert {:ok, binding} =
+               Ankole.SignalsFixtures.raw_binding_fixture(binding, %{filters: %{"cel" => "v2"}})
+
+      assert %{started: 1, errors: []} = ClusterStandby.reconcile(standby_name)
+      assert_receive {:client_started, "app", rotated_owner, _}, 1_000
+      refute rotated_owner == first_owner
+      refute Process.alive?(first_owner)
+      assert [{^rotated_owner, _}] = Registry.lookup(@primary_registry, "app")
+      assert ClusterStandby.registered_keys() == []
+
+      # Disabling the binding via the standby replica stops the primary owner across the cluster.
+      binding |> Ecto.Changeset.change(enabled: false) |> Repo.update!()
+      assert %{started: 0, stopped: 1, errors: []} = ClusterStandby.reconcile(standby_name)
+      refute Process.alive?(rotated_owner)
+      assert ClusterPrimary.registered_keys() == []
+      assert ClusterStandby.registered_keys() == []
+    end
+
+    test "hands over blocked and active connections immediately during EndpointDrain and crash" do
+      %{principal: agent} = agent_fixture()
+
+      assert {:ok, binding} =
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
+                 agent_uid: agent.uid,
+                 name: "handover",
+                 adapter: "connection_lifecycle_cluster_test",
+                 config_ref: "handover"
+               })
+
+      {:ok, drain_pid} =
+        AnkoleWeb.EndpointDrain.start_link(
+          name: nil,
+          state_key: @primary_drain_key,
+          drain_delay_ms: 150
+        )
+
+      Process.unlink(drain_pid)
+
+      primary_name = {:global, {__MODULE__, :primary, make_ref()}}
+      standby_name = {:global, {__MODULE__, :standby, make_ref()}}
+
+      start_supervised!(
+        Supervisor.child_spec(
+          {ClusterPrimary, name: primary_name, interval_ms: nil, observer: self()},
+          id: :cluster_primary
+        )
+      )
+
+      assert_receive {:client_started, "handover", primary_owner, _}, 1_000
+
+      start_supervised!(
+        Supervisor.child_spec(
+          {ClusterStandby, name: standby_name, interval_ms: nil, observer: self()},
+          id: :cluster_standby
+        )
+      )
+
+      assert %{started: 1, errors: []} = ClusterStandby.reconcile(standby_name)
+      assert ClusterPrimary.registered_keys() == ["handover"]
+      assert ClusterStandby.registered_keys() == []
+
+      # Even when the binding becomes blocked, standby keeps monitoring without starting a second copy.
+      binding |> Ecto.Changeset.change(config_ref: "blocked") |> Repo.update!()
+
+      assert %{started: 0, errors: [%{reason: :runtime_bot_identity_unavailable}]} =
+               ClusterPrimary.reconcile(primary_name)
+
+      assert %{started: 0, errors: [%{reason: :runtime_bot_identity_unavailable}]} =
+               ClusterStandby.reconcile(standby_name)
+
+      refute_receive {:client_started, "handover", _, _}, 50
+
+      # Entering graceful drain on primary immediately hands the blocked connection over to standby.
+      drain_task = Task.async(fn -> GenServer.stop(drain_pid, :shutdown) end)
+
+      assert_receive {:client_started, "handover", standby_owner, _}, 1_000
+      assert AnkoleWeb.EndpointDrain.draining?(@primary_drain_key)
+      refute Process.alive?(primary_owner)
+      assert ClusterPrimary.registered_keys() == []
+      assert [{^standby_owner, _}] = Registry.lookup(@standby_registry, "handover")
+      assert :ok = Task.await(drain_task, 2_000)
+
+      # Once primary recovers and standby stops abruptly, primary takes back ownership immediately.
+      :persistent_term.put(@primary_drain_key, :ready)
+
+      assert %{started: 0, errors: [%{reason: :runtime_bot_identity_unavailable}]} =
+               ClusterPrimary.reconcile(primary_name)
+
+      stop_supervised!(:cluster_standby)
+      stop_supervised!(:standby_sup)
+
+      assert_receive {:client_started, "handover", failback_owner, _}, 1_000
+      refute failback_owner == standby_owner
+      assert [{^failback_owner, _}] = Registry.lookup(@primary_registry, "handover")
+    end
+
+    test "conflict resolution terminates the losing permanent child without supervisor restart" do
+      consumers = [%{tenant_id: Repo.tenant_id!(), agent_uid: "a1"}]
+      config = %{"key" => "split", "observer" => self()}
+
+      {:ok, winner} =
+        DynamicSupervisor.start_child(
+          @primary_supervisor,
+          ClusterPrimary.owner_child_spec("split", config, consumers)
+        )
+
+      {:ok, loser} =
+        DynamicSupervisor.start_child(
+          @standby_supervisor,
+          ClusterStandby.owner_child_spec("split", config, consumers)
+        )
+
+      assert_receive {:client_started, "split", ^winner, _}, 1_000
+      assert_receive {:client_started, "split", ^loser, _}, 1_000
+
+      loser_ref = Process.monitor(loser)
+
+      kept =
+        Ankole.Plugins.ConnectionLifecycle.resolve_global_conflict(
+          {Ankole.Plugins.ConnectionLifecycle, :owner, ClusterPrimary, "split"},
+          winner,
+          loser
+        )
+
+      assert kept == winner
+      assert_receive {:DOWN, ^loser_ref, :process, ^loser, :shutdown}, 1_000
+      refute_receive {:client_started, "split", _, _}, 100
+      assert Process.alive?(winner)
+      assert ClusterStandby.registered_keys() == []
+    end
+  end
 end

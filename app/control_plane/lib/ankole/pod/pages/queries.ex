@@ -1,6 +1,5 @@
 defmodule Ankole.Pod.Pages.Queries do
   @moduledoc "Owns visible page lists, directory cursors, search, and version snapshots."
-  require Ash.Expr
   require Ash.Query
   alias Ankole.Repo
   alias Ankole.Pod.Access
@@ -324,59 +323,7 @@ defmodule Ankole.Pod.Pages.Queries do
 
   defp excerpt_text(_text), do: ""
 
-  def search(%Ankole.AuthZ.Actor{} = actor, query, opts \\ %{}) do
-    Repo.transact_repeatable_read_only(fn -> search_pages(actor, query, opts) end)
-  end
-
-  defp search_pages(%Ankole.AuthZ.Actor{} = actor, query, opts) when is_binary(query) do
-    term = String.trim(query)
-
-    query =
-      Page
-      |> Ash.Query.filter(not is_root)
-      |> domain_pages(Ankole.Attrs.get(opts, :domain, :pages))
-      |> Ash.Query.for_read(:search, %{
-        required_action: Ankole.Attrs.get(opts, :required_action, :node_view)
-      })
-      |> maybe_filter_embeddable(Ankole.Attrs.get(opts, :embeddable, false))
-      |> filter_text(term)
-      |> Ash.Query.calculate(
-        :relevance,
-        :float,
-        Ash.Expr.expr(fragment("similarity(?, ?::text)", title, ^term))
-      )
-      |> then(fn built ->
-        Ash.Query.sort(built, [
-          {built.calculations.relevance, :desc},
-          {:updated_at, :desc},
-          {:id, :asc}
-        ])
-      end)
-      |> Ash.Query.limit(30)
-
-    with {:ok, query} <- exclude_subtree(query, Ankole.Attrs.get(opts, :exclude_subtree_of)),
-         {:ok, context} <- Access.context_snapshot(actor),
-         {:ok, reachable} <- query_visibility(actor, opts, context),
-         policy =
-           Ankole.AuthZ.Checks.PageAnchorFilter.policy(
-             reachable,
-             Ankole.Attrs.get(opts, :required_action, :node_view)
-           ),
-         query = Ankole.AuthZ.Checks.PageAnchorFilter.apply_policy(query, actor, policy),
-         {:ok, pages} <- read_search_pages(query, actor, term),
-         {:ok, ancestors} <- ancestors(actor, pages, policy),
-         do:
-           {:ok,
-            %{
-              pages: pages,
-              ancestors: ancestors,
-              principal_uid: Ankole.AuthZ.Actor.uid(actor),
-              can_create_private: can_create_private?(actor),
-              can_create_space: Pages.can_create_space?(actor)
-            }}
-  end
-
-  defp search_pages(_actor, _query, _opts), do: {:error, :invalid_request}
+  defdelegate search(actor, query, opts \\ %{}), to: Ankole.Pod.Pages.Search
 
   @doc "Counts the live descendants of a Page that the actor can view, for the Trash notice."
   def visible_descendant_count(%Ankole.AuthZ.Actor{} = actor, id) do
@@ -394,107 +341,6 @@ defmodule Ankole.Pod.Pages.Queries do
       end)
 
     length(pages)
-  end
-
-  defp read_search_pages(query, actor, ""), do: read_pages(query, actor)
-
-  defp read_search_pages(query, actor, term) do
-    tenant = Repo.tenant_id!()
-    patterns = text_patterns(term)
-
-    # Every result matches at least one word in an indexed branch. Each branch
-    # applies the same all-word filter, authorization, exclusions, ordering, and
-    # limit, so merging their bounded results preserves the global ranking.
-    branches = [
-      Ash.Query.filter(
-        query,
-        fragment(
-          "/* pod_search:title */ ? IN (SELECT p.id FROM pages p WHERE p.tenant_id = ?::text::uuid AND p.title ILIKE ANY(?::text[]))",
-          id,
-          ^tenant,
-          ^patterns
-        )
-      ),
-      Ash.Query.filter(
-        query,
-        fragment(
-          "/* pod_search:body */ ? IN (SELECT c.page_id FROM page_contents c WHERE c.tenant_id = ?::text::uuid AND c.plain_text ILIKE ANY(?::text[]))",
-          id,
-          ^tenant,
-          ^patterns
-        )
-      ),
-      Ash.Query.filter(
-        query,
-        type == :file and
-          fragment(
-            "/* pod_search:file_text */ ? IN (SELECT c.page_id FROM pod_file_caches c WHERE c.tenant_id = ?::text::uuid AND c.plain_text ILIKE ANY(?::text[]))",
-            id,
-            ^tenant,
-            ^patterns
-          )
-      )
-    ]
-
-    branches
-    |> Enum.reduce_while({:ok, []}, fn branch, {:ok, matches} ->
-      case read_pages(branch, actor) do
-        {:ok, pages} -> {:cont, {:ok, matches ++ pages}}
-        error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, pages} ->
-        {:ok, pages |> Enum.uniq_by(& &1.id) |> Enum.sort(&search_before?/2) |> Enum.take(30)}
-
-      error ->
-        error
-    end
-  end
-
-  defp search_before?(left, right) do
-    left_relevance = Map.fetch!(left.calculations, :relevance)
-    right_relevance = Map.fetch!(right.calculations, :relevance)
-
-    if left_relevance == right_relevance do
-      case DateTime.compare(left.updated_at, right.updated_at) do
-        :eq -> left.id <= right.id
-        :gt -> true
-        :lt -> false
-      end
-    else
-      left_relevance > right_relevance
-    end
-  end
-
-  defp maybe_filter_embeddable(query, true),
-    do: Ash.Query.filter(query, type in [:base, :file, :applet])
-
-  defp maybe_filter_embeddable(query, _embeddable), do: query
-
-  # Ancestors describe where a result lives, so they include the readable root (Space, the reader's
-  # Private, or Brain) and every ancestor the reader can view, whatever action the results require.
-  defp ancestors(actor, pages, policy) do
-    ids = Ankole.Pod.ancestor_node_ids(Enum.map(pages, & &1.id))
-
-    Page
-    |> Ash.Query.filter(id in ^ids)
-    |> Ankole.AuthZ.Checks.PageAnchorFilter.apply_policy(
-      actor,
-      Ankole.AuthZ.Checks.PageAnchorFilter.policy(policy.reachable)
-    )
-    |> read_pages(actor)
-  end
-
-  defp exclude_subtree(query, nil), do: {:ok, query}
-
-  defp exclude_subtree(query, source_id) do
-    with {:ok, source_id} <- Ecto.UUID.cast(source_id) do
-      excluded = Ankole.Pod.descendant_node_ids(source_id)
-      {:ok, Ash.Query.filter(query, id not in ^excluded)}
-    else
-      :error -> {:error, :invalid_request}
-    end
   end
 
   def list(%Ankole.AuthZ.Actor{} = actor, opts \\ %{}) do
@@ -636,23 +482,26 @@ defmodule Ankole.Pod.Pages.Queries do
   defp filter_list_title(query, term) when is_binary(term), do: filter_text(query, term)
   defp filter_list_title(query, _term), do: query
 
-  # Every whitespace-separated word must appear in the title, the body, or a
-  # spreadsheet's cell text, in any order.
+  # Every whitespace-separated word must appear in the title, structured metadata,
+  # or extracted document/file body, in any order.
   defp filter_text(query, text) do
     Enum.reduce(text_patterns(text) || [], query, fn pattern, query ->
       Ash.Query.filter(
         query,
-        ilike(title, ^pattern) or exists(content, ilike(plain_text, ^pattern)) or
-          exists(file_cache, ilike(plain_text, ^pattern))
+        ilike(title, ^pattern) or
+          exists(
+            search_document,
+            ilike(title, ^pattern) or ilike(meta_text, ^pattern) or ilike(body_text, ^pattern)
+          ) or exists(content, ilike(plain_text, ^pattern))
       )
     end)
   end
 
-  # Each word adds a condition, so a pasted paragraph uses only its first 16 distinct words.
+  # Each phrase or word adds a condition, normalized with the same NFKC and quote rules as Pages.Search.
   defp text_patterns(text) when is_binary(text) do
-    case text |> String.split() |> Enum.uniq() |> Enum.take(16) do
+    case Ankole.Pod.Pages.Search.parse_query(text).terms |> Enum.take(16) do
       [] -> nil
-      words -> Enum.map(words, &("%" <> Repo.escape_like(&1) <> "%"))
+      terms -> Enum.map(terms, &("%" <> Repo.escape_like(&1) <> "%"))
     end
   end
 
@@ -667,13 +516,15 @@ defmodule Ankole.Pod.Pages.Queries do
       """
       SELECT p.id::text, state.visited_at FROM page_user_states state
       JOIN pages p ON p.tenant_id = $1::text::uuid AND p.id = state.page_id
+      LEFT JOIN page_search_documents psd ON psd.tenant_id = p.tenant_id AND psd.page_id = p.id
       LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
-      LEFT JOIN pod_file_caches fc ON fc.tenant_id = p.tenant_id AND fc.page_id = p.id
       WHERE state.tenant_id = $1::text::uuid AND state.principal_uid = $2::text
         AND state.#{field} IS NOT NULL AND p.deleted_at IS NULL
         AND p.id = ANY($3::text[]::uuid[])
-        AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word
-            OR COALESCE(fc.plain_text, '') ILIKE word)
+        AND ($4::text[] IS NULL OR (SELECT bool_and(
+            COALESCE(psd.title, NULLIF(btrim(p.title), ''), p.name) ILIKE word
+            OR COALESCE(psd.meta_text, '') ILIKE word
+            OR COALESCE(psd.body_text, pc.plain_text, '') ILIKE word)
           FROM unnest($4::text[]) word))
       ORDER BY state.#{field} DESC, p.id LIMIT 200
       """,
@@ -742,15 +593,17 @@ defmodule Ankole.Pod.Pages.Queries do
     Repo.query!(
       """
       SELECT p.id::text, p.deleted_at FROM pages p
+      LEFT JOIN page_search_documents psd ON psd.tenant_id = p.tenant_id AND psd.page_id = p.id
       LEFT JOIN page_contents pc ON pc.tenant_id = p.tenant_id AND pc.page_id = p.id
-      LEFT JOIN pod_file_caches fc ON fc.tenant_id = p.tenant_id AND fc.page_id = p.id
       WHERE p.tenant_id = $1::text::uuid AND p.deleted_at IS NOT NULL
         AND NOT (p.id = ANY($5::text[]::uuid[]))
         AND ($6::text = 'all' OR (($6::text = 'brain') = (p.id = ANY($7::text[]::uuid[]))))
         AND ($2::timestamp IS NULL OR p.deleted_at < $2::timestamp
           OR (p.deleted_at = $2::timestamp AND p.id > $3::text::uuid))
-        AND ($4::text[] IS NULL OR (SELECT bool_and(p.title ILIKE word OR COALESCE(pc.plain_text, '') ILIKE word
-            OR COALESCE(fc.plain_text, '') ILIKE word)
+        AND ($4::text[] IS NULL OR (SELECT bool_and(
+            COALESCE(psd.title, NULLIF(btrim(p.title), ''), p.name) ILIKE word
+            OR COALESCE(psd.meta_text, '') ILIKE word
+            OR COALESCE(psd.body_text, pc.plain_text, '') ILIKE word)
           FROM unnest($4::text[]) word))
       ORDER BY p.deleted_at DESC, p.id LIMIT 200
       """,

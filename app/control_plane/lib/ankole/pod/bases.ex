@@ -188,7 +188,8 @@ defmodule Ankole.Pod.Bases do
              name: "Grid",
              type: :grid,
              position: "U"
-           }) do
+           }),
+         :ok <- Ankole.Pod.SearchProjection.sync_base_in_tx(page.id) do
       {:ok, table}
     end
   end

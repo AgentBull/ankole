@@ -11,10 +11,11 @@ import {
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import { ErrorBoundary } from '../common/error-boundary'
+import { useSearchParams } from '../common/router'
 import { requestErrorMessage } from '../common/request-errors'
 import {
   chatError,
@@ -42,6 +43,7 @@ import { NewGroupDialog } from './chat/new-group-dialog'
 import { ChatSummaryPanel } from './chat/chat-summary-panel'
 import { ExecutionInspectorPanel } from './chat/execution-inspector-panel'
 import { isLiveExecutionStatus } from './chat/execution-status'
+import { readSingleLineSelectionInContainer } from './find-bar'
 import type { InspectorTarget } from './chat/types'
 import { SessionFindBar } from './chat/session-find-bar'
 import { QueuedStrip } from './chat/queued-strip'
@@ -116,6 +118,8 @@ export function ChatPage({
     [renaming, setRenaming] = useState(false),
     [deleting, setDeleting] = useState(false)
   const [findInitial, setFindInitial] = useState<{ key: string; query: string; messageID?: string }>()
+  const [seededFindQuery, setSeededFindQuery] = useState<string | undefined>(undefined)
+  const [findFocusTrigger, setFindFocusTrigger] = useState(0)
   const root = useRef<HTMLElement>(null)
   const composerInput = useRef<HTMLTextAreaElement>(null)
   const inspectorTrigger = useRef<HTMLElement | null>(null)
@@ -176,13 +180,25 @@ export function ChatPage({
   const toggleSummaryFromKeyboard = useEffectEvent(() => changeSummary(!summary))
   const findInput = useRef<HTMLInputElement>(null)
   const findReturnFocus = useRef<HTMLElement | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
   const closeFinding = useCallback(() => {
     setFinding(false)
     setFindInitial(undefined)
+    setSeededFindQuery(undefined)
+    if (!pageID && (searchParams.has('find') || searchParams.has('seq'))) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('find')
+      next.delete('seq')
+      setSearchParams(next, { replace: true, preventScrollReset: true })
+    }
     const target = findReturnFocus.current?.isConnected ? findReturnFocus.current : root.current
     target?.focus({ preventScroll: true })
-  }, [])
+  }, [pageID, searchParams, setSearchParams])
   const openFinding = useCallback(() => {
+    const timelineEl = root.current?.querySelector<HTMLElement>('.pod-chat-timeline') ?? null
+    const selectedText = readSingleLineSelectionInContainer(timelineEl)
+    setSeededFindQuery(selectedText)
+    setFindFocusTrigger(prev => prev + 1)
     if (finding) {
       findInput.current?.focus()
       findInput.current?.select()
@@ -222,7 +238,19 @@ export function ChatPage({
   }
   const location = useLocation()
   const navigationState = location.state as (Partial<PodCommandNavigationState> & { __TSR_key?: string }) | null
-  const findMessage = pageID ? undefined : navigationState?.findMessage
+  const urlFindQuery = !pageID ? searchParams.get('find')?.trim() : undefined
+  const urlFindSeqRaw = !pageID ? Number.parseInt(searchParams.get('seq') ?? '', 10) : NaN
+  const urlFindMessage = useMemo(
+    () =>
+      urlFindQuery
+        ? {
+            query: urlFindQuery,
+            seq: Number.isFinite(urlFindSeqRaw) && urlFindSeqRaw > 0 ? urlFindSeqRaw : (data?.messageRange.lastSeq ?? 1)
+          }
+        : undefined,
+    [urlFindQuery, urlFindSeqRaw, data?.messageRange.lastSeq]
+  )
+  const findMessage = pageID ? undefined : (navigationState?.findMessage ?? urlFindMessage)
   const findKey = navigationState?.__TSR_key ?? location.href
   const handledFind = useRef<string | undefined>(undefined)
   const findPages = useRef(0)
@@ -510,6 +538,8 @@ export function ChatPage({
           history={history}
           inputRef={findInput}
           initial={findInitial}
+          seededQuery={seededFindQuery}
+          focusTrigger={findFocusTrigger}
           onClose={closeFinding}
         />
       )}

@@ -27,6 +27,7 @@ defmodule AnkoleWeb.Endpoint do
   # client IP. The ingress must remove incoming forwarded
   # headers, set its own values, and be the only public path to this process.
   plug :reset_tenant
+  plug :internal_health
 
   plug Plug.RewriteOn, @rewrite_on
 
@@ -110,6 +111,8 @@ defmodule AnkoleWeb.Endpoint do
   # Standard library plugs keep their normal compile-time initialization.
   defp reset_tenant(conn, opts),
     do: AnkoleWeb.Plugs.ResetTenant.call(conn, AnkoleWeb.Plugs.ResetTenant.init(opts))
+
+  defp internal_health(conn, _opts), do: AnkoleWeb.EndpointDrain.call_health_plug(conn)
 
   defp worker_file_relay(conn, opts),
     do: AnkoleWeb.WorkerFileRelay.call(conn, AnkoleWeb.WorkerFileRelay.init(opts))

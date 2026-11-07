@@ -661,10 +661,14 @@ Inbound and outbound responsibilities split across dedicated adapter modules:
   send.
 - **Transport**: HTTP webhook adapters declare `signals.webhook_handler`,
   verifying provider signatures and committing observation before returning an
-  HTTP acknowledgement. Long-lived socket adapters use
-  `Ankole.Plugins.ConnectionLifecycle.start_owner/3` to register single-consumer
-  connection owners keyed by tenant and config fingerprint while keeping their
-  own socket state and wire protocol. When an event arrives,
+  HTTP acknowledgement. Long-lived socket and polling adapters run under
+  `Ankole.Plugins.ConnectionLifecycle`, which coordinates a single owner per
+  `(adapter, connection_key)` across connected Distributed Erlang nodes via
+  `:global` locks and registrations while adapters keep their own socket state
+  and wire protocol. Peer replicas cache the active connection's start
+  arguments, monitor the owner, and take over immediately when the owning
+  replica enters `AnkoleWeb.EndpointDrain` shutdown draining or leaves the
+  cluster. When an event arrives,
   `Ankole.Conversations.AdapterContext.dispatch_chat/2` selects matching chat
   consumers and collects their results in Binding order, with each adapter
   parsing its own payload and supplying its own subject namespace.

@@ -24,6 +24,7 @@ import {
 } from '../src/fabric/envelope_proto'
 import { TurnControlSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { workerLogger } from '../src/worker/logging'
+import { sendWorkerHeartbeat } from '../src/worker/lifecycle_messages'
 import { RuntimeFabricTransportError } from '../src/fabric/fabric'
 
 const config = {
@@ -221,6 +222,31 @@ describe('RuntimeFabric channel transport', () => {
     const second = socket.current!
     expect(second).not.toBe(first)
     expect(second.joinPush).toBeDefined()
+    fabric.stop()
+  })
+
+  it('rejoins on stale_transport_route without crashing sendWorkerHeartbeat', async () => {
+    const { socket, fabric } = await connectReady()
+    const first = socket.current!
+
+    const heartbeat = sendWorkerHeartbeat(fabric.sendEnvelope, heartbeatEnvelope())
+    await tick()
+    expect(first.pushes.at(-1)?.event).toBe('control')
+    first.pushes.at(-1)!.reply('error', { reason: 'stale_transport_route' })
+
+    await expect(heartbeat).resolves.toBeUndefined()
+    const second = socket.current!
+    expect(second).not.toBe(first)
+    expect(second.joinPush).toBeDefined()
+    expect(await fabric.receive(5)).toMatchObject({ kind: 'disconnected', connectionID: 'connection-1' })
+
+    second.joinPush!.reply('ok', { connection_id: 'connection-2' })
+    await tick()
+    const nextHeartbeat = sendWorkerHeartbeat(fabric.sendEnvelope, heartbeatEnvelope())
+    await tick()
+    expect(second.pushes.at(-1)?.event).toBe('control')
+    second.pushes.at(-1)!.reply('ok')
+    await expect(nextHeartbeat).resolves.toBeUndefined()
     fabric.stop()
   })
 

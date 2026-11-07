@@ -1152,6 +1152,86 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert Repo.reload!(job).attempts == 1
   end
 
+  @tag sandbox: false
+  test "observe reports disconnected while stale and JobDriver immediately adopts on reconnect" do
+    %{principal: agent} = agent_fixture()
+    route_1 = unique_route()
+    route_2 = unique_route()
+    :ok = WorkerRoute.register_local_worker(route_1, self())
+    :ok = WorkerRoute.register_local_worker(route_2, self())
+
+    on_exit(fn ->
+      WorkerRoute.unregister_local_worker(route_1)
+      WorkerRoute.unregister_local_worker(route_2)
+    end)
+
+    assert {:ok, _worker_1} = admit_worker(route_1, %{incarnation_id: "incarnation-same"})
+
+    source_signal_id = Ankole.WorkFixtures.service_source(agent.uid).id
+
+    assert {:ok, %{job: job}} =
+             Repo.transact_top_level(fn ->
+               Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(%{
+                 "source_signal_id" => source_signal_id,
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => "owner-session-rapid-reconnect",
+                 "source_tool_call_id" => "tool-background-agent-job-rapid-reconnect",
+                 "title" => "Job rapid reconnect",
+                 "task" => "Complete job across rapid stale reconnect.",
+                 "reply_route" => %{
+                   "binding_name" => "bot",
+                   "conversation_id" =>
+                     Ankole.ExternalConversationsFixtures.external_conversation_id(
+                       "chat-rapid-reconnect"
+                     )
+                 }
+               })
+             end)
+
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    driver_pid = start_supervised!({Ankole.Sessions.JobDriver, {key, Repo.tenant_id!()}})
+
+    assert_receive {:actor_lane, initial_start}, 15_000
+    initial_payload = turn_start_payload!(initial_start)
+    assert initial_payload.mode == "start"
+    assert initial_payload.turn.job_id == job.id
+    assert initial_payload.turn.attempt == 1
+
+    {:starting,
+     %{
+       attempt:
+         %CodexJob.Attempt{
+           job_worker: %AgentWorker{
+             transport_route: ^route_1,
+             incarnation_id: "incarnation-same"
+           }
+         } = run_snapshot
+     }} = :sys.get_state(driver_pid)
+
+    WorkerRoute.unregister_local_worker(route_1)
+
+    assert {:ok, :marked_stale} =
+             Ankole.AgentWorkers.WorkerAdmission.mark_route_unusable(route_1, :socket_closed)
+
+    assert {:ok, :disconnected} = CodexJob.observe(run_snapshot)
+    refute_receive {:actor_lane, _}, 50
+
+    assert {:ok, _worker_2} = admit_worker(route_2, %{incarnation_id: "incarnation-same"})
+
+    assert {:ok,
+            {:adopt,
+             %AgentWorker{
+               transport_route: ^route_2,
+               incarnation_id: "incarnation-same"
+             }}} = CodexJob.observe(run_snapshot)
+
+    assert_receive {:actor_lane, adopt_start}, 5_000
+    adopt_payload = turn_start_payload!(adopt_start)
+    assert adopt_payload.mode == "adopt"
+    assert adopt_payload.turn.job_id == job.id
+    assert adopt_payload.turn.attempt == 1
+  end
+
   defp admit_job(key, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 

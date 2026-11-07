@@ -478,8 +478,8 @@ class ChannelTransport implements RuntimeFabricHost {
         case 'closed':
           throw new RuntimeFabricTransportError('socket_closed', 'socket_closed')
         case 'error':
-          if (outcome.reason === 'bad_sequence') {
-            throw new RuntimeFabricTransportError('socket_closed', 'socket_closed: stream sequence reset')
+          if (outcome.reason === 'bad_sequence' || outcome.reason === 'stale_transport_route') {
+            throw new RuntimeFabricTransportError('socket_closed', `socket_closed: ${outcome.reason}`)
           }
           if (outcome.reason !== 'flow_control') {
             throw new RuntimeFabricTransportError('rejected', `rejected: ${outcome.reason}`, { reason: outcome.reason })
@@ -548,6 +548,7 @@ class ChannelTransport implements RuntimeFabricHost {
           settle({ status: 'error', reason: reply.reason ?? 'unknown', reply })
           this.applyReply(stream, reply)
           if (reply.reason === 'bad_sequence') this.resync('bad_sequence', { stream, expected: reply.expected })
+          if (reply.reason === 'stale_transport_route') this.resync('stale_transport_route', { stream })
         })
         .receive('timeout', () => {
           if (currentConnection()) settle({ status: 'timeout' })
@@ -596,13 +597,20 @@ class ChannelTransport implements RuntimeFabricHost {
   }
 
   // Leaves the channel and joins again. Both sides restart their sequences
-  // at 1 on the new join, which is the only way to recover from a gap.
+  // at 1 on the new join, and a stale route re-runs channel admission.
   private resync(reason: string, details: Record<string, unknown>): void {
     if (this.stopped) return
-    workerLogger.error('worker.fabric_sequence_reset', 'runtime fabric stream sequence is out of step', {
-      reason,
-      ...details
-    })
+    if (reason === 'stale_transport_route') {
+      workerLogger.warning('worker.fabric_route_resync', 'runtime fabric transport route is stale; rejoining channel', {
+        reason,
+        ...details
+      })
+    } else {
+      workerLogger.error('worker.fabric_sequence_reset', 'runtime fabric stream sequence is out of step', {
+        reason,
+        ...details
+      })
+    }
     this.onDisconnected(reason)
     const old = this.channel
     this.channel = this.createChannel()

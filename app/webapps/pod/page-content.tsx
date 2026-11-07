@@ -18,28 +18,45 @@ import { requestErrorMessage } from '../common/request-errors'
 import { contentError } from './content-errors'
 import type { FileCommentSelection, FilePreviewHandle } from './file-comment-anchors'
 import { FilePage } from './page-files'
+import type { ParsedSearchTarget } from './search-targets'
 const AppletPage = lazy(() => import('./applet-page').then(module => ({ default: module.AppletPage })))
 const BasePage = lazy(() => import('./base-page').then(module => ({ default: module.BasePage })))
 
 export function PageContent({
   detail,
   onRequestFileComment,
-  filePreviewRef
+  filePreviewRef,
+  searchFind,
+  searchTarget
 }: {
   detail: PageDetail
   onRequestFileComment?: (selection: FileCommentSelection) => void
   filePreviewRef?: Ref<FilePreviewHandle | null>
+  searchFind?: string
+  searchTarget?: ParsedSearchTarget
 }) {
   const { t } = useTranslation()
   switch (detail.page.type) {
     case 'knowledge':
       return <EmbeddedKnowledgePage detail={detail} />
     case 'file':
-      return <FilePage detail={detail} onRequestComment={onRequestFileComment} previewRef={filePreviewRef} />
+      return (
+        <FilePage
+          detail={detail}
+          onRequestComment={onRequestFileComment}
+          previewRef={filePreviewRef}
+          searchFind={searchFind}
+          searchTarget={searchTarget}
+        />
+      )
     case 'base':
       return (
         <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
-          <BasePage detail={detail} />
+          <BasePage
+            detail={detail}
+            tableID={searchTarget?.kind === 'table' ? searchTarget.tableID : undefined}
+            viewID={searchTarget?.kind === 'table' ? searchTarget.viewID : undefined}
+          />
         </Suspense>
       )
     case 'applet':

@@ -17,12 +17,13 @@ import {
   type SpreadsheetSession,
   type SpreadsheetSource
 } from '../state/spreadsheet-collaboration'
-import { describeOp, type SpreadsheetOp } from '../state/spreadsheet-grid'
+import { describeOp, parseCell, type SpreadsheetOp } from '../state/spreadsheet-grid'
 import { SpreadsheetCanvas } from './spreadsheet-canvas'
 import { createSpreadsheetEngine } from './spreadsheet-engine'
 import { SpreadsheetFindDialog, type FindMode } from './spreadsheet-find-dialog'
 import { SpreadsheetSheetTabs, WORKSPACE_ATTRIBUTE } from './spreadsheet-sheet-tabs'
 import { SpreadsheetToolbar } from './spreadsheet-toolbar'
+import { parseSearchQueryTerms } from '../search-targets'
 
 const transport = createClientConfig({}).fetch!
 /** Compaction can replace the file between the bootstrap and the pinned download; each retry bootstraps again. */
@@ -105,7 +106,15 @@ function announce(notice: SpreadsheetNotice) {
  * one collaboration session for the page channel, and falls back to the download card when the
  * file exceeds the tenant's editing limit.
  */
-export default function SpreadsheetPage({ detail }: { detail: PageDetail }) {
+export default function SpreadsheetPage({
+  detail,
+  initialSheet,
+  initialFind
+}: {
+  detail: PageDetail
+  initialSheet?: string
+  initialFind?: string
+}) {
   const { realtime } = useContent()
   const client = useQueryClient()
   const pageID = detail.page.id
@@ -141,7 +150,14 @@ export default function SpreadsheetPage({ detail }: { detail: PageDetail }) {
   }, [pageID, canEdit, realtime, client])
 
   return session ? (
-    <SpreadsheetWorkspace key={session.generation} model={session.model} pageID={pageID} canEdit={canEdit} />
+    <SpreadsheetWorkspace
+      key={session.generation}
+      model={session.model}
+      pageID={pageID}
+      canEdit={canEdit}
+      initialSheet={initialSheet}
+      initialFind={initialFind}
+    />
   ) : (
     <p role="status">{t('pod.spreadsheet.loading')}</p>
   )
@@ -150,17 +166,60 @@ export default function SpreadsheetPage({ detail }: { detail: PageDetail }) {
 function SpreadsheetWorkspace({
   model,
   pageID,
-  canEdit
+  canEdit,
+  initialSheet,
+  initialFind
 }: {
   model: SpreadsheetSession
   pageID: string
   canEdit: boolean
+  initialSheet?: string
+  initialFind?: string
 }) {
   useSignals()
   const gridInput = useRef<HTMLTextAreaElement>(null)
   const [warningDismissed, setWarningDismissed] = useState(false)
   const [find, setFind] = useState<FindMode>()
   const status = model.status.value
+  const sheets = model.sheets.value
+  const appliedJump = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (status === 'loading' || !sheets.length) return
+    const key = `${initialSheet ?? ''}\0${initialFind ?? ''}`
+    if ((!initialSheet && !initialFind) || appliedJump.current === key) return
+    appliedJump.current = key
+    const targetSheet = initialSheet
+      ? (sheets.find(item => item.name === initialSheet) ??
+        sheets.find(item => item.name.toLocaleLowerCase() === initialSheet.toLocaleLowerCase()))
+      : undefined
+    let cancelled = false
+    void (async () => {
+      const rawNeedle = initialFind?.normalize('NFKC').trim()
+      if (rawNeedle) {
+        const terms = parseSearchQueryTerms(rawNeedle)
+        const candidates = rawNeedle.includes('"') ? terms : [rawNeedle, ...terms.filter(term => term !== rawNeedle)]
+        for (const candidate of candidates) {
+          const matches =
+            (await model.find(candidate, { match_case: false, whole_cell: false, formulas: false }, 'workbook')) ?? []
+          if (cancelled) return
+          const preferred =
+            (targetSheet ? matches.find(item => item.sheet_id === targetSheet.sheet_id) : undefined) ?? matches[0]
+          const cell = preferred && parseCell(preferred.cell)
+          if (preferred && cell) {
+            model.goTo(preferred.sheet_id, cell)
+            return
+          }
+        }
+      }
+      if (!cancelled && targetSheet) {
+        model.goTo(targetSheet.sheet_id, { row: 0, col: 0 })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [status, sheets, initialSheet, initialFind, model])
   if (status === 'too_large') {
     return (
       <p className="rounded-control border border-dashed border-border px-6 py-10 text-center text-sm text-fg-secondary">

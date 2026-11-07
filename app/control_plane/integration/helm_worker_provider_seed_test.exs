@@ -129,6 +129,116 @@ defmodule Ankole.HelmWorkerProviderSeedIntegrationTest do
     assert output =~ "worker.localPods=false requires worker.providers"
   end
 
+  test "renders RollingUpdate, HTTP health probes, anti-affinity, and PDB for multi-replica S3 deployments" do
+    docs =
+      render!(@chart, %{
+        "controlPlane" => %{"replicaCount" => 2},
+        "files" => %{
+          "store" => "s3",
+          "s3" => %{"bucket" => "ankole-files", "region" => "us-west-2"}
+        }
+      })
+
+    deployment = resource!(docs, "Deployment", "ankole-ankole-agent-control-plane")
+
+    assert deployment["spec"]["strategy"] == %{
+             "type" => "RollingUpdate",
+             "rollingUpdate" => %{"maxSurge" => 1, "maxUnavailable" => 0}
+           }
+
+    container =
+      Enum.find(
+        deployment["spec"]["template"]["spec"]["containers"],
+        &(&1["name"] == "control-plane")
+      )
+
+    assert container["startupProbe"]["httpGet"]["path"] == "/_internal/health"
+    assert container["readinessProbe"]["httpGet"]["path"] == "/_internal/health"
+    assert container["livenessProbe"]["httpGet"]["path"] == "/_internal/live"
+    assert get_in(deployment, ["spec", "template", "spec", "affinity", "podAntiAffinity"])
+
+    pdb = resource!(docs, "PodDisruptionBudget", "ankole-ankole-agent-control-plane")
+    assert pdb["spec"]["minAvailable"] == 1
+  end
+
+  if File.dir?(Path.expand("../../../internals/helm-chart/saas", __DIR__)) do
+    @saas_chart "internals/helm-chart/saas"
+    @digest "sha256:" <> String.duplicate("a", 64)
+
+    test "renders SaaS multi-replica RollingUpdate, PDBs, HTTP probes, and single-replica do-not-disrupt fallback" do
+      base_values = %{
+        "controlPlane" => %{"image" => %{"name" => "ecr.example/cp@#{@digest}"}},
+        "worker" => %{"image" => %{"name" => "ecr.example/worker@#{@digest}"}},
+        "functionRuntime" => %{"image" => %{"name" => "ecr.example/fn@#{@digest}"}},
+        "runtimeFabric" => %{
+          "releaseRevision" => String.duplicate("b", 40),
+          "protocolVersion" => "1"
+        }
+      }
+
+      docs = render!(@saas_chart, base_values)
+
+      cp = resource!(docs, "Deployment", "ankole-saas-control-plane")
+      assert cp["spec"]["replicas"] == 2
+
+      assert cp["spec"]["strategy"] == %{
+               "type" => "RollingUpdate",
+               "rollingUpdate" => %{"maxSurge" => 1, "maxUnavailable" => 0}
+             }
+
+      refute Map.has_key?(
+               cp["spec"]["template"]["metadata"]["annotations"],
+               "karpenter.sh/do-not-disrupt"
+             )
+
+      cp_container =
+        Enum.find(cp["spec"]["template"]["spec"]["containers"], &(&1["name"] == "control-plane"))
+
+      assert cp_container["startupProbe"]["httpGet"]["path"] == "/_internal/health"
+      assert cp_container["readinessProbe"]["httpGet"]["path"] == "/_internal/health"
+      assert cp_container["livenessProbe"]["httpGet"]["path"] == "/_internal/live"
+      assert get_in(cp, ["spec", "template", "spec", "affinity", "podAntiAffinity"])
+
+      cp_pdb = resource!(docs, "PodDisruptionBudget", "ankole-saas-control-plane")
+      assert cp_pdb["spec"]["minAvailable"] == 1
+
+      fn_dep = resource!(docs, "Deployment", "ankole-saas-function-runtime")
+      assert fn_dep["spec"]["replicas"] == 2
+
+      assert fn_dep["spec"]["strategy"] == %{
+               "type" => "RollingUpdate",
+               "rollingUpdate" => %{"maxSurge" => 1, "maxUnavailable" => 0}
+             }
+
+      fn_pdb = resource!(docs, "PodDisruptionBudget", "ankole-saas-function-runtime")
+      assert fn_pdb["spec"]["minAvailable"] == 1
+
+      single_docs =
+        render!(
+          @saas_chart,
+          Map.merge(base_values, %{
+            "controlPlane" => %{
+              "replicaCount" => 1,
+              "image" => %{"name" => "ecr.example/cp@#{@digest}"}
+            },
+            "functionRuntime" => %{
+              "replicaCount" => 1,
+              "image" => %{"name" => "ecr.example/fn@#{@digest}"}
+            }
+          })
+        )
+
+      single_cp = resource!(single_docs, "Deployment", "ankole-saas-control-plane")
+
+      assert single_cp["spec"]["template"]["metadata"]["annotations"][
+               "karpenter.sh/do-not-disrupt"
+             ] ==
+               "true"
+
+      refute Enum.any?(single_docs, &(&1["kind"] == "PodDisruptionBudget"))
+    end
+  end
+
   defp cloudflare_entries do
     for id <- ["cf-small", "cf-large"] do
       %{

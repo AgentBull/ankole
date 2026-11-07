@@ -1,5 +1,30 @@
 # Changelog
 
+## Version 2.0.0-alpha.73 (2026-11-07)
+
+- Support zero-downtime multi-replica control-plane deployments across
+  Distributed Erlang: add `AnkoleWeb.EndpointDrain` HTTP readiness
+  (`/_internal/health`, flipping to `503` and draining for
+  `ANKOLE_SHUTDOWN_DRAIN_MS` on `SIGTERM` before Bandit stops) and liveness
+  (`/_internal/live`) endpoints, start `DNSCluster` before Oban and Plugin
+  supervisors, coordinate cluster-wide single-owner adapter connections with
+  immediate drain handover and crash failover in
+  `Ankole.Plugins.ConnectionLifecycle`, resolve live WeCom bot WebSockets across
+  replicas for outbound delivery, and render `RollingUpdate`, HTTP health
+  probes, hostname anti-affinity, and `PodDisruptionBudget` resources in the
+  `ankole-agent` Helm chart when running shared remote file storage.
+- Upgrade Pod Page search (`⌘K`, `/content/search`, and `ankole-pod pages.search`)
+  to unified BM25 + substring full-text search across Pages, Brain knowledge,
+  Base schemas, Spreadsheets, and extracted File Pages (`.docx`, `.pptx`,
+  `.odt`, `.ods`, `.pdf`, Markdown, CSV/TSV, and text/code files), with
+  activity- and recency-weighted ranking, recent search history, subtree and
+  title-only filters, desktop command-menu Page previews, highlighted result
+  snippets, target locators (headings, Base tables/fields, spreadsheet cells,
+  PDF pages, and slide decks), and an in-page Find bar across Pod workspaces.
+- Rejoin `RuntimeFabric` Worker channels immediately on `stale_transport_route`
+  replies and re-run queued `start` and `observe` passes in `Ankole.Sessions.JobDriver`
+  when a Codex Job Worker transiently disconnects or changes incarnation.
+
 ## Version 2.0.0-alpha.72 (2026-11-06)
 
 - Introduce the Mineral Ink and Ceramic Glaze visualization palette and

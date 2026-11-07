@@ -658,6 +658,16 @@
   background-color: var(--foreground);
   color: var(--background);
 }
+@media (forced-colors: active) {
+  ::highlight(pod-chat-find) {
+    background-color: Mark;
+    color: MarkText;
+  }
+  ::highlight(pod-chat-find-current) {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}
 .pod-chat-row-rename {
   flex: 1;
   margin-left: -4px;

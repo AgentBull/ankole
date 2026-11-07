@@ -1,3 +1,5 @@
+@reference '@ankole/uikit/styles.css';
+
 .pod-page[data-page-type='doc'] .pod-page-scroll {
   display: flex;
   flex-direction: column;
@@ -378,5 +380,71 @@ textarea.pod-page-title:focus-visible {
 
   .pod-document .drag-handle {
     display: flex !important;
+  }
+}
+
+.pod-page {
+  position: relative;
+}
+
+.pod-page-find {
+  @apply ceramic ceramic-primary;
+  position: absolute;
+  z-index: 30;
+  top: 52px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+}
+
+.pod-page-find input {
+  width: 196px;
+  height: 28px;
+}
+
+.pod-page-find > span {
+  min-width: 38px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-tertiary);
+}
+
+::highlight(pod-page-find) {
+  background-color: var(--selection);
+  color: var(--foreground);
+}
+
+::highlight(pod-page-find-current) {
+  background-color: var(--foreground);
+  color: var(--background);
+}
+
+@media (forced-colors: active) {
+  ::highlight(pod-page-find) {
+    background-color: Mark;
+    color: MarkText;
+  }
+
+  ::highlight(pod-page-find-current) {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}
+
+@media (max-width: 600px) {
+  .pod-page-find {
+    left: 12px;
+    right: 12px;
+    max-width: calc(100% - 24px);
+    flex-wrap: wrap;
+  }
+
+  .pod-page-find input {
+    flex: 1;
+    min-width: 110px;
+    width: auto;
   }
 }

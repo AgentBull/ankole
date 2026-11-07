@@ -176,6 +176,11 @@ defmodule Ankole.Pod.Page do
       source_attribute(:id)
       destination_attribute(:page_id)
     end
+
+    has_one :search_document, Ankole.Pod.PageSearchDocument do
+      source_attribute(:id)
+      destination_attribute(:page_id)
+    end
   end
 
   actions do

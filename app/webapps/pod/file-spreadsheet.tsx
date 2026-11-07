@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Button } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { read, utils } from 'xlsx'
 import { ContentError } from './content-primitives'
 
@@ -9,9 +9,12 @@ import { ContentError } from './content-primitives'
  * A read-only preview of the workbook formats that the spreadsheet editor does not open: `.xls`,
  * `.xlsb`, and `.ods`. Spreadsheet pages (`.xlsx` and `.xlsm`) open in the editor.
  */
-export default function LegacySpreadsheetPreview({ url }: { url: string }) {
+export default function LegacySpreadsheetPreview({ url, initialSheet }: { url: string; initialSheet?: string }) {
   const { t } = useTranslation()
-  const [sheet, setSheet] = useState('')
+  const [sheet, setSheet] = useState(initialSheet ?? '')
+  useEffect(() => {
+    if (initialSheet) setSheet(initialSheet)
+  }, [initialSheet])
   const workbook = useQuery({
     queryKey: ['file-spreadsheet', url],
     queryFn: async ({ signal }) => {

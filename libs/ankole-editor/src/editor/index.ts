@@ -20,3 +20,4 @@ export { GardSelection as EditorSelection } from '../core/state'
 
 export { insertResource, type ResourceAttributes, type ResourceKind } from '../blocks/resources'
 export { remoteSelections, type RemoteSelection } from './remote-selections'
+export { foldedHeadings, headingSections, toggleHeading } from './headings'

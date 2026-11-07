@@ -1,52 +1,32 @@
 import { Button, Input } from '@ankole/uikit'
 import { RiArrowUpSLine, RiArrowDownSLine, RiCloseLine } from '@remixicon/react'
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ContentError } from '../content-primitives'
 import type { useChatHistory } from '../chat-history'
+import {
+  buildSearchableTextIndex,
+  collectRangesFromTextIndex,
+  isImeComposingKey,
+  useDomFindController,
+  type SearchableTextIndex
+} from '../find-bar'
 
-/** Keep matches across inline markup and highlighted code in one message. */
-export function conversationFindRanges(root: HTMLElement, query: string): Range[] {
-  if (!query.trim()) return []
-  const ranges: Range[] = []
+function buildConversationMessageIndexes(root: HTMLElement): SearchableTextIndex[] {
+  const indexes: SearchableTextIndex[] = []
   for (const message of root.querySelectorAll('[data-chat-message-id]')) {
-    const nodes: Text[] = [],
-      offsets: number[] = []
-    let text = ''
-    const walker = document.createTreeWalker(message, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        // Only markup inside the message hides text: a modal dialog marks the whole app aria-hidden while it closes.
-        const hidden = node.parentElement?.closest(
-          'button, [aria-hidden="true"], [hidden], details:not([open]) > :not(summary)'
-        )
-        return hidden && message.contains(hidden) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
-      }
-    })
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      nodes.push(node as Text)
-      offsets.push(text.length)
-      text += node.textContent
-    }
-    const search = text.toLocaleLowerCase(),
-      needle = query.toLocaleLowerCase()
-    for (let offset = search.indexOf(needle); offset !== -1; offset = search.indexOf(needle, offset + needle.length)) {
-      const range = document.createRange()
-      const start = offsets.findLastIndex(position => position <= offset)
-      const endOffset = offset + needle.length
-      const end = offsets.findLastIndex(position => position < endOffset)
-      range.setStart(nodes[start]!, offset - offsets[start]!)
-      range.setEnd(nodes[end]!, endOffset - offsets[end]!)
-      ranges.push(range)
-    }
+    indexes.push(buildSearchableTextIndex(message))
   }
-  return ranges
+  return indexes
 }
 
 export function SessionFindBar({
   root,
   history,
-  inputRef,
+  inputRef: externalInputRef,
   initial,
+  seededQuery,
+  focusTrigger = 0,
   onClose
 }: {
   root: RefObject<HTMLElement | null>
@@ -54,92 +34,62 @@ export function SessionFindBar({
   inputRef?: RefObject<HTMLInputElement | null>
   /** Opens with a query, and selects its first match inside `messageID` when that message is loaded. */
   initial?: { query: string; messageID?: string }
+  seededQuery?: string
+  focusTrigger?: number
   onClose(): void
 }) {
   const { t } = useTranslation()
-  const [query, setQuery] = useState(initial?.query ?? ''),
-    [index, setIndex] = useState(0),
-    [count, setCount] = useState(0)
-  const indexRef = useRef(index)
-  const selected = useRef<Range | undefined>(undefined)
-  const located = useRef(false)
   const targetMessage = useRef(initial?.messageID)
-  const search = (step: number | 'new' | 'refresh') => {
-    const element = root.current
-    const ranges = element ? conversationFindRanges(element, query) : []
-    const current = selected.current
-    const retained = current
-      ? ranges.findIndex(
-          range =>
-            range.startContainer === current.startContainer &&
-            range.startOffset === current.startOffset &&
-            range.endContainer === current.endContainer &&
-            range.endOffset === current.endOffset
+  const messageIndexesRef = useRef<SearchableTextIndex[] | null>(null)
+
+  useEffect(() => {
+    targetMessage.current = initial?.messageID
+  }, [initial?.messageID])
+
+  const { query, setQuery, index, count, inputRef, search } = useDomFindController({
+    root,
+    inputRef: externalInputRef,
+    initialQuery: initial?.query ?? '',
+    seededQuery,
+    focusTrigger,
+    targetKey: initial?.messageID ?? '',
+    highlightKeys: ['pod-chat-find', 'pod-chat-find-current'],
+    attributeFilter: ['open'],
+    debounceMs: 150,
+    invalidateCache: () => {
+      messageIndexesRef.current = null
+    },
+    collectRanges: (element, activeQuery) => {
+      messageIndexesRef.current ??= buildConversationMessageIndexes(element)
+      const ranges: Range[] = []
+      for (const msgIndex of messageIndexesRef.current) {
+        ranges.push(...collectRangesFromTextIndex(msgIndex, activeQuery))
+      }
+      return ranges
+    },
+    resolveInitialIndex: (element, ranges, step) => {
+      if (targetMessage.current) {
+        const target = element.querySelector(`[data-chat-message-id="${CSS.escape(targetMessage.current)}"]`)
+        const inTarget = target ? ranges.findIndex(range => target.contains(range.startContainer)) : -1
+        if (inTarget >= 0) {
+          targetMessage.current = undefined
+          return inTarget
+        }
+      }
+      if (step === 'new') {
+        const top = element.getBoundingClientRect().top
+        return Math.max(
+          0,
+          ranges.findIndex(range => range.getBoundingClientRect().bottom > top)
         )
-      : -1
-    let next = retained >= 0 ? retained : Math.min(indexRef.current, Math.max(0, ranges.length - 1))
-    if (step === 'new') {
-      located.current = false
-      const top = element?.getBoundingClientRect().top ?? 0
-      next = Math.max(
-        0,
-        ranges.findIndex(range => range.getBoundingClientRect().bottom > top)
-      )
-    } else if (typeof step === 'number' && ranges.length) next = (next + step + ranges.length) % ranges.length
-    // A searched message takes the first match the bar locates, including one that renders after the bar opens.
-    if (!located.current && targetMessage.current) {
-      const target = element?.querySelector(`[data-chat-message-id="${CSS.escape(targetMessage.current)}"]`)
-      const inTarget = target ? ranges.findIndex(range => target.contains(range.startContainer)) : -1
-      if (inTarget >= 0) {
-        next = inTarget
-        targetMessage.current = undefined
       }
+      return undefined
+    },
+    scrollToRange: range => {
+      history.jumpToMatch.current?.(range)
     }
-    indexRef.current = next
-    selected.current = ranges[next]
-    const firstMatch = !located.current && !!ranges[next]
-    if (ranges[next]) located.current = true
-    setIndex(next)
-    setCount(ranges.length)
-    if ('highlights' in CSS) {
-      CSS.highlights.set('pod-chat-find', new Highlight(...ranges))
-      CSS.highlights.set('pod-chat-find-current', new Highlight(...ranges.slice(next, next + 1)))
-    }
-    if ((step !== 'refresh' || firstMatch) && ranges[next]) {
-      history.jumpToMatch.current?.(ranges[next]!)
-    }
-  }
-  const searchRef = useRef(search)
-  searchRef.current = search
-  useEffect(() => {
-    searchRef.current('new')
-  }, [query])
-  useEffect(() => {
-    const element = root.current
-    if (!element) return
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const observer = new MutationObserver(() => {
-      timer ??= setTimeout(() => {
-        timer = undefined
-        searchRef.current('refresh')
-      }, 150)
-    })
-    observer.observe(element, {
-      characterData: true,
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['open']
-    })
-    return () => {
-      observer.disconnect()
-      clearTimeout(timer)
-      if ('highlights' in CSS) {
-        CSS.highlights.delete('pod-chat-find')
-        CSS.highlights.delete('pod-chat-find-current')
-      }
-    }
-  }, [root])
+  })
+
   return (
     <div className="pod-chat-find" role="search">
       <Input
@@ -147,11 +97,14 @@ export function SessionFindBar({
         variant="overlay"
         autoFocus
         value={query}
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         aria-label={t('pod.chat_room.find')}
         placeholder={t('pod.chat_room.find')}
         onChange={event => setQuery(event.target.value)}
         onKeyDown={event => {
-          if (event.nativeEvent.isComposing) return
+          if (isImeComposingKey(event)) return
           if (event.key === 'Escape') {
             event.stopPropagation()
             onClose()

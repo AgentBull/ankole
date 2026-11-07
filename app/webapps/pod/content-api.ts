@@ -8,6 +8,8 @@ import type {
   PodPageReadResponse,
   PodPageListData,
   PodPageSearchData,
+  PodPageSearchResponse,
+  PodRecentSearchesResponse,
   PodPageChildrenResponse,
   PodPageSharingResponse,
   PodPageSharingUpdateData,
@@ -28,6 +30,10 @@ import {
   podPageChildren,
   podPageNavigation,
   podPageSearch,
+  podRecentSearches,
+  podRecordRecentSearch,
+  podDeleteRecentSearch,
+  podClearRecentSearches,
   podPageRead,
   podPageInsights,
   podPageViewers,
@@ -73,6 +79,12 @@ export type ChildrenViewPatch = NonNullable<NonNullable<PodPageUpdateData['body'
 export type PageRole = PodPageReadResponse['role']
 export type PageScope = NonNullable<NonNullable<PodPageListData['query']>['scope']>
 export type PageSearchOptions = Omit<NonNullable<PodPageSearchData['query']>, 'query'>
+export type PageSearchMatch = PodPageSearchResponse['matches'][number]
+export type PageSearchTarget = NonNullable<PageSearchMatch['primary_target']>
+export type PageSearchSnippet = NonNullable<PageSearchMatch['snippet']>
+export type PageSearchSort = NonNullable<PageSearchOptions['sort']>
+export type PageSearchFilterScope = NonNullable<PageSearchOptions['scope']>
+export type RecentSearchEntry = PodRecentSearchesResponse['queries'][number]
 export type PageDetail = PodPageReadResponse
 export type PageSharingDetail = PodPageSharingResponse
 export type PageSharing = PodPageSharingWriteData['body']['data']
@@ -111,8 +123,17 @@ export const contentKeys = {
       options.exclude_subtree_of ?? null,
       options.required_action ?? 'node_view',
       options.embeddable ?? false,
-      options.domain ?? 'pages'
+      options.domain ?? 'pages',
+      options.title_only ?? false,
+      options.sort ?? 'best',
+      options.types ?? null,
+      options.scope ?? 'all',
+      options.ancestor_id ?? null,
+      options.created_by ?? null,
+      options.updated_after ?? null,
+      options.limit ?? 30
     ] as const,
+  recentSearches: (limit = 8) => [...contentKeys.all, 'recent-searches', limit] as const,
   page: (id: string) => [...contentKeys.all, 'page', id] as const,
   insights: (id: string) => [...contentKeys.all, 'page', id, 'insights'] as const,
   history: (id: string) => [...contentKeys.all, 'page', id, 'history'] as const,
@@ -194,6 +215,11 @@ export const pageAPI = {
     }),
   search: (query: string, options: PageSearchOptions = {}, signal?: AbortSignal) =>
     podPageSearch({ query: { ...options, query: query.trim() }, signal }),
+  recentSearches: (limit = 8, signal?: AbortSignal) => podRecentSearches({ query: { limit }, signal }),
+  recordRecentSearch: (query: string, result_count = 0) =>
+    podRecordRecentSearch({ body: { data: { query: query.trim(), result_count } } }),
+  deleteRecentSearch: (id: string) => podDeleteRecentSearch({ path: { id } }),
+  clearRecentSearches: () => podClearRecentSearches(),
   read: (id: string, signal?: AbortSignal) => podPageRead({ path: { id }, signal }),
   insights: (id: string, signal?: AbortSignal) => podPageInsights({ path: { id }, signal }),
   history: (id: string, cursor?: string, signal?: AbortSignal) =>
@@ -292,6 +318,11 @@ export const pageSearchQuery = (query: string, options: PageSearchOptions = {}) 
       () => pageAPI.search(query, options, signal),
       result => [...result.pages, ...result.ancestors]
     )
+})
+export const recentSearchesQuery = (limit = 8) => ({
+  queryKey: contentKeys.recentSearches(limit),
+  queryFn: ({ signal }: { signal: AbortSignal }) => pageAPI.recentSearches(limit, signal),
+  staleTime: 15_000
 })
 export const pageChildrenQuery = (scope: 'space' | 'private', parentID?: string) => ({
   queryKey: contentKeys.children(scope, parentID),

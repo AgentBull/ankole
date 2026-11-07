@@ -33,9 +33,9 @@ secrets:
   filesS3SecretAccessKey: ""
 
 controlPlane:
-  # More than one replica needs Distributed Erlang between the Pods: the chart
-  # renders the headless Service, cookie, and distribution port for every
-  # replica count. Recreate stops every old replica before schema migration.
+  # Every replica joins one Distributed Erlang cluster over the headless
+  # Service. Multiple replicas require a shared remote files.store (not `fs`)
+  # and direct Worker-to-Pod-IP reachability (no provider endpoints.relayOrigin).
   replicaCount: 1
   distributionPort: 9100
   clusterDomain: cluster.local

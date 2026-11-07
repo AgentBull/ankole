@@ -1,5 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test'
-import * as fs from 'node:fs'
+import * as fsPromises from 'node:fs/promises'
 import { create } from '@bufbuild/protobuf'
 import { TOML } from 'bun'
 import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -14,7 +14,7 @@ import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job/j
 import { type AgentPluginCatalogEntry } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 describe('@ankole/agent-computer Agent Plugin materializer', () => {
-  it('keeps another Worker package, marketplace, and in-flight copy intact during rebuild', () => {
+  it('keeps another Worker package, marketplace, and in-flight copy intact during rebuild', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-plugin-worker-isolation-'))
     const libraryRoot = join(root, 'library')
     const agentHome = join(root, 'shared-agent-home')
@@ -31,13 +31,13 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         })
       )
       const [first, second] = workers
-      materializeAgentPluginPackages(first!, { rebuild: true })
+      await materializeAgentPluginPackages(first!, { rebuild: true })
       const pendingCopy = join(first!.materializedRoot, 'plugins', '.plugin-alpha-in-flight')
       mkdirSync(pendingCopy)
       writeFileSync(join(pendingCopy, 'pending'), 'copy in progress')
       const marketplace = readFileSync(first!.marketplacePath, 'utf8')
 
-      materializeAgentPluginPackages(second!, { rebuild: true })
+      await materializeAgentPluginPackages(second!, { rebuild: true })
       expect(readFileSync(join(pendingCopy, 'pending'), 'utf8')).toBe('copy in progress')
       expect(readFileSync(first!.marketplacePath, 'utf8')).toBe(marketplace)
       expect(first!.agentPlugins[0]!.materializedRoot).not.toBe(second!.agentPlugins[0]!.materializedRoot)
@@ -48,7 +48,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
     }
   })
 
-  it('reports the original copy failure when staging cleanup also fails', () => {
+  it('reports the original copy failure when staging cleanup also fails', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-plugin-copy-failure-'))
     const libraryRoot = join(root, 'library')
     createPlugin(libraryRoot, 'alpha', {})
@@ -60,14 +60,10 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       initializeProject: false
     })
     const originalError = new Error('copy failed before cleanup')
-    const copy = spyOn(fs, 'copyFileSync').mockImplementation(() => {
-      throw originalError
-    })
-    const remove = spyOn(fs, 'rmSync').mockImplementation(() => {
-      throw new Error('cleanup failed')
-    })
+    const copy = spyOn(fsPromises, 'copyFile').mockRejectedValue(originalError)
+    const remove = spyOn(fsPromises, 'rm').mockRejectedValue(new Error('cleanup failed'))
     try {
-      expect(() => materializeAgentPluginPackages(prepared, { rebuild: true })).toThrow(originalError)
+      await expect(materializeAgentPluginPackages(prepared, { rebuild: true })).rejects.toBe(originalError)
       expect(copy).toHaveBeenCalled()
       expect(remove).toHaveBeenCalled()
     } finally {
@@ -284,7 +280,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
     }
   })
 
-  it('keeps the installed Agent Plugin package stable and removes stale packages', () => {
+  it('keeps the installed Agent Plugin package stable and removes stale packages', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-live-skill-'))
     const libraryRoot = join(root, 'library')
     const agentHome = join(root, 'agent-home')
@@ -300,15 +296,54 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       })
       const installedSkill = join(prepared.agentPlugins[0]!.materializedRoot, 'skills', 'alpha-skill', 'SKILL.md')
 
-      materializeAgentPluginPackages(prepared, { rebuild: true })
+      await materializeAgentPluginPackages(prepared, { rebuild: true })
       expect(readFileSync(installedSkill, 'utf8')).toContain('alpha skill')
 
       const stalePlugin = join(prepared.materializedRoot, 'plugins', 'removed-plugin')
       mkdirSync(stalePlugin)
       writeFileSync(join(stalePlugin, 'stale'), 'old release\n')
-      materializeAgentPluginPackages(prepared, { rebuild: true })
+      await materializeAgentPluginPackages(prepared, { rebuild: true })
       expect(existsSync(stalePlugin)).toBe(false)
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('yields to the event loop while materializing slow network-mounted plugin files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-async-yield-'))
+    const libraryRoot = join(root, 'library')
+    createPlugin(libraryRoot, 'alpha', {
+      files: Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`docs/file-${index}.md`, `doc ${index}\n`]))
+    })
+    const prepared = prepareAgentPlugins({
+      projectRoot: join(root, 'project'),
+      agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+      codexHome: join(root, 'codex-home'),
+      libraryRoot,
+      initializeProject: false
+    })
+    const realCopyFile = fsPromises.copyFile
+    const copy = spyOn(fsPromises, 'copyFile').mockImplementation((async (source, destination) => {
+      await Bun.sleep(15)
+      return realCopyFile(source, destination)
+    }) as typeof fsPromises.copyFile)
+
+    let ticks = 0
+    const timer = setInterval(() => {
+      ticks += 1
+    }, 5)
+    try {
+      await materializeAgentPluginPackages(prepared, { rebuild: true })
+      expect(ticks).toBeGreaterThan(0)
+      expect(
+        readFileSync(
+          join(prepared.agentPlugins[0]!.materializedRoot, 'workspace-template', 'docs', 'file-7.md'),
+          'utf8'
+        )
+      ).toBe('doc 7\n')
+    } finally {
+      clearInterval(timer)
+      copy.mockRestore()
       rmSync(root, { recursive: true, force: true })
     }
   })

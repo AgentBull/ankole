@@ -440,24 +440,43 @@ while pinning the header and action bar, and property pickers stay anchored to
 their trigger field.
 
 Clicking the sidebar search icon button or pressing Command/Control+K opens a
-single quick-navigation menu linking to Pages, Chats, and content roots without
-mutating or discarding an unfinished Chat draft. When text is selected in an
-editable document, the platform link shortcut (Command+K on Apple platforms,
-Control+K elsewhere) opens the editor's link form instead; the menu still opens
-where the editor cannot add a link, such as in code. Control+K on Apple
-platforms always opens the menu, so it never deletes text to the line end. Both the menu and the dedicated
-search view share title-and-body Page search, which matches a Page when every
-whitespace-separated word of the query appears in its title, its body, or the
-cell text of its spreadsheet in any order; only the first 16 distinct words
-filter. Scoped lists, favorites, recents, and Trash filter with the same rule.
-The search view persists its query in the `q` URL parameter across result
-clicks, Back navigation, and reloads. Search hits, quick-navigation items, and Page references in Chat render
-visible ancestor breadcrumbs so users can tell identically named Pages apart,
-alongside consistent per-type Page icons across sidebars, pickers, embeds, and
-Chat messages. Within content lists, `J` and `K` move focus while text inputs
-preserve normal typing and IME keys; desktop lists use compact row density and
-touch layouts expand hit targets. Mobile sidebar section links have a minimum
-height of 40 px across the full link target.
+single quick-navigation menu linking to Pages, Brain knowledge, Chats, and
+content roots without mutating or discarding an unfinished Chat draft. When text
+is selected in an editable document, the platform link shortcut (Command+K on
+Apple platforms, Control+K elsewhere) opens the editor's link form instead; the
+menu still opens where the editor cannot add a link, such as in code. Control+K
+on Apple platforms always opens the menu, so it never deletes text to the line
+end. Both the command menu, `/content/search`, and `ankole-pod pages.search`
+query `Pages.search` with `domain=all` so organizational `Brain` pages and
+categories participate alongside regular Pages (excluding hidden
+`ankole_brain_sources` backing nodes), whereas internal Page pickers default
+`domain` to `pages`. While the 180 ms input debounce settles, the command menu
+filters cached Pages locally at zero latency and then replaces them in exact
+server order (`shouldFilter={false}`), showing empty-query `Recent searches`
+(persisted in `pod_search_queries` with 30-second prefix/suffix coalescing, a
+20-entry per-principal cap, single-entry deletion, and Clear) above `Recent
+pages`. Callers can restrict matching to `Title only`, scope to the open Page's
+subtree, or switch between `Best matches` and edited/created timestamp sorts; on
+desktop viewports, a right-hand preview pane loads the focused Page through
+read-only `pageQuery` (pre-warming TanStack Query without recording a visit) and
+lists clickable heading sections alongside highlighted body excerpts. `/content/search`
+persists `q`, `domain`, `type`, `scope`, `updated`, `title_only`, `sort`, and
+`ancestor_id` (also reachable from any sidebar row's **Search in this page**
+action) in URL parameters across result clicks, Back navigation, and reloads.
+Opening a content or metadata match—including via Command/Control+Enter in a new
+tab—navigates with `?find=<query>&at=<target>` (`?at=table:<id>&view=<id>` on
+Base schema hits, `?find=<query>&seq=<seq>` on Chat message hits, and clean
+canonical paths on title-only jumps), automatically unfolding collapsed headings
+or jumping to the matched file line, CSV row, workbook sheet, presentation
+slide, or PDF page and highlighting matches through `TreeWalker` and
+`CSS.highlights` until Escape clears the find bar. Search hits, quick-navigation
+items, and Page references in Chat render visible ancestor breadcrumbs so users
+can tell identically named Pages apart, alongside consistent per-type Page icons
+across sidebars, pickers, embeds, and Chat messages. Within content lists, `J`
+and `K` move focus while text inputs preserve normal typing and IME keys;
+desktop lists use compact row density and touch layouts expand hit targets.
+Mobile sidebar section links have a minimum height of 40 px across the full link
+target.
 
 The Pod shell layers a rounded paper sheet (`main`) above the ground-level
 sidebar (`Home` and `Chat` tabs at top-left, paired with search,
@@ -848,15 +867,18 @@ navigation state they use instead of subscribing to every URL change.
 
 Search and directory lists enforce access before applying result caps:
 
-- **Full-text search**: Matches titles, plain-text bodies, and the cell text of
-  spreadsheet files across visible Pages (including shared child Pages whose
-  parent is hidden), ranks title similarity ahead of body matches via trigram
-  indexes, and returns up to 30 Pages. Matching reads stored Pod titles, current
-  file names, plain-text bodies, and spreadsheet cell text through their own
-  indexes; the Page projection supplies
-  each result's display title and ranking. Move pickers pass `exclude_subtree_of` to strip the moving Page and all
-  its descendants—even when intermediate ancestors do not match the query—before
-  the 30-row cap. Move, copy, and saved-artifact destination searches pass
+- **Full-text search**: Matches titles, structured metadata (Knowledge tags,
+  descriptions, sources, Base table/view/field names, and file names), and
+  extracted bodies (documents, Knowledge bodies, text/code/Markdown/CSV/TSV,
+  Office documents, text-layer PDFs, and spreadsheet cell text) across visible
+  Pages (including shared child Pages whose parent is hidden) via
+  `page_search_documents`, ranking title matches ahead of metadata and body
+  matches through `pg_search` BM25 conjunctions, substring tiers, workspace
+  activity, and personal recency/favorite signals, and returning up to 50 Pages
+  (default 30) alongside snippet highlights and typed jump targets. Move pickers
+  pass `exclude_subtree_of` to strip the moving Page and all its
+  descendants—even when intermediate ancestors do not match the query—before
+  applying the result cap. Move, copy, and saved-artifact destination searches pass
   `required_action=node_edit` (checking both view and edit bits before the cap,
   whereas ordinary search checks `node_view`), and Base copies default to the
   source Page's parent when editable or require picking an editable destination
@@ -894,12 +916,15 @@ help.
 ### Persistence and transactions
 
 `Ankole.Pod` is the root Ash domain, owning the durable `Page`, `PageContent`,
-`PageChange`, `PageUserState`, `PageSnapshot`, `SpreadsheetOp`, `FileCache`,
-`BaseTable`, `BaseField`, and `BaseView` resources alongside stateless
-`*.Browser` resources serving `/api/v2/pod` JSON:API routes (where browser
-actions validate query operators as closed enums
-before serializing them to the JSON strings expected by the shared Base query
-compiler).
+`PageSearchDocument`, `SearchQuery`, `PageChange`, `PageUserState`,
+`PageSnapshot`, `SpreadsheetOp`, `FileCache`, `BaseTable`, `BaseField`, and
+`BaseView` resources alongside stateless `*.Browser` resources serving
+`/api/v2/pod` JSON:API routes (where browser actions validate query operators as
+closed enums before serializing them to the JSON strings expected by the shared
+Base query compiler). `Ankole.SearchIndexes` owns the ParadeDB `pg_search` BM25
+and `pgvector` HNSW index definitions across both Brain and Pod, rebuilding
+BM25 indexes idempotently when the configured `brain.bm25_tokenizer` (`icu`,
+`jieba`, `lindera_japanese`, or `lindera_korean`) changes.
 
 Every Pod write—or read requiring a row lock—opens `Repo.transact_top_level/2`
 in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`, `Documents`, `Files`,
@@ -917,10 +942,28 @@ Within the domain:
 - `Ankole.Pod.Pages` composes tree operations with Page metadata, content and personal state.
 - `Ankole.Pod.Access` computes ancestor paths, reachable anchors, and access
   provenance through its native SQL read model.
-- `Ankole.Pod.Pages.Queries` implements directory cursors, title/body search
-  (attaching authorized ancestor breadcrumbs), list scopes (where `all` includes
-  visible child Pages), and version snapshots, backing the `pages.children` and
-  `pages.search` Agent tools with explicit tenant binding on every SQL branch.
+- `Ankole.Pod.Pages.Queries`, `Ankole.Pod.Pages.Search`, and
+  `Ankole.Pod.Pages.RecentSearches` implement directory cursors, full-text
+  search over `page_search_documents(page_id, tenant_id, title, meta_text,
+  body_text, updated_at)`, list scopes (where `all` includes visible child Pages
+  and `trash` searches deleted Pages through the same projection), recent-search
+  persistence, and version snapshots, backing the `pages.children` and
+  `pages.search` Agent tools with explicit tenant and ACL-anchor filtering
+  before any limit. `Pages.Search` normalizes queries and indexed text to
+  Unicode NFKC, parses up to four quoted phrases and sixteen terms without
+  calling `pdb.parse`, combines parameterized `pg_search` BM25 conjunctions with
+  `ILIKE` substring recall, scores `sort=best` through a single formula
+  combining lexical tier/BM25 weight, 30-day workspace activity from
+  `page_daily_activities`, and caller recency/favorite boosts from
+  `page_user_states` (`edited_at`, plus `visited_at` when `hide_visits` is
+  false), and emits offset-safe `snippet.segments` plus discriminated-union
+  `primary_target` locators (resolving document headings through
+  `Ankole.Kernel.page_sections/1`) exclusively for the post-`LIMIT` result
+  slice. Page lifecycle mutations, document saves (including `<bookmark>` and
+  `<media>` attributes), Knowledge metadata updates, Base table/view/field
+  schema edits, spreadsheet commits, and inline text-file commits update
+  `page_search_documents` atomically in the owning transaction whenever
+  projected text changes.
 - `Ankole.Pod.Pages.Sharing` manages collaborator pickers, Space access policy
   (where the unconditional `all_humans` rule sets the Space default role while
   conditional rules keep their own scope), and Page sharing reads and writes.
@@ -2114,7 +2157,23 @@ switching for presentations, and original-file downloads (preview fidelity
 follows supported format features and installed fonts). `.xlsx` and `.xlsm`
 files open in the collaborative spreadsheet editor (see
 [Spreadsheet Pages](#spreadsheet-pages)); `.xls`, `.xlsb`, and `.ods` workbooks
-and presentations keep the read-only preview.
+and presentations keep the read-only preview. `Ankole.Pod.FileExtraction`
+indexes File Pages into `page_search_documents` and records extraction state in
+`pod_file_caches` keyed by `(object_id, format, extractor_version)` with
+`extract_status` in `ok`, `skipped`, or `failed`: small UTF-8 text, Markdown,
+CSV/TSV, and source-code files (`<= 256 KiB`) as well as copied files sharing an
+already cached `(object_id, format)` project synchronously inside the commit
+transaction, whereas Office documents (`.docx`, `.pptx`, `.odt`, `.ods` with
+per-sheet byte spans in `metadata.sheet_spans`), text-layer `.pdf` files
+(storing per-page byte spans in `metadata.pages` for page-number search jumps),
+and larger text files run asynchronously in `Ankole.Pod.Jobs.SyncFileCache` via
+the `DirtyCpu` Rust NIF `file_extract_text` and commit under an
+`(object_id, subtype, format)` compare-and-swap check.
+`Ankole.Pod.Jobs.ReconcileSearchIndex` advances per-tenant scan cursors in
+bounded batches to backfill missing projections (rebuilding File Pages from
+their immutable `object_id`) and stale extractor versions while leaving
+`skipped` and `failed` objects untouched at the current
+`(object_id, format, extractor_version)`.
 
 Native Conversation messages carry Page links and verified attachments:
 
@@ -2250,9 +2309,13 @@ entry, so an editor that catches up past it bootstraps again. Pod uploads and
 restores compact pending operations into the current object first; other Drive
 writes replace the object as it stands, so the replaced version lacks edits
 that compaction had not written yet. When the new file is not a spreadsheet,
-its search cache is removed and its history remains. A workbook that the kernel
-cannot read, or that exceeds `max_file_bytes`, keeps no search cache, and
-editing it fails with `invalid_spreadsheet` or `file_too_large`.
+`FileExtraction` transitions its `pod_file_caches` row and search projection to
+the new file's format while its history remains. A workbook that the kernel
+cannot read, or that exceeds `max_file_bytes`, records `failed` or `skipped` in
+`pod_file_caches` with empty `metadata` (`Spreadsheets.bootstrap/2` consumes
+cached workbook metadata only when `subtype == :spreadsheet` and
+`extract_status == :ok`), and editing it fails with `invalid_spreadsheet` or
+`file_too_large`.
 
 Versions live in the Page history ([Version history](#version-history)). A
 spreadsheet snapshot names a file object instead of body XML, so a version never

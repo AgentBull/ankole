@@ -7,10 +7,14 @@ metadata:
 spec:
   replicas: {{ .Values.controlPlane.replicaCount }}
   strategy:
-    # Stop every old replica before the tenant migration changes the schema.
-    # Restore rolling upgrades only after all supported upgrade origins contain
-    # tenant ownership and mixed-version schema, writers and jobs are verified.
+    {{- if or (eq .Values.files.store "fs") .Values.files.importAgentHomeClaim }}
     type: Recreate
+    {{- else }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- end }}
   selector:
     matchLabels:
       {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 6 }}
@@ -99,18 +103,24 @@ spec:
             - name: files
               mountPath: /var/lib/ankole/files
             {{- end }}
+          startupProbe:
+            httpGet:
+              path: /_internal/health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /_internal/health
               port: http
-            initialDelaySeconds: 20
-            periodSeconds: 10
+            periodSeconds: 2
             timeoutSeconds: 3
-            failureThreshold: 6
+            failureThreshold: 2
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /_internal/live
               port: http
-            initialDelaySeconds: 90
-            periodSeconds: 20
+            periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 6
           {{- with .Values.controlPlane.resources }}
@@ -121,9 +131,19 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.controlPlane.affinity }}
+      {{- if .Values.controlPlane.affinity }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
+      {{- else if gt (int .Values.controlPlane.replicaCount) 1 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 20 }}
       {{- end }}
       {{- with .Values.controlPlane.tolerations }}
       tolerations:
@@ -147,3 +167,17 @@ spec:
           persistentVolumeClaim:
             claimName: {{ include "ankole-agent.filesClaimName" . }}
         {{- end }}
+{{- if gt (int .Values.controlPlane.replicaCount) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ankole-agent.controlPlaneName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 6 }}
+{{- end }}

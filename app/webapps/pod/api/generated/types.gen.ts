@@ -3137,6 +3137,107 @@ export type MetaSaveSkillResponses = {
 
 export type MetaSaveSkillResponse = MetaSaveSkillResponses[keyof MetaSaveSkillResponses]
 
+export type PodClearRecentSearchesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/pages/recent-searches'
+}
+
+export type PodClearRecentSearchesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodClearRecentSearchesError = PodClearRecentSearchesErrors[keyof PodClearRecentSearchesErrors]
+
+export type PodClearRecentSearchesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    cleared: boolean
+  }
+}
+
+export type PodClearRecentSearchesResponse = PodClearRecentSearchesResponses[keyof PodClearRecentSearchesResponses]
+
+export type PodRecentSearchesData = {
+  body?: never
+  path?: never
+  query?: {
+    limit?: number
+  }
+  url: '/api/v2/pod/pages/recent-searches'
+}
+
+export type PodRecentSearchesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodRecentSearchesError = PodRecentSearchesErrors[keyof PodRecentSearchesErrors]
+
+export type PodRecentSearchesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    queries: Array<{
+      id: string
+      query: string
+      result_count: number
+      updated_at: string
+    }>
+  }
+}
+
+export type PodRecentSearchesResponse = PodRecentSearchesResponses[keyof PodRecentSearchesResponses]
+
+export type PodRecordRecentSearchData = {
+  /**
+   * Request body for the podRecordRecentSearch operation on pod_page_operation resource
+   */
+  body: {
+    data: {
+      query: string
+      result_count: number
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/pages/recent-searches'
+}
+
+export type PodRecordRecentSearchErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodRecordRecentSearchError = PodRecordRecentSearchErrors[keyof PodRecordRecentSearchErrors]
+
+export type PodRecordRecentSearchResponses = {
+  /**
+   * Success
+   */
+  201: {
+    entry?: {
+      id: string
+      query: string
+      result_count: number
+      updated_at: string
+    } | null
+  }
+}
+
+export type PodRecordRecentSearchResponse = PodRecordRecentSearchResponses[keyof PodRecordRecentSearchResponses]
+
 export type PodConversationAttentionData = {
   body?: never
   path?: never
@@ -6358,6 +6459,35 @@ export type PodConnectorsCatalogResponses = {
 }
 
 export type PodConnectorsCatalogResponse = PodConnectorsCatalogResponses[keyof PodConnectorsCatalogResponses]
+
+export type PodDeleteRecentSearchData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/recent-searches/{id}'
+}
+
+export type PodDeleteRecentSearchErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodDeleteRecentSearchError = PodDeleteRecentSearchErrors[keyof PodDeleteRecentSearchErrors]
+
+export type PodDeleteRecentSearchResponses = {
+  /**
+   * Success
+   */
+  200: {
+    deleted: boolean
+  }
+}
+
+export type PodDeleteRecentSearchResponse = PodDeleteRecentSearchResponses[keyof PodDeleteRecentSearchResponses]
 
 export type PodPageChildrenData = {
   body?: never
@@ -10776,11 +10906,19 @@ export type PodPageSearchData = {
   body?: never
   path?: never
   query: {
+    ancestor_id?: string
+    created_by?: string
     domain?: 'pages' | 'brain' | 'all'
     embeddable?: boolean
     exclude_subtree_of?: string
+    limit?: number
     query: string
     required_action?: 'node_view' | 'node_edit'
+    scope?: 'all' | 'private' | 'space' | 'shared' | 'conversation'
+    sort?: 'best' | 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc'
+    title_only?: boolean
+    types?: string
+    updated_after?: string
   }
   url: '/api/v2/pod/pages/search'
 }
@@ -10802,6 +10940,54 @@ export type PodPageSearchResponses = {
     ancestors: Array<PodPageType>
     can_create_private: boolean
     can_create_space: boolean
+    matches: Array<{
+      match_fields: Array<'title' | 'meta' | 'body'>
+      page_id: string
+      primary_target?:
+        | null
+        | {
+            heading: string
+            kind: 'md_section'
+            level: number
+            start_line?: number | null
+          }
+        | {
+            kind: 'page_number'
+            page: number
+          }
+        | {
+            end_line: number
+            kind: 'lines'
+            start_line: number
+          }
+        | {
+            kind: 'base_table'
+            label?: string | null
+            table_id: string
+            view_id?: string | null
+          }
+        | {
+            end_row: number
+            kind: 'csv_rows'
+            start_row: number
+          }
+        | {
+            heading: string
+            kind: 'doc_section'
+            level: number
+          }
+        | {
+            cell?: string | null
+            kind: 'spreadsheet_cell'
+            sheet_name: string
+          }
+      snippet?: {
+        segments: Array<{
+          hit: boolean
+          text: string
+        }>
+      } | null
+    }>
     pages: Array<PodPageType>
     principal_uid: string
   }

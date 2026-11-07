@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { DriveMounts } from '../src/drive/mounts'
 import { WorkerDrainState } from '../src/worker/drain'
 
 describe('worker drain state', () => {
@@ -51,5 +52,22 @@ describe('worker drain state', () => {
     expect(drain.begin('sigterm')).toBe(true)
     expect(drain.begin('sigint')).toBe(false)
     expect(drain.reason).toBe('sigterm')
+  })
+
+  it('force-kills a hung Drive rcd daemon during stop instead of blocking Worker teardown', async () => {
+    const mounts = new DriveMounts()
+    const daemon = Bun.spawn([process.execPath, '-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'ignore'
+    })
+    // Give the child process a moment to install its SIGTERM trap.
+    await Bun.sleep(50)
+    ;(mounts as unknown as { daemon: typeof daemon }).daemon = daemon
+
+    const startedAt = Date.now()
+    await mounts.stop(80, 1_000)
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+    expect(daemon.exitCode !== null || daemon.signalCode !== null).toBe(true)
   })
 })

@@ -57,7 +57,8 @@ defmodule Ankole.Pod.Files.Content do
                }
              )
            ),
-         :ok <- Ankole.Pod.Spreadsheets.object_committed_in_tx(actor, node, updated) do
+         :ok <- Ankole.Pod.Spreadsheets.object_committed_in_tx(actor, node, updated),
+         :ok <- Ankole.Pod.FileExtraction.object_committed_in_tx(updated, object) do
       {:ok, Paths.project(updated, object, updated.name)}
     end
   end
@@ -139,7 +140,16 @@ defmodule Ankole.Pod.Files.Content do
       })
 
     with {:ok, node} <- Nodes.create_in_tx(attrs),
+         :ok <- sync_created_file_in_tx(node, object),
          do: {:ok, Paths.project(node, object, node.name)}
+  end
+
+  defp sync_created_file_in_tx(node, object) do
+    if Ankole.Pod.Spreadsheets.spreadsheet?(node.name) do
+      Ankole.Pod.Spreadsheets.reconcile_file_in_tx(node)
+    else
+      Ankole.Pod.FileExtraction.object_committed_in_tx(node, object)
+    end
   end
 
   defp existing_conversation_file(root, object_id) do

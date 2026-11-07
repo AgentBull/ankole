@@ -93,7 +93,8 @@ defmodule Ankole.Pod.Copy do
          {:ok, counters} <-
            stage_records(actor, source, target, definitions, copied_fields, limits, options),
          {:ok, target} <- Ankole.Ash.update(target, :initialize_copy, counters),
-         {:ok, target} <- store_records(target, copied_fields, timezone) do
+         {:ok, target} <- store_records(target, copied_fields, timezone),
+         :ok <- Ankole.Pod.SearchProjection.sync_base_in_tx(page.id) do
       Projection.end_stage()
       {:ok, %{page: page, table: target}}
     else

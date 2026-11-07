@@ -188,6 +188,29 @@ export class ActiveTurns {
     }
   }
 
+  /** Cancels local Turn execution on abnormal Worker shutdown without reporting Turn aborts. */
+  async stopAll(timeoutMs = 5_000): Promise<void> {
+    const tasks: Promise<void>[] = []
+    for (const active of this.turns.values()) {
+      active.requestControlledStop('stop', 'worker_stopped')
+      const task = active.executionTask ?? active.acceptanceTask
+      if (task) tasks.push(task)
+    }
+    if (tasks.length === 0) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        Promise.allSettled(tasks),
+        new Promise<void>(resolve => {
+          timer = setTimeout(resolve, timeoutMs)
+          timer.unref?.()
+        })
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
   private confirm(active: ActiveTurn): void {
     if (active.acceptanceTask || active.controlledStopRequested) return
     // Both fresh and duplicate deliveries share this task. The receive loop

@@ -19,6 +19,8 @@ import {
   commentSelection,
   trackCommentSelection,
   revealComment,
+  foldedHeadings,
+  toggleHeading,
   EditorSelection,
   type Editor
 } from '@ankole/block-editor/editor'
@@ -98,6 +100,9 @@ import { LocalPageChatDrafts, useChatDrafts } from './chat-drafts'
 import { PageChat } from './page-chat'
 import { PageIconPicker } from './page-icon'
 import { canMovePage } from './state/page-move'
+import { PageFindBar, readSingleLineSelectionInContainer, shouldHandlePageFindShortcut } from './find-bar'
+import { normalizeSearchQuery, parseSearchTarget } from './search-targets'
+import { isSpreadsheetFileName } from './state/spreadsheet-grid'
 import './page-workspace.css'
 
 const AppletAutomationControl = lazy(() =>
@@ -196,6 +201,32 @@ function PageWorkspace({
   useCanonicalPageUrl(page.id, page.title)
   const client = useQueryClient()
   const [search, setSearch] = useSearchParams()
+  const urlFind = search.get('find')?.trim() ?? ''
+  const urlTarget = parseSearchTarget(search.get('at'), search.get('view'))
+  const fileCheckName = page.name || page.title || ''
+  const fileMime = typeof page.metadata?.mime_type === 'string' ? page.metadata.mime_type : ''
+  const domFindSupported =
+    page.type === 'doc' ||
+    page.type === 'knowledge' ||
+    (page.type === 'file' &&
+      !isSpreadsheetFileName(fileCheckName) &&
+      !/\.(pptx|pdf|xls|xlsb|ods)$/i.test(fileCheckName) &&
+      fileMime !== 'application/pdf' &&
+      !fileMime.includes('presentationml'))
+  const [manualFind, setManualFind] = useState(false)
+  const [seededFindQuery, setSeededFindQuery] = useState<string | undefined>(undefined)
+  const [findFocusTrigger, setFindFocusTrigger] = useState(0)
+  const findBarOpen = domFindSupported && (Boolean(urlFind) || manualFind)
+  const closeFindBar = () => {
+    setManualFind(false)
+    setSeededFindQuery(undefined)
+    if (search.has('find') || search.has('at')) {
+      const next = new URLSearchParams(search)
+      next.delete('find')
+      next.delete('at')
+      setSearch(next, { replace: true, preventScrollReset: true })
+    }
+  }
   const linkedComment = podRouteID(search.get('commentId') ?? undefined)
   useEffect(() => {
     if (!linkedComment) return
@@ -264,6 +295,7 @@ function PageWorkspace({
     () => new PageCommentsModel(`ankole.pod.comments:${podID()}:${principalUID()}:${page.id}`)
   )
   const documentContent = useRef<HTMLDivElement>(null)
+  const pageColumn = useRef<HTMLDivElement>(null)
   const pageContent = useRef<HTMLDivElement>(null)
   const [presenceContainer, setPresenceContainer] = useState<HTMLDivElement | null>(null)
   const [insights, setInsights] = useState(false)
@@ -275,6 +307,49 @@ function PageWorkspace({
     documentEditor.current = handle?.editor ?? null
     setEditorHandle(handle)
   }
+  const unfoldDocumentHeadings = (): boolean => {
+    const instance = documentEditor.current
+    if (!instance) return false
+    const folded = instance.state.field(foldedHeadings, false)
+    if (folded?.size) {
+      instance.dispatch({ effects: [...folded].map(pos => toggleHeading.of(pos)) })
+      return true
+    }
+    return false
+  }
+  useEffect(() => {
+    if (!domFindSupported || urlFind || urlTarget?.kind !== 'heading') return
+    unfoldDocumentHeadings()
+    const rootEl = pageContent.current
+    if (!rootEl) return
+    const needle = normalizeSearchQuery(urlTarget.heading.trim())
+    if (!needle) return
+    const timer = window.setTimeout(() => {
+      unfoldDocumentHeadings()
+      const headings = rootEl.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6, [data-heading]')
+      for (const el of headings) {
+        const text = normalizeSearchQuery((el.textContent ?? '').trim())
+        if (text === needle || text.includes(needle)) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          break
+        }
+      }
+    }, 60)
+    return () => window.clearTimeout(timer)
+  }, [domFindSupported, editorHandle, urlFind, urlTarget?.kind === 'heading' ? urlTarget.heading : ''])
+  useEffect(() => {
+    if (!domFindSupported) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!shouldHandlePageFindShortcut(event, pageColumn.current, document.activeElement)) return
+      event.preventDefault()
+      const selectedText = readSingleLineSelectionInContainer(pageContent.current)
+      setSeededFindQuery(selectedText)
+      setManualFind(true)
+      setFindFocusTrigger(prev => prev + 1)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [domFindSupported])
   const selectionReturnThread = useRef<string | null>(null)
   const openComments = (id: string | null = null, ids: readonly string[] = [], event?: PanelInputEvent) => {
     focusComment(id)
@@ -497,8 +572,9 @@ function PageWorkspace({
       className="pod-page flex h-full min-h-0 overflow-hidden md:gap-3 md:overflow-visible"
       data-page-type={page.type}>
       <div
+        ref={pageColumn}
         data-sheet
-        className="pod-page-main flex min-w-0 flex-1 flex-col bg-background md:paper-sheet md:overflow-hidden">
+        className="pod-page-main relative flex min-w-0 flex-1 flex-col bg-background md:paper-sheet md:overflow-hidden">
         <header className="pod-page-header sheet-header @container gap-2 border-b border-border max-md:gap-1 max-md:px-2">
           <SidebarTrigger
             className={sidebarState === 'expanded' ? 'md:hidden' : undefined}
@@ -667,6 +743,18 @@ function PageWorkspace({
             beforeMove={finishTitle}
             close={() => setMoving(false)}
             returnFocus={actionsTrigger}
+          />
+        )}
+        {findBarOpen && (
+          <PageFindBar
+            root={pageContent}
+            initialQuery={urlFind}
+            seededQuery={seededFindQuery}
+            focusTrigger={findFocusTrigger}
+            targetHeading={urlTarget?.kind === 'heading' ? urlTarget.heading : undefined}
+            autoFocus={manualFind && !urlFind}
+            onBeforeSearch={unfoldDocumentHeadings}
+            onClose={closeFindBar}
           />
         )}
         <div className="pod-page-scroll min-h-0 flex-1 overflow-auto">
@@ -915,6 +1003,8 @@ function PageWorkspace({
                       detail={contentDetail}
                       onRequestFileComment={!accessDenied && !trashed ? captureFileCommentSelection : undefined}
                       filePreviewRef={filePreviewRef}
+                      searchFind={urlFind || undefined}
+                      searchTarget={urlTarget}
                     />
                   )}
                 </ErrorBoundary>

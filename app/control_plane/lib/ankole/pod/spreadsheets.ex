@@ -104,7 +104,7 @@ defmodule Ankole.Pod.Spreadsheets do
              page.id
              |> uncompacted()
              |> Enum.map(&Map.take(&1, [:revision, :client_id, :client_seq, :op])),
-           metadata: cache && cache.metadata
+           metadata: if(cache && cache.extract_status == :ok, do: cache.metadata, else: nil)
          }}
       end
     end)
@@ -463,7 +463,13 @@ defmodule Ankole.Pod.Spreadsheets do
          :ok <- keep_original_in_tx(page, current, first.revision - 1, first.author, now),
          {:ok, file} <- Ankole.Pod.Files.Content.rewrite_in_tx(page.id, stored),
          {:ok, _compacted} <- Ankole.Ash.update_where(exported, :compact),
-         :ok <- put_cache_in_tx(page.id, file.object_id, export, now),
+         :ok <-
+           put_cache_in_tx(
+             %{page | object_id: file.object_id, updated_at: now},
+             file.object_id,
+             %{status: :ok, plain_text: export.plain_text, metadata: export.metadata},
+             now
+           ),
          :ok <-
            History.file_checkpoint_in_tx(
              page,
@@ -558,13 +564,30 @@ defmodule Ankole.Pod.Spreadsheets do
            {:ok, object} <- Drive.fetch_object(node.object_id),
            :ok <- keep_new_in_tx(page, object, previous.object_id, author, now),
            {:ok, derived} <- derive(node.name, object),
-           do: put_cache_in_tx(page.id, object.id, derived, now)
+           do: put_cache_in_tx(page, object.id, derived, now)
     else
       :ok
     end
   end
 
   def object_committed_in_tx(_actor, _previous, _node), do: :ok
+
+  @doc """
+  Reconciles the spreadsheet `FileCache` and `PageSearchDocument` for a file
+  page whose `object_id` was assigned directly (e.g. inbound/private file
+  creation, rename to `.xlsx`, or self-healing).
+  """
+  def reconcile_file_in_tx(%Page{type: :file, object_id: object_id} = page)
+      when is_binary(object_id) do
+    Repo.require_transaction!({__MODULE__, :reconcile_file_in_tx})
+
+    with {:ok, object} <- Drive.fetch_object(object_id),
+         {:ok, derived} <- derive(page.name, object) do
+      put_cache_in_tx(page, object.id, derived, DateTime.utc_now(:microsecond))
+    end
+  end
+
+  def reconcile_file_in_tx(_page), do: :ok
 
   defp logged?(page_id),
     do: SpreadsheetOp |> Ash.Query.filter(page_id == ^page_id) |> Ankole.Ash.exists?()
@@ -590,41 +613,72 @@ defmodule Ankole.Pod.Spreadsheets do
   end
 
   # A workbook that the kernel can read within `max_file_bytes` gets search
-  # text and metadata. Any other file stays an ordinary file: its page offers
-  # the download, and an edit fails with `:invalid_spreadsheet`.
+  # text and metadata. Oversized or malformed workbooks record `:skipped` /
+  # `:failed` in `FileCache` so self-healing does not loop on them, while any
+  # non-spreadsheet file clears the spreadsheet cache.
   defp derive(name, object) do
     with true <- spreadsheet?(name),
          {:ok, limits} <- Config.spreadsheet_limits(),
          :ok <- within(object.size, limits.max_file_bytes),
          {:ok, bytes} <- Drive.read_object(object.id),
          {:ok, opened} <- Ankole.Kernel.spreadsheet_open(bytes, []) do
-      {:ok, Map.take(opened, [:plain_text, :metadata])}
+      {:ok, %{status: :ok, plain_text: opened.plain_text, metadata: opened.metadata}}
     else
-      false -> {:ok, nil}
-      {:error, :file_too_large} -> {:ok, nil}
-      {:error, message} when is_binary(message) -> {:ok, nil}
+      false -> {:ok, :not_spreadsheet}
+      {:error, :file_too_large} -> {:ok, %{status: :skipped, error: "file_too_large"}}
+      {:error, message} when is_binary(message) -> {:ok, %{status: :failed, error: message}}
       error -> error
     end
   end
 
-  defp put_cache_in_tx(page_id, _object_id, nil, _now) do
+  defp put_cache_in_tx(page, _object_id, :not_spreadsheet, _now) do
     with {:ok, _purged} <-
-           FileCache |> Ash.Query.filter(page_id == ^page_id) |> Ankole.Ash.destroy_where(:purge),
-         do: :ok
+           FileCache |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.destroy_where(:purge),
+         do: Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: "")
   end
 
-  defp put_cache_in_tx(page_id, object_id, derived, now) do
+  defp put_cache_in_tx(page, object_id, %{status: :ok} = derived, now) do
+    format = spreadsheet_format(page.name)
+
     with {:ok, _cache} <-
            Ankole.Ash.create(FileCache, :put, %{
-             page_id: page_id,
+             page_id: page.id,
              subtype: :spreadsheet,
+             format: format,
              object_id: object_id,
-             plain_text: derived.plain_text,
+             extractor_version: 1,
+             extract_status: :ok,
+             extract_error: nil,
              metadata: derived.metadata,
              updated_at: now
            }),
-         do: :ok
+         do: Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: derived.plain_text)
   end
+
+  defp put_cache_in_tx(page, object_id, %{status: status, error: reason}, now)
+       when status in [:skipped, :failed] do
+    format = spreadsheet_format(page.name)
+
+    with {:ok, _cache} <-
+           Ankole.Ash.create(FileCache, :put, %{
+             page_id: page.id,
+             subtype: :spreadsheet,
+             format: format,
+             object_id: object_id,
+             extractor_version: 1,
+             extract_status: status,
+             extract_error: reason,
+             metadata: %{},
+             updated_at: now
+           }),
+         do: Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: "")
+  end
+
+  defp spreadsheet_format(name) when is_binary(name) do
+    if Regex.match?(~r/\.xlsm(?: \(\d+\))?$/i, name), do: "xlsm", else: "xlsx"
+  end
+
+  defp spreadsheet_format(_), do: "xlsx"
 
   @doc """
   Lists a spreadsheet page's versions from the page history, newest first.

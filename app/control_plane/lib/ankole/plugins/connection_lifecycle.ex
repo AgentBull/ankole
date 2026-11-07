@@ -1,19 +1,26 @@
 defmodule Ankole.Plugins.ConnectionLifecycle do
   @moduledoc """
-  Keeps one plugin's long connections equal to its enabled bindings.
+  Keeps one plugin's long connections equal to its enabled bindings across the cluster.
 
   A plugin declares its connection set with
   `use Ankole.Plugins.ConnectionLifecycle` and implements the callbacks of this
   module. This module owns the periodic reconcile process, the merge of binding
-  and identity-provider specs by connection key, and restart attempts for each
+  and identity-provider specs by connection key, cluster-wide single-owner
+  coordination across connected Erlang nodes, and restart attempts for each
   supervised connection process. The plugin owns its config, its consumers, and
-  its client protocol. The connection Registry retains the last successful
-  start arguments. The reconciler can resume that connection after it restarts,
-  even when the current binding snapshot is blocked.
+  its client protocol. Each node's connection Registry retains the last
+  successful start arguments so a standby or restarted reconciler can resume a
+  live connection even when the current binding snapshot is blocked.
+
+  Across a multi-replica control-plane deployment, at most one replica holds a
+  given `(adapter, connection_key)` owner at a time via `:global` locking and
+  registration. Peer replicas monitor the active owner and fail over immediately
+  when the owning node enters graceful HTTP drain or disconnects.
 
   Each owner registers under its connection key with `registry_value/2` of the
   config and consumers it serves. When the desired value differs, for example
-  after a rotated secret or a changed consumer set, the owner is replaced.
+  after a rotated secret or a changed consumer set, the owner is replaced on
+  whichever replica currently holds it.
 
   `binding_spec/2` must be pure: it reads stored configuration and returns a
   spec without provider calls. Runtime identity and other provider lookups
@@ -31,21 +38,22 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
   The `use` options are `:adapter` (the binding adapter id), `:registry` and
   `:supervisor` (the plugin's owner Registry and DynamicSupervisor), and the
-  optional `:interval_ms` (default 60 seconds) and `:conflict_reason` (default
+  optional `:interval_ms` (default 60 seconds), `:conflict_reason` (default
   `:conflicting_app_secret`), and `:restart_backoff_ms` (default 0, 5 seconds,
   then 30 seconds).
   """
 
   use GenServer
 
-  alias Ankole.Repo
   alias Ankole.IdentityProviders
   alias Ankole.Logging
-
+  alias Ankole.Repo
   alias Ankole.Signals.Binding
 
   @call_timeout 30_000
+  @peer_probe_timeout 5_000
   @connection_specs_key {__MODULE__, :connection_specs}
+  @reconciler_pid_key {__MODULE__, :reconciler_pid}
   @repeat_log_interval_ms :timer.minutes(10)
 
   @typedoc "One desired connection: the config it uses and the consumers it serves."
@@ -84,6 +92,9 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         adapter: Keyword.fetch!(opts, :adapter),
         registry: Keyword.fetch!(opts, :registry),
         supervisor: Keyword.fetch!(opts, :supervisor),
+        cluster_scope: Keyword.get(opts, :cluster_scope, __MODULE__),
+        cluster_members: Keyword.get(opts, :cluster_members, [__MODULE__]),
+        drain_state_key: Keyword.get(opts, :drain_state_key, {AnkoleWeb.EndpointDrain, :state}),
         interval_ms: Keyword.get(opts, :interval_ms, 60_000),
         conflict_reason: Keyword.get(opts, :conflict_reason, :conflicting_app_secret),
         restart_backoff_ms: Keyword.get(opts, :restart_backoff_ms, [0, 5_000, 30_000])
@@ -117,7 +128,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
       def reconcile_once(opts \\ []),
         do: Ankole.Plugins.ConnectionLifecycle.reconcile_once(__MODULE__, opts)
 
-      @doc "Stops the owner registered under a connection key, if any."
+      @doc "Stops the owner registered under a connection key across the cluster, if any."
       @spec stop(term()) :: :ok | {:error, term()}
       def stop(key), do: Ankole.Plugins.ConnectionLifecycle.stop(__MODULE__, key)
 
@@ -161,6 +172,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
       monitors: %{},
       failures: %{},
       retry_timers: %{},
+      failover_scheduled?: false,
       alert: nil
     }
 
@@ -173,12 +185,21 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
   @doc false
   @spec reconcile_async(GenServer.server()) :: :ok
+  def reconcile_async(server) when is_atom(server) do
+    if Node.list() == [] do
+      GenServer.cast(server, :reconcile)
+    else
+      GenServer.abcast([node() | Node.list()], server, :reconcile)
+      :ok
+    end
+  end
+
   def reconcile_async(server), do: GenServer.cast(server, :reconcile)
 
   @doc false
   @spec reconcile_once(module(), keyword()) :: map()
   def reconcile_once(module, opts) when is_atom(module) and is_list(opts) do
-    module |> reconcile_connections(opts) |> Map.delete(:connections)
+    module |> reconcile_connections(opts) |> Map.drop([:connections, :blocked_keys])
   end
 
   defp reconcile_connections(module, opts) do
@@ -188,38 +209,14 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
       Ankole.Tenants.list()
       |> Enum.reduce({%{}, []}, fn tenant, acc ->
         Repo.with_tenant(tenant.id, fn ->
-          try do
-            config.adapter
-            |> Ankole.Signals.Bindings.list_enabled_bindings()
-            |> Enum.reduce(acc, &add_binding(module, config, &1, &2, opts))
-            |> add_identity_providers(module, config)
-            |> add_connector_specs(module, config)
-          rescue
-            error ->
-              Logging.warning(
-                "plugins.connection_snapshot_failed",
-                "Plugin connection snapshot failed",
-                Map.merge(Logging.failure_fields(:error, error, __STACKTRACE__), %{
-                  tenant_id: tenant.id,
-                  adapter: config.adapter
-                })
-              )
-
-              {specs, errors} = acc
-
-              {specs,
-               [
-                 %{tenant_id: tenant.id, reason: {:snapshot_failed, Exception.message(error)}}
-                 | errors
-               ]}
-          end
+          snapshot_tenant_connections(module, config, tenant.id, acc, opts)
         end)
       end)
 
     stopped = stop_undesired(module, specs, errors)
     blocked_keys = MapSet.new(for %{blocked_connection_key: key} <- errors, do: key)
 
-    {started, failed} =
+    outcomes =
       specs
       # A blocked binding can share its key with an identity provider. Starting
       # that partial spec would replace the live connection without the chat
@@ -229,32 +226,80 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         {key, tenant_id!(spec.consumers),
          ensure_owner_started(module, key, spec.config, Enum.reverse(spec.consumers))}
       end)
-      |> Enum.split_with(&match?({_key, _tenant_id, {:ok, _pid}}, &1))
+
+    started =
+      for {key, tenant_id, {:ok, pid, locality}} <- outcomes,
+          do: {key, tenant_id, pid, locality}
+
+    failed = for {key, tenant_id, {:error, reason}} <- outcomes, do: {key, tenant_id, reason}
 
     %{
-      connections: Map.new(started, fn {key, _tenant_id, {:ok, pid}} -> {key, pid} end),
+      connections:
+        Map.new(started, fn {key, _tenant_id, pid, locality} -> {key, {pid, locality}} end),
+      blocked_keys: MapSet.to_list(blocked_keys),
       started: length(started),
       stopped: stopped,
       errors:
         Enum.reverse(errors) ++
-          Enum.map(failed, fn {_key, tenant_id, {:error, reason}} ->
+          Enum.map(failed, fn {_key, tenant_id, reason} ->
             put_reason(%{tenant_id: tenant_id}, reason)
           end)
     }
   end
 
+  defp snapshot_tenant_connections(module, config, tenant_id, acc, opts) do
+    config.adapter
+    |> Ankole.Signals.Bindings.list_enabled_bindings()
+    |> Enum.reduce(acc, &add_binding(module, config, &1, &2, opts))
+    |> add_identity_providers(module, config)
+    |> add_connector_specs(module, config)
+  rescue
+    error ->
+      Logging.warning(
+        "plugins.connection_snapshot_failed",
+        "Plugin connection snapshot failed",
+        Map.merge(Logging.failure_fields(:error, error, __STACKTRACE__), %{
+          tenant_id: tenant_id,
+          adapter: config.adapter
+        })
+      )
+
+      {specs, errors} = acc
+
+      {specs,
+       [
+         %{tenant_id: tenant_id, reason: {:snapshot_failed, Exception.message(error)}}
+         | errors
+       ]}
+  end
+
   @doc false
   @spec stop(module(), term()) :: :ok | {:error, term()}
   def stop(module, key) do
-    %{registry: registry, supervisor: supervisor} = module.__connection_lifecycle__()
+    %{cluster_scope: cluster_scope, cluster_members: cluster_members} =
+      module.__connection_lifecycle__()
 
-    Registry.lock(registry, {__MODULE__, key}, fn ->
-      forget_connection_spec(module, key)
+    global_name = global_owner_name(cluster_scope, key)
 
-      case Registry.lookup(registry, key) do
-        [{pid, _value}] -> DynamicSupervisor.terminate_child(supervisor, pid)
-        [] -> :ok
+    :global.trans({global_lock_id(cluster_scope, key), self()}, fn ->
+      local_result = stop_local(module, key)
+
+      Enum.each(cluster_members -- [module], &forget_connection_spec(&1, key))
+
+      case :global.whereis_name(global_name) do
+        pid when is_pid(pid) ->
+          :global.unregister_name(global_name)
+          stop_on_peer(node(pid), cluster_members, key)
+
+        :undefined ->
+          :ok
       end
+
+      Enum.each(Node.list(), fn peer ->
+        :erpc.cast(peer, __MODULE__, :forget_peer_connection_spec, [cluster_members, key])
+      end)
+
+      local_result
     end)
   end
 
@@ -277,7 +322,14 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
   @impl true
   def init(state) do
+    %{registry: registry} = state.module.__connection_lifecycle__()
+
+    if Process.whereis(registry) do
+      Registry.put_meta(registry, @reconciler_pid_key, self())
+    end
+
     Phoenix.PubSub.subscribe(Ankole.PubSub, "connector_credentials")
+    Phoenix.PubSub.subscribe(Ankole.PubSub, AnkoleWeb.EndpointDrain.lifecycle_topic())
 
     if handler = Application.get_env(:ankole, :connection_lifecycle_error_handler) do
       Process.flag(:error_handler, handler)
@@ -288,6 +340,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
   @impl true
   def handle_continue(:reconcile, state) do
+    await_cluster_sync()
     {_result, state} = run_reconcile(state)
     {:noreply, schedule_next(state)}
   end
@@ -310,6 +363,19 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     {:noreply, schedule_next(state)}
   end
 
+  def handle_info(:failover_reconcile, state) do
+    {_result, state} = run_reconcile(%{state | failover_scheduled?: false})
+    {:noreply, state}
+  end
+
+  def handle_info({:endpoint_draining, drained_state_key, drained_node}, state) do
+    if peer_drain_event?(state.module, drained_state_key, drained_node) do
+      {:noreply, schedule_failover_reconcile(state)}
+    else
+      {:noreply, state}
+    end
+  end
+
   def handle_info({:connector_credentials_changed, _tenant_id}, %{interval_ms: nil} = state),
     do: {:noreply, state}
 
@@ -323,30 +389,24 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
       {nil, _monitors} ->
         {:noreply, state}
 
-      {{key, _pid}, monitors} ->
-        state = %{state | monitors: monitors}
+      {%{key: key, pid: monitored_pid, locality: :peer}, monitors} ->
+        handle_peer_down(%{state | monitors: monitors}, key, monitored_pid, reason)
 
-        if reason == :shutdown do
-          {:noreply, %{state | failures: Map.delete(state.failures, key)}}
-        else
-          {:noreply, retry_key(state, key, reason)}
-        end
+      {%{key: key, locality: :local}, monitors} ->
+        handle_local_down(%{state | monitors: monitors}, key, reason)
     end
   end
 
   def handle_info({:restart_key, key}, state) do
     state = %{state | retry_timers: Map.delete(state.retry_timers, key)}
-    %{registry: registry} = state.module.__connection_lifecycle__()
 
-    case {Map.fetch(connection_specs(state.module), key), Registry.lookup(registry, key)} do
-      {{:ok, {config, consumers}}, []} ->
-        case ensure_owner_started(state.module, key, config, consumers) do
-          {:ok, pid} -> {:noreply, monitor_key(state, key, pid)}
-          {:error, reason} -> {:noreply, retry_key(state, key, reason)}
-        end
+    %{registry: registry, drain_state_key: drain_state_key} =
+      state.module.__connection_lifecycle__()
 
-      _ ->
-        {:noreply, state}
+    if AnkoleWeb.EndpointDrain.draining?(drain_state_key) do
+      {:noreply, state}
+    else
+      restart_cached_key(state, registry, key)
     end
   end
 
@@ -366,37 +426,134 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     }
   end
 
+  defp handle_local_down(state, key, reason) do
+    %{drain_state_key: drain_state_key} = state.module.__connection_lifecycle__()
+
+    if reason == :shutdown or AnkoleWeb.EndpointDrain.draining?(drain_state_key) do
+      {:noreply, %{state | failures: Map.delete(state.failures, key)}}
+    else
+      {:noreply, retry_key(state, key, reason)}
+    end
+  end
+
+  defp handle_peer_down(state, key, monitored_pid, reason) do
+    state = %{state | failures: Map.delete(state.failures, key)}
+
+    if peer_still_managing?(state.module, node(monitored_pid), reason) do
+      {:noreply, state}
+    else
+      {:noreply, schedule_failover_reconcile(state)}
+    end
+  end
+
+  defp schedule_failover_reconcile(%{failover_scheduled?: true} = state), do: state
+
+  defp schedule_failover_reconcile(state) do
+    send(self(), :failover_reconcile)
+    %{state | failover_scheduled?: true}
+  end
+
+  defp peer_drain_event?(module, drained_state_key, drained_node) do
+    %{drain_state_key: own_drain_key, cluster_members: cluster_members} =
+      module.__connection_lifecycle__()
+
+    cond do
+      drained_node != node() ->
+        drained_state_key == own_drain_key
+
+      drained_state_key == own_drain_key ->
+        false
+
+      true ->
+        Enum.any?(cluster_members, fn member ->
+          member.__connection_lifecycle__().drain_state_key == drained_state_key
+        end)
+    end
+  end
+
+  defp restart_cached_key(state, registry, key) do
+    case {Map.fetch(connection_specs(state.module), key), Registry.lookup(registry, key)} do
+      {{:ok, {config, consumers}}, []} ->
+        case ensure_owner_started(state.module, key, config, consumers) do
+          {:ok, pid, locality} ->
+            {:noreply, monitor_key(state, key, pid, locality)}
+
+          {:draining, _key} ->
+            {:noreply, state}
+
+          {:error, reason} ->
+            {:noreply, retry_key(state, key, reason)}
+        end
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
   defp run_reconcile(%{module: module, reconcile_opts: opts} = state) do
     result = reconcile_connections(module, opts)
     state = log_reconcile_errors(state, result.errors)
 
-    %{registry: registry, supervisor: supervisor} = module.__connection_lifecycle__()
+    %{
+      registry: registry,
+      supervisor: supervisor,
+      cluster_scope: cluster_scope,
+      cluster_members: cluster_members
+    } = module.__connection_lifecycle__()
 
-    live =
+    local_live =
       supervisor
       |> DynamicSupervisor.which_children()
       |> Enum.flat_map(fn
         {_id, pid, _type, _modules} when is_pid(pid) ->
-          Enum.map(Registry.keys(registry, pid), &{&1, pid})
+          Enum.map(Registry.keys(registry, pid), &{&1, {pid, :local}})
 
         _restarting ->
           []
       end)
       |> Map.new()
 
+    specs_cache = connection_specs(module)
+
+    peer_live =
+      (Map.keys(specs_cache) ++ result.blocked_keys)
+      |> Enum.uniq()
+      |> Enum.reject(&(Map.has_key?(local_live, &1) or Map.has_key?(result.connections, &1)))
+      |> Enum.reduce(%{}, fn key, acc ->
+        case active_peer_owner(cluster_scope, cluster_members, key) do
+          {:ok, pid, peer_spec} ->
+            if peer_spec != nil and not Map.has_key?(specs_cache, key) do
+              remember_connection_spec(module, key, peer_spec)
+            end
+
+            Map.put(acc, key, {pid, :peer})
+
+          :none ->
+            acc
+        end
+      end)
+
+    specs_cache = connection_specs(module)
+    live = Map.merge(peer_live, local_live)
+
     # The Registry keeps the successful start arguments after a client exits.
-    # A new reconciler can thus resume a blocked connection even if its client
-    # exited while the reconciler was restarting.
-    {resumed, failed} =
-      module
-      |> connection_specs()
+    # A standby or restarted reconciler can thus resume a blocked connection
+    # when the previous owner or owning node goes away.
+    resume_outcomes =
+      specs_cache
       |> Enum.reject(fn {key, _spec} ->
         Map.has_key?(live, key) or Map.has_key?(result.connections, key)
       end)
       |> Enum.map(fn {key, {config, consumers}} ->
         {key, tenant_id!(consumers), ensure_owner_started(module, key, config, consumers)}
       end)
-      |> Enum.split_with(&match?({_key, _tenant_id, {:ok, _pid}}, &1))
+
+    resumed =
+      for {key, tenant_id, {:ok, pid, locality}} <- resume_outcomes,
+          do: {key, tenant_id, pid, locality}
+
+    failed =
+      for {key, tenant_id, {:error, reason}} <- resume_outcomes, do: {key, tenant_id, reason}
 
     result = %{
       result
@@ -404,23 +561,28 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         connections:
           Map.merge(
             result.connections,
-            Map.new(resumed, fn {key, _tenant_id, {:ok, pid}} -> {key, pid} end)
+            Map.new(resumed, fn {key, _tenant_id, pid, locality} -> {key, {pid, locality}} end)
           ),
         errors:
           result.errors ++
-            Enum.map(failed, fn {_key, tenant_id, {:error, reason}} ->
+            Enum.map(failed, fn {_key, tenant_id, reason} ->
               put_reason(%{tenant_id: tenant_id}, reason)
             end)
     }
 
+    active = Map.merge(result.connections, live)
+
     {monitors, failures} =
-      Enum.reduce(state.monitors, {%{}, state.failures}, fn {ref, {key, pid}},
+      Enum.reduce(state.monitors, {%{}, state.failures}, fn {ref, %{key: key, pid: pid}},
                                                             {monitors, failures} ->
-        if Map.get(live, key) == pid do
-          {Map.put(monitors, ref, {key, pid}), Map.delete(failures, key)}
-        else
-          Process.demonitor(ref, [:flush])
-          {monitors, failures}
+        case Map.get(active, key) do
+          {^pid, locality} ->
+            entry = %{key: key, pid: pid, locality: locality}
+            {Map.put(monitors, ref, entry), Map.delete(failures, key)}
+
+          _other ->
+            Process.demonitor(ref, [:flush])
+            {monitors, failures}
         end
       end)
 
@@ -431,18 +593,18 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     }
 
     state =
-      Enum.reduce(failed, state, fn {key, _tenant_id, {:error, reason}}, state ->
+      Enum.reduce(failed, state, fn {key, _tenant_id, reason}, state ->
         retry_key(state, key, reason)
       end)
 
     # A client can exit before which_children/1 observes it. Monitor the
     # actual start result too, so its DOWN still reaches the restart owner.
     state =
-      Enum.reduce(Map.merge(result.connections, live), state, fn {key, pid}, state ->
-        monitor_key(state, key, pid)
+      Enum.reduce(active, state, fn {key, {pid, locality}}, state ->
+        monitor_key(state, key, pid, locality)
       end)
 
-    {Map.drop(result, [:desired, :connections]), state}
+    {Map.drop(result, [:desired, :connections, :blocked_keys]), state}
   end
 
   # One warning per distinct error set. A repeated set is an info line at most
@@ -490,11 +652,12 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     end
   end
 
-  defp monitor_key(state, key, pid) do
-    if Enum.any?(state.monitors, fn {_ref, {_key, monitored}} -> monitored == pid end) do
+  defp monitor_key(state, key, pid, locality) do
+    if Enum.any?(state.monitors, fn {_ref, %{pid: monitored}} -> monitored == pid end) do
       state
     else
-      %{state | monitors: Map.put(state.monitors, Process.monitor(pid), {key, pid})}
+      entry = %{key: key, pid: pid, locality: locality}
+      %{state | monitors: Map.put(state.monitors, Process.monitor(pid), entry)}
     end
   end
 
@@ -667,20 +830,12 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
       %{^key => existing} ->
         cond do
           tenant_id!(existing.consumers) != tenant_id!(spec.consumers) ->
-            error =
-              Map.merge(conflict, %{
-                reason: :connection_tenant_mismatch
-              })
-
-            %{registry: registry} = module.__connection_lifecycle__()
+            error = Map.merge(conflict, %{reason: :connection_tenant_mismatch})
 
             keep =
-              case Registry.lookup(registry, key) do
-                [{_pid, {tenant_id, _fingerprint}}] ->
-                  if tenant_id == tenant_id!(spec.consumers), do: spec, else: existing
-
-                [] ->
-                  existing
+              case owner_tenant_id(module, key) do
+                {:ok, tenant_id} when tenant_id == hd(spec.consumers).tenant_id -> spec
+                _ -> existing
               end
 
             {Map.put(specs, key, keep), [error | errors]}
@@ -701,30 +856,81 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   # An incomplete snapshot only retains owners of the tenant that failed.
   defp stop_undesired(module, specs, errors) do
     failed_tenants = MapSet.new(errors, &Map.fetch!(&1, :tenant_id))
-    %{registry: registry} = module.__connection_lifecycle__()
+    %{cluster_scope: cluster_scope} = module.__connection_lifecycle__()
 
-    (registered_keys(module) ++ Map.keys(connection_specs(module)))
+    (registered_keys(module) ++ Map.keys(connection_specs(module)) ++ global_keys(cluster_scope))
     |> Enum.uniq()
     |> Enum.reject(&Map.has_key?(specs, &1))
-    |> Enum.reject(fn key ->
+    |> Enum.reject(&retain_failed_tenant_key?(module, failed_tenants, &1))
+    |> Enum.count(&(stop(module, &1) == :ok))
+  end
+
+  defp retain_failed_tenant_key?(module, failed_tenants, key) do
+    if MapSet.size(failed_tenants) == 0 do
+      false
+    else
       retain? =
-        case Registry.lookup(registry, key) do
-          [{_pid, {tenant_id, _fingerprint}}] ->
-            MapSet.member?(failed_tenants, tenant_id)
-
-          [] ->
-            case Map.fetch(connection_specs(module), key) do
-              {:ok, {_config, consumers}} ->
-                MapSet.member?(failed_tenants, tenant_id!(consumers))
-
-              :error ->
-                false
-            end
+        case owner_tenant_id(module, key) do
+          {:ok, tenant_id} -> MapSet.member?(failed_tenants, tenant_id)
+          :error -> false
         end
 
       retain? and not disabled_connection?(module, key)
+    end
+  end
+
+  defp owner_tenant_id(module, key) do
+    %{
+      registry: registry,
+      cluster_scope: cluster_scope,
+      cluster_members: cluster_members
+    } = module.__connection_lifecycle__()
+
+    case Registry.lookup(registry, key) do
+      [{_pid, {tenant_id, _fingerprint}}] ->
+        {:ok, tenant_id}
+
+      [] ->
+        case Map.fetch(connection_specs(module), key) do
+          {:ok, {_config, consumers}} ->
+            {:ok, tenant_id!(consumers)}
+
+          :error ->
+            peer_tenant_id(cluster_scope, cluster_members, key)
+        end
+    end
+  end
+
+  defp peer_tenant_id(cluster_scope, cluster_members, key) do
+    case :global.whereis_name(global_owner_name(cluster_scope, key)) do
+      pid when is_pid(pid) ->
+        try do
+          :erpc.call(
+            node(pid),
+            __MODULE__,
+            :lookup_local_tenant_id,
+            [cluster_members, key],
+            @peer_probe_timeout
+          )
+        catch
+          _, _ -> :error
+        end
+
+      :undefined ->
+        :error
+    end
+  end
+
+  @doc false
+  def lookup_local_tenant_id(cluster_members, key) when is_list(cluster_members) do
+    Enum.find_value(cluster_members, :error, fn module ->
+      %{registry: registry} = module.__connection_lifecycle__()
+
+      case Registry.lookup(registry, key) do
+        [{_pid, {tenant_id, _fingerprint}}] -> {:ok, tenant_id}
+        [] -> nil
+      end
     end)
-    |> Enum.count(&(stop(module, &1) == :ok))
   end
 
   defp disabled_connection?(module, key) do
@@ -743,17 +949,295 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   end
 
   defp ensure_owner_started(module, key, config, consumers) do
+    %{
+      cluster_scope: cluster_scope,
+      cluster_members: cluster_members,
+      drain_state_key: drain_state_key
+    } = module.__connection_lifecycle__()
+
+    global_name = global_owner_name(cluster_scope, key)
+
+    :global.trans({global_lock_id(cluster_scope, key), self()}, fn ->
+      if AnkoleWeb.EndpointDrain.draining?(drain_state_key) do
+        _ = stop_local(module, key)
+        {:draining, key}
+      else
+        coordinate_cluster_owner(
+          module,
+          global_name,
+          cluster_members,
+          key,
+          config,
+          consumers
+        )
+      end
+    end)
+  end
+
+  defp coordinate_cluster_owner(module, global_name, cluster_members, key, config, consumers) do
+    case :global.whereis_name(global_name) do
+      :undefined ->
+        start_and_claim_global(module, global_name, key, config, consumers)
+
+      pid when is_pid(pid) ->
+        if owned_by_self?(module, key, pid) do
+          start_and_claim_global(module, global_name, key, config, consumers)
+        else
+          reconcile_via_peer(
+            module,
+            global_name,
+            cluster_members,
+            pid,
+            key,
+            config,
+            consumers
+          )
+        end
+    end
+  end
+
+  defp reconcile_via_peer(module, global_name, cluster_members, pid, key, config, consumers) do
+    case call_peer_reconcile(node(pid), cluster_members, pid, key, config, consumers) do
+      {:ok, peer_pid} ->
+        terminate_local_duplicate(module, key)
+        remember_connection_spec(module, key, {config, consumers})
+        {:ok, peer_pid, :peer}
+
+      peer_gone when peer_gone in [:peer_unavailable, :peer_draining] ->
+        start_and_claim_global(module, global_name, key, config, consumers)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp start_and_claim_global(module, global_name, key, config, consumers) do
+    case ensure_local_owner_started(module, key, config, consumers) do
+      {:ok, pid} ->
+        :yes = :global.re_register_name(global_name, pid, &__MODULE__.resolve_global_conflict/3)
+        remember_connection_spec(module, key, {config, consumers})
+        {:ok, pid, :local}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp call_peer_reconcile(peer_node, cluster_members, expected_pid, key, config, consumers) do
+    :erpc.call(
+      peer_node,
+      __MODULE__,
+      :reconcile_peer_owner,
+      [cluster_members, expected_pid, key, config, consumers],
+      @call_timeout
+    )
+  catch
+    _, _ -> :peer_unavailable
+  end
+
+  @doc false
+  def reconcile_peer_owner(cluster_members, expected_pid, key, config, consumers)
+      when is_list(cluster_members) and is_pid(expected_pid) do
+    case find_local_owner_module(cluster_members, expected_pid, key) do
+      nil ->
+        :peer_unavailable
+
+      owner_module ->
+        %{cluster_scope: cluster_scope, drain_state_key: drain_state_key} =
+          owner_module.__connection_lifecycle__()
+
+        global_name = global_owner_name(cluster_scope, key)
+
+        if AnkoleWeb.EndpointDrain.draining?(drain_state_key) do
+          terminate_local_duplicate(owner_module, key)
+          :global.unregister_name(global_name)
+          :peer_draining
+        else
+          case start_and_claim_global(owner_module, global_name, key, config, consumers) do
+            {:ok, pid, :local} -> {:ok, pid}
+            {:error, _reason} = error -> error
+          end
+        end
+    end
+  end
+
+  defp find_local_owner_module(cluster_members, expected_pid, key) do
+    if Process.alive?(expected_pid) do
+      Enum.find(cluster_members, fn candidate ->
+        owned_by_self?(candidate, key, expected_pid)
+      end)
+    else
+      nil
+    end
+  end
+
+  defp active_peer_owner(cluster_scope, cluster_members, key) do
+    case :global.whereis_name(global_owner_name(cluster_scope, key)) do
+      pid when is_pid(pid) ->
+        peer_owner_info_remote(node(pid), cluster_members, pid, key)
+
+      :undefined ->
+        :none
+    end
+  end
+
+  defp peer_owner_info_remote(peer_node, cluster_members, pid, key) do
+    :erpc.call(
+      peer_node,
+      __MODULE__,
+      :peer_owner_info,
+      [cluster_members, pid, key],
+      @peer_probe_timeout
+    )
+  catch
+    _, _ -> :none
+  end
+
+  @doc false
+  def peer_owner_info(cluster_members, pid, key)
+      when is_list(cluster_members) and is_pid(pid) do
+    case find_local_owner_module(cluster_members, pid, key) do
+      nil ->
+        :none
+
+      owner_module ->
+        if AnkoleWeb.EndpointDrain.draining?(
+             owner_module.__connection_lifecycle__().drain_state_key
+           ) do
+          :none
+        else
+          {:ok, pid, Map.get(connection_specs(owner_module), key)}
+        end
+    end
+  end
+
+  defp peer_still_managing?(_module, _peer_node, :noconnection), do: false
+
+  defp peer_still_managing?(module, peer_node, _reason) do
+    %{cluster_members: cluster_members} = module.__connection_lifecycle__()
+    excluded = if peer_node == node(), do: [module], else: []
+
+    :erpc.call(
+      peer_node,
+      __MODULE__,
+      :any_reconciler_active?,
+      [cluster_members -- excluded],
+      @peer_probe_timeout
+    ) == true
+  catch
+    _, _ -> false
+  end
+
+  @doc false
+  def any_reconciler_active?(modules) when is_list(modules) do
+    Enum.any?(modules, fn candidate ->
+      %{registry: registry, drain_state_key: drain_state_key} =
+        candidate.__connection_lifecycle__()
+
+      not AnkoleWeb.EndpointDrain.draining?(drain_state_key) and
+        case Registry.meta(registry, @reconciler_pid_key) do
+          {:ok, pid} when is_pid(pid) -> Process.alive?(pid)
+          _ -> false
+        end
+    end)
+  end
+
+  @doc false
+  def resolve_global_conflict({__MODULE__, :owner, scope, _key}, pid1, pid2) do
+    Task.start(fn ->
+      try do
+        :erpc.cast(node(pid2), __MODULE__, :terminate_conflict_loser, [scope, pid2])
+      catch
+        _, _ -> :ok
+      end
+    end)
+
+    pid1
+  end
+
+  @doc false
+  def terminate_conflict_loser(scope, pid) when is_pid(pid) do
+    members =
+      if is_atom(scope) and function_exported?(scope, :__connection_lifecycle__, 0) do
+        scope.__connection_lifecycle__().cluster_members
+      else
+        []
+      end
+
+    terminated? =
+      Enum.any?(members, fn module ->
+        %{supervisor: supervisor} = module.__connection_lifecycle__()
+        DynamicSupervisor.terminate_child(supervisor, pid) == :ok
+      end)
+
+    if not terminated? do
+      terminate_by_ancestor_supervisor(pid)
+    end
+
+    :ok
+  end
+
+  defp terminate_by_ancestor_supervisor(pid) do
+    with {:dictionary, dict} <- Process.info(pid, :dictionary),
+         [supervisor | _] <- Keyword.get(dict, :"$ancestors"),
+         true <- is_atom(supervisor) or is_pid(supervisor) do
+      _ = DynamicSupervisor.terminate_child(supervisor, pid)
+    else
+      _ -> Process.exit(pid, :shutdown)
+    end
+  end
+
+  defp stop_on_peer(peer_node, cluster_members, key) do
+    :erpc.call(peer_node, __MODULE__, :stop_peer_owner, [cluster_members, key], @call_timeout)
+  catch
+    _, _ -> :ok
+  end
+
+  @doc false
+  def stop_peer_owner(cluster_members, key) when is_list(cluster_members) do
+    Enum.each(cluster_members, &stop_local(&1, key))
+    :ok
+  end
+
+  @doc false
+  def forget_peer_connection_spec(cluster_members, key) when is_list(cluster_members) do
+    Enum.each(cluster_members, &forget_connection_spec(&1, key))
+    :ok
+  end
+
+  defp stop_local(module, key) do
+    %{registry: registry, supervisor: supervisor} = module.__connection_lifecycle__()
+
+    if Process.whereis(registry) do
+      Registry.lock(registry, {__MODULE__, key}, fn ->
+        forget_connection_spec(module, key)
+
+        case Registry.lookup(registry, key) do
+          [{pid, _value}] -> DynamicSupervisor.terminate_child(supervisor, pid)
+          [] -> :ok
+        end
+      end)
+    else
+      :ok
+    end
+  end
+
+  defp terminate_local_duplicate(module, key) do
+    %{registry: registry, supervisor: supervisor} = module.__connection_lifecycle__()
+
+    Registry.lock(registry, {__MODULE__, key}, fn ->
+      case Registry.lookup(registry, key) do
+        [{pid, _value}] -> _ = DynamicSupervisor.terminate_child(supervisor, pid)
+        [] -> :ok
+      end
+    end)
+  end
+
+  defp ensure_local_owner_started(module, key, config, consumers) do
     %{registry: registry} = module.__connection_lifecycle__()
 
     Registry.lock(registry, {__MODULE__, key}, fn ->
-      case ensure_owner_started_unlocked(module, key, config, consumers) do
-        {:ok, _pid} = result ->
-          remember_connection_spec(module, key, {config, consumers})
-          result
-
-        {:error, _reason} = error ->
-          error
-      end
+      ensure_owner_started_unlocked(module, key, config, consumers)
     end)
   end
 
@@ -765,7 +1249,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
       [{pid, ^value}] -> {:ok, pid}
       [{pid, {^tenant_id, _other}}] -> restart_owner(module, pid, key, config, consumers)
       [{_pid, _other_tenant}] -> {:error, :connection_tenant_mismatch}
-      [] -> start_owner(module, key, config, consumers)
+      [] -> start_local_owner(module, key, config, consumers)
     end
   end
 
@@ -775,10 +1259,10 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     %{supervisor: supervisor} = module.__connection_lifecycle__()
     forget_connection_spec(module, key)
     _result = DynamicSupervisor.terminate_child(supervisor, pid)
-    start_owner(module, key, config, consumers)
+    start_local_owner(module, key, config, consumers)
   end
 
-  defp start_owner(module, key, config, consumers) do
+  defp start_local_owner(module, key, config, consumers) do
     %{supervisor: supervisor} = module.__connection_lifecycle__()
 
     case DynamicSupervisor.start_child(
@@ -796,12 +1280,52 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     end
   end
 
+  defp owned_by_self?(module, key, pid) when is_pid(pid) do
+    if node(pid) == node() do
+      %{registry: registry} = module.__connection_lifecycle__()
+
+      case Registry.lookup(registry, key) do
+        [{^pid, _value}] -> Process.alive?(pid)
+        _ -> false
+      end
+    else
+      false
+    end
+  end
+
+  defp global_lock_id(cluster_scope, key), do: {__MODULE__, :lock, cluster_scope, key}
+  defp global_owner_name(cluster_scope, key), do: {__MODULE__, :owner, cluster_scope, key}
+
+  defp global_keys(cluster_scope) do
+    for {__MODULE__, :owner, ^cluster_scope, key} <- :global.registered_names(), do: key
+  end
+
+  defp await_cluster_sync do
+    if pid = Process.whereis(DNSCluster) do
+      try do
+        _ = :sys.get_state(pid, @peer_probe_timeout)
+      catch
+        :exit, _ -> :ok
+      end
+    end
+
+    if Node.list() != [] do
+      _ = :global.sync()
+    end
+
+    :ok
+  end
+
   defp connection_specs(module) do
     %{registry: registry} = module.__connection_lifecycle__()
 
-    case Registry.meta(registry, @connection_specs_key) do
-      {:ok, specs} -> specs
-      :error -> %{}
+    if Process.whereis(registry) do
+      case Registry.meta(registry, @connection_specs_key) do
+        {:ok, specs} -> specs
+        :error -> %{}
+      end
+    else
+      %{}
     end
   end
 
@@ -820,12 +1344,16 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   defp forget_connection_spec(module, key) do
     %{registry: registry} = module.__connection_lifecycle__()
 
-    Registry.lock(registry, @connection_specs_key, fn ->
-      Registry.put_meta(
-        registry,
-        @connection_specs_key,
-        Map.delete(connection_specs(module), key)
-      )
-    end)
+    if Process.whereis(registry) do
+      Registry.lock(registry, @connection_specs_key, fn ->
+        Registry.put_meta(
+          registry,
+          @connection_specs_key,
+          Map.delete(connection_specs(module), key)
+        )
+      end)
+    else
+      :ok
+    end
   end
 end

@@ -14,13 +14,21 @@ defmodule Ankole.Pod.Pages do
   alias Ankole.Pod.PageContent
   alias Ankole.Pod.PageUserState
   alias Ankole.Pod.Position
-  alias Ankole.Pod.Pages.{Mentions, Queries, Sharing}
+  alias Ankole.Pod.Pages.{Mentions, Queries, RecentSearches, Sharing}
   alias Ankole.Pod.Documents.History
 
   defdelegate list_children(actor, parent_id, opts \\ %{}), to: Queries
   defdelegate navigation(actor, active_page_id), to: Queries
   defdelegate navigation_entries(actor, ids), to: Queries
   defdelegate search(actor, query, opts \\ %{}), to: Queries
+  defdelegate list_recent_searches(actor, limit \\ 8), to: RecentSearches, as: :list
+
+  defdelegate record_recent_search(actor, query, result_count \\ 0),
+    to: RecentSearches,
+    as: :record
+
+  defdelegate delete_recent_search(actor, id), to: RecentSearches, as: :delete
+  defdelegate clear_recent_searches(actor), to: RecentSearches, as: :clear
   defdelegate visible_descendant_count(actor, id), to: Queries
   defdelegate list(actor, opts \\ %{}), to: Queries
   defdelegate can_create_private?(actor), to: Queries
@@ -209,13 +217,20 @@ defmodule Ankole.Pod.Pages do
 
   def update_properties_in_tx(page, action, attrs) do
     with {:ok, properties} <- fetch(page.id),
-         {:ok, updated} <- Ankole.Ash.update(properties, action, attrs) do
-      if updated.type in [:doc, :knowledge] and Map.has_key?(attrs, :metadata) and
-           not Map.has_key?(attrs, :vfs_content_empty) do
-        vfs_property_in_tx(updated, nil)
-      else
-        {:ok, updated}
-      end
+         {:ok, updated} <- Ankole.Ash.update(properties, action, attrs),
+         {:ok, updated} <-
+           if(
+             updated.type in [:doc, :knowledge] and Map.has_key?(attrs, :metadata) and
+               not Map.has_key?(attrs, :vfs_content_empty),
+             do: vfs_property_in_tx(updated, nil),
+             else: {:ok, updated}
+           ),
+         :ok <-
+           if(action in [:initialize_metadata, :edit],
+             do: Ankole.Pod.SearchProjection.upsert_in_tx(updated),
+             else: :ok
+           ) do
+      {:ok, updated}
     end
   end
 

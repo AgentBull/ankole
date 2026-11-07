@@ -21,9 +21,11 @@ defmodule Ankole.Kernel.KnowledgeTest do
 
   test "knowledge rejects document-only blocks at the native boundary" do
     assert {:error, reason} =
-             Kernel.knowledge_validate("<page><mermaid>graph TD</mermaid></page>")
+             Kernel.knowledge_validate(
+               "<page><infographic>infographic list-row-simple-horizontal-arrow</infographic></page>"
+             )
 
-    assert reason =~ "mermaid"
+    assert reason =~ "infographic"
     assert {:error, _} = Kernel.knowledge_parse("---\n- array\n---\nBody")
   end
 end

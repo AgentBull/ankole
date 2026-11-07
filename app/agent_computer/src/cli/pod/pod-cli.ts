@@ -11,7 +11,7 @@ import { emitFirstUseGuidance, installStdoutEpipeGuard, markHelpSeen } from '../
 
 const POD_FIRST_USE_GUIDANCE = [
   'ankole-pod writes pure JSON to stdout; run `ankole-pod --help` for full operations and schemas.',
-  '- Read/search pages: `ankole-pod pages.search \'{"query":"..."}\'`, `ankole-pod pages.read \'{"id":"<node-id>","markdown_path":"page.md"}\'`',
+  '- Read/search pages: `ankole-pod pages.search \'{"query":"..."}\'` (or `ankole-pod pages.search "<query>" [--title-only] [--type doc|knowledge|base|applet|file]`), `ankole-pod pages.read \'{"id":"<node-id>","markdown_path":"page.md"}\'`',
   '- Comments on pages & files: `ankole-pod comments list|show|reply|resolve <node-id> ...`',
   '- Base tables: `ankole-pod base.tables|base.schema|base.query|base.write \'{"id":"..."}\'`',
   '- If a write or sharing change is forbidden, draft an Action Card via `propose_action_card` for human confirmation.'
@@ -28,6 +28,7 @@ or add your Agent to the space.
   ankole-pod comments show <page-id|--page id> <comment-id|--comment id>
   ankole-pod comments reply <page-id|--page id> <root-comment-id|--root id> <body|--body text>
   ankole-pod comments resolve <page-id|--page id> <comment-id|--comment id> --version <n> [--reopen]
+  ankole-pod pages.search [<query>] [--domain all|pages|brain] [--type <types>] [--scope all|private|space|shared|conversation] [--ancestor <id>] [--title-only] [--sort best|updated_desc|updated_asc|created_desc|created_asc] [--limit <n>]
   ankole-pod <operation> '<JSON parameters>'
   ankole-pod <operation> --input <JSON file>
   ankole-pod applet init <directory>
@@ -40,7 +41,7 @@ or add your Agent to the space.
 Read operations:
   pages.list       {scope?: space|private|shared|recent|favorites|trash, query?}
   pages.children   {parent_id?, scope?: space|private, cursor?, limit?} — returns pages and next_cursor
-  pages.search     {query, required_action?, exclude_subtree_of?} — searches titles and document text, up to 30 matches
+  pages.search     {query, domain?: all|pages|brain, types?, scope?, ancestor_id?, created_by?, updated_after?, title_only?, sort?, limit?, required_action?, exclude_subtree_of?} — full-text search across Pages and Brain (defaults to domain="all"); returns pages, ancestors, and matches (match_fields, snippet.segments, primary_target)
   pages.read       {id} — returns Markdown and the current page revision
   pages.sharing    {id}
   comments.list    {id, status?: open|resolved|all|unread, cursor?, limit?} — lists document or file comment threads
@@ -553,12 +554,95 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
     if (action !== 'publish' || !json) throw new Error('applet publish requires page id and base_revision in JSON')
     return { operation: 'applets.publish', params: parseParams(json), cwd, publish_directory: directory }
   }
+  if (args[0] === 'pages.search') {
+    return parsePagesSearchCommand(args.slice(1), cwd)
+  }
   const [operation, input, file] = args
   if (!operation || !input || args.length > (input === '--input' ? 3 : 2)) {
     throw new Error('Use <operation> <JSON parameters> or --input <JSON file>')
   }
   const json = input === '--input' ? await readFile(resolve(cwd, file ?? ''), 'utf8') : input
   return { operation, params: parseParams(json), cwd }
+}
+
+async function parsePagesSearchCommand(rest: string[], cwd: string) {
+  if (rest.length === 0) {
+    throw new Error('Use pages.search <JSON parameters>, --input <JSON file>, or [<query>] [search flags]')
+  }
+  if (rest.length === 1 && rest[0]!.trimStart().startsWith('{')) {
+    const parsed = parseParams(rest[0]!)
+    return {
+      operation: 'pages.search',
+      params: parsed.domain === undefined ? { domain: 'all', ...parsed } : parsed,
+      cwd
+    }
+  }
+  if (rest[0] === '--input' && rest.length === 2) {
+    const parsed = parseParams(await readFile(resolve(cwd, rest[1]!), 'utf8'))
+    return {
+      operation: 'pages.search',
+      params: parsed.domain === undefined ? { domain: 'all', ...parsed } : parsed,
+      cwd
+    }
+  }
+  const params: Record<string, unknown> = { domain: 'all' }
+  let positionalQuery: string | undefined
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index]!
+    if (arg === '--query' || arg === '-q') {
+      const value = rest[++index]
+      if (value === undefined) throw new Error(`${arg} requires a value`)
+      params.query = value
+    } else if (arg === '--domain') {
+      const value = rest[++index]
+      if (!value || !['all', 'pages', 'brain'].includes(value)) {
+        throw new Error('--domain must be all, pages, or brain')
+      }
+      params.domain = value
+    } else if (arg === '--type' || arg === '--types') {
+      const value = rest[++index]
+      if (!value) throw new Error(`${arg} requires a value`)
+      params.types = value
+    } else if (arg === '--scope') {
+      const value = rest[++index]
+      if (!value || !['all', 'private', 'space', 'shared', 'conversation'].includes(value)) {
+        throw new Error('--scope must be all, private, space, shared, or conversation')
+      }
+      params.scope = value
+    } else if (arg === '--ancestor' || arg === '--ancestor-id') {
+      const value = rest[++index]
+      if (!value) throw new Error(`${arg} requires a page id`)
+      params.ancestor_id = value
+    } else if (arg === '--created-by') {
+      const value = rest[++index]
+      if (!value) throw new Error('--created-by requires a principal uid')
+      params.created_by = value
+    } else if (arg === '--updated-after') {
+      const value = rest[++index]
+      if (!value) throw new Error('--updated-after requires an ISO-8601 timestamp')
+      params.updated_after = value
+    } else if (arg === '--title-only') {
+      params.title_only = true
+    } else if (arg === '--sort') {
+      const value = rest[++index]
+      if (!value || !['best', 'updated_desc', 'updated_asc', 'created_desc', 'created_asc'].includes(value)) {
+        throw new Error('--sort must be best, updated_desc, updated_asc, created_desc, or created_asc')
+      }
+      params.sort = value
+    } else if (arg === '--limit') {
+      const limit = decimalPositiveInteger(rest[++index], '--limit')
+      if (limit > 100) throw new Error('--limit must be at most 100')
+      params.limit = limit
+    } else if (!arg.startsWith('-') && positionalQuery === undefined && params.query === undefined) {
+      positionalQuery = arg
+    } else {
+      throw new Error(`Unknown pages.search argument: ${arg}`)
+    }
+  }
+  if (params.query === undefined) {
+    params.query = positionalQuery ?? ''
+  }
+  return { operation: 'pages.search', params, cwd }
 }
 
 function parseCommentsCommand(rest: string[], cwd: string) {

@@ -602,6 +602,37 @@ body:has(.pod-shell) .pod-command-dialog[data-slot='dialog-content'] {
   overscroll-behavior: contain;
 }
 
+.pod-command-preview {
+  max-height: min(440px, 52dvh);
+  overscroll-behavior: contain;
+}
+
+.pod-search-mark {
+  padding-inline: 2px;
+  border-radius: 2px;
+  background-color: var(--badge-yellow);
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+[data-theme='dark'] .pod-search-mark {
+  background-color: color-mix(in oklab, var(--color-yellow-60) 42%, transparent);
+  color: var(--foreground);
+}
+
+@media (forced-colors: active) {
+  .pod-search-mark {
+    background-color: Mark;
+    color: MarkText;
+  }
+}
+
+@media (min-width: 768px) {
+  body:has(.pod-shell) .pod-command-dialog.pod-command-dialog-split[data-slot='dialog-content'] {
+    width: min(880px, calc(100vw - 48px));
+  }
+}
+
 @media (max-width: 767px) {
   .pod-content-list [data-pod-list-item] {
     min-height: 40px;

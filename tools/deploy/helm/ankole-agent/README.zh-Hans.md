@@ -524,8 +524,10 @@ Agent 在 Worker Pod 上使用 `command` 工具、本地浏览器与 `Background
 当 `files.store=fs` 时仅支持单副本运行，若将副本数调高，Chart 会拒绝渲染模板；如需运行多副本，请改用
 共享远程文件存储后端。
 
-由于定时任务触发、聊天适配器长连接和调度器状态加载等控制面单例进程集中运行在单节点上，请将
-`controlPlane.replicaCount` 保持为 `1`。每个新启动的控制面 Pod 都会在初始化容器中通过数据库迁移锁
+如需将 `controlPlane.replicaCount` 调至多副本运行，须配置共享远程 `files.store` 存储后端，并确保 Worker
+能够直连控制面 Pod IP（不得设置 `endpoints.relayOrigin`）。各控制面 Pod 通过 Headless Service 组成
+Distributed Erlang 集群，共享 Oban 任务队列、在副本间协调唯一的聊天与邮件长连接属主，并在收到终止信号时先将
+`/_internal/health` 就绪探针置为排水状态再关闭监听端口。每个新启动的控制面 Pod 都会在初始化容器中通过数据库迁移锁
 串行执行迁移检查。
 
 ## Worker Pod

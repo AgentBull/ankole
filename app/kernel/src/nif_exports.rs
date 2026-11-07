@@ -41,6 +41,11 @@ mod atoms {
         overlapping_structural_edit,
         sheet_deleted,
         concurrent_sort_or_merge,
+        skipped,
+        failed,
+        text,
+        document,
+        unsupported,
     }
 }
 
@@ -222,6 +227,21 @@ pub fn page_validate_nif(source: Term<'_>) -> NIFResult<(String, String)> {
     let page = stacker::grow(8 * 1024 * 1024, || crate::page_document::validate(&source))
         .map_err(error_message)?;
     Ok((page.xml, page.plain_text))
+}
+
+type PageSectionTuple = (u8, String, usize);
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_sections_nif(source: Term<'_>) -> NIFResult<(String, Vec<PageSectionTuple>)> {
+    let source = decode_string(source, "source")?;
+    let parsed = stacker::grow(8 * 1024 * 1024, || crate::page_document::sections(&source))
+        .map_err(error_message)?;
+    let sections = parsed
+        .sections
+        .into_iter()
+        .map(|sec| (sec.level, sec.heading, sec.start_byte))
+        .collect();
+    Ok((parsed.plain_text, sections))
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -441,6 +461,79 @@ pub fn markdown_code_ranges_nif(source: Term<'_>) -> NIFResult<Vec<(usize, usize
 pub fn markdown_repair_generated_nif(source: Term<'_>) -> NIFResult<String> {
     let source = decode_string(source, "source")?;
     Ok(crate::markdown::repair_generated_markdown(&source))
+}
+
+#[cfg(feature = "file_text")]
+#[rustler::nif]
+pub fn file_extractor_version_nif() -> u32 {
+    crate::file_text::EXTRACTOR_VERSION
+}
+
+#[cfg(feature = "file_text")]
+#[rustler::nif]
+pub fn file_classify_format_nif<'a>(
+    env: Env<'a>,
+    filename: Term<'a>,
+    mime_type: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let filename = decode_string(filename, "filename")?;
+    let mime_type = decode_optional_string(mime_type, "mime_type")?;
+    match crate::file_text::classify(&filename, mime_type.as_deref()) {
+        Some((subtype, format)) => {
+            let subtype_atom = match subtype {
+                crate::file_text::FileSubtype::Text => atoms::text(),
+                crate::file_text::FileSubtype::Document => atoms::document(),
+            };
+            Ok((atoms::ok(), (subtype_atom, format)).encode(env))
+        }
+        None => Ok(atoms::unsupported().encode(env)),
+    }
+}
+
+#[cfg(feature = "file_text")]
+#[derive(rustler::NifMap)]
+pub struct FileExtractTextNIF {
+    pub status: rustler::Atom,
+    pub subtype: rustler::Atom,
+    pub format: String,
+    pub extractor_version: u32,
+    pub plain_text: String,
+    pub metadata_json: String,
+    pub error: Option<String>,
+}
+
+#[cfg(feature = "file_text")]
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn file_extract_text_nif(
+    bytes: Term<'_>,
+    filename: Term<'_>,
+    mime_type: Term<'_>,
+) -> NIFResult<FileExtractTextNIF> {
+    let bytes = decode_binary(bytes, "bytes")?;
+    let filename = decode_string(filename, "filename")?;
+    let mime_type = decode_optional_string(mime_type, "mime_type")?;
+    let result = stacker::grow(8 * 1024 * 1024, || {
+        crate::file_text::extract(bytes.as_slice(), &filename, mime_type.as_deref())
+    });
+    let status = match result.status {
+        crate::file_text::ExtractStatus::Ok => atoms::ok(),
+        crate::file_text::ExtractStatus::Skipped => atoms::skipped(),
+        crate::file_text::ExtractStatus::Failed => atoms::failed(),
+    };
+    let subtype = match result.subtype {
+        crate::file_text::FileSubtype::Text => atoms::text(),
+        crate::file_text::FileSubtype::Document => atoms::document(),
+    };
+    let metadata_json = encode_serialized(&result.metadata)?;
+    Ok(FileExtractTextNIF {
+        status,
+        subtype,
+        format: result.format,
+        extractor_version: result.extractor_version,
+        plain_text: result.plain_text,
+        metadata_json,
+        error: result.error,
+    })
 }
 
 // CEL's recursive parser needs more stack than BEAM's default dirty CPU stack.

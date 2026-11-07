@@ -20,6 +20,7 @@ import {
   RiFileCopyLine,
   RiFolderTransferLine,
   RiPencilLine,
+  RiSearchLine,
   RiStarFill,
   RiStarLine
 } from '@remixicon/react'
@@ -199,6 +200,7 @@ export function PageMenuItems({
   onMoveTo(): void
 }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { pageHref } = useContent()
   const copyLink = useCopyPageLink(page.id, page.title)
   const canRename = canRenamePage(page)
@@ -215,6 +217,11 @@ export function PageMenuItems({
       <DropdownMenuItem onClick={() => void copyLink()}>
         <RiFileCopyLine aria-hidden />
         {t('pod.content.copy_link')}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => void navigate(linkTarget(podLocation('/content/search', { ancestor_id: page.id })))}>
+        <RiSearchLine aria-hidden />
+        {t('pod.content.search_in_this_page')}
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => favorite(page, !favorited)}>
         {favorited ? <RiStarFill aria-hidden /> : <RiStarLine aria-hidden />}

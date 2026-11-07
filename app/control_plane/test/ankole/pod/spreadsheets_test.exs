@@ -5,7 +5,17 @@ defmodule Ankole.Pod.SpreadsheetsTest do
   alias Ankole.Files, as: Drive
   alias Ankole.Files.Schemas.FileObject
   alias Ankole.Kernel
-  alias Ankole.Pod.{FileCache, Files, Pages, PageSnapshot, Spreadsheets, SpreadsheetOp}
+
+  alias Ankole.Pod.{
+    FileCache,
+    Files,
+    Pages,
+    PageSearchDocument,
+    PageSnapshot,
+    Spreadsheets,
+    SpreadsheetOp
+  }
+
   alias Ankole.Pod.Jobs.CompactSpreadsheet
 
   # A 1×1 PNG.
@@ -123,8 +133,10 @@ defmodule Ankole.Pod.SpreadsheetsTest do
              }
            ] = versions(page.id)
 
-    assert %FileCache{subtype: :spreadsheet, object_id: ^object, plain_text: "Sheet1\n"} =
+    assert %FileCache{subtype: :spreadsheet, object_id: ^object, extract_status: :ok} =
              Repo.get_by!(FileCache, page_id: page.id)
+
+    assert Repo.get_by!(PageSearchDocument, page_id: page.id).body_text == "Sheet1\n"
 
     assert {:ok,
             %{
@@ -428,7 +440,8 @@ defmodule Ankole.Pod.SpreadsheetsTest do
     first = object_id(page.id)
     refute first == created
     assert {:ok, %{revision: 3}} = Pages.fetch(page.id)
-    assert %{object_id: ^first, plain_text: text} = Repo.get_by!(FileCache, page_id: page.id)
+    assert %{object_id: ^first, extract_status: :ok} = Repo.get_by!(FileCache, page_id: page.id)
+    text = Repo.get_by!(PageSearchDocument, page_id: page.id).body_text
     assert text =~ "季度预算"
     assert text =~ "华东区"
     assert [%{reason: :created, object_id: ^created}] = versions(page.id)
@@ -537,7 +550,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
 
     assert {:ok, edited_bytes} = Drive.read_object(base)
     assert object_text(edited_bytes) =~ "before upload"
-    assert Repo.get_by!(FileCache, page_id: page.id).plain_text =~ "uploaded 华北"
+    assert Repo.get_by!(PageSearchDocument, page_id: page.id).body_text =~ "uploaded 华北"
 
     assert {:ok, %{revision: 3, changes: [%{kind: :reset}], reset_required: true}} =
              Spreadsheets.since(ctx.actor, page.id, 2)
@@ -583,7 +596,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
            ] = versions(page.id)
 
     assert file_text(ctx.actor, page.id) =~ "from the Agent"
-    assert Repo.get_by!(FileCache, page_id: page.id).plain_text =~ "from the Agent"
+    assert Repo.get_by!(PageSearchDocument, page_id: page.id).body_text =~ "from the Agent"
     assert {:ok, %{revision: 3, ops: []}} = Spreadsheets.bootstrap(ctx.actor, page.id)
   end
 
@@ -669,7 +682,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
                args: %{"tenant_id" => Repo.tenant_id!(), "node_id" => page.id}
              })
 
-    for resource <- [SpreadsheetOp, FileCache, PageSnapshot] do
+    for resource <- [SpreadsheetOp, FileCache, PageSearchDocument, PageSnapshot] do
       refute Repo.exists?(from row in resource, where: row.page_id == ^page.id)
     end
 
@@ -686,8 +699,14 @@ defmodule Ankole.Pod.SpreadsheetsTest do
     assert {:error, :file_too_large} =
              Spreadsheets.apply_op(ctx.actor, page.id, request(1, "tab", 1, set("A1", "x")))
 
-    # A workbook above the limit keeps its version but gets no search cache.
-    refute Repo.get_by(FileCache, page_id: page.id)
+    # A workbook above the limit records a skipped extraction row so reconciliation never loops.
+    assert %FileCache{
+             subtype: :spreadsheet,
+             extract_status: :skipped,
+             extract_error: "file_too_large"
+           } = Repo.get_by!(FileCache, page_id: page.id)
+
+    assert Repo.get_by!(PageSearchDocument, page_id: page.id).body_text == ""
     assert [%{reason: :created}] = versions(page.id)
 
     assert {:error, _invalid} =

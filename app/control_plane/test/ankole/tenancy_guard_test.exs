@@ -176,6 +176,9 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/copy.ex:validate_sizes" => 1,
     "raw_sql:lib/ankole/pod/pages/queries.ex:state_page_ids" => 1,
     "raw_sql:lib/ankole/pod/pages/queries.ex:trash_candidates" => 1,
+    "raw_sql:lib/ankole/pod/pages/search.ex:query_empty_candidates" => 1,
+    "raw_sql:lib/ankole/pod/pages/search.ex:query_ranked_candidates" => 1,
+    "raw_sql:lib/ankole/pod/pages/search.ex:query_winning_snippets" => 1,
     "raw_sql:lib/ankole/pod/query.ex:execute" => 2,
     "raw_sql:lib/ankole/advisory_lock.ex:lock" => 1,
     "raw_sql:lib/ankole/advisory_lock.ex:lock!" => 1,
@@ -190,11 +193,11 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/brain/merge.ex:repoint_links" => 1,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 3,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_unique_rows" => 2,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:create_bm25_index" => 1,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_bm25_index" => 2,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_hnsw_index" => 3,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:index_definition" => 1,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:index_usable?" => 1,
+    "raw_sql:lib/ankole/search_indexes.ex:create_bm25_index" => 1,
+    "raw_sql:lib/ankole/search_indexes.ex:ensure_bm25_index" => 2,
+    "raw_sql:lib/ankole/search_indexes.ex:ensure_hnsw_index" => 3,
+    "raw_sql:lib/ankole/search_indexes.ex:index_definition" => 1,
+    "raw_sql:lib/ankole/search_indexes.ex:index_usable?" => 1,
     "raw_sql:lib/ankole/conversations/attachments.ex:next_attachment_id" => 1,
     "raw_sql:lib/ankole/authz/engine/snapshot.ex:load_snapshot" => 1,
     "raw_sql:lib/ankole/tenants/jobs/delete.ex:delete_rows" => 1,
@@ -209,7 +212,6 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "sql_fragment:lib/ankole/conversations/inbound_batches.ex:observed_entry_batch" => 1,
     "sql_fragment:lib/ankole/oidc.ex:cleanup_expired_credentials" => 1,
-    "sql_fragment:lib/ankole/pod/pages/queries.ex:read_search_pages" => 3,
     "sql_fragment:lib/ankole/sessions/console_queries/prepare.ex:filter_min_messages" => 1,
     "sql_fragment:lib/ankole/signals.ex:signals_for_entry_in_tx" => 1
   }
@@ -271,6 +273,7 @@ defmodule Ankole.TenancyGuardTest do
     "file_objects_storage_key_index" =>
       "Each physical object key is unique across tenants; new keys include tenant and random object IDs.",
     "page_contents_pkey" => "A globally unique page id owns the document.",
+    "page_search_documents_pkey" => "A globally unique page id owns the search projection.",
     "page_comments_pkey" => "The application generates each comment's globally unique UUIDv7.",
     "page_snapshots_pkey" =>
       "The application generates each page snapshot's globally unique UUIDv7.",

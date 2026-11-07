@@ -36,20 +36,26 @@ defmodule Ankole.Application do
     #     imports providers and completes supported Worker ownership upgrades.
     #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
     #     needs the queue, active provider config, and adapter declarations.
-    #   - PubSub + AIGateway credential and response-stream processes before
+    #   - PubSub + DNSCluster early: peer discovery joins the Erlang cluster
+    #     before Oban, PodPresence, and Plugin connection reconcilers start, and
+    #     stays connected until those subsystems finish shutting down.
+    #   - AIGateway credential and response-stream processes before
     #     Sessions: a recovered Session turn may select a credential and open a
     #     provider stream.
     #   - Delivery, AgentWorkers, and Sessions have independent supervisors.
     #   - Workflow after Sessions: recovered runs can enqueue durable Session
     #     work only after the AgentWorkers supervision tree exists.
-    #   - Endpoint last: accept web traffic only after every subsystem it serves
-    #     (auth, config, plugins, sessions, i18n) is ready.
+    #   - Endpoint + EndpointDrain last: accept web traffic only after every
+    #     subsystem it serves (auth, config, plugins, sessions, i18n) is ready,
+    #     and flip readiness to draining before Endpoint stops on SIGTERM.
     children =
       [
         Ankole.Repo,
         Ankole.Pod.BaseCluster,
         Ankole.Pod.Spreadsheets.NodeCache,
+        Ankole.Pod.FileExtraction.ScanCursor,
         {Phoenix.PubSub, name: Ankole.PubSub},
+        {DNSCluster, query: Application.get_env(:ankole, :dns_cluster_query) || :ignore},
         AnkoleWeb.PodPresence,
         Ankole.OIDC.SigningKey,
         Ankole.AIAgent.Library.SourceCache,
@@ -98,8 +104,8 @@ defmodule Ankole.Application do
     children =
       children ++
         [
-          {DNSCluster, query: Application.get_env(:ankole, :dns_cluster_query) || :ignore},
-          AnkoleWeb.Endpoint
+          AnkoleWeb.Endpoint,
+          AnkoleWeb.EndpointDrain
         ]
 
     opts = [strategy: :one_for_one, name: Ankole.Supervisor]

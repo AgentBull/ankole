@@ -334,8 +334,9 @@ lifecycle dispatcher (while RPC and Actor handlers spawn supervised tasks):
   interrupted), and the Job owner recovers orphaned Codex attempts.
 - **Staleness** triggers after 60 seconds without a valid heartbeat or when the
   active Channel exits: the control plane closes silent sockets, and because a
-  heartbeat alone cannot promote a `stale` row back to `ready`, a live Worker
-  must reconnect and pass `join/3` again.
+  heartbeat alone cannot promote a `stale` row back to `ready`, a Worker whose
+  push receives `stale_transport_route` or socket closure leaves its stale
+  Channel and passes `join/3` again on a fresh route.
 
 This handshake authenticates trusted first-party Workers (with ingress handling
 `wss://` TLS termination in front of the control plane and database turn fences

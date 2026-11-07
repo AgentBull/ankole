@@ -42,6 +42,8 @@ defmodule Ankole.Sessions.JobDriver do
        attempt: nil,
        tasks: %{},
        mailbox_dirty: false,
+       start_dirty: false,
+       observe_dirty: false,
        deferred_reason: nil,
        deferred_mode: nil
      }, [{:next_event, :internal, :rebuild}]}
@@ -133,7 +135,7 @@ defmodule Ankole.Sessions.JobDriver do
 
       {{kind, _}, tasks} ->
         Process.demonitor(ref, [:flush])
-        result(kind, value, state, %{data | tasks: tasks})
+        finish_task(kind, value, state, %{data | tasks: tasks})
     end
   end
 
@@ -143,12 +145,28 @@ defmodule Ankole.Sessions.JobDriver do
         :keep_state_and_data
 
       {{kind, _}, tasks} ->
-        result(kind, {:error, {:task_exit, reason}}, state, %{data | tasks: tasks})
+        finish_task(kind, {:error, {:task_exit, reason}}, state, %{data | tasks: tasks})
     end
   end
 
   def handle_event(:info, {:EXIT, _, :shutdown}, _state, data), do: {:stop, :shutdown, data}
   def handle_event(_, _, _, _), do: :keep_state_and_data
+
+  defp finish_task(:observe, value, state, %{observe_dirty: true} = data) do
+    :observe
+    |> result(value, state, %{data | observe_dirty: false})
+    |> maybe_reobserve()
+  end
+
+  defp finish_task(kind, value, state, data), do: result(kind, value, state, data)
+
+  defp maybe_reobserve({:keep_state, data}), do: {:keep_state, observe(data)}
+  defp maybe_reobserve({:keep_state, data, actions}), do: {:keep_state, observe(data), actions}
+
+  defp maybe_reobserve({:next_state, :starting, data, actions}),
+    do: {:next_state, :starting, observe(data), actions}
+
+  defp maybe_reobserve(other), do: other
 
   defp result(:rebuild, {:ok, :idle}, _, data),
     do: {:next_state, :idle, data, [{:state_timeout, @idle_ms, :retire}]}
@@ -200,6 +218,9 @@ defmodule Ankole.Sessions.JobDriver do
       {:keep_state, task(data, :mailbox, fn -> CodexJob.mailbox(data.attempt) end),
        [{:state_timeout, @poll_ms, :poll}]}
 
+  defp result(:observe, {:ok, :disconnected}, _, data),
+    do: {:keep_state, data, [{:state_timeout, @poll_ms, :poll}]}
+
   defp result(:observe, {:ok, {:adopt, worker}}, _, data),
     do: start(%{data | attempt: %{data.attempt | job_worker: worker, job_mode: "adopt"}})
 
@@ -207,6 +228,15 @@ defmodule Ankole.Sessions.JobDriver do
 
   defp result(_, {:error, reason}, _, data) when reason in [:stale_driver, :run_closed],
     do: {:stop, :normal, data}
+
+  defp result(:start, value, _, %{start_dirty: true} = data) do
+    case value do
+      {:error, reason} -> log_failure(:start, reason)
+      _ -> :ok
+    end
+
+    start(%{data | start_dirty: false})
+  end
 
   defp result(:mailbox, value, _, %{mailbox_dirty: true} = data) do
     case value do
@@ -240,15 +270,16 @@ defmodule Ankole.Sessions.JobDriver do
       {:next_state, :starting, task(data, :start, fn -> CodexJob.start(data.attempt) end),
        [{:state_timeout, @poll_ms, :poll}]}
 
-  defp observe(data) do
-    if Enum.any?(data.tasks, fn {_, {kind, _}} -> kind == :observe end),
-      do: data,
-      else: task(data, :observe, fn -> CodexJob.observe(data.attempt) end)
-  end
+  defp observe(data),
+    do: task(data, :observe, fn -> CodexJob.observe(data.attempt) end)
 
   defp task(data, kind, fun) do
     if Enum.any?(data.tasks, fn {_, {running, _}} -> running == kind end) do
-      if kind == :mailbox, do: %{data | mailbox_dirty: true}, else: data
+      case kind do
+        :mailbox -> Map.put(data, :mailbox_dirty, true)
+        :start -> Map.put(data, :start_dirty, true)
+        :observe -> Map.put(data, :observe_dirty, true)
+      end
     else
       task = Task.Supervisor.async_nolink(Ankole.Sessions.Tasks, Repo.bind_tenant(fun))
       %{data | tasks: Map.put(data.tasks, task.ref, {kind, task.pid})}
@@ -260,15 +291,16 @@ defmodule Ankole.Sessions.JobDriver do
     if data.attempt, do: Observability.finish_turn(data.attempt.span, outcome: "job_finished")
 
     {:next_state, :idle,
-     %{
-       data
-       | attempt: nil,
-         event: nil,
-         tasks: %{},
-         mailbox_dirty: false,
-         deferred_reason: nil,
-         deferred_mode: nil
-     }, [{:next_event, :internal, :rebuild}]}
+     Map.merge(data, %{
+       attempt: nil,
+       event: nil,
+       tasks: %{},
+       mailbox_dirty: false,
+       start_dirty: false,
+       observe_dirty: false,
+       deferred_reason: nil,
+       deferred_mode: nil
+     }), [{:next_event, :internal, :rebuild}]}
   end
 
   defp worker_ready_for_mode?(uid, "adopt"),

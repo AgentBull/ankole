@@ -207,6 +207,15 @@ fn changes_reject_invalid_shapes_and_unprepared_normalization() {
 fn derives_search_text() {
     let result=validate(r#"<page><h1>标题</h1><p><a href="ankole:page/linked">正文</a></p><embed ref="child" /></page>"#).unwrap();
     assert_eq!(result.plain_text, "标题\n正文");
+
+    let rich = validate(
+        r#"<page><h1>参考资料</h1><bookmark src="https://docs.stripe.com/webhooks" title="Stripe Webhooks" description="Signature verification guide" /><media src="ankole:attachment/raw-uuid" title="架构总览图.png" description="2026 Q4 拓扑" kind="image" /><embed href="https://figma.com/file/abc" title="Design Spec" /><p>说明<img src="https://example.com/a.png" alt="流程图" /></p></page>"#,
+    )
+    .unwrap();
+    assert_eq!(
+        rich.plain_text,
+        "参考资料\nStripe Webhooks\nSignature verification guide\nhttps://docs.stripe.com/webhooks\n架构总览图.png\n2026 Q4 拓扑\nDesign Spec\nhttps://figma.com/file/abc\n说明 流程图"
+    );
 }
 
 #[test]
@@ -677,4 +686,30 @@ fn infographic_diff_and_comments_preserve_marks_and_inline_runs() {
         )
     );
     assert_eq!(remove_comment(&restored.xml, THREAD).unwrap().xml, edited);
+}
+
+#[test]
+fn sections_preserves_inline_heading_text_and_rich_block_offsets() {
+    let xml = concat!(
+        "<page>",
+        "<p>① Intro oﬃce</p>",
+        "<h2>Cust<strong>om</strong> <code>Section</code></h2>",
+        "<p>Reviewneedle below</p>",
+        "<h3>Links &amp; Media</h3>",
+        r#"<bookmark src="https://docs.example.com/runbook" title="Incident Runbook" description="Bookmarkneedle" />"#,
+        "</page>"
+    );
+    let parsed = super::sections(xml).unwrap();
+    assert_eq!(parsed.sections.len(), 2);
+    assert_eq!(parsed.sections[0].level, 2);
+    assert_eq!(parsed.sections[0].heading, "Custom Section");
+    assert_eq!(parsed.sections[1].level, 3);
+    assert_eq!(parsed.sections[1].heading, "Links & Media");
+
+    let needle_pos = parsed.plain_text.find("Reviewneedle").unwrap();
+    assert!(needle_pos >= parsed.sections[0].start_byte);
+    assert!(needle_pos < parsed.sections[1].start_byte);
+
+    let bookmark_pos = parsed.plain_text.find("Bookmarkneedle").unwrap();
+    assert!(bookmark_pos >= parsed.sections[1].start_byte);
 }

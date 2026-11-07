@@ -10,13 +10,54 @@ import { RiSearchLine, RiCheckLine } from '@remixicon/react'
 
 export { defaultFilter as commandFilter } from 'cmdk'
 
-function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
+function isCommandInteractiveTarget(target: EventTarget | null): boolean {
+  if (typeof target !== 'object' || target === null || typeof (target as Element).closest !== 'function') {
+    return false
+  }
+  const interactive = (target as Element).closest(
+    'button, a[href], select, textarea, [role="button"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]'
+  )
+  if (!interactive) return false
+  return !interactive.hasAttribute('cmdk-item') && !interactive.hasAttribute('cmdk-input')
+}
+
+function shouldIsolateFromCommandRoot(
+  event: Pick<React.KeyboardEvent<HTMLElement>, 'key' | 'ctrlKey' | 'target'>
+): boolean {
+  if (!isCommandInteractiveTarget(event.target)) return false
+  if (
+    event.key === 'Enter' ||
+    event.key === 'ArrowUp' ||
+    event.key === 'ArrowDown' ||
+    event.key === 'Home' ||
+    event.key === 'End'
+  ) {
+    return true
+  }
+  return event.ctrlKey && (event.key === 'n' || event.key === 'j' || event.key === 'p' || event.key === 'k')
+}
+
+function Command({ className, children, asChild, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
     <CommandPrimitive
       data-slot="command"
+      asChild={asChild}
       className={cn('flex size-full flex-col overflow-hidden text-popover-foreground', className)}
-      {...props}
-    />
+      {...props}>
+      {asChild ? (
+        children
+      ) : (
+        <div
+          className="contents"
+          onKeyDown={event => {
+            if (shouldIsolateFromCommandRoot(event)) {
+              event.stopPropagation()
+            }
+          }}>
+          {children}
+        </div>
+      )}
+    </CommandPrimitive>
   )
 }
 
@@ -149,5 +190,7 @@ export {
   CommandGroup,
   CommandItem,
   CommandShortcut,
-  CommandSeparator
+  CommandSeparator,
+  isCommandInteractiveTarget,
+  shouldIsolateFromCommandRoot
 }

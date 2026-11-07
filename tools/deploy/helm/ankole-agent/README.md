@@ -619,10 +619,13 @@ When `files.store` is `fs`, only a single control-plane replica is supported and
 the chart refuses to render higher replica counts; switch to a shared remote
 backend before running multiple replicas.
 
-Keep `controlPlane.replicaCount` at `1`, because singleton control-plane
-processes (schedule firing, chat adapter connections, and scheduler hydration)
-run on a single node. The migration init container runs in every new Pod under
-the database migration lock.
+Running multiple `controlPlane.replicaCount` replicas requires a shared remote
+`files.store` backend and direct Worker-to-Pod-IP reachability (without
+`endpoints.relayOrigin`). Control-plane Pods join one Distributed Erlang cluster
+through the headless Service, sharing Oban job queues, coordinating singleton
+chat and IMAP adapter connections across replicas, and draining HTTP readiness
+on `/_internal/health` before shutting down. Every starting Pod runs the
+migration init container under the database migration lock.
 
 ### Verify Worker egress in a deployment
 
