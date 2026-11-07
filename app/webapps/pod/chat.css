@@ -1690,6 +1690,10 @@
     animation: pod-chat-spinner-rotate var(--_used-spinner-duration) linear infinite;
   }
 }
+.pod-chat-working-spinner[data-size='lg'] {
+  --_size: 18px;
+  --_thickness: 2px;
+}
 .pod-chat-work > summary .pod-chat-working-spinner {
   margin: 0 6px 0 3px;
   vertical-align: -2px;

@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.0.0-alpha.76 (2026-11-08)
+
+- Show a spinning progress indicator centered in an applet while it loads,
+  matching the Assistant's thinking indicator, instead of a single line of
+  gray text in the top-left corner.
+
 ## Version 2.0.0-alpha.75 (2026-11-08)
 
 - Include explicit `WITH (key_field=...)` clauses when creating or rebuilding
