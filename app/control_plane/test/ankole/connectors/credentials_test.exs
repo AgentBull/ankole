@@ -176,6 +176,19 @@ defmodule Ankole.Connectors.CredentialsTest do
     refute Map.has_key?(Store.public(config), :sealed_secret)
     assert Store.public(config).public_metadata["appID"] == "app-primary"
     refute Map.has_key?(Store.public(config).public_metadata, "appSecret")
+
+    assert Store.public(config).platform_name == %{
+             "default" => "Feishu",
+             "zh-Hans-CN" => "飞书"
+           }
+
+    {:ok, global} =
+      Store.create_auth_config(
+        actor,
+        Map.put(attrs("global"), "public_metadata", %{"domain" => "lark"})
+      )
+
+    assert Store.public(global).platform_name == %{"default" => "Lark"}
     {:ok, other} = Store.create_auth_config(actor, attrs("other"))
 
     refute match?(

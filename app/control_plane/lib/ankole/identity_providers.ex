@@ -296,6 +296,21 @@ defmodule Ankole.IdentityProviders do
     end
   end
 
+  @doc """
+  Names one configured provider. An adapter that serves several platforms
+  exports `platform_name/1` to name the platform this configuration uses.
+  """
+  @spec provider_display_name(map(), map()) :: map() | nil
+  def provider_display_name(adapter, config) do
+    with true <- is_map(config),
+         {:ok, module} <- adapter_module(adapter),
+         true <- Code.ensure_loaded?(module) and function_exported?(module, :platform_name, 1) do
+      module.platform_name(config)
+    else
+      _ -> Ankole.Attrs.get(adapter, :display_name)
+    end
+  end
+
   @doc false
   @spec adapter_capabilities(map()) :: [String.t()]
   def adapter_capabilities(adapter) do
@@ -398,6 +413,7 @@ defmodule Ankole.IdentityProviders do
          "plugin_id" => provider["plugin_id"],
          "config_key" => provider["config_key"],
          "enabled" => provider["enabled"] != false,
+         "display_name" => provider_display_name(adapter, config),
          "config" => config,
          "stored_secret_paths" => stored_secret_paths
        }}

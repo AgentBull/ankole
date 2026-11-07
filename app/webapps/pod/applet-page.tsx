@@ -12,6 +12,7 @@ import { ContentError } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
 import { automationJobID } from './state/connectors'
 import { usePageRealtime } from './use-page-realtime'
+import './chat.css'
 
 const AppletAutomationDialog = lazy(() =>
   import('./applet-automation').then(module => ({ default: module.AppletAutomationDialog }))
@@ -158,8 +159,9 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
         {loading && !revoked && (
           <p
             role="status"
-            className="pointer-events-none absolute inset-x-0 top-0 z-10 py-2 text-sm text-muted-foreground">
-            {t('pod.content.loading_applet')}
+            className="pointer-events-none absolute inset-0 z-10 flex min-h-32 items-center justify-center gap-2 text-sm">
+            <span className="pod-chat-working-spinner" data-size="lg" aria-hidden />
+            <span className="pod-chat-working-label">{t('pod.content.loading_applet')}</span>
           </p>
         )}
         <div ref={container} hidden={(!ready && !!error) || revoked} />

@@ -52,6 +52,7 @@ defmodule Ankole.IdentityProviders.Console do
     plugin_id: [type: :string],
     config_key: [type: :string, allow_nil?: false],
     enabled: [type: :boolean, allow_nil?: false],
+    display_name: [type: Ankole.Ash.Types.JSONMap],
     config: [type: Ankole.Ash.Types.JSONMap, allow_nil?: false],
     stored_secret_paths: [type: {:array, :string}, allow_nil?: false]
   ]

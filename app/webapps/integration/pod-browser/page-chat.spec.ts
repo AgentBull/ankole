@@ -605,15 +605,20 @@ test('desktop panels reverse in place, close interaction immediately, and keep k
     await page.emulateMedia({ reducedMotion: 'reduce' })
     expect(await panel.evaluate(element => getComputedStyle(element).transform)).toBe('matrix(1, 0, 0, 1, 0, 0)')
     await page.emulateMedia({ reducedMotion: 'no-preference' })
+    const column = page.locator('.pod-page > div').first()
+    const sharedWidth = (await column.boundingBox())!.width
     await chat.click()
     await panel.evaluate(element => element.getAnimations().forEach(animation => animation.pause()))
     await expect(chat).toBeFocused()
     await expect(panel).toHaveAttribute('inert', '')
     await expect(panel).toHaveAttribute('aria-hidden', 'true')
+    // The Page widens on the click while the departing panel fades over it.
+    expect((await column.boundingBox())!.width).toBeGreaterThan(sharedWidth + 300)
     await chat.click()
     await expect(panel).not.toHaveAttribute('inert', '')
     await expect(panel).toHaveAttribute('data-motion-probe', 'same-panel')
     await expect(panel).toHaveCount(1)
+    expect((await column.boundingBox())!.width).toBe(sharedWidth)
 
     await comments.click()
     await expect(panel).toHaveCount(0)

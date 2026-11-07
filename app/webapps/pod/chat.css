@@ -683,6 +683,19 @@
   gap: 12px;
   align-content: start;
 }
+.pod-chat-section-label {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pod-chat-section-label:hover {
+  color: var(--foreground);
+}
 .pod-chat-section-count {
   padding-right: 8px;
   font-size: 11px;
@@ -1689,6 +1702,10 @@
     --_used-spinner-duration: 6s;
     animation: pod-chat-spinner-rotate var(--_used-spinner-duration) linear infinite;
   }
+}
+.pod-chat-working-spinner[data-size='lg'] {
+  --_size: 18px;
+  --_thickness: 2px;
 }
 .pod-chat-work > summary .pod-chat-working-spinner {
   margin: 0 6px 0 3px;

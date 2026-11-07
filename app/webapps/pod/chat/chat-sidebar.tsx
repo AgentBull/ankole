@@ -44,7 +44,7 @@ import {
 import { requestErrorMessage } from '../../common/request-errors'
 import { contentError } from '../content-errors'
 import { formatRelativeTime } from '../../common/date-time'
-import { RootSectionToggle } from '../page-navigation'
+import { RootSectionToggle, type RootSectionToggleHandle } from '../page-navigation'
 import type { RoomUpdate } from './room-api'
 import { ChatAvatar } from './chat-avatar'
 import {
@@ -515,12 +515,22 @@ function ChatSection({
   footer?: ReactNode
   children: ReactNode
 }) {
+  const toggle = useRef<RootSectionToggleHandle>(null)
   return (
     <section aria-label={label} className="pod-nav-section">
       <div className="pod-nav-section-heading">
-        <RootSectionToggle open={open} label={label} onToggle={onToggle} />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        {count && <span className="pod-chat-section-count">{count}</span>}
+        <RootSectionToggle ref={toggle} open={open} label={label} onToggle={onToggle} />
+        {/* The chevron owns keyboard focus, the expanded state, and the accessible name; this wider target
+            serves pointer users, so assistive technology and role locators see one toggle per section. */}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden
+          className="pod-chat-section-label"
+          onClick={event => toggle.current?.toggle(event.detail)}>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {count && <span className="pod-chat-section-count">{count}</span>}
+        </button>
       </div>
       <SidebarMenu>{children}</SidebarMenu>
       {footer}

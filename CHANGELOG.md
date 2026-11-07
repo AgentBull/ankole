@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 2.0.0-alpha.76 (2026-11-08)
+
+- Show a spinning progress indicator centered in an applet while it loads,
+  matching the Assistant's thinking indicator, instead of a single line of
+  gray text in the top-left corner.
+- Keep the knowledge graph steady when you move the pointer from one node to
+  another: the spotlight moves straight to the next node instead of flashing
+  the whole graph back to full brightness while the pointer crosses the gap or
+  passes from a node to its label.
+- Close the Page chat, Comments, and conversation summary panels smoothly: the
+  Page or conversation widens as soon as you click, and the panel fades out on
+  top instead of holding its space and then snapping away.
+- Expand or collapse Chat sidebar sections such as Personal assistant by
+  clicking anywhere on the section heading, not only its chevron.
+- Name Feishu and Lark by the platform each configuration uses: login buttons,
+  identity-provider lists, and connector cards show 飞书 or Feishu for a
+  mainland China app and Lark for a global app, while the plugin and adapter
+  read 飞书 / Lark (Feishu / Lark in other languages). Every platform select
+  offers Feishu (Mainland China) and Lark (Global), the connector catalog shows
+  localized names, and event sources and large-file notices no longer name the
+  wrong platform.
+
 ## Version 2.0.0-alpha.75 (2026-11-08)
 
 - Include explicit `WITH (key_field=...)` clauses when creating or rebuilding

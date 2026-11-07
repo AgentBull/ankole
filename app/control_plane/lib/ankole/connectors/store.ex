@@ -449,6 +449,17 @@ defmodule Ankole.Connectors.Store do
     ])
     |> Map.put(:public_metadata, metadata)
     |> Map.put(:configured_credential_fields, configured_fields)
+    |> Map.put(:platform_name, platform_name(row.plugin_id, metadata))
+  end
+
+  # A plugin that serves several platforms names the one this connection calls.
+  defp platform_name(plugin_id, metadata) do
+    with {:ok, module} <- Ankole.Connectors.Registry.adapter(plugin_id),
+         true <- Code.ensure_loaded?(module) and function_exported?(module, :platform_name, 1) do
+      module.platform_name(metadata)
+    else
+      _ -> nil
+    end
   end
 
   def member(%Ankole.AuthZ.Actor{principal: actor}), do: member(actor)

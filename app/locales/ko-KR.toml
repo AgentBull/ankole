@@ -58,7 +58,7 @@ directory_full_sync_interval_minutes = "주기적 전체 디렉터리 동기화 
 "*" = "암호화된 Google Workspace Identity Provider 설정입니다."
 
 [app_configure.descriptions.principals.identity_providers.lark]
-"*" = "암호화된 Lark / Feishu Identity Provider 설정입니다."
+"*" = "암호화된 Feishu / Lark Identity Provider 설정입니다."
 
 [app_configure.descriptions.principals.identity_providers.slack]
 "*" = "암호화된 Slack Identity Provider 설정입니다."
@@ -77,7 +77,7 @@ show_dead_letter_error_details = "사용하면 Signal 채널로 보내는 데드
 "*" = "암호화된 DingTalk Channel Provider 설정입니다."
 
 [app_configure.descriptions.signals.lark.bindings]
-"*" = "암호화된 Lark / Feishu Channel Provider 설정입니다."
+"*" = "암호화된 Feishu / Lark Channel Provider 설정입니다."
 
 [app_configure.descriptions.signals.slack.bindings]
 "*" = "암호화된 Slack Channel Provider 설정입니다."
@@ -2328,7 +2328,7 @@ workflow_dead_letter_completed = "Workflow #{$run_id}「{$title}」이(가) 완�
 workflow_dead_letter_failed = "Workflow #{$run_id}「{$title}」이(가) 실패했습니다({$total}개 작업 중 {$succeeded}개 성공, {$failed}개 실패).\n{$detail}"
 background_agent_job_dead_letter_successor = "후속 메시지는 작업 #{$successor_job_id}에서 계속 처리됩니다."
 input_superseded = "추가 파일을 받았습니다. 전체 요청을 다시 분석 중입니다."
-large_file_drive_link = "파일이 너무 커서 Lark 첨부 파일로 보낼 수 없어 Ankole이 클라우드 공간에 업로드했습니다.\n{$name}\n{$url}"
+large_file_drive_link = "파일이 너무 커서 첨부 파일로 보낼 수 없어 Ankole이 클라우드 공간에 업로드했습니다.\n{$name}\n{$url}"
 llm_help = "{$usage}\n\n사용 가능한 사용자 지정 모델 프로필:\n{$profiles}"
 llm_help_empty = "{$usage}\n\n구성된 사용자 지정 모델 프로필이 없습니다. Ankole Console의 Agent 페이지에서 추가하세요."
 llm_profile_unavailable = "사용자 지정 모델 프로필 {$profile}을(를) 사용할 수 없습니다.\n\n{$usage}"

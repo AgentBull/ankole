@@ -13,6 +13,7 @@ defmodule Ankole.Connectors.PublicSchema do
       is_default: [type: :boolean, allow_nil?: false],
       public_metadata: [type: JSONMap, allow_nil?: false],
       configured_credential_fields: [type: {:array, :string}, allow_nil?: false],
+      platform_name: [type: JSONMap],
       status: [type: :string, allow_nil?: false],
       inserted_at: [type: :utc_datetime_usec],
       updated_at: [type: :utc_datetime_usec]
@@ -23,7 +24,7 @@ defmodule Ankole.Connectors.PublicSchema do
     [
       id: [type: :string, allow_nil?: false],
       plugin_id: [type: :string, allow_nil?: false],
-      display_name: [type: :string, allow_nil?: false],
+      display_name: [type: JSONMap, allow_nil?: false],
       toolkits: [type: {:array, :string}, allow_nil?: false],
       auth_schemes: [type: {:array, :string}, allow_nil?: false],
       personal_credentials: [type: :boolean, allow_nil?: false],

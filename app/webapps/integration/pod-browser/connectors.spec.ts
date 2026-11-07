@@ -261,7 +261,7 @@ test('workspace administrator reuses saved application credentials for enterpris
     await page.getByRole('tab', { name: '企业 SSO 与通讯录', exact: true }).click()
     await page.getByRole('button', { name: '新增身份源提供商', exact: true }).click()
     await page.getByRole('combobox', { name: '企业身份提供方', exact: true }).click()
-    await page.getByRole('option', { name: '飞书', exact: true }).click()
+    await page.getByRole('option', { name: '飞书 / Lark', exact: true }).click()
     await page.getByRole('combobox', { name: '连接', exact: true }).click()
     await page.getByRole('option', { name: `Company identity · ${slug}`, exact: true }).click()
     await expect(page.getByLabel('App Secret', { exact: false })).toHaveCount(0)

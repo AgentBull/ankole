@@ -89,6 +89,12 @@ replacement connection. Their runtime configuration reads reject the disabled
 connection, and scheduled directory scans skip it while continuing with other
 providers.
 
+The catalog names each platform with a localized text map. When one connector
+serves several platforms, such as Feishu and Lark, its module exports
+`platform_name/1`. Connectors then adds a localized `platform_name`, chosen by
+the connection's public metadata, to that connection's public projection, so a
+connection card names the platform the connection actually calls.
+
 For Microsoft 365, Entra ID's `clientID`/`clientSecret` and Teams'
 `appID`/`appPassword` names resolve the same application credential. Either
 configuration can reuse a connection created from the other form. Rotation

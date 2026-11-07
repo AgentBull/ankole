@@ -48,7 +48,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
         console_writable: false,
         scope: :global,
         schema: Schema.new(&validate_chat_config/1),
-        description: "Encrypted binding-owned Lark / Feishu chat configuration."
+        description: "Encrypted binding-owned Feishu / Lark chat configuration."
       ),
       # Migrated to `signals.lark.binding_configs.*` by `Ankole.Upgrade202610`;
       # retire this pattern with `Ankole.Upgrade202610` once the upgrade window closes.
@@ -59,7 +59,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
         console_writable: false,
         scope: :global,
         schema: Schema.new(&validate_chat_config/1),
-        description: "Encrypted legacy Lark / Feishu chat binding configuration."
+        description: "Encrypted legacy Feishu / Lark chat binding configuration."
       ),
       AppConfigure.define_pattern(
         id: "principals.identity_providers.lark.*",
@@ -68,7 +68,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
         key_pattern: @identity_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_identity_config/1),
-        description: "Encrypted Lark / Feishu identity-provider configuration."
+        description: "Encrypted Feishu / Lark identity-provider configuration."
       )
     ]
   end
@@ -251,6 +251,15 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   @spec domain_base_url(String.t()) :: String.t()
   def domain_base_url("feishu"), do: Client.base_url_for(:feishu)
   def domain_base_url("lark"), do: Client.base_url_for(:lark)
+
+  @doc """
+  Returns the localized product name for one configured platform. Feishu serves
+  mainland China and Lark is its global edition, so a configuration names only
+  the platform it actually calls.
+  """
+  @spec platform_name(String.t()) :: %{String.t() => String.t()}
+  def platform_name("feishu"), do: %{"default" => "Feishu", "zh-Hans-CN" => "飞书"}
+  def platform_name("lark"), do: %{"default" => "Lark"}
 
   # Converts stored string config into the atom expected by FeishuOpenAPI.
   #

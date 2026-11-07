@@ -24,9 +24,15 @@ defmodule Ankole.IdentityProviders.Login do
        |> Enum.map(fn {provider, kind} ->
          {:ok, adapter} = IdentityProviders.fetch_adapter(provider["adapter_id"])
 
+         display_name =
+           case IdentityProviders.provider_config(provider) do
+             {:ok, config} -> IdentityProviders.provider_display_name(adapter, config)
+             {:error, _reason} -> adapter.display_name
+           end
+
          provider
          |> Map.put("kind", kind)
-         |> Map.put("display_name", adapter.display_name)
+         |> Map.put("display_name", display_name)
          |> Map.put(
            "fresh_authentication",
            "oidc_fresh_authentication" in IdentityProviders.adapter_capabilities(adapter)

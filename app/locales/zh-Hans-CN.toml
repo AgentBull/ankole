@@ -59,7 +59,7 @@ directory_full_sync_interval_minutes = "两次定期完整目录同步入队尝�
 "*" = "加密的 Google Workspace 身份源提供商配置。"
 
 [app_configure.descriptions.principals.identity_providers.lark]
-"*" = "加密的 Lark / 飞书身份源提供商配置。"
+"*" = "加密的飞书 / Lark 身份源提供商配置。"
 
 [app_configure.descriptions.principals.identity_providers.slack]
 "*" = "加密的 Slack 身份源提供商配置。"
@@ -78,7 +78,7 @@ show_dead_letter_error_details = "启用后，发送到消息渠道的死信通�
 "*" = "加密的钉钉聊天渠道配置。"
 
 [app_configure.descriptions.signals.lark.bindings]
-"*" = "加密的 Lark / 飞书聊天渠道配置。"
+"*" = "加密的飞书 / Lark 聊天渠道配置。"
 
 [app_configure.descriptions.signals.slack.bindings]
 "*" = "加密的 Slack 聊天渠道配置。"
@@ -2328,7 +2328,7 @@ workflow_dead_letter_completed = "Workflow #{$run_id}「{$title}」已完成（{
 workflow_dead_letter_failed = "Workflow #{$run_id}「{$title}」失败（{$total} 个任务中 {$succeeded} 个成功、{$failed} 个失败）。\n{$detail}"
 background_agent_job_dead_letter_successor = "你的后续消息由任务 #{$successor_job_id} 继续处理。"
 input_superseded = "收到补充文件，正在重新分析完整请求。"
-large_file_drive_link = "文件过大，无法作为飞书附件直接发送，Ankole 已将它上传到云空间。\n{$name}\n{$url}"
+large_file_drive_link = "文件过大，无法直接作为附件发送，Ankole 已将它上传到云空间。\n{$name}\n{$url}"
 llm_help = "{$usage}\n\n可用的自定义模型档案：\n{$profiles}"
 llm_help_empty = "{$usage}\n\n当前没有自定义模型档案，请在 Ankole 控制台的 Agent 页面添加。"
 llm_profile_unavailable = "自定义模型档案 {$profile} 当前不可用。\n\n{$usage}"

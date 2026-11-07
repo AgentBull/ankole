@@ -58,7 +58,7 @@ directory_full_sync_interval_minutes = "定期的なディレクトリ完全同�
 "*" = "暗号化された Google Workspace Identity Provider の設定。"
 
 [app_configure.descriptions.principals.identity_providers.lark]
-"*" = "暗号化された Lark / Feishu Identity Provider の設定。"
+"*" = "暗号化された Feishu / Lark Identity Provider の設定。"
 
 [app_configure.descriptions.principals.identity_providers.slack]
 "*" = "暗号化された Slack Identity Provider の設定。"
@@ -77,7 +77,7 @@ show_dead_letter_error_details = "有効にすると、Signal チャネルに送
 "*" = "暗号化された DingTalk Channel Provider の設定。"
 
 [app_configure.descriptions.signals.lark.bindings]
-"*" = "暗号化された Lark / Feishu Channel Provider の設定。"
+"*" = "暗号化された Feishu / Lark Channel Provider の設定。"
 
 [app_configure.descriptions.signals.slack.bindings]
 "*" = "暗号化された Slack Channel Provider の設定。"
@@ -2327,7 +2327,7 @@ workflow_dead_letter_completed = "Workflow #{$run_id}「{$title}」は完了し�
 workflow_dead_letter_failed = "Workflow #{$run_id}「{$title}」は失敗しました（{$total} 件中 {$succeeded} 件成功、{$failed} 件失敗）。\n{$detail}"
 background_agent_job_dead_letter_successor = "後続のメッセージはジョブ #{$successor_job_id} で処理されます。"
 input_superseded = "追加のファイルを受け取りました。リクエスト全体を再分析しています。"
-large_file_drive_link = "ファイルが大きすぎて Lark の添付ファイルとして送信できないため、Ankole がクラウドスペースにアップロードしました。\n{$name}\n{$url}"
+large_file_drive_link = "ファイルが大きすぎて添付ファイルとして送信できないため、Ankole がクラウドスペースにアップロードしました。\n{$name}\n{$url}"
 llm_help = "{$usage}\n\n利用可能なカスタムモデルプロファイル:\n{$profiles}"
 llm_help_empty = "{$usage}\n\nカスタムモデルプロファイルが設定されていません。Ankole Console の Agent ページで追加してください。"
 llm_profile_unavailable = "カスタムモデルプロファイル {$profile} は利用できません。\n\n{$usage}"

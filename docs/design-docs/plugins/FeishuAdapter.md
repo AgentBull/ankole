@@ -46,6 +46,19 @@ outbound capabilities `post_entry`, `reply_entry`, `edit_entry`, `delete_entry`,
 On the identity side, the adapter supports OIDC authorization, OIDC code
 exchange, full directory sync, and real-time directory sync.
 
+## Product Names
+
+Feishu serves mainland China, and Lark is its global edition. Ankole names a
+configured identity provider or connector connection after the platform its
+`domain` selects: a `feishu` configuration reads 飞书 in Simplified Chinese and
+Feishu in every other locale, while a `lark` configuration reads Lark in every
+locale. `Config.platform_name/1` owns that mapping, and the identity provider
+and connector modules expose it through `platform_name/1`, so login buttons,
+provider lists, and connection cards show the configured platform. The plugin
+and adapter, including the adapter column of the chat binding list, read
+飞书 / Lark in Simplified Chinese and Feishu / Lark elsewhere. Every `domain`
+select offers the same two options: Feishu (Mainland China) and Lark (Global).
+
 ## Settings
 
 Chat bindings configure these fields:

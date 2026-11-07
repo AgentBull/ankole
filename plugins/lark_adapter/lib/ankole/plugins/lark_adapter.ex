@@ -19,22 +19,33 @@ defmodule Ankole.Plugins.LarkAdapter do
   alias Ankole.Plugins.LarkAdapter.Delivery
   alias Ankole.Plugins.LarkAdapter.CardKit
 
+  # Chat bindings, identity providers, and connector connections choose from the same platforms.
+  @domain_label %{"default" => "Service region", "zh-Hans-CN" => "服务区域"}
+  @domain_options [
+    %{
+      value: "feishu",
+      label: %{"default" => "Feishu (Mainland China)", "zh-Hans-CN" => "飞书（中国大陆）"}
+    },
+    %{value: "lark", label: %{"default" => "Lark (Global)", "zh-Hans-CN" => "Lark（海外）"}}
+  ]
+
   @impl true
   def plugin_id, do: "lark-adapter"
 
   @impl true
   def display_name do
     %{
-      "default" => "Lark Adapter",
-      "zh-Hans-CN" => "飞书适配器"
+      "default" => "Feishu / Lark Adapter",
+      "zh-Hans-CN" => "飞书 / Lark 适配器"
     }
   end
 
   @impl true
   def description do
     %{
-      "default" => "Connects Lark self-built apps as a signals provider and login provider.",
-      "zh-Hans-CN" => "连接飞书自建应用作为信号提供方与登录提供方。"
+      "default" =>
+        "Connects Feishu or Lark self-built apps as a signals provider and login provider.",
+      "zh-Hans-CN" => "连接飞书或 Lark 自建应用，作为信号提供方与登录提供方。"
     }
   end
 
@@ -106,23 +117,21 @@ defmodule Ankole.Plugins.LarkAdapter do
         id: "lark",
         plugin_id: plugin_id(),
         module: Ankole.Plugins.LarkAdapter.Connector,
+        display_name: adapter_display_name(),
         public_fields: [
           %{
             key: "domain",
-            label: "Domain",
+            label: @domain_label,
             type: "select",
             default: "feishu",
-            options: [
-              %{value: "feishu", label: "Feishu.cn"},
-              %{value: "lark", label: "Larksuite.com"}
-            ]
+            options: @domain_options
           },
           %{key: "identityProvider", label: "Employee identity provider", required: false}
         ],
         event_streams: [
           %{
             id: "lark",
-            label: "Lark business events",
+            label: "Business events",
             event_types:
               Ankole.Plugins.LarkAdapter.ConnectorEvents.event_types() ++ ["card.action.trigger"]
           }
@@ -165,9 +174,23 @@ defmodule Ankole.Plugins.LarkAdapter do
 
   defp adapter_display_name do
     %{
-      "default" => "Lark",
-      "zh-Hans-CN" => "飞书"
+      "default" => "Feishu / Lark",
+      "zh-Hans-CN" => "飞书 / Lark"
     }
+  end
+
+  defp domain_field do
+    field(
+      "domain",
+      @domain_label,
+      %{
+        "default" => "Select the platform where the app was created.",
+        "zh-Hans-CN" => "选择创建该应用时使用的开放平台。"
+      },
+      :select,
+      default: "feishu",
+      options: @domain_options
+    )
   end
 
   defp chat_fields do
@@ -187,17 +210,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         required: true,
         encrypted: true
       ),
-      field(
-        "domain",
-        %{"default" => "Domain", "zh-Hans-CN" => "域"},
-        %{"default" => "Provider network to call.", "zh-Hans-CN" => "要连接的服务网络。"},
-        :select,
-        default: "feishu",
-        options: [
-          option("feishu", %{"default" => "Feishu.cn", "zh-Hans-CN" => "Feishu.cn"}),
-          option("lark", %{"default" => "Larksuite.com", "zh-Hans-CN" => "Larksuite.com"})
-        ]
-      ),
+      domain_field(),
       field(
         "identityProvider",
         %{"default" => "Identity provider", "zh-Hans-CN" => "身份源提供商"},
@@ -246,23 +259,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         required: true,
         encrypted: true
       ),
-      field(
-        "domain",
-        %{"default" => "Service region", "zh-Hans-CN" => "服务区域"},
-        %{
-          "default" => "Select the platform where the app was created.",
-          "zh-Hans-CN" => "选择创建该应用时使用的开放平台。"
-        },
-        :select,
-        default: "feishu",
-        options: [
-          option("feishu", %{
-            "default" => "Feishu (Mainland China)",
-            "zh-Hans-CN" => "飞书（中国大陆）"
-          }),
-          option("lark", %{"default" => "Lark (Global)", "zh-Hans-CN" => "Lark（海外）"})
-        ]
-      ),
+      domain_field(),
       field(
         "oidc.enabled",
         %{"default" => "Enable sign-in", "zh-Hans-CN" => "启用登录"},
