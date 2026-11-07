@@ -390,6 +390,7 @@ defmodule Ankole.Principals.PodAdminOperations do
                   provider_id: [type: :string, allow_nil?: false],
                   adapter_id: [type: :string, allow_nil?: false],
                   enabled: [type: :boolean, allow_nil?: false],
+                  display_name: [type: Ankole.Ash.Types.StringMap],
                   config: [type: JSONMap, allow_nil?: false],
                   stored_secret_paths: [type: {:array, :string}, allow_nil?: false]
                 ]

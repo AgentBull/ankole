@@ -64,7 +64,7 @@ test('subscription polling exposes reauthorization when the account query still 
       {
         id: 'googlecalendar',
         plugin_id: 'googlecalendar',
-        display_name: 'Google Calendar',
+        display_name: { default: 'Google Calendar' },
         auth_schemes: ['oauth2'],
         personal_credentials: false,
         toolkits: ['googlecalendar'],

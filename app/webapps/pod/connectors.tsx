@@ -25,7 +25,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ConfigFields, defaultConfig, setPath, type ConfigFieldDefinition } from '../common/config-fields'
+import {
+  ConfigFields,
+  defaultConfig,
+  localizedText,
+  setPath,
+  type ConfigFieldDefinition
+} from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import { authenticationRef, podID } from '../common/browser-context'
 import { localReturnPath } from '../common/pod-url'
@@ -394,7 +400,11 @@ export function Connectors() {
                     <CardHeader>
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-medium">{connection.display_name || connection.slug}</h3>
-                        <Badge variant="secondary">{definition?.display_name || connection.plugin_id}</Badge>
+                        <Badge variant="secondary">
+                          {localizedText(connection.platform_name, i18n.language) ??
+                            localizedText(definition?.display_name, i18n.language) ??
+                            connection.plugin_id}
+                        </Badge>
                         <Badge variant="outline">
                           {t(`pod.connectors.status.${connection.status}`, { defaultValue: connection.status ?? '' })}
                         </Badge>

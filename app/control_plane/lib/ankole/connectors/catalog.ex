@@ -41,7 +41,7 @@ defmodule Ankole.Connectors.Catalog do
       id: id,
       plugin_id: id,
       display_name:
-        label(
+        localized(
           if(connector,
             do: Map.get(connector, :display_name, plugin.display_name),
             else: plugin.display_name
@@ -107,6 +107,9 @@ defmodule Ankole.Connectors.Catalog do
       schemes: Ankole.Attrs.get(field, :schemes)
     }
   end
+
+  defp localized(value) when is_binary(value), do: %{"default" => value}
+  defp localized(value) when is_map(value), do: value
 
   defp label(value) when is_binary(value), do: value
   defp label(value) when is_map(value), do: value["default"] || value["en"] || ""

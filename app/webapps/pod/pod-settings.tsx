@@ -946,6 +946,9 @@ function Providers({ model }: { model: Model }) {
     queryFn: () => api.podConnectorAuthConfigsList()
   })
   const adapters = providers.data?.adapters ?? []
+  const editingProvider = providers.data?.providers.find(
+    provider => provider.provider_id === model.editingProviderID.value
+  )
   const adapter = adapters.find(item => item.adapter_id === model.adapterID.value)
   const save = useMutation({
     mutationFn: () =>
@@ -1002,6 +1005,7 @@ function Providers({ model }: { model: Model }) {
       {providers.data?.providers.map(provider => {
         const providerAdapter = adapters.find(item => item.adapter_id === provider.adapter_id)
         const displayName =
+          localizedText(provider.display_name, i18n.language) ??
           (providerAdapter ? localizedText(providerAdapter.display_name, i18n.language) : undefined) ??
           humanizeTechnicalLabel(provider.adapter_id)
         const isEnabled = provider.enabled === true
@@ -1059,7 +1063,9 @@ function Providers({ model }: { model: Model }) {
           <CardHeader>
             <h2>
               {model.editingProviderID.value
-                ? (localizedText(adapter.display_name, i18n.language) ?? humanizeTechnicalLabel(adapter.adapter_id))
+                ? (localizedText(editingProvider?.display_name, i18n.language) ??
+                  localizedText(adapter.display_name, i18n.language) ??
+                  humanizeTechnicalLabel(adapter.adapter_id))
                 : t('console.identity.new')}
             </h2>
           </CardHeader>

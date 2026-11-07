@@ -84,6 +84,27 @@ export function PodPanelSurface({ style, className, ...props }: ComponentProps<t
   const policy = usePresenceData() as PanelPolicy
   // The uikit hook subscribes to changes; Motion 14's hook snapshots the preference on mount.
   const reduce = useReducedMotion()
+  const surface = useRef<HTMLElement>(null)
+  // A departing panel leaves the layout at once, so neighbours resize on the click as they do on open,
+  // and it fades out pinned over its old slot instead of releasing that space when the exit ends.
+  useLayoutEffect(() => {
+    const element = surface.current
+    if (!element) return
+    const { offsetLeft, offsetTop, offsetWidth, offsetHeight } = element
+    Object.assign(
+      element.style,
+      present
+        ? { position: '', left: '', top: '', width: '', height: '', zIndex: '' }
+        : {
+            position: 'absolute',
+            left: `${offsetLeft}px`,
+            top: `${offsetTop}px`,
+            width: `${offsetWidth}px`,
+            height: `${offsetHeight}px`,
+            zIndex: '20'
+          }
+    )
+  }, [present])
   if (!present && !policy.animate) return null
   const { tokens } = policy
   const transition = {
@@ -94,6 +115,7 @@ export function PodPanelSurface({ style, className, ...props }: ComponentProps<t
   return (
     <m.aside
       {...props}
+      ref={surface}
       // The media rule also overrides a WAAPI transform that was already running when the preference changed.
       className={cn(className, 'motion-reduce:transform-[translateX(0px)]!')}
       style={{ ...style, ...(!present && { pointerEvents: 'none' }) }}

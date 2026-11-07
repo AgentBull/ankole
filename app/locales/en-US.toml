@@ -58,7 +58,7 @@ directory_full_sync_interval_minutes = "Minutes between periodic full directory 
 "*" = "Encrypted Google Workspace identity-provider configuration."
 
 [app_configure.descriptions.principals.identity_providers.lark]
-"*" = "Encrypted Lark / Feishu identity-provider configuration."
+"*" = "Encrypted Feishu / Lark identity-provider configuration."
 
 [app_configure.descriptions.principals.identity_providers.slack]
 "*" = "Encrypted Slack identity-provider configuration."
@@ -77,7 +77,7 @@ show_dead_letter_error_details = "When true, dead-letter notices sent to Signal 
 "*" = "Encrypted DingTalk Channel Provider configuration."
 
 [app_configure.descriptions.signals.lark.bindings]
-"*" = "Encrypted Lark / Feishu Channel Provider configuration."
+"*" = "Encrypted Feishu / Lark Channel Provider configuration."
 
 [app_configure.descriptions.signals.slack.bindings]
 "*" = "Encrypted Slack Channel Provider configuration."
@@ -2395,7 +2395,7 @@ background_agent_job_dead_letter_successor = "Your follow-up messages continue i
 workflow_dead_letter_completed = "Workflow #{$run_id} \"{$title}\" completed ({$succeeded} of {$total} tasks succeeded), but the Agent could not relay the result. The raw preview follows.\n{$detail}"
 workflow_dead_letter_failed = "Workflow #{$run_id} \"{$title}\" failed ({$succeeded} succeeded, {$failed} failed of {$total} tasks).\n{$detail}"
 input_superseded = "Received the additional file. Reanalyzing the full request."
-large_file_drive_link = "This file is too large to send as a Lark attachment, so Ankole uploaded it to cloud space.\n{$name}\n{$url}"
+large_file_drive_link = "This file is too large to send as an attachment, so Ankole uploaded it to cloud space.\n{$name}\n{$url}"
 llm_help = "{$usage}\n\nAvailable custom model profiles:\n{$profiles}"
 llm_help_empty = "{$usage}\n\nNo custom model profiles are configured. Add one on the Agent page in the Ankole Console."
 llm_profile_unavailable = "Custom model profile {$profile} is unavailable.\n\n{$usage}"

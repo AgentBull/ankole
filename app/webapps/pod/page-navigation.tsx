@@ -30,11 +30,13 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type ComponentPropsWithRef
+  type ComponentPropsWithRef,
+  type Ref
 } from 'react'
 import { useComputed, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -108,7 +110,22 @@ function usePageTree(): PageTreeContextValue {
   return value
 }
 
-export function RootSectionToggle({ open, label, onToggle }: { open: boolean; label: string; onToggle(): void }) {
+/** Lets a wider heading target toggle the section with the same chevron motion as the chevron itself. */
+export interface RootSectionToggleHandle {
+  toggle(detail: number): void
+}
+
+export function RootSectionToggle({
+  open,
+  label,
+  onToggle,
+  ref
+}: {
+  open: boolean
+  label: string
+  onToggle(): void
+  ref?: Ref<RootSectionToggleHandle>
+}) {
   const button = useRef<HTMLButtonElement>(null)
   const chevron = useRef<SVGSVGElement>(null)
   const pointerTarget = useRef<boolean | null>(null)
@@ -128,6 +145,18 @@ export function RootSectionToggle({ open, label, onToggle }: { open: boolean; la
   const release = () => {
     if (button.current) delete button.current.dataset.pointerPressed
   }
+  // A pointer click (detail > 0) rotates the chevron; keyboard and programmatic clicks flip it at once.
+  const toggle = (detail: number) => {
+    if (detail > 0) {
+      pointerTarget.current = !open
+      if (button.current) button.current.dataset.motionInput = 'pointer'
+      if (chevron.current) {
+        chevron.current.style.transition = 'transform var(--duration-feedback) var(--ease-in-out)'
+      }
+    } else instant()
+    onToggle()
+  }
+  useImperativeHandle(ref, () => ({ toggle }))
   return (
     <button
       ref={button}
@@ -146,16 +175,7 @@ export function RootSectionToggle({ open, label, onToggle }: { open: boolean; la
       onPointerLeave={release}
       onLostPointerCapture={release}
       onKeyDown={instant}
-      onClick={event => {
-        if (event.detail > 0) {
-          pointerTarget.current = !open
-          event.currentTarget.dataset.motionInput = 'pointer'
-          if (chevron.current) {
-            chevron.current.style.transition = 'transform var(--duration-feedback) var(--ease-in-out)'
-          }
-        } else instant()
-        onToggle()
-      }}>
+      onClick={event => toggle(event.detail)}>
       <RiArrowRightSLine
         ref={chevron}
         aria-hidden

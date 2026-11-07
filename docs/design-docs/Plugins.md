@@ -271,12 +271,16 @@ connections actually run. Administrators manage external application roots in
 `Ankole.Connectors`, and members connect their own OAuth accounts. Identity and
 Signal configuration references the shared credential through `authConfigId`,
 while login policy, directory synchronization, and message routing stay with
-their existing owners.
+their existing owners. An identity-provider module that serves several
+platforms exports `platform_name/1`; `IdentityProviders.provider_display_name/2`
+calls it to name each configured provider on login buttons and provider lists,
+and otherwise uses the adapter's display name.
 
 The `connectors.connector` plugin contract—implemented by `lark-adapter`,
 `github-adapter`, and `linear-adapter`—contributes explicit `ToolSpec`
 declarations, upstream authentication callbacks, tool execution, and optional
-subscription reconciliation and event verification. The gateway resolves these
+subscription reconciliation, event verification, and per-connection platform
+names. The gateway resolves these
 callbacks through the Registry. The credential catalog reuses the plugin's
 configuration fields, while connector-only plugins (`github-adapter` and
 `linear-adapter`, both compiled with `activation: :always`) declare their

@@ -73,20 +73,23 @@ export function IdentityProvidersListPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const locale = i18n.language
+  // A provider names the platform its configuration uses; otherwise the adapter name stands in.
+  const providerLabel = (provider: { adapter_id: string; display_name?: { [key: string]: unknown } | null }) =>
+    localizedText(provider.display_name, locale) ??
+    localizedText(adapterByID.get(provider.adapter_id)?.display_name, locale) ??
+    provider.adapter_id
   // Search matches the words the table shows, not internal boolean tokens, so
   // typing a visible status label finds the row in every locale.
-  const rows = (providers.data?.identity_providers ?? []).filter(provider => {
-    const adapter = adapterByID.get(provider.adapter_id)
-    const adapterLabel = adapter ? (localizedText(adapter.display_name, locale) ?? provider.adapter_id) : undefined
-    return matchesResourceSearch(
+  const rows = (providers.data?.identity_providers ?? []).filter(provider =>
+    matchesResourceSearch(
       searchQuery,
       provider.provider_id,
       provider.adapter_id,
-      adapterLabel,
+      providerLabel(provider),
       provider.enabled ? t('console.status.enabled') : t('console.status.disabled'),
       syncEnabled(provider) ? t('console.status.contacts') : t('console.status.off')
     )
-  })
+  )
 
   return (
     <ResourceListPage
@@ -125,14 +128,7 @@ export function IdentityProvidersListPage() {
               {provider.provider_id}
             </Link>
           </TableCell>
-          <TableCell>
-            {(() => {
-              const adapter = adapterByID.get(provider.adapter_id)
-              return adapter
-                ? (localizedText(adapter.display_name, locale) ?? provider.adapter_id)
-                : provider.adapter_id
-            })()}
-          </TableCell>
+          <TableCell>{providerLabel(provider)}</TableCell>
           <TableCell>
             <StatusIndicator tone={syncEnabled(provider) ? 'info' : 'neutral'}>
               {syncEnabled(provider) ? t('console.status.contacts') : t('console.status.off')}

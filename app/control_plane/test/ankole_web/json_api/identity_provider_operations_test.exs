@@ -53,7 +53,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
 
     adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"
-    assert adapter["display_name"]["default"] == "Lark"
+    assert adapter["display_name"]["default"] == "Feishu / Lark"
     assert "directory_full_sync" in adapter["capabilities"]
 
     assert Enum.find(adapter["fields"], &(&1["path"] == "appSecret"))["encrypted"] == true
@@ -83,6 +83,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
                "adapter_id" => "lark",
                "config_key" => "principals.identity_providers.lark.lark-main",
                "enabled" => true,
+               "display_name" => %{"default" => "Feishu", "zh-Hans-CN" => "飞书"},
                "config" => %{"appID" => "cli_identity_console"},
                "stored_secret_paths" => ["appSecret"]
              }
@@ -162,12 +163,14 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
         "config" => %{
           "appID" => "cli_identity_console_renamed",
           "appSecret" => "",
+          "domain" => "lark",
           "sync" => %{"contacts" => true}
         }
       })
 
     assert %{
              "identity_provider" => %{
+               "display_name" => %{"default" => "Lark"},
                "config" => %{"appID" => "cli_identity_console_renamed"},
                "stored_secret_paths" => ["appSecret"]
              }

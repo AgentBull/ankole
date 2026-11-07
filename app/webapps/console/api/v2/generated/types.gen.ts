@@ -4015,6 +4015,9 @@ export type CreateIdentityProviderResponses = {
         [key: string]: unknown
       }
       config_key: string
+      display_name?: {
+        [key: string]: unknown
+      } | null
       enabled: boolean
       plugin_id?: string | null
       provider_id: string
@@ -4065,6 +4068,9 @@ export type SaveIdentityProviderResponses = {
         [key: string]: unknown
       }
       config_key: string
+      display_name?: {
+        [key: string]: unknown
+      } | null
       enabled: boolean
       plugin_id?: string | null
       provider_id: string
@@ -6031,6 +6037,9 @@ export type ListConnectorAuthConfigsResponses = {
       inserted_at?: string | null
       is_default: boolean
       mode: string
+      platform_name?: {
+        [key: string]: unknown
+      } | null
       plugin_id: string
       public_metadata: {
         [key: string]: unknown
@@ -7137,6 +7146,9 @@ export type ListIdentityProvidersResponses = {
         [key: string]: unknown
       }
       config_key: string
+      display_name?: {
+        [key: string]: unknown
+      } | null
       enabled: boolean
       plugin_id?: string | null
       provider_id: string
@@ -7212,7 +7224,9 @@ export type ListConnectorCatalogResponses = {
       credential_fields?: Array<{
         [key: string]: unknown
       }> | null
-      display_name: string
+      display_name: {
+        [key: string]: unknown
+      }
       event_streams?: Array<{
         event_types: Array<string>
         id: string

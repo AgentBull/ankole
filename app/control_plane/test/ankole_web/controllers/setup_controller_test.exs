@@ -275,7 +275,7 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert %{"adapters" => adapters} = api_response(conn, 200)
 
     lark = Enum.find(adapters, &(&1["adapterID"] == "lark"))
-    assert lark["displayName"]["default"] == "Lark"
+    assert lark["displayName"] == %{"default" => "Feishu / Lark", "zh-Hans-CN" => "飞书 / Lark"}
     assert lark["defaultProviderID"] == "lark-main"
 
     fields_by_path = Map.new(lark["fields"], &{&1["path"], &1})

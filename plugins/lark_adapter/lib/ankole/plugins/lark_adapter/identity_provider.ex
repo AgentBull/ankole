@@ -35,6 +35,13 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   end
 
   @doc """
+  Names the platform one configured identity provider signs in through.
+  """
+  @spec platform_name(map()) :: %{String.t() => String.t()}
+  def platform_name(config) when is_map(config),
+    do: Config.platform_name(config["domain"] || "feishu")
+
+  @doc """
   Builds the provider authorization URL for OIDC login.
   """
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}

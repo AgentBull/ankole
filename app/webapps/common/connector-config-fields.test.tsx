@@ -40,7 +40,7 @@ function render(configured: string[]) {
         {
           id: 'slack',
           plugin_id: 'slack',
-          display_name: 'Slack',
+          display_name: { default: 'Slack' },
           toolkits: [],
           auth_schemes: ['platform_app', 'identity_app'],
           personal_credentials: false,

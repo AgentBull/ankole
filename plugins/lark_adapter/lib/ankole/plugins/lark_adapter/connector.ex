@@ -2,7 +2,10 @@ defmodule Ankole.Plugins.LarkAdapter.Connector do
   @moduledoc "Lark business tools with application authentication and verified employee identity."
   @behaviour Ankole.Connectors.Connector
   alias Ankole.Connectors.{Files, HTTP}
-  alias Ankole.Plugins.LarkAdapter.{ConnectorArguments, Toolkits}
+  alias Ankole.Plugins.LarkAdapter.{Config, ConnectorArguments, Toolkits}
+
+  def platform_name(public_metadata),
+    do: Config.platform_name(public_metadata["domain"] || "feishu")
 
   def tools,
     do:

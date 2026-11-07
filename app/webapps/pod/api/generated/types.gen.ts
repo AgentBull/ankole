@@ -1991,6 +1991,9 @@ export type PodAdminIdentityProvidersResponses = {
       config: {
         [key: string]: unknown
       }
+      display_name?: {
+        [key: string]: string
+      } | null
       enabled: boolean
       provider_id: string
       stored_secret_paths: Array<string>
@@ -5232,6 +5235,9 @@ export type PodConnectorAuthConfigsListResponses = {
       inserted_at?: string | null
       is_default: boolean
       mode: string
+      platform_name?: {
+        [key: string]: unknown
+      } | null
       plugin_id: string
       public_metadata: {
         [key: string]: unknown
@@ -5293,6 +5299,9 @@ export type PodConnectorAuthConfigsCreateResponses = {
       inserted_at?: string | null
       is_default: boolean
       mode: string
+      platform_name?: {
+        [key: string]: unknown
+      } | null
       plugin_id: string
       public_metadata: {
         [key: string]: unknown
@@ -6434,7 +6443,9 @@ export type PodConnectorsCatalogResponses = {
       credential_fields?: Array<{
         [key: string]: unknown
       }> | null
-      display_name: string
+      display_name: {
+        [key: string]: unknown
+      }
       event_streams?: Array<{
         event_types: Array<string>
         id: string
@@ -8031,6 +8042,9 @@ export type PodConnectorAuthConfigsUpdateResponses = {
       inserted_at?: string | null
       is_default: boolean
       mode: string
+      platform_name?: {
+        [key: string]: unknown
+      } | null
       plugin_id: string
       public_metadata: {
         [key: string]: unknown

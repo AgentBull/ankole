@@ -45,6 +45,25 @@ defmodule Ankole.IdentityProviders.LoginTest do
     assert Enum.map(providers, & &1["provider_id"]) == ["lark-main"]
   end
 
+  test "login buttons name the platform each provider signs in through" do
+    for {provider_id, domain} <- [{"lark-cn", "feishu"}, {"lark-global", "lark"}] do
+      assert {:ok, _provider} =
+               IdentityProviders.save_provider(
+                 provider_id,
+                 "lark",
+                 %{"appID" => "cli_#{domain}", "appSecret" => "secret", "domain" => domain},
+                 true
+               )
+    end
+
+    assert {:ok, providers} = Login.list_login_providers()
+
+    assert Map.new(providers, &{&1["provider_id"], &1["display_name"]}) == %{
+             "lark-cn" => %{"default" => "Feishu", "zh-Hans-CN" => "飞书"},
+             "lark-global" => %{"default" => "Lark"}
+           }
+  end
+
   test "login list excludes adapters without the OIDC capability" do
     update_lark_identity_declaration(fn declaration ->
       Map.update!(declaration, :capabilities, &List.delete(&1, "oidc_authorization"))

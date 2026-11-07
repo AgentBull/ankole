@@ -554,8 +554,10 @@ colleague's name, `@uid`, and role above a composer with a fixed recipient at
 Chat shows pinned rooms once, then a collapsible Assistant section, then one
 list containing existing IM rooms and available colleagues. The Assistant
 section starts collapsed and exposes only pending questions, active work and
-unread tasks. Expanding shows the five latest tasks; Show all lists the rest of
-the history, and the filter above the list searches it. Task rows are one line;
+unread tasks. A click anywhere on a section heading expands or collapses that
+section, and keyboard users toggle it with its chevron. Expanding the Assistant
+section shows the five latest tasks; Show all lists the rest of the history,
+and the filter above the list searches it. Task rows are one line;
 IM rooms and colleagues use two lines, with the name and time above the latest
 message or the colleague's role. Every list names an Agent by its display name
 followed by its `@uid`, marks a DM with the colleague's avatar, a group with a

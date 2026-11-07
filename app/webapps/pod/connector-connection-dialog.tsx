@@ -16,7 +16,7 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { ConfigField, type ConfigFieldDefinition } from '../common/config-fields'
+import { ConfigField, localizedText, type ConfigFieldDefinition } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import * as api from './api/generated/sdk.gen'
@@ -95,13 +95,22 @@ export function ConnectionEditorDialog({
       const values = secret ? model.secret : model.metadata
       const definition: ConfigFieldDefinition = {
         path,
-        label: { default: String(field.label || path) },
+        // Plugins declare either one plain label or a map of localized labels.
+        label:
+          typeof field.label === 'object' && field.label
+            ? (field.label as Record<string, string>)
+            : { default: String(field.label || path) },
         type: String(field.type ?? 'string'),
         encrypted: field.secret === true,
         required: field.required === true,
         options: Array.isArray(field.options)
           ? field.options.map(option =>
-              typeof option === 'string' ? { value: option } : { value: String(option.value), label: option.label }
+              typeof option === 'string'
+                ? { value: option }
+                : {
+                    value: String(option.value),
+                    label: typeof option.label === 'string' ? { default: option.label } : option.label
+                  }
             )
           : []
       }
@@ -159,7 +168,7 @@ export function ConnectionEditorDialog({
                 <SelectContent>
                   {connectors.map(item => (
                     <SelectItem key={item.plugin_id} value={item.plugin_id!}>
-                      {item.display_name}
+                      {localizedText(item.display_name, i18n.language) ?? item.plugin_id}
                     </SelectItem>
                   ))}
                 </SelectContent>
