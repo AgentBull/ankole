@@ -237,12 +237,12 @@ export async function initializeApplet(directory: string) {
   await mkdir(join(directory, 'src'))
   await writeFile(
     join(directory, 'src/main.tsx'),
-    `import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ankole/uikit'\nimport { defineApplet, usePod } from '@ankole/applet-sdk'\n\nfunction App() {\n  const { theme } = usePod()\n  return (\n    <main className="applet-shell" data-applet-theme={theme}>\n      <Card size="sm">\n        <CardHeader>\n          <CardTitle>工作区就绪</CardTitle>\n          <CardDescription>使用 @ankole/uikit 组件、语义主题变量与 Base 数据表构建小应用，无需重复渲染页面主标题。</CardDescription>\n        </CardHeader>\n        <CardContent>\n          <Badge variant="secondary">{theme === 'dark' ? '深色模式' : '浅色模式'}</Badge>\n        </CardContent>\n      </Card>\n    </main>\n  )\n}\n\nexport const provider = defineApplet(App)\n`,
+    `import { Badge, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@ankole/uikit'\nimport { defineApplet, usePod } from '@ankole/applet-sdk'\n\nfunction App() {\n  const { theme } = usePod()\n  return (\n    <main className="applet-shell" data-applet-theme={theme}>\n      <div className="applet-toolbar">\n        <Badge variant="secondary">{theme === 'dark' ? '深色模式' : '浅色模式'}</Badge>\n      </div>\n      <Empty>\n        <EmptyHeader>\n          <EmptyTitle>工作区就绪</EmptyTitle>\n          <EmptyDescription>Page 已提供标题和页边距。请从工具栏、筛选栏或主数据视图开始，直接贴边排布。</EmptyDescription>\n        </EmptyHeader>\n      </Empty>\n    </main>\n  )\n}\n\nexport const provider = defineApplet(App)\n`,
     { flag: 'wx' }
   )
   await writeFile(
     join(directory, 'src/style.css'),
-    `.ankole-applet {\n  color: var(--foreground);\n  font-family: var(--font-family-sans);\n}\n\n.applet-shell {\n  display: flex;\n  flex-direction: column;\n  gap: 16px;\n  padding-block: 4px 24px;\n}\n`,
+    `.ankole-applet {\n  color: var(--foreground);\n  font-family: var(--font-family-sans);\n}\n\n.applet-shell {\n  display: flex;\n  flex-direction: column;\n  gap: 16px;\n  padding-block: 4px 24px;\n}\n\n.applet-toolbar {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n`,
     { flag: 'wx' }
   )
   await writeFile(

@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.0.0-alpha.77 (2026-11-08)
+
+- Start new Applets from `ankole-pod applet init` flush with the Pod Page: the
+  starter shows a toolbar and an empty state instead of wrapping the whole
+  Applet in a card.
+
 ## Version 2.0.0-alpha.76 (2026-11-08)
 
 - Show a spinning progress indicator centered in an applet while it loads,

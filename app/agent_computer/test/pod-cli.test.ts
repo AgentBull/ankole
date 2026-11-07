@@ -232,6 +232,7 @@ describe('Pod Agent CLI', () => {
         expect(js).toContain('usePod')
         expect(js).toContain('data-applet-theme')
         expect(js).not.toContain('"h1"')
+        expect(js).not.toContain('Card')
         expect(js).toContain('__ANKOLE_APPLET_HOST__.mount')
         expect(js).not.toContain('ReactCurrentDispatcher')
         expect(js).not.toContain('jsxDEV')
