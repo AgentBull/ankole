@@ -30,6 +30,7 @@ export type FieldType =
 export type BaseField = {
   id: string
   name: string
+  description: string
   type: FieldType
   config: Record<string, unknown>
   version: number
@@ -50,6 +51,7 @@ export type BaseTable = {
   id: string
   page_id: string
   name: string
+  description: string
   data_version: number
   record_count: number
   unique_field_ids: string[]
@@ -96,13 +98,19 @@ export type RecordsResult = {
   page_token?: string | null
   complete: boolean
 }
-export type GroupBy = { field_id: string; bucket?: TimeBucket }
+/** Link field IDs followed from the queried table; `field_id` then names a field of the reached table. */
+export type LinkPath = string[]
+export type AggregateCondition =
+  | (Condition & { path?: LinkPath })
+  | { operator: 'exists' | 'not_exists'; path: LinkPath; filter?: Filter }
+export type AggregateFilter = { conjunction: 'and' | 'or'; conditions: AggregateCondition[] }
+export type GroupBy = { field_id: string; bucket?: TimeBucket; path?: LinkPath }
 export type MetricOperation = 'count' | 'sum' | 'avg' | 'min' | 'max' | 'count_distinct'
-export type Metric = { operation: MetricOperation; field_id?: string; alias: string }
+export type Metric = { operation: MetricOperation; field_id?: string; alias: string; path?: LinkPath; filter?: Filter }
 export type AggregateOrderBy = { metric_alias?: string; group_index?: number; direction: 'asc' | 'desc' }
 export type AggregateTopN = { limit: number; include_other?: boolean; target_group_index?: number }
 export type AggregateQuery = {
-  filter?: Filter
+  filter?: AggregateFilter
   group_by?: GroupBy[]
   metrics: Metric[]
   order_by?: AggregateOrderBy[]
@@ -119,6 +127,42 @@ export type AggregateGroup = {
 export type AggregateResult = {
   groups: AggregateGroup[]
   data_version: number
+  /** Server results key the data version of every table the query read by table ID. */
+  data_versions?: Record<string, number>
+}
+export type MetricQueryOptions = {
+  /** A pinned immutable revision; omit it for the latest published revision. */
+  revision?: number
+  /** The metric's typed parameters, plus `dimensions` from its addible dimensions. */
+  params?: Record<string, unknown> & { dimensions?: string[] }
+}
+export type MetricResult = {
+  metric: { id: string; slug: string; title: string }
+  revision: {
+    id: string
+    revision: number
+    latest: boolean
+    status: 'published'
+    approved_by: string
+    created_at: string
+  }
+  definition: {
+    grain: string
+    unit: string
+    numerator: string
+    denominator: string | null
+    time_field: string | null
+    addible_dimensions: Record<string, string>[]
+  }
+  source: Record<string, unknown> & { kind: 'base' | 'connector' }
+  params: Record<string, unknown>
+  dimensions: string[]
+  executed_spec: Record<string, unknown>
+  /** Base aggregate groups, or the connector query's evidence envelope. */
+  result: AggregateResult | Record<string, unknown>
+  /** The data version of every Base table the metric read, by table ID. */
+  data_versions: Record<string, number>
+  executed_at: string
 }
 export type RecordWrite = {
   creates?: { id?: string; data: RecordData }[]

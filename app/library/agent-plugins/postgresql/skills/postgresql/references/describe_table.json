@@ -1,0 +1,103 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Read a cached table's columns, types, comments, key properties, and masked value profiles. sparse_order_key marks a ClickHouse sorting or primary key, which is not unique.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "schema": {
+        "type": ["string", "null"]
+      },
+      "table": {
+        "type": "string"
+      }
+    },
+    "required": ["table"],
+    "type": "object"
+  },
+  "name": "describe_table",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "columns": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "comment": {
+              "type": ["string", "null"]
+            },
+            "foreign_key": {
+              "type": ["object", "null"]
+            },
+            "name": {
+              "type": "string"
+            },
+            "nullable": {
+              "type": "boolean"
+            },
+            "primary_key": {
+              "type": "boolean"
+            },
+            "profile": {
+              "type": ["object", "null"]
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "sparse_order_key": {
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string"
+            },
+            "unique": {
+              "type": "boolean"
+            }
+          },
+          "required": ["name", "type", "nullable", "sensitive"],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "comment": {
+        "type": ["string", "null"]
+      },
+      "fetched_at": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "primary_key": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "query_count": {
+        "type": ["integer", "null"]
+      },
+      "row_estimate": {
+        "type": ["integer", "null"]
+      },
+      "schema": {
+        "type": "string"
+      },
+      "sparse_order_key": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "table": {
+        "type": "string"
+      }
+    },
+    "required": ["schema", "table", "columns"],
+    "type": "object"
+  }
+}

@@ -20,9 +20,11 @@ import { ConfigField, localizedText, type ConfigFieldDefinition } from '../commo
 import { ErrorBlock } from '../common/error-block'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import * as api from './api/generated/sdk.gen'
+import { ConnectionAccessFields } from './connector-connection-access'
 import {
   ConnectionEditorModel,
   connectorCredentialFields,
+  DATABASE_CONNECTORS,
   type ConnectorConnection,
   type ConnectorDefinition
 } from './state/connectors'
@@ -63,7 +65,8 @@ export function ConnectionEditorDialog({
         display_name: model.name.value,
         is_default: model.isDefault.value,
         public_metadata: { ...defaults, ...model.metadata.value },
-        secret: tokenCredentials ? {} : secret
+        secret: tokenCredentials ? {} : secret,
+        ...(DATABASE_CONNECTORS.includes(model.plugin.value) ? { access: model.access.value } : {})
       }
       const result = model.editing.value?.id
         ? await api.podConnectorAuthConfigsUpdate({ path: { id: model.editing.value.id }, body: { data } })
@@ -279,6 +282,7 @@ export function ConnectionEditorDialog({
           </p>
           {fields(connector?.public_fields, false)}
           {fields(connector?.credential_fields, true)}
+          {DATABASE_CONNECTORS.includes(model.plugin.value) && <ConnectionAccessFields access={model.access} />}
           <Label className="flex items-center gap-2">
             <Checkbox
               checked={model.isDefault.value}

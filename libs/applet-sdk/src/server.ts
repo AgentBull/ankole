@@ -3,6 +3,8 @@ import type {
   ActionRun,
   AggregateQuery,
   AggregateResult,
+  MetricQueryOptions,
+  MetricResult,
   RecordQuery,
   RecordsResult,
   RecordWrite,
@@ -13,7 +15,7 @@ import type {
   TableSchema,
   WriteResult
 } from './types'
-export type { ActionRun } from './types'
+export type { ActionRun, MetricQueryOptions, MetricResult } from './types'
 
 export type RouteContext = {
   method: RouteMethod
@@ -74,6 +76,8 @@ export type RuntimeCapabilities = {
     aggregate(tableId: string, query: AggregateQuery): Promise<AggregateResult>
     write(tableId: string, changes: RecordWrite): Promise<WriteResult>
   }
+  /** Executes a published Brain metric (`metrics/<name>` or object ID) without a model; GET routes may call it. */
+  metrics: { query(metric: string, options?: MetricQueryOptions): Promise<MetricResult> }
   file: {
     list(pageId: string): Promise<{ revision: number; files: FileEntry[] }>
     read(path: string): Promise<FileRead>

@@ -18,6 +18,8 @@ export const SETTING_DURATIONS: Record<string, { seconds: number; min: number; m
   'brain.signal_channel_batch_idle_time': { seconds: 1, min: 1 },
   'brain.soft_delete_retention_hours': { seconds: 3600, min: Number.MIN_VALUE },
   'drive.trash_retention_days': { seconds: 86400, min: 1 },
+  'connectors.database.limits.statement_timeout_ms': { seconds: 0.001, min: 1 },
+  'connectors.database.limits.lock_timeout_ms': { seconds: 0.001, min: 1 },
   'pod.base.limits.statement_timeout_ms': { seconds: 0.001, min: 1 },
   'pod.applet.limits.timeout_ms': { seconds: 0.001, min: 1 },
   'pod.spreadsheet.limits.compaction_idle_seconds': { seconds: 1, min: 1 },
@@ -68,6 +70,7 @@ const SPECIFIC_SETTING_EDITORS = new Map<string, SettingEditorKind>([
   ['ai_agent.max_output_tokens', 'optionalTokens'],
   ...Object.keys(SETTING_DURATIONS).map(key => [key, 'duration'] as [string, SettingEditorKind]),
   ...[
+    'connectors.database.limits',
     'pod.base.limits',
     'pod.applet.limits',
     'pod.spreadsheet.limits',

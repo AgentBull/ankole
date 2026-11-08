@@ -485,6 +485,79 @@ the platform's resource fields; consumers tolerate optional fields. Changes
 contains the supplied field diff, or an empty object when the platform provides
 none.
 
+## Database connections
+
+The `database-connectors` Plugin declares the `postgresql`, `mysql`, and
+`clickhouse` connectors. Their adapters export `read_query/4`,
+`fetch_catalog/3`, and `mark_catalog/2`, and Connectors treats such a
+connection as a database connection. A database connection holds only application credentials: the
+host, port, database, TLS mode, CA certificate, and sample exclusions live in
+public metadata, while the username and password live in the sealed root
+secret. It has no connected accounts or OAuth grants, and the credentials never
+reach Workers or Applets. [Database Connectors](plugins/DatabaseConnectors.md)
+specifies the engines, execution guards, and tools.
+
+Connection-level authorization uses the AuthZ resource
+`connector_connection:<auth_config_id>` and the action `query`. When an
+administrator saves a database connection, the connection form chooses who may
+query it. "All members and AI colleagues" grants `query` to the built-in
+`all_humans` and `all_agents` groups; "selected groups and Agents" grants it to
+each chosen group and Agent Principal. Connectors replaces the connection's
+`query` grants in the save transaction. A new connection without a choice uses
+the first option, and an update without a choice keeps the current grants. The
+connection projection's `access` field reads the choice back from those grants.
+Every tool call and every `run_read_query/5` call checks membership, the
+connection's active status, and this grant before reading credentials. An
+Agent, including a personal assistant, uses its own grants.
+
+Connectors caches each database connection's catalog in
+`connector_db_catalog_tables` and `connector_db_catalog_columns`. The cache is
+rebuildable: the external database stays authoritative, and a refresh replaces
+all of the connection's rows. Saving a database connection queues
+`Ankole.Connectors.Jobs.RefreshDatabaseCatalog`, and an administrator refreshes
+on demand through `POST /api/v2/pod/connectors/auth-configs/:id/refresh-catalog`
+(the connection card's **Refresh catalog** action). The adapter reads the
+external catalog outside any transaction; Connectors then replaces the cached
+rows in one transaction under a per-connection advisory lock. Table rows record
+the kind, comment, row estimate, primary key, query-history count, and fetch
+time. Column rows record the type, nullability, comment, primary-key, unique,
+and foreign-key properties, the sensitivity flag, and a sampled profile.
+ClickHouse sorting and primary keys appear only as `sparse_order_key`, because
+they order sparse index granules and never promise uniqueness. Before storing a
+profile, Connectors removes `sample_values`, `min`, and `max` from every
+sensitive column. When an administrator saves a database connection,
+Connectors asks the adapter's `mark_catalog/2` which cached columns the saved
+settings make sensitive and clears their profiles in the save transaction; the
+queued refresh then rebuilds the other profiles. A `pg_search` BM25 index on
+each table's `search_text` (schema, table, column names, and comments) serves
+`search_catalog`; `Ankole.SearchIndexes` maintains it with the other BM25
+indexes.
+
+After replacing the rows, Connectors compares the previous snapshot with the
+new one and reports each table or column that disappeared to
+`Ankole.Brain.connector_columns_missing_in_tx/2`. A snapshot that stopped at
+the `catalog_tables` budget is incomplete: Connectors still reports missing
+columns of the tables it holds, but it never reports a table as missing,
+because the table may lie beyond the budget. The refresh-catalog response
+carries `table_count`, `fetched_at`, and `complete`, which is false when the
+budget cut the catalog.
+
+`Ankole.Connectors.run_read_query(actor, connection, sql, params \\ [], opts \\ [])`
+is the core read interface for callers outside the gateway, such as Brain
+metric bindings. `actor` is an `Ankole.AuthZ.Actor` or a Principal, and
+`connection` is a connection ID or slug. The statement is one `SELECT` or `WITH`
+query whose positional `params` use the engine's placeholders: `$1` for
+PostgreSQL, `?` for MySQL, and `{p1:Type}` for ClickHouse. `opts` accepts
+`max_rows`, which the operator budget caps, and `export`, a Pod destination that
+requires an `Ankole.AuthZ.Actor`. The result is `{:ok, envelope}` or
+`{:error, reason}`. The evidence envelope contains `columns` (each with `name`
+and `type`), `rows`, `row_count`, `truncated`, `elapsed_ms`, the executed
+`sql`, the `data_timestamp` at which execution started, `warnings` (such as
+`fanout_risk`), and `file` when an export saved every row. The gateway's
+`query` tool returns the same envelope.
+
+Tenant teardown deletes catalog columns and tables before connection roots.
+
 ## Persistence and lock order
 
 Principal authorization uses rank 3. Application roots, connected accounts, and

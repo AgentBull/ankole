@@ -1,6 +1,7 @@
 import { t } from 'i18next'
 import { isEqual } from '@agentbull/active-support'
 import type {
+  AggregateFilter,
   AggregateQuery,
   AggregateResult,
   Condition,
@@ -226,6 +227,14 @@ function bucket(value: Value, group: GroupBy, timezone: string): Value {
   }
 }
 
+/** Returns the filter when it reads only the queried table, or null when a condition follows a link path. */
+export function plainFilter(filter?: AggregateFilter): Filter | null | undefined {
+  if (!filter) return undefined
+  const { conditions } = filter
+  return conditions.every((condition): condition is Condition => condition.path === undefined)
+    ? { ...filter, conditions }
+    : null
+}
 export function aggregateLocalRecords(
   records: BaseRecord[],
   fields: BaseField[],
@@ -238,7 +247,10 @@ export function aggregateLocalRecords(
   const groupBy = query.group_by ?? []
   if (groupBy.length > 2) throw new Error(t('pod.content.you_can_group_by_up_to_two_fields'))
   if (!groupBy.length) groups.set('[]', { values: [], records: [] })
-  for (const record of filterRecords(records, fields, query.filter)) {
+  const filter = plainFilter(query.filter)
+  // canAggregateLocally routes link paths to PostgreSQL, which holds the linked tables.
+  if (filter === null) throw new Error('Link paths require a server aggregate')
+  for (const record of filterRecords(records, fields, filter)) {
     let combinations: Value[][] = [[]]
     for (const group of groupBy) {
       const field = byID.get(group.field_id)

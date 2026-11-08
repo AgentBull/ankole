@@ -56,7 +56,8 @@ defmodule Ankole.Sessions.Tools.BrainTest do
              "recall",
              "entity",
              "whoknows",
-             "delta"
+             "delta",
+             "metric_query"
            ]
 
     assert Enum.map(declarations, &Map.take(&1, ~w(type strict name description parameters))) ==

@@ -19,14 +19,15 @@ defmodule Ankole.Brain.SchemaPacks do
 
   @api_version "ankole-brain-schema-pack-v1"
   @base_pack "general"
+  @default_packs [@base_pack, "data"]
   @industry_packs ~w(pevc public_markets consumer legal software consulting)
   @primitives ~w(entity media temporal annotation concept)
 
   @type manifest :: map()
 
-  @doc "Returns the base pack name that every installation includes."
-  @spec base_pack() :: String.t()
-  def base_pack, do: @base_pack
+  @doc "Returns the pack names that every installation includes, base pack first."
+  @spec default_packs() :: [String.t()]
+  def default_packs, do: @default_packs
 
   @doc "Returns the selectable industry pack names."
   @spec industry_packs() :: [String.t()]
@@ -47,7 +48,7 @@ defmodule Ankole.Brain.SchemaPacks do
   @spec load_seed(String.t()) ::
           {:ok, %{manifest: manifest(), content_hash: String.t()}} | {:error, term()}
   def load_seed(name) when is_binary(name) do
-    if name in [@base_pack | @industry_packs] do
+    if name in @default_packs or name in @industry_packs do
       path = Path.join(seeds_root(), name <> ".yaml")
 
       with {:ok, raw} <- File.read(path),
@@ -66,7 +67,7 @@ defmodule Ankole.Brain.SchemaPacks do
   end
 
   @doc """
-  Installs the selected packs plus the base pack in one transaction.
+  Installs the selected packs plus the default packs in one transaction.
 
   Already-installed packs are rejected. The merge validation runs over the
   union of installed manifests and new seeds, so a later industry add-on
@@ -113,8 +114,8 @@ defmodule Ankole.Brain.SchemaPacks do
   defp normalize_selection(names) do
     names = Enum.map(names, &to_string/1)
 
-    case Enum.reject(names, &(&1 in [@base_pack | @industry_packs])) do
-      [] -> {:ok, [@base_pack | Enum.uniq(names) -- [@base_pack]]}
+    case Enum.reject(names, &(&1 in @default_packs or &1 in @industry_packs)) do
+      [] -> {:ok, @default_packs ++ (Enum.uniq(names) -- @default_packs)}
       unknown -> {:error, {:unknown_packs, unknown}}
     end
   end

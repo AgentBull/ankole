@@ -114,6 +114,9 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
         aggregate: (tableId: string, query: unknown) => invoke('base.aggregate', [tableId, query]),
         write: (tableId: string, changes: RecordWrite) => invoke('base.write', [tableId, withRecordIDs(changes)])
       }),
+      metrics: Object.freeze({
+        query: (metric: string, options = {}) => invoke('metrics.query', [metric, options])
+      }),
       file: Object.freeze({
         list: (pageId: string) => invoke('file.list', [pageId]),
         read: (path: string) => invoke('file.read', [path]),

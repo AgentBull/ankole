@@ -14,6 +14,18 @@ defmodule Ankole.Connectors.PublicSchema do
       public_metadata: [type: JSONMap, allow_nil?: false],
       configured_credential_fields: [type: {:array, :string}, allow_nil?: false],
       platform_name: [type: JSONMap],
+      access: [type: JSONMap],
+      catalog: [
+        type: :map,
+        description:
+          "The database connection's cached catalog; complete is false when the last refresh stopped at the catalog_tables budget.",
+        constraints: [
+          fields: [
+            table_count: [type: :integer, allow_nil?: false],
+            complete: [type: :boolean, allow_nil?: false]
+          ]
+        ]
+      ],
       status: [type: :string, allow_nil?: false],
       inserted_at: [type: :utc_datetime_usec],
       updated_at: [type: :utc_datetime_usec]

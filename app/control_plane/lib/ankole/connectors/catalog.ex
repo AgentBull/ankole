@@ -4,7 +4,12 @@ defmodule Ankole.Connectors.Catalog do
 
   def list do
     Ankole.Plugins.Registry.list_active()
-    |> Enum.filter(&String.ends_with?(&1.id, "-adapter"))
+    |> Enum.filter(
+      &(String.ends_with?(&1.id, "-adapter") or
+          Enum.any?(&1.adapter_declarations, fn declaration ->
+            declaration.contract_id == "connectors.connector"
+          end))
+    )
     |> Enum.flat_map(fn plugin ->
       connectors =
         Enum.filter(plugin.adapter_declarations, &(&1.contract_id == "connectors.connector"))

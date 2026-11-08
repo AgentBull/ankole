@@ -122,4 +122,137 @@ defmodule AnkoleWeb.JSONAPI.PodBasesTest do
     assert %{"records" => [%{"updated_at" => updated}]} = api_response(changed, 200)
     assert {:ok, _, _} = DateTime.from_iso8601(updated)
   end
+
+  test "browser table and field descriptions round-trip through the Pod HTTP contract", %{
+    conn: conn
+  } do
+    {conn, _uid} = console_conn_with_principal(conn)
+    created = api_post(conn, "/api/v2/pod/pages", %{type: "base", title: "Ledger"})
+    assert %{"page" => %{"id" => page_id}} = api_response(created, 200)
+
+    table_conn =
+      created
+      |> recycle_api()
+      |> api_post("/api/v2/pod/bases/#{page_id}/tables", %{
+        name: "Payments",
+        description: "Incoming payments from the bank feed"
+      })
+
+    assert %{
+             "table" => %{
+               "id" => table_id,
+               "description" => "Incoming payments from the bank feed"
+             }
+           } =
+             api_response(table_conn, 200)
+
+    field_conn =
+      table_conn
+      |> recycle_api()
+      |> api_post("/api/v2/pod/tables/#{table_id}/fields", %{
+        name: "Amount",
+        type: "number",
+        description: "USD, before tax"
+      })
+
+    assert %{"field" => %{"id" => field_id, "description" => "USD, before tax"}} =
+             api_response(field_conn, 200)
+
+    cleared =
+      field_conn
+      |> recycle_api()
+      |> api_patch("/api/v2/pod/fields/#{field_id}", %{version: 1, description: ""})
+
+    assert %{"field" => %{"version" => 2, "description" => ""}} = api_response(cleared, 200)
+
+    configured =
+      cleared
+      |> recycle_api()
+      |> api_put("/api/v2/pod/tables/#{table_id}/settings", %{description: "Settled payments"})
+
+    assert %{"table" => %{"description" => "Settled payments"}} = api_response(configured, 200)
+
+    rejected =
+      configured
+      |> recycle_api()
+      |> api_put("/api/v2/pod/tables/#{table_id}/settings", %{
+        description: String.duplicate("x", 2049)
+      })
+
+    assert %{"code" => "description_size_limit"} = api_error(rejected, 422)
+
+    schema = rejected |> recycle_api() |> api_get("/api/v2/pod/tables/#{table_id}")
+
+    assert %{"table" => %{"description" => "Settled payments"}, "fields" => fields} =
+             api_response(schema, 200)
+
+    assert Enum.find(fields, &(&1["id"] == field_id))["description"] == ""
+  end
+
+  test "aggregates follow link paths through the typed Pod HTTP contract", %{conn: conn} do
+    {conn, _uid} = console_conn_with_principal(conn)
+    created = api_post(conn, "/api/v2/pod/pages", %{type: "base", title: "Shop"})
+    assert %{"page" => %{"id" => page_id}} = api_response(created, 200)
+
+    post = fn conn, path, body -> conn |> recycle_api() |> api_post(path, body) end
+    orders_conn = post.(created, "/api/v2/pod/bases/#{page_id}/tables", %{name: "Orders"})
+    assert %{"table" => %{"id" => orders}} = api_response(orders_conn, 200)
+    products_conn = post.(orders_conn, "/api/v2/pod/bases/#{page_id}/tables", %{name: "Products"})
+    assert %{"table" => %{"id" => products}} = api_response(products_conn, 200)
+
+    category_conn =
+      post.(products_conn, "/api/v2/pod/tables/#{products}/fields", %{
+        name: "Category",
+        type: "text"
+      })
+
+    assert %{"field" => %{"id" => category}} = api_response(category_conn, 200)
+
+    link_conn =
+      post.(category_conn, "/api/v2/pod/tables/#{orders}/fields", %{
+        name: "Product",
+        type: "link",
+        config: %{table_id: products, multiple: false}
+      })
+
+    assert %{"field" => %{"id" => product}} = api_response(link_conn, 200)
+
+    product_conn =
+      post.(link_conn, "/api/v2/pod/tables/#{products}/records", %{
+        creates: [%{data: %{category => "tools"}}]
+      })
+
+    assert %{"records" => [%{"id" => tool}]} = api_response(product_conn, 200)
+
+    order_conn =
+      post.(product_conn, "/api/v2/pod/tables/#{orders}/records", %{
+        creates: [%{data: %{product => [tool]}}, %{data: %{}}]
+      })
+
+    assert %{"records" => [_, _]} = api_response(order_conn, 200)
+
+    aggregated =
+      post.(order_conn, "/api/v2/pod/tables/#{orders}/aggregate", %{
+        filter: %{
+          conjunction: "and",
+          conditions: [
+            %{
+              operator: "exists",
+              path: [product],
+              filter: %{
+                conjunction: "and",
+                conditions: [%{field_id: category, operator: "is", value: "tools"}]
+              }
+            }
+          ]
+        },
+        group_by: [%{field_id: category, path: [product]}],
+        metrics: [%{operation: "count", alias: "orders"}]
+      })
+
+    assert %{
+             "groups" => [%{"values" => ["tools"], "metrics_text" => %{"orders" => "1"}}],
+             "data_versions" => %{^orders => _, ^products => _}
+           } = api_response(aggregated, 201)
+  end
 end

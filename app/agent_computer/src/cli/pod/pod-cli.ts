@@ -78,10 +78,10 @@ Write operations:
   files.upload     {id, local_path, role: file|asset|attachment, base_object_id?}
     For role=file, pass the current files.manifest entry's object_id as
     base_object_id; omit it only when the file is empty. Stale replacements fail.
-  base.create_table {id: base_page_id, name}
-  base.configure_table {id: table_id, unique_field_ids?, emit_changes?}
+  base.create_table {id: base_page_id, name, description?}
+  base.configure_table {id: table_id, description?, unique_field_ids?, emit_changes?}
   base.delete_table {id: table_id} — requires manage access
-  base.create_field {id: table_id, name, type, config?}
+  base.create_field {id: table_id, name, type, description?, config?}
   base.update_field {id: field_id, version, ...changes}
   base.delete_field {id: field_id, version}
   base.create_view  {id: table_id, name, type, config?}
@@ -107,6 +107,8 @@ Write operations:
 Base parameter shapes:
   Read base.schema before writing; data keys and field_id values are the
   returned field UUIDs, not field names. Reuse the saved page and table IDs.
+  Tables and fields carry a description (at most 2 KiB) that states what the
+  values mean: unit, currency, tax inclusion, or source system.
   filter: {conjunction:"and"|"or", conditions:[{field_id, operator, value?}]}
     operator: is|contains|is_empty|is_not_empty|gt|gte|lt|lte|text_contains
   sort: [{field_id, direction:"asc"|"desc"}]
@@ -116,7 +118,18 @@ Base parameter shapes:
     {"id":"TABLE_ID","metrics":[{"operation":"sum","field_id":"FIELD_ID","alias":"total"}]}
     order_by: [{metric_alias?, group_index?, direction:"asc"|"desc"}];
     top_n: {limit, include_other?, target_group_index?}; omit_empty?: boolean.
-    Results contain groups:[{values,value_json?,other?,metrics:{total:...},metrics_text?}] and data_version.
+    Results contain groups:[{values,value_json?,other?,metrics:{total:...},metrics_text?}],
+    data_version, and data_versions:{TABLE_ID:version} for every table read.
+  base.aggregate follows link fields in the same Base with path:[LINK_FIELD_ID,...]
+    (at most 3 hops); field_id then names a field of the table the path reaches.
+    group_by: [{field_id, path, bucket?}] needs single-value links only.
+    filter conditions: [{field_id, path, operator, value?}] match when a linked
+    record matches; [{operator:"exists"|"not_exists", path, filter?}] test for
+    linked records, where filter holds conditions on the linked table.
+    metrics: [{operation:"count"|"sum"|"avg"|"min"|"max", field_id?, path, filter?, alias}]
+    total linked records per row before grouping, so a row with three linked
+    records still counts its own fields once. Use these paths instead of joining
+    tables yourself.
   query results: {records:[{id,data,versions,...}],complete,page_token,data_version}
     When complete is false, pass page_token to the next query with the same
     filter and sort. Aggregate calculates over all matching rows.

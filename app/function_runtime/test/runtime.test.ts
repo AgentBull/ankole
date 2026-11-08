@@ -835,4 +835,24 @@ describe('real edge-runtime protocol', () => {
     expect((await invoke(sha, { method: 'GET', path: '/' })).body.error.code).toBe('read_only_route')
     for (let i = 0; i < 40; i++) expect((await invoke(sha)).status).toBe(200)
   })
+  test('GET routes execute a published metric through metrics.query', async () => {
+    const sha = await publish(
+      'export default {"GET /":()=>AnkoleRuntime.metrics.query("metrics/gmv",{revision:2,params:{dimensions:["region"]}})}'
+    )
+    const frames: { operation: string; args: unknown[] }[] = []
+    const result = await invoke(
+      sha,
+      { method: 'GET', path: '/' },
+      {
+        call: async ({ operation, args }) => {
+          frames.push({ operation, args })
+          return { metric: { slug: 'metrics/gmv' } }
+        }
+      }
+    )
+    expect(frames).toEqual([
+      { operation: 'metrics.query', args: ['metrics/gmv', { revision: 2, params: { dimensions: ['region'] } }] }
+    ])
+    expect(result.body).toEqual({ metric: { slug: 'metrics/gmv' } })
+  })
 })

@@ -30,7 +30,8 @@ defmodule Ankole.Brain.ToolsTest do
   end
 
   test "catalog contains atomic knowledge operations", ctx do
-    assert Tools.operations() == ~w(remember recall entity whoknows synthesize delta write_object)
+    assert Tools.operations() ==
+             ~w(remember recall entity whoknows synthesize delta write_object metric_query)
 
     for spec <- Tools.function_specs(Tools.operations()) do
       assert spec["parameters"]["type"] == "object"

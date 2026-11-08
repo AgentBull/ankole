@@ -2,6 +2,57 @@
 
 ## Version 2.0.0-alpha.82 (2026-11-08)
 
+- Connect PostgreSQL, MySQL, MariaDB, and ClickHouse databases as read-only
+  Pod connections. Agents and Applets can search the cached catalog, describe a
+  table, probe values, explain and run one read-only `SELECT` or `WITH` query,
+  and run published metrics. Ankole keeps the database password in the
+  connection, rejects writes, multi-statement batches, and built-in functions
+  with side effects such as `pg_notify`, runs every query in a read-only
+  session with the timeout, row, byte, and scan limits in
+  `connectors.database.limits`, checks the resolved address against the SSRF
+  policy, and saves large results as Pod files. When the database fails
+  partway through an export, the query returns the database's error and saves
+  no file. Every engine, ClickHouse included, accepts an administrator's CA
+  certificate in the verify TLS mode, checks the configured host name or IP
+  address, and names the failed check when verification fails. Large integers
+  and decimals stay exact, ClickHouse results return NULLs, arrays, and maps as
+  JSON values, and ClickHouse sorting keys keep whole expressions such as
+  `toDate(ts)`. Sample values stay hidden for
+  sensitive columns, including columns an administrator excludes later, and
+  value probes require a cached catalog. When a database has more tables than
+  the catalog table limit, the connection card and the `search_catalog`
+  result say that only the first tables are cached. Administrators choose
+  whether all members and AI colleagues or only selected groups and Agents
+  can query a connection.
+- Write a description on Base tables and fields. Agents, the Worker CLI,
+  `base.schema`, the Drive `.info/schema.json` file, and the Pod API return it,
+  and Agents now record units, currency, and tax handling when they create a
+  table or field.
+- Group, filter, and measure Base aggregates through link fields in the same
+  Base: group by a field of a linked record, keep records that have or lack
+  matching linked records, and total a child table per parent without
+  counting the parent once per child. Aggregate results list the data version
+  of every table they read, and Applet aggregates refresh when any of those
+  tables changes.
+- Define datasets and metrics in Brain. Every workspace has `datasets/` and
+  `metrics/` categories; saving a metric validates its definition and
+  publishes a numbered revision that dashboards and Agents can pin. Agents run
+  a metric with the `brain` tool's `metric_query` operation, also inside codex
+  Background Jobs, Applets with
+  `AnkoleRuntime.metrics.query`, and database connections with their own
+  `metric_query` tool. A metric whose field, link, column, or table disappears
+  is marked for review instead of returning a number from a different column;
+  a catalog refresh that stops at the table limit does not count unlisted
+  tables as removed. Brain objects can declare `identifiers` that link an
+  entity to its rows in a Base or database.
+- Agents answer business-number questions with the new `business-metrics`
+  Skill: they use a published metric when one matches, state the temporary
+  basis for a simple count, ask one choice question before they define an
+  ambiguous financial metric, and say which data is missing instead of
+  substituting a similar column.
+- Upgrade a site from a release older than 2026-11-03 without the migration
+  stopping on a missing table or column: the upgrade now creates the Brain
+  root, categories, and Agent pages after the last schema migration.
 - Read Office and spreadsheet files with version 9.4.2 of the `zip` library,
   which fixes GHSA-m665-v7pm-7grj, GHSA-q7v9-x93c-xqv3, and
   GHSA-8hxf-qr8p-62x4. Ankole reads these archives in memory and does not

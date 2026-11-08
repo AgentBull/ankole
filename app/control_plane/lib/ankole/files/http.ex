@@ -1,9 +1,17 @@
 defmodule Ankole.Files.HTTP do
-  @moduledoc "Bounded HTTP streams for MCP and file transfers, outside database transactions."
+  @moduledoc """
+  Bounded HTTP streams for MCP and file transfers, outside database transactions.
+
+  A caller adds TLS client options, such as a custom CA or
+  `verify: :verify_none`, to an `https` connection through `:transport_opts`.
+  """
   @json_bytes 5_000_000
   @chunk_bytes 8 * 1024 * 1024
+  @error_body_bytes 64 * 1024
   defmodule Error do
-    defexception [:reason, sent?: false]
+    # For a streamed error status, `body` holds the first 64 KiB of the response,
+    # so the caller can report the server's own message.
+    defexception [:reason, :body, sent?: false]
     def message(error), do: inspect(error.reason)
   end
 
@@ -89,11 +97,30 @@ defmodule Ankole.Files.HTTP do
         open_stream(method, next_url, next_headers, body, next_opts)
 
       state.status >= 400 ->
-        Mint.HTTP.close(state.conn)
-        raise Error, reason: {:http_status, state.status}, sent?: true
+        body =
+          try do
+            error_body(state, data)
+          rescue
+            _ in Error -> nil
+          after
+            Mint.HTTP.close(state.conn)
+          end
+
+        raise Error, reason: {:http_status, state.status}, sent?: true, body: body
 
       true ->
         {state, data}
+    end
+  end
+
+  defp error_body(state, parts) do
+    size = IO.iodata_length(parts)
+
+    if state.done or size >= @error_body_bytes do
+      parts |> IO.iodata_to_binary() |> binary_part(0, min(size, @error_body_bytes))
+    else
+      {data, state} = receive_data(state)
+      error_body(state, [parts, data])
     end
   end
 
@@ -204,7 +231,8 @@ defmodule Ankole.Files.HTTP do
             mode: :passive,
             protocols: [:http1],
             hostname: uri.host,
-            transport_opts: [timeout: remaining!(deadline)]
+            transport_opts:
+              [timeout: remaining!(deadline)] ++ Keyword.get(opts, :transport_opts, [])
           ],
           proxy
         )

@@ -240,6 +240,9 @@ import type {
   PodConnectorAuthConfigsListData,
   PodConnectorAuthConfigsListErrors,
   PodConnectorAuthConfigsListResponses,
+  PodConnectorAuthConfigsRefreshCatalogData,
+  PodConnectorAuthConfigsRefreshCatalogErrors,
+  PodConnectorAuthConfigsRefreshCatalogResponses,
   PodConnectorAuthConfigsUpdateData,
   PodConnectorAuthConfigsUpdateErrors,
   PodConnectorAuthConfigsUpdateResponses,
@@ -574,6 +577,29 @@ export type Options<
    */
   meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta
 }
+
+/**
+ * podConnectorAuthConfigsRefreshCatalog operation on connector_operation resource
+ */
+export const podConnectorAuthConfigsRefreshCatalog = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAuthConfigsRefreshCatalogData, ThrowOnError>
+): RequestResult<
+  PodConnectorAuthConfigsRefreshCatalogResponses,
+  PodConnectorAuthConfigsRefreshCatalogErrors,
+  ThrowOnError,
+  'data'
+> =>
+  (options.client ?? client).post<
+    PodConnectorAuthConfigsRefreshCatalogResponses,
+    PodConnectorAuthConfigsRefreshCatalogErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/auth-configs/{id}/refresh-catalog',
+    ...options
+  })
 
 /**
  * podBaseTableDelete operation on pod_base_operation resource

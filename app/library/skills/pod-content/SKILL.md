@@ -126,7 +126,13 @@ than 2,000 children. The same API serves inline and physical tables.
 
 Create the Base and typed fields before the applet. A new Base has
 `Table 1` with a primary Name field; read it with `base.tables` before
-creating another table. Keep the IDs
+creating another table. Give every table and field you create a short
+`description` of at most 2 KiB that states what its values mean: the unit,
+currency, tax inclusion, and source system when they apply, such as
+`Order total in CNY, tax included, imported from the ERP`. People and later
+Agents read these descriptions in `base.schema` to interpret the data, so
+correct them with `base.configure_table` or `base.update_field` when that
+meaning changes. Keep the IDs
 returned by these operations and continue work on them. A rejected query does
 not remove already saved pages or tables. Read the CLI parameter shapes and
 correct that query instead of creating replacement content. Records use field
@@ -356,7 +362,7 @@ bounded diagnostic logs and handler exception details.
 The function worker supplies Node built-ins, public `fetch`, an in-memory
 `/tmp`, published environment values, and `AnkoleRuntime` capabilities:
 `base.schema`, `base.query`, `base.aggregate`, `base.write`; `file.list`, `file.read`,
-`file.write`; `ai.generateText`; `mcp.call`; and `signals.call/emit/run`. Read their exact types in
+`file.write`; `metrics.query`, which runs a published Brain metric; `ai.generateText`; `mcp.call`; and `signals.call/emit/run`. Read their exact types in
 `/repo/libs/applet-sdk/src/server.ts`. Put publication environment values in
 `applet.env.json`, a flat string map of at most 64 KiB. Read each backend value
 through `process.env.<KEY>`. Only editors can read

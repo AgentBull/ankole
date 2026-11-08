@@ -50,6 +50,7 @@ Brain supplies bounded context about participants, mentioned entities, current f
 | `whoknows` | Find people, Agents, and organizations associated with a topic |
 | `delta` | Read new and expired claims and events within a time range |
 | `synthesize` | Write an analysis page backed by visible evidence |
+| `metric_query` | Run a published metric definition and return its exact values without a model |
 
 Pod reads offer metadata, a compact outline, or the complete page. The outline keeps introductions and section headings, with long tables and code blocks folded. Agents request full content when the task needs it. Ambiguous names produce candidates for disambiguation.
 

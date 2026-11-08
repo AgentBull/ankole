@@ -31,6 +31,7 @@ const table: BaseTable = {
   id: tableID,
   page_id: baseID,
   name: 'Orders',
+  description: '',
   data_version: 5,
   record_count: 18,
   unique_field_ids: [],
@@ -38,19 +39,21 @@ const table: BaseTable = {
 }
 
 const fields: BaseField[] = [
-  { id: 'f_title', name: 'Deal', type: 'text', config: {}, version: 1, is_primary: true },
+  { id: 'f_title', name: 'Deal', description: '', type: 'text', config: {}, version: 1, is_primary: true },
   {
     id: 'f_stage',
     name: 'Stage',
+    description: '',
     type: 'select',
     config: { options: [{ name: 'Lead' }, { name: 'Qualified' }, { name: 'Won' }] },
     version: 1,
     is_primary: false
   },
-  { id: 'f_date', name: 'Closed Month', type: 'datetime', config: {}, version: 1, is_primary: false },
+  { id: 'f_date', name: 'Closed Month', description: '', type: 'datetime', config: {}, version: 1, is_primary: false },
   {
     id: 'f_amount',
     name: 'Amount',
+    description: '',
     type: 'number',
     config: { format: 'currency', currency: 'USD', precision: 2 },
     version: 1,

@@ -1303,4 +1303,73 @@ defmodule Ankole.Pod.BasesTest do
     {:ok, %{records: [row]}} = Bases.query(actor_fixture(uid), table, %{ids: [id]})
     %{data: row["data"], versions: row["versions"]}
   end
+
+  test "table and field descriptions persist through edits, copies, and the RPC result", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.uid)
+    limit = String.duplicate("界", 682) <> "ab"
+    assert byte_size(limit) == 2048
+
+    # Worker RPC forwards string-keyed parameters to the same domain functions.
+    assert {:ok, table} =
+             Bases.create_table(actor, ctx.page.id, %{
+               "name" => "Invoices",
+               "description" => "Issued invoices from the ERP"
+             })
+
+    assert table.description == "Issued invoices from the ERP"
+    assert ctx.table.description == ""
+
+    assert {:ok, amount} =
+             Bases.create_field(actor, table.id, %{
+               "name" => "Amount",
+               "type" => "number",
+               "description" => "CNY, tax included"
+             })
+
+    assert amount.description == "CNY, tax included"
+
+    assert {:ok, amount} =
+             Bases.update_field(actor, amount.id, %{
+               "version" => amount.version,
+               "description" => limit
+             })
+
+    assert amount.description == limit
+    assert {:ok, table} = Bases.configure_table(actor, table.id, %{"description" => limit})
+    assert table.description == limit
+
+    assert {:error, :description_size_limit} =
+             Bases.create_table(actor, ctx.page.id, %{name: "Too long", description: limit <> "x"})
+
+    assert {:error, :description_size_limit} =
+             Bases.configure_table(actor, table.id, %{description: limit <> "x"})
+
+    assert {:error, :description_size_limit} =
+             Bases.create_field(actor, table.id, %{
+               name: "Note",
+               type: "text",
+               description: limit <> "x"
+             })
+
+    assert {:error, :description_size_limit} =
+             Bases.update_field(actor, amount.id, %{
+               version: amount.version,
+               description: limit <> "x"
+             })
+
+    assert {:ok, schema} = Bases.get_table(actor, table.id)
+
+    assert %{"table" => %{"description" => ^limit}, "fields" => fields} =
+             schema
+             |> Ankole.Pod.Serialization.json_value()
+             |> Ankole.JSON.encode!()
+             |> Ankole.JSON.decode!()
+
+    assert Enum.find(fields, &(&1["id"] == amount.id))["description"] == limit
+
+    {:ok, report} = Pages.create(actor, %{title: "Invoice report"})
+    assert {:ok, copied} = Bases.copy_table(actor, table.id, %{parent_id: report.id})
+    assert copied.table.description == limit
+    assert Enum.find(Bases.fields(copied.table.id), &(&1.name == "Amount")).description == limit
+  end
 end

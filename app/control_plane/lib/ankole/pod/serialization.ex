@@ -188,6 +188,13 @@ defmodule Ankole.Pod.Serialization do
       details: nil
     }
 
+  def error(:description_size_limit),
+    do: %{
+      code: "description_size_limit",
+      message: "Table and field descriptions must not exceed 2 KiB.",
+      details: nil
+    }
+
   def error(:guest_forbidden_in_private),
     do: %{
       code: "guest_forbidden_in_private",

@@ -30,6 +30,7 @@ import {
   PopoverTrigger,
   PopoverContent,
   PopoverTitle,
+  Textarea,
   toast,
   useTheme
 } from '@ankole/uikit'
@@ -202,6 +203,7 @@ function BaseWorkspace({
   const tables = useQuery(baseTablesQuery(detail.page.id))
   const [selected, setSelected] = useState(initialTable ?? '')
   const [renaming, setRenaming] = useState<string>()
+  const [describing, setDescribing] = useState<string>()
   const [deleting, setDeleting] = useState(false)
   const tableSaving = useRef(false)
   const client = useQueryClient()
@@ -273,6 +275,7 @@ function BaseWorkspace({
                   variant="ghost"
                   className={table.id === tableID ? 'font-semibold' : undefined}
                   aria-pressed={table.id === tableID}
+                  title={table.description || undefined}
                   onDoubleClick={() => detail.actions.includes('node_edit') && setRenaming(table.id)}
                   onClick={() => {
                     setSelected(table.id)
@@ -294,6 +297,11 @@ function BaseWorkspace({
                       {detail.actions.includes('node_edit') && (
                         <DropdownMenuItem onClick={() => setRenaming(table.id)}>
                           {t('pod.sidebar.rename')}
+                        </DropdownMenuItem>
+                      )}
+                      {detail.actions.includes('node_edit') && (
+                        <DropdownMenuItem onClick={() => setDescribing(table.id)}>
+                          {t('pod.content.edit_table_description')}
                         </DropdownMenuItem>
                       )}
                       {detail.actions.includes('node_manage') && (
@@ -403,7 +411,69 @@ function BaseWorkspace({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {describing && (
+        <TableDescriptionDialog
+          table={tables.data?.tables.find(table => table.id === describing)}
+          invalidateKey={tablesQueryKey}
+          close={() => setDescribing(undefined)}
+        />
+      )}
     </section>
+  )
+}
+
+function TableDescriptionDialog({
+  table,
+  invalidateKey,
+  close
+}: {
+  table?: BaseTable
+  invalidateKey: readonly unknown[]
+  close(): void
+}) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState(table?.description ?? '')
+  const client = useQueryClient()
+  const write = useMutation({
+    mutationFn: () => baseHTTP.describeTable(table!.id, draft.trim()),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: invalidateKey }),
+        client.invalidateQueries({ queryKey: [...contentKeys.all, 'table', table!.id] })
+      ])
+      close()
+    }
+  })
+  return (
+    <Dialog open={!!table} onOpenChange={next => !next && !write.isPending && close()}>
+      <DialogContent className="pod-dialog" closeLabel={t('common.close')} showCloseButton={!write.isPending}>
+        <DialogTitle>{t('pod.content.edit_table_description')}</DialogTitle>
+        <form
+          className="grid gap-3"
+          onSubmit={event => {
+            event.preventDefault()
+            if (!write.isPending) write.mutate()
+          }}>
+          <Textarea
+            autoFocus
+            aria-label={t('pod.content.description')}
+            value={draft}
+            disabled={write.isPending}
+            onChange={event => setDraft(event.target.value)}
+            placeholder={t('pod.content.table_description_placeholder')}
+          />
+          <ContentError error={write.error} />
+          <DialogFooter>
+            <Button type="button" variant="ghost" disabled={write.isPending} onClick={close}>
+              {t('pod.content.cancel')}
+            </Button>
+            <Button type="submit" disabled={write.isPending}>
+              {write.isPending ? t('pod.content.saving') : t('pod.content.save')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 

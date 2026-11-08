@@ -154,6 +154,12 @@ When a range edit ends in another column, the editor joins the text at both ends
 
 So when two people delete adjacent ranges across the same column boundary concurrently, the converged page can hold an extra column with only an empty paragraph, and undoing one of the edits restores that layout. No text is lost, and deleting the empty column restores the intended layout. Ankole accepts this rare outcome: removing it needs a different change shape for cross-column edits or special handling in transformation, while an automatic cleanup cannot tell such a column from an empty column that a person inserted on purpose.
 
+## Database Connections Trust the Database Role
+
+Ankole authorizes a database connection as a whole: a granted member or Agent may run any read-only statement that the connection's database role can run. Ankole does not enforce row-level or column-level security on external databases, and query results include sensitive columns that the role can read; only catalog samples and value probes withhold sensitive values. Administrators give each audience its own connection with a database role limited to the schemas, rows, and columns that audience may read, and they rely on that role's privileges, row-level security policies, or views.
+
+The read-only session, `sql_inspect`, and the operator's time and size budgets stop writes and runaway reads, and `sql_inspect` rejects known side-effecting built-in functions, but they cannot recognize a user-defined or extension function that the role may call and that causes side effects outside the transaction. A least-privileged, read-only role remains the database owner's responsibility. Database sessions also connect directly from the control plane; the HTTP egress proxy applies only to ClickHouse, whose interface is HTTP.
+
 ## Deliberate Non-Goals
 
 Today, Ankole intentionally does **not** provide:

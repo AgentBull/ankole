@@ -15,6 +15,7 @@ import { parseViewConfig, resolveChartSpec, type ViewConfig } from './state/view
 const textField: BaseField = {
   id: 'f-title',
   name: 'Title',
+  description: '',
   type: 'text',
   config: {},
   version: 1,
@@ -24,6 +25,7 @@ const textField: BaseField = {
 const selectField: BaseField = {
   id: 'f-region',
   name: 'Region',
+  description: '',
   type: 'select',
   config: {
     options: [
@@ -39,6 +41,7 @@ const selectField: BaseField = {
 const dateField: BaseField = {
   id: 'f-date',
   name: 'Order Date',
+  description: '',
   type: 'datetime',
   config: {},
   version: 1,
@@ -48,6 +51,7 @@ const dateField: BaseField = {
 const revenueField: BaseField = {
   id: 'f-rev',
   name: 'Revenue',
+  description: '',
   type: 'number',
   config: { format: 'currency', currency: 'USD', precision: 2 },
   version: 1,

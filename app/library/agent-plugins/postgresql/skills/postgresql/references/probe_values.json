@@ -1,0 +1,101 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Check real column values before concluding that a filter has no data: distinct lists the most frequent values, match finds case- and whitespace-insensitive matches for a value, and range reads the minimum, maximum, and non-null count. Sensitive columns return counts only.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "probes": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": ["distinct", "match", "range"],
+              "type": "string"
+            },
+            "value": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["column", "kind"],
+          "type": "object"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "schema": {
+        "type": ["string", "null"]
+      },
+      "table": {
+        "type": "string"
+      }
+    },
+    "required": ["table", "probes"],
+    "type": "object"
+  },
+  "name": "probe_values",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "results": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "type": "string"
+            },
+            "exact_count": {
+              "type": ["integer", "null"]
+            },
+            "kind": {
+              "type": "string"
+            },
+            "masked": {
+              "type": "boolean"
+            },
+            "max": {
+              "type": ["string", "number", "integer", "boolean", "null"]
+            },
+            "min": {
+              "type": ["string", "number", "integer", "boolean", "null"]
+            },
+            "non_null_count": {
+              "type": ["integer", "null"]
+            },
+            "row_count": {
+              "type": ["integer", "null"]
+            },
+            "values": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "count": {
+                    "type": "integer"
+                  },
+                  "value": {
+                    "type": ["string", "number", "integer", "boolean", "null"]
+                  }
+                },
+                "required": ["count"],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": ["column", "kind", "masked"],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["results"],
+    "type": "object"
+  }
+}

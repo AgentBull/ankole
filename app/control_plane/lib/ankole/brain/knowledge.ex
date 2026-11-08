@@ -80,24 +80,36 @@ defmodule Ankole.Brain.Knowledge do
 
   def page_changed_in_tx(%{type: type}, _content) when type == :file, do: :ok
 
+  # A content save also synchronizes the data semantics of Brain objects;
+  # moves and restores only reindex.
   def page_changed_in_tx(page, _content) do
-    with {:ok, knowledge} <- Objects.get_by_slug(page.id),
+    with {:ok, knowledge} <- reindex_in_tx(page.id),
+         do: Ankole.Brain.DataSemantics.sync_in_tx(knowledge)
+  end
+
+  defp reindex_in_tx(id) do
+    with {:ok, knowledge} <- Objects.get_by_slug(id),
          {:ok, _} <- Chunks.reconcile_locked_in_tx(knowledge),
-         {:ok, _} <- Links.reconcile_object_links_in_tx(page.id) do
-      cond do
-        not extractable?(knowledge) ->
-          :ok
+         {:ok, _} <- Links.reconcile_object_links_in_tx(id),
+         :ok <- learn_in_tx(knowledge),
+         do: {:ok, knowledge}
+  end
 
-        String.trim(knowledge.body) == "" ->
-          Ankole.Brain.SourceLearning.clear_page_facts_in_tx(knowledge)
+  defp learn_in_tx(knowledge) do
+    cond do
+      not extractable?(knowledge) ->
+        :ok
 
-        Ankole.Brain.Config.enabled?() ->
-          with {:ok, _} <- Ankole.Brain.Jobs.LearnSource.enqueue_page(page.id, knowledge.revision),
-               do: :ok
+      String.trim(knowledge.body) == "" ->
+        Ankole.Brain.SourceLearning.clear_page_facts_in_tx(knowledge)
 
-        true ->
-          :ok
-      end
+      Ankole.Brain.Config.enabled?() ->
+        with {:ok, _} <-
+               Ankole.Brain.Jobs.LearnSource.enqueue_page(knowledge.id, knowledge.revision),
+             do: :ok
+
+      true ->
+        :ok
     end
   end
 
@@ -116,7 +128,7 @@ defmodule Ankole.Brain.Knowledge do
             end
 
             {:ok, _} = Nodes.lock(page.id)
-            :ok = page_changed_in_tx(page, nil)
+            {:ok, _} = reindex_in_tx(page.id)
 
           {:error, :not_found} ->
             :ok
@@ -179,7 +191,7 @@ defmodule Ankole.Brain.Knowledge do
         {:ok, page} ->
           {:ok, _} = Nodes.lock(page.id)
           :ok = Ankole.Brain.SourceLearning.clear_facts_revision_in_tx(page.id)
-          :ok = page_changed_in_tx(page, nil)
+          {:ok, _} = reindex_in_tx(page.id)
 
         {:error, :not_found} ->
           {:ok, _} = Chunks.reconcile_node_in_tx(node_id)

@@ -1,12 +1,19 @@
 defmodule Ankole.Connectors.Resolver do
   @moduledoc false
-  alias Ankole.Connectors.{Accounts, Credentials, OAuth, Registry, Store}
+  alias Ankole.Connectors.{Accounts, Credentials, Databases, OAuth, Registry, Store}
 
   def resolve_call(spec, actor, connection, account_key, args \\ %{}) do
     with :ok <- Store.member(actor),
          {:ok, module, _tools} <- Registry.toolkit(spec.toolkit),
-         {:ok, config} <- Store.get_auth_config(connection, Registry.plugin_id(spec.toolkit)),
-         human <- human(actor),
+         {:ok, config} <- Store.get_auth_config(connection, Registry.plugin_id(spec.toolkit)) do
+      if Databases.database?(module),
+        do: Databases.resolve_call(actor, config),
+        else: resolve_account(spec, actor, module, config, connection, account_key, args)
+    end
+  end
+
+  defp resolve_account(spec, actor, module, config, connection, account_key, args) do
+    with human <- human(actor),
          :ok <- subject(spec.subject_policy, human),
          credential_spec = credential_spec(module, spec, human, args),
          {:ok, account, external_user_id} <-

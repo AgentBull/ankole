@@ -40,6 +40,13 @@ defmodule Ankole.Pod.BaseField do
     attribute(:name, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:position, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
 
+    attribute(:description, :string,
+      public?: true,
+      allow_nil?: false,
+      default: "",
+      constraints: [allow_empty?: true]
+    )
+
     attribute(:type, :atom,
       public?: true,
       allow_nil?: false,
@@ -94,12 +101,12 @@ defmodule Ankole.Pod.BaseField do
     defaults([:read])
 
     create :create_in_tx do
-      accept([:id, :table_id, :name, :position, :type, :config, :is_primary])
+      accept([:id, :table_id, :name, :description, :position, :type, :config, :is_primary])
     end
 
     update :update_definition do
       require_atomic?(true)
-      accept([:name, :position, :type, :config])
+      accept([:name, :description, :position, :type, :config])
       change(atomic_update(:version, expr(version + 1)))
     end
 

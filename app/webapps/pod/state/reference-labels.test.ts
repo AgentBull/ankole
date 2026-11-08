@@ -20,12 +20,13 @@ test('reference labels retain 1000-ID batches and follow response pages smaller 
       id: 'target',
       page_id: 'page',
       name: 'Target',
+      description: '',
       data_version: 1,
       record_count: ids.length,
       unique_field_ids: [],
       emit_changes: false
     },
-    fields: [{ id: 'name', name: 'Name', type: 'text', config: {}, version: 1, is_primary: true }],
+    fields: [{ id: 'name', name: 'Name', description: '', type: 'text', config: {}, version: 1, is_primary: true }],
     views: [],
     mode: 'local'
   }

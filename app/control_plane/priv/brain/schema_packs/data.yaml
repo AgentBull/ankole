@@ -1,0 +1,30 @@
+# Ankole Brain schema pack seed. See docs/design-docs/BrainV3.md.
+# Every installation includes this pack with general: a dataset object binds a
+# Base table or an external database table, and a metric object publishes the
+# versioned executable definition that measures it.
+api_version: ankole-brain-schema-pack-v1
+name: data
+version: 1.0.0
+description: Business datasets and versioned metric definitions.
+extends: general
+
+page_types:
+  - name: dataset
+    # A Base table or external table, with its grain, keys, and join keys.
+    primitive: concept
+    slug_prefix: datasets/
+    extractable: false
+    expert_routing: false
+
+  - name: metric
+    # A metric definition whose published revisions execute without a model.
+    primitive: concept
+    slug_prefix: metrics/
+    extractable: false
+    expert_routing: false
+
+link_types:
+  - {name: measures, inverse: measured_by}
+  - {name: joins_to, inverse: joins_to}
+
+calibration_domains: []

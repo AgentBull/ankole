@@ -5,7 +5,7 @@ defmodule Ankole.Pod.Query do
   alias Ankole.Pod.{Formula, Values}
   alias Ankole.Repo
   alias Ankole.Pod.BaseRepo
-  alias Ankole.Pod.Bases.Physical
+  alias Ankole.Pod.Bases.{Links, Physical}
 
   @bucket_formats %{
     "day" => "YYYY-MM-DD",
@@ -84,28 +84,31 @@ defmodule Ankole.Pod.Query do
     do:
       "#{envelope(table)} || jsonb_build_object('created_at', #{utc_timestamp("r.created_at")}, 'updated_at', #{utc_timestamp("r.updated_at")}, 'data', #{data(table, fields)} || #{projection})"
 
-  def filter(_fields, nil, params), do: {:ok, "TRUE", params}
+  def filter(fields, attrs, params), do: combine(attrs, params, &condition(fields, &1, &2))
 
-  def filter(fields, attrs, params) when is_map(attrs) do
+  # The accumulator is opaque so aggregates can also collect linked table IDs.
+  defp combine(nil, acc, _condition), do: {:ok, "TRUE", acc}
+
+  defp combine(attrs, acc, condition) when is_map(attrs) do
     conjunction = Ankole.Attrs.get(attrs, :conjunction, "and")
     conditions = Ankole.Attrs.get(attrs, :conditions, [])
 
     if conjunction in ["and", "or"] and is_list(conditions) and length(conditions) <= 100 and
          Enum.all?(conditions, &is_map/1) do
-      Enum.reduce_while(conditions, {:ok, [], params}, fn attrs, {:ok, sqls, params} ->
-        case condition(fields, attrs, params) do
-          {:ok, sql, params} -> {:cont, {:ok, [sql | sqls], params}}
+      Enum.reduce_while(conditions, {:ok, [], acc}, fn attrs, {:ok, sqls, acc} ->
+        case condition.(attrs, acc) do
+          {:ok, sql, acc} -> {:cont, {:ok, [sql | sqls], acc}}
           error -> {:halt, error}
         end
       end)
       |> case do
-        {:ok, [], params} ->
-          {:ok, "TRUE", params}
+        {:ok, [], acc} ->
+          {:ok, "TRUE", acc}
 
-        {:ok, sqls, params} ->
+        {:ok, sqls, acc} ->
           {:ok,
            "(" <> Enum.join(sqls, if(conjunction == "and", do: " AND ", else: " OR ")) <> ")",
-           params}
+           acc}
 
         error ->
           error
@@ -115,7 +118,7 @@ defmodule Ankole.Pod.Query do
     end
   end
 
-  def filter(_, _, _), do: {:error, :invalid_query}
+  defp combine(_attrs, _acc, _condition), do: {:error, :invalid_query}
 
   defp normalize_group_slices(attrs) when is_map(attrs) do
     with {:ok, first} <- slice_list(Ankole.Attrs.get(attrs, :group), :single_or_list),
@@ -364,22 +367,44 @@ defmodule Ankole.Pod.Query do
     end
   end
 
+  @doc "Reports whether an aggregate request reads linked tables through a `path`."
+  def linked?(attrs) when is_map(attrs) do
+    conditions =
+      case Ankole.Attrs.get(attrs, :filter) do
+        %{} = filter -> List.wrap(Ankole.Attrs.get(filter, :conditions))
+        _ -> []
+      end
+
+    (List.wrap(Ankole.Attrs.get(attrs, :group_by)) ++
+       List.wrap(Ankole.Attrs.get(attrs, :metrics)) ++ conditions)
+    |> Enum.any?(&(is_map(&1) and not is_nil(Ankole.Attrs.get(&1, :path))))
+  end
+
+  def linked?(_attrs), do: false
+
   def aggregate(table, fields, attrs, opts \\ []) do
     fields = Physical.fields(table, fields)
+    links = link_context(table, fields, Keyword.get(opts, :tables, %{}))
     groups = Ankole.Attrs.get(attrs, :group_by, [])
     metrics = Ankole.Attrs.get(attrs, :metrics, [%{"operation" => "count", "alias" => "count"}])
 
     with true <-
            is_list(groups) and length(groups) <= 2 and is_list(metrics) and
              length(metrics) in 1..20 and Enum.all?(groups ++ metrics, &is_map/1),
-         {:ok, where, params} <-
-           filter(fields, Ankole.Attrs.get(attrs, :filter), [Repo.tenant_id!(), table.id]),
+         {:ok, where, {params, filter_tables}} <-
+           combine(
+             Ankole.Attrs.get(attrs, :filter),
+             {[Repo.tenant_id!(), table.id], []},
+             &aggregate_condition(links, &1, &2)
+           ),
          {:ok, omit_empty} <- parse_omit_empty(attrs),
-         {:ok, group_specs, params, lateral} <- prepare_groups(fields, groups, params),
-         {:ok, metric_specs, params} <- prepare_metrics(fields, metrics, params),
+         {:ok, group_specs, params, lateral} <- prepare_groups(links, groups, params),
+         {:ok, metric_specs, params} <- prepare_metrics(links, metrics, params),
          {:ok, order_by} <-
            prepare_order_by(Ankole.Attrs.get(attrs, :order_by), group_specs, metric_specs),
-         {:ok, top_n} <- prepare_top_n(Ankole.Attrs.get(attrs, :top_n), group_specs) do
+         {:ok, top_n} <- prepare_top_n(Ankole.Attrs.get(attrs, :top_n), group_specs),
+         linked = filter_tables ++ Enum.flat_map(group_specs ++ metric_specs, & &1.tables),
+         {:ok, data_versions} <- data_versions(links, linked) do
       aliases = Enum.map(metric_specs, & &1.alias)
 
       case execute_aggregate(
@@ -387,7 +412,7 @@ defmodule Ankole.Pod.Query do
              where,
              omit_empty,
              group_specs,
-             lateral,
+             link_joins(linked, metric_specs) <> lateral,
              metric_specs,
              order_by,
              top_n,
@@ -407,7 +432,8 @@ defmodule Ankole.Pod.Query do
                    metrics_text: Map.new(Enum.zip(aliases, metric_texts))
                  }
                end),
-             data_version: table.data_version
+             data_version: table.data_version,
+             data_versions: data_versions
            }}
 
         _ ->
@@ -419,7 +445,142 @@ defmodule Ankole.Pod.Query do
     end
   end
 
+  # Linked tables share the Base's physical shard, and the caller locked their metadata.
+  defp link_context(table, fields, tables) do
+    tables =
+      Map.new(tables, fn {id, {linked, linked_fields}} ->
+        {id, %{table: linked, fields: Physical.fields(linked, linked_fields)}}
+      end)
+
+    %{root: table.id, tables: Map.put(tables, table.id, %{table: table, fields: fields})}
+  end
+
+  defp root_fields(links), do: links.tables[links.root].fields
+
+  defp data_versions(links, ids) do
+    linked = for id <- Enum.uniq(ids), id != links.root, do: links.tables[id].table
+
+    with {:ok, tables} <- Physical.refresh(linked),
+         do: {:ok, Map.new([links.tables[links.root].table | tables], &{&1.id, &1.data_version})}
+  end
+
+  # Path subqueries alias their own target table as `r`, so they reach the
+  # outer record through `link_root`.
+  defp link_joins([], _metric_specs), do: ""
+
+  defp link_joins(_linked, metric_specs),
+    do:
+      " CROSS JOIN LATERAL (SELECT r.id AS id) AS link_root" <>
+        Enum.map_join(metric_specs, &Map.get(&1, :join, ""))
+
+  defp aggregate_condition(links, attrs, {params, tables}) do
+    operator = Ankole.Attrs.get(attrs, :operator)
+
+    case Ankole.Attrs.get(attrs, :path) do
+      nil when operator in ["exists", "not_exists"] ->
+        {:error, {:invalid_link_path, %{reason: "path_required"}}}
+
+      nil ->
+        with {:ok, sql, params} <- condition(root_fields(links), attrs, params),
+             do: {:ok, sql, {params, tables}}
+
+      path ->
+        with {:ok, link} <- resolve_path(links, path),
+             {:ok, sql, params} <-
+               link_condition(link.fields, operator, Map.drop(attrs, [:path, "path"]), params) do
+          exists =
+            "EXISTS (SELECT 1 FROM #{link.source} WHERE #{link.parent}=link_root.id AND #{sql})"
+
+          {:ok, if(operator == "not_exists", do: "NOT " <> exists, else: exists),
+           {params, tables ++ link.tables}}
+        end
+    end
+  end
+
+  defp link_condition(fields, operator, attrs, params) when operator in ["exists", "not_exists"],
+    do: filter(fields, Ankole.Attrs.get(attrs, :filter), params)
+
+  defp link_condition(fields, _operator, attrs, params), do: condition(fields, attrs, params)
+
+  # Resolves declared link fields hop by hop. `parent` and `child` name the
+  # edge columns that hold the starting and the reached record IDs.
+  defp resolve_path(links, path) when is_list(path) and path != [] and length(path) <= 3 do
+    path
+    |> Enum.with_index()
+    |> Enum.reduce_while(
+      {:ok, %{target: links.root, tables: [], joins: [], parent: nil, child: nil, single?: true}},
+      fn {id, index}, {:ok, link} ->
+        case link_hop(links.tables, link.target, id) do
+          {:ok, field, target} ->
+            {own, peer} = Links.roles(field)
+            edge = "#{BaseRepo.edge(field.config["edge_table"])} e#{index}"
+
+            {:cont,
+             {:ok,
+              %{
+                link
+                | target: target,
+                  tables: [link.target, target | link.tables],
+                  joins: [
+                    if(index == 0,
+                      do: edge,
+                      else: "JOIN #{edge} ON e#{index}.#{own}_id=#{link.child}"
+                    )
+                    | link.joins
+                  ],
+                  parent: link.parent || "e0.#{own}_id",
+                  child: "e#{index}.#{peer}_id",
+                  single?: link.single? and field.config["multiple"] == false
+              }}}
+
+          error ->
+            {:halt, error}
+        end
+      end
+    )
+    |> case do
+      {:ok, link} ->
+        edges = link.joins |> Enum.reverse() |> Enum.join(" ")
+        target = links.tables[link.target]
+
+        {:ok,
+         Map.merge(link, %{
+           edges: edges,
+           fields: target.fields,
+           table: target.table,
+           source: "#{edges} JOIN #{source(target.table)} r ON r.id=#{link.child}"
+         })}
+
+      error ->
+        error
+    end
+  end
+
+  defp resolve_path(_links, path),
+    do: {:error, {:invalid_link_path, %{path: path, reason: "invalid_path"}}}
+
+  defp link_hop(tables, table_id, id) do
+    case Enum.find(tables[table_id].fields, &(&1.id == id)) do
+      %{type: :link, config: %{"table_id" => target, "edge_table" => _, "edge_role" => _}} =
+          field
+      when is_map_key(tables, target) ->
+        {:ok, field, target}
+
+      nil ->
+        {:error, {:invalid_link_path, %{field_id: id, reason: "unknown_field"}}}
+
+      _field ->
+        {:error, {:invalid_link_path, %{field_id: id, reason: "not_link"}}}
+    end
+  end
+
   defp condition(fields, attrs, params) do
+    if is_nil(Ankole.Attrs.get(attrs, :path)),
+      do: plain_condition(fields, attrs, params),
+      else: {:error, {:invalid_link_path, %{reason: "nested_path"}}}
+  end
+
+  defp plain_condition(fields, attrs, params) do
     with {:ok, field} <- field(fields, Ankole.Attrs.get(attrs, :field_id)),
          op <- Ankole.Attrs.get(attrs, :operator),
          {:ok, value} <- condition_value(field, op, Ankole.Attrs.get(attrs, :value)) do
@@ -660,11 +821,11 @@ defmodule Ankole.Pod.Query do
     end
   end
 
-  defp prepare_groups(fields, groups, params) do
+  defp prepare_groups(links, groups, params) do
     Enum.with_index(groups)
     |> Enum.reduce_while({:ok, [], params, ""}, fn {attrs, index},
                                                    {:ok, specs, params, lateral} ->
-      case prepare_group_dimension(fields, attrs, index, params, lateral) do
+      case prepare_group_dimension(links, attrs, index, params, lateral) do
         {:ok, spec, params, lateral} -> {:cont, {:ok, [spec | specs], params, lateral}}
         error -> {:halt, error}
       end
@@ -672,11 +833,37 @@ defmodule Ankole.Pod.Query do
     |> reverse_values()
   end
 
-  defp prepare_group_dimension(fields, attrs, index, params, lateral) do
-    with {:ok, field} <- field(fields, Ankole.Attrs.get(attrs, :field_id)),
-         {:ok, expr, type, params} <- expression(field, fields, params),
-         {:ok, bucket} <- normalize_bucket(Ankole.Attrs.get(attrs, :bucket)) do
-      build_group_spec(expr, type, bucket, index, params, lateral)
+  defp prepare_group_dimension(links, attrs, index, params, lateral) do
+    with {:ok, expr, type, tables, params} <- dimension(links, attrs, params),
+         {:ok, bucket} <- normalize_bucket(Ankole.Attrs.get(attrs, :bucket)),
+         {:ok, spec, params, lateral} <-
+           build_group_spec(expr, type, bucket, index, params, lateral),
+         do: {:ok, Map.put(spec, :tables, tables), params, lateral}
+  end
+
+  defp dimension(links, attrs, params) do
+    case Ankole.Attrs.get(attrs, :path) do
+      nil ->
+        fields = root_fields(links)
+
+        with {:ok, field} <- field(fields, Ankole.Attrs.get(attrs, :field_id)),
+             {:ok, expr, type, params} <- expression(field, fields, params),
+             do: {:ok, expr, type, [], params}
+
+      path ->
+        # Only single-value hops keep one dimension value per record.
+        with {:ok, %{single?: true} = link} <- resolve_path(links, path),
+             {:ok, field} <- field(link.fields, Ankole.Attrs.get(attrs, :field_id)),
+             {:ok, expr, type, params} <- expression(field, link.fields, params) do
+          {:ok, "(SELECT #{expr} FROM #{link.source} WHERE #{link.parent}=link_root.id)", type,
+           link.tables, params}
+        else
+          {:ok, _link} ->
+            {:error, {:invalid_link_path, %{path: path, reason: "multi_value_dimension"}}}
+
+          error ->
+            error
+        end
     end
   end
 
@@ -737,23 +924,30 @@ defmodule Ankole.Pod.Query do
   defp array_elements_source(expr),
     do: "CASE WHEN jsonb_typeof(#{expr}) = 'array' THEN #{expr} ELSE '[]'::jsonb END"
 
-  defp prepare_metrics(fields, metrics, params) do
+  defp prepare_metrics(links, metrics, params) do
     Enum.with_index(metrics)
     |> Enum.reduce_while({:ok, [], params}, fn {attrs, index}, {:ok, specs, params} ->
-      case prepare_metric(fields, attrs, index, params) do
-        {:ok, spec, params} -> {:cont, {:ok, [spec | specs], params}}
+      case prepare_metric(links, attrs, index, params) do
+        {:ok, spec, params} -> {:cont, {:ok, [Map.put_new(spec, :tables, []) | specs], params}}
         error -> {:halt, error}
       end
     end)
     |> reverse_values()
   end
 
-  defp prepare_metric(fields, attrs, index, params) do
+  defp prepare_metric(links, attrs, index, params) do
     operation = normalize_string(Ankole.Attrs.get(attrs, :operation))
     alias_name = normalize_string(Ankole.Attrs.get(attrs, :alias, operation))
+    path = Ankole.Attrs.get(attrs, :path)
 
     cond do
       not is_binary(alias_name) or alias_name == "" ->
+        {:error, :invalid_query}
+
+      not is_nil(path) ->
+        prepare_link_metric(links, attrs, path, index, operation, alias_name, params)
+
+      not is_nil(Ankole.Attrs.get(attrs, :filter)) ->
         {:error, :invalid_query}
 
       operation == "count" and is_nil(Ankole.Attrs.get(attrs, :field_id)) ->
@@ -767,7 +961,7 @@ defmodule Ankole.Pod.Query do
          }, params}
 
       operation in ["count", "count_distinct", "sum", "avg", "min", "max"] ->
-        prepare_field_metric(fields, attrs, index, operation, alias_name, params)
+        prepare_field_metric(root_fields(links), attrs, index, operation, alias_name, params)
 
       true ->
         {:error, :invalid_query}
@@ -807,6 +1001,67 @@ defmodule Ankole.Pod.Query do
     else
       _ -> {:error, :invalid_query}
     end
+  end
+
+  # Each linked record reached through the path is aggregated once per parent
+  # record before the join, so a parent's own values are never repeated per child.
+  defp prepare_link_metric(links, attrs, path, index, operation, alias_name, params) do
+    name = "link_metric_#{index}"
+    col = "m_#{index}"
+
+    with true <-
+           operation in ["count", "sum", "avg", "min", "max"] or
+             {:error, {:invalid_link_path, %{path: path, reason: "unsupported_operation"}}},
+         {:ok, link} <- resolve_path(links, path),
+         {:ok, input, params} <-
+           link_metric_input(link.fields, Ankole.Attrs.get(attrs, :field_id), operation, params),
+         {:ok, where, params} <- filter(link.fields, Ankole.Attrs.get(attrs, :filter), params) do
+      {child_sql, agg_sql} = link_metric_sql(operation, input, col)
+
+      {:ok,
+       %{
+         index: index,
+         alias: alias_name,
+         operation: operation,
+         input_sql: "#{name}.value",
+         extra: if(operation == "avg", do: [{"#{name}.n", "#{col}_n"}], else: []),
+         agg_sql: agg_sql,
+         tables: link.tables,
+         cte:
+           "#{name} AS (SELECT pairs.parent_id, #{child_sql} FROM (SELECT DISTINCT #{link.parent} AS parent_id, #{link.child} AS child_id FROM #{link.edges}) pairs JOIN #{source(link.table)} r ON r.id=pairs.child_id WHERE #{where} GROUP BY pairs.parent_id)",
+         join: " LEFT JOIN #{name} ON #{name}.parent_id=r.id"
+       }, params}
+    end
+  end
+
+  defp link_metric_input(_fields, nil, "count", params), do: {:ok, nil, params}
+
+  defp link_metric_input(fields, field_id, operation, params) do
+    with {:ok, field} <- field(fields, field_id),
+         {:ok, expr, type, params} <- expression(field, fields, params),
+         true <- valid_metric_type?(operation, type) or {:error, :invalid_query},
+         do: {:ok, {metric_input_sql(expr, type), type}, params}
+  end
+
+  defp link_metric_sql("count", nil, col),
+    do: {"count(*) AS value", "COALESCE(sum(#{col}), 0)::bigint"}
+
+  defp link_metric_sql("count", {input, _type}, col),
+    do: {"count(#{input}) AS value", "COALESCE(sum(#{col}), 0)::bigint"}
+
+  defp link_metric_sql("avg", {input, _type}, col),
+    do:
+      {"sum(#{input}) AS value, count(#{input}) AS n", "(sum(#{col}) / NULLIF(sum(#{col}_n), 0))"}
+
+  defp link_metric_sql(operation, {input, :text}, col) when operation in ["min", "max"],
+    do: {"#{operation}(#{input}) AS value", "#{operation}(#{col} COLLATE \"C\")"}
+
+  defp link_metric_sql(operation, {input, _type}, col),
+    do: {"#{operation}(#{input}) AS value", "#{operation}(#{col})"}
+
+  defp metric_columns(spec) do
+    if(spec.input_sql, do: [{spec.input_sql, "m_#{spec.index}"}], else: []) ++
+      Map.get(spec, :extra, [])
   end
 
   defp valid_metric_type?(op, _type) when op in ["count", "count_distinct"], do: true
@@ -914,11 +1169,7 @@ defmodule Ankole.Pod.Query do
     projected =
       ["r.id AS __row_id"] ++
         Enum.map(group_specs, &"#{&1.sql} AS g#{&1.index}") ++
-        for(
-          spec <- metric_specs,
-          not is_nil(spec.input_sql),
-          do: "#{spec.input_sql} AS m_#{spec.index}"
-        )
+        for(spec <- metric_specs, {sql, col} <- metric_columns(spec), do: "#{sql} AS #{col}")
 
     raw_sql =
       "SELECT #{Enum.join(projected, ", ")} FROM #{source(table)} r #{lateral} WHERE #{scope(table)} AND (#{where})"
@@ -950,7 +1201,7 @@ defmodule Ankole.Pod.Query do
 
     execute(
       table,
-      "WITH #{raw_cte_name} AS (#{raw_sql})#{tail_ctes} SELECT jsonb_build_array(#{group_cols}), jsonb_build_array(#{group_jsons}), #{other_array_sql}, jsonb_build_array(#{metric_aggs}), jsonb_build_array(#{metric_texts}) FROM #{from_table}#{group_by_sql}#{order_sql} LIMIT #{max_groups + 1}",
+      "WITH #{Enum.map_join(metric_specs, &if(&1[:cte], do: &1.cte <> ", ", else: ""))}#{raw_cte_name} AS (#{raw_sql})#{tail_ctes} SELECT jsonb_build_array(#{group_cols}), jsonb_build_array(#{group_jsons}), #{other_array_sql}, jsonb_build_array(#{metric_aggs}), jsonb_build_array(#{metric_texts}) FROM #{from_table}#{group_by_sql}#{order_sql} LIMIT #{max_groups + 1}",
       params
     )
   end
@@ -1049,8 +1300,7 @@ defmodule Ankole.Pod.Query do
         end
       end)
 
-    metric_cols =
-      for spec <- metric_specs, not is_nil(spec.input_sql), do: "m_#{spec.index}"
+    metric_cols = for spec <- metric_specs, {_sql, col} <- metric_columns(spec), do: col
 
     cols = Enum.join(["__row_id"] ++ group_projections ++ metric_cols, ", ")
 

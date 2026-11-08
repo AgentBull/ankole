@@ -102,6 +102,9 @@ defmodule Ankole.Pod.Applets.Capabilities do
   defp dispatch(_page, actor, "base.aggregate", [id, query]) when is_map(query),
     do: Bases.aggregate(actor, id, query)
 
+  defp dispatch(_page, actor, "metrics.query", [metric, options]) when is_map(options),
+    do: Ankole.Brain.execute_metric(actor, metric, options["revision"], options["params"] || %{})
+
   defp dispatch(_page, actor, "base.write", [id, changes]) when is_map(changes),
     do: Bases.write_records(actor, id, changes, actor.turn_authority)
 

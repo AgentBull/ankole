@@ -1,0 +1,30 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Run a published Brain metric by its slug and immutable revision with typed parameters. Ankole compiles the metric's SQL deterministically, so the result matches every other caller of that revision.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "metric_slug": {
+        "type": "string"
+      },
+      "params": {
+        "type": "object"
+      },
+      "revision": {
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "required": ["metric_slug", "revision"],
+    "type": "object"
+  },
+  "name": "metric_query",
+  "outputSchema": {
+    "type": "object"
+  }
+}

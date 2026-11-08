@@ -8,6 +8,7 @@ defmodule Ankole.Connectors.Store do
     CloudProvider,
     ConnectedAccount,
     Credentials,
+    Databases,
     Registry
   }
 
@@ -195,7 +196,8 @@ defmodule Ankole.Connectors.Store do
              sealed_secret: sealed,
              created_by_uid: actor_uid
            }),
-         :ok <- Accounts.sync_installation_in_tx(row) do
+         :ok <- Accounts.sync_installation_in_tx(row),
+         :ok <- Databases.saved_in_tx(row, attrs["access"], true) do
       {:ok, row}
     else
       error -> normalize_write_error(error)
@@ -212,7 +214,8 @@ defmodule Ankole.Connectors.Store do
           with :ok <- select_default_in_tx(original.plugin_id, id, changes["is_default"] == true),
                %AuthConfig{} = row <- lock(id),
                true <- row.secret_version == original.secret_version,
-               {:ok, updated} <- update_in_tx(row, changes) do
+               {:ok, updated} <- update_in_tx(row, changes),
+               :ok <- Databases.saved_in_tx(updated, Ankole.Attrs.get(attrs, :access), false) do
             {:ok, updated}
           else
             nil -> {:error, :not_found}
@@ -450,6 +453,8 @@ defmodule Ankole.Connectors.Store do
     |> Map.put(:public_metadata, metadata)
     |> Map.put(:configured_credential_fields, configured_fields)
     |> Map.put(:platform_name, platform_name(row.plugin_id, metadata))
+    |> Map.put(:access, Databases.access(row))
+    |> Map.put(:catalog, Databases.catalog(row))
   end
 
   # A plugin that serves several platforms names the one this connection calls.

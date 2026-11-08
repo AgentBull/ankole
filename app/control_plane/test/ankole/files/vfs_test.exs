@@ -602,7 +602,15 @@ defmodule Ankole.Files.VfsTest do
     {:ok, root} = Nodes.private_root(ctx.agent.uid)
     {:ok, page} = Pages.create(ctx.actor, %{parent_id: root.id, title: "Sales", type: "base"})
     {:ok, %{tables: [table]}} = Bases.list_tables(ctx.actor, page.id)
-    {:ok, notes} = Bases.create_field(ctx.actor, table.id, %{name: "Notes", type: "text"})
+
+    {:ok, notes} =
+      Bases.create_field(ctx.actor, table.id, %{
+        name: "Notes",
+        type: "text",
+        description: "Sales rep remarks from the CRM"
+      })
+
+    {:ok, _} = Bases.configure_table(ctx.actor, table.id, %{description: "Orders in CNY"})
 
     {:ok, serial} =
       Bases.create_field(ctx.actor, table.id, %{name: "Serial", type: "auto_number"})
@@ -623,6 +631,13 @@ defmodule Ankole.Files.VfsTest do
     assert request(ctx, "PUT", prefix <> "/.import/append.csv", input, headers).status == 201
     assert request(ctx, "GET", prefix <> "/.import/append.csv").resp_body == ""
     assert request(ctx, "GET", prefix <> "/.info/count").resp_body == "205\n"
+
+    schema = Ankole.JSON.decode!(request(ctx, "GET", prefix <> "/.info/schema.json").resp_body)
+    assert schema["table"]["description"] == "Orders in CNY"
+
+    assert Enum.find(schema["fields"], &(&1["id"] == notes.id))["description"] ==
+             "Sales rep remarks from the CRM"
+
     {:ok, rows} = Bases.query(ctx.actor, table.id, %{page_size: 205})
     assert Enum.map(rows.records, & &1["data"][serial.id]) == Enum.to_list(1..205)
     assert hd(rows.records)["data"][notes.id] == "line one\nline two"

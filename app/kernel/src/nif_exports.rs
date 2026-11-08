@@ -463,6 +463,21 @@ pub fn markdown_repair_generated_nif(source: Term<'_>) -> NIFResult<String> {
     Ok(crate::markdown::repair_generated_markdown(&source))
 }
 
+/// Returns `{:ok, facts}` or `{:error, %{"code" => code, "message" => message}}`.
+#[cfg(feature = "sql_inspect")]
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn sql_inspect_nif<'a>(env: Env<'a>, sql: Term<'a>, dialect: Term<'a>) -> NIFResult<Term<'a>> {
+    let sql = decode_binary(sql, "sql")?;
+    let dialect = decode_string(dialect, "dialect")?;
+    let result = str::from_utf8(sql.as_slice())
+        .map_err(|_| crate::sql_inspect::InspectError::parse("SQL must be valid UTF-8"))
+        .and_then(|sql| crate::sql_inspect::inspect(sql, &dialect));
+    Ok(match result {
+        Ok(facts) => (atoms::ok(), encode_json_value(env, &facts)).encode(env),
+        Err(reason) => (atoms::error(), encode_json_value(env, &reason.to_json())).encode(env),
+    })
+}
+
 #[cfg(feature = "file_text")]
 #[rustler::nif]
 pub fn file_extractor_version_nif() -> u32 {

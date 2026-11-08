@@ -1199,10 +1199,10 @@ Strict resource caps bound internal loops before they can amplify cost:
 Callers enable Brain memory tools by declaring `{"type": "brain"}` (with an
 optional `operations` filter; Background Agent Jobs and Workflow tasks restrict
 `operations` to `recall` and `get_page`). AIGateway expands that hosted tool
-into root provider functions for `remember`, `learn_source`, `recall`,
-`get_page`, `forget`, `entity`, `whoknows`, `synthesize`, and `delta`—reserving
-all nine names so any colliding caller tool is rejected—using schemas and
-executors owned by `Ankole.Brain.Tools`.
+into root provider functions for `remember`, `recall`, `entity`, `whoknows`,
+`synthesize`, `delta`, `write_object`, and `metric_query`—reserving all eight
+names so any colliding caller tool is rejected—using schemas and executors owned
+by `Ankole.Brain.Tools`.
 
 AIGateway executes every Brain call locally inside the current public Response
 across all providers, counting each pair against the built-in tool budget:
@@ -1213,6 +1213,9 @@ across all providers, counting each pair against the built-in tool budget:
   or `failed`, and JSON `output` that the model receives as a
   `function_call_output` on the next provider round); an individual Brain error
   fails only that call, and later turns replay settled pairs as function items.
+  A failed `output` carries `error` and `reason`: a structured domain error such
+  as `metric_needs_review` keeps its own code with its details as JSON text, and
+  any other error reports `brain_operation_failed`.
 
 Every Brain call queries and writes as the authenticated `subject_uid`. Rather
 than trusting opaque public `metadata.signal_id` fields, runtime callers construct

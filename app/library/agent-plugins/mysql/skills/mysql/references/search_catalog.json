@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search the cached catalog of tables, views, and columns by name and comment. A blank query lists the most frequently queried tables.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "maximum": 50,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "query": {
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "search_catalog",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "complete": {
+        "description": "False when the cache holds only the first tables up to the operator's catalog budget; a table missing here may still exist, so query the database's own catalog for it.",
+        "type": "boolean"
+      },
+      "tables": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "columns": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "comment": {
+              "type": ["string", "null"]
+            },
+            "kind": {
+              "type": "string"
+            },
+            "query_count": {
+              "type": ["integer", "null"]
+            },
+            "row_estimate": {
+              "type": ["integer", "null"]
+            },
+            "schema": {
+              "type": "string"
+            },
+            "table": {
+              "type": "string"
+            }
+          },
+          "required": ["schema", "table", "kind", "columns"],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["tables", "complete"],
+    "type": "object"
+  }
+}

@@ -133,6 +133,72 @@ defmodule Ankole.Conversations.ActionCardsTest do
     assert content.plain_text =~ "Approved evidence"
   end
 
+  test "an approved metric proposal publishes a revision", ctx do
+    actor = actor_fixture(ctx.alice)
+    datasets = Ankole.BrainFixtures.category_fixture(ctx.alice.uid, "datasets")
+    metrics = Ankole.BrainFixtures.category_fixture(ctx.alice.uid, "metrics")
+    {:ok, base} = Pages.create(actor, %{type: "base", title: "Orders"})
+    {:ok, %{tables: [table]}} = Bases.list_tables(actor, base.id)
+
+    {:ok, dataset} =
+      Pages.create(actor, %{
+        type: :knowledge,
+        parent_id: datasets.id,
+        title: "Orders",
+        metadata: %{
+          "grain" => "one row per order",
+          "source" => %{"kind" => "base", "table_id" => table.id}
+        }
+      })
+
+    primary = Enum.find(Bases.fields(table.id), & &1.is_primary)
+
+    message =
+      propose_native_card(ctx, "metric-create", %{
+        "action_kind" => "brain.object.create",
+        "summary" => "Publish order count",
+        "node_id" => metrics.id,
+        "category" => "metrics",
+        "title" => "Order count",
+        "base_revision" => 0,
+        "markdown" => """
+        ---
+        aliases: [order count]
+        dataset: #{dataset.id}
+        grain: order
+        unit: orders
+        numerator: Orders in the ledger
+        spec:
+          metrics:
+            - {operation: count, alias: value}
+          filter:
+            conditions:
+              - {field_id: #{primary.id}, operator: is_not_empty}
+        ---
+        Counts named orders.
+        """
+      })
+
+    card_id = message.rich_content["action_card"]["card_id"]
+
+    assert {:ok, _} =
+             Conversations.resolve_action_card(actor, ctx.room_id, card_id, :confirm)
+
+    titles = Enum.map(Ankole.Pod.Pages.Tree.list_children(metrics.id), & &1.title)
+    assert titles == ["Order count"]
+    [page] = Ankole.Pod.Pages.Tree.list_children(metrics.id)
+
+    assert [%{revision: 1, status: :published, approved_by: approved_by}] =
+             Ankole.Brain.Schemas.MetricRevision |> Ankole.Ash.read!()
+
+    assert approved_by.uid == ctx.alice.uid
+
+    assert {:ok, %{revision: %{revision: 1}, result: %{groups: [group]}}} =
+             Ankole.Brain.execute_metric(actor, page.id, :latest, %{})
+
+    assert group.metrics_text["value"] == "0"
+  end
+
   for concurrent_edit? <- [false, true] do
     @tag concurrent_edit?: concurrent_edit?
     test "knowledge proposal commits body and metadata only at its captured revision (race=#{concurrent_edit?})",

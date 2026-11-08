@@ -184,7 +184,7 @@ Application.ensure_all_started(:postgrex)
       )
     end
 
-    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20_261_103_020_000, log: false)
+    Ankole.Migrations.migrate(repo, Ankole.Migrations.paths(), :up, all: true, log: false)
 
     assert [[false, state]] =
              repo.query!("SELECT enabled_for_all,upstream_state FROM skills WHERE slug=$1", [
@@ -273,7 +273,7 @@ Application.ensure_all_started(:postgrex)
     assert [[1]] =
              repo.query!("SELECT count(*) FROM pages WHERE system_key='ankole_brain'").rows
 
-    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20_261_103_020_000, log: false)
+    Ankole.Migrations.migrate(repo, Ankole.Migrations.paths(), :up, all: true, log: false)
 
     canonical = fn content ->
       {:ok, parsed} = Ankole.Kernel.knowledge_parse(content)

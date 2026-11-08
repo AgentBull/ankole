@@ -1,0 +1,6 @@
+{
+  "name": "postgresql",
+  "version": "1.0.0",
+  "description": "Answer questions from a tenant PostgreSQL database with catalog search, value probes, plans, read-only queries, and published metrics.",
+  "skills": "./skills/"
+}

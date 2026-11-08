@@ -27,6 +27,8 @@ defmodule Ankole.TenancyGuardTest do
   # names. Inline uniqueness binds tenant_id and table_id; the schedule sequence only
   # allocates an opaque database ID and reads no tenant data.
   # Connector maintenance enumerates the site, then enters each row's tenant before work.
+  # Database connectors run Postgrex statements on a tenant's external database,
+  # which holds no Ankole rows; that connection's credentials scope the reads.
   # A site Provider's reference check reads Agent, configuration, and enabled OIDC
   # Client model profiles across tenants and returns only tenant-qualified labels.
   @reviewed_query_escapes %{
@@ -73,6 +75,10 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/credential_upgrade.ex:table?" => 1,
     "raw_sql:lib/ankole/credential_upgrade.ex:preflight!" => 2,
     "raw_sql:lib/ankole/credential_upgrade.ex:connect_oidc_evidence!" => 2,
+    "raw_sql:../../plugins/database_connectors/lib/ankole/plugins/database_connectors/postgresql.ex:exec" =>
+      4,
+    "raw_sql:../../plugins/database_connectors/lib/ankole/plugins/database_connectors/postgresql.ex:typed_columns" =>
+      1,
     "across_tenants:../../plugins/line_adapter/lib/ankole/plugins/line_adapter/webhook.ex:consumer_for_channel" =>
       1,
     "across_tenants:../../plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/teams_webhook.ex:consumers_for_app" =>
@@ -250,6 +256,10 @@ defmodule Ankole.TenancyGuardTest do
       "The application generates each OAuth session's UUIDv7; claims bind tenant and actor.",
     "connector_triggers_pkey" =>
       "The application generates each trigger's UUIDv7; reads bind tenant_id.",
+    "connector_db_catalog_tables_pkey" =>
+      "The application generates each cached table's UUIDv7; reads bind tenant_id.",
+    "connector_db_catalog_columns_pkey" =>
+      "The application generates each cached column's UUIDv7; reads bind tenant_id.",
     "connector_auth_configs_active_platform_app_uidx" =>
       "One active consuming connection owns a platform application across the site.",
     "connector_auth_configs_active_platform_client_uidx" =>

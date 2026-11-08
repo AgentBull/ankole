@@ -87,6 +87,7 @@ test('array-valued formulas honor the same database comparison gate as their ref
       {
         id: 'formula',
         name: 'Related',
+        description: '',
         type: 'formula',
         config: { result_type: 'array' },
         version: 1,
@@ -145,6 +146,28 @@ test('fail-closed allowlists route ranking, distinct counts, empty omission, dri
       ...({ future_clause: true } as Record<string, unknown>)
     })
   ).toBe(false)
+  expect(
+    canAggregateLocally(schema, {
+      group_by: [{ field_id: 'name', path: ['link'] }],
+      metrics: [{ operation: 'count', alias: 'count' }]
+    })
+  ).toBe(false)
+  expect(
+    canAggregateLocally(schema, {
+      metrics: [{ operation: 'count', alias: 'count', path: ['link'] }]
+    })
+  ).toBe(false)
+  for (const condition of [
+    { field_id: 'name', operator: 'is' as const, value: 'Ada', path: ['link'] },
+    { operator: 'exists' as const, path: ['link'] }
+  ]) {
+    expect(
+      canAggregateLocally(schema, {
+        filter: { conjunction: 'and', conditions: [condition] },
+        metrics: [{ operation: 'count', alias: 'count' }]
+      })
+    ).toBe(false)
+  }
 
   expect(
     canQueryLocally(schema, {

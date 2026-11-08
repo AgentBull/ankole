@@ -554,6 +554,7 @@ not exist, and AIGateway-hosted Response tools never enter this registry).
 | `entity` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
 | `whoknows` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
 | `delta` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
+| `metric_query` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
 | `request_parent_input` | The Worker lead-thread guard and the control plane wait | Always declared; only the lead thread may call it |
 
 Brain write operations, browser tools, and foreground-only tools never enter

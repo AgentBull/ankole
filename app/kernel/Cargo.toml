@@ -49,6 +49,7 @@ nif = [
   "file_text",
   "object_store",
   "model_image",
+  "sql_inspect",
 ]
 # Node addon for browser URL policy, checked connections, and token estimates.
 # Do not combine with nif.
@@ -78,6 +79,7 @@ universal_ai_client = [
 # Custom root CA certificate field on `TransportSpec` for local TLS test fixtures.
 test-ca = []
 model_image = ["dep:image", "dep:webp"]
+sql_inspect = ["dep:sqlparser"]
 
 [dependencies]
 ankole_spreadsheet = { path = "spreadsheet", optional = true }
@@ -128,6 +130,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["unbounded_depth"] }
 serde_yaml_ng = { version = "0.10.0", optional = true }
 sonic-rs = "0.5.10"
+sqlparser = { version = "0.63.0", features = ["visitor"], optional = true }
 stacker = { version = "0.1.25", optional = true }
 tiktoken-rs = "0.12.1"
 tokio = { version = "1.54.1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"], optional = true }

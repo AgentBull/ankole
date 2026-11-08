@@ -53,6 +53,9 @@ pub mod object_store;
 #[cfg(feature = "model_image")]
 pub mod model_image;
 
+#[cfg(feature = "sql_inspect")]
+pub mod sql_inspect;
+
 #[cfg(feature = "universal_ai_client")]
 pub mod universal_ai_client;
 

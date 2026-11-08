@@ -14,6 +14,18 @@ type State = {
   }
   document_agent_uid?: string
   connector_provider_url?: string
+  aggregate_applet_id: string
+  aggregate_items_table_id: string
+  aggregate_item_id: string
+  aggregate_item_amount_field_id: string
+  external_database: {
+    host: string
+    port: number
+    database: string
+    username: string
+    password: string
+    table_count: number
+  }
   agent_actions_url: string
   base_url: string
   mailbox_path: string

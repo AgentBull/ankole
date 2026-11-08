@@ -275,6 +275,23 @@ export interface ToolkitInputs {
     }
     who_am_i: { [key: string]: unknown }
   }
+  clickhouse: {
+    describe_table: { schema?: string | null; table: string }
+    explain: { params?: Array<string | number | number | boolean | null>; sql: string }
+    metric_query: { metric_slug: string; params?: { [key: string]: unknown }; revision: number }
+    probe_values: {
+      probes: Array<{ column: string; kind: 'distinct' | 'match' | 'range'; value?: string | null }>
+      schema?: string | null
+      table: string
+    }
+    query: {
+      export?: { base_object_id?: string | null; name: string; page_id: string; role: 'file' | 'asset' | 'attachment' }
+      max_rows?: number
+      params?: Array<string | number | number | boolean | null>
+      sql: string
+    }
+    search_catalog: { limit?: number; query?: string }
+  }
   figma: {
     add_a_comment_to_a_file: {
       client_meta?: { [key: string]: unknown }
@@ -4289,6 +4306,40 @@ export interface ToolkitInputs {
           targetDate?: string | null
           teams: Array<string>
         }
+  }
+  mysql: {
+    describe_table: { schema?: string | null; table: string }
+    explain: { params?: Array<string | number | number | boolean | null>; sql: string }
+    metric_query: { metric_slug: string; params?: { [key: string]: unknown }; revision: number }
+    probe_values: {
+      probes: Array<{ column: string; kind: 'distinct' | 'match' | 'range'; value?: string | null }>
+      schema?: string | null
+      table: string
+    }
+    query: {
+      export?: { base_object_id?: string | null; name: string; page_id: string; role: 'file' | 'asset' | 'attachment' }
+      max_rows?: number
+      params?: Array<string | number | number | boolean | null>
+      sql: string
+    }
+    search_catalog: { limit?: number; query?: string }
+  }
+  postgresql: {
+    describe_table: { schema?: string | null; table: string }
+    explain: { params?: Array<string | number | number | boolean | null>; sql: string }
+    metric_query: { metric_slug: string; params?: { [key: string]: unknown }; revision: number }
+    probe_values: {
+      probes: Array<{ column: string; kind: 'distinct' | 'match' | 'range'; value?: string | null }>
+      schema?: string | null
+      table: string
+    }
+    query: {
+      export?: { base_object_id?: string | null; name: string; page_id: string; role: 'file' | 'asset' | 'attachment' }
+      max_rows?: number
+      params?: Array<string | number | number | boolean | null>
+      sql: string
+    }
+    search_catalog: { limit?: number; query?: string }
   }
   salesforce: {
     add_contact_to_campaign: {
@@ -53714,6 +53765,77 @@ export interface ToolkitOutputs {
     }
     who_am_i: { result: Toolkit_calendly_who_am_i_output_schema_2; [key: string]: unknown }
   }
+  clickhouse: {
+    describe_table: {
+      columns: Array<{
+        comment?: string | null
+        foreign_key?: { [key: string]: unknown } | null
+        name: string
+        nullable: boolean
+        primary_key?: boolean
+        profile?: { [key: string]: unknown } | null
+        sensitive: boolean
+        sparse_order_key?: boolean
+        type: string
+        unique?: boolean
+      }>
+      comment?: string | null
+      fetched_at?: string
+      kind?: string
+      primary_key?: Array<string>
+      query_count?: number | null
+      row_estimate?: number | null
+      schema: string
+      sparse_order_key?: Array<string>
+      table: string
+    }
+    explain: { plan: unknown; sql: string }
+    metric_query: { [key: string]: unknown }
+    probe_values: {
+      results: Array<{
+        column: string
+        exact_count?: number | null
+        kind: string
+        masked: boolean
+        max?: string | number | number | boolean | null
+        min?: string | number | number | boolean | null
+        non_null_count?: number | null
+        row_count?: number | null
+        values?: Array<{ count: number; value?: string | number | number | boolean | null }>
+      }>
+    }
+    query: {
+      columns: Array<{ name: string; type: string; [key: string]: unknown }>
+      data_timestamp: string
+      elapsed_ms: number
+      file?: {
+        content_type?: string
+        file_ref?: string
+        row_count?: number
+        size?: number
+        truncated?: boolean
+        [key: string]: unknown
+      } | null
+      row_count: number
+      rows: Array<unknown>
+      sql: string
+      truncated: boolean
+      warnings: Array<string>
+      [key: string]: unknown
+    }
+    search_catalog: {
+      complete: boolean
+      tables: Array<{
+        columns: Array<string>
+        comment?: string | null
+        kind: string
+        query_count?: number | null
+        row_estimate?: number | null
+        schema: string
+        table: string
+      }>
+    }
+  }
   figma: {
     add_a_comment_to_a_file: { result: Toolkit_figma_add_a_comment_to_a_file_output_schema_1; [key: string]: unknown }
     add_a_reaction_to_a_comment: {
@@ -65146,6 +65268,148 @@ export interface ToolkitOutputs {
         [key: string]: unknown
       }
       [key: string]: unknown
+    }
+  }
+  mysql: {
+    describe_table: {
+      columns: Array<{
+        comment?: string | null
+        foreign_key?: { [key: string]: unknown } | null
+        name: string
+        nullable: boolean
+        primary_key?: boolean
+        profile?: { [key: string]: unknown } | null
+        sensitive: boolean
+        sparse_order_key?: boolean
+        type: string
+        unique?: boolean
+      }>
+      comment?: string | null
+      fetched_at?: string
+      kind?: string
+      primary_key?: Array<string>
+      query_count?: number | null
+      row_estimate?: number | null
+      schema: string
+      sparse_order_key?: Array<string>
+      table: string
+    }
+    explain: { plan: unknown; sql: string }
+    metric_query: { [key: string]: unknown }
+    probe_values: {
+      results: Array<{
+        column: string
+        exact_count?: number | null
+        kind: string
+        masked: boolean
+        max?: string | number | number | boolean | null
+        min?: string | number | number | boolean | null
+        non_null_count?: number | null
+        row_count?: number | null
+        values?: Array<{ count: number; value?: string | number | number | boolean | null }>
+      }>
+    }
+    query: {
+      columns: Array<{ name: string; type: string; [key: string]: unknown }>
+      data_timestamp: string
+      elapsed_ms: number
+      file?: {
+        content_type?: string
+        file_ref?: string
+        row_count?: number
+        size?: number
+        truncated?: boolean
+        [key: string]: unknown
+      } | null
+      row_count: number
+      rows: Array<unknown>
+      sql: string
+      truncated: boolean
+      warnings: Array<string>
+      [key: string]: unknown
+    }
+    search_catalog: {
+      complete: boolean
+      tables: Array<{
+        columns: Array<string>
+        comment?: string | null
+        kind: string
+        query_count?: number | null
+        row_estimate?: number | null
+        schema: string
+        table: string
+      }>
+    }
+  }
+  postgresql: {
+    describe_table: {
+      columns: Array<{
+        comment?: string | null
+        foreign_key?: { [key: string]: unknown } | null
+        name: string
+        nullable: boolean
+        primary_key?: boolean
+        profile?: { [key: string]: unknown } | null
+        sensitive: boolean
+        sparse_order_key?: boolean
+        type: string
+        unique?: boolean
+      }>
+      comment?: string | null
+      fetched_at?: string
+      kind?: string
+      primary_key?: Array<string>
+      query_count?: number | null
+      row_estimate?: number | null
+      schema: string
+      sparse_order_key?: Array<string>
+      table: string
+    }
+    explain: { plan: unknown; sql: string }
+    metric_query: { [key: string]: unknown }
+    probe_values: {
+      results: Array<{
+        column: string
+        exact_count?: number | null
+        kind: string
+        masked: boolean
+        max?: string | number | number | boolean | null
+        min?: string | number | number | boolean | null
+        non_null_count?: number | null
+        row_count?: number | null
+        values?: Array<{ count: number; value?: string | number | number | boolean | null }>
+      }>
+    }
+    query: {
+      columns: Array<{ name: string; type: string; [key: string]: unknown }>
+      data_timestamp: string
+      elapsed_ms: number
+      file?: {
+        content_type?: string
+        file_ref?: string
+        row_count?: number
+        size?: number
+        truncated?: boolean
+        [key: string]: unknown
+      } | null
+      row_count: number
+      rows: Array<unknown>
+      sql: string
+      truncated: boolean
+      warnings: Array<string>
+      [key: string]: unknown
+    }
+    search_catalog: {
+      complete: boolean
+      tables: Array<{
+        columns: Array<string>
+        comment?: string | null
+        kind: string
+        query_count?: number | null
+        row_estimate?: number | null
+        schema: string
+        table: string
+      }>
     }
   }
   salesforce: {

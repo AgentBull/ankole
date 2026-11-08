@@ -46,6 +46,38 @@ defmodule Ankole.KernelTest do
              ["``a`b``"]
   end
 
+  test "sql_inspect/2 returns string-keyed facts and coded rejections" do
+    assert {:ok,
+            %{
+              "kind" => "select",
+              "tables" => [%{"catalog" => nil, "schema" => "shop", "name" => "orders"}],
+              "aggregates" => ["sum"],
+              "literals" => [
+                %{"column" => "status", "table" => "o", "operator" => "=", "values" => ["paid"]},
+                %{"column" => "amount", "table" => nil, "operator" => ">", "values" => [1.5]}
+              ],
+              "joins" => 0,
+              "group_by" => true,
+              "limit" => 10,
+              "fanout_risk" => false
+            }} =
+             NativeKernel.sql_inspect(
+               "SELECT o.region, SUM(amount) FROM shop.orders o WHERE o.status = 'paid' AND amount > 1.5 GROUP BY o.region LIMIT 10",
+               :postgres
+             )
+
+    assert {:error, %{"code" => "not_read_only", "message" => message}} =
+             NativeKernel.sql_inspect("DELETE FROM orders", :mysql)
+
+    assert is_binary(message)
+
+    assert {:error, %{"code" => "side_effect_function", "message" => "pg_notify" <> _}} =
+             NativeKernel.sql_inspect("SELECT pg_catalog.pg_notify('c', 'x')", :postgres)
+
+    assert {:error, %{"code" => "parse_error"}} = NativeKernel.sql_inspect(<<0xFF>>, :generic)
+    assert {:error, %{"code" => "empty"}} = NativeKernel.sql_inspect("", :clickhouse)
+  end
+
   test "web_url_facts/1 parses and classifies web URLs" do
     assert %{scheme: "https", host: "example.com", host_class: :public} =
              NativeKernel.web_url_facts("https://Example.COM/page")

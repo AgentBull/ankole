@@ -6030,7 +6030,14 @@ export type ListConnectorAuthConfigsResponses = {
    */
   200: {
     connections: Array<{
+      access?: {
+        [key: string]: unknown
+      } | null
       auth_scheme: string
+      catalog?: {
+        complete: boolean
+        table_count: number
+      } | null
       configured_credential_fields: Array<string>
       display_name: string
       id?: string | null

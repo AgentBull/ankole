@@ -16,6 +16,7 @@ if (statePath) {
     backend_report_id?: string
     backend_base_id?: string
     backend_applet_id?: string
+    aggregate_applet_id?: string
     other_pod?: { page_id?: string }
   }
   const entries: Array<[string | undefined, string]> = [
@@ -26,6 +27,7 @@ if (statePath) {
     [seeded.backend_report_id, 'Sample operations'],
     [seeded.backend_base_id, 'Sample inventory'],
     [seeded.backend_applet_id, 'Sample reservations'],
+    [seeded.aggregate_applet_id, 'Order totals'],
     [seeded.other_pod?.page_id, 'Other workspace login']
   ]
   for (const [id, title] of entries) {

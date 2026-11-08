@@ -277,7 +277,7 @@ calls it to name each configured provider on login buttons and provider lists,
 and otherwise uses the adapter's display name.
 
 The `connectors.connector` plugin contract—implemented by `lark-adapter`,
-`github-adapter`, and `linear-adapter`—contributes explicit `ToolSpec`
+`github-adapter`, `linear-adapter`, and `database-connectors`—contributes explicit `ToolSpec`
 declarations, upstream authentication callbacks, tool execution, and optional
 subscription reconciliation, event verification, and per-connection platform
 names. The gateway resolves these
@@ -286,7 +286,10 @@ configuration fields, while connector-only plugins (`github-adapter` and
 `linear-adapter`, both compiled with `activation: :always`) declare their
 authentication forms directly. See [Connectors](Connectors.md) for the full
 `github-adapter` and `linear-adapter` specifications as well as shared
-credential storage and lifecycle rules.
+credential storage and lifecycle rules. The `database-connectors` Plugin
+declares its PostgreSQL, MySQL, and ClickHouse connectors the same way and
+contributes the `connectors.database.limits` AppConfigure key; see
+[Database Connectors](plugins/DatabaseConnectors.md).
 
 ### Fixed source builds
 

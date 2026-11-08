@@ -38,6 +38,7 @@ defmodule Ankole.Upgrade202610 do
 
   @tenant_schema_version 20_261_009_120_000
   @authn_schema_version 20_261_024_010_000
+  @meta_schema_version 20_261_103_020_000
   @commit_batch 500
 
   @type report :: %{
@@ -80,6 +81,9 @@ defmodule Ankole.Upgrade202610 do
               if @authn_schema_version in Ecto.Migrator.migrated_versions(Repo),
                 do: migrate_authn_configurations()
 
+              if @meta_schema_version in Ecto.Migrator.migrated_versions(Repo),
+                do: ensure_meta_namespaces()
+
               :ok
             end
           )
@@ -87,6 +91,35 @@ defmodule Ankole.Upgrade202610 do
       end)
 
     :ok
+  end
+
+  # Each tenant needs a Brain root, its categories, and one page per Agent. A
+  # migration cannot create them because Brain writes use the final schema.
+  # Existing pages are kept, so every upgrade run can repeat this step.
+  defp ensure_meta_namespaces do
+    Enum.each(Repo.all(from(tenant in Tenant, select: tenant.id)), fn tenant_id ->
+      Repo.with_tenant(tenant_id, fn ->
+        {:ok, :ok} =
+          Repo.transact_top_level(fn ->
+            with {:ok, _} <- Ankole.Brain.Namespace.ensure_namespace_in_tx(),
+                 :ok <- Ankole.Brain.Namespace.ensure_categories_in_tx(),
+                 :ok <- ensure_agent_pages(),
+                 do: {:ok, :ok}
+          end)
+      end)
+    end)
+  end
+
+  defp ensure_agent_pages do
+    Enum.reduce_while(Ankole.Principals.list_agents(), :ok, fn %{principal: principal} = entry,
+                                                               :ok ->
+      with {:ok, _} <- Ankole.Brain.Namespace.ensure_agent_in_tx(principal.uid, entry.agent.type),
+           :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal) do
+        {:cont, :ok}
+      else
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp migrate_job_recovery_metadata do

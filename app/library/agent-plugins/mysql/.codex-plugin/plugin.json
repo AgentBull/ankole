@@ -1,0 +1,6 @@
+{
+  "name": "mysql",
+  "version": "1.0.0",
+  "description": "Answer questions from a tenant MySQL database with catalog search, value probes, plans, read-only queries, and published metrics.",
+  "skills": "./skills/"
+}

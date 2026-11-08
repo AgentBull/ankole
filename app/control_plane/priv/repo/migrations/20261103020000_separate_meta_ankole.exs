@@ -145,22 +145,8 @@ defmodule Ankole.Repo.Migrations.SeparateMetaAnkole do
 
     flush()
     convert_collaboration_knowledge()
-
-    for [tenant] <- repo().query!("SELECT id::text FROM tenants").rows do
-      Ankole.Repo.with_tenant(tenant, fn ->
-        {:ok, _} = Ankole.Brain.Namespace.ensure_namespace_in_tx()
-        :ok = Ankole.Brain.Namespace.ensure_categories_in_tx()
-
-        for [uid, type] <-
-              repo().query!(
-                "SELECT uid,type::text FROM agents WHERE tenant_id=$1::text::uuid ORDER BY uid",
-                [tenant]
-              ).rows do
-          {:ok, _} = Ankole.Brain.Namespace.ensure_agent_in_tx(uid, String.to_existing_atom(type))
-        end
-      end)
-    end
-
+    # Ankole.Upgrade202610 creates missing Brain roots, categories, and Agent
+    # pages after the last migration, through the code of the final schema.
     mark_internal_profiles()
 
     execute("""
@@ -576,6 +562,20 @@ defmodule Ankole.Repo.Migrations.SeparateMetaAnkole do
     id
   end
 
+  # Reads one column so that file_objects columns from later migrations do not matter here.
+  defp read_object(tenant, id) do
+    [key] =
+      rows(
+        "SELECT storage_key FROM file_objects WHERE tenant_id=$1::text::uuid AND id=$2::text::uuid",
+        [
+          tenant,
+          id
+        ]
+      )
+
+    Ankole.ObjectStore.read(key)
+  end
+
   defp migrate_installed(tenant, nodes, live) do
     for old <-
           rows(
@@ -588,7 +588,7 @@ defmodule Ankole.Repo.Migrations.SeparateMetaAnkole do
            %{} = dir <- child(live, root["id"], "skills"),
            %{} = package <- child(live, dir["id"], old["relative_path"]),
            %{} = manifest <- child(live, package["id"], "SKILL.md") do
-        {:ok, bytes} = Ankole.Files.read_object(manifest["object_id"])
+        {:ok, bytes} = read_object(tenant, manifest["object_id"])
         {:ok, parsed} = Ankole.Kernel.knowledge_parse(bytes)
 
         metadata =

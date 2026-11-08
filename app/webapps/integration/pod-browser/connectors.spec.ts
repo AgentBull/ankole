@@ -597,3 +597,87 @@ test('member starts a personal calendar subscription, cancels then completes con
     await provider.close()
   }
 })
+
+test('administrator sees when a database catalog stops at the table limit', async ({ browser }) => {
+  const database = state.external_database
+  const context = await browser.newContext()
+  const consoleContext = await browser.newContext()
+  const page = await context.newPage()
+  const consolePage = await consoleContext.newPage()
+  const slug = `warehouse-${Date.now()}`
+  // A site administrator owns the tenant budget that the notice points to.
+  const limits = (catalogTables?: number) =>
+    consolePage.evaluate(
+      async ({ catalogTables, tenantID }) => {
+        const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? ''
+        const value = {
+          statement_timeout_ms: 15_000,
+          lock_timeout_ms: 2_000,
+          max_rows: 500,
+          max_result_bytes: 2_000_000,
+          max_scanned_bytes: 10_000_000_000,
+          max_export_rows: 1_000_000,
+          probe_count: 10,
+          catalog_tables: catalogTables,
+          profile_tables: 100,
+          sample_rows: 1_000
+        }
+        const response = await fetch('/api/v2/app-configurations/connectors.database.limits', {
+          method: catalogTables === undefined ? 'DELETE' : 'PUT',
+          headers: {
+            accept: 'application/vnd.api+json',
+            'content-type': 'application/vnd.api+json',
+            'x-csrf-token': csrf,
+            'x-ankole-tenant': tenantID
+          },
+          body: catalogTables === undefined ? undefined : JSON.stringify({ data: { value } })
+        })
+        if (!response.ok) throw new Error(`Database connector limits update failed: ${response.status}`)
+      },
+      { catalogTables, tenantID: state.tenant_id }
+    )
+  try {
+    await consoleContext.addCookies(state.site_admin.cookies)
+    await consolePage.goto(`${state.console_url}/?data_tenant=${state.tenant_id}`)
+    await limits(database.table_count - 1)
+    await context.addCookies(state.owner.cookies)
+    await page.goto(`${state.base_url}/connectors`)
+
+    await page.getByRole('button', { name: '添加连接', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('combobox', { name: '平台', exact: true }).click()
+    await page.getByRole('option', { name: 'PostgreSQL', exact: true }).click()
+    await dialog.getByLabel('显示名称', { exact: true }).fill('Browser warehouse')
+    await dialog.getByLabel('连接名称', { exact: true }).fill(slug)
+    await dialog.getByRole('textbox', { name: /^主机/ }).fill(database.host)
+    await dialog.getByRole('spinbutton', { name: /^端口/ }).fill(String(database.port))
+    await dialog.getByRole('textbox', { name: /^数据库/ }).fill(database.database)
+    await dialog.getByRole('combobox', { name: /TLS 加密/ }).click()
+    await page.getByRole('option', { name: '不加密', exact: true }).click()
+    await dialog.getByRole('textbox', { name: /^用户名/ }).fill(database.username)
+    await dialog.getByLabel('密码', { exact: false }).fill(database.password)
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(dialog).toBeHidden()
+
+    const card = page.locator(`#connector-app-${slug}`)
+    const notice = card.getByText(
+      `目录只缓存了前 ${database.table_count - 1} 张表。如需纳入其余的表，请联系站点管理员在数据库连接器查询预算中调高目录表数上限。`,
+      { exact: true }
+    )
+    await card.getByRole('button', { name: '刷新目录', exact: true }).click()
+    await expect(notice).toBeVisible()
+    await expect(card.getByText('尚未绑定团队账号', { exact: false })).toHaveCount(0)
+    await page.screenshot({ path: '/tmp/ankole-connectors-catalog-truncated.png', fullPage: true })
+
+    await page.reload()
+    await expect(notice).toBeVisible()
+
+    await limits(database.table_count)
+    await card.getByRole('button', { name: '刷新目录', exact: true }).click()
+    await expect(notice).toBeHidden()
+  } finally {
+    await limits().catch(() => undefined)
+    await context.close()
+    await consoleContext.close()
+  }
+})

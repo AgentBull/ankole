@@ -1,5 +1,6 @@
 defmodule Ankole.Brain.SchemaPacksTest do
   use Ankole.DataCase, async: true
+  import Ecto.Query
 
   alias Ankole.Brain.Schemas.SchemaLinkType
   alias Ankole.Brain.Schemas.SchemaPack
@@ -8,7 +9,7 @@ defmodule Ankole.Brain.SchemaPacksTest do
 
   describe "seed loading" do
     test "loads every pack seed" do
-      for name <- [SchemaPacks.base_pack() | SchemaPacks.industry_packs()] do
+      for name <- SchemaPacks.default_packs() ++ SchemaPacks.industry_packs() do
         assert {:ok, %{manifest: manifest, content_hash: hash}} = SchemaPacks.load_seed(name)
         assert manifest["name"] == name
         assert is_binary(hash)
@@ -23,10 +24,10 @@ defmodule Ankole.Brain.SchemaPacksTest do
   describe "installation" do
     test "installs general with a selection and materializes rows" do
       assert {:ok, result} = SchemaPacks.install_packs(["pevc"])
-      assert result.installed == ["general", "pevc"]
+      assert result.installed == ["general", "data", "pevc"]
 
       pack_names = Repo.all(SchemaPack) |> Enum.map(& &1.name) |> Enum.sort()
-      assert pack_names == ["general", "pevc"]
+      assert pack_names == ["data", "general", "pevc"]
 
       types = Repo.all(SchemaType) |> Map.new(&{&1.name, &1})
       assert types["person"].expert_routing
@@ -39,8 +40,12 @@ defmodule Ankole.Brain.SchemaPacksTest do
       assert types["agent"].subtypes == ["internal"]
       assert "fund" in types["company"].subtypes
 
+      assert types["dataset"].slug_prefix == "datasets/"
+      assert types["metric"].pack_name == "data"
+
       links = Repo.all(SchemaLinkType) |> Map.new(&{&1.name, &1})
       assert links["part_of"].inverse == "has_part"
+      assert links["measures"].inverse == "measured_by"
       assert links["invested_in"].pack_name == "pevc"
     end
 
@@ -58,6 +63,20 @@ defmodule Ankole.Brain.SchemaPacksTest do
     test "repeated installation of the same selection converges" do
       assert {:ok, _result} = SchemaPacks.install_packs([])
       assert {:ok, %{status: :already_installed}} = SchemaPacks.install_packs([])
+    end
+
+    test "the default pack job installs a default pack that a workspace predates" do
+      assert {:ok, _result} = SchemaPacks.install_packs(["legal"])
+
+      for schema <- [SchemaType, SchemaLinkType, SchemaPack] do
+        field = if schema == SchemaPack, do: :name, else: :pack_name
+        Repo.delete_all(from(row in schema, where: field(row, ^field) == "data"))
+      end
+
+      assert :ok = perform_job(Ankole.Brain.Jobs.InstallDefaultPacks, %{})
+      assert Repo.get_by!(SchemaType, name: "metric").pack_name == "data"
+      assert Repo.get_by!(SchemaLinkType, name: "joins_to").inverse == "joins_to"
+      assert :ok = perform_job(Ankole.Brain.Jobs.InstallDefaultPacks, %{})
     end
 
     test "an installed pack cannot widen the reserved Agent type" do

@@ -1,6 +1,7 @@
 import { effectiveFieldType } from '../base-field-types'
 import { safeJsonParse } from '@agentbull/active-support'
 import type { AggregateQuery, BaseField, RecordQuery, TableSchema } from '@ankole/applet-sdk/types'
+import { plainFilter } from './table-query'
 
 const RECORD_QUERY_KEYS = new Set(['filter', 'sort', 'page_size', 'page_token', 'ids', 'group'])
 const RECORD_GROUP_KEYS = new Set(['field_id', 'value', 'value_json'])
@@ -83,7 +84,9 @@ export function canQueryLocally(schema: TableSchema, query: RecordQuery): boolea
 
 export function canAggregateLocally(schema: TableSchema, query: AggregateQuery): boolean {
   if (!hasOnlyAllowedKeys(query, AGGREGATE_QUERY_KEYS)) return false
-  if (!canQueryLocally(schema, query.filter ? { filter: query.filter } : {})) return false
+  // Link paths read other tables, which only PostgreSQL holds.
+  const filter = plainFilter(query.filter)
+  if (filter === null || !canQueryLocally(schema, filter ? { filter } : {})) return false
   const field = (id?: string) => schema.fields.find(item => item.id === id)
   return (
     (query.group_by ?? []).every(

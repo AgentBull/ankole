@@ -48,7 +48,7 @@ Native Pod messages flow through Conversations and Signals into Sessions just li
 ## What Each Process Does
 
 - **Elixir control plane (`app/control_plane/`)**: Runs on Phoenix and OTP. It owns PostgreSQL transactions, supervises background workers, protects encrypted provider credentials, and serves Ankole's HTTP and WebSocket APIs.
-- **Rust kernel (`app/kernel/`)**: Supplies stateless native primitives for cryptography, AuthZ CEL evaluation, Markdown parsing, Page XML and OKF Markdown codecs, WebDAV/VFS codecs, UTF-16 page diffing, AI provider HTTP/WebSocket transport, image transcoding, SSRF-checked web proxying, and object storage. It never decides or persists workflow state.
+- **Rust kernel (`app/kernel/`)**: Supplies stateless native primitives for cryptography, AuthZ CEL evaluation, Markdown parsing, Page XML and OKF Markdown codecs, WebDAV/VFS codecs, UTF-16 page diffing, AI provider HTTP/WebSocket transport, image transcoding, read-only SQL inspection, SSRF-checked web proxying, and object storage. It never decides or persists workflow state.
 - **Function Runtime (`ankole-function-runtime`)**: Runs stateless Supabase Edge Runtime isolates for Pod Applet backends, published Applet Actions (`AutomationJobs`) calling host MCP tools via `AnkoleRuntime.mcp`, and deterministic PTC or Workflow TypeScript programs, holding no durable state of its own.
 - **Agent Computer (`app/agent_computer/`)**: Runs as a Bun process inside each Agent's dedicated Worker container, executing environment tools and supervising Codex sessions. Its Agent Home directory (`/workspace`) persists across container replacements, while local process state is rebuildable; it never writes directly to control-plane tables.
 
@@ -91,7 +91,7 @@ PostgreSQL owns all authoritative Page, Library, Brain, and task state. Unified 
 | `tools/e2e/` | End-to-end test runner, fake provider services, and test suites |
 | `docs/` | Architecture specifications, operational guides, and known system tradeoffs |
 
-First-party Control Plane Plugins under `plugins/` ship messaging and identity adapters for Lark/Feishu, DingTalk, Slack, Microsoft 365, Google Workspace, WeCom, Telegram, Discord, LINE, WhatsApp, and Email, Connector adapters for GitHub and Linear, and China-market model providers for AIGateway:
+First-party Control Plane Plugins under `plugins/` ship messaging and identity adapters for Lark/Feishu, DingTalk, Slack, Microsoft 365, Google Workspace, WeCom, Telegram, Discord, LINE, WhatsApp, and Email, Connector adapters for GitHub, Linear, and the PostgreSQL, MySQL, and ClickHouse databases, and China-market model providers for AIGateway:
 
 - **Consumer IM adapters** (Telegram, Discord, LINE, and WhatsApp) connect a bot to a single Agent and resolve each sender to a Principal either through an explicit account link or as a standalone external account.
 - **Email adapter** connects a dedicated mailbox and admits incoming mail only when the sender matches an explicit `email` identity binding. (Transactional site verification emails use the core [Authentication](design-docs/Authentication.md) SMTP settings instead.)
@@ -249,6 +249,6 @@ tools/e2e/run --real-llm
 | [Auto Ontology source research](research/auto-ontology-source-analysis.md) | Research findings and proposed integration with native Base queries |
 | [Ankole 2.0 structured data and Brain](research/ankole-2-structured-data-brain.md) | Research proposal for external OLTP, OLAP, data lakes, shared semantics, and Agent/Applet queries |
 
-Messaging and identity adapter protocol specifications live under `design-docs/plugins/`, while the `github-adapter` and `linear-adapter` Connector specifications live in [Connectors](design-docs/Connectors.md).
+Messaging and identity adapter protocol specifications, together with the [Database Connectors](design-docs/plugins/DatabaseConnectors.md) specification, live under `design-docs/plugins/`, while the `github-adapter` and `linear-adapter` Connector specifications live in [Connectors](design-docs/Connectors.md).
 
 Files in `design-docs/` state current architectural contracts rather than historical incident postmortems or one-off test logs; release-by-release changes live in `CHANGELOG.md`.

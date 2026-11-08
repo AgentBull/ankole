@@ -26,6 +26,14 @@ defmodule Ankole.Connectors.Browser.Actions do
         :update_connection ->
           {Store.update_auth_config(actor, attrs.id, attrs), &%{connection: Store.public(&1)}}
 
+        :refresh_catalog ->
+          {Ankole.Connectors.Databases.refresh(actor, attrs.id),
+           &%{
+             table_count: &1["table_count"],
+             fetched_at: &1["fetched_at"],
+             complete: &1["complete"]
+           }}
+
         :accounts ->
           {Accounts.list_accounts(actor, attrs[:scope] || "mine"), &%{accounts: &1}}
 

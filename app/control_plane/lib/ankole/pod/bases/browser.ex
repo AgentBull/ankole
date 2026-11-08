@@ -27,7 +27,7 @@ defmodule Ankole.Pod.Bases.Browser do
   end
 
   alias Ankole.Pod.{Bases, APIError, Serialization}
-  alias Ankole.Pod.Bases.{Record, RecordData, FieldVersions, MetricsText, Value}
+  alias Ankole.Pod.Bases.{Record, RecordData, FieldVersions, MetricsText, DataVersions, Value}
   alias Ankole.Ash.Types.{UUIDv7, PrincipalKey, JSONMap}
 
   @table [
@@ -58,6 +58,7 @@ defmodule Ankole.Pod.Bases.Browser do
       other_exclude_values_json: [type: {:array, :string}]
     ]
   ]
+  @operators [:is, :contains, :is_empty, :is_not_empty, :gt, :gte, :lt, :lte, :text_contains]
   @filter [
     fields: [
       conjunction: [type: :atom, constraints: [one_of: [:and, :or]], allow_nil?: false],
@@ -68,24 +69,34 @@ defmodule Ankole.Pod.Bases.Browser do
           items: [
             fields: [
               field_id: [type: UUIDv7, allow_nil?: false],
+              operator: [type: :atom, allow_nil?: false, constraints: [one_of: @operators]],
+              value: [type: Value]
+            ]
+          ]
+        ]
+      ]
+    ]
+  ]
+  # Aggregate conditions may follow link fields; `exists` and `not_exists`
+  # take a plain filter over the reached table.
+  @aggregate_filter [
+    fields: [
+      conjunction: [type: :atom, constraints: [one_of: [:and, :or]], allow_nil?: false],
+      conditions: [
+        type: {:array, :map},
+        allow_nil?: false,
+        constraints: [
+          items: [
+            fields: [
+              field_id: [type: UUIDv7],
               operator: [
                 type: :atom,
                 allow_nil?: false,
-                constraints: [
-                  one_of: [
-                    :is,
-                    :contains,
-                    :is_empty,
-                    :is_not_empty,
-                    :gt,
-                    :gte,
-                    :lt,
-                    :lte,
-                    :text_contains
-                  ]
-                ]
+                constraints: [one_of: @operators ++ [:exists, :not_exists]]
               ],
-              value: [type: Value]
+              value: [type: Value],
+              path: [type: {:array, UUIDv7}],
+              filter: [type: :map, constraints: @filter]
             ]
           ]
         ]
@@ -126,6 +137,7 @@ defmodule Ankole.Pod.Bases.Browser do
       constraints(fields: [table: @table])
       argument(:page_id, UUIDv7, allow_nil?: false)
       argument(:name, :string)
+      argument(:description, :string, constraints: [allow_empty?: true])
 
       run(fn input, context ->
         Bases.create_table(context.actor, input.arguments.page_id, attrs(input))
@@ -268,19 +280,21 @@ defmodule Ankole.Pod.Bases.Browser do
               ]
             ]
           ],
-          data_version: [type: :integer, allow_nil?: false]
+          data_version: [type: :integer, allow_nil?: false],
+          data_versions: [type: DataVersions, allow_nil?: false]
         ]
       )
 
       argument(:id, UUIDv7, allow_nil?: false)
-      argument(:filter, :map, constraints: @filter)
+      argument(:filter, :map, constraints: @aggregate_filter)
 
       argument(:group_by, {:array, :map},
         constraints: [
           items: [
             fields: [
               field_id: [type: UUIDv7, allow_nil?: false],
-              bucket: [type: :atom, constraints: @bucket_types]
+              bucket: [type: :atom, constraints: @bucket_types],
+              path: [type: {:array, UUIDv7}]
             ]
           ]
         ]
@@ -297,7 +311,9 @@ defmodule Ankole.Pod.Bases.Browser do
                 constraints: [one_of: [:count, :count_distinct, :sum, :avg, :min, :max]]
               ],
               field_id: [type: UUIDv7],
-              alias: [type: :string, allow_nil?: false]
+              alias: [type: :string, allow_nil?: false],
+              path: [type: {:array, UUIDv7}],
+              filter: [type: :map, constraints: @filter]
             ]
           ]
         ]
@@ -335,6 +351,7 @@ defmodule Ankole.Pod.Bases.Browser do
     action :configure_table, :map do
       constraints(fields: [table: @table])
       argument(:id, UUIDv7, allow_nil?: false)
+      argument(:description, :string, constraints: [allow_empty?: true])
       argument(:unique_field_ids, {:array, UUIDv7})
       argument(:emit_changes, :boolean)
 
@@ -400,6 +417,7 @@ defmodule Ankole.Pod.Bases.Browser do
       constraints(fields: [field: @field])
       argument(:id, UUIDv7, allow_nil?: false)
       argument(:name, :string)
+      argument(:description, :string, constraints: [allow_empty?: true])
       argument(:position, :string)
       argument(:type, :atom, constraints: @field_types)
       argument(:config, JSONMap)
@@ -416,6 +434,7 @@ defmodule Ankole.Pod.Bases.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
       argument(:version, :integer, allow_nil?: false, constraints: [min: 1])
       argument(:name, :string)
+      argument(:description, :string, constraints: [allow_empty?: true])
       argument(:position, :string)
       argument(:type, :atom, constraints: @field_types)
       argument(:config, JSONMap)

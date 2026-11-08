@@ -1,8 +1,9 @@
 defmodule Ankole.SearchIndexes do
   @moduledoc """
   Recoverable retrieval-index lifecycle across Brain and Pod: `pg_search` BM25
-  indexes on `brain_chunks`, `brain_claims`, and `page_search_documents`, plus
-  HNSW ANN indexes on `brain_chunks` and `brain_claims`.
+  indexes on `brain_chunks`, `brain_claims`, `page_search_documents`, and
+  `connector_db_catalog_tables`, plus HNSW ANN indexes on `brain_chunks` and
+  `brain_claims`.
 
   The deployment-level tokenizer comes from `brain.search_tokenizer` and maps
   through a fixed whitelist to a `pg_search` tokenizer expression; the
@@ -24,7 +25,9 @@ defmodule Ankole.SearchIndexes do
     {"brain_chunks_bm25_idx", "brain_chunks", "id", [], ["chunk_text"]},
     {"brain_claims_bm25_idx", "brain_claims", "id", [], ["claim"]},
     {"page_search_documents_bm25_idx", "page_search_documents", "page_id", ["tenant_id"],
-     ["title", "meta_text", "body_text"]}
+     ["title", "meta_text", "body_text"]},
+    {"connector_db_catalog_tables_bm25_idx", "connector_db_catalog_tables", "id",
+     ["tenant_id", "auth_config_id"], ["search_text"]}
   ]
 
   # DDL matches the initial migration; a drifted definition would make the

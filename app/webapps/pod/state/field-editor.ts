@@ -8,6 +8,7 @@ export const FieldEditorModel = createModel(() => {
   const definitionDirty = signal(false)
   const open = signal(false)
   const name = signal('')
+  const description = signal('')
   const type = signal<FieldType>('text')
   const formula = signal('')
   const multiple = signal(false)
@@ -56,6 +57,7 @@ export const FieldEditorModel = createModel(() => {
   return {
     open,
     name,
+    description,
     type,
     formula,
     multiple,
@@ -71,6 +73,9 @@ export const FieldEditorModel = createModel(() => {
     },
     setName: (value: string) => {
       name.value = value
+    },
+    setDescription: (value: string) => {
+      description.value = value
     },
     setType: (value: FieldType) => {
       type.value = value
@@ -104,6 +109,7 @@ export const FieldEditorModel = createModel(() => {
         original.value = field
         definitionDirty.value = false
         name.value = field?.name ?? ''
+        description.value = field?.description ?? ''
         type.value = field?.type ?? 'text'
         formula.value = String(field?.config.source ?? '')
         multiple.value = field?.type === 'link' ? field.config.multiple !== false : field?.config.multiple === true

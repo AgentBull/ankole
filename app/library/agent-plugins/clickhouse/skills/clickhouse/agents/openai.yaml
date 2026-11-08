@@ -1,0 +1,13 @@
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "clickhouse"
+      transport: "connector"
+      toolkit: "clickhouse"
+      enabled_tools:
+        - "describe_table"
+        - "explain"
+        - "metric_query"
+        - "probe_values"
+        - "query"
+        - "search_catalog"

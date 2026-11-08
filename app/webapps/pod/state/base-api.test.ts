@@ -30,12 +30,13 @@ function schema(version: number, count: number, mode: TableSchema['mode'] = 'loc
       id: tableID,
       page_id: 'base',
       name: 'Tasks',
+      description: '',
       record_count: count,
       data_version: version,
       unique_field_ids: [],
       emit_changes: false
     },
-    fields: [{ id: 'name', name: 'Name', type: 'text', config: {}, version: 1, is_primary: true }],
+    fields: [{ id: 'name', name: 'Name', description: '', type: 'text', config: {}, version: 1, is_primary: true }],
     views: [],
     mode
   }

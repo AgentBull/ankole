@@ -138,6 +138,10 @@ export function Connectors() {
       api.podConnectorAuthConfigsUpdate({ path: { id }, body: { data: { status } } }),
     onSuccess: refresh
   })
+  const refreshCatalog = useMutation({
+    mutationFn: (id: string) => api.podConnectorAuthConfigsRefreshCatalog({ path: { id } }),
+    onSuccess: refresh
+  })
   const retry = useMutation({
     mutationFn: (id: string) => api.podConnectorTriggersRetry({ path: { id } }),
     onSuccess: refresh
@@ -176,6 +180,7 @@ export function Connectors() {
     claim.error ??
     disconnect.error ??
     toggle.error ??
+    refreshCatalog.error ??
     retry.error ??
     removeTrigger.error
   const triggerTypes =
@@ -414,17 +419,27 @@ export function Connectors() {
                       {subjectKind === 'app' && <p className="text-xs text-muted-foreground">{connection.slug}</p>}
                     </CardHeader>
                     <CardContent className="grid gap-4">
-                      {personal.length === 0 && accounts.isSuccess && teamAccounts.isSuccess && session.isSuccess && (
+                      {subjectKind === 'app' && connection.catalog?.complete === false && (
                         <p className="text-sm text-muted-foreground">
-                          {t(
-                            subjectKind === 'human'
-                              ? 'pod.connectors.personal_empty'
-                              : catalog.data?.can_manage
-                                ? 'pod.connectors.team_empty'
-                                : 'pod.connectors.team_empty_member'
-                          )}
+                          {t('pod.connectors.catalog_truncated', { count: connection.catalog.table_count })}
                         </p>
                       )}
+                      {/* A database connection keeps its credentials on the connection and binds no accounts. */}
+                      {personal.length === 0 &&
+                        !connection.access &&
+                        accounts.isSuccess &&
+                        teamAccounts.isSuccess &&
+                        session.isSuccess && (
+                          <p className="text-sm text-muted-foreground">
+                            {t(
+                              subjectKind === 'human'
+                                ? 'pod.connectors.personal_empty'
+                                : catalog.data?.can_manage
+                                  ? 'pod.connectors.team_empty'
+                                  : 'pod.connectors.team_empty_member'
+                            )}
+                          </p>
+                        )}
                       {personal.map(account => (
                         <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
                           <div>
@@ -545,6 +560,14 @@ export function Connectors() {
                               }}>
                               {t('pod.connectors.edit')}
                             </Button>
+                            {connection.access && (
+                              <Button
+                                variant="outline"
+                                disabled={refreshCatalog.isPending}
+                                onClick={() => refreshCatalog.mutate(connection.id!)}>
+                                {t('pod.connectors.refresh_catalog')}
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               disabled={toggle.isPending}

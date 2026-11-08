@@ -23,6 +23,31 @@ defmodule Ankole.Brain do
 
   defdelegate principal_page_slug(type, uid), to: Ankole.Brain.Scope
 
+  @doc """
+  Executes a published metric revision as `actor` (an `Ankole.AuthZ.Actor`
+  or a Principal) without a model.
+
+  `reference` is the metric object's Brain path (`metrics/<name>`) or page
+  ID; `revision` is a revision number or `:latest`. `params` holds the
+  revision's typed parameters and an optional `"dimensions"` list. The
+  result carries the exact values and `metrics_text`, the revision used, the
+  executed spec, and the data versions. Errors are
+  `{:error, {code, details}}` with `:metric_not_found`,
+  `:metric_revision_not_found`, `:metric_needs_review`,
+  `:invalid_metric_params`, or `:dimension_not_addible`; source errors, such
+  as a Base permission error, pass through unchanged.
+  """
+  defdelegate execute_metric(actor, reference, revision, params),
+    to: Ankole.Brain.DataSemantics.Execution,
+    as: :execute
+
+  @doc "Marks the metric revisions that a Base schema change broke as `needs_review`."
+  defdelegate base_tables_changed_in_tx(table_ids), to: Ankole.Brain.DataSemantics.Drift
+
+  @doc "Marks the connector metric revisions that read columns a catalog refresh lost."
+  defdelegate connector_columns_missing_in_tx(connection_slug, missing),
+    to: Ankole.Brain.DataSemantics.Drift
+
   # The Console API (`AnkoleWeb.JSONAPI.ConsoleRouter`). An Object slug can
   # contain `/`, so an Object operation takes the slug in the query or in the
   # body, not in the path.
@@ -126,6 +151,9 @@ defmodule Ankole.Brain do
     resource(Ankole.Brain.Schemas.SchemaLinkType)
     resource(Ankole.Brain.Schemas.SchemaCalibrationDomain)
     resource(Ankole.Brain.Schemas.TakeDomainAssignment)
+    resource(Ankole.Brain.Schemas.DatasetBinding)
+    resource(Ankole.Brain.Schemas.MetricRevision)
+    resource(Ankole.Brain.Schemas.EntityIdentifier)
   end
 
   def create_object(attrs, writer),

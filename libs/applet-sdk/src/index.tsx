@@ -14,6 +14,7 @@ import {
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import {
+  hashKey,
   QueryClientProvider,
   useMutation,
   useMutationState,
@@ -25,6 +26,7 @@ import {
   type QueryKey,
   type UseMutationOptions
 } from '@tanstack/react-query'
+import { followAggregateTables } from './aggregate-tables'
 import { previewRecordList } from './records'
 import type {
   AggregateQuery,
@@ -185,11 +187,14 @@ export function useAggregate(tableID: string, options: AggregateQuery & { groupB
   const query = groupBy === undefined ? rest : { ...rest, group_by: groupBy }
   const { runtime, revoked } = useTableUpdates(tableID)
   const queryKey = [...runtime.base.key(tableID), 'aggregate', query]
+  const client = useQueryClient()
+  const hash = hashKey(queryKey)
   const result = useQuery({
     queryKey,
     queryFn: () => runtime.base.aggregate(tableID, query),
     enabled: !revoked
   })
+  useEffect(() => followAggregateTables(runtime.base, client, tableID, queryKey), [runtime, client, tableID, hash])
   return useReadResult(
     result,
     queryKey,

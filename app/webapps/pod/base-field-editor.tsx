@@ -54,6 +54,7 @@ export function FieldEditorButton({
   const model = useModel(FieldEditorModel)
   const open = model.open.value
   const name = model.name.value
+  const description = model.description.value
   const type = model.type.value
   const formula = model.formula.value
   const multiple = model.multiple.value
@@ -65,6 +66,7 @@ export function FieldEditorButton({
   const {
     setOpen,
     setName,
+    setDescription,
     setType,
     setFormula,
     setMultiple,
@@ -85,13 +87,14 @@ export function FieldEditorButton({
   const write = useMutation({
     mutationFn: () => {
       const config = model.config.value
+      const definition = { name: name.trim(), description: description.trim(), type, config }
       return field
         ? baseHTTP.updateField(
             field.id,
-            { name: name.trim(), type, config, ...(confirmation === 'clear' ? { clear_invalid: true } : {}) },
+            { ...definition, ...(confirmation === 'clear' ? { clear_invalid: true } : {}) },
             baseVersion
           )
-        : baseHTTP.createField(tableID, { name: name.trim(), type, config })
+        : baseHTTP.createField(tableID, definition)
     },
     onSuccess: async result => {
       await invalidate()
@@ -135,7 +138,13 @@ export function FieldEditorButton({
       write.mutate()
     }
   }
-  if (!canManage) return <span className="px-2 text-sm font-medium">{field?.name}</span>
+  if (!canManage) {
+    return (
+      <span className="px-2 text-sm font-medium" title={field?.description || undefined}>
+        {field?.name}
+      </span>
+    )
+  }
   const iconLabel = iconOnly && field ? `${t('pod.content.edit_field')} ${field.name}` : undefined
   return (
     <Popover
@@ -173,6 +182,15 @@ export function FieldEditorButton({
         <div className="pod-dialog-body min-h-0 flex-1 grid gap-4 overflow-y-auto pr-1">
           <fieldset disabled={pending} className="grid gap-4">
             <TextField variant="overlay" label={t('pod.content.field_name')} value={name} onChange={setName} />
+            <label className="grid gap-2 text-sm">
+              {t('pod.content.description')}
+              <Textarea
+                className="min-h-16"
+                value={description}
+                onChange={event => setDescription(event.target.value)}
+                placeholder={t('pod.content.field_description_placeholder')}
+              />
+            </label>
             <Choice
               label={t('pod.content.field_type')}
               value={type}

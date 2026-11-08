@@ -832,7 +832,150 @@ end
 
 {:ok, {_ip, agent_actions_port}} = ThousandIsland.listener_info(agent_actions)
 
+# A throwaway external PostgreSQL database with three tables for the database
+# connector story. It lives on the devkit server and is named after the
+# partition, so the next boot drops one that an interrupted run left behind.
+external_database =
+  (fn ->
+     repo = Ankole.Repo.config()
+     url = if repo[:url], do: Ecto.Repo.Supervisor.parse_url(repo[:url]), else: []
+
+     admin =
+       repo
+       |> Keyword.merge(url)
+       |> Keyword.take([:hostname, :port, :username, :password])
+       |> Keyword.merge(database: "postgres", pool_size: 1)
+
+     name = "ankole_browser_dbconn_#{partition}"
+     password = Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
+
+     run = fn options, statements ->
+       {:ok, conn} = Postgrex.start_link(options)
+       Enum.each(statements, &Postgrex.query!(conn, &1, []))
+       GenServer.stop(conn)
+     end
+
+     drop = ["DROP DATABASE IF EXISTS #{name} WITH (FORCE)", "DROP ROLE IF EXISTS #{name}"]
+
+     run.(
+       admin,
+       drop ++
+         [
+           "CREATE ROLE #{name} LOGIN PASSWORD '#{password}'",
+           "CREATE DATABASE #{name} OWNER #{name}"
+         ]
+     )
+
+     run.(Keyword.merge(admin, database: name, username: name, password: password), [
+       "CREATE TABLE customers (id integer PRIMARY KEY, name text)",
+       "CREATE TABLE orders (id integer PRIMARY KEY, customer_id integer REFERENCES customers(id))",
+       "CREATE TABLE refunds (id integer PRIMARY KEY, order_id integer REFERENCES orders(id))"
+     ])
+
+     System.at_exit(fn _ -> run.(admin, drop) end)
+
+     %{
+       host: admin[:hostname],
+       port: admin[:port] || 5432,
+       database: name,
+       username: name,
+       password: password,
+       table_count: 3
+     }
+   end).()
+
+# An order ledger whose Applet sums linked item amounts. A change to the Items
+# table alone must refresh that aggregate on the Orders table.
+owner_actor = Ankole.PrincipalsFixtures.actor_fixture(owner.uid)
+
+{:ok, ledger} =
+  Pages.create(owner_actor, %{type: "base", title: "Order ledger", parent_id: report.id})
+
+{:ok, %{tables: [ledger_orders]}} = Bases.list_tables(owner_actor, ledger.id)
+{:ok, ledger_items} = Bases.create_table(owner_actor, ledger.id, %{name: "Items"})
+
+{:ok, item_amount} =
+  Bases.create_field(owner_actor, ledger_items.id, %{name: "Amount", type: "number"})
+
+{:ok, order_items} =
+  Bases.create_field(owner_actor, ledger_orders.id, %{
+    name: "Items",
+    type: "link",
+    config: %{"table_id" => ledger_items.id}
+  })
+
+{:ok, %{records: [ledger_item]}} =
+  Bases.write_records(owner_actor, ledger_items.id, %{
+    creates: [%{data: %{item_amount.id => 10}}]
+  })
+
+{:ok, _} =
+  Bases.write_records(owner_actor, ledger_orders.id, %{
+    creates: [%{data: %{order_items.id => [ledger_item.id]}}]
+  })
+
+{:ok, aggregate_applet} =
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(agent.uid), %{
+    type: "applet",
+    title: "Order totals",
+    parent_id: report.id
+  })
+
+aggregate_output = Path.join(Path.dirname(state_path), "aggregate-applet")
+
+{aggregate_build_output, 0} =
+  System.cmd(
+    "bun",
+    [
+      "app/webapps/integration/pod-browser/build-aggregate.ts",
+      ledger_orders.id,
+      order_items.id,
+      item_amount.id,
+      aggregate_output
+    ],
+    cd: repository,
+    stderr_to_stdout: true
+  )
+
+IO.write(aggregate_build_output)
+
+aggregate_files =
+  Path.join(aggregate_output, "manifest.json")
+  |> File.read!()
+  |> Torque.decode!()
+  |> Enum.map(fn entry ->
+    {:ok, stored} = Ankole.Files.store({:file, entry["local_path"]})
+
+    Map.merge(stored, %{
+      path: entry["path"],
+      source_path: "_pod/aggregate/" <> entry["path"],
+      content_type: entry["content_type"]
+    })
+  end)
+
+{:ok, _} =
+  Ankole.Files.commit(
+    agent.uid,
+    Enum.map(
+      aggregate_files,
+      &Map.merge(&1, %{path: "_pod/aggregate/" <> &1.path, source: "agent"})
+    )
+  )
+
+{:ok, _} =
+  Ankole.Pod.Files.publish(
+    Ankole.PrincipalsFixtures.actor_fixture(agent.uid),
+    aggregate_applet.id,
+    0,
+    aggregate_files
+  )
+
 state = %{
+  external_database: external_database,
+  aggregate_applet_id: aggregate_applet.id,
+  aggregate_items_table_id: ledger_items.id,
+  aggregate_item_id: ledger_item.id,
+  aggregate_item_amount_field_id: item_amount.id,
   document_agent_uid: document_agent_uid,
   agent_actions_url: "http://127.0.0.1:#{agent_actions_port}",
   connector_provider_url: connector_provider_url,

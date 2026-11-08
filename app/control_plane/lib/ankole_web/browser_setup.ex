@@ -418,9 +418,9 @@ defmodule AnkoleWeb.BrowserSetup do
     with :ok <- require_setup_session(conn),
          {:ok, tenant} <- Ankole.Tenants.privileged() do
       packs =
-        [SchemaPacks.base_pack() | SchemaPacks.industry_packs()]
+        (SchemaPacks.default_packs() ++ SchemaPacks.industry_packs())
         |> Enum.map(fn name ->
-          required = name == SchemaPacks.base_pack()
+          required = name in SchemaPacks.default_packs()
 
           case SchemaPacks.load_seed(name) do
             {:ok, %{manifest: manifest}} ->
@@ -469,7 +469,7 @@ defmodule AnkoleWeb.BrowserSetup do
   defp validate_brain_packs(packs) when is_list(packs) do
     with :ok <- ensure_pack_names(packs) do
       industry = SchemaPacks.industry_packs()
-      packs = packs -- [SchemaPacks.base_pack()]
+      packs = packs -- SchemaPacks.default_packs()
 
       case Enum.reject(packs, &(&1 in industry)) do
         [] -> {:ok, Enum.uniq(packs)}

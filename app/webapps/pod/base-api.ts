@@ -25,6 +25,7 @@ import {
   podBaseTables,
   podBaseTableCreate,
   podBaseTableRename,
+  podBaseTableConfigure,
   podBaseTableDelete,
   podBaseSchema,
   podBaseQuery,
@@ -43,6 +44,8 @@ export const baseHTTP = {
   createTable: (pageID: string, name: string) =>
     podBaseTableCreate({ path: { page_id: pageID }, body: { data: { name } } }),
   renameTable: (id: string, name: string) => podBaseTableRename({ path: { id }, body: { data: { name } } }),
+  describeTable: (id: string, description: string) =>
+    podBaseTableConfigure({ path: { id }, body: { data: { description } } }),
   removeTable: (tableID: string) => podBaseTableDelete({ path: { id: tableID } }),
   schema: (tableID: string, signal?: AbortSignal): Promise<TableSchema> =>
     podBaseSchema({ path: { id: tableID }, signal }),

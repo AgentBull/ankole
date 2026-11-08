@@ -56,9 +56,25 @@ describe('shared SQL and local table query contract', () => {
   })
   test('created_by and updated_by filters and groups match bare principal UIDs against ActorRef values', () => {
     const attributionFields: BaseField[] = [
-      { id: 'name', name: 'Name', type: 'text', config: {}, version: 1, is_primary: true },
-      { id: 'creator', name: 'Created by', type: 'created_by', config: {}, version: 1, is_primary: false },
-      { id: 'updater', name: 'Updated by', type: 'updated_by', config: {}, version: 1, is_primary: false }
+      { id: 'name', name: 'Name', description: '', type: 'text', config: {}, version: 1, is_primary: true },
+      {
+        id: 'creator',
+        name: 'Created by',
+        description: '',
+        type: 'created_by',
+        config: {},
+        version: 1,
+        is_primary: false
+      },
+      {
+        id: 'updater',
+        name: 'Updated by',
+        description: '',
+        type: 'updated_by',
+        config: {},
+        version: 1,
+        is_primary: false
+      }
     ]
     const attributedRecords: BaseRecord[] = [
       {

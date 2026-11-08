@@ -168,10 +168,14 @@ defmodule Ankole.Pod.Bases do
   def init_default_table_in_tx(page, _uid), do: init_table_in_tx(page, %{name: "Table 1"})
 
   defp init_table_in_tx(page, attrs) do
-    with {:ok, table} <-
+    description = Ankole.Attrs.get(attrs, :description) || ""
+
+    with :ok <- Ankole.Pod.Bases.Schema.description_size(%{description: description}),
+         {:ok, table} <-
            Ankole.Ash.create(BaseTable, :create_in_tx, %{
              page_id: page.id,
              name: Ankole.Attrs.get(attrs, :name, "Table"),
+             description: description,
              position: Ankole.Attrs.get(attrs, :position, Ankole.Ecto.UUIDv7.autogenerate())
            }),
          {:ok, _} <-
@@ -273,15 +277,19 @@ defmodule Ankole.Pod.Bases do
 
   @doc false
   def aggregate_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
-    query_transaction(actor, id, fn table, limits, definitions, _context ->
-      case Query.aggregate(table, definitions, attrs, max_groups: limits["group_count"]) do
+    run = fn table, limits, definitions, context ->
+      opts = [max_groups: limits["group_count"], tables: context.tables]
+
+      case Query.aggregate(table, definitions, attrs, opts) do
         {:ok, %{groups: groups}} = result ->
           if length(groups) > limits["group_count"], do: {:error, :group_limit}, else: result
 
         result ->
           result
       end
-    end)
+    end
+
+    query_transaction(actor, id, [linked: Query.linked?(attrs)], run)
   end
 
   defdelegate delete_table(actor, id, authority \\ nil), to: Ankole.Pod.Bases.Schema
@@ -421,17 +429,14 @@ defmodule Ankole.Pod.Bases do
       |> Ankole.Ash.read!()
 
   # Sets the query limits for the rest of the calling action's transaction and
-  # reads the table under a shared lock.
-  defp query_transaction(%Ankole.AuthZ.Actor{} = actor, id, fun) do
+  # reads the table under a shared lock. A `linked: true` query on a physical
+  # table locks every table on the Base Page in ID order, because link paths
+  # may read any of them and every lock precedes the shard transaction.
+  defp query_transaction(%Ankole.AuthZ.Actor{} = actor, id, opts \\ [], fun) do
     with {:ok, candidate} <- fetch_table(id),
          {:ok, id} <- Ecto.UUID.cast(id),
-         %BaseTable{} = locked <-
-           BaseTable
-           |> Ash.Query.filter(id == ^id and is_nil(deleting_at))
-           |> Ash.Query.lock(
-             if(candidate.storage_mode == :inline, do: "FOR SHARE", else: "FOR KEY SHARE")
-           )
-           |> Ankole.Ash.read_one!(),
+         tables = lock_query_tables(candidate, opts[:linked] == true),
+         %BaseTable{} = locked <- Enum.find(tables, &(&1.id == id)),
          {:ok, table} <- table_access(actor, locked, :read),
          {:ok, limits} <- Config.limits(),
          {:ok, timezone} <- Ankole.SystemConfig.timezone() do
@@ -449,7 +454,19 @@ defmodule Ankole.Pod.Bases do
         |> Ankole.Ash.read!()
 
       capabilities = query_capabilities()
-      context = %{views: views, capabilities: capabilities, timezone: timezone}
+
+      context = %{
+        views: views,
+        capabilities: capabilities,
+        timezone: timezone,
+        tables:
+          for(
+            linked <- tables,
+            linked.id != id,
+            into: %{},
+            do: {linked.id, {linked, fields(linked.id)}}
+          )
+      }
 
       if table.storage_mode == :physical do
         shard = BaseRepo.shard!()
@@ -472,6 +489,21 @@ defmodule Ankole.Pod.Bases do
       :error -> {:error, :not_found}
       error -> error
     end
+  end
+
+  defp lock_query_tables(candidate, linked?) do
+    query =
+      if linked? and candidate.storage_mode == :physical,
+        do: Ash.Query.filter(BaseTable, page_id == ^candidate.page_id),
+        else: Ash.Query.filter(BaseTable, id == ^candidate.id)
+
+    query
+    |> Ash.Query.filter(is_nil(deleting_at))
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(
+      if(candidate.storage_mode == :inline, do: "FOR SHARE", else: "FOR KEY SHARE")
+    )
+    |> Ankole.Ash.read!()
   end
 
   defp broadcast_result(id, result) do

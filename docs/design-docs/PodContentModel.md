@@ -1819,7 +1819,13 @@ replay.
 fields, and views are Ash resources that inherit their host Base Page's access
 and lifecycle. Each table has one primary text field (whose name and position
 can change, though its type stays `text` and values cap at `2,048` UTF-8 bytes),
-at most `200` active fields, and at most `100,000` records.
+at most `200` active fields, and at most `100,000` records. Every table and
+field also carries a `description` of at most `2,048` UTF-8 bytes (empty by
+default) that states what its values mean, such as the unit, currency, tax
+inclusion, or source system. Editors set it when they create a table or field
+and change it through table configuration or a field update; `base.schema`, the
+`/api/v2/pod` table and field payloads, and the Drive `.info/schema.json`
+projection return it, and a table copy keeps it.
 
 ### Inline and physical storage modes
 
@@ -2002,18 +2008,42 @@ for `inline` tables and native column/edge SQL for `physical` tables:
   is_other)` before computing metrics so records carrying multiple tail tags are
   counted once. Each group returns `values`, `value_json`, `other` booleans per
   dimension, numeric `metrics`, and exact PostgreSQL decimal strings in
-  `metrics_text`. Record drill-down queries accept `1..2` `group` slices—reusing
+  `metrics_text`; the result also carries the queried table's `data_version` and
+  a `data_versions` map from every table the query read to its data version.
+  Record drill-down queries accept `1..2` `group` slices—reusing
   the exact `to_char(date_trunc(...), format)` bucket expression for single-period
   `=` and cumulative `<=` bounds, as well as `other_exclude_values_json`
   (`EXISTS` exclusion on `:array` fields)—wrapped with `AND` outside user
   filters so `(A OR B)` filters compose cleanly with chart slices.
+- Aggregate queries follow declared `:link` fields between tables of the same
+  Base. A group field, filter condition, or metric names a `path` of `1..3`
+  link field IDs, and its `field_id` then belongs to the table that the path
+  reaches; the request never carries SQL. A grouped `path` must contain only
+  single-value links, so each record has at most one linked value and
+  `Pod.Query` rejects a multi-value link with `invalid_link_path`
+  (`multi_value_dimension`). A filter condition with a `path` matches when at
+  least one reached record satisfies it, while `exists` and `not_exists`
+  conditions take a `path` and an optional plain `filter` over the reached
+  table. A metric with a `path` (`count`, `sum`, `avg`, `min`, or `max`, plus
+  an optional plain `filter` over the reached table) aggregates the distinct
+  reached records per parent record in a subquery that `Pod.Query` left-joins to
+  the parent rows, so a parent with three children still contributes its own
+  fields once. `count` of a parent without reached records is `0`, the other
+  operations are `null`, and `avg` divides the summed child totals by the
+  summed child counts. A child linked to several parents contributes once to
+  each of them. Record queries reject conditions that carry a `path`. Link
+  fields exist only on `physical` tables, so these queries always run on the
+  Base shard.
 - Large kanban boards fetch full-table group counts and paginate each column
   independently, resetting to page 1 whenever grouping, filters, or sorts
   change.
 - Physical reads hold `FOR KEY SHARE` on control-plane metadata, open one
   `REPEATABLE READ, READ ONLY` shard transaction across records and
   `_table_states`, verify the schema version before returning rows, and count
-  lock waits toward the statement timeout.
+  lock waits toward the statement timeout. An aggregate with a link `path`
+  locks every table on the Base Page in ID order before opening the shard
+  transaction and verifies the schema version of each table it reads; the
+  caller needs `node_view` on that Base Page alone.
 
 For small tables (up to `2,000` rows and `4 MiB` of serialized records,
 formulas, and metadata—checked in PostgreSQL and flagged on the schema
@@ -2021,8 +2051,8 @@ independently of `inline`/`physical` mode), the browser may load a full snapshot
 and run local filters, sorts, and aggregates through a fail-closed allowlist only
 when every query key and metric operator matches PostgreSQL semantics exactly.
 Numeric comparisons, numeric formulas, `sum`, `avg`, `count_distinct`, `order_by`,
-`top_n`, `omit_empty`, bucketed or multi-slice `group` drill-downs, and
-locale-dependent operations when the database locale is unsupported always route
+`top_n`, `omit_empty`, bucketed or multi-slice `group` drill-downs, link
+`path` clauses, and locale-dependent operations when the database locale is unsupported always route
 to the server so JavaScript `Number` arithmetic never approximates PostgreSQL
 `numeric` precision (verified by shared cross-runtime fixtures). Array-valued
 formulas use the same JSONB comparison compatibility gate as stored array
@@ -2111,7 +2141,8 @@ saved views, filters, ordering, selected columns, and first/last windows. Saved
 views apply their filter, sort, and visible fields, including the primary field;
 column projection applies to both record JSON and exports. A table
 listing contains at most 200 records; any `rec_<id>.json` remains directly
-addressable. `.info/schema.json` describes fields and `.info/count` counts the
+addressable. `.info/schema.json` lists the table and its fields with their
+names, types, configuration, and descriptions, and `.info/count` counts the
 selected window. A saved OR view cannot be combined with an extra flat AND
 filter; that unsupported query returns an explicit error.
 
@@ -2643,7 +2674,12 @@ observer across Applet generations until the Pod unmounts:
   authoritative HTTP `401`, `403`, or `404` (including during a Query retry),
   all subscribers share a sticky denied state, hide cached rows, and stop
   joining the table channel until a fresh read succeeds; transient network
-  errors before a denial keep prior data.
+  errors before a denial keep prior data. `useAggregate` also subscribes to
+  every other table named in the cached result's `data_versions`, such as a
+  linked table in a `path` or a child table in a metric, and refetches the
+  aggregate when one of those tables reports a different data version; the hook
+  drops a table's subscription when that table leaves the result's dependencies
+  or the hook unmounts.
 - **Record mutations**: Updates and deletes pass the field versions captured
   when editing started (keeping attempted values and versions on failure;
   settling an attachment upload closes that cell edit so the next edit reads
@@ -2801,6 +2837,12 @@ business write:
   A stale object ID returns a conflict. Document assets and Base attachments use
   their standard page-type rules. File capabilities enforce the Worker transfer
   byte cap up front, passing bytes as `Uint8Array` (including empty files).
+- **`metrics.query`**: Executes a published Brain metric through
+  `Ankole.Brain.execute_metric/4` as the selected execution Principal, taking
+  the metric's `metrics/` path or object ID and `{revision?, params?}`. The
+  capability is read-only, so `GET` routes may call it. It returns the metric
+  result and fails with the metric error codes that
+  [Brain](BrainV3.md#executing-a-metric) defines.
 - **`ai.generateText`**: Accepts a built-in model slot, effort, optional system
   text and prompt. Configuration, authorization and usage attribution follow the
   selected ordinary or `admin` execution Principal. Missing `light` configuration

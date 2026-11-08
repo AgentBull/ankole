@@ -26,6 +26,11 @@ defmodule Ankole.Connectors do
           wrap_in_result?: false
         )
 
+        route(:post, "/auth-configs/:id/refresh-catalog", :refresh_catalog,
+          name: "podConnectorAuthConfigsRefreshCatalog",
+          wrap_in_result?: false
+        )
+
         route(:get, "/accounts", :accounts,
           name: "podConnectorAccountsList",
           wrap_in_result?: false
@@ -85,6 +90,8 @@ defmodule Ankole.Connectors do
     resource(Ankole.Connectors.ConnectedAccount)
     resource(Ankole.Connectors.OAuthSession)
     resource(Ankole.Connectors.Trigger)
+    resource(Ankole.Connectors.DbCatalogTable)
+    resource(Ankole.Connectors.DbCatalogColumn)
   end
 
   defdelegate receive_cloud_delivery(envelope), to: Ankole.Connectors.Ingress
@@ -104,6 +111,22 @@ defmodule Ankole.Connectors do
   defdelegate get_auth_config(selector, plugin_id \\ nil), to: Ankole.Connectors.Store
   defdelegate get_auth_config_for_configuration(id), to: Ankole.Connectors.Store
   defdelegate resolve_credentials(auth_config_id), to: Ankole.Connectors.Credentials
+
+  @doc """
+  Runs one guarded read-only statement on a database connection after
+  connection-level AuthZ and returns the adapter's evidence envelope. Brain
+  metric execution and the `query` tool share this path.
+  """
+  defdelegate run_read_query(actor, connection, sql, params \\ [], opts \\ []),
+    to: Ankole.Connectors.Databases
+
+  defdelegate search_database_catalog(config, query, limit),
+    to: Ankole.Connectors.Databases,
+    as: :search_catalog
+
+  defdelegate describe_database_table(config, schema, table),
+    to: Ankole.Connectors.Databases,
+    as: :describe_table
 
   defdelegate get_account(auth_config_id, subject_kind, account_key),
     to: Ankole.Connectors.Accounts

@@ -162,6 +162,10 @@ export type PodBaseField = {
     /**
      * Field included by default.
      */
+    description: string
+    /**
+     * Field included by default.
+     */
     is_primary: boolean
     /**
      * Field included by default.
@@ -388,6 +392,10 @@ export type PodBaseTable = {
     /**
      * Field included by default.
      */
+    description: string
+    /**
+     * Field included by default.
+     */
     emit_changes: boolean
     /**
      * Field included by default.
@@ -480,6 +488,10 @@ export type PodBaseTableType = {
    * Field included by default.
    */
   data_version: number
+  /**
+   * Field included by default.
+   */
+  description: string
   /**
    * Field included by default.
    */
@@ -1079,6 +1091,10 @@ export type PodBaseFieldType = {
   /**
    * Field included by default.
    */
+  description: string
+  /**
+   * Field included by default.
+   */
   id: string
   /**
    * Field included by default.
@@ -1226,6 +1242,39 @@ export type MetaLibrary = {
   }
   type: string
 }
+
+export type PodConnectorAuthConfigsRefreshCatalogData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/connectors/auth-configs/{id}/refresh-catalog'
+}
+
+export type PodConnectorAuthConfigsRefreshCatalogErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAuthConfigsRefreshCatalogError =
+  PodConnectorAuthConfigsRefreshCatalogErrors[keyof PodConnectorAuthConfigsRefreshCatalogErrors]
+
+export type PodConnectorAuthConfigsRefreshCatalogResponses = {
+  /**
+   * Success
+   */
+  201: {
+    complete: boolean
+    fetched_at: string
+    table_count: number
+  }
+}
+
+export type PodConnectorAuthConfigsRefreshCatalogResponse =
+  PodConnectorAuthConfigsRefreshCatalogResponses[keyof PodConnectorAuthConfigsRefreshCatalogResponses]
 
 export type PodBaseTableDeleteData = {
   body?: never
@@ -5228,7 +5277,14 @@ export type PodConnectorAuthConfigsListResponses = {
    */
   200: {
     connections: Array<{
+      access?: {
+        [key: string]: unknown
+      } | null
       auth_scheme: string
+      catalog?: {
+        complete: boolean
+        table_count: number
+      } | null
       configured_credential_fields: Array<string>
       display_name: string
       id?: string | null
@@ -5258,6 +5314,9 @@ export type PodConnectorAuthConfigsCreateData = {
    */
   body: {
     data: {
+      access?: {
+        [key: string]: unknown
+      } | null
       auth_scheme: string
       display_name?: string | null
       is_default?: boolean | null
@@ -5292,7 +5351,14 @@ export type PodConnectorAuthConfigsCreateResponses = {
    */
   201: {
     connection: {
+      access?: {
+        [key: string]: unknown
+      } | null
       auth_scheme: string
+      catalog?: {
+        complete: boolean
+        table_count: number
+      } | null
       configured_credential_fields: Array<string>
       display_name: string
       id?: string | null
@@ -5857,8 +5923,28 @@ export type PodBaseAggregateData = {
     data: {
       filter?: {
         conditions: Array<{
-          field_id: string
-          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+          field_id?: string | null
+          filter?: {
+            conditions: Array<{
+              field_id: string
+              operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+              value?: unknown | null
+            }>
+            conjunction: 'and' | 'or'
+          } | null
+          operator:
+            | 'is'
+            | 'contains'
+            | 'is_empty'
+            | 'is_not_empty'
+            | 'gt'
+            | 'gte'
+            | 'lt'
+            | 'lte'
+            | 'text_contains'
+            | 'exists'
+            | 'not_exists'
+          path?: Array<string> | null
           value?: unknown | null
         }>
         conjunction: 'and' | 'or'
@@ -5866,11 +5952,21 @@ export type PodBaseAggregateData = {
       group_by?: Array<{
         bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year' | null
         field_id: string
+        path?: Array<string> | null
       }> | null
       metrics: Array<{
         alias: string
         field_id?: string | null
+        filter?: {
+          conditions: Array<{
+            field_id: string
+            operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+            value?: unknown | null
+          }>
+          conjunction: 'and' | 'or'
+        } | null
         operation: 'count' | 'count_distinct' | 'sum' | 'avg' | 'min' | 'max'
+        path?: Array<string> | null
       }>
       omit_empty?: boolean | null
       order_by?: Array<{
@@ -5907,6 +6003,9 @@ export type PodBaseAggregateResponses = {
    */
   201: {
     data_version: number
+    data_versions: {
+      [key: string]: number
+    }
     groups: Array<{
       metrics: {
         [key: string]:
@@ -6057,6 +6156,7 @@ export type PodBaseFieldCreateData = {
       config?: {
         [key: string]: unknown
       } | null
+      description?: string | null
       is_primary?: boolean | null
       name?: string | null
       position?: string | null
@@ -7167,6 +7267,7 @@ export type PodBaseTableCreateData = {
    */
   body?: {
     data: {
+      description?: string | null
       name?: string | null
     }
   }
@@ -7680,6 +7781,7 @@ export type PodBaseFieldUpdateData = {
       config?: {
         [key: string]: unknown
       } | null
+      description?: string | null
       name?: string | null
       position?: string | null
       type?:
@@ -8000,6 +8102,9 @@ export type PodConnectorAuthConfigsUpdateData = {
    */
   body?: {
     data: {
+      access?: {
+        [key: string]: unknown
+      } | null
       display_name?: string | null
       is_default?: boolean | null
       public_metadata?: {
@@ -8035,7 +8140,14 @@ export type PodConnectorAuthConfigsUpdateResponses = {
    */
   200: {
     connection: {
+      access?: {
+        [key: string]: unknown
+      } | null
       auth_scheme: string
+      catalog?: {
+        complete: boolean
+        table_count: number
+      } | null
       configured_credential_fields: Array<string>
       display_name: string
       id?: string | null
@@ -8815,6 +8927,7 @@ export type PodBaseTableConfigureData = {
    */
   body?: {
     data: {
+      description?: string | null
       emit_changes?: boolean | null
       unique_field_ids?: Array<string> | null
     }

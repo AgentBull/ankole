@@ -19,7 +19,9 @@ defmodule Ankole.Kernel do
                         env -> "priv/native/ankole_kernel_#{env}"
                       end)
 
-  @sccache_remote_env_keys ~w(
+  # A local variable, not an attribute: only the branch that finds sccache
+  # reads it, and an unread attribute warns on hosts without sccache.
+  sccache_remote_env_keys = ~w(
     SCCACHE_BUCKET
     SCCACHE_REDIS
     SCCACHE_REDIS_ENDPOINT
@@ -77,7 +79,7 @@ defmodule Ankole.Kernel do
                           value when value in [nil, ""] -> "20G"
                           value -> value
                         end}
-                       | Enum.map(@sccache_remote_env_keys, &{&1, nil})
+                       | Enum.map(sccache_remote_env_keys, &{&1, nil})
                      ]
 
                    sccache_mode == :enabled ->
@@ -555,6 +557,77 @@ defmodule Ankole.Kernel do
   @doc false
   @spec markdown_repair_generated_nif(String.t()) :: String.t()
   defp markdown_repair_generated_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+
+  @type sql_dialect :: :postgres | :mysql | :clickhouse | :generic
+  @type sql_inspection :: %{required(String.t()) => term()}
+
+  @doc """
+  Parses one read-only SQL query and returns the facts that the caller needs to
+  check it before execution. The function does no I/O.
+
+  The kernel accepts exactly one `SELECT` or `WITH` query. It rejects the input
+  with one of these error codes:
+
+    * `"empty"` - the input contains no statement.
+    * `"parse_error"` - the dialect cannot parse the input, the input is not
+      UTF-8, or the input is larger than 1 MiB.
+    * `"multiple_statements"` - the input contains more than one statement.
+    * `"not_read_only"` - the input is DML, DDL, `SELECT INTO`, a CTE that
+      modifies data, or another statement that is not a query.
+    * `"locking_clause"` - the query uses `FOR UPDATE`, `FOR SHARE`, or
+      `LOCK IN SHARE MODE`.
+    * `"side_effect_function"` - the query calls a built-in function of the
+      dialect that has effects outside the query result, anywhere in the
+      statement, including table functions and `LATERAL` calls. The kernel
+      matches the last part of the function name case-insensitively, so a
+      schema-qualified call also fails, and the message names the function.
+      PostgreSQL covers notifications, advisory locks, backend signals,
+      configuration and WAL control, replication slots and origins, statistics
+      resets, `set_config`, sequences, large-object writes, server-file writes,
+      `dblink`, and `pg_sleep`. MySQL covers named locks, `SLEEP`,
+      `BENCHMARK`, `LOAD_FILE`, and replication waits. ClickHouse covers
+      `sleep`, `sleepEachRow`, and functions that reach files, processes, or
+      external systems, such as `url`, `remote`, `s3`, and `executable`. The
+      generic dialect rejects the union of these lists.
+
+  The check is syntactic. It cannot see what a user-defined function does, so
+  the caller also runs the query in a read-only session, and the database role
+  of the connection decides which other functions the query may execute.
+
+  The success map has these string keys:
+
+    * `"kind"` - `"with"` when the outermost query has a `WITH` clause,
+      otherwise `"select"`.
+    * `"tables"` - each referenced base table, also inside CTEs and subqueries,
+      as `%{"catalog", "schema", "name"}`. CTE names and table functions are
+      not tables. Names keep the case in which the query writes them.
+    * `"columns"` - each column reference as `%{"table", "name"}`, where
+      `"table"` is the qualifier as written or `nil`. Output aliases that
+      `ORDER BY` or `GROUP BY` refers to also appear here.
+    * `"aggregates"` - lower-case aggregate names, such as `"sum"` or
+      `"count_distinct"` for `COUNT(DISTINCT ...)`. Window calls with `OVER`
+      are not aggregates.
+    * `"literals"` - comparisons between a column and literals in `WHERE` and
+      `HAVING`, as `%{"column", "table", "operator", "values"}`. The operator
+      is one of `=`, `<>`, `<`, `<=`, `>`, `>=`, `in`, `like`, or `ilike`.
+      `BETWEEN` yields one `>=` and one `<=` entry. Negated forms are skipped.
+    * `"joins"` - the number of `JOIN` clauses in the whole query.
+    * `"group_by"` - whether any `SELECT` has `GROUP BY`.
+    * `"limit"` - the outermost literal `LIMIT` or `FETCH FIRST` count, or `nil`.
+    * `"fanout_risk"` - whether a `SELECT` with two or more relations applies
+      a duplicate-sensitive aggregate (not `MIN`, `MAX`, or a `DISTINCT`
+      aggregate) to `*`, an unqualified column, or a column of a relation that
+      is not a pre-aggregated derived table or CTE. The heuristic does not read
+      join keys, so it also flags safe N:1 joins.
+  """
+  @spec sql_inspect(String.t(), sql_dialect()) ::
+          {:ok, sql_inspection()}
+          | {:error, %{required(String.t()) => String.t()}}
+  def sql_inspect(sql, dialect)
+      when is_binary(sql) and dialect in [:postgres, :mysql, :clickhouse, :generic],
+      do: sql_inspect_nif(sql, Atom.to_string(dialect))
+
+  defp sql_inspect_nif(_sql, _dialect), do: :erlang.nif_error(:nif_not_loaded)
 
   @typedoc "Result of extracting searchable text and locating metadata from a file."
   @type file_extraction :: %{

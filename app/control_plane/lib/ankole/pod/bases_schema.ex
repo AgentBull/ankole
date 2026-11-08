@@ -32,22 +32,29 @@ defmodule Ankole.Pod.Bases.Schema do
                Ankole.Ash.for_update(
                  write.table,
                  :configure,
-                 atom_attrs(attrs, [:unique_field_ids, :emit_changes])
+                 atom_attrs(attrs, [:description, :unique_field_ids, :emit_changes])
                )
                |> Ash.Changeset.apply_attributes(),
+             :ok <- description_size(candidate),
              :ok <- validate_unique_fields(candidate, fields(id)),
              :ok <- configure_storage(write, candidate),
              {:ok, table} <-
                Ankole.Ash.update(
                  write.table,
                  :configure,
-                 Map.take(candidate, [:unique_field_ids, :emit_changes])
+                 Map.take(candidate, [:description, :unique_field_ids, :emit_changes])
                ) do
           {:ok, table, %{write | table: table, tables: Map.put(write.tables, id, table)}}
         end
       end)
     end)
   end
+
+  @doc "Rejects a table or field description longer than 2 KiB of UTF-8 text."
+  def description_size(%{description: description}) when byte_size(description) > 2_048,
+    do: {:error, :description_size_limit}
+
+  def description_size(_definition), do: :ok
 
   defp validate_unique_fields(table, definitions) do
     valid =
@@ -148,7 +155,7 @@ defmodule Ankole.Pod.Bases.Schema do
 
       attrs =
         attrs
-        |> atom_attrs([:name, :type, :config, :position])
+        |> atom_attrs([:name, :description, :type, :config, :position])
         |> strip_edge_config()
         |> Map.merge(%{id: Ankole.Ecto.UUIDv7.autogenerate(), table_id: id, is_primary: false})
         |> Map.put_new_lazy(:position, fn -> next_schema_position(BaseField, id) end)
@@ -158,6 +165,7 @@ defmodule Ankole.Pod.Bases.Schema do
              BaseField
              |> Ankole.Ash.for_create(:create_in_tx, attrs)
              |> Ash.Changeset.apply_attributes(),
+           :ok <- description_size(candidate),
            {:ok, candidate} <- Formula.prepare(candidate, fields(id)),
            :ok <- validate_field_config(candidate, table),
            {:ok, candidate, write} <- reverse_field(candidate, write),
@@ -170,6 +178,7 @@ defmodule Ankole.Pod.Bases.Schema do
                  :id,
                  :table_id,
                  :name,
+                 :description,
                  :position,
                  :type,
                  :config,
@@ -197,9 +206,12 @@ defmodule Ankole.Pod.Bases.Schema do
                Ankole.Ash.for_update(
                  field,
                  :update_definition,
-                 strip_edge_config(atom_attrs(attrs, [:name, :type, :config, :position]))
+                 strip_edge_config(
+                   atom_attrs(attrs, [:name, :description, :type, :config, :position])
+                 )
                )
                |> Ash.Changeset.apply_attributes(),
+             :ok <- description_size(candidate),
              :ok <- unique_field_change(table, field, candidate),
              candidate <- carry_reverse(field, candidate),
              {:ok, candidate} <-
@@ -221,7 +233,7 @@ defmodule Ankole.Pod.Bases.Schema do
                Ankole.Ash.update(
                  field,
                  :update_definition,
-                 Map.take(candidate, [:name, :position, :type, :config])
+                 Map.take(candidate, [:name, :description, :position, :type, :config])
                ) do
           persist_formula_metadata(checked, id, definitions)
 
@@ -716,7 +728,8 @@ defmodule Ankole.Pod.Bases.Schema do
     with {:ok, write} <- Write.open(actor, id, :manage_schema),
          {:ok, written, write} <- fun.(write),
          {:ok, changed} <- finish_schema(written, Write.touch(write, write.table.id)),
-         :ok <- Ankole.Pod.SearchProjection.sync_base_in_tx(write.table.page_id) do
+         :ok <- Ankole.Pod.SearchProjection.sync_base_in_tx(write.table.page_id),
+         :ok <- Ankole.Brain.base_tables_changed_in_tx(Enum.map(changed, & &1.id)) do
       analyze =
         for {_, %{old: old, candidate: candidate}} <- write.conversions,
             old.type != candidate.type,

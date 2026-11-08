@@ -32,6 +32,13 @@ defmodule Ankole.Pod.BaseTable do
     attribute(:name, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:position, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
 
+    attribute(:description, :string,
+      public?: true,
+      allow_nil?: false,
+      default: "",
+      constraints: [allow_empty?: true]
+    )
+
     attribute(:storage_mode, :atom,
       public?: true,
       allow_nil?: false,
@@ -82,11 +89,11 @@ defmodule Ankole.Pod.BaseTable do
     end
 
     create :create_in_tx do
-      accept([:id, :page_id, :name, :position])
+      accept([:id, :page_id, :name, :description, :position])
     end
 
     update :configure do
-      accept([:unique_field_ids, :emit_changes])
+      accept([:description, :unique_field_ids, :emit_changes])
     end
 
     update :rename do

@@ -22,6 +22,7 @@ defmodule Ankole.Connectors.Browser do
     allow(:connections, check: :guardrail)
     allow(:create_connection, check: :guardrail)
     allow(:update_connection, check: :guardrail)
+    allow(:refresh_catalog, check: :guardrail)
     allow(:accounts, check: :guardrail)
     allow(:connect_personal_credentials, check: :guardrail)
     allow(:connect_team_credentials, check: :guardrail)
@@ -115,6 +116,7 @@ defmodule Ankole.Connectors.Browser do
       argument(:is_default, :boolean)
       argument(:public_metadata, JSONMap)
       argument(:secret, JSONMap, allow_nil?: false)
+      argument(:access, JSONMap)
       run(__MODULE__.Actions)
     end
 
@@ -132,6 +134,24 @@ defmodule Ankole.Connectors.Browser do
       argument(:public_metadata, JSONMap)
       argument(:secret, JSONMap)
       argument(:status, :string)
+      argument(:access, JSONMap)
+      run(__MODULE__.Actions)
+    end
+
+    action :refresh_catalog, :map do
+      constraints(
+        fields: [
+          table_count: [type: :integer, allow_nil?: false],
+          fetched_at: [type: :utc_datetime_usec, allow_nil?: false],
+          complete: [
+            type: :boolean,
+            allow_nil?: false,
+            description: "False when the refresh stopped at the catalog_tables budget."
+          ]
+        ]
+      )
+
+      argument(:id, UUIDv7, allow_nil?: false)
       run(__MODULE__.Actions)
     end
 

@@ -172,6 +172,10 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
       {:ok, {:ok, output}} ->
         completed_outcome(output)
 
+      # A structured domain error, such as a metric error, keeps its own code.
+      {:ok, {:error, {code, %{} = details}}} when is_atom(code) ->
+        failed_outcome(Atom.to_string(code), details)
+
       {:ok, {:error, reason}} ->
         failed_outcome("brain_operation_failed", reason)
 
@@ -521,6 +525,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   defp decode_arguments(_arguments), do: nil
 
   defp format_reason(reason) when is_binary(reason), do: reason
+  defp format_reason(%{} = details), do: details |> Ankole.JSON.plain() |> output_text()
   defp format_reason(reason), do: inspect(reason)
 
   defp pack_messages(pack) do

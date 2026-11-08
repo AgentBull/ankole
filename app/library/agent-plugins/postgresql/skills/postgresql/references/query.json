@@ -1,0 +1,119 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Run one read-only SELECT or WITH query in a read-only session. The result is an evidence envelope: column types, at most max_rows rows, truncated when more rows exist, elapsed time, the executed SQL, the data timestamp, and warnings such as fanout_risk. Pass export to save every row to a Pod CSV file.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "export": {
+        "additionalProperties": false,
+        "description": "Save every result row, up to the operator's export budget, as a CSV file in the Pod. Requires a route that permits writes.",
+        "properties": {
+          "base_object_id": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "role": {
+            "enum": ["file", "asset", "attachment"],
+            "type": "string"
+          }
+        },
+        "required": ["page_id", "role", "name"],
+        "type": "object"
+      },
+      "max_rows": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "params": {
+        "items": {
+          "type": ["string", "number", "integer", "boolean", "null"]
+        },
+        "type": "array"
+      },
+      "sql": {
+        "type": "string"
+      }
+    },
+    "required": ["sql"],
+    "type": "object"
+  },
+  "name": "query",
+  "outputSchema": {
+    "properties": {
+      "columns": {
+        "items": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": ["name", "type"],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "data_timestamp": {
+        "type": "string"
+      },
+      "elapsed_ms": {
+        "type": "integer"
+      },
+      "file": {
+        "properties": {
+          "content_type": {
+            "type": "string"
+          },
+          "file_ref": {
+            "type": "string"
+          },
+          "row_count": {
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "type": ["object", "null"]
+      },
+      "row_count": {
+        "type": "integer"
+      },
+      "rows": {
+        "items": {
+          "type": "array"
+        },
+        "type": "array"
+      },
+      "sql": {
+        "type": "string"
+      },
+      "truncated": {
+        "type": "boolean"
+      },
+      "warnings": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["columns", "rows", "row_count", "truncated", "elapsed_ms", "sql", "data_timestamp", "warnings"],
+    "type": "object"
+  }
+}

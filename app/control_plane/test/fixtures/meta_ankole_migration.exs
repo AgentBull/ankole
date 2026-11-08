@@ -271,7 +271,7 @@ Application.ensure_all_started(:postgrex)
     page.(skills, "private-example.com-migration-skill", "<page />", %{}, nil)
     page.(skills, "imported-" <> installed_id, "<page />", %{}, nil)
 
-    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20_261_103_020_000, log: false)
+    Ankole.Migrations.migrate(repo, Ankole.Migrations.paths(), :up, all: true, log: false)
 
     assert [[true]] =
              repo.query!("SELECT enabled_for_all FROM skills WHERE id=$1::text::uuid", [positive]).rows

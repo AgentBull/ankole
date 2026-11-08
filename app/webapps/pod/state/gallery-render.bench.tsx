@@ -10,6 +10,7 @@ const runs = Number(process.env.GALLERY_RUNS ?? 8)
 const field: BaseField = {
   id: 'name',
   name: 'Name',
+  description: '',
   type: 'text',
   config: {},
   is_primary: true,

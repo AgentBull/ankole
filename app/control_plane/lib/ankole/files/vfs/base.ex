@@ -640,8 +640,9 @@ defmodule Ankole.Files.Vfs.Base do
 
   defp schema(table, fields),
     do: %{
-      table: Map.take(table, [:id, :name, :schema_version]),
-      fields: Enum.map(fields, &Map.take(&1, [:id, :name, :type, :config, :is_primary]))
+      table: Map.take(table, [:id, :name, :description, :schema_version]),
+      fields:
+        Enum.map(fields, &Map.take(&1, [:id, :name, :description, :type, :config, :is_primary]))
     }
 
   defp display(value) when is_binary(value), do: value

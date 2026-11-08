@@ -19,6 +19,13 @@ defmodule Ankole.Connectors.Connector do
   @callback webhook_response(map()) :: map()
   @callback reconcile_trigger(map(), map(), map(), boolean()) ::
               {:ok, %{external_subscription_id: String.t() | nil}} | {:error, term()}
+  # Database adapters run guarded read-only statements, list their catalog, and
+  # mark the sensitive columns of cached tables; exporting read_query/4 makes
+  # Connectors apply connection-level AuthZ.
+  @callback read_query(map(), String.t(), list(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback fetch_catalog(map(), map(), keyword()) ::
+              {:ok, %{String.t() => [map()] | boolean()}} | {:error, term()}
+  @callback mark_catalog(map(), [map()]) :: [map()]
 
   @optional_callbacks upstream_auth: 3,
                       platform_name: 1,
@@ -32,7 +39,10 @@ defmodule Ankole.Connectors.Connector do
                       bound_user_id: 2,
                       webhook: 4,
                       webhook_response: 1,
-                      reconcile_trigger: 4
+                      reconcile_trigger: 4,
+                      read_query: 4,
+                      fetch_catalog: 3,
+                      mark_catalog: 2
 
   def validate_declaration(%{module: module}) when is_atom(module) and not is_nil(module) do
     with {:module, _} <- Code.ensure_loaded(module) do

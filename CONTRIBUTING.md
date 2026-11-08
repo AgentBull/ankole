@@ -607,6 +607,44 @@ On pushes to `main`, `Publish RuntimeFabric image pair` calls `Repository checks
 - **Website TypeScript version pin**: `app/website` intentionally pins TypeScript `6.0.3` while the rest of the workspace uses TypeScript 7, because `@astrojs/check` supports only TypeScript 5–6 (`astro check` errors on 7.0, and `@astrojs/ts-content-mapper` requires 7.1+). Keep that pin until Astro supports TypeScript 7.1+.
 - **Control-plane test partitioning and incremental runs**: `bun run control-plane:test` compiles `:ankole` once and executes the suite across isolated `MIX_TEST_PARTITION` worker processes (`ANKOLE_TEST_PARTITIONS` overrides the worker count). For incremental feedback on changed modules, run `bun run control-plane:test:stale`; to run one ExUnit file directly, pass its path (`bun run control-plane:test test/path/to/file_test.exs`) or `cd app/control_plane && mix test test/path/to/file_test.exs`.
 - **Cloud connector live acceptance**: With `ANKOLE_EDITION=saas`, use a disposable `MIX_TEST_PARTITION` and provide a Composio project key through `ANKOLE_COMPOSIO_SMOKE_KEY`. Run `bun run control-plane:test ../../internals/control_plane/test/cloud/live_smoke_test.exs` to verify pinned execution and real platform error handling. For the personal-account flow, also set `ANKOLE_FIGMA_SMOKE_PAT` and `ANKOLE_FIGMA_SMOKE_FILE_URL`, then run `bun run control-plane:test ../../internals/control_plane/test/cloud/figma_live_smoke_test.exs`. This binds the real Figma identity, checks account visibility, and reads the supplied design through Gateway. Both suites use read-only external operations and roll back their local configuration and credentials. Missing credentials explicitly skip live checks; omitting the file URL skips only file reading.
+- **External database connectors**: `test/ankole/connectors/database_connectors_mysql_clickhouse_test.exs` runs the same MySQL connector cases against real MySQL and MariaDB servers, the ClickHouse cases against a real ClickHouse server, and the PostgreSQL TLS check against a TLS-enabled PostgreSQL server, and skips each server whose URL is unset. The admin account in each MySQL, MariaDB, and ClickHouse URL creates a throwaway database and account for the run and drops them afterwards; the PostgreSQL TLS check signs in with its URL's account and runs only `SELECT 1`. The TLS tests need every server to present a certificate for `localhost` signed by one test certificate authority, so the URLs name `localhost` and each `*_CA_FILE` variable points at that authority's PEM file; a server whose CA variable is unset skips only its TLS test. Create the certificates, start disposable servers on unused ports, wait until every server accepts connections (the MySQL and MariaDB images initialize for about 20 seconds), run the suite from `app/control_plane` in its own partition, and remove the containers and certificates afterwards. To check the other supported MySQL line, run the MySQL cases once more against `mysql:8.0`.
+  ```bash
+  TLS_DIR=/tmp/ankole-test-database-tls && mkdir -p $TLS_DIR
+  openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj "/CN=Ankole Test CA" \
+    -keyout $TLS_DIR/ca.key -out $TLS_DIR/ca.pem
+  openssl req -newkey rsa:2048 -nodes -subj "/CN=localhost" -keyout $TLS_DIR/server.key -out $TLS_DIR/server.csr
+  printf 'subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n' > $TLS_DIR/server.ext
+  openssl x509 -req -days 7 -in $TLS_DIR/server.csr -CA $TLS_DIR/ca.pem -CAkey $TLS_DIR/ca.key \
+    -CAcreateserial -extfile $TLS_DIR/server.ext -out $TLS_DIR/server.crt
+  chmod 644 $TLS_DIR/server.key
+  printf '%s\n' '<clickhouse><https_port>8443</https_port><openSSL><server>' \
+    '<certificateFile>/etc/clickhouse-server/certs/server.crt</certificateFile>' \
+    '<privateKeyFile>/etc/clickhouse-server/certs/server.key</privateKeyFile>' \
+    '<verificationMode>none</verificationMode></server></openSSL></clickhouse>' > $TLS_DIR/https.xml
+  docker run -d --name ankole-test-mysql -p 127.0.0.1:3307:3306 -v $TLS_DIR:/certs:ro \
+    -e MYSQL_ROOT_PASSWORD=ankole-root mysql:8.4 \
+    --ssl-ca=/certs/ca.pem --ssl-cert=/certs/server.crt --ssl-key=/certs/server.key
+  docker run -d --name ankole-test-mariadb -p 127.0.0.1:3308:3306 -v $TLS_DIR:/certs:ro \
+    -e MARIADB_ROOT_PASSWORD=ankole-root mariadb:11.4 \
+    --ssl-ca=/certs/ca.pem --ssl-cert=/certs/server.crt --ssl-key=/certs/server.key
+  docker run -d --name ankole-test-clickhouse -p 127.0.0.1:8124:8123 -p 127.0.0.1:8444:8443 \
+    --ulimit nofile=262144:262144 -v $TLS_DIR:/etc/clickhouse-server/certs:ro \
+    -v $TLS_DIR/https.xml:/etc/clickhouse-server/config.d/https.xml:ro \
+    -e CLICKHOUSE_USER=ankole_admin -e CLICKHOUSE_PASSWORD=ankole-admin -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 \
+    clickhouse/clickhouse-server:25.8
+  # PostgreSQL reads its private key only when the postgres user owns it with mode 0600.
+  docker run -d --name ankole-test-postgres -p 127.0.0.1:5434:5432 -v $TLS_DIR:/certs:ro \
+    -e POSTGRES_PASSWORD=ankole-root postgres:18 sh -c 'install -o postgres -m 600 /certs/server.key /tmp/server.key &&
+      exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/server.key'
+  ANKOLE_TEST_MYSQL_URL=mysql://root:ankole-root@localhost:3307 ANKOLE_TEST_MYSQL_CA_FILE=$TLS_DIR/ca.pem \
+  ANKOLE_TEST_MARIADB_URL=mysql://root:ankole-root@localhost:3308 ANKOLE_TEST_MARIADB_CA_FILE=$TLS_DIR/ca.pem \
+  ANKOLE_TEST_CLICKHOUSE_URL=http://ankole_admin:ankole-admin@localhost:8124 \
+  ANKOLE_TEST_CLICKHOUSE_HTTPS_URL=https://localhost:8444 ANKOLE_TEST_CLICKHOUSE_CA_FILE=$TLS_DIR/ca.pem \
+  ANKOLE_TEST_POSTGRES_TLS_URL=postgres://postgres:ankole-root@localhost:5434/postgres \
+  ANKOLE_TEST_POSTGRES_CA_FILE=$TLS_DIR/ca.pem \
+  MIX_TEST_PARTITION=extdb mix test test/ankole/connectors/database_connectors_mysql_clickhouse_test.exs
+  docker rm -f ankole-test-mysql ankole-test-mariadb ankole-test-clickhouse ankole-test-postgres && rm -rf $TLS_DIR
+  ```
 - **Committed test fixtures**: Tests marked `sandbox: false` run serially against real transactions. `Ankole.DataCase` removes their new tenants and Site Providers after the test's own exit callbacks, including the Worker and model Providers that Agent fixtures create. Tests that provision external resources must release those resources in their own exit callbacks; DataCase handles the remaining database fixtures through their existing cleanup owners. The devkit PostgreSQL container provides 1 GiB of shared memory for parallel database queries.
 - **Upgrade migration fixtures**: From `app/control_plane`, run each historical upgrade path in a fresh, disposable test partition. Each script creates its own database, seeds the older schema, migrates forward, and checks the resulting data. Choose unused partition names on every run; do not point these scripts at a development or shared test database.
   ```bash
@@ -698,7 +736,7 @@ POD_BROWSER_STATE_PATH=/tmp/ankole-pod-browser.json bun run test:pod
 How `pod_browser_server.exs` works:
 - **Host, port, and state file**: By default the server binds `127.0.0.1:4000` (stop any competing server on `:4000` first, or set `POD_BROWSER_PORT` alongside a distinct `pod_browser_*` `MIX_TEST_PARTITION`) and serves built production assets on `http://<tenant-slug>.ankole.localhost:4000`. Always navigate via the canonical `base_url` and shared account-proof cookies written to `POD_BROWSER_STATE_PATH` (`0600` permissions; delete it after testing) rather than hitting `127.0.0.1` directly or appending `?tenant_id=` query parameters.
 - **Real connections and real auth**: The server uses the standard Ecto connection pool (not SQL Sandbox) so Phoenix Channels stay alive across requests, creates a fresh data tenant on each boot, reuses a fixed root-administrator Principal in the privileged tenant, and delivers login OTPs through a local TLS SMTP fixture whose `.mail.json` companion file lets Playwright read delivered codes without bypassing authentication or AuthZ.
-- **Coverage**: The suite verifies live collaborative page edits, Base tables, Applet publishing, access revocation, Office file previews, Console member/guest provisioning and access-version bumps across reloads, iframe module loading, CSS isolation, per-tab identity selection, and the full sample-reservation Applet backend (pending submissions, input retention on rejection, viewer write denial, competing reservations, and paired frontend/backend revision swaps—delaying one real committed HTTP response solely to inspect pending UI state).
+- **Coverage**: The suite verifies live collaborative page edits, Base tables, Applet publishing, access revocation, Office file previews, Console member/guest provisioning and access-version bumps across reloads, iframe module loading, CSS isolation, per-tab identity selection, and the full sample-reservation Applet backend (pending submissions, input retention on rejection, viewer write denial, competing reservations, and paired frontend/backend revision swaps—delaying one real committed HTTP response solely to inspect pending UI state). An order ledger with linked Orders and Items tables carries an Applet that sums linked item amounts, so a story can check that the aggregate refreshes when only the Items table changes. For the database connector story, the server also creates a three-table PostgreSQL database named `ankole_browser_dbconn_<partition>` on the devkit server; it drops that database at exit and again on the next boot of the same partition.
 
 To check the development asset path, start Vite with `PORT` matching the fixture
 server's port, then set `POD_BROWSER_DEV_SERVER=http://127.0.0.1:3035` when

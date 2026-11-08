@@ -45,6 +45,13 @@ The current modules are:
   indented code blocks, plus idempotent repair of common model-emitted Markdown
   defects outside code, math, links, HTML, and wikilinks.
 - `model_image/` - validation and conversion of model images.
+- `sql_inspect.rs` - read-only checks for one SQL query in the PostgreSQL,
+  MySQL, ClickHouse, or generic dialect through `sqlparser`. The module rejects
+  writes, multiple statements, locking clauses, and calls to side-effecting
+  built-in functions, and it extracts the
+  referenced tables and columns, aggregates, literal predicates in `WHERE` and
+  `HAVING`, join counts, the outermost limit, and a fan-out heuristic for
+  aggregates over joins.
 - `signals/` - CEL routing-policy evaluation against a supplied context.
 - `page_document/` - page XML validation, canonical conversion, search text
   extraction, application of prepared Wordgard change sets, and structural or

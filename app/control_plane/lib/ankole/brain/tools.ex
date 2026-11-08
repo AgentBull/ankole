@@ -75,7 +75,7 @@ defmodule Ankole.Brain.Tools do
     def fence(%__MODULE__{write_fence: fence}), do: fence.()
   end
 
-  @operations ~w(remember recall entity whoknows synthesize delta write_object)
+  @operations ~w(remember recall entity whoknows synthesize delta write_object metric_query)
   def operations, do: @operations
   def operation?(operation), do: operation in @operations
 
@@ -120,6 +120,17 @@ defmodule Ankole.Brain.Tools do
       false -> {:error, :invalid_request}
       error -> error
     end
+  end
+
+  defp run("metric_query", params, context) do
+    with {:ok, slug} <- required(params, "metric_slug"),
+         :ok <- disclosed(context, metric_page_id(slug), {:metric_not_found, %{metric: slug}}),
+         {:ok, principal} <- Ankole.Principals.get_principal(context.querier_uid),
+         actor = Ankole.AuthZ.Actor.new(principal, authn: context.authn),
+         {:ok, result} <-
+           Ankole.Brain.execute_metric(actor, slug, params["revision"], params["params"] || %{}),
+         :ok <- disclosed(context, result.source["base_page_id"], :forbidden),
+         do: {:ok, Ankole.Pod.Serialization.json_value(result)}
   end
 
   defp run("remember", params, context) do
@@ -227,6 +238,25 @@ defmodule Ankole.Brain.Tools do
            )
   end
 
+  # The conversation's disclosure boundary covers the metric object and the
+  # Base it reads, as it does for an Agent turn actor. An unresolved metric
+  # reaches execute_metric, which reports it as metric_not_found.
+  defp disclosed(_context, nil, _error), do: :ok
+
+  defp disclosed(context, page_id, error) do
+    with {:ok, page} <- Ankole.Pod.Pages.fetch(page_id),
+         {:ok, _reachable} <- Ankole.Pod.AgentPages.visible(context, page),
+         do: :ok,
+         else: (_ -> {:error, error})
+  end
+
+  defp metric_page_id(slug) do
+    case Objects.resolve_slug(slug) do
+      {:ok, object} -> object.id
+      _ -> nil
+    end
+  end
+
   defp subject(nil, _context), do: {:ok, nil}
   defp subject("", _context), do: {:ok, nil}
 
@@ -262,6 +292,10 @@ defmodule Ankole.Brain.Tools do
   defp description("write_object"),
     do:
       "Create or revise a Brain knowledge object with complete Markdown and frontmatter. For creation give an installed ontology category, title and base_revision 0; for revision give object_id and its current base_revision from entity. Requires both your Agent and the requester to have edit permission. If approval_required is returned, pass the proposal to propose_action_card in a native Pod conversation."
+
+  defp description("metric_query"),
+    do:
+      "Execute a published Brain metric without a model. Give metric_slug (a metrics/ path or object ID), revision to pin an immutable revision (omit it for the latest), and params with the metric's typed parameters plus an optional dimensions list from its addible_dimensions. Answer with the returned metrics_text values. Errors metric_not_found, metric_revision_not_found, metric_needs_review, invalid_metric_params and dimension_not_addible must be reported, never worked around."
 
   defp description("remember"),
     do:
@@ -309,6 +343,9 @@ defmodule Ankole.Brain.Tools do
 
         "delta" ->
           {[], ~w(entity since until)}
+
+        "metric_query" ->
+          {["metric_slug"], ~w(metric_slug revision params)}
       end
 
     properties =
@@ -318,7 +355,8 @@ defmodule Ankole.Brain.Tools do
            "type" =>
              cond do
                field in ~w(confidence weight) -> "number"
-               field in ~w(limit budget_tokens base_revision) -> "integer"
+               field in ~w(limit budget_tokens base_revision revision) -> "integer"
+               field == "params" -> "object"
                true -> "string"
              end
          }}

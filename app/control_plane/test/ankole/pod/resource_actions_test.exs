@@ -139,7 +139,17 @@ defmodule Ankole.Pod.ResourceActionsTest do
     assert {view.version, view.name} == {3, "Second"}
 
     assert Ankole.Pod.Serialization.item(field) |> Map.keys() |> MapSet.new() ==
-             MapSet.new([:id, :table_id, :name, :position, :type, :config, :is_primary, :version])
+             MapSet.new([
+               :id,
+               :table_id,
+               :name,
+               :description,
+               :position,
+               :type,
+               :config,
+               :is_primary,
+               :version
+             ])
 
     assert Ankole.Pod.Serialization.json_value(field)["type"] == "text"
   end

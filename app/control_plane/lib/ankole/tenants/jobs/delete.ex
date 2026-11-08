@@ -25,7 +25,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
     app_configurations base_change_outbox automation_job_states signal_binding_receipts
     signal_bindings automation_job_runs signal_webhook_endpoints automation_jobs
-    background_agent_job_turn_items brain_chunks brain_take_domain_assignments
+    background_agent_job_turn_items brain_metric_revisions brain_dataset_bindings
+    brain_entity_identifiers brain_chunks brain_take_domain_assignments
     brain_contradictions brain_links brain_merge_suggestions brain_object_aliases
     brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
     brain_schema_calibration_domains brain_schema_link_types brain_schema_types
@@ -36,6 +37,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     oidc_logout_deliveries principal_external_identities
     principal_group_external_bindings principal_group_memberships deliveries
     conversation_inbound_batches conversation_input_tombstones
+    connector_db_catalog_columns connector_db_catalog_tables
     connector_triggers connector_oauth_sessions connector_connected_accounts connector_auth_configs
     workflow_agent_calls delivery_previews signals ai_gateway_messages
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups

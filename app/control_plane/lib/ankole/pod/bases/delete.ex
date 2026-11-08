@@ -26,6 +26,7 @@ defmodule Ankole.Pod.Bases.Delete do
     with false <- referenced?(write),
          {:ok, table} <- Ankole.Ash.update(table, :begin_delete, %{}),
          :ok <- Ankole.Pod.SearchProjection.sync_base_in_tx(table.page_id),
+         :ok <- Ankole.Brain.base_tables_changed_in_tx([table.id]),
          {:ok, _} <- PurgePage.new(%{table_id: table.id}) |> Oban.insert(),
          do: {:ok, table},
          else: (

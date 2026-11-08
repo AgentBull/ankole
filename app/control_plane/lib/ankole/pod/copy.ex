@@ -70,6 +70,7 @@ defmodule Ankole.Pod.Copy do
            Ankole.Ash.create(BaseTable, :create_in_tx, %{
              page_id: page.id,
              name: source.name,
+             description: source.description,
              position: Ankole.Ecto.UUIDv7.autogenerate()
            }),
          definitions <- Bases.fields(source.id),
@@ -113,7 +114,16 @@ defmodule Ankole.Pod.Copy do
       Enum.reduce_while(definitions, {:ok, []}, fn field, {:ok, copied} ->
         attrs =
           by_id[mapping[field.id]]
-          |> Map.take([:id, :table_id, :name, :type, :config, :position, :is_primary])
+          |> Map.take([
+            :id,
+            :table_id,
+            :name,
+            :description,
+            :type,
+            :config,
+            :position,
+            :is_primary
+          ])
 
         case Ankole.Ash.create(BaseField, :create_in_tx, attrs) do
           {:ok, new} -> {:cont, {:ok, [new | copied]}}

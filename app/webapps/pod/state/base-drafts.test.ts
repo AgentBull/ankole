@@ -5,7 +5,15 @@ import { FieldInputModel } from './field-input'
 import { TableWorkspaceModel } from './table-workspace'
 import type { BaseField } from '@ankole/applet-sdk/types'
 
-const field: BaseField = { id: 'price', name: 'Price', type: 'number', config: {}, version: 1, is_primary: false }
+const field: BaseField = {
+  id: 'price',
+  name: 'Price',
+  description: '',
+  type: 'number',
+  config: {},
+  version: 1,
+  is_primary: false
+}
 
 test('a cell preserves begin-of-edit versions across refocus, conflict and deliberate retry', async () => {
   const model = new BaseCellModel()
@@ -74,6 +82,17 @@ test('field definitions are seeded on open and type conversions use a coherent d
   expect(model.baseVersion.value).toBe(3)
   expect(model.type.value).toBe('number')
   expect(model.confirmation.value).toBeUndefined()
+})
+
+test('a field description loads with its definition and changes no stored values', () => {
+  const model = new FieldEditorModel()
+  model.load({ ...field, description: 'CNY, tax included' })
+  expect(model.description.value).toBe('CNY, tax included')
+  model.setDescription('USD, before tax')
+  expect(model.changesValues.value).toBe(false)
+  expect(model.config.value).toEqual({})
+  model.load(field)
+  expect(model.description.value).toBe('')
 })
 
 test('input refetch preserves a dirty string; Escape resets to the current authoritative value', () => {

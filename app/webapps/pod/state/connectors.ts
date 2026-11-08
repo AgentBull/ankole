@@ -1,5 +1,5 @@
 import { createModel, signal } from '@preact/signals-react'
-import { isRecord, safeJsonParse } from '@agentbull/active-support'
+import { isRecord, recordValue, safeJsonParse } from '@agentbull/active-support'
 import type { PodConnectorAuthConfigsListResponse, PodConnectorsCatalogResponse } from '../api/generated/types.gen'
 import { podPagePath, podRouteID } from '../../common/pod-url'
 import i18n from '../../common/i18n'
@@ -148,7 +148,23 @@ export const ConnectorsModel = createModel(() => {
   }
 })
 
+/** Plugins whose connections carry a connection-level `query` permission. */
+export const DATABASE_CONNECTORS = ['postgresql', 'mysql', 'clickhouse']
+
+export type ConnectionAccess = { mode: 'members' | 'restricted'; group_ids: string[]; principal_uids: string[] }
+
+export function connectionAccess(value: unknown): ConnectionAccess {
+  const access = recordValue(value)
+  const ids = (key: string) => (Array.isArray(access?.[key]) ? (access[key] as unknown[]).map(String) : [])
+  return {
+    mode: access?.mode === 'restricted' ? 'restricted' : 'members',
+    group_ids: ids('group_ids'),
+    principal_uids: ids('principal_uids')
+  }
+}
+
 export const ConnectionEditorModel = createModel((connection: Connection | null) => ({
+  access: signal(connectionAccess(connection?.access)),
   editing: signal(connection),
   plugin: signal(connection?.plugin_id ?? 'lark'),
   scheme: signal(connection?.auth_scheme ?? 'lark_app'),

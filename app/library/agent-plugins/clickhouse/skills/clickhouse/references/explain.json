@@ -1,0 +1,37 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Show the database's estimated execution plan for one read-only query without running it.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "params": {
+        "items": {
+          "type": ["string", "number", "integer", "boolean", "null"]
+        },
+        "type": "array"
+      },
+      "sql": {
+        "type": "string"
+      }
+    },
+    "required": ["sql"],
+    "type": "object"
+  },
+  "name": "explain",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "plan": {},
+      "sql": {
+        "type": "string"
+      }
+    },
+    "required": ["plan", "sql"],
+    "type": "object"
+  }
+}
