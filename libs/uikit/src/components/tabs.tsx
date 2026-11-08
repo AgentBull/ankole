@@ -68,8 +68,14 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
 }
 
 function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
+  // Base UI keeps a closing panel in layout for one frame to finish exit animations; tabs have none, so the closing
+  // panel leaves at once instead of pushing the opening one down for that frame.
   return (
-    <TabsPrimitive.Panel data-slot="tabs-content" className={cn('flex-1 text-sm outline-none', className)} {...props} />
+    <TabsPrimitive.Panel
+      data-slot="tabs-content"
+      className={cn('flex-1 text-sm outline-none data-ending-style:hidden', className)}
+      {...props}
+    />
   )
 }
 

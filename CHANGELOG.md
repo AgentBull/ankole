@@ -12,6 +12,9 @@
   once it loaded. Chat now shows only the loading bars until the list is ready,
   and keeps the list for the rest of the page session, so later switches show
   it at once.
+- Switch tabs without a one-frame jump. A closing tab panel stayed in the layout
+  for one frame and pushed the opening panel down, which made the Chat list
+  twitch upward on every switch. The closing panel now leaves at once.
 
 ## Version 2.0.0-alpha.93 (2026-11-08)
 
