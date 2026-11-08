@@ -76,9 +76,9 @@ export function CollapsedWorkView({
         {active && <Spinner aria-hidden className="pod-chat-working-spinner" />}
         <span className={active ? 'pod-chat-working-label' : undefined}>
           {active
-            ? runningSteps.length > 1
-              ? phaseLabel || t('conversations.delivery.reply.activity.processing')
-              : (current && localizedStepTitle(current, t)) || phaseLabel || t('pod.chat_timeline.thinking')
+            ? runningSteps.map(step => localizedStepTitle(step, t)).join(' · ') ||
+              phaseLabel ||
+              t('pod.chat_timeline.thinking')
             : settledSummary}
         </span>
         {!active && !outcome && errors > 0 && (

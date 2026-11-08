@@ -361,35 +361,20 @@ function showOutputEnd(event: SyntheticEvent<HTMLElement>) {
 export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]; compact?: boolean }) {
   const { t } = useTranslation()
   if (!steps.length) return null
-  if (compact && steps.length > 1) {
-    const runningCount = steps.filter(
-      step =>
-        ![
-          'completed',
-          'complete',
-          'success',
-          'succeeded',
-          'settled',
-          'stopped',
-          'cancelled',
-          'failed',
-          'error'
-        ].includes(step.status)
-    ).length
-    if (runningCount <= 1) {
-      const latest = steps[steps.length - 1]!
-      return (
-        <details
-          className="pod-chat-tool-group"
-          open={steps.some(step => ['failed', 'error', 'stopped'].includes(step.status)) || undefined}>
-          <summary>
-            <ToolIcon tool={latest.tool} toolKind={latest.toolKind} />
-            <span className="pod-chat-tool-title">{t('pod.chat_timeline.steps')}</span>
-          </summary>
-          <ToolRunView steps={steps} />
-        </details>
-      )
-    }
+  // Live work keeps one folded list however many steps run at once, so the list never collapses under the reader.
+  if (compact) {
+    const latest = steps[steps.length - 1]!
+    return (
+      <details
+        className="pod-chat-tool-group"
+        open={steps.some(step => ['failed', 'stopped'].includes(stepStatus(step.status))) || undefined}>
+        <summary>
+          <ToolIcon tool={latest.tool} toolKind={latest.toolKind} />
+          <span className="pod-chat-tool-title">{t('pod.chat_timeline.steps')}</span>
+        </summary>
+        <ToolRunView steps={steps} />
+      </details>
+    )
   }
   return (
     <ol className="pod-chat-tool-run" aria-label={t('pod.chat_timeline.steps')}>
@@ -465,13 +450,17 @@ function ExplorationGroup({ steps }: { steps: ExecutionStep[] }) {
     .filter(kind => counts[kind] > 0)
     .map(kind => t(`pod.chat_timeline.explored_${kind}`, { count: counts[kind] }))
     .join(' · ')
+  // The folded row shows a running read first, then a failed or stopped one.
+  const statuses = steps.map(step => stepStatus(step.status))
+  const status = (['running', 'failed', 'stopped'] as const).find(state => statuses.includes(state)) ?? 'completed'
   return (
-    <details className="pod-chat-tool-group">
+    <details className="pod-chat-tool-group" data-status={status}>
       <summary>
         <RiSearchLine aria-hidden />
         <span className="pod-chat-tool-title" title={title}>
           {title}
         </span>
+        <StepState status={status} className="order-1 ml-auto" />
       </summary>
       <ol className="pod-chat-tool-run" aria-label={title}>
         {steps.map(step => (
@@ -482,11 +471,36 @@ function ExplorationGroup({ steps }: { steps: ExecutionStep[] }) {
   )
 }
 
+type StepStatus = 'running' | 'completed' | 'failed' | 'stopped'
+
+function stepStatus(status: string): StepStatus {
+  if (['failed', 'error'].includes(status)) return 'failed'
+  if (['stopped', 'cancelled'].includes(status)) return 'stopped'
+  if (['completed', 'complete', 'success', 'succeeded', 'settled'].includes(status)) return 'completed'
+  return 'running'
+}
+
+function StepState({ status, className = '' }: { status: StepStatus; className?: string }) {
+  const { t } = useTranslation()
+  return (
+    <span className={`pod-chat-tool-state ${className}`.trim()} aria-label={t(`pod.chat_timeline.${status}`)}>
+      {status === 'stopped' ? (
+        <RiStopFill aria-hidden />
+      ) : status === 'failed' ? (
+        <RiCloseLine aria-hidden />
+      ) : status === 'completed' ? (
+        <RiCheckLine aria-hidden />
+      ) : (
+        <Spinner aria-hidden />
+      )}
+    </span>
+  )
+}
+
 function ToolStep({ step }: { step: ExecutionStep }) {
   const { t } = useTranslation()
-  const failed = ['failed', 'error'].includes(step.status)
-  const stopped = ['stopped', 'cancelled'].includes(step.status)
-  const complete = ['completed', 'complete', 'success', 'succeeded', 'settled'].includes(step.status)
+  const status = stepStatus(step.status)
+  const failed = status === 'failed'
   const isSkill = skillStepName(step) !== undefined
   const terminal = isSkill ? undefined : commandDetails(step)
   const patch = isSkill || terminal ? undefined : patchDetails(step)
@@ -500,7 +514,7 @@ function ToolStep({ step }: { step: ExecutionStep }) {
     <li>
       <Row
         className={`pod-chat-tool-step${isSkill ? ' pod-chat-tool-step-skill' : ''}`}
-        data-status={failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}
+        data-status={status}
         onToggle={terminal ? showOutputEnd : undefined}>
         <Label className="pod-chat-tool-line">
           <ToolIcon tool={step.tool} toolKind={isSkill ? 'skill' : step.toolKind} />
@@ -508,21 +522,7 @@ function ToolStep({ step }: { step: ExecutionStep }) {
             {labelText}
           </span>
           {patch && <PatchCounts added={patch.added} removed={patch.removed} />}
-          <span
-            className="pod-chat-tool-state"
-            aria-label={t(
-              `pod.chat_timeline.${failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}`
-            )}>
-            {stopped ? (
-              <RiStopFill aria-hidden />
-            ) : failed ? (
-              <RiCloseLine aria-hidden />
-            ) : complete ? (
-              <RiCheckLine aria-hidden />
-            ) : (
-              <Spinner aria-hidden />
-            )}
-          </span>
+          <StepState status={status} />
         </Label>
         {expandable &&
           (terminal ? (

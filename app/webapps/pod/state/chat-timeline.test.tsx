@@ -193,11 +193,23 @@ test('consecutive reads, searches, and listings fold into one collapsed row that
   ])
 
   const html = render(<ToolRunView steps={steps} />)
-  expect(html.match(/<details class="pod-chat-tool-group">/g)).toHaveLength(2)
+  expect(html.match(/<details class="pod-chat-tool-group" data-status="completed">/g)).toHaveLength(2)
   expect(html).toContain('Read 2 files · Searched 1 time · Listed 1 directory')
   expect(html).toContain('Searched 2 times')
   expect(html).toContain('Searching code: “useActivityLabel”')
   expect(html).toContain('Running tests · bun test')
+
+  // A folded row still shows a read that is running, and otherwise one that failed.
+  const groupStatus = (statuses: string[]) =>
+    /<details class="pod-chat-tool-group" data-status="(\w+)"><summary>.*?aria-label="(\w+)"/
+      .exec(
+        render(<ToolRunView steps={statuses.map((status, index) => ({ ...steps[0]!, id: `s${index}`, status }))} />)
+      )
+      ?.slice(1)
+  expect(groupStatus(['completed', 'failed', 'running'])).toEqual(['running', 'Running'])
+  expect(groupStatus(['completed', 'error'])).toEqual(['failed', 'Failed'])
+  expect(groupStatus(['completed', 'cancelled'])).toEqual(['stopped', 'Stopped'])
+  expect(groupStatus(['completed', 'completed'])).toEqual(['completed', 'Completed'])
 
   await i18n.changeLanguage('zh-Hans-CN')
   try {
@@ -264,10 +276,11 @@ test('live work uses the room activity phases before the final reply is committe
       }}
     />
   )
-  expect(parallel).toContain('Processing request')
+  // Parallel steps share the header, and the folded list keeps the shape it has with one running step.
+  expect(parallel).toContain('Reading the report · Searching source material')
   expect(parallel).not.toContain('tool calls')
   expect(parallel.match(/>Searching source material</g)).toHaveLength(1)
-  expect(parallel).not.toContain('pod-chat-tool-group')
+  expect(parallel).toContain('<details class="pod-chat-tool-group">')
 })
 
 test('active work highlights the current action without forcing its accumulated thinking and tool history open', () => {

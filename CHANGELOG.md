@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.88 (2026-11-08)
+
+- Keep an Agent's work steps steady when it runs several steps at once. While
+  the Agent works, its steps stay in one folded list instead of spreading out
+  and folding back each time parallel steps start and finish, and the work
+  header names every running step, such as "Searching code: “a” · Reading file:
+  b.ts". A folded row of reads and searches shows a spinner while one of them
+  runs and marks a failed read, instead of looking finished.
+
 ## Version 2.0.0-alpha.87 (2026-11-08)
 
 - Show a page skeleton in the Console while a page's code or data takes longer

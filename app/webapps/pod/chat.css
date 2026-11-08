@@ -1706,7 +1706,8 @@
   height: 12px;
 }
 .pod-chat-tool-step[data-status='failed'] .pod-chat-tool-state,
-.pod-chat-tool-step[data-status='failed'] .pod-chat-tool-title {
+.pod-chat-tool-step[data-status='failed'] .pod-chat-tool-title,
+.pod-chat-tool-group[data-status='failed'] > summary > .pod-chat-tool-state {
   color: var(--destructive-foreground);
 }
 .pod-chat-tool-detail,

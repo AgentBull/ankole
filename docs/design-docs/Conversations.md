@@ -1100,7 +1100,14 @@ workspace (reading files, searching code or file paths, and listing
 directories) into one collapsed row that counts them, such as
 `Read 4 files · Searched 9 times · Listed 2 directories`. Every other step keeps
 its own row, so edits, tests, and commits stay visible at a glance, and
-expanding the row lists each read with its details.
+expanding the row lists each read with its details. The collapsed row shows a
+spinner while one of its reads runs, and otherwise marks a read that failed or
+stopped.
+
+While an Agent works, Pod names every running step in the work header, joined
+by ` · ` when steps run in parallel, and keeps the steps in one folded list.
+The list therefore keeps its shape and its open or closed state however many
+steps run at once.
 
 The execution record also carries `execution.usage`, which `AIGateway.turn_usage/1`
 sums from the usage ledger rows of the turn's Signal on completed, stopped, and
