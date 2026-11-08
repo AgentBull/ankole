@@ -1,4 +1,4 @@
-import { createContext, useContext, type ComponentType, type LazyExoticComponent } from 'react'
+import { createContext, useContext, type ComponentType, type FunctionComponent } from 'react'
 
 import { validateSlotIDs, type PluginSlot } from '../common/slots'
 
@@ -8,7 +8,8 @@ export interface ConsoleRouteSlot extends PluginSlot {
   id: string
   path: string
   scope: ConsoleRouteScope
-  Component: LazyExoticComponent<ComponentType>
+  /** Imports the page's code; the router loads it before committing the route, as it does for built-in pages. */
+  load: () => Promise<{ default: FunctionComponent }>
 }
 
 declare module '@tanstack/react-router' {

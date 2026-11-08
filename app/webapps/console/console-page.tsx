@@ -1,6 +1,6 @@
 import { Link, useConsoleTenant } from './tenant-context'
 
-import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@ankole/uikit'
+import { Button, Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from '@ankole/uikit'
 import { RiArrowLeftLine, RiRefreshLine } from '@remixicon/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState, type ComponentProps, type ReactNode } from 'react'
@@ -74,6 +74,29 @@ export function PageHeader({
         </div>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * The Console shows this while a page's code or loader data is still arriving. The placeholders follow the
+ * page header's shape, so the real page replaces them without a layout jump. Screen readers hear the hidden
+ * label, because the placeholders themselves carry no meaning.
+ */
+export function PageSkeleton() {
+  const { t } = useTranslation()
+  return (
+    <PageStack role="status">
+      <span className="sr-only">{t('common.loading')}</span>
+      <div className="grid gap-2 border-b border-border pb-5">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-4 w-full max-w-md" />
+      </div>
+      <div className="grid gap-3">
+        <Skeleton className="h-6 w-full" />
+        <Skeleton className="h-6 w-4/5" />
+        <Skeleton className="h-6 w-2/3" />
+      </div>
+    </PageStack>
   )
 }
 

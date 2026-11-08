@@ -10,6 +10,7 @@ import {
 import { configureConsoleAPIClient } from './api/client'
 import { applyDataTenantNavigation } from '../common/browser-session'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
+import { PageSkeleton } from './console-page'
 import { createConsoleRouteLoaders } from './console-route-loaders'
 import { ConsoleLayout } from './console-shell-chrome'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
@@ -380,17 +381,20 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
         path: 'conversations/$conversationID',
         component: ConversationDetailPage
       }),
-      ...(slots.routes ?? []).map(route =>
-        createRoute({
+      ...(slots.routes ?? []).map(route => {
+        const Page = lazyRouteComponent(route.load)
+        return createRoute({
           getParentRoute: () => bodyRoute,
           path: normalizeConsoleSlotPath(route.path),
           staticData: { consoleSlot: route },
+          // The route component wraps the page in the Plugin gate, so the loader preloads the page's code instead.
+          loader: () => Page.preload?.(),
           component: () => (
             <SlotGate slot={route}>
               {enabled =>
                 enabled ? (
                   <SlotBoundary variant="panel" resetKeys={[route.id]}>
-                    <route.Component />
+                    <Page />
                   </SlotBoundary>
                 ) : (
                   <NotFoundPage />
@@ -399,7 +403,7 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
             </SlotGate>
           )
         })
-      ),
+      }),
       createRoute({ getParentRoute: () => bodyRoute, path: '$', component: NotFoundPage })
     ])
   ])
@@ -407,6 +411,10 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
   return createRouter({
     routeTree,
     basepath: basename,
+    // The router swaps in a destination that loads within 300 ms directly and shows the skeleton for a slower
+    // one, so a slow first load shows the shell and a slow navigation does not leave the old page in place.
+    defaultPendingComponent: PageSkeleton,
+    defaultPendingMs: 300,
     defaultPendingMinMs: 0,
     parseSearch: parseRouterSearch,
     stringifySearch: stringifyRouterSearch

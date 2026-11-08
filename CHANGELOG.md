@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.87 (2026-11-08)
+
+- Show a page skeleton in the Console while a page's code or data takes longer
+  than 300 ms to load, including pages that Plugins add. Opening or refreshing a
+  slow Console page now shows the Console shell with the skeleton instead of a
+  blank window, and a slow navigation no longer keeps the previous page on
+  screen as if the click did nothing. A Plugin's Console route now declares a
+  `load` function that imports its page, in place of a lazy `Component`.
+
 ## Version 2.0.0-alpha.86 (2026-11-08)
 
 - Keep the chat composer's tools and send button on one row. The send button no

@@ -363,7 +363,10 @@ The Console shell loads route components on demand. A route loader that uses a
 page-owned query imports that page on the same route; the shared shell does not
 pull unrelated editors into its initial module graph. TanStack Query owns the
 fetched data, and the router renders a ready destination without a minimum
-loading-screen duration.
+loading-screen duration. When a destination's code or loader data takes longer
+than 300 ms, the router shows the Console page skeleton inside the shell until
+the destination is ready, so the operator sees that a slow first load or
+navigation is in progress, while a quicker load swaps in directly.
 
 An override wrapper passes typed `slots` into the public root component, whereas
 public roots default to empty slots:
@@ -376,8 +379,10 @@ public roots default to empty slots:
   `members`, `invitations`, or `providers`. Tabs without `when` activate
   alongside their Plugin, while OpenFeature evaluates any `when` flag—returning
   the settings view to `general` if the currently open tab becomes hidden.
-- **`ConsoleAppSlots`**: Contributes lazy extension `routes` and `navSections`,
-  gated by `pluginId` and optional `when`. IDs and route paths cannot collide
+- **`ConsoleAppSlots`**: Contributes extension `routes` and `navSections`,
+  gated by `pluginId` and optional `when`. Each route's `load` function imports
+  its page, and the router loads that code before committing the route, exactly
+  as it does for a core Console page. IDs and route paths cannot collide
   with core Console routes. TanStack Router stores each route's
   `scope: 'site' | 'tenant'` in its static metadata; the Console reads the
   matched route to control the top-bar tenant switcher.

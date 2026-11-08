@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
-import { lazy } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import i18n, { loadLocale } from '../common/i18n'
 import { ActivePluginsContext } from '../common/slots'
@@ -49,14 +48,14 @@ test.each([
       pluginId: 'fixture',
       path: '/extension/static/$',
       scope: 'site',
-      Component: lazy(async () => ({ default: () => null }))
+      load: async () => ({ default: () => null })
     },
     {
       id: 'dynamic',
       pluginId: 'fixture',
       path: '/extension/$id/details',
       scope: 'tenant',
-      Component: lazy(async () => ({ default: () => null }))
+      load: async () => ({ default: () => null })
     }
   ]
   const router = createRouter({

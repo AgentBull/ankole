@@ -1,7 +1,6 @@
 import { afterAll, expect, test } from 'bun:test'
 import { OpenFeatureProvider } from '@openfeature/react-sdk'
 import { OpenFeature } from '@openfeature/web-sdk'
-import { lazy } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { validateConsoleSlots } from '../../console/slots'
 import { initializeFeatures } from '../features'
@@ -19,22 +18,22 @@ test('slot IDs reject duplicate and built-in claims', () => {
 })
 
 test('Console slot declarations reject reserved routes', () => {
-  const Fixture = lazy(async () => ({ default: () => null }))
+  const load = async () => ({ default: () => null })
   expect(() =>
     validateConsoleSlots({
-      routes: [{ id: 'custom', pluginId: 'saas', path: '/tenants/extra', scope: 'site', Component: Fixture }]
+      routes: [{ id: 'custom', pluginId: 'saas', path: '/tenants/extra', scope: 'site', load }]
     })
   ).toThrow('Console route path')
 
   const routes = [
-    { id: 'codes', pluginId: 'saas', path: '/invitation-codes', scope: 'site' as const, Component: Fixture },
-    { id: 'codes-new', pluginId: 'saas', path: '/invitation-codes/new', scope: 'site' as const, Component: Fixture },
+    { id: 'codes', pluginId: 'saas', path: '/invitation-codes', scope: 'site' as const, load },
+    { id: 'codes-new', pluginId: 'saas', path: '/invitation-codes/new', scope: 'site' as const, load },
     {
       id: 'codes-edit',
       pluginId: 'saas',
       path: '/invitation-codes/$codeID',
       scope: 'tenant' as const,
-      Component: Fixture
+      load
     }
   ]
   expect(() => validateConsoleSlots({ routes })).not.toThrow()
