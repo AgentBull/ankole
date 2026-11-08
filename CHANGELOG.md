@@ -2,24 +2,6 @@
 
 ## Version 2.0.0-alpha.84 (2026-11-08)
 
-- Clicking a chat's participant avatars opens a list of everyone in the
-  conversation. In an assistant task or colleague DM they no longer open the
-  summary panel, so only the summary button shows it as open.
-- An Applet Page header has a full-screen button, shown in browsers that allow
-  full screen. It fills the screen with the Applet alone, keeping what the user
-  had open in it, and Esc returns to the Pod.
-
-## Version 2.0.0-alpha.83 (2026-11-08)
-
-- Use one spinner across the Pod, the console, setup, and Applets: an arc
-  that turns while it grows and shrinks, in the progress color where content
-  loads and in the button's own color inside a busy button. Applets get it
-  through the UIKit `Spinner` without republishing, and the Applet guidance
-  now asks for skeletons shaped like the coming view instead of plain loading
-  text.
-
-## Version 2.0.0-alpha.82 (2026-11-08)
-
 - Connect PostgreSQL, MySQL, MariaDB, and ClickHouse databases as read-only
   Pod connections. Agents and Applets can search the cached catalog, describe a
   table, probe values, explain and run one read-only `SELECT` or `WITH` query,
@@ -71,15 +53,33 @@
 - Upgrade a site from a release older than 2026-11-03 without the migration
   stopping on a missing table or column: the upgrade now creates the Brain
   root, categories, and Agent pages after the last schema migration.
-- Read Office and spreadsheet files with version 9.4.2 of the `zip` library,
-  which fixes GHSA-m665-v7pm-7grj, GHSA-q7v9-x93c-xqv3, and
-  GHSA-8hxf-qr8p-62x4. Ankole reads these archives in memory and does not
-  use the affected extraction or AES paths.
+- Clicking a chat's participant avatars opens a list of everyone in the
+  conversation. In an assistant task or colleague DM they no longer open the
+  summary panel, so only the summary button shows it as open.
+- An Applet Page header has a full-screen button, shown in browsers that allow
+  full screen. It fills the screen with the Applet alone, keeping what the user
+  had open in it, and Esc returns to the Pod.
 - Keep Pod Page search fast after someone saves a very long Chinese, Japanese,
   Thai, Lao, Khmer, or Myanmar text with no punctuation. Such a Page could make
   every search on the site run for minutes at full CPU, and canceling the
   search did not stop it. Ankole now tokenizes each Page once when it is saved,
   and searches no longer slow down as recently saved Pages grow.
+
+## Version 2.0.0-alpha.83 (2026-11-08)
+
+- Use one spinner across the Pod, the console, setup, and Applets: an arc
+  that turns while it grows and shrinks, in the progress color where content
+  loads and in the button's own color inside a busy button. Applets get it
+  through the UIKit `Spinner` without republishing, and the Applet guidance
+  now asks for skeletons shaped like the coming view instead of plain loading
+  text.
+
+## Version 2.0.0-alpha.82 (2026-11-08)
+
+- Read Office and spreadsheet files with version 9.4.2 of the `zip` library,
+  which fixes GHSA-m665-v7pm-7grj, GHSA-q7v9-x93c-xqv3, and
+  GHSA-8hxf-qr8p-62x4. Ankole reads these archives in memory and does not
+  use the affected extraction or AES paths.
 
 ## Version 2.0.0-alpha.81 (2026-11-08)
 
