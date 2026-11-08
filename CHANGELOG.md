@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.86 (2026-11-08)
+
+- Keep the chat composer's tools and send button on one row. The send button no
+  longer drops to a line of its own in the Page chat panel or on a phone; when
+  the row is too narrow, the recipient and model menus shorten their names with
+  an ellipsis. The recipient name and the model menu use the same text size as
+  the other composer controls.
+
 ## Version 2.0.0-alpha.85 (2026-11-08)
 
 - Tell Applet authors in the `pod-content` Skill that a GET route can call only

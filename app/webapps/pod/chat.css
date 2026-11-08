@@ -44,14 +44,10 @@
 
 .pod-chat-send-tools {
   display: flex;
-  min-width: 0;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
   margin-left: auto;
-}
-
-.pod-chat-embedded .pod-chat-recipient-tools {
-  flex-basis: 100%;
 }
 
 .pod-chat-queue {
@@ -119,12 +115,6 @@
   }
 }
 
-@media (max-width: 760px) {
-  .pod-chat-recipient-tools {
-    flex-basis: 100%;
-  }
-}
-
 .pod-page-chat {
   position: relative;
   display: flex;
@@ -168,9 +158,10 @@
   margin-bottom: 10px;
 }
 
+/* The tools stay on one row beside the send button; a narrow column truncates the selects instead of wrapping. */
 .pod-chat-composer-tools[data-slot='input-group-addon'] {
   justify-content: space-between;
-  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 6px;
   min-height: 28px;
   padding: 0;
@@ -181,12 +172,23 @@
   flex: 1;
   min-width: 0;
   align-items: center;
-  flex-wrap: wrap;
   gap: 3px;
 }
 
 .pod-chat-recipient-tools > * {
   min-width: 0;
+}
+
+/* Toolbar selects use the 13px type of the toolbar buttons and a tighter inset, so a 400px page chat fits one row. */
+.pod-chat-recipient-tools [data-slot='select-trigger'] {
+  gap: 4px;
+  padding-inline: 8px;
+  font-size: 13px;
+}
+
+/* The values are plain text here, so a block box lets their truncation show an ellipsis. */
+.pod-chat-recipient-tools [data-slot='select-value'] {
+  display: block;
 }
 
 .pod-chat-history {
@@ -974,11 +976,6 @@
   to {
     opacity: 1;
   }
-}
-.pod-chat-composer-tools {
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0;
 }
 .pod-chat-agent-picker {
   max-width: 200px;

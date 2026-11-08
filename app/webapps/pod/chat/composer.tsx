@@ -582,7 +582,7 @@ export function Composer({
                 <RiCommandLine aria-hidden />
               </Button>
               {personalAssistant || directColleague || detail?.conversation.conversationKind === 'colleague_dm' ? (
-                <span className="px-2 text-xs text-fg-secondary">
+                <span className="max-w-40 shrink-0 truncate px-2 text-[13px] text-fg-secondary">
                   {personalAssistant ? t('pod.chat.personal_assistant') : recipientNames.get(agentUID)}
                 </span>
               ) : (
