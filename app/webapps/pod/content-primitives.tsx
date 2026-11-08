@@ -1,6 +1,6 @@
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
+import { Button, cn, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
 import { contentError } from './content-errors'
 import { ErrorBlock } from '../common/error-block'
 import type { PageRole, PageScope, PageType } from './content-api'
@@ -103,6 +103,29 @@ export function Choice<T extends string>({
         ))}
       </SelectContent>
     </Select>
+  )
+}
+
+/**
+ * The loading status for a page or route; callers place it in their layout through `className`.
+ * The status appears after a short delay so fast loads never flash it. A caller that continues an
+ * earlier loading status passes `immediate`, which shows it at once so the indicator does not blink.
+ */
+export function ContentLoading({
+  label,
+  className,
+  immediate = false
+}: {
+  label?: string
+  className?: string
+  immediate?: boolean
+}) {
+  const { t } = useTranslation()
+  return (
+    <p role="status" data-immediate={immediate || undefined} className={cn('pod-loading', className)}>
+      <span className="pod-chat-working-spinner" data-size="lg" aria-hidden />
+      <span className="pod-chat-working-label">{label ?? t('pod.content.loading')}</span>
+    </p>
   )
 }
 

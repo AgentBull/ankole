@@ -1629,16 +1629,6 @@
     opacity: 0;
   }
 }
-@property --pod-spinner-arc-start {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-@property --pod-spinner-arc-end {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 158deg;
-}
 .pod-chat-work-status {
   display: flex;
   align-items: center;
@@ -1665,82 +1655,9 @@
   color: var(--fg-secondary);
   white-space: pre-wrap;
 }
-.pod-chat-working-spinner {
-  --_from: calc(90deg + var(--pod-spinner-arc-start, 0deg));
-  --_to: calc(90deg + var(--pod-spinner-arc-end, 158deg));
-  --_size: 13px;
-  --_thickness: 1.75px;
-  --_spinner-color: var(--info);
-  --_track-color: color-mix(in srgb, var(--fg-tertiary) 24%, transparent);
-  --_spinner-duration: 1s;
-  --_used-spinner-duration: var(--_spinner-duration);
-  display: inline-block;
-  flex-shrink: 0;
-  width: var(--_size);
-  height: var(--_size);
-  border-radius: 50%;
-  background: conic-gradient(from var(--_from), var(--_spinner-color) calc(var(--_to) - var(--_from)), transparent 0)
-    var(--_track-color);
-  animation:
-    pod-chat-spinner-rotate var(--_used-spinner-duration) linear infinite,
-    pod-chat-spinner-dash 2.4s ease-in-out infinite;
-  @supports (background-clip: border-area) {
-    background-clip: border-area;
-    border: var(--_thickness) solid transparent;
-    background-origin: border-box;
-  }
-  @supports not (background-clip: border-area) {
-    --_clip-boundary: calc(100% - var(--_thickness));
-    mask-image: radial-gradient(
-      farthest-side,
-      transparent calc(var(--_clip-boundary) - 0.5px),
-      black var(--_clip-boundary)
-    );
-    border: 0;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    --_used-spinner-duration: 6s;
-    animation: pod-chat-spinner-rotate var(--_used-spinner-duration) linear infinite;
-  }
-}
-.pod-chat-working-spinner[data-size='lg'] {
-  --_size: 18px;
-  --_thickness: 2px;
-}
 .pod-chat-work > summary .pod-chat-working-spinner {
   margin: 0 6px 0 3px;
   vertical-align: -2px;
-}
-@keyframes pod-chat-spinner-rotate {
-  to {
-    rotate: 1turn;
-  }
-}
-@keyframes pod-chat-spinner-dash {
-  from {
-    --pod-spinner-arc-start: 0deg;
-    --pod-spinner-arc-end: 36deg;
-  }
-  50% {
-    --pod-spinner-arc-start: 100deg;
-    --pod-spinner-arc-end: 340deg;
-  }
-  to {
-    --pod-spinner-arc-start: 360deg;
-    --pod-spinner-arc-end: 396deg;
-  }
-}
-.pod-chat-working-label {
-  color: var(--fg-secondary);
-  animation: pod-chat-pulse 1.8s ease-in-out infinite;
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-}
-@keyframes pod-chat-pulse {
-  50% {
-    opacity: 0.45;
-  }
 }
 .pod-chat-tool-run {
   list-style: none;

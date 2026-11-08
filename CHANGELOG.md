@@ -7,6 +7,11 @@
   as 飞书 / Feishu or Lark, instead of a label derived from the provider ID
   such as "Lark main". Accounts keep that name after an administrator
   disables their provider.
+- Show one loading indicator while switching Pod pages: a centered spinner
+  with a pulsing label, matching the Assistant's thinking indicator, replaces
+  the plain loading text. It appears only when a load takes longer than a
+  moment, so quick switches no longer flash, and opening a table or an applet
+  no longer shows a second loading message for its code.
 
 ## Version 2.0.0-alpha.77 (2026-11-08)
 
