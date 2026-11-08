@@ -57,6 +57,11 @@
   which fixes GHSA-m665-v7pm-7grj, GHSA-q7v9-x93c-xqv3, and
   GHSA-8hxf-qr8p-62x4. Ankole reads these archives in memory and does not
   use the affected extraction or AES paths.
+- Keep Pod Page search fast after someone saves a very long Chinese, Japanese,
+  Thai, Lao, Khmer, or Myanmar text with no punctuation. Such a Page could make
+  every search on the site run for minutes at full CPU, and canceling the
+  search did not stop it. Ankole now tokenizes each Page once when it is saved,
+  and searches no longer slow down as recently saved Pages grow.
 
 ## Version 2.0.0-alpha.81 (2026-11-08)
 

@@ -2,8 +2,12 @@ defmodule Ankole.Pod.SearchProjection do
   @moduledoc """
   Maintains the synchronous `page_search_documents` projection for Pod pages.
 
-  Every write normalizes text to NFKC and strips NUL and the ASCII record/unit
-  separators (`0x1E` / `0x1F`) reserved as `pg_search` snippet delimiters.
+  Every write normalizes text to NFKC, strips NUL and the ASCII record/unit
+  separators (`0x1E` / `0x1F`) reserved as `pg_search` snippet delimiters, and
+  inserts a space after every 256 characters of an unbroken run in a
+  dictionary-segmented script (Han, kana, Thai, Lao, Khmer, Myanmar). The ICU
+  tokenizer segments such a run in time quadratic to its length without
+  honoring query cancellation, so the split keeps indexing cost linear.
   """
 
   require Ash.Query
@@ -12,8 +16,13 @@ defmodule Ankole.Pod.SearchProjection do
   alias Ankole.Repo
 
   @stripped_codepoints [<<0>>, <<0x1E>>, <<0x1F>>]
+  # `sc=` matches the Script property, not Script_Extensions, so punctuation
+  # such as 。 still ends a run as it does for ICU. The lookbehind anchors each
+  # attempt at the start of a run, so scanning stays linear.
+  @long_dictionary_run ~r/(?<![\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\x{30FC}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}])[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\x{30FC}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}]{257,}/u
+  @dictionary_run_chunk ~r/.{256}(?=.)/su
 
-  @doc "Normalizes text to NFKC and strips snippet sentinel bytes."
+  @doc "Normalizes text to NFKC, strips snippet sentinel bytes, and splits long dictionary-script runs."
   @spec sanitize(String.t() | nil) :: String.t()
   def sanitize(nil), do: ""
 
@@ -24,7 +33,13 @@ defmodule Ankole.Pod.SearchProjection do
         _ -> text
       end
 
-    String.replace(normalized, @stripped_codepoints, "")
+    normalized
+    |> String.replace(@stripped_codepoints, "")
+    |> then(
+      &Regex.replace(@long_dictionary_run, &1, fn run ->
+        Regex.replace(@dictionary_run_chunk, run, "\\0 ")
+      end)
+    )
   end
 
   @doc "Returns the display title indexed for `page`."

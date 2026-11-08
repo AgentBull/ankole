@@ -164,6 +164,24 @@ defmodule Ankole.Repo.Migrations.AddPodPageFullTextSearch do
     LEFT JOIN pod_file_caches fc ON fc.tenant_id = p.tenant_id AND fc.page_id = p.id
     """
 
+    # Mirrors the run split in `Ankole.Pod.SearchProjection.sanitize/1`, with
+    # script classes approximated by Unicode block: ICU segments an unbroken
+    # dictionary-script run in quadratic, uncancellable time, so the backfill
+    # splits runs longer than 256 characters before the BM25 index build.
+    run_char =
+      ~S"[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff\U00020000-\U0003134f]"
+
+    split = "'(#{run_char}{128}#{run_char}{128})(?=#{run_char})', '\\1 ', 'g'"
+    long_run = "'#{run_char}{128}#{run_char}{128}#{run_char}'"
+
+    execute """
+    UPDATE page_search_documents
+    SET title = regexp_replace(title, #{split}),
+        meta_text = regexp_replace(meta_text, #{split}),
+        body_text = regexp_replace(body_text, #{split})
+    WHERE title ~ #{long_run} OR meta_text ~ #{long_run} OR body_text ~ #{long_run}
+    """
+
     execute """
     CREATE INDEX page_search_documents_tenant_idx
       ON page_search_documents (tenant_id)

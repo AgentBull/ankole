@@ -928,7 +928,12 @@ closed enums before serializing them to the JSON strings expected by the shared
 Base query compiler). `Ankole.SearchIndexes` owns the ParadeDB `pg_search` BM25
 and `pgvector` HNSW index definitions across both Brain and Pod, rebuilding
 BM25 indexes idempotently when the configured `brain.bm25_tokenizer` (`icu`,
-`jieba`, `lindera_japanese`, or `lindera_korean`) changes.
+`jieba`, `lindera_japanese`, or `lindera_korean`) changes. Because `pg_search`
+re-tokenizes every row of an index's mutable segment on each search, and a
+Page row can hold a whole document or extracted file, the
+`page_search_documents` BM25 index sets `mutable_segment_rows = 0`: each Page
+write tokenizes its own row once, and search time stays independent of recent
+document sizes.
 
 Every Pod write—or read requiring a row lock—opens `Repo.transact_top_level/2`
 in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`, `Documents`, `Files`,
@@ -954,8 +959,12 @@ Within the domain:
   persistence, and version snapshots, backing the `pages.children` and
   `pages.search` Agent tools with explicit tenant and ACL-anchor filtering
   before any limit. `Pages.Search` normalizes queries and indexed text to
-  Unicode NFKC, parses up to four quoted phrases and sixteen terms without
-  calling `pdb.parse`, combines parameterized `pg_search` BM25 conjunctions with
+  Unicode NFKC and inserts a space after every 256 characters of an unbroken
+  run in a dictionary-segmented script (Han, kana, Thai, Lao, Khmer, or
+  Myanmar), because the ICU tokenizer segments such a run in time quadratic to
+  its length and cannot be canceled while it runs. It parses up to four
+  quoted phrases and sixteen terms without calling `pdb.parse`, combines
+  parameterized `pg_search` BM25 conjunctions with
   `ILIKE` substring recall, scores `sort=best` through a single formula
   combining lexical tier/BM25 weight, 30-day workspace activity from
   `page_daily_activities`, and caller recency/favorite boosts from

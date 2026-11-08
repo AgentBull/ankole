@@ -30,6 +30,10 @@ defmodule Ankole.SearchIndexes do
      ["tenant_id", "auth_config_id"], ["search_text"]}
   ]
 
+  # `pg_search` re-tokenizes mutable-segment rows on every search; whole Page
+  # bodies make that cost unbounded, so Page writes tokenize their own row once.
+  @bm25_with_options %{"page_search_documents_bm25_idx" => ", mutable_segment_rows = 0"}
+
   # DDL matches the initial migration; a drifted definition would make the
   # rebuilt index differ from a freshly migrated instance.
   @hnsw_indexes [
@@ -232,7 +236,7 @@ defmodule Ankole.SearchIndexes do
     CREATE INDEX #{index}
     ON #{table}
     USING bm25 (#{columns_sql})
-    WITH (key_field='#{key_field}')
+    WITH (key_field='#{key_field}'#{Map.get(@bm25_with_options, index, "")})
     """)
   end
 

@@ -510,6 +510,41 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
              )
 
     assert indexdef =~ "key_field=page_id"
+    assert indexdef =~ "mutable_segment_rows='0'"
+  end
+
+  test "a long unpunctuated CJK document stays searchable without slowing later searches", ctx do
+    # ICU segments each unbroken ideograph run in time quadratic to its length;
+    # unsplit, these 300,000 ideographs cost over 20 s of uncancellable work per search.
+    {:ok, doc} =
+      Pages.create(ctx.actor, %{
+        title: "Unpunctuated corpus",
+        xml: "<page><p>#{String.duplicate("界", 300_000)}</p></page>"
+      })
+
+    {micros, result} = :timer.tc(fn -> Pages.search(ctx.actor, "界") end)
+
+    assert {:ok, %{pages: [found]}} = result
+    assert found.id == doc.id
+    assert micros < 3_000_000
+  end
+
+  test "SearchProjection.sanitize splits only dictionary-segmented runs longer than 256 characters" do
+    long_run = String.duplicate("界", 600) <> String.duplicate("かな", 100)
+    split = Ankole.Pod.SearchProjection.sanitize(long_run)
+
+    assert split |> String.split(" ") |> Enum.map(&String.length/1) == [256, 256, 256, 32]
+    assert String.replace(split, " ", "") == long_run
+    assert Ankole.Pod.SearchProjection.sanitize(split) == split
+
+    for unchanged <- [
+          String.duplicate("界", 256),
+          String.duplicate("这是自然段落。", 100),
+          String.duplicate("한", 1000),
+          String.duplicate("abc", 1000)
+        ] do
+      assert Ankole.Pod.SearchProjection.sanitize(unchanged) == unchanged
+    end
   end
 
   test "PageSearchDocument :put normalizes NFKC compatibility and halfwidth forms to match runtime queries",
