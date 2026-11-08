@@ -87,18 +87,6 @@ export function PodSidebar({
   const commentAttention = useQuery(commentAttentionQuery)
   const homeAttention = commentAttention.data?.length ?? 0
   const navigate = useNavigate()
-  useEffect(() => {
-    if (!agents.data?.personalAssistantAvailable) return
-    const newChat = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'o') {
-        event.preventDefault()
-        drafts.startNew()
-        void navigate({ to: podLocation('/').pathname })
-      }
-    }
-    window.addEventListener('keydown', newChat)
-    return () => window.removeEventListener('keydown', newChat)
-  }, [agents.data?.personalAssistantAvailable, navigate, drafts])
   const pathname = useLocation({ select: location => location.pathname })
   const routeTab = useLocation({
     select: location => routeSidebarTab(location.pathname, location.state as PodSidebarNavigationState | null)
@@ -106,6 +94,19 @@ export function PodSidebar({
   const { isMobile, state, setOpenMobile } = useSidebar()
   const openCommand = usePodCommandMenu()
   const [tab, setTab] = useState<'home' | 'chat'>(() => routeTab ?? 'chat')
+  // New Chat sits above both tabs, so it opens the composer without switching away from the open tab.
+  useEffect(() => {
+    if (!agents.data?.personalAssistantAvailable) return
+    const newChat = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'o') {
+        event.preventDefault()
+        drafts.startNew()
+        void navigate({ to: podLocation('/').pathname, state: { keepSidebarTab: tab } as never })
+      }
+    }
+    window.addEventListener('keydown', newChat)
+    return () => window.removeEventListener('keydown', newChat)
+  }, [agents.data?.personalAssistantAvailable, navigate, drafts, tab])
   const [previewOpen, setPreviewOpen] = useState(false)
   const settingsActive = pathname === '/settings' || pathname.startsWith('/settings/')
   const trashPath = podLocation('/content/trash').pathname
@@ -213,6 +214,7 @@ export function PodSidebar({
             {agents.data?.personalAssistantAvailable && (
               <Link
                 to={podLocation('/').pathname}
+                state={{ keepSidebarTab: tab } as never}
                 onClick={() => {
                   drafts.startNew()
                   closeMobile()

@@ -524,7 +524,8 @@ requests without valid CSRF proof are rejected before reaching domain actions.
 
 New Chat opens a personal-assistant task with a greeting, starter prompts and
 composer. The sidebar header offers this action below both tabs to formal
-members, with Command/Control+Shift+O.
+members, with Command/Control+Shift+O. The sidebar stays on the tab where the
+member started New Chat, including after the first message opens the task.
 
 While the composer is empty, the chat home shows the personal assistant's
 next-step menu in place of the fixed starter prompts. A menu offers 4 to 7

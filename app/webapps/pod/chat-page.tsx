@@ -29,6 +29,7 @@ import { ChatModel, mergeMessages } from './state/chat'
 import { LocalChatDrafts, UnconfirmedChats, useChatDraft, useChatDrafts } from './chat-drafts'
 import { findMessageStep, firstUnreadMessageID, useChatHistory, type ChatEntry } from './chat-history'
 import type { PodCommandNavigationState } from './command-menu'
+import type { PodSidebarNavigationState } from './state/navigation'
 import { editingSnapshot, useChatCommands, type ChatCommands } from './chat-commands'
 import { ChatAttachmentDrafts } from './chat-attachments'
 import { useConversationEvents } from './use-conversation-events'
@@ -237,7 +238,9 @@ export function ChatPage({
     setEntry({ id: conversationID, readSeq: data.conversation.viewer.lastReadSeq, lastSeq: data.messageRange.lastSeq })
   }
   const location = useLocation()
-  const navigationState = location.state as (Partial<PodCommandNavigationState> & { __TSR_key?: string }) | null
+  const navigationState = location.state as
+    | (Partial<PodCommandNavigationState> & PodSidebarNavigationState & { __TSR_key?: string })
+    | null
   const urlFindQuery = !pageID ? searchParams.get('find')?.trim() : undefined
   const urlFindSeqRaw = !pageID ? Number.parseInt(searchParams.get('seq') ?? '', 10) : NaN
   const urlFindMessage = useMemo(
@@ -321,12 +324,19 @@ export function ChatPage({
       else void navigate({ to: podLocation('/').pathname })
     }
   })
+  // The started task stays under the sidebar tab that New Chat was opened from.
+  const keepSidebarTab = navigationState?.keepSidebarTab
   useEffect(() => {
     if (!requestedConversationID && conversationID) {
       if (onConversationStarted) onConversationStarted(conversationID)
-      else void navigate({ to: podLocation(`/conversations/${conversationID}`).pathname })
+      else {
+        void navigate({
+          to: podLocation(`/conversations/${conversationID}`).pathname,
+          state: { keepSidebarTab } as never
+        })
+      }
     }
-  }, [requestedConversationID, conversationID, onConversationStarted, navigate])
+  }, [requestedConversationID, conversationID, onConversationStarted, navigate, keepSidebarTab])
   const gone = model.gone.value || conversationNotFound(detail.error)
   useConversationEvents(gone ? undefined : conversationID, model, onExitConversation)
   useEffect(() => {

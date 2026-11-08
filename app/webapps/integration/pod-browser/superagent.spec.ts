@@ -185,6 +185,42 @@ test('New Chat starts a clean assistant draft and preserves the unfinished task'
   }
 })
 
+test('New Chat keeps the sidebar on Home while the viewer starts and continues a task', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let taskID: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    const home = page.getByRole('tab', { name: '主页', exact: true })
+    await expect(home).toHaveAttribute('aria-selected', 'true')
+    await page.locator('.pod-sidebar-header').getByRole('link', { name: '新对话', exact: true }).click()
+    await expect(page).toHaveURL(`${state.base_url}/`)
+    await expect(home).toHaveAttribute('aria-selected', 'true')
+
+    const created = page.waitForResponse(
+      response =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/conversations'
+    )
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill('在主页旁边起一个任务')
+    await page.getByRole('button', { name: '发送消息', exact: true }).click()
+    taskID = ((await (await created).json()) as ConversationDetail).conversation.id
+    await expect(page).toHaveURL(url => url.pathname === conversationRoute(taskID!))
+    await expect(home).toHaveAttribute('aria-selected', 'true')
+
+    await page.keyboard.press('ControlOrMeta+Shift+O')
+    await expect(page).toHaveURL(`${state.base_url}/`)
+    await expect(home).toHaveAttribute('aria-selected', 'true')
+
+    await page.getByRole('tab', { name: '对话', exact: true }).click()
+    await page.locator('.pod-sidebar-header').getByRole('link', { name: '新对话', exact: true }).click()
+    await expect(page.getByRole('tab', { name: '对话', exact: true })).toHaveAttribute('aria-selected', 'true')
+  } finally {
+    if (taskID) await request(page, `/conversations/${taskID}?forceStop=true`, 'DELETE')
+    await context.close()
+  }
+})
+
 test('a guest uses granted colleagues and comments without assistant entry points', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.guest.cookies)
