@@ -30,6 +30,33 @@
   max-width: 1440px;
 }
 
+/* The Applet Page hands its gutters, including the centered 1440px column, to the Applet's own document, where
+   they scroll with the content and leave the Applet's scrollbar at the sheet's edge. */
+.pod-page[data-page-type='applet'] .pod-page-content {
+  --pod-applet-gutter-top: 40px;
+  --pod-applet-gutter-inline: max(
+      var(--pod-page-gutter-start),
+      calc((100% - 1440px) / 2 + var(--pod-page-gutter-start))
+    )
+    max(var(--pod-page-gutter-end), calc((100% - 1440px) / 2 + var(--pod-page-gutter-end)));
+}
+
+/* A live Applet fills the Page body: its frame takes the scroll panel's full width and height, so the body adds no
+   padding and never scrolls around it. Notices around the frame keep the Page's gutters. */
+.pod-page[data-page-type='applet'] .pod-page-content:has(> [data-applet-stage]) {
+  max-width: none;
+  padding: 0;
+}
+
+.pod-page[data-page-type='applet'] .pod-page-content:has(> [data-applet-stage]) > :not(h1, [data-applet-stage]) {
+  margin-block-start: 16px;
+}
+
+.pod-page[data-page-type='applet'] .pod-page-content:has(> [data-applet-stage]) > :not(h1, [data-applet-stage]),
+.pod-page[data-page-type='applet'] [data-applet-notices] {
+  margin-inline: var(--pod-page-gutter-start) var(--pod-page-gutter-end);
+}
+
 .pod-page-heading {
   position: relative;
   display: flex;
@@ -354,6 +381,10 @@ textarea.pod-page-title:focus-visible {
     --pod-page-gutter-start: 58px;
     --pod-page-gutter-end: 24px;
     padding-block: 28px 100px;
+  }
+
+  .pod-page[data-page-type='applet'] .pod-page-content {
+    --pod-applet-gutter-top: 28px;
   }
 
   .pod-page-title {

@@ -221,7 +221,8 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
   let id: string | undefined
   try {
     await control.goto(`${state.base_url}/content/private`)
-    const created = await createApplet({ parent_id: state.backend_report_id, title: 'Revision recovery check' })
+    let title = 'Revision recovery check'
+    const created = await createApplet({ parent_id: state.backend_report_id, title })
     id = created.id
     let revision = created.revision
     const publish = () => publishApplet(id!, revision, state.backend_publish_v2_files)
@@ -303,10 +304,15 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
         }
       })
       try {
-        // Saving a title starts a genuine page-query refresh without advancing publication revision.
-        const title = page.locator('textarea.pod-page-title')
-        await title.fill(`Revision recovery check · ${recovery}`)
-        await title.press('Enter')
+        // Renaming the Applet from the Page tree starts a genuine page-query refresh without advancing publication revision.
+        await page
+          .locator('.pod-tree-row', { has: page.getByRole('link', { name: title, exact: true }) })
+          .click({ button: 'right' })
+        await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
+        title = `Revision recovery check · ${recovery}`
+        const field = page.getByRole('textbox', { name: /^重命名 / })
+        await field.fill(title)
+        await field.press('Enter')
         await oldReady.promise
         const published = await publish()
         revision = published.revision

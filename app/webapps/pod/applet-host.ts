@@ -111,6 +111,11 @@ export function mountApplet(
   let currentTheme = readDocumentTheme()
   frame.style.colorScheme = currentTheme
   const viewport = container.closest<HTMLElement>('.pod-page-scroll')
+  // An Applet Page's gutters pad the frame's document, so they scroll with the Applet and its scrollbar reaches the
+  // sheet's edge. An Applet embedded in a document has none.
+  const pageStyle = getComputedStyle(container)
+  const gutterTop = pageStyle.getPropertyValue('--pod-applet-gutter-top').trim()
+  const gutterInline = pageStyle.getPropertyValue('--pod-applet-gutter-inline').trim()
   const resize = () => {
     // A full-screen Applet section gives the frame the screen's height instead of the workspace panel's.
     const stage = document.fullscreenElement?.contains(frame) ? document.fullscreenElement : viewport
@@ -241,6 +246,8 @@ export function mountApplet(
       })
       const doc = frameWindow.document
       doc.documentElement.lang = document.documentElement.lang
+      if (gutterTop) doc.documentElement.style.paddingTop = gutterTop
+      if (gutterInline) doc.documentElement.style.paddingInline = gutterInline
       const syncTheme = () => {
         const nextTheme = readDocumentTheme()
         frame.style.colorScheme = nextTheme

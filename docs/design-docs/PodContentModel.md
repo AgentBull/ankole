@@ -52,7 +52,10 @@ spreadsheet, and file options. Within Brain, creation offers knowledge objects a
   extension unless the new title already ends with it, so a renamed workbook
   still opens as a spreadsheet and downloads with its type.
 
-Users edit Page titles at the top of the canvas. A Page title holds at most 255
+Users edit Page titles at the top of the canvas. An Applet Page gives its whole
+canvas to the Applet instead: the Page header path shows the title, and the
+Page's more-actions menu turns that title into a rename field, as the Page tree
+does for its rows. A Page title holds at most 255
 Unicode code points. Title fields shorten excess inserted text at a grapheme
 boundary while preserving the text around the edit, and the control plane rejects
 a longer title on create or update. Title sanitization removes Bidi and control
@@ -485,7 +488,10 @@ sidebar collapses, the expand trigger flows into the 44 px sheet header without
 shifting content vertically). On a Page, that header starts with the Page path
 in text only: every path begins at `Pages`, which links to all Pages, then names
 the direct parent and ends with the open Page in full ink beside its favorite
-star. Any ancestors between `Pages` and the direct parent fold into a menu. On a
+star. On an Applet Page, a muted link to the Conversation where an Agent created
+the Applet follows the star while the viewer can still open that Conversation,
+and on a narrow header the link keeps only its icon. Any ancestors between
+`Pages` and the direct parent fold into a menu. On a
 phone, `Pages` gives way to the title and every ancestor folds into that menu.
 The path is the Page read's `ancestors`, so an unreadable parent starts the path
 below it. A hairline under the header
@@ -2644,12 +2650,18 @@ Each Applet mounts inside a same-origin iframe at
 document and all subresources—unaffected if the user switches the browser's
 default account elsewhere. The iframe isolates its own DOM, CSS, viewport
 (sized to the workspace scroll panel, scrolling tall content internally), and
-import map while sharing the host origin and trust boundary. When the browser
-allows full screen, the Applet Page's more-actions menu offers a full-screen
-command. That command hands the Applet section, including its error and reload
-states, to the browser's Fullscreen API, and the host then sizes the iframe to
-the screen instead of the scroll panel. The browser's own exit, such as Esc,
-returns the section to the workspace, and the iframe keeps its document and
+import map while sharing the host origin and trust boundary. On an Applet Page,
+the iframe starts directly below the Page header and fills the whole scroll
+panel, so only the Applet's own content scrolls, and its scrollbar sits at the
+sheet's edge. The host pads the Applet's document with the Page's gutters,
+including the centered `1440px` column, so that space scrolls with the content
+and scrolling anywhere in the Page body moves the Applet. Notices above the
+iframe keep the Page's gutters. When the browser allows full screen, the Applet Page's more-actions
+menu offers a full-screen command. That command hands the Applet section,
+including its error and reload states, to the browser's Fullscreen API, and the
+host then sizes the iframe to the screen instead of the scroll panel. The
+browser's own exit, such as Esc, returns the section to the workspace, and the
+iframe keeps its document and
 state throughout. Ankole serves
 hashed `/assets` vendor bundles and stylesheets with immutable HTTP caching,
 while `/pod/applet-frame` responses inject `<meta name="color-scheme" content="light dark">`,

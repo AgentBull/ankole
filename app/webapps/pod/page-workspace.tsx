@@ -10,6 +10,7 @@ import { downloadDraft } from './document-recovery'
 import { pageCreated, updatePageMetadata } from './state/navigation-cache'
 import { InternalAPIError } from '../common/internal-api-client'
 import { BdiLabel } from '../common/bidi-file-name'
+import { stripBidi } from '../common/bidi'
 import { requestErrorCode, requestErrorDetails } from '../common/request-errors'
 
 import { useTranslation } from 'react-i18next'
@@ -55,9 +56,11 @@ import {
   RiFolderTransferLine,
   RiFullscreenLine,
   RiMoreFill,
+  RiPencilLine,
   RiStarFill,
   RiStarLine
 } from '@remixicon/react'
+import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
 import { createModel, effect, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -80,7 +83,7 @@ import {
 } from './content-api'
 
 import { ContentError, ContentSkeleton } from './content-primitives'
-import { PageChildrenMenu } from './page-navigation'
+import { PageChildrenMenu, PageRenameField } from './page-navigation'
 import { PageBreadcrumbs } from './page-breadcrumbs'
 import { DocumentSubpages } from './page-subpages'
 import { isDocumentBodyEmpty } from './state/page-subpages'
@@ -189,6 +192,9 @@ function PageWorkspace({
   const { actions } = detail
   const { state: sidebarState, isMobile } = useSidebar()
   const [moving, setMoving] = useState(false)
+  // An Applet Page has no title in its body, so its menu renames the title where the header shows it.
+  const [renamingTitle, setRenamingTitle] = useState(false)
+  const [keepFocusInTitle, menuFinalFocus] = useMenuFinalFocus()
   const [comments, setComments] = useState(false)
   const commentsMotion = usePanelMotion(comments)
   const [focusedComment, focusComment] = useState<string | null>(null)
@@ -581,7 +587,20 @@ function PageWorkspace({
           />
           <div className="flex min-w-0 flex-1 items-center gap-0.5">
             <ErrorBoundary variant="inline" resetKeys={[page.id]}>
-              <PageBreadcrumbs ancestors={detail.ancestors} title={titleDraft.value.value} compact={isMobile} />
+              <PageBreadcrumbs
+                ancestors={detail.ancestors}
+                title={titleDraft.value.value}
+                compact={isMobile}
+                current={
+                  renamingTitle && canRename ? (
+                    <PageRenameField
+                      page={{ ...page, actions }}
+                      className="-ml-1 w-60 max-w-[45vw]"
+                      onDone={() => setRenamingTitle(false)}
+                    />
+                  ) : undefined
+                }
+              />
             </ErrorBoundary>
             {!trashed && (
               <Button
@@ -595,6 +614,22 @@ function PageWorkspace({
                 onClick={() => favorite.mutate()}>
                 {favorited ? <RiStarFill aria-hidden /> : <RiStarLine aria-hidden />}
               </Button>
+            )}
+            {page.type === 'applet' && detail.source_conversation && !detail.source_conversation.deleted && (
+              // An Applet's title lives in this path, so the conversation that produced it sits beside the title.
+              <Link
+                className="ml-1 inline-flex h-7 max-w-60 min-w-0 shrink-[8] items-center gap-1 rounded-control px-1.5 text-xs text-fg-tertiary no-underline hover:bg-accent hover:text-foreground"
+                to={podLocation(`/conversations/${detail.source_conversation.id}`).pathname}
+                title={stripBidi(
+                  t('pod.content.source_conversation') +
+                    (detail.source_conversation.title || t('pod.content.view_conversation'))
+                )}>
+                <RiChat3Line aria-hidden className="size-3.5 shrink-0" />
+                <span className="truncate @max-[640px]:sr-only">
+                  {t('pod.content.source_conversation')}
+                  {detail.source_conversation.title || t('pod.content.view_conversation')}
+                </span>
+              </Link>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -679,7 +714,7 @@ function PageWorkspace({
                 }>
                 <RiMoreFill aria-hidden className="size-4" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-60">
+              <DropdownMenuContent align="end" className="min-w-60" finalFocus={menuFinalFocus}>
                 {!accessDenied && !trashed && page.type === 'applet' && document.fullscreenEnabled && (
                   <DropdownMenuItem
                     onClick={() => void pageColumn.current?.querySelector('[data-applet-stage]')?.requestFullscreen()}>
@@ -691,6 +726,16 @@ function PageWorkspace({
                   <RiFileCopyLine aria-hidden />
                   {t('pod.content.copy_link')}
                 </DropdownMenuItem>
+                {page.type === 'applet' && canRename && !trashed && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      keepFocusInTitle.current = true
+                      setRenamingTitle(true)
+                    }}>
+                    <RiPencilLine aria-hidden />
+                    {t('pod.sidebar.rename')}
+                  </DropdownMenuItem>
+                )}
                 {canMove && (
                   <DropdownMenuItem disabled={remove.isPending} onClick={() => setMoving(true)}>
                     <RiFolderTransferLine aria-hidden />
@@ -832,56 +877,63 @@ function PageWorkspace({
                 )}
               </Alert>
             )}
-            <div className="pod-page-heading">
-              {page.type === 'doc' && <PageIconPicker page={page} editable={edit} />}
-              {canRename ? (
-                <div className="min-w-0 flex-1">
-                  <textarea
-                    ref={titleInput}
-                    aria-label={t('pod.content.page_title')}
-                    rows={1}
-                    value={titleDraft.value.value}
-                    autoFocus={(page.type === 'doc' || page.type === 'base') && !page.title && !chat}
-                    disabled={remove.isPending || accessDenied}
-                    placeholder={t('pod.content.untitled')}
-                    onChange={event =>
-                      (titleDraft.value.value = limitPageTitle(
-                        event.target.value.replace(/\n/g, ' '),
-                        titleDraft.value.value
-                      ))
-                    }
-                    onCompositionStart={() => setTitleComposing(true)}
-                    onCompositionEnd={() => setTitleComposing(false)}
-                    onKeyDown={event => {
-                      if (titleComposing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        if (!focusWorkspaceStart(documentEditor.current, pageContent.current)) {
-                          event.currentTarget.blur()
-                        }
-                        return
+            {page.type === 'applet' ? (
+              // The Applet fills the Page body: the header path shows its title, and the Page tree renames it.
+              <h1 className="sr-only">
+                <BdiLabel value={page.title} fallback={t('pod.content.untitled')} />
+              </h1>
+            ) : (
+              <div className="pod-page-heading">
+                {page.type === 'doc' && <PageIconPicker page={page} editable={edit} />}
+                {canRename ? (
+                  <div className="min-w-0 flex-1">
+                    <textarea
+                      ref={titleInput}
+                      aria-label={t('pod.content.page_title')}
+                      rows={1}
+                      value={titleDraft.value.value}
+                      autoFocus={(page.type === 'doc' || page.type === 'base') && !page.title && !chat}
+                      disabled={remove.isPending || accessDenied}
+                      placeholder={t('pod.content.untitled')}
+                      onChange={event =>
+                        (titleDraft.value.value = limitPageTitle(
+                          event.target.value.replace(/\n/g, ' '),
+                          titleDraft.value.value
+                        ))
                       }
-                      if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return
-                      if (event.key === 'Tab') {
-                        if (focusEditorStart(documentEditor.current)) event.preventDefault()
-                        return
-                      }
-                      if (event.key === 'ArrowDown' && isCaretOnLastTitleLine(event.currentTarget)) {
-                        if (focusWorkspaceStart(documentEditor.current, pageContent.current)) {
+                      onCompositionStart={() => setTitleComposing(true)}
+                      onCompositionEnd={() => setTitleComposing(false)}
+                      onKeyDown={event => {
+                        if (titleComposing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+                        if (event.key === 'Enter') {
                           event.preventDefault()
+                          if (!focusWorkspaceStart(documentEditor.current, pageContent.current)) {
+                            event.currentTarget.blur()
+                          }
+                          return
                         }
-                      }
-                    }}
-                    className="pod-page-title"
-                    onBlur={() => saveTitle()}
-                  />
-                </div>
-              ) : (
-                <h1 className="pod-page-title">
-                  <BdiLabel value={page.title} fallback={t('pod.content.untitled')} />
-                </h1>
-              )}
-            </div>
+                        if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return
+                        if (event.key === 'Tab') {
+                          if (focusEditorStart(documentEditor.current)) event.preventDefault()
+                          return
+                        }
+                        if (event.key === 'ArrowDown' && isCaretOnLastTitleLine(event.currentTarget)) {
+                          if (focusWorkspaceStart(documentEditor.current, pageContent.current)) {
+                            event.preventDefault()
+                          }
+                        }
+                      }}
+                      className="pod-page-title"
+                      onBlur={() => saveTitle()}
+                    />
+                  </div>
+                ) : (
+                  <h1 className="pod-page-title">
+                    <BdiLabel value={page.title} fallback={t('pod.content.untitled')} />
+                  </h1>
+                )}
+              </div>
+            )}
             {!!loadError && drafts.hasUnsavedChanges.value && (
               <p className="mb-3 text-sm">{t('pod.content.could_not_load_the_latest_page_state_your_unsaved_draft')}</p>
             )}
@@ -892,7 +944,7 @@ function PageWorkspace({
                 {t('pod.content.export_draft')}
               </Button>
             )}
-            {canRename && (
+            {canRename && page.type !== 'applet' && (
               <p role="status" className="sr-only">
                 {rename.isPending
                   ? t('pod.content.saving_title')
@@ -935,7 +987,7 @@ function PageWorkspace({
               />
             )}
             <ContentError error={remove.error || favorite.error || favorites.error || restore.error} />
-            {detail.source_conversation && (
+            {detail.source_conversation && page.type !== 'applet' && (
               <p className="pod-page-origin">
                 {detail.source_conversation.deleted ? (
                   t('pod.content.source_conversation_deleted')

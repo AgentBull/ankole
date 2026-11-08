@@ -98,12 +98,17 @@ test('ESM chunks and Web Workers retain the original tab identity when another a
     )
     await frame.getByRole('button', { name: 'Local counter 0', exact: true }).click()
     await frame.getByRole('textbox', { name: 'Draft evaluation', exact: true }).fill('Unsubmitted owner evaluation')
-    const titleInput = original.getByRole('textbox', { name: '页面标题', exact: true })
-    title = await titleInput.inputValue()
+    title = (await request<{ page: { title: string } }>(original, `/pages/${id}`)).page.title
     const refreshed = original.waitForResponse(
       response =>
         response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/v2/pod/pages/${id}`
     )
+    // Renaming the Applet from the Page tree refreshes the Page read while the Applet keeps its local state.
+    await original
+      .locator('.pod-tree-row', { has: original.getByRole('link', { name: title, exact: true }) })
+      .click({ button: 'right' })
+    await original.getByRole('menuitem', { name: '重命名', exact: true }).click()
+    const titleInput = original.getByRole('textbox', { name: /^重命名 / })
     await titleInput.fill(`${title} refreshed`)
     await titleInput.press('Enter')
     expect((await (await refreshed).json()).page.title).toBe(`${title} refreshed`)

@@ -1,4 +1,5 @@
 import { usePagesMetadata } from './use-page-metadata'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@ankole/uikit'
@@ -27,12 +28,15 @@ const separator = <RiArrowRightSLine aria-hidden className="size-4 shrink-0 text
 export function PageBreadcrumbs({
   ancestors: sourceAncestors,
   title,
-  compact
+  compact,
+  current
 }: {
   /** The readable ancestors from the root down to the parent, as the Page read returns them. */
   ancestors: readonly Page[]
   title: string
   compact: boolean
+  /** Replaces the open Page's title, such as with a field that renames it in place. */
+  current?: ReactNode
 }) {
   const { t } = useTranslation()
   const brain = sourceAncestors.some(page => page.type === 'knowledge' || page.system_key?.startsWith('ankole_brain'))
@@ -86,8 +90,8 @@ export function PageBreadcrumbs({
         <li
           aria-current="page"
           className="flex min-w-0 items-center px-1.5 text-sm font-medium text-foreground"
-          title={stripBidi(title)}>
-          <BdiLabel value={title} fallback={t('pod.content.untitled')} />
+          title={current ? undefined : stripBidi(title)}>
+          {current ?? <BdiLabel value={title} fallback={t('pod.content.untitled')} />}
         </li>
       </ol>
     </nav>

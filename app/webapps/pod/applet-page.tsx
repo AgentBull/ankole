@@ -146,16 +146,19 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
     <section
       data-applet-stage
       className="min-h-32 text-base leading-normal font-normal [&:fullscreen]:overflow-auto [&:fullscreen]:bg-background">
-      <ContentError error={error} />
-      {!!error && !revoked && (
-        <Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>
-          {t('pod.content.reload_applet')}
-        </Button>
-      )}
-      {connection.revoked && (
-        <ContentError error={new Error(t('pod.content.you_no_longer_have_access_to_this_applet'))} />
-      )}
-      {!revoked && <ContentError error={connection.error} retry={connection.retry} />}
+      {/* The stage starts at the Page body's edges, so its notices keep their own spacing. */}
+      <div data-applet-notices className="space-y-3 py-4 empty:hidden">
+        <ContentError error={error} />
+        {!!error && !revoked && (
+          <Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>
+            {t('pod.content.reload_applet')}
+          </Button>
+        )}
+        {connection.revoked && (
+          <ContentError error={new Error(t('pod.content.you_no_longer_have_access_to_this_applet'))} />
+        )}
+        {!revoked && <ContentError error={connection.error} retry={connection.retry} />}
+      </div>
       <div className="relative">
         {loading && !revoked && (
           <ContentLoading

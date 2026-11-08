@@ -195,17 +195,26 @@ checks each file digest, and runs `bun install --ignore-scripts`.
 
 ### Pod UI and theme integration
 
-An Applet renders inside a Pod Page sheet (`var(--background)`) that already
-provides the `48px` horizontal page gutter, breadcrumbs, editable Page title,
-provenance metadata, and Automation toolbar directly above the iframe:
+An Applet fills the whole body of a Pod Page sheet (`var(--background)`). The
+Page header above the iframe already shows the breadcrumbs ending in the Page
+title and its source conversation, the Automation control, and the more-actions
+menu; the iframe starts right below that header and spans the sheet's full width
+and remaining height. The host pads the Applet's `html` with the Page's gutters:
+`40px` on top and `48px` on each side (`28px` on top, `58px` and `24px` at the
+sides on phones), widening the side gutters to center content in a `1440px`
+column. That space scrolls with the content, so the Applet's scrollbar sits at
+the sheet's edge:
 
-- **Flush workspace layout (no duplicate Page chrome)**: Keep `html`, `body`,
-  and `.ankole-applet` flush with the host surface (`padding-inline: 0`,
-  transparent or `var(--background)` canvas). Do not repeat the Page title as an
-  opening `<h1>`, wrap the entire Applet in an outer card/border/shadow, or paint
-  a standalone SaaS hero banner or full-bleed background wash. Open directly with
-  compact workspace controls—a toolbar, search/filter bar, `Tabs`, KPI strip, or
-  primary data view—aligned to the host's left and right edges.
+- **Flush workspace layout (no duplicate Page chrome)**: Keep `body` and
+  `.ankole-applet` flush with the host surface (`padding-inline: 0`,
+  transparent or `var(--background)` canvas), and leave the host's padding on
+  `html` in place. Size full-width rows with percentages or `width: auto`, not
+  `100vw`, because the frame's viewport includes the gutters. Do not repeat the
+  Page title as an opening `<h1>`, wrap the entire Applet in an outer
+  card/border/shadow, or paint a standalone SaaS hero banner or full-bleed
+  background wash. Open directly with compact workspace controls—a toolbar,
+  search/filter bar, `Tabs`, KPI strip, or primary data view—aligned to the
+  gutters' left and right edges.
 - **Host-synced light and dark mode**: The Pod host sets
   `html[data-theme="light"]` or `html[data-theme="dark"]` and matching
   `color-scheme` on the iframe root before first paint, updating both live when

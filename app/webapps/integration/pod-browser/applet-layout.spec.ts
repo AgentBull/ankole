@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
-import { state, request } from './fixtures'
-import { pageRoute } from './routes'
+import { state, request, createApplet, publishApplet } from './fixtures'
+import { conversationRoute, pageRoute } from './routes'
 
 async function viewportAndPortal(page: Page) {
   const frame = page.frameLocator('iframe')
@@ -72,6 +72,29 @@ test('full-page and embedded applets give padded 100vh content and UIKit Portals
   try {
     await page.goto(state.base_url + pageRoute(state.applet_id))
     await viewportAndPortal(page)
+    // The Applet fills the Page body below the header, so the body neither repeats the title nor scrolls;
+    // the Page's gutters pad the Applet's own document instead.
+    await expect(page.locator('.pod-page-heading')).toHaveCount(0)
+    const body = await page.locator('.pod-page-scroll').evaluate(element => {
+      const panel = element.getBoundingClientRect()
+      const frame = element.querySelector('iframe')!.getBoundingClientRect()
+      return {
+        overflow: element.scrollHeight - element.clientHeight,
+        offset: Math.abs(frame.left - panel.left),
+        width: Math.abs(frame.width - element.clientWidth)
+      }
+    })
+    expect(body).toEqual({ overflow: 0, offset: 0, width: 0 })
+    const html = page.frameLocator('iframe').locator('html')
+    await expect(html).toHaveCSS('padding-top', '40px')
+    await expect(html).toHaveCSS('padding-left', '48px')
+    // The wheel moves the Applet even beside its content column.
+    const panel = (await page.locator('.pod-page-scroll').boundingBox())!
+    await page.mouse.move(panel.x + 12, panel.y + panel.height / 2)
+    await page.mouse.wheel(0, 200)
+    await expect
+      .poll(() => page.locator('iframe').evaluate(frame => (frame as HTMLIFrameElement).contentWindow!.scrollY))
+      .toBeGreaterThan(0)
     const created = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
       type: 'doc',
       title: 'Embedded viewport acceptance',
@@ -85,6 +108,7 @@ test('full-page and embedded applets give padded 100vh content and UIKit Portals
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto(state.base_url + pageRoute(documentID))
     await viewportAndPortal(page)
+    await expect(page.frameLocator('iframe').locator('html')).toHaveCSS('padding', '0px')
   } finally {
     if (documentID) await request(page, `/pages/${documentID}`, 'DELETE')
     await context.close()
@@ -143,6 +167,46 @@ test('the Applet Page menu shows the running Applet on the whole screen and retu
       .toBe(true)
     await expect(heading).toBeVisible()
   } finally {
+    await context.close()
+  }
+})
+
+test('an Applet Page renames its title in the header and links the conversation that produced it', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(state.base_url + pageRoute(state.report_id))
+    const created = await createApplet({
+      parent_id: state.report_id,
+      title: 'Applet from a conversation',
+      saved_from_message_id: state.message_id
+    })
+    id = created.id
+    await publishApplet(id, created.revision, state.publish_v1_files)
+    await page.goto(state.base_url + pageRoute(id))
+    const header = page.locator('.pod-page-header')
+    await header.getByRole('button', { name: '更多操作', exact: true }).click()
+    await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
+    const field = header.getByRole('textbox', { name: /^重命名 / })
+    await expect(field).toBeFocused()
+    await field.fill('Renamed conversation Applet')
+    await field.press('Enter')
+    await expect(field).toHaveCount(0)
+    await expect(header.locator('[aria-current="page"]')).toHaveText('Renamed conversation Applet')
+    expect((await request<{ page: { title: string } }>(page, `/pages/${id}`)).page.title).toBe(
+      'Renamed conversation Applet'
+    )
+    const source = header.getByRole('link', { name: /^来源对话：/ })
+    await expect(source).toBeVisible()
+    await expect(page.locator('.pod-page-origin')).toHaveCount(0)
+    await source.click()
+    await expect(page).toHaveURL(new RegExp(`${conversationRoute(state.conversation_id)}$`))
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()
   }
 })

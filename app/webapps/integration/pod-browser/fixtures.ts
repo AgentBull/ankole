@@ -114,7 +114,7 @@ async function agentAction<T>(action: 'create' | 'publish', body: unknown): Prom
   return result as T
 }
 
-export const createApplet = (attributes: { parent_id: string; title: string }) =>
+export const createApplet = (attributes: { parent_id: string; title: string; saved_from_message_id?: string }) =>
   agentAction<{ id: string; revision: number }>('create', attributes)
 
 export const publishApplet = (page_id: string, base_revision: number, files: unknown[]) =>

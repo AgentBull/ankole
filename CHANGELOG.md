@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 2.0.0-alpha.91 (2026-11-08)
+
+- Let an Applet fill its Page. An Applet Page no longer shows a large title and
+  a source line above the Applet, and the Page no longer scrolls on top of the
+  Applet's own scrolling, which used to cut the Applet's first lines off under
+  the title. The Applet now starts right below the Page header, whose path
+  shows the title, keeps the same margins as a document, and is the only thing
+  that scrolls: scrolling anywhere in the Page body, including the margins
+  beside it, moves the Applet, and its scrollbar sits at the edge of the Page.
+  The link to the conversation that produced the Applet sits beside the title in
+  the header, and the Page's ⋯ menu renames the Applet right in the header.
+
 ## Version 2.0.0-alpha.90 (2026-11-08)
 
 - Explain Pod errors in plain language in English, Chinese, Japanese, and
