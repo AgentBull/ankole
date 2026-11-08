@@ -53,7 +53,7 @@ import {
   type PageSearchOptions,
   type PageSearchSort
 } from './content-api'
-import { ContentError, scopeIcons, scopeLabels, typeLabels } from './content-primitives'
+import { ContentError, scopeIcons, scopeLabels, typeLabels, InlineLoading } from './content-primitives'
 import { isImeComposingKey } from './find-bar'
 import { PageIcon } from './page-icon'
 import { HighlightedBdiLabel, HighlightedText, SearchSnippet } from './search-highlight'
@@ -813,11 +813,7 @@ export function PodCommandMenu({
             </div>
           </Command>
         </ErrorBoundary>
-        {(pages.isPending || conversations.isPending) && (
-          <p role="status" className="px-3 text-xs text-fg-tertiary">
-            {t('pod.content.loading')}
-          </p>
-        )}
+        {(pages.isPending || conversations.isPending) && <InlineLoading className="px-3 text-xs" />}
         <ContentError
           error={pages.error || conversations.error}
           retry={() => {

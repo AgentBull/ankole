@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.79 (2026-11-08)
+
+- Show every Pod loading state in the shape of what is loading. Pages, lists,
+  tables, spreadsheets, version history, comments, and connections show gray
+  placeholders of their content; applets, file and slide previews, and chat
+  history show a centered spinner; pickers, menus, and fields show a small
+  spinner beside their text. Every state waits a moment before it appears, so
+  quick loads no longer flash plain "Loading…" text.
+
 ## Version 2.0.0-alpha.78 (2026-11-08)
 
 - Name the sign-in method in the account menu, the sign-in account chooser,

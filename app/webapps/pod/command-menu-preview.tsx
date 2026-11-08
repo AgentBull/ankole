@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { InlineLoading } from './content-primitives'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { RemixiconComponentType } from '@remixicon/react'
@@ -263,7 +264,7 @@ export function CommandMenuPreview({
                 <SearchSnippet snippet={previewMatch.snippet} />
               </div>
             ) : preview.isPending ? (
-              <p className="text-fg-tertiary">{t('pod.command.preview_loading')}</p>
+              <InlineLoading label={t('pod.command.preview_loading')} />
             ) : (
               <p className="text-fg-tertiary">{t('pod.command.preview_empty')}</p>
             )}

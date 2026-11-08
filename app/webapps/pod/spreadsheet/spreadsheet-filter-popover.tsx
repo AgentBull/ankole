@@ -1,4 +1,5 @@
 import { t } from 'i18next'
+import { InlineLoading } from '../content-primitives'
 import { Button, Checkbox, Input, Label, PopoverTitle } from '@ankole/uikit'
 import { useEffect, useMemo, useState } from 'react'
 import type { FilterValue } from '../state/spreadsheet-grid'
@@ -63,9 +64,7 @@ export function SpreadsheetFilterPopover({
         onChange={event => setQuery(event.target.value)}
       />
       {values === undefined ? (
-        <p role="status" className="text-xs text-fg-tertiary">
-          {t('pod.spreadsheet.loading')}
-        </p>
+        <InlineLoading label={t('pod.spreadsheet.loading')} className="text-xs" />
       ) : (
         <div className="max-h-56 overflow-y-auto rounded-control border border-border p-1">
           <Label className="flex items-center gap-2 px-1 py-1 text-sm">

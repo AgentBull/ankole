@@ -71,7 +71,7 @@ import {
 import { contentError } from './content-errors'
 import { handlePodListKeyDown } from './content-list'
 import { formatRelativeTime } from '../common/date-time'
-import { ContentError, typeLabels } from './content-primitives'
+import { ContentError, typeLabels, ContentSkeleton } from './content-primitives'
 import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
 import { uploadFileSubpages, usePageCreation } from './page-create-menu'
 import { PageIcon } from './page-icon'
@@ -469,9 +469,7 @@ export function DocumentSubpages({
       <ContentError error={subpages.error} retry={() => void subpages.refetch()} />
 
       {subpages.isPending ? (
-        <p role="status" className="py-4 text-xs text-fg-tertiary">
-          {t('pod.content.loading')}
-        </p>
+        <ContentSkeleton variant="list" rows={3} className="py-4" />
       ) : sortedPages.length === 0 ? (
         <p className="py-4 text-sm text-fg-tertiary">{t('pod.content.no_pages_yet')}</p>
       ) : view === 'table' ? (

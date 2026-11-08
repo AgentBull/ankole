@@ -1,4 +1,5 @@
 import { podLocation, podRouteID } from '../common/browser-context'
+import { ContentLoading, InlineLoading } from './content-primitives'
 import {
   Button,
   buttonVariants,
@@ -433,11 +434,7 @@ export function ChatPage({
             model.draft.value = text
             composerInput.current?.focus()
           }}>
-          {agents.isPending && (
-            <p role="status" className="pod-chat-status">
-              {t('pod.chat.loading_agents')}
-            </p>
-          )}
+          {agents.isPending && <InlineLoading label={t('pod.chat.loading_agents')} className="pod-chat-status" />}
           {agents.isError && <RequestFailure error={agents.error} retry={() => void agents.refetch()} />}
           {agents.isSuccess && selected && !agentUID && (
             <p role="status" className="pod-chat-status">
@@ -469,7 +466,7 @@ export function ChatPage({
           {detail.isError ? (
             <RequestFailure error={detail.error} retry={() => void detail.refetch()} />
           ) : (
-            <p role="status">{t('pod.chat.loading_history')}</p>
+            <ContentLoading label={t('pod.chat.loading_history')} />
           )}
         </div>
       </section>

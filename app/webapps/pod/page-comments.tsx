@@ -25,7 +25,7 @@ import {
   pageCommentSummaryQuery,
   type PageDetail
 } from './content-api'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { CommentThread, CommentComposer } from './comment-thread'
 import { formatFileAnchorLabel, type FileCommentAnchor } from './file-comment-anchors'
 import { isRealtimeAccessDenied } from './realtime'
@@ -227,7 +227,7 @@ export function PageComments({
           </div>
         )}
         <div ref={content} className="pod-comments-threads min-h-0 flex-1 overflow-auto p-4">
-          {loading && <p role="status">{t('pod.content.loading')}</p>}
+          {loading && <ContentSkeleton variant="list" rows={3} />}
           <ContentError error={error} retry={retry} />
           <ContentError error={acknowledge.error} />
           {!loading && !error && !visibleThreads.length && (

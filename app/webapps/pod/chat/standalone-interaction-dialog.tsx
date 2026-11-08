@@ -7,7 +7,7 @@ import { requestErrorCode, requestErrorMessage } from '../../common/request-erro
 import { chatError, interactionQuery, podKeys, type StandaloneInteraction } from '../api'
 import { answerPodInteraction } from '../api/generated/sdk.gen'
 import { contentError } from '../content-errors'
-import { ContentError } from '../content-primitives'
+import { ContentError, ContentSkeleton } from '../content-primitives'
 import { refreshConversationQueries } from '../query-cache'
 import { ChoiceCard } from './choice-card'
 import type { InteractionAnswer } from './room-api'
@@ -54,9 +54,7 @@ export function StandaloneInteractionDialog({
         <DialogTitle>{t('pod.chat_form.dialog_title')}</DialogTitle>
         <div className="pod-dialog-body grid gap-3">
           {query.isPending ? (
-            <p role="status" className="text-sm text-fg-secondary">
-              {t('pod.content.loading')}
-            </p>
+            <ContentSkeleton variant="list" rows={3} />
           ) : query.isError ? (
             <ContentError error={query.error} retry={() => void query.refetch()} />
           ) : interaction ? (

@@ -41,7 +41,7 @@ import {
 import { requestErrorMessage } from '../common/request-errors'
 import { contentKeys, fileURL, pageAPI, pageQuery, type PageDetail } from './content-api'
 import { contentError } from './content-errors'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentLoading, ContentSkeleton, InlineLoading } from './content-primitives'
 import { createMentionHostAdapters } from './document-mentions'
 
 import { CreatePageSubmenu, uploadFileSubpages, usePageCreation } from './page-create-menu'
@@ -604,7 +604,7 @@ export function DocumentPage({
             <DialogTitle>{t('pod.content.embed_existing_content')}</DialogTitle>
             <div className="pod-dialog-body grid gap-3">
               <ErrorBoundary variant="panel" resetKeys={[detail.page.id]}>
-                <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
+                <Suspense fallback={<InlineLoading />}>
                   <PagePicker
                     embeddable
                     label={t('pod.content.choose_a_page')}
@@ -773,7 +773,7 @@ function ChartEmbedPickerDialog({
             </div>
           ) : (
             <ErrorBoundary variant="panel" resetKeys={[pageID]}>
-              <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
+              <Suspense fallback={<InlineLoading />}>
                 <PagePicker
                   embeddable
                   disabled={inspecting}
@@ -880,11 +880,7 @@ export function PageEmbed({
     return cannotDisplay
   }
   if (!query.data || !page) {
-    return (
-      <p role="status" className="p-4 text-sm">
-        {t('pod.content.loading')}
-      </p>
-    )
+    return <ContentLoading />
   }
   if (page.type === 'doc') {
     return cannotDisplay
@@ -905,11 +901,9 @@ export function PageEmbed({
       </Button>
       {page.type === 'base' ? (
         !chartVisible ? (
-          <div role="status" className="flex min-h-[280px] items-center justify-center p-4 text-xs text-fg-tertiary">
-            {t('pod.content.loading')}
-          </div>
+          <ContentSkeleton variant="block" className="h-[280px]" />
         ) : (
-          <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
+          <Suspense fallback={<ContentSkeleton variant="block" className="h-[280px]" immediate />}>
             {view.kind === 'invalid' ? (
               <div className="space-y-2 p-4" role="alert">
                 <p>{t('pod.content.cannot_display')}</p>

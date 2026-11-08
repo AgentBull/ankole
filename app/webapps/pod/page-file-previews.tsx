@@ -9,7 +9,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 import { createClientConfig } from '../common/internal-api-client'
 import { sanitizeFileName } from '../common/bidi'
 import { contentKeys } from './content-api'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import {
   clampCommentQuote,
   extractMarkdownSections,
@@ -291,7 +291,7 @@ export function DelimitedTablePreview({
     }
   }, [initialAnchor, query.data, revealCsvAnchor, visibleRows.length])
 
-  if (query.isPending) return <p role="status">{t('pod.content.loading_file')}</p>
+  if (query.isPending) return <ContentSkeleton variant="table" label={t('pod.content.loading_file')} />
   if (query.error) return <ContentError error={query.error} retry={() => void query.refetch()} />
   if (!parsed || (parsed.headers.length === 0 && visibleRows.length === 0)) {
     return (
@@ -546,7 +546,7 @@ export function TextFilePreview({
     }
   }, [initialAnchor, lines.length, query.data, resolveAnchorRange, revealTextAnchor])
 
-  if (query.isPending) return <p role="status">{t('pod.content.loading_file')}</p>
+  if (query.isPending) return <ContentSkeleton variant="text" label={t('pod.content.loading_file')} />
   if (query.error) return <ContentError error={query.error} retry={() => void query.refetch()} />
 
   const resolvedInitialRange = initialAnchor ? resolveAnchorRange(initialAnchor) : undefined

@@ -20,6 +20,7 @@ import {
   SelectValue
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
+import { ContentSkeleton } from './content-primitives'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
@@ -354,7 +355,7 @@ export function Connectors() {
             )}
           </p>
         )}
-        {connections.isPending && <p role="status">{t('common.loading')}</p>}
+        {connections.isPending && <ContentSkeleton variant="list" rows={3} />}
         {connections.isSuccess && allConnections.length === 0 && (
           <Card className="py-0">
             <Empty className="items-start p-6 text-left sm:p-8">

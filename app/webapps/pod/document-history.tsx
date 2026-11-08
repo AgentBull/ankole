@@ -7,7 +7,7 @@ import { useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ErrorBoundary } from '../common/error-boundary'
 import { contentKeys, pageAPI, pageHistoryQuery, pageSnapshotQuery, type PageDetail } from './content-api'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { DocumentHistoryPreview } from './document-history-preview'
 import { PageIcon } from './page-icon'
 import { isRealtimeAccessDenied } from './realtime'
@@ -111,7 +111,7 @@ export function DocumentHistory({
             <section
               className="pod-document-history-preview min-w-0 flex-1 overflow-auto p-5 min-[761px]:px-10 min-[761px]:py-8"
               aria-label={t('pod.document.version_preview')}>
-              {entry.isPending && entryID && <p role="status">{t('pod.content.loading')}</p>}
+              {entry.isPending && entryID && <ContentSkeleton variant="text" />}
               <ContentError error={entry.error} retry={() => void entry.refetch()} />
               {preview && !entry.error && (
                 <>
@@ -186,7 +186,7 @@ export function DocumentHistory({
                 }}>
                 {t('pod.document.current_version')}
               </Button>
-              {history.isPending && <p role="status">{t('pod.content.loading')}</p>}
+              {history.isPending && <ContentSkeleton variant="list" rows={5} />}
               <ContentError error={history.error} retry={() => void history.refetch()} />
               {!history.isPending && !history.error && !entries.length && <p>{t('pod.document.no_history')}</p>}
               {entries.map(item => (

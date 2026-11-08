@@ -9,7 +9,7 @@ import { createClientConfig } from '../common/internal-api-client'
 import { BdiLabel } from '../common/bidi-file-name'
 import { sanitizeFileName, stripBidi } from '../common/bidi'
 import { podKeys } from './api'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentLoading } from './content-primitives'
 import { isPreviewImage } from './state/chat-attachments'
 import { CodeBlockView } from './chat/code-block-view'
 import { ImageZoomView } from './chat/zoomable-image'
@@ -105,7 +105,7 @@ export function AttachmentPreview({
           tabIndex={0}
           className="pod-dialog-body rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring">
           {open && (
-            <Suspense fallback={<p role="status">{t('pod.content.loading_file')}</p>}>
+            <Suspense fallback={<ContentLoading label={t('pod.content.loading_file')} />}>
               {kind === 'pdf' ? (
                 <iframe className="h-[70dvh] w-full border border-border" src={url} title={stripBidi(name)} />
               ) : kind === 'video' ? (
@@ -181,7 +181,7 @@ function PreviewContent({
     refetchOnWindowFocus: false,
     refetchOnReconnect: false
   })
-  if (query.isPending) return <p role="status">{t('pod.content.loading_file')}</p>
+  if (query.isPending) return <ContentLoading label={t('pod.content.loading_file')} immediate />
   if (query.error) return <ContentError error={query.error} retry={() => void query.refetch()} />
   if (query.data.image) return <PreviewImage blob={query.data.image} name={name} />
   return (
@@ -205,7 +205,7 @@ function PreviewImage({ blob, name }: { blob: Blob; name: string }) {
     setURL(source)
     return () => URL.revokeObjectURL(source)
   }, [blob])
-  if (!url) return <p role="status">{t('pod.content.loading_file')}</p>
+  if (!url) return <ContentLoading label={t('pod.content.loading_file')} immediate />
   return failed ? (
     <p role="alert">{t('pod.chat_attachments.preview_unavailable')}</p>
   ) : (

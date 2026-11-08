@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { ErrorBoundary } from '../common/error-boundary'
 import { avatarInitials } from './avatar-initials'
 import { pageAPI, pageInsightsQuery, pageViewersQuery, type PageDetail } from './content-api'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 
 type Insights = Awaited<ReturnType<typeof pageAPI.insights>>
 type Person = Insights['contributors'][number]
@@ -41,7 +41,7 @@ export function DocumentInsights({
         finalFocus={returnFocus}>
         <DialogTitle>{t('pod.document.insights')}</DialogTitle>
         <ErrorBoundary variant="panel" resetKeys={[detail.page.id]}>
-          {insights.isPending && <p role="status">{t('pod.content.loading')}</p>}
+          {insights.isPending && <ContentSkeleton variant="list" rows={3} />}
           <ContentError error={insights.error} retry={() => void insights.refetch()} />
           {insights.data && !insights.error && (
             <>
@@ -105,7 +105,7 @@ function DocumentViewers({ pageID }: { pageID: string }) {
   const viewers = query.data?.pages.flatMap(page => page.viewers) ?? []
   return (
     <>
-      {query.isPending && <p role="status">{t('pod.content.loading')}</p>}
+      {query.isPending && <ContentSkeleton variant="list" rows={3} />}
       <ContentError error={query.error} retry={() => void query.refetch()} />
       {query.data && !query.error && (
         <>

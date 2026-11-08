@@ -54,7 +54,7 @@ import { contentKeys, limitPageTitle, podRequest, type PageDetail } from './cont
 import { ErrorBoundary } from '../common/error-boundary'
 import { useContent } from './content-context'
 import { usePageHref } from './use-page-metadata'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
 import { BaseViewContent, RecordForm, type ViewProps } from './base-views'
 import { QueryControls } from './base-query-controls'
@@ -331,7 +331,7 @@ function BaseWorkspace({
       <ContentError error={tables.error} retry={() => void tables.refetch()} />
       <ContentError error={create.error} />
       {tables.isPending ? (
-        <p role="status">{t('pod.content.loading_tables')}</p>
+        <ContentSkeleton variant="table" label={t('pod.content.loading_tables')} />
       ) : explicitMissingTable ? (
         <div
           role="alert"
@@ -647,7 +647,7 @@ function TableWorkspace({
     }
   }
   if (schema.error && !schema.data) return <ContentError error={schema.error} retry={() => void schema.refetch()} />
-  if (!schema.data) return <p role="status">{t('pod.content.loading_table_schema')}</p>
+  if (!schema.data) return <ContentSkeleton variant="table" label={t('pod.content.loading_table_schema')} />
   if (!configuration.success || missingView) {
     return (
       <div role="alert" className="space-y-2 p-4">

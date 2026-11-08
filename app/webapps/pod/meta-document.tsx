@@ -9,7 +9,7 @@ import { DocumentDraftModel } from './state/document-draft'
 import { DraftNavigationGuard } from './draft-navigation-guard'
 import { createMentionHostAdapters } from './document-mentions'
 import { usePageHref } from './use-page-metadata'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { KnowledgeProperties } from './knowledge-properties'
 import {
   KnowledgeDraftModel,
@@ -110,7 +110,7 @@ export function MetaDocument<Result>({
       {showBody && <KnowledgeProperties metadata={metadata} draft={draft} />}
       {showBody &&
         (draft.editing.value ? (
-          <Suspense fallback={<p>{t('pod.content.loading')}</p>}>
+          <Suspense fallback={<ContentSkeleton variant="text" />}>
             <Editor
               key={draft.generation.value}
               xml={body.xml.value}

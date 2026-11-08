@@ -6,7 +6,7 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useState } from 'react'
 import type { Page } from './content-api'
-import { ContentError } from './content-primitives'
+import { ContentError, InlineLoading } from './content-primitives'
 import { useResolvePageHref } from './use-page-metadata'
 import { CollaboratorsView } from './page-sharing/collaborators-view'
 import { InviteCollaboratorsView } from './page-sharing/invite-view'
@@ -68,11 +68,7 @@ function SharingPopoverBody({
           <PopoverTitle>{shareTitle(pageType)}</PopoverTitle>
         </div>
         <ContentError error={session.sharingError} retry={session.retrySharing} />
-        {!session.sharingError && (
-          <p role="status" className="text-sm text-muted-foreground">
-            {t('pod.content.loading_sharing_settings')}
-          </p>
-        )}
+        {!session.sharingError && <InlineLoading label={t('pod.content.loading_sharing_settings')} />}
         <div className="flex items-center justify-between border-t border-border pt-3">
           <Button variant="outline" size="sm" onClick={() => void copyLink()}>
             <RiLink aria-hidden className="size-4" />

@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { InternalAPIError } from '../common/internal-api-client'
 import { contentKeys, fileURL, pageAPI, type PageDetail } from './content-api'
 import { usePageHref } from './use-page-metadata'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { useContent } from './content-context'
 import { createMentionHostAdapters } from './document-mentions'
 import { KnowledgeProperties } from './knowledge-properties'
@@ -179,7 +179,7 @@ export function KnowledgePage({
         </details>
       )}
       {editing && canEdit ? (
-        <Suspense fallback={<p className="text-sm text-fg-secondary">{t('common.loading')}</p>}>
+        <Suspense fallback={<ContentSkeleton variant="text" />}>
           <KnowledgeEditor
             key={draft.generation.value}
             xml={body.xml.value}

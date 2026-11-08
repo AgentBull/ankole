@@ -2,7 +2,7 @@ import { isTextFile } from '../common/file-preview'
 import { formatFileBytes } from '../common/file-format'
 import { useTranslation } from 'react-i18next'
 import { Button, buttonVariants, cn } from '@ankole/uikit'
-import { RiUploadCloud2Line } from '@remixicon/react'
+import { RiLoader4Line, RiUploadCloud2Line } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -10,7 +10,7 @@ import { BdiLabel } from '../common/bidi-file-name'
 import { sanitizeFileName } from '../common/bidi'
 import { ErrorBoundary } from '../common/error-boundary'
 import { contentKeys, fileURL, type PageDetail } from './content-api'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentLoading, ContentSkeleton } from './content-primitives'
 import { podFiles } from './api/generated/sdk.gen'
 import { uploadFile } from './native-transfers'
 import type { PodFileCopyResponse } from './api/generated/types.gen'
@@ -160,6 +160,7 @@ export function FilePage({
               variant="outline"
               disabled={!canUpload}
               onClick={() => input.current?.click()}>
+              {upload.isPending && <RiLoader4Line aria-hidden className="size-4 animate-spin" />}
               {upload.isPending ? t('pod.content.uploading') : chooseLabel}
             </Button>
           </div>
@@ -175,11 +176,11 @@ export function FilePage({
         )}
       </div>
       {manifest.isPending ? (
-        <p role="status">{t('pod.content.loading_file')}</p>
+        <ContentLoading label={t('pod.content.loading_file')} />
       ) : spreadsheet ? (
         // Compaction replaces the object while the editor stays open, so only the page resets it.
         <ErrorBoundary variant="panel" resetKeys={[page.id]}>
-          <Suspense fallback={<p role="status">{t('pod.spreadsheet.loading')}</p>}>
+          <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.spreadsheet.loading')} immediate />}>
             <SpreadsheetPage
               detail={detail}
               initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
@@ -283,7 +284,7 @@ function FilePreview({
           initialAnchor={initialAnchor?.kind === 'csv_rows' ? initialAnchor : undefined}
         />
       ) : /\.(xls|xlsb|ods)$/i.test(name) || mime?.includes('spreadsheet') ? (
-        <Suspense fallback={<p role="status">{t('pod.content.loading_spreadsheet_preview')}</p>}>
+        <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.content.loading_spreadsheet_preview')} />}>
           <LegacySpreadsheetPreview
             key={url}
             url={url}
@@ -291,7 +292,7 @@ function FilePreview({
           />
         </Suspense>
       ) : /\.pptx$/i.test(name) || mime?.includes('presentationml') ? (
-        <Suspense fallback={<p role="status">{t('pod.content.loading_slide_preview')}</p>}>
+        <Suspense fallback={<ContentLoading label={t('pod.content.loading_slide_preview')} />}>
           <PresentationPreview
             key={url}
             url={url}

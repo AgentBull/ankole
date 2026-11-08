@@ -18,7 +18,7 @@ import { Link } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { ErrorBoundary, ErrorFallback } from '../common/error-boundary'
 import { pageConversationsQuery, podKeys } from './api'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentLoading } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
 import { useChatDrafts } from './chat-drafts'
 import { PodPanelPresence, PodPanelSurface, type PanelInputEvent } from './panel-motion'
@@ -144,9 +144,7 @@ export function PageChat({
     ) : chats.isPending || selected === 'latest' ? (
       <>
         {header}
-        <p role="status" className="p-4 text-sm">
-          {t('pod.chat.loading_history')}
-        </p>
+        <ContentLoading label={t('pod.chat.loading_history')} />
       </>
     ) : (
       <ErrorBoundary
@@ -163,9 +161,7 @@ export function PageChat({
           fallback={
             <>
               {header}
-              <p role="status" className="p-4 text-sm">
-                {t('pod.chat.loading_history')}
-              </p>
+              <ContentLoading label={t('pod.chat.loading_history')} immediate />
             </>
           }>
           <ChatPage

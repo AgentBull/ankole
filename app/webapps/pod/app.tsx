@@ -22,7 +22,7 @@ import { InternalAPIError } from '../common/internal-api-client'
 import { PodSidebar } from './sidebar'
 import { ContentListRoute } from './content-list'
 import { ContentProvider } from './content-context'
-import { ContentError, ContentLoading } from './content-primitives'
+import { ContentError, ContentLoading, ContentSkeleton } from './content-primitives'
 import { ChatDraftProvider } from './chat-drafts'
 import { podKeys, type ConversationDetail, type PodAgent } from './api'
 import { contentKeys, pageQuery, type PageDetail } from './content-api'
@@ -271,10 +271,18 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
 }
 
 function PodRouteLoading() {
+  const pathname = useLocation({ select: location => location.pathname })
+  // A page and a page list have a known shape, so they load as skeletons; other routes show the spinner.
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PodTopBar pageFallback />
-      <ContentLoading className="flex-1" />
+      {pathname.startsWith('/pages/') ? (
+        <ContentSkeleton variant="page" />
+      ) : pathname.startsWith('/content/') ? (
+        <ContentSkeleton variant="list" rows={6} className="px-6 pt-16 md:px-10" />
+      ) : (
+        <ContentLoading className="flex-1" />
+      )}
     </div>
   )
 }
