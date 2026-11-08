@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.85 (2026-11-08)
+
+- Tell Applet authors in the `pod-content` Skill that a GET route can call only
+  MCP tools whose server declares `readOnlyHint: true`, and that any other tool
+  belongs in a POST route or an Action. Agents previously learned this rule only
+  from the `read_only_route` error after publishing.
+
 ## Version 2.0.0-alpha.84 (2026-11-08)
 
 - Connect PostgreSQL, MySQL, MariaDB, and ClickHouse databases as read-only

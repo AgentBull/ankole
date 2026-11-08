@@ -399,6 +399,10 @@ For an external operation, use
 remote HTTP server. Use `admin.mcp.call` for the current Page owner. Follow the
 Toolkit's generated input/output schema and present `HttpError.details.authorization_url`
 when personal consent is required. Credentials remain outside Applet code.
+A GET route may call only tools whose server lists them with
+`readOnlyHint: true`; the host rejects any other tool with `read_only_route`
+before contacting the server. Put a call to a tool without that annotation in
+a POST route or an Action, even when it only reads data.
 
 Action handlers receive business configuration in `ctx.job.config` and the
 trigger envelope in `ctx.signal`. Keep progress in `ctx.state.get/set/delete`
