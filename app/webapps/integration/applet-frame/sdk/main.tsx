@@ -99,6 +99,8 @@ function readState(result: {
 }
 let runtime: AppletRuntime = {
   pageID: 'sdk-fixture',
+  title: 'SDK fixture',
+  embedded: false,
   instanceID: 'sdk-fixture',
   actions: ['node_view', 'node_contribute'],
   revision: 7,

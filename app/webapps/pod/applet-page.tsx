@@ -72,9 +72,10 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
   const revoked = connection.revoked || loadRevoked
   const [loading, setLoading] = useState(true)
   const [ready, setReady] = useState(false)
-  const runtime = useMemo<Omit<AppletRuntime, 'revision' | 'routes'>>(
+  const runtime = useMemo<Omit<AppletRuntime, 'revision' | 'routes' | 'embedded'>>(
     () => ({
       pageID: detail.page.id,
+      title: detail.page.title,
       instanceID,
       actions: detail.actions,
       queryClient: client,
@@ -92,7 +93,7 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
         return realtime.channel(detail.page.id, name)
       }
     }),
-    [detail.page.id, detail.actions, instanceID, client, readDenial, base, realtime]
+    [detail.page.id, detail.page.title, detail.actions, instanceID, client, readDenial, base, realtime]
   )
   // Permissions update the current React tree. Publication revisions own frame lifetimes.
   const latestRuntime = useRef(runtime)

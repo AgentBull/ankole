@@ -20,7 +20,7 @@ import logoURL from './logo.svg';
 import wasmURL from './add.wasm';
 const LazyDetails=lazy(()=>import('./lazy-details'));
 function App(){
-  const {theme}=usePod();
+  const {theme,title,embedded}=usePod();
   const rows=useRecords(${JSON.stringify(tableID)});
   const room=useChannel('browser-room');
   const [count,setCount]=useState(0);
@@ -40,6 +40,7 @@ function App(){
     <Button onClick={()=>setViewport(false)}>Back to records</Button>
   </section>;
   return <section className="applet-shell" data-applet-theme={theme}><h2 className="applet-heading">Tracker ${revision}</h2>
+  <p className="applet-page-title" data-embedded={embedded}>{title}</p>
   <p className="applet-record-count">{rows.data?.records.length??0} records</p>
   <img src={logoURL} alt="Applet logo" width="16" height="16"/>
   <p className="applet-presence">{room.presence.length} online</p>
@@ -53,6 +54,9 @@ function App(){
   <Button onClick={()=>{void fetch(wasmURL).then(response=>response.arrayBuffer()).then(bytes=>WebAssembly.instantiate(bytes)).then(module=>setWasm(String(module.instance.exports.add(2,3))))}}>Run WASM</Button>
   </div>
   <Button onClick={()=>setViewport(true)}>Viewport dashboard</Button>
+  <Dialog><DialogTrigger render={<Button/>}>Open record portal</DialogTrigger>
+    <DialogContent closeLabel="Close record portal"><DialogTitle>Record portal</DialogTitle><p>The embed gives this dialog the whole workspace viewport.</p></DialogContent>
+  </Dialog>
   <Button onClick={()=>setLazyLoaded(true)}>Load lazy details</Button>
   <Button onClick={()=>setFailed(true)}>Render error</Button>
   {lazyLoaded?<Suspense fallback={<p>Loading lazy details</p>}><LazyDetails/></Suspense>:null}

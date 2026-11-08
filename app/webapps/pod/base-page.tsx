@@ -120,6 +120,8 @@ export function BasePage({
   const runtime = useMemo<AppletRuntime>(
     () => ({
       pageID: detail.page.id,
+      title: detail.page.title,
+      embedded: embedded === true,
       instanceID: `base-${detail.page.id}`,
       revision: detail.page.revision,
       actions: detail.actions,
@@ -135,7 +137,18 @@ export function BasePage({
       principal: realtime.principal,
       theme
     }),
-    [detail.page.id, detail.page.revision, detail.actions, client, readDenial, base, realtime, theme]
+    [
+      detail.page.id,
+      detail.page.title,
+      embedded,
+      detail.page.revision,
+      detail.actions,
+      client,
+      readDenial,
+      base,
+      realtime,
+      theme
+    ]
   )
   const isEmbed = embedded || Boolean(configureInline || inlineConfig || bindSavedView)
   return (

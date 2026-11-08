@@ -195,9 +195,13 @@ default primary Button per view and outline/ghost for other actions).
 While data loads, render Skeleton blocks shaped like the coming view (size them in src/style.css),
 a centered Spinner when the shape is unknown, or a small Spinner beside a field's text, inside
 role="status" with an aria-label; never render plain loading text.
-The Pod Page host already renders the paper surface, 48px gutter, Page title, metadata, and
-Automation toolbar above the iframe: keep the Applet flush without repeating an opening H1 Page
-title or wrapping the app in an outer card/shadow/gradient wash. The host syncs
+The Pod Page header above the iframe shows the Page title, source conversation, and Automation,
+and the host pads the Applet's html with the Page's gutters (40px top, 48px sides, a centered
+1440px column): keep body and the Applet flush, size full-width rows with percentages instead of
+100vw, and do not wrap the app in an outer card/shadow/gradient wash. To show a title, render
+usePod().title, which follows renames, in one opening h1 at 32px weight 600; never hardcode the
+Page name. A document gives an embedded Applet its content's height up to one viewport, so use
+vh heights only for an Applet that should fill the viewport. The host syncs
 html[data-theme="light|dark"] and color-scheme on the iframe and updates usePod().theme
 ('light' | 'dark') reactively on theme switches; never use @media (prefers-color-scheme: dark).
 Import runtime APIs and visualization data helpers (recordsToFinancialSeries, densifyTimeBuckets,
@@ -253,7 +257,7 @@ export async function initializeApplet(directory: string) {
   await mkdir(join(directory, 'src'))
   await writeFile(
     join(directory, 'src/main.tsx'),
-    `import { Badge, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@ankole/uikit'\nimport { defineApplet, usePod } from '@ankole/applet-sdk'\n\nfunction App() {\n  const { theme } = usePod()\n  return (\n    <main className="applet-shell" data-applet-theme={theme}>\n      <div className="applet-toolbar">\n        <Badge variant="secondary">{theme === 'dark' ? '深色模式' : '浅色模式'}</Badge>\n      </div>\n      <Empty>\n        <EmptyHeader>\n          <EmptyTitle>工作区就绪</EmptyTitle>\n          <EmptyDescription>Page 已提供标题和页边距。请从工具栏、筛选栏或主数据视图开始，直接贴边排布。</EmptyDescription>\n        </EmptyHeader>\n      </Empty>\n    </main>\n  )\n}\n\nexport const provider = defineApplet(App)\n`,
+    `import { Badge, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@ankole/uikit'\nimport { defineApplet, usePod } from '@ankole/applet-sdk'\n\nfunction App() {\n  const { theme } = usePod()\n  return (\n    <main className="applet-shell" data-applet-theme={theme}>\n      <div className="applet-toolbar">\n        <Badge variant="secondary">{theme === 'dark' ? '深色模式' : '浅色模式'}</Badge>\n      </div>\n      <Empty>\n        <EmptyHeader>\n          <EmptyTitle>工作区就绪</EmptyTitle>\n          <EmptyDescription>页边距由 Page 提供，页面标题显示在顶栏。请从工具栏、筛选栏或主数据视图开始，直接贴边排布。</EmptyDescription>\n        </EmptyHeader>\n      </Empty>\n    </main>\n  )\n}\n\nexport const provider = defineApplet(App)\n`,
     { flag: 'wx' }
   )
   await writeFile(

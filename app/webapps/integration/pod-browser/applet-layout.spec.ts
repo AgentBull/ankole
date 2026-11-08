@@ -107,8 +107,44 @@ test('full-page and embedded applets give padded 100vh content and UIKit Portals
     })
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto(state.base_url + pageRoute(documentID))
+    const embedded = page.frameLocator('iframe')
+    await expect(embedded.getByRole('heading', { name: /Tracker v[12]/ })).toBeVisible()
+    await expect(embedded.locator('.applet-page-title')).toHaveAttribute('data-embedded', 'true')
+    const embed = () =>
+      page.locator('iframe').evaluate(element => {
+        const frame = element as HTMLIFrameElement
+        return {
+          height: frame.getBoundingClientRect().height,
+          panel: document.querySelector('.pod-page-scroll')!.clientHeight,
+          inner: frame.contentDocument!.documentElement.scrollHeight - frame.contentWindow!.innerHeight
+        }
+      })
+    // A document gives the embedded Applet its content's height: no blank screen below it and no scrolling inside it.
+    await expect
+      .poll(async () => {
+        const value = await embed()
+        return value.height < value.panel - 100 && value.inner <= 1
+      })
+      .toBe(true)
+    // A modal dialog gets the whole workspace viewport while it is open, then the embed fits its content again.
+    await embedded.getByRole('button', { name: 'Open record portal', exact: true }).click()
+    await expect(embedded.getByRole('dialog', { name: 'Record portal', exact: true })).toBeVisible()
+    await expect
+      .poll(async () => {
+        const value = await embed()
+        return Math.abs(value.height - value.panel)
+      })
+      .toBeLessThan(1)
+    await embedded.getByRole('button', { name: 'Close record portal', exact: true }).click()
+    await expect
+      .poll(async () => {
+        const value = await embed()
+        return value.height < value.panel - 100
+      })
+      .toBe(true)
+    // A layout sized from the viewport keeps the whole panel without growing or shrinking frame after frame.
     await viewportAndPortal(page)
-    await expect(page.frameLocator('iframe').locator('html')).toHaveCSS('padding', '0px')
+    await expect(embedded.locator('html')).toHaveCSS('padding', '0px')
   } finally {
     if (documentID) await request(page, `/pages/${documentID}`, 'DELETE')
     await context.close()
@@ -189,6 +225,9 @@ test('an Applet Page renames its title in the header and links the conversation 
     await publishApplet(id, created.revision, state.publish_v1_files)
     await page.goto(state.base_url + pageRoute(id))
     const header = page.locator('.pod-page-header')
+    const appletTitle = page.frameLocator('iframe').locator('.applet-page-title')
+    await expect(appletTitle).toHaveText('Applet from a conversation')
+    await expect(appletTitle).toHaveAttribute('data-embedded', 'false')
     await header.getByRole('button', { name: '更多操作', exact: true }).click()
     await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
     const field = header.getByRole('textbox', { name: /^重命名 / })
@@ -197,6 +236,8 @@ test('an Applet Page renames its title in the header and links the conversation 
     await field.press('Enter')
     await expect(field).toHaveCount(0)
     await expect(header.locator('[aria-current="page"]')).toHaveText('Renamed conversation Applet')
+    // The running Applet receives the new title without reloading.
+    await expect(appletTitle).toHaveText('Renamed conversation Applet')
     expect((await request<{ page: { title: string } }>(page, `/pages/${id}`)).page.title).toBe(
       'Renamed conversation Applet'
     )

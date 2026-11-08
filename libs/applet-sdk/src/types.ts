@@ -235,6 +235,10 @@ export type RunsAPI = {
 export type AppletTheme = 'light' | 'dark'
 export type AppletRuntime = {
   pageID: string
+  /** The Applet Page's current title; renaming the Page renders the Applet again with the new title. */
+  title: string
+  /** True when a document embeds the Applet; the document already shows the Page title above it. */
+  embedded: boolean
   instanceID: string
   actions: readonly ('node_view' | 'node_comment' | 'node_contribute' | 'node_edit' | 'node_manage')[]
   revision: number

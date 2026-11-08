@@ -205,16 +205,25 @@ sides on phones), widening the side gutters to center content in a `1440px`
 column. That space scrolls with the content, so the Applet's scrollbar sits at
 the sheet's edge:
 
-- **Flush workspace layout (no duplicate Page chrome)**: Keep `body` and
-  `.ankole-applet` flush with the host surface (`padding-inline: 0`,
-  transparent or `var(--background)` canvas), and leave the host's padding on
-  `html` in place. Size full-width rows with percentages or `width: auto`, not
-  `100vw`, because the frame's viewport includes the gutters. Do not repeat the
-  Page title as an opening `<h1>`, wrap the entire Applet in an outer
+- **Flush workspace layout**: Keep `body` and `.ankole-applet` flush with the
+  host surface (`padding-inline: 0`, transparent or `var(--background)` canvas),
+  and leave the host's padding on `html` in place. Size full-width rows with
+  percentages or `width: auto`, not `100vw`, because the frame's viewport
+  includes the gutters. Do not wrap the entire Applet in an outer
   card/border/shadow, or paint a standalone SaaS hero banner or full-bleed
-  background wash. Open directly with compact workspace controls—a toolbar,
-  search/filter bar, `Tabs`, KPI strip, or primary data view—aligned to the
-  gutters' left and right edges.
+  background wash. Align content to the gutters' left and right edges.
+- **Page title**: The Page body has no title of its own, so an Applet may open
+  with one `<h1>` that renders `usePod().title` in the Pod Page title style
+  (`32px`, weight `600`, line height `42px`). The title follows renames, so never
+  hardcode the Page name. Skip the heading when `usePod().embedded` is true,
+  because the document already shows the title above the embed. Below the
+  heading, or without it, open with compact workspace controls—a toolbar,
+  search/filter bar, `Tabs`, KPI strip, or primary data view.
+- **Embedded in documents**: A document gives an embedded Applet its content's
+  height, up to one workspace viewport, so the Applet scrolls with the document.
+  Let content set its own height. A layout sized from the viewport (`100vh`)
+  keeps the whole viewport, and an open UIKit `Dialog`, `Sheet`, or `Drawer`
+  expands the embed to the viewport while it is open.
 - **Host-synced light and dark mode**: The Pod host sets
   `html[data-theme="light"]` or `html[data-theme="dark"]` and matching
   `color-scheme` on the iframe root before first paint, updating both live when

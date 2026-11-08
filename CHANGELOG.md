@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.92 (2026-11-08)
+
+- Fit an Applet embedded in a document to its content. The embed no longer
+  takes a whole screen with blank space under a short Applet, and no longer
+  scrolls on its own inside the document: it takes the Applet's height, up to
+  one screen, and scrolls with the document. An Applet laid out to fill the
+  screen keeps one screen, and a dialog, drawer, or sheet opened in the embed
+  gets a whole screen while it is open.
+- Let an Applet show its Page title. `usePod()` now gives the Page's current
+  title and whether a document embeds the Applet, so an Applet can head its
+  Page with the title, follow renames, and leave the title to the document when
+  embedded. The Applet guidance and the starter project describe this layout.
+
 ## Version 2.0.0-alpha.91 (2026-11-08)
 
 - Let an Applet fill its Page. An Applet Page no longer shows a large title and

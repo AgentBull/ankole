@@ -56,6 +56,8 @@ test('distinct SDK generations use one host cache subscription that the host can
   }
   const runtime: AppletRuntime = {
     pageID: 'generation-fixture',
+    title: 'Generation fixture',
+    embedded: false,
     instanceID: 'generation-fixture',
     actions: ['node_view'],
     revision: 1,

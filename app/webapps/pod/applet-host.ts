@@ -97,7 +97,7 @@ export function mountApplet(
   pageID: string,
   revision: number,
   container: HTMLElement,
-  runtime: Omit<AppletRuntime, 'revision' | 'routes'>,
+  runtime: Omit<AppletRuntime, 'revision' | 'routes' | 'embedded'>,
   onError: (error: unknown) => void,
   onReady?: () => void,
   onRevisionChanged?: () => void
@@ -116,10 +116,28 @@ export function mountApplet(
   const pageStyle = getComputedStyle(container)
   const gutterTop = pageStyle.getPropertyValue('--pod-applet-gutter-top').trim()
   const gutterInline = pageStyle.getPropertyValue('--pod-applet-gutter-inline').trim()
+  // A document gives an embedded Applet its content's height, up to the workspace panel's. Content laid out from the
+  // viewport and an open modal dialog, drawer or sheet keep the whole panel.
+  const embedded = !container.closest(".pod-page[data-page-type='applet']")
+  let measure: (() => number | undefined) | undefined
+  let modal = false
+  let viewportSized = false
+  let lastChange: { frame: number; content: number } | undefined
   const resize = () => {
     // A full-screen Applet section gives the frame the screen's height instead of the workspace panel's.
-    const stage = document.fullscreenElement?.contains(frame) ? document.fullscreenElement : viewport
-    frame.style.height = `${Math.max(128, stage?.clientHeight ?? window.innerHeight)}px`
+    const fullScreen = !!document.fullscreenElement?.contains(frame)
+    const stage = fullScreen ? document.fullscreenElement : viewport
+    const limit = Math.max(128, stage?.clientHeight ?? window.innerHeight)
+    const content = embedded && !fullScreen && !modal && !viewportSized ? measure?.() : undefined
+    // Content that changes by exactly as much as the frame just did follows the viewport, so it keeps the whole panel.
+    if (lastChange && content !== undefined && Math.abs(content - lastChange.content - lastChange.frame) <= 2) {
+      viewportSized = true
+    }
+    const height = content === undefined || viewportSized ? limit : Math.min(limit, Math.max(128, content))
+    const previous = frame.offsetHeight
+    lastChange =
+      content !== undefined && Math.abs(height - previous) > 2 ? { frame: height - previous, content } : undefined
+    frame.style.height = `${height}px`
   }
   resize()
   frame.src = appletFrameURL(pageID, revision)
@@ -149,6 +167,40 @@ export function mountApplet(
       .catch(() => {
         if (!disposed) onError(error)
       })
+  }
+  // An embedded frame follows its content's height and gives an open modal the whole panel.
+  function fitContent(body: HTMLElement) {
+    const frameGlobal = frameWindow as Window & typeof globalThis
+    measure = () => {
+      // The Applet has not rendered while its root is still empty.
+      if (!body.querySelector(':scope > .ankole-applet > *')) return undefined
+      const box = body.getBoundingClientRect()
+      const margin = Number.parseFloat(frameGlobal.getComputedStyle(body).marginBottom) || 0
+      return Math.ceil(Math.max(box.bottom, box.top + body.scrollHeight) + frameGlobal.scrollY + margin)
+    }
+    let scheduled = 0
+    const update = () => {
+      scheduled = 0
+      const opened = !!body.querySelector('[data-slot$="-overlay"]')
+      const expanding = opened && !modal
+      modal = opened
+      resize()
+      // A modal centers in the frame, so the expanded frame comes fully into view.
+      if (expanding) frame.scrollIntoView({ block: 'nearest' })
+    }
+    const schedule = () => {
+      scheduled ||= frameGlobal.requestAnimationFrame(update)
+    }
+    const content = new frameGlobal.ResizeObserver(schedule)
+    content.observe(body)
+    // UIKit portals attach to the frame's body, so a modal's overlay arrives and leaves with a body child.
+    const portals = new frameGlobal.MutationObserver(schedule)
+    portals.observe(body, { childList: true })
+    cleanup.add(() => {
+      content.disconnect()
+      portals.disconnect()
+      frameGlobal.cancelAnimationFrame(scheduled)
+    })
   }
   const base = {
     ...runtime.base,
@@ -184,6 +236,7 @@ export function mountApplet(
   const routes = createAppletRoutes(pageID, revision, changed)
   let bound: AppletRuntime = {
     ...runtime,
+    embedded,
     get principal() {
       return runtime.principal
     },
@@ -294,6 +347,7 @@ export function mountApplet(
         observer.observe(viewport ?? document.documentElement)
         window.addEventListener('resize', resize, { signal: controller.signal })
         document.addEventListener('fullscreenchange', resize, { signal: controller.signal })
+        if (embedded) fitContent(doc.body)
         resize()
         onReady?.()
       } catch (error) {
@@ -335,9 +389,9 @@ export function mountApplet(
   }
   return {
     dispose,
-    update(next: Omit<AppletRuntime, 'revision' | 'routes'>) {
+    update(next: Omit<AppletRuntime, 'revision' | 'routes' | 'embedded'>) {
       if (disposed || next.pageID !== pageID) return
-      bound = { ...bound, actions: next.actions, theme: currentTheme }
+      bound = { ...bound, actions: next.actions, title: next.title, theme: currentTheme }
       if (!provider) return
       try {
         provider.render({ dom: frameWindow.document.body, props: { runtime: bound } })

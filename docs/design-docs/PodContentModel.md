@@ -2648,20 +2648,24 @@ Each Applet mounts inside a same-origin iframe at
 `/pod/applet-frame/:authentication_ref/:id/:revision/*path`, where
 `:authentication_ref` pins a sealed browser authentication proof for the
 document and all subresources—unaffected if the user switches the browser's
-default account elsewhere. The iframe isolates its own DOM, CSS, viewport
-(sized to the workspace scroll panel, scrolling tall content internally), and
+default account elsewhere. The iframe isolates its own DOM, CSS, viewport, and
 import map while sharing the host origin and trust boundary. On an Applet Page,
 the iframe starts directly below the Page header and fills the whole scroll
 panel, so only the Applet's own content scrolls, and its scrollbar sits at the
 sheet's edge. The host pads the Applet's document with the Page's gutters,
 including the centered `1440px` column, so that space scrolls with the content
 and scrolling anywhere in the Page body moves the Applet. Notices above the
-iframe keep the Page's gutters. When the browser allows full screen, the Applet Page's more-actions
-menu offers a full-screen command. That command hands the Applet section,
-including its error and reload states, to the browser's Fullscreen API, and the
-host then sizes the iframe to the screen instead of the scroll panel. The
-browser's own exit, such as Esc, returns the section to the workspace, and the
-iframe keeps its document and
+iframe keep the Page's gutters. In a document, an embedded Applet's iframe takes
+its content's height, up to the scroll panel's height, so a short Applet leaves
+no blank space and scrolls with the document; taller content scrolls inside the
+iframe. Content that follows the iframe's height, such as a `100vh` layout, and
+an open UIKit modal dialog, drawer, or sheet keep the whole panel, and the host
+scrolls an embed that expands for a modal fully into view. When the browser
+allows full screen, the Applet Page's more-actions menu offers a full-screen
+command. That command hands the Applet section, including its error and reload
+states, to the browser's Fullscreen API, and the host then sizes the iframe to
+the screen instead of the scroll panel. The browser's own exit, such as Esc,
+returns the section to the workspace, and the iframe keeps its document and
 state throughout. Ankole serves
 hashed `/assets` vendor bundles and stylesheets with immutable HTTP caching,
 while `/pod/applet-frame` responses inject `<meta name="color-scheme" content="light dark">`,
@@ -2682,10 +2686,11 @@ generation owning the frame's subscriptions, channels, and observers:
 
 - Publishing a new revision or unmounting closes the generation (a publication
   conflict refreshes the Page snapshot without replaying a write).
-- Permission and theme changes push updated `actions` and `theme` (`'light' | 'dark'`)
-  props—alongside live `data-theme` and `color-scheme` attributes read by
-  `@ankole/uikit`—into the live iframe and React root without losing form inputs
-  or component state; individual denied business writes likewise leave the frame
+- Permission, theme, and title changes push updated `actions`, `theme`
+  (`'light' | 'dark'`), and `title` props—alongside live `data-theme` and
+  `color-scheme` attributes read by `@ankole/uikit`—into the live iframe and
+  React root without losing form inputs or component state, and `embedded` tells
+  the Applet whether a document embeds it; individual denied business writes likewise leave the frame
   intact, whereas losing `node_view` (via Page reads or realtime checks) closes
   the generation.
 - Render crashes caught by the SDK error boundary—and frame load failures—render
