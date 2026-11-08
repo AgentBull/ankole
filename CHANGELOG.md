@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.78 (2026-11-08)
+
+- Name the sign-in method in the account menu, the sign-in account chooser,
+  and the sign-out screen after the platform the identity provider uses, such
+  as 飞书 / Feishu or Lark, instead of a label derived from the provider ID
+  such as "Lark main". Accounts keep that name after an administrator
+  disables their provider.
+
 ## Version 2.0.0-alpha.77 (2026-11-08)
 
 - Start new Applets from `ankole-pod applet init` flush with the Pod Page: the

@@ -208,11 +208,17 @@ export type LoginProvidersResponses = {
       displayName: string
       principalUID: string
       providerID: string
+      providerName?: {
+        [key: string]: unknown
+      } | null
     }>
     identity?: {
       displayName: string
       principalUID: string
       providerID: string
+      providerName?: {
+        [key: string]: unknown
+      } | null
     } | null
     providers: Array<{
       adapterID: string
@@ -336,6 +342,9 @@ export type LogoutConfirmationResponses = {
       displayName: string
       principalUID: string
       providerID: string
+      providerName?: {
+        [key: string]: unknown
+      } | null
     } | null
   }
 }
@@ -440,6 +449,9 @@ export type BrowserSessionResponses = {
       podURL: string
       principalUID: string
       providerID: string
+      providerName?: {
+        [key: string]: unknown
+      } | null
       tenant: {
         displayName: string
         id: string

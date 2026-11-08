@@ -62,6 +62,15 @@ defmodule Ankole.IdentityProviders.LoginTest do
              "lark-cn" => %{"default" => "Feishu", "zh-Hans-CN" => "飞书"},
              "lark-global" => %{"default" => "Lark"}
            }
+
+    # Account menus and logout screens name a signed-in provider the same way.
+    assert IdentityProviders.provider_name("lark-cn") == %{
+             "default" => "Feishu",
+             "zh-Hans-CN" => "飞书"
+           }
+
+    assert IdentityProviders.provider_name("lark-global") == %{"default" => "Lark"}
+    assert IdentityProviders.provider_name("lark-missing") == nil
   end
 
   test "login list excludes adapters without the OIDC capability" do
