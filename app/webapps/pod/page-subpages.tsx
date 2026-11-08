@@ -28,7 +28,8 @@ import {
   TableHeader,
   TableRow,
   cn,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
 import {
   RiAddLine,
@@ -45,7 +46,6 @@ import {
   RiEyeOffLine,
   RiLayoutGridLine,
   RiListUnordered,
-  RiLoader4Line,
   RiLockLine,
   RiMoreFill,
   RiUpload2Line
@@ -428,7 +428,7 @@ export function DocumentSubpages({
                 className="gap-1.5 px-2 text-fg-secondary"
                 onClick={() => uploadInput.current?.click()}>
                 {uploading ? (
-                  <RiLoader4Line aria-hidden className="size-4 animate-spin" />
+                  <Spinner aria-hidden className="size-4" />
                 ) : (
                   <RiUpload2Line aria-hidden className="size-4" />
                 )}
@@ -446,7 +446,7 @@ export function DocumentSubpages({
                     />
                   }>
                   {createChild.isPending ? (
-                    <RiLoader4Line aria-hidden className="size-4 animate-spin" />
+                    <Spinner aria-hidden className="size-4" />
                   ) : (
                     <RiAddLine aria-hidden className="size-4" />
                   )}

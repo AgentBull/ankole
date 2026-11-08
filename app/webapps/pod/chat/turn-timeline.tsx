@@ -1,5 +1,5 @@
 import { usePageHref, usePagesMetadata } from '../use-page-metadata'
-import { Button, cn, toast, useReducedMotion } from '@ankole/uikit'
+import { Button, cn, toast, useReducedMotion, Spinner } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
   RiArrowDownLine,
@@ -357,7 +357,7 @@ export function TurnTimeline({
             {!activeStreams.length && activity && <ActivityView activity={activity} />}
             {!activeStreams.length && !activity && working && (
               <p className="pod-chat-message-state" role="status">
-                <span className="pod-chat-working-spinner" aria-hidden />
+                <Spinner aria-hidden className="pod-chat-working-spinner" />
                 <span className="pod-chat-working-label">
                   {waiting
                     ? t('pod.chat_timeline.queued')
@@ -450,7 +450,7 @@ export function TurnTimeline({
             onClick={event => void scrollToBottom(reducedMotion || event.detail === 0 ? 'instant' : undefined)}>
             <RiArrowDownLine aria-hidden />
             {t('pod.chat.scroll_latest')}
-            {working && <span className="pod-chat-working-spinner" aria-hidden />}
+            {working && <Spinner aria-hidden className="pod-chat-working-spinner" />}
           </Button>
         )}
         {shareOpen && (

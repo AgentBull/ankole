@@ -4,7 +4,6 @@ import {
   RiDatabase2Line,
   RiFileEditLine,
   RiFileTextLine,
-  RiLoader4Line,
   RiNodeTree,
   RiSearchLine,
   RiSparklingLine,
@@ -13,6 +12,7 @@ import {
   RiToolsLine
 } from '@remixicon/react'
 import type { TFunction } from 'i18next'
+import { Spinner } from '@ankole/uikit'
 import type { SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isRecord, safeJsonParse } from '@agentbull/active-support'
@@ -430,7 +430,7 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
                   ) : complete ? (
                     <RiCheckLine aria-hidden />
                   ) : (
-                    <RiLoader4Line aria-hidden className="animate-spin" />
+                    <Spinner aria-hidden />
                   )}
                 </span>
               </Label>

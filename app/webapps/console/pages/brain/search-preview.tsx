@@ -14,9 +14,10 @@ import {
   TableBody,
   TableCell,
   TableHead,
-  TableHeader
+  TableHeader,
+  Spinner
 } from '@ankole/uikit'
-import { RiCloseLine, RiLoaderLine, RiSearchEyeLine } from '@remixicon/react'
+import { RiCloseLine, RiSearchEyeLine } from '@remixicon/react'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -163,7 +164,7 @@ export function BrainSearchPreviewPage() {
           </div>
           <Button disabled={preview.isPending || !principalUID || !query.trim()} type="submit">
             {preview.isPending ? (
-              <RiLoaderLine className="animate-spin" data-icon="inline-start" />
+              <Spinner aria-hidden data-icon="inline-start" />
             ) : (
               <RiSearchEyeLine data-icon="inline-start" />
             )}

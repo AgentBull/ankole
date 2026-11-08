@@ -1,7 +1,8 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
+import { Spinner } from '@ankole/uikit'
 import { uniq } from '@agentbull/active-support'
 import { revalidateLogic, useForm } from '@tanstack/react-form'
-import { RiArrowRightSLine, RiCheckLine, RiFileCopyLine, RiLoaderLine, RiLoginCircleLine } from '@remixicon/react'
+import { RiArrowRightSLine, RiCheckLine, RiFileCopyLine, RiLoginCircleLine } from '@remixicon/react'
 import { Button } from '@ankole/uikit/components/button'
 import { Checkbox } from '@ankole/uikit/components/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit/components/collapsible'
@@ -315,7 +316,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
           <Button aria-busy={mutation.isPending} disabled={mutation.isPending} type="submit">
             {t('common.continue')}
             {mutation.isPending ? (
-              <RiLoaderLine aria-hidden className="animate-spin" data-icon="inline-end" />
+              <Spinner aria-hidden data-icon="inline-end" />
             ) : (
               <RiArrowRightSLine data-icon="inline-end" />
             )}
@@ -671,7 +672,7 @@ function SSOIdentityForm({
           <Button aria-busy={mutation.isPending} disabled={mutation.isPending} type="submit">
             {mutation.isPending ? t('setup.validating_and_redirecting') : t('setup.complete_identity')}
             {mutation.isPending ? (
-              <RiLoaderLine aria-hidden className="animate-spin" data-icon="inline-end" />
+              <Spinner aria-hidden data-icon="inline-end" />
             ) : (
               <RiLoginCircleLine aria-hidden data-icon="inline-end" />
             )}

@@ -1,12 +1,7 @@
 import { useTheme } from './theme-provider'
+import { Spinner } from './spinner'
 import { Toaster as Sonner, toast, type ToasterProps } from 'sonner'
-import {
-  RiCheckboxCircleLine,
-  RiInformationLine,
-  RiErrorWarningLine,
-  RiCloseCircleLine,
-  RiLoaderLine
-} from '@remixicon/react'
+import { RiCheckboxCircleLine, RiInformationLine, RiErrorWarningLine, RiCloseCircleLine } from '@remixicon/react'
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = 'system' } = useTheme()
@@ -23,7 +18,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         info: <RiInformationLine className="size-4" />,
         warning: <RiErrorWarningLine className="size-4" />,
         error: <RiCloseCircleLine className="size-4" />,
-        loading: <RiLoaderLine className="size-4 animate-spin" />
+        loading: <Spinner aria-hidden className="size-4" />
       }}
       style={
         {

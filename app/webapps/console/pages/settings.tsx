@@ -20,11 +20,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Skeleton,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiCloseLine, RiLoaderLine, RiMore2Fill, RiResetLeftLine } from '@remixicon/react'
+import { RiCloseLine, RiMore2Fill, RiResetLeftLine } from '@remixicon/react'
 import {
   useIsMutating,
   useMutation as useBaseMutation,
@@ -424,7 +425,7 @@ function SingleSettingEditorDrawer() {
               disabled={restoreDefault.isPending || !item?.overridden || item.fallback_source === 'error'}
               variant="destructive"
               onClick={restore}>
-              {restoreDefault.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {restoreDefault.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.settings.restore_default_confirm')}
             </Button>
           </DialogFooter>
@@ -797,7 +798,7 @@ export function SettingGroupDrawer() {
               disabled={update.isPending || restoreItem?.fallback_source === 'error'}
               variant="destructive"
               onClick={restore}>
-              {update.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {update.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.settings.restore_default_confirm')}
             </Button>
           </DialogFooter>

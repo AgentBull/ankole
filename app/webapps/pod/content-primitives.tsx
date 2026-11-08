@@ -9,7 +9,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Skeleton
+  Skeleton,
+  Spinner
 } from '@ankole/uikit'
 import { contentError } from './content-errors'
 import { ErrorBlock } from '../common/error-block'
@@ -126,8 +127,8 @@ type LoadingProps = {
  * The Pod picks a loading status by what the reader is waiting for. A region whose shape is known, such as a
  * page, a list, or a table, shows a ContentSkeleton of that shape. A region whose content has no predictable
  * shape, such as an applet or a file preview, shows a centered ContentLoading spinner. A picker, a menu, or a
- * single line shows an InlineLoading spinner next to its text. A button busy with its own action swaps its
- * icon for a spinning RiLoader4Line instead.
+ * single line shows an InlineLoading spinner next to its text. A button busy with its own action shows a UIKit
+ * Spinner in place of its icon.
  *
  * Every status fades in after a short delay, so a load that finishes sooner never flashes it. A caller whose
  * status directly follows an earlier one passes `immediate`, which shows it at once so the indicator does
@@ -142,7 +143,7 @@ export function ContentLoading({ label, className, immediate = false }: LoadingP
       role="status"
       data-immediate={immediate || undefined}
       className={cn('pod-loading flex min-h-32 items-center justify-center gap-2 text-sm', className)}>
-      <span className="pod-chat-working-spinner" data-size="lg" aria-hidden />
+      <Spinner aria-hidden className="pod-chat-working-spinner" data-size="lg" />
       <span className="pod-chat-working-label">{label ?? t('pod.content.loading')}</span>
     </p>
   )
@@ -200,7 +201,7 @@ export function InlineLoading({ label, className, immediate = false }: LoadingPr
       role="status"
       data-immediate={immediate || undefined}
       className={cn('pod-loading inline-flex items-center gap-1.5 text-sm text-fg-tertiary', className)}>
-      <span className="pod-chat-working-spinner" aria-hidden />
+      <Spinner aria-hidden className="pod-chat-working-spinner" />
       {label ?? t('pod.content.loading')}
     </span>
   )

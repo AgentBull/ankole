@@ -16,9 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
   TableCell,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
-import { RiInboxArchiveLine, RiLoaderLine } from '@remixicon/react'
+import { RiInboxArchiveLine } from '@remixicon/react'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -195,7 +196,7 @@ export function BrainSourcesPage() {
                       variant="ghost"
                       onClick={() => learn.mutate({ path: { source_id: source.id } })}>
                       {learn.isPending && learn.variables?.path.source_id === source.id ? (
-                        <RiLoaderLine className="animate-spin" data-icon="inline-start" />
+                        <Spinner aria-hidden data-icon="inline-start" />
                       ) : null}
                       {t('console.brain.learn_now')}
                     </Button>
@@ -286,7 +287,7 @@ export function BrainSourcesPage() {
                 {t('common.cancel')}
               </DialogClose>
               <Button disabled={register.isPending} type="submit">
-                {register.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+                {register.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
                 {t('console.brain.register_source')}
               </Button>
             </DialogFooter>
@@ -363,7 +364,7 @@ export function BrainSourcesPage() {
               disabled={archive.isPending}
               variant="destructive"
               onClick={() => archiveTarget && archive.mutate({ path: { source_id: archiveTarget.id } })}>
-              {archive.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {archive.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.brain.archive')}
             </Button>
           </DialogFooter>

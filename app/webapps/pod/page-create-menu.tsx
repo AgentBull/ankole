@@ -9,9 +9,10 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
-import { RiAddLine, RiFileAddLine, RiFileExcel2Line, RiLoader4Line } from '@remixicon/react'
+import { RiAddLine, RiFileAddLine, RiFileExcel2Line } from '@remixicon/react'
 import { useRef } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
@@ -192,11 +193,7 @@ export function CreatePageButton({
             disabled={disabled || unavailable || waitingForIdentity || create.isPending}
           />
         }>
-        {create.isPending ? (
-          <RiLoader4Line aria-hidden className="size-4 animate-spin" />
-        ) : (
-          <RiAddLine aria-hidden className="size-4" />
-        )}
+        {create.isPending ? <Spinner aria-hidden className="size-4" /> : <RiAddLine aria-hidden className="size-4" />}
         {!compact && (create.isPending ? t('pod.content.creating') : label)}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56" aria-label={label}>

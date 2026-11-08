@@ -192,6 +192,9 @@ AnkoleYieldCurveChart, AnkoleInfographic, AnkoleStatCard, AnkoleSparkline, Graph
 export (@base-ui/react: pass render={<Button variant="outline" />} on triggers instead of asChild;
 Badge variants are secondary|info|success|warning|destructive|outline|ghost; use at most one
 default primary Button per view and outline/ghost for other actions).
+While data loads, render Skeleton blocks shaped like the coming view (size them in src/style.css),
+a centered Spinner when the shape is unknown, or a small Spinner beside a field's text, inside
+role="status" with an aria-label; never render plain loading text.
 The Pod Page host already renders the paper surface, 48px gutter, Page title, metadata, and
 Automation toolbar above the iframe: keep the Applet flush without repeating an opening H1 Page
 title or wrapping the app in an outer card/shadow/gradient wash. The host syncs

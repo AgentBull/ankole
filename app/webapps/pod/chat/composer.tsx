@@ -11,7 +11,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
@@ -21,8 +22,7 @@ import {
   RiCloseLine,
   RiStopFill,
   RiAtLine,
-  RiCommandLine,
-  RiLoader4Line
+  RiCommandLine
 } from '@remixicon/react'
 import { useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from '@tanstack/react-router'
@@ -684,7 +684,7 @@ export function Composer({
                 disabled={!canSubmit || answering || (!!answerID && !answerAvailable)}>
                 {commands.pendingQueueAction?.action === 'edit' ||
                 commands.pendingQueueAction?.action === 'edit_last' ? (
-                  <RiLoader4Line className="animate-spin" aria-hidden />
+                  <Spinner aria-hidden />
                 ) : model.editing.value ? (
                   <RiCheckLine aria-hidden />
                 ) : (

@@ -1,5 +1,5 @@
 import { uuidV4 } from '@agentbull/active-support'
-import { Button, Sheet, SheetContent, SheetTitle, useReducedMotion } from '@ankole/uikit'
+import { Button, Sheet, SheetContent, SheetTitle, useReducedMotion, Spinner } from '@ankole/uikit'
 import {
   RiArrowDownLine,
   RiArrowLeftLine,
@@ -8,7 +8,6 @@ import {
   RiCheckLine,
   RiCloseCircleLine,
   RiCloseLine,
-  RiLoader4Line,
   RiNodeTree,
   RiQuestionLine,
   RiStopCircleLine,
@@ -509,7 +508,7 @@ function ExecutionInspectorBody({
                 aria-selected={activeThreadID === leadThread.id}
                 className="pod-chat-inspector-thread-pill"
                 onClick={() => setSelectedThreadID(leadThread.id)}>
-                {leadThread.status === 'running' && <span className="pod-chat-working-spinner" aria-hidden />}
+                {leadThread.status === 'running' && <Spinner aria-hidden className="pod-chat-working-spinner" />}
                 <span>{t('pod.chat_timeline.execution_lead_thread')}</span>
               </button>
             )}
@@ -522,7 +521,7 @@ function ExecutionInspectorBody({
                 className="pod-chat-inspector-thread-pill"
                 onClick={() => setSelectedThreadID(thread.id)}>
                 {thread.status === 'running' ? (
-                  <span className="pod-chat-working-spinner" aria-hidden />
+                  <Spinner aria-hidden className="pod-chat-working-spinner" />
                 ) : (
                   <RiNodeTree aria-hidden />
                 )}
@@ -578,7 +577,7 @@ function ExecutionInspectorBody({
             <>
               {query.isPending && (
                 <p role="status" className="pod-chat-inspector-empty">
-                  <span className="pod-chat-working-spinner" aria-hidden />
+                  <Spinner aria-hidden className="pod-chat-working-spinner" />
                   <span>{t('pod.chat_timeline.loading_execution')}</span>
                 </p>
               )}
@@ -599,7 +598,7 @@ function ExecutionInspectorBody({
             !head?.errorText &&
             !(isJob && status === 'waiting_on_user' && head?.pendingQuestions.length) && (
               <p className="pod-chat-inspector-empty">
-                {isLive && <span className="pod-chat-working-spinner" aria-hidden />}
+                {isLive && <Spinner aria-hidden className="pod-chat-working-spinner" />}
                 <span>{t(isLive ? 'pod.chat_timeline.thinking' : 'pod.chat_timeline.no_execution_steps')}</span>
               </p>
             )}
@@ -725,7 +724,7 @@ function InspectorWorkGroup({
         }
       }}>
       <summary>
-        {Boolean(currentStep) && <span className="pod-chat-working-spinner" aria-hidden />}
+        {Boolean(currentStep) && <Spinner aria-hidden className="pod-chat-working-spinner" />}
         <span className={currentStep ? 'pod-chat-working-label' : undefined}>{summaryLabel}</span>
         {currentStep && segment.steps.length > 1 && (
           <span className="text-fg-tertiary">
@@ -783,7 +782,7 @@ function PlanCard({ plan }: { plan: NonNullable<ConversationExecutionDetail['pla
               {done ? (
                 <RiCheckLine className="pod-chat-exec-status-icon" data-tone="completed" aria-hidden />
               ) : active ? (
-                <span className="pod-chat-working-spinner" aria-hidden />
+                <Spinner aria-hidden className="pod-chat-working-spinner" />
               ) : (
                 <span className="pod-chat-inspector-plan-dot" aria-hidden />
               )}
@@ -932,7 +931,7 @@ function JobExecutionContent({
 
       {isPending && (
         <p role="status" className="pod-chat-inspector-empty">
-          <span className="pod-chat-working-spinner" aria-hidden />
+          <Spinner aria-hidden className="pod-chat-working-spinner" />
           <span>{t('pod.chat_timeline.loading_execution')}</span>
         </p>
       )}
@@ -1066,7 +1065,7 @@ function WorkflowInspectorStream({
                     ) : complete ? (
                       <RiCheckLine aria-hidden />
                     ) : (
-                      <RiLoader4Line className="animate-spin" aria-hidden />
+                      <Spinner aria-hidden />
                     )}
                   </span>
                 </Label>

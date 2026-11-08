@@ -25,9 +25,10 @@ import {
   SelectValue,
   TableCell,
   Textarea,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
-import { RiChatQuoteLine, RiLoaderLine, RiMore2Fill } from '@remixicon/react'
+import { RiChatQuoteLine, RiMore2Fill } from '@remixicon/react'
 import { keepPreviousData } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -308,7 +309,7 @@ function SupersedeClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose:
               onClick={() =>
                 supersede.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { claim: text.trim() } } })
               }>
-              {supersede.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {supersede.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.brain.supersede')}
             </Button>
           </DialogFooter>
@@ -364,7 +365,7 @@ function ForgetClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
               onClick={() =>
                 forget.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { reason: reason.trim() } } })
               }>
-              {forget.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {forget.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.brain.forget')}
             </Button>
           </DialogFooter>
@@ -481,7 +482,7 @@ function ResolveTakeDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
                   }
                 })
               }>
-              {resolve.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {resolve.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.brain.resolve')}
             </Button>
           </DialogFooter>

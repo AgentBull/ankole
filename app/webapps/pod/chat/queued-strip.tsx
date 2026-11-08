@@ -8,7 +8,8 @@ import {
   PopoverTrigger,
   PopoverContent,
   useTreeItemDrag,
-  TreeDropIndicator
+  TreeDropIndicator,
+  Spinner
 } from '@ankole/uikit'
 import {
   RiArrowUpLine,
@@ -17,8 +18,7 @@ import {
   RiDragMove2Line,
   RiEditLine,
   RiCloseLine,
-  RiMoreLine,
-  RiLoader4Line
+  RiMoreLine
 } from '@remixicon/react'
 import { useTranslation } from 'react-i18next'
 import type { ConversationDetail, ConversationPendingInput, ConversationQueueRequest } from '../api'
@@ -64,7 +64,7 @@ export function QueuedStrip({
                 {t(queue.paused ? 'pod.chat.queue_paused' : 'pod.chat.queue_title')} ({queue.inputs.length})
               </h2>
               {pending?.agentUID === queue.agentUID && pending.action === 'reorder' && (
-                <RiLoader4Line className="size-3 animate-spin" aria-label={t('common.loading')} role="status" />
+                <Spinner className="size-3" aria-label={t('common.loading')} />
               )}
               {queue.paused && (
                 <Button
@@ -75,7 +75,7 @@ export function QueuedStrip({
                     change({ action: 'resume', agentUID: queue.agentUID, expectedVersion: queue.queueVersion })
                   }>
                   {pending?.agentUID === queue.agentUID && pending.action === 'resume' && (
-                    <RiLoader4Line className="size-3 animate-spin" aria-hidden />
+                    <Spinner className="size-3" aria-hidden />
                   )}
                   {t('pod.chat.resume_queue')}
                 </Button>
@@ -201,11 +201,7 @@ function QueuedRow({
                     expectedVersion: queue.queueVersion
                   })
                 }>
-                {pending === 'steer' ? (
-                  <RiLoader4Line className="animate-spin" aria-hidden />
-                ) : (
-                  <RiCornerUpRightLine aria-hidden />
-                )}
+                {pending === 'steer' ? <Spinner aria-hidden /> : <RiCornerUpRightLine aria-hidden />}
                 {t('pod.chat_room.steer_short')}
               </Button>
               <Button
@@ -224,11 +220,7 @@ function QueuedRow({
                 title={t('pod.chat_room.take_back')}
                 disabled={disabled || editing}
                 onClick={() => takeBack(input, queue.agentUID)}>
-                {pending === 'retract' ? (
-                  <RiLoader4Line className="animate-spin" aria-hidden />
-                ) : (
-                  <RiCloseLine aria-hidden />
-                )}
+                {pending === 'retract' ? <Spinner aria-hidden /> : <RiCloseLine aria-hidden />}
               </Button>
             </>
           )}

@@ -9,9 +9,10 @@ import {
   DialogTitle,
   Input,
   Textarea,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
-import { RiExternalLinkLine, RiLoaderLine } from '@remixicon/react'
+import { RiExternalLinkLine } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -271,7 +272,7 @@ export function ChatGPTLoginDialog({
             </Button>
             {!login ? (
               <Button aria-busy={pending} type="submit" disabled={pending} incomplete={!label.trim() && !pending}>
-                {pending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+                {pending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
                 {t('console.providers.start_login')}
               </Button>
             ) : null}
@@ -281,7 +282,7 @@ export function ChatGPTLoginDialog({
                 type="submit"
                 disabled={pending || !loginContext}
                 incomplete={!callbackURL.trim() && !pending && Boolean(loginContext)}>
-                {pending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+                {pending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
                 {t('console.providers.complete_login')}
               </Button>
             ) : null}

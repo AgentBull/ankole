@@ -1,8 +1,8 @@
 import { isTextFile } from '../common/file-preview'
 import { formatFileBytes } from '../common/file-format'
 import { useTranslation } from 'react-i18next'
-import { Button, buttonVariants, cn } from '@ankole/uikit'
-import { RiLoader4Line, RiUploadCloud2Line } from '@remixicon/react'
+import { Button, buttonVariants, cn, Spinner } from '@ankole/uikit'
+import { RiUploadCloud2Line } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -160,7 +160,7 @@ export function FilePage({
               variant="outline"
               disabled={!canUpload}
               onClick={() => input.current?.click()}>
-              {upload.isPending && <RiLoader4Line aria-hidden className="size-4 animate-spin" />}
+              {upload.isPending && <Spinner aria-hidden className="size-4" />}
               {upload.isPending ? t('pod.content.uploading') : chooseLabel}
             </Button>
           </div>

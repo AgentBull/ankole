@@ -15,7 +15,8 @@ import {
   FieldError,
   FieldLabel,
   Textarea,
-  cn
+  cn,
+  Spinner
 } from '@ankole/uikit'
 import {
   RiBracesLine,
@@ -24,7 +25,6 @@ import {
   RiCloseCircleLine,
   RiDeleteBin6Line,
   RiInformationLine,
-  RiLoaderLine,
   RiQuestionLine,
   RiSave3Line
 } from '@remixicon/react'
@@ -377,7 +377,7 @@ export function SaveButton({
       disabled={loading || disabled}
       size={size}
       {...props}>
-      {loading ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+      {loading ? <Spinner aria-hidden data-icon="inline-start" /> : null}
       {!loading && showIcon ? <RiSave3Line data-icon="inline-start" /> : null}
       {children ?? t('common.save')}
     </Button>

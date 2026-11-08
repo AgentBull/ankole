@@ -1,5 +1,14 @@
-import { Avatar, AvatarFallback, AvatarImage, Button, Popover, PopoverContent, PopoverTrigger } from '@ankole/uikit'
-import { RiCheckboxCircleLine, RiCloudOffLine, RiLoader4Line } from '@remixicon/react'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Spinner
+} from '@ankole/uikit'
+import { RiCheckboxCircleLine, RiCloudOffLine } from '@remixicon/react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useTranslation } from 'react-i18next'
 import { avatarInitials } from './avatar-initials'
@@ -32,7 +41,7 @@ export function DocumentPresence({
     status === 'disconnected' || error
       ? RiCloudOffLine
       : status === 'connecting' || pending
-        ? RiLoader4Line
+        ? Spinner
         : RiCheckboxCircleLine
   const statusLabel = t(`pod.collaboration.${label === 'offline' && pending ? 'offline_pending' : label}`)
   const peopleLabel = t('pod.collaboration.people', { count: members.length })

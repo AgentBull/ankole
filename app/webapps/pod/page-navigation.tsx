@@ -22,7 +22,8 @@ import {
   toast,
   TreeDropIndicator,
   useTreeAutoScroll,
-  useTreeItemDrag
+  useTreeItemDrag,
+  Spinner
 } from '@ankole/uikit'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -41,7 +42,7 @@ import {
 import { useComputed, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { Link, createLink, useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import { RiArrowRightSLine, RiMoreFill, RiNodeTree, RiShareLine, RiLoader4Line } from '@remixicon/react'
+import { RiArrowRightSLine, RiMoreFill, RiNodeTree, RiShareLine } from '@remixicon/react'
 import { authenticationRef, podID } from '../common/browser-context'
 import { podLocation, podPageRouteID } from '../common/pod-url'
 import { BdiLabel } from '../common/bidi-file-name'
@@ -825,7 +826,7 @@ function PageTreeRow({
                 togglePage(page.id)
               }}>
               {pending ? (
-                <RiLoader4Line aria-hidden className="animate-spin" />
+                <Spinner aria-hidden />
               ) : (
                 <RiArrowRightSLine aria-hidden className={cn(open && 'rotate-90')} />
               )}

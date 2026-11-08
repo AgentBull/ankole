@@ -723,77 +723,20 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   }
 }
 
-/* The Pod's working indicator: the Assistant shows it while it thinks, and pages show it while they load. */
-@property --pod-spinner-arc-start {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-@property --pod-spinner-arc-end {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 158deg;
-}
+/* The Pod's working indicator is the UIKit spinner in the progress color: a text line's size where the Assistant
+   thinks or a row works, and a larger size where a whole region loads. */
 .pod-chat-working-spinner {
-  --_from: calc(90deg + var(--pod-spinner-arc-start, 0deg));
-  --_to: calc(90deg + var(--pod-spinner-arc-end, 158deg));
-  --_size: 13px;
-  --_thickness: 1.75px;
-  --_spinner-color: var(--info);
-  --_track-color: color-mix(in srgb, var(--fg-tertiary) 24%, transparent);
-  --_spinner-duration: 1s;
-  --_used-spinner-duration: var(--_spinner-duration);
-  display: inline-block;
+  /* The stroke width is in the 16-unit view box: 2.15 draws 1.75px at 13px, and 1.8 draws 2px at 18px. */
+  --spinner-thickness: 2.15;
   flex-shrink: 0;
-  width: var(--_size);
-  height: var(--_size);
-  border-radius: 50%;
-  background: conic-gradient(from var(--_from), var(--_spinner-color) calc(var(--_to) - var(--_from)), transparent 0)
-    var(--_track-color);
-  animation:
-    pod-chat-spinner-rotate var(--_used-spinner-duration) linear infinite,
-    pod-chat-spinner-dash 2.4s ease-in-out infinite;
-  @supports (background-clip: border-area) {
-    background-clip: border-area;
-    border: var(--_thickness) solid transparent;
-    background-origin: border-box;
-  }
-  @supports not (background-clip: border-area) {
-    --_clip-boundary: calc(100% - var(--_thickness));
-    mask-image: radial-gradient(
-      farthest-side,
-      transparent calc(var(--_clip-boundary) - 0.5px),
-      black var(--_clip-boundary)
-    );
-    border: 0;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    --_used-spinner-duration: 6s;
-    animation: pod-chat-spinner-rotate var(--_used-spinner-duration) linear infinite;
-  }
+  width: 13px;
+  height: 13px;
+  color: var(--info);
 }
 .pod-chat-working-spinner[data-size='lg'] {
-  --_size: 18px;
-  --_thickness: 2px;
-}
-@keyframes pod-chat-spinner-rotate {
-  to {
-    rotate: 1turn;
-  }
-}
-@keyframes pod-chat-spinner-dash {
-  from {
-    --pod-spinner-arc-start: 0deg;
-    --pod-spinner-arc-end: 36deg;
-  }
-  50% {
-    --pod-spinner-arc-start: 100deg;
-    --pod-spinner-arc-end: 340deg;
-  }
-  to {
-    --pod-spinner-arc-start: 360deg;
-    --pod-spinner-arc-end: 396deg;
-  }
+  --spinner-thickness: 1.8;
+  width: 18px;
+  height: 18px;
 }
 .pod-chat-working-label {
   color: var(--fg-secondary);

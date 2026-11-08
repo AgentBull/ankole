@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.83 (2026-11-08)
+
+- Use one spinner across the Pod, the console, setup, and Applets: an arc
+  that turns while it grows and shrinks, in the progress color where content
+  loads and in the button's own color inside a busy button. Applets get it
+  through the UIKit `Spinner` without republishing, and the Applet guidance
+  now asks for skeletons shaped like the coming view instead of plain loading
+  text.
+
 ## Version 2.0.0-alpha.82 (2026-11-08)
 
 - Connect PostgreSQL, MySQL, MariaDB, and ClickHouse databases as read-only

@@ -16,9 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
   TableCell,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
-import { RiScales3Line, RiLoaderLine } from '@remixicon/react'
+import { RiScales3Line } from '@remixicon/react'
 
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -251,7 +252,7 @@ export function BrainContradictionsPage() {
                   }
                 })
               }>
-              {decide.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {decide.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {decideTarget?.decision === 'resolved' ? t('console.brain.resolve') : t('console.brain.dismiss')}
             </Button>
           </DialogFooter>

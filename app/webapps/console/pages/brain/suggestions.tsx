@@ -16,9 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
   TableCell,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
-import { RiLightbulbLine, RiLoaderLine } from '@remixicon/react'
+import { RiLightbulbLine } from '@remixicon/react'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -250,7 +251,7 @@ export function BrainSuggestionsPage() {
                   }
                 })
               }>
-              {approve.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {approve.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.brain.approve')}
             </Button>
           </DialogFooter>
@@ -278,7 +279,7 @@ export function BrainSuggestionsPage() {
               disabled={reject.isPending}
               variant="destructive"
               onClick={() => rejectTarget && reject.mutate({ path: { suggestion_id: rejectTarget.id } })}>
-              {reject.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {reject.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.brain.reject')}
             </Button>
           </DialogFooter>

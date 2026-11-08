@@ -1,4 +1,5 @@
 import { RiCheckLine, RiCloseCircleLine, RiQuestionLine, RiStopCircleLine, RiTimeLine } from '@remixicon/react'
+import { Spinner } from '@ankole/uikit'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatElapsed } from './elapsed'
@@ -60,7 +61,7 @@ export function executionStatusTone(status?: string | null): ExecutionStatusTone
 export function ExecutionStatusMark({ status }: { status?: string | null }) {
   const tone = executionStatusTone(status)
   if (tone === 'running') {
-    return <span className="pod-chat-working-spinner" aria-hidden />
+    return <Spinner aria-hidden className="pod-chat-working-spinner" />
   }
   const Icon =
     tone === 'waiting'

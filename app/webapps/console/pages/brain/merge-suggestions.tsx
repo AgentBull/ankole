@@ -15,9 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
   TableCell,
-  toast
+  toast,
+  Spinner
 } from '@ankole/uikit'
-import { RiGitMergeLine, RiLoaderLine } from '@remixicon/react'
+import { RiGitMergeLine } from '@remixicon/react'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -214,7 +215,7 @@ export function BrainMergeSuggestionsPage() {
                   body: { data: { canonical_page_id: canonicalPageID } }
                 })
               }>
-              {approve.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {approve.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.brain.merge_action')}
             </Button>
           </DialogFooter>
@@ -242,7 +243,7 @@ export function BrainMergeSuggestionsPage() {
               disabled={reject.isPending}
               variant="destructive"
               onClick={() => rejectTarget && reject.mutate({ path: { suggestion_id: rejectTarget.id } })}>
-              {reject.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {reject.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
               {t('console.brain.reject')}
             </Button>
           </DialogFooter>

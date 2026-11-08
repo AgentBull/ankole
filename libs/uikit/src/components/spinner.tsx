@@ -1,17 +1,15 @@
-import { cn } from '@ankole/uikit/lib/utils'
-import { RiLoaderLine } from '@remixicon/react'
+type SpinnerProps = Omit<React.ComponentPropsWithoutRef<'svg'>, 'children'>
 
-type SpinnerProps = Omit<React.ComponentPropsWithoutRef<typeof RiLoaderLine>, 'children'>
-
-function Spinner({ className, ...props }: SpinnerProps) {
+/**
+ * The one spinner of every Ankole surface: an arc that turns while it grows and shrinks, drawn in the current
+ * text color over a faint track. It is an SVG, so button and icon slots size it like any other icon.
+ */
+function Spinner(props: SpinnerProps) {
   return (
-    <RiLoaderLine
-      data-slot="spinner"
-      role="status"
-      aria-label="Loading"
-      className={cn('size-4 animate-spin', className)}
-      {...props}
-    />
+    <svg data-slot="spinner" role="status" aria-label="Loading" viewBox="0 0 16 16" fill="none" {...props}>
+      <circle data-part="track" cx="8" cy="8" r="6.5" pathLength="100" />
+      <circle data-part="arc" cx="8" cy="8" r="6.5" pathLength="100" />
+    </svg>
   )
 }
 

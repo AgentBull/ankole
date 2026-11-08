@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Spinner } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import type { PodActivity, PodActivityItem } from '../api'
 import type { ExecutionStep, ExecutionSummary } from './types'
@@ -48,7 +49,7 @@ export function CollapsedWorkView({
     if (!active) return null
     return (
       <div className="pod-chat-work pod-chat-work-status" role="status">
-        <span className="pod-chat-working-spinner" aria-hidden />
+        <Spinner aria-hidden className="pod-chat-working-spinner" />
         <span className="pod-chat-working-label">{phaseLabel || t('pod.chat_timeline.thinking')}</span>
       </div>
     )
@@ -72,7 +73,7 @@ export function CollapsedWorkView({
         }
       }}>
       <summary title={execution.model ?? undefined}>
-        {active && <span className="pod-chat-working-spinner" aria-hidden />}
+        {active && <Spinner aria-hidden className="pod-chat-working-spinner" />}
         <span className={active ? 'pod-chat-working-label' : undefined}>
           {active
             ? runningSteps.length > 1
