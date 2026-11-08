@@ -146,7 +146,9 @@ test('Search focuses its input and result rows keep native link and keyboard beh
     await search.press('Tab')
     await expect(result).toBeFocused()
     const bounds = (await result.boundingBox())!
-    const searchURL = page.url()
+    // The settled query stays in the address so the search can be reloaded or shared.
+    const searchURL = `${state.base_url}${listRoute('search')}?${new URLSearchParams({ q: title })}`
+    await expect(page).toHaveURL(searchURL)
     const newTab = context.waitForEvent('page')
     await result.click({ modifiers: ['ControlOrMeta'], position: { x: bounds.width - 12, y: bounds.height / 2 } })
     const opened = await newTab
