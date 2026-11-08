@@ -318,7 +318,9 @@ export function TurnTimeline({
             })}
             {activeStreams.map(stream => (
               <ErrorBoundary
-                key={`${stream.agentUID}:${stream.responseID}`}
+                // An Agent's turn spans one model response per tool round, so the key stays on the Agent and the
+                // work disclosure keeps the reader's expanded state while new steps arrive.
+                key={stream.agentUID}
                 variant="inline"
                 resetKeys={[stream.responseID, stream.text]}>
                 <LiveMessage

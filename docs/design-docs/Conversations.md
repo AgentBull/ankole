@@ -682,7 +682,10 @@ In the timeline, compact event notices sit alongside attributed messages:
   language that produced it. Plain-text blocks use the native code presentation
   without loading the highlighter.
 - While a turn runs, the active step stays visible above collapsed prior steps
-  and reasoning; once the reply commits, the entire execution trace collapses
+  and reasoning. When the person expands or collapses the live work summary,
+  Pod keeps that choice for the rest of the turn while new steps and model
+  Responses arrive, and opens the summary again only when the turn newly needs
+  their attention. Once the reply commits, the entire execution trace collapses
   above the answer, whereas stopped or failed turns keep their recorded steps
   expanded (including command strings, stdout/stderr, and exit codes when
   recorded).

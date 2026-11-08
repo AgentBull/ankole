@@ -12,6 +12,9 @@
   an unlabeled icon in the header. The comments button in a Page header now
   reads "Comments" next to its icon, like the assistant, learning, and
   automation buttons; a narrow header still shows only the icons.
+- Keep an Agent's work steps open while the Agent is still working. Expanding
+  them in chat no longer folds them back each time a new step arrives, and the
+  working spinner sits on the same line as its status text again.
 
 ## Version 2.0.0-alpha.86 (2026-11-08)
 

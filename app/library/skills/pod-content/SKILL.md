@@ -304,7 +304,9 @@ loading text. Draw `Skeleton` blocks shaped like the data the view will
 render, such as table rows, cards, or a chart area, and size them in
 `src/style.css`, because the Applet build does not compile Tailwind classes.
 Center a `Spinner` when the content has no predictable shape, and put a small
-`Spinner` beside the text of a field, a menu, or a busy button. Give the
+`Spinner` beside the text of a field, a menu, or a busy button. The `Spinner`
+is an inline element, so center it with a flex or grid container rather than
+auto margins. Give the
 loading container `role="status"` and an `aria-label` that names what is
 loading.
 Retain the record when editing begins. Call
