@@ -97,7 +97,7 @@ pub fn package_parts(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
         let mut part = archive.by_index(index).expect("zip entry");
         let mut data = Vec::new();
         part.read_to_end(&mut data).expect("zip entry data");
-        parts.insert(part.name().to_string(), data);
+        parts.insert(part.name().expect("zip entry name").into_owned(), data);
     }
     parts
 }

@@ -375,11 +375,15 @@ impl<'a> BoundedZip<'a> {
     }
 
     pub(super) fn contains(&self, name: &str) -> bool {
-        self.archive.file_names().any(|entry| entry == name)
+        self.archive.index_for_name(name).is_some()
     }
 
+    /// Entry names that decode as text; the extractors only look up ASCII OOXML part names.
     pub(super) fn file_names(&self) -> Vec<String> {
-        self.archive.file_names().map(str::to_owned).collect()
+        self.archive
+            .file_names()
+            .filter_map(|entry| entry.ok().map(|name| name.into_owned()))
+            .collect()
     }
 
     pub(super) fn read_utf8(&mut self, name: &str) -> Result<Option<String>, ZipOpenError> {

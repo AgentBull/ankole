@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.82 (2026-11-08)
+
+- Read Office and spreadsheet files with version 9.4.2 of the `zip` library,
+  which fixes GHSA-m665-v7pm-7grj, GHSA-q7v9-x93c-xqv3, and
+  GHSA-8hxf-qr8p-62x4. Ankole reads these archives in memory and does not
+  use the affected extraction or AES paths.
+
 ## Version 2.0.0-alpha.81 (2026-11-08)
 
 - Show every Pod loading state in the shape of what is loading. Pages, lists,
