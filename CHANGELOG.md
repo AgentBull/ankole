@@ -1,10 +1,16 @@
 # Changelog
 
-## Version 2.0.0-alpha.79 (2026-11-08)
+## Version 2.0.0-alpha.80 (2026-11-08)
 
 - Keep the sidebar on Home when you start a New Chat from there, with the
   button or Command/Control+Shift+O, so your Page tree stays in view after you
   send the first message.
+
+## Version 2.0.0-alpha.79 (2026-11-08)
+
+- Send an open Pod straight to the sign-in page when its session expires, and
+  return to the same page afterwards, instead of filling the sidebar with a
+  "session expired" error and a Retry button in every section.
 
 ## Version 2.0.0-alpha.78 (2026-11-08)
 
