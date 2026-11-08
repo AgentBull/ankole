@@ -82,20 +82,27 @@ export function ChatSidebar() {
   const [pinnedOpen, setPinnedOpen] = useState(true)
   const [messagesOpen, setMessagesOpen] = useState(true)
   const [keepFocusInRow, menuFinalFocus] = useMenuFinalFocus()
+  // The Chat tab unmounts this list while Home is open, so the unfiltered list stays cached and a return to Chat
+  // shows it at once instead of loading it again.
+  const gcTime = search ? undefined : Infinity
   const rooms = useInfiniteQuery({
     queryKey: [...podKeys.conversations, 'sidebar', search],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       podConversations({ query: { cursor: pageParam, limit: 40, query: search }, signal }),
-    getNextPageParam: last => last.nextCursor ?? undefined
+    getNextPageParam: last => last.nextCursor ?? undefined,
+    gcTime
   })
   const imRooms = useInfiniteQuery({
     queryKey: [...podKeys.conversations, 'sidebar', 'im', search],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       podConversations({ query: { cursor: pageParam, limit: 40, query: search, imOnly: true }, signal }),
-    getNextPageParam: last => last.nextCursor ?? undefined
+    getNextPageParam: last => last.nextCursor ?? undefined,
+    gcTime
   })
+  // Rows wait for both lists, so rows drawn early from cached attention data never shift when the full list lands.
+  const loading = rooms.isPending || imRooms.isPending
   const onError = (error: unknown) => toast.error(requestErrorMessage(contentError(chatError(error))))
   const update = useMutation({
     mutationFn: ({ id, data }: { id: string; data: RoomUpdate }) =>
@@ -130,15 +137,17 @@ export function ChatSidebar() {
     },
     onError
   })
-  const listedRooms = [
-    ...new Map(
-      [
-        ...(rooms.data?.pages.flatMap(page => page.conversations) ?? []),
-        ...(imRooms.data?.pages.flatMap(page => page.conversations) ?? []),
-        ...(!search ? (attention.data ?? []) : [])
-      ].map(room => [room.id, room])
-    ).values()
-  ].sort((a, b) => Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt))
+  const listedRooms = loading
+    ? []
+    : [
+        ...new Map(
+          [
+            ...(rooms.data?.pages.flatMap(page => page.conversations) ?? []),
+            ...(imRooms.data?.pages.flatMap(page => page.conversations) ?? []),
+            ...(!search ? (attention.data ?? []) : [])
+          ].map(room => [room.id, room])
+        ).values()
+      ].sort((a, b) => Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt))
   const pinned = listedRooms.filter(room => room.viewer.pinned)
   const tasks = listedRooms.filter(room => !room.viewer.pinned && room.conversationKind === 'assistant_task')
   const messages = listedRooms.filter(room => !room.viewer.pinned && room.conversationKind !== 'assistant_task')
@@ -146,7 +155,7 @@ export function ChatSidebar() {
     listedRooms.filter(room => room.conversationKind === 'colleague_dm').map(room => room.agents[0]?.uid)
   )
   const query = search.trim().replace(/^@/, '').toLocaleLowerCase()
-  const colleagues = (agents.data?.agents ?? []).filter(
+  const colleagues = (loading ? [] : (agents.data?.agents ?? [])).filter(
     agent =>
       !knownDMs.has(agent.uid) &&
       `${agent.uid} ${agent.displayName} ${agent.role ?? ''}`.toLocaleLowerCase().includes(query)
@@ -311,7 +320,7 @@ export function ChatSidebar() {
         aria-label={t('pod.superagent.filter')}
         placeholder={t('pod.superagent.filter')}
       />
-      {rooms.isPending && (
+      {loading && (
         <ContentSkeleton variant="list" rows={4} label={t('pod.chat.loading_history')} className="pod-tree-empty" />
       )}
       {(rooms.error || imRooms.error) && (
@@ -379,7 +388,7 @@ export function ChatSidebar() {
           {(messagesOpen || searching) && [...messages.map(roomRow), ...colleagues.map(colleagueRow)]}
         </ChatSection>
       )}
-      {!rooms.isPending && !rooms.error && !listedRooms.length && !colleagues.length && (
+      {!loading && !rooms.error && !listedRooms.length && !colleagues.length && (
         <p className="pod-tree-empty">{t(searching ? 'pod.superagent.no_matches' : 'pod.sidebar.chat_empty')}</p>
       )}
       {imRooms.hasNextPage && (

@@ -553,7 +553,11 @@ colleague's name, `@uid`, and role above a composer with a fixed recipient at
 `/dm/<uid>`; `/?agent=<uid>` redirects there.
 
 Chat shows pinned rooms once, then a collapsible Assistant section, then one
-list containing existing IM rooms and available colleagues. The Assistant
+list containing existing IM rooms and available colleagues. Until the room list
+and the IM room list both arrive, Chat shows only a loading placeholder, so no
+row moves when the full list lands. Pod then keeps the unfiltered lists for the
+rest of the page session, and a return to Chat from Home shows them at once
+while they refresh in place. The Assistant
 section starts collapsed and exposes only pending questions, active work and
 unread tasks. A click anywhere on a section heading expands or collapses that
 section, and keyboard users toggle it with its chevron. Expanding the Assistant
@@ -1107,7 +1111,10 @@ stopped.
 While an Agent works, Pod names every running step in the work header, joined
 by ` · ` when steps run in parallel, and keeps the steps in one folded list.
 The list therefore keeps its shape and its open or closed state however many
-steps run at once.
+steps run at once. Only the thinking before the first step folds the work
+summary away; after that, the summary stays open while the model thinks between
+steps, and its reasoning moves into a collapsed Thinking row inside it, so
+whatever the reader opened in the list survives those pauses.
 
 The execution record also carries `execution.usage`, which `AIGateway.turn_usage/1`
 sums from the usage ledger rows of the turn's Signal on completed, stopped, and

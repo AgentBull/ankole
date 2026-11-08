@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.94 (2026-11-08)
+
+- Keep an Agent's live work steps open while it thinks between steps. The step
+  list used to fold away each time one step finished and the next had not yet
+  started, then reopen with everything the reader had expanded closed again. It
+  now stays where the reader left it, and the reasoning between steps sits in a
+  collapsed Thinking row inside it.
+- Stop the Chat sidebar from jumping when it opens. Switching from Home to Chat
+  showed loading bars above the first rows and then pulled the whole list up
+  once it loaded. Chat now shows only the loading bars until the list is ready,
+  and keeps the list for the rest of the page session, so later switches show
+  it at once.
+
 ## Version 2.0.0-alpha.93 (2026-11-08)
 
 - Internal changes only.

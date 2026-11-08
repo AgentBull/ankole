@@ -146,6 +146,24 @@ test('live thinking uses one collapsed disclosure with a loading indicator and k
   expect(opened).toContain('Complete recorded reasoning text')
 })
 
+test('live work stays open while the model thinks between steps', () => {
+  const html = render(
+    <CollapsedWorkView
+      active
+      phaseLabel="Understanding the request"
+      execution={{
+        thinking_summary: 'Deciding what to read next',
+        steps: [{ id: 'mkdir', tool: 'exec_command', title: 'Run command · mkdir', status: 'completed' }]
+      }}
+    />
+  )
+  expect(html).toContain('<details class="pod-chat-work" open="">')
+  expect(html).toContain('Understanding the request')
+  expect(html).toContain('Run command · mkdir')
+  // The reasoning between steps stays one click away instead of replacing the step list.
+  expect(html).toContain('<details class="pod-chat-thinking">')
+})
+
 test('a stopped tool loaded from history does not present an active spinner or a success mark', () => {
   const html = render(
     <ToolRunView steps={[{ id: 'stopped-tool', tool: 'bash', title: 'Stopped command', status: 'stopped' }]} />

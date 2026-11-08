@@ -27,13 +27,14 @@ export function CollapsedWorkView({
         step.status
       )
   )
-  const current = runningSteps.at(-1)
   const stopped = ['stopped', 'cancelled'].includes(execution.status ?? '')
   // A step can fail while its turn recovers and finishes, so only the turn's own status fails it.
   const failed = stopped || ['error', 'failed'].includes(execution.status ?? '')
   const outcome = active ? undefined : stopped ? 'stopped' : failed ? 'failed' : undefined
   const errors = steps.filter(step => ['error', 'failed'].includes(step.status)).length
-  const thinkingDisclosure = active && !current
+  // Only thinking before the first step folds away; once steps exist the list stays open while the model pauses
+  // between them, so whatever the reader opened inside it survives.
+  const thinkingDisclosure = active && !steps.length
   const urgent = attention || failed
   const [expanded, setExpanded] = useState((active && !thinkingDisclosure) || urgent)
   const userToggled = useRef(false)
