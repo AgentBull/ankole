@@ -20,7 +20,7 @@ defmodule AnkoleWeb.BrowserAuth do
     allow(:logout_confirmation, check: :public)
   end
 
-  alias Ankole.Ash.Types.{PrincipalKey, UUIDv7}
+  alias Ankole.Ash.Types.{JSONMap, PrincipalKey, UUIDv7}
   alias AnkoleWeb.BrowserAuth.Targets
   alias AnkoleWeb.{BrowserAPI, PodURL}
 
@@ -47,7 +47,8 @@ defmodule AnkoleWeb.BrowserAuth do
   @identity [
     principalUID: [type: PrincipalKey, allow_nil?: false],
     displayName: [type: :string, allow_nil?: false],
-    providerID: [type: :string, allow_nil?: false]
+    providerID: [type: :string, allow_nil?: false],
+    providerName: [type: JSONMap]
   ]
   @account @identity ++
              [
@@ -308,7 +309,8 @@ defmodule AnkoleWeb.BrowserAuth do
                 %{
                   principalUID: uid,
                   displayName: principal.display_name || uid,
-                  providerID: auth["provider_id"]
+                  providerID: auth["provider_id"],
+                  providerName: provider_name(request.tenant_id, auth["provider_id"])
                 }
 
               {:error, :not_found} ->
@@ -594,6 +596,7 @@ defmodule AnkoleWeb.BrowserAuth do
          principalUID: uid,
          displayName: principal.display_name || uid,
          providerID: identity["provider_id"],
+         providerName: provider_name(tenant_id, identity["provider_id"]),
          tenant: %{
            id: tenant.id,
            slug: tenant.slug,
@@ -813,7 +816,8 @@ defmodule AnkoleWeb.BrowserAuth do
             authenticationRef: BrowserSessions.encode_reference(reference),
             principalUID: principal.uid,
             displayName: principal.display_name || principal.uid,
-            providerID: authentication["provider_id"]
+            providerID: authentication["provider_id"],
+            providerName: provider_name(tenant_id, authentication["provider_id"])
           }
         ]
       else
@@ -827,10 +831,23 @@ defmodule AnkoleWeb.BrowserAuth do
            WebSession.current_authentication(conn),
          {:ok, principal} <-
            Ankole.Repo.with_tenant(tenant_id, fn -> Ankole.Principals.get_principal(uid) end) do
-      %{principalUID: uid, displayName: principal.display_name || uid, providerID: provider}
+      %{
+        principalUID: uid,
+        displayName: principal.display_name || uid,
+        providerID: provider,
+        providerName: provider_name(tenant_id, provider)
+      }
     else
       _ -> nil
     end
+  end
+
+  # Identity providers live in tenant configuration, so the lookup binds the
+  # tenant that owns the signed-in identity.
+  defp provider_name(tenant_id, provider_id) do
+    Ankole.Repo.with_tenant(tenant_id, fn ->
+      Ankole.IdentityProviders.provider_name(provider_id)
+    end)
   end
 
   defp providers_for_target(conn, %{oauth_request: %{id: _} = request}) do

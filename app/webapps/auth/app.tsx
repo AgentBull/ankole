@@ -3,12 +3,12 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { loginProviders, selectLoginIdentity } from '../common/api/generated/sdk.gen'
-import type { LoginProvidersResponse } from '../common/api/generated/types.gen'
 import { BrandIcon } from '../common/brand'
 import { localizedText } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import { ErrorBoundary } from '../common/error-boundary'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
+import { signInMethodLabel } from '../common/sign-in-method'
 import { ThemeToggle } from '../common/theme-toggle'
 import { EmailOtpForm } from './email-otp-form'
 import { InvitationJoin } from './invitation-join'
@@ -108,7 +108,7 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
                     onClick={() => selection.mutate(identity.authenticationRef)}>
                     {t('auth.continue_identity', {
                       name: identity.displayName,
-                      provider: identityProviderLabel(identity.providerID, list, i18n.language, t('auth.email_login'))
+                      provider: signInMethodLabel(identity, i18n.language, t('auth.email_login'))
                     })}
                   </Button>
                 ))}
@@ -160,15 +160,4 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
       </Card>
     </main>
   )
-}
-
-function identityProviderLabel(
-  providerID: string,
-  providers: LoginProvidersResponse['providers'],
-  locale: string,
-  emailLabel: string
-): string {
-  if (providerID === 'email_otp') return emailLabel
-  const matched = providers.find(provider => provider.providerID === providerID)
-  return localizedText(matched?.displayName, locale) ?? humanizeTechnicalLabel(providerID)
 }

@@ -1,5 +1,25 @@
 # Changelog
 
+## Version 2.0.0-alpha.78 (2026-11-08)
+
+- Name the sign-in method in the account menu, the sign-in account chooser,
+  and the sign-out screen after the platform the identity provider uses, such
+  as 飞书 / Feishu or Lark, instead of a label derived from the provider ID
+  such as "Lark main". Accounts keep that name after an administrator
+  disables their provider.
+- Show one loading indicator while switching Pod pages: a centered spinner
+  with a pulsing label, matching the Assistant's thinking indicator, replaces
+  the plain loading text. It appears only when a load takes longer than a
+  moment, so quick switches no longer flash, and opening a table or an applet
+  no longer shows a second loading message for its code.
+- Slide the Page chat, Comments, and conversation summary panels in and out
+  like a drawer: the Page or conversation widens and narrows with the panel
+  instead of jumping by the panel's width on the click. Opening a panel also
+  no longer shifts the whole Pod, sidebar included, to the left.
+- Keep every sidebar section heading the same height, so Spaces and Private
+  pages line up with Recent and the Chat sections, and style the Chat sidebar
+  correctly when you switch to it before opening any conversation.
+
 ## Version 2.0.0-alpha.77 (2026-11-08)
 
 - Start new Applets from `ankole-pod applet init` flush with the Pod Page: the

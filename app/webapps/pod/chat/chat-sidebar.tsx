@@ -57,6 +57,7 @@ import {
   type RoomRow
 } from './conversation-row'
 import { useDebouncedValue } from '../../common/use-debounced-value'
+import '../chat.css'
 
 const ATTENTION = ['waiting_choice', 'streaming', 'queued', 'running_background', 'unread']
 /** Expanding the assistant group shows this many recent tasks before "Show all", so the IM list stays in view. */

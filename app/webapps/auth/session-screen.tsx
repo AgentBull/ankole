@@ -8,12 +8,12 @@ import { useTranslation } from 'react-i18next'
 import { logoutConfirmation } from '../common/api/generated/sdk.gen'
 import { BrandIcon } from '../common/brand'
 import { clearDataTenant } from '../common/browser-session'
-import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
+import { signInMethodLabel } from '../common/sign-in-method'
 import { ThemeToggle } from '../common/theme-toggle'
 import { signInReturnTo } from './login-params'
 
 export function SessionScreen({ invalid }: { invalid: boolean }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [submitting, setSubmitting] = useState(false)
   const query = new URLSearchParams(window.location.search)
   const request = query.get('request') ?? ''
@@ -68,10 +68,7 @@ export function SessionScreen({ invalid }: { invalid: boolean }) {
                   <p className="text-sm text-muted-foreground">
                     {t('auth.current_identity', {
                       name: details.data.identity.displayName,
-                      provider:
-                        details.data.identity.providerID === 'email_otp'
-                          ? t('auth.email_login')
-                          : humanizeTechnicalLabel(details.data.identity.providerID)
+                      provider: signInMethodLabel(details.data.identity, i18n.language, t('auth.email_login'))
                     })}
                   </p>
                 ) : (

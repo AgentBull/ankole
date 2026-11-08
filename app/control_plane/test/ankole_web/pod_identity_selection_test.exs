@@ -168,6 +168,34 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     assert {:ok, _} = BrowserSessions.get_authentication(ctx.b_ref)
   end
 
+  test "the session names each account's sign-in platform, even after its provider is disabled",
+       ctx do
+    assert {:ok, _provider} =
+             Ankole.IdentityProviders.save_provider(
+               "lark-cn",
+               "lark",
+               %{"appID" => "cli_feishu", "appSecret" => "secret", "domain" => "feishu"},
+               false
+             )
+
+    feishu = human_fixture(%{display_name: "Feishu account"}).principal
+    {signed, _ref} = login(ctx.signed, feishu, "lark-cn")
+
+    session =
+      signed
+      |> send_resp(200, "")
+      |> recycle()
+      |> put_req_header("accept", "application/json")
+      |> get(ctx.origin <> "/api/v2/browser/session")
+      |> api_response(200)
+
+    names = Map.new(session["accounts"], &{&1["displayName"], &1["providerName"]})
+
+    assert names["Feishu account"] == %{"default" => "Feishu", "zh-Hans-CN" => "飞书"}
+    # A source without a configured provider leaves the name to the client.
+    assert names["First account"] == nil
+  end
+
   test "the session lists proved accounts across tenants and activates one for its Pod", ctx do
     foreign = Ankole.DataCase.create_tenant()
 
@@ -308,14 +336,14 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     assert select(shell, ctx.tenant, ctx.a_ref).status == 401
   end
 
-  defp login(conn, principal) do
+  defp login(conn, principal, provider_id \\ "local") do
     conn = WebSession.ensure_browser(conn)
 
     {:ok, %{browser: browser, authentication: authentication}} =
       BrowserSessions.authenticate(WebSession.browser_reference(conn), %{
         "principal_uid" => principal.uid,
         "access_version" => principal.access_version,
-        "provider_id" => "local",
+        "provider_id" => provider_id,
         "external_id" => principal.uid
       })
 

@@ -78,7 +78,7 @@ import {
   type PageDetail
 } from './content-api'
 
-import { ContentError } from './content-primitives'
+import { ContentError, ContentLoading } from './content-primitives'
 import { PageChildrenMenu } from './page-navigation'
 import { PageBreadcrumbs } from './page-breadcrumbs'
 import { DocumentSubpages } from './page-subpages'
@@ -147,12 +147,10 @@ export function PageRoute() {
   }, [pageID, !!page.data, client])
   if (page.isPending) {
     return (
-      <>
+      <section className="flex h-full min-h-0 flex-col">
         {navigation}
-        <p role="status" className="p-8">
-          {t('pod.content.loading_page')}
-        </p>
-      </>
+        <ContentLoading label={t('pod.content.loading_page')} className="flex-1" />
+      </section>
     )
   }
   if (page.error && !page.data) {

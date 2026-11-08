@@ -31,7 +31,7 @@ import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 type BrowserAccount = BrowserSessionResponse['accounts'][number] | BrowserSessionResponse['pendingAccounts'][number]
 import { authenticationRef, podID } from '../common/browser-context'
 import { endAccountSession, endBrowserSession } from '../common/browser-session'
-import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
+import { signInMethodLabel } from '../common/sign-in-method'
 import { requestErrorMessage } from '../common/request-errors'
 import { avatarInitials } from './avatar-initials'
 
@@ -42,7 +42,7 @@ const initial = avatarInitials
  * and the way out. `extra` adds build-specific items, such as a SaaS account center.
  */
 export function AccountMenu({ extra }: { extra?: ReactNode }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
   const { resolvedTheme, setTheme } = useTheme()
@@ -118,10 +118,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
                     </small>
                     <small className="truncate">
                       {t('auth.sign_in_with', {
-                        provider:
-                          account.providerID === 'email_otp'
-                            ? t('auth.email_login')
-                            : humanizeTechnicalLabel(account.providerID)
+                        provider: signInMethodLabel(account, i18n.language, t('auth.email_login'))
                       })}
                     </small>
                   </span>

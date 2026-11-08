@@ -8,11 +8,10 @@ import { mountApplet, readDocumentTheme } from './applet-host'
 import { createAppletRuns } from './applet-runs'
 import { contentKeys, pageQuery, podRequest, type PageDetail } from './content-api'
 import { useContent } from './content-context'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentLoading } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
 import { automationJobID } from './state/connectors'
 import { usePageRealtime } from './use-page-realtime'
-import './chat.css'
 
 const AppletAutomationDialog = lazy(() =>
   import('./applet-automation').then(module => ({ default: module.AppletAutomationDialog }))
@@ -157,12 +156,11 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
       {!revoked && <ContentError error={connection.error} retry={connection.retry} />}
       <div className="relative">
         {loading && !revoked && (
-          <p
-            role="status"
-            className="pointer-events-none absolute inset-0 z-10 flex min-h-32 items-center justify-center gap-2 text-sm">
-            <span className="pod-chat-working-spinner" data-size="lg" aria-hidden />
-            <span className="pod-chat-working-label">{t('pod.content.loading_applet')}</span>
-          </p>
+          <ContentLoading
+            label={t('pod.content.loading_applet')}
+            className="pointer-events-none absolute inset-0 z-10"
+            immediate
+          />
         )}
         <div ref={container} hidden={(!ready && !!error) || revoked} />
       </div>

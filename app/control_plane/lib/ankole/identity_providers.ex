@@ -311,6 +311,22 @@ defmodule Ankole.IdentityProviders do
     end
   end
 
+  @doc """
+  Names the configured provider behind `provider_id` for account and session
+  surfaces, whether or not it is enabled, or returns nil when the provider or
+  its adapter is gone.
+  """
+  @spec provider_name(String.t()) :: map() | nil
+  def provider_name(provider_id) do
+    with {:ok, provider} <- fetch_configured_provider_entry(provider_id),
+         {:ok, adapter} <- fetch_adapter(provider["adapter_id"]),
+         {:ok, config} <- provider_config(provider) do
+      provider_display_name(adapter, config)
+    else
+      _ -> nil
+    end
+  end
+
   @doc false
   @spec adapter_capabilities(map()) :: [String.t()]
   def adapter_capabilities(adapter) do

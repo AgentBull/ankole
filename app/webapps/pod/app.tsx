@@ -12,8 +12,7 @@ import {
   RouterProvider,
   useLocation,
   useNavigate,
-  useRouter,
-  useRouterState
+  useRouter
 } from '@tanstack/react-router'
 import { useQueryClient, useQueryErrorResetBoundary } from '@tanstack/react-query'
 import { useModel } from '@preact/signals-react'
@@ -23,7 +22,7 @@ import { InternalAPIError } from '../common/internal-api-client'
 import { PodSidebar } from './sidebar'
 import { ContentListRoute } from './content-list'
 import { ContentProvider } from './content-context'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentLoading } from './content-primitives'
 import { ChatDraftProvider } from './chat-drafts'
 import { podKeys, type ConversationDetail, type PodAgent } from './api'
 import { contentKeys, pageQuery, type PageDetail } from './content-api'
@@ -200,8 +199,12 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
           const read = client.prefetchQuery(pageQuery(pageID))
           if (client.getQueryData(contentKeys.page(pageID)) === undefined) await read
           const detail = client.getQueryData<PageDetail>(contentKeys.page(pageID))
-          if (detail?.page.type === 'base') void prefetchBase(client, pageID)
-          if (detail?.page.type === 'applet' && !detail.page.deleted_at) void import('./applet-page')
+          // The route's loading status covers the body's code too, so the page does not show a second one for it.
+          if (detail?.page.type === 'base') {
+            void prefetchBase(client, pageID)
+            await import('./base-page')
+          }
+          if (detail?.page.type === 'applet' && !detail.page.deleted_at) await import('./applet-page')
           return null
         },
         component: LazyPageRoute,
@@ -268,14 +271,11 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
 }
 
 function PodRouteLoading() {
-  const { t } = useTranslation()
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-col">
       <PodTopBar pageFallback />
-      <p role="status" className="p-8">
-        {t('pod.content.loading')}
-      </p>
-    </>
+      <ContentLoading className="flex-1" />
+    </div>
   )
 }
 
@@ -471,7 +471,7 @@ function PodShell() {
     <PodCommandContext value={openCommand}>
       <TooltipProvider>
         <SidebarProvider
-          className="pod-shell h-svh overflow-hidden"
+          className="pod-shell h-svh overflow-clip"
           style={{ '--sidebar-width': `${sidebarLayout.width.value}px` } as CSSProperties}>
           <ErrorBoundary
             variant="panel"
@@ -507,7 +507,6 @@ function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   const { t } = useTranslation()
   const { state } = useSidebar()
   const pathname = useLocation({ select: location => location.pathname })
-  const isLoading = useRouterState({ select: routerState => routerState.isLoading })
   const contentHeader =
     pathname === '/' ||
     pathname.startsWith('/meta/') ||
@@ -520,11 +519,6 @@ function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   return (
     <header className="flex h-11 shrink-0 items-center gap-2 px-3">
       <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
-      {isLoading && (
-        <span role="status" className="text-xs text-fg-tertiary">
-          {t('pod.content.loading')}
-        </span>
-      )}
     </header>
   )
 }

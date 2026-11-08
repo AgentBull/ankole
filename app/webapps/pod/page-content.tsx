@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next'
 import { contentKeys, pageAPI, type PageDetail } from './content-api'
 import { requestErrorMessage } from '../common/request-errors'
 import { contentError } from './content-errors'
+import { ContentLoading } from './content-primitives'
 import type { FileCommentSelection, FilePreviewHandle } from './file-comment-anchors'
 import { FilePage } from './page-files'
 import type { ParsedSearchTarget } from './search-targets'
@@ -51,7 +52,7 @@ export function PageContent({
       )
     case 'base':
       return (
-        <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
+        <Suspense fallback={<ContentLoading />}>
           <BasePage
             detail={detail}
             tableID={searchTarget?.kind === 'table' ? searchTarget.tableID : undefined}
@@ -61,7 +62,7 @@ export function PageContent({
       )
     case 'applet':
       return (
-        <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
+        <Suspense fallback={<ContentLoading label={t('pod.content.loading_applet')} />}>
           <AppletPage detail={detail} />
         </Suspense>
       )

@@ -54,9 +54,13 @@ configured identity provider or connector connection after the platform its
 Feishu in every other locale, while a `lark` configuration reads Lark in every
 locale. `Config.platform_name/1` owns that mapping, and the identity provider
 and connector modules expose it through `platform_name/1`, so login buttons,
-provider lists, and connection cards show the configured platform. The plugin
-and adapter, including the adapter column of the chat binding list, read
-飞书 / Lark in Simplified Chinese and Feishu / Lark elsewhere. Every `domain`
+provider lists, connection cards, and the sign-in method that the account
+menu, the sign-in account chooser, and the sign-out screen show for a
+signed-in account all name the configured platform. Browser session payloads
+carry that name as `providerName`, including for a provider that is
+disabled. The plugin and adapter, including the adapter column of the chat
+binding list, read 飞书 / Lark in Simplified Chinese and Feishu / Lark
+elsewhere. Every `domain`
 select offers the same two options: Feishu (Mainland China) and Lark (Global).
 
 ## Settings

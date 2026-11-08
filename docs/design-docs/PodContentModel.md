@@ -558,9 +558,10 @@ the root chevron's rotation with a short opacity recovery on pointer release.
 On desktop, pointer activation brings Comments, Page chat, and the conversation
 summary into view with an 8 px translation and opacity over 200 ms. Closing
 immediately returns focus and makes the departing panel inert while its visual
-exit completes. The Page or conversation takes back the panel's width on that
-same click, just as it gives the width up on the opening click, and the
-departing panel fades out on top of its former place. Reopening reverses that transition in place.
+exit completes. Over the same 200 ms, the panel slides in or out of the row
+through its right margin, so the Page or conversation narrows and widens with
+it like a drawer. Reopening reverses that transition from the panel's current
+position.
 Keyboard actions, URL restoration, automatic opening, and switching between
 Comments and Page chat are immediate. A close while a popup is still mounted also unmounts the
 panel immediately, so its portals leave with it. Navigation, lost access, and
