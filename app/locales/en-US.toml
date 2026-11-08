@@ -2452,7 +2452,9 @@ command_execute = "Running command"
 command_execute_family = "Running command · {$family}"
 command_find_files_family = "Finding files · {$family}"
 command_install_family = "Installing dependencies · {$family}"
+command_list_files_family = "Listing files · {$family}"
 command_push_family = "Pushing changes · {$family}"
+command_read_files_family = "Reading files · {$family}"
 command_search_code_family = "Searching code · {$family}"
 command_stage_family = "Staging changes · {$family}"
 command_sync_family = "Syncing code · {$family}"
@@ -2470,6 +2472,7 @@ file_list_target = "Listing files: {$path}"
 file_read = "Reading file"
 file_read_target = "Reading file: {$path}"
 file_update = "Updating files"
+find_files_target = "Finding files: “{$query}”"
 memory_delta = "Checking recent memory changes"
 memory_entity_read = "Reading an entity card"
 memory_metric_query = "Running a metric"
@@ -2493,6 +2496,7 @@ schedule_every_minute = "Every {$value} minutes"
 schedule_every_second = "Every {$value} seconds"
 schedule_every_week = "Every {$value} weeks"
 schedule_follow_up = "Scheduling follow-up work"
+search_code_target = "Searching code: “{$query}”"
 skill_load = "Loading Skill: {$name}"
 source_read = "Reading source: {$title}"
 standing_orders_update = "Updating channel standing orders"
@@ -4481,6 +4485,21 @@ error_count = """
 .match $count
 one {{{$count} error}}
 *   {{{$count} errors}}"""
+explored_read = """
+.input {$count :number}
+.match $count
+one {{Read {$count} file}}
+*   {{Read {$count} files}}"""
+explored_search = """
+.input {$count :number}
+.match $count
+one {{Searched {$count} time}}
+*   {{Searched {$count} times}}"""
+explored_list = """
+.input {$count :number}
+.match $count
+one {{Listed {$count} directory}}
+*   {{Listed {$count} directories}}"""
 usage_tokens = "{$tokens} tokens"
 usage_partial = """
 .input {$count :number}

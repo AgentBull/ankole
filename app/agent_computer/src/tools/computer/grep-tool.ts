@@ -129,10 +129,13 @@ export function createGrepTool(
     isReadOnly: true,
     retrySafe: true,
     isDestructive: false,
-    describeActivity: () => ({
-      key: 'conversations.delivery.reply.activity.command_search_code_family',
-      bindings: { family: 'grep' }
-    }),
+    describeActivity: params =>
+      params.pattern?.trim()
+        ? {
+            key: 'conversations.delivery.reply.activity.search_code_target',
+            bindings: { query: params.pattern.trim() }
+          }
+        : { key: 'conversations.delivery.reply.activity.command_search_code_family', bindings: { family: 'grep' } },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<GrepDetails>> {
       const driveResult = await searchDrive(context, 'grep', params, signal)
       if (driveResult) return driveResult

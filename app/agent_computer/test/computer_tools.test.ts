@@ -171,11 +171,32 @@ describe('computer tools', () => {
         key: 'conversations.delivery.reply.activity.file_read_target',
         bindings: { path: '10000/report.txt' }
       },
-      find: { key: 'conversations.delivery.reply.activity.command_find_files_family', bindings: { family: 'find' } },
-      grep: { key: 'conversations.delivery.reply.activity.command_search_code_family', bindings: { family: 'grep' } },
+      find: { key: 'conversations.delivery.reply.activity.find_files_target', bindings: { query: 'report' } },
+      grep: { key: 'conversations.delivery.reply.activity.search_code_target', bindings: { query: 'private' } },
       ls: { key: 'conversations.delivery.reply.activity.file_list_target', bindings: { path: 'sessions/10000' } },
       apply_patch: { key: 'conversations.delivery.reply.activity.file_update' }
     })
+  })
+
+  it('labels a command as a read only when nothing in it can write', () => {
+    const command = createCommandTool(contextFor(new FakeComputer()))
+    const describe = (source: string) => command.describeActivity(command.schema.parse({ command: source }))
+    const activity = (action: string, family: string) => ({
+      key: `conversations.delivery.reply.activity.command_${action}_family`,
+      bindings: { family }
+    })
+
+    expect(describe('cd app && cat mix.exs | head -20 2>/dev/null')).toEqual(activity('read_files', 'cat'))
+    expect(describe("sed -n '1,40p' lib/app.ex")).toEqual(activity('read_files', 'sed'))
+    expect(describe('ls -la lib 2>&1')).toEqual(activity('list_files', 'ls'))
+    expect(describe('grep -E "deps|aliases" mix.exs; wc -l mix.exs')).toEqual(activity('search_code', 'grep'))
+    expect(describe('git status && git diff --stat')).toEqual(activity('check_changes', 'git status'))
+
+    expect(describe('cat a.txt > b.txt')).toEqual(activity('execute', 'cat'))
+    expect(describe('ls && rm -rf build')).toEqual(activity('execute', 'ls'))
+    expect(describe("sed -i 's/a/b/' lib/app.ex")).toEqual(activity('execute', 'sed'))
+    expect(describe('find . -name "*.log" -delete')).toEqual(activity('execute', 'find'))
+    expect(describe('git diff && git commit -m wip')).toEqual(activity('commit', 'git commit'))
   })
 
   it('adds duration and expected nonzero exit-code notes to command output', async () => {

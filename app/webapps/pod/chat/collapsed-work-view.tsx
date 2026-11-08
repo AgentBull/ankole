@@ -111,6 +111,8 @@ export function activitySteps(activity: PodActivity, label: (item: PodActivityIt
     id: item.operation_id,
     tool: item.tool || item.operation_id,
     title: label(item),
+    label_key: item.label_key,
+    label_bindings: item.label_bindings,
     skill_name:
       item.tool === 'skill_view' && typeof item.label_bindings?.name === 'string'
         ? item.label_bindings.name

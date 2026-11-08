@@ -354,7 +354,7 @@ export class Workspaces {
     if (activity) {
       await this.progress(input, {
         kind: 'tool.activity',
-        payload: { operation_id: input.callId, phase: 'running', activity }
+        payload: { operation_id: input.callId, tool: input.name, phase: 'running', activity }
       })
     }
     const value = await tool.execute(input.callId, parsed.data, signal)
@@ -362,7 +362,7 @@ export class Workspaces {
     if (completed) {
       await this.progress(input, {
         kind: 'tool.activity',
-        payload: { operation_id: input.callId, phase: 'completed', activity: completed }
+        payload: { operation_id: input.callId, tool: input.name, phase: 'completed', activity: completed }
       })
     }
     return {

@@ -15,6 +15,15 @@
 - Keep an Agent's work steps open while the Agent is still working. Expanding
   them in chat no longer folds them back each time a new step arrives, and the
   working spinner sits on the same line as its status text again.
+- Show what an Agent reads and searches without a wall of identical rows. In
+  an Agent's work steps, consecutive file reads, code searches, and directory
+  listings now fold into one row such as "Read 4 files · Searched 9 times",
+  while edits, tests, and commits keep their own rows. A code or file search
+  names what it looks for, such as `Searching code: “useActivityLabel”`, and
+  shell commands like `cat`, `sed -n`, and `ls` read as file reads and listings
+  instead of "Running command · cat". While the Agent works, each step shows
+  the icon of its tool, such as a file, a search, or a terminal, instead of the
+  same generic icon on every row.
 
 ## Version 2.0.0-alpha.86 (2026-11-08)
 

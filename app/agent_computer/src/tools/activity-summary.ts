@@ -15,7 +15,9 @@ type CommandActivity = {
     | 'execute'
     | 'find_files'
     | 'install'
+    | 'list_files'
     | 'push'
+    | 'read_files'
     | 'search_code'
     | 'stage'
     | 'sync'
@@ -63,6 +65,13 @@ const PROGRAM_ACTIVITIES: Record<string, CommandActivity> = {
   grep: { action: 'search_code', family: 'grep' },
   find: { action: 'find_files', family: 'find' },
   fd: { action: 'find_files', family: 'fd' },
+  cat: { action: 'read_files', family: 'cat' },
+  head: { action: 'read_files', family: 'head' },
+  tail: { action: 'read_files', family: 'tail' },
+  wc: { action: 'read_files', family: 'wc' },
+  stat: { action: 'read_files', family: 'stat' },
+  ls: { action: 'list_files', family: 'ls' },
+  tree: { action: 'list_files', family: 'tree' },
   tsc: { action: 'check_types', family: 'TypeScript' },
   tsgo: { action: 'check_types', family: 'TypeScript' },
   oxfmt: { action: 'check_format', family: 'formatter' },
@@ -71,13 +80,30 @@ const PROGRAM_ACTIVITIES: Record<string, CommandActivity> = {
   eslint: { action: 'check_code', family: 'linter' }
 }
 
+/** Flags that turn a file search into a command that deletes files or runs other programs. */
+const WRITING_FLAGS: Record<string, RegExp> = {
+  find: /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/,
+  fd: /^(?:-x|-X|--exec|--exec-batch)$/
+}
+
+/** Actions that only read the workspace, so a command made only of them can carry a read label. */
+const READ_ONLY_ACTIONS = new Set<CommandActivity['action']>([
+  'check_changes',
+  'find_files',
+  'list_files',
+  'read_files',
+  'search_code',
+  'view_history'
+])
+
 /** The full recognized vocabulary, used to unwrap `sudo`/`env`-style wrappers. */
 const KNOWN_PROGRAMS = new Set([
   ...Object.keys(SUBCOMMAND_ACTIONS),
   ...PACKAGE_MANAGERS,
   ...Object.keys(PROGRAM_ACTIVITIES),
   'python',
-  'python3'
+  'python3',
+  'sed'
 ])
 
 export function compactActivityPath(path: string | undefined): string | undefined {
@@ -102,18 +128,51 @@ function summarizeCommand(command: string | undefined): CommandActivity {
   const source = command?.trim()
   if (!source) return { action: 'execute' }
 
-  const invocations = commandInvocations(source)
-  const known = invocations.map(knownCommandActivity).find(activity => activity !== undefined)
+  const { segments, writesFile } = scanCommand(source)
+  const invocations = commandInvocations(segments)
+  const activities = invocations.map(knownCommandActivity)
+  // A read label fits only when no program in the command can write, so a read never hides a change.
+  const readOnly = !writesFile && activities.every(activity => activity && READ_ONLY_ACTIONS.has(activity.action))
+  const known = readOnly
+    ? activities[0]
+    : activities.find(activity => activity && !READ_ONLY_ACTIONS.has(activity.action))
   if (known) return known
 
   const family = invocations[0]?.program
   return family ? { action: 'execute', family } : { action: 'execute' }
 }
 
-function commandInvocations(command: string): CommandInvocation[] {
+/** Splits a command at `;`, `|`, `&`, and newlines outside quotes, and notes any output redirected into a file. */
+function scanCommand(command: string): { segments: string[]; writesFile: boolean } {
+  const segments: string[] = []
+  let current = ''
+  let quote: string | undefined
+  let writesFile = false
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index]!
+    if (quote) {
+      if (char === quote) quote = undefined
+    } else if (char === '"' || char === "'") {
+      quote = char
+    } else if (char === '>') {
+      // `2>&1` and `>/dev/null` merge or discard output instead of writing a file.
+      if (!/^>?\s*(?:&|\/dev\/null\b)/.test(command.slice(index + 1))) writesFile = true
+    } else if (/[;|&\n]/.test(char) && command[index - 1] !== '>') {
+      segments.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  segments.push(current)
+  return { segments, writesFile }
+}
+
+function commandInvocations(segments: string[]): CommandInvocation[] {
   const invocations: CommandInvocation[] = []
 
-  for (const segment of command.split(/&&|\|\||[;|]/)) {
+  for (const segment of segments) {
     const tokens = segment.trim().split(/\s+/).filter(Boolean)
     if (tokens.length === 0) continue
 
@@ -151,6 +210,12 @@ function knownCommandActivity({ program, args }: CommandInvocation): CommandActi
   if (['python', 'python3'].includes(program) && args[0] === '-m' && args[1] === 'pytest') {
     return { action: 'test', family: 'pytest' }
   }
+  if (program === 'sed') {
+    return args.includes('-n') && !args.some(arg => /^-(?:i|-in-place)/.test(arg))
+      ? { action: 'read_files', family: 'sed' }
+      : undefined
+  }
+  if (args.some(arg => WRITING_FLAGS[program]?.test(arg))) return undefined
 
   return PROGRAM_ACTIVITIES[program]
 }

@@ -72,10 +72,10 @@ export function createFindTool(
     isReadOnly: true,
     retrySafe: true,
     isDestructive: false,
-    describeActivity: () => ({
-      key: 'conversations.delivery.reply.activity.command_find_files_family',
-      bindings: { family: 'find' }
-    }),
+    describeActivity: params =>
+      params.pattern?.trim()
+        ? { key: 'conversations.delivery.reply.activity.find_files_target', bindings: { query: params.pattern.trim() } }
+        : { key: 'conversations.delivery.reply.activity.command_find_files_family', bindings: { family: 'find' } },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<FindDetails>> {
       const driveResult = await searchDrive(context, 'find', params, signal)
       if (driveResult) return driveResult

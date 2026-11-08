@@ -24,6 +24,7 @@ import {
   ToolRunView,
   commandDetails,
   formatToolDetail,
+  groupExploration,
   humanizeToolName,
   patchDetails,
   stepTitle
@@ -154,6 +155,56 @@ test('a stopped tool loaded from history does not present an active spinner or a
   expect(html).not.toContain('animate-spin')
   expect(html).not.toContain('aria-label="Completed"')
   expect(html).not.toContain('<details')
+})
+
+test('consecutive reads, searches, and listings fold into one collapsed row that counts them', async () => {
+  const labeled = (id: string, key: string, bindings: Record<string, string>) => ({
+    id,
+    tool: 'command',
+    title: id,
+    status: 'completed',
+    label_key: `conversations.delivery.reply.activity.${key}`,
+    label_bindings: bindings
+  })
+  const steps = [
+    labeled('read', 'file_read_target', { path: 'src/main.tsx' }),
+    labeled('grep', 'search_code_target', { query: 'useActivityLabel' }),
+    labeled('cat', 'command_read_files_family', { family: 'cat' }),
+    labeled('ls', 'command_list_files_family', { family: 'ls' }),
+    labeled('test', 'command_test_family', { family: 'bun test' }),
+    labeled('lone-read', 'file_read_target', { path: 'src/style.css' }),
+    {
+      id: 'skill',
+      tool: 'read_file',
+      title: 'Read file',
+      status: 'completed',
+      input: { path: '/drive/Skills/ocr/SKILL.md' }
+    },
+    { id: 'legacy-grep', tool: 'grep', title: 'grep', status: 'completed' },
+    { id: 'legacy-find', tool: 'find', title: 'find', status: 'completed' }
+  ]
+
+  expect(groupExploration(steps).map(entry => (Array.isArray(entry) ? entry.map(step => step.id) : entry.id))).toEqual([
+    ['read', 'grep', 'cat', 'ls'],
+    'test',
+    'lone-read',
+    'skill',
+    ['legacy-grep', 'legacy-find']
+  ])
+
+  const html = render(<ToolRunView steps={steps} />)
+  expect(html.match(/<details class="pod-chat-tool-group">/g)).toHaveLength(2)
+  expect(html).toContain('Read 2 files · Searched 1 time · Listed 1 directory')
+  expect(html).toContain('Searched 2 times')
+  expect(html).toContain('Searching code: “useActivityLabel”')
+  expect(html).toContain('Running tests · bun test')
+
+  await i18n.changeLanguage('zh-Hans-CN')
+  try {
+    expect(render(<ToolRunView steps={steps} />)).toContain('读取 2 个文件 · 搜索 1 次 · 列出 1 个目录')
+  } finally {
+    await i18n.changeLanguage('en-US')
+  }
 })
 
 test('live work uses the room activity phases before the final reply is committed', () => {

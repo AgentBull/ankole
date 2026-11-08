@@ -31,9 +31,9 @@ function ToolIcon({ tool, toolKind }: { tool: string; toolKind?: string }) {
             ? RiTerminalBoxLine
             : /base|db\.|query/.test(tool)
               ? RiDatabase2Line
-              : toolKind === 'search' || /brain|search|memory/.test(tool)
+              : toolKind === 'search' || /brain|search|memory|^grep$|^find$/.test(tool)
                 ? RiSearchLine
-                : /page|file|read/.test(tool)
+                : /page|file|read|^ls$/.test(tool)
                   ? RiFileTextLine
                   : RiToolsLine
   return <Icon aria-hidden />
@@ -393,105 +393,192 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
   }
   return (
     <ol className="pod-chat-tool-run" aria-label={t('pod.chat_timeline.steps')}>
-      {steps.map(step => {
-        const failed = ['failed', 'error'].includes(step.status)
-        const stopped = ['stopped', 'cancelled'].includes(step.status)
-        const complete = ['completed', 'complete', 'success', 'succeeded', 'settled'].includes(step.status)
-        const isSkill = skillStepName(step) !== undefined
-        const terminal = isSkill ? undefined : commandDetails(step)
-        const patch = isSkill || terminal ? undefined : patchDetails(step)
-        const input = isSkill ? undefined : formatToolDetail(step.input)
-        const output = isSkill ? undefined : formatToolDetail(step.output)
-        const expandable = !isSkill && Boolean(terminal || patch || input || output)
-        const Row = expandable ? 'details' : 'div'
-        const Label = expandable ? 'summary' : 'div'
-        const labelText = localizedStepTitle(step, t)
-        return (
-          <li key={step.id}>
-            <Row
-              className={`pod-chat-tool-step${isSkill ? ' pod-chat-tool-step-skill' : ''}`}
-              data-status={failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}
-              onToggle={terminal ? showOutputEnd : undefined}>
-              <Label className="pod-chat-tool-line">
-                <ToolIcon tool={step.tool} toolKind={isSkill ? 'skill' : step.toolKind} />
-                <span className="pod-chat-tool-title" title={labelText}>
-                  {labelText}
-                </span>
-                {patch && <PatchCounts added={patch.added} removed={patch.removed} />}
-                <span
-                  className="pod-chat-tool-state"
-                  aria-label={t(
-                    `pod.chat_timeline.${failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}`
-                  )}>
-                  {stopped ? (
-                    <RiStopFill aria-hidden />
-                  ) : failed ? (
-                    <RiCloseLine aria-hidden />
-                  ) : complete ? (
-                    <RiCheckLine aria-hidden />
-                  ) : (
-                    <Spinner aria-hidden />
-                  )}
-                </span>
-              </Label>
-              {expandable &&
-                (terminal ? (
-                  <div className="pod-chat-command-terminal">
-                    <header>
-                      <RiTerminalBoxLine aria-hidden />
-                      <span>{t('pod.chat_timeline.command')}</span>
-                      {terminal.exitCode != null && (
-                        <span className="pod-chat-command-exit" data-failed={failed || undefined}>
-                          {t('pod.chat_timeline.exit_code', { code: terminal.exitCode })}
-                        </span>
-                      )}
-                    </header>
-                    <div>
-                      {terminal.workdir && <p className="pod-chat-command-workdir">{terminal.workdir}</p>}
-                      <pre className="pod-chat-command-text">
-                        <span aria-hidden>$ </span>
-                        {terminal.command}
-                      </pre>
-                      {terminal.stdout && <pre>{terminal.stdout}</pre>}
-                      {terminal.stderr && (
-                        <pre className="pod-chat-command-stderr" data-failed={failed || undefined}>
-                          {terminal.stderr}
-                        </pre>
-                      )}
-                    </div>
-                  </div>
-                ) : patch ? (
-                  <div className="pod-chat-tool-detail">
-                    <PatchView patch={patch} />
-                    {output && (
-                      <div>
-                        <span>{t('pod.chat_timeline.output')}</span>
-                        <pre>{output}</pre>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  (input || output) && (
-                    <div className="pod-chat-tool-detail">
-                      {input && (
-                        <div>
-                          <span>{t('pod.chat_timeline.input')}</span>
-                          <pre>{input}</pre>
-                        </div>
-                      )}
-                      {output && (
-                        <div>
-                          <span>{t('pod.chat_timeline.output')}</span>
-                          <pre>{output}</pre>
-                        </div>
-                      )}
-                    </div>
-                  )
-                ))}
-            </Row>
+      {groupExploration(steps).map(entry =>
+        Array.isArray(entry) ? (
+          <li key={entry[0]!.id}>
+            <ExplorationGroup steps={entry} />
           </li>
+        ) : (
+          <ToolStep key={entry.id} step={entry} />
         )
-      })}
+      )}
     </ol>
+  )
+}
+
+type ExplorationKind = 'read' | 'search' | 'list'
+
+const EXPLORATION_LABELS: Record<string, ExplorationKind> = {
+  file_read: 'read',
+  file_read_target: 'read',
+  command_read_files_family: 'read',
+  search_code_target: 'search',
+  command_search_code_family: 'search',
+  find_files_target: 'search',
+  command_find_files_family: 'search',
+  file_list: 'list',
+  file_list_target: 'list',
+  command_list_files_family: 'list'
+}
+
+/** Steps recorded before activity labels existed carry only their tool name. */
+const EXPLORATION_TOOLS: Record<string, ExplorationKind> = {
+  read_file: 'read',
+  grep: 'search',
+  find: 'search',
+  ls: 'list'
+}
+
+function explorationKind(step: ExecutionStep): ExplorationKind | undefined {
+  if (skillStepName(step) !== undefined) return undefined
+  return step.label_key
+    ? EXPLORATION_LABELS[step.label_key.replace('conversations.delivery.reply.activity.', '')]
+    : EXPLORATION_TOOLS[step.tool]
+}
+
+/** Folds each run of two or more consecutive read, search, or list steps into one group. */
+export function groupExploration(steps: ExecutionStep[]): Array<ExecutionStep | ExecutionStep[]> {
+  const entries: Array<ExecutionStep | ExecutionStep[]> = []
+  let run: ExecutionStep[] = []
+  const flush = () => {
+    if (run.length > 1) entries.push(run)
+    else entries.push(...run)
+    run = []
+  }
+  for (const step of steps) {
+    if (explorationKind(step)) {
+      run.push(step)
+    } else {
+      flush()
+      entries.push(step)
+    }
+  }
+  flush()
+  return entries
+}
+
+function ExplorationGroup({ steps }: { steps: ExecutionStep[] }) {
+  const { t } = useTranslation()
+  const counts: Record<ExplorationKind, number> = { read: 0, search: 0, list: 0 }
+  for (const step of steps) counts[explorationKind(step)!] += 1
+  const title = (['read', 'search', 'list'] as const)
+    .filter(kind => counts[kind] > 0)
+    .map(kind => t(`pod.chat_timeline.explored_${kind}`, { count: counts[kind] }))
+    .join(' · ')
+  return (
+    <details className="pod-chat-tool-group">
+      <summary>
+        <RiSearchLine aria-hidden />
+        <span className="pod-chat-tool-title" title={title}>
+          {title}
+        </span>
+      </summary>
+      <ol className="pod-chat-tool-run" aria-label={title}>
+        {steps.map(step => (
+          <ToolStep key={step.id} step={step} />
+        ))}
+      </ol>
+    </details>
+  )
+}
+
+function ToolStep({ step }: { step: ExecutionStep }) {
+  const { t } = useTranslation()
+  const failed = ['failed', 'error'].includes(step.status)
+  const stopped = ['stopped', 'cancelled'].includes(step.status)
+  const complete = ['completed', 'complete', 'success', 'succeeded', 'settled'].includes(step.status)
+  const isSkill = skillStepName(step) !== undefined
+  const terminal = isSkill ? undefined : commandDetails(step)
+  const patch = isSkill || terminal ? undefined : patchDetails(step)
+  const input = isSkill ? undefined : formatToolDetail(step.input)
+  const output = isSkill ? undefined : formatToolDetail(step.output)
+  const expandable = !isSkill && Boolean(terminal || patch || input || output)
+  const Row = expandable ? 'details' : 'div'
+  const Label = expandable ? 'summary' : 'div'
+  const labelText = localizedStepTitle(step, t)
+  return (
+    <li>
+      <Row
+        className={`pod-chat-tool-step${isSkill ? ' pod-chat-tool-step-skill' : ''}`}
+        data-status={failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}
+        onToggle={terminal ? showOutputEnd : undefined}>
+        <Label className="pod-chat-tool-line">
+          <ToolIcon tool={step.tool} toolKind={isSkill ? 'skill' : step.toolKind} />
+          <span className="pod-chat-tool-title" title={labelText}>
+            {labelText}
+          </span>
+          {patch && <PatchCounts added={patch.added} removed={patch.removed} />}
+          <span
+            className="pod-chat-tool-state"
+            aria-label={t(
+              `pod.chat_timeline.${failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}`
+            )}>
+            {stopped ? (
+              <RiStopFill aria-hidden />
+            ) : failed ? (
+              <RiCloseLine aria-hidden />
+            ) : complete ? (
+              <RiCheckLine aria-hidden />
+            ) : (
+              <Spinner aria-hidden />
+            )}
+          </span>
+        </Label>
+        {expandable &&
+          (terminal ? (
+            <div className="pod-chat-command-terminal">
+              <header>
+                <RiTerminalBoxLine aria-hidden />
+                <span>{t('pod.chat_timeline.command')}</span>
+                {terminal.exitCode != null && (
+                  <span className="pod-chat-command-exit" data-failed={failed || undefined}>
+                    {t('pod.chat_timeline.exit_code', { code: terminal.exitCode })}
+                  </span>
+                )}
+              </header>
+              <div>
+                {terminal.workdir && <p className="pod-chat-command-workdir">{terminal.workdir}</p>}
+                <pre className="pod-chat-command-text">
+                  <span aria-hidden>$ </span>
+                  {terminal.command}
+                </pre>
+                {terminal.stdout && <pre>{terminal.stdout}</pre>}
+                {terminal.stderr && (
+                  <pre className="pod-chat-command-stderr" data-failed={failed || undefined}>
+                    {terminal.stderr}
+                  </pre>
+                )}
+              </div>
+            </div>
+          ) : patch ? (
+            <div className="pod-chat-tool-detail">
+              <PatchView patch={patch} />
+              {output && (
+                <div>
+                  <span>{t('pod.chat_timeline.output')}</span>
+                  <pre>{output}</pre>
+                </div>
+              )}
+            </div>
+          ) : (
+            (input || output) && (
+              <div className="pod-chat-tool-detail">
+                {input && (
+                  <div>
+                    <span>{t('pod.chat_timeline.input')}</span>
+                    <pre>{input}</pre>
+                  </div>
+                )}
+                {output && (
+                  <div>
+                    <span>{t('pod.chat_timeline.output')}</span>
+                    <pre>{output}</pre>
+                  </div>
+                )}
+              </div>
+            )
+          ))}
+      </Row>
+    </li>
   )
 }

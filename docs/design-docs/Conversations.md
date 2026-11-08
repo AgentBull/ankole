@@ -1085,6 +1085,23 @@ tool's label is the last one that the Worker reported for the call. A step
 recorded without a label keeps its `title`. A step's output leaves out the retry
 hint that Ankole appends to every tool error for the model.
 
+A label names what the step works on when that object helps a reader follow the
+work: a file read names its path, and a code or file search names its query.
+The Worker labels a shell command by its action and program, such as
+`Running tests · bun test`, and never copies the command's arguments into the
+label, because external conversations show the same labels in their live
+previews; the full command stays in the step's input. The Worker labels a
+command as a read only when no program in it can write, so a pipeline such as
+`ls && rm -rf build` or `cat a > b` reads as `Running command · ls` or
+`Running command · cat`.
+
+Pod folds each run of two or more consecutive steps that only read the
+workspace (reading files, searching code or file paths, and listing
+directories) into one collapsed row that counts them, such as
+`Read 4 files · Searched 9 times · Listed 2 directories`. Every other step keeps
+its own row, so edits, tests, and commits stay visible at a glance, and
+expanding the row lists each read with its details.
+
 The execution record also carries `execution.usage`, which `AIGateway.turn_usage/1`
 sums from the usage ledger rows of the turn's Signal on completed, stopped, and
 failed turns. The sum covers every attempt and every side call of the turn, such
