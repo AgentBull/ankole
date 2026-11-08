@@ -11,7 +11,7 @@ defmodule Ankole.AgentWorkers.SessionLaneTest do
     assert {:ok, _} = admit_worker(route)
 
     assert {:ok, %{job: job}} =
-             BackgroundAgentJobs.create_with_dispatch(%{
+             create_job_with_stub_driver(%{
                "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "actor-lane-owner",

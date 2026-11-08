@@ -979,7 +979,8 @@ defmodule Ankole.Pod.PagesTest do
     {:ok, page} =
       Pages.create(actor, %{
         title: "季度 report",
-        xml: "<page><p>Revenue grew while 留存 held</p></page>"
+        xml:
+          "<page><p>Revenue grew while 留存 held</p><p>alpha bravo charlie delta echo foxtrot golf hotel india juliet</p></page>"
       })
 
     {:ok, _} = Pages.state(actor, page.id, %{favorite: true})
@@ -991,7 +992,9 @@ defmodule Ankole.Pod.PagesTest do
     assert {:ok, [_]} = Pages.list(actor, %{scope: "favorites", query: "report grew"})
 
     # Only the first 16 distinct words filter, so a word after them does not exclude the Page.
-    present = ~w(Revenue grew while held report 季度 留存 Rev gre whi hel rep 季 留 eve rew)
+    present =
+      ~w(Revenue grew held report 季度 留存 alpha bravo charlie delta echo foxtrot golf hotel india juliet)
+
     assert {:ok, %{pages: [_]}} = Pages.search(actor, Enum.join(present ++ ["absent"], " "))
 
     {:ok, _} = Pages.delete(actor, page.id)
