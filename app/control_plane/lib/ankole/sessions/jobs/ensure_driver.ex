@@ -17,6 +17,11 @@ defmodule Ankole.Sessions.Jobs.EnsureDriver do
   def enqueue_in_tx(key, due_at \\ DateTime.utc_now(:microsecond)),
     do: Ankole.Job.schedule_in_tx(__MODULE__, key, due_at || now(), only_earlier: true)
 
+  def notify_committed do
+    _ = Oban.Notifier.notify(Oban, :insert, %{queue: "conversations"})
+    :ok
+  end
+
   defp now, do: DateTime.utc_now(:microsecond)
 
   @impl true

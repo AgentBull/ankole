@@ -14,7 +14,7 @@ import {
   filterPromotedExecutionSteps,
   isExecutionActive,
   placeLinkedExecutions
-} from './turn-timeline'
+} from './timeline-projections'
 import type { ConversationExecutionDetail, ConversationExecutionItem, ExecutionStep, LinkedExecution } from './types'
 
 const render = (element: Parameters<typeof renderToStaticMarkup>[0]) => {

@@ -63,6 +63,20 @@ defmodule Ankole.AgentWorkers.WorkerEnv.EnvVar do
       change(Ankole.AgentWorkers.WorkerEnv.Changes.PrepareValue, only_when_valid?: true)
     end
 
+    create :put_own do
+      accept([:scope, :name])
+      argument(:input, :map, allow_nil?: false)
+      upsert?(true)
+      upsert_identity(:scope_name)
+      upsert_fields([:secret, :value, :description, :updated_at])
+      validate(Ankole.AppConfigure.Scope)
+
+      change(
+        {Ankole.AgentWorkers.WorkerEnv.Changes.PrepareValue, inherit_existing?: false},
+        only_when_valid?: true
+      )
+    end
+
     destroy :remove do
       require_atomic?(true)
     end

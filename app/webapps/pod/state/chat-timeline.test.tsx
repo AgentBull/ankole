@@ -17,7 +17,7 @@ import {
   timelineEventLabel,
   timelineTurns,
   unloadedPendingQuestions
-} from '../chat/turn-timeline'
+} from '../chat/timeline-projections'
 import { activitySteps } from '../chat/collapsed-work-view'
 import { findMessageStep, firstUnreadMessageID } from '../chat-history'
 import {
@@ -30,6 +30,11 @@ import {
   stepTitle
 } from '../chat/tool-run-view'
 import { MessageActions } from '../chat/message-actions'
+import {
+  BACKTRACK_DOUBLE_ESCAPE_MS,
+  consumeEmptyComposerEscape,
+  shouldYieldBacktrackToOverlay
+} from '../chat/use-timeline-backtrack'
 import { ChatModel } from './chat'
 
 const render = (element: Parameters<typeof renderToStaticMarkup>[0]) =>
@@ -883,4 +888,66 @@ test('a message from before today names its day as well as its time', () => {
   expect(messageTime(new Date(2025, 11, 31, 23, 5).toISOString(), 'en-US', now)).toMatch(
     /^Dec 31, 2025(?:,| at) 11:05 PM$/
   )
+})
+
+test('consumeEmptyComposerEscape consumes both arming and entering Escape presses only when editable messages exist', () => {
+  let entered = 0
+  const enterBacktrack = () => {
+    entered += 1
+    return true
+  }
+
+  expect(
+    consumeEmptyComposerEscape({
+      now: 1000,
+      lastEscapeAt: null,
+      canEnterBacktrack: false,
+      enterBacktrack
+    })
+  ).toEqual({ handled: false, nextLastEscapeAt: null })
+  expect(entered).toBe(0)
+
+  const armed = consumeEmptyComposerEscape({
+    now: 1000,
+    lastEscapeAt: null,
+    canEnterBacktrack: true,
+    enterBacktrack
+  })
+  expect(armed).toEqual({ handled: true, nextLastEscapeAt: 1000 })
+  expect(entered).toBe(0)
+
+  const activated = consumeEmptyComposerEscape({
+    now: 1000 + BACKTRACK_DOUBLE_ESCAPE_MS,
+    lastEscapeAt: armed.nextLastEscapeAt,
+    canEnterBacktrack: true,
+    enterBacktrack
+  })
+  expect(activated).toEqual({ handled: true, nextLastEscapeAt: null })
+  expect(entered).toBe(1)
+
+  const expired = consumeEmptyComposerEscape({
+    now: 1000 + BACKTRACK_DOUBLE_ESCAPE_MS + 1,
+    lastEscapeAt: 1000,
+    canEnterBacktrack: true,
+    enterBacktrack
+  })
+  expect(expired).toEqual({ handled: true, nextLastEscapeAt: 1000 + BACKTRACK_DOUBLE_ESCAPE_MS + 1 })
+  expect(entered).toBe(1)
+})
+
+test('shouldYieldBacktrackToOverlay ignores ancestor Sheet dialogs containing the chat container while yielding to inner or portaled popups', () => {
+  const chatContainer = {} as unknown as Node
+  const ancestorSheetDialog = {
+    contains: (node: Node | null) => node === chatContainer
+  }
+  const innerPopoverDialog = {
+    contains: () => false
+  }
+
+  expect(shouldYieldBacktrackToOverlay({ closest: () => ancestorSheetDialog }, chatContainer)).toBe(false)
+
+  expect(shouldYieldBacktrackToOverlay({ closest: () => innerPopoverDialog }, chatContainer)).toBe(true)
+
+  expect(shouldYieldBacktrackToOverlay({ closest: () => null }, chatContainer)).toBe(false)
+  expect(shouldYieldBacktrackToOverlay(null, chatContainer)).toBe(false)
 })

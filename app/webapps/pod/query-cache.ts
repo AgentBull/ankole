@@ -53,6 +53,21 @@ export async function refreshAgentQueries(client: QueryClient): Promise<void> {
   ])
 }
 
+/** Member profile mutations refresh session, directory, and conversation displays without refetching Page/Base data. */
+export async function refreshMemberProfileQueries(client: QueryClient): Promise<void> {
+  await Promise.all([
+    refreshQuery(client, ['pod-session'], false),
+    refreshQuery(client, ['pod-me']),
+    refreshQuery(client, ['pod-admin-members']),
+    refreshQuery(client, podKeys.conversations, false)
+  ])
+}
+
+/** Space profile mutations refresh the session header/account switcher and Space Settings together. */
+export async function refreshSpaceProfileQueries(client: QueryClient): Promise<void> {
+  await Promise.all([refreshQuery(client, ['pod-session'], false), refreshQuery(client, ['pod-admin-settings'])])
+}
+
 async function refreshQuery(client: QueryClient, queryKey: QueryKey, exact = true): Promise<void> {
   const filter = { queryKey, exact }
   // A page the user asked for finishes first, so the refetch below rereads it with every loaded page.

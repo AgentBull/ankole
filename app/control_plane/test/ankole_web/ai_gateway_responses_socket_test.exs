@@ -2557,7 +2557,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   test "stateful overflow sends structured context_overflow error frame" do
     {agent, conversation, _signal, message} =
       stateful_message("socket-overflow", [
-        media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
+        file_message("https://files.example.test/#{String.duplicate("large", 40)}.pdf")
       ])
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
@@ -3373,11 +3373,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
   end
 
-  defp media_message(image_url) do
+  defp file_message(file_url) do
     %{
       "type" => "message",
       "role" => "user",
-      "content" => [%{"type" => "input_image", "image_url" => image_url}]
+      "content" => [%{"type" => "input_file", "file_url" => file_url}]
     }
   end
 

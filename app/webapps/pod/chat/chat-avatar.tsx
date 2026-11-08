@@ -1,5 +1,6 @@
 import { Avatar, AvatarImage, AvatarFallback, cn } from '@ankole/uikit'
 import { avatarInitials } from '../avatar-initials'
+import { currentProfileAvatarContext, profileAvatarURL } from '../native-transfers'
 
 export { avatarInitials }
 
@@ -20,7 +21,7 @@ export function ChatAvatar({
       title={name}
       size="sm"
       className={cn('pod-chat-avatar', agent && 'pod-chat-avatar-agent', className)}>
-      {src && <AvatarImage src={src} alt="" />}
+      {src && <AvatarImage src={profileAvatarURL(src, currentProfileAvatarContext())} alt="" />}
       <AvatarFallback>{avatarInitials(name)}</AvatarFallback>
     </Avatar>
   )

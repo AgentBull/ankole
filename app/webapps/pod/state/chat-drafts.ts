@@ -1,7 +1,16 @@
+import { equal } from '@agentbull/active-support'
 import { signal } from '@preact/signals-react'
 import { ChatModel } from './chat'
 
 type Model = InstanceType<typeof ChatModel>
+
+export function unsavedInlineEditDraft(model: Model, reactive = false): string {
+  const editing = reactive ? model.editing.value : model.editing.peek()
+  if (editing?.kind !== 'last') return ''
+  const text = reactive ? model.editDraft.value : model.editDraft.peek()
+  const links = reactive ? model.editLinks.value : model.editLinks.peek()
+  return text.trim() !== '' && (text !== editing.originalText || !equal(links, editing.originalLinks)) ? text : ''
+}
 
 /** One Pod owns its unfinished conversations for the lifetime of the document. */
 export class ChatDrafts {
@@ -83,7 +92,8 @@ export class ChatDrafts {
       const texts = new Set([
         model.draft.value,
         model.pending.value?.text ?? '',
-        model.editing.value?.previousDraft ?? ''
+        model.editing.value?.previousDraft ?? '',
+        unsavedInlineEditDraft(model, true)
       ])
       return [...texts].filter(text => text.trim() !== '').map((text, part) => ({ key: `${index}:${part}`, text }))
     })
@@ -116,6 +126,7 @@ export function hasUnsentChatWork(model: Model): boolean {
     model.draft.peek().trim() !== '' ||
     model.attachments.hasFiles.peek() ||
     !!model.pending.peek() ||
-    !!model.editing.peek()?.previousDraft.trim()
+    !!model.editing.peek()?.previousDraft.trim() ||
+    unsavedInlineEditDraft(model) !== ''
   )
 }

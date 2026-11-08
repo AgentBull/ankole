@@ -1,5 +1,4 @@
-import { usePageHref, usePagesMetadata } from '../use-page-metadata'
-import { Button, cn, toast, useReducedMotion, Spinner } from '@ankole/uikit'
+import { Button, cn, Spinner, toast, useReducedMotion } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
   RiArrowDownLine,
@@ -8,54 +7,59 @@ import {
   RiCloseLine,
   RiDownloadLine,
   RiFileCopyLine,
-  RiFileTextLine,
-  RiImageLine,
-  RiReplyLine
+  RiImageLine
 } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
-import { RevealInTimeline } from './timeline-scroll'
 import { ErrorBoundary } from '../../common/error-boundary'
 import { agentsQuery, type ConversationDetail, type ConversationMessage, type PodActivity } from '../api'
-import { MessageArtifacts } from '../message-artifacts'
-import { OlderMessages, messageID, useChatReading, type useChatHistory } from '../chat-history'
+import { messageID, OlderMessages, useChatReading, type useChatHistory } from '../chat-history'
+import type { PanelInputEvent } from '../panel-motion'
 import { ChatModel, type ChatPresentation, type ChatReadingPosition, type DisplayMessage } from '../state/chat'
 import { ChatMarkdown } from './chat-markdown'
-import { ActionCardView } from './action-card-view'
 import { ChoiceCard, type ClarifyAnswer } from './choice-card'
-import { CollapsedWorkView, ActivityView, activitySteps, useActivityLabel } from './collapsed-work-view'
-import type { ActionCardDecision } from './room-api'
+import { ActivityView } from './collapsed-work-view'
 import { downloadMarkdownString, selectionToMarkdown } from './export-markdown'
-import { PeerExchangeCard, pairPeerExchanges } from './peer-exchange-card'
-import { LinkedExecutionCard } from './linked-execution-card'
-import { MessageActions } from './message-actions'
+import { pairPeerExchanges } from './peer-exchange-card'
+import type { ActionCardDecision } from './room-api'
 import { captureSelectedMessages, type CaptureSelectedMessagesResult } from './select-screenshot'
 import { SelectShareLightbox } from './select-share-lightbox'
+import { CommittedMessage, LiveMessage, MessageIdentity, type InlineEditControls } from './timeline-message'
+import {
+  continuesPrevious,
+  interleavedReplySources,
+  placeLinkedExecutions,
+  resolveCommittedMessageEditState,
+  timelineTurns,
+  uncommittedStreams,
+  unloadedPendingQuestions,
+  type TimelineActions
+} from './timeline-projections'
+import { RevealInTimeline } from './timeline-scroll'
 import { TurnRail } from './turn-rail'
-import { avatarInitials, ChatAvatar } from './chat-avatar'
-import type { PanelInputEvent } from '../panel-motion'
-import type { ExecutionStep, InspectorTarget, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+import type { InspectorTarget, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+import { shouldYieldBacktrackToOverlay, useTimelineBacktrack } from './use-timeline-backtrack'
 
 // Leaves room above the first unread message for the divider that introduces it.
 const UNREAD_DIVIDER_OFFSET = 48
+const EMPTY_LINKED_RUNS: LinkedExecution[] = []
 
-type TimelineActions = {
-  edit?(message: ConversationMessage): void
-  editDisabledReason?: string
-  regenerate?(message: ConversationMessage): void
+function useStableCallback<Args extends unknown[], Result>(fn: (...args: Args) => Result): (...args: Args) => Result {
+  const ref = useRef(fn)
+  useLayoutEffect(() => {
+    ref.current = fn
+  })
+  return useCallback((...args: Args) => ref.current(...args), [])
 }
-
-type PendingQuestion = ConversationDetail['pendingInteractions'][number] & { state: 'pending' }
 
 export function TurnTimeline({
   model,
   presentation,
   conversationID,
   conversationTitle,
+  detail,
   history,
   messages,
   working,
@@ -63,7 +67,11 @@ export function TurnTimeline({
   retryTime,
   activity,
   retryableMessageIDs,
+  editableMessageIDs,
   actions,
+  inlineEdit,
+  chatContainerRef,
+  onReturnFocusToComposer,
   onQuote,
   liveStreams,
   linkedRuns,
@@ -86,6 +94,7 @@ export function TurnTimeline({
   presentation: ChatPresentation
   conversationID: string
   conversationTitle?: string
+  detail?: ConversationDetail
   history: ReturnType<typeof useChatHistory>
   messages: DisplayMessage[]
   working: boolean
@@ -93,7 +102,11 @@ export function TurnTimeline({
   retryTime?: string
   activity?: PodActivity
   retryableMessageIDs: string[]
+  editableMessageIDs?: string[]
   actions?: TimelineActions
+  inlineEdit?: InlineEditControls
+  chatContainerRef?: RefObject<HTMLElement | null>
+  onReturnFocusToComposer?: () => void
   onQuote?: (text: string, message: ConversationMessage) => void
   liveStreams: TimelineLiveStream[]
   linkedRuns: LinkedExecution[]
@@ -125,29 +138,47 @@ export function TurnTimeline({
   const [shareLoading, setShareLoading] = useState(false)
   const [shareError, setShareError] = useState<string | null>(null)
   const [shareResult, setShareResult] = useState<CaptureSelectedMessagesResult | null>(null)
+  const holdScrollRef = useRef(false)
+  const activeEditTarget = model.editing.value
+  const activeInlineEditID = activeEditTarget?.kind === 'last' ? activeEditTarget.messageID : undefined
+  const holdScroll = Boolean(activeInlineEditID || model.backtrackMessageID.value)
+  useLayoutEffect(() => {
+    holdScrollRef.current = holdScroll
+  }, [holdScroll])
   const stick = useStickToBottom({
     initial: savedReading.current?.atBottom === false ? false : 'instant',
-    resize: reducedMotion ? 'instant' : 'smooth'
+    resize: reducedMotion ? 'instant' : 'smooth',
+    targetScrollTop: (target, { scrollElement }) => (holdScrollRef.current ? scrollElement.scrollTop : target)
   })
   const { scrollRef, contentRef, isAtBottom, scrollToBottom } = stick
   const messageKeys = messages.map(messageID).join('|')
   useChatReading(model, presentation, stick, messageKeys, history.jumpToMatch, savedReading.current)
-  const committed = messages.filter(item => item.type === 'committed').map(item => item.message)
-  const selectableMessages = committed.filter(msg => msg.kind !== 'notice')
+  const committed = useMemo(
+    () => messages.filter(item => item.type === 'committed').map(item => item.message),
+    [messages]
+  )
+  const selectableMessages = useMemo(() => committed.filter(msg => msg.kind !== 'notice'), [committed])
   const selecting = model.selectingMessages.value
   const selectedIDSet = new Set(model.selectedMessageIDs.value)
   const selectedMessages = selectableMessages.filter(msg => selectedIDSet.has(msg.id))
+  const timelineRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!selecting) return
+    const container = chatContainerRef?.current ?? timelineRef.current
+    if (!container) return
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+      if (shouldYieldBacktrackToOverlay(event.target, container)) return
       if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
         model.clearMessageSelection()
       }
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selecting, model])
+    container.addEventListener('keydown', onKeyDown)
+    return () => container.removeEventListener('keydown', onKeyDown)
+  }, [selecting, chatContainerRef, model])
 
   const openShareCard = async () => {
     const container = contentRef.current
@@ -169,8 +200,11 @@ export function TurnTimeline({
       setShareLoading(false)
     }
   }
-  const latestReply = committed.findLast(message => message.authorType === 'agent' && message.kind === 'message')
-  const turns = timelineTurns(committed)
+  const latestReply = useMemo(
+    () => committed.findLast(message => message.authorType === 'agent' && message.kind === 'message'),
+    [committed]
+  )
+  const turns = useMemo(() => timelineTurns(committed), [committed])
   const unloadedQuestions = unloadedPendingQuestions(pendingInteractions, committed)
   const canAnswerAgent = (uid: string | null) => !!onAnswer && canAnswer(uid)
   const directory = useQuery(agentsQuery)
@@ -182,11 +216,21 @@ export function TurnTimeline({
         canAnswerAgent(message.authorUID ?? null)
     )?.id ?? unloadedQuestions.findLast(question => canAnswerAgent(question.agentUID ?? null))?.messageID
   const activeStreams = uncommittedStreams(committed, liveStreams)
-  const replySources = interleavedReplySources(committed)
+  const replySources = useMemo(() => interleavedReplySources(committed), [committed])
   // A colleague's reply joins the delegation row it answers instead of appearing as a second card.
-  const peerExchanges = pairPeerExchanges(committed as TimelineMessage[])
-  const committedByID = new Map(committed.map(message => [message.id, message as TimelineMessage]))
-  const executions = placeLinkedExecutions(committed, activeStreams, linkedRuns)
+  const peerExchanges = useMemo(() => pairPeerExchanges(committed as TimelineMessage[]), [committed])
+  const committedByID = useMemo(
+    () => new Map(committed.map(message => [message.id, message as TimelineMessage])),
+    [committed]
+  )
+  const streamRoutingKey = activeStreams.map(stream => `${stream.agentUID}:${stream.signalIDs.join(',')}`).join('|')
+  const executions = useMemo(
+    () => placeLinkedExecutions(committed, activeStreams, linkedRuns),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- placeLinkedExecutions reads only agentUID and signalIDs on streams
+    [committed, streamRoutingKey, linkedRuns]
+  )
+  const retryableSet = new Set(retryableMessageIDs)
+  const memberAvatarByUID = new Map(members.map(member => [member.uid, member.avatarURL]))
   const revealElement = (element: Element) => {
     const range = document.createRange()
     range.selectNodeContents(element)
@@ -198,9 +242,39 @@ export function TurnTimeline({
     revealElement(element)
     return element
   }
+  const stableJumpToSource = useStableCallback((sourceID: string) => {
+    jumpToMessage(sourceID)?.focus({ preventScroll: true })
+  })
+  const stableEditMessage = useStableCallback((message: ConversationMessage) => actions?.edit?.(message))
+  const stableRegenerateMessage = useStableCallback((message: ConversationMessage) => actions?.regenerate?.(message))
+  const stableQuoteMessage = useStableCallback((text: string, message: ConversationMessage) => onQuote?.(text, message))
+  const stableSelectMessageID = useCallback((id: string) => model.startSelectingMessages(id), [model])
+  const stableOpenInspector = useStableCallback(
+    (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) =>
+      onOpenInspector?.(target, trigger, event)
+  )
+  const stableAnswer = useStableCallback((interactionID: string, answer: ClarifyAnswer) =>
+    onAnswer ? onAnswer(interactionID, answer) : Promise.resolve()
+  )
+  const stableResolveActionCard = useStableCallback((cardID: string, decision: ActionCardDecision) =>
+    onResolveActionCard ? onResolveActionCard(cardID, decision) : Promise.resolve()
+  )
+  const stableComposeAnswer = useStableCallback((interactionID: string, text: string) =>
+    onComposeAnswer?.(interactionID, text)
+  )
+  const backtrackID = useTimelineBacktrack({
+    containerRef: chatContainerRef,
+    fallbackRef: timelineRef,
+    scrollRef,
+    model,
+    editableMessageIDs,
+    committedByID,
+    onEdit: actions?.edit,
+    onReturnFocusToComposer
+  })
   return (
     <RevealInTimeline.Provider value={revealElement}>
-      <div className="pod-chat-history pod-chat-timeline">
+      <div ref={timelineRef} className="pod-chat-history pod-chat-timeline">
         <div
           ref={scrollRef}
           role="region"
@@ -255,50 +329,60 @@ export function TurnTimeline({
                     <div className={selecting && selectable ? 'min-w-0 flex-1' : undefined}>
                       <ErrorBoundary variant="inline" onReset={onRefresh} resetKeys={[id, item.message]}>
                         {item.type === 'committed' ? (
-                          <CommittedMessage
-                            message={item.message as TimelineMessage}
-                            conversationID={conversationID}
-                            peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
-                            peerLive={peerExchanges.latest.has(item.message.id)}
-                            onEdit={
-                              item.message.id === latestInput?.messageID &&
-                              latestInput.authorUID === viewerUID &&
-                              actions?.edit
-                                ? () => actions.edit!(item.message)
-                                : undefined
-                            }
-                            onRetry={
-                              retryableMessageIDs.includes(item.message.id) && actions?.regenerate
-                                ? () => actions.regenerate!(item.message)
-                                : undefined
-                            }
-                            onQuote={onQuote ? text => onQuote(text, item.message) : undefined}
-                            onSelectMessage={
-                              selectable ? () => model.startSelectingMessages(item.message.id) : undefined
-                            }
-                            linkedRuns={executions.messages.get(item.message.id) ?? []}
-                            showAgentOnRuns={showAgentOnRuns}
-                            activeInspector={activeInspector}
-                            onOpenInspector={onOpenInspector}
-                            replySource={replySources.get(item.message.id)}
-                            onJumpToSource={sourceID => jumpToMessage(sourceID)?.focus({ preventScroll: true })}
-                            onAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onAnswer : undefined}
-                            onResolveActionCard={onResolveActionCard}
-                            onComposeAnswer={
-                              canAnswerAgent(item.message.authorUID ?? null) ? onComposeAnswer : undefined
-                            }
-                            readOnlyReason={readOnlyReason}
-                            keyboardActive={item.message.id === lastChoice}
-                            showActions={item.message.id === latestReply?.id}
-                            editDisabledReason={actions?.editDisabledReason}
-                            avatarURL={members.find(member => member.uid === item.message.authorUID)?.avatarURL}
-                            own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
-                            queued={item.queued}
-                            continued={
-                              id !== unreadMessageID &&
-                              continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))
-                            }
-                          />
+                          (() => {
+                            const editState = resolveCommittedMessageEditState({
+                              message: item.message,
+                              actions,
+                              latestInput,
+                              viewerUID,
+                              activeEditTarget,
+                              hasInlineEditContext: Boolean(detail && inlineEdit),
+                              backtrackID
+                            })
+                            const retryable = retryableSet.has(item.message.id)
+                            const allowAnswer = canAnswerAgent(item.message.authorUID ?? null)
+                            return (
+                              <CommittedMessage
+                                model={model}
+                                detail={editState.editingInline ? detail : undefined}
+                                message={item.message as TimelineMessage}
+                                conversationID={conversationID}
+                                peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
+                                peerLive={peerExchanges.latest.has(item.message.id)}
+                                inlineEdit={editState.editingInline ? inlineEdit : undefined}
+                                canEdit={editState.canEdit}
+                                editDisabledReason={editState.editDisabledReason}
+                                editingInline={editState.editingInline}
+                                backtrackActive={editState.backtrackActive}
+                                retryable={retryable}
+                                onEditMessage={actions?.edit ? stableEditMessage : undefined}
+                                onRegenerateMessage={
+                                  retryable && actions?.regenerate ? stableRegenerateMessage : undefined
+                                }
+                                onQuoteMessage={onQuote ? stableQuoteMessage : undefined}
+                                onSelectMessageID={selectable ? stableSelectMessageID : undefined}
+                                linkedRuns={executions.messages.get(item.message.id) ?? EMPTY_LINKED_RUNS}
+                                showAgentOnRuns={showAgentOnRuns}
+                                activeInspector={activeInspector}
+                                onOpenInspector={onOpenInspector ? stableOpenInspector : undefined}
+                                replySource={replySources.get(item.message.id)}
+                                onJumpToSource={stableJumpToSource}
+                                onAnswer={allowAnswer && onAnswer ? stableAnswer : undefined}
+                                onResolveActionCard={onResolveActionCard ? stableResolveActionCard : undefined}
+                                onComposeAnswer={allowAnswer && onComposeAnswer ? stableComposeAnswer : undefined}
+                                readOnlyReason={readOnlyReason}
+                                keyboardActive={item.message.id === lastChoice}
+                                showActions={item.message.id === latestReply?.id}
+                                avatarURL={memberAvatarByUID.get(item.message.authorUID ?? '')}
+                                own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
+                                queued={item.queued}
+                                continued={
+                                  id !== unreadMessageID &&
+                                  continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))
+                                }
+                              />
+                            )
+                          })()
                         ) : (
                           <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
                             <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
@@ -468,505 +552,5 @@ export function TurnTimeline({
         )}
       </div>
     </RevealInTimeline.Provider>
-  )
-}
-
-/**
- * Who wrote a message. Your own messages and a message that continues the same author's last one keep the
- * name only for assistive technology, so the line shows only the time, on hover.
- */
-function MessageIdentity({
-  name,
-  human = false,
-  archived = false,
-  time,
-  avatarURL,
-  quiet = false
-}: {
-  name: string
-  human?: boolean
-  archived?: boolean
-  time?: string
-  avatarURL?: string | null
-  quiet?: boolean
-}) {
-  const { t, i18n } = useTranslation()
-  return (
-    <header className="pod-chat-message-identity" data-quiet={quiet || undefined}>
-      {!quiet && <ChatAvatar name={name} src={avatarURL} agent={!human} className="pod-chat-message-avatar" />}
-      <strong className={quiet ? 'sr-only' : undefined}>{name}</strong>
-      {archived && <span className="pod-chat-archived">{t('pod.chat_timeline.archived')}</span>}
-      {time && (
-        <time dateTime={time} title={new Date(time).toLocaleString(i18n.language)}>
-          {messageTime(time, i18n.language)}
-        </time>
-      )}
-    </header>
-  )
-}
-
-// A conversation can span days, so a message from before today names its day as well as its time.
-export function messageTime(value: string, locale: string, now = new Date()) {
-  const date = new Date(value)
-  const today = date.toDateString() === now.toDateString()
-  return new Intl.DateTimeFormat(locale, {
-    ...(today
-      ? {}
-      : { month: 'short', day: 'numeric', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) }),
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
-}
-
-/** Messages from one author within five minutes read as one block: the second drops its name and avatar. */
-const CONTINUATION_MS = 5 * 60_000
-
-function continuesPrevious(previous: DisplayMessage | undefined, current: DisplayMessage, hasReplySource: boolean) {
-  if (!previous || previous.type !== 'committed' || current.type !== 'committed' || hasReplySource) return false
-  const [a, b] = [previous.message, current.message]
-  return (
-    a.kind === 'message' &&
-    b.kind === 'message' &&
-    !!a.authorUID &&
-    a.authorUID === b.authorUID &&
-    Date.parse(b.createdAt) - Date.parse(a.createdAt) < CONTINUATION_MS
-  )
-}
-
-function CommittedMessage({
-  message,
-  conversationID,
-  peerReply,
-  peerLive = false,
-  onEdit,
-  onRetry,
-  onQuote,
-  onSelectMessage,
-  linkedRuns,
-  showAgentOnRuns = false,
-  activeInspector,
-  onOpenInspector,
-  replySource,
-  onJumpToSource,
-  onAnswer,
-  onResolveActionCard,
-  onComposeAnswer,
-  keyboardActive,
-  showActions,
-  editDisabledReason,
-  avatarURL,
-  own,
-  queued,
-  continued = false,
-  readOnlyReason
-}: {
-  message: TimelineMessage
-  conversationID: string
-  peerReply?: TimelineMessage
-  peerLive?: boolean
-  onEdit?: () => void
-  onRetry?: () => void
-  onQuote?: (text: string) => void
-  onSelectMessage?: () => void
-  linkedRuns: LinkedExecution[]
-  showAgentOnRuns?: boolean
-  activeInspector?: InspectorTarget | null
-  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
-  replySource?: Pick<ConversationMessage, 'id' | 'authorDisplayName' | 'text'>
-  onJumpToSource(id: string): void
-  onAnswer?: (interactionID: string, answer: ClarifyAnswer) => Promise<unknown>
-  onResolveActionCard?: (cardID: string, decision: ActionCardDecision) => Promise<unknown>
-  onComposeAnswer?: (interactionID: string, text: string) => void
-  keyboardActive: boolean
-  showActions: boolean
-  editDisabledReason?: string
-  avatarURL?: string | null
-  own: boolean
-  queued?: boolean
-  continued?: boolean
-  readOnlyReason?: string
-}) {
-  const { t, i18n } = useTranslation()
-  const pageHref = usePageHref()
-  const savedPages = usePagesMetadata(message.savedPages)
-  const rich = message.richContent
-  const human = message.authorType === 'human'
-  const name = message.authorDisplayName
-  if (message.kind === 'notice' && !rich?.execution) {
-    const label = timelineEventLabel(message, t, i18n.language)
-    return (
-      <div className="pod-chat-timeline-event">
-        <span className="pod-chat-event-avatar" aria-hidden>
-          {avatarInitials(name)}
-        </span>
-        <p title={label}>{label}</p>
-        <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString(i18n.language)}>
-          {messageTime(message.createdAt, i18n.language)}
-        </time>
-        {onRetry && <MessageActions text="" onRetry={onRetry} alwaysVisible />}
-      </div>
-    )
-  }
-  if (rich?.agent_peer_outbound) {
-    return (
-      <PeerExchangeCard
-        conversationID={conversationID}
-        peer={rich.agent_peer_outbound}
-        request={message}
-        reply={peerReply}
-        live={peerLive}
-        isActive={isPeerActive(activeInspector, rich.agent_peer_outbound.exchange_id)}
-        onOpenInspector={onOpenInspector ? (target, trigger) => onOpenInspector(target, trigger) : undefined}
-      />
-    )
-  }
-  if (rich?.agent_peer_inbound) {
-    return (
-      <PeerExchangeCard
-        conversationID={conversationID}
-        peer={rich.agent_peer_inbound}
-        reply={message}
-        live={false}
-        isActive={isPeerActive(activeInspector, rich.agent_peer_inbound.exchange_id)}
-        onOpenInspector={onOpenInspector ? (target, trigger) => onOpenInspector(target, trigger) : undefined}
-      />
-    )
-  }
-  const prompt = rich?.clarify
-  const actionCard = rich?.action_card
-  const visibleExecution = rich?.execution
-    ? {
-        ...rich.execution,
-        steps: filterPromotedExecutionSteps(rich.execution.steps, linkedRuns)
-      }
-    : undefined
-  return (
-    <article
-      className={cn(
-        'pod-chat-timeline-message',
-        human ? 'pod-chat-human-message' : 'pod-chat-agent-message',
-        own && 'pod-chat-own-message',
-        continued && 'pod-chat-continued-message'
-      )}>
-      <MessageIdentity
-        name={name}
-        human={human}
-        archived={message.authorArchived}
-        time={message.createdAt}
-        avatarURL={avatarURL}
-        quiet={own || continued || !!rich?.peer_agent_uid}
-      />
-      {queued && <span className="pod-chat-queued-badge">{t('pod.chat_timeline.queued')}</span>}
-      {replySource && (
-        <button type="button" className="pod-chat-reply-source" onClick={() => onJumpToSource(replySource.id)}>
-          <RiReplyLine aria-hidden />
-          <span>
-            {t('pod.chat_timeline.reply_source', {
-              name: replySource.authorDisplayName,
-              text: replySource.text.replace(/\s+/g, ' ').trim().slice(0, 160) || t('pod.content.attachment')
-            })}
-          </span>
-        </button>
-      )}
-      {message.links
-        .filter(link => link.quote)
-        .map(link => (
-          <blockquote key={link.id} className="pod-chat-quoted-message">
-            {link.quote}
-          </blockquote>
-        ))}
-      {visibleExecution && (
-        <CollapsedWorkView
-          execution={visibleExecution}
-          attention={prompt?.state === 'pending' || (!!actionCard && (actionCard.status ?? 'prepared') === 'prepared')}
-        />
-      )}
-      {actionCard ? (
-        <ActionCardView card={actionCard} onResolve={onResolveActionCard} />
-      ) : prompt ? (
-        <ChoiceCard
-          prompt={prompt}
-          interaction={prompt}
-          askedBy={rich?.peer_agent_uid ? name : undefined}
-          onAnswer={onAnswer}
-          onComposeAnswer={onComposeAnswer}
-          keyboardActive={keyboardActive}
-          readOnlyReason={readOnlyReason}
-        />
-      ) : (
-        message.text && (
-          <div className={human ? 'pod-chat-human-text' : undefined}>
-            <ChatMarkdown text={message.text} generated={message.authorType === 'agent'} />
-          </div>
-        )
-      )}
-      <MessageArtifacts conversationID={conversationID} message={message} />
-      {linkedRuns.map(run => (
-        <LinkedExecutionCard
-          key={`${run.kind}:${run.id}`}
-          conversationID={conversationID}
-          run={run}
-          showAgentName={showAgentOnRuns}
-          isActive={isExecutionActive(activeInspector, run)}
-          onOpenInspector={onOpenInspector}
-        />
-      ))}
-      <MessageActions
-        text={message.text}
-        onQuote={onQuote}
-        onSelectMessage={onSelectMessage}
-        onEdit={onEdit}
-        editDisabledReason={editDisabledReason}
-        onRetry={onRetry}
-        alwaysVisible={showActions || !!onRetry}
-      />
-      {savedPages.map(page => (
-        <Link key={page.id} className="pod-chat-page-pill pod-chat-saved-page" to={pageHref(page.id, page.title)}>
-          <RiFileTextLine aria-hidden />
-          {page.title || t('pod.content.untitled')}
-        </Link>
-      ))}
-    </article>
-  )
-}
-
-export function uncommittedStreams(messages: ConversationMessage[], streams: TimelineLiveStream[]) {
-  return streams.filter(
-    stream =>
-      !messages.some(
-        message => message.authorType === 'agent' && !!message.signalID && stream.signalIDs.includes(message.signalID)
-      )
-  )
-}
-
-export function timelineTurns(
-  messages: Pick<ConversationMessage, 'id' | 'kind' | 'authorType' | 'text' | 'replyToMessageID' | 'richContent'>[]
-) {
-  const turns = new Map<string, { id: string; text: string; preview?: string }>()
-  for (const message of messages) {
-    if (message.kind !== 'message') continue
-    if (message.authorType === 'human') turns.set(message.id, { id: message.id, text: message.text })
-    else if (message.authorType === 'agent' && message.text && !message.richContent?.clarify) {
-      const turn = message.replyToMessageID && turns.get(message.replyToMessageID)
-      if (turn && !turn.preview) turn.preview = message.text
-    }
-  }
-  return [...turns.values()]
-}
-
-export function interleavedReplySources(
-  messages: Pick<
-    ConversationMessage,
-    'id' | 'kind' | 'authorType' | 'authorDisplayName' | 'text' | 'replyToMessageID'
-  >[]
-) {
-  const humans = new Map<string, (typeof messages)[number]>()
-  const sources = new Map<string, Pick<ConversationMessage, 'id' | 'authorDisplayName' | 'text'>>()
-  let nearestHumanID: string | undefined
-  for (const message of messages) {
-    if (message.kind !== 'message') continue
-    if (message.authorType === 'human') {
-      humans.set(message.id, message)
-      nearestHumanID = message.id
-    } else if (message.authorType === 'agent' && message.replyToMessageID !== nearestHumanID) {
-      const source = message.replyToMessageID && humans.get(message.replyToMessageID)
-      if (source) sources.set(message.id, source)
-    }
-  }
-  return sources
-}
-
-export function collapseExecutionChains(runs: LinkedExecution[]): LinkedExecution[] {
-  const byJobID = new Map<string, LinkedExecution>()
-  for (const run of runs) {
-    if (run.kind === 'background_agent_job') byJobID.set(run.id, run)
-  }
-
-  const collapsed: LinkedExecution[] = []
-  for (const run of runs) {
-    if (run.kind === 'background_agent_job' && run.successorJobID && byJobID.has(run.successorJobID)) {
-      continue
-    }
-    if (run.kind !== 'background_agent_job' || !run.continuedFromJobID) {
-      collapsed.push(run)
-      continue
-    }
-    const chainIDs = [run.id]
-    let sourceSignalID = run.sourceSignalID
-    let sourceMessageID = run.sourceMessageID
-    let sourceToolCallID = run.sourceToolCallID
-    let cursor: string | null | undefined = run.continuedFromJobID
-    const visited = new Set<string>([run.id])
-    while (cursor && !visited.has(cursor)) {
-      visited.add(cursor)
-      chainIDs.push(cursor)
-      const prev = byJobID.get(cursor)
-      if (!prev) break
-      if (!sourceSignalID && prev.sourceSignalID) sourceSignalID = prev.sourceSignalID
-      if (!sourceMessageID && prev.sourceMessageID) sourceMessageID = prev.sourceMessageID
-      if (!sourceToolCallID && prev.sourceToolCallID) sourceToolCallID = prev.sourceToolCallID
-      cursor = prev.continuedFromJobID
-    }
-    collapsed.push({
-      ...run,
-      sourceSignalID,
-      sourceMessageID,
-      sourceToolCallID,
-      chainIDs
-    })
-  }
-  return collapsed
-}
-
-export function filterPromotedExecutionSteps(
-  steps: ExecutionStep[] | undefined,
-  linkedRuns: LinkedExecution[]
-): ExecutionStep[] {
-  if (!steps?.length || !linkedRuns.length) return steps ?? []
-  const linkedToolCallIDs = new Set(linkedRuns.map(run => run.sourceToolCallID).filter(Boolean))
-  const hasJobCard = linkedRuns.some(run => run.kind === 'background_agent_job')
-  const hasWorkflowCard = linkedRuns.some(run => run.kind === 'workflow')
-  return steps.filter(step => {
-    if (['failed', 'error'].includes(step.status)) return true
-    if (linkedToolCallIDs.has(step.id)) return false
-    if (hasJobCard && (step.tool === 'create_background_job' || step.tool === 'respawn_background_job')) {
-      return false
-    }
-    if (hasWorkflowCard && step.tool === 'workflow') return false
-    return true
-  })
-}
-
-export function isExecutionActive(inspector: InspectorTarget | null | undefined, run: LinkedExecution): boolean {
-  if (!inspector || inspector.type !== 'execution' || inspector.kind !== run.kind) return false
-  return inspector.runID === run.id || Boolean(run.chainIDs?.includes(inspector.runID))
-}
-
-export function isPeerActive(inspector: InspectorTarget | null | undefined, exchangeID: string): boolean {
-  return inspector?.type === 'peer' && inspector.exchangeID === exchangeID
-}
-
-export function placeLinkedExecutions(
-  messages: Pick<ConversationMessage, 'id' | 'kind' | 'authorType' | 'signalID' | 'richContent'>[],
-  streams: TimelineLiveStream[],
-  runs: LinkedExecution[]
-) {
-  const messageBySignal = new Map(
-    messages
-      .filter(
-        message => message.authorType === 'agent' && (message.kind === 'message' || message.richContent?.execution)
-      )
-      .map(message => [message.signalID, message.id])
-  )
-  const streamBySignal = new Map(streams.flatMap(stream => stream.signalIDs.map(id => [id, stream.agentUID] as const)))
-  const placement = {
-    messages: new Map<string, LinkedExecution[]>(),
-    streams: new Map<string, LinkedExecution[]>()
-  }
-  for (const run of collapseExecutionChains(runs)) {
-    const stream = run.sourceSignalID ? streamBySignal.get(run.sourceSignalID) : undefined
-    const reply = run.sourceSignalID ? messageBySignal.get(run.sourceSignalID) : undefined
-    const source =
-      run.sourceMessageID &&
-      messages.find(message => message.id === run.sourceMessageID && message.authorType === 'human')?.id
-    const owner = stream ?? reply ?? source
-    if (!owner) continue
-    const destination = stream ? placement.streams : placement.messages
-    destination.set(owner, [...(destination.get(owner) ?? []), run])
-  }
-  return placement
-}
-
-export function unloadedPendingQuestions(
-  interactions: ConversationDetail['pendingInteractions'],
-  messages: Pick<ConversationMessage, 'id'>[]
-) {
-  const loaded = new Set(messages.map(message => message.id))
-  return interactions.filter(
-    (question): question is PendingQuestion => question.state === 'pending' && !loaded.has(question.messageID)
-  )
-}
-
-export function timelineEventLabel(
-  message: Pick<TimelineMessage, 'richContent' | 'text'>,
-  t: TFunction,
-  locale: string
-): string {
-  const event = message.richContent?.event
-  if (!event) return message.text
-  const actor = event.actor_name
-  switch (event.type) {
-    case 'participants_added':
-      return t('pod.chat_timeline.event_participants_added', {
-        actor,
-        targets: new Intl.ListFormat(locale, { type: 'conjunction' }).format(event.targets.map(target => target.name))
-      })
-    case 'participant_removed':
-      if (event.targets.length === 1 && event.targets[0]!.uid === event.actor_uid) {
-        return t('pod.chat_timeline.event_participant_left', { actor })
-      }
-      return t('pod.chat_timeline.event_participant_removed', {
-        actor,
-        targets: new Intl.ListFormat(locale, { type: 'conjunction' }).format(event.targets.map(target => target.name))
-      })
-    case 'title_renamed':
-      return t('pod.chat_timeline.event_title_renamed', { actor, title: event.detail })
-    case 'access_scope_changed': {
-      if (event.detail !== 'participants' && event.detail !== 'anchor_page') return message.text
-      return t('pod.chat_timeline.event_access_scope_changed', {
-        actor,
-        scope: t(`pod.chat_room.scope_${event.detail}`)
-      })
-    }
-    default:
-      return message.text
-  }
-}
-
-function LiveMessage({
-  stream,
-  avatarURL,
-  conversationID,
-  linkedRuns,
-  showAgentOnRuns = false,
-  activeInspector,
-  onOpenInspector
-}: {
-  stream: TimelineLiveStream
-  avatarURL?: string | null
-  conversationID: string
-  linkedRuns: LinkedExecution[]
-  showAgentOnRuns?: boolean
-  activeInspector?: InspectorTarget | null
-  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
-}) {
-  const { t } = useTranslation()
-  const label = useActivityLabel()
-  const activeActivity = stream.activity?.state === 'active' ? stream.activity : undefined
-  const rawSteps = activeActivity ? activitySteps(activeActivity, item => label(item, true)) : []
-  const steps = filterPromotedExecutionSteps(rawSteps, linkedRuns)
-  return (
-    <article className="pod-chat-timeline-message pod-chat-agent-message" data-live-agent={stream.agentUID}>
-      <MessageIdentity name={stream.agentName || t('pod.chat_timeline.agent')} avatarURL={avatarURL} />
-      <CollapsedWorkView
-        active
-        phaseLabel={!stream.thinkingSummary && activeActivity?.phase ? label(activeActivity.phase) : undefined}
-        execution={{
-          thinking_summary: stream.thinkingSummary,
-          steps
-        }}
-      />
-      {stream.text && <ChatMarkdown text={stream.text} generated streaming className="pod-chat-live-text" />}
-      {linkedRuns.map(run => (
-        <LinkedExecutionCard
-          key={`${run.kind}:${run.id}`}
-          conversationID={conversationID}
-          run={run}
-          showAgentName={showAgentOnRuns}
-          isActive={isExecutionActive(activeInspector, run)}
-          onOpenInspector={onOpenInspector}
-        />
-      ))}
-    </article>
   )
 }

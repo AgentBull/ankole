@@ -17,7 +17,12 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   @doc "Requests cancellation inside the `request_stop` action of the Job."
   @spec request_stop_in_tx(pos_integer(), map()) ::
-          {:ok, %{job: Job.t(), turn: JobTurnRef.t() | nil}}
+          {:ok,
+           %{
+             required(:job) => Job.t(),
+             required(:turn) => JobTurnRef.t() | nil,
+             optional(:noop) => true
+           }}
           | {:error, term()}
   def request_stop_in_tx(job_id, attrs)
       when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
@@ -31,19 +36,27 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
          :ok <- Lifecycle.lock_agent_slots(agent_uid),
-         %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid),
-         :ok <- Turns.lock_active_for_current_attempt_in_tx(job) do
-      {:ok, job_sessions(job), fn -> request_stop_locked_in_tx(job, attrs, now()) end}
+         %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid) do
+      prepare_stop_locked_in_tx(job, attrs)
     else
       nil -> {:error, :job_not_found}
       {:error, _} = error -> error
     end
   end
 
+  @doc false
+  def prepare_stop_locked_in_tx(%Job{} = job, attrs) do
+    attrs = Attrs.normalize(attrs)
+
+    with :ok <- Turns.lock_active_for_current_attempt_in_tx(job) do
+      {:ok, job_sessions(job), fn -> request_stop_locked_in_tx(job, attrs, now()) end}
+    end
+  end
+
   defp request_stop_locked_in_tx(%Job{} = job, attrs, now) do
     cond do
       job.status in Job.terminal_statuses() ->
-        {:ok, %{job: job, turn: nil}}
+        {:ok, %{job: job, turn: nil, noop: true}}
 
       job.status in [:queued, :waiting_on_user] ->
         with {:ok, job} <- stop_without_live_turn(job, attrs, now),
@@ -220,6 +233,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
          {:ok, request_id} <- require_source_tool_call_id(attrs),
          {:ok, message} <- require_message(Map.get(attrs, "message")),
+         :ok <- Lifecycle.lock_agent_slots(agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid),
          :ok <- ensure_messageable(job) do
       {:ok, job_sessions(job),

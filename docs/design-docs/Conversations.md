@@ -451,12 +451,15 @@ control plane routes live jobs to `BackgroundAgentJobs.steer_from_client` and
 respawns terminal jobs without an existing successor in the same workspace under
 inherited Human work authorization.
 
-Room detail also exposes two room-wide views that apply the same access and
-browser projection rules as timeline messages: `artifacts` lists visible saved
-Page IDs and attachment groups (keyed by source Message ID across all
-non-withdrawn messages up to the room's sequence high water, regardless of the
-loaded timeline slice), and `pendingInteractions` lists each Agent's latest open
-Clarify question and durable checkpoint state.
+Room detail also exposes room-wide and window-scoped views that apply the same
+access and browser projection rules as timeline messages: `artifacts` lists
+visible saved Page IDs and attachment groups (keyed by source Message ID across
+all non-withdrawn messages up to the room's sequence high water, regardless of
+the loaded timeline slice), `pendingInteractions` lists each Agent's latest open
+Clarify question and durable checkpoint state, and `editableInputs` lists the
+viewer's non-withdrawn Human messages in the loaded window with their addressed
+`agentUIDs` and whether a later Human participant message supersedes editing
+(`supersededByParticipant`).
 
 The embedded Assistant panel binds a private personal-assistant conversation to
 the current Page through `page_id`. The Human can also open that conversation
@@ -733,18 +736,34 @@ overrides:
   sending, answering, and retrying all require an active, callable target Agent
   (edits retain their saved target Agent, and Clarify answers target the asking
   Agent).
-- **Queue management:** Newly sent messages enter the target Agent's bounded,
-  scrollable queue with single-line previews and controls to reorder, **Steer**
-  into the active turn, edit, delete, or **Continue** a paused queue. **Take
-  back** pulls a queued item's text, attachments, Page links, and Human mentions
-  back into the composer (targeting that Agent's queue when the composer was
-  empty without re-addressing other Agents, or appending when a draft already
-  exists). In a single-Human room, unadmitted queued items appear only in the
-  queue tray until a subsequent Agent reply commits (after which they appear in
-  the timeline with a queued badge); in multi-Human rooms, queued items appear
-  in the timeline immediately so teammates can see them. The attachment count
-  opens the queued files for preview and download without taking the message
-  back into the composer.
+- **Follow-up steering and queue management:** When every addressed Agent is
+  idle, pressing `Enter` sends with `steer` delivery so the message enters the
+  conversation timeline directly, shows live reply progress immediately, and
+  starts a turn (even if a paused follow-up queue holds deferred items, in which
+  case `Command+Shift+Enter` / `Control+Shift+Enter` or the send-options menu
+  appends a `queue` item instead). While an addressed Agent turn is active,
+  `Enter` follows the user's follow-up preference (`steer` by default, persisted
+  in browser storage and switchable to `queue` from the send-options menu beside
+  the send button), and `Command+Shift+Enter` / `Control+Shift+Enter` sends the
+  alternate mode (`queue` when `Enter` steers, or `steer` when `Enter` queues);
+  when the room's selected model profile differs from an addressed Agent's
+  active-turn profile, follow-ups automatically use `queue` delivery. The
+  bounded, scrollable queue tray renders only when at least one Agent holds
+  `queue`-mode items, providing single-line previews and controls to reorder,
+  **Steer** into the active turn (or **Send** immediately from an idle paused
+  queue, moving the item into the timeline ahead of deferred `queue` items),
+  edit, retract, or **Continue** a paused queue. **Take back** (or `Alt+ArrowUp`
+  in an empty composer, which pops the viewer's most recent `queue` item) pulls
+  a queued item's text, attachments, Page links, and Human mentions back into
+  the composer (targeting that Agent's queue when the composer was empty without
+  re-addressing other Agents, or appending when a draft already exists). In a
+  single-Human room, unadmitted `queue` items appear only in the queue tray
+  until a subsequent Agent reply commits (after which they appear in the
+  timeline with a queued badge), whereas `steer` messages stay directly in the
+  timeline; in multi-Human rooms, queued items appear in the timeline
+  immediately so teammates can see them. The attachment count opens the queued
+  files for preview and download without taking the message back into the
+  composer.
 - **Reply suggestion:** After an Agent reply in a room whose only human
   participant is the viewer, Pod shows one suggested next message as inline
   ghost text with a trailing `⇥ Tab` keycap inside the empty composer once the
@@ -760,18 +779,32 @@ overrides:
   or new work hides it, and after the Human passes over three suggestions in a
   row Pod stops showing suggestions in that room for the rest of the visit.
   Ankole stores no suggestion.
-- **Editing and conflict handling:** Only one composer edit is active at a time
-  until saved or canceled, and `ArrowUp` in an empty composer opens the Human's
-  latest editable queued item or latest eligible timeline message. A queued
-  message addressed to multiple Agents remains editable only before any target
-  Agent admits it (updating text, links, and Human mentions while keeping Agent
-  targets fixed; once admitted or completed, multi-Agent messages require a new
-  correction message). Saving checks the Agent's queue comparison token: on
-  conflict, the composer keeps the local draft while letting the user inspect
-  and explicitly load the server version (including reference-only changes).
-  While a message is being sent, the Human can continue editing the draft or
-  select another quotation. Confirmation clears only the captured draft if its
-  text, references, and mentions still match; later edits remain available.
+- **Editing and conflict handling:** Editing a queued item (`action: "edit"`)
+  loads that item into the composer, whereas editing a committed timeline
+  message (`action: "edit_last"`) opens an inline editor directly inside that
+  message bubble so the bottom composer preserves its unsent draft, Page
+  references, mentions, attachments, and Clarify answer target untouched. Any of
+  the viewer's non-withdrawn, single-Agent timeline messages without a later
+  message from another Human participant can be edited inline—including while
+  the target Agent is actively streaming or holds queued follow-ups—and opening
+  or canceling the inline editor leaves active work undisturbed. From an empty
+  composer, `ArrowUp` edits the viewer's latest queued item or opens inline edit
+  on the latest editable timeline message, and pressing `Escape` twice within
+  600 ms enters timeline backtrack mode (`ArrowUp` and `ArrowDown` move across
+  editable Human messages, `Enter` opens the inline editor, and `Escape`
+  returns focus to the composer without dismissing an enclosing mobile `PageChat`
+  `Sheet`, while inner dialogs, menus, and listboxes keep their own keyboard
+  handling). A queued message addressed to multiple Agents
+  remains editable only before any target Agent admits it (updating text, links,
+  and Human mentions while keeping Agent targets fixed; committed Human-only,
+  multi-Agent, or teammate-superseded messages explain why inline editing is
+  unavailable). Saving checks the Agent's queue comparison token and baseline
+  snapshot: on conflict, the editor keeps local changes while letting the user
+  inspect and explicitly load the server version (including reference-only or
+  mention-only changes). While a new message is being sent, the Human can
+  continue editing the composer draft or select another quotation; confirmation
+  clears only the captured draft when its text, references, and mentions still
+  match.
 
 The resizable Assistant panel shows the current Human's private conversation
 with their personal assistant, Page context controls, and a link to the full
@@ -841,10 +874,14 @@ frames never trigger a full room reload.
 `Conversations.Events` broadcasts public message commits, room deletions, and
 Agent availability changes, while `Sessions.Events` broadcasts Signal intake,
 queue edits, admissions, retries, and terminal turn completions (`turn_completed`
-replaces a separate status broadcast on commit). Both map to the SSE
-`conversation` event (note that on external channels, `turn_completed` proves
-only that Delivery intents committed; public external messages appear once the
-IM provider confirms delivery).
+replaces a separate status broadcast on commit). Once a native conversation
+write or queue mutation commits in PostgreSQL, `Sessions.notify_committed`
+notifies Oban's `conversations` queue immediately and sends `:reconcile_inbox`
+to any live registered `Driver` for the affected Sessions so new turns, mid-turn
+steers, and stops take effect without waiting on periodic queue staging. Both
+event streams map to the SSE `conversation` event (note that on external
+channels, `turn_completed` proves only that Delivery intents committed; public
+external messages appear once the IM provider confirms delivery).
 
 Every live Response frame carries `signalIDs` (drawn from the primary Signal and
 steered Signals recorded in `session_round_states`, never guessed from cached
@@ -868,29 +905,55 @@ field before domain code runs) and check the Agent's queue comparison token
 under the Session lock; replaying an already committed retry command ID is
 idempotent and neither duplicates the Signal nor re-snapshots model preferences:
 
-- **`Stop`** cancels the active reply and pauses unadmitted queued inputs
-  (including unapplied steers); even if no turn is currently running, `Stop`
-  consumes the command and leaves the queue paused across page refreshes until
-  **Continue** resumes the queue or **Steer** releases one specific item.
+- **`Stop`** cancels the active reply and converts any unadmitted inputs
+  (including unapplied steers) to paused `queue` items: when unadmitted inputs
+  remain or when `Stop` is issued explicitly while no turn is active, the
+  Agent's queue stays paused across page refreshes until **Continue** resumes it,
+  **Steer** releases or drains the remaining `queue` items, or **Take back**
+  retracts the last `queue` item; stopping an active turn with an empty queue
+  cancels that turn while leaving subsequent follow-ups unpaused.
 - **Stale queue edits** keep the user's draft; refreshing adopts the new
   comparison token automatically only when the server's saved text still matches
   the baseline, requiring an explicit user choice otherwise.
-- **Last-turn edit and retry** delegate to `Commands` and `ModelHistory`:
-  editing a single-target Human message reuses its persisted Signal target
-  regardless of the current composer selector (whereas Human-only or
-  multi-target messages require posting a correction), and **Retry** appears on
-  the latest eligible failed reply (`Stop` and preflight notices are not
-  retryable), capturing the room's current model preference while keeping
-  already committed Pod Page, Base, and Applet writes intact. Native edits,
+- **Timeline edit and retry** coordinate `Conversations.NativeEdit`, `Commands`,
+  and `ModelHistory`: editing a single-target Human message (`edit_last`)
+  reuses its persisted Signal target regardless of the current composer selector
+  and rejects edits superseded by a later message from another Human participant
+  with `reply_unavailable` (Human-only and multi-target messages likewise
+  require posting a correction). Inside one lock-ordered transaction,
+  `NativeEdit` locks the Principal catalog, Agent Workflow and Background Job
+  slot tables, candidate runs and active job turns, Session advisory locks, and
+  Session workspace rows before verifying room topology, queue versions, and
+  message compare-and-swap tokens. Once those checks pass, `NativeEdit` cancels
+  running Workflows, Background Agent Jobs (including continuation successors
+  linked through `continued_from_job_id`), and delegated peer exchanges spawned
+  from the reverted Signals, fences participating Session workspaces so live
+  `Driver` streams, in-flight tool tasks, and open Worker workspaces close
+  immediately, and supersedes pending Clarify and ActionCard interactions from
+  the reverted Signals. It then marks the edited Signal and later Signals
+  `removed` (withdrawing later Human messages while keeping their UUIDs reserved
+  against late `POST` replay), deletes committed Agent replies and notices from
+  the edited message onward, retracts `:generating` and `:complete` AIGateway
+  Responses (including tool journals and `:checkpoint` rows) back to the
+  reverted Signals, clears any paused queue flag on the target Agent, updates
+  the message in place (clearing structured Clarify `interaction_answer` fields
+  whenever the edited text differs), and accepts a fresh
+  `conversation.message.addressed` Signal (`id: "edit:" <> command_id`) using
+  the room's current model preference. **Retry** (`regenerate`) appears on the latest eligible reply or
+  dead-letter notice (`Stop` and preflight notices are not retryable), replacing
+  only that final reply while keeping already committed Pod Page, Base, and
+  Applet writes intact across both edits and retries. Native edits,
   regenerations, and logical queue removals invoke the message-change hook in
   the same transaction (expiring derived Brain Facts and rewinding the Brain
-  learning cursor) while keeping removed message UUIDs reserved for idempotency
-  and filtering them out of timeline reads, model context, and Brain extraction.
+  learning cursor) and filter withdrawn messages out of timeline reads, model
+  context, and Brain extraction.
 
 Timeline history reads return up to 500 visible messages alongside an
-earlier-page cursor and the exact covered `seq` interval, letting the browser
-splice older pages into its local cache without dropping newer messages or
-resurrecting withdrawn ones.
+earlier-page cursor, `editableInputs` for that window, and the exact covered
+`seq` interval, letting the browser splice older pages into its local cache,
+retain older `editableInputs` outside a refreshed slice, and mark earlier viewer
+messages superseded whenever a newer slice includes a message from another Human
+participant.
 
 ## Clarify, Action Cards, and Execution History
 

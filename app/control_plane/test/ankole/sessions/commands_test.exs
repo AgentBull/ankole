@@ -476,6 +476,167 @@ defmodule Ankole.Sessions.CommandsTest do
       assert %DateTime{} = Repo.get!(Signal, compress_event.id).completed_at
     end
 
+    test "/compress compacts screenshot-bearing conversations and the next turn completes" do
+      %{principal: agent} = agent_fixture()
+      compact_below(1)
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      test_pid = self()
+
+      base_url =
+        Ankole.AIGatewayCase.start_upstream_server(fn request ->
+          send(test_pid, {:gateway_request, request})
+
+          case request.body["model"] do
+            "gpt-compress" ->
+              {:sse, 200,
+               Ankole.AIGatewayCase.openai_response_stream_events(
+                 "resp_manual_screenshot_summary",
+                 "gpt-compress",
+                 "## Active Task\nCompressed game session with earlier screenshots.",
+                 %{"total_tokens" => 95}
+               )}
+
+            "gpt-5.6" ->
+              {:sse, 200,
+               Ankole.AIGatewayCase.openai_response_stream_events(
+                 "resp_post_compress_turn",
+                 "gpt-5.6",
+                 "Continuing game edits after /compress.",
+                 %{"input_tokens" => 4_200, "output_tokens" => 180, "total_tokens" => 4_380}
+               )}
+          end
+        end)
+
+      provider_id = "compress-screenshots-" <> Ecto.UUID.generate()
+
+      assert {:ok, _provider} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: provider_id,
+                 provider_kind: "openai",
+                 base_url: "#{base_url}/v1",
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-compress"}]
+                 }
+               })
+
+      assert {:ok, _light} =
+               ModelProfiles.put_model_profile(agent.uid, "light", %{
+                 provider_id: provider_id,
+                 model: "gpt-compress"
+               })
+
+      assert {:ok, _primary} =
+               ModelProfiles.put_model_profile(agent.uid, "primary", %{
+                 provider_id: provider_id,
+                 model: "gpt-5.6"
+               })
+
+      {:ok, conversation} =
+        Ankole.AIGatewayCase.ensure_conversation(
+          agent.uid,
+          Ankole.Sessions.Key.conversation(
+            Ankole.ExternalConversationsFixtures.external_conversation_id("lark:chat:group-a")
+          )
+        )
+
+      prefix_shot =
+        "data:image/webp;base64,MANUAL_PREFIX_SHOT_" <> String.duplicate("QUJD", 50_000)
+
+      tail_shot =
+        "data:image/webp;base64,MANUAL_TAIL_SHOT_" <> String.duplicate("WFla", 50_000)
+
+      old =
+        insert_complete_message!(
+          agent.uid,
+          conversation.id,
+          nil,
+          [
+            %{
+              "role" => "user",
+              "content" => [
+                %{"type" => "input_text", "text" => "Verify level 2 dodgeball"},
+                %{"type" => "input_image", "image_url" => prefix_shot}
+              ]
+            },
+            %{
+              "type" => "message",
+              "role" => "assistant",
+              "content" => [%{"type" => "output_text", "text" => "Screenshot verified"}]
+            }
+          ]
+        )
+
+      tail =
+        insert_complete_message!(
+          agent.uid,
+          conversation.id,
+          old.id,
+          [
+            %{
+              "role" => "user",
+              "content" => [
+                %{"type" => "input_text", "text" => "Latest game state"},
+                %{"type" => "input_image", "image_url" => tail_shot}
+              ]
+            }
+          ]
+        )
+
+      assert {:ok, %{signal: compress_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/compress", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok,
+              %{
+                status: :command_consumed,
+                feedback: "Conversation compressed.",
+                message: %Message{} = compaction
+              }} =
+               Commands.process(
+                 %{agent_uid: agent.uid, session_id: compress_event.session_id},
+                 compress_event
+               )
+
+      assert_receive {:gateway_request, summary_request}
+      refute Ankole.JSON.encode!(summary_request.body["input"]) =~ "MANUAL_PREFIX_SHOT_"
+      assert compaction.type == :checkpoint
+      assert compaction.previous_message_id == tail.id
+
+      artifact = Repo.get!(CompactionArtifact, compaction.id)
+      artifact_output = Ankole.JSON.encode!(artifact.content["output"])
+      refute artifact_output =~ "MANUAL_PREFIX_SHOT_"
+      assert artifact_output =~ "[input_image omitted]"
+      assert artifact_output =~ "MANUAL_TAIL_SHOT_"
+
+      assert {:ok, next_stream, next_meta} =
+               Ankole.AIGateway.open_websocket_stream(agent.uid, %{
+                 "model" => "primary",
+                 "store" => true,
+                 "conversation" => "conv_#{conversation.id}",
+                 "input" => [
+                   %{
+                     "type" => "message",
+                     "role" => "user",
+                     "content" => [%{"type" => "input_text", "text" => "Add combo score"}]
+                   }
+                 ],
+                 "metadata" => %{"signal_id" => Ankole.Ecto.UUIDv7.autogenerate()}
+               })
+
+      assert {:ok, %{terminal_response: next_turn_body}, _meta} =
+               Ankole.AIGateway.ResponseStream.await_terminal(next_stream, next_meta, 5_000)
+
+      assert next_turn_body["status"] == "completed"
+      assert_receive {:gateway_request, main_request}
+      main_input = Ankole.JSON.encode!(main_request.body["input"])
+      refute main_input =~ "MANUAL_PREFIX_SHOT_"
+      assert main_input =~ "MANUAL_TAIL_SHOT_"
+    end
+
     test "/compress consumes the command when there is no compactable prefix" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")

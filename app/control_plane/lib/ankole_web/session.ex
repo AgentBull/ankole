@@ -227,6 +227,9 @@ defmodule AnkoleWeb.Session do
       {"GET", ["api", "v2", "pod", "metadata", "files", "content"]} ->
         parameter_authentication(conn)
 
+      {"GET", ["api", "v2", "pod", "avatars", _key]} ->
+        parameter_authentication(conn)
+
       {"GET", ["api", "v2", "pod", "conversations", _id, "attachments", _message_id]} ->
         parameter_authentication(conn)
 

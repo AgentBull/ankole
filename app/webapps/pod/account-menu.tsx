@@ -23,7 +23,7 @@ import {
   RiUser3Line
 } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from '@tanstack/react-router'
 import { activateBrowserAccount, browserSession } from '../common/api/generated/sdk.gen'
@@ -34,8 +34,31 @@ import { endAccountSession, endBrowserSession } from '../common/browser-session'
 import { signInMethodLabel } from '../common/sign-in-method'
 import { requestErrorMessage } from '../common/request-errors'
 import { avatarInitials } from './avatar-initials'
+import { currentProfileAvatarContext, profileAvatarURL, type ProfileAvatarContext } from './native-transfers'
 
 const initial = avatarInitials
+
+function SpaceMark({
+  name,
+  avatarURL,
+  context
+}: {
+  name: string
+  avatarURL?: string | null
+  context: ProfileAvatarContext
+}) {
+  const [failedSource, setFailedSource] = useState<string>()
+  const source = profileAvatarURL(avatarURL, context)
+  return (
+    <span aria-hidden className="pod-account-mark overflow-hidden">
+      {source && failedSource !== source ? (
+        <img src={source} alt="" className="size-full object-cover" onError={() => setFailedSource(source)} />
+      ) : (
+        initial(name)
+      )}
+    </span>
+  )
+}
 
 /**
  * The person and organization of this document, other accounts that this browser has proved,
@@ -75,6 +98,10 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
   const tenantName = data?.tenant?.displayName ?? ''
   const current = (account: BrowserAccount) =>
     account.tenant.id === podID() && account.principalUID === data?.principalUID
+  const currentAccount = data?.accounts.find(current)
+  const currentAvatarContext: ProfileAvatarContext = currentAccount
+    ? { podURL: currentAccount.podURL, authenticationRef: currentAccount.authenticationRef }
+    : currentProfileAvatarContext()
   const returnTo = encodeURIComponent(location.href)
   return (
     <DropdownMenu onOpenChange={open => open && void session.refetch()}>
@@ -85,9 +112,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
             ? t('pod.sidebar.account_menu', { name, tenant: tenantName })
             : t('pod.sidebar.account_menu_name', { name })
         }>
-        <span aria-hidden className="pod-account-mark">
-          {initial(tenantName || name)}
-        </span>
+        <SpaceMark name={tenantName || name} avatarURL={data?.tenant?.avatarURL} context={currentAvatarContext} />
         <span className="pod-account-text">
           <span className="truncate">{tenantName || name}</span>
           {tenantName && <small className="truncate">{name}</small>}
@@ -108,9 +133,11 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
                   disabled={activate.isPending}
                   aria-current={selected ? 'true' : undefined}
                   onClick={() => (selected ? undefined : activate.mutate(account))}>
-                  <span aria-hidden className="pod-account-mark">
-                    {initial(account.tenant.displayName)}
-                  </span>
+                  <SpaceMark
+                    name={account.tenant.displayName}
+                    avatarURL={account.tenant.avatarURL}
+                    context={{ podURL: account.podURL, authenticationRef: account.authenticationRef }}
+                  />
                   <span className="pod-account-text">
                     <span className="truncate">{account.tenant.displayName}</span>
                     <small className="truncate">

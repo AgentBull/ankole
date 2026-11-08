@@ -15,6 +15,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
 
   defstruct subject_uid: nil,
             message_id: nil,
+            persist_artifacts?: true,
             pending_completed: %{},
             persisted_image_ids: %{},
             response: nil,
@@ -24,8 +25,9 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
   @type t :: %__MODULE__{
           subject_uid: String.t(),
           message_id: String.t() | nil,
+          persist_artifacts?: boolean(),
           pending_completed: %{optional(String.t()) => map()},
-          persisted_image_ids: %{optional(String.t()) => true},
+          persisted_image_ids: %{optional(String.t()) => map()},
           response: map() | nil,
           output_items: %{optional(non_neg_integer()) => map()},
           last_public_sequence: integer()
@@ -39,15 +41,23 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
   def new(subject_uid, opts \\ []) do
     %__MODULE__{
       subject_uid: subject_uid,
-      message_id: Keyword.get(opts, :message_id)
+      message_id: Keyword.get(opts, :message_id),
+      persist_artifacts?: Keyword.get(opts, :persist_artifacts?, true)
     }
   end
 
   @spec persist_response(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def persist_response(subject_uid, response, opts \\ []) when is_map(response) do
-    case Repo.transact_top_level(fn ->
-           persist_output_items(subject_uid, Map.get(response, "output", []), opts)
-         end) do
+    result =
+      if Keyword.get(opts, :persist_artifacts?, true) do
+        Repo.transact_top_level(fn ->
+          persist_output_items(subject_uid, Map.get(response, "output", []), opts)
+        end)
+      else
+        persist_output_items(subject_uid, Map.get(response, "output", []), opts)
+      end
+
+    case result do
       {:ok, persisted} -> {:ok, Map.put(response, "output", persisted)}
       {:error, reason} -> {:error, Error.normalize_persistence(reason)}
     end
@@ -123,6 +133,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
             fail_completed_item(state, item, :unpersisted_completed_image)
 
           true ->
+            event = rewrite_terminal_event(state, event)
             {:ok, remember_public_event(state, event), [event]}
         end
 
@@ -171,11 +182,18 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
        when is_binary(result) do
     mime_type = Map.get(item, "mime_type", Keyword.get(opts, :mime_type))
 
-    with {:ok, _artifact} <-
-           Artifacts.persist_generated_image(subject_uid, id, result, mime_type,
-             message_id: Keyword.get(opts, :message_id)
-           ) do
-      {:ok, Map.drop(item, ["mime_type", "partial_images"])}
+    if Keyword.get(opts, :persist_artifacts?, true) do
+      with {:ok, _artifact} <-
+             Artifacts.persist_generated_image(subject_uid, id, result, mime_type,
+               message_id: Keyword.get(opts, :message_id)
+             ) do
+        {:ok, Map.drop(item, ["mime_type", "partial_images"])}
+      end
+    else
+      with {:ok, %{mime_type: sniffed_type}} <-
+             Artifacts.validate_generated_image(result, mime_type) do
+        {:ok, item |> Map.drop(["partial_images"]) |> Map.put("mime_type", sniffed_type)}
+      end
     end
   end
 
@@ -189,10 +207,17 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
   defp persist_output_item(_subject_uid, item, _opts), do: {:ok, item}
 
   defp persist_completed_item(state, event, item) do
-    opts = if is_binary(state.message_id), do: [message_id: state.message_id], else: []
+    opts =
+      [persist_artifacts?: state.persist_artifacts?] ++
+        if(is_binary(state.message_id), do: [message_id: state.message_id], else: [])
 
     case persist_output_item(state.subject_uid, item, opts) do
-      {:ok, _public_item} ->
+      {:ok, public_item} ->
+        event =
+          if state.persist_artifacts?,
+            do: event,
+            else: Map.put(event, "item", public_item)
+
         {completed, pending} = Map.pop(state.pending_completed, item["id"])
         events = if is_map(completed), do: [completed, event], else: [event]
 
@@ -200,7 +225,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
           %{
             state
             | pending_completed: pending,
-              persisted_image_ids: Map.put(state.persisted_image_ids, item["id"], true)
+              persisted_image_ids: Map.put(state.persisted_image_ids, item["id"], public_item)
           }
           |> remember_public_events(events)
 
@@ -260,6 +285,28 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
 
   defp list_items(items) when is_list(items), do: items
   defp list_items(_items), do: []
+
+  defp rewrite_terminal_event(%__MODULE__{persist_artifacts?: true}, event), do: event
+
+  defp rewrite_terminal_event(
+         %__MODULE__{persist_artifacts?: false, persisted_image_ids: persisted},
+         %{"response" => %{"output" => output} = response} = event
+       )
+       when is_list(output) and map_size(persisted) > 0 do
+    rewritten_output =
+      Enum.map(output, fn
+        %{"type" => "image_generation_call", "status" => "completed", "id" => item_id} = item
+        when is_binary(item_id) ->
+          Map.get(persisted, item_id, item)
+
+        item ->
+          item
+      end)
+
+    Map.put(event, "response", Map.put(response, "output", rewritten_output))
+  end
+
+  defp rewrite_terminal_event(_state, event), do: event
 
   defp remember_response(state, %{"type" => "response.created", "response" => %{} = response}),
     do: %{state | response: response}

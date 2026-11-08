@@ -15,20 +15,21 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CompactionRequests
   alias Ankole.AIGateway.Conversations
-  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
-  alias Ankole.Attrs
+  alias Ankole.AIGateway.ImageRequests
   alias Ankole.AIGateway.Models
   alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.RequestExecution
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.UniversalAIRequest
   alias Ankole.AIGateway.UsageLedger
+  alias Ankole.AIGateway.WebSearch
+  alias Ankole.Attrs
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Security.SSRFFilter
 
@@ -205,7 +206,7 @@ defmodule Ankole.AIGateway do
         result =
           prepared_request
           |> ResponseStream.project_non_streaming_response(upstream_response)
-          |> then(&persist_response(subject_uid, runtime, prepared_request, &1))
+          |> then(&persist_response(subject_uid, runtime, prepared_request, &1, opts))
 
         _observation = Observability.finish_response(observation, result)
         result
@@ -226,7 +227,7 @@ defmodule Ankole.AIGateway do
        ) do
     case ResponseStream.collect(subject_uid, request, prepared_request, opts) do
       {:ok, %{terminal_response: %{} = body}, _meta} ->
-        {:ok, gateway_response(200, body, runtime)}
+        {:ok, RequestExecution.gateway_response(200, body, runtime)}
 
       {:ok, _outcome, _meta} ->
         {:error, :response_stream_missing_terminal_response}
@@ -244,7 +245,7 @@ defmodule Ankole.AIGateway do
   end
 
   defp do_execute_response_request(runtime, prepared_request, hosted_attempt, opts) do
-    case execute_prepared_request(runtime, prepared_request, opts) do
+    case RequestExecution.execute_prepared_request(runtime, prepared_request, opts) do
       {:error, {:credential_pool_exhausted, _details} = exhausted} ->
         {:error, exhausted}
 
@@ -283,14 +284,15 @@ defmodule Ankole.AIGateway do
     {:error, error}
   end
 
-  defp persist_response(subject_uid, runtime, prepared_request, upstream_response) do
+  defp persist_response(subject_uid, runtime, prepared_request, upstream_response, opts) do
     case ImageGeneration.persist_response(
            subject_uid,
-           Map.fetch!(upstream_response, :body)
+           Map.fetch!(upstream_response, :body),
+           persist_artifacts?: Keyword.get(opts, :persist_artifacts?, true)
          ) do
       {:ok, body} ->
         body = Map.put(body, "id", "tmp_resp_#{Ankole.Ecto.UUIDv7.autogenerate()}")
-        {:ok, gateway_response(200, body, runtime)}
+        {:ok, RequestExecution.gateway_response(200, body, runtime)}
 
       {:error, error} ->
         emit_persistence_failure(runtime, prepared_request, upstream_response, error)
@@ -315,7 +317,7 @@ defmodule Ankole.AIGateway do
         provider_kind: runtime["provider_kind"],
         model: runtime["model"],
         api_resolver: prepared_request.api_resolver,
-        upstream_host: request_upstream_host(prepared_request)
+        upstream_host: RequestExecution.request_upstream_host(prepared_request)
       })
 
     FailureDiagnostics.log(
@@ -549,66 +551,6 @@ defmodule Ankole.AIGateway do
   def cancel_response_stream(stream, reason \\ "consumer_cancelled"),
     do: ResponseStream.cancel(stream, reason)
 
-  defp execute_prepared_request(runtime, prepared_request, opts) do
-    started_at = System.monotonic_time()
-
-    case CredentialAttempts.request(prepared_request, opts) do
-      {:error, reason} = error ->
-        log_request_failure(runtime, prepared_request, reason, started_at)
-        error
-
-      result ->
-        result
-    end
-  end
-
-  defp log_request_failure(runtime, prepared_request, reason, started_at) do
-    context =
-      if Map.has_key?(prepared_request, :hosted_tools),
-        do: ImageGeneration.failure_log_fields(prepared_request, reason),
-        else: %{}
-
-    FailureDiagnostics.log(
-      "ai_gateway.request_failed",
-      "AIGateway provider request failed",
-      Map.merge(context, %{
-        capability: runtime["capability"],
-        provider_id: runtime["provider_id"],
-        provider_kind: runtime["provider_kind"],
-        model: runtime["model"],
-        api_resolver: prepared_request.api_resolver,
-        upstream_host: request_upstream_host(prepared_request),
-        duration_ms:
-          System.monotonic_time()
-          |> Kernel.-(started_at)
-          |> System.convert_time_unit(:native, :millisecond)
-      }),
-      reason
-    )
-  end
-
-  defp request_upstream_host(%UniversalAIRequest{path: path, ctx: ctx}) do
-    url =
-      if String.starts_with?(path, ["https://", "http://"]) do
-        path
-      else
-        UniversalAIRequest.setting(ctx, :base_url)
-      end
-
-    case url do
-      value when is_binary(value) -> URI.parse(value).host
-      _value -> nil
-    end
-  end
-
-  defp request_upstream_host(%{upstream: %{url: url}}) when is_binary(url),
-    do: URI.parse(url).host
-
-  defp request_upstream_host(%{"upstream" => %{"url" => url}}) when is_binary(url),
-    do: URI.parse(url).host
-
-  defp request_upstream_host(_prepared_request), do: nil
-
   defp execute_web_fetch(%{"provider_kind" => "jina_reader"} = runtime, request, opts) do
     request
     |> Map.fetch!("urls")
@@ -620,7 +562,7 @@ defmodule Ankole.AIGateway do
            {:ok, prepared_request} <-
              Providers.build_web_fetch_request(request_runtime, single_url_request),
            {:ok, upstream_response} <-
-             execute_prepared_request(request_runtime, prepared_request, opts) do
+             RequestExecution.execute_prepared_request(request_runtime, prepared_request, opts) do
         {:cont, {:ok, results ++ web_fetch_results(Map.fetch!(upstream_response, :body))}}
       else
         {:error, _reason} = error -> {:halt, error}
@@ -637,7 +579,8 @@ defmodule Ankole.AIGateway do
 
   defp execute_web_fetch(runtime, request, opts) do
     with {:ok, prepared_request} <- Providers.build_web_fetch_request(runtime, request),
-         {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
+         {:ok, upstream_response} <-
+           RequestExecution.execute_prepared_request(runtime, prepared_request, opts) do
       {:ok, Map.fetch!(upstream_response, :body)}
     end
   end
@@ -662,8 +605,9 @@ defmodule Ankole.AIGateway do
     with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "embedding", request),
          :ok <- validate_embeddings_request(request),
          {:ok, prepared_request} <- Providers.build_embeddings_request(runtime, request),
-         {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
-      {:ok, gateway_response(200, Map.fetch!(upstream_response, :body), runtime)}
+         {:ok, upstream_response} <-
+           RequestExecution.execute_prepared_request(runtime, prepared_request, opts) do
+      {:ok, RequestExecution.gateway_response(200, Map.fetch!(upstream_response, :body), runtime)}
     end
   end
 
@@ -683,30 +627,32 @@ defmodule Ankole.AIGateway do
     with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "rerank", request),
          :ok <- validate_rerank_request(request),
          {:ok, prepared_request} <- Providers.build_rerank_request(runtime, request),
-         {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
-      {:ok, gateway_response(200, Map.fetch!(upstream_response, :body), runtime)}
+         {:ok, upstream_response} <-
+           RequestExecution.execute_prepared_request(runtime, prepared_request, opts) do
+      {:ok, RequestExecution.gateway_response(200, Map.fetch!(upstream_response, :body), runtime)}
     end
   end
 
   def create_rerank(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
+  Creates one generated or edited image through AIGateway, respecting the
+  Principal's `provider_hosted.image_generate` toggle.
+  """
+  @spec create_image(String.t(), map(), keyword()) ::
+          {:ok, gateway_response()} | {:error, term()}
+  def create_image(subject_uid, request, opts \\ []) do
+    ImageRequests.create_image(subject_uid, request, opts, &create_response/3)
+  end
+
+  @doc """
   Creates a normalized web search result through AIGateway.
   """
   @spec create_web_search(String.t(), map(), keyword()) ::
           {:ok, gateway_response()} | {:error, term()}
-  def create_web_search(subject_uid, request, opts \\ [])
-
-  def create_web_search(subject_uid, request, opts) when is_map(request) do
-    with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "web_search", request),
-         :ok <- validate_web_search_request(request),
-         {:ok, prepared_request} <- Providers.build_web_search_request(runtime, request),
-         {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
-      {:ok, gateway_response(200, Map.fetch!(upstream_response, :body), runtime)}
-    end
+  def create_web_search(subject_uid, request, opts \\ []) do
+    WebSearch.create_web_search(subject_uid, request, opts, &create_response/3)
   end
-
-  def create_web_search(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
   Names why one web fetch page has no usable content, or returns nil.
@@ -759,7 +705,7 @@ defmodule Ankole.AIGateway do
          :ok <- validate_web_fetch_request(request, ssrf_filter?),
          request = Attrs.normalize_external_attrs(request),
          {:ok, body} <- execute_web_fetch(runtime, request, opts) do
-      {:ok, gateway_response(200, body, runtime)}
+      {:ok, RequestExecution.gateway_response(200, body, runtime)}
     end
   end
 
@@ -847,24 +793,6 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  defp validate_web_search_request(request) do
-    request = Attrs.normalize_external_attrs(request)
-
-    cond do
-      not non_empty_string?(Map.get(request, "query")) ->
-        {:error, :missing_query}
-
-      String.length(String.trim(Map.get(request, "query"))) > 500 ->
-        {:error, :invalid_query}
-
-      not valid_web_limit?(Map.get(request, "limit")) ->
-        {:error, :invalid_limit}
-
-      true ->
-        :ok
-    end
-  end
-
   defp validate_web_fetch_request(request, ssrf_filter?) do
     request = Attrs.normalize_external_attrs(request)
 
@@ -908,10 +836,6 @@ defmodule Ankole.AIGateway do
   defp valid_top_n?(value) when is_integer(value), do: value > 0
   defp valid_top_n?(_value), do: false
 
-  defp valid_web_limit?(nil), do: true
-  defp valid_web_limit?(value) when is_integer(value), do: value >= 1 and value <= 100
-  defp valid_web_limit?(_value), do: false
-
   defp valid_extract_urls?(urls, ssrf_filter?)
        when is_list(urls) and urls != [] and length(urls) <= 5,
        do: Enum.all?(urls, &safe_web_url?(&1, ssrf_filter?))
@@ -929,21 +853,4 @@ defmodule Ankole.AIGateway do
 
   defp non_empty_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp non_empty_string?(_value), do: false
-
-  # Keeps transport response data separate from model resolution facts. The body
-  # must stay provider-contract compatible; internal trace facts belong in
-  # `model_ref`, telemetry, or durable turn metadata.
-  defp gateway_response(status, body, runtime) do
-    %{
-      status: status,
-      body: body,
-      model_ref: %{
-        "provider_id" => runtime["provider_id"],
-        "provider_kind" => runtime["provider_kind"],
-        "model" => runtime["model"],
-        "selector" => runtime["selector"],
-        "capability" => runtime["capability"]
-      }
-    }
-  end
 end

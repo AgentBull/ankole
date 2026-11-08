@@ -33,9 +33,15 @@ import type {
   CreatePodMemberData,
   CreatePodMemberErrors,
   CreatePodMemberResponses,
+  DecryptPodAdminWorkerEnvData,
+  DecryptPodAdminWorkerEnvErrors,
+  DecryptPodAdminWorkerEnvResponses,
   DeleteConversationData,
   DeleteConversationErrors,
   DeleteConversationResponses,
+  DeletePodAdminWorkerEnvData,
+  DeletePodAdminWorkerEnvErrors,
+  DeletePodAdminWorkerEnvResponses,
   DisablePodAgentData,
   DisablePodAgentErrors,
   DisablePodAgentResponses,
@@ -135,9 +141,30 @@ import type {
   PodAdminSettingsData,
   PodAdminSettingsErrors,
   PodAdminSettingsResponses,
+  PodAdminWorkerEnvsData,
+  PodAdminWorkerEnvsErrors,
+  PodAdminWorkerEnvsResponses,
   PodAgentsData,
   PodAgentsErrors,
   PodAgentsResponses,
+  PodAppletEnvDecryptData,
+  PodAppletEnvDecryptErrors,
+  PodAppletEnvDecryptResponses,
+  PodAppletEnvDeleteData,
+  PodAppletEnvDeleteErrors,
+  PodAppletEnvDeleteResponses,
+  PodAppletEnvPutData,
+  PodAppletEnvPutErrors,
+  PodAppletEnvPutResponses,
+  PodAppletEnvsData,
+  PodAppletEnvsErrors,
+  PodAppletEnvsResponses,
+  PodAppletEnvStatusData,
+  PodAppletEnvStatusErrors,
+  PodAppletEnvStatusResponses,
+  PodAppletFunctionsData,
+  PodAppletFunctionsErrors,
+  PodAppletFunctionsResponses,
   PodAppletJobActionsData,
   PodAppletJobActionsErrors,
   PodAppletJobActionsResponses,
@@ -492,6 +519,9 @@ import type {
   PostConversationMessageData,
   PostConversationMessageErrors,
   PostConversationMessageResponses,
+  PutPodAdminWorkerEnvData,
+  PutPodAdminWorkerEnvErrors,
+  PutPodAdminWorkerEnvResponses,
   ReauthenticatePodMemberData,
   ReauthenticatePodMemberErrors,
   ReauthenticatePodMemberResponses,
@@ -996,6 +1026,36 @@ export const metaSkillPutFile = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAppletEnvDelete operation on applet_env_operation resource
+ */
+export const podAppletEnvDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletEnvDeleteData, ThrowOnError>
+): RequestResult<PodAppletEnvDeleteResponses, PodAppletEnvDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodAppletEnvDeleteResponses, PodAppletEnvDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/envs/{name}',
+    ...options
+  })
+
+/**
+ * podAppletEnvPut operation on applet_env_operation resource
+ */
+export const podAppletEnvPut = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletEnvPutData, ThrowOnError>
+): RequestResult<PodAppletEnvPutResponses, PodAppletEnvPutErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodAppletEnvPutResponses, PodAppletEnvPutErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podBaseQuery operation on pod_base_operation resource
  */
 export const podBaseQuery = <ThrowOnError extends boolean = true>(
@@ -1087,6 +1147,19 @@ export const podAppletOwner = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podAppletEnvDecrypt operation on applet_env_operation resource
+ */
+export const podAppletEnvDecrypt = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletEnvDecryptData, ThrowOnError>
+): RequestResult<PodAppletEnvDecryptResponses, PodAppletEnvDecryptErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodAppletEnvDecryptResponses, PodAppletEnvDecryptErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/envs/{name}/decryptions',
+    ...options
   })
 
 /**
@@ -1442,6 +1515,19 @@ export const podPageCommentUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAppletFunctions operation on applet_env_operation resource
+ */
+export const podAppletFunctions = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletFunctionsData, ThrowOnError>
+): RequestResult<PodAppletFunctionsResponses, PodAppletFunctionsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletFunctionsResponses, PodAppletFunctionsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/functions',
+    ...options
+  })
+
+/**
  * changePodMembership operation on pod_admin_operation resource
  */
 export const changePodMembership = <ThrowOnError extends boolean = true>(
@@ -1707,6 +1793,19 @@ export const podPagePurge = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAppletEnvs operation on applet_env_operation resource
+ */
+export const podAppletEnvs = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletEnvsData, ThrowOnError>
+): RequestResult<PodAppletEnvsResponses, PodAppletEnvsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletEnvsResponses, PodAppletEnvsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/envs',
+    ...options
+  })
+
+/**
  * podFileCopy operation on pod_file_operation resource
  */
 export const podFileCopy = <ThrowOnError extends boolean = true>(
@@ -1746,6 +1845,19 @@ export const podAgents = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/agents',
+    ...options
+  })
+
+/**
+ * podAppletEnvStatus operation on applet_env_operation resource
+ */
+export const podAppletEnvStatus = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletEnvStatusData, ThrowOnError>
+): RequestResult<PodAppletEnvStatusResponses, PodAppletEnvStatusErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletEnvStatusResponses, PodAppletEnvStatusErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/envs/status',
     ...options
   })
 
@@ -2503,6 +2615,19 @@ export const podJobWebhooksCreate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAdminWorkerEnvs operation on pod_admin_operation resource
+ */
+export const podAdminWorkerEnvs = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminWorkerEnvsData, ThrowOnError>
+): RequestResult<PodAdminWorkerEnvsResponses, PodAdminWorkerEnvsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminWorkerEnvsResponses, PodAdminWorkerEnvsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/worker-envs',
+    ...options
+  })
+
+/**
  * podAdminAgents operation on pod_admin_operation resource
  */
 export const podAdminAgents = <ThrowOnError extends boolean = true>(
@@ -2633,6 +2758,41 @@ export const podConnectorTriggersDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * deletePodAdminWorkerEnv operation on pod_admin_operation resource
+ */
+export const deletePodAdminWorkerEnv = <ThrowOnError extends boolean = true>(
+  options: Options<DeletePodAdminWorkerEnvData, ThrowOnError>
+): RequestResult<DeletePodAdminWorkerEnvResponses, DeletePodAdminWorkerEnvErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    DeletePodAdminWorkerEnvResponses,
+    DeletePodAdminWorkerEnvErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * putPodAdminWorkerEnv operation on pod_admin_operation resource
+ */
+export const putPodAdminWorkerEnv = <ThrowOnError extends boolean = true>(
+  options: Options<PutPodAdminWorkerEnvData, ThrowOnError>
+): RequestResult<PutPodAdminWorkerEnvResponses, PutPodAdminWorkerEnvErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PutPodAdminWorkerEnvResponses, PutPodAdminWorkerEnvErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podKnowledgeExport operation on pod_page_operation resource
  */
 export const podKnowledgeExport = <ThrowOnError extends boolean = true>(
@@ -2750,6 +2910,24 @@ export const podJobSchedulesResume = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/resume',
+    ...options
+  })
+
+/**
+ * decryptPodAdminWorkerEnv operation on pod_admin_operation resource
+ */
+export const decryptPodAdminWorkerEnv = <ThrowOnError extends boolean = true>(
+  options: Options<DecryptPodAdminWorkerEnvData, ThrowOnError>
+): RequestResult<DecryptPodAdminWorkerEnvResponses, DecryptPodAdminWorkerEnvErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    DecryptPodAdminWorkerEnvResponses,
+    DecryptPodAdminWorkerEnvErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/worker-envs/{name}/decryptions',
     ...options
   })
 

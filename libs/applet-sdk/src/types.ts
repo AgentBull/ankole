@@ -187,7 +187,11 @@ export type EphemeralChannel = {
   subscribe(callback: () => void): () => void
   close(): void
 }
-export type PodAPI = { request<T>(path: string, method?: string, body?: unknown): Promise<T> }
+export type PodFileTarget = string | { path: string; pageID?: string; pageId?: string; sha256?: string }
+export type PodAPI = {
+  request<T>(path: string, method?: string, body?: unknown): Promise<T>
+  fileURL(target: PodFileTarget): string
+}
 export type BaseAPI = {
   schema(tableID: string): Promise<TableSchema>
   records(tableID: string, query: RecordQuery): Promise<RecordsResult>

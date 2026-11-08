@@ -26,7 +26,19 @@ defmodule Ankole.Sessions.Driver do
   end
 
   alias Ankole.{AIGateway, AgentWorkers, Conversations, Observability, Repo}
-  alias Ankole.Sessions.{Activity, Admission, Commands, Model, Presentation, Run, Turn, Worker}
+
+  alias Ankole.Sessions.{
+    Activity,
+    Admission,
+    Commands,
+    Fence,
+    Model,
+    Presentation,
+    Run,
+    Turn,
+    Worker
+  }
+
   alias Ankole.Sessions.{Queue, Revisions, ToolResult, Tools}
   alias Ankole.Sessions.Driver.Tasks
   alias Ankole.Signals.Signal
@@ -87,8 +99,12 @@ defmodule Ankole.Sessions.Driver do
       do: dispatch(data, {:worker_timeout, event})
 
   def handle_event(:info, :reconcile_inbox, _state, data) do
-    actions = Enum.map(Queue.due(data.turn.key), &{:next_event, :internal, {:inbox, &1.id}})
-    {:keep_state, data, actions}
+    if run_fenced?(data.turn.run) do
+      fenced_rebuild(data)
+    else
+      actions = Enum.map(Queue.due(data.turn.key), &{:next_event, :internal, {:inbox, &1.id}})
+      {:keep_state, data, actions}
+    end
   end
 
   def handle_event(:info, {:inbox, _} = event, _state, data), do: dispatch(data, event)
@@ -146,6 +162,11 @@ defmodule Ankole.Sessions.Driver do
   def handle_event(:info, {ref, result}, _state, data) when is_reference(ref) do
     case Map.pop(data.tasks, ref) do
       {nil, _} ->
+        if match?({:ok, %AIGateway.ResponseStream{}, _meta}, result) do
+          {:ok, stream, _meta} = result
+          AIGateway.cancel_response_stream(stream, "stale_task")
+        end
+
         :keep_state_and_data
 
       {{kind, _pid}, tasks} ->
@@ -166,6 +187,44 @@ defmodule Ankole.Sessions.Driver do
 
   def handle_event(:info, {:EXIT, _pid, :shutdown}, _state, data), do: {:stop, :shutdown, data}
   def handle_event(_type, _event, _state, _data), do: :keep_state_and_data
+
+  defp run_fenced?(nil), do: false
+
+  defp run_fenced?(run) do
+    {:ok, status} = Repo.transact_repeatable_read_only(fn -> {:ok, Fence.current_in_tx(run)} end)
+    status != :ok
+  end
+
+  defp fenced_rebuild(data) do
+    if data.turn.run, do: Run.refund(data.turn.run, :stale_driver)
+    transition(fenced_rebuild_state(data))
+  end
+
+  defp fenced_rebuild_state(data) do
+    run = data.turn.run
+    if run && data.turn.workspace_open_attempted?, do: execute({:close_worker, run}, data)
+    data = Activity.clear(data, "unavailable")
+    Presentation.stop(run)
+    if data.stream, do: AIGateway.cancel_response_stream(data.stream, "conversation_edit")
+    data = data |> finish_spans(error_type: "fenced") |> Tasks.clear_tasks()
+
+    next_data = %{
+      data
+      | turn: %Turn{key: data.turn.key},
+        stream: nil,
+        early_stream: [],
+        phase: nil
+    }
+
+    {next_data,
+     [
+       {:state_timeout, :cancel},
+       {{:timeout, :model_activity}, :cancel},
+       {{:timeout, :worker_acquire}, :cancel},
+       {{:timeout, :worker_check}, :cancel},
+       {:next_event, :internal, :rebuild}
+     ]}
+  end
 
   defp dispatch(data, event), do: transition(advance(data, event))
 
@@ -223,6 +282,15 @@ defmodule Ankole.Sessions.Driver do
   end
 
   defp execute([], data, actions), do: {data, actions}
+
+  defp execute([{:stop, :normal} | _], %{turn: %{run: %Run{}}} = data, _actions) do
+    if Ankole.Sessions.driver_pid(data.turn.key) == self() do
+      fenced_rebuild_state(data)
+    else
+      {:stop, :normal, data}
+    end
+  end
+
   defp execute([{:stop, reason} | _], data, _actions), do: {:stop, reason, data}
 
   defp execute([command | commands], data, actions) do
@@ -233,10 +301,15 @@ defmodule Ankole.Sessions.Driver do
   end
 
   # Stream handles and monitor references stay in the process adapter.
-  defp complete(data, :model, {:ok, stream, _meta}) do
+  defp complete(%{turn: %{stage: :requesting_model}} = data, :model, {:ok, stream, _meta}) do
     :ok = AIGateway.read_response_stream(stream)
     actions = Enum.map(Enum.reverse(data.early_stream), &{:next_event, :internal, &1})
     {%{data | stream: stream, early_stream: []}, actions}
+  end
+
+  defp complete(data, :model, {:ok, stream, _meta}) do
+    AIGateway.cancel_response_stream(stream, "stale_task")
+    {data, []}
   end
 
   defp complete(data, {:worker_send, _} = kind, {:ok, {:cli_context_id, context_id, receipt}}) do

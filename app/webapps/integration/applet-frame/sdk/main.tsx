@@ -17,6 +17,7 @@ import type { AppletRuntime, RouteCall, BaseRecord, RecordWrite, TableEvent } fr
 import { useTheme } from '@ankole/uikit'
 import { loadLocale } from '../../../common/i18n'
 import { InternalAPIError } from '../../../common/internal-api-client'
+import { podFileURL } from '../../../pod/content-api'
 
 await loadLocale('en-US')
 const host = document.querySelector('#applet')!
@@ -188,7 +189,8 @@ let runtime: AppletRuntime = {
   pod: {
     request: async () => {
       throw new Error('No Pod API requests in this boundary fixture')
-    }
+    },
+    fileURL: target => podFileURL('sdk-fixture', target)
   },
   theme: 'light',
   channel: () => {

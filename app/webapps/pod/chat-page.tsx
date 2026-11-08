@@ -27,6 +27,7 @@ import {
   type ConversationDetail
 } from './api'
 import { ChatModel, mergeMessages } from './state/chat'
+import { unsavedInlineEditDraft } from './state/chat-drafts'
 import { LocalChatDrafts, UnconfirmedChats, useChatDraft, useChatDrafts } from './chat-drafts'
 import { findMessageStep, firstUnreadMessageID, useChatHistory, type ChatEntry } from './chat-history'
 import type { PodCommandNavigationState } from './command-menu'
@@ -37,7 +38,8 @@ import { useConversationEvents } from './use-conversation-events'
 import { refreshConversationDetail } from './query-cache'
 import { deleteConversation } from './api/generated/sdk.gen'
 import { Composer } from './chat/composer'
-import { TurnTimeline, isExecutionActive, isPeerActive } from './chat/turn-timeline'
+import { isExecutionActive, isPeerActive } from './chat/timeline-projections'
+import { TurnTimeline } from './chat/turn-timeline'
 import { ChatHomeView, ChatHomeToolbar } from './chat/chat-home-view'
 import { RoomHeader } from './chat/room-header'
 import { SharePopover } from './chat/share-popover'
@@ -310,7 +312,18 @@ export function ChatPage({
     agentsError: !agents.isSuccess,
     personalAssistant,
     callableAgentUIDs: callableAgents.map(agent => agent.uid),
-    refresh: () => refreshConversationDetail(client, conversationID!)
+    refresh: () => refreshConversationDetail(client, conversationID!),
+    onInlineEditSettled: () => {
+      const active = document.activeElement
+      if (
+        !active ||
+        active === document.body ||
+        active === root.current ||
+        (active instanceof Element && active.closest('[data-inline-message-editor], [data-chat-message-id]'))
+      ) {
+        composerInput.current?.focus({ preventScroll: true })
+      }
+    }
   })
   const remove = useMutation({
     mutationFn: () => deleteConversation({ path: { id: conversationID! }, query: { forceStop: true } }),
@@ -342,7 +355,7 @@ export function ChatPage({
   useConversationEvents(gone ? undefined : conversationID, model, onExitConversation)
   useEffect(() => {
     if (data) {
-      model.reconcile(data.messages)
+      model.reconcile(data.messages, data.pendingInteractions)
       drafts.remember(model, data.conversation.id, data.conversation.pageID ?? undefined)
     }
   }, [data, drafts, model])
@@ -401,6 +414,7 @@ export function ChatPage({
       assistantAvailable={!!agents.data?.personalAssistantAvailable}
       directColleague={!!colleagueUID}
       agentsLoaded={agents.isSuccess}
+      agentsPending={agents.isPending}
       agentUID={agentUID}
       detail={data}
       commands={commands}
@@ -510,7 +524,11 @@ export function ChatPage({
   )
   const workingQueues = data.pendingQueues.filter(queue => queue.workStatus.state !== 'idle')
   const running = workingQueues.some(queue => queue.workStatus.state === 'running')
-  const waiting = !running && workingQueues.some(queue => queue.workStatus.state === 'queued')
+  const waiting =
+    !running &&
+    workingQueues.some(
+      queue => queue.workStatus.state === 'queued' && !queue.inputs.some(input => input.deliveryMode === 'steer')
+    )
   const retryAt = workingQueues
     .flatMap(queue =>
       queue.workStatus.state === 'retrying' && queue.workStatus.retryAt ? [queue.workStatus.retryAt] : []
@@ -561,6 +579,7 @@ export function ChatPage({
               model={model}
               presentation={pageID ? 'page' : 'standalone'}
               unreadMessageID={entry?.id === conversationID ? firstUnreadMessageID(data, entry) : undefined}
+              detail={data}
               history={history}
               messages={messages}
               viewerUID={data.conversation.viewer.uid}
@@ -575,7 +594,23 @@ export function ChatPage({
               retryableMessageIDs={data.pendingQueues.flatMap(queue =>
                 queue.retryableMessageID ? [queue.retryableMessageID] : []
               )}
+              editableMessageIDs={commands.editableMessageIDs}
               actions={commands.messageActions}
+              chatContainerRef={root}
+              inlineEdit={{
+                canSubmit: commands.canSubmitEdit,
+                recipientAvailable: commands.editRecipientAvailable,
+                submitting: commands.pendingQueueAction?.action === 'edit_last',
+                editConflict: commands.editConflict && model.editing.value?.kind === 'last',
+                submitError: commands.inlineEditError,
+                recovery: commands.recovery,
+                onSubmit: () => commands.submitEdit(),
+                onCancel: () => {
+                  commands.cancelEdit()
+                  composerInput.current?.focus({ preventScroll: true })
+                }
+              }}
+              onReturnFocusToComposer={() => composerInput.current?.focus({ preventScroll: true })}
               latestInput={data.latestInput}
               liveStreams={liveStreams}
               pendingInteractions={data.pendingInteractions}
@@ -595,7 +630,7 @@ export function ChatPage({
               onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
               onResolveActionCard={(cardID, decision) => actions.resolveActionCard.mutateAsync({ cardID, decision })}
               onComposeAnswer={
-                !model.editing.value && !actions.answer.isPending
+                model.editing.value?.kind !== 'queue' && !actions.answer.isPending
                   ? (interactionID, text) => {
                       if (model.startAnswer(interactionID, text)) {
                         composerInput.current?.focus()
@@ -615,7 +650,8 @@ export function ChatPage({
               pending={commands.pendingQueueAction}
               callableAgentUIDs={availableAgents.map(agent => agent.uid)}
               disabled={commands.disabled}
-              editing={!!model.editing.value}
+              editing={model.editing.value?.kind === 'queue'}
+              editingMessageID={model.editing.value?.kind === 'queue' ? model.editing.value.messageID : undefined}
               change={commands.changeQueue}
               edit={commands.editQueued}
               takeBack={commands.takeBackQueued}
@@ -649,9 +685,17 @@ export function ChatPage({
                 </Button>
               </div>
             ))}
-            {!!commands.queueError && <RequestFailure error={commands.queueError} />}
-            {commands.editConflict && <EditRecovery model={model} data={data} recovery={commands.recovery} />}
-            {!!commands.recovery.error && <RequestFailure error={commands.recovery.error} />}
+            {!!commands.queueError &&
+              !(
+                model.editing.value?.kind === 'last' &&
+                (commands.editConflict || commands.inlineEditError != null)
+              ) && <RequestFailure error={commands.queueError} />}
+            {commands.editConflict && model.editing.value?.kind === 'queue' && (
+              <EditRecovery model={model} data={data} recovery={commands.recovery} />
+            )}
+            {!!commands.recovery.error && model.editing.value?.kind !== 'last' && (
+              <RequestFailure error={commands.recovery.error} />
+            )}
             {agents.isError && <RequestFailure error={agents.error} retry={() => void agents.refetch()} />}
             {detail.isError && <RequestFailure error={detail.error} retry={() => void detail.refetch()} />}
             {model.connecting.value && (
@@ -791,7 +835,12 @@ function ConversationGone({
   useSignals()
   const { t } = useTranslation()
   const drafts = [
-    ...new Set([model.draft.value, model.pending.value?.text ?? '', model.editing.value?.previousDraft ?? ''])
+    ...new Set([
+      model.draft.value,
+      model.pending.value?.text ?? '',
+      model.editing.value?.previousDraft ?? '',
+      unsavedInlineEditDraft(model, true)
+    ])
   ]
     .filter(text => text.trim() !== '')
     .map((text, index) => ({ key: String(index), text }))

@@ -373,7 +373,7 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     conn = login(conn, "profile@example.org", :pod)
 
     conn = conn |> api_patch("/api/v2/pod/me", %{displayName: "Alice"})
-    assert api_response(conn, 200) == %{"displayName" => "Alice"}
+    assert api_response(conn, 200) == %{"displayName" => "Alice", "avatarURL" => nil}
     assert {:ok, %{display_name: "Alice"}} = Principals.get_principal(person.uid)
   end
 

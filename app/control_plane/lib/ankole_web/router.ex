@@ -117,6 +117,9 @@ defmodule AnkoleWeb.Router do
     get "/metadata/custom-emojis", PodMetadataController, :custom_emojis
     post "/metadata/custom-emojis", PodMetadataController, :upload_custom_emoji
     get "/metadata/files/content", PodMetadataController, :download
+    post "/me/avatar", PodAvatarController, :upload_member
+    post "/admin/settings/avatar", PodAvatarController, :upload_space
+    get "/avatars/:key", PodAvatarController, :download
     get "/pages/:id/routes/*path", PodAppletController, :get
     post "/pages/:id/routes/*path", PodAppletController, :post
     put "/pages/:id/routes/*path", PodAppletController, :put

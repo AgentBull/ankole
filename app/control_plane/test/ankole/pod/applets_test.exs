@@ -487,12 +487,17 @@ defmodule Ankole.Pod.AppletsTest do
     source = "export default {'GET /env':()=>({value:process.env.Z})}"
 
     env = %{
-      "Z" => "quoted \"value\"\n中文",
+      "A0" => "digits",
+      "Z" => "quoted \"value\"\n中文 \uE000 😀",
       "a" => "lower",
       "_KEY" => "underscore",
-      "\uE000" => "bmp",
-      "😀" => "astral"
+      "z9" => "tail"
     }
+
+    assert {:error, :invalid_manifest} =
+             publish(ctx.owner, page, 0, source, [
+               {"applet.env.json", Torque.encode!(%{"😀" => "non_posix"})}
+             ])
 
     assert {:ok, _} =
              publish(ctx.owner, page, 0, source, [{"applet.env.json", Torque.encode!(env)}])

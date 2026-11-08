@@ -67,7 +67,10 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       upstream_progress: Keyword.get(opts, :upstream_progress, UpstreamProgress.new()),
       local_response_id: "tmp_resp_#{UUIDv7.autogenerate()}",
       image_persistence:
-        ImageStreamPersistence.new(subject_uid, message_id: stateful_message_id(stateful)),
+        ImageStreamPersistence.new(subject_uid,
+          message_id: stateful_message_id(stateful),
+          persist_artifacts?: Keyword.get(opts, :persist_artifacts?, true)
+        ),
       max_tool_calls:
         MaxToolCalls.new(
           Map.get(request, "max_tool_calls"),
@@ -1442,10 +1445,14 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   # sealed inside these items. A later turn on another Provider needs to know
   # that before it replays them.
   defp terminal_response_metadata(state, _event_type, %{} = response) do
+    context_usage =
+      if is_map(response["usage"]), do: StreamLoop.context_usage(state.tool_loop)
+
     %{}
     |> maybe_put_metadata("issuer", state.issuer)
     |> maybe_put_metadata("upstream_progress", state.upstream_progress)
     |> maybe_put_metadata("usage", response["usage"])
+    |> maybe_put_metadata("context_usage", context_usage)
     |> maybe_put_metadata("tool_usage", response["tool_usage"])
     |> maybe_put_metadata("provider_model", response["model"])
     |> maybe_put_metadata("provider_metadata", provider_response_metadata(response))

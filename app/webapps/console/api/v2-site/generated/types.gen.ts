@@ -219,6 +219,10 @@ export type Tenant = {
    * An attributes object for a tenant
    */
   attributes?: {
+    /**
+     * Field included by default.
+     */
+    avatar_url?: string | null
     base_db_id: string
     /**
      * Field included by default.
@@ -2076,6 +2080,7 @@ export type ListSiteWorkerEnvsResponses = {
   200: {
     worker_envs: Array<{
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean
@@ -2112,6 +2117,7 @@ export type DeleteSiteWorkerEnvResponses = {
   200: {
     worker_env: {
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean
@@ -2157,6 +2163,7 @@ export type UpdateSiteWorkerEnvResponses = {
   200: {
     worker_env: {
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean

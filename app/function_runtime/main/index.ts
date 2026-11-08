@@ -18,6 +18,7 @@ const invocations = new Map<
   string,
   {
     code: AppletCode
+    poolKey: string
     release: (aborted?: boolean) => Promise<void>
     started: boolean
     deadline: number
@@ -47,6 +48,16 @@ async function evictWarmWorkers() {
       await entry.instance.retire()
     }
     if (!entries.length) warmWorkers.delete(key)
+  }
+}
+async function retireSupersededWarmWorkers(pagePrefix: string, activePoolKey: string) {
+  for (const [key, entries] of warmWorkers) {
+    if (!key.startsWith(pagePrefix) || key === activePoolKey) continue
+    warmWorkers.delete(key)
+    for (const entry of entries) {
+      warmHeapMb -= entry.memory
+      await entry.instance.retire()
+    }
   }
 }
 function takeWarmWorker(key: string, memory: number, timeout: number) {
@@ -291,12 +302,15 @@ Deno.serve(async (req: Request) => {
       if (!runId || !tenant || !page || !revision) return json(400, 'invalid_request')
       const timeout = Number(url.searchParams.get('timeout_ms')) || 60000
       const memory = Number(url.searchParams.get('memory_mb')) || (lane === 'action' ? 192 : 128)
-      const poolKey = `${lane}:${tenant}:${page}:${revision}`
+      const sha = url.searchParams.get('sha256') || ''
       let lease = invocations.get(runId)
       if (!lease) {
+        const pagePrefix = `${lane}:${tenant}:${page}:`
+        const poolKey = `${pagePrefix}${revision}:${sha}`
+        await retireSupersededWarmWorkers(pagePrefix, poolKey)
         await evictWarmWorkers()
         if (draining || residentBytes() >= 1792 * 1024 * 1024) return json(503, 'runtime_busy')
-        const code = codeCache.get(url.searchParams.get('sha256') || '')
+        const code = codeCache.get(sha)
         if (!code) return json(428, 'applet_code_missing')
         const releaseCapacity = appletCapacity.acquire(lane, memory)
         if (!releaseCapacity) return json(503, 'runtime_busy')
@@ -326,13 +340,13 @@ Deno.serve(async (req: Request) => {
         const timer = setTimeout(() => {
           void release(true).catch(error => console.error('Applet worker retirement failed', error))
         }, timeout + 500)
-        lease = { code, release, started: false, deadline: Date.now() + timeout }
+        lease = { code, poolKey, release, started: false, deadline: Date.now() + timeout }
         invocations.set(runId, lease)
       }
       if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket') return new Response(null, { status: 204 })
       if (lease.started) return json(409, 'invocation_already_started')
       lease.started = true
-      const { code, release } = lease
+      const { code, poolKey, release } = lease
       let instance: Awaited<ReturnType<typeof worker>> | undefined
       try {
         const cached = takeWarmWorker(poolKey, memory, timeout)

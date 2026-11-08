@@ -409,34 +409,44 @@ produces and validates a candidate value in memory without writing to
 PostgreSQL; the setup flow or owning subsystem must explicitly persist the
 accepted value, and read calls never auto-generate rows.
 
-## Custom Agent Computer Environment Variables
+## Custom Worker and Applet Environment Variables
 
-`WorkerEnv` manages operator-defined environment variables for Agent Computer
-separately from AppConfigure. At execution time, variables layer in order: site
-values first, then tenant values, then Agent values, followed by Signal binding
-variables and explicit per-command variables. Every `WorkerEnv` value is a
-string, and secret variables use encrypted storage.
+`WorkerEnv` manages operator-defined Site (`global`) and Tenant (`tenant:<id>`)
+environment variables alongside per-Agent (`agent:<uid>`) overrides separately
+from AppConfigure, while `Ankole.Pod.Applets.Env` (`pod_applet_envs`) layers
+Applet-specific variables on top of the same Site and Tenant tiers:
 
-`EnvVar` (`tenant_id/scope/name`) and `SiteEnvVar` (`scope/name`) are Ash
+- **Agent Computer execution**: merges `Site -> Tenant -> Agent`, followed by
+  Signal binding variables and explicit per-command variables.
+- **Pod Applet backend execution**: merges `Site -> Tenant -> applet.env.json
+  defaults -> Applet`, stripping reserved `ANKOLE_*`, browser-backend, and MCP
+  token keys at every tier.
+
+Every environment variable value is a string, and secret variables use AEAD
+encrypted storage bound to `[scope, name]` for `WorkerEnv` and context
+`"pod_applet_env"` bound to `[tenant_id, page_id, name]` for `pod_applet_envs`.
+
+`EnvVar` (`tenant_id/scope/name`), `SiteEnvVar` (`scope/name`), and
+`Pod.AppletEnv` (`tenant_id/page_id/name`) are Ash
 resources whose `put` action owns variable-name validation, secret-flag
-transitions, and AEAD encryption, and whose `remove` action handles both
-single-variable deletion and Agent-cleanup deletion. Updating metadata alone
-preserves the existing ciphertext, while overriding an inherited secret re-seals
-it under the new scope before storage. All list and runtime reads go through
-these same resources, while `WorkerEnv` applies tier inheritance and masks
-secrets in API responses.
-
-The Console environment-variable editor disables fields until it has loaded
-the selected variable into its draft. Background reads preserve operator edits,
-and saving a description alone preserves the stored secret.
+transitions, and AEAD encryption, and whose `remove`/`purge` actions handle both
+single-variable deletion and Agent/Page cleanup. Updating metadata alone
+preserves the existing ciphertext: Console `WorkerEnv` `put` re-seals an
+inherited secret under the target scope when an authorized Console operator
+overrides metadata, whereas Pod `put_own` and `Pod.AppletEnv` `put` require an
+explicit replacement value when overriding an ancestor scope's secret so lower
+tiers never decrypt higher-tier ciphertext.
 
 Operators manage variables through `/api/v2/site/worker-envs`,
-`/api/v2/worker-envs`, and `/api/v2/agents/:agent_uid/worker-envs`, where
-JSON:API policies authorize secret decryption separately from ordinary reads and
-writes, and typed transport actions delegate to `WorkerEnv`. AppConfigure keys
-are never exported as Worker environment variables; RuntimeFabric passes
-per-turn runtime facts separately under the reserved `ANKOLE_RUNTIME_` prefix,
-which operator `WorkerEnv` entries cannot use.
+`/api/v2/worker-envs`, `/api/v2/agents/:agent_uid/worker-envs`, Pod Settings
+(`/api/v2/pod/admin/worker-envs` for `pod_admin`), and Applet pages
+(`/api/v2/pod/pages/:page_id/envs` for `node_edit`, with secret decryption at
+`POST /envs/:name/decryptions` restricted to Human Principals holding
+`node_manage`), where JSON:API policies authorize secret decryption separately from ordinary
+reads and writes and never decrypt ancestor-tier secrets from a lower tier.
+AppConfigure keys are never exported as Worker or Applet environment variables;
+RuntimeFabric passes per-turn runtime facts separately under the reserved
+`ANKOLE_RUNTIME_` prefix, which operator environment entries cannot use.
 
 ## Task-specific application and feedback
 

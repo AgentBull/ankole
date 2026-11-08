@@ -110,6 +110,7 @@ defmodule Ankole.Principals do
     end
 
     resource(Ankole.Principals.SiteCredential)
+    resource(Ankole.Principals.ProfileAvatar)
     resource(Ankole.Principals.Invitation)
     resource(AccessRestriction)
     resource(AccessEvent)
@@ -184,6 +185,16 @@ defmodule Ankole.Principals do
   defdelegate update_human(uid, attrs), to: Humans
   defdelegate update_human_in_tx(changes), to: Humans
   defdelegate create_member_in_tx(attrs), to: Humans
+
+  defdelegate upload_member_avatar(actor, source, content_type),
+    to: Ankole.Principals.Avatars,
+    as: :upload_member
+
+  defdelegate upload_space_avatar(actor, source, content_type),
+    to: Ankole.Principals.Avatars,
+    as: :upload_space
+
+  defdelegate fetch_avatar(key), to: Ankole.Principals.Avatars, as: :fetch
 
   defdelegate list_site_credentials(provider, identifier),
     to: Ankole.Principals.SiteCredentials,

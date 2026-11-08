@@ -1292,7 +1292,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     {:ok, message} =
       start_stateful_message(agent.uid, conversation, "overflow-disabled", [
-        media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
+        file_message("https://files.example.test/#{String.duplicate("large", 40)}.pdf")
       ])
 
     {:ok, _message} = ResponseCommit.commit_complete(message, [], usage(24))
@@ -1669,7 +1669,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     {:ok, opaque} =
       start_stateful_message(agent.uid, conversation, "program-truncation-opaque", [
-        media_message("https://files.example.test/program-boundary.png")
+        file_message("https://files.example.test/program-boundary.pdf")
       ])
 
     {:ok, opaque} = ResponseCommit.commit_complete(opaque, [], usage(120))
@@ -1937,11 +1937,19 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     {:ok, conversation} =
       Ankole.AIGatewayCase.ensure_conversation(agent.uid, "dispatch-truncation-auto")
 
+    file_url = "https://files.example.test/#{String.duplicate("large", 80)}.pdf"
     media_url = "https://files.example.test/#{String.duplicate("large", 80)}.png"
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "truncate-media", [
-        media_message(media_url)
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{"type" => "input_file", "file_url" => file_url},
+            %{"type" => "input_image", "image_url" => media_url}
+          ]
+        }
       ])
 
     {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(180))
@@ -1988,6 +1996,11 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
                  "message_id" => dropped_message_id,
                  "response_id" => dropped_response_id,
                  "items" => [
+                   %{
+                     "type" => "input_file",
+                     "role" => "user",
+                     "refs" => %{"file_url" => ^file_url}
+                   },
                    %{
                      "type" => "input_image",
                      "role" => "user",
@@ -3050,6 +3063,320 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     assert body["output"] == native_output
   end
 
+  test "multi-round hosted tool responses keep cumulative usage while using context_usage for compaction watermarks" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.90, max_threshold_tokens: 400_000, tail_rows: 2)
+    {:ok, round_counter} = Agent.start_link(fn -> 0 end)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        round = Agent.get_and_update(round_counter, &{&1 + 1, &1 + 1})
+
+        case round do
+          1 ->
+            call_item = %{
+              "id" => "fc_search_1",
+              "type" => "function_call",
+              "call_id" => "call_search_1",
+              "name" => "tool_search",
+              "arguments" => ~s({"paths":["get_weather"]}),
+              "status" => "completed"
+            }
+
+            {:sse, 200,
+             [
+               %{
+                 "type" => "response.created",
+                 "sequence_number" => 0,
+                 "response" => %{"id" => "resp_r1", "status" => "in_progress", "output" => []}
+               },
+               %{
+                 "type" => "response.output_item.added",
+                 "sequence_number" => 1,
+                 "output_index" => 0,
+                 "item" => Map.put(call_item, "status", "in_progress")
+               },
+               %{
+                 "type" => "response.output_item.done",
+                 "sequence_number" => 2,
+                 "output_index" => 0,
+                 "item" => call_item
+               },
+               %{
+                 "type" => "response.completed",
+                 "sequence_number" => 3,
+                 "response" => %{
+                   "id" => "resp_r1",
+                   "object" => "response",
+                   "model" => "gpt-main",
+                   "status" => "completed",
+                   "output" => [call_item],
+                   "usage" => %{
+                     "input_tokens" => 209_500,
+                     "output_tokens" => 389,
+                     "total_tokens" => 209_889
+                   }
+                 }
+               }
+             ]}
+
+          2 ->
+            assert Enum.any?(request.body["tools"] || [], &(&1["name"] == "get_weather"))
+
+            assert Enum.any?(
+                     request.body["input"] || [],
+                     &(&1["type"] == "function_call_output" and &1["call_id"] == "call_search_1")
+                   )
+
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_r2",
+               "gpt-main",
+               "Weather tool loaded and checked.",
+               %{
+                 "input_tokens" => 209_800,
+                 "output_tokens" => 540,
+                 "total_tokens" => 210_340
+               }
+             )}
+
+          3 ->
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_next_turn",
+               "gpt-main",
+               "Continuing directly without unnecessary compaction.",
+               %{
+                 "input_tokens" => 211_000,
+                 "output_tokens" => 120,
+                 "total_tokens" => 211_120
+               }
+             )}
+        end
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compat-multi-round-context-usage",
+               provider_kind: "openai_compatible",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
+               },
+               connection_options: %{
+                 "endpoint_kind" => "responses",
+                 "transport" => %{}
+               }
+             })
+
+    for {profile, model, context_length} <- [
+          {"primary", "gpt-main", 1_048_576},
+          {"light", "gpt-light", 131_072}
+        ] do
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, profile, %{
+                 "provider_id" => "compat-multi-round-context-usage",
+                 "model" => model,
+                 "context_length" => context_length
+               })
+    end
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "multi-round-context-usage")
+
+    deferred_weather_tool = %{
+      "type" => "function",
+      "name" => "get_weather",
+      "description" => "Reads current weather forecast",
+      "defer_loading" => true,
+      "parameters" => %{"type" => "object", "properties" => %{}}
+    }
+
+    assert {:ok, stream_1, meta_1} =
+             Ankole.AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "tools" => [
+                 %{"type" => "tool_search", "execution" => "server"},
+                 deferred_weather_tool
+               ],
+               "input" => [text_message("user", "Check the weather")],
+               "metadata" => %{"signal_id" => UUIDv7.autogenerate()}
+             })
+
+    assert {:ok, %{terminal_response: first_body}, _meta} =
+             Ankole.AIGateway.ResponseStream.await_terminal(stream_1, meta_1, 5_000)
+
+    assert first_body["usage"]["total_tokens"] == 420_229
+    "resp_" <> first_id = first_body["id"]
+    persisted = Repo.get!(Message, first_id)
+    assert persisted.metadata["usage"]["total_tokens"] == 420_229
+    assert persisted.metadata["context_usage"]["total_tokens"] == 210_340
+
+    assert {:ok, stream_2, meta_2} =
+             Ankole.AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "input" => [text_message("user", "Add combo multiplier next")],
+               "metadata" => %{"signal_id" => UUIDv7.autogenerate()}
+             })
+
+    assert {:ok, %{terminal_response: second_body}, _meta} =
+             Ankole.AIGateway.ResponseStream.await_terminal(stream_2, meta_2, 5_000)
+
+    assert second_body["status"] == "completed"
+    refute Enum.any?(Repo.all(Message), &(&1.type == :checkpoint))
+    assert Agent.get(round_counter, & &1) == 3
+  end
+
+  test "auto-compaction recovers legacy stuck chains with inline base64 screenshots and completes the next turn" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.90, max_threshold_tokens: 400_000, tail_rows: 2)
+    {:ok, upstream_calls} = Agent.start_link(fn -> [] end)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        model = request.body["model"]
+        Agent.update(upstream_calls, &[model | &1])
+
+        case model do
+          "gpt-compact-light" ->
+            refute Ankole.JSON.encode!(request.body["input"]) =~ "PREFIX_SCREENSHOT_BASE64"
+            assert Ankole.JSON.encode!(request.body["input"]) =~ "[input_image omitted]"
+
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_screenshot_summary",
+               "gpt-compact-light",
+               "## Active Task\nLevel 2 dodgeball game verified with browser screenshots.",
+               %{"input_tokens" => 900, "output_tokens" => 120, "total_tokens" => 1_020}
+             )}
+
+          "gpt-5.6" ->
+            encoded_input = Ankole.JSON.encode!(request.body["input"])
+            refute encoded_input =~ "PREFIX_SCREENSHOT_BASE64"
+            assert encoded_input =~ "TAIL_SCREENSHOT_BASE64"
+            assert encoded_input =~ "继续加连击倍率、随机事件和排行榜"
+
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_recovered_game_turn",
+               "gpt-5.6",
+               "已添加连击倍率、随机事件和排行榜。",
+               %{"input_tokens" => 18_200, "output_tokens" => 420, "total_tokens" => 18_620}
+             )}
+        end
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-screenshot-compaction-recovery", base_url,
+      profiles: [{"primary", "gpt-5.6", 1_048_576}, {"light", "gpt-compact-light", 131_072}]
+    )
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "legacy-stuck-screenshot-recovery")
+
+    prefix_screenshot =
+      "data:image/webp;base64,PREFIX_SCREENSHOT_BASE64_" <> String.duplicate("QUJD", 55_000)
+
+    tail_screenshot =
+      "data:image/webp;base64,TAIL_SCREENSHOT_BASE64_" <> String.duplicate("WFla", 55_000)
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "legacy-shot-1", [
+        %{
+          "role" => "user",
+          "content" => [
+            %{"type" => "input_text", "text" => "第二关加移动躲避球"},
+            %{"type" => "input_image", "image_url" => prefix_screenshot}
+          ]
+        },
+        text_message("assistant", "已生成第二关移动躲避球初版")
+      ])
+
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], provider_usage(80_000, 500))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "legacy-shot-2", [
+        %{
+          "role" => "user",
+          "content" => [
+            %{"type" => "input_text", "text" => "Tool screenshot from browser verification"},
+            %{"type" => "input_image", "image_url" => prefix_screenshot}
+          ]
+        },
+        text_message("assistant", "浏览器截图验证通过")
+      ])
+
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], provider_usage(140_000, 600))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "legacy-shot-tail-1", [
+        %{
+          "role" => "user",
+          "content" => [
+            %{"type" => "input_text", "text" => "Latest canvas screenshot"},
+            %{"type" => "input_image", "image_url" => tail_screenshot}
+          ]
+        }
+      ])
+
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], provider_usage(205_000, 400))
+
+    # Legacy pre-fix multi-round message: cumulative `usage` > 400k with no `context_usage`.
+    {:ok, m4} =
+      start_linked_stateful_message(agent.uid, conversation, m3, "legacy-shot-tail-2", [
+        text_message("assistant", "第二关已经可玩，请确认下一步修改")
+      ])
+
+    {:ok, m4} = ResponseCommit.commit_complete(m4, [], provider_usage(419_000, 1_229))
+    refute Map.has_key?(m4.metadata, "context_usage")
+
+    assert {:ok, stream_recovered, meta_recovered} =
+             Ankole.AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "input" => [text_message("user", "继续加连击倍率、随机事件和排行榜")],
+               "metadata" => %{"signal_id" => UUIDv7.autogenerate()}
+             })
+
+    assert {:ok, %{terminal_response: recovered_body}, _meta} =
+             Ankole.AIGateway.ResponseStream.await_terminal(
+               stream_recovered,
+               meta_recovered,
+               5_000
+             )
+
+    assert recovered_body["status"] == "completed"
+    assert Ankole.JSON.encode!(recovered_body["output"]) =~ "已添加连击倍率、随机事件和排行榜"
+
+    [checkpoint] =
+      Message
+      |> Repo.all()
+      |> Enum.filter(&(&1.conversation_id == conversation.id and &1.type == :checkpoint))
+
+    assert checkpoint.previous_message_id == m4.id
+    artifact = Repo.get!(CompactionArtifact, checkpoint.id)
+    encoded_originals = Ankole.JSON.encode!(artifact.content["retention"])
+    assert is_binary(encoded_originals)
+
+    output_json = Ankole.JSON.encode!(artifact.content["output"])
+    refute output_json =~ "PREFIX_SCREENSHOT_BASE64"
+    assert output_json =~ "[input_image omitted]"
+    assert output_json =~ "TAIL_SCREENSHOT_BASE64"
+
+    "resp_" <> recovered_id = recovered_body["id"]
+    recovered_msg = Repo.get!(Message, recovered_id)
+    assert recovered_msg.previous_message_id == checkpoint.id
+    assert recovered_msg.metadata["usage"]["total_tokens"] == 18_620
+
+    assert Enum.reverse(Agent.get(upstream_calls, & &1)) == ["gpt-compact-light", "gpt-5.6"]
+  end
+
   defp compactable_conversation!(agent, conversation_key, extra_text \\ "") do
     {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, conversation_key)
 
@@ -3109,11 +3436,11 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     ]
   end
 
-  defp media_message(image_url) do
+  defp file_message(file_url) do
     %{
       "type" => "message",
       "role" => "user",
-      "content" => [%{"type" => "input_image", "image_url" => image_url}]
+      "content" => [%{"type" => "input_file", "file_url" => file_url}]
     }
   end
 

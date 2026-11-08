@@ -58,6 +58,7 @@ defmodule AnkoleWeb.MeOperations do
       constraints(
         fields: [
           displayName: [type: :string, allow_nil?: false],
+          avatarURL: [type: :string],
           credentialChangeAllowed: [type: :boolean, allow_nil?: false],
           managed: [type: :boolean, allow_nil?: false],
           credentials: [
@@ -81,6 +82,7 @@ defmodule AnkoleWeb.MeOperations do
         {:ok,
          %{
            displayName: Actor.principal(context.actor).display_name,
+           avatarURL: Actor.principal(context.actor).avatar_url,
            credentialChangeAllowed: CredentialBinding.permitted(context.actor) == :ok,
            managed: Ankole.IdentityProviders.directory_managed_member?(Actor.uid(context.actor)),
            credentials:
@@ -90,7 +92,12 @@ defmodule AnkoleWeb.MeOperations do
     end
 
     action :update_profile, :map do
-      constraints(fields: [displayName: [type: :string, allow_nil?: false]])
+      constraints(
+        fields: [
+          displayName: [type: :string, allow_nil?: false],
+          avatarURL: [type: :string]
+        ]
+      )
 
       argument(:displayName, :string,
         allow_nil?: false,
@@ -104,7 +111,7 @@ defmodule AnkoleWeb.MeOperations do
                Ankole.Principals.update_human(Actor.uid(context.actor), %{
                  display_name: input.arguments.displayName
                }),
-             do: {:ok, %{displayName: principal.display_name}},
+             do: {:ok, %{displayName: principal.display_name, avatarURL: principal.avatar_url}},
              else: (error -> result(error))
       end)
     end

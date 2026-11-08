@@ -277,6 +277,7 @@ defmodule Ankole.Workflow.Lifecycle do
 
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
          :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
+         :ok <- Ankole.Workflow.Slot.lock_agent_slots(attrs["agent_uid"]),
          :ok <- lock_idempotency(attrs) do
       case find_existing(attrs) do
         {:ok, %Run{status: :running} = run} ->
@@ -420,21 +421,36 @@ defmodule Ankole.Workflow.Lifecycle do
   def cancel_in_tx(run_id, agent_uid) do
     with :ok <- Ankole.Workflow.Slot.lock_agent_slots(agent_uid),
          %Run{} = run <- Ankole.Workflow.Slot.lock_run(run_id, agent_uid) do
-      if run.status == :running do
-        completed_at = DateTime.utc_now()
-
-        with {:ok, running_ids} <- cancel_live_calls_in_tx(run.id, completed_at),
-             {:ok, run} <-
-               Ankole.Ash.update(run, :stop, %{completed_at: completed_at, error: %{}}),
-             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
-          {:ok, %{run: run, running_session_ids: running_ids}}
-        end
-      else
-        {:ok, %{run: run, running_session_ids: []}}
-      end
+      cancel_locked_in_tx(run)
     else
       nil -> {:error, :workflow_not_found}
       {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  def prepare_cancel_locked_in_tx(%Run{status: :running} = run) do
+    calls = Ankole.Workflow.Slot.lock_run_calls(run.id)
+    {:ok, fn -> commit_cancel_locked_in_tx(run, calls) end}
+  end
+
+  def prepare_cancel_locked_in_tx(%Run{} = run) do
+    {:ok, fn -> {:ok, %{run: run, running_session_ids: [], noop: true}} end}
+  end
+
+  @doc false
+  def cancel_locked_in_tx(%Run{} = run) do
+    with {:ok, commit} <- prepare_cancel_locked_in_tx(run), do: commit.()
+  end
+
+  defp commit_cancel_locked_in_tx(%Run{} = run, calls) do
+    completed_at = DateTime.utc_now()
+
+    with {:ok, running_ids} <- cancel_locked_calls_in_tx(calls),
+         {:ok, run} <-
+           Ankole.Ash.update(run, :stop, %{completed_at: completed_at, error: %{}}),
+         :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
+      {:ok, %{run: run, running_session_ids: running_ids}}
     end
   end
 
@@ -453,8 +469,12 @@ defmodule Ankole.Workflow.Lifecycle do
   end
 
   defp cancel_live_calls_in_tx(run_id, _updated_at) do
-    calls = Ankole.Workflow.Slot.lock_run_calls(run_id)
+    run_id
+    |> Ankole.Workflow.Slot.lock_run_calls()
+    |> cancel_locked_calls_in_tx()
+  end
 
+  defp cancel_locked_calls_in_tx(calls) do
     running_ids =
       for %AgentCall{status: :running, id: id} <- calls do
         Ankole.Workflow.Queries.task_session_id(id)

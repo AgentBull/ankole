@@ -378,6 +378,26 @@ export type PodBaseOperation = {
 }
 
 /**
+ * A "Resource object" representing a applet_env_operation
+ */
+export type AppletEnvOperation = {
+  /**
+   * An attributes object for a applet_env_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a applet_env_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a pod_base_table
  */
 export type PodBaseTable = {
@@ -1662,6 +1682,11 @@ export type UpdateConversationQueueResponses = {
         uid: string
       }
     }
+    editableInputs: Array<{
+      agentUIDs: Array<string>
+      messageID: string
+      supersededByParticipant: boolean
+    }>
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -2588,6 +2613,95 @@ export type MetaSkillPutFileResponses = {
 
 export type MetaSkillPutFileResponse = MetaSkillPutFileResponses[keyof MetaSkillPutFileResponses]
 
+export type PodAppletEnvDeleteData = {
+  body?: never
+  path: {
+    name: string
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/envs/{name}'
+}
+
+export type PodAppletEnvDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletEnvDeleteError = PodAppletEnvDeleteErrors[keyof PodAppletEnvDeleteErrors]
+
+export type PodAppletEnvDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    env: {
+      declared: boolean
+      description?: string | null
+      inherited_source?: 'default' | 'pod' | 'site' | null
+      name: string
+      present: boolean
+      required: boolean
+      secret: boolean
+      source: 'applet' | 'default' | 'pod' | 'site' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type PodAppletEnvDeleteResponse = PodAppletEnvDeleteResponses[keyof PodAppletEnvDeleteResponses]
+
+export type PodAppletEnvPutData = {
+  /**
+   * Request body for the podAppletEnvPut operation on applet_env_operation resource
+   */
+  body?: {
+    data: {
+      description?: string | null
+      secret?: boolean | null
+      value?: string | null
+    }
+  }
+  path: {
+    name: string
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/envs/{name}'
+}
+
+export type PodAppletEnvPutErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletEnvPutError = PodAppletEnvPutErrors[keyof PodAppletEnvPutErrors]
+
+export type PodAppletEnvPutResponses = {
+  /**
+   * Success
+   */
+  200: {
+    env: {
+      declared: boolean
+      description?: string | null
+      inherited_source?: 'default' | 'pod' | 'site' | null
+      name: string
+      present: boolean
+      required: boolean
+      secret: boolean
+      source: 'applet' | 'default' | 'pod' | 'site' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type PodAppletEnvPutResponse = PodAppletEnvPutResponses[keyof PodAppletEnvPutResponses]
+
 export type PodBaseQueryData = {
   /**
    * Request body for the podBaseQuery operation on pod_base_operation resource
@@ -2854,6 +2968,39 @@ export type PodAppletOwnerResponses = {
 }
 
 export type PodAppletOwnerResponse = PodAppletOwnerResponses[keyof PodAppletOwnerResponses]
+
+export type PodAppletEnvDecryptData = {
+  body?: never
+  path: {
+    name: string
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/envs/{name}/decryptions'
+}
+
+export type PodAppletEnvDecryptErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletEnvDecryptError = PodAppletEnvDecryptErrors[keyof PodAppletEnvDecryptErrors]
+
+export type PodAppletEnvDecryptResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      name: string
+      value: string
+    }
+  }
+}
+
+export type PodAppletEnvDecryptResponse = PodAppletEnvDecryptResponses[keyof PodAppletEnvDecryptResponses]
 
 export type MessageConversationExecutionData = {
   /**
@@ -3614,6 +3761,11 @@ export type ConversationDetailResponses = {
         uid: string
       }
     }
+    editableInputs: Array<{
+      agentUIDs: Array<string>
+      messageID: string
+      supersededByParticipant: boolean
+    }>
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -3905,6 +4057,11 @@ export type UpdateConversationResponses = {
         uid: string
       }
     }
+    editableInputs: Array<{
+      agentUIDs: Array<string>
+      messageID: string
+      supersededByParticipant: boolean
+    }>
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -4289,6 +4446,11 @@ export type AnswerConversationInteractionResponses = {
         uid: string
       }
     }
+    editableInputs: Array<{
+      agentUIDs: Array<string>
+      messageID: string
+      supersededByParticipant: boolean
+    }>
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -4714,6 +4876,46 @@ export type PodPageCommentUpdateResponses = {
 
 export type PodPageCommentUpdateResponse = PodPageCommentUpdateResponses[keyof PodPageCommentUpdateResponses]
 
+export type PodAppletFunctionsData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/functions'
+}
+
+export type PodAppletFunctionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletFunctionsError = PodAppletFunctionsErrors[keyof PodAppletFunctionsErrors]
+
+export type PodAppletFunctionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    actions: Array<{
+      concurrency: 'parallel' | 'serial_fifo' | 'serial_coalesce'
+      idempotent: boolean
+      key: string
+      max_slices: number
+    }>
+    has_backend: boolean
+    revision: number
+    routes: Array<{
+      method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+      path: string
+    }>
+  }
+}
+
+export type PodAppletFunctionsResponse = PodAppletFunctionsResponses[keyof PodAppletFunctionsResponses]
+
 export type ChangePodMembershipData = {
   /**
    * Request body for the changePodMembership operation on pod_admin_operation resource
@@ -4936,6 +5138,11 @@ export type ResolveConversationActionCardResponses = {
         uid: string
       }
     }
+    editableInputs: Array<{
+      agentUIDs: Array<string>
+      messageID: string
+      supersededByParticipant: boolean
+    }>
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -5623,6 +5830,46 @@ export type PodPagePurgeResponses = {
 
 export type PodPagePurgeResponse = PodPagePurgeResponses[keyof PodPagePurgeResponses]
 
+export type PodAppletEnvsData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/envs'
+}
+
+export type PodAppletEnvsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletEnvsError = PodAppletEnvsErrors[keyof PodAppletEnvsErrors]
+
+export type PodAppletEnvsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_decrypt: boolean
+    envs: Array<{
+      declared: boolean
+      description?: string | null
+      inherited_source?: 'default' | 'pod' | 'site' | null
+      name: string
+      present: boolean
+      required: boolean
+      secret: boolean
+      source: 'applet' | 'default' | 'pod' | 'site' | 'missing'
+      value?: string | null
+    }>
+  }
+}
+
+export type PodAppletEnvsResponse = PodAppletEnvsResponses[keyof PodAppletEnvsResponses]
+
 export type PodFileCopyData = {
   /**
    * Request body for the podFileCopy operation on pod_file_operation resource
@@ -5755,6 +6002,35 @@ export type PodAgentsResponses = {
 }
 
 export type PodAgentsResponse = PodAgentsResponses[keyof PodAgentsResponses]
+
+export type PodAppletEnvStatusData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/envs/status'
+}
+
+export type PodAppletEnvStatusErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletEnvStatusError = PodAppletEnvStatusErrors[keyof PodAppletEnvStatusErrors]
+
+export type PodAppletEnvStatusResponses = {
+  /**
+   * Success
+   */
+  200: {
+    missing_required_count: number
+  }
+}
+
+export type PodAppletEnvStatusResponse = PodAppletEnvStatusResponses[keyof PodAppletEnvStatusResponses]
 
 export type ConversationExecutionData = {
   body?: never
@@ -7067,6 +7343,11 @@ export type PostConversationMessageResponses = {
         uid: string
       }
     }
+    editableInputs: Array<{
+      agentUIDs: Array<string>
+      messageID: string
+      supersededByParticipant: boolean
+    }>
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -8348,6 +8629,41 @@ export type PodJobWebhooksCreateResponses = {
 
 export type PodJobWebhooksCreateResponse = PodJobWebhooksCreateResponses[keyof PodJobWebhooksCreateResponses]
 
+export type PodAdminWorkerEnvsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/worker-envs'
+}
+
+export type PodAdminWorkerEnvsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminWorkerEnvsError = PodAdminWorkerEnvsErrors[keyof PodAdminWorkerEnvsErrors]
+
+export type PodAdminWorkerEnvsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_envs: Array<{
+      description?: string | null
+      inherited_source?: 'global' | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'missing'
+      value?: string | null
+    }>
+  }
+}
+
+export type PodAdminWorkerEnvsResponse = PodAdminWorkerEnvsResponses[keyof PodAdminWorkerEnvsResponses]
+
 export type PodAdminAgentsData = {
   body?: never
   path?: never
@@ -8685,6 +9001,89 @@ export type PodConnectorTriggersDeleteResponses = {
 export type PodConnectorTriggersDeleteResponse =
   PodConnectorTriggersDeleteResponses[keyof PodConnectorTriggersDeleteResponses]
 
+export type DeletePodAdminWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/worker-envs/{name}'
+}
+
+export type DeletePodAdminWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeletePodAdminWorkerEnvError = DeletePodAdminWorkerEnvErrors[keyof DeletePodAdminWorkerEnvErrors]
+
+export type DeletePodAdminWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      inherited_source?: 'global' | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type DeletePodAdminWorkerEnvResponse = DeletePodAdminWorkerEnvResponses[keyof DeletePodAdminWorkerEnvResponses]
+
+export type PutPodAdminWorkerEnvData = {
+  /**
+   * Request body for the putPodAdminWorkerEnv operation on pod_admin_operation resource
+   */
+  body?: {
+    data: {
+      description?: string | null
+      secret?: boolean | null
+      value?: string | null
+    }
+  }
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/worker-envs/{name}'
+}
+
+export type PutPodAdminWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutPodAdminWorkerEnvError = PutPodAdminWorkerEnvErrors[keyof PutPodAdminWorkerEnvErrors]
+
+export type PutPodAdminWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      inherited_source?: 'global' | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type PutPodAdminWorkerEnvResponse = PutPodAdminWorkerEnvResponses[keyof PutPodAdminWorkerEnvResponses]
+
 export type PodKnowledgeExportData = {
   body?: never
   path: {
@@ -8788,6 +9187,7 @@ export type PodAdminSettingsResponses = {
    */
   200: {
     allowExternalGuests: boolean
+    avatarURL?: string | null
     defaultLocale: string
     displayName: string
     emailAvailable: boolean
@@ -8841,6 +9241,7 @@ export type UpdatePodAdminSettingsResponses = {
    */
   200: {
     allowExternalGuests: boolean
+    avatarURL?: string | null
     defaultLocale: string
     displayName: string
     emailAvailable: boolean
@@ -8989,6 +9390,39 @@ export type PodJobSchedulesResumeResponses = {
 }
 
 export type PodJobSchedulesResumeResponse = PodJobSchedulesResumeResponses[keyof PodJobSchedulesResumeResponses]
+
+export type DecryptPodAdminWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/worker-envs/{name}/decryptions'
+}
+
+export type DecryptPodAdminWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptPodAdminWorkerEnvError = DecryptPodAdminWorkerEnvErrors[keyof DecryptPodAdminWorkerEnvErrors]
+
+export type DecryptPodAdminWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      name: string
+      value: string
+    }
+  }
+}
+
+export type DecryptPodAdminWorkerEnvResponse =
+  DecryptPodAdminWorkerEnvResponses[keyof DecryptPodAdminWorkerEnvResponses]
 
 export type PodAppletJobActionsData = {
   body?: never
@@ -10064,6 +10498,11 @@ export type CreateConversationResponses = {
         uid: string
       }
     }
+    editableInputs: Array<{
+      agentUIDs: Array<string>
+      messageID: string
+      supersededByParticipant: boolean
+    }>
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -10876,6 +11315,7 @@ export type PodMeResponses = {
    * Success
    */
   200: {
+    avatarURL?: string | null
     credentialChangeAllowed: boolean
     credentials: Array<{
       id: string
@@ -10918,6 +11358,7 @@ export type UpdatePodProfileResponses = {
    * Success
    */
   200: {
+    avatarURL?: string | null
     displayName: string
   }
 }

@@ -15,10 +15,19 @@ defmodule AnkoleWeb.PodAppletController do
   def delete(conn, params), do: invoke(conn, params)
 
   defp invoke(conn, %{"id" => id}) do
+    auth_ref =
+      case AnkoleWeb.Session.authentication_reference(conn) do
+        %{} = ref -> Ankole.BrowserSessions.encode_reference(ref)
+        _ -> nil
+      end
+
     with {:ok, revision} <- revision(conn),
          {:ok, request} <- request(conn),
          {:ok, task} <-
-           Applets.start(conn.assigns.authz_actor, id, request, revision: revision) do
+           Applets.start(conn.assigns.authz_actor, id, request,
+             revision: revision,
+             authentication_ref: auth_ref
+           ) do
       {conn, result} = AnkoleWeb.AppletRequest.await(conn, task)
 
       case result do

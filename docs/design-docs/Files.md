@@ -144,8 +144,8 @@ and tenant deletion use the same content-owner boundary.
 
 The hourly collector considers objects older than 24 hours and centrally
 checks every reference owner that `Ankole.Files.object_references/0` lists:
-Drive nodes, Message and Delivery attachments, Pod resources, and page
-snapshots. In one PostgreSQL transaction it deletes the unreferenced row and
+Drive nodes, Message and Delivery attachments, Pod resources, page snapshots,
+and profile avatars. In one PostgreSQL transaction it deletes the unreferenced row and
 inserts a site-scoped `DeleteObject` Oban job containing
 the storage key. Composite foreign keys resolve reference/collection races.
 The job retries byte deletion independently; keys are never reused. Tenant

@@ -2,7 +2,9 @@
 
 Both control-plane conversation tools and Codex Job tools expose two web tools:
 `web_search` searches the public web, and `web_fetch` extracts readable text
-from web pages.
+from web pages. Pod Applet backend routes and Actions expose the same
+`AIGateway`-backed search and fetch primitives through `AnkoleRuntime.web.search`
+and `AnkoleRuntime.web.fetch` (see [Pod Content Model](PodContentModel.md#backend-routes)).
 
 For interactive clicks, screenshots, or authenticated sessions with saved login
 state, Agents use the Browser Skill inside a `BackgroundAgentJob`. The

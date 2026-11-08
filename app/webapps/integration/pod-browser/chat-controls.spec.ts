@@ -76,7 +76,7 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
           new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}/messages`
       )
       await input.fill(text)
-      await input.press('Enter')
+      await input.press('ControlOrMeta+Shift+Enter')
       const result = await response
       expect(result.status()).toBe(201)
       return result.json() as Promise<Detail>
@@ -152,7 +152,7 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
       .locator('li.pod-chat-queue-item')
       .filter({ has: page.getByText('Edited second queued request', { exact: true }) })
     const released = await mutation(page, id, 'steer', () =>
-      editedRow.getByRole('button', { name: '并入', exact: true }).click()
+      editedRow.getByRole('button', { name: '发送', exact: true }).click()
     )
     expect(agentQueue(released).paused).toBe(true)
     expect(agentQueue(released).inputs[0]).toMatchObject({ messageID: secondID, deliveryMode: 'steer' })
@@ -206,9 +206,18 @@ test('a completed message copies exact code and text, then edits and retries thr
       /重新生成会保留已完成的页面、多维表和小应用修改。/
     )
     await human.getByRole('button', { name: '编辑并重新生成', exact: true }).click()
-    await expect(input).toBeFocused()
-    await expect(input).toHaveValue('Original completed edit request')
-    await input.fill('Edited request through the actual API')
+    const inlineEditor = page.getByRole('textbox', { name: '编辑消息', exact: true })
+    await expect(inlineEditor).toBeFocused()
+    await expect(inlineEditor).toHaveValue('Original completed edit request')
+    await expect(input).toHaveValue('Independent next draft')
+    await inlineEditor.press('Escape')
+    await expect(inlineEditor).toHaveCount(0)
+    await expect(input).toHaveValue('Independent next draft')
+    await human.hover()
+    await human.getByRole('button', { name: '编辑并重新生成', exact: true }).click()
+    await expect(inlineEditor).toBeFocused()
+    await inlineEditor.fill('Edited request through the actual API')
+    await expect(input).toHaveValue('Independent next draft')
     let committed: Detail | undefined
     const commandIDs: string[] = []
     const queuePath = `/api/v2/pod/conversations/${id}/queue`
@@ -229,16 +238,18 @@ test('a completed message copies exact code and text, then edits and retries thr
       committed = await response.json()
       await route.abort('failed')
     })
-    await input.press('Enter')
+    await inlineEditor.press('Enter')
     await expect.poll(() => committed).not.toBeUndefined()
-    await expect(page.getByRole('button', { name: '保存消息', exact: true })).toBeEnabled()
-    await expect(input).toHaveValue('Edited request through the actual API')
-    const result = await mutation(page, id, 'edit_last', () => input.press('Enter'))
+    await expect(page.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
+    await expect(inlineEditor).toHaveValue('Edited request through the actual API')
+    await expect(input).toHaveValue('Independent next draft')
+    const result = await mutation(page, id, 'edit_last', () => inlineEditor.press('Enter'))
     expect(commandIDs).toHaveLength(2)
     expect(commandIDs[1]).toBe(commandIDs[0])
     expect(result.messages.some(message => message.id === state.chat_controls_reply_id)).toBe(false)
     expect(agentQueue(result).inputs).toHaveLength(1)
     expect(agentQueue(result).inputs[0]!.text).toBe('Edited request through the actual API')
+    await expect(inlineEditor).toHaveCount(0)
     await expect(input).toHaveValue('Independent next draft')
     await input.fill('')
     await page.reload()
@@ -330,32 +341,43 @@ test('reordering follow-ups preserves the first shared message and its Agent que
     expect(firstResponse.status()).toBe(201)
     const first = (await firstResponse.json()) as Detail
     id = first.conversation.id
+    expect(agentQueue(first).inputs[0]?.deliveryMode).toBe('steer')
     const firstID = agentQueue(first).inputs[0]!.messageID
     await expect(page).toHaveURL(url => url.pathname === conversationRoute(id!))
-    const add = async (text: string) => {
+    const queue = page.getByRole('region', { name: '待发送', exact: true })
+    const firstMessage = page
+      .locator('.pod-chat-human-message')
+      .getByText('First request waiting for Main startup', { exact: true })
+    await expect(queue).toHaveCount(0)
+    await expect(firstMessage).toHaveCount(1)
+    const add = async (text: string, key = 'ControlOrMeta+Shift+Enter') => {
       const response = page.waitForResponse(
         response =>
           response.request().method() === 'POST' &&
           new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}/messages`
       )
       await input.fill(text)
-      await input.press('Enter')
+      await input.press(key)
       const result = await response
       expect(result.status()).toBe(201)
       return result.json() as Promise<Detail>
     }
     await add('Second queued follow-up')
-    const third = await add('Third queued follow-up')
-    expect(agentQueue(third).inputs.every(input => input.deliveryMode === 'queue')).toBe(true)
+    await page.getByRole('button', { name: '发送方式', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: '加入待发送队列', exact: true }).click()
+    const third = await add('Third queued follow-up', 'Enter')
+    expect(agentQueue(third).inputs.map(input => input.deliveryMode)).toEqual(['steer', 'queue', 'queue'])
     expect(agentQueue(third).inputs).toHaveLength(3)
     const secondID = agentQueue(third).inputs.find(item => item.text === 'Second queued follow-up')!.messageID
     const thirdID = agentQueue(third).inputs.find(item => item.text === 'Third queued follow-up')!.messageID
-    const queue = page.getByRole('region', { name: '待发送', exact: true })
-    const firstMessage = page
-      .locator('.pod-chat-human-message')
-      .getByText('First request waiting for Main startup', { exact: true })
-    await expect(firstMessage).toHaveCount(0)
-    await expect(queue.getByText('First request waiting for Main startup', { exact: true })).toHaveCount(1)
+    await add('Popped follow-up', 'Enter')
+    await expect(queue.locator('li.pod-chat-queue-item')).toHaveCount(3)
+    await input.focus()
+    await mutation(page, id, 'retract', () => input.press('Alt+ArrowUp'))
+    await expect(input).toHaveValue('Popped follow-up')
+    await input.fill('')
+    await expect(queue.locator('li.pod-chat-queue-item')).toHaveCount(2)
+    await expect(queue.getByText('First request waiting for Main startup', { exact: true })).toHaveCount(0)
     await expect(input).toBeEditable()
     const second = queue.locator('li.pod-chat-queue-item').filter({ hasText: 'Second queued follow-up' })
     await second.getByRole('button', { name: '调整队列顺序', exact: true }).click()
@@ -366,8 +388,9 @@ test('reordering follow-ups preserves the first shared message and its Agent que
     await page.reload()
     const restored = await request(page, `/conversations/${id}`)
     expect(agentQueue(restored).inputs.map(item => item.messageID)).toEqual([firstID, thirdID, secondID])
-    await expect(queue.locator('li.pod-chat-queue-item').nth(1)).toContainText('Third queued follow-up')
-    await expect(firstMessage).toHaveCount(0)
+    await expect(queue.locator('li.pod-chat-queue-item').nth(0)).toContainText('Third queued follow-up')
+    await expect(queue.locator('li.pod-chat-queue-item').nth(1)).toContainText('Second queued follow-up')
+    await expect(firstMessage).toHaveCount(1)
   } finally {
     if (id) {
       let detail = await request(page, `/conversations/${id}`)

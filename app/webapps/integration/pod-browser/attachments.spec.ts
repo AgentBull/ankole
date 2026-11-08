@@ -108,11 +108,9 @@ test('file preparation and an uncertain send retain stable identities through pa
     await expect(composer.getByRole('link', { name: fileLabel('下载', '季度说明.txt') })).toHaveCount(0)
     await page.goto(conversationRoute(id!))
     await page.reload()
-    await page
-      .getByRole('region', { name: '待发送', exact: true })
-      .getByRole('button', { name: '季度说明.txt', exact: true })
-      .click()
-    const download = page.getByRole('link', { name: fileLabel('下载', '季度说明.txt') })
+    const download = page
+      .getByRole('region', { name: '对话消息', exact: true })
+      .getByRole('link', { name: fileLabel('下载', '季度说明.txt') })
     await expect(download).toHaveCount(1)
     const href = (await download.getAttribute('href'))!
     const contents = await page.evaluate(async href => (await fetch(href, { credentials: 'same-origin' })).text(), href)
@@ -172,11 +170,9 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
     await expect(composer.getByRole('link', { name: fileLabel('下载', 'dropped.txt') })).toHaveCount(0)
     await expect(page).toHaveURL(url => url.pathname === conversationRoute(id!))
     await page.reload()
-    await page
-      .getByRole('region', { name: '待发送', exact: true })
-      .getByRole('button', { name: 'dropped.txt', exact: true })
-      .click()
-    const download = page.getByRole('link', { name: fileLabel('下载', 'dropped.txt') })
+    const download = page
+      .getByRole('region', { name: '对话消息', exact: true })
+      .getByRole('link', { name: fileLabel('下载', 'dropped.txt') })
     await expect(download).toHaveCount(1)
     expect(await page.evaluate(async href => (await fetch(href!)).text(), await download.getAttribute('href'))).toBe(
       'Dropped file body'

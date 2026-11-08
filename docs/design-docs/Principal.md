@@ -134,6 +134,21 @@ Disabling a Principal keeps its row intact. Disabling a Human runs through
 `access_version`, audit events, OIDC session revocation, and future-work cleanup
 together; see [Human Offboarding](HumanOffboarding.md).
 
+### `profile_avatars`
+
+`profile_avatars` maps a tenant-scoped profile key (`space` or `member:<uid>`)
+to one immutable file object and its content type. `tenants.avatar_url` and
+`principals.avatar_url` point to `/api/v2/pod/avatars/<key>` with the object's
+SHA-256 in the `v` query parameter, so replacing a picture changes every API
+consumer's image URL without changing its download route. Any active Pod member
+can download profile pictures in the tenant; a Human replaces their own picture,
+while a `pod_admin` replaces the space picture.
+
+Uploads accept PNG, JPEG, GIF, and WebP images up to 5 MiB and validate the
+bytes against the declared image type. The upload, profile update, and object
+reference replacement commit together. Each profile key keeps one row, so the
+previous object becomes unreferenced and the file collector can remove it.
+
 ### `human_users`
 
 `human_users` extends a `human` Principal with contact and directory fields:

@@ -132,6 +132,28 @@ defmodule Ankole.Conversations.Delivery.Interactions do
 
   def supersede_removed_source_in_tx(%Signal{}, %DateTime{}), do: {:ok, []}
 
+  @doc false
+  @spec supersede_reverted_signals_in_tx([Signal.t()], Signal.t(), list(), DateTime.t()) ::
+          {:ok, [Signal.t()]} | {:error, term()}
+  def supersede_reverted_signals_in_tx(signals, %Signal{} = command_event, locked_cards, now)
+      when is_list(signals) do
+    loaded =
+      signals
+      |> Enum.map(&PreviewStates.load/1)
+      |> Enum.reject(&is_nil/1)
+
+    with {:ok, superseded} <-
+           supersede_events_in_tx(loaded, command_event, now, supersede_action_cards?: true),
+         :ok <-
+           Ankole.Conversations.ActionCards.cancel_locked_for_signals_in_tx(
+             locked_cards,
+             Enum.map(signals, & &1.id),
+             now
+           ) do
+      {:ok, superseded}
+    end
+  end
+
   @doc """
   Supersedes predecessor interactions when a queued reset actually rolls the session.
 
@@ -924,12 +946,13 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
-  defp supersede_events_in_tx(events, newer_event, now) do
+  defp supersede_events_in_tx(events, newer_event, now, opts \\ []) do
     Enum.reduce_while(events, {:ok, []}, fn event, {:ok, updated} ->
       case InteractionState.supersede(
              PreviewStates.get(event).checkpoint || %{},
              newer_event,
-             now
+             now,
+             opts
            ) do
         :noop ->
           {:cont, {:ok, updated}}

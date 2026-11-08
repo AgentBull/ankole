@@ -710,7 +710,11 @@ defmodule Ankole.Conversations.Native do
     Ankole.Conversations.Events.publish_committed(publications)
 
     if publications != [] do
-      keys = Map.get(result, :session_keys, List.wrap(result.session_key))
+      keys =
+        Map.get(result, :session_keys, List.wrap(Map.get(result, :session_key)))
+        |> Enum.reject(&is_nil/1)
+
+      Ankole.Sessions.notify_committed(keys)
       Enum.each(keys, &Ankole.Sessions.Events.publish_status(&1.agent_uid, &1.session_id))
     end
 
@@ -1407,6 +1411,7 @@ defmodule Ankole.Conversations.Native do
       latest_input: latest_input,
       latest_input_agent_uids:
         if(latest_input, do: NativeQueue.addressed_agent_uids(latest_input), else: []),
+      editable_inputs: editable_inputs(conversation, viewer_uid, messages),
       removed_message_ids: removed_ids,
       retryable_message_id: latest_retryable && latest_retryable.id,
       retryable_message_ids: retryable,
@@ -1447,6 +1452,56 @@ defmodule Ankole.Conversations.Native do
     page = Ankole.Ash.read!(query, page: [limit: 500])
     messages = Enum.reverse(page.results)
     {messages, if(page.more?, do: hd(messages).seq)}
+  end
+
+  defp editable_inputs(conversation, viewer_uid, messages) do
+    viewer_messages =
+      Enum.filter(
+        messages,
+        &(&1.author_type == :human and &1.author_uid == viewer_uid and &1.kind == :message)
+      )
+
+    if viewer_messages == [] do
+      []
+    else
+      ids = Enum.map(viewer_messages, & &1.id)
+
+      addressed_by_id =
+        Signals.list_signals!(
+          query: [
+            filter: [
+              conversation_id: conversation.id,
+              message_id: [in: ids],
+              type: @addressed
+            ],
+            select: [:message_id, :agent_uid, :data]
+          ]
+        )
+        |> Enum.reject(&(&1.data["removed"] == true))
+        |> Enum.group_by(& &1.message_id, & &1.agent_uid)
+        |> Map.new(fn {msg_id, uids} -> {msg_id, uids |> Enum.uniq() |> Enum.sort()} end)
+
+      latest_other_human =
+        Message
+        |> Ash.Query.filter(
+          conversation_id == ^conversation.id and seq <= ^conversation.sequence_high_water and
+            not withdrawn and author_type == :human and author_uid != ^viewer_uid
+        )
+        |> Ash.Query.select([:seq])
+        |> Ash.Query.sort(seq: :desc)
+        |> Ash.Query.limit(1)
+        |> Ankole.Ash.read_one!()
+
+      other_seq = latest_other_human && latest_other_human.seq
+
+      Enum.map(viewer_messages, fn message ->
+        %{
+          messageID: message.id,
+          agentUIDs: Map.get(addressed_by_id, message.id, []),
+          supersededByParticipant: not is_nil(other_seq) and other_seq > message.seq
+        }
+      end)
+    end
   end
 
   defp removed_messages(conversation, older_before, opts) do

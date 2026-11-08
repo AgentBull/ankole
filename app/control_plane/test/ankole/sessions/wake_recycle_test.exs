@@ -632,5 +632,76 @@ defmodule Ankole.Sessions.WakeRecycleTest do
       assert {:ok, r3} = Admission.admit(key(s3), s3, now: t_75h)
       assert r3.conversation.id == r2.conversation.id
     end
+
+    test "uses single-round context_usage rather than cumulative multi-round usage for the 128k rotation gate" do
+      %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+      %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+      ConversationsFixtures.grant_chat(human.uid, agent.uid)
+
+      conversation_id = Ecto.UUID.generate()
+      first_msg_id = Ecto.UUID.generate()
+
+      assert {:ok, detail} =
+               ConversationsFixtures.create(human.uid, %{
+                 room_mode: :group,
+                 conversation_id: conversation_id,
+                 message_id: first_msg_id,
+                 agent_uid: agent.uid,
+                 text: "Search tools and inspect the level."
+               })
+
+      first_signal = Repo.get_by!(Signal, message_id: first_msg_id)
+      t0 = DateTime.utc_now(:microsecond)
+
+      assert {:ok, first_run} = Admission.admit(key(first_signal), first_signal, now: t0)
+      ai_run = start_aigateway_run_for_turn!(first_run, [])
+
+      {:ok, committed} =
+        ResponseCommit.commit_complete(
+          ai_run,
+          [
+            %{
+              "type" => "message",
+              "role" => "assistant",
+              "content" => [
+                %{"type" => "output_text", "text" => "Checked in two provider rounds."}
+              ]
+            }
+          ],
+          %{
+            "usage" => %{
+              "input_tokens" => 219_000,
+              "output_tokens" => 1_000,
+              "total_tokens" => 220_000
+            },
+            "context_usage" => %{
+              "input_tokens" => 109_500,
+              "output_tokens" => 500,
+              "total_tokens" => 110_000
+            }
+          }
+        )
+
+      assert {:ok, %{status: status}} =
+               commit_turn_completion(first_run, "resp_#{committed.id}", :loop_finished)
+
+      assert status in [:completed, :turn_completed]
+
+      followup_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               ConversationsFixtures.post(human.uid, detail.conversation.id, %{
+                 message_id: followup_id,
+                 text: "Continue after a two-hour break."
+               })
+
+      followup_signal = Repo.get_by!(Signal, message_id: followup_id)
+      t_after_2h = DateTime.add(t0, 7_200, :second)
+
+      assert {:ok, second_run} =
+               Admission.admit(key(followup_signal), followup_signal, now: t_after_2h)
+
+      assert second_run.conversation.id == first_run.conversation.id
+    end
   end
 end

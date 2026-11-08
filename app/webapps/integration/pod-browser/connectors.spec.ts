@@ -423,7 +423,7 @@ test('member starts a personal calendar subscription, cancels then completes con
     await expect(adminDialog).toBeHidden()
     await member.goto(state.base_url + pageRoute(pageID))
     await login(member, state.member)
-    await expect(member.getByRole('button', { name: '自动化', exact: true })).toBeVisible()
+    await expect(member.getByRole('button', { name: '应用设置', exact: true })).toBeVisible()
     const { job } = await request<{ job: { id: number } }>(member, `/pages/${pageID}/jobs`, 'POST', {
       action_key: 'capture',
       label: jobName,
@@ -431,7 +431,7 @@ test('member starts a personal calendar subscription, cancels then completes con
       config: {}
     })
     jobID = job.id
-    await member.getByRole('button', { name: '自动化', exact: true }).click()
+    await member.getByRole('button', { name: '应用设置', exact: true }).click()
     await member.getByRole('combobox', { name: '自动化任务', exact: true }).click()
     await member.getByRole('option', { name: jobName, exact: true }).click()
     await member.getByRole('link', { name: '打开外部连接', exact: true }).click()

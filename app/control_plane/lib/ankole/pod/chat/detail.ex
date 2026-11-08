@@ -16,6 +16,19 @@ defmodule Ankole.Pod.Chat.Detail do
             ]
           ]
         ],
+        editableInputs: [
+          type: {:array, :map},
+          allow_nil?: false,
+          constraints: [
+            items: [
+              fields: [
+                messageID: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
+                agentUIDs: [type: {:array, Ankole.Ash.Types.PrincipalKey}, allow_nil?: false],
+                supersededByParticipant: [type: :boolean, allow_nil?: false]
+              ]
+            ]
+          ]
+        ],
         linkedRuns: [
           type: {:array, :map},
           allow_nil?: false,

@@ -109,8 +109,8 @@ import { normalizeSearchQuery, parseSearchTarget } from './search-targets'
 import { isSpreadsheetFileName } from './state/spreadsheet-grid'
 import './page-workspace.css'
 
-const AppletAutomationControl = lazy(() =>
-  import('./applet-page').then(module => ({ default: module.AppletAutomationControl }))
+const AppletSettingsControl = lazy(() =>
+  import('./applet-settings').then(module => ({ default: module.AppletSettingsControl }))
 )
 
 export function PageRoute() {
@@ -679,7 +679,7 @@ function PageWorkspace({
             {!accessDenied && !trashed && <PageLearningButton detail={contentDetail} />}
             {!accessDenied && !trashed && page.type === 'applet' && (
               <Suspense fallback={null}>
-                <AppletAutomationControl detail={contentDetail} />
+                <AppletSettingsControl key={page.id} detail={contentDetail} />
               </Suspense>
             )}
             {commentsAvailable && isMobile && !comments && focusedComment && (

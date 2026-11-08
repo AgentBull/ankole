@@ -100,6 +100,57 @@ test('a committed progress event replaces an older read, and reconnection catche
   expect(context.closed).toBe(true)
 })
 
+test('ActionRun reads and live updates preserve business JSON strings verbatim without rewriting Pod file paths', async () => {
+  const pageID = '019a2b00-0000-7000-8000-000000000033'
+  const rawPreviewPath = `/api/v2/pod/pages/${pageID}/files/content?path=assets%2Fpreview%2Fstep1.png`
+  const rawFinalPath = `/api/v2/pod/pages/${pageID}/files/content?path=assets%2Ffinal%2Fposter.png`
+  const context = fixture()
+  let run: ActionRun = {
+    id: 1000,
+    automation_job_id: 1000,
+    event: {},
+    status: 'running',
+    attempts: 1,
+    slice_count: 0,
+    progress: {
+      previewUrl: rawPreviewPath
+    },
+    stdout_truncated: false,
+    stderr_truncated: false
+  }
+  const http = spyOn(sdk, 'podAppletRun').mockImplementation((async () => ({
+    run
+  })) as unknown as typeof sdk.podAppletRun)
+  const stop = context.observer.subscribe(() => {})
+  const unsubscribe = context.api.subscribe(1000, () => {})
+  try {
+    await settle()
+    expect(context.observer.getCurrentResult().data?.progress).toEqual({
+      previewUrl: rawPreviewPath
+    })
+
+    run = {
+      ...run,
+      status: 'succeeded',
+      result: {
+        original: rawFinalPath,
+        file: { path: `pages/${pageID}/assets/final/poster.png` }
+      }
+    }
+    context.listeners.get('changed')!(run)
+    await settle()
+    expect(context.observer.getCurrentResult().data?.result).toEqual({
+      original: rawFinalPath,
+      file: { path: `pages/${pageID}/assets/final/poster.png` }
+    })
+  } finally {
+    unsubscribe()
+    stop()
+    http.mockRestore()
+    context.client.clear()
+  }
+})
+
 test('revoked Run access clears the cached result and closes its live subscription', async () => {
   const context = fixture()
   const run: ActionRun = {

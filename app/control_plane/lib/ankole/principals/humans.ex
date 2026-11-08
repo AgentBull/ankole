@@ -78,12 +78,16 @@ defmodule Ankole.Principals.Humans do
 
   def update_human(uid, attrs) when is_map(attrs) do
     Repo.transact_top_level(fn ->
-      update_human_in_tx(attrs |> Map.take([:display_name, :email]) |> Map.put(:uid, uid))
+      update_human_in_tx(
+        attrs
+        |> Map.take([:display_name, :email, :avatar_url])
+        |> Map.put(:uid, uid)
+      )
     end)
   end
 
   def update_human_in_tx(%{uid: uid} = changes) do
-    attrs = Map.take(changes, [:display_name, :email])
+    attrs = Map.take(changes, [:display_name, :email, :avatar_url])
 
     with {:ok, principal} <- lock_principal_in_tx(uid),
          :ok <- ensure_principal_type(principal, :human),

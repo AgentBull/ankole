@@ -16,6 +16,7 @@ defmodule Ankole.AIGateway.CompactionCandidate do
       messages_to_items: 1,
       provider_neutral_tail_items: 1,
       input_items: 1,
+      item_estimated_bytes: 1,
       items_token_estimate: 1
     ]
 
@@ -302,7 +303,7 @@ defmodule Ankole.AIGateway.CompactionCandidate do
 
   defp json_item_stats(items) do
     Enum.reduce(items, %{count: 0, bytes: 0}, fn item, stats ->
-      %{count: stats.count + 1, bytes: stats.bytes + byte_size(Ankole.JSON.encode!(item))}
+      %{count: stats.count + 1, bytes: stats.bytes + item_estimated_bytes(item)}
     end)
   end
 

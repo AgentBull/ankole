@@ -690,17 +690,33 @@ the quota check. At the exact points where AIGateway records credential usage,
 it appends one row to `ai_gateway_usage_records` for each counted provider
 round.
 
-Applet backend calls to `AnkoleRuntime.ai.generateText` run in-process under the
-tenant's `system` Principal. The adapter resolves only built-in LLM slots from
-that Principal's effective configuration (rejecting raw `provider/model` selectors and
-falling back from a missing `light` profile to `primary`), validates reasoning
-effort against the resolved model, and records LLM usage with origin `applet`
-without checking an Agent quota. It maps upstream provider errors to
-`ai_unavailable` and returns the generated text, `stop`/`length` finish reason,
-and input/output token counts without ever exposing credentials to the Applet
-isolate. The Applet invocation owns its overall timeout and cancellation: just
-like streaming calls, native non-streaming requests monitor their BEAM owner
-process and drop active upstream I/O immediately if the capability process exits.
+Applet backend calls to `AnkoleRuntime.ai.generateText`,
+`AnkoleRuntime.ai.generateImage`, `AnkoleRuntime.web.search`, and
+`AnkoleRuntime.web.fetch` run in-process under the selected ordinary or `admin`
+execution Principal (`caller: "pod_applet"`). Human Principals resolve the
+tenant's `system` model profiles, whereas Agent Principals resolve that Agent's
+model profiles; both attribute usage to the executing Principal (`origin:
+"applet"`) in `ai_gateway_usage_records` without spending interactive Agent
+token quota. `generateText` resolves only built-in LLM slots (rejecting
+raw `provider/model` selectors and falling back from a missing `light` profile to
+`primary`), validates reasoning effort against the resolved model, and returns
+generated text, `stop`/`length` finish reason, and input/output token counts.
+`create_image/3` matches Agent image-generation routing without persisting binary
+rows to `ai_gateway_artifacts` (`persist_artifacts?: false`): when
+`provider_hosted.image_generate` is `true`, AIGateway requires `primary` to
+support native Responses image generation and executes a stateless `Responses`
+call (`tool_choice: %{"type" => "image_generation"}`), returning
+`model_profile_not_configured` if `primary` lacks native support; when
+`provider_hosted.image_generate` is `false`, AIGateway resolves the
+`image_generate` profile directly through `ImageModelCatalog` and executes a
+non-streaming `/images` request without invoking the `primary` LLM. `create_web_search/3`
+with `respect_provider_hosted?: true` likewise routes through `primary`'s native
+`web_search` tool when `provider_hosted.web_search` is `true` and through the
+standalone `web_search` profile when `false`. Upstream provider errors map to
+`ai_unavailable` (`web_search_unavailable` / `web_fetch_unavailable` for web
+calls) without exposing credentials to the Applet isolate, and native
+non-streaming requests monitor their BEAM owner process so active upstream I/O
+drops immediately if the capability process exits.
 
 ## Create a Response without Storing It
 
@@ -1362,8 +1378,12 @@ canonical nested cached and reasoning counts take priority over legacy provider
 detail names and flat fields (preserving explicit zeros, including an explicit
 zero total), an unreported count is 0, missing or invalid totals default to
 `input + output`, re-normalizing a canonical struct is idempotent, and lost
-historical counts are never guessed. Merging the usage of several rounds sums
-the reported counts and never replaces a reported count with a missing one.
+historical counts are never guessed. When a single public Response spans
+multiple internal provider rounds (Tool Search, Brain, or Programmatic Tool
+Calling), AIGateway merges reported counts into the public and stored `usage`
+total without letting a missing count overwrite a reported one, while also
+recording the latest reported single-round snapshot in
+`Message.metadata["context_usage"]`.
 
 Compaction uses a single caller-facing protocol owned by AIGateway: any caller
 requests compaction by including a `compaction_trigger` input item in a
@@ -1495,6 +1515,15 @@ rules:
   reserving every pair that could cross the maximum safe boundary so refitting
   never overflows, and never dropping an active Tool Search pair), or shifts the
   cut backward when current input closes an open call.
+- Local compaction summarizes across text, reasoning, tool call/output, and
+  `input_image` messages while stopping at opaque media parts such as
+  `input_file`. AIGateway renders compacted images as `[input_image omitted]`
+  for the summarizer, replaces compacted user image parts in
+  `retained_user_originals` with bounded `[input_image omitted...]` text
+  placeholders (omitting inline `data:` payloads while keeping bounded durable
+  `file_id` or external URL references), preserves recent `input_image` parts
+  verbatim in `retained_tail`, and estimates retained `input_image` parts at
+  `1,600` tokens each across candidate selection and checkpoint budget checks.
 - Before selecting the tail or persisting a checkpoint, AIGateway reserves up to
   4,000 tokens (including message wrapper) for the refreshed
   `brain_context_pack` and estimates the combined token size of the pack, user
@@ -1516,9 +1545,11 @@ rules:
 
 ### Automatic Overflow
 
-Each stored Response's provider usage is a cumulative snapshot of the
-conversation at that point rather than a delta to sum across rows, so automatic
-compaction and overflow read the latest usage snapshot in visible history.
+Each provider round reports the context-window usage at that point in the
+conversation rather than a delta across turns. Automatic compaction, overflow,
+and cold-wake rotation read `context_usage` from the latest Response in visible
+history (falling back to `usage` on single-round or older stored rows) so
+multi-round public `usage` totals do not inflate context-window watermarks.
 
 When usage exceeds the threshold, no compaction candidate is available, and the
 request sets `truncation=auto`, AIGateway selects the configured stable tail and

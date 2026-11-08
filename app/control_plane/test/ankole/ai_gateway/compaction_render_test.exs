@@ -295,14 +295,33 @@ defmodule Ankole.AIGateway.CompactionRenderTest do
         %{
           "type" => "input_file",
           "file_data" => "SECRET_FILE_DATA"
+        },
+        %{
+          "type" => "function_call",
+          "call_id" => "call_shot",
+          "name" => "screenshot",
+          "arguments" => "{}"
+        },
+        %{
+          "type" => "function_call_output",
+          "call_id" => "call_shot",
+          "output" => [
+            %{"type" => "input_text", "text" => "captured canvas"},
+            %{
+              "type" => "input_image",
+              "image_url" => "data:image/webp;base64,SECRET_TOOL_IMAGE"
+            }
+          ]
         }
       ])
 
     assert rendered =~ "[input_image omitted]"
+    assert rendered =~ "captured canvas"
     assert rendered =~ "[item omitted]"
     assert rendered =~ "[input_file omitted]"
     refute rendered =~ "SECRET_DATA_URL"
     refute rendered =~ "SECRET_FILE_ID"
     refute rendered =~ "SECRET_FILE_DATA"
+    refute rendered =~ "SECRET_TOOL_IMAGE"
   end
 end

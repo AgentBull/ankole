@@ -22,6 +22,35 @@ defmodule Ankole.AIGateway.UsageTest do
     artifact = %CompactionArtifact{content: %{"output" => [], "usage" => usage}}
     assert CompactionArtifacts.response_body(artifact)["usage"] == usage
     assert CompactionHistory.history_usage_tokens([%Message{metadata: %{"usage" => usage}}]) == 17
+
+    multi_round = %Message{
+      metadata: %{
+        "usage" => %{
+          "input_tokens" => 419_000,
+          "output_tokens" => 1_229,
+          "total_tokens" => 420_229
+        },
+        "context_usage" => %{
+          "input_tokens" => 209_800,
+          "output_tokens" => 540,
+          "total_tokens" => 210_340
+        }
+      }
+    }
+
+    assert CompactionHistory.history_usage_tokens([multi_round]) == 210_340
+
+    legacy_without_context_usage = %Message{
+      metadata: %{
+        "usage" => %{
+          "input_tokens" => 419_000,
+          "output_tokens" => 1_229,
+          "total_tokens" => 420_229
+        }
+      }
+    }
+
+    assert CompactionHistory.history_usage_tokens([legacy_without_context_usage]) == 420_229
   end
 
   test "legacy Provider and flat detail names share the canonical response shape" do
@@ -79,5 +108,36 @@ defmodule Ankole.AIGateway.UsageTest do
     end
 
     assert Usage.total_tokens(counts) == 7
+  end
+
+  test "merge canonicalizes legacy token aliases while preserving provider fields and non-token maps" do
+    merged =
+      Usage.merge(
+        %{
+          "prompt_tokens" => 10,
+          "completion_tokens" => 5,
+          "cachedTokens" => 4,
+          "cost" => 0.25
+        },
+        %{
+          "input_tokens" => 20,
+          "output_tokens" => 8,
+          "total_tokens" => 28,
+          "output_tokens_details" => %{"reasoning_tokens" => 3}
+        }
+      )
+
+    assert merged == %{
+             "input_tokens" => 30,
+             "output_tokens" => 13,
+             "total_tokens" => 43,
+             "input_tokens_details" => %{"cached_tokens" => 4},
+             "output_tokens_details" => %{"reasoning_tokens" => 3},
+             "cost" => 0.25
+           }
+
+    assert Usage.merge(%{"web_search" => %{"requests" => 1}}, %{
+             "web_search" => %{"requests" => 2}
+           }) == %{"web_search" => %{"requests" => 3}}
   end
 end

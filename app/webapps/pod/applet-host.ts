@@ -273,6 +273,10 @@ export function mountApplet(
       request(...args) {
         current()
         return runtime.pod.request(...args)
+      },
+      fileURL(target) {
+        current()
+        return runtime.pod.fileURL(target)
       }
     },
     channel(name) {

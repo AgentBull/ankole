@@ -3,7 +3,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   alias Ankole.Pod.Access
   alias Ankole.Pod.{Bases, Files, Pages, Serialization}
-  alias Ankole.Pod.Applets.AI
+  alias Ankole.Pod.Applets.{AI, Web}
 
   def call(context, caller, operation, args) do
     {admin?, operation} =
@@ -18,7 +18,8 @@ defmodule Ankole.Pod.Applets.Capabilities do
         "file.write",
         "state.set",
         "state.delete",
-        "signals.emit"
+        "signals.emit",
+        "ai.generateImage"
       ]
 
     if (context["read_only"] == true or context["method"] == "GET") and write? do
@@ -87,6 +88,13 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   defp dispatch_context(context, page, actor, caller, "signals." <> operation, args),
     do: Ankole.Signals.applet_dispatch(context, page, actor, caller, operation, args)
+
+  defp dispatch_context(context, page, actor, _caller, "ai.generateImage", [options])
+       when is_map(options),
+       do:
+         AI.generate_image(page, actor, options,
+           authentication_ref: context["authentication_ref"]
+         )
 
   defp dispatch_context(_context, page, actor, _caller, operation, args),
     do: dispatch(page, actor, operation, args)
@@ -160,6 +168,12 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   defp dispatch(_page, actor, "ai.generateText", [options]) when is_map(options),
     do: AI.generate_text(actor, options)
+
+  defp dispatch(_page, actor, "web.search", [options]) when is_map(options),
+    do: Web.search(actor, options)
+
+  defp dispatch(_page, actor, "web.fetch", [options]) when is_map(options),
+    do: Web.fetch(actor, options)
 
   defp dispatch(_page, _actor, _operation, _args), do: {:error, :invalid_request}
 

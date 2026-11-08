@@ -205,6 +205,7 @@ export type LoginProvidersResponses = {
   200: {
     identities: Array<{
       authenticationRef: string
+      avatarURL?: string | null
       displayName: string
       principalUID: string
       providerID: string
@@ -213,6 +214,7 @@ export type LoginProvidersResponses = {
       } | null
     }>
     identity?: {
+      avatarURL?: string | null
       displayName: string
       principalUID: string
       providerID: string
@@ -339,6 +341,7 @@ export type LogoutConfirmationResponses = {
   200: {
     clientName?: string | null
     identity?: {
+      avatarURL?: string | null
       displayName: string
       principalUID: string
       providerID: string
@@ -445,6 +448,7 @@ export type BrowserSessionResponses = {
   200: {
     accounts: Array<{
       authenticationRef: string
+      avatarURL?: string | null
       displayName: string
       podURL: string
       principalUID: string
@@ -453,12 +457,14 @@ export type BrowserSessionResponses = {
         [key: string]: unknown
       } | null
       tenant: {
+        avatarURL?: string | null
         displayName: string
         id: string
         slug: string
       }
     }>
     authenticated: boolean
+    avatarURL?: string | null
     canManagePod: boolean
     consoleURL?: string | null
     displayName?: string | null
@@ -471,6 +477,7 @@ export type BrowserSessionResponses = {
       providerID: string
       requiresSSO: boolean
       tenant: {
+        avatarURL?: string | null
         displayName: string
         id: string
         slug: string
@@ -484,6 +491,7 @@ export type BrowserSessionResponses = {
       providerID: string
     }>
     tenant?: {
+      avatarURL?: string | null
       displayName: string
       id: string
       slug: string

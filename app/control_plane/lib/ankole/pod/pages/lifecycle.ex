@@ -3,6 +3,7 @@ defmodule Ankole.Pod.Pages.Lifecycle do
   require Ash.Query
 
   alias Ankole.Pod.{
+    AppletEnv,
     FileCache,
     PageChange,
     PageDailyActivity,
@@ -72,6 +73,7 @@ defmodule Ankole.Pod.Pages.Lifecycle do
     with :ok <- delete_resources(PageComment, :purge, replies) do
       Enum.reduce_while(
         [
+          {AppletEnv, :purge},
           {PageUserState, :purge},
           {PageChange, :prune},
           {SpreadsheetOp, :prune},

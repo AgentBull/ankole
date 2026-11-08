@@ -12,6 +12,22 @@ defmodule Ankole.AIGateway.Usage do
 
   @input_keys ~w(input_tokens prompt_tokens inputTokens)
   @output_keys ~w(output_tokens completion_tokens outputTokens)
+  @token_usage_keys @input_keys ++
+                      @output_keys ++
+                      ~w(
+                        total_tokens totalTokens
+                        input_tokens_details prompt_tokens_details
+                        output_tokens_details completion_tokens_details
+                        cachedTokens reasoningTokens
+                      )
+  @legacy_token_keys ~w(
+    prompt_tokens inputTokens
+    completion_tokens outputTokens
+    totalTokens
+    prompt_tokens_details completion_tokens_details
+    cached_tokens cachedTokens
+    reasoning_tokens reasoningTokens
+  )
 
   @doc """
   Adds numeric usage counters recursively, retaining provider-specific fields.
@@ -23,14 +39,63 @@ defmodule Ankole.AIGateway.Usage do
   def merge(usage, nil), do: usage
 
   def merge(left, right) when is_map(left) and is_map(right) do
+    merge_maps(canonicalize_for_merge(left), canonicalize_for_merge(right))
+  end
+
+  defp merge_maps(left, right) when is_map(left) and is_map(right) do
     Map.merge(left, right, fn _key, left, right ->
       cond do
         is_number(left) and is_number(right) -> left + right
-        is_map(left) and is_map(right) -> merge(left, right)
+        is_map(left) and is_map(right) -> merge_maps(left, right)
         is_nil(right) -> left
         true -> right
       end
     end)
+  end
+
+  defp canonicalize_for_merge(usage) when is_map(usage) do
+    if Enum.any?(@token_usage_keys, &Map.has_key?(usage, &1)) do
+      counts = counts(usage)
+      total = integer(usage, ~w(total_tokens totalTokens)) || derived_total(counts)
+
+      usage
+      |> Map.drop(@legacy_token_keys)
+      |> put_if_integer("input_tokens", counts.input_tokens)
+      |> put_if_integer("output_tokens", counts.output_tokens)
+      |> put_if_integer("total_tokens", total)
+      |> put_detail_if_present(
+        "input_tokens_details",
+        "cached_tokens",
+        counts.cached_input_tokens
+      )
+      |> put_detail_if_present(
+        "output_tokens_details",
+        "reasoning_tokens",
+        counts.reasoning_tokens
+      )
+    else
+      usage
+    end
+  end
+
+  defp derived_total(%{input_tokens: nil, output_tokens: nil}), do: nil
+
+  defp derived_total(%{input_tokens: input, output_tokens: output}),
+    do: (input || 0) + (output || 0)
+
+  defp put_if_integer(map, _key, nil), do: map
+  defp put_if_integer(map, key, value) when is_integer(value), do: Map.put(map, key, value)
+
+  defp put_detail_if_present(map, _detail_key, _inner_key, nil), do: map
+
+  defp put_detail_if_present(map, detail_key, inner_key, value) when is_integer(value) do
+    existing =
+      case Map.get(map, detail_key) do
+        %{} = detail -> detail
+        _other -> %{}
+      end
+
+    Map.put(map, detail_key, Map.put(existing, inner_key, value))
   end
 
   @doc "Returns the counts of one usage; a count that the Provider did not report is `nil`."

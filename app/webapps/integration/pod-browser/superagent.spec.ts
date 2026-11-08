@@ -39,7 +39,8 @@ test('a colleague opens lazily, keeps one DM across reloads, and starts a separa
     await page.reload()
     await expect(page.locator('.pod-room-header h1')).toContainText(`@${state.agent_uid}`)
     await expect(page.locator('.pod-room-header h1')).toContainText('Browser content Agent')
-    await expect(page.getByRole('region', { name: '待发送', exact: true })).toContainText('请审阅采购合同。')
+    await expect(page.getByRole('region', { name: '待发送', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: '对话消息', exact: true })).toContainText('请审阅采购合同。')
     expect((await directory()).agents.find(agent => agent.uid === state.agent_uid)!.directConversationID).toBe(
       dm.conversation.id
     )
@@ -72,7 +73,7 @@ test('a colleague opens lazily, keeps one DM across reloads, and starts a separa
     expect(original.conversation.participants).toHaveLength(2)
     await page.goto(`/?agent=${state.agent_uid}`)
     await expect(page).toHaveURL(url => url.pathname === `/dm/${state.agent_uid}`)
-    await expect(page.getByRole('region', { name: '待发送', exact: true })).toContainText('请审阅采购合同。')
+    await expect(page.getByRole('region', { name: '对话消息', exact: true })).toContainText('请审阅采购合同。')
     await page.screenshot({ path: info.outputPath('unique-colleague-dm.png') })
     await request(page, `/conversations/${dmID}?forceStop=true`, 'DELETE')
     dmID = undefined

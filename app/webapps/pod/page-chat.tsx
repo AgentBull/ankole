@@ -181,7 +181,15 @@ export function PageChat({
     )
   if (mobile) {
     return (
-      <Sheet open={!!selection} onOpenChange={open => !open && select(null, true)}>
+      <Sheet
+        open={!!selection}
+        onOpenChange={(open, eventDetails) => {
+          if (!open && eventDetails.reason === 'escape-key' && eventDetails.event.defaultPrevented) {
+            eventDetails.cancel()
+            return
+          }
+          if (!open) select(null, true)
+        }}>
         <SheetContent className="pod-page-chat-sheet" showCloseButton={false} finalFocus={returnFocus}>
           <SheetTitle className="sr-only">{t('pod.page_chat.title')}</SheetTitle>
           {body}

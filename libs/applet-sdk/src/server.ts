@@ -62,6 +62,70 @@ export type GenerateTextResult = {
   finishReason: 'stop' | 'length'
   usage: { inputTokens: number; outputTokens: number }
 }
+export type WebSearchOptions = {
+  query: string
+  limit?: number
+}
+export type WebSearchResultItem = {
+  title: string
+  url: string
+  snippet: string
+  position?: number
+  publishedAt?: string | null
+  score?: number | null
+}
+export type WebSearchResult = {
+  query: string
+  results: WebSearchResultItem[]
+}
+export type WebFetchOptions = {
+  urls: string[]
+  maxChars?: number
+}
+export type WebFetchPage = {
+  url: string
+  title?: string
+  text?: string
+  truncated?: boolean
+  renderWarning?: 'empty_text' | 'script_shell' | null
+  error?: string
+}
+export type WebFetchResult = {
+  success: boolean
+  results: WebFetchPage[]
+}
+export type GenerateImageOptions = {
+  prompt: string
+  action?: 'generate' | 'edit' | 'auto'
+  images?: string[]
+  mask?: string
+  size?: 'auto' | `${number}x${number}`
+  quality?: 'low' | 'medium' | 'high' | 'auto'
+  background?: 'transparent' | 'opaque' | 'auto'
+  outputFormat?: 'png' | 'webp' | 'jpeg'
+  outputCompression?: number
+  moderation?: 'auto' | 'low'
+  inputFidelity?: 'low' | 'high'
+  saveTo?: {
+    pageId: string
+    name?: string
+  }
+}
+export type GenerateImageResult = {
+  url: string
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  revisedPrompt?: string | null
+  file: FileEntry & {
+    name: string
+    mime: string
+    pageId: string
+  }
+  usage?: {
+    inputTokens?: number
+    outputTokens?: number
+    totalTokens?: number
+  }
+}
 export interface HttpError extends Error {
   status: number
   code: string
@@ -83,7 +147,14 @@ export type RuntimeCapabilities = {
     read(path: string): Promise<FileRead>
     write(pageId: string, file: FileWrite): Promise<FileWriteResult>
   }
-  ai: { generateText(options: GenerateTextOptions): Promise<GenerateTextResult> }
+  ai: {
+    generateText(options: GenerateTextOptions): Promise<GenerateTextResult>
+    generateImage(options: GenerateImageOptions): Promise<GenerateImageResult>
+  }
+  web: {
+    search(options: WebSearchOptions): Promise<WebSearchResult>
+    fetch(options: WebFetchOptions): Promise<WebFetchResult>
+  }
   mcp: {
     call<T = unknown>(
       tool: string,

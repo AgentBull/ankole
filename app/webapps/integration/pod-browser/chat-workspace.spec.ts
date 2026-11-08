@@ -417,21 +417,23 @@ test('queued inputs retain real per-Agent order through drag, steer, edit and re
           ?.inputs.map(input => input.messageID)
       )
       .toEqual([material!.queue_message_ids[1], material!.queue_message_ids[2], material!.queue_message_ids[0]])
-    await row('Queue beta').getByRole('button', { name: '并入', exact: true }).click()
+    await row('Queue alpha').getByRole('button', { name: '并入', exact: true }).click()
     await expect
       .poll(
         async () =>
           (await detail(page, id)).pendingQueues
             .find(queue => queue.agentUID === state.agent_uid)!
-            .inputs.find(input => input.messageID === material!.queue_message_ids[1])?.deliveryMode
+            .inputs.find(input => input.messageID === material!.queue_message_ids[0])?.deliveryMode
       )
       .toBe('steer')
+    await expect(row('Queue alpha')).toHaveCount(0)
+    await expect(page.locator('.pod-chat-human-message').getByText('Queue alpha', { exact: true })).toBeVisible()
     await gamma.getByRole('button', { name: '编辑待发送消息', exact: true }).click()
     const input = page.locator('.pod-chat-composer').getByRole('textbox', { name: '消息', exact: true })
     await expect(input).toHaveValue('Queue gamma')
-    await expect(row('Queue alpha').getByRole('button', { name: '编辑待发送消息', exact: true })).toBeDisabled()
+    await expect(row('Queue beta').getByRole('button', { name: '编辑待发送消息', exact: true })).toBeDisabled()
     await expect(row('Queue beta').getByRole('button', { name: '撤回到草稿', exact: true })).toBeDisabled()
-    await expect(row('Queue alpha').getByRole('button', { name: '并入', exact: true })).toBeEnabled()
+    await expect(row('Queue beta').getByRole('button', { name: '并入', exact: true })).toBeEnabled()
     await input.fill('Queue gamma revised')
     await page.locator('.pod-chat-composer').getByRole('button', { name: '保存消息', exact: true }).click()
     await expect(row('Queue gamma revised')).toBeVisible()
@@ -635,7 +637,21 @@ test('a linked execution opens real paged records, retries a rejected cursor and
   const id = material!.execution_conversation_id
   const path = `/api/v2/pod/conversations/${id}/executions/background_agent_job/${material!.linked_job_id}`
   try {
+    const markedRead = page.waitForResponse(
+      response =>
+        response.request().method() === 'PATCH' &&
+        new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}` &&
+        response.status() === 200
+    )
+    const settled = page.waitForResponse(
+      response =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}` &&
+        new URL(response.url()).searchParams.get('loadedFirstSeq') === '1' &&
+        response.status() === 200
+    )
     await page.goto(conversationRoute(id))
+    await Promise.all([markedRead, settled])
     const card = page.locator('.pod-chat-linked-run').filter({ hasText: 'Recorded workspace execution' })
     const trigger = card.locator('.pod-chat-linked-run-main')
     await expect(card).toContainText('Browser content Agent')

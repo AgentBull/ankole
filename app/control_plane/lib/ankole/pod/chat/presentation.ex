@@ -65,6 +65,7 @@ defmodule Ankole.Pod.Chat.Presentation do
             agentUIDs: detail.latest_input_agent_uids
           }
         ),
+      editableInputs: Map.get(detail, :editable_inputs, []),
       activities: detail.activities,
       pendingInteractions: pending_interactions(detail),
       linkedRuns: linked_runs(detail)

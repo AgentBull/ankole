@@ -66,21 +66,15 @@ test('page chat sends through the real API and reopens the same conversation in 
     await expect(panel.locator('.pod-room-header [data-slot="sidebar-trigger"]')).toHaveCount(0)
     await expect(panel.getByRole('link', { name: '关联页面', exact: true })).toHaveCount(0)
     await expect(panel.locator('.pod-chat-turn-rail')).toHaveCount(0)
-    await expect(panel.locator('.pod-chat-human-message').getByText(message, { exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('region', { name: '待发送', exact: true })).toHaveCount(0)
     await expect(panel.getByLabel('选择助理对话', { exact: true })).toBeVisible()
-    await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
-    ).toBeVisible()
+    await expect(panel.locator('.pod-chat-human-message').getByText(message, { exact: true })).toBeVisible()
     await page.reload()
     await expect(selectedTitle).toBeVisible()
-    await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
-    ).toBeVisible()
+    await expect(panel.locator('.pod-chat-human-message').getByText(message, { exact: true })).toBeVisible()
     await panel.getByRole('link', { name: '在对话页面打开', exact: true }).click()
     await expect(page).toHaveURL(url => url.pathname === conversationRoute(id))
-    await expect(
-      page.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
-    ).toBeVisible()
+    await expect(page.locator('.pod-chat-human-message').getByText(message, { exact: true })).toBeVisible()
     // A page-associated Conversation also has a context link. The broad real-
     // story selector can choose it before any delivered message link exists.
     const contextLink = page.getByRole('link', { name: '关联页面', exact: true })
@@ -90,9 +84,7 @@ test('page chat sends through the real API and reopens the same conversation in 
     expect(new URL(selectedHref!, state.base_url).pathname).toBe(pageRoute(state.report_id))
     await contextLink.click()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(id))
-    await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
-    ).toBeVisible()
+    await expect(panel.locator('.pod-chat-human-message').getByText(message, { exact: true })).toBeVisible()
     const opener = page.getByRole('button', { name: '助理', exact: true })
     await expect(opener).toHaveAttribute('aria-expanded', 'true')
     const navigationPath = testInfo.outputPath('context-link-navigation.json')
@@ -116,14 +108,10 @@ test('page chat sends through the real API and reopens the same conversation in 
     await opener.click()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(id))
     await expect(panel.locator('.pod-page-chat-header')).toHaveAttribute('title', 'Browser report')
-    await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
-    ).toBeVisible()
+    await expect(panel.locator('.pod-chat-human-message').getByText(message, { exact: true })).toBeVisible()
     await page.reload()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(id))
-    await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(message, { exact: true })
-    ).toBeVisible()
+    await expect(panel.locator('.pod-chat-human-message').getByText(message, { exact: true })).toBeVisible()
     expect(errors).toEqual([])
   } finally {
     await context.close()
@@ -290,7 +278,7 @@ test('a failed first send retries the same request after the panel closes', asyn
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue(text)
     await panel.getByRole('button', { name: '重试发送', exact: true }).click()
     await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(text, { exact: true })
+      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(text, { exact: true })
     ).toBeVisible()
     expect(requests).toHaveLength(2)
     expect(requests[1]).toEqual(requests[0])
@@ -321,7 +309,7 @@ test('a successful first send is visible while its following history read is del
     await panel.getByRole('button', { name: '发送消息', exact: true }).click()
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue('')
     await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(text, { exact: true })
+      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(text, { exact: true })
     ).toBeVisible({ timeout: 3000 })
   } finally {
     history.resolve()
@@ -355,7 +343,7 @@ test('closing during the first send keeps its completion attached to the same co
     acknowledgement.resolve()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).toBe(uuidShorten(saved.conversation.id))
     await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(text, { exact: true })
+      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(text, { exact: true })
     ).toBeVisible()
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue('')
   } finally {
@@ -378,7 +366,7 @@ test('a list refresh failure keeps the open chat and its draft while another tab
     await panel.getByRole('button', { name: '发送消息', exact: true }).click()
     await expect.poll(() => new URL(page.url()).searchParams.get('chat')).not.toBe('new')
     await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(first, { exact: true })
+      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(first, { exact: true })
     ).toBeVisible()
     const draft = '列表刷新失败时仍保留的草稿'
     await panel.getByRole('textbox', { name: '消息', exact: true }).fill(draft)
@@ -400,7 +388,7 @@ test('a list refresh failure keeps the open chat and its draft while another tab
     await otherPanel.getByRole('button', { name: '发送消息', exact: true }).click()
     await expect.poll(() => failedLists).toBeGreaterThan(0)
     await expect(
-      panel.getByRole('region', { name: '待发送', exact: true }).getByText(next, { exact: true })
+      panel.getByRole('region', { name: '对话消息', exact: true }).getByText(next, { exact: true })
     ).toBeVisible()
     await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue(draft)
   } finally {
@@ -555,13 +543,21 @@ test('asking an Agent about a selection quotes it in Page chat and sends it as a
     const sent = await response
     expect((await sent.json()).conversation.pageID).toBe(id)
     expect(sent.request().postDataJSON().data.links).toContainEqual({ kind: 'page', id, quote: passage.slice(0, 7) })
-    // This fixture queues delivery. Reload and edit the persisted message to
-    // verify that its selected passage survives the server round trip.
-    await expect(panel.getByRole('region', { name: '待发送', exact: true })).toContainText('请把这句改得更简洁')
+    // Reload and recall the persisted message into edit mode to verify that
+    // its selected passage survives the server round trip.
+    await expect(panel.getByRole('region', { name: '待发送', exact: true })).toHaveCount(0)
+    await expect(
+      panel.locator('.pod-chat-human-message').getByText('请把这句改得更简洁', { exact: true })
+    ).toBeVisible()
     await page.reload()
-    await panel.getByRole('button', { name: '编辑待发送消息', exact: true }).click()
+    await expect(
+      panel.locator('.pod-chat-human-message').getByText('请把这句改得更简洁', { exact: true })
+    ).toBeVisible()
+    const reloadedInput = panel.getByRole('textbox', { name: '消息', exact: true })
+    await reloadedInput.focus()
+    await reloadedInput.press('ArrowUp')
     await expect(panel.locator('.pod-chat-quoted blockquote')).toHaveText(passage.slice(0, 7))
-    await expect(panel.getByRole('textbox', { name: '消息', exact: true })).toHaveValue('请把这句改得更简洁')
+    await expect(reloadedInput).toHaveValue('请把这句改得更简洁')
     await expect(content.locator('p')).toHaveText(passage)
   } finally {
     if (id) await request(page, `/pages/${id}`, 'DELETE')

@@ -220,6 +220,9 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
 
   defp rows_by_name(scope), do: scope |> custom_rows() |> Map.new(&{&1.name, &1})
 
+  @doc false
+  def own_row(scope, name), do: custom_row(scope, name)
+
   defp custom_row(scope, name) do
     schema_for_scope(scope)
     |> Ash.Query.filter(scope == ^scope and name == ^name)
@@ -327,6 +330,141 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
 
   def console_decrypt_tenant(name) do
     with :ok <- validate_name(name), do: decrypt(tenant_row(name))
+  end
+
+  @doc "Lists tenant and inherited site variables for Pod administration without site secret access."
+  def pod_list_tenant do
+    global = rows_by_name(@global_scope)
+    tenant = rows_by_name(tenant_scope())
+
+    items =
+      global
+      |> Map.merge(tenant)
+      |> Map.values()
+      |> Enum.map(&pod_item(&1, global))
+      |> Enum.sort_by(& &1.name)
+
+    {:ok, items}
+  end
+
+  @doc "Creates or updates a Pod-scoped variable without reading inherited site secrets."
+  def pod_put_tenant(name, attrs) when is_map(attrs) do
+    scope = tenant_scope()
+
+    with :ok <- validate_name(name),
+         {:ok, row} <-
+           Ankole.Ash.create(EnvVar, :put_own, %{
+             scope: scope,
+             name: name,
+             input: attrs
+           }) do
+      global = rows_by_name(@global_scope)
+      {:ok, pod_item(row, global)}
+    end
+  end
+
+  @doc "Deletes a Pod-scoped variable override and returns any inherited site metadata."
+  def pod_delete_tenant(name) do
+    with :ok <- validate_name(name) do
+      case custom_row(tenant_scope(), name) do
+        nil ->
+          if custom_row(@global_scope, name),
+            do: {:error, :forbidden},
+            else: {:error, :not_found}
+
+        row ->
+          with :ok <- delete_row(row),
+               do: deleted_detail(custom_row(@global_scope, name), name)
+      end
+    end
+  end
+
+  @doc "Decrypts a Pod-scoped secret variable; inherited site variables remain forbidden."
+  def pod_decrypt_tenant(name) do
+    with :ok <- validate_name(name) do
+      case custom_row(tenant_scope(), name) do
+        nil ->
+          if custom_row(@global_scope, name),
+            do: {:error, :forbidden},
+            else: {:error, :not_found}
+
+        row ->
+          decrypt_row(row)
+      end
+    end
+  end
+
+  @doc "Returns non-secret metadata for Site and Pod variables inherited by Applets."
+  def applet_inherited_items do
+    with {:ok, mcp_keys} <- Ankole.AIAgent.mcp_credential_env_keys() do
+      excluded = MapSet.new(mcp_keys)
+      global = applet_filtered_rows(@global_scope, excluded)
+      tenant = applet_filtered_rows(tenant_scope(), excluded)
+
+      items =
+        global
+        |> Map.merge(tenant)
+        |> Map.new(fn {name, row} ->
+          source = if row.scope == @global_scope, do: :site, else: :pod
+
+          item =
+            %{
+              name: name,
+              secret: row.secret,
+              description: row.description,
+              present: true,
+              source: source
+            }
+            |> put_plain_value(row.secret, row.value)
+
+          {name, item}
+        end)
+
+      {:ok, items}
+    end
+  end
+
+  @doc "Resolves decrypted Site and Pod variable values inherited by Applets."
+  def applet_inherited_values do
+    with {:ok, mcp_keys} <- Ankole.AIAgent.mcp_credential_env_keys() do
+      excluded = MapSet.new(mcp_keys)
+
+      @global_scope
+      |> applet_filtered_rows(excluded)
+      |> Map.merge(applet_filtered_rows(tenant_scope(), excluded))
+      |> Enum.reduce_while({:ok, %{}}, fn {name, row}, {:ok, acc} ->
+        case row_value(row) do
+          {:ok, value} ->
+            {:cont, {:ok, Map.put(acc, name, value)}}
+
+          {:error, reason} ->
+            {:halt, {:error, {:worker_env_row_error, row.scope, name, reason}}}
+        end
+      end)
+    end
+  end
+
+  defp applet_filtered_rows(scope, excluded) do
+    scope
+    |> custom_rows()
+    |> Enum.reject(&applet_excluded_name?(&1.name, excluded))
+    |> Map.new(&{&1.name, &1})
+  end
+
+  defp applet_excluded_name?(name, excluded) do
+    reserved_name?(name) or
+      MapSet.member?(excluded, name) or
+      name == "BROWSER_BACKEND_JSON" or
+      String.starts_with?(name, "BROWSER_PROFILE_SEED_")
+  end
+
+  defp pod_item(row, global_rows) do
+    source = custom_source(row)
+    inherited = if source == "tenant" and Map.has_key?(global_rows, row.name), do: "global"
+
+    row
+    |> custom_item(source)
+    |> Map.put(:inherited_source, inherited)
   end
 
   defp tenant_scope, do: "tenant:" <> Repo.tenant_id!()

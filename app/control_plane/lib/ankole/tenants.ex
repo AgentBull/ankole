@@ -297,7 +297,11 @@ defmodule Ankole.Tenants do
     with {:ok, _} <- lock_administration(),
          {:ok, tenant} <- lock_tenant(id),
          :ok <- not_deleting(tenant) do
-      Ankole.Ash.update(tenant, :profile_in_tx, Map.take(attrs, [:slug, :display_name]))
+      Ankole.Ash.update(
+        tenant,
+        :profile_in_tx,
+        Map.take(attrs, [:slug, :display_name, :avatar_url])
+      )
     end
   end
 

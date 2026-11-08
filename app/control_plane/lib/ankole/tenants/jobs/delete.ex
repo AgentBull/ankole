@@ -13,7 +13,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   # PostgreSQL foreign keys; Agent and Worker rows use their lifecycle owner.
   @tables ~w(
     base_records base_views base_fields base_tables
-    pod_files message_attachments delivery_attachments
+    pod_files pod_applet_envs message_attachments delivery_attachments
     drive_vfs_exports
     page_user_states page_changes page_comments page_snapshots page_daily_activity page_search_documents page_contents
     pod_search_queries pod_spreadsheet_ops pod_file_caches permission_grants
@@ -42,7 +42,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     workflow_agent_calls delivery_previews signals ai_gateway_messages
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
     workflow_runs ai_gateway_conversations background_agent_jobs
-    oidc_clients human_users file_objects
+    oidc_clients human_users profile_avatars file_objects
   )
   # Keep cleanup's completion evidence and its referenced Human until the
   # final transaction removes both; earlier batches must not erase the proof.

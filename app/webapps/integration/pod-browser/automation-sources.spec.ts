@@ -11,6 +11,16 @@ async function choose(page: Page, label: string, name: string) {
   await page.getByRole('option', { name, exact: true }).click()
 }
 
+async function openAppletSettingsTab(
+  page: Page,
+  tabName: '环境变量' | '自动化' | 'Webhooks' | '运行日志' | '函数' = '自动化'
+) {
+  await page.getByRole('button', { name: '应用设置', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '应用设置' })
+  await dialog.getByRole('tab', { name: tabName, exact: true }).click()
+  return dialog
+}
+
 test('connector errors stay visible on the Job and retry returns to the same automation', async ({ browser }) => {
   test.setTimeout(180_000)
   test.skip(!state.actions, 'Start the real fixture with POD_BROWSER_ACTIONS=true')
@@ -76,7 +86,7 @@ test('connector errors stay visible on the Job and retry returns to the same aut
       config: {}
     })
     jobID = job.id
-    await page.getByRole('button', { name: '自动化', exact: true }).click()
+    await openAppletSettingsTab(page, '自动化')
     await choose(page, '自动化任务', connectionName)
     const section = page.getByRole('region', { name: '外部事件', exact: true })
     await choose(page, '事件来源', `${connectionName} · Approval definition · approval-${suffix}`)
@@ -141,8 +151,7 @@ test('a member configures an Action, runs its schedule, receives a callback, and
   let jobID: number | undefined
   try {
     await page.goto(state.base_url + pageRoute(pageID))
-    await page.getByRole('button', { name: '自动化', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: '自动化' })
+    const dialog = await openAppletSettingsTab(page, '自动化')
     await dialog.getByRole('button', { name: '新建自动化任务' }).click()
     await choose(page, '执行动作', 'capture')
     await dialog.getByLabel('名称', { exact: true }).fill(jobName)
@@ -160,12 +169,14 @@ test('a member configures an Action, runs its schedule, receives a callback, and
     await schedules.getByRole('button', { name: '保存', exact: true }).click()
     await expect(schedules).toContainText('分钟行情 · 启用中')
     await schedules.getByRole('button', { name: '立即运行' }).click()
+    await schedules.getByRole('button', { name: '查看运行日志', exact: true }).click()
     const history = dialog.getByRole('region', { name: '运行历史', exact: true })
     await expect(history.locator(':scope > details > summary')).toContainText('已成功', { timeout: 30000 })
     await history.locator(':scope > details > summary').first().click()
     await expect(history).toContainText('"mode": "intraday"')
     await expect(history).toContainText('"market": "CN"')
 
+    await dialog.getByRole('tab', { name: '自动化', exact: true }).click()
     await schedules.getByRole('button', { name: '暂停', exact: true }).click()
     await expect(schedules).toContainText('分钟行情 · 已暂停')
     await schedules.getByRole('button', { name: '恢复', exact: true }).click()
@@ -181,6 +192,7 @@ test('a member configures an Action, runs its schedule, receives a callback, and
     await schedules.getByRole('button', { name: /^#\d+$/ }).click()
     await expect(dialog.getByLabel('运行详情', { exact: true })).toContainText('"mode": "intraday"')
 
+    await dialog.getByRole('tab', { name: '自动化', exact: true }).click()
     await schedules.getByRole('button', { name: '暂停', exact: true }).click()
     await expect(schedules).toContainText('收盘行情 · 已暂停')
     await schedules.getByRole('button', { name: '编辑', exact: true }).click()
@@ -219,6 +231,7 @@ test('a member configures an Action, runs its schedule, receives a callback, and
       schedule: { kind: 'cron', expression: '10 15 * * 5' }
     })
 
+    await dialog.getByRole('tab', { name: 'Webhooks', exact: true }).click()
     const webhooks = dialog.getByRole('region', { name: 'Webhook 回调', exact: true })
     await webhooks.getByRole('button', { name: '添加 Webhook' }).click()
     await webhooks.getByLabel('名称', { exact: true }).fill('行情回调')
@@ -257,18 +270,21 @@ test('a member configures an Action, runs its schedule, receives a callback, and
     await webhooks.getByLabel('名称', { exact: true }).fill('收盘回调')
     await webhooks.getByRole('button', { name: '保存', exact: true }).click()
     await expect(webhooks).toContainText('收盘回调 · 启用中')
-    await dialog.evaluate(element => element.scrollTo({ top: 0 }))
+    await dialog.evaluate(element => element.querySelector('.overflow-y-auto')?.scrollTo({ top: 0 }))
     await page.screenshot({ path: testInfo.outputPath('automation-with-results.png'), fullPage: true })
 
     await page.reload()
-    await page.getByRole('button', { name: '自动化', exact: true }).click()
+    await openAppletSettingsTab(page, '自动化')
     await choose(page, '自动化任务', jobName)
     await expect(schedules).toContainText('收盘行情')
+    await dialog.getByRole('tab', { name: '运行日志', exact: true }).click()
     await expect(history.locator(':scope > details')).toHaveCount(2)
+    await dialog.getByRole('tab', { name: 'Webhooks', exact: true }).click()
     await webhooks.getByRole('button', { name: '吊销', exact: true }).click()
     await expect(webhooks).toContainText('收盘回调 · 已取消')
     expect((await context.request.post(callback, { data: 'revoked' })).status()).toBe(204)
     expect((await request<{ runs: unknown[] }>(page, `${root}/runs`)).runs).toHaveLength(2)
+    await dialog.getByRole('tab', { name: '自动化', exact: true }).click()
     await schedules.getByRole('button', { name: '删除', exact: true }).click()
     await expect(schedules).not.toContainText('收盘行情 ·')
     await dialog.getByRole('button', { name: '删除自动化任务', exact: true }).click()
@@ -307,8 +323,7 @@ test('an administrator selects Lark task events and receives only the enabled ev
         encryptKey: 'local-task-signature-key'
       }
     })
-    await page.getByRole('button', { name: '自动化', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: '自动化' })
+    const dialog = await openAppletSettingsTab(page, '自动化')
     await dialog.getByRole('button', { name: '新建自动化任务' }).click()
     await choose(page, '执行动作', 'capture')
     const jobName = `任务变化 ${suffix}`
@@ -326,7 +341,7 @@ test('an administrator selects Lark task events and receives only the enabled ev
     await expect(events).toContainText('此事件会触发当前自动化任务。')
     await page.keyboard.press('Escape')
     await expect(dialog).not.toBeVisible()
-    await page.getByRole('button', { name: '自动化', exact: true }).click()
+    await openAppletSettingsTab(page, '自动化')
     await choose(page, '自动化任务', jobName)
     const linked = events.getByLabel('已关联事件', { exact: true })
     await expect(linked.locator(':scope > div')).toHaveCount(1)
@@ -366,10 +381,12 @@ test('an administrator selects Lark task events and receives only the enabled ev
     await sendEvent('task.task.comment.updated_v1')
     expect((await request<{ runs: unknown[] }>(page, `/pages/${pageID}/jobs/${jobID}/runs`)).runs).toHaveLength(0)
     await sendEvent('task.task.updated_v1')
+    await dialog.getByRole('tab', { name: '运行日志', exact: true }).click()
     const history = dialog.getByRole('region', { name: '运行历史' })
     await expect(history.locator(':scope > details > summary')).toContainText('已成功', { timeout: 30000 })
     await history.locator(':scope > details > summary').click()
     await expect(history).toContainText('task-42')
+    await dialog.getByRole('tab', { name: '自动化', exact: true }).click()
     await request(page, `/connectors/auth-configs/${connection.id}`, 'PATCH', { status: 'disabled' })
     await expect(linked).toContainText('连接状态: 已停用', { timeout: 12_000 })
     await expect(linked.locator(':scope > div')).toHaveCount(1)
@@ -406,8 +423,7 @@ test('a failed Action retains its trigger data and completion time for troublesh
   let jobID: number | undefined
   try {
     await page.goto(state.base_url + pageRoute(pageID))
-    await page.getByRole('button', { name: '自动化', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: '自动化' })
+    const dialog = await openAppletSettingsTab(page, '自动化')
     await dialog.getByRole('button', { name: '新建自动化任务' }).click()
     await choose(page, '执行动作', 'sync')
     const jobName = `同步失败排查 ${suffix}`
@@ -425,6 +441,7 @@ test('a failed Action retains its trigger data and completion time for troublesh
     await schedules.getByRole('button', { name: '保存', exact: true }).click()
     await expect(schedules).toContainText('失败输入保留 · 启用中')
     await schedules.getByRole('button', { name: '立即运行' }).click()
+    await dialog.getByRole('tab', { name: '运行日志', exact: true }).click()
     const history = dialog.getByRole('region', { name: '运行历史', exact: true })
     const details = history.locator(':scope > details').first()
     await expect(details.locator(':scope > summary')).toContainText('失败', { timeout: 30_000 })
@@ -473,8 +490,7 @@ test('a recurring Cron fires the Action automatically and retains its business p
   let jobID: number | undefined
   try {
     await page.goto(state.base_url + pageRoute(pageID))
-    await page.getByRole('button', { name: '自动化', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: '自动化' })
+    const dialog = await openAppletSettingsTab(page, '自动化')
     await dialog.getByRole('button', { name: '新建自动化任务' }).click()
     await choose(page, '执行动作', 'capture')
     const jobName = `自动行情 ${Date.now()}`
@@ -493,9 +509,12 @@ test('a recurring Cron fires the Action automatically and retains its business p
     await schedules.getByLabel('事件数据（JSON）').fill('{"mode":"intraday"}')
     await schedules.getByRole('button', { name: '保存', exact: true }).click()
     await expect(schedules).toContainText('每分钟自动行情 · 启用中')
+    await dialog.getByRole('tab', { name: '运行日志', exact: true }).click()
     const history = dialog.getByRole('region', { name: '运行历史', exact: true })
     await expect(history.locator(':scope > details > summary').first()).toContainText('已成功', { timeout: 75000 })
+    await dialog.getByRole('tab', { name: '自动化', exact: true }).click()
     await schedules.getByRole('button', { name: '暂停', exact: true }).click()
+    await dialog.getByRole('tab', { name: '运行日志', exact: true }).click()
     await history.locator(':scope > details > summary').first().click()
     await expect(history).toContainText('"mode": "intraday"')
     await expect(history).toContainText('"cron_fire_slot_at":')

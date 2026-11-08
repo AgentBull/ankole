@@ -52,6 +52,17 @@ defmodule Ankole.AIGateway.Artifacts do
   def create_uploaded_file(_subject_uid, _upload, _params),
     do: {:error, OpenAIError.invalid("file", "invalid_type", "file must be an upload.")}
 
+  @spec validate_generated_image(String.t(), String.t() | nil) ::
+          {:ok, %{payload: binary(), mime_type: String.t()}} | {:error, term()}
+  def validate_generated_image(base64, mime_type \\ nil) do
+    with {:ok, payload} <- Image.decode_base64(base64),
+         :ok <- Image.validate_generated_size(payload, @max_image_bytes),
+         {:ok, sniffed_type} <- Image.sniff(payload),
+         :ok <- Image.validate_declared_mime(mime_type, sniffed_type) do
+      {:ok, %{payload: payload, mime_type: sniffed_type}}
+    end
+  end
+
   @spec persist_generated_image(
           String.t(),
           String.t(),
@@ -63,10 +74,8 @@ defmodule Ankole.AIGateway.Artifacts do
   def persist_generated_image(subject_uid, public_id, base64, mime_type, opts \\ []) do
     with {:ok, subject_uid} <- normalize_subject(subject_uid),
          {:ok, identity} <- generated_image_identity(public_id),
-         {:ok, payload} <- Image.decode_base64(base64),
-         :ok <- Image.validate_generated_size(payload, @max_image_bytes),
-         {:ok, sniffed_type} <- Image.sniff(payload),
-         :ok <- Image.validate_declared_mime(mime_type, sniffed_type) do
+         {:ok, %{payload: payload, mime_type: sniffed_type}} <-
+           validate_generated_image(base64, mime_type) do
       message_id = Keyword.get(opts, :message_id)
 
       Ankole.Ash.create(Artifact, :generate_image, %{

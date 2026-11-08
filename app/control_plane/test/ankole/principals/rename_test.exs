@@ -13,6 +13,13 @@ defmodule Ankole.Principals.RenameTest do
     worker_provider_fixture(%{is_default: true})
     {:ok, %{principal: assistant}} = Principals.ensure_personal_assistant(owner.uid)
     actor = actor_fixture(owner)
+    avatar_bytes = <<137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4>>
+
+    assert {:ok, %{avatarURL: initial_avatar_url}} =
+             Principals.upload_member_avatar(actor, avatar_bytes, "image/png")
+
+    assert initial_avatar_url =~
+             "/api/v2/pod/avatars/" <> URI.encode_www_form("member:" <> owner.uid) <> "?v="
 
     {:ok, page} =
       Pages.create(actor, %{
@@ -44,6 +51,13 @@ defmodule Ankole.Principals.RenameTest do
              Principals.rename(owner.uid, "after@example.com")
 
     assert renamed.uid == "after@example.com"
+
+    assert renamed.avatar_url =~
+             "/api/v2/pod/avatars/" <> URI.encode_www_form("member:" <> renamed.uid) <> "?v="
+
+    assert {:error, :not_found} = Principals.fetch_avatar("member:" <> owner.uid)
+    assert {:ok, moved_avatar} = Principals.fetch_avatar("member:" <> renamed.uid)
+    assert {:ok, ^avatar_bytes} = Ankole.Files.read_object(moved_avatar.object_id)
     assert BrowserSessions.identity(authentication, tenant.id)["principal_uid"] == renamed.uid
 
     assert {:ok, %{principal: same_assistant, agent: %{owner_principal_uid: uid}}} =

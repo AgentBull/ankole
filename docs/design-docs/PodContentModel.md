@@ -2612,10 +2612,18 @@ alongside shared chunks, CSS, and `dist/index.html`:
   keep the same base.
 - **Publishing and pulling**: A project may also include `src/server/main.ts`
   (bundled by Bun into `server/main.js` with Node built-ins kept as `node:`
-  imports) and an optional flat string map `applet.env.json` (up to `64 KiB`,
-  injected as `process.env` into that publication's function worker). A
-  publication manifest covers `src/`, `dist/`, optional `server/main.js`, and
-  optional `package.json`, `bun.lock`, `tsconfig.json`, and `applet.env.json`.
+  imports) and an optional `applet.env.json` (up to `64 KiB`, mapping POSIX
+  variable names outside `ANKOLE_*` and reserved runtime keys to either string
+  defaults or structured `{ default?, required?, secret?, description? }`
+  declarations). At route inspection and invocation time, `Ankole.Pod.Applets.Env`
+  merges `Site -> Tenant (Pod) -> applet.env.json defaults -> Applet`
+  (`pod_applet_envs`, AEAD-sealed under context `"pod_applet_env"` bound to
+  `[tenant_id, page_id, name]` when `secret: true`) into the function worker's
+  `process.env`, stripping reserved internal keys at every tier. Publishing a new code revision preserves existing
+  `pod_applet_envs` rows and runtime-generated `assets/` files on the Applet Page,
+  and permanent Page purge or tenant deletion removes `pod_applet_envs`. A publication manifest covers `src/`, `dist/`, optional
+  `server/main.js`, and optional `package.json`, `bun.lock`, `tsconfig.json`, and
+  `applet.env.json`.
   Ankole publishes all paths and Action Job policies atomically and increments
   the Page revision by one. The Worker streams local build files through the
   signed WorkerFiles relay into immutable object storage. The publication owner
@@ -2754,7 +2762,7 @@ HTTP fragments. Ankole accepts fragmented bodies within that limit and returns
 HTTP 413 for overflow.
 
 `GET` marks the complete call chain read-only, including nested `signals.call`.
-The host rejects record/file writes, state changes, event emission, slice
+The host rejects record/file writes, `ai.generateImage`, state changes, event emission, slice
 continuation and MCP tools without a server-declared `readOnlyHint: true`.
 `signals.call` stays on the same Page and consumes the caller's remaining budget.
 An `admin.signals.call` uses the Owner to authorize that call while the child
@@ -2788,11 +2796,14 @@ with native patches under `app/function_runtime/native/patches`:
 
 - **Worker pooling and cache identity**: The runtime's main worker authenticates
   control-plane calls via an internal Bearer token, while user workers receive
-  only the Applet's published `applet.env.json`, pooled by `(lane, tenant, page,
-  revision)` for route or action execution with `AsyncLocalStorage` isolating each
-  request's capabilities, console logs, and cancellation to its own WebSocket.
-  Code and environment hash together into one SHA-256 cache key (UTF-8 source +
-  `\n` + compact JSON of environment pairs sorted by UTF-16 key code units).
+  only the Applet's merged runtime environment (`Site -> Tenant -> applet.env.json -> Applet`),
+  pooled by `(lane, tenant, page, revision, sha256)` for route or action execution
+  with `AsyncLocalStorage` isolating each request's capabilities, console logs,
+  and cancellation to its own WebSocket. Code and merged environment hash together
+  into that SHA-256 key (UTF-8 source + `\n` + compact JSON of environment pairs
+  sorted by UTF-16 key code units), so editing an Applet, Pod, or Site variable
+  routes subsequent invocations to a fresh isolate immediately without publishing a
+  new revision.
 - **Replica admission and failover**: The control plane tracks active process
   leases across `Ready` replicas, picks the least-occupied replica, and sends an
   HTTP preflight returning `204` (reserving one slot), `428` (upload missing
@@ -2875,11 +2886,34 @@ business write:
   capability is read-only, so `GET` routes may call it. It returns the metric
   result and fails with the metric error codes that
   [Brain](BrainV3.md#executing-a-metric) defines.
-- **`ai.generateText`**: Accepts a built-in model slot, effort, optional system
-  text and prompt. Configuration, authorization and usage attribution follow the
-  selected ordinary or `admin` execution Principal. Missing `light` configuration
-  falls back to primary. An unconfigured slot returns `422 ai_not_configured`,
-  invalid model/effort parameters return `422`, and provider failures return `502`.
+- **`ai.generateText` and `ai.generateImage`**: Configuration, authorization, and
+  usage attribution follow the selected ordinary or `admin` execution Principal
+  (mirrored on `AnkoleRuntime.admin.ai`). `ai.generateText` accepts a built-in
+  model slot, effort, optional system text, and prompt, falling back from a
+  missing `light` profile to `primary`. `ai.generateImage` accepts `prompt`,
+  optional Pod image/mask references (`pages/<id>/...`, resolved and authorized
+  against the execution Principal up to 8 input images), and generation options
+  (`action`, `size`, `quality`, `background`, `outputFormat`,
+  `outputCompression`, `moderation`, `inputFidelity`, `saveTo`). `GET` and
+  `read_only` routes reject `ai.generateImage` with `500 read_only_route`. Generated
+  bytes write to
+  immutable object storage and attach to `assets/<sha256>/<name>` on the Applet
+  Page by default (requiring `node_view` on the Applet so interactive viewers can
+  trigger generation and render `result.url` directly), or to an explicit
+  `saveTo: {pageId, name?}` destination authorized under standard Pod file rules
+  (`node_contribute` on a Base Page for record attachments, `node_edit` on a
+  Document or Applet Page). An unconfigured model profile returns `422
+  ai_not_configured`, invalid parameters return `422`, and upstream provider
+  failures return `502`.
+- **`web.search` and `web.fetch`**: Route through `AIGateway` under the selected
+  ordinary or `admin` execution Principal (mirrored on
+  `AnkoleRuntime.admin.web`). `web.search` accepts a non-empty `query` (up to 500
+  characters) and `limit` (`1..100`, default `5`), honoring the Principal's
+  `provider_hosted.web_search` toggle via `respect_provider_hosted?: true`.
+  `web.fetch` accepts `1..5` `https://` URLs under kernel URL safety checks and
+  shares a water-filling character budget (`default 40_000`, `max 200_000`)
+  across returned pages, preserving head and tail slices on line boundaries when
+  truncating oversized pages (`truncated: true`).
 - **MCP and files**: `mcp.call` selects a Connector Toolkit or an HTTP server
   from enabled Skills. The Function Runtime host calls the control-plane gateway
   through MCPorter using the selected execution Principal. Tool annotations govern GET access and safe
@@ -2893,10 +2927,30 @@ publication revision and Principal identity, aborting in-flight queries on
 unmount, hiding cached data on authoritative `401`/`403`/`404` while keeping
 prior data on transient errors, and performing no optimistic updates or
 automatic cache invalidation so Applets explicitly invalidate keys via their
-shared `QueryClient` and `routes.key()`. Page Job and event-binding APIs manage
-background work; backend capability calls use the same domain authorization as
-interactive requests. Reading Applet source, backend bundles or `applet.env.json`
-requires `node_edit`. When an
+shared `QueryClient` and `routes.key()`. When a browser route invokes
+`ai.generateImage`, the control plane binds the calling browser document's
+`authentication_ref` onto `result.url` while keeping `result.file` as an
+identity-free `pages/<id>/...` reference; `routes.call` and `runs.get` return
+business JSON payloads verbatim without rewriting strings, and
+`usePod().pod.fileURL(target)` builds tab-authenticated display URLs from
+persisted `pages/<id>/...` or page-relative file references without embedding
+credentials into stored paths.
+Page Job and event-binding APIs manage
+background work, and the Applet Page header opens a unified **Applet settings**
+modal (`Variables`, `Automation`, `Webhooks`, `Run logs`, and `Functions`,
+auto-selecting `Automation` when a URL carries `?automation_job=<id>`).
+`GET /api/v2/pod/pages/:page_id/functions` inspects the current published
+revision's exported HTTP routes and background Action declarations (`key`,
+`concurrency`, `idempotent`, `max_slices`) for any `node_view` caller without
+exposing server source code. Backend capability calls use the same domain
+authorization as interactive requests. Reading Applet source, backend bundles,
+`applet.env.json`, or the merged environment catalog
+(`/api/v2/pod/pages/:page_id/envs`) requires `node_edit` (and toggling a stored
+Applet variable from `secret: true` to `false` requires providing a new
+`value`), whereas `/envs/status` exposes only `missing_required_count` to
+`node_view` callers for missing-configuration banners and
+`POST /envs/:name/decryptions` requires `node_manage` held by a Human Principal
+(never exposing inherited Space or Site secrets). When an
 Agent verifies an Applet visually, its Worker browser runs under a dedicated
 profile via the browser runtime contract, returning the saved Page link and a
 summary of verified interactions.

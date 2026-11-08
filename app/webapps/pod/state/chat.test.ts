@@ -6,6 +6,7 @@ import {
   chatCommandPolicy,
   chatRecipientAvailable,
   mergeMessages,
+  resolveFollowUpDeliveryModes,
   shouldSendOnEnter,
   type ChatEditSnapshot
 } from './chat'
@@ -98,8 +99,12 @@ test('composer, retry and message actions share command eligibility without bloc
 test('edit commands keep the captured queue version and retry ID until deliberate conflict recovery', () => {
   const model = new ChatModel()
   model.draft.value = 'Unsent follow-up'
+  model.started('response-1', ['signal-1'], 'agent')
   model.beginEdit(editContext('message', 'Saved', 'v1', { kind: 'last' }))
-  model.draft.value = 'Edited'
+  expect(model.draft.value).toBe('Unsent follow-up')
+  expect(model.editDraft.value).toBe('Saved')
+  model.editDraft.value = 'Edited'
+  expect(model.draft.value).toBe('Unsent follow-up')
   const first = model.editCommand()!
   expect(first).toMatchObject({
     action: 'edit_last',
@@ -117,6 +122,7 @@ test('edit commands keep the captured queue version and retry ID until deliberat
   expect(recovered.commandID).not.toBe(first.commandID)
   model.editSaved('message', 'Remote edit')
   expect(model.draft.value).toBe('Unsent follow-up')
+  expect(model.liveStreams.value.agent).toBeUndefined()
   expect(model.editCommand()).toBeUndefined()
   model.beginEdit(editContext('queued', 'Queued', 'q1'))
   expect(model.editCommand()).toEqual({
@@ -146,9 +152,16 @@ test('editing captures message references and restores the independent draft on 
   model.beginEdit(
     editContext('message', 'Saved request', 'v2', { kind: 'last', hasAttachments: true, links: messageLinks })
   )
+  expect(model.draft.value).toBe('Independent draft')
+  expect(model.links.value).toEqual(draftLinks)
+  expect(model.editLinks.value).toEqual(messageLinks)
   expect(model.editCommand()?.expectedLinks).toEqual(messageLinks)
-  model.editSaved('message', 'Saved request', messageLinks)
+  model.referenceEditPage('added-inline-page')
+  expect(model.links.value).toEqual(draftLinks)
+  expect(model.editCommand()?.links).toEqual([...messageLinks, { kind: 'page', id: 'added-inline-page' }])
+  model.editSaved('message', 'Saved request', [...messageLinks, { kind: 'page', id: 'added-inline-page' }])
   expect(model.editing.value).toBeUndefined()
+  expect(model.draft.value).toBe('Independent draft')
   expect(model.links.value).toEqual(draftLinks)
 })
 
@@ -194,11 +207,37 @@ test('edits prune removed Human mentions, keep fixed Agents, and preserve the in
   model.beginEdit(
     editContext('completed', '@Writer ask @Bob', 'q2', { kind: 'last', agentUID: 'writer', mentions: captured })
   )
-  model.draft.value = 'Review the result'
+  model.editDraft.value = 'Review the result'
+  expect(model.draft.value).toBe('Ask @Alice later')
+  expect(model.editCommand()?.mentions).toEqual([captured[0]!, captured[2]!])
   expect(model.editCommand()?.expectedMentions).toEqual(captured)
   model.editSaved('completed', 'Review the result')
   expect(model.mentions.value).toEqual(independent)
   expect(model.draft.value).toBe('Ask @Alice later')
+})
+
+test('timeline backtrack steps across editable human messages and switches cleanly into inline edit', () => {
+  const model = new ChatModel()
+  const editableIDs = ['turn-1', 'turn-2', 'turn-3']
+  expect(model.stepBacktrack([], -1)).toBeUndefined()
+  model.startBacktrack('turn-3')
+  expect(model.backtrackMessageID.value).toBe('turn-3')
+  expect(model.stepBacktrack(editableIDs, -1)).toBe('turn-2')
+  expect(model.stepBacktrack(editableIDs, -1)).toBe('turn-1')
+  expect(model.stepBacktrack(editableIDs, -1)).toBe('turn-1')
+  expect(model.stepBacktrack(editableIDs, 1)).toBe('turn-2')
+  model.clearBacktrack()
+  expect(model.backtrackMessageID.value).toBeUndefined()
+  model.startBacktrack('turn-2')
+  model.draft.value = 'Composer draft stays intact'
+  model.beginEdit(editContext('queued', 'Queued text', 'q1', { kind: 'queue' }))
+  expect(model.draft.value).toBe('Queued text')
+  model.beginEdit(editContext('turn-2', 'Turn 2 text', 'v1', { kind: 'last' }))
+  expect(model.draft.value).toBe('Composer draft stays intact')
+  expect(model.editDraft.value).toBe('Turn 2 text')
+  expect(model.backtrackMessageID.value).toBeUndefined()
+  model.cancelEdit()
+  expect(model.draft.value).toBe('Composer draft stays intact')
 })
 
 test('mention-only remote edits require explicit recovery and load the captured references', () => {
@@ -313,9 +352,13 @@ describe('Pod message lifecycle', () => {
     expect(retry.conversationID).toBe(first.conversationID)
     expect(retry.messageID).toBe(first.messageID)
     expect(retry.text).toBe(first.text)
-    expect(retry.deliveryMode).toBe('queue')
+    expect(retry.deliveryMode).toBe('steer')
     expect(sequence).toBe(2)
     expect(model.error.value).toBeUndefined()
+    model.failed(new Error('Connection lost again'), retry.messageID)
+    const queuedAttempt = model.submit(retry.conversationID, 'agent', id, 'queue')
+    expect(queuedAttempt.messageID).not.toBe(retry.messageID)
+    expect(queuedAttempt.deliveryMode).toBe('queue')
   })
 
   test('new text or recipient uses a new ID without changing a prior submission', () => {
@@ -600,14 +643,17 @@ describe('Pod message view', () => {
 
   test('refresh cannot overwrite a collaborator edit; loading the displayed saved version is explicit', () => {
     const model = new ChatModel()
+    model.draft.value = 'Independent next request'
     model.beginEdit(editContext('queued', 'Original saved message', 'old-version', { kind: 'last' }))
     const firstCommand = model.editing.value?.commandID
-    model.draft.value = 'My unsaved changes'
+    model.editDraft.value = 'My unsaved changes'
     expect(model.rebaseEdit('queued', editSnapshot('Saved by another tab'), 'fresh-version')).toBe(false)
-    expect(model.draft.value).toBe('My unsaved changes')
+    expect(model.editDraft.value).toBe('My unsaved changes')
+    expect(model.draft.value).toBe('Independent next request')
     expect(model.editing.value?.queueVersion).toBe('old-version')
     expect(model.rebaseEdit('queued', editSnapshot('Saved by another tab'), 'fresh-version', true)).toBe(true)
-    expect(model.draft.value).toBe('Saved by another tab')
+    expect(model.editDraft.value).toBe('Saved by another tab')
+    expect(model.draft.value).toBe('Independent next request')
     expect(model.editing.value?.queueVersion).toBe('fresh-version')
     expect(model.editing.value?.commandID).not.toBe(firstCommand)
   })
@@ -698,6 +744,73 @@ test('queued inputs appear only in the strip for one human, and carry a timeline
   const clarify = { ...reply, richContent: { clarify: { state: 'pending' } } }
   expect(mergeMessages([queued, clarify], undefined, queues, 1)[0]).toMatchObject({ queued: true })
   expect(mergeMessages([queued], undefined, [], 1)).toEqual([{ type: 'committed', message: queued }])
+
+  const steered = message('steered', 4)
+  const mixedQueues: ConversationDetail['pendingQueues'] = [
+    {
+      agentUID: 'agent',
+      queueVersion: 'queue-v2',
+      paused: false,
+      workStatus: { state: 'queued' },
+      inputs: [
+        {
+          agentUID: 'agent',
+          messageID: steered.id,
+          text: steered.text,
+          attachments: [],
+          links: [],
+          mentions: [],
+          deliveryMode: 'steer',
+          modelProfile: 'default'
+        },
+        ...queues[0]!.inputs
+      ]
+    }
+  ]
+  expect(mergeMessages([steered, queued], undefined, mixedQueues, 1)).toEqual([{ type: 'committed', message: steered }])
+})
+
+test('follow-up delivery modes steer idle sends, invert active turns, and fall back to queue on profile mismatch', () => {
+  expect(
+    resolveFollowUpDeliveryModes({
+      working: false,
+      paused: false,
+      canSteer: true,
+      followUpBehavior: 'queue'
+    })
+  ).toEqual({ primary: 'steer' })
+  expect(
+    resolveFollowUpDeliveryModes({
+      working: false,
+      paused: true,
+      canSteer: true,
+      followUpBehavior: 'steer'
+    })
+  ).toEqual({ primary: 'steer', alternate: 'queue' })
+  expect(
+    resolveFollowUpDeliveryModes({
+      working: true,
+      paused: false,
+      canSteer: true,
+      followUpBehavior: 'steer'
+    })
+  ).toEqual({ primary: 'steer', alternate: 'queue' })
+  expect(
+    resolveFollowUpDeliveryModes({
+      working: true,
+      paused: false,
+      canSteer: true,
+      followUpBehavior: 'queue'
+    })
+  ).toEqual({ primary: 'queue', alternate: 'steer' })
+  expect(
+    resolveFollowUpDeliveryModes({
+      working: true,
+      paused: false,
+      canSteer: false,
+      followUpBehavior: 'steer'
+    })
+  ).toEqual({ primary: 'queue' })
 })
 
 test('a stream snapshot replaces its Agent prefix and subsequent deltas append once', () => {
@@ -819,4 +932,119 @@ test('Ask Agent upgrades an existing Page reference and ordinary mentions preser
   model.quote({ kind: 'page', id: 'open-page', quote: 'Updated passage' })
   expect(model.quoted.value?.quote).toBe('Updated passage')
   expect(model.links.value).toHaveLength(2)
+})
+
+test('reconcile clears superseded clarify answers, stale backtrack cursor, and reverted message selections', () => {
+  const model = new ChatModel()
+  const first = message('turn-1', 1)
+  const second = message('turn-2', 2)
+  const third = message('turn-3', 3)
+
+  model.startAnswer('clarify-live')
+  model.startBacktrack('turn-2')
+  model.startSelectingMessages('turn-1')
+  expect(model.backtrackMessageID.value).toBeUndefined()
+  model.startBacktrack('turn-3')
+  model.toggleSelectedMessage('turn-3')
+
+  model.reconcile([first, second, third], [{ interaction_id: 'clarify-live', state: 'pending' }])
+  expect(model.answeringInteractionID.value).toBe('clarify-live')
+  expect(model.backtrackMessageID.value).toBe('turn-3')
+  expect(model.selectedMessageIDs.value).toEqual(['turn-1', 'turn-3'])
+
+  // Reverting an earlier turn supersedes pending interactions and removes later messages.
+  model.reconcile([first], [])
+  expect(model.answeringInteractionID.value).toBeUndefined()
+  expect(model.backtrackMessageID.value).toBeUndefined()
+  expect(model.selectedMessageIDs.value).toEqual(['turn-1'])
+
+  // Stashed previousAnsweringInteractionID during a queue edit is also cleared if superseded.
+  model.startAnswer('clarify-queued')
+  model.beginEdit(editContext('queued-msg', 'Queued follow-up', 'v1', { kind: 'queue' }))
+  expect(model.editing.value?.previousAnsweringInteractionID).toBe('clarify-queued')
+  model.reconcile([first], [])
+  expect(model.editing.value?.previousAnsweringInteractionID).toBeUndefined()
+  model.cancelEdit()
+  expect(model.answeringInteractionID.value).toBeUndefined()
+})
+
+test('editSaved on an inline timeline edit clears active streams and activities across reverted agents and rejects stale snapshots', () => {
+  const model = new ChatModel()
+  const preEditRead = model.activityRead()
+
+  model.started('resp-a', ['sig-a'], 'agent-a')
+  model.delta('resp-a', 'Streaming A', ['sig-a'], 'agent-a')
+  model.started('resp-b', ['sig-b'], 'agent-b')
+  model.delta('resp-b', 'Streaming B', ['sig-b'], 'agent-b')
+  model.started('resp-c', ['sig-c'], 'agent-c')
+  model.delta('resp-c', 'Unrelated C', ['sig-c'], 'agent-c')
+
+  model.observeActivity({
+    agentUID: 'agent-a',
+    conversationID: 'conv-1',
+    sessionID: 'pod-conversation:conv-1',
+    epoch: 1,
+    revision: 2,
+    state: 'active',
+    responseID: 'resp-a',
+    signalID: 'sig-a',
+    tools: []
+  })
+  model.observeActivity({
+    agentUID: 'agent-b',
+    conversationID: 'conv-1',
+    sessionID: 'pod-conversation:conv-1',
+    epoch: 1,
+    revision: 1,
+    state: 'active',
+    responseID: 'resp-b',
+    signalID: 'sig-b',
+    tools: []
+  })
+
+  model.beginEdit(editContext('turn-1', 'Original request', 'v1', { kind: 'last', agentUID: 'agent-a' }))
+  model.editDraft.value = 'Rewritten request'
+  expect(model.editSaved('turn-1', 'Rewritten request', [], ['agent-b'])).toBe(true)
+
+  expect(model.liveStreams.value['agent-a']).toBeUndefined()
+  expect(model.liveStreams.value['agent-b']).toBeUndefined()
+  expect(model.liveStreams.value['agent-c']?.text).toBe('Unrelated C')
+  expect(model.activities.value['agent-a']).toBeUndefined()
+  expect(model.activities.value['agent-b']).toBeUndefined()
+
+  // A pre-edit detail snapshot finishing late cannot resurrect cleared activity.
+  model.observeActivity(
+    {
+      agentUID: 'agent-a',
+      conversationID: 'conv-1',
+      sessionID: 'pod-conversation:conv-1',
+      epoch: 1,
+      revision: 3,
+      state: 'active',
+      responseID: 'resp-a',
+      signalID: 'sig-a',
+      tools: []
+    },
+    preEditRead
+  )
+  expect(model.activities.value['agent-a']).toBeUndefined()
+  expect(model.liveStreams.value['agent-a']).toBeUndefined()
+})
+
+test('reconcile exits inline editing and rescues modified editDraft into the composer when the edited message disappears', () => {
+  const model = new ChatModel()
+  const first = message('turn-1', 1)
+  const second = message('turn-2', 2)
+  model.reconcile([first, second], [])
+
+  model.beginEdit(editContext('turn-2', 'Original turn 2', 'v1', { kind: 'last' }))
+  model.editDraft.value = 'Unsaved rewrite of turn 2'
+  model.referenceEditPage('page-alpha')
+
+  // Another tab reverts turn-1, removing turn-2 from the timeline.
+  model.reconcile([first], [])
+  expect(model.editing.value).toBeUndefined()
+  expect(model.editDraft.value).toBe('')
+  expect(model.draft.value).toBe('Unsaved rewrite of turn 2')
+  expect(model.links.value).toEqual([{ kind: 'page', id: 'page-alpha' }])
 })

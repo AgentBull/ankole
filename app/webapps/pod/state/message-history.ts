@@ -16,9 +16,32 @@ export function mergeMessageWindow(
   const messages = [...retained, ...incoming.messages.filter(message => !removed.has(message.id))].sort(
     (a, b) => a.seq - b.seq
   )
+  const retainedIDs = new Set(retained.map(message => message.id))
+  const seqByID = new Map(messages.map(message => [message.id, message.seq]))
+  const viewerUID = (older ? current : incoming).conversation.viewer.uid
+  const maxOtherHumanSeq = messages.reduce(
+    (max, message) =>
+      message.authorType === 'human' && message.authorUID && message.authorUID !== viewerUID
+        ? Math.max(max, message.seq)
+        : max,
+    -Infinity
+  )
+  const retainedEditable = (current.editableInputs ?? []).filter(entry => retainedIDs.has(entry.messageID))
+  const incomingEditable = (incoming.editableInputs ?? []).filter(entry => seqByID.has(entry.messageID))
+  const editableMap = new Map<string, ConversationDetail['editableInputs'][number]>()
+  for (const entry of older ? [...incomingEditable, ...retainedEditable] : [...retainedEditable, ...incomingEditable]) {
+    const previous = editableMap.get(entry.messageID)
+    const seq = seqByID.get(entry.messageID) ?? Infinity
+    editableMap.set(entry.messageID, {
+      ...entry,
+      supersededByParticipant:
+        entry.supersededByParticipant || (previous?.supersededByParticipant ?? false) || seq < maxOtherHumanSeq
+    })
+  }
   return {
     ...(older ? current : incoming),
     messages,
+    editableInputs: [...editableMap.values()],
     removedMessageIDs: [...removed],
     olderMessagesBeforeSeq:
       current.messageRange.firstSeq < range.firstSeq ? current.olderMessagesBeforeSeq : incoming.olderMessagesBeforeSeq,

@@ -120,6 +120,7 @@ defmodule Ankole.Pod do
     resource(Ankole.Principals.MetaBrowser)
     resource(Ankole.Brain.Browser)
     resource(Ankole.Pod.Pages.Browser)
+    resource(Ankole.Pod.Applets.Browser)
     resource(Ankole.Pod.Bases.Browser)
     resource(Ankole.Pod.Files.Browser)
     resource(Ankole.Pod.Spreadsheets.Browser)
@@ -130,6 +131,7 @@ defmodule Ankole.Pod do
     end
 
     resource(Ankole.Pod.PodFile)
+    resource(Ankole.Pod.AppletEnv)
     resource(Ankole.Pod.PageContent)
     resource(Ankole.Pod.PageChange)
     resource(Ankole.Pod.PageDailyActivity)
@@ -251,6 +253,38 @@ defmodule Ankole.Pod do
       base_route "/pages/:page_id", Ankole.Pod.Pages.Browser do
         route(:put, "/applet-owner", :transfer_owner,
           name: "podAppletOwner",
+          wrap_in_result?: false
+        )
+      end
+
+      base_route "/pages/:page_id", Ankole.Pod.Applets.Browser do
+        route(:get, "/functions", :functions,
+          name: "podAppletFunctions",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/envs/status", :status,
+          name: "podAppletEnvStatus",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/envs", :list,
+          name: "podAppletEnvs",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/envs/:name", :put,
+          name: "podAppletEnvPut",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/envs/:name", :delete,
+          name: "podAppletEnvDelete",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/envs/:name/decryptions", :decrypt,
+          name: "podAppletEnvDecrypt",
           wrap_in_result?: false
         )
       end
@@ -392,6 +426,14 @@ defmodule Ankole.Pod do
 
         route(:post, "/identity-providers/:provider_id/syncs", :sync_directory,
           name: "syncPodDirectory"
+        )
+
+        route(:get, "/worker-envs", :worker_envs, name: "podAdminWorkerEnvs")
+        route(:put, "/worker-envs/:name", :put_worker_env, name: "putPodAdminWorkerEnv")
+        route(:delete, "/worker-envs/:name", :delete_worker_env, name: "deletePodAdminWorkerEnv")
+
+        route(:post, "/worker-envs/:name/decryptions", :decrypt_worker_env,
+          name: "decryptPodAdminWorkerEnv"
         )
       end
 

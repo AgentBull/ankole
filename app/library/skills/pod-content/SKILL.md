@@ -332,7 +332,10 @@ Retain the record when editing begins. Call
 `expectedVersions` from `@ankole/applet-sdk`; call `remove(record.id, record.versions)`
 for deletion. A later query refresh must not replace this edit snapshot. The SDK
 updates the shared query cache and refreshes live data. Use `useAggregate` for
-large table statistics. Use `usePod().pod` for the other Pod contracts.
+large table statistics. Use `usePod().pod` for the other Pod contracts,
+including `pod.fileURL(target)` to build a tab-authenticated display URL from a
+persisted `pages/<id>/...` path, `GenerateImageResult['file']`, or page-relative
+file reference.
 
 Use `useChannel(room)` for temporary presence, cursors, or drag state. Its
 `on(event, callback)` returns an unsubscribe function; register listeners in an
@@ -388,13 +391,12 @@ failure. Other exceptions produce a fixed browser error. Agent calls also receiv
 bounded diagnostic logs and handler exception details.
 
 The function worker supplies Node built-ins, public `fetch`, an in-memory
-`/tmp`, published environment values, and `AnkoleRuntime` capabilities:
+`/tmp`, merged environment values, and `AnkoleRuntime` capabilities:
 `base.schema`, `base.query`, `base.aggregate`, `base.write`; `file.list`, `file.read`,
-`file.write`; `metrics.query`, which runs a published Brain metric; `ai.generateText`; `mcp.call`; and `signals.call/emit/run`. Read their exact types in
-`/repo/libs/applet-sdk/src/server.ts`. Put publication environment values in
-`applet.env.json`, a flat string map of at most 64 KiB. Read each backend value
-through `process.env.<KEY>`. Only editors can read
-source, backend files, and environment values; viewers and contributors can
+`file.write`; `metrics.query`, which runs a published Brain metric; `ai.generateText`, `ai.generateImage`; `web.search`, `web.fetch`; `mcp.call`; and `signals.call/emit/run` (mirrored on `AnkoleRuntime.admin`). Read their exact types in
+`/repo/libs/applet-sdk/src/server.ts`. Declare publication environment defaults and required keys in
+`applet.env.json` (up to 64 KiB): each entry maps a POSIX key to either a string default or `{ default?, required?, secret?, description? }`. Runtime values merge `Site -> Space -> applet.env.json defaults -> Applet` and appear on `process.env.<KEY>` in the backend worker only. Never hardcode API keys in `applet.env.json`; declare `{ "required": true, "secret": true, "description": "..." }` so a human editor or administrator configures the secret in **Applet settings -> Variables** on the Page top bar or in Space Settings. Only editors can read
+source, backend files, and environment metadata, and decrypting stored Applet secrets requires page manage permission; viewers and contributors can
 read published frontend assets.
 Module top-level code must not call AnkoleRuntime; inspection rejects such calls.
 
@@ -402,16 +404,15 @@ Ordinary capabilities use the route caller or the personal Job's Human
 authority. `AnkoleRuntime.admin` uses the Applet's current owner; service Jobs
 have no ordinary caller and use that explicit owner surface. Viewing the Applet
 does not grant access to its tables or files. GET handlers
-cannot write. The runtime cannot create pages or change Base structure.
-Function workers are reused by tenant, page, and publication revision. Keep
+cannot write or call `ai.generateImage`. The runtime cannot create pages or change Base structure.
+Function workers are reused by tenant, page, revision, and code-plus-environment digest. Keep
 request-specific state inside the handler. Calls have no cross-call transaction; a later failure does not undo committed writes. Put an atomic batch
 in one `base.write`, and include the field versions captured by the read.
 
-Model generation uses the Agent that created the Applet (`Page.created_by`).
-That Agent must be active; its model profiles, quota, and usage apply. Use a
-model profile such as `light`, not a raw provider/model ID. The
-runtime returns `{text, finishReason, usage}`; handle an empty or truncated result
-when `finishReason` is `length`. Runtime errors preserve their status and code.
+`ai.generateText`, `ai.generateImage`, `web.search`, and `web.fetch` run under the selected execution Principal (`AnkoleRuntime` uses the caller or personal Job Human; `AnkoleRuntime.admin` uses the Applet's current `owner_uid`). Human callers resolve the space's `system` model profiles and Agent owners resolve that Agent's model profiles, attributing usage to the executing Principal without spending interactive Agent token quota. For `ai.generateText`, pass a built-in
+model profile such as `light` (never a raw provider/model ID); the
+runtime returns `{text, finishReason, usage}`, so handle an empty or truncated result
+when `finishReason` is `length`. `ai.generateImage` accepts `{prompt, images?, mask?, action?, size?, quality?, background?, outputFormat?, outputCompression?, moderation?, inputFidelity?, saveTo?}` on mutating routes or Actions, storing the generated image in `assets/<sha256>/<name>` on the Applet Page by default (preserved across code re-publications) or in `saveTo: {pageId, name?}` on any `Base`, `Document`, `File`, or `Applet` Page where the execution Principal holds `node_edit`. On browser routes, `result.url` carries the calling tab's `authentication_ref` for immediate `<img src={result.url} />` display; persist `result.file` (`pages/<id>/...`) in Base records or JSON files and pass that stored reference to `usePod().pod.fileURL(file)` when rendering later so stored data never embeds tab credentials. `images` and `mask` accept Pod `pages/<id>/...` references. `web.search({query, limit?})` returns `{query, results: [{title, url, snippet, position?, publishedAt?, score?}]}`; `web.fetch({urls, maxChars?})` fetches 1–5 `https://` URLs with a shared character budget (`default 40_000`, `max 200_000`) and returns `{success, results: [{url, title?, text?, truncated?, renderWarning?, error?}]}`. Runtime errors preserve their status and code.
 
 For an external operation, use
 `await AnkoleRuntime.mcp.call(tool, args, {server, connection?, account?, skill?})`.

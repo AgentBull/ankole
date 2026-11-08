@@ -378,8 +378,8 @@ defmodule Ankole.AIGateway.ResponseChain do
     complete_count =
       Message
       |> Ash.Query.filter(
-        id in ^message_ids and conversation_id == ^conversation_id and type == :message and
-          status == :complete
+        id in ^message_ids and conversation_id == ^conversation_id and
+          type in [:message, :checkpoint] and status == :complete
       )
       |> Ankole.Ash.count!()
 

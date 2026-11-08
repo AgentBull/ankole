@@ -257,6 +257,7 @@ test('Pod chat timeline isolates a single malformed message without unmounting h
       pendingInteractions: [],
       linkedRuns: [],
       artifacts: { pageIDs: [], attachments: [] },
+      editableInputs: [],
       removedMessageIDs: [],
       olderMessagesBeforeSeq: null,
       messageRange: { firstSeq: 1, lastSeq: 2 },

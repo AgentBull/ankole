@@ -1,17 +1,6 @@
 import { cronEditorLabels } from '../common/cron-editor-labels'
 import { dateTimeLocalValue, formatDateTime } from '../common/date-time'
-import {
-  Button,
-  CronEditor,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  Input,
-  Label,
-  Textarea
-} from '@ankole/uikit'
+import { Badge, Button, CronEditor, Input, Label, Skeleton, Textarea } from '@ankole/uikit'
 import {
   createAppletJobs,
   createJobSources,
@@ -26,11 +15,14 @@ import type { ActionRun } from '@ankole/applet-sdk/types'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import { Choice as ChoiceControl, ContentError, ContentSkeleton, InlineLoading } from './content-primitives'
-import { contentKeys, podRequest, type PageDetail } from './content-api'
+import { contentKeys, podFileURL, podRequest, type PageDetail } from './content-api'
 import * as api from './api/generated/sdk.gen'
 import { automationJobID, connectorFailureMessage, connectorReturnTo } from './state/connectors'
 
-const pod = { request: podRequest }
+const podForPage = (pageID: string) => ({
+  request: podRequest,
+  fileURL: (target: Parameters<typeof podFileURL>[1]) => podFileURL(pageID, target)
+})
 type Change = (operation: () => Promise<unknown>) => void
 const json = (value: unknown) => JSON.stringify(value, null, 2)
 
@@ -60,7 +52,8 @@ function Field({
   value = '',
   type = 'text',
   required = true,
-  multiline = false
+  multiline = false,
+  code = false
 }: {
   name: string
   label: string
@@ -68,9 +61,12 @@ function Field({
   type?: string
   required?: boolean
   multiline?: boolean
+  code?: boolean
 }) {
   const id = useId()
-  const props = { id, name, defaultValue: value, required }
+  const codeProps =
+    multiline || code ? { autoCapitalize: 'off' as const, autoCorrect: 'off' as const, spellCheck: false } : {}
+  const props = { id, name, defaultValue: value, required, ...codeProps }
   return (
     <div className="grid gap-1.5">
       <Label htmlFor={id}>{label}</Label>
@@ -95,6 +91,7 @@ function Form({
       className="grid gap-3"
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
+        if (busy) return
         onSubmit(new FormData(event.currentTarget))
       }}>
       {children}
@@ -105,103 +102,211 @@ function Form({
   )
 }
 
-export function AppletAutomationDialog({
-  detail,
-  open,
-  onOpenChange
-}: {
-  detail: PageDetail
-  open: boolean
-  onOpenChange(open: boolean): void
-}) {
-  const { t } = useTranslation()
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="pod-dialog-wide" closeLabel={t('common.close')}>
-        <DialogHeader>
-          <DialogTitle>{t('pod.automation.title')}</DialogTitle>
-          <DialogDescription>{t('pod.automation.description')}</DialogDescription>
-        </DialogHeader>
-        {open && <Manager detail={detail} />}
-      </DialogContent>
-    </Dialog>
+export function useAppletJobsController(detail: PageDetail, enabled: boolean) {
+  const client = useQueryClient()
+  const pageID = detail.page.id
+  const key = [...contentKeys.page(pageID), 'automation']
+  const jobs = createAppletJobs(podForPage(pageID), pageID)
+  const list = useQuery({ queryKey: [...key, 'jobs'], queryFn: jobs.list, enabled })
+  const actions = useQuery({
+    queryKey: [...contentKeys.page(pageID), 'action-keys', detail.page.revision],
+    queryFn: jobs.actions,
+    enabled
+  })
+  const [selectedJobID, setSelectedJobID] = useState(() =>
+    typeof window === 'undefined' ? undefined : automationJobID(new URLSearchParams(window.location.search))
   )
+  const [creating, setCreating] = useState(false)
+  const [presetActionKey, setPresetActionKey] = useState<string>()
+  const [draftNonce, setDraftNonce] = useState(0)
+  const [selectedRun, setSelectedRun] = useState<ActionRun>()
+  const errorElement = useRef<HTMLDivElement>(null)
+  const createErrorElement = useRef<HTMLDivElement>(null)
+  const createJob = useMutation({
+    mutationFn: (input: Parameters<typeof jobs.create>[0]) => jobs.create(input),
+    onSuccess: created => {
+      void client.invalidateQueries({ queryKey: key })
+      setSelectedJobID(created.id)
+      setPresetActionKey(undefined)
+      setCreating(false)
+    }
+  })
+  const inspectRunMutation = useMutation({
+    mutationFn: (runID: number) => podRequest<{ run: ActionRun }>(`/pages/${pageID}/runs/${runID}`)
+  })
+
+  const job = selectedJobID === undefined ? list.data?.[0] : list.data?.find(item => item.id === selectedJobID)
+  const canEdit = !detail.page.deleted_at && detail.actions.includes('node_edit')
+  const canCreate = !detail.page.deleted_at && detail.actions.includes('node_contribute')
+
+  useEffect(() => {
+    if (!inspectRunMutation.error) return
+    errorElement.current?.scrollIntoView({ block: 'center' })
+    errorElement.current?.focus({ preventScroll: true })
+  }, [inspectRunMutation.error])
+
+  useEffect(() => {
+    if (!createJob.error) return
+    createErrorElement.current?.scrollIntoView({ block: 'center' })
+    createErrorElement.current?.focus({ preventScroll: true })
+  }, [createJob.error])
+
+  const inspectRun = (runID: number, onOpenLogs: () => void) => {
+    inspectRunMutation.mutate(runID, {
+      onSuccess: result => {
+        setSelectedRun(result.run)
+        onOpenLogs()
+      }
+    })
+  }
+
+  const startCreateWithAction = (actionKey: string, onOpenAutomation: () => void) => {
+    if (createJob.isPending) {
+      onOpenAutomation()
+      return
+    }
+    createJob.reset()
+    setPresetActionKey(actionKey)
+    setDraftNonce(n => n + 1)
+    setCreating(true)
+    onOpenAutomation()
+  }
+
+  return {
+    pageID,
+    jobs,
+    list,
+    actions,
+    job,
+    selectedJobID,
+    setSelectedJobID,
+    creating,
+    setCreating,
+    presetActionKey,
+    setPresetActionKey,
+    draftNonce,
+    setDraftNonce,
+    selectedRun,
+    setSelectedRun,
+    errorElement,
+    createErrorElement,
+    createJob,
+    inspectRunError: inspectRunMutation.error,
+    canEdit,
+    canCreate,
+    inspectRun,
+    startCreateWithAction
+  }
 }
 
-function Manager({ detail }: { detail: PageDetail }) {
-  const { t } = useTranslation()
+export type AppletJobsController = ReturnType<typeof useAppletJobsController>
+
+function useJobWriteMutation(pageID: string) {
   const client = useQueryClient()
-  const key = [...contentKeys.page(detail.page.id), 'automation']
-  const jobs = createAppletJobs(pod, detail.page.id)
-  const list = useQuery({ queryKey: [...key, 'jobs'], queryFn: jobs.list })
-  const actions = useQuery({
-    queryKey: [...contentKeys.page(detail.page.id), 'action-keys', detail.page.revision],
-    queryFn: jobs.actions
-  })
-  const [selected, setSelected] = useState(() => automationJobID(new URLSearchParams(window.location.search)))
-  const [creating, setCreating] = useState(false)
+  const key = [...contentKeys.page(pageID), 'automation']
   const errorElement = useRef<HTMLDivElement>(null)
-  const change = useMutation({
+  const mutation = useMutation({
     mutationFn: (operation: () => Promise<unknown>) => operation(),
     onSuccess: () => client.invalidateQueries({ queryKey: key })
   })
-  const job = selected === undefined ? list.data?.[0] : list.data?.find(item => item.id === selected)
-  const canEdit = detail.actions.includes('node_edit')
-  const canCreate = detail.actions.includes('node_contribute')
   useEffect(() => {
-    if (!change.error) return
+    if (!mutation.error) return
     errorElement.current?.scrollIntoView({ block: 'center' })
     errorElement.current?.focus({ preventScroll: true })
-  }, [change.error])
+  }, [mutation.error])
+  return { mutation, errorElement }
+}
+
+export function AppletJobSelectorBar({
+  controller,
+  isActive
+}: {
+  controller: AppletJobsController
+  isActive: boolean
+}) {
+  const { t } = useTranslation()
+  const {
+    list,
+    actions,
+    job,
+    selectedJobID,
+    setSelectedJobID,
+    creating,
+    setCreating,
+    presetActionKey,
+    setPresetActionKey,
+    draftNonce,
+    setDraftNonce
+  } = controller
+  const { canCreate, canEdit, createJob, inspectRunError, errorElement, createErrorElement } = controller
 
   return (
-    <div className="grid gap-5">
-      {!!(change.error ?? list.error) && (
-        <div ref={errorElement} tabIndex={-1}>
-          <ContentError error={change.error ?? list.error} />
+    <div className="grid gap-4">
+      {isActive && !!(inspectRunError ?? list.error) && (
+        <div ref={errorElement} tabIndex={-1} className="outline-none">
+          <ContentError error={inspectRunError ?? list.error} />
         </div>
       )}
       {list.isPending && <ContentSkeleton variant="list" rows={2} />}
-      <div className="flex flex-wrap items-center gap-3">
-        {!!list.data?.length && (
-          <div className="min-w-48 flex-1">
-            <Choice
-              label={t('pod.automation.job')}
-              value={String(job?.id ?? '')}
-              onChange={id => setSelected(Number(id))}
-              options={Object.fromEntries(list.data.map(item => [String(item.id), item.label]))}
-            />
-          </div>
-        )}
-        {canCreate && (
-          <Button variant="outline" onClick={() => setCreating(!creating)}>
-            {t('pod.automation.new_job')}
-          </Button>
-        )}
-      </div>
-      {list.isSuccess && !list.data.length && (
-        <p className="text-sm text-muted-foreground">{t('pod.automation.no_jobs')}</p>
+      {(!!list.data?.length || canCreate) && (
+        <div className="flex flex-wrap items-end gap-3">
+          {!!list.data?.length && (
+            <div className="min-w-52 flex-1">
+              <Choice
+                label={t('pod.automation.job')}
+                value={String(job?.id ?? '')}
+                onChange={id => {
+                  controller.setSelectedRun(undefined)
+                  setSelectedJobID(Number(id))
+                }}
+                options={Object.fromEntries(list.data.map(item => [String(item.id), item.label]))}
+              />
+            </div>
+          )}
+          {canCreate && (
+            <Button
+              variant="outline"
+              aria-expanded={creating}
+              disabled={createJob.isPending}
+              onClick={() => {
+                if (createJob.isPending) return
+                createJob.reset()
+                if (creating) {
+                  setPresetActionKey(undefined)
+                  setCreating(false)
+                } else {
+                  setDraftNonce(n => n + 1)
+                  setCreating(true)
+                }
+              }}>
+              {t('pod.automation.new_job')}
+            </Button>
+          )}
+        </div>
       )}
-      {list.isSuccess && selected !== undefined && !job && (
+      {list.isSuccess && selectedJobID !== undefined && !job && (
         <p role="status" className="text-sm text-muted-foreground">
           {t('pod.automation.return_job_unavailable')}
         </p>
       )}
       {creating && (
-        <section className="rounded-lg border p-4">
-          <ContentError error={actions.error} />
+        <section className="rounded-lg border border-border bg-card p-4">
+          {!!(createJob.error ?? actions.error) && (
+            <div ref={createErrorElement} tabIndex={-1} className="mb-3 outline-none">
+              <ContentError error={createJob.error ?? actions.error} />
+            </div>
+          )}
           {actions.data?.length ? (
             <JobForm
-              busy={change.isPending}
+              key={`${draftNonce}:${presetActionKey ?? 'default'}`}
+              presetAction={presetActionKey}
+              busy={createJob.isPending}
               actions={actions.data}
               canEdit={canEdit}
-              onSave={input =>
-                change.mutate(async () => {
-                  const created = await jobs.create(input)
-                  setSelected(created.id)
-                  setCreating(false)
-                })
-              }
+              onSave={input => {
+                if (createJob.isPending) return
+                createJob.mutate(input)
+              }}
             />
           ) : actions.isPending ? (
             <InlineLoading />
@@ -210,28 +315,20 @@ function Manager({ detail }: { detail: PageDetail }) {
           ) : null}
         </section>
       )}
-      {job && (
-        <JobDetails
-          key={job.id}
-          job={job}
-          pageID={detail.page.id}
-          canManage={job.authorization_kind === 'service' ? canEdit : canCreate}
-          busy={change.isPending}
-          change={operation => change.mutate(operation)}
-        />
-      )}
     </div>
   )
 }
 
 function JobForm({
   job,
+  presetAction,
   actions,
   canEdit,
   busy,
   onSave
 }: {
   job?: AppletJob
+  presetAction?: string
   actions: string[]
   canEdit: boolean
   busy: boolean
@@ -243,7 +340,9 @@ function JobForm({
   }): void
 }) {
   const { t } = useTranslation()
-  const [action, setAction] = useState(job?.action_key ?? actions[0] ?? '')
+  const initialAction =
+    job?.action_key ?? (presetAction && actions.includes(presetAction) ? presetAction : (actions[0] ?? ''))
+  const [action, setAction] = useState(initialAction)
   const [authority, setAuthority] = useState<'human' | 'service'>(job?.authorization_kind ?? 'human')
   const [error, setError] = useState<unknown>()
   return (
@@ -282,73 +381,160 @@ function JobForm({
   )
 }
 
-function JobDetails({
+function useJobSourcesQueries(
+  pageID: string,
+  job: AppletJob | undefined,
+  options: { schedules?: boolean; webhooks?: boolean; runs?: boolean; isActive?: boolean }
+) {
+  const pod = podForPage(pageID)
+  const jobs = createAppletJobs(pod, pageID)
+  const sources = job ? createJobSources(pod, pageID, job.id) : undefined
+  const key = [...contentKeys.page(pageID), 'automation', job?.id ?? 'none']
+  const poll = options.isActive !== false
+
+  const schedules = useQuery({
+    queryKey: [...key, 'schedules'],
+    queryFn: () => sources!.schedules.list(),
+    enabled: Boolean(job && options.schedules),
+    refetchInterval: poll ? 5000 : false
+  })
+  const webhooks = useQuery({
+    queryKey: [...key, 'webhooks'],
+    queryFn: () => sources!.webhooks.list(),
+    enabled: Boolean(job && options.webhooks),
+    refetchInterval: poll ? 5000 : false
+  })
+  const runs = useQuery({
+    queryKey: [...key, 'runs'],
+    queryFn: () => jobs.runs(job!.id),
+    enabled: Boolean(job && options.runs),
+    refetchInterval: poll ? 2000 : false
+  })
+
+  return { jobs, sources, schedules, webhooks, runs }
+}
+
+export function AppletAutomationTab({
+  controller,
+  isActive = true,
+  onOpenLogs
+}: {
+  controller: AppletJobsController
+  isActive?: boolean
+  onOpenLogs: () => void
+}) {
+  const { t } = useTranslation()
+  const { job, list, creating, pageID, canEdit, canCreate } = controller
+  const write = useJobWriteMutation(pageID)
+  const canManage = job ? (job.authorization_kind === 'service' ? canEdit : canCreate) : false
+
+  return (
+    <div className="grid gap-5">
+      <header className="grid gap-1">
+        <h2 className="text-base font-semibold text-foreground">{t('pod.automation.title')}</h2>
+        <p className="text-sm text-muted-foreground">{t('pod.automation.description')}</p>
+      </header>
+      {!!write.mutation.error && (
+        <div ref={write.errorElement} tabIndex={-1} className="outline-none">
+          <ContentError error={write.mutation.error} />
+        </div>
+      )}
+      {list.isSuccess && !list.data.length && !creating && (
+        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          {t('pod.automation.no_jobs')}
+        </div>
+      )}
+      {job && (
+        <AutomationJobDetails
+          key={job.id}
+          job={job}
+          pageID={pageID}
+          isActive={isActive}
+          canManage={canManage}
+          busy={write.mutation.isPending}
+          change={operation => write.mutation.mutate(operation)}
+          onDeleted={() => {
+            if (controller.selectedJobID === job.id) controller.setSelectedJobID(undefined)
+          }}
+          onRun={id => controller.inspectRun(id, onOpenLogs)}
+          onOpenLogs={onOpenLogs}
+        />
+      )}
+    </div>
+  )
+}
+
+function AutomationJobDetails({
   job,
   pageID,
+  isActive,
   canManage,
   busy,
-  change
+  change,
+  onDeleted,
+  onRun,
+  onOpenLogs
 }: {
   job: AppletJob
   pageID: string
+  isActive: boolean
   canManage: boolean
   busy: boolean
   change: Change
+  onDeleted(): void
+  onRun(id: number): void
+  onOpenLogs(): void
 }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [selectedRun, setSelectedRun] = useState<ActionRun>()
-  const jobs = createAppletJobs(pod, pageID)
-  const sources = createJobSources(pod, pageID, job.id)
-  const key = [...contentKeys.page(pageID), 'automation', job.id]
-  const schedules = useQuery({
-    queryKey: [...key, 'schedules'],
-    queryFn: sources.schedules.list,
-    refetchInterval: 5000
-  })
-  const webhooks = useQuery({ queryKey: [...key, 'webhooks'], queryFn: sources.webhooks.list, refetchInterval: 5000 })
-  const runs = useQuery({ queryKey: [...key, 'runs'], queryFn: () => jobs.runs(job.id), refetchInterval: 2000 })
-  const active = canManage && job.status === 'active'
-  const sourceNames: Record<string, string> = Object.fromEntries([
-    ...(schedules.data ?? []).map(item => [`ankole:schedule:${item.id}`, item.name]),
-    ...(webhooks.data ?? []).map(({ endpoint }) => [`ankole:webhook:${endpoint.id}`, endpoint.label])
-  ])
-  const runSource = (run: ActionRun) => {
-    const source = run.event.source
-    return typeof source === 'string' ? (sourceNames[source] ?? source) : undefined
+  const [justTriggered, setJustTriggered] = useState(false)
+  if (!isActive && justTriggered) {
+    setJustTriggered(false)
   }
-  const currentRun = selectedRun && (runs.data?.find(run => run.id === selectedRun.id) ?? selectedRun)
-  const onRun = (id: number) =>
-    change(async () => {
-      const result = await podRequest<{ run: ActionRun }>(`/pages/${pageID}/runs/${id}`)
-      setSelectedRun(result.run)
-    })
+  const { jobs, sources, schedules } = useJobSourcesQueries(pageID, job, { schedules: true, isActive })
+  const active = canManage && job.status === 'active'
+
   return (
     <div className="grid gap-6">
-      <ContentError error={schedules.error ?? webhooks.error ?? runs.error} />
-      <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span>
-          {job.action_key} · {t(`pod.automation.${job.authorization_kind === 'human' ? 'personal' : 'team'}`)} ·{' '}
-          {t(`pod.automation.status_${job.status}`)}
-        </span>
-        {active && (
-          <Button size="sm" variant="ghost" onClick={() => setEditing(!editing)}>
-            {t('common.edit')}
-          </Button>
-        )}
-        {canManage && (
-          <Button size="sm" variant="ghost" onClick={() => setDeleting(!deleting)}>
-            {t('pod.automation.delete_job')}
-          </Button>
-        )}
+      <ContentError error={schedules.error} />
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-xs font-medium text-foreground">{job.action_key}</span>
+          <span className="text-muted-foreground">·</span>
+          <span>{t(`pod.automation.${job.authorization_kind === 'human' ? 'personal' : 'team'}`)}</span>
+          <span className="text-muted-foreground">·</span>
+          <Badge variant={job.status === 'active' ? 'secondary' : 'outline'}>
+            {t(`pod.automation.status_${job.status}`)}
+          </Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {active && (
+            <Button size="sm" variant="ghost" onClick={() => setEditing(!editing)}>
+              {t('common.edit')}
+            </Button>
+          )}
+          {canManage && (
+            <Button size="sm" variant="ghost" onClick={() => setDeleting(!deleting)}>
+              {t('pod.automation.delete_job')}
+            </Button>
+          )}
+        </div>
       </div>
       {!canManage && <p className="text-sm text-muted-foreground">{t('pod.automation.job_read_only')}</p>}
       {deleting && (
-        <div className="rounded-lg border p-3 text-sm">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
           <p>{t('pod.automation.delete_job_help')}</p>
           <div className="mt-3 flex gap-2">
-            <Button variant="destructive" disabled={busy} onClick={() => change(() => jobs.delete(job.id))}>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() =>
+                change(async () => {
+                  await jobs.delete(job.id)
+                  onDeleted()
+                })
+              }>
               {t('common.delete')}
             </Button>
             <Button variant="ghost" onClick={() => setDeleting(false)}>
@@ -358,51 +544,299 @@ function JobDetails({
         </div>
       )}
       {editing && (
-        <JobForm
-          job={job}
-          actions={[job.action_key]}
-          canEdit={false}
-          busy={busy}
-          onSave={input =>
-            change(async () => {
-              await jobs.configure(job.id, { label: input.label, config: input.config })
-              setEditing(false)
-            })
-          }
-        />
+        <div className="rounded-lg border border-border bg-card p-4">
+          <JobForm
+            job={job}
+            actions={[job.action_key]}
+            canEdit={false}
+            busy={busy}
+            onSave={input =>
+              change(async () => {
+                await jobs.configure(job.id, { label: input.label, config: input.config })
+                setEditing(false)
+              })
+            }
+          />
+        </div>
       )}
       <Schedules
         items={schedules.data ?? []}
-        sources={sources}
+        sources={sources!}
         active={active}
+        isActive={isActive}
         busy={busy}
         change={change}
         onRun={onRun}
+        justTriggered={justTriggered}
+        onTriggered={() => setJustTriggered(true)}
+        onOpenLogs={onOpenLogs}
       />
-      <Webhooks
-        items={webhooks.data ?? []}
-        sources={sources}
-        active={active}
-        busy={busy}
-        change={change}
-        onRun={onRun}
-      />
-      {active && <ConnectorEvents job={job} pageID={pageID} busy={busy} change={change} />}
-      <section className="grid gap-3" aria-label={t('pod.automation.history')}>
-        <h3 className="font-medium">{t('pod.automation.history')}</h3>
-        {currentRun && <SelectedRun run={currentRun} source={runSource(currentRun)} />}
-        {runs.isSuccess && !runs.data.length && (
-          <p className="text-sm text-muted-foreground">{t('pod.automation.no_runs')}</p>
-        )}
-        {runs.data?.map(run => (
-          <details key={run.id} className="rounded-lg border p-3 text-sm">
-            <summary className="cursor-pointer break-words">
-              <RunSummary run={run} source={runSource(run)} />
-            </summary>
-            <RunContent run={run} />
-          </details>
-        ))}
-      </section>
+      {active && <ConnectorEvents job={job} pageID={pageID} isActive={isActive} busy={busy} change={change} />}
+    </div>
+  )
+}
+
+export function AppletWebhooksTab({
+  controller,
+  isActive = true,
+  onOpenLogs
+}: {
+  controller: AppletJobsController
+  isActive?: boolean
+  onOpenLogs: () => void
+}) {
+  const { t } = useTranslation()
+  const { job, list, creating, pageID, canEdit, canCreate } = controller
+  const write = useJobWriteMutation(pageID)
+  const canManage = job ? (job.authorization_kind === 'service' ? canEdit : canCreate) : false
+  const { sources, webhooks } = useJobSourcesQueries(pageID, job, { webhooks: true, isActive })
+  const active = Boolean(job && canManage && job.status === 'active')
+
+  return (
+    <div className="grid gap-5">
+      <header className="grid gap-1">
+        <h2 className="text-base font-semibold text-foreground">{t('pod.automation.webhooks')}</h2>
+        <p className="text-sm text-muted-foreground">{t('pod.applet_settings.webhooks_description')}</p>
+      </header>
+      {!!write.mutation.error && (
+        <div ref={write.errorElement} tabIndex={-1} className="outline-none">
+          <ContentError error={write.mutation.error} />
+        </div>
+      )}
+      {list.isSuccess && !list.data.length && !creating && (
+        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          {t('pod.applet_settings.webhooks_need_job')}
+        </div>
+      )}
+      {job && sources && (
+        <div className="grid gap-4">
+          <ContentError error={webhooks.error} />
+          {!canManage && <p className="text-sm text-muted-foreground">{t('pod.automation.job_read_only')}</p>}
+          <Webhooks
+            key={job.id}
+            items={webhooks.data ?? []}
+            isPending={webhooks.isPending}
+            sources={sources}
+            active={active}
+            busy={write.mutation.isPending}
+            change={operation => write.mutation.mutate(operation)}
+            onRun={id => controller.inspectRun(id, onOpenLogs)}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function AppletLogsTab({
+  controller,
+  isActive = true
+}: {
+  controller: AppletJobsController
+  isActive?: boolean
+}) {
+  const { t } = useTranslation()
+  const { job, list, creating, pageID, selectedRun } = controller
+  const [statusFilter, setStatusFilter] = useState<'all' | 'failed' | 'running' | 'succeeded'>('all')
+  const { schedules, webhooks, runs } = useJobSourcesQueries(pageID, job, {
+    schedules: true,
+    webhooks: true,
+    runs: true,
+    isActive
+  })
+
+  const sourceNames: Record<string, string> = Object.fromEntries([
+    ...(schedules.data ?? []).map(item => [`ankole:schedule:${item.id}`, item.name]),
+    ...(webhooks.data ?? []).map(({ endpoint }) => [`ankole:webhook:${endpoint.id}`, endpoint.label])
+  ])
+  const runSource = (run: ActionRun) => {
+    const source = run.event.source
+    return typeof source === 'string' ? (sourceNames[source] ?? source) : undefined
+  }
+
+  const allRuns = runs.data ?? []
+  const filteredRuns = allRuns.filter(run => {
+    if (statusFilter === 'all') return true
+    if (statusFilter === 'running') return run.status === 'running' || run.status === 'queued'
+    return run.status === statusFilter
+  })
+  const currentRun =
+    selectedRun && job && selectedRun.automation_job_id === job.id
+      ? (allRuns.find(run => run.id === selectedRun.id) ?? selectedRun)
+      : undefined
+
+  return (
+    <div className="grid gap-5">
+      <header className="grid gap-1">
+        <h2 className="text-base font-semibold text-foreground">{t('pod.applet_settings.tab_logs')}</h2>
+        <p className="text-sm text-muted-foreground">{t('pod.applet_settings.logs_description')}</p>
+      </header>
+      {list.isSuccess && !list.data.length && !creating && (
+        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          {t('pod.applet_settings.logs_need_job')}
+        </div>
+      )}
+      {job && (
+        <div className="grid gap-4">
+          <ContentError error={runs.error} />
+          {allRuns.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(['all', 'failed', 'running', 'succeeded'] as const).map(filter => (
+                <Button
+                  key={filter}
+                  type="button"
+                  size="xs"
+                  variant={statusFilter === filter ? 'outline' : 'ghost'}
+                  aria-pressed={statusFilter === filter}
+                  className={statusFilter === filter ? 'bg-accent text-foreground' : undefined}
+                  onClick={() => setStatusFilter(filter)}>
+                  {t(`pod.applet_settings.logs_filter_${filter}`)}
+                </Button>
+              ))}
+            </div>
+          )}
+          <section className="grid gap-3" aria-label={t('pod.automation.history')}>
+            <h3 className="font-medium">{t('pod.automation.history')}</h3>
+            {currentRun && <SelectedRun run={currentRun} source={runSource(currentRun)} isActive={isActive} />}
+            {runs.isSuccess && !allRuns.length && (
+              <p className="text-sm text-muted-foreground">{t('pod.automation.no_runs')}</p>
+            )}
+            {allRuns.length > 0 && filteredRuns.length === 0 && (
+              <p className="text-sm text-muted-foreground">{t('pod.applet_settings.logs_filter_empty')}</p>
+            )}
+            {filteredRuns.map(run => (
+              <details key={run.id} className="rounded-lg border border-border bg-card p-3 text-sm">
+                <summary className="cursor-pointer break-words">
+                  <RunSummary run={run} source={runSource(run)} />
+                </summary>
+                <RunContent run={run} />
+              </details>
+            ))}
+          </section>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function AppletFunctionsTab({
+  detail,
+  canCreateJob,
+  onCreateJobForAction
+}: {
+  detail: PageDetail
+  canCreateJob: boolean
+  onCreateJobForAction: (actionKey: string) => void
+}) {
+  const { t } = useTranslation()
+  const pageID = detail.page.id
+  const functions = useQuery({
+    queryKey: [...contentKeys.page(pageID), 'functions', detail.page.revision],
+    queryFn: () => api.podAppletFunctions({ path: { page_id: pageID } })
+  })
+
+  const methodVariant = (method: string) => {
+    if (method === 'GET') return 'info' as const
+    if (method === 'DELETE') return 'destructive' as const
+    if (method === 'POST') return 'secondary' as const
+    return 'outline' as const
+  }
+
+  return (
+    <div className="grid gap-5">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="grid gap-1">
+          <h2 className="text-base font-semibold text-foreground">{t('pod.applet_settings.functions_title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('pod.applet_settings.functions_description')}</p>
+        </div>
+        <Badge variant="outline" className="font-mono tabular-nums">
+          {t('pod.applet_settings.revision', { revision: functions.data?.revision ?? detail.page.revision })}
+        </Badge>
+      </header>
+      <ContentError error={functions.error} retry={() => void functions.refetch()} />
+      {functions.isPending ? (
+        <div className="grid gap-2 rounded-lg border border-border bg-card p-4">
+          <Skeleton className="h-6 w-2/3" />
+          <Skeleton className="h-6 w-1/2" />
+        </div>
+      ) : functions.data && !functions.data.has_backend ? (
+        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          {t('pod.applet_settings.functions_frontend_only')}
+        </div>
+      ) : functions.data ? (
+        <div className="grid gap-6">
+          <section className="grid gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium text-foreground">{t('pod.applet_settings.routes_heading')}</h3>
+              <Badge variant="secondary" className="tabular-nums">
+                {functions.data.routes.length}
+              </Badge>
+            </div>
+            {functions.data.routes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('pod.applet_settings.routes_empty')}</p>
+            ) : (
+              <div className="divide-y divide-border rounded-lg border border-border bg-card">
+                {functions.data.routes.map(route => (
+                  <div
+                    key={`${route.method} ${route.path}`}
+                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <Badge variant={methodVariant(route.method)} className="w-16 justify-center font-mono">
+                        {route.method}
+                      </Badge>
+                      <span className="font-mono text-xs break-all text-foreground">{route.path}</span>
+                    </div>
+                    {route.method === 'GET' && (
+                      <span className="text-xs text-muted-foreground">{t('pod.applet_settings.route_read_only')}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="grid gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium text-foreground">{t('pod.applet_settings.actions_heading')}</h3>
+              <Badge variant="secondary" className="tabular-nums">
+                {functions.data.actions.length}
+              </Badge>
+            </div>
+            {functions.data.actions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('pod.applet_settings.actions_empty')}</p>
+            ) : (
+              <div className="divide-y divide-border rounded-lg border border-border bg-card">
+                {functions.data.actions.map(action => (
+                  <div key={action.key} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                    <div className="grid min-w-0 gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-medium break-all text-foreground">{action.key}</span>
+                        <Badge variant="outline">{t(`pod.applet_settings.concurrency_${action.concurrency}`)}</Badge>
+                        {action.idempotent && (
+                          <Badge variant="secondary">{t('pod.applet_settings.action_idempotent')}</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {t('pod.applet_settings.action_max_slices', { count: action.max_slices })}
+                      </p>
+                    </div>
+                    {canCreateJob && (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        aria-label={`${t('pod.applet_settings.create_job_for_action')} ${action.key}`}
+                        onClick={() => onCreateJobForAction(action.key)}>
+                        {t('pod.applet_settings.create_job_for_action')}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -433,17 +867,19 @@ function RunContent({ run }: { run: ActionRun }) {
           {t('pod.automation.run_finished')}: {formatDateTime(run.finished_at, undefined, 'medium')}
         </p>
       )}
-      <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words">
+      <pre className="max-h-72 overflow-auto rounded-md bg-muted/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
         {json({ progress: run.progress, result: run.result, error: run.error })}
       </pre>
       <details>
         <summary className="cursor-pointer">{t('pod.automation.run_input')}</summary>
-        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words">{json(run.event)}</pre>
+        <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
+          {json(run.event)}
+        </pre>
       </details>
       {(run.stdout || run.stderr) && (
         <details>
           <summary className="cursor-pointer">{t('pod.automation.run_logs')}</summary>
-          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words">
+          <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
             {[run.stdout && `stdout:\n${run.stdout}`, run.stderr && `stderr:\n${run.stderr}`]
               .filter(Boolean)
               .join('\n\n')}
@@ -457,18 +893,20 @@ function RunContent({ run }: { run: ActionRun }) {
   )
 }
 
-function SelectedRun({ run, source }: { run: ActionRun; source?: string }) {
+function SelectedRun({ run, source, isActive }: { run: ActionRun; source?: string; isActive: boolean }) {
   const { t } = useTranslation()
   const element = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    if (!isActive) return
     element.current?.scrollIntoView({ block: 'nearest' })
     element.current?.focus()
-  }, [run.id])
+  }, [run.id, isActive])
   return (
     <div
       ref={element}
+      role="region"
       tabIndex={-1}
-      className="rounded-lg border p-3 text-sm"
+      className="rounded-lg border border-foreground/25 bg-card p-3 text-sm ring-1 ring-foreground/10 outline-none"
       aria-label={t('pod.automation.run_details')}>
       <p className="break-words">
         <RunSummary run={run} source={source} />
@@ -481,7 +919,24 @@ function SelectedRun({ run, source }: { run: ActionRun; source?: string }) {
 type Sources = ReturnType<typeof createJobSources>
 type Controls = { sources: Sources; active: boolean; busy: boolean; change: Change; onRun(id: number): void }
 
-function Schedules({ items, sources, active, busy, change, onRun }: Controls & { items: JobSchedule[] }) {
+function Schedules({
+  items,
+  sources,
+  active,
+  isActive,
+  busy,
+  change,
+  onRun,
+  justTriggered,
+  onTriggered,
+  onOpenLogs
+}: Controls & {
+  items: JobSchedule[]
+  isActive: boolean
+  justTriggered: boolean
+  onTriggered(): void
+  onOpenLogs(): void
+}) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState<JobSchedule | null | undefined>()
   const [history, setHistory] = useState<string>()
@@ -495,8 +950,20 @@ function Schedules({ items, sources, active, busy, change, onRun }: Controls & {
           </Button>
         )}
       </div>
+      {justTriggered && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <span>{t('pod.applet_settings.schedule_triggered')}</span>
+          <Button type="button" size="xs" variant="link" onClick={onOpenLogs}>
+            {t('pod.applet_settings.view_in_logs')}
+          </Button>
+        </div>
+      )}
       {items.map(item => (
-        <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+        <div
+          key={item.id}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 text-sm">
           <div>
             <p>
               {item.name} · {t(`pod.automation.status_${item.status}`)}
@@ -525,7 +992,12 @@ function Schedules({ items, sources, active, busy, change, onRun }: Controls & {
                 size="sm"
                 variant="outline"
                 disabled={busy || item.status === 'completed'}
-                onClick={() => change(() => sources.schedules.run(item.id, crypto.randomUUID()))}>
+                onClick={() =>
+                  change(async () => {
+                    await sources.schedules.run(item.id, crypto.randomUUID())
+                    onTriggered()
+                  })
+                }>
                 {t('pod.automation.run_now')}
               </Button>
               <Button
@@ -539,9 +1011,9 @@ function Schedules({ items, sources, active, busy, change, onRun }: Controls & {
           )}
         </div>
       ))}
-      {history && <ScheduleHistory id={history} sources={sources} onRun={onRun} />}
+      {history && <ScheduleHistory id={history} sources={sources} isActive={isActive} onRun={onRun} />}
       {editing !== undefined && (
-        <div className="rounded-lg border p-4">
+        <div className="rounded-lg border border-border bg-card p-4">
           <ScheduleForm
             key={editing?.id ?? 'new'}
             schedule={editing}
@@ -625,21 +1097,32 @@ function ScheduleForm({
         name="timezone"
         label={t('pod.automation.timezone')}
         value={schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
+        code
       />
       <Field name="payload" label={t('pod.automation.payload')} value={json(schedule?.payload ?? {})} multiline />
     </Form>
   )
 }
 
-function ScheduleHistory({ id, sources, onRun }: { id: string; sources: Sources; onRun(id: number): void }) {
+function ScheduleHistory({
+  id,
+  sources,
+  isActive,
+  onRun
+}: {
+  id: string
+  sources: Sources
+  isActive: boolean
+  onRun(id: number): void
+}) {
   const { t } = useTranslation()
   const history = useQuery({
     queryKey: [...contentKeys.all, 'schedule-history', id],
     queryFn: () => sources.schedules.runs(id),
-    refetchInterval: 2000
+    refetchInterval: isActive ? 2000 : false
   })
   return (
-    <div className="grid gap-2 rounded-lg border p-3 text-sm">
+    <div className="grid gap-2 rounded-lg border border-border bg-card p-3 text-sm">
       <ContentError error={history.error} />
       {history.data?.events.map(event => (
         <p key={event.id}>
@@ -680,12 +1163,13 @@ function Deliveries({ items, onRun }: { items: JobDelivery[]; onRun(id: number):
 
 function Webhooks({
   items,
+  isPending,
   sources,
   active,
   busy,
   change,
   onRun
-}: Controls & { items: Array<{ endpoint: JobWebhook; deliveries: JobDelivery[] }> }) {
+}: Controls & { items: Array<{ endpoint: JobWebhook; deliveries: JobDelivery[] }>; isPending?: boolean }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState<JobWebhook | null | undefined>()
   const [callback, setCallback] = useState('')
@@ -701,11 +1185,12 @@ function Webhooks({
         )}
       </div>
       {!!callback && (
-        <div className="grid gap-2 rounded-lg border p-3 text-sm">
+        <div className="grid gap-2 rounded-lg border border-border bg-card p-3 text-sm">
           <p>{t('pod.automation.callback_help')}</p>
           <Input
             aria-label={t('pod.automation.callback')}
             readOnly
+            className="font-mono text-xs"
             value={callback}
             onFocus={event => event.target.select()}
           />
@@ -723,8 +1208,13 @@ function Webhooks({
           </Button>
         </div>
       )}
+      {!isPending && items.length === 0 && editing === undefined && (
+        <p className="text-sm text-muted-foreground">{t('pod.applet_settings.webhooks_empty')}</p>
+      )}
       {items.map(({ endpoint: item, deliveries }) => (
-        <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+        <div
+          key={item.id}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 text-sm">
           <div>
             <p>
               {item.label} · {t(`pod.automation.status_${item.status}`)}
@@ -758,7 +1248,7 @@ function Webhooks({
         </div>
       ))}
       {editing !== undefined && (
-        <div className="rounded-lg border p-4">
+        <div className="rounded-lg border border-border bg-card p-4">
           <WebhookForm
             key={editing?.id ?? 'new'}
             endpoint={editing}
@@ -836,28 +1326,32 @@ function WebhookForm({
 function ConnectorEvents({
   job,
   pageID,
+  isActive,
   busy,
   change
 }: {
   job: AppletJob
   pageID: string
+  isActive: boolean
   busy: boolean
   change: Change
 }) {
   const { t } = useTranslation()
+  const linkedHeadingId = useId()
   const key = [...contentKeys.page(pageID), 'automation', 'connectors']
   const catalog = useQuery({ queryKey: [...key, 'catalog'], queryFn: () => api.podConnectorsCatalog() })
   const triggers = useQuery({
     queryKey: [...key, 'triggers'],
     queryFn: () => api.podConnectorTriggersList(),
-    refetchInterval: 5000
+    refetchInterval: isActive ? 5000 : false
   })
   const connections = useQuery({
     queryKey: [...key, 'connections'],
     queryFn: () => api.podConnectorAuthConfigsList(),
-    refetchInterval: 5000
+    refetchInterval: isActive ? 5000 : false
   })
   const [selected, setSelected] = useState(() => {
+    if (typeof window === 'undefined') return ''
     const params = new URLSearchParams(window.location.search)
     return automationJobID(params) === job.id ? (params.get('connector_source') ?? '') : ''
   })
@@ -935,12 +1429,14 @@ function ConnectorEvents({
       </div>
       <ContentError error={catalog.error ?? triggers.error ?? connections.error ?? bindings.error} />
       {!!linked.length && (
-        <div className="grid gap-2" aria-label={t('pod.automation.linked_events')}>
-          <h4 className="text-sm font-medium">{t('pod.automation.linked_events')}</h4>
+        <div className="grid gap-2" role="group" aria-labelledby={linkedHeadingId}>
+          <h4 id={linkedHeadingId} className="text-sm font-medium">
+            {t('pod.automation.linked_events')}
+          </h4>
           {linked.map(({ binding: item, source: origin }) => (
             <div
               key={item.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 text-sm">
               <div className="min-w-0 flex-1 break-words">
                 <p>{origin.label}</p>
                 <p className="text-muted-foreground">

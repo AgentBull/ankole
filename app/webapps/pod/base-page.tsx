@@ -51,7 +51,7 @@ import {
   RiLayoutColumnLine,
   RiTableLine
 } from '@remixicon/react'
-import { contentKeys, limitPageTitle, podRequest, type PageDetail } from './content-api'
+import { contentKeys, limitPageTitle, podFileURL, podRequest, type PageDetail } from './content-api'
 import { ErrorBoundary } from '../common/error-boundary'
 import { useContent } from './content-context'
 import { usePageHref } from './use-page-metadata'
@@ -132,7 +132,10 @@ export function BasePage({
       readDenial,
       base,
       runs: createAppletRuns(client, realtime, detail.page.id),
-      pod: { request: podRequest },
+      pod: {
+        request: podRequest,
+        fileURL: target => podFileURL(detail.page.id, target)
+      },
       channel: name => realtime.channel(detail.page.id, name),
       principal: realtime.principal,
       theme

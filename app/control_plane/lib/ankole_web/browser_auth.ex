@@ -40,13 +40,15 @@ defmodule AnkoleWeb.BrowserAuth do
       fields: [
         id: [type: UUIDv7, allow_nil?: false],
         slug: [type: :string, allow_nil?: false],
-        displayName: [type: :string, allow_nil?: false]
+        displayName: [type: :string, allow_nil?: false],
+        avatarURL: [type: :string]
       ]
     ]
   ]
   @identity [
     principalUID: [type: PrincipalKey, allow_nil?: false],
     displayName: [type: :string, allow_nil?: false],
+    avatarURL: [type: :string],
     providerID: [type: :string, allow_nil?: false],
     providerName: [type: JSONMap]
   ]
@@ -82,6 +84,7 @@ defmodule AnkoleWeb.BrowserAuth do
         fields: [
           principalUID: [type: PrincipalKey],
           displayName: [type: :string],
+          avatarURL: [type: :string],
           providerID: [type: :string],
           authenticated: [type: :boolean, allow_nil?: false],
           tenant: Keyword.put(@tenant, :allow_nil?, true),
@@ -356,6 +359,7 @@ defmodule AnkoleWeb.BrowserAuth do
         principalUID: uid,
         providerID: account && account.providerID,
         displayName: account && account.displayName,
+        avatarURL: account && account.avatarURL,
         tenant: account && account.tenant,
         canManagePod:
           is_binary(uid) and
@@ -595,12 +599,14 @@ defmodule AnkoleWeb.BrowserAuth do
        %{
          principalUID: uid,
          displayName: principal.display_name || uid,
+         avatarURL: principal.avatar_url,
          providerID: identity["provider_id"],
          providerName: provider_name(tenant_id, identity["provider_id"]),
          tenant: %{
            id: tenant.id,
            slug: tenant.slug,
-           displayName: tenant.display_name || tenant.slug
+           displayName: tenant.display_name || tenant.slug,
+           avatarURL: tenant.avatar_url
          },
          podURL: AnkoleWeb.PodURL.origin(conn, tenant) <> "/"
        }}

@@ -1,3 +1,4 @@
+import type { PodFileTarget } from '@ankole/applet-sdk/types'
 import { pageMetadata } from './state/page-metadata'
 import type { InfiniteData, QueryClient, QueryCacheNotifyEvent } from '@tanstack/react-query'
 import { authenticationRef, podID } from '../common/browser-context'
@@ -512,6 +513,78 @@ export function fileURL(id: string, path: string, sha256?: string): string {
 export function metadataFileURL(path: string): string {
   const params = new URLSearchParams({ path, ...identityQuery() })
   return `/api/v2/pod/metadata/files/content?${params}`
+}
+
+const POD_PAGE_FILE_CONTENT_RE = /^\/api\/v2\/pod\/pages\/([^/?#]+)\/files\/content(?:\?([^#]*))?(?:#(.*))?$/
+const POD_METADATA_FILE_CONTENT_RE = /^\/api\/v2\/pod\/metadata\/files\/content(?:\?([^#]*))?(?:#(.*))?$/
+const POD_SCOPED_FILE_RE =
+  /^pages\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/(.+)$/
+
+function normalizePodContentCandidate(source: string): string {
+  if (typeof window !== 'undefined' && (source.startsWith('http://') || source.startsWith('https://'))) {
+    try {
+      const parsed = new URL(source)
+      if (parsed.origin === window.location.origin) {
+        return `${parsed.pathname}${parsed.search}${parsed.hash}`
+      }
+    } catch {
+      return source
+    }
+  }
+  return source
+}
+
+function bindPodFileContentPath(source: string, sha256?: string): string | undefined {
+  const candidate = normalizePodContentCandidate(source)
+  const pageMatch = POD_PAGE_FILE_CONTENT_RE.exec(candidate)
+  if (pageMatch) {
+    let pageID: string
+    try {
+      pageID = decodeURIComponent(pageMatch[1]!)
+    } catch {
+      return undefined
+    }
+    const params = new URLSearchParams(pageMatch[2] ?? '')
+    if (!params.get('path')) return undefined
+    if (sha256 && !params.get('sha256')) params.set('sha256', sha256)
+    params.delete('authentication_ref')
+    for (const [key, value] of Object.entries(identityQuery())) params.set(key, value)
+    const suffix = pageMatch[3] !== undefined ? `#${pageMatch[3]}` : ''
+    return `/api/v2/pod${pagePath(pageID)}/files/content?${params}${suffix}`
+  }
+  const metaMatch = POD_METADATA_FILE_CONTENT_RE.exec(candidate)
+  if (metaMatch) {
+    const params = new URLSearchParams(metaMatch[1] ?? '')
+    if (!params.get('path')) return undefined
+    if (sha256 && !params.get('sha256')) params.set('sha256', sha256)
+    params.delete('authentication_ref')
+    for (const [key, value] of Object.entries(identityQuery())) params.set(key, value)
+    const suffix = metaMatch[2] !== undefined ? `#${metaMatch[2]}` : ''
+    return `/api/v2/pod/metadata/files/content?${params}${suffix}`
+  }
+  return undefined
+}
+
+export function podFileURL(defaultPageID: string, target: PodFileTarget): string {
+  const rawPath = typeof target === 'string' ? target : target.path
+  const explicitPageID = typeof target === 'string' ? undefined : (target.pageID ?? target.pageId)
+  const sha256 = typeof target === 'string' ? undefined : target.sha256
+
+  const boundContentURL = bindPodFileContentPath(rawPath, sha256)
+  if (boundContentURL) return boundContentURL
+
+  const normalizedPath = rawPath.replace(/^\/+/, '')
+
+  if (!explicitPageID && normalizedPath.startsWith('metadata/')) {
+    return metadataFileURL(normalizedPath)
+  }
+
+  const scopedMatch = POD_SCOPED_FILE_RE.exec(normalizedPath)
+  if (scopedMatch && (!explicitPageID || explicitPageID === scopedMatch[1])) {
+    return fileURL(scopedMatch[1]!, scopedMatch[2]!, sha256)
+  }
+
+  return fileURL(explicitPageID ?? defaultPageID, normalizedPath, sha256)
 }
 
 export function identityQuery(): Record<string, string> {

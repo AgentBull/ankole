@@ -15,7 +15,6 @@ defmodule Ankole.Pod.Metadata do
   @custom_emoji "metadata/custom-emoji/"
   @max_emoji_bytes 1024 * 1024
   @max_name_bytes 64
-  @image_types ~w(image/png image/jpeg image/gif image/webp)
   @name_format ~r/^:[a-z0-9_]+:$/
 
   def max_emoji_bytes, do: @max_emoji_bytes
@@ -36,8 +35,7 @@ defmodule Ankole.Pod.Metadata do
   @doc "Stores one image in the shared custom-emoji library."
   def upload_custom_emoji(%Ankole.AuthZ.Actor{} = actor, name, source, content_type) do
     with :ok <- authorize(actor, "node_edit"),
-         {:ok, header} <- read_validated_header(source),
-         :ok <- check_type(content_type, header),
+         :ok <- Drive.validate_image_source(source, content_type, @max_emoji_bytes),
          :ok <- check_name(name),
          {:ok, stored} <- Drive.store(source) do
       path = @custom_emoji <> stored.sha256 <> "/" <> name
@@ -101,47 +99,6 @@ defmodule Ankole.Pod.Metadata do
   end
 
   defp authorized?(bits, action), do: band(bits, Access.action_bit(action)) != 0
-
-  defp read_validated_header(bytes) when is_binary(bytes) do
-    if byte_size(bytes) <= @max_emoji_bytes do
-      {:ok, binary_part(bytes, 0, min(byte_size(bytes), 16))}
-    else
-      {:error, :file_too_large}
-    end
-  end
-
-  defp read_validated_header({:file, path}) when is_binary(path) do
-    with {:ok, stat} <- File.stat(path) do
-      if stat.size <= @max_emoji_bytes do
-        case File.open(path, [:read, :binary], &IO.binread(&1, 16)) do
-          {:ok, :eof} -> {:ok, ""}
-          {:ok, header} when is_binary(header) -> {:ok, header}
-          _ -> {:error, :missing_file}
-        end
-      else
-        {:error, :file_too_large}
-      end
-    else
-      _ -> {:error, :missing_file}
-    end
-  end
-
-  defp read_validated_header(_source), do: {:error, :missing_file}
-
-  defp check_type(type, header) when type in @image_types do
-    if valid_image_signature?(type, header), do: :ok, else: {:error, :invalid_file_type}
-  end
-
-  defp check_type(_type, _header), do: {:error, :invalid_file_type}
-
-  defp valid_image_signature?("image/png", <<137, 80, 78, 71, 13, 10, 26, 10, _::binary>>),
-    do: true
-
-  defp valid_image_signature?("image/jpeg", <<255, 216, 255, _::binary>>), do: true
-  defp valid_image_signature?("image/gif", <<"GIF87a", _::binary>>), do: true
-  defp valid_image_signature?("image/gif", <<"GIF89a", _::binary>>), do: true
-  defp valid_image_signature?("image/webp", <<"RIFF", _size::32, "WEBP", _::binary>>), do: true
-  defp valid_image_signature?(_type, _header), do: false
 
   defp check_unique_shortcode(existing, name, path) do
     if Enum.any?(existing, &(Path.basename(&1.path) == name and &1.path != path)),

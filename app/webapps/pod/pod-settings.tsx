@@ -23,29 +23,47 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Tabs,
-  TabsList,
   TabsTrigger,
   toast
 } from '@ankole/uikit'
-import { RiCheckLine, RiFileCopyLine } from '@remixicon/react'
+import {
+  RiArrowRightLine,
+  RiCheckLine,
+  RiFileCopyLine,
+  RiLinksLine,
+  RiMailSendLine,
+  RiPuzzleLine,
+  RiRobot2Line,
+  RiSettings3Line,
+  RiShieldKeyholeLine,
+  RiTeamLine,
+  RiTerminalBoxLine
+} from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 import { unusedProviderID } from '../common/identity-provider'
 import { defaultConfig, localizedText, setPath } from '../common/config-fields'
+import { executeEnvVarBatchImport, type EnvVarSaveInput, type ParsedDotEnvItem } from './env-vars-dotenv'
+import { EnvVarsEditor } from './env-vars-editor'
 import { ContentError } from './content-primitives'
 import { authenticationRef, podID, principalUID, replacePrincipalUID } from '../common/browser-context'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { availableLocaleIDs, loadLocale, nativeLocaleLabel } from '../common/i18n'
 import * as api from './api/generated/sdk.gen'
-import { refreshAgentQueries } from './query-cache'
+import { appletEnvKeys } from './applet-settings-state'
+import { contentKeys } from './content-api'
+import { refreshAgentQueries, refreshSpaceProfileQueries } from './query-cache'
 import { PrincipalRename } from '../common/principal-rename'
-import type { PodAdminAgentsResponse, PodAdminMembersResponse } from './api/generated/types.gen'
+import type {
+  PodAdminAgentsResponse,
+  PodAdminMembersResponse,
+  PodAdminSettingsResponse
+} from './api/generated/types.gen'
 import {
   PodSettingsModel,
   parseAllowedDomains,
@@ -55,6 +73,8 @@ import {
 import { SlotBoundary, SlotGate } from '../common/slots'
 import { Link } from '@tanstack/react-router'
 import { usePodSlots, podSettingsSections, type PodSettingsTabSlot } from './slots'
+import { ProfileAvatarUpload } from './profile-avatar-upload'
+import { SettingsLayout, SettingsPanel, SettingsSection } from './settings-layout'
 
 type Model = InstanceType<typeof PodSettingsModel>
 type Member = PodAdminMembersResponse['members'][number]
@@ -63,7 +83,18 @@ const keys = {
   members: ['pod-admin-members'],
   agents: ['pod-admin-agents'],
   invitations: ['pod-admin-invitations'],
-  providers: ['pod-admin-providers']
+  providers: ['pod-admin-providers'],
+  environment: ['pod-admin-worker-envs']
+}
+
+const navigationIcons: Record<string, ReactNode> = {
+  general: <RiSettings3Line aria-hidden />,
+  members: <RiTeamLine aria-hidden />,
+  agents: <RiRobot2Line aria-hidden />,
+  invitations: <RiMailSendLine aria-hidden />,
+  providers: <RiShieldKeyholeLine aria-hidden />,
+  environment: <RiTerminalBoxLine aria-hidden />,
+  connectors: <RiLinksLine aria-hidden />
 }
 
 export function PodSettings() {
@@ -71,39 +102,129 @@ export function PodSettings() {
   const { t } = useTranslation()
   const model = useModel(PodSettingsModel)
   const tabs = usePodSlots().settingsTabs ?? []
+  const navigation = [
+    ...podSettingsSections.map(section => ({
+      value: section,
+      label: t(`pod.settings.${section}`),
+      icon: navigationIcons[section]
+    })),
+    { value: 'connectors', label: t('pod.connectors.title'), icon: navigationIcons.connectors }
+  ]
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid w-full max-w-5xl content-start gap-6 px-6 pt-2 pb-10">
-        <h1 className="text-2xl">{t('pod.settings.title')}</h1>
-        <Link to="/connectors" className={buttonVariants({ variant: 'outline' })}>
-          {t('pod.connectors.title')}
-        </Link>
-        <Tabs
-          value={model.section.value}
-          onValueChange={value => {
-            model.section.value = value
-          }}>
-          <TabsList>
-            {podSettingsSections.map(section => (
-              <TabsTrigger key={section} value={section}>
-                {t(`pod.settings.${section}`)}
-              </TabsTrigger>
-            ))}
-            {tabs.map(slot => (
-              <ExtensionTabTrigger key={slot.id} slot={slot} />
-            ))}
-          </TabsList>
-        </Tabs>
-        {model.section.value === 'general' && <GeneralSettings model={model} />}
-        {model.section.value === 'members' && <Members model={model} />}
-        {model.section.value === 'agents' && <ManagedAgents />}
-        {model.section.value === 'invitations' && <Invitations model={model} />}
-        {model.section.value === 'providers' && <Providers model={model} />}
-        {tabs.map(slot => (
-          <ExtensionTabPanel key={slot.id} slot={slot} model={model} />
-        ))}
-      </div>
-    </div>
+    <SettingsLayout
+      title={t('pod.settings.title')}
+      description={t('pod.settings.description')}
+      navigationLabel={t('pod.settings.navigation')}
+      value={model.section.value}
+      onValueChange={value => {
+        model.section.value = value
+      }}
+      items={navigation}
+      navigationExtras={tabs.map(slot => (
+        <ExtensionNavigationTrigger key={slot.id} slot={slot} />
+      ))}>
+      <SettingsPanel value="general">
+        <GeneralSettings model={model} />
+      </SettingsPanel>
+      <SettingsPanel value="members">
+        <Members model={model} />
+      </SettingsPanel>
+      <SettingsPanel value="agents">
+        <ManagedAgents />
+      </SettingsPanel>
+      <SettingsPanel value="invitations">
+        <Invitations model={model} />
+      </SettingsPanel>
+      <SettingsPanel value="providers">
+        <Providers model={model} />
+      </SettingsPanel>
+      <SettingsPanel value="environment">
+        <PodEnvironmentSettings />
+      </SettingsPanel>
+      <SettingsPanel value="connectors">
+        <SettingsSection title={t('pod.connectors.title')} description={t('pod.settings.connectors_description')}>
+          <Link to="/connectors" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+            {t('pod.settings.manage_connectors')}
+            <RiArrowRightLine aria-hidden data-icon="inline-end" />
+          </Link>
+        </SettingsSection>
+      </SettingsPanel>
+      {tabs.map(slot => (
+        <ExtensionTabPanel key={slot.id} slot={slot} model={model} />
+      ))}
+    </SettingsLayout>
+  )
+}
+
+function PodEnvironmentSettings() {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const envs = useQuery({
+    queryKey: keys.environment,
+    queryFn: () => api.podAdminWorkerEnvs()
+  })
+
+  const refresh = async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: keys.environment }),
+      client.invalidateQueries({ predicate: query => appletEnvKeys.matchesAnyPage(query.queryKey) }),
+      client.invalidateQueries({ queryKey: [...contentKeys.all, 'applet-routes'] })
+    ])
+  }
+
+  const putWorkerEnv = (input: EnvVarSaveInput) =>
+    api.putPodAdminWorkerEnv({
+      path: { name: input.name },
+      body: {
+        data: {
+          ...(input.value === undefined ? {} : { value: input.value }),
+          secret: input.secret,
+          description: input.description ?? null
+        }
+      }
+    })
+
+  const handleSave = async (input: EnvVarSaveInput) => {
+    await putWorkerEnv(input)
+    await refresh()
+    toast.success(t('pod.env_vars.saved', { name: input.name }))
+  }
+
+  const handleImport = (entries: ParsedDotEnvItem[], secret: boolean) =>
+    executeEnvVarBatchImport({
+      entries,
+      secret,
+      putVar: putWorkerEnv,
+      refresh,
+      onAllSaved: saved => toast.success(t('pod.env_vars.imported_count', { count: saved.length }))
+    })
+
+  const handleDelete = async (name: string) => {
+    const response = await api.deletePodAdminWorkerEnv({ path: { name } })
+    await refresh()
+    toast.success(
+      t(response.worker_env.source === 'missing' ? 'pod.env_vars.deleted' : 'pod.env_vars.reset_done', { name })
+    )
+  }
+
+  return (
+    <SettingsSection title={t('pod.settings.environment')} description={t('pod.settings.environment_description')}>
+      <EnvVarsEditor
+        items={envs.data?.worker_envs ?? []}
+        ownSource="tenant"
+        isLoading={envs.isLoading}
+        error={envs.error}
+        canDecrypt
+        onRetry={() => void envs.refetch()}
+        onSave={handleSave}
+        onImport={handleImport}
+        onDelete={handleDelete}
+        onDecrypt={async name => {
+          const response = await api.decryptPodAdminWorkerEnv({ path: { name } })
+          return response.decrypted_value.value
+        }}
+      />
+    </SettingsSection>
   )
 }
 
@@ -164,7 +285,7 @@ export function ManagedAgent({
     onSuccess
   })
   return (
-    <Card role="group" aria-labelledby={headingID}>
+    <Card role="group" aria-labelledby={headingID} className="rounded-xl">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <h2 id={headingID}>{agent.displayName}</h2>
@@ -197,11 +318,20 @@ export function ManagedAgent({
   )
 }
 
-function ExtensionTabTrigger({ slot }: { slot: PodSettingsTabSlot }) {
+function ExtensionNavigationTrigger({ slot }: { slot: PodSettingsTabSlot }) {
   const { t } = useTranslation()
   return (
     <SlotGate slot={slot}>
-      {visible => visible && <TabsTrigger value={slot.id}>{t(slot.labelKey)}</TabsTrigger>}
+      {visible =>
+        visible && (
+          <TabsTrigger
+            value={slot.id}
+            className="min-h-9 shrink-0 justify-start gap-2.5 rounded-lg px-3 py-2 text-sm md:h-9 md:py-1.5">
+            <RiPuzzleLine aria-hidden />
+            <span>{t(slot.labelKey)}</span>
+          </TabsTrigger>
+        )
+      }
     </SlotGate>
   )
 }
@@ -216,11 +346,13 @@ function SettingsTabPanel({ slot, model, visible }: { slot: PodSettingsTabSlot; 
     if (!visible && model.section.value === slot.id) model.section.value = 'general'
   }, [visible, model, slot.id])
   if (!visible) return null
-  return model.section.value === slot.id ? (
-    <SlotBoundary variant="panel" resetKeys={[slot.id]}>
-      <slot.Component />
-    </SlotBoundary>
-  ) : null
+  return (
+    <SettingsPanel value={slot.id}>
+      <SlotBoundary variant="panel" resetKeys={[slot.id]}>
+        <slot.Component />
+      </SlotBoundary>
+    </SettingsPanel>
+  )
 }
 
 function GeneralSettings({ model }: { model: Model }) {
@@ -252,27 +384,38 @@ function GeneralSettings({ model }: { model: Model }) {
         await i18n.changeLanguage(payload.defaultLocale)
       }
       toast.success(i18n.t('pod.settings.saved'))
-      void client.invalidateQueries({ queryKey: keys.settings })
-      void client.invalidateQueries({ queryKey: ['pod-session'] })
+      void refreshSpaceProfileQueries(client)
     }
   })
+  const avatarUploaded = (avatarURL: string) => {
+    client.setQueryData<PodAdminSettingsResponse>(keys.settings, current =>
+      current ? { ...current, avatarURL } : current
+    )
+    void refreshSpaceProfileQueries(client)
+  }
   return (
     <form
-      className="grid gap-5"
+      className="grid gap-7"
       onSubmit={event => {
         event.preventDefault()
         save.mutate()
       }}>
       <ContentError error={settings.error ?? save.error} />
-      <Card>
-        <CardHeader>
-          <h2>{t('pod.settings.space_profile', { defaultValue: 'Space profile' })}</h2>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="grid gap-2">
+      <SettingsSection
+        title={t('pod.settings.space_profile')}
+        description={t('pod.settings.space_profile_description')}>
+        <div className="grid gap-6">
+          <ProfileAvatarUpload
+            kind="space"
+            name={model.displayName.value}
+            avatarURL={settings.data?.avatarURL}
+            onUploaded={avatarUploaded}
+          />
+          <div className="grid max-w-md gap-2 border-t border-border pt-6">
             <Label htmlFor="space-name">{t('auth.space_name')}</Label>
             <Input
               id="space-name"
+              name="displayName"
               required
               value={model.displayName.value}
               onChange={event => {
@@ -281,10 +424,8 @@ function GeneralSettings({ model }: { model: Model }) {
               }}
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="space-default-locale">
-              {t('pod.settings.default_locale', { defaultValue: 'Space language' })}
-            </Label>
+          <div className="grid max-w-md gap-2">
+            <Label htmlFor="space-default-locale">{t('pod.settings.default_locale')}</Label>
             <Select
               value={model.defaultLocale.value}
               onValueChange={locale => {
@@ -292,7 +433,7 @@ function GeneralSettings({ model }: { model: Model }) {
                 save.reset()
                 model.defaultLocale.value = locale
               }}>
-              <SelectTrigger id="space-default-locale" className="w-full sm:max-w-xs">
+              <SelectTrigger id="space-default-locale" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -303,13 +444,11 @@ function GeneralSettings({ model }: { model: Model }) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              {t('pod.settings.default_locale_hint', {
-                defaultValue: 'Default language for the interface, notifications, and Agent messages in this space.'
-              })}
+            <p id="space-default-locale-hint" className="text-xs leading-5 text-muted-foreground">
+              {t('pod.settings.default_locale_hint')}
             </p>
           </div>
-          <label className="flex items-center gap-3 text-sm">
+          <label className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm">
             <Checkbox
               checked={model.guests.value}
               onCheckedChange={value => {
@@ -317,28 +456,34 @@ function GeneralSettings({ model }: { model: Model }) {
                 model.guests.value = value === true
               }}
             />
-            <span>{t('pod.settings.allow_guests')}</span>
+            <span className="grid gap-1">
+              <span>{t('pod.settings.allow_guests')}</span>
+              <span className="text-xs leading-5 text-muted-foreground">{t('pod.settings.allow_guests_hint')}</span>
+            </span>
           </label>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <h2>{t('pod.settings.sign_in_policy', { defaultValue: 'Sign-in policy' })}</h2>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="grid gap-2">
+        </div>
+      </SettingsSection>
+      <SettingsSection
+        title={t('pod.settings.sign_in_policy')}
+        description={t('pod.settings.sign_in_policy_description')}>
+        <div className="grid gap-5">
+          <div className="grid max-w-md gap-2">
             <Label htmlFor="domains">{t('pod.settings.domains')}</Label>
+            <p id="domains-hint" className="text-xs leading-5 text-muted-foreground">
+              {t('pod.settings.domains_hint')}
+            </p>
             <Input
               id="domains"
+              name="allowedEmailDomains"
+              aria-describedby="domains-hint"
               value={model.domains.value}
               onChange={event => {
                 save.reset()
                 model.domains.value = event.target.value
               }}
             />
-            <p className="text-xs text-muted-foreground">{t('pod.settings.domains_hint')}</p>
           </div>
-          <div className="grid gap-3">
+          <div className="grid gap-3 border-t border-border pt-5">
             {(
               [
                 'allow_email_otp',
@@ -347,7 +492,7 @@ function GeneralSettings({ model }: { model: Model }) {
                 'allow_invite_links'
               ] as const
             ).map(key => (
-              <label key={key} className="flex items-center gap-3 text-sm">
+              <label key={key} className="flex min-h-8 items-center gap-3 text-sm">
                 <Checkbox
                   checked={model.policy.value[key] === true}
                   disabled={
@@ -364,15 +509,18 @@ function GeneralSettings({ model }: { model: Model }) {
             ))}
           </div>
           {settings.data && !settings.data.emailAvailable && (
-            <p className="text-xs text-muted-foreground">{t('pod.settings.smtp_required')}</p>
+            <p className="text-xs leading-5 text-muted-foreground">{t('pod.settings.smtp_required')}</p>
           )}
-        </CardContent>
-      </Card>
-      <div className="flex items-center gap-3">
+        </div>
+      </SettingsSection>
+      <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
+        <p className="text-sm text-muted-foreground">
+          {t(model.dirty.value ? 'pod.settings.unsaved_changes' : 'pod.settings.all_saved')}
+        </p>
         <Button
           type="submit"
           disabled={!model.dirty.value || !model.displayName.value.trim() || save.isPending || !settings.data}>
-          {t('common.save')}
+          {t('pod.settings.save_changes')}
         </Button>
       </div>
     </form>
@@ -492,7 +640,7 @@ function Members({ model }: { model: Model }) {
           </Button>
         </div>
       ) : (
-        <Card>
+        <Card className="rounded-xl">
           <CardHeader>
             <h2>{t('pod.settings.precreate_member')}</h2>
           </CardHeader>
@@ -555,7 +703,7 @@ function Members({ model }: { model: Model }) {
         const statusText = memberStatusLabel(member.status, t)
         const metaLine = [member.email, t(`pod.settings.role_${member.membership}`)].filter(Boolean).join(' · ')
         return (
-          <Card key={member.uid}>
+          <Card className="rounded-xl" key={member.uid}>
             <CardHeader>
               <div className="flex flex-wrap items-center gap-2">
                 <h2>{member.displayName}</h2>
@@ -774,7 +922,7 @@ function Invitations({ model }: { model: Model }) {
   return (
     <section className="grid gap-5">
       <ContentError error={invitations.error ?? create.error ?? revoke.error} />
-      <Card>
+      <Card className="rounded-xl">
         <CardHeader>
           <h2>{t('pod.settings.create_invitation')}</h2>
         </CardHeader>
@@ -902,7 +1050,7 @@ function Invitations({ model }: { model: Model }) {
         const isRevoked = Boolean(invitation.revoked_at)
         const isExpired = !isRevoked && new Date(invitation.expires_at).getTime() <= now
         return (
-          <Card key={invitation.id}>
+          <Card className="rounded-xl" key={invitation.id}>
             <CardContent className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
                 <span>
@@ -1012,7 +1160,7 @@ function Providers({ model }: { model: Model }) {
           humanizeTechnicalLabel(provider.adapter_id)
         const isEnabled = provider.enabled === true
         return (
-          <Card key={provider.provider_id}>
+          <Card className="rounded-xl" key={provider.provider_id}>
             <CardContent className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="font-medium">{displayName}</span>
@@ -1061,7 +1209,7 @@ function Providers({ model }: { model: Model }) {
         </div>
       )}
       {adapter && (
-        <Card>
+        <Card className="rounded-xl">
           <CardHeader>
             <h2>
               {model.editingProviderID.value

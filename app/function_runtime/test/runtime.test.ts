@@ -752,7 +752,33 @@ describe('real edge-runtime protocol', () => {
     expect(again.body.mainCapacity).toBeUndefined()
     const next = await publish(source, { VALUE: 'second' })
     expect(next).not.toBe(sha)
-    expect((await invoke(next, undefined, { page, revision: 2 })).body.env).toBe('second')
+    expect((await invoke(next, undefined, { page, revision: 1 })).body).toMatchObject({ count: 1, env: 'second' })
+  })
+  test('web and image capabilities bridge caller and admin authorities and enforce GET write guard', async () => {
+    const sha = await publish(
+      `export default {
+        'GET /search': () => AnkoleRuntime.web.search({ query: 'ankole', limit: 3 }),
+        'GET /fetch': () => AnkoleRuntime.admin.web.fetch({ urls: ['https://example.com'], maxChars: 5000 }),
+        'GET /image': () => AnkoleRuntime.ai.generateImage({ prompt: 'blocked on GET' }),
+        'POST /image': () => AnkoleRuntime.admin.ai.generateImage({ prompt: 'poster', outputFormat: 'png' })
+      }`
+    )
+    const operations: { operation: string; args: unknown[] }[] = []
+    const call = async (frame: { operation: string; args: unknown[] }) => {
+      operations.push({ operation: frame.operation, args: frame.args })
+      return { ok: frame.operation }
+    }
+    expect((await invoke(sha, { method: 'GET', path: '/search' }, { call })).body).toEqual({ ok: 'web.search' })
+    expect((await invoke(sha, { method: 'GET', path: '/fetch' }, { call })).body).toEqual({ ok: 'admin.web.fetch' })
+    expect((await invoke(sha, { method: 'GET', path: '/image' }, { call })).body.error.code).toBe('read_only_route')
+    expect((await invoke(sha, { method: 'POST', path: '/image' }, { call })).body).toEqual({
+      ok: 'admin.ai.generateImage'
+    })
+    expect(operations).toEqual([
+      { operation: 'web.search', args: [{ query: 'ankole', limit: 3 }] },
+      { operation: 'admin.web.fetch', args: [{ urls: ['https://example.com'], maxChars: 5000 }] },
+      { operation: 'admin.ai.generateImage', args: [{ prompt: 'poster', outputFormat: 'png' }] }
+    ])
   })
   test('file capabilities transfer binary bytes without text conversion', async () => {
     const bytes = Uint8Array.from({ length: 256 }, (_, value) => value)

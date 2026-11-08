@@ -1,7 +1,20 @@
 import { escapeRegExp } from '../../common/text'
+import { isApplePlatform } from '../../common/platform'
 import { usePageMetadata } from '../use-page-metadata'
 import {
   Button,
+  ButtonGroup,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
@@ -16,10 +29,13 @@ import {
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
+  RiArrowDownSLine,
   RiArrowRightUpLine,
   RiArrowUpLine,
   RiCheckLine,
   RiCloseLine,
+  RiCornerUpRightLine,
+  RiListOrdered2,
   RiStopFill,
   RiAtLine,
   RiCommandLine
@@ -29,8 +45,8 @@ import { useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
-import type { ChatModel } from '../state/chat'
-import { shouldSendOnEnter, hasDraftMention } from '../state/chat'
+import type { ChatModel, FollowUpBehavior } from '../state/chat'
+import { shouldSendOnEnter, hasDraftMention, queuedInputs } from '../state/chat'
 import type { ChatCommands } from '../chat-commands'
 import type { ConversationDetail, PodAgent } from '../api'
 import {
@@ -51,12 +67,14 @@ import {
 } from './composer-completion'
 import type { ClarifyAnswer } from './choice-card'
 import { ReplySuggestionGhost, useReplySuggestion } from './reply-suggestion'
+import { useComposerBacktrackChord } from './use-timeline-backtrack'
 
 type Model = InstanceType<typeof ChatModel>
 export function Composer({
   model,
   agents,
   agentsLoaded,
+  agentsPending = false,
   personalAssistant = false,
   assistantAvailable = false,
   directColleague = false,
@@ -75,6 +93,7 @@ export function Composer({
   model: Model
   agents: PodAgent[]
   agentsLoaded: boolean
+  agentsPending?: boolean
   personalAssistant?: boolean
   assistantAvailable?: boolean
   directColleague?: boolean
@@ -108,8 +127,10 @@ export function Composer({
   const completion = useRef<CompletionHandle>(null)
   const completionID = useId()
   const composing = useRef(false)
+  const lastCompositionEndAt = useRef<number | null>(null)
   const [isComposing, setIsComposing] = useState(false)
   const dismissedSlash = useRef<number | undefined>(undefined)
+  const backtrackChord = useComposerBacktrackChord({ model, detail, commands })
   useEffect(() => {
     if (!picker) return
     const outside = (event: PointerEvent) => {
@@ -120,6 +141,8 @@ export function Composer({
   }, [picker])
   const { disabled, sending, submit, working, stop, canSubmit } = commands
   const conversationID = detail?.conversation.id
+  const queueEditing = model.editing.value?.kind === 'queue' ? model.editing.value : undefined
+  const attachmentsDisabled = sending || answering || (disabled && (!!conversationID || !agentsPending))
   const callable = new Set(agents.map(agent => agent.uid))
   const answerID = model.answeringInteractionID.value
   const answerQuestion = detail?.pendingInteractions.find(question => question.interaction_id === answerID)
@@ -133,7 +156,7 @@ export function Composer({
   const humanOnly = (group || detail?.conversation.accessScope === 'anchor_page') && roomAgents.length === 0
   const recipientUID =
     answerQuestion?.agentUID ??
-    model.editing.value?.agentUID ??
+    queueEditing?.agentUID ??
     (conversationID
       ? model.targetAgentUID.value ||
         (group || humanOnly ? '__listeners__' : (detail?.conversation.agents[0]?.uid ?? null))
@@ -159,7 +182,7 @@ export function Composer({
         ? roomAgents[0]!.uid
         : undefined
     : undefined
-  const editingID = model.editing.value?.messageID
+  const editingID = queueEditing?.messageID
   useEffect(() => {
     if (editingID) textarea.current?.focus()
   }, [editingID])
@@ -245,10 +268,10 @@ export function Composer({
       else onSummary()
     } else if (command === 'stop') stop()
   }
-  const send = () => {
+  const send = (modeOverride?: FollowUpBehavior) => {
     if (sending || answering || !canSubmit || (answerID && !answerAvailable)) return
     updatePicker(undefined)
-    if (model.editing.value) {
+    if (queueEditing) {
       submit()
       return
     }
@@ -278,11 +301,18 @@ export function Composer({
             .map(({ uid, displayName }) => ({ uid, displayName }))
         })
         .catch(error => model.attachments.rejected(error, capture.attachmentIDs))
-    } else submit()
+    } else submit(modeOverride)
   }
+  const shortcut = isApplePlatform() ? '⌘⇧↵' : 'Ctrl+Shift+Enter'
+  const coarsePointer = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+  const hasQueuedInputs = !!detail?.pendingQueues.some(queue => queuedInputs(queue).length > 0)
+  const showSendModeMenu =
+    !queueEditing &&
+    !answerID &&
+    ((commands.targetWorking && commands.canSteerTarget) || (!commands.targetWorking && commands.targetPaused))
+  const submitActive = canSubmit && !answering && (!answerID || answerAvailable)
   const unavailable = detail?.conversation.agents.filter(agent => !agent.active) ?? []
   const quoted = model.quoted.value
-  const editing = model.editing.value
   const hasActiveAgent =
     !!detail &&
     Object.values(model.activities.value).some(
@@ -298,7 +328,7 @@ export function Composer({
       !disabled &&
       !answering &&
       !answerID &&
-      !editing &&
+      !model.editing.value &&
       !working &&
       !hasActiveAgent &&
       !model.pending.value &&
@@ -312,11 +342,11 @@ export function Composer({
     }
   })
   const editedAttachments =
-    editing &&
+    queueEditing &&
     (detail?.pendingQueues
-      .find(queue => queue.agentUID === editing.agentUID)
-      ?.inputs.find(input => input.messageID === editing.messageID)?.attachments ??
-      detail?.messages.find(message => message.id === editing.messageID)?.attachments)
+      .find(queue => queue.agentUID === queueEditing.agentUID)
+      ?.inputs.find(input => input.messageID === queueEditing.messageID)?.attachments ??
+      detail?.messages.find(message => message.id === queueEditing.messageID)?.attachments)
   return (
     <div ref={shell} className={`pod-chat-composer-shell pod-chat-composer-${variant}`}>
       {!answerID && (!!unavailable.length || restricted || selectedTargetUnavailable) && (
@@ -331,14 +361,14 @@ export function Composer({
             variant="ghost"
             onClick={
               selectedTargetUnavailable
-                ? model.editing.value
-                  ? () => model.cancelEdit()
+                ? queueEditing
+                  ? () => commands.cancelEdit()
                   : () => recipientControl.current?.click()
                 : onInvite
             }>
             {t(
               selectedTargetUnavailable
-                ? model.editing.value
+                ? queueEditing
                   ? 'pod.chat.cancel_pending'
                   : 'pod.chat.choose_agent'
                 : 'pod.chat_room.manage_agents'
@@ -364,7 +394,7 @@ export function Composer({
         picker && (
           <MentionPicker
             detail={detail}
-            pagesOnly={picker.kind === 'page' || !!model.editing.value}
+            pagesOnly={picker.kind === 'page' || !!queueEditing}
             allowAgents={!answerID}
             personalAssistant={personalAssistant}
             participantsOnly={directColleague || detail?.conversation.conversationKind === 'colleague_dm'}
@@ -393,8 +423,8 @@ export function Composer({
       <form
         {...chatAttachmentHandlers(
           model.attachments,
-          disabled || !!model.editing.value,
-          model.editing.value
+          attachmentsDisabled || !!queueEditing,
+          queueEditing
             ? () =>
                 toast.info(
                   t('pod.chat.attachments_disabled_while_editing', {
@@ -442,14 +472,14 @@ export function Composer({
               </Button>
             </div>
           )}
-          {editing && conversationID ? (
+          {queueEditing && conversationID ? (
             <MessageAttachments
               conversationID={conversationID}
-              messageID={editing.messageID}
+              messageID={queueEditing.messageID}
               attachments={editedAttachments ?? []}
             />
           ) : (
-            <ChatAttachmentDrafts model={model.attachments} disabled={disabled} />
+            <ChatAttachmentDrafts model={model.attachments} disabled={attachmentsDisabled} />
           )}
           <div className="pod-chat-draft-pages">
             {model.links.value
@@ -484,13 +514,30 @@ export function Composer({
               placeholder={
                 replySuggestion
                   ? ''
-                  : t(answerID ? 'pod.chat_timeline.answer_placeholder' : 'pod.chat_room.composer_hint')
+                  : answerID
+                    ? t('pod.chat_timeline.answer_placeholder')
+                    : !queueEditing && commands.targetWorking
+                      ? !commands.canSteerTarget
+                        ? t('pod.chat_room.composer_queue_only_hint')
+                        : commands.deliveryModes.primary === 'queue'
+                          ? coarsePointer
+                            ? t('pod.chat_room.composer_queue_only_hint')
+                            : t('pod.chat_room.composer_queue_hint', { shortcut })
+                          : coarsePointer
+                            ? t('pod.chat_room.composer_steer_short_hint')
+                            : t('pod.chat_room.composer_steer_hint', { shortcut })
+                      : !queueEditing && !commands.targetWorking && commands.targetPaused && !coarsePointer
+                        ? t('pod.chat_room.composer_paused_hint', { shortcut })
+                        : t('pod.chat_room.composer_hint')
               }
               rows={variant === 'hero' ? 3 : 1}
               value={draft}
               onChange={event => {
+                backtrackChord.reset()
+                if (!composing.current) lastCompositionEndAt.current = null
+                model.clearBacktrack()
                 model.draft.value = event.target.value
-                if (!model.editing.value) {
+                if (!queueEditing) {
                   model.mentions.value = model.mentions.value.filter(mention =>
                     hasDraftMention(event.target.value, mention.displayName)
                   )
@@ -505,16 +552,31 @@ export function Composer({
               }}
               onCompositionEnd={event => {
                 composing.current = false
+                lastCompositionEndAt.current = event.nativeEvent.timeStamp
                 setIsComposing(false)
                 syncPicker(event.currentTarget)
               }}
+              onFocus={() => {
+                model.clearBacktrack()
+              }}
               onBlur={() => {
                 if (composing.current) composing.current = false
+                lastCompositionEndAt.current = null
                 setIsComposing(false)
+                backtrackChord.reset()
               }}
               onKeyDown={event => {
                 if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
                 if (picker && completion.current?.onKeyDown(event)) return
+                if (event.key !== 'Escape') backtrackChord.reset()
+                const justEndedComposition =
+                  lastCompositionEndAt.current !== null &&
+                  Math.abs(event.nativeEvent.timeStamp - lastCompositionEndAt.current) < 50
+                if (event.key === 'Escape' && justEndedComposition) {
+                  event.preventDefault()
+                  backtrackChord.reset()
+                  return
+                }
                 if (
                   replySuggestion &&
                   event.key === 'Tab' &&
@@ -527,36 +589,73 @@ export function Composer({
                   replySuggestion.accept()
                   return
                 }
-                if (event.key === 'Escape' && model.editing.value) {
+                if (event.key === 'Escape' && queueEditing) {
                   event.preventDefault()
-                  model.cancelEdit()
+                  event.stopPropagation()
+                  commands.cancelEdit()
                   return
                 }
                 if (event.key === 'Escape' && answerID) {
                   event.preventDefault()
+                  event.stopPropagation()
                   model.cancelAnswer()
+                  return
+                }
+                if (backtrackChord.handleKeyDown(event)) {
                   return
                 }
                 if (
                   event.key === 'ArrowUp' &&
+                  event.altKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey &&
+                  !event.shiftKey &&
                   !answerID &&
+                  !queueEditing &&
                   !draft &&
+                  textarea.current?.selectionStart === textarea.current?.selectionEnd &&
+                  detail
+                ) {
+                  if (commands.takeBackLastQueued()) {
+                    event.preventDefault()
+                    return
+                  }
+                }
+                if (
+                  event.key === 'ArrowUp' &&
+                  !event.altKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey &&
+                  !event.shiftKey &&
+                  !answerID &&
+                  !queueEditing &&
+                  !draft &&
+                  !model.attachments.hasFiles.value &&
+                  !model.links.value.length &&
                   textarea.current?.selectionStart === textarea.current?.selectionEnd &&
                   detail
                 ) {
                   event.preventDefault()
                   commands.recallLast()
+                  return
                 }
                 if (
                   shouldSendOnEnter({
                     key: event.key,
                     shiftKey: event.shiftKey,
+                    ctrlKey: event.ctrlKey,
+                    metaKey: event.metaKey,
                     isComposing: event.nativeEvent.isComposing,
-                    keyCode: event.nativeEvent.keyCode
+                    keyCode: event.nativeEvent.isComposing ? 229 : event.nativeEvent.keyCode
                   })
                 ) {
                   event.preventDefault()
-                  send()
+                  if (!event.ctrlKey && !event.metaKey && justEndedComposition) {
+                    return
+                  }
+                  const alternate =
+                    event.shiftKey && (event.ctrlKey || event.metaKey) ? commands.deliveryModes.alternate : undefined
+                  send(alternate)
                 }
               }}
             />
@@ -564,7 +663,7 @@ export function Composer({
           </div>
           <InputGroupAddon align="block-end" className="pod-chat-composer-tools">
             <div className="pod-chat-recipient-tools">
-              <ChatAttachmentButton model={model.attachments} disabled={disabled || !!model.editing.value} />
+              <ChatAttachmentButton model={model.attachments} disabled={attachmentsDisabled || !!queueEditing} />
               <Button
                 type="button"
                 size="icon-sm"
@@ -597,7 +696,7 @@ export function Composer({
                       model.modelProfile.value = null
                     }
                   }}
-                  disabled={!agentsLoaded || sending || answering || !!answerID || !!model.editing.value}>
+                  disabled={!agentsLoaded || sending || answering || !!answerID || !!queueEditing}>
                   <SelectTrigger
                     ref={recipientControl}
                     size="sm"
@@ -639,7 +738,14 @@ export function Composer({
                   onDraftProfileChange={profile => {
                     model.modelProfile.value = profile
                   }}
-                  disabled={sending || answering || !!answerID || !!model.editing.value}
+                  activeSignalID={
+                    model.activities.value[modelAgentUID]?.signalID ??
+                    (detail?.pendingQueues.find(queue => queue.agentUID === modelAgentUID)?.workStatus.state ===
+                    'running'
+                      ? 'running'
+                      : null)
+                  }
+                  disabled={sending || answering || !!answerID || !!queueEditing}
                 />
               ) : (
                 detail &&
@@ -651,8 +757,8 @@ export function Composer({
               )}
             </div>
             <div className="pod-chat-send-tools">
-              {model.editing.value && (
-                <Button type="button" size="xs" variant="ghost" onClick={() => model.cancelEdit()}>
+              {queueEditing && (
+                <Button type="button" size="xs" variant="ghost" onClick={() => commands.cancelEdit()}>
                   {t('pod.chat.cancel_pending')}
                 </Button>
               )}
@@ -663,34 +769,124 @@ export function Composer({
                   variant="outline"
                   className="h-7 gap-1 px-2 [&>svg]:size-3.5"
                   aria-label={t('pod.chat.stop')}
-                  title={t('pod.chat.stop_hint')}
+                  title={t(hasQueuedInputs ? 'pod.chat.stop_hint' : 'pod.chat.stop')}
                   disabled={disabled}
                   onClick={stop}>
                   <RiStopFill aria-hidden />
                   {t('pod.chat.stop_short')}
                 </InputGroupButton>
               )}
-              <InputGroupButton
-                type="submit"
-                size="icon-sm"
-                variant="default"
-                aria-label={t(
-                  model.editing.value
-                    ? 'pod.chat.save_pending'
-                    : answerID
-                      ? 'pod.chat_timeline.answer'
-                      : 'pod.chat.send'
-                )}
-                disabled={!canSubmit || answering || (!!answerID && !answerAvailable)}>
-                {commands.pendingQueueAction?.action === 'edit' ||
-                commands.pendingQueueAction?.action === 'edit_last' ? (
-                  <Spinner aria-hidden />
-                ) : model.editing.value ? (
-                  <RiCheckLine aria-hidden />
-                ) : (
-                  <RiArrowUpLine aria-hidden />
-                )}
-              </InputGroupButton>
+              {(() => {
+                const submitButton = (
+                  <InputGroupButton
+                    type="submit"
+                    size="icon-sm"
+                    variant="default"
+                    className={cn(showSendModeMenu && submitActive && 'border-r-primary-foreground/25')}
+                    aria-label={t(
+                      queueEditing ? 'pod.chat.save_pending' : answerID ? 'pod.chat_timeline.answer' : 'pod.chat.send'
+                    )}
+                    title={
+                      !queueEditing && !answerID && commands.targetWorking
+                        ? t(
+                            commands.deliveryModes.primary === 'queue'
+                              ? 'pod.chat.follow_up_queue'
+                              : 'pod.chat.follow_up_steer'
+                          )
+                        : !queueEditing && !answerID && !commands.targetWorking && commands.targetPaused
+                          ? t('pod.chat.send_immediately')
+                          : undefined
+                    }
+                    disabled={!submitActive}>
+                    {commands.pendingQueueAction?.action === 'edit' ? (
+                      <Spinner aria-hidden />
+                    ) : queueEditing ? (
+                      <RiCheckLine aria-hidden />
+                    ) : !answerID && commands.targetWorking && commands.deliveryModes.primary === 'queue' ? (
+                      <RiListOrdered2 aria-hidden />
+                    ) : (
+                      <RiArrowUpLine aria-hidden />
+                    )}
+                  </InputGroupButton>
+                )
+                if (!showSendModeMenu) return submitButton
+                return (
+                  <ButtonGroup>
+                    {submitButton}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <InputGroupButton
+                            type="button"
+                            size="icon-sm"
+                            variant={submitActive ? 'default' : 'outline'}
+                            className={cn(
+                              'size-auto min-h-7 min-w-6 px-1',
+                              submitActive && 'aria-expanded:border-primary-active aria-expanded:bg-primary-active'
+                            )}
+                            aria-label={t('pod.chat.send_mode')}
+                            title={t('pod.chat.send_mode')}
+                            disabled={disabled || answering}
+                          />
+                        }>
+                        <RiArrowDownSLine aria-hidden />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-60">
+                        {commands.targetWorking ? (
+                          <>
+                            {commands.deliveryModes.alternate && (
+                              <>
+                                <DropdownMenuItem
+                                  disabled={!canSubmit || answering}
+                                  onClick={() => send(commands.deliveryModes.alternate)}>
+                                  {commands.deliveryModes.alternate === 'steer' ? (
+                                    <RiCornerUpRightLine aria-hidden />
+                                  ) : (
+                                    <RiListOrdered2 aria-hidden />
+                                  )}
+                                  {t(
+                                    commands.deliveryModes.alternate === 'steer'
+                                      ? 'pod.chat.follow_up_steer'
+                                      : 'pod.chat.follow_up_queue'
+                                  )}
+                                  {!coarsePointer && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
+                            <DropdownMenuGroup>
+                              <DropdownMenuLabel>{t('pod.chat.follow_up_mode')}</DropdownMenuLabel>
+                              <DropdownMenuRadioGroup
+                                value={model.followUpBehavior.value}
+                                onValueChange={value => model.setFollowUpBehavior(value as FollowUpBehavior)}>
+                                <DropdownMenuRadioItem value="steer">
+                                  {t('pod.chat.follow_up_steer')}
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="queue">
+                                  {t('pod.chat.follow_up_queue')}
+                                </DropdownMenuRadioItem>
+                              </DropdownMenuRadioGroup>
+                            </DropdownMenuGroup>
+                          </>
+                        ) : (
+                          <>
+                            <DropdownMenuItem disabled={!canSubmit || answering} onClick={() => send('steer')}>
+                              <RiArrowUpLine aria-hidden />
+                              {t('pod.chat.send_immediately')}
+                              {!coarsePointer && <DropdownMenuShortcut>↵</DropdownMenuShortcut>}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={!canSubmit || answering} onClick={() => send('queue')}>
+                              <RiListOrdered2 aria-hidden />
+                              {t('pod.chat.follow_up_queue')}
+                              {!coarsePointer && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </ButtonGroup>
+                )
+              })()}
             </div>
           </InputGroupAddon>
         </InputGroup>
@@ -704,7 +900,7 @@ export function removePageMention(text: string, name: string) {
   return text.replace(new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])\\s?`, 'gu'), '')
 }
 
-function DraftPageChip({ id, onRemove }: { id: string; onRemove(name?: string): void }) {
+export function DraftPageChip({ id, onRemove }: { id: string; onRemove(name?: string): void }) {
   const { t } = useTranslation()
   const query = useQuery(pageQuery(id))
   const page = usePageMetadata(query.data?.page)

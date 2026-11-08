@@ -11,6 +11,9 @@ defmodule Ankole.AIGateway.CompactionHistory do
 
   @opaque_ref_keys ~w(agent_computer_path node_id object_id content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
+  @input_image_token_estimate 1_600
+  @input_image_estimated_bytes @input_image_token_estimate * 4
+  @image_part_types ~w(input_image computer_screenshot image_url image)
 
   def dropped_opaque_messages(history, truncated_history) do
     kept_ids =
@@ -79,26 +82,67 @@ defmodule Ankole.AIGateway.CompactionHistory do
     |> Enum.flat_map(fn {item, index} -> opaque_item_audit(item, index) end)
   end
 
-  defp opaque_item_audit(%{"type" => "message", "content" => content} = item, item_index)
-       when is_list(content) do
+  defp opaque_item_audit(%{"content" => content} = item, item_index)
+       when is_list(content) and
+              (is_map_key(item, "role") or is_map_key(item, "type")) do
+    if Map.get(item, "type") == "message" or is_binary(Map.get(item, "role")) do
+      opaque_content_parts_audit(content, item_index, item["role"])
+    else
+      opaque_non_message_item_audit(item, item_index)
+    end
+  end
+
+  defp opaque_item_audit(%{} = item, item_index),
+    do: opaque_non_message_item_audit(item, item_index)
+
+  defp opaque_item_audit(_item, _item_index), do: []
+
+  defp opaque_content_parts_audit(content, item_index, role) do
     content
     |> Enum.with_index()
     |> Enum.reject(fn {part, _part_index} -> text_content_part?(part) end)
     |> Enum.map(fn {part, part_index} ->
       opaque_ref(part, item_index, part_index)
-      |> Ankole.Attrs.put_present("role", item["role"])
+      |> Ankole.Attrs.put_present("role", role)
     end)
   end
 
-  defp opaque_item_audit(%{} = item, item_index) do
-    if text_compactable_item?(item) do
-      []
-    else
-      [opaque_ref(item, item_index, nil)]
+  defp opaque_non_message_item_audit(%{"type" => type} = item, item_index)
+       when type in @image_part_types do
+    [opaque_ref(item, item_index, nil)]
+  end
+
+  defp opaque_non_message_item_audit(%{} = item, item_index) do
+    cond do
+      ResponseItems.output_item?(item) ->
+        opaque_tool_output_audit(Map.get(item, "output"), item_index)
+
+      text_compactable_item?(item) ->
+        []
+
+      true ->
+        [opaque_ref(item, item_index, nil)]
     end
   end
 
-  defp opaque_item_audit(_item, _item_index), do: []
+  defp opaque_tool_output_audit(output, item_index) when is_list(output) do
+    output
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {%{} = part, part_index} ->
+        if text_content_part?(part), do: [], else: [opaque_ref(part, item_index, part_index)]
+
+      _other ->
+        []
+    end)
+  end
+
+  defp opaque_tool_output_audit(%{"type" => type} = output, item_index)
+       when type in @image_part_types do
+    [opaque_ref(output, item_index, nil)]
+  end
+
+  defp opaque_tool_output_audit(_output, _item_index), do: []
 
   defp opaque_ref(%{} = value, item_index, part_index) do
     refs = bounded_refs(value)
@@ -163,18 +207,66 @@ defmodule Ankole.AIGateway.CompactionHistory do
   end
 
   defp message_usage_tokens(%Message{metadata: %{} = metadata}) do
-    metadata
-    |> Map.get("usage")
-    |> Ankole.AIGateway.Usage.total_tokens()
+    case Ankole.AIGateway.Usage.total_tokens(Map.get(metadata, "context_usage")) do
+      tokens when tokens > 0 -> tokens
+      _missing -> Ankole.AIGateway.Usage.total_tokens(Map.get(metadata, "usage"))
+    end
   end
 
   defp message_usage_tokens(_message), do: 0
+
+  def items_token_estimate(items) when is_list(items) do
+    item_count = length(items)
+    item_bytes = Enum.reduce(items, 0, fn item, total -> total + item_estimated_bytes(item) end)
+    comma_bytes = max(item_count - 1, 0)
+    encoded_bytes = 2 + item_bytes + comma_bytes
+    max(div(encoded_bytes, 4), 1)
+  end
 
   def items_token_estimate(items) do
     items
     |> Ankole.JSON.encode!()
     |> CompactionRender.approx_tokens()
   end
+
+  def item_estimated_bytes(%{"type" => type}) when type in @image_part_types,
+    do: @input_image_estimated_bytes
+
+  def item_estimated_bytes(%{} = item) do
+    {sanitized, image_count} =
+      {item, 0}
+      |> strip_field_input_images("content")
+      |> strip_field_input_images("output")
+
+    byte_size(Ankole.JSON.encode!(sanitized)) + image_count * @input_image_estimated_bytes
+  end
+
+  def item_estimated_bytes(item), do: byte_size(Ankole.JSON.encode!(item))
+
+  defp strip_field_input_images({item, count}, key) do
+    case Map.get(item, key) do
+      parts when is_list(parts) ->
+        if Enum.any?(parts, &input_image_part?/1) do
+          {images, rest} = Enum.split_with(parts, &input_image_part?/1)
+          {Map.put(item, key, rest), count + length(images)}
+        else
+          {item, count}
+        end
+
+      %{} = part ->
+        if input_image_part?(part) do
+          {Map.put(item, key, nil), count + 1}
+        else
+          {item, count}
+        end
+
+      _other ->
+        {item, count}
+    end
+  end
+
+  defp input_image_part?(%{"type" => type}) when type in @image_part_types, do: true
+  defp input_image_part?(_part), do: false
 
   def text_compactable_message?(%Message{type: :message, status: :complete, content: content})
       when is_list(content),
@@ -192,6 +284,8 @@ defmodule Ankole.AIGateway.CompactionHistory do
        when type in ["input_text", "output_text", "text"] and is_binary(text),
        do: true
 
+  defp text_compactable_item?(%{"type" => type}) when type in @image_part_types, do: true
+
   defp text_compactable_item?(%{"type" => "reasoning"}), do: true
 
   defp text_compactable_item?(item),
@@ -201,9 +295,15 @@ defmodule Ankole.AIGateway.CompactionHistory do
 
   defp text_compactable_content?(content) when is_list(content) do
     Enum.all?(content, fn
-      %{"type" => type} when type in ["input_text", "output_text", "text"] -> true
-      %{"text" => text} when is_binary(text) -> true
-      _part -> false
+      %{"type" => type}
+      when type in ["input_text", "output_text", "text" | @image_part_types] ->
+        true
+
+      %{"text" => text} when is_binary(text) ->
+        true
+
+      _part ->
+        false
     end)
   end
 

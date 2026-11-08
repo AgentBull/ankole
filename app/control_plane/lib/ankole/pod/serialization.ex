@@ -202,6 +202,8 @@ defmodule Ankole.Pod.Serialization do
       details: nil
     }
 
+  def error({:worker_env_row_error, _scope, _name, _reason}), do: error(:internal_error)
+  def error({:applet_env_row_error, _page_id, _name, _reason}), do: error(:internal_error)
   def error({:forbidden, _action}), do: error(:forbidden)
   def error({:field_conflict, details}), do: error_details("field_conflict", details)
   def error({:record_conflict, id}), do: error_details("record_conflict", %{id: id})
@@ -274,7 +276,7 @@ defmodule Ankole.Pod.Serialization do
       "ai_unavailable" ->
         502
 
-      code when code in ~w(handler_error handler_out_of_memory read_only_route) ->
+      code when code in ~w(internal_error handler_error handler_out_of_memory read_only_route) ->
         500
 
       code
@@ -284,7 +286,7 @@ defmodule Ankole.Pod.Serialization do
       "move_requires_manage" ->
         403
 
-      code when code in ~w(file_too_large spreadsheet_full) ->
+      code when code in ~w(file_too_large applet_env_too_large spreadsheet_full) ->
         413
 
       code

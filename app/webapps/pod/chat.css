@@ -80,6 +80,13 @@
   padding: 6px 0;
 }
 
+.pod-chat-queue-item[data-editing='true'] {
+  background: var(--accent);
+  border-radius: var(--radius-control);
+  padding-inline: 6px;
+  margin-inline: -6px;
+}
+
 .pod-chat-queue-text {
   flex: 1;
   min-width: 0;
@@ -1004,6 +1011,10 @@
   padding: 4px;
   @apply ceramic ceramic-primary;
 }
+.pod-chat-inline-editor[data-picker-placement='below'] .pod-chat-composer-picker {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
 .pod-chat-composer-picker [role='listbox'] {
   max-height: min(300px, 36dvh);
   overflow-y: auto;
@@ -1347,6 +1358,33 @@
   align-self: flex-end;
   max-width: 85%;
   border-top-right-radius: 6px;
+}
+.pod-chat-backtrack-active > .pod-chat-message-identity[data-quiet] {
+  opacity: 0;
+  pointer-events: none;
+}
+.pod-chat-backtrack-pill {
+  position: absolute;
+  top: -24px;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--ring) 45%, var(--border));
+  border-radius: var(--radius-mini);
+  padding: 1px 8px;
+  background: var(--accent);
+  color: var(--fg-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.pod-chat-backtrack-active > .pod-chat-human-text,
+.pod-chat-backtrack-active:not(:has(> .pod-chat-human-text)) > .pod-chat-attachments {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.pod-chat-inline-editor-field {
+  box-shadow: var(--shadow-sm, 0 1px 2px 0 rgb(0 0 0 / 0.05));
 }
 .pod-chat-human-message:not(.pod-chat-own-message) > .pod-chat-human-text {
   max-width: 85%;

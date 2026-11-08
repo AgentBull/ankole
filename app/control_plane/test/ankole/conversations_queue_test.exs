@@ -1,5 +1,6 @@
 defmodule Ankole.ConversationsQueueTest do
   use Ankole.DataCase, async: false
+  require Ash.Query
 
   import Ankole.PrincipalsFixtures, only: [human_fixture: 0]
   import Ankole.SessionsCase, only: [agent_fixture: 1]
@@ -230,7 +231,10 @@ defmodule Ankole.ConversationsQueueTest do
     assert Enum.all?(idle.statuses, fn {_uid, status} -> status.state == :idle end)
 
     projection = Ankole.Pod.Chat.Presentation.detail(idle)
-    assert Enum.all?(projection.pendingQueues, &(&1.paused and &1.workStatus.state == :idle))
+    assert Enum.all?(projection.pendingQueues, &(&1.workStatus.state == :idle))
+
+    assert Enum.find(projection.pendingQueues, &(&1.agentUID == agent_b.uid)).paused == true
+    assert Enum.find(projection.pendingQueues, &(&1.agentUID == ctx.agent.uid)).paused == false
 
     input = Enum.find(idle.pending_inputs, &(&1.agent_uid == agent_b.uid))
 
@@ -276,6 +280,41 @@ defmodule Ankole.ConversationsQueueTest do
     assert still_paused.conversation.metadata["queue_paused:" <> ctx.agent.uid] == true
     assert {:ok, _} = Run.finalize(selected_run, :silent)
     assert Ankole.Sessions.status(ctx.key) == %{state: :idle, retry_at: nil}
+
+    assert {:ok, emptied} = change(ctx, "retract", first)
+    assert emptied.conversation.metadata["queue_paused:" <> ctx.agent.uid] == false
+  end
+
+  test "stopping an active turn with an empty queue does not pause later queued follow-ups",
+       ctx do
+    command_id = Ecto.UUID.generate()
+
+    assert {:ok, stopped} =
+             queue_command(ctx, %{
+               action: "stop",
+               command_id: command_id
+             })
+
+    assert stopped.conversation.metadata["queue_paused:" <> ctx.agent.uid] == false
+
+    assert {:ok, _} =
+             Commands.interrupt(ctx.run, Repo.get_by!(Signal, source_event_id: command_id))
+
+    next = post!(ctx, "Follow-up after clean stop", "queue")
+    assert Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id).id == next.id
+  end
+
+  test "committed native posts and queue promotions immediately reconcile a live Driver", ctx do
+    driver_name = Ankole.Sessions.driver_name(ctx.key)
+    :yes = :global.register_name(driver_name, self())
+    on_exit(fn -> :global.unregister_name(driver_name) end)
+
+    queued = post!(ctx, "Promote this to steer", "queue")
+    assert_receive :reconcile_inbox
+
+    assert {:ok, promoted} = change(ctx, "steer", queued)
+    assert_receive :reconcile_inbox
+    assert hd(promoted.pending_inputs).data["delivery_mode"] == "steer"
   end
 
   test "pending edits are scoped to the requesting Human and conversation", ctx do
@@ -825,24 +864,259 @@ defmodule Ankole.ConversationsQueueTest do
     assert next.spec.model_ref["profile"] == "primary"
   end
 
-  test "executing or superseded inputs cannot be edited, and rejection changes no statements or commands",
+  test "editing an executing turn fences the active run, retracts in-flight model responses, and enqueues a fresh turn",
        ctx do
-    request = %{
-      action: "edit_last",
-      message_id: ctx.input.message_id,
-      text: "Do not save",
-      expected_text: "Original work",
-      command_id: Ecto.UUID.generate()
-    }
+    assert {:ok, response} =
+             start_response_run(%{
+               subject_uid: ctx.run.agent_uid,
+               conversation_id: ctx.run.conversation.id,
+               round_state: ctx.run,
+               metadata: %{"request_metadata" => Run.metadata(ctx.run)}
+             })
 
-    assert {:error, :reply_unavailable} = queue_command(ctx, request)
-    assert Repo.get_by!(Message, id: ctx.input.message_id).text == "Original work"
-    assert is_nil(Repo.get_by(Signal, source_event_id: request.command_id))
-    _reply = complete_reply(ctx, "Completed answer")
-    _newer = post!(ctx, "A newer Human request", "queue")
-    assert {:error, :reply_unavailable} = queue_command(ctx, request)
-    assert Repo.get_by!(Message, id: ctx.input.message_id).text == "Original work"
-    assert is_nil(Repo.get_by(Signal, source_event_id: request.command_id))
+    command_id = Ecto.UUID.generate()
+
+    assert {:ok, updated} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: ctx.input.message_id,
+               text: "Revised while streaming",
+               expected_text: "Original work",
+               command_id: command_id
+             })
+
+    assert Repo.transact_top_level(fn -> Ankole.Sessions.Fence.check_in_tx(ctx.run) end) ==
+             {:error, :stale_driver}
+
+    assert ResponseCommit.commit_complete(response, [
+             %{
+               "type" => "message",
+               "role" => "assistant",
+               "content" => [%{"type" => "output_text", "text" => "Stale in-flight reply"}]
+             }
+           ]) == {:ok, :already_terminal}
+
+    assert Repo.get_by!(Message, id: ctx.input.message_id).text == "Revised while streaming"
+    assert Enum.map(updated.messages, & &1.id) == [ctx.input.message_id]
+
+    fresh = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert fresh.source_event_id == "edit:" <> command_id
+    assert is_nil(fresh.data["retry_reason"])
+    assert {:ok, next_run} = Admission.admit(ctx.key, fresh)
+    assert {:ok, {:preparing, next_run}} = Model.prepare(next_run)
+    prompt = Ankole.JSON.encode!(Model.request(next_run)["input"])
+    assert prompt =~ "Revised while streaming"
+    refute prompt =~ "Original work"
+    refute prompt =~ "Stale in-flight reply"
+    refute prompt =~ "Use the recorded tool results"
+  end
+
+  test "editing an earlier turn reverts later human messages, agent replies, tool history, and queued inputs",
+       ctx do
+    assert {:ok, tool_response} =
+             start_response_run(%{
+               subject_uid: ctx.run.agent_uid,
+               conversation_id: ctx.run.conversation.id,
+               round_state: ctx.run,
+               metadata: %{"request_metadata" => Run.metadata(ctx.run)}
+             })
+
+    assert {:ok, tool_step} =
+             ResponseCommit.commit_complete(tool_response, [
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call-1",
+                 "name" => "read_page",
+                 "arguments" => "{}"
+               },
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call-1",
+                 "output" => "Stale tool output from turn 1"
+               }
+             ])
+
+    reply_1 = complete_reply(%{ctx | run: %{ctx.run | anchor: tool_step.id}}, "Turn 1 answer")
+
+    turn_2 = post!(ctx, "Turn 2 follow-up", "queue")
+    assert {:ok, run_2} = Admission.admit(ctx.key, turn_2)
+    assert {:ok, {:preparing, run_2}} = Model.prepare(run_2)
+    reply_2 = complete_reply(%{ctx | run: run_2, input: turn_2}, "Turn 2 answer")
+
+    turn_3 = post!(ctx, "Turn 3 queued follow-up", "queue")
+
+    {:ok, before_edit} =
+      Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
+
+    assert Enum.map(before_edit.editable_inputs, & &1.messageID) == [
+             ctx.input.message_id,
+             turn_2.message_id,
+             turn_3.message_id
+           ]
+
+    assert Enum.all?(before_edit.editable_inputs, &(not &1.supersededByParticipant))
+
+    assert {:ok, reverted} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: ctx.input.message_id,
+               text: "Turn 1 rewritten cleanly",
+               expected_text: "Original work",
+               command_id: Ecto.UUID.generate()
+             })
+
+    assert Enum.map(reverted.messages, &{&1.id, &1.text}) == [
+             {ctx.input.message_id, "Turn 1 rewritten cleanly"}
+           ]
+
+    assert turn_2.message_id in reverted.removed_message_ids
+    assert turn_3.message_id in reverted.removed_message_ids
+    assert is_nil(Repo.get_by(Message, id: reply_1.id))
+    assert is_nil(Repo.get_by(Message, id: reply_2.id))
+
+    # A late POST retry of a reverted later human message cannot resurrect it.
+    assert {:ok, after_late_retry} =
+             Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id, %{
+               message_id: turn_2.message_id,
+               text: "Turn 2 follow-up",
+               delivery_mode: "queue"
+             })
+
+    assert Enum.map(after_late_retry.messages, & &1.id) == [ctx.input.message_id]
+
+    fresh = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert {:ok, fresh_run} = Admission.admit(ctx.key, fresh)
+    assert {:ok, {:preparing, fresh_run}} = Model.prepare(fresh_run)
+    prompt = Ankole.JSON.encode!(Model.request(fresh_run)["input"])
+    assert prompt =~ "Turn 1 rewritten cleanly"
+    refute prompt =~ "Original work"
+    refute prompt =~ "Stale tool output from turn 1"
+    refute prompt =~ "Turn 1 answer"
+    refute prompt =~ "Turn 2 follow-up"
+    refute prompt =~ "Turn 2 answer"
+    refute prompt =~ "Turn 3 queued follow-up"
+    refute prompt =~ "Use the recorded tool results"
+  end
+
+  test "editing after stop on the first turn clears queue pause and runs with zero prior model responses",
+       ctx do
+    queued = post!(ctx, "Queued behind stopped turn", "queue")
+
+    assert {:ok, stopped} =
+             queue_command(ctx, %{action: "stop", command_id: Ecto.UUID.generate()})
+
+    assert stopped.conversation.metadata["queue_paused:" <> ctx.agent.uid] == true
+
+    assert {:ok, edited} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: ctx.input.message_id,
+               text: "Recovered after first-turn stop",
+               expected_text: "Original work",
+               command_id: Ecto.UUID.generate()
+             })
+
+    refute edited.conversation.metadata["queue_paused:" <> ctx.agent.uid] == true
+    assert queued.message_id in edited.removed_message_ids
+
+    assert Enum.map(edited.messages, &{&1.id, &1.text}) == [
+             {ctx.input.message_id, "Recovered after first-turn stop"}
+           ]
+
+    fresh = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert fresh.message_id == ctx.input.message_id
+    assert {:ok, next_run} = Admission.admit(ctx.key, fresh)
+    assert {:ok, {:preparing, next_run}} = Model.prepare(next_run)
+
+    assert Ankole.JSON.encode!(Model.request(next_run)["input"]) =~
+             "Recovered after first-turn stop"
+  end
+
+  test "messages superseded by another human participant or addressed to multiple agents cannot be edited",
+       ctx do
+    colleague = human_fixture().principal
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid)
+    Ankole.ConversationsFixtures.grant_chat(colleague.uid, ctx.agent.uid)
+    group_id = Ecto.UUID.generate()
+    first_msg_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Conversations.create(actor, %{
+               room_mode: :group,
+               conversation_id: group_id,
+               agent_uid: ctx.agent.uid,
+               participant_uids: [colleague.uid],
+               message_id: first_msg_id,
+               text: "Original work"
+             })
+
+    assert {:ok, _} =
+             Conversations.post(
+               Ankole.PrincipalsFixtures.actor_fixture(colleague.uid),
+               group_id,
+               %{
+                 message_id: Ecto.UUID.generate(),
+                 text: "Colleague follow-up",
+                 delivery_mode: "queue"
+               }
+             )
+
+    {:ok, detail} = Conversations.get(actor, group_id)
+
+    assert [%{messageID: ^first_msg_id, supersededByParticipant: true}] = detail.editable_inputs
+
+    assert {:error, :reply_unavailable} =
+             Conversations.update_queue(actor, group_id, %{
+               action: "edit_last",
+               agent_uid: ctx.agent.uid,
+               message_id: first_msg_id,
+               text: "Do not overwrite colleague context",
+               expected_text: "Original work",
+               expected_version: queue_version(detail, ctx.agent.uid),
+               command_id: Ecto.UUID.generate()
+             })
+
+    assert Repo.get_by!(Message, id: first_msg_id).text == "Original work"
+  end
+
+  test "editing a personal-assistant message accepts projected mention display names", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid)
+
+    assistant =
+      agent_fixture(%{type: :personal_assistant, owner_principal_uid: ctx.human.uid}).principal
+
+    task_id = Ecto.UUID.generate()
+    message_id = Ecto.UUID.generate()
+
+    assert {:ok, created} =
+             Conversations.create(actor, %{
+               conversation_id: task_id,
+               agent_uid: assistant.uid,
+               message_id: message_id,
+               text: "Draft notes with @Assistant",
+               mentions: [%{"type" => "agent", "uid" => assistant.uid}]
+             })
+
+    projected = Ankole.Pod.Chat.Presentation.detail(created)
+    [projected_msg] = projected.messages
+
+    assert [projected_mention] = projected_msg.mentions
+    assert is_binary(projected_mention["displayName"])
+
+    assert {:ok, updated} =
+             Conversations.update_queue(actor, task_id, %{
+               action: "edit_last",
+               agent_uid: assistant.uid,
+               message_id: message_id,
+               text: "Updated notes with @Assistant",
+               expected_text: "Draft notes with @Assistant",
+               expected_mentions: projected_msg.mentions,
+               mentions: projected_msg.mentions,
+               expected_version: queue_version(created, assistant.uid),
+               command_id: Ecto.UUID.generate()
+             })
+
+    assert hd(updated.messages).text == "Updated notes with @Assistant"
   end
 
   test "an expired completed-message editor cannot overwrite text saved elsewhere", ctx do
@@ -923,6 +1197,484 @@ defmodule Ankole.ConversationsQueueTest do
              )
 
     assert Repo.aggregate(Signal, :count) == count
+  end
+
+  test "consecutive edits on the same message and earlier-after-later edits retire prior signals cleanly",
+       ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid)
+    _reply_v1 = complete_reply(ctx, "Reply v1")
+
+    command_v2 = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: ctx.input.message_id,
+               text: "Second draft",
+               expected_text: "Original work",
+               command_id: command_v2
+             })
+
+    assert Repo.reload!(ctx.input).data["removed"] == true
+    signal_v2 = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert signal_v2.source_event_id == "edit:" <> command_v2
+    refute signal_v2.data["removed"] == true
+
+    assert {:ok, run_v2} = Admission.admit(ctx.key, signal_v2)
+    assert {:ok, {:preparing, run_v2}} = Model.prepare(run_v2)
+    _reply_v2 = complete_reply(%{ctx | run: run_v2, input: signal_v2}, "Reply v2")
+
+    command_v3 = Ecto.UUID.generate()
+
+    assert {:ok, after_v3} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: ctx.input.message_id,
+               text: "Third draft",
+               expected_text: "Second draft",
+               command_id: command_v3
+             })
+
+    assert Repo.reload!(signal_v2).data["removed"] == true
+    signal_v3 = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert signal_v3.source_event_id == "edit:" <> command_v3
+    refute signal_v3.data["removed"] == true
+
+    loaded_target =
+      Message
+      |> Ash.Query.filter(id == ^ctx.input.message_id)
+      |> Ash.Query.load(:withdrawn)
+      |> Ankole.Ash.read_one!()
+
+    assert loaded_target.withdrawn == false
+    assert loaded_target.text == "Third draft"
+
+    assert [%{messageID: target_id, agentUIDs: [agent_uid], supersededByParticipant: false}] =
+             after_v3.editable_inputs
+
+    assert target_id == ctx.input.message_id
+    assert agent_uid == ctx.agent.uid
+
+    assert {:ok, run_v3} = Admission.admit(ctx.key, signal_v3)
+    assert {:ok, {:preparing, run_v3}} = Model.prepare(run_v3)
+    prompt_v3 = Ankole.JSON.encode!(Model.request(run_v3)["input"])
+    assert prompt_v3 =~ "Third draft"
+    refute prompt_v3 =~ "Original work"
+    refute prompt_v3 =~ "Second draft"
+    refute prompt_v3 =~ "Reply v1"
+    refute prompt_v3 =~ "Reply v2"
+    _reply_v3 = complete_reply(%{ctx | run: run_v3, input: signal_v3}, "Reply v3")
+
+    turn_2 = post!(ctx, "Follow-up turn", "queue")
+    assert {:ok, run_t2} = Admission.admit(ctx.key, turn_2)
+    assert {:ok, {:preparing, run_t2}} = Model.prepare(run_t2)
+    _reply_t2 = complete_reply(%{ctx | run: run_t2, input: turn_2}, "Follow-up reply")
+
+    assert {:ok, _} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: turn_2.message_id,
+               text: "Edited follow-up",
+               expected_text: "Follow-up turn",
+               command_id: Ecto.UUID.generate()
+             })
+
+    turn_2_v2 = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert {:ok, run_t2_v2} = Admission.admit(ctx.key, turn_2_v2)
+    assert {:ok, {:preparing, run_t2_v2}} = Model.prepare(run_t2_v2)
+
+    _reply_t2_v2 =
+      complete_reply(%{ctx | run: run_t2_v2, input: turn_2_v2}, "Edited follow-up reply")
+
+    assert {:ok, final_detail} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: ctx.input.message_id,
+               text: "Final root rewrite",
+               expected_text: "Third draft",
+               command_id: Ecto.UUID.generate()
+             })
+
+    assert turn_2.message_id in final_detail.removed_message_ids
+
+    assert Enum.map(final_detail.messages, &{&1.id, &1.text}) == [
+             {ctx.input.message_id, "Final root rewrite"}
+           ]
+
+    {:ok, reopened} = Conversations.get(actor, ctx.id)
+    assert Enum.map(reopened.editable_inputs, & &1.messageID) == [ctx.input.message_id]
+
+    final_signal = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert {:ok, final_run} = Admission.admit(ctx.key, final_signal)
+    assert {:ok, {:preparing, final_run}} = Model.prepare(final_run)
+    final_prompt = Ankole.JSON.encode!(Model.request(final_run)["input"])
+    assert final_prompt =~ "Final root rewrite"
+    refute final_prompt =~ "Third draft"
+    refute final_prompt =~ "Edited follow-up"
+    refute final_prompt =~ "Edited follow-up reply"
+  end
+
+  test "editing a clarification form answer drops stale structured form values when text changes and preserves them when unchanged",
+       ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid)
+    _reply_1 = complete_reply(ctx, "Which database should we configure?")
+
+    answer_msg_id = Ecto.UUID.generate()
+
+    form_answer = %{
+      "kind" => "form",
+      "value" => "PostgreSQL",
+      "values" => %{"database" => "postgres"}
+    }
+
+    assert {:ok, _} =
+             Conversations.post(actor, ctx.id, %{
+               message_id: answer_msg_id,
+               text: "PostgreSQL",
+               delivery_mode: "queue",
+               answered_interaction_id: "clarify-db-1",
+               interaction_answer: form_answer
+             })
+
+    answer_signal = Repo.get_by!(Signal, message_id: answer_msg_id)
+    assert {:ok, answer_run} = Admission.admit(ctx.key, answer_signal)
+    assert {:ok, {:preparing, answer_run}} = Model.prepare(answer_run)
+    initial_prompt = Ankole.JSON.encode!(Model.request(answer_run)["input"])
+    assert initial_prompt =~ "The user answered your clarification form."
+    assert initial_prompt =~ "postgres"
+
+    _reply_2 =
+      complete_reply(%{ctx | run: answer_run, input: answer_signal}, "Configured Postgres")
+
+    # Unchanged-text edit preserves structured form values when re-running the turn.
+    assert {:ok, _} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: answer_msg_id,
+               text: "PostgreSQL",
+               expected_text: "PostgreSQL",
+               command_id: Ecto.UUID.generate()
+             })
+
+    rerun_signal = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert rerun_signal.data["interaction_answer"] == form_answer
+
+    assert Repo.get_by!(Message, id: answer_msg_id).rich_content["interaction_answer"] ==
+             form_answer
+
+    assert {:ok, rerun} = Admission.admit(ctx.key, rerun_signal)
+    assert {:ok, {:preparing, rerun}} = Model.prepare(rerun)
+    rerun_prompt = Ankole.JSON.encode!(Model.request(rerun)["input"])
+    assert rerun_prompt =~ "The user answered your clarification form."
+    assert rerun_prompt =~ "postgres"
+    _reply_3 = complete_reply(%{ctx | run: rerun, input: rerun_signal}, "Re-configured Postgres")
+
+    # Editing text drops the stale structured form answer so the model sees the edited text.
+    assert {:ok, _} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: answer_msg_id,
+               text: "Use SQLite for local dev instead",
+               expected_text: "PostgreSQL",
+               command_id: Ecto.UUID.generate()
+             })
+
+    edited_msg = Repo.get_by!(Message, id: answer_msg_id)
+    assert edited_msg.rich_content["answered_interaction_id"] == "clarify-db-1"
+    assert is_nil(edited_msg.rich_content["interaction_answer"])
+
+    edited_signal = Queue.next_ready_event(ctx.agent.uid, ctx.key.session_id)
+    assert edited_signal.data["answered_interaction_id"] == "clarify-db-1"
+    assert is_nil(edited_signal.data["interaction_answer"])
+
+    assert {:ok, edited_run} = Admission.admit(ctx.key, edited_signal)
+    assert {:ok, {:preparing, edited_run}} = Model.prepare(edited_run)
+    edited_prompt = Ankole.JSON.encode!(Model.request(edited_run)["input"])
+    assert edited_prompt =~ "Use SQLite for local dev instead"
+    refute edited_prompt =~ "The user answered your clarification form."
+    refute edited_prompt =~ "postgres"
+  end
+
+  test "the active global Driver rebuilds instead of exiting when an edited turn's task fails with stale_driver",
+       ctx do
+    command_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: ctx.input.message_id,
+               text: "Edited while tool task is in flight",
+               expected_text: "Original work",
+               command_id: command_id
+             })
+
+    driver_name = Ankole.Sessions.driver_name(ctx.key)
+    assert :yes = :global.register_name(driver_name, self())
+
+    try do
+      ref = make_ref()
+
+      state = %Ankole.Sessions.Driver.State{
+        turn: %Ankole.Sessions.Turn{key: ctx.key, stage: :recording, run: ctx.run},
+        tasks: %{ref => {:record, self()}}
+      }
+
+      assert {:next_state, :idle, rebuilt_state, actions} =
+               Ankole.Sessions.Driver.handle_event(
+                 :info,
+                 {ref, {:error, :stale_driver}},
+                 :recording,
+                 state
+               )
+
+      assert {:next_event, :internal, :rebuild} in actions
+
+      assert {:next_state, :admitting, admitting_state, _admit_actions} =
+               Ankole.Sessions.Driver.handle_event(:internal, :rebuild, :idle, rebuilt_state)
+
+      assert admitting_state.turn.event.source_event_id == "edit:" <> command_id
+    after
+      :global.unregister_name(driver_name)
+    end
+
+    # A partitioned Driver that no longer owns the global registration still exits :normal.
+    stale_ref = make_ref()
+
+    partitioned_state = %Ankole.Sessions.Driver.State{
+      turn: %Ankole.Sessions.Turn{key: ctx.key, stage: :recording, run: ctx.run},
+      tasks: %{stale_ref => {:record, self()}}
+    }
+
+    assert {:stop, :normal, _} =
+             Ankole.Sessions.Driver.handle_event(
+               :info,
+               {stale_ref, {:error, :stale_driver}},
+               :recording,
+               partitioned_state
+             )
+  end
+
+  test "edit_last stops multiple live workflows, jobs, and continuation successors in lock order",
+       ctx do
+    route = %{"conversation_id" => ctx.id}
+
+    assert {:ok, %{job: job_1}} =
+             Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => ctx.agent.uid,
+               "owner_session_id" => ctx.key.session_id,
+               "source_signal_id" => ctx.input.id,
+               "source_tool_call_id" => "call-job-1",
+               "reply_route" => route,
+               "title" => "First job",
+               "task" => "Inspect repo"
+             })
+
+    assert {:ok, %{job: job_2}} =
+             Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => ctx.agent.uid,
+               "owner_session_id" => ctx.key.session_id,
+               "source_signal_id" => ctx.input.id,
+               "source_tool_call_id" => "call-job-2",
+               "reply_route" => route,
+               "title" => "Second job",
+               "task" => "Run checks"
+             })
+
+    assert {:ok, %{run: wf_1}} =
+             Ankole.Workflow.create_with_dispatch(%{
+               "agent_uid" => ctx.agent.uid,
+               "owner_session_id" => ctx.key.session_id,
+               "source_signal_id" => ctx.input.id,
+               "source_tool_call_id" => "call-wf-1",
+               "reply_route" => route,
+               "title" => "Workflow one",
+               "script" => "export default async () => 'one'"
+             })
+
+    assert {:ok, %{run: wf_2}} =
+             Ankole.Workflow.create_with_dispatch(%{
+               "agent_uid" => ctx.agent.uid,
+               "owner_session_id" => ctx.key.session_id,
+               "source_signal_id" => ctx.input.id,
+               "source_tool_call_id" => "call-wf-2",
+               "reply_route" => route,
+               "title" => "Workflow two",
+               "script" => "export default async () => 'two'"
+             })
+
+    assert {:ok, _} =
+             queue_command(ctx, %{
+               action: "edit_last",
+               message_id: ctx.input.message_id,
+               text: "Stop all derived runs cleanly",
+               expected_text: "Original work",
+               command_id: Ecto.UUID.generate()
+             })
+
+    assert Ankole.BackgroundAgentJobs.get_job(job_1.id).status == :stopped
+    assert Ankole.BackgroundAgentJobs.get_job(job_2.id).status == :stopped
+    assert Ankole.Workflow.get_run!(wf_1.id).status == :cancelled
+    assert Ankole.Workflow.get_run!(wf_2.id).status == :cancelled
+  end
+
+  @tag sandbox: false
+  test "edit_last waits on shared slot locks for an in-flight derived job and workflow commit and stops both",
+       ctx do
+    existing_drivers = Ankole.SessionsCase.driver_pids()
+
+    {:ok, %{"provider_id" => provider_id}} =
+      Ankole.AIGateway.ModelProfiles.get_model_profile(ctx.agent.uid, "primary")
+
+    on_exit(fn ->
+      Repo.with_tenant(ctx.tenant.id, fn ->
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Ankole.SessionsCase.stop_new_drivers(existing_drivers)
+          Ankole.PrincipalsFixtures.delete_agent_fixture_rows(ctx.agent.uid)
+          cleanup_tenant!(ctx.tenant)
+        end)
+      end)
+
+      _ = Ankole.AIGateway.ProviderConfigs.delete_provider(provider_id)
+    end)
+
+    assert {:ok, response} =
+             start_response_run(%{
+               subject_uid: ctx.run.agent_uid,
+               conversation_id: ctx.run.conversation.id,
+               round_state: ctx.run,
+               metadata: %{"request_metadata" => Run.metadata(ctx.run)}
+             })
+
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid)
+    {:ok, baseline} = Conversations.get(actor, ctx.id)
+    expected_version = queue_version(baseline, ctx.agent.uid)
+
+    writer =
+      start_unboxed(fn parent ->
+        Ankole.Sessions.Receipts.execute(ctx.run, response.id, "race-call-1", fn ->
+          route = %{"conversation_id" => ctx.id}
+
+          with {:ok, sessions, commit_job} <-
+                 Ankole.BackgroundAgentJobs.Dispatch.prepare_create_in_tx(%{
+                   "agent_uid" => ctx.agent.uid,
+                   "owner_session_id" => ctx.key.session_id,
+                   "source_signal_id" => ctx.input.id,
+                   "source_tool_call_id" => "race-job-1",
+                   "reply_route" => route,
+                   "title" => "Concurrent derived job",
+                   "task" => "Work started during edit race"
+                 }),
+               {:ok, %{run: wf_run}} <-
+                 Ankole.Workflow.Lifecycle.create_with_dispatch_in_tx(%{
+                   "agent_uid" => ctx.agent.uid,
+                   "owner_session_id" => ctx.key.session_id,
+                   "source_signal_id" => ctx.input.id,
+                   "source_tool_call_id" => "race-wf-1",
+                   "reply_route" => route,
+                   "title" => "Concurrent derived workflow",
+                   "script" => "export default async () => 'race'"
+                 }) do
+            {:ok, sessions,
+             fn ->
+               with {:ok, %{job: job}} <- commit_job.() do
+                 send(parent, {:derived_work_held, self(), job.id, wf_run.id})
+
+                 receive do
+                   :commit_derived_work ->
+                     {:ok,
+                      %Ankole.Sessions.ToolResult{
+                        output: Ankole.JSON.encode!(%{job_id: job.id, run_id: wf_run.id})
+                      }, []}
+                 after
+                   10_000 -> raise "test did not release derived work writer"
+                 end
+               end
+             end}
+          end
+        end)
+      end)
+
+    writer_pid = writer.task.pid
+    assert_receive {:derived_work_held, ^writer_pid, job_id, run_id}, 5_000
+
+    reverter =
+      start_unboxed(fn _ ->
+        Conversations.update_queue(actor, ctx.id, %{
+          action: "edit_last",
+          agent_uid: ctx.agent.uid,
+          message_id: ctx.input.message_id,
+          text: "Edited concurrently with derived tool commit",
+          expected_text: "Original work",
+          expected_version: expected_version,
+          command_id: Ecto.UUID.generate()
+        })
+      end)
+
+    try do
+      assert {:ok, true} =
+               Ankole.E2E.WaitHelpers.wait_until(
+                 Ankole.E2E.WaitHelpers.deadline(5_000),
+                 fn ->
+                   %{rows: [[blocked]]} =
+                     Repo.query!("SELECT $1 = ANY(pg_blocking_pids($2))", [
+                       writer.backend_pid,
+                       reverter.backend_pid
+                     ])
+
+                   blocked
+                 end
+               )
+    after
+      send(writer.task.pid, :commit_derived_work)
+    end
+
+    assert {:ok, _receipt} = Task.await(writer.task, 10_000)
+    assert {:ok, _reverted} = Task.await(reverter.task, 10_000)
+
+    assert Ankole.BackgroundAgentJobs.get_job(job_id).status == :stopped
+    assert Ankole.Workflow.get_run!(run_id).status == :cancelled
+
+    # Any late tool receipt from the fenced pre-edit run is rejected cleanly.
+    assert {:error, :stale_driver} =
+             Ankole.Sessions.Receipts.execute(ctx.run, response.id, "late-call-2", fn ->
+               with {:ok, sessions, commit} <-
+                      Ankole.BackgroundAgentJobs.Dispatch.prepare_create_in_tx(%{
+                        "agent_uid" => ctx.agent.uid,
+                        "owner_session_id" => ctx.key.session_id,
+                        "source_signal_id" => ctx.input.id,
+                        "source_tool_call_id" => "late-job-after-edit",
+                        "reply_route" => %{"conversation_id" => ctx.id},
+                        "title" => "Late fenced job",
+                        "task" => "Must not commit"
+                      }) do
+                 {:ok, sessions,
+                  fn ->
+                    with {:ok, %{job: job}} <- commit.() do
+                      {:ok, %Ankole.Sessions.ToolResult{output: to_string(job.id)}, []}
+                    end
+                  end}
+               end
+             end)
+  end
+
+  defp start_unboxed(fun) do
+    parent = self()
+    tenant_id = Repo.tenant_id!()
+
+    task =
+      Task.async(fn ->
+        Repo.put_tenant_id(tenant_id)
+
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          %{rows: [[backend_pid]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(parent, {:database_task, self(), backend_pid})
+          fun.(parent)
+        end)
+      end)
+
+    task_pid = task.pid
+    assert_receive {:database_task, ^task_pid, backend_pid}, 5_000
+    %{task: task, backend_pid: backend_pid}
   end
 
   defp complete_reply(ctx, text) do

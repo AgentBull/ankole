@@ -48,6 +48,11 @@ defmodule Ankole.Files do
   end
 
   defdelegate store(content), to: Objects
+
+  defdelegate validate_image_source(source, content_type, max_bytes),
+    to: Ankole.Files.ImageSignature,
+    as: :validate_source
+
   defdelegate upload_limit(), to: Objects
   defdelegate complete_object_in_tx(stored), to: Objects, as: :complete_in_tx
   defdelegate fetch_object(id), to: Objects, as: :fetch
@@ -66,7 +71,8 @@ defmodule Ankole.Files do
       {"delivery_attachments", "object_id"},
       {"pod_files", "object_id"},
       {"drive_vfs_exports", "object_id"},
-      {"page_snapshots", "object_id"}
+      {"page_snapshots", "object_id"},
+      {"profile_avatars", "object_id"}
     ]
 
   # Agent runtime files use paths relative to their existing private root.

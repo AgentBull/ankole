@@ -13,6 +13,10 @@ defmodule Ankole.AgentWorkers.WorkerEnv.ConsoleItem do
           allow_nil?: false,
           constraints: [one_of: ~w(global tenant agent missing)a]
         ],
+        inherited_source: [
+          type: :atom,
+          constraints: [one_of: ~w(global tenant)a]
+        ],
         value: [type: :string, constraints: [trim?: false, allow_empty?: true]]
       ]
     ]

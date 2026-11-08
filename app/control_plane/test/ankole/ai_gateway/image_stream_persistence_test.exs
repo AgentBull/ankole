@@ -986,4 +986,45 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
     assert {:error, error} = Artifacts.resolve_native_input(agent.principal.uid, dangling)
     assert error.status == 404
   end
+
+  test "rewrites terminal response output items when persist_artifacts? is false" do
+    agent = agent_fixture()
+    image_id = "ig_#{UUIDv7.autogenerate()}"
+    state = ImageStreamPersistence.new(agent.principal.uid, persist_artifacts?: false)
+
+    done_item = %{
+      "id" => image_id,
+      "type" => "image_generation_call",
+      "status" => "completed",
+      "result" => @png_base64,
+      "partial_images" => [%{"partial_image_b64" => @png_base64}]
+    }
+
+    assert {:ok, state, [rewritten_done]} =
+             ImageStreamPersistence.observe(state, %{
+               "type" => "response.output_item.done",
+               "sequence_number" => 1,
+               "output_index" => 0,
+               "item" => done_item
+             })
+
+    assert rewritten_done["item"]["mime_type"] == "image/png"
+    refute Map.has_key?(rewritten_done["item"], "partial_images")
+
+    assert {:ok, _state, [rewritten_terminal]} =
+             ImageStreamPersistence.observe(state, %{
+               "type" => "response.completed",
+               "sequence_number" => 2,
+               "response" => %{
+                 "id" => "resp_ephemeral",
+                 "object" => "response",
+                 "status" => "completed",
+                 "output" => [done_item]
+               }
+             })
+
+    assert [terminal_item] = rewritten_terminal["response"]["output"]
+    assert terminal_item["mime_type"] == "image/png"
+    refute Map.has_key?(terminal_item, "partial_images")
+  end
 end

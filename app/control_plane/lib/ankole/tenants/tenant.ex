@@ -43,6 +43,7 @@ defmodule Ankole.Tenants.Tenant do
     default_fields([
       :slug,
       :display_name,
+      :avatar_url,
       :suspended_at,
       :deleting_at,
       :inserted_at,
@@ -81,6 +82,7 @@ defmodule Ankole.Tenants.Tenant do
       constraints: [trim?: false]
     )
 
+    attribute(:avatar_url, :string, public?: true)
     attribute(:suspended_at, :utc_datetime_usec, public?: true)
     attribute(:deleting_at, :utc_datetime_usec, public?: true)
     timestamps(type: :utc_datetime_usec, public?: true)
@@ -131,7 +133,7 @@ defmodule Ankole.Tenants.Tenant do
     end
 
     update :profile_in_tx do
-      accept([:slug, :display_name])
+      accept([:slug, :display_name, :avatar_url])
     end
 
     update :suspend_in_tx do

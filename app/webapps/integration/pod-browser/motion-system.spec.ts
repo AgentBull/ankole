@@ -96,7 +96,7 @@ test('a successful first send during mobile exit does not reopen the closed page
     await trigger.click()
     await expect(page).toHaveURL(url => url.searchParams.get('chat') === uuidShorten(saved.conversation.id))
     await expect(
-      sheet.getByRole('region', { name: '待发送', exact: true }).getByText(text, { exact: true })
+      sheet.getByRole('region', { name: '对话消息', exact: true }).getByText(text, { exact: true })
     ).toBeVisible()
   } finally {
     acknowledgement.resolve()

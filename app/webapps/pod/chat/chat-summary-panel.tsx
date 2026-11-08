@@ -8,7 +8,7 @@ import { ChatAvatar } from './chat-avatar'
 import { ModelControls } from '../model-controls'
 import { useRoomActions } from './room-api'
 import { LinkedExecutionCard } from './linked-execution-card'
-import { collapseExecutionChains, isExecutionActive } from './turn-timeline'
+import { collapseExecutionChains, isExecutionActive } from './timeline-projections'
 import type { InspectorTarget } from './types'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from '../panel-motion'
 

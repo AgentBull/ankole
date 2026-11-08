@@ -12,6 +12,7 @@ defmodule Ankole.Principals.PodAdminOperations do
     scope(:tenant_console)
     resolve_param(:uid, :principal_key)
     resolve_param(:provider_id, :provider_id)
+    resolve_param(:name, :string)
     allow(:settings, resource: "tenant_console:pod_settings", action: "read")
     allow(:update_settings, resource: "tenant_console:pod_settings", action: "update")
     allow(:members, resource: "tenant_console:principals", action: "read")
@@ -45,6 +46,11 @@ defmodule Ankole.Principals.PodAdminOperations do
       resource: "tenant_console:identity_provider:{provider_id}",
       action: "sync"
     )
+
+    allow(:worker_envs, resource: "tenant_console:worker_envs", action: "read")
+    allow(:put_worker_env, resource: "tenant_console:worker_env:{name}", action: "update")
+    allow(:delete_worker_env, resource: "tenant_console:worker_env:{name}", action: "reset")
+    allow(:decrypt_worker_env, resource: "tenant_console:worker_env:{name}", action: "decrypt")
   end
 
   json_api do
@@ -60,6 +66,7 @@ defmodule Ankole.Principals.PodAdminOperations do
   ]
   @settings [
     displayName: [type: :string, allow_nil?: false],
+    avatarURL: [type: :string],
     defaultLocale: [type: :string, allow_nil?: false],
     allowExternalGuests: [type: :boolean, allow_nil?: false],
     loginPolicy: [type: :map, constraints: [fields: @policy], allow_nil?: false],
@@ -97,6 +104,22 @@ defmodule Ankole.Principals.PodAdminOperations do
     max_uses: [type: :integer],
     used_count: [type: :integer, allow_nil?: false],
     revoked_at: [type: :utc_datetime_usec]
+  ]
+  @worker_env_item [
+    name: [type: :string, allow_nil?: false],
+    secret: [type: :boolean, allow_nil?: false],
+    description: [type: :string],
+    present: [type: :boolean, allow_nil?: false],
+    source: [
+      type: :atom,
+      allow_nil?: false,
+      constraints: [one_of: ~w(global tenant missing)a]
+    ],
+    inherited_source: [
+      type: :atom,
+      constraints: [one_of: ~w(global)a]
+    ],
+    value: [type: :string, constraints: [trim?: false, allow_empty?: true]]
   ]
 
   actions do
@@ -477,7 +500,138 @@ defmodule Ankole.Principals.PodAdminOperations do
         )
       end)
     end
+
+    action :worker_envs, :map do
+      transaction?(false)
+
+      constraints(
+        fields: [
+          worker_envs: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @worker_env_item]]
+          ]
+        ]
+      )
+
+      run(fn _, _ ->
+        Ankole.AgentWorkers.pod_list_worker_envs()
+        |> case do
+          {:ok, items} -> {:ok, %{worker_envs: items}}
+          error -> error
+        end
+        |> Ankole.Errors.wrap(&describe_worker_env/1)
+      end)
+    end
+
+    action :put_worker_env, :map do
+      transaction?(false)
+      argument(:name, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:value, :string, sensitive?: true, constraints: [trim?: false, allow_empty?: true])
+      argument(:secret, :boolean)
+      argument(:description, :string, constraints: [trim?: false, allow_empty?: true])
+
+      constraints(
+        fields: [
+          worker_env: [type: :map, allow_nil?: false, constraints: [fields: @worker_env_item]]
+        ]
+      )
+
+      run(fn input, _ ->
+        attrs =
+          input.arguments
+          |> Map.take([:value, :secret, :description])
+          |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+
+        Ankole.AgentWorkers.pod_put_worker_env(input.arguments.name, attrs)
+        |> case do
+          {:ok, item} -> {:ok, %{worker_env: item}}
+          error -> error
+        end
+        |> Ankole.Errors.wrap(&describe_worker_env/1)
+      end)
+    end
+
+    action :delete_worker_env, :map do
+      transaction?(false)
+      argument(:name, :string, allow_nil?: false, constraints: [trim?: false])
+
+      constraints(
+        fields: [
+          worker_env: [type: :map, allow_nil?: false, constraints: [fields: @worker_env_item]]
+        ]
+      )
+
+      run(fn input, _ ->
+        Ankole.AgentWorkers.pod_delete_worker_env(input.arguments.name)
+        |> case do
+          {:ok, item} -> {:ok, %{worker_env: item}}
+          error -> error
+        end
+        |> Ankole.Errors.wrap(&describe_worker_env/1)
+      end)
+    end
+
+    action :decrypt_worker_env, :map do
+      transaction?(false)
+      argument(:name, :string, allow_nil?: false, constraints: [trim?: false])
+
+      constraints(
+        fields: [
+          decrypted_value: [
+            type: :map,
+            allow_nil?: false,
+            constraints: [
+              fields: [
+                name: [type: :string, allow_nil?: false],
+                value: [
+                  type: :string,
+                  allow_nil?: false,
+                  constraints: [trim?: false, allow_empty?: true]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      run(fn input, context ->
+        name = input.arguments.name
+
+        if match?(%{principal: %{type: :human}}, context.actor) do
+          Ankole.AgentWorkers.pod_decrypt_worker_env(name)
+          |> case do
+            {:ok, value} -> {:ok, %{decrypted_value: %{name: name, value: value}}}
+            error -> error
+          end
+          |> Ankole.Errors.wrap(&describe_worker_env/1)
+        else
+          {:error, Ash.Error.Forbidden.exception([])}
+        end
+      end)
+    end
   end
+
+  defp describe_worker_env(:not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: __MODULE__)
+
+  defp describe_worker_env(:forbidden),
+    do: Ash.Error.Forbidden.exception([])
+
+  defp describe_worker_env({:invalid_worker_env_name, _}),
+    do:
+      {"The name must match [A-Za-z_][A-Za-z0-9_]*",
+       [%{path: "name", message: "has invalid format"}]}
+
+  defp describe_worker_env({:reserved_worker_env_name, name}),
+    do: {"#{name} is reserved by the Worker runtime", [%{path: "name", message: "is reserved"}]}
+
+  defp describe_worker_env(:not_encrypted), do: {"This variable is not encrypted", []}
+
+  defp describe_worker_env(:invalid_worker_env_value),
+    do: {"A non-empty string value is required", [%{path: "value", message: "is required"}]}
+
+  defp describe_worker_env(_), do: nil
 
   defp changed(:ok), do: {:ok, %{ok: true}}
   defp changed({:ok, _}), do: {:ok, %{ok: true}}

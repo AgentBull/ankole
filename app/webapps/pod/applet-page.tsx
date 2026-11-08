@@ -1,49 +1,16 @@
 import { Button } from '@ankole/uikit'
-import { RiFlashlightLine } from '@remixicon/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AppletRuntime } from '@ankole/applet-sdk/types'
 import { mountApplet, readDocumentTheme } from './applet-host'
 import { createAppletRuns } from './applet-runs'
-import { contentKeys, pageQuery, podRequest, type PageDetail } from './content-api'
+import { AppletMissingEnvBanner } from './applet-missing-env-banner'
+import { contentKeys, pageQuery, podFileURL, podRequest, type PageDetail } from './content-api'
 import { useContent } from './content-context'
 import { ContentError, ContentLoading } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
-import { automationJobID } from './state/connectors'
 import { usePageRealtime } from './use-page-realtime'
-
-const AppletAutomationDialog = lazy(() =>
-  import('./applet-automation').then(module => ({ default: module.AppletAutomationDialog }))
-)
-
-/** The Applet's automation entry in the Page header; it opens the automation dialog, also when a link names a job. */
-export function AppletAutomationControl({ detail }: { detail: PageDetail }) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(
-    () => typeof window !== 'undefined' && automationJobID(new URLSearchParams(window.location.search)) !== undefined
-  )
-  const [everOpened, setEverOpened] = useState(open)
-  return (
-    <>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => {
-          setEverOpened(true)
-          setOpen(true)
-        }}>
-        <RiFlashlightLine aria-hidden className="size-4" />
-        <span className="@max-[640px]:sr-only">{t('pod.automation.title')}</span>
-      </Button>
-      {everOpened && (
-        <Suspense fallback={null}>
-          <AppletAutomationDialog detail={detail} open={open} onOpenChange={setOpen} />
-        </Suspense>
-      )}
-    </>
-  )
-}
 
 export function AppletPage({ detail }: { detail: PageDetail }) {
   const { t } = useTranslation()
@@ -88,7 +55,10 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
       get theme() {
         return readDocumentTheme()
       },
-      pod: { request: podRequest },
+      pod: {
+        request: podRequest,
+        fileURL: target => podFileURL(detail.page.id, target)
+      },
       channel(name) {
         return realtime.channel(detail.page.id, name)
       }
@@ -149,6 +119,7 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
       className="min-h-32 text-base leading-normal font-normal [&:fullscreen]:overflow-auto [&:fullscreen]:bg-background">
       {/* The stage starts at the Page body's edges, so its notices keep their own spacing. */}
       <div data-applet-notices className="space-y-3 py-4 empty:hidden">
+        {!revoked && <AppletMissingEnvBanner detail={detail} />}
         <ContentError error={error} />
         {!!error && !revoked && (
           <Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>

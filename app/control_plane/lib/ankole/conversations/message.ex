@@ -236,7 +236,7 @@ defmodule Ankole.Conversations.Message do
     end
 
     update :edit do
-      accept([:text, :links, :mentions])
+      accept([:text, :links, :mentions, :rich_content])
       validate(attribute_equals(:origin, :native))
     end
 

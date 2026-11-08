@@ -12,6 +12,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.JobSignals
+  alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals
@@ -159,6 +160,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
          :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
+         :ok <- Lifecycle.lock_agent_slots(attrs["agent_uid"]),
          :ok <- lock_start_idempotency(attrs) do
       case find_existing_job(attrs) do
         {:ok, job} ->
@@ -186,6 +188,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
          :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
+         :ok <- Lifecycle.lock_agent_slots(attrs["agent_uid"]),
          :ok <- lock_start_idempotency(attrs) do
       case find_existing_job(attrs) do
         {:ok, job} ->

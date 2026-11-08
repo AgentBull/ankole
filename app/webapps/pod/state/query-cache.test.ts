@@ -25,6 +25,7 @@ function client() {
 
 function detail(withReply: boolean): ConversationDetail {
   return {
+    editableInputs: [],
     removedMessageIDs: [],
     olderMessagesBeforeSeq: null,
     messageRange: { firstSeq: 1, lastSeq: withReply ? 2 : 1 },
@@ -253,6 +254,22 @@ describe('Pod remote cache ordering', () => {
         pendingQueues: data.pendingQueues.map(queue => ({ ...queue, queueVersion: String(last) })),
         olderMessagesBeforeSeq: first > 1 ? first : null,
         messageRange: { firstSeq: first, lastSeq: last },
+        editableInputs: [
+          {
+            messageID: `message-${first}`,
+            agentUIDs: ['agent'],
+            supersededByParticipant: false
+          },
+          ...(last > first
+            ? [
+                {
+                  messageID: `message-${first + 1}`,
+                  agentUIDs: ['agent'],
+                  supersededByParticipant: false
+                }
+              ]
+            : [])
+        ],
         messages: Array.from({ length: last - first + 1 }, (_, index) => ({
           ...data.messages[0]!,
           id: `message-${first + index}`,
@@ -264,17 +281,33 @@ describe('Pod remote cache ordering', () => {
     const current = window(501, 1000)
     const expanded = mergeMessageWindow(current, window(1, 500), true)
     expect(expanded.messages).toHaveLength(1000)
+    expect(expanded.editableInputs.map(entry => entry.messageID)).toEqual([
+      'message-1',
+      'message-2',
+      'message-501',
+      'message-502'
+    ])
     expect(expanded.pendingQueues[0]!.queueVersion).toBe('1000')
     expect(expanded.olderMessagesBeforeSeq).toBeNull()
     const next = window(502, 1001)
+    next.editableInputs = []
     next.messages = next.messages
       .filter(message => message.seq !== 950)
-      .map(message => (message.seq === 900 ? { ...message, text: 'Edited statement' } : message))
+      .map(message =>
+        message.seq === 900
+          ? { ...message, text: 'Edited statement' }
+          : message.seq === 1001
+            ? { ...message, authorType: 'human', authorUID: 'colleague' }
+            : message
+      )
     const merged = mergeMessageWindow(expanded, next)
     expect(merged.messages[0]?.seq).toBe(1)
     expect(merged.messages.at(-1)?.seq).toBe(1001)
     expect(merged.messages.find(message => message.seq === 900)?.text).toBe('Edited statement')
     expect(merged.messages.some(message => message.seq === 950)).toBe(false)
+    expect(merged.editableInputs.find(entry => entry.messageID === 'message-1')?.supersededByParticipant).toBe(true)
+    expect(merged.editableInputs.find(entry => entry.messageID === 'message-501')?.supersededByParticipant).toBe(true)
+    expect(merged.editableInputs.some(entry => entry.messageID === 'message-502')).toBe(false)
     expect(merged.messages).toHaveLength(1000)
     expect(merged.olderMessagesBeforeSeq).toBeNull()
   })

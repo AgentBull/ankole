@@ -93,9 +93,7 @@ defmodule Ankole.AIGateway.CompactionRender do
     call_ref = Keyword.get(opts, :call_ref) || "(none)"
 
     output =
-      Map.get(item, "output")
-      |> stringify()
-      |> truncate_text(Map.get(caps, :function_call_output))
+      render_tool_output_value(Map.get(item, "output"), Map.get(caps, :function_call_output))
 
     "function_call_output call_ref=#{call_ref} output=#{output}"
   end
@@ -117,9 +115,7 @@ defmodule Ankole.AIGateway.CompactionRender do
     call_ref = Keyword.get(opts, :call_ref) || "(none)"
 
     output =
-      Map.get(item, "output")
-      |> stringify()
-      |> truncate_text(Map.get(caps, :function_call_output))
+      render_tool_output_value(Map.get(item, "output"), Map.get(caps, :function_call_output))
 
     "custom_tool_call_output call_ref=#{call_ref} output=#{output}"
   end
@@ -226,6 +222,33 @@ defmodule Ankole.AIGateway.CompactionRender do
   def item_text(item, _opts) when is_map(item) and map_size(item) > 0, do: "[item omitted]"
   def item_text(_item, _opts), do: ""
 
+  defp render_tool_output_value(output, cap_tokens) when is_list(output) do
+    if content_parts_list?(output) do
+      content_text(output, cap_tokens: cap_tokens)
+    else
+      output |> stringify() |> truncate_text(cap_tokens)
+    end
+  end
+
+  defp render_tool_output_value(%{"type" => type} = output, _cap_tokens)
+       when type in ["input_image", "computer_screenshot", "image_url", "image"] do
+    content_part_text(output)
+  end
+
+  defp render_tool_output_value(output, cap_tokens) do
+    output |> stringify() |> truncate_text(cap_tokens)
+  end
+
+  defp content_parts_list?([_ | _] = parts) do
+    Enum.all?(parts, fn
+      %{"type" => type} when is_binary(type) -> true
+      %{"text" => text} when is_binary(text) -> true
+      _other -> false
+    end)
+  end
+
+  defp content_parts_list?(_parts), do: false
+
   @spec content_text(term(), keyword()) :: binary()
   defp content_text(content, opts) when is_binary(content) do
     truncate_text(content, Keyword.get(opts, :cap_tokens))
@@ -257,18 +280,18 @@ defmodule Ankole.AIGateway.CompactionRender do
   def truncate_text(text, cap_tokens)
       when is_binary(text) and is_integer(cap_tokens) and cap_tokens > 0 do
     cap_chars = cap_tokens * 4
-    text_length = String.length(text)
 
-    if text_length <= cap_chars do
+    if byte_size(text) <= cap_chars or String.length(text) <= cap_chars do
       text
     else
       keep_head = floor(cap_chars * @head_ratio)
       keep_tail = max(cap_chars - keep_head, 0)
-      removed_chars = max(text_length - keep_head - keep_tail, 0)
-      removed = text |> String.slice(keep_head, removed_chars) |> approx_tokens()
+      head = String.slice(text, 0, keep_head)
+      tail = if keep_tail > 0, do: String.slice(text, -keep_tail, keep_tail), else: ""
+      removed_bytes = max(byte_size(text) - byte_size(head) - byte_size(tail), 0)
+      removed = approx_tokens_for_bytes(removed_bytes)
 
-      String.slice(text, 0, keep_head) <>
-        "...[#{removed} tokens elided]..." <> String.slice(text, -keep_tail, keep_tail)
+      head <> "...[#{removed} tokens elided]..." <> tail
     end
   end
 

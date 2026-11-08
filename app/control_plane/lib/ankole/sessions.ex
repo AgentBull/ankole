@@ -133,6 +133,25 @@ defmodule Ankole.Sessions do
     end
   end
 
+  @doc "Wakes any live Session Driver and notifies the committed EnsureDriver queue."
+  def notify_committed(keys) do
+    Repo.assert_outside_transaction!()
+    keys = keys |> List.wrap() |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    if keys != [] do
+      EnsureDriver.notify_committed()
+
+      Enum.each(keys, fn key ->
+        case driver_pid(key) do
+          pid when is_pid(pid) -> send(pid, :reconcile_inbox)
+          _ -> :ok
+        end
+      end)
+    end
+
+    :ok
+  end
+
   @spec deliver_events([Signal.t() | nil]) :: :ok
   def deliver_events(events) do
     events = events |> Enum.reject(&is_nil/1) |> Enum.uniq_by(& &1.id)
@@ -150,6 +169,43 @@ defmodule Ankole.Sessions do
     end
 
     :ok
+  end
+
+  @doc false
+  def lock_workspaces_in_tx(keys) when is_list(keys) do
+    keys
+    |> Enum.uniq_by(&{&1.agent_uid, &1.session_id})
+    |> Enum.sort_by(&{&1.agent_uid, &1.session_id})
+    |> Enum.reduce_while({:ok, []}, fn key, {:ok, workspaces} ->
+      with {:ok, _} <- Ankole.Sessions.Workspaces.ensure_in_tx(key.agent_uid, key.session_id),
+           %Ankole.Sessions.SessionWorkspace{} = workspace <-
+             Ankole.Sessions.Fence.lock_workspace_in_tx(key) do
+        {:cont, {:ok, [workspace | workspaces]}}
+      else
+        {:error, _} = error -> {:halt, error}
+        _ -> {:halt, {:error, :workspace_unavailable}}
+      end
+    end)
+    |> case do
+      {:ok, workspaces} -> {:ok, Enum.reverse(workspaces)}
+      error -> error
+    end
+  end
+
+  @doc false
+  def fence_workspaces_in_tx(workspaces) when is_list(workspaces) do
+    Enum.reduce_while(workspaces, :ok, fn workspace, :ok ->
+      with {:ok, _} <- Ankole.Ash.update_atomic(workspace, :advance_epoch) do
+        Ankole.Sessions.Receipts.delete_run_in_tx(%{
+          agent_uid: workspace.agent_uid,
+          session_id: workspace.session_id
+        })
+
+        {:cont, :ok}
+      else
+        error -> {:halt, error}
+      end
+    end)
   end
 
   def stop_job_turn(job, turn) do

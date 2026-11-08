@@ -4,7 +4,7 @@
   background: var(--ground);
 }
 
-body:has(.pod-shell) [data-slot='dialog-content'] {
+body:has(.pod-shell) [data-slot='dialog-content']:not(.pod-applet-settings-dialog) {
   width: min(440px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
   max-height: calc(100dvh - 48px);
@@ -21,6 +21,11 @@ body:has(.pod-shell) [data-slot='dialog-content'].pod-dialog-wide {
 body:has(.pod-shell) [data-slot='dialog-content'].pod-record-dialog {
   width: min(760px, calc(100vw - 32px));
   overflow: hidden;
+}
+
+body:has(.pod-shell) [data-slot='dialog-overlay'] {
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 body:has(.pod-shell) [data-slot='dialog-content']:has(> .pod-dialog-body),

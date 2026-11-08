@@ -11,17 +11,31 @@ defmodule Ankole.Conversations.NativeQueue do
 
   @doc "Changes only native follow-ups that have not been admitted to a turn."
   def update_queue(%Ankole.AuthZ.Actor{} = actor, id, attrs) when is_map(attrs) do
-    Repo.transact_top_level(
-      fn -> update_queue_in_tx(actor, id, attrs) end,
-      after_commit: &Native.publish_native_change/1
-    )
-    |> Native.committed(actor)
+    if Ankole.Attrs.get(attrs, :action) == "edit_last" do
+      Ankole.Conversations.NativeEdit.edit_last(actor, id, attrs)
+    else
+      Repo.transact_top_level(
+        fn -> update_queue_in_tx(actor, id, attrs) end,
+        after_commit: &Native.publish_native_change/1
+      )
+      |> Native.committed(actor)
+    end
   end
 
   def update_queue(_human_uid, _id, _attrs), do: {:error, :invalid_request}
 
   @doc false
-  def update_queue_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+  def update_queue_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) when is_map(attrs) do
+    if Ankole.Attrs.get(attrs, :action) == "edit_last" do
+      Ankole.Conversations.NativeEdit.edit_last_in_tx(actor, id, attrs)
+    else
+      do_update_queue_in_tx(actor, id, attrs)
+    end
+  end
+
+  def update_queue_in_tx(_actor, _id, _attrs), do: {:error, :invalid_request}
+
+  defp do_update_queue_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
     with {:ok, id} <- Queries.cast_id(id),
          %Conversation{} = visible <- Native.visible_conversation(actor, id),
          %{} = agent <-
@@ -149,7 +163,8 @@ defmodule Ankole.Conversations.NativeQueue do
 
   def retryable_reply?(_, _), do: false
 
-  defp check_queue_version(conversation, inputs, attrs, agent_uid) do
+  @doc false
+  def check_queue_version(conversation, inputs, attrs, agent_uid) do
     if Ankole.Attrs.get(attrs, :action) == "stop" or
          Ankole.Attrs.get(attrs, :expected_version) ==
            queue_version(conversation, inputs, agent_uid),
@@ -170,17 +185,21 @@ defmodule Ankole.Conversations.NativeQueue do
       "reorder" ->
         reorder_inputs(inputs, Ankole.Attrs.get(attrs, :message_ids))
 
-      action when action in ["regenerate", "edit_last"] ->
-        retry_last_in_tx(actor, conversation, agent, action, attrs)
+      "regenerate" ->
+        retry_last_in_tx(actor, conversation, agent, "regenerate", attrs)
 
       action when action in ["edit", "steer", "retract"] ->
         with {:ok, id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
              %Signal{} = input <-
                Enum.find(inputs, &(&1.message_id == id and &1.human_uid == human_uid)) do
-          with {:ok, changed} <- change_selected_input_in_tx(input, action, attrs) do
-            if action == "steer",
-              do: reorder_inputs(inputs, [id | Enum.map(inputs, & &1.message_id) -- [id]]),
-              else: {:ok, changed}
+          with {:ok, changed} <- change_selected_input_in_tx(input, action, attrs),
+               {:ok, changed} <-
+                 if(action == "steer",
+                   do: reorder_inputs(inputs, [id | Enum.map(inputs, & &1.message_id) -- [id]]),
+                   else: {:ok, changed}
+                 ),
+               :ok <- clear_empty_pause_in_tx(conversation, agent.uid, inputs, id, action) do
+            {:ok, changed}
           end
         else
           nil -> {:error, :input_already_started}
@@ -192,7 +211,8 @@ defmodule Ankole.Conversations.NativeQueue do
     end
   end
 
-  defp retry_command_data(action, message_id, attrs) do
+  @doc false
+  def retry_command_data(action, message_id, attrs) do
     data = %{
       "native_action" => action,
       "native_message_id" => message_id,
@@ -211,7 +231,8 @@ defmodule Ankole.Conversations.NativeQueue do
     end
   end
 
-  defp accepted_retry(conversation, agent, attrs) do
+  @doc false
+  def accepted_retry(conversation, agent, attrs) do
     action = Ankole.Attrs.get(attrs, :action)
 
     if action in ["regenerate", "edit_last"] do
@@ -237,7 +258,8 @@ defmodule Ankole.Conversations.NativeQueue do
     end
   end
 
-  defp control_signal(agent, conversation, command_id) do
+  @doc false
+  def control_signal(agent, conversation, command_id) do
     Signals.list_signals!(
       query: [
         filter: [
@@ -259,8 +281,7 @@ defmodule Ankole.Conversations.NativeQueue do
       now = DateTime.utc_now(:microsecond)
 
       with %Message{} = message <- Queries.conversation_message(conversation.id, message_id),
-           :ok <- edit_last_scope(message, action),
-           %Signal{} = input <- retry_input(human_uid, message, action),
+           %Signal{} = input <- retry_input(message),
            {:ok, command} <-
              Signals.accept_in_tx(%{
                producer: :kernel,
@@ -278,7 +299,6 @@ defmodule Ankole.Conversations.NativeQueue do
            {:ok, %Signal{}} <-
              Ankole.Sessions.Commands.retry_source_in_tx(key, command, input.id),
            :ok <- ModelPreferences.authorize_input(conversation, agent.uid, "queue", true),
-           :ok <- edit_last_in_tx(message, action, attrs),
            {:ok, retry} <- Ankole.Sessions.Commands.retry_in_tx(key, command, now),
            {:ok, retry} <-
              Signals.update_metadata_signal(retry, %{
@@ -318,14 +338,6 @@ defmodule Ankole.Conversations.NativeQueue do
     end)
   end
 
-  defp edit_last_scope(_message, "regenerate"), do: :ok
-
-  defp edit_last_scope(message, "edit_last") do
-    if length(addressed_agent_uids(message)) > 1,
-      do: {:error, :input_already_started},
-      else: :ok
-  end
-
   @doc "Returns a native message's actual Agent recipients, including silent turns."
   def addressed_agent_uids(message) do
     Signals.list_signals!(
@@ -343,24 +355,7 @@ defmodule Ankole.Conversations.NativeQueue do
     |> Enum.sort()
   end
 
-  defp retry_input(
-         human_uid,
-         %Message{author_type: :human, author_uid: human_uid} = message,
-         "edit_last"
-       ) do
-    Signals.lock_signals_in_tx(
-      [message_id: message.id, conversation_id: message.conversation_id, type: @addressed],
-      sort: [queue_sequence: :desc],
-      limit: 1
-    )
-    |> List.first()
-  end
-
-  defp retry_input(
-         _human_uid,
-         %Message{author_type: :agent, signal_id: signal_id} = message,
-         "regenerate"
-       )
+  defp retry_input(%Message{author_type: :agent, signal_id: signal_id} = message)
        when not is_nil(signal_id) do
     case Signals.lock_signal_in_tx(signal_id) do
       %Signal{} = input -> if retryable_reply?(message, input), do: input
@@ -368,26 +363,10 @@ defmodule Ankole.Conversations.NativeQueue do
     end
   end
 
-  defp retry_input(_human_uid, _message, _action), do: nil
+  defp retry_input(_message), do: nil
 
-  defp edit_last_in_tx(_message, "regenerate", _attrs), do: :ok
-
-  defp edit_last_in_tx(message, "edit_last", attrs) do
-    expected_links = Ankole.Attrs.get(attrs, :expected_links)
-    expected_mentions = Ankole.Attrs.get(attrs, :expected_mentions)
-
-    if Ankole.Attrs.get(attrs, :expected_text) == (message.text || "") and
-         (is_nil(expected_links) or
-            canonical_links(expected_links) == canonical_links(message.links)) and
-         (is_nil(expected_mentions) or
-            canonical_mentions(expected_mentions) == canonical_mentions(message.mentions)) do
-      with {:ok, _} <- edit_message_in_tx(message, attrs), do: :ok
-    else
-      {:error, :queue_changed}
-    end
-  end
-
-  defp put_queue_pause(conversation, agent_uid, paused, command_id \\ nil) do
+  @doc false
+  def put_queue_pause(conversation, agent_uid, paused, command_id \\ nil) do
     metadata = Map.put(conversation.metadata, "queue_paused:" <> agent_uid, paused)
 
     metadata =
@@ -398,8 +377,26 @@ defmodule Ankole.Conversations.NativeQueue do
     Ankole.Ash.update(conversation, :put_metadata, %{metadata: metadata})
   end
 
+  defp clear_empty_pause_in_tx(conversation, agent_uid, inputs, target_id, action)
+       when action in ["steer", "retract"] do
+    remaining_queued? =
+      Enum.any?(inputs, fn item ->
+        item.message_id != target_id and item.data["removed"] != true and
+          item.data["delivery_mode"] == "queue"
+      end)
+
+    if conversation.metadata["queue_paused:" <> agent_uid] == true and not remaining_queued? do
+      with {:ok, _} <- put_queue_pause(conversation, agent_uid, false), do: :ok
+    else
+      :ok
+    end
+  end
+
+  defp clear_empty_pause_in_tx(_conversation, _agent_uid, _inputs, _target_id, _action), do: :ok
+
   defp stop_queue_in_tx(%Ankole.AuthZ.Actor{} = actor, conversation, agent, inputs, attrs) do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
+    session_id = Ankole.Sessions.Key.conversation(conversation.id)
 
     with {:ok, command_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :command_id)) do
       case control_signal(agent, conversation, command_id) do
@@ -407,8 +404,11 @@ defmodule Ankole.Conversations.NativeQueue do
           {:ok, [existing]}
 
         nil ->
+          pause? =
+            inputs != [] or is_nil(Ankole.Sessions.Queue.oldest_started(agent.uid, session_id))
+
           with {:ok, paused} <- pause_inputs(inputs),
-               {:ok, _} <- put_queue_pause(conversation, agent.uid, true, command_id),
+               {:ok, _} <- put_queue_pause(conversation, agent.uid, pause?, command_id),
                {:ok, event} <-
                  Signals.accept_in_tx(%{
                    producer: :kernel,
@@ -532,16 +532,24 @@ defmodule Ankole.Conversations.NativeQueue do
          do: {:ok, [input]}
   end
 
-  defp edit_message_in_tx(message, attrs) do
+  @doc false
+  def edit_message_in_tx(message, attrs, now \\ DateTime.utc_now(:microsecond)) do
     with {:ok, text} <- Native.native_text(Ankole.Attrs.get(attrs, :text), message.attachments),
          {:ok, updated} <-
            Ankole.Ash.update(message, :edit, %{
              text: text,
              links: edited_links(message, text, attrs),
-             mentions: edited_mentions(message, attrs)
+             mentions: edited_mentions(message, attrs),
+             rich_content: edited_rich_content(message, text)
            }),
-         :ok <- Queries.message_changed_in_tx(message, updated, DateTime.utc_now(:microsecond)),
+         :ok <- Queries.message_changed_in_tx(message, updated, now),
          do: {:ok, updated}
+  end
+
+  @doc false
+  def edited_rich_content(%Message{rich_content: rich_content, text: original_text}, edited_text) do
+    rich = rich_content || %{}
+    if edited_text == original_text, do: rich, else: Map.delete(rich, "interaction_answer")
   end
 
   defp invalidate_withdrawn(message, now) do
@@ -552,6 +560,11 @@ defmodule Ankole.Conversations.NativeQueue do
   end
 
   defp put_input_text(data, text) do
+    data =
+      if data["text"] == text,
+        do: data,
+        else: Map.delete(data, "interaction_answer")
+
     data = Map.put(data, "text", text)
     if is_map(data["entry"]), do: put_in(data, ["entry", "text"], text), else: data
   end

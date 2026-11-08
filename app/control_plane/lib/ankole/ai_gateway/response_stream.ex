@@ -61,6 +61,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       Keyword.drop(opts, [
         :receiver,
         :stateful,
+        :persist_artifacts?,
         :request_context,
         :subject_type,
         :caller,
@@ -78,6 +79,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       request: stream_policy(request),
       observation_request: request,
       stateful: Keyword.get(opts, :stateful),
+      persist_artifacts?: Keyword.get(opts, :persist_artifacts?, true),
       request_context: Keyword.get(opts, :request_context),
       subject_type: Keyword.get(opts, :subject_type),
       caller: Keyword.get(opts, :caller),
@@ -87,6 +89,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       program_task_supervisor: Keyword.get(opts, :program_task_supervisor),
       upstream_opts: upstream_opts,
       receiver: receiver,
+      opener: if(self() != receiver, do: self()),
       hosted_image_spec: hosted_image_spec(prepared_request),
       diagnostics: stream_diagnostics(request, prepared_request),
       prepared_request: prepared_request
@@ -288,17 +291,21 @@ defmodule Ankole.AIGateway.ResponseStream do
     Ankole.Repo.put_tenant_id(Keyword.fetch!(opts, :tenant_id))
     receiver = Keyword.fetch!(opts, :receiver)
     owner_monitor = Process.monitor(receiver)
+    opener = Keyword.get(opts, :opener)
+    opener_monitor = if is_pid(opener), do: Process.monitor(opener)
     prepared_request = Keyword.get(opts, :prepared_request, %{})
     {attempt_context, attempt_spec} = CredentialAttempts.prepare_stream(prepared_request)
     raw_tool_loop = Keyword.get(opts, :tool_loop)
     meta = resolver_meta(prepared_request)
     stateful = Keyword.get(opts, :stateful)
+    persist_artifacts? = Keyword.get(opts, :persist_artifacts?, true)
     request = Keyword.fetch!(opts, :request)
     subject_uid = Keyword.fetch!(opts, :subject_uid)
 
     semantic =
       State.new(subject_uid, request, meta,
         stateful: stateful,
+        persist_artifacts?: persist_artifacts?,
         tool_loop: raw_tool_loop
       )
 
@@ -310,10 +317,13 @@ defmodule Ankole.AIGateway.ResponseStream do
       ref: make_ref(),
       receiver: receiver,
       owner_monitor: owner_monitor,
+      opener: opener,
+      opener_monitor: opener_monitor,
       subject_uid: subject_uid,
       subject_type: Keyword.get(opts, :subject_type),
       request: request,
       stateful: stateful,
+      persist_artifacts?: persist_artifacts?,
       observability:
         Observability.start_response(
           subject_uid,
@@ -398,6 +408,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       state.request,
       meta,
       stateful: state.stateful,
+      persist_artifacts?: state.persist_artifacts?,
       tool_loop: loop,
       upstream_progress:
         if(state.semantic, do: state.semantic.upstream_progress, else: UpstreamProgress.new())
@@ -815,31 +826,38 @@ defmodule Ankole.AIGateway.ResponseStream do
   # so they cannot race the open handshake.
   def handle_call({:read, 0}, _from, state), do: {:reply, :ok, state}
 
-  def handle_call({:read, count}, from, %{pending_flush: {events, status}} = state) do
+  def handle_call({:read, count}, from, state),
+    do: handle_read(count, from, demonitor_opener(state))
+
+  def handle_call({:cancel, reason}, _from, state) do
+    {:stop, :normal, :ok, cancel_state(state, reason)}
+  end
+
+  defp handle_read(count, from, %{pending_flush: {events, status}} = state) do
     state = %{state | pending_flush: nil}
     send_events(state, events, status)
 
     case status do
       {:terminal, _outcome} -> {:reply, :ok, schedule_terminal_shutdown(state)}
-      :continue when count > 1 -> handle_call({:read, count - 1}, from, state)
+      :continue when count > 1 -> handle_read(count - 1, from, state)
       :continue -> {:reply, :ok, state}
     end
   end
 
-  def handle_call({:read, _count}, _from, %{semantic: semantic} = state)
-      when semantic.terminal? do
+  defp handle_read(_count, _from, %{semantic: semantic} = state)
+       when semantic.terminal? do
     {:reply, {:error, :response_stream_terminal}, state}
   end
 
-  def handle_call({:read, count}, _from, %{program_task: %{} = _task} = state) do
+  defp handle_read(count, _from, %{program_task: %{} = _task} = state) do
     {:reply, :ok, Map.update!(state, :outstanding_credit, &(&1 + count))}
   end
 
-  def handle_call({:read, count}, _from, %{native_stream: nil} = state) do
+  defp handle_read(count, _from, %{native_stream: nil} = state) do
     {:reply, :ok, Map.update!(state, :outstanding_credit, &(&1 + count))}
   end
 
-  def handle_call({:read, count}, _from, state) do
+  defp handle_read(count, _from, state) do
     case UniversalAIClient.read(state.native_stream, count) do
       :ok ->
         {:reply, :ok, Map.update!(state, :outstanding_credit, &(&1 + count))}
@@ -854,10 +872,6 @@ defmodule Ankole.AIGateway.ResponseStream do
         send_events(state, events, {:terminal, outcome})
         {:stop, :normal, :ok, state}
     end
-  end
-
-  def handle_call({:cancel, reason}, _from, state) do
-    {:stop, :normal, :ok, cancel_state(state, reason)}
   end
 
   @impl true
@@ -1059,6 +1073,19 @@ defmodule Ankole.AIGateway.ResponseStream do
       end
 
     {:noreply, %{state | heartbeat_timer: heartbeat_timer}}
+  end
+
+  def handle_info(
+        {:DOWN, monitor, :process, opener, reason},
+        %{opener_monitor: monitor, opener: opener} = state
+      ) do
+    state = %{state | opener: nil, opener_monitor: nil}
+
+    if reason == :normal do
+      {:noreply, state}
+    else
+      {:stop, :normal, cancel_state(state, "stream_opener_terminated")}
+    end
   end
 
   def handle_info(
@@ -1920,7 +1947,15 @@ defmodule Ankole.AIGateway.ResponseStream do
     {:error, :response_stream_collect_timeout}
   end
 
+  defp demonitor_opener(%{opener_monitor: monitor} = state) when is_reference(monitor) do
+    Process.demonitor(monitor, [:flush])
+    %{state | opener: nil, opener_monitor: nil}
+  end
+
+  defp demonitor_opener(state), do: state
+
   defp cancel_state(state, _reason) do
+    state = demonitor_opener(state)
     _ = cancel_native(state.native_stream)
     state = cancel_open_candidate_if_present(state)
     :ok = cancel_program(state.program_task)

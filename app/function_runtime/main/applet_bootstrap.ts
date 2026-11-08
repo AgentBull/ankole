@@ -91,7 +91,7 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
     const capability = operation.replace(/^admin\./, '')
     if (
       state.readOnly &&
-      ['base.write', 'file.write', 'state.set', 'state.delete', 'signals.emit'].includes(capability)
+      ['base.write', 'file.write', 'state.set', 'state.delete', 'signals.emit', 'ai.generateImage'].includes(capability)
     ) {
       throw hostError({ status: 500, code: 'read_only_route', message: 'GET routes cannot write data' })
     }
@@ -129,7 +129,14 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
           ])
         }
       }),
-      ai: Object.freeze({ generateText: (options: unknown) => invoke('ai.generateText', [options]) }),
+      ai: Object.freeze({
+        generateText: (options: unknown) => invoke('ai.generateText', [options]),
+        generateImage: (options: unknown) => invoke('ai.generateImage', [options])
+      }),
+      web: Object.freeze({
+        search: (options: unknown) => invoke('web.search', [options]),
+        fetch: (options: unknown) => invoke('web.fetch', [options])
+      }),
       mcp: Object.freeze({
         call: (tool: string, args: unknown = {}, options: unknown = {}) => invoke('mcp.call', [tool, args, options])
       }),

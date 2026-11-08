@@ -34,10 +34,16 @@ defmodule Ankole.Pod.Applets do
           "timezone" => timezone
         })
 
-      Invocation.start(published, context, limits, %{
-        actor
-        | turn_authority: Keyword.get(opts, :authority, actor.turn_authority)
-      })
+      Invocation.start(
+        published,
+        context,
+        limits,
+        %{
+          actor
+          | turn_authority: Keyword.get(opts, :authority, actor.turn_authority)
+        },
+        authentication_ref: Keyword.get(opts, :authentication_ref)
+      )
     end
   end
 
@@ -82,7 +88,8 @@ defmodule Ankole.Pod.Applets do
 
   defp load_package(snapshot) do
     with {:ok, source} <- Files.read_object(snapshot.source_id),
-         {:ok, env} <- backend_environment(snapshot.env_id) do
+         {:ok, env} <-
+           Ankole.Pod.Applets.Env.effective_env_from_object(snapshot.page_id, snapshot.env_id) do
       payload =
         source <>
           "\n" <>
@@ -132,6 +139,125 @@ defmodule Ankole.Pod.Applets do
        })}
     end
   end
+
+  @doc "Inspects exported HTTP routes and background Actions on the published Applet package."
+  def inspect_functions(%Ankole.AuthZ.Actor{} = actor, page_id) do
+    snapshot =
+      Repo.transact_top_level(fn ->
+        with {:ok, page} <- Pages.lock(page_id, :share),
+             {:ok, _page} <- Access.authorize(actor, page, "node_view", trash: false),
+             :ok <- applet_type(page),
+             :ok <- available(page),
+             {:ok, files} <- Ankole.Pod.Files.list_files(page.id) do
+          file_map = Map.new(files, &{&1.path, &1.object_id})
+
+          case file_map["server/main.js"] do
+            nil ->
+              {:ok, {:frontend_only, page.revision}}
+
+            source_id ->
+              {:ok,
+               {:backend,
+                %{
+                  tenant_id: Repo.tenant_id!(),
+                  page_id: page.id,
+                  revision: page.revision,
+                  owner_uid: page.owner_uid,
+                  source_id: source_id,
+                  env_id: file_map["applet.env.json"]
+                }}}
+          end
+        end
+      end)
+
+    case snapshot do
+      {:ok, {:frontend_only, revision}} ->
+        {:ok, %{has_backend: false, revision: revision, routes: [], actions: []}}
+
+      {:ok, {:backend, raw}} ->
+        with {:ok, package} <- load_package(raw),
+             {:ok, limits} <- Config.action_limits(),
+             {:ok, inspection} <-
+               inspect_backend(package.source, limits, package.env) do
+          {:ok,
+           %{
+             has_backend: true,
+             revision: package.revision,
+             routes: format_inspected_routes(inspection["routes"]),
+             actions: format_inspected_actions(inspection["actions"])
+           }}
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp inspect_backend(source, limits, env) do
+    case Ankole.FunctionRuntime.AppletClient.inspect(source, limits, env, []) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, %{"code" => "applet_busy"}} ->
+        {:error, :applet_busy}
+
+      {:error, %{"code" => "invalid_applet_routes", "message" => message}}
+      when is_binary(message) ->
+        {:error, {:invalid_applet_routes, %{reason: message}}}
+
+      {:error, %{"code" => "invalid_applet_routes"}} ->
+        {:error, :invalid_applet_routes}
+
+      {:error, %{"code" => _}} ->
+        {:error, :handler_error}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp format_inspected_routes(routes) when is_list(routes) do
+    Enum.flat_map(routes, fn
+      key when is_binary(key) ->
+        case String.split(key, " ", parts: 2) do
+          [method, path] when method in @methods ->
+            [%{method: parse_route_method(method), path: path}]
+
+          _ ->
+            []
+        end
+
+      _ ->
+        []
+    end)
+  end
+
+  defp format_inspected_routes(_), do: []
+
+  defp parse_route_method("GET"), do: :GET
+  defp parse_route_method("POST"), do: :POST
+  defp parse_route_method("PUT"), do: :PUT
+  defp parse_route_method("PATCH"), do: :PATCH
+  defp parse_route_method("DELETE"), do: :DELETE
+
+  defp format_inspected_actions(actions) when is_map(actions) do
+    actions
+    |> Enum.sort_by(fn {key, _} -> key end)
+    |> Enum.map(fn {key, policy} ->
+      %{
+        key: key,
+        concurrency: parse_concurrency(policy["concurrency"]),
+        idempotent: policy["idempotent"] == true,
+        max_slices: policy["maxSlices"] || 1000
+      }
+    end)
+  end
+
+  defp format_inspected_actions(_), do: []
+
+  defp parse_concurrency("serial_fifo"), do: :serial_fifo
+  defp parse_concurrency("serial_coalesce"), do: :serial_coalesce
+  defp parse_concurrency(_), do: :parallel
 
   def authorize(actor, page_id, permission) do
     with {:ok, page} <- Pages.authorize(actor, page_id, permission),
@@ -184,7 +310,10 @@ defmodule Ankole.Pod.Applets do
               }
         })
 
-      with {:ok, task} <- Invocation.start(package, context, limits, actor),
+      with {:ok, task} <-
+             Invocation.start(package, context, limits, actor,
+               authentication_ref: parent["authentication_ref"]
+             ),
            {:ok, outcome} <- Invocation.await(task) do
         if outcome["status"] < 400,
           do: {:ok, outcome["body"]},
@@ -238,12 +367,6 @@ defmodule Ankole.Pod.Applets do
 
   defp applet_type(%{type: :applet}), do: :ok
   defp applet_type(_), do: {:error, :not_found}
-
-  defp backend_environment(nil), do: {:ok, %{}}
-
-  defp backend_environment(object_id) do
-    with {:ok, bytes} <- Files.read_object(object_id), do: Torque.decode(bytes)
-  end
 
   defp current_revision(_current, nil), do: :ok
   defp current_revision(revision, revision), do: :ok

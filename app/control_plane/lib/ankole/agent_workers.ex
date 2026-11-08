@@ -36,6 +36,32 @@ defmodule Ankole.AgentWorkers do
 
   defdelegate effective_env_parts(uid), to: Ankole.AgentWorkers.WorkerEnv
 
+  defdelegate validate_worker_env_name(name),
+    to: Ankole.AgentWorkers.WorkerEnv,
+    as: :validate_name
+
+  defdelegate pod_list_worker_envs(), to: Ankole.AgentWorkers.WorkerEnv, as: :pod_list_tenant
+
+  defdelegate pod_put_worker_env(name, attrs),
+    to: Ankole.AgentWorkers.WorkerEnv,
+    as: :pod_put_tenant
+
+  defdelegate pod_delete_worker_env(name),
+    to: Ankole.AgentWorkers.WorkerEnv,
+    as: :pod_delete_tenant
+
+  defdelegate pod_decrypt_worker_env(name),
+    to: Ankole.AgentWorkers.WorkerEnv,
+    as: :pod_decrypt_tenant
+
+  defdelegate applet_inherited_env_items(),
+    to: Ankole.AgentWorkers.WorkerEnv,
+    as: :applet_inherited_items
+
+  defdelegate applet_inherited_env_values(),
+    to: Ankole.AgentWorkers.WorkerEnv,
+    as: :applet_inherited_values
+
   resources do
     resource(Ankole.AgentWorkers.WorkerEnv.ConsoleOperations)
 

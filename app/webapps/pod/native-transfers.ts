@@ -1,3 +1,4 @@
+import { authenticationRef } from '../common/browser-context'
 import { createClientConfig } from '../common/internal-api-client'
 import type { ConversationAttachment } from './api'
 import { identityQuery } from './content-api'
@@ -23,6 +24,46 @@ export function chooseLocalFile(accept?: string): Promise<File | undefined> {
     document.body.append(input)
     input.click()
   })
+}
+
+type ProfileAvatarUploadResponse = { avatarURL: string }
+
+export async function uploadProfileAvatar(
+  kind: 'member' | 'space',
+  file: File,
+  signal?: AbortSignal
+): Promise<ProfileAvatarUploadResponse> {
+  const body = new FormData()
+  body.set('file', file)
+  const path = kind === 'member' ? '/api/v2/pod/me/avatar' : '/api/v2/pod/admin/settings/avatar'
+  const response = await transport(path, { method: 'POST', body, signal })
+  return response.json()
+}
+
+export type ProfileAvatarContext = {
+  podURL?: string | null
+  authenticationRef?: string | null
+}
+
+export function currentProfileAvatarContext(): ProfileAvatarContext {
+  return {
+    podURL: typeof window !== 'undefined' ? window.location.origin : undefined,
+    authenticationRef: authenticationRef()
+  }
+}
+
+export function profileAvatarURL(source: string | null | undefined, context: ProfileAvatarContext): string | undefined {
+  if (!source || !source.startsWith('/api/v2/pod/avatars/')) return source ?? undefined
+  const [path, query = ''] = source.split('?', 2)
+  const params = new URLSearchParams(query)
+  params.delete('authentication_ref')
+  if (context.authenticationRef) {
+    params.set('authentication_ref', context.authenticationRef)
+  }
+  const suffix = params.size > 0 ? `?${params}` : ''
+  const relative = `${path}${suffix}`
+  if (!context.podURL) return relative
+  return `${new URL(context.podURL).origin}${relative}`
 }
 
 export async function uploadAttachment(file: File, fileID: string, signal: AbortSignal): Promise<AttachmentReceipt> {

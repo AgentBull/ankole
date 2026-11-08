@@ -7,14 +7,14 @@ defmodule Ankole.Pod.Applets.Invocation do
 
   @supervisor Ankole.Pod.AppletTaskSupervisor
 
-  def start(source, context, limits, authority) do
+  def start(source, context, limits, authority, opts \\ []) do
     owner = self()
 
     task =
       Task.Supervisor.async_nolink(
         @supervisor,
         Repo.bind_tenant(fn ->
-          run(owner, source, context, limits, authority)
+          run(owner, source, context, limits, authority, opts)
         end)
       )
 
@@ -39,7 +39,7 @@ defmodule Ankole.Pod.Applets.Invocation do
     :ok
   end
 
-  defp run(owner, source, context, limits, authority) do
+  defp run(owner, source, context, limits, authority, opts) do
     Process.flag(:trap_exit, true)
     monitor = Process.monitor(owner)
     started = System.monotonic_time(:millisecond)
@@ -47,12 +47,23 @@ defmodule Ankole.Pod.Applets.Invocation do
 
     {:ok, handle, run_id} = AppletClient.start(source, context, limits, deadline, authority)
 
+    host_context =
+      case Keyword.get(opts, :authentication_ref) do
+        auth_ref when is_binary(auth_ref) and auth_ref != "" ->
+          context
+          |> Map.put("deadline", deadline)
+          |> Map.put("authentication_ref", auth_ref)
+
+        _ ->
+          Map.put(context, "deadline", deadline)
+      end
+
     state = %{
       handle: handle,
       run_id: run_id,
       owner_monitor: monitor,
       client_monitor: Process.monitor(handle),
-      context: Map.put(context, "deadline", deadline),
+      context: host_context,
       authority: authority,
       tasks: %{},
       deadline: deadline

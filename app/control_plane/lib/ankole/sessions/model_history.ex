@@ -471,6 +471,17 @@ defmodule Ankole.Sessions.ModelHistory do
     end
   end
 
+  defp walk_full_chain(nil, _by_id, _seen), do: []
+
+  defp walk_full_chain(%Message{} = response, by_id, seen) do
+    if MapSet.member?(seen, response.id) do
+      []
+    else
+      parent = Map.get(by_id, response.previous_message_id)
+      [response | walk_full_chain(parent, by_id, MapSet.put(seen, response.id))]
+    end
+  end
+
   defp take_signal_suffix(nil, _by_id, _signal_id, _seen), do: []
 
   defp take_signal_suffix(%Message{} = response, by_id, signal_id, seen) do
@@ -647,6 +658,96 @@ defmodule Ankole.Sessions.ModelHistory do
       nil ->
         []
     end
+  end
+
+  @doc false
+  def retract_from_signals_in_tx(subject_uid, session_id, signal_ids, now, reason)
+      when is_binary(subject_uid) and is_binary(session_id) and is_binary(reason) do
+    signal_set = signal_ids |> Enum.reject(&is_nil/1) |> MapSet.new()
+
+    if MapSet.size(signal_set) == 0 do
+      {:ok, suffix_retraction_noop(:empty_signals)}
+    else
+      case AIGateway.active_conversation_for_update(subject_uid, session_id) do
+        nil ->
+          {:ok, suffix_retraction_noop(:no_active_conversation)}
+
+        %Conversation{} = conversation ->
+          with {:ok, _} <-
+                 retract_generating_conversation_in_tx(subject_uid, conversation.id, now, reason) do
+            retract_matching_chain_suffix_in_tx(conversation, signal_set, now, reason)
+          end
+      end
+    end
+  end
+
+  defp retract_generating_conversation_in_tx(subject_uid, conversation_id, now, reason) do
+    with {:ok, responses} <-
+           AIGateway.list_conversation_responses_in_tx(
+             subject_uid,
+             conversation_id,
+             statuses: [:generating],
+             lock: true
+           ) do
+      responses
+      |> Enum.filter(&ordinary_response?/1)
+      |> Enum.reduce_while({:ok, []}, fn response, {:ok, retracted} ->
+        case AIGateway.retract_generating_response_in_tx(
+               subject_uid,
+               response_id(response),
+               reason,
+               now
+             ) do
+          {:ok, %Message{} = updated} -> {:cont, {:ok, [updated | retracted]}}
+          {:ok, :already_terminal} -> {:cont, {:ok, retracted}}
+          {:error, _} = error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp retract_matching_chain_suffix_in_tx(conversation, signal_set, now, reason) do
+    with {:ok, responses} <-
+           AIGateway.list_conversation_responses_in_tx(
+             conversation.subject_uid,
+             conversation.id,
+             statuses: [:complete],
+             lock: true
+           ) do
+      by_id = Map.new(responses, &{&1.id, &1})
+      chain = walk_full_chain(visible_leaf(responses), by_id, MapSet.new())
+
+      case deepest_matching_index(chain, signal_set) do
+        nil ->
+          {:ok, suffix_retraction_noop(:signal_not_visible)}
+
+        index ->
+          suffix = Enum.take(chain, index + 1)
+
+          AIGateway.retract_visible_suffix_in_tx(
+            conversation.subject_uid,
+            conversation.id,
+            Enum.map(suffix, &response_id/1),
+            reason: reason,
+            retracted_at: now
+          )
+      end
+    end
+  end
+
+  defp deepest_matching_index(chain, signal_set) do
+    chain
+    |> Enum.with_index()
+    |> Enum.reduce(nil, fn {row, idx}, acc ->
+      if Enum.any?(all_row_signal_ids(row), &MapSet.member?(signal_set, &1)),
+        do: idx,
+        else: acc
+    end)
+  end
+
+  defp all_row_signal_ids(%Message{} = row) do
+    [row.metadata["signal_id"] | response_signal_ids(row)]
+    |> Enum.reject(&is_nil/1)
   end
 
   @doc false

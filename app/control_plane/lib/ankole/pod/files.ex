@@ -592,18 +592,19 @@ defmodule Ankole.Pod.Files do
     end
   end
 
-  defp validate_environment(_page_id, upserts) do
-    case Enum.find(upserts, &(&1.path == "applet.env.json")) do
-      nil ->
-        {:ok, %{}}
+  defp validate_environment(page_id, upserts) do
+    manifest_result =
+      case Enum.find(upserts, &(&1.path == "applet.env.json")) do
+        nil ->
+          {:ok, %{defaults: %{}, specs: %{}}}
 
-      file ->
-        with {:ok, bytes} <- Drive.read_object(file.object_id),
-             true <- byte_size(bytes) <= 65_536,
-             {:ok, env} when is_map(env) <- Torque.decode(bytes),
-             true <- Enum.all?(env, fn {key, value} -> is_binary(key) and is_binary(value) end),
-             do: {:ok, env},
-             else: (_ -> {:error, :invalid_manifest})
+        file ->
+          with {:ok, bytes} <- Drive.read_object(file.object_id),
+               do: Ankole.Pod.Applets.Env.parse_manifest(bytes)
+      end
+
+    with {:ok, manifest} <- manifest_result do
+      Ankole.Pod.Applets.Env.effective_env_from_manifest(page_id, manifest)
     end
   end
 

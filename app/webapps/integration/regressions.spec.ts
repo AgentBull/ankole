@@ -111,6 +111,7 @@ test('selecting either Agent in a group enables sending and retains the selectio
     pendingQueues: [],
     linkedRuns: [],
     artifacts: { pageIDs: [], attachments: [] },
+    editableInputs: [],
     removedMessageIDs: [],
     olderMessagesBeforeSeq: null,
     messageRange: { firstSeq: 0, lastSeq: 0 }

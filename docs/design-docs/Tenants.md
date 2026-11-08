@@ -386,12 +386,13 @@ administrators. Initial site bootstrap places the first administrator in both
 `siteadmin` and `pod_admin`, while creating an additional tenant places its
 initial administrator in that tenant's `pod_admin`.
 
-Pod settings govern the workspace display name, default language
+Pod settings govern the workspace display name and avatar, default language
 (`i18n.default_locale`), Guest admission, login policies, member directory,
-credential assistance, invitations, and enterprise identity providers, whereas
-personal account settings cover verified login-method updates and self-service
-exit for unmanaged members (directory-synced members leave
-through organization offboarding); see [Authentication](Authentication.md).
+credential assistance, invitations, and enterprise identity providers. Personal
+account settings cover the member's display name and avatar, verified
+login-method updates, and self-service exit for unmanaged members
+(directory-synced members leave through organization offboarding); see
+[Authentication](Authentication.md) and [Principal](Principal.md#profile_avatars).
 
 ## Pod work entry
 
@@ -426,11 +427,13 @@ while preserving the return path; see [Browser Sessions](BrowserSessions.md).
 
 `AppConfigure` and `WorkerEnv` resolve settings in one fixed precedence order:
 site `global`, then `tenant:<id>`, then `agent:<uid>` (for keys whose schema
-permits tenant or Agent overrides). Site-global values live in
-`site_app_configurations` and `site_worker_envs`, whereas tenant and Agent
-overrides live in tenant-owned `app_configurations` and
-`agent_computer_worker_envs` with a mandatory `tenant_id` enforced by
-`Ankole.Repo` rather than trusting scope strings alone. Infrastructure providers
+permits tenant or Agent overrides), while Pod Applet backends layer
+`applet.env.json` defaults and `pod_applet_envs` over the same site `global` and
+`tenant:<id>` `WorkerEnv` tiers. Site-global values live in
+`site_app_configurations` and `site_worker_envs`, whereas tenant, Agent, and
+Applet overrides live in tenant-owned `app_configurations`,
+`agent_computer_worker_envs`, and `pod_applet_envs` with a mandatory `tenant_id`
+enforced by `Ankole.Repo` rather than trusting scope strings alone. Infrastructure providers
 and plugins are site-owned, while identity providers and directory-sync state
 are tenant-owned; see [AppConfiguration](AppConfiguration.md).
 

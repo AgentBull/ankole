@@ -23,6 +23,9 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
     type action background input_fidelity input_image_mask model moderation
     output_compression output_format partial_images quality size
   )
+  @direct_tool_fields ~w(
+    action background input_fidelity moderation output_compression output_format quality size
+  )
   @enums %{
     "action" => ~w(generate edit auto),
     "background" => ~w(transparent opaque auto),
@@ -51,6 +54,62 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
 
   @spec persist_response(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate persist_response(subject_uid, response, opts \\ []), to: ImageStreamPersistence
+
+  @doc false
+  @spec direct_tool_fields() :: [String.t()]
+  def direct_tool_fields, do: @direct_tool_fields
+
+  @doc false
+  @spec build_direct_tool(map(), String.t() | nil) :: map()
+  def build_direct_tool(request, mask) when is_map(request) do
+    tool = copy_if_present(%{"type" => "image_generation"}, request, @direct_tool_fields)
+
+    if is_binary(mask),
+      do: Map.put(tool, "input_image_mask", %{"image_url" => mask}),
+      else: tool
+  end
+
+  @doc false
+  @spec validate_direct_tool(map(), list()) :: :ok | {:error, OpenAIError.t()}
+  def validate_direct_tool(tool, input_references \\ [:skip]) when is_map(tool) do
+    with :ok <- validate_tool(tool, "image_generation") do
+      if input_references == [:skip] do
+        :ok
+      else
+        validate_action_references(tool, input_references, "image_generation")
+      end
+    end
+  end
+
+  @doc false
+  @spec prepare_direct_request(String.t(), map(), String.t(), map(), [map()]) ::
+          {:ok, map(), map()} | {:error, OpenAIError.t() | term()}
+  def prepare_direct_request(subject_uid, runtime, prompt, tool, content_items)
+      when is_binary(subject_uid) and is_map(runtime) and is_binary(prompt) and is_map(tool) and
+             is_list(content_items) do
+    request = %{
+      "input" => [%{"type" => "message", "role" => "user", "content" => content_items}],
+      "tools" => [tool]
+    }
+
+    with :ok <- validate_tool(tool, "image_generation"),
+         {:ok, selected_runtime, _selection, _references, image_req} <-
+           select_and_build_image_request(
+             subject_uid,
+             request,
+             tool,
+             0,
+             "image_generation",
+             runtime,
+             [tool_index: 0],
+             stream?: false
+           ),
+         direct_request = Map.put(image_req, "prompt", prompt),
+         {:ok, prepared_request} <-
+           build_bounded_provider_request(selected_runtime, direct_request, false) do
+      {:ok, selected_runtime, prepared_request}
+    end
+  end
 
   @spec normalize_execution_error(term()) :: OpenAIError.t()
   defdelegate normalize_execution_error(reason), to: Error, as: :normalize_execution
@@ -231,34 +290,20 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
          catalog_opts,
          opts
        ) do
-    with {:ok, references} <- Artifacts.resolve_references(subject_uid, request),
-         input_references = Enum.reject(references, &mask_reference?/1),
-         :ok <- validate_action_references(tool, input_references, param_prefix),
-         requested_model = Map.get(tool, "model", runtime["model"]),
-         {:ok, selection} <-
-           ImageModelCatalog.select_endpoint(
-             runtime,
-             requested_model,
+    with {:ok, selected_runtime, selection, references, image_req} <-
+           select_and_build_image_request(
+             subject_uid,
+             request,
              tool,
-             length(input_references),
-             catalog_opts
+             tool_index,
+             param_prefix,
+             runtime,
+             catalog_opts,
+             opts
            ),
-         :ok <-
-           log_routing(subject_uid, tool, tool_index, references, selection, opts),
-         runtime = Map.put(runtime, "model", selection.model),
-         image_request = image_request(tool, references, selection, opts),
          {:ok, prepared_request} <-
-           Providers.build_image_generate_request(runtime, image_request,
-             stream?: image_request["stream"]
-           ),
-         {credential_attempt, prepared_request} <- CredentialAttempts.pop(prepared_request),
-         prepared_request <-
-           Map.update(
-             prepared_request,
-             :limits,
-             %{max_response_bytes: @max_response_bytes},
-             &Map.put(&1, :max_response_bytes, @max_response_bytes)
-           ) do
+           build_bounded_provider_request(selected_runtime, image_req, image_req["stream"]),
+         {credential_attempt, prepared_request} <- CredentialAttempts.pop(prepared_request) do
       {:ok,
        %{
          "tool_config" => tool,
@@ -277,6 +322,48 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
          },
          credential_attempt: credential_attempt
        }}
+    end
+  end
+
+  defp select_and_build_image_request(
+         subject_uid,
+         request,
+         tool,
+         tool_index,
+         param_prefix,
+         runtime,
+         catalog_opts,
+         opts
+       ) do
+    with {:ok, references} <- Artifacts.resolve_references(subject_uid, request),
+         input_references = Enum.reject(references, &mask_reference?/1),
+         :ok <- validate_action_references(tool, input_references, param_prefix),
+         requested_model = Map.get(tool, "model", runtime["model"]),
+         {:ok, selection} <-
+           ImageModelCatalog.select_endpoint(
+             runtime,
+             requested_model,
+             tool,
+             length(input_references),
+             catalog_opts
+           ),
+         :ok <- log_routing(subject_uid, tool, tool_index, references, selection, opts) do
+      selected_runtime = Map.put(runtime, "model", selection.model)
+      image_req = image_request(tool, references, selection, opts)
+      {:ok, selected_runtime, selection, references, image_req}
+    end
+  end
+
+  defp build_bounded_provider_request(selected_runtime, image_req, stream?) do
+    with {:ok, prepared_request} <-
+           Providers.build_image_generate_request(selected_runtime, image_req, stream?: stream?) do
+      {:ok,
+       Map.update(
+         prepared_request,
+         :limits,
+         %{max_response_bytes: @max_response_bytes},
+         &Map.put(&1, :max_response_bytes, @max_response_bytes)
+       )}
     end
   end
 

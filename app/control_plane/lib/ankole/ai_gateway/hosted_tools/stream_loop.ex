@@ -38,6 +38,7 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
             downstream_tools: nil,
             suppressed_item_ids: MapSet.new(),
             usage: nil,
+            context_usage: nil,
             tool_usage: nil,
             rounds: 0,
             incomplete_reason: nil,
@@ -445,6 +446,16 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
 
   def accumulated_tool_usage(_loop), do: nil
 
+  @doc """
+  Returns the latest reported single-round usage across provider rounds, or
+  `nil` for a single round where `usage` is already that round's snapshot.
+  """
+  @spec context_usage(t() | nil) :: map() | nil
+  def context_usage(%__MODULE__{rounds: rounds, context_usage: usage}) when rounds > 0,
+    do: usage
+
+  def context_usage(_loop), do: nil
+
   defp observe_item_added(loop, %{"item" => %{} = item} = event) do
     if rewritable_call_item?(loop, item) do
       {:suppress, remember_suppressed(loop, item)}
@@ -736,10 +747,23 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
   def rewrite_public_items(%__MODULE__{} = loop, items), do: rewrite_items(loop, items)
 
   defp accumulate_usage(loop, response) do
+    usage = Map.get(response, "usage")
+
     loop
-    |> merge_response_usage(:usage, Map.get(response, "usage"))
+    |> merge_response_usage(:usage, usage)
+    |> put_context_usage(usage)
     |> merge_response_usage(:tool_usage, Map.get(response, "tool_usage"))
   end
+
+  defp put_context_usage(loop, %{} = usage) do
+    if Ankole.AIGateway.Usage.total_tokens(usage) > 0 do
+      %{loop | context_usage: usage}
+    else
+      loop
+    end
+  end
+
+  defp put_context_usage(loop, _missing), do: loop
 
   defp merge_response_usage(loop, field, %{} = usage),
     do: Map.update!(loop, field, &Ankole.AIGateway.Usage.merge(&1, usage))

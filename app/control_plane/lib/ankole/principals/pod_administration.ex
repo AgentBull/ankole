@@ -11,6 +11,7 @@ defmodule Ankole.Principals.PodAdministration do
       {:ok,
        %{
          displayName: tenant.display_name,
+         avatarURL: tenant.avatar_url,
          defaultLocale: default_locale,
          allowExternalGuests: Ankole.Pod.Config.allow_external_guests?(),
          loginPolicy: policy,
@@ -45,6 +46,7 @@ defmodule Ankole.Principals.PodAdministration do
       {:ok,
        %{
          displayName: tenant.display_name,
+         avatarURL: tenant.avatar_url,
          defaultLocale: default_locale,
          allowExternalGuests: args.allowExternalGuests,
          loginPolicy: policy,

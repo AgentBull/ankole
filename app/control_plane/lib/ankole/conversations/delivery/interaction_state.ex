@@ -79,14 +79,16 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
     end
   end
 
-  @spec supersede(checkpoint(), Signal.t(), DateTime.t()) ::
+  @spec supersede(checkpoint(), Signal.t(), DateTime.t(), keyword()) ::
           {:ok, checkpoint()} | :noop
-  def supersede(checkpoint, %Signal{} = newer_event, %DateTime{} = now)
-      when is_map(checkpoint) do
+  def supersede(checkpoint, %Signal{} = newer_event, %DateTime{} = now, opts \\ [])
+      when is_map(checkpoint) and is_list(opts) do
+    supersede_action_cards? = Keyword.get(opts, :supersede_action_cards?, false)
+
     supersedable_ids =
       checkpoint
       |> pending_interaction_ids()
-      |> Enum.filter(&supersedable_by?(&1, newer_event))
+      |> Enum.filter(&supersedable_by?(&1, newer_event, supersede_action_cards?))
 
     case supersedable_ids do
       [] ->
@@ -180,7 +182,7 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
   end
 
   defp initial_interaction(interaction_id, now, %Signal{} = newer_event) do
-    if supersedable_by?(interaction_id, newer_event) do
+    if supersedable_by?(interaction_id, newer_event, false) do
       %{
         "interaction_id" => interaction_id,
         "state" => "superseded",
@@ -200,11 +202,13 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
     |> Ankole.Attrs.maybe_put("form", pending && pending["form"])
   end
 
-  defp supersedable_by?("action_card:" <> _, %Signal{type: "conversation.message.removed"}),
+  defp supersedable_by?("action_card:" <> _, %Signal{}, true), do: true
+
+  defp supersedable_by?("action_card:" <> _, %Signal{type: "conversation.message.removed"}, _),
     do: true
 
-  defp supersedable_by?("action_card:" <> _, %Signal{}), do: false
-  defp supersedable_by?(_interaction_id, %Signal{}), do: true
+  defp supersedable_by?("action_card:" <> _, %Signal{}, false), do: false
+  defp supersedable_by?(_interaction_id, %Signal{}, _supersede_action_cards?), do: true
 
   defp maybe_schedule_refresh(checkpoint, surface_fun) do
     if surface_fun.(checkpoint) do

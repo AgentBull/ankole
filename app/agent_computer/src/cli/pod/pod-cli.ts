@@ -216,8 +216,11 @@ The imported URL works from nested modules and dynamic chunks.
 Optional src/server/main.ts
 exports a default route table typed with import type { Routes } from
 '@ankole/applet-sdk/server'. Build bundles it into server/main.js as ESM with external node:* builtins.
-The runtime provides Node builtins, temporary /tmp files, fetch, process.env from
-applet.env.json, and AnkoleRuntime base, file, ai, mcp, signals and HttpError. GET handlers cannot write.
+The runtime provides Node builtins, temporary /tmp files, fetch, process.env merged from
+Site -> Pod -> applet.env.json defaults -> Applet environment overrides (applet.env.json accepts
+flat string defaults or {default?, required?, secret?, description?} declarations), and
+AnkoleRuntime base, file, ai ({generateText, generateImage}), web ({search, fetch}), mcp, signals
+and HttpError. GET handlers cannot write or call ai.generateImage.
 Backend exports may contain {routes, actions}. Each Action declares idempotent,
 concurrency (parallel|serial_fifo|serial_coalesce), concurrencyKey(ctx), maxSlices,
 and handler(ctx). Jobs hold configuration and durable state; code owns policy.

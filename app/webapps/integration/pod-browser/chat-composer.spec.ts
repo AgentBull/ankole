@@ -185,14 +185,14 @@ test('inline mention search keeps the draft focused and sends the selected Agent
     expect(detail.messages.find(message => message.authorType === 'human')?.mentions).toContainEqual(
       expect.objectContaining({ type: 'agent', uid: agent.uid })
     )
-    for (let number = 1; number <= 5; number++) {
+    for (let number = 1; number <= 6; number++) {
       await input.fill(`Follow-up ${number}`)
       const saved = page.waitForResponse(
         response =>
           response.request().method() === 'POST' &&
           new URL(response.url()).pathname === `/api/v2/pod/conversations/${id}/messages`
       )
-      await input.press('Enter')
+      await input.press('ControlOrMeta+Shift+Enter')
       expect((await saved).status()).toBe(201)
     }
     const queue = page.locator('.pod-chat-queued-strip')

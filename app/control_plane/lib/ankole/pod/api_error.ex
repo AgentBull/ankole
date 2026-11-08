@@ -55,10 +55,31 @@ defmodule Ankole.Pod.APIError do
       {409, "Queue this message to use a different model after the current reply"},
     model_profile_unavailable: {422, "The selected model profile is unavailable"},
     input_already_started: {409, "This input has already started or is no longer pending"},
-    queue_changed: {409, "The pending queue changed. Reload it before reordering"}
+    queue_changed: {409, "The pending queue changed. Reload it before reordering"},
+    not_encrypted: {422, "This variable is not encrypted"},
+    invalid_worker_env_value: {422, "A non-empty string value is required"},
+    invalid_worker_env_secret: {422, "The secret flag must be a boolean"},
+    invalid_worker_env_description: {422, "The description must be a string"},
+    applet_env_too_large: {413, "Combined Applet environment variables must not exceed 64 KiB"}
   }
 
   def message(error), do: public_error(error.reason).message
+
+  def public_error({:invalid_worker_env_name, _}),
+    do: %{
+      code: "invalid_worker_env_name",
+      message: "Variable name must match [A-Za-z_][A-Za-z0-9_]*",
+      status: 422,
+      details: nil
+    }
+
+  def public_error({:reserved_worker_env_name, name}),
+    do: %{
+      code: "reserved_worker_env_name",
+      message: "#{name} is reserved by the runtime",
+      status: 422,
+      details: nil
+    }
 
   def public_error({:blob_missing, _}), do: public_error(:attachment_expired)
 

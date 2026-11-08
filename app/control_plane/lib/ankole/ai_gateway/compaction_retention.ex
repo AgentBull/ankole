@@ -12,6 +12,7 @@ defmodule Ankole.AIGateway.CompactionRetention do
   alias Ankole.AIGateway.ToolContract
 
   @clarify_tool "clarify"
+  @max_ref_chars 512
 
   @spec collect_user_originals([map()], pos_integer()) :: {[map()], non_neg_integer()}
   def collect_user_originals(items, budget_tokens)
@@ -19,22 +20,23 @@ defmodule Ankole.AIGateway.CompactionRetention do
     items
     |> Enum.filter(&user_original?/1)
     |> Enum.reverse()
-    |> Enum.reduce_while({[], 0}, fn item, {selected, used} ->
+    |> Enum.reduce_while({[], 0}, fn raw_item, {selected, used} ->
       remaining = budget_tokens - used
-      cost = item_cost(item)
 
-      cond do
-        remaining <= 0 ->
-          {:halt, {selected, used}}
+      if remaining <= 0 do
+        {:halt, {selected, used}}
+      else
+        item = sanitize_user_item(raw_item)
+        cost = item_cost(item)
 
-        cost <= remaining ->
+        if cost <= remaining do
           {:cont, {[item | selected], used + cost}}
-
-        true ->
+        else
           case truncate_item(item, remaining) do
             nil -> {:halt, {selected, used}}
             truncated -> {:halt, {[truncated | selected], budget_tokens}}
           end
+        end
       end
     end)
   end
@@ -175,6 +177,67 @@ defmodule Ankole.AIGateway.CompactionRetention do
 
   defp user_original?(%{"role" => "user"} = item), do: Map.get(item, "type") in [nil, "message"]
   defp user_original?(_item), do: false
+
+  defp sanitize_user_item(%{"content" => content} = item) when is_list(content) do
+    Map.put(item, "content", Enum.map(content, &sanitize_user_part/1))
+  end
+
+  defp sanitize_user_item(item), do: item
+
+  defp sanitize_user_part(%{"type" => type, "text" => text} = part)
+       when type in ["input_text", "output_text", "text"] and is_binary(text),
+       do: part
+
+  defp sanitize_user_part(%{"text" => text} = part) when is_binary(text), do: part
+
+  defp sanitize_user_part(%{"type" => "input_image"} = part) do
+    %{"type" => "input_text", "text" => omitted_media_placeholder("input_image", part)}
+  end
+
+  defp sanitize_user_part(%{"type" => type} = part) when is_binary(type) and type != "" do
+    %{"type" => "input_text", "text" => omitted_media_placeholder(type, part)}
+  end
+
+  defp sanitize_user_part(part) when is_map(part) and map_size(part) > 0 do
+    %{"type" => "input_text", "text" => "[content omitted]"}
+  end
+
+  defp sanitize_user_part(part), do: part
+
+  defp omitted_media_placeholder(type, part) do
+    cond do
+      durable_ref?(part["file_id"]) ->
+        "[#{type} omitted: file_id=#{bounded_ref(part["file_id"])}]"
+
+      durable_url_ref?(part["image_url"]) ->
+        "[#{type} omitted: image_url=#{bounded_ref(part["image_url"])}]"
+
+      durable_url_ref?(part["file_url"]) ->
+        "[#{type} omitted: file_url=#{bounded_ref(part["file_url"])}]"
+
+      durable_ref?(part["filename"]) ->
+        "[#{type} omitted: filename=#{bounded_ref(part["filename"])}]"
+
+      true ->
+        "[#{type} omitted]"
+    end
+  end
+
+  defp durable_ref?(value), do: is_binary(value) and value != ""
+
+  defp durable_url_ref?(value) when is_binary(value) and value != "" do
+    not (value |> String.slice(0, 5) |> String.downcase() |> Kernel.==("data:"))
+  end
+
+  defp durable_url_ref?(_value), do: false
+
+  defp bounded_ref(value) do
+    if String.length(value) > @max_ref_chars do
+      String.slice(value, 0, @max_ref_chars) <> "...[truncated]"
+    else
+      value
+    end
+  end
 
   defp item_cost(%{"content" => content}) do
     text_cost = content_text_token_cost(content)

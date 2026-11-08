@@ -1,5 +1,31 @@
 # Changelog
 
+## Version 2.0.0-alpha.95 (2026-11-08)
+
+- Redesign Pod personal and space settings with responsive section navigation,
+  clearer grouped forms, and consistent save states, add persistent PNG, JPEG,
+  GIF, and WebP avatar uploads for both member and space profiles, and resolve
+  multi-space account switcher avatars against each space's own Pod origin and
+  authentication reference.
+- Add `AnkoleRuntime.web.search`, `AnkoleRuntime.web.fetch`, and
+  `AnkoleRuntime.ai.generateImage` (plus `AnkoleRuntime.admin.{web, ai}`
+  equivalents and tab-authenticated `pod.fileURL` / browser-bound `result.url`
+  display URLs) to Pod Applets, introduce Applet-scoped environment variables
+  with four-layer inheritance (`Site -> Space -> applet.env.json -> Applet`),
+  structured `applet.env.json` contracts, single-refresh `.env` batch import
+  that retains failed entries for retry, and Space Settings management, and
+  unify Applet Page settings (`Variables`, `Automation`, `Webhooks`, `Run logs`,
+  and `Functions` backed by `GET /api/v2/pod/pages/:page_id/functions`) into a
+  single Applet settings modal with shared Job creation state.
+- Edit earlier sent messages directly in Pod Chat (`edit_last`) and navigate
+  editable messages from the keyboard with double-`Escape` backtrack (including
+  inside mobile `PageChat` sheets without dismissing the sheet). Submitting an
+  inline edit stops active turns, delegated peer exchanges, Workflows, and
+  Background Agent Jobs (including continuation successors) spawned from the
+  reverted turns, rewinds model context to that point while preserving earlier
+  Action Cards and already committed Pod Page, Base, and Applet writes, and
+  regenerates from the updated message.
+
 ## Version 2.0.0-alpha.94 (2026-11-08)
 
 - Keep an Agent's live work steps open while it thinks between steps. The step

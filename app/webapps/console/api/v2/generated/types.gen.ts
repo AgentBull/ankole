@@ -5438,6 +5438,7 @@ export type DeleteAgentWorkerEnvResponses = {
   200: {
     worker_env: {
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean
@@ -5484,6 +5485,7 @@ export type UpdateAgentWorkerEnvResponses = {
   200: {
     worker_env: {
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean
@@ -7450,6 +7452,7 @@ export type DeleteWorkerEnvResponses = {
   200: {
     worker_env: {
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean
@@ -7495,6 +7498,7 @@ export type UpdateWorkerEnvResponses = {
   200: {
     worker_env: {
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean
@@ -8949,6 +8953,7 @@ export type ListAgentWorkerEnvsResponses = {
   200: {
     worker_envs: Array<{
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean
@@ -10016,6 +10021,7 @@ export type ListWorkerEnvsResponses = {
   200: {
     worker_envs: Array<{
       description?: string | null
+      inherited_source?: 'global' | 'tenant' | null
       name: string
       present: boolean
       secret: boolean

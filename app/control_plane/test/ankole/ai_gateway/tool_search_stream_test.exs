@@ -482,7 +482,7 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
       usage_two = %{"input_tokens" => 40, "output_tokens" => 20}
       tool_usage_two = %{"image_gen" => %{"input_tokens" => 2, "output_tokens" => 1}}
 
-      {_state, [terminal], {:terminal, outcome, :keep_upstream}} =
+      {final_state, [terminal], {:terminal, outcome, :keep_upstream}} =
         observe!(state, completed_event([message_item], 4, usage_two, tool_usage_two))
 
       output_types = Enum.map(terminal["response"]["output"], & &1["type"])
@@ -499,6 +499,9 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
 
       assert terminal["response"]["usage"] ==
                Ankole.AIGateway.Usage.normalize(%{"input_tokens" => 140, "output_tokens" => 30})
+
+      assert Ankole.AIGateway.HostedTools.StreamLoop.context_usage(final_state.tool_loop) ==
+               usage_two
 
       assert terminal["response"]["tool_usage"] == %{
                "image_gen" => %{"input_tokens" => 5, "output_tokens" => 2}

@@ -5,7 +5,10 @@ import i18n, { loadLocale } from '../../common/i18n'
 import type { ConversationDetail } from '../api'
 import { client as podClient } from '../api/generated/client.gen'
 import { useChatCommands } from '../chat-commands'
+import { InlineMessageEditor } from '../chat/inline-message-editor'
 import { MessageActions } from '../chat/message-actions'
+import { QueuedStrip } from '../chat/queued-strip'
+import { modelSelectionKey } from '../model-controls'
 import { ChatModel } from './chat'
 import { ChatDrafts } from './chat-drafts'
 
@@ -113,6 +116,7 @@ function detail(agentUIDs: string[]): ConversationDetail {
   }
   return {
     latestInput: { messageID: question.id, authorUID: 'person', agentUIDs },
+    editableInputs: [{ messageID: question.id, agentUIDs, supersededByParticipant: false }],
     messages: [
       question,
       {
@@ -233,7 +237,7 @@ test('a group broadcast does not require an individually callable recipient', ()
 
 test('an edit uses its saved recipient independently of the composer selection', () => {
   const data = detail(['agent-a'])
-  const { result } = commands(data, ['agent-a'], '', model => {
+  const { result: inlineResult } = commands(data, ['agent-a'], '', model => {
     model.targetAgentUID.value = 'agent-b'
     model.beginEdit({
       messageID: data.messages[0]!.id,
@@ -246,8 +250,24 @@ test('an edit uses its saved recipient independently of the composer selection',
       agentUID: 'agent-a'
     })
   })
-  expect(result.canSubmit).toBe(true)
-  expect(result.recipientAvailable).toBe(true)
+  expect(inlineResult.canSubmitEdit).toBe(true)
+  expect(inlineResult.editRecipientAvailable).toBe(true)
+
+  const { result: queueResult } = commands(data, ['agent-a'], '', model => {
+    model.targetAgentUID.value = 'agent-b'
+    model.beginEdit({
+      messageID: 'queued-message',
+      text: 'Edited queued message',
+      links: [],
+      mentions: [],
+      queueVersion: 'agent-a-version',
+      kind: 'queue',
+      hasAttachments: false,
+      agentUID: 'agent-a'
+    })
+  })
+  expect(queueResult.canSubmit).toBe(true)
+  expect(queueResult.recipientAvailable).toBe(true)
 })
 
 test('an answer uses the question recipient independently of the composer selection', () => {
@@ -310,9 +330,18 @@ test('silent multi-Agent targets and Human-only discussion explain their edit re
   }
 })
 
-test('the actual target must be idle and have no queued inputs before history can be edited', () => {
+test('inline timeline editing remains available while the target Agent is streaming or has queued follow-ups', () => {
   const running = detail(['agent-b'])
-  expect(commands(running).result.messageActions?.edit).toBeUndefined()
+  const { result: runningCommands, model: runningModel } = commands(running, ['agent-a', 'agent-b'], 'Composer draft')
+  expect(runningCommands.messageActions?.canEdit(running.messages[0]!)).toBe(true)
+  runningCommands.messageActions!.edit!(running.messages[0]!)
+  expect(runningModel.editing.value).toMatchObject({
+    messageID: 'latest-question',
+    agentUID: 'agent-b',
+    kind: 'last'
+  })
+  expect(runningModel.draft.value).toBe('Composer draft')
+
   const queued = detail(['agent-a'])
   queued.pendingQueues[0]!.inputs = [
     {
@@ -327,14 +356,396 @@ test('the actual target must be idle and have no queued inputs before history ca
       modelProfile: 'primary'
     }
   ]
-  expect(commands(queued).result.messageActions?.edit).toBeUndefined()
+  const { result: queuedCommands, model: queuedModel } = commands(queued, ['agent-a', 'agent-b'], 'Keep draft')
+  expect(queuedCommands.messageActions?.canEdit(queued.messages[0]!)).toBe(true)
+  queuedCommands.messageActions!.edit!(queued.messages[0]!)
+  expect(queuedModel.editing.value?.messageID).toBe('latest-question')
+  expect(queuedModel.draft.value).toBe('Keep draft')
 })
 
-test('loaded older messages cannot become editable when the canonical latest input belongs to a colleague', () => {
+test('multi-turn history exposes all non-superseded viewer messages for inline edit and backtrack', () => {
   const data = detail(['agent-a'])
-  data.latestInput = { messageID: 'newer-colleague-message', authorUID: 'colleague', agentUIDs: ['agent-a'] }
-  const { result, model } = commands(data)
-  expect(result.messageActions?.edit).toBeUndefined()
-  result.recallLast()
+  const base = data.messages[0]!
+  data.messages = [
+    { ...base, id: 'turn-1', seq: 1, text: 'First prompt' },
+    { ...data.messages[1]!, id: 'reply-1', seq: 2, replyToMessageID: 'turn-1' },
+    { ...base, id: 'turn-2', seq: 3, text: 'Second prompt' },
+    { ...data.messages[1]!, id: 'reply-2', seq: 4, replyToMessageID: 'turn-2' },
+    { ...base, id: 'turn-3', seq: 5, text: 'Third prompt' }
+  ]
+  data.editableInputs = [
+    { messageID: 'turn-1', agentUIDs: ['agent-a'], supersededByParticipant: true },
+    { messageID: 'turn-2', agentUIDs: ['agent-a'], supersededByParticipant: false },
+    { messageID: 'turn-3', agentUIDs: ['agent-a'], supersededByParticipant: false }
+  ]
+  data.latestInput = { messageID: 'turn-3', authorUID: 'person', agentUIDs: ['agent-a'] }
+  const { result, model } = commands(data, ['agent-a', 'agent-b'], '')
+
+  expect(result.messageActions?.editDisabledReasonFor(data.messages[0]!)).toBe(
+    i18n.t('pod.chat.errors.reply_unavailable')
+  )
+  expect(result.editableMessageIDs).toEqual(['turn-2', 'turn-3'])
+  result.messageActions!.edit!(data.messages[0]!)
   expect(model.editing.value).toBeUndefined()
+
+  expect(result.enterBacktrack()).toBe(true)
+  expect(model.backtrackMessageID.value).toBe('turn-3')
+  result.recallLast()
+  expect(model.editing.value?.messageID).toBe('turn-3')
+
+  result.messageActions!.edit!(data.messages[2]!)
+  expect(model.editing.value?.messageID).toBe('turn-2')
+  const client = new QueryClient()
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={client}>
+      <InlineMessageEditor
+        model={model}
+        message={data.messages[2]!}
+        detail={data}
+        canSubmit={true}
+        recipientAvailable={true}
+        submitting={false}
+        editConflict={false}
+        recovery={{ loading: false, error: null, refresh: () => {}, useSaved: () => {} }}
+        onSubmit={() => {}}
+        onCancel={() => {}}
+      />
+    </QueryClientProvider>
+  )
+  client.clear()
+  expect(html).toContain(i18n.t('pod.chat.edit_message_label'))
+  expect(html).toContain(i18n.t('pod.chat.edit_reverts_later'))
+  expect(html).toContain('aria-describedby=')
+  expect(html).toContain('Second prompt')
+})
+
+test('submit chooses steer when idle, follows follow-up mode when working, and queues on active profile mismatch', async () => {
+  const original = podClient.getConfig()
+  const deliveries: string[] = []
+  podClient.setConfig({
+    baseUrl: 'https://ankole.test',
+    fetch: (async (input: RequestInfo | URL) => {
+      const request = input as Request
+      const body = await request.json()
+      deliveries.push(body.data.deliveryMode)
+      return Response.json(detail(['agent-b']))
+    }) as typeof fetch
+  })
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+  const run = async (
+    data: ConversationDetail,
+    draft: string,
+    setup?: (model: InstanceType<typeof ChatModel>) => void,
+    override?: 'steer' | 'queue'
+  ) => {
+    const model = new ChatModel()
+    model.setFollowUpBehavior('steer')
+    model.draft.value = draft
+    setup?.(model)
+    let current!: ReturnType<typeof useChatCommands>
+    function Subject() {
+      current = useChatCommands({
+        model,
+        drafts: new ChatDrafts(),
+        conversationID: data.conversation.id,
+        data,
+        agentUID: 'agent-b',
+        agentsError: false,
+        callableAgentUIDs: ['agent-a', 'agent-b'],
+        refresh: async () => data
+      })
+      return null
+    }
+    renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <Subject />
+      </QueryClientProvider>
+    )
+    await new Promise<void>(resolve => {
+      const unsubscribe = client.getMutationCache().subscribe(event => {
+        if (event.type === 'updated' && ['success', 'error'].includes(event.mutation.state.status)) {
+          unsubscribe()
+          resolve()
+        }
+      })
+      current.submit(override)
+    })
+    return current
+  }
+
+  try {
+    const idleRoom = detail(['agent-a'])
+    idleRoom.conversation.roomMode = 'dm'
+    idleRoom.pendingQueues[1]!.workStatus = { state: 'idle', retryAt: null }
+    await run(idleRoom, 'Start fresh turn', model => model.setFollowUpBehavior('queue'))
+    expect(deliveries.at(-1)).toBe('steer')
+
+    const activeRoom = detail(['agent-b'])
+    activeRoom.conversation.roomMode = 'dm'
+    await run(activeRoom, 'Steer active turn')
+    expect(deliveries.at(-1)).toBe('steer')
+
+    await run(activeRoom, 'Explicit alternate queue', undefined, 'queue')
+    expect(deliveries.at(-1)).toBe('queue')
+
+    await run(activeRoom, 'Configured queue default', model => model.setFollowUpBehavior('queue'))
+    expect(deliveries.at(-1)).toBe('queue')
+
+    client.setQueryData([...modelSelectionKey(activeRoom.conversation.id), 'agent-b'], {
+      profile: 'reasoning',
+      activeProfile: 'primary'
+    })
+    const mismatched = await run(activeRoom, 'Profile changed mid-turn', model => model.setFollowUpBehavior('steer'))
+    expect(mismatched.canSteerTarget).toBe(false)
+    expect(mismatched.deliveryModes).toEqual({ primary: 'queue' })
+    expect(deliveries.at(-1)).toBe('queue')
+  } finally {
+    new ChatModel().setFollowUpBehavior('steer')
+    podClient.setConfig(original)
+    client.clear()
+  }
+})
+
+test('takeBackLastQueued pops the latest viewer queue item and QueuedStrip hides steer-only queues', async () => {
+  const original = podClient.getConfig()
+  const retracted: string[] = []
+  const data = detail(['agent-b'])
+  data.conversation.roomMode = 'dm'
+  data.messages.push(
+    { ...data.messages[0]!, id: 'steered-1', seq: 4, text: 'Steer now' },
+    { ...data.messages[0]!, id: 'queued-1', seq: 5, text: 'Queued first' },
+    { ...data.messages[0]!, id: 'queued-2', seq: 6, text: 'Queued second' }
+  )
+  data.pendingQueues[1]!.inputs = [
+    {
+      messageID: 'steered-1',
+      agentUID: 'agent-b',
+      authorUID: 'person',
+      text: 'Steer now',
+      deliveryMode: 'steer',
+      modelProfile: 'primary',
+      mentions: [],
+      links: [],
+      attachments: []
+    },
+    {
+      messageID: 'queued-1',
+      agentUID: 'agent-b',
+      authorUID: 'person',
+      text: 'Queued first',
+      deliveryMode: 'queue',
+      modelProfile: 'primary',
+      mentions: [],
+      links: [],
+      attachments: []
+    },
+    {
+      messageID: 'queued-2',
+      agentUID: 'agent-b',
+      authorUID: 'person',
+      text: 'Queued second',
+      deliveryMode: 'queue',
+      modelProfile: 'primary',
+      mentions: [],
+      links: [],
+      attachments: []
+    }
+  ]
+  podClient.setConfig({
+    baseUrl: 'https://ankole.test',
+    fetch: (async (input: RequestInfo | URL) => {
+      const request = input as Request
+      const body = await request.json()
+      retracted.push(body.data.messageID)
+      return Response.json(data)
+    }) as typeof fetch
+  })
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+  const model = new ChatModel()
+  let current!: ReturnType<typeof useChatCommands>
+  function Subject() {
+    current = useChatCommands({
+      model,
+      drafts: new ChatDrafts(),
+      conversationID: data.conversation.id,
+      data,
+      agentUID: 'agent-b',
+      agentsError: false,
+      callableAgentUIDs: ['agent-b'],
+      refresh: async () => data
+    })
+    return null
+  }
+  try {
+    renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <Subject />
+      </QueryClientProvider>
+    )
+    const stripHtml = renderToStaticMarkup(
+      <QueuedStrip
+        detail={data}
+        disabled={false}
+        editing={true}
+        editingMessageID="queued-1"
+        callableAgentUIDs={['agent-b']}
+        change={() => {}}
+        edit={() => {}}
+        takeBack={() => {}}
+      />
+    )
+    expect(stripHtml).toContain('Queued first')
+    expect(stripHtml).toContain('Queued second')
+    expect(stripHtml).not.toContain('Steer now')
+    expect(stripHtml).toContain('(2)')
+    expect(stripHtml).toContain('data-editing="true"')
+    expect(stripHtml).toContain('pod-chat-queue-hint')
+    expect(stripHtml).toContain('Steer')
+
+    data.pendingQueues[1]!.paused = true
+    data.pendingQueues[1]!.workStatus = { state: 'idle', retryAt: null }
+    const pausedIdleHtml = renderToStaticMarkup(
+      <QueuedStrip
+        detail={data}
+        disabled={false}
+        editing={false}
+        callableAgentUIDs={['agent-b']}
+        change={() => {}}
+        edit={() => {}}
+        takeBack={() => {}}
+      />
+    )
+    expect(pausedIdleHtml).not.toContain('pod-chat-queue-hint')
+    expect(pausedIdleHtml).toContain('Send')
+    data.pendingQueues[1]!.paused = false
+    data.pendingQueues[1]!.workStatus = { state: 'running', retryAt: null }
+
+    await new Promise<void>(resolve => {
+      const unsubscribe = client.getMutationCache().subscribe(event => {
+        if (event.type === 'updated' && ['success', 'error'].includes(event.mutation.state.status)) {
+          unsubscribe()
+          resolve()
+        }
+      })
+      expect(current.takeBackLastQueued()).toBe(true)
+    })
+    expect(retracted).toEqual(['queued-2'])
+    expect(model.draft.value).toBe('Queued second')
+
+    data.pendingQueues[1]!.inputs = data.pendingQueues[1]!.inputs.slice(0, 1)
+    data.pendingQueues[1]!.paused = true
+    expect(
+      renderToStaticMarkup(
+        <QueuedStrip
+          detail={data}
+          disabled={false}
+          editing={false}
+          callableAgentUIDs={['agent-b']}
+          change={() => {}}
+          edit={() => {}}
+          takeBack={() => {}}
+        />
+      )
+    ).toBe('')
+  } finally {
+    podClient.setConfig(original)
+    client.clear()
+  }
+})
+
+test('submitEdit accepts unchanged text for branch re-runs and invokes onInlineEditSettled only for edit_last', async () => {
+  const original = podClient.getConfig()
+  const actions: string[] = []
+  const data = detail(['agent-a'])
+  data.pendingQueues[1]!.workStatus = { state: 'idle', retryAt: null }
+  podClient.setConfig({
+    baseUrl: 'https://ankole.test',
+    fetch: (async (input: RequestInfo | URL) => {
+      const request = input as Request
+      const body = await request.json()
+      actions.push(`${body.data.action}:${body.data.text}`)
+      return Response.json(data)
+    }) as typeof fetch
+  })
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+  const model = new ChatModel()
+  let settledCount = 0
+  let current!: ReturnType<typeof useChatCommands>
+  function Subject() {
+    current = useChatCommands({
+      model,
+      drafts: new ChatDrafts(),
+      conversationID: data.conversation.id,
+      data,
+      agentUID: 'agent-a',
+      agentsError: false,
+      callableAgentUIDs: ['agent-a', 'agent-b'],
+      refresh: async () => data,
+      onInlineEditSettled: () => {
+        settledCount += 1
+      }
+    })
+    return null
+  }
+  const renderSubject = () =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <Subject />
+      </QueryClientProvider>
+    )
+
+  try {
+    renderSubject()
+    current.messageActions!.edit!(data.messages[0]!)
+    renderSubject()
+    // Unchanged text remains submittable so users can branch/re-run from an earlier message like Codex.
+    expect(model.editDraft.value).toBe(data.messages[0]!.text)
+    expect(current.canSubmitEdit).toBe(true)
+
+    await new Promise<void>(resolve => {
+      const unsubscribe = client.getMutationCache().subscribe(event => {
+        if (event.type === 'updated' && ['success', 'error'].includes(event.mutation.state.status)) {
+          unsubscribe()
+          resolve()
+        }
+      })
+      current.submitEdit()
+    })
+    expect(actions).toEqual([`edit_last:${data.messages[0]!.text}`])
+    expect(settledCount).toBe(1)
+    expect(model.editing.value).toBeUndefined()
+
+    // Editing a pending queue item via Composer does not trigger onInlineEditSettled.
+    const queuedInput = {
+      messageID: 'queued-only',
+      agentUID: 'agent-a',
+      authorUID: 'person',
+      text: 'Queued item',
+      deliveryMode: 'queue' as const,
+      modelProfile: 'primary',
+      mentions: [],
+      links: [],
+      attachments: []
+    }
+    data.pendingQueues[0]!.inputs = [queuedInput]
+    renderSubject()
+    current.editQueued(queuedInput, 'agent-a')
+    model.draft.value = 'Updated queued item'
+    renderSubject()
+
+    await new Promise<void>(resolve => {
+      const unsubscribe = client.getMutationCache().subscribe(event => {
+        if (event.type === 'updated' && ['success', 'error'].includes(event.mutation.state.status)) {
+          unsubscribe()
+          resolve()
+        }
+      })
+      current.submit()
+    })
+    expect(actions).toEqual([`edit_last:${data.messages[0]!.text}`, 'edit:Updated queued item'])
+    expect(settledCount).toBe(1)
+  } finally {
+    podClient.setConfig(original)
+    client.clear()
+  }
 })

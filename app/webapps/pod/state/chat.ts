@@ -73,9 +73,40 @@ export function hasDraftMention(text: string, displayName: string) {
 
 export type ChatPresentation = 'page' | 'standalone'
 export type ChatReadingPosition = { atBottom: true } | { atBottom: false; messageID: string; offset: number }
+export type FollowUpBehavior = 'steer' | 'queue'
 export type DisplayMessage =
   | { type: 'committed'; message: ConversationMessage; queued?: boolean }
   | { type: 'pending'; message: PendingMessage }
+
+const FOLLOW_UP_BEHAVIOR_KEY = 'ankole.pod.chat.followUpBehavior'
+
+function readFollowUpBehavior(): FollowUpBehavior {
+  try {
+    return globalThis.localStorage?.getItem(FOLLOW_UP_BEHAVIOR_KEY) === 'queue' ? 'queue' : 'steer'
+  } catch {
+    return 'steer'
+  }
+}
+
+const followUpBehaviorPreference = signal<FollowUpBehavior>(readFollowUpBehavior())
+
+export function queuedInputs(queue: Pick<ConversationDetail['pendingQueues'][number], 'inputs'>) {
+  return queue.inputs.filter(input => input.deliveryMode === 'queue')
+}
+
+export function resolveFollowUpDeliveryModes(input: {
+  working: boolean
+  paused: boolean
+  canSteer: boolean
+  followUpBehavior: FollowUpBehavior
+}): { primary: FollowUpBehavior; alternate?: FollowUpBehavior } {
+  if (!input.working) {
+    return input.paused ? { primary: 'steer', alternate: 'queue' } : { primary: 'steer' }
+  }
+  if (!input.canSteer) return { primary: 'queue' }
+  const primary = input.followUpBehavior
+  return { primary, alternate: primary === 'steer' ? 'queue' : 'steer' }
+}
 
 export function chatRecipientAvailable(
   targetUID: string,
@@ -114,7 +145,7 @@ export function mergeMessages(
   queues: ConversationDetail['pendingQueues'] = [],
   humanCount = 1
 ): DisplayMessage[] {
-  const queued = new Set(queues.flatMap(queue => queue.inputs.map(input => input.messageID)))
+  const queued = new Set(queues.flatMap(queue => queuedInputs(queue).map(input => input.messageID)))
   const latestReply = committed.findLast(message => message.authorType === 'agent' && message.kind === 'message')
   const result: DisplayMessage[] = committed.flatMap(message => {
     if (message.authorType !== 'human' || !queued.has(message.id)) return [{ type: 'committed' as const, message }]
@@ -174,13 +205,27 @@ function createChat() {
   const reading = signal<Partial<Record<ChatPresentation, ChatReadingPosition>>>({})
   const modelProfile = signal<string | null>(null)
   const editing = signal<ChatEditing>()
+  const editDraft = signal('')
+  const editLinks = signal<ChatLinks>([])
+  const backtrackMessageID = signal<string>()
   const selectingMessages = signal(false)
   const selectedMessageIDs = signal<string[]>([])
   let stopCommandID: string | undefined
   const hasText = computed(() => draft.value.trim().length > 0)
+  const hasEditText = computed(() => editDraft.value.trim().length > 0)
   const hasContent = computed(() => hasText.value || attachments.hasFiles.value)
   const quoted = computed(() => links.value.find(link => link.quote != null))
+  const editQuoted = computed(() => editLinks.value.find(link => link.quote != null))
   const selectedMessageCount = computed(() => selectedMessageIDs.value.length)
+  let previousMentionedAgentUIDs: string[] = []
+  const mentionedAgentUIDs = computed(() => {
+    const next = mentions.value
+      .filter(mention => mention.type === 'agent' && hasDraftMention(draft.value, mention.displayName))
+      .map(mention => mention.uid)
+    if (equal(previousMentionedAgentUIDs, next)) return previousMentionedAgentUIDs
+    previousMentionedAgentUIDs = next
+    return next
+  })
   const clearCapturedDraft = (capture: Pick<MessageSubmission, 'text' | 'links' | 'mentions'>) => {
     if (
       draft.peek() !== capture.text ||
@@ -195,11 +240,17 @@ function createChat() {
   }
 
   const cancelEdit = () => {
-    if (!editing.value) return
+    const current = editing.peek()
+    if (!current) return
     batch(() => {
-      draft.value = editing.value!.previousDraft
-      links.value = editing.value!.previousLinks
-      answeringInteractionID.value = editing.value!.previousAnsweringInteractionID
+      if (current.kind === 'last') {
+        editDraft.value = ''
+        editLinks.value = []
+      } else {
+        draft.value = current.previousDraft
+        links.value = current.previousLinks
+        answeringInteractionID.value = current.previousAnsweringInteractionID
+      }
       editing.value = undefined
     })
   }
@@ -233,13 +284,29 @@ function createChat() {
     reading,
     modelProfile,
     editing,
+    editDraft,
+    editLinks,
+    editQuoted,
+    hasEditText,
+    backtrackMessageID,
     selectingMessages,
     selectedMessageIDs,
     selectedMessageCount,
+    mentionedAgentUIDs,
     hasText,
     hasContent,
+    followUpBehavior: followUpBehaviorPreference,
+    setFollowUpBehavior(mode: FollowUpBehavior) {
+      followUpBehaviorPreference.value = mode
+      try {
+        globalThis.localStorage?.setItem(FOLLOW_UP_BEHAVIOR_KEY, mode)
+      } catch {
+        // Ephemeral browser contexts keep the in-memory preference for this session.
+      }
+    },
     startSelectingMessages(initialMessageID?: string) {
       batch(() => {
+        backtrackMessageID.value = undefined
         selectingMessages.value = true
         if (initialMessageID && !selectedMessageIDs.peek().includes(initialMessageID)) {
           selectedMessageIDs.value = [...selectedMessageIDs.peek(), initialMessageID]
@@ -259,11 +326,32 @@ function createChat() {
       batch(() => {
         selectingMessages.value = false
         selectedMessageIDs.value = []
+        backtrackMessageID.value = undefined
       })
     },
+    startBacktrack(messageID: string) {
+      backtrackMessageID.value = messageID
+    },
+    stepBacktrack(orderedIDs: string[], delta: -1 | 1): string | undefined {
+      if (orderedIDs.length === 0) {
+        backtrackMessageID.value = undefined
+        return undefined
+      }
+      const currentID = backtrackMessageID.peek()
+      const currentIndex = currentID ? orderedIDs.indexOf(currentID) : -1
+      const nextIndex =
+        currentIndex === -1 ? orderedIDs.length - 1 : Math.max(0, Math.min(orderedIDs.length - 1, currentIndex + delta))
+      const nextID = orderedIDs[nextIndex]
+      backtrackMessageID.value = nextID
+      return nextID
+    },
+    clearBacktrack() {
+      if (backtrackMessageID.peek() !== undefined) backtrackMessageID.value = undefined
+    },
     startAnswer(interactionID: string, text = '') {
-      if (editing.peek()) return false
+      if (editing.peek()?.kind === 'queue') return false
       batch(() => {
+        backtrackMessageID.value = undefined
         if (text) draft.value = draft.peek().trim() ? `${draft.peek()}\n\n${text}` : text
         answeringInteractionID.value = interactionID
       })
@@ -274,10 +362,19 @@ function createChat() {
     },
     /** Quote a message or a Page selection in the draft, in place of any passage it quoted before. */
     quote(link: { kind: 'message' | 'page'; id: string; quote: string }) {
-      links.value = addLinks(links.peek(), [link], 'replace')
+      batch(() => {
+        backtrackMessageID.value = undefined
+        links.value = addLinks(links.peek(), [link], 'replace')
+      })
     },
     referencePage(id: string) {
       links.value = addLinks(links.peek(), [{ kind: 'page', id }], 'keep')
+    },
+    referenceEditPage(id: string) {
+      editLinks.value = addLinks(editLinks.peek(), [{ kind: 'page', id }], 'keep')
+    },
+    removeEditQuote() {
+      editLinks.value = editLinks.peek().filter(link => link.quote == null)
     },
     rememberReading(presentation: ChatPresentation, position: ChatReadingPosition | undefined) {
       if (!gone.peek()) reading.value = { ...reading.peek(), [presentation]: position }
@@ -286,26 +383,49 @@ function createChat() {
       context: ChatEditSnapshot &
         Pick<ChatEditing, 'messageID' | 'queueVersion' | 'kind' | 'hasAttachments' | 'agentUID'>
     ) {
-      if (editing.peek()) return
+      const existing = editing.peek()
+      if (existing) {
+        if (existing.kind === 'queue' && context.kind === 'queue') return
+        if (existing.kind === 'last' && context.kind === 'last' && existing.messageID === context.messageID) return
+        cancelEdit()
+      }
       const { messageID, text, queueVersion, kind, hasAttachments, agentUID } = context
       batch(() => {
-        editing.value = {
-          ...(answeringInteractionID.peek() ? { previousAnsweringInteractionID: answeringInteractionID.peek() } : {}),
-          messageID,
-          previousDraft: draft.value,
-          previousLinks: links.value,
-          queueVersion,
-          kind,
-          originalText: text,
-          originalLinks: context.links,
-          originalMentions: context.mentions,
-          hasAttachments,
-          agentUID,
-          ...(kind === 'last' ? { commandID: uuidV4() } : {})
+        backtrackMessageID.value = undefined
+        if (kind === 'last') {
+          editing.value = {
+            messageID,
+            previousDraft: '',
+            previousLinks: [],
+            queueVersion,
+            kind,
+            originalText: text,
+            originalLinks: context.links,
+            originalMentions: context.mentions,
+            hasAttachments,
+            agentUID,
+            commandID: uuidV4()
+          }
+          editDraft.value = text
+          editLinks.value = context.links
+        } else {
+          editing.value = {
+            ...(answeringInteractionID.peek() ? { previousAnsweringInteractionID: answeringInteractionID.peek() } : {}),
+            messageID,
+            previousDraft: draft.value,
+            previousLinks: links.value,
+            queueVersion,
+            kind,
+            originalText: text,
+            originalLinks: context.links,
+            originalMentions: context.mentions,
+            hasAttachments,
+            agentUID
+          }
+          draft.value = text
+          answeringInteractionID.value = undefined
+          links.value = context.links
         }
-        draft.value = text
-        answeringInteractionID.value = undefined
-        links.value = context.links
       })
     },
     cancelEdit,
@@ -342,29 +462,63 @@ function createChat() {
           ...(useSaved && current.kind === 'last' ? { commandID: uuidV4() } : {})
         }
         if (useSaved) {
-          draft.value = saved.text
-          links.value = saved.links
+          if (current.kind === 'last') {
+            editDraft.value = saved.text
+            editLinks.value = saved.links
+          } else {
+            draft.value = saved.text
+            links.value = saved.links
+          }
         }
       })
       return true
     },
-    editSaved(messageID: string, text: string, savedLinks: ChatLinks = []) {
-      if (editing.value?.messageID === messageID && draft.value === text && equal(links.value, savedLinks)) {
+    editSaved(messageID: string, text: string, savedLinks: ChatLinks = [], idleAgentUIDs: string[] = []) {
+      const current = editing.peek()
+      if (!current || current.messageID !== messageID) return false
+      const currentDraft = current.kind === 'last' ? editDraft.peek() : draft.peek()
+      const currentLinks = current.kind === 'last' ? editLinks.peek() : links.peek()
+      if (currentDraft !== text || !equal(currentLinks, savedLinks)) return false
+      batch(() => {
+        if (current.kind === 'last') {
+          const clearedUIDs = new Set([current.agentUID, ...idleAgentUIDs])
+          const currentStreams = liveStreams.peek()
+          if (Object.keys(currentStreams).some(uid => clearedUIDs.has(uid))) {
+            const nextStreams = { ...currentStreams }
+            for (const uid of clearedUIDs) delete nextStreams[uid]
+            liveStreams.value = nextStreams
+          }
+          const currentActivities = activities.peek()
+          let activitiesChanged = false
+          const nextActivities = { ...currentActivities }
+          for (const uid of clearedUIDs) {
+            observedAt[uid] = ++activityObservation
+            latestActivities.delete(uid)
+            if (nextActivities[uid]?.state === 'active') {
+              delete nextActivities[uid]
+              activitiesChanged = true
+            }
+          }
+          if (activitiesChanged) activities.value = nextActivities
+        }
         cancelEdit()
-      }
+      })
+      return true
     },
     editCommand(): ConversationQueueRequest | undefined {
       const current = editing.value
       if (!current) return
+      const currentDraft = current.kind === 'last' ? editDraft.value : draft.value
+      const currentLinks = current.kind === 'last' ? editLinks.value : links.value
       return {
         action: current.kind === 'last' ? 'edit_last' : 'edit',
         agentUID: current.agentUID,
         messageID: current.messageID,
-        text: draft.value,
-        links: links.value,
+        text: currentDraft,
+        links: currentLinks,
         mentions: current.originalMentions.filter(
           mention =>
-            mention.type === 'agent' || !mention.displayName || hasDraftMention(draft.value, mention.displayName)
+            mention.type === 'agent' || !mention.displayName || hasDraftMention(currentDraft, mention.displayName)
         ),
         expectedVersion: current.queueVersion,
         ...(current.kind === 'last'
@@ -384,7 +538,12 @@ function createChat() {
     controlAccepted() {
       stopCommandID = undefined
     },
-    submit(conversationID: string | undefined, agentUID: string, nextID: () => string): MessageSubmission {
+    submit(
+      conversationID: string | undefined,
+      agentUID: string,
+      nextID: () => string,
+      deliveryMode: FollowUpBehavior = 'steer'
+    ): MessageSubmission {
       const text = draft.value
       const previous = pending.value
       const capture = attachments.capture()
@@ -392,7 +551,7 @@ function createChat() {
         previous &&
         previous.text === text &&
         previous.agentUID === agentUID &&
-        previous.deliveryMode === 'queue' &&
+        previous.deliveryMode === deliveryMode &&
         previous.modelProfile === modelProfile.value &&
         previous.targetAgentUID === (targetAgentUID.value || undefined) &&
         equal(previous.mentions ?? [], mentions.value) &&
@@ -404,7 +563,7 @@ function createChat() {
               messageID: nextID(),
               agentUID,
               text,
-              deliveryMode: 'queue' as const,
+              deliveryMode,
               modelProfile: modelProfile.value,
               targetAgentUID: targetAgentUID.value || undefined,
               mentions: mentions.value,
@@ -450,7 +609,10 @@ function createChat() {
         if (answeringInteractionID.peek() === interactionID) answeringInteractionID.value = undefined
       })
     },
-    reconcile(messages: ConversationMessage[]) {
+    reconcile(
+      messages: ConversationMessage[],
+      pendingInteractions?: Pick<ConversationDetail['pendingInteractions'][number], 'interaction_id' | 'state'>[]
+    ) {
       batch(() => {
         const current = pending.value
         if (current && messages.some(message => message.id === current.messageID)) {
@@ -459,6 +621,48 @@ function createChat() {
           pending.value = undefined
           clearCapturedDraft(current)
           error.value = undefined
+        }
+        if (pendingInteractions !== undefined) {
+          const activeAnswerID = answeringInteractionID.peek()
+          if (
+            activeAnswerID &&
+            !pendingInteractions.some(item => item.interaction_id === activeAnswerID && item.state === 'pending')
+          ) {
+            answeringInteractionID.value = undefined
+          }
+          const currentEdit = editing.peek()
+          if (
+            currentEdit?.previousAnsweringInteractionID &&
+            !pendingInteractions.some(
+              item => item.interaction_id === currentEdit.previousAnsweringInteractionID && item.state === 'pending'
+            )
+          ) {
+            editing.value = { ...currentEdit, previousAnsweringInteractionID: undefined }
+          }
+        }
+        const activeInlineEdit = editing.peek()
+        if (activeInlineEdit?.kind === 'last' && !messages.some(message => message.id === activeInlineEdit.messageID)) {
+          const modifiedText = editDraft.peek()
+          const modifiedLinks = editLinks.peek()
+          if (
+            modifiedText.trim() !== '' &&
+            (modifiedText !== activeInlineEdit.originalText || !equal(modifiedLinks, activeInlineEdit.originalLinks))
+          ) {
+            draft.value = draft.peek().trim() ? `${draft.peek()}\n\n${modifiedText}` : modifiedText
+            links.value = addLinks(links.peek(), modifiedLinks, 'keep')
+          }
+          cancelEdit()
+        }
+        const activeBacktrackID = backtrackMessageID.peek()
+        if (activeBacktrackID && !messages.some(message => message.id === activeBacktrackID)) {
+          backtrackMessageID.value = undefined
+        }
+        const currentSelected = selectedMessageIDs.peek()
+        if (currentSelected.length > 0) {
+          const loadedIDs = new Set(messages.map(message => message.id))
+          if (currentSelected.some(id => !loadedIDs.has(id))) {
+            selectedMessageIDs.value = currentSelected.filter(id => loadedIDs.has(id))
+          }
         }
         liveStreams.value = Object.fromEntries(
           Object.entries(liveStreams.value).filter(([, stream]) => !replyCommitted(messages, stream))
@@ -571,6 +775,7 @@ function createChat() {
         connecting.value = false
         selectingMessages.value = false
         selectedMessageIDs.value = []
+        backtrackMessageID.value = undefined
       })
     },
     disconnected() {

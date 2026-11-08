@@ -34,14 +34,49 @@ defmodule Ankole.AIGateway.CompactionRetentionTest do
     assert get_in(truncated, ["content", Access.at(0), "text"]) =~ "tokens elided"
   end
 
-  test "keeps image-only user items with one token cost" do
-    image = %{
+  test "replaces user image parts with bounded text placeholders and strips inline data URLs" do
+    external_image = %{
       "type" => "message",
       "role" => "user",
       "content" => [%{"type" => "input_image", "image_url" => "https://files.test/a.png"}]
     }
 
-    assert {[image], 1} == CompactionRetention.collect_user_originals([image], 1)
+    placeholder = "[input_image omitted: image_url=https://files.test/a.png]"
+    expected_cost = max(div(byte_size(placeholder), 4), 1)
+
+    assert {[
+              %{
+                "type" => "message",
+                "role" => "user",
+                "content" => [%{"type" => "input_text", "text" => ^placeholder}]
+              }
+            ], ^expected_cost} =
+             CompactionRetention.collect_user_originals([external_image], 100)
+
+    worker_screenshot = %{
+      "role" => "user",
+      "content" => [
+        %{"type" => "input_text", "text" => "Browser screenshot captured"},
+        %{
+          "type" => "input_image",
+          "image_url" => "data:image/webp;base64," <> String.duplicate("QUJD", 20_000)
+        }
+      ]
+    }
+
+    assert {[sanitized], used_tokens} =
+             CompactionRetention.collect_user_originals([worker_screenshot], 100)
+
+    assert sanitized == %{
+             "role" => "user",
+             "content" => [
+               %{"type" => "input_text", "text" => "Browser screenshot captured"},
+               %{"type" => "input_text", "text" => "[input_image omitted]"}
+             ]
+           }
+
+    assert used_tokens < 20
+    refute Ankole.JSON.encode!(sanitized) =~ "data:image/webp"
   end
 
   test "filters non-user roles" do
