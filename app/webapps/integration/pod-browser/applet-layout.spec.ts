@@ -91,7 +91,7 @@ test('full-page and embedded applets give padded 100vh content and UIKit Portals
   }
 })
 
-test('the Applet Page header shows the running Applet on the whole screen and returns it to the workspace', async ({
+test('the Applet Page menu shows the running Applet on the whole screen and returns it to the workspace', async ({
   browser
 }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
@@ -117,7 +117,8 @@ test('the Applet Page header shows the running Applet on the whole screen and re
         }
       })
 
-    await page.getByRole('button', { name: '全屏显示', exact: true }).click()
+    await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    await page.getByRole('menuitem', { name: '全屏显示', exact: true }).click()
     await expect.poll(async () => (await sizes()).fullScreen).toBe(true)
     await expect
       .poll(async () => {

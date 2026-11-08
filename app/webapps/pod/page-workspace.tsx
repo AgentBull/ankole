@@ -633,6 +633,7 @@ function PageWorkspace({
                   comments ? closeComments(details.event) : openComments(focusedComment, [], details.event)
                 }>
                 <RiChatQuoteLine aria-hidden />
+                <span className="@max-[640px]:sr-only">{t('pod.document.comments')}</span>
                 {!!commentSummary.data?.unread_count && (
                   <span role="status" className="tabular-nums" aria-label={t('pod.document.unread_comments')}>
                     {commentSummary.data.unread_count}
@@ -645,16 +646,6 @@ function PageWorkspace({
               <Suspense fallback={null}>
                 <AppletAutomationControl detail={contentDetail} />
               </Suspense>
-            )}
-            {!accessDenied && !trashed && page.type === 'applet' && document.fullscreenEnabled && (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={t('pod.content.applet_full_screen')}
-                title={t('pod.content.applet_full_screen')}
-                onClick={() => void pageColumn.current?.querySelector('[data-applet-stage]')?.requestFullscreen()}>
-                <RiFullscreenLine aria-hidden className="size-4" />
-              </Button>
             )}
             {commentsAvailable && isMobile && !comments && focusedComment && (
               <Button variant="ghost" size="xs" onClick={() => openComments(focusedComment)}>
@@ -689,6 +680,13 @@ function PageWorkspace({
                 <RiMoreFill aria-hidden className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-60">
+                {!accessDenied && !trashed && page.type === 'applet' && document.fullscreenEnabled && (
+                  <DropdownMenuItem
+                    onClick={() => void pageColumn.current?.querySelector('[data-applet-stage]')?.requestFullscreen()}>
+                    <RiFullscreenLine aria-hidden />
+                    {t('pod.content.applet_full_screen')}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => void copyLink()}>
                   <RiFileCopyLine aria-hidden />
                   {t('pod.content.copy_link')}

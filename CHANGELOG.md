@@ -8,6 +8,10 @@
   blank window, and a slow navigation no longer keeps the previous page on
   screen as if the click did nothing. A Plugin's Console route now declares a
   `load` function that imports its page, in place of a lazy `Component`.
+- Find an Applet Page's full-screen command in the Page's ⋯ menu instead of as
+  an unlabeled icon in the header. The comments button in a Page header now
+  reads "Comments" next to its icon, like the assistant, learning, and
+  automation buttons; a narrow header still shows only the icons.
 
 ## Version 2.0.0-alpha.86 (2026-11-08)
 
