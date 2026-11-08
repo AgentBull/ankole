@@ -6,7 +6,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from '../common/router'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { SkillPackage, SelectedFile, DeleteSkillDialog } from './meta-skill-files'
 import { MetaDocument } from './meta-document'
 import { SkillBindings } from './meta-skill-bindings'
@@ -190,7 +190,7 @@ function SkillDetail({ slug }: { slug: string }) {
     }
   })
   if (skill.error) return <ContentError error={skill.error} retry={() => void skill.refetch()} />
-  if (!skill.data) return <p className="p-6">{t('common.loading')}</p>
+  if (!skill.data) return <ContentSkeleton variant="page" />
   const row = skill.data.skill
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 p-6">

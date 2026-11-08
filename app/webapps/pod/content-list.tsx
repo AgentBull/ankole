@@ -40,7 +40,7 @@ import {
   type PageSearchSort,
   type PageType
 } from './content-api'
-import { ContentError, scopeLabels, typeLabels } from './content-primitives'
+import { ContentError, scopeLabels, typeLabels, ContentSkeleton } from './content-primitives'
 import { PermanentDeletePageDialog, usePagePurge } from './page-actions'
 import { CreatePageButton } from './page-create-menu'
 import { PageIcon } from './page-icon'
@@ -401,7 +401,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
         }}
       />
       {pages.isPending || (debouncing && !rows?.length) ? (
-        <p role="status">{t('pod.content.loading')}</p>
+        <ContentSkeleton variant="list" rows={6} />
       ) : (
         <ul className="space-y-1">
           {rows?.map(page => (
@@ -516,7 +516,7 @@ function RecentContentList() {
           void destinations.refetch()
         }}
       />
-      {pending && !entries.length && <p role="status">{t('pod.content.loading')}</p>}
+      {pending && !entries.length && <ContentSkeleton variant="list" rows={6} />}
       <ul className="space-y-1">
         {entries.map(entry => {
           if (entry.kind === 'page') {

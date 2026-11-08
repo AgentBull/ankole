@@ -7,7 +7,7 @@ import { Link } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from '../common/router'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { DraftNavigationGuard } from './draft-navigation-guard'
 import { DocumentDraftModel } from './state/document-draft'
 import {
@@ -278,7 +278,7 @@ export function SelectedFile({ skill }: { skill: MetaSkill }) {
       </div>
       {query.error && <ContentError error={query.error} retry={() => void query.refetch()} />}
       {download.error && <ContentError error={download.error} />}
-      {query.isPending && <p>{t('common.loading')}</p>}
+      {query.isPending && <ContentSkeleton variant="text" />}
       {query.data &&
         (text === null ? (
           <p className="text-sm text-fg-secondary">{t('pod.meta.binary_file')}</p>

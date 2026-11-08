@@ -8,7 +8,7 @@ import { actionCardQuery, chatError, podKeys, type StandaloneActionCard } from '
 import { resolvePodActionCard } from '../api/generated/sdk.gen'
 import { contentKeys } from '../content-api'
 import { contentError } from '../content-errors'
-import { ContentError } from '../content-primitives'
+import { ContentError, ContentSkeleton } from '../content-primitives'
 import { refreshConversationQueries } from '../query-cache'
 import { ActionCardView } from './action-card-view'
 import type { ActionCardDecision } from './room-api'
@@ -51,9 +51,7 @@ export function StandaloneActionCardDialog({ cardID, onClose }: { cardID: string
         <DialogTitle>{t('pod.chat_action_card.dialog_title', { defaultValue: 'Action approval' })}</DialogTitle>
         <div className="pod-dialog-body grid gap-3">
           {query.isPending ? (
-            <p role="status" className="text-sm text-fg-secondary">
-              {t('pod.content.loading')}
-            </p>
+            <ContentSkeleton variant="list" rows={3} />
           ) : query.isError ? (
             <ContentError error={query.error} retry={() => void query.refetch()} />
           ) : card ? (

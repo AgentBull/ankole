@@ -8,7 +8,7 @@ import type { ConversationMessage } from './api'
 import { podKeys, type ConversationAttachment } from './api'
 import { limitPageTitle, pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
 import { pageCreated } from './state/navigation-cache'
-import { ContentError } from './content-primitives'
+import { ContentError, InlineLoading } from './content-primitives'
 import { PagePicker } from './page-picker'
 import { MessageAttachments } from './chat-attachments'
 import { PageIcon } from './page-icon'
@@ -200,7 +200,7 @@ function SaveAttachmentButton({
                 : destinations.find(page => page.id === parent)?.title || t('pod.content.untitled')}
           </p>
         )}
-        {pages.isPending && <p role="status">{t('pod.content.loading_save_locations')}</p>}
+        {pages.isPending && <InlineLoading label={t('pod.content.loading_save_locations')} />}
         <ContentError error={pages.error || save.error} retry={pages.error ? () => void pages.refetch() : undefined} />
         <DialogFooter>
           <Button variant="ghost" type="button" disabled={save.isPending} onClick={() => setOpen(false)}>

@@ -6,7 +6,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podPagePath } from '../common/pod-url'
 import { contentKeys, fileURL } from './content-api'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { createMentionHostAdapters } from './document-mentions'
 import { PageIcon } from './page-icon'
 import { loadDocumentReferences } from './state/document-export'
@@ -157,7 +157,7 @@ function DocumentVersion({ pageID, version, editorKey }: Props) {
     }),
     [client, i18n, pageID, references.data, t]
   )
-  if (references.isPending) return <p role="status">{t('pod.content.loading')}</p>
+  if (references.isPending) return <ContentSkeleton variant="text" immediate />
   if (references.error) return <ContentError error={references.error} retry={() => void references.refetch()} />
   return (
     <>

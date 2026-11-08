@@ -10,7 +10,7 @@ import { podSpreadsheet } from '../api/generated/sdk.gen'
 import { contentKeys, fileURL, type PageDetail } from '../content-api'
 import { useContent } from '../content-context'
 import { contentError } from '../content-errors'
-import { ContentError } from '../content-primitives'
+import { ContentError, ContentSkeleton } from '../content-primitives'
 import {
   SpreadsheetModel,
   type SpreadsheetNotice,
@@ -159,7 +159,7 @@ export default function SpreadsheetPage({
       initialFind={initialFind}
     />
   ) : (
-    <p role="status">{t('pod.spreadsheet.loading')}</p>
+    <ContentSkeleton variant="table" label={t('pod.spreadsheet.loading')} immediate />
   )
 }
 
@@ -232,7 +232,7 @@ function SpreadsheetWorkspace({
   }
   if (status === 'error') return <ContentError error={model.error.value} retry={model.retry} />
   if (status === 'loading' && !model.sheets.value.length) {
-    return <p role="status">{t('pod.spreadsheet.loading')}</p>
+    return <ContentSkeleton variant="table" label={t('pod.spreadsheet.loading')} immediate />
   }
   return (
     <div className="space-y-3">

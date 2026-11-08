@@ -71,7 +71,7 @@ import {
   type NavigationPage
 } from './content-api'
 import { contentError } from './content-errors'
-import { ContentError, scopeLabels } from './content-primitives'
+import { ContentError, scopeLabels, ContentSkeleton } from './content-primitives'
 import { CreatePageButton } from './page-create-menu'
 import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
 import { MovePageDialog } from './page-move-dialog'
@@ -393,9 +393,7 @@ function RecentNavigationSection({
       </div>
       {open &&
         (pending ? (
-          <p role="status" className="pod-tree-empty">
-            {t('pod.content.loading')}
-          </p>
+          <ContentSkeleton variant="list" rows={3} className="pod-tree-empty" />
         ) : entries.length > 0 ? (
           <ul className="pod-nav-places">
             {entries.map(entry => {
@@ -549,7 +547,7 @@ export function PageChildrenMenu({
           <PopoverTitle>{t('pod.content.child_pages')}</PopoverTitle>
           <ContentError error={children.error} retry={() => void children.refetch()} />
           {children.isPending ? (
-            <p role="status">{t('pod.content.loading')}</p>
+            <ContentSkeleton variant="list" rows={3} />
           ) : (
             pages.length > 0 && (
               <ul className="grid gap-1">
@@ -648,9 +646,7 @@ function NavigationTree({
       </div>
       {open &&
         (pages.isPending ? (
-          <p role="status" className="px-3 py-2">
-            {t('pod.content.loading')}
-          </p>
+          <ContentSkeleton variant="list" rows={2} className="px-3 py-2" />
         ) : pages.error ? (
           <ContentError error={pages.error} retry={() => void pages.refetch()} />
         ) : (

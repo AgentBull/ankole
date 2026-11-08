@@ -1,6 +1,16 @@
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { Button, cn, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
+import {
+  Button,
+  cn,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton
+} from '@ankole/uikit'
 import { contentError } from './content-errors'
 import { ErrorBlock } from '../common/error-block'
 import type { PageRole, PageScope, PageType } from './content-api'
@@ -106,26 +116,93 @@ export function Choice<T extends string>({
   )
 }
 
-/**
- * The loading status for a page or route; callers place it in their layout through `className`.
- * The status appears after a short delay so fast loads never flash it. A caller that continues an
- * earlier loading status passes `immediate`, which shows it at once so the indicator does not blink.
- */
-export function ContentLoading({
-  label,
-  className,
-  immediate = false
-}: {
+type LoadingProps = {
   label?: string
   className?: string
   immediate?: boolean
-}) {
+}
+
+/*
+ * The Pod picks a loading status by what the reader is waiting for. A region whose shape is known, such as a
+ * page, a list, or a table, shows a ContentSkeleton of that shape. A region whose content has no predictable
+ * shape, such as an applet or a file preview, shows a centered ContentLoading spinner. A picker, a menu, or a
+ * single line shows an InlineLoading spinner next to its text. A button busy with its own action swaps its
+ * icon for a spinning RiLoader4Line instead.
+ *
+ * Every status fades in after a short delay, so a load that finishes sooner never flashes it. A caller whose
+ * status directly follows an earlier one passes `immediate`, which shows it at once so the indicator does
+ * not disappear and come back. Callers place each status in their own layout through `className`.
+ */
+
+/** A centered spinner and label for a region whose content has no predictable shape. */
+export function ContentLoading({ label, className, immediate = false }: LoadingProps) {
   const { t } = useTranslation()
   return (
-    <p role="status" data-immediate={immediate || undefined} className={cn('pod-loading', className)}>
+    <p
+      role="status"
+      data-immediate={immediate || undefined}
+      className={cn('pod-loading flex min-h-32 items-center justify-center gap-2 text-sm', className)}>
       <span className="pod-chat-working-spinner" data-size="lg" aria-hidden />
       <span className="pod-chat-working-label">{label ?? t('pod.content.loading')}</span>
     </p>
+  )
+}
+
+const textSkeletonLines = ['w-full', 'w-11/12', 'w-4/5', 'w-full', 'w-3/5']
+
+/**
+ * Gray placeholders in the shape of the content that is loading: a `page` with its title, the `text` of a body
+ * whose title is already shown, a `list`, a `table`, or a `block` that fills the height its caller gives it.
+ * Screen readers hear the label, because the placeholders themselves carry no meaning.
+ */
+export function ContentSkeleton({
+  variant,
+  rows,
+  label,
+  className,
+  immediate = false
+}: LoadingProps & { variant: 'page' | 'text' | 'list' | 'table' | 'block'; rows?: number }) {
+  const { t } = useTranslation()
+  const count = rows ?? (variant === 'table' ? 6 : 4)
+  return (
+    <div
+      role="status"
+      data-immediate={immediate || undefined}
+      className={cn(
+        'pod-loading grid content-start gap-2',
+        variant === 'page' && 'mx-auto w-full max-w-[856px] gap-3 px-6 py-7 md:px-16 md:py-10',
+        variant === 'block' && 'flex h-48',
+        className
+      )}>
+      <span className="sr-only">{label ?? t('pod.content.loading')}</span>
+      {variant === 'page' && <Skeleton className="mb-5 h-10 w-2/5" />}
+      {(variant === 'page' || variant === 'text') &&
+        textSkeletonLines.map((width, index) => <Skeleton key={index} className={cn('h-4', width)} />)}
+      {variant === 'list' && Array.from({ length: count }, (_, index) => <Skeleton key={index} className="h-8" />)}
+      {variant === 'table' && (
+        <>
+          <Skeleton className="h-9" />
+          {Array.from({ length: count }, (_, index) => (
+            <Skeleton key={index} className="h-7" />
+          ))}
+        </>
+      )}
+      {variant === 'block' && <Skeleton className="w-full" />}
+    </div>
+  )
+}
+
+/** A small spinner beside its label, for a picker, a menu, a form field, or a single line of text. */
+export function InlineLoading({ label, className, immediate = false }: LoadingProps) {
+  const { t } = useTranslation()
+  return (
+    <span
+      role="status"
+      data-immediate={immediate || undefined}
+      className={cn('pod-loading inline-flex items-center gap-1.5 text-sm text-fg-tertiary', className)}>
+      <span className="pod-chat-working-spinner" aria-hidden />
+      {label ?? t('pod.content.loading')}
+    </span>
   )
 }
 

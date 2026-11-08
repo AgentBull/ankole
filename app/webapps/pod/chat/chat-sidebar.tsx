@@ -1,4 +1,5 @@
 import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
+import { ContentSkeleton } from '../content-primitives'
 import {
   Button,
   Input,
@@ -311,9 +312,7 @@ export function ChatSidebar() {
         placeholder={t('pod.superagent.filter')}
       />
       {rooms.isPending && (
-        <p role="status" className="pod-tree-empty">
-          {t('pod.chat.loading_history')}
-        </p>
+        <ContentSkeleton variant="list" rows={4} label={t('pod.chat.loading_history')} className="pod-tree-empty" />
       )}
       {(rooms.error || imRooms.error) && (
         <div className="p-2">

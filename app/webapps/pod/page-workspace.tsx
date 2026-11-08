@@ -78,7 +78,7 @@ import {
   type PageDetail
 } from './content-api'
 
-import { ContentError, ContentLoading } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { PageChildrenMenu } from './page-navigation'
 import { PageBreadcrumbs } from './page-breadcrumbs'
 import { DocumentSubpages } from './page-subpages'
@@ -149,7 +149,7 @@ export function PageRoute() {
     return (
       <section className="flex h-full min-h-0 flex-col">
         {navigation}
-        <ContentLoading label={t('pod.content.loading_page')} className="flex-1" />
+        <ContentSkeleton variant="page" label={t('pod.content.loading_page')} />
       </section>
     )
   }

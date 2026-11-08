@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { contentKeys, type PageRole } from './content-api'
 import { podSpace, podSpaceWrite, podSpaceAgentWrite, podSpaceAgentDelete, podSubjects } from './api/generated/sdk.gen'
 import type { PodSpaceResponse as Space } from './api/generated/types.gen'
-import { Choice, ContentError, roleLabels } from './content-primitives'
+import { Choice, ContentError, roleLabels, ContentSkeleton } from './content-primitives'
 
 type SpaceChange =
   | { type: 'role'; role: PageRole }
@@ -58,7 +58,7 @@ export function SpaceSettingsButton({ canManage }: { canManage: boolean }) {
         showCloseButton={!mutate.isPending}
         aria-busy={mutate.isPending}>
         <DialogTitle>{t('pod.content.space_settings')}</DialogTitle>
-        {open && space.isPending && <p role="status">{t('pod.content.loading')}</p>}
+        {open && space.isPending && <ContentSkeleton variant="list" rows={3} />}
         {open && space.error && <ContentError error={space.error} retry={() => void space.refetch()} />}
         {open && space.data && (
           <SpaceSettings space={space.data} close={() => setOpen(false)} mutate={mutate} commit={commit} />

@@ -10,7 +10,7 @@ import { BdiLabel } from '../common/bidi-file-name'
 import { ErrorBoundary } from '../common/error-boundary'
 import { cachedPages, pageAPI, pageQuery, pageSearchQuery, type Page } from './content-api'
 import { pageMoved } from './state/navigation-cache'
-import { ContentError } from './content-primitives'
+import { ContentError, InlineLoading } from './content-primitives'
 
 const PagePicker = lazy(() => import('./page-picker').then(module => ({ default: module.PagePicker })))
 
@@ -87,7 +87,7 @@ export function MovePageDialog({
         <DialogTitle>{t('pod.content.move_page')}</DialogTitle>
         <div className="pod-dialog-body grid gap-3">
           <ErrorBoundary variant="panel" resetKeys={[page.id]}>
-            <Suspense fallback={<p role="status">{t('pod.content.loading_destinations')}</p>}>
+            <Suspense fallback={<InlineLoading label={t('pod.content.loading_destinations')} />}>
               <PagePicker
                 label={t('pod.content.destination')}
                 excludeSubtreeOf={page.id}

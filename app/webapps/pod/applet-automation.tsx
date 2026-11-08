@@ -25,7 +25,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import type { ActionRun } from '@ankole/applet-sdk/types'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
-import { Choice as ChoiceControl, ContentError } from './content-primitives'
+import { Choice as ChoiceControl, ContentError, ContentSkeleton, InlineLoading } from './content-primitives'
 import { contentKeys, podRequest, type PageDetail } from './content-api'
 import * as api from './api/generated/sdk.gen'
 import { automationJobID, connectorFailureMessage, connectorReturnTo } from './state/connectors'
@@ -161,7 +161,7 @@ function Manager({ detail }: { detail: PageDetail }) {
           <ContentError error={change.error ?? list.error} />
         </div>
       )}
-      {list.isPending && <p>{t('common.loading')}</p>}
+      {list.isPending && <ContentSkeleton variant="list" rows={2} />}
       <div className="flex flex-wrap items-center gap-3">
         {!!list.data?.length && (
           <div className="min-w-48 flex-1">
@@ -203,8 +203,10 @@ function Manager({ detail }: { detail: PageDetail }) {
                 })
               }
             />
+          ) : actions.isPending ? (
+            <InlineLoading />
           ) : (
-            <p className="text-sm">{actions.isPending ? t('common.loading') : t('pod.automation.no_actions')}</p>
+            <p className="text-sm">{t('pod.automation.no_actions')}</p>
           )}
         </section>
       )}

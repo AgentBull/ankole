@@ -6,7 +6,7 @@ import { useDebouncedValue } from '../common/use-debounced-value'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { pageSearchQuery, type Page, type PageSearchOptions } from './content-api'
-import { ContentError } from './content-primitives'
+import { ContentError, InlineLoading } from './content-primitives'
 import { PageIcon } from './page-icon'
 import { pagePathAncestors } from './state/page-location'
 
@@ -81,7 +81,7 @@ export function PagePicker({
         autoFocus={autoFocus}
       />
       <CommandList label={label}>
-        <CommandEmpty>{searching ? t('pod.content.loading') : t('pod.content.no_matches')}</CommandEmpty>
+        <CommandEmpty>{searching ? <InlineLoading /> : t('pod.content.no_matches')}</CommandEmpty>
         {visibleRoots.length > 0 && (
           <CommandGroup>
             {visibleRoots.map(root => {

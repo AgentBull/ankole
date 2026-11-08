@@ -807,14 +807,9 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
     opacity: 0.45;
   }
 }
+/* Every Pod loading status fades in after a short delay, so a load that finishes sooner never shows it.
+   A status that continues an earlier one sets data-immediate and appears at once instead of blinking. */
 .pod-loading {
-  display: flex;
-  min-height: 8rem;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 0.875rem;
-  /* A load that finishes within the delay never shows the indicator, so fast page switches do not flash. */
   animation: pod-loading-in var(--duration-feedback) var(--ease-out) 300ms both;
 }
 .pod-loading[data-immediate] {

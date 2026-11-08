@@ -18,7 +18,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { FieldInputModel } from './state/field-input'
 import type { BaseField, Value } from '@ankole/applet-sdk/types'
 import { contentKeys, fileURL } from './content-api'
-import { Choice, ContentError } from './content-primitives'
+import { Choice, ContentError, InlineLoading } from './content-primitives'
 import { baseHTTP, baseSchemaQuery } from './base-api'
 import { uploadPageFile } from './page-files'
 import { podSubjects } from './api/generated/sdk.gen'
@@ -250,11 +250,7 @@ export function FieldInput({
             }}
           />
         </label>
-        {uploading && (
-          <span role="status" className="text-xs text-fg-tertiary">
-            {t('pod.content.uploading')}
-          </span>
-        )}
+        {uploading && <InlineLoading label={t('pod.content.uploading')} className="text-xs" immediate />}
         <ContentError error={error} />
       </div>
     )
@@ -431,7 +427,7 @@ function ReferencePicker({
         }}
       />
       <ContentError error={candidates.error} />
-      {(searching || candidates.isPending) && <p role="status">{t('pod.content.loading_options')}</p>}
+      {(searching || candidates.isPending) && <InlineLoading label={t('pod.content.loading_options')} />}
       {items?.length === 0 && <p className="text-sm text-fg-tertiary">{t('pod.content.no_matches')}</p>}
       {multiple ? (
         <ul className="min-h-0 max-h-[min(18rem,40dvh)] space-y-2 overflow-y-auto">

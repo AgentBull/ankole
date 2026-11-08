@@ -16,7 +16,7 @@ import { requestErrorMessage } from '../../common/request-errors'
 import { podSpreadsheetRestore, podSpreadsheetVersions } from '../api/generated/sdk.gen'
 import { contentKeys } from '../content-api'
 import { contentError } from '../content-errors'
-import { ContentError } from '../content-primitives'
+import { ContentError, ContentSkeleton } from '../content-primitives'
 
 /**
  * The version history of a spreadsheet page, newest first, with restore. Like document history, it
@@ -59,7 +59,7 @@ export function SpreadsheetVersions({ pageID }: { pageID: string }) {
         </DrawerHeader>
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           <ContentError error={versions.error} retry={() => void versions.refetch()} />
-          {versions.isPending && <p role="status">{t('pod.content.loading')}</p>}
+          {versions.isPending && <ContentSkeleton variant="list" rows={5} />}
           <ol className="grid gap-1" aria-label={t('pod.spreadsheet.versions')}>
             {versions.data?.versions.map(version => (
               <li key={version.id} className="flex items-center gap-3 rounded-control px-2 py-2 hover:bg-accent/60">

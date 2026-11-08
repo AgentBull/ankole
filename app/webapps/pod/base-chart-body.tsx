@@ -16,7 +16,7 @@ import type { AggregateGroup, BaseRecord } from '@ankole/applet-sdk/types'
 import { RiExpandDiagonalLine, RiRefreshLine } from '@remixicon/react'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { FieldValue } from './base-fields'
 import { ReferenceLabelsProvider } from './base-field-value'
 import type { RecordDetailsDialogComponent, ViewProps } from './base-views'
@@ -142,11 +142,7 @@ export function AggregateChartBody(
   }
 
   if (aggregate.isPending && !aggregate.data) {
-    return (
-      <p role="status" className="py-8 text-sm text-fg-tertiary">
-        {t('pod.content.loading_records')}
-      </p>
-    )
+    return <ContentSkeleton variant="block" label={t('pod.content.loading_records')} className="h-[280px]" />
   }
 
   if (resolved.chartType === 'stat') {
@@ -332,7 +328,7 @@ function StatChartContent(
     return <ContentError error={totalAggregate.error} retry={() => void totalAggregate.refetch()} />
   }
   if (totalAggregate.isPending) {
-    return <p role="status">{t('common.loading')}</p>
+    return <ContentSkeleton variant="block" className="h-24" />
   }
 
   const label = metricField
@@ -648,9 +644,7 @@ function ChartDrilldownDialog(
         <ReferenceLabelsProvider fields={props.fields} records={rows.data?.records ?? []}>
           <div className="pod-dialog-body max-h-96 divide-y divide-border overflow-y-auto">
             {rows.isPending && !rows.data ? (
-              <p role="status" className="py-6 text-sm text-fg-tertiary">
-                {t('pod.content.loading_records')}
-              </p>
+              <ContentSkeleton variant="list" label={t('pod.content.loading_records')} className="py-3" />
             ) : !rows.data?.records.length ? (
               <p className="py-6 text-sm text-fg-tertiary">
                 {t('pod.content.this_view_has_no_records_adjust_the_filters')}

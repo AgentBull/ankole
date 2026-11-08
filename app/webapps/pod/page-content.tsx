@@ -16,7 +16,7 @@ import { useTranslation } from 'react-i18next'
 import { contentKeys, pageAPI, type PageDetail } from './content-api'
 import { requestErrorMessage } from '../common/request-errors'
 import { contentError } from './content-errors'
-import { ContentLoading } from './content-primitives'
+import { ContentLoading, ContentSkeleton } from './content-primitives'
 import type { FileCommentSelection, FilePreviewHandle } from './file-comment-anchors'
 import { FilePage } from './page-files'
 import type { ParsedSearchTarget } from './search-targets'
@@ -52,7 +52,7 @@ export function PageContent({
       )
     case 'base':
       return (
-        <Suspense fallback={<ContentLoading />}>
+        <Suspense fallback={<ContentSkeleton variant="table" />}>
           <BasePage
             detail={detail}
             tableID={searchTarget?.kind === 'table' ? searchTarget.tableID : undefined}

@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ContentError } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { refreshAgentQueries } from './query-cache'
 import { MarkdownBody } from '../common/markdown-body'
 import { MetaDocument } from './meta-document'
@@ -178,7 +178,7 @@ export function MetaAssistant() {
   })
   const assistant = agents.data?.agents.find(agent => agent.type === 'personal_assistant')
   if (agents.error) return <ContentError error={agents.error} retry={() => void agents.refetch()} />
-  if (!agents.data) return <p className="p-6">{t('common.loading')}</p>
+  if (!agents.data) return <ContentSkeleton variant="page" />
   if (assistant) return <AgentSettings uid={assistant.uid} title={t('pod.meta.assistant')} />
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-6">
@@ -215,12 +215,11 @@ function AgentSettings({ uid, title }: { uid: string; title?: string }) {
 }
 
 function Contracts({ uid }: { uid: string | null }) {
-  const { t } = useTranslation()
   const contracts = useQuery(metaContractsQuery(uid))
   return (
     <>
       {contracts.error && <ContentError error={contracts.error} retry={() => void contracts.refetch()} />}
-      {contracts.isPending && <p>{t('common.loading')}</p>}
+      {contracts.isPending && <ContentSkeleton variant="list" rows={3} />}
       {contracts.data?.contracts.map(contract => (
         <Contract key={`${uid}:${contract.slot}`} uid={uid} contract={contract} canEdit={contracts.data.can_edit} />
       ))}
