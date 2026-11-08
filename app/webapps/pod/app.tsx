@@ -471,7 +471,7 @@ function PodShell() {
     <PodCommandContext value={openCommand}>
       <TooltipProvider>
         <SidebarProvider
-          className="pod-shell h-svh overflow-hidden"
+          className="pod-shell h-svh overflow-clip"
           style={{ '--sidebar-width': `${sidebarLayout.width.value}px` } as CSSProperties}>
           <ErrorBoundary
             variant="panel"

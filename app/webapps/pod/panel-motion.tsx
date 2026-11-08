@@ -85,25 +85,22 @@ export function PodPanelSurface({ style, className, ...props }: ComponentProps<t
   // The uikit hook subscribes to changes; Motion 14's hook snapshots the preference on mount.
   const reduce = useReducedMotion()
   const surface = useRef<HTMLElement>(null)
-  // A departing panel leaves the layout at once, so neighbours resize on the click as they do on open,
-  // and it fades out pinned over its old slot instead of releasing that space when the exit ends.
+  const slide = useRef<Animation | null>(null)
+  // A negative right margin slides the panel in or out of the row while it fades, so its neighbour
+  // grows or shrinks with it instead of jumping; a reversal continues from the current margin.
   useLayoutEffect(() => {
     const element = surface.current
-    if (!element) return
-    const { offsetLeft, offsetTop, offsetWidth, offsetHeight } = element
-    Object.assign(
-      element.style,
-      present
-        ? { position: '', left: '', top: '', width: '', height: '', zIndex: '' }
-        : {
-            position: 'absolute',
-            left: `${offsetLeft}px`,
-            top: `${offsetTop}px`,
-            width: `${offsetWidth}px`,
-            height: `${offsetHeight}px`,
-            zIndex: '20'
-          }
-    )
+    const { tokens } = policy
+    if (!element || !tokens) return
+    const gap = parseFloat(getComputedStyle(element.parentElement!).columnGap) || 0
+    const hidden = `${-(element.offsetWidth + gap)}px`
+    const from = slide.current ? getComputedStyle(element).marginRight : present ? hidden : '0px'
+    slide.current?.cancel()
+    slide.current = element.animate([{ marginRight: from }, { marginRight: present ? '0px' : hidden }], {
+      duration: policy.animate && !reduce ? tokens.duration * 1000 : 0,
+      easing: `cubic-bezier(${tokens.ease.join()})`,
+      fill: 'forwards'
+    })
   }, [present])
   if (!present && !policy.animate) return null
   const { tokens } = policy

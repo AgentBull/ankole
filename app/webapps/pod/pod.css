@@ -350,8 +350,9 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   }
 }
 
+/* Section heading actions stay within the 24px heading, including menu triggers. */
 .pod-row-action [data-slot='button'],
-.pod-nav-actions [data-slot='button'] {
+.pod-nav-actions :is([data-slot='button'], [data-slot='dropdown-menu-trigger']) {
   width: 22px;
   height: 22px;
   min-width: 22px;

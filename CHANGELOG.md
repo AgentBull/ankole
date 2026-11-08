@@ -12,6 +12,13 @@
   the plain loading text. It appears only when a load takes longer than a
   moment, so quick switches no longer flash, and opening a table or an applet
   no longer shows a second loading message for its code.
+- Slide the Page chat, Comments, and conversation summary panels in and out
+  like a drawer: the Page or conversation widens and narrows with the panel
+  instead of jumping by the panel's width on the click. Opening a panel also
+  no longer shifts the whole Pod, sidebar included, to the left.
+- Keep every sidebar section heading the same height, so Spaces and Private
+  pages line up with Recent and the Chat sections, and style the Chat sidebar
+  correctly when you switch to it before opening any conversation.
 
 ## Version 2.0.0-alpha.77 (2026-11-08)
 

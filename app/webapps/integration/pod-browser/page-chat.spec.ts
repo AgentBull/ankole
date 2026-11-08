@@ -605,20 +605,28 @@ test('desktop panels reverse in place, close interaction immediately, and keep k
     await page.emulateMedia({ reducedMotion: 'reduce' })
     expect(await panel.evaluate(element => getComputedStyle(element).transform)).toBe('matrix(1, 0, 0, 1, 0, 0)')
     await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await panel.evaluate(element => element.getAnimations().forEach(animation => animation.finish()))
     const column = page.locator('.pod-page > div').first()
     const sharedWidth = (await column.boundingBox())!.width
     await chat.click()
-    await panel.evaluate(element => element.getAnimations().forEach(animation => animation.pause()))
+    // Halfway through the exit, the Page has taken back part of the panel's width while the panel still fades.
+    await panel.evaluate(element =>
+      element.getAnimations().forEach(animation => {
+        animation.pause()
+        animation.currentTime = Number(animation.effect!.getTiming().duration) / 2
+      })
+    )
     await expect(chat).toBeFocused()
     await expect(panel).toHaveAttribute('inert', '')
     await expect(panel).toHaveAttribute('aria-hidden', 'true')
-    // The Page widens on the click while the departing panel fades over it.
-    expect((await column.boundingBox())!.width).toBeGreaterThan(sharedWidth + 300)
+    const halfwayWidth = (await column.boundingBox())!.width
+    expect(halfwayWidth).toBeGreaterThan(sharedWidth + 100)
+    expect(halfwayWidth).toBeLessThan(sharedWidth + 412)
     await chat.click()
     await expect(panel).not.toHaveAttribute('inert', '')
     await expect(panel).toHaveAttribute('data-motion-probe', 'same-panel')
     await expect(panel).toHaveCount(1)
-    expect((await column.boundingBox())!.width).toBe(sharedWidth)
+    await expect.poll(async () => (await column.boundingBox())!.width).toBe(sharedWidth)
 
     await comments.click()
     await expect(panel).toHaveCount(0)
