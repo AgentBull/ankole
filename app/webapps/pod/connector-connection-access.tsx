@@ -3,7 +3,7 @@ import type { Signal } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { ErrorBlock } from '../common/error-block'
+import { ContentError } from './content-primitives'
 import { podSubjects } from './api/generated/sdk.gen'
 import { contentKeys } from './content-api'
 import type { ConnectionAccess } from './state/connectors'
@@ -44,7 +44,7 @@ export function ConnectionAccessFields({ access }: { access: Signal<ConnectionAc
       {restricted && (
         <>
           <p className="text-xs text-muted-foreground">{t('pod.connectors.access_restricted_help')}</p>
-          <ErrorBlock error={subjects.error} />
+          <ContentError error={subjects.error} />
           <div className="grid max-h-48 gap-2 overflow-y-auto rounded-lg border p-3">
             {choices.map(subject => {
               const key = subject.kind === 'group' ? 'group_ids' : 'principal_uids'

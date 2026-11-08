@@ -30,7 +30,7 @@ import { AccountSettingsModel } from './state/account-settings'
 import { replaceAuthentication } from '../common/browser-context'
 import { CodeSentStatus } from '../common/code-sent-status'
 import { EmailOtpInput } from '../common/email-otp-input'
-import { ErrorBlock } from '../common/error-block'
+import { ContentError } from './content-primitives'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
@@ -106,7 +106,7 @@ export function AccountSettings() {
         <Link to="/connectors" className={buttonVariants({ variant: 'outline' })}>
           {t('pod.connectors.title')}
         </Link>
-        <ErrorBlock error={accountError} />
+        <ContentError error={accountError} />
         {needsReauthentication && (
           <Button variant="outline" disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
             {t('pod.account.reauthenticate')}
@@ -293,7 +293,7 @@ export function AccountSettings() {
                 email: me.data?.credentials.find(item => item.id === model.confirmUnbind.value)?.identifier
               })}
             </p>
-            <ErrorBlock error={unbind.error} />
+            <ContentError error={unbind.error} />
             {requestErrorCode(unbind.error) === 'reauthentication_required' && (
               <Button disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
                 {t('pod.account.reauthenticate')}
@@ -329,7 +329,7 @@ export function AccountSettings() {
           <DialogContent>
             <DialogTitle>{t('pod.account.exit')}</DialogTitle>
             <p>{t('pod.account.exit_description')}</p>
-            <ErrorBlock error={exit.error} />
+            <ContentError error={exit.error} />
             {requestErrorCode(exit.error) === 'reauthentication_required' && (
               <Button disabled={reauthenticate.isPending} onClick={() => reauthenticate.mutate()}>
                 {t('pod.account.reauthenticate')}

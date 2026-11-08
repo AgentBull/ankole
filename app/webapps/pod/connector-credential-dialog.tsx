@@ -4,7 +4,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { ConfigField } from '../common/config-fields'
-import { ErrorBlock } from '../common/error-block'
+import { ContentError } from './content-primitives'
 import * as api from './api/generated/sdk.gen'
 import { CredentialBindingModel, type ConnectorConnection, type ConnectorDefinition } from './state/connectors'
 
@@ -50,7 +50,7 @@ export function CredentialBindingDialog({
         <DialogTitle>
           {t(personal ? 'pod.connectors.bind_personal_token' : 'pod.connectors.bind_team_credentials')}
         </DialogTitle>
-        <ErrorBlock error={bind.error} />
+        <ContentError error={bind.error} />
         <form
           method="post"
           className="grid gap-4"

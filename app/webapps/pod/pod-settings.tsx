@@ -38,7 +38,7 @@ import { browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 import { unusedProviderID } from '../common/identity-provider'
 import { defaultConfig, localizedText, setPath } from '../common/config-fields'
-import { ErrorBlock } from '../common/error-block'
+import { ContentError } from './content-primitives'
 import { authenticationRef, podID, principalUID, replacePrincipalUID } from '../common/browser-context'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { availableLocaleIDs, loadLocale, nativeLocaleLabel } from '../common/i18n'
@@ -134,7 +134,7 @@ function ManagedAgents() {
   return (
     <section className="grid gap-4">
       <p className="text-sm text-muted-foreground">{t('pod.settings.agents_hint')}</p>
-      <ErrorBlock error={agents.error} />
+      <ContentError error={agents.error} />
       {agents.data?.agents.map(agent => (
         <ManagedAgent key={agent.uid} agent={agent} onSuccess={refresh} />
       ))}
@@ -177,7 +177,7 @@ export function ManagedAgent({
         </p>
       </CardHeader>
       <CardContent className="grid gap-3">
-        <ErrorBlock error={status.error} />
+        <ContentError error={status.error} />
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -263,7 +263,7 @@ function GeneralSettings({ model }: { model: Model }) {
         event.preventDefault()
         save.mutate()
       }}>
-      <ErrorBlock error={settings.error ?? save.error} />
+      <ContentError error={settings.error ?? save.error} />
       <Card>
         <CardHeader>
           <h2>{t('pod.settings.space_profile', { defaultValue: 'Space profile' })}</h2>
@@ -479,7 +479,7 @@ function Members({ model }: { model: Model }) {
   const pendingUnbind = model.confirmUnbindCredential.value
   return (
     <section className="grid gap-5">
-      <ErrorBlock error={members.error ?? create.error ?? role.error ?? membership.error ?? unbind.error} />
+      <ContentError error={members.error ?? create.error ?? role.error ?? membership.error ?? unbind.error} />
       {!model.precreateOpen.value ? (
         <div className="flex">
           <Button
@@ -646,7 +646,7 @@ function Members({ model }: { model: Model }) {
               })}
             </p>
           )}
-          <ErrorBlock error={unbind.error} />
+          <ContentError error={unbind.error} />
           <DialogFooter>
             <Button
               type="button"
@@ -684,7 +684,7 @@ function Members({ model }: { model: Model }) {
             </p>
           )}
           <p className="text-sm text-muted-foreground">{t(`pod.settings.${model.memberAction.value}_description`)}</p>
-          <ErrorBlock error={change.error} />
+          <ContentError error={change.error} />
           <form
             className="grid gap-3"
             onSubmit={event => {
@@ -773,7 +773,7 @@ function Invitations({ model }: { model: Model }) {
   const now = Date.now()
   return (
     <section className="grid gap-5">
-      <ErrorBlock error={invitations.error ?? create.error ?? revoke.error} />
+      <ContentError error={invitations.error ?? create.error ?? revoke.error} />
       <Card>
         <CardHeader>
           <h2>{t('pod.settings.create_invitation')}</h2>
@@ -1001,7 +1001,9 @@ function Providers({ model }: { model: Model }) {
   }
   return (
     <section className="grid gap-5">
-      <ErrorBlock error={providers.error ?? connectorCatalog.error ?? connections.error ?? save.error ?? sync.error} />
+      <ContentError
+        error={providers.error ?? connectorCatalog.error ?? connections.error ?? save.error ?? sync.error}
+      />
       {providers.data?.providers.map(provider => {
         const providerAdapter = adapters.find(item => item.adapter_id === provider.adapter_id)
         const displayName =

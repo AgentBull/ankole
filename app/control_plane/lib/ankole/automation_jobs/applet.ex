@@ -67,8 +67,14 @@ defmodule Ankole.AutomationJobs.Applet do
 
   def actions(actor, page_id) do
     with {:ok, _} <- Pod.authorize_applet(actor, page_id, "node_view"),
-         {:ok, package} <- Pod.applet_action_package(page_id),
-         do: {:ok, package.actions |> Map.keys() |> Enum.sort()}
+         {:ok, package} <- Pod.applet_action_package(page_id) do
+      {:ok, package.actions |> Map.keys() |> Enum.sort()}
+    else
+      # An Applet published without server/main.js has no backend and therefore no Actions.
+      {:error, :route_not_found} -> {:ok, []}
+      {:error, %{"code" => "applet_busy"}} -> {:error, :applet_busy}
+      error -> error
+    end
   end
 
   def runs(actor, page_id, job_id) do

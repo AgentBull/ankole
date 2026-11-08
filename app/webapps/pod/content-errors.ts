@@ -15,11 +15,14 @@ export function contentError(error: unknown): unknown {
         ? String(error.payload.reason)
         : undefined
   const known = code ? `pod.errors.${code}` : ''
+  // A 401 can carry its own meaning, such as a wrong verification code, so a translated code comes first.
   const key =
-    error instanceof InternalAPIError && error.status === 401
-      ? 'pod.errors.unauthenticated'
-      : known && !i18n.exists(known) && code?.startsWith('invalid_')
-        ? 'pod.errors.validation_failed'
-        : known
+    known && i18n.exists(known)
+      ? known
+      : error instanceof InternalAPIError && error.status === 401
+        ? 'pod.errors.unauthenticated'
+        : code?.startsWith('invalid_')
+          ? 'pod.errors.validation_failed'
+          : known
   return key && i18n.exists(key) ? new Error(i18n.t(key)) : error
 }

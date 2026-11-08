@@ -179,7 +179,7 @@ function Manager({ detail }: { detail: PageDetail }) {
           </Button>
         )}
       </div>
-      {!list.isPending && !list.data?.length && (
+      {list.isSuccess && !list.data.length && (
         <p className="text-sm text-muted-foreground">{t('pod.automation.no_jobs')}</p>
       )}
       {list.isSuccess && selected !== undefined && !job && (
@@ -205,9 +205,9 @@ function Manager({ detail }: { detail: PageDetail }) {
             />
           ) : actions.isPending ? (
             <InlineLoading />
-          ) : (
+          ) : actions.isSuccess ? (
             <p className="text-sm">{t('pod.automation.no_actions')}</p>
-          )}
+          ) : null}
         </section>
       )}
       {job && (
@@ -391,7 +391,9 @@ function JobDetails({
       <section className="grid gap-3" aria-label={t('pod.automation.history')}>
         <h3 className="font-medium">{t('pod.automation.history')}</h3>
         {currentRun && <SelectedRun run={currentRun} source={runSource(currentRun)} />}
-        {!runs.data?.length && <p className="text-sm text-muted-foreground">{t('pod.automation.no_runs')}</p>}
+        {runs.isSuccess && !runs.data.length && (
+          <p className="text-sm text-muted-foreground">{t('pod.automation.no_runs')}</p>
+        )}
         {runs.data?.map(run => (
           <details key={run.id} className="rounded-lg border p-3 text-sm">
             <summary className="cursor-pointer break-words">

@@ -117,7 +117,8 @@ Deleted subscriptions and disabled connections cannot be selected for new
 associations.
 
 `GET /api/v2/pod/pages/:page_id/job-actions` lists the current publication's Action
-keys. `GET /api/v2/pod/pages/:page_id/jobs/:job_id/runs` returns the latest 100 Runs
+keys; a publication without `server/main.js` has no backend, so the list is empty.
+`GET /api/v2/pod/pages/:page_id/jobs/:job_id/runs` returns the latest 100 Runs
 visible to the caller. Run history and single-Run reads include the retained
 CloudEvents `event`, start and finish timestamps, progress, result, error, and
 `stdout` and `stderr` tails. Applet `console` output follows the Run through

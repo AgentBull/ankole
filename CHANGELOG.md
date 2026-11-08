@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.0.0-alpha.90 (2026-11-08)
+
+- Explain Pod errors in plain language in English, Chinese, Japanese, and
+  Korean. About 40 errors that used to appear as raw codes, such as
+  `route_not_found`, `webhook_terminal`, `field_referenced`, and
+  `applet_owner_unavailable`, now say what happened and what to do next. The
+  connector, account, and Pod settings screens translate errors like the rest of
+  the Pod, the account page explains a wrong or expired email verification
+  code, and a busy Applet runtime reports that it is busy instead of "The
+  request is invalid".
+- Show only the error when a list fails to load. The Applet automation dialog
+  and its run history, the chart record list, the Console principal audit, and
+  the tenant's Transfer site administration form no longer show an empty-state
+  hint under the error. An Applet published without a backend lists no Actions
+  instead of failing with `route_not_found`.
+
 ## Version 2.0.0-alpha.89 (2026-11-08)
 
 - Fix Background Agent Jobs that failed within seconds of starting with

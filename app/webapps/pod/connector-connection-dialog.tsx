@@ -17,7 +17,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { ConfigField, localizedText, type ConfigFieldDefinition } from '../common/config-fields'
-import { ErrorBlock } from '../common/error-block'
+import { ContentError } from './content-primitives'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import * as api from './api/generated/sdk.gen'
 import { ConnectionAccessFields } from './connector-connection-access'
@@ -145,7 +145,7 @@ export function ConnectionEditorDialog({
       }}>
       <DialogContent closeLabel={t('common.close')} className="max-h-[85dvh] overflow-y-auto">
         <DialogTitle>{t(model.editing.value ? 'pod.connectors.edit' : 'pod.connectors.add')}</DialogTitle>
-        <ErrorBlock error={save.error} />
+        <ContentError error={save.error} />
         <form
           method="post"
           className="grid gap-4"

@@ -20,7 +20,7 @@ import {
   SelectValue
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
-import { ContentSkeleton } from './content-primitives'
+import { ContentError, ContentSkeleton } from './content-primitives'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
@@ -33,7 +33,6 @@ import {
   setPath,
   type ConfigFieldDefinition
 } from '../common/config-fields'
-import { ErrorBlock } from '../common/error-block'
 import { authenticationRef, podID } from '../common/browser-context'
 import { localReturnPath } from '../common/pod-url'
 import { browserSession } from '../common/api/generated/sdk.gen'
@@ -311,7 +310,7 @@ export function Connectors() {
             {t('pod.connectors.return_to_automation')}
           </Link>
         )}
-        <ErrorBlock error={error} />
+        <ContentError error={error} />
         {automation && createTrigger.data && (
           <p role="status" className="text-sm">
             {t('pod.connectors.subscription_created')}{' '}
@@ -722,8 +721,8 @@ export function Connectors() {
           <DialogContent closeLabel={t('common.close')}>
             <DialogTitle>{t('pod.connectors.subscribe')}</DialogTitle>
             <p className="text-sm text-muted-foreground">{t('pod.connectors.subscription_help')}</p>
-            <ErrorBlock error={consentRequired ? undefined : createTrigger.error} />
-            <ErrorBlock error={oauth.error ?? claim.error} />
+            <ContentError error={consentRequired ? undefined : createTrigger.error} />
+            <ContentError error={oauth.error ?? claim.error} />
             {claim.isPending && <p role="status">{t('pod.connectors.finishing')}</p>}
             {claim.isError && (
               <Button variant="outline" onClick={() => claim.mutate(claim.variables!)}>

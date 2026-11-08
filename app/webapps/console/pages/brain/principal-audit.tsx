@@ -72,7 +72,7 @@ export function BrainPrincipalAuditPage() {
         </p>
       ) : knowledge.isLoading ? (
         <Skeleton className="h-48 w-full" />
-      ) : rows.length === 0 ? (
+      ) : knowledge.error ? null : rows.length === 0 ? (
         <p className="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
           {t('console.brain.principal_audit_no_claims', { uid: selectedPrincipalLabel })}
         </p>

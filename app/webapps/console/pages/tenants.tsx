@@ -315,7 +315,7 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
           onChange={setPrincipalUID}
         />
       </LabeledField>
-      {!principals.isLoading && !humans.length ? (
+      {!principals.error && !principals.isLoading && !humans.length ? (
         <p className="text-sm text-muted-foreground">{t('console.tenants.no_humans')}</p>
       ) : null}
       {principalUID ? (

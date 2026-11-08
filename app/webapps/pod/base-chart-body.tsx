@@ -645,7 +645,7 @@ function ChartDrilldownDialog(
           <div className="pod-dialog-body max-h-96 divide-y divide-border overflow-y-auto">
             {rows.isPending && !rows.data ? (
               <ContentSkeleton variant="list" label={t('pod.content.loading_records')} className="py-3" />
-            ) : !rows.data?.records.length ? (
+            ) : !rows.data ? null : !rows.data.records.length ? (
               <p className="py-6 text-sm text-fg-tertiary">
                 {t('pod.content.this_view_has_no_records_adjust_the_filters')}
               </p>

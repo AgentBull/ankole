@@ -19,6 +19,13 @@ test('Pod protocol failures have localized recovery instructions without changin
   expect(error.message).toBe(originalMessage)
 })
 
+test('a wrong verification code keeps its own message while other 401 failures ask the user to sign in again', () => {
+  const wrongCode = new InternalAPIError(401, 'Unauthorized', { errors: [{ code: 'invalid_code' }] })
+  const expired = new InternalAPIError(401, 'Unauthorized', { errors: [{ code: 'login_expired' }] })
+  expect((contentError(wrongCode) as Error).message).toBe(i18n.t('pod.errors.invalid_code'))
+  expect((contentError(expired) as Error).message).toBe(i18n.t('pod.errors.unauthenticated'))
+})
+
 test('ordinary client failures and unknown protocol errors retain their useful original identity', () => {
   const client = new Error('Network unavailable')
   const extension = new InternalAPIError(422, 'Validation', {

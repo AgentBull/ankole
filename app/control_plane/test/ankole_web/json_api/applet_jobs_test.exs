@@ -192,6 +192,18 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
              |> json_response(200)
   end
 
+  test "a frontend-only Applet lists no Actions", %{conn: conn} do
+    {browser, uid} = console_conn_with_principal(conn)
+    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+    {:ok, page} = Pages.create(actor, %{type: "applet", title: "Frontend only"})
+    publish(actor, page, [{"src/main.tsx", "source"}, {"dist/index.html", "<html/>"}])
+
+    assert %{"actions" => []} =
+             browser
+             |> request(:get, "/api/v2/pod/pages/#{page.id}/job-actions")
+             |> json_response(200)
+  end
+
   test "the Base API exposes unique keys, upserts and normalized no-op writes", %{conn: conn} do
     {browser, uid} = console_conn_with_principal(conn)
     actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
@@ -227,14 +239,18 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
       else: dispatch(conn, @endpoint, method, path, Ankole.JSON.encode!(%{data: data}))
   end
 
-  defp publish(actor, page) do
+  defp publish(
+         actor,
+         page,
+         files \\ [
+           {"src/main.tsx", "source"},
+           {"dist/index.html", "<html/>"},
+           {"server/main.js",
+            "export default {actions:{sync:{idempotent:true,handler:async()=>1}}}"}
+         ]
+       ) do
     manifest =
-      for {path, bytes} <- [
-            {"src/main.tsx", "source"},
-            {"dist/index.html", "<html/>"},
-            {"server/main.js",
-             "export default {actions:{sync:{idempotent:true,handler:async()=>1}}}"}
-          ] do
+      for {path, bytes} <- files do
         {:ok, blob} = Ankole.Files.store(bytes)
         source = "publish/#{page.id}/#{path}"
 
