@@ -518,7 +518,8 @@ work outside the ordinary recent page. Chat combines pinned rooms, a collapsed
 Assistant section with active/unread tasks, and existing IM rooms plus callable
 colleagues. Both tabs offer New Chat for formal members.
 Opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
-the user's navigation context stays stable. `Favorites` renders inline above the
+the user's navigation context stays stable, and New Chat keeps whichever tab
+is open. `Favorites` renders inline above the
 `Space` and `Private` trees whenever the user has favorited Pages, while the
 account switcher, `Trash`, and `Pod settings` sit in the sidebar footer.
 The account button shows the Pod name before the Human name; its accessible
