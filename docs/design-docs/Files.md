@@ -261,7 +261,9 @@ and ordinary files. Personal assistants project their Human owner's business
 permissions; AI colleagues use their own. Brain and its attachments additionally
 apply the audience intersection from `Brain.RequestContext`. Skills and composed
 Agent contracts use the Agent identity. Background Jobs
-also restrict Skills to their persisted admission selection.
+also restrict Skills to their persisted admission selection. A Job's bearer
+token names the Job's Signal, and each request reads that selection from the
+Job, so the token has the same size however many Skills the Job admits.
 Each request checks the current Worker generation, incarnation, and access graph.
 The root supervisor holds the bearer token. Model processes receive filesystem
 access in their execution's mount namespace.

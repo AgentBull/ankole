@@ -286,6 +286,58 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert dav.(first.slug).status == 404
   end
 
+  test "a Job that froze many Skills reads them through Drive over HTTP", ctx do
+    alias Ankole.AIAgent.Library.Skills
+    owner = actor_fixture(ctx.owner)
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: ctx.owner,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      })
+
+    slugs =
+      for index <- 1..40 do
+        slug = String.pad_trailing("frozen-selection-#{index}-", 64, "x")
+
+        {:ok, _} =
+          Skills.create(owner, %{
+            slug: slug,
+            manifest_xml: "<page><p>Selected</p></page>",
+            metadata: %{"name" => slug, "description" => "Job selection"}
+          })
+
+        {:ok, _} = Skills.set_binding(owner, slug, ctx.agent, true)
+        slug
+      end
+
+    {_job, ref} = start_job(ctx, Repo.get!(Signal, ctx.ref.signal_id))
+
+    # The frozen selection alone is longer than the 10,000-byte header line that
+    # Bandit accepts by default.
+    {:ok, selection} =
+      Ankole.BackgroundAgentJobs.RuntimeProjection.for_signal(ctx.agent, ref.signal_id)
+
+    assert byte_size(Torque.encode!(selection)) > 10_000
+
+    {:ok, grant} = Ankole.Files.Vfs.Auth.issue(ctx.agent, %{"signal_id" => ref.signal_id})
+
+    server =
+      start_supervised!({Bandit, plug: AnkoleWeb.Plugs.VfsWebdav, ip: {127, 0, 0, 1}, port: 0})
+
+    {:ok, {_, port}} = ThousandIsland.listener_info(server)
+
+    response =
+      Req.get!("http://127.0.0.1:#{port}/api/v1/vfs/dav/Skills/#{List.last(slugs)}/SKILL.md",
+        headers: [authorization: "Bearer " <> grant.token],
+        retry: false
+      )
+
+    assert response.status == 200
+    assert response.body =~ "Selected"
+  end
+
   test "file relays use the object-store upload ceiling and the committed object size", ctx do
     bytes = :binary.copy("a", Ankole.WorkerFiles.max_transfer_bytes() + 1)
     {:ok, maximum} = Ankole.Files.upload_limit()

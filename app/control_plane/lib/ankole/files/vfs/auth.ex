@@ -2,6 +2,7 @@ defmodule Ankole.Files.Vfs.Auth do
   @moduledoc "Seals the runtime's existing disclosure context for one Worker incarnation."
   alias Ankole.{AgentWorkers, Brain, Kernel, Repo, SecretKeyBase}
   alias Ankole.AuthZ.Actor
+  alias Ankole.BackgroundAgentJobs.RuntimeProjection
 
   def runtime_config(agent_uid, signal_id) do
     case AgentWorkers.get_agent_worker(agent_uid) do
@@ -43,17 +44,17 @@ defmodule Ankole.Files.Vfs.Auth do
   end
 
   def issue(agent_uid, metadata) do
+    signal_id = Brain.RequestContext.signal_id(metadata)
+
     with {:ok, context} <- Brain.RequestContext.build(agent_uid, metadata),
-         {:ok, projection} <-
-           Ankole.BackgroundAgentJobs.RuntimeProjection.for_signal(
-             agent_uid,
-             Brain.RequestContext.signal_id(metadata)
-           ),
+         {:ok, projection} <- RuntimeProjection.for_signal(agent_uid, signal_id),
          {:ok, worker} when not is_nil(worker) <- AgentWorkers.get_agent_worker(agent_uid),
          true <- is_binary(worker.incarnation_id) do
+      # The bearer token must fit in one HTTP header, so a Job's token names its
+      # Signal and each request rereads the Job's frozen Skill selection.
       payload = %{
         "tenant_id" => Repo.tenant_id!(),
-        "skill_selection" => projection,
+        "job_signal_id" => if(projection, do: signal_id),
         "agent_uid" => agent_uid,
         "disclosure" => context.disclosure,
         "conversation_id" => context.conversation_id,
@@ -62,14 +63,16 @@ defmodule Ankole.Files.Vfs.Auth do
         "expires_at" => System.system_time(:second) + 3600
       }
 
+      scope = scope_key(payload, projection)
+
       with {:ok, token} <- SecretKeyBase.seal(Torque.encode!(payload), "drive.vfs", []) do
         {:ok,
          %{
            token: token,
-           scope: scope_key(payload),
+           scope: scope,
            library_scope:
              Kernel.vfs_fingerprint(Torque.encode!([payload["tenant_id"], agent_uid, projection])),
-           view: view_key(payload),
+           view: Kernel.vfs_fingerprint(Torque.encode!([scope, payload["conversation_id"]])),
            conversation_id: context.conversation_id
          }}
       end
@@ -104,6 +107,8 @@ defmodule Ankole.Files.Vfs.Auth do
              worker.state in [:ready, :stale, :draining],
          {:ok, %{status: :active} = principal} <-
            Ankole.Principals.get_principal(payload["agent_uid"]),
+         {:ok, projection} <-
+           RuntimeProjection.for_signal(payload["agent_uid"], payload["job_signal_id"]),
          disclosure = disclosure(payload["disclosure"]),
          context = %{querier_uid: principal.uid, disclosure: disclosure},
          {:ok, access} <-
@@ -120,7 +125,7 @@ defmodule Ankole.Files.Vfs.Auth do
          access: access,
          brain_access: brain_access,
          library_only: library_only,
-         runtime_projection: payload["skill_selection"],
+         runtime_projection: projection,
          conversation_id: payload["conversation_id"]
        }}
     else
@@ -136,7 +141,7 @@ defmodule Ankole.Files.Vfs.Auth do
     }
   end
 
-  defp scope_key(payload) do
+  defp scope_key(payload, projection) do
     disclosure = payload["disclosure"] |> Torque.encode!() |> Torque.decode!()
 
     Kernel.vfs_fingerprint(
@@ -146,11 +151,8 @@ defmodule Ankole.Files.Vfs.Auth do
         disclosure["mode"],
         disclosure["asker_uid"],
         Enum.sort(disclosure["present_uids"] || []),
-        payload["skill_selection"]
+        projection
       ])
     )
   end
-
-  defp view_key(payload),
-    do: Kernel.vfs_fingerprint(Torque.encode!([scope_key(payload), payload["conversation_id"]]))
 end

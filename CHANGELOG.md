@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.89 (2026-11-08)
+
+- Fix Background Agent Jobs that failed within seconds of starting with
+  `431 Request Header Fields Too Large`. A Job's Drive credential carried the
+  Job's whole Skill selection, so a Job whose Agent had many Skills enabled
+  could not mount `/drive`. The credential now names the Job, and its size no
+  longer depends on how many Skills the Job uses.
+
 ## Version 2.0.0-alpha.88 (2026-11-08)
 
 - Keep an Agent's work steps steady when it runs several steps at once. While
