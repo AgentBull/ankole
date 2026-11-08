@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.93 (2026-11-08)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.92 (2026-11-08)
 
 - Fit an Applet embedded in a document to its content. The embed no longer

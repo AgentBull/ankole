@@ -4,6 +4,8 @@ services:
   postgres:
     image: ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest
     shm_size: 1gb
+    # log_lock_waits records any lock wait longer than deadlock_timeout (1 s), so the
+    # server log explains a test that stalls on another connection's lock.
     command:
       [
         "postgres",
@@ -12,7 +14,9 @@ services:
         "-c",
         "max_locks_per_transaction=256",
         "-c",
-        "shared_preload_libraries=pg_search"
+        "shared_preload_libraries=pg_search",
+        "-c",
+        "log_lock_waits=on"
       ]
     environment:
       POSTGRES_USER: postgres
