@@ -49,6 +49,7 @@ defmodule Ankole.Principals.Rename.References do
     {"brain_claims", "author"},
     {"brain_claims", "resolved_by"},
     {"brain_merge_suggestions", "decided_by"},
+    {"brain_metric_revisions", "approved_by"},
     {"brain_schema_suggestions", "decided_by"},
     {"brain_timelines", "author"},
     {"pages", "created_by"},

@@ -15,6 +15,9 @@
   the tenant's Transfer site administration form no longer show an empty-state
   hint under the error. An Applet published without a backend lists no Actions
   instead of failing with `route_not_found`.
+- Follow a renamed member or Agent on the Brain metric revisions they approved.
+  Renaming a Principal now updates each revision's approver, so it no longer
+  names the old identity.
 
 ## Version 2.0.0-alpha.89 (2026-11-08)
 
