@@ -5,6 +5,9 @@
 - Clicking a chat's participant avatars opens a list of everyone in the
   conversation. In an assistant task or colleague DM they no longer open the
   summary panel, so only the summary button shows it as open.
+- An Applet Page header has a full-screen button, shown in browsers that allow
+  full screen. It fills the screen with the Applet alone, keeping what the user
+  had open in it, and Esc returns to the Pod.
 
 ## Version 2.0.0-alpha.83 (2026-11-08)
 

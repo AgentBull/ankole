@@ -53,6 +53,7 @@ import {
   RiErrorWarningLine,
   RiFileCopyLine,
   RiFolderTransferLine,
+  RiFullscreenLine,
   RiMoreFill,
   RiStarFill,
   RiStarLine
@@ -644,6 +645,16 @@ function PageWorkspace({
               <Suspense fallback={null}>
                 <AppletAutomationControl detail={contentDetail} />
               </Suspense>
+            )}
+            {!accessDenied && !trashed && page.type === 'applet' && document.fullscreenEnabled && (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t('pod.content.applet_full_screen')}
+                title={t('pod.content.applet_full_screen')}
+                onClick={() => void pageColumn.current?.querySelector('[data-applet-stage]')?.requestFullscreen()}>
+                <RiFullscreenLine aria-hidden className="size-4" />
+              </Button>
             )}
             {commentsAvailable && isMobile && !comments && focusedComment && (
               <Button variant="ghost" size="xs" onClick={() => openComments(focusedComment)}>

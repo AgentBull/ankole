@@ -143,7 +143,9 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
     }
   }, [detail.page.id, detail.page.revision, instanceID, base, realtime, retry, revoked, client])
   return (
-    <section className="min-h-32 text-base leading-normal font-normal">
+    <section
+      data-applet-stage
+      className="min-h-32 text-base leading-normal font-normal [&:fullscreen]:overflow-auto [&:fullscreen]:bg-background">
       <ContentError error={error} />
       {!!error && !revoked && (
         <Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>

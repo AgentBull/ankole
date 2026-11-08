@@ -2644,7 +2644,13 @@ Each Applet mounts inside a same-origin iframe at
 document and all subresources—unaffected if the user switches the browser's
 default account elsewhere. The iframe isolates its own DOM, CSS, viewport
 (sized to the workspace scroll panel, scrolling tall content internally), and
-import map while sharing the host origin and trust boundary. Ankole serves
+import map while sharing the host origin and trust boundary. When the browser
+allows full screen, the Applet Page header offers a full-screen control. That
+control hands the Applet section, including its error and reload states, to the
+browser's Fullscreen API, and the host then sizes the iframe to the screen
+instead of the scroll panel. The browser's own exit, such as Esc, returns the
+section to the workspace, and the iframe keeps its document and state
+throughout. Ankole serves
 hashed `/assets` vendor bundles and stylesheets with immutable HTTP caching,
 while `/pod/applet-frame` responses inject `<meta name="color-scheme" content="light dark">`,
 the import map, vendor stylesheet links, and `modulepreload` hints alongside

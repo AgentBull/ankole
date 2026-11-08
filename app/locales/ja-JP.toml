@@ -3055,6 +3055,7 @@ the_applet_could_not_be_loaded = "アプレットを読み込めませんでし�
 you_no_longer_have_access_to_this_applet = "このアプレットへのアクセス権がなくなりました。"
 loading_applet = "アプレットを読み込み中…"
 reload_applet = "アプレットを再読み込み"
+applet_full_screen = "全画面表示"
 document = "ドキュメント"
 applet = "アプレット"
 file = "ファイル"

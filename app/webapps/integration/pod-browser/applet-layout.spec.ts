@@ -90,3 +90,58 @@ test('full-page and embedded applets give padded 100vh content and UIKit Portals
     await context.close()
   }
 })
+
+test('the Applet Page header shows the running Applet on the whole screen and returns it to the workspace', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto(state.base_url + pageRoute(state.applet_id))
+    const frame = page.frameLocator('iframe')
+    await frame.getByRole('button', { name: 'Viewport dashboard', exact: true }).click()
+    const heading = frame.getByRole('heading', { name: 'Viewport dashboard', exact: true })
+    await expect(heading).toBeVisible()
+    const sizes = () =>
+      page.evaluate(() => {
+        const element = document.querySelector('iframe')!
+        const rect = element.getBoundingClientRect()
+        return {
+          fullScreen: !!document.fullscreenElement?.contains(element),
+          headerOnScreen: !!document.fullscreenElement?.querySelector('.pod-page-header'),
+          width: rect.width,
+          height: rect.height,
+          panel: document.querySelector('.pod-page-scroll')!.clientHeight,
+          frameViewport: element.contentWindow!.innerHeight
+        }
+      })
+
+    await page.getByRole('button', { name: '全屏显示', exact: true }).click()
+    await expect.poll(async () => (await sizes()).fullScreen).toBe(true)
+    await expect
+      .poll(async () => {
+        const value = await sizes()
+        return Math.abs(value.height - 900) + Math.abs(value.width - 1440) + Math.abs(value.frameViewport - 900)
+      })
+      .toBeLessThan(1)
+    expect((await sizes()).headerOnScreen).toBe(false)
+    await expect(heading).toBeVisible()
+    await frame.getByRole('button', { name: 'Open portal', exact: true }).click()
+    const portal = frame.getByRole('dialog', { name: 'Frame portal', exact: true })
+    await expect(portal).toBeInViewport({ ratio: 1 })
+    await portal.getByRole('button', { name: 'Close portal', exact: true }).click()
+    await expect(portal).toBeHidden()
+
+    await page.evaluate(() => document.exitFullscreen())
+    await expect
+      .poll(async () => {
+        const value = await sizes()
+        return !value.fullScreen && value.height < 900 && Math.abs(value.height - value.panel) < 1
+      })
+      .toBe(true)
+    await expect(heading).toBeVisible()
+  } finally {
+    await context.close()
+  }
+})

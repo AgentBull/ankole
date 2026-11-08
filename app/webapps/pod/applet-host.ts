@@ -112,7 +112,9 @@ export function mountApplet(
   frame.style.colorScheme = currentTheme
   const viewport = container.closest<HTMLElement>('.pod-page-scroll')
   const resize = () => {
-    frame.style.height = `${Math.max(128, viewport?.clientHeight ?? window.innerHeight)}px`
+    // A full-screen Applet section gives the frame the screen's height instead of the workspace panel's.
+    const stage = document.fullscreenElement?.contains(frame) ? document.fullscreenElement : viewport
+    frame.style.height = `${Math.max(128, stage?.clientHeight ?? window.innerHeight)}px`
   }
   resize()
   frame.src = appletFrameURL(pageID, revision)
@@ -284,6 +286,7 @@ export function mountApplet(
         observer = new ResizeObserver(resize)
         observer.observe(viewport ?? document.documentElement)
         window.addEventListener('resize', resize, { signal: controller.signal })
+        document.addEventListener('fullscreenchange', resize, { signal: controller.signal })
         resize()
         onReady?.()
       } catch (error) {
