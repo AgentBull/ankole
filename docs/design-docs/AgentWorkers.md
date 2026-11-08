@@ -182,6 +182,11 @@ one synchronization at a time, so Turns that start together while those
 packages are missing or outdated wait for the first synchronization and then
 find the packages current; that synchronization uploads each package's files in
 parallel. A synchronization that finds every package current waits for none.
+Synchronization compares stored packages with the shipped packages that each
+control-plane process reads from its library directories once and keeps in a
+node-local cache, so an edit to those directories takes effect after a
+control-plane restart. The development configuration rereads the library on
+every use so that local edits apply immediately.
 
 Interactive turns read complete enabled packages at `/drive/Skills/<slug>/`.
 This read-only projection depends only on the current Agent identity and uses a

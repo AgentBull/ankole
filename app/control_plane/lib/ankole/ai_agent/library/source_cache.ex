@@ -14,13 +14,15 @@ defmodule Ankole.AIAgent.Library.SourceCache do
     now_ms = System.monotonic_time(:millisecond)
 
     case get(key, nil) do
-      %{context: ^context, expires_at_ms: expires_at, result: result} when now_ms < expires_at ->
+      %{context: ^context, expires_at_ms: expires_at, result: result}
+      when expires_at == :infinity or now_ms < expires_at ->
         result
 
       _miss ->
         case read.() do
           {:ok, _value} = result ->
-            put(key, %{context: context, expires_at_ms: now_ms + ttl_ms, result: result})
+            expires_at = if ttl_ms == :infinity, do: :infinity, else: now_ms + ttl_ms
+            put(key, %{context: context, expires_at_ms: expires_at, result: result})
             result
 
           error ->

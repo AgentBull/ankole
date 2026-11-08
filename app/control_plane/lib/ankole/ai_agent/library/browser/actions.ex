@@ -11,10 +11,19 @@ defmodule Ankole.AIAgent.Library.Browser.Actions do
   defp action(:list, _, actor) do
     with {:ok, skills} <- Skills.list(actor),
          summaries = Skills.binding_summaries(actor, skills),
+         # Permissions depend only on the source kind, so the list checks each kind once.
+         permissions =
+           skills
+           |> Enum.uniq_by(& &1.source_kind)
+           |> Map.new(&{&1.source_kind, permissions(&1, actor)}),
          do:
            {:ok,
             %{
-              skills: Enum.map(skills, &skill(&1, actor, Map.fetch!(summaries, &1.id))),
+              skills:
+                Enum.map(
+                  skills,
+                  &skill(&1, Map.fetch!(summaries, &1.id), permissions[&1.source_kind])
+                ),
               can_create: Management.authorize(actor, "tenant_console:custom_skills") == :ok
             }}
   end
@@ -113,17 +122,21 @@ defmodule Ankole.AIAgent.Library.Browser.Actions do
   defp project(error, _), do: error
 
   defp skill(value, actor),
-    do: skill(value, actor, Map.fetch!(Skills.binding_summaries(actor, [value]), value.id))
-
-  defp skill(value, actor, summary),
     do:
-      value
-      |> Map.from_struct()
-      |> Map.merge(summary)
-      |> Map.merge(%{
-        can_edit: Management.skill(actor, value, "update") == :ok,
-        can_delete:
-          value.source_kind == :custom and Management.skill(actor, value, "delete") == :ok,
-        can_bind_all: Management.authorize(actor, "tenant_console:skill_bindings") == :ok
-      })
+      skill(
+        value,
+        Map.fetch!(Skills.binding_summaries(actor, [value]), value.id),
+        permissions(value, actor)
+      )
+
+  defp skill(value, summary, permissions),
+    do: value |> Map.from_struct() |> Map.merge(summary) |> Map.merge(permissions)
+
+  defp permissions(value, actor),
+    do: %{
+      can_edit: Management.skill(actor, value, "update") == :ok,
+      can_delete:
+        value.source_kind == :custom and Management.skill(actor, value, "delete") == :ok,
+      can_bind_all: Management.authorize(actor, "tenant_console:skill_bindings") == :ok
+    }
 end

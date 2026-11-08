@@ -7,6 +7,16 @@
   the row is too narrow, the recipient and model menus shorten their names with
   an ellipsis. The recipient name and the model menu use the same text size as
   the other composer controls.
+- Open the Meta Ankole Skills page faster. The Skill list now checks the
+  caller's edit, delete, and binding permissions once per Skill source instead
+  of once per Skill, and the page shows a loading skeleton until the list
+  arrives.
+- Read the shipped Agent Plugins and Skill packages from disk once per
+  control-plane process instead of every 30 seconds, so opening the Meta Ankole
+  Skills page or starting a Turn no longer waits for the library to be reread.
+  Operators who edit the directories under `ANKOLE_LIBRARY_ROOT` or
+  `ANKOLE_INTERNAL_SKILLS_ROOT` in a running deployment must restart the control
+  plane to apply the edits.
 
 ## Version 2.0.0-alpha.85 (2026-11-08)
 

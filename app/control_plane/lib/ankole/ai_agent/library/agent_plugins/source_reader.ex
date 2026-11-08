@@ -25,7 +25,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
     roots = library_roots(opts)
     ttl_ms = SkillSourceReader.source_cache_ttl_ms()
 
-    if not Keyword.has_key?(opts, :roots) and ttl_ms > 0 do
+    if not Keyword.has_key?(opts, :roots) and ttl_ms != 0 do
       read_trusted_agent_plugins_cached(roots, ttl_ms)
     else
       read_trusted_agent_plugins_uncached(roots)

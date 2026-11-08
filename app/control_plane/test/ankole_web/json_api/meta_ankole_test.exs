@@ -83,6 +83,40 @@ defmodule AnkoleWeb.JSONAPI.MetaAnkoleTest do
     assert [%{"relative_path" => "references/data.bin"}] = detail["files"]
   end
 
+  test "the Skill list reports each Skill's permissions by its source", %{conn: conn} do
+    conn
+    |> meta_conn()
+    |> post("/api/v2/pod/meta/skills", %{
+      data: %{
+        slug: "list-demo",
+        manifest_xml: "<page />",
+        metadata: %{name: "List demo", description: "List a custom Skill"}
+      }
+    })
+    |> json_response(201)
+
+    list = conn |> meta_conn() |> get("/api/v2/pod/meta/skills") |> json_response(200)
+    by_source = Enum.group_by(list["skills"], & &1["source_kind"])
+
+    assert list["can_create"]
+
+    assert [
+             %{
+               "slug" => "list-demo",
+               "can_edit" => true,
+               "can_delete" => true,
+               "can_bind_all" => true
+             }
+           ] = by_source["custom"]
+
+    assert [_ | _] = by_source["builtin"]
+
+    assert Enum.all?(
+             by_source["builtin"],
+             &(&1["can_edit"] and not &1["can_delete"] and &1["can_bind_all"])
+           )
+  end
+
   test "the Agent list excludes disabled colleagues", %{conn: conn} do
     agent = agent_fixture().principal
     {:ok, _} = Ankole.Principals.disable_agent(agent.uid)

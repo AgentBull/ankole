@@ -402,7 +402,7 @@ defmodule Ankole.AIAgent.LibraryTest do
              "Public description."
   end
 
-  test "agent plugin and skill sources cache per library root within TTL while seed templates stay compiled" do
+  test "agent plugin and skill sources stay cached per library root while seed templates stay compiled" do
     root_a = tmp_library_root!("cache-root-a")
     root_b = tmp_library_root!("cache-root-b")
     library_a = Path.join(root_a, "library")
@@ -418,9 +418,10 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     Application.put_env(:ankole, Ankole.AIAgent.Library,
       library_root: library_a,
-      internal_skills_root: nil,
-      source_cache_ttl_ms: 300_000
+      internal_skills_root: nil
     )
+
+    assert SourceReader.source_cache_ttl_ms() == :infinity
 
     assert {:ok, [%{id: "plugin-alpha"}]} =
              AgentPlugins.SourceReader.read_trusted_agent_plugins()
@@ -437,8 +438,7 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     Application.put_env(:ankole, Ankole.AIAgent.Library,
       library_root: library_b,
-      internal_skills_root: nil,
-      source_cache_ttl_ms: 300_000
+      internal_skills_root: nil
     )
 
     assert {:ok, [%{id: "plugin-beta"}]} =

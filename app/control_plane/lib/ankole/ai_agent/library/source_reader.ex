@@ -53,7 +53,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     roots = builtin_skill_roots()
     ttl_ms = source_cache_ttl_ms()
 
-    if ttl_ms > 0 do
+    if ttl_ms != 0 do
       read_builtin_skill_sources_cached(roots, ttl_ms)
     else
       read_builtin_skill_sources_uncached(roots)
@@ -522,10 +522,14 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
+  # A release ships the library inside its image, so each control-plane process
+  # reads it once. The development config sets 0 so that Ankole rereads local
+  # edits on every use.
   @doc false
-  @spec source_cache_ttl_ms() :: non_neg_integer()
+  @spec source_cache_ttl_ms() :: non_neg_integer() | :infinity
   def source_cache_ttl_ms do
-    case Keyword.get(library_config(), :source_cache_ttl_ms, 30_000) do
+    case Keyword.get(library_config(), :source_cache_ttl_ms, :infinity) do
+      :infinity -> :infinity
       ttl when is_integer(ttl) and ttl > 0 -> ttl
       _ttl -> 0
     end

@@ -51,6 +51,7 @@ export function MetaSkills() {
         </label>
         <Input id="meta-skill-search" type="search" value={search} onChange={event => setSearch(event.target.value)} />
       </div>
+      {skills.isPending && <ContentSkeleton variant="list" rows={6} />}
       {skills.error && <ContentError error={skills.error} retry={() => void skills.refetch()} />}
       {matches?.length === 0 && <p className="text-sm text-fg-secondary">{t('pod.meta.no_skills')}</p>}
       {matches?.map(skill => (
