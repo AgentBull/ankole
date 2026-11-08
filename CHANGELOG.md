@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.0.0-alpha.84 (2026-11-08)
+
+- Clicking a chat's participant avatars opens a list of everyone in the
+  conversation. In an assistant task or colleague DM they no longer open the
+  summary panel, so only the summary button shows it as open.
+
 ## Version 2.0.0-alpha.83 (2026-11-08)
 
 - Use one spinner across the Pod, the console, setup, and Applets: an arc

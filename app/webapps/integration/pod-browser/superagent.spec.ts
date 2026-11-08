@@ -123,15 +123,18 @@ test('an assistant task carries its referenced pages into a separate group witho
     await page.getByRole('button', { name: '发送消息', exact: true }).click()
     expect((await linked).ok()).toBe(true)
 
-    // The participant avatars show who is in the task; only the labelled button starts a group.
+    // The participant avatars only list who is in the task; the summary and starting a group have their own buttons.
     const avatars = page.getByRole('button', { name: /^聊天成员：/ })
     await avatars.click()
-    const summary = page.getByRole('complementary', { name: '会话摘要', exact: true })
-    await expect(summary.getByRole('heading', { name: '成员', exact: true })).toBeVisible()
+    const members = page.getByRole('dialog', { name: '当前会话成员', exact: true })
+    await expect(members.locator('.pod-chat-member')).toHaveCount(2)
+    await expect(members.getByRole('button')).toHaveCount(0)
     await expect(avatars).toHaveAttribute('aria-expanded', 'true')
-    await expect(page.getByRole('dialog', { name: '转为群聊', exact: true })).toHaveCount(0)
-    await avatars.click()
-    await expect(summary).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '会话摘要', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('complementary', { name: '会话摘要', exact: true })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(members).toBeHidden()
+    await expect(avatars).toBeFocused()
 
     await page.getByRole('button', { name: '转为群聊', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '转为群聊', exact: true })

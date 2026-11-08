@@ -32,8 +32,8 @@ import { podKeys, type ConversationDetail } from '../api'
 import { linkTarget } from '../../common/router'
 import { podLocation } from '../../common/browser-context'
 import { usePageHref } from '../use-page-metadata'
-import { ChatAvatar } from './chat-avatar'
 import { AgentName, agentLabel, conversationPath } from './conversation-row'
+import { ParticipantsPopover } from './participants-popover'
 import { useRoomActions } from './room-api'
 import { exportConversation } from './room-export'
 import type { PanelInputEvent } from '../panel-motion'
@@ -178,29 +178,7 @@ export function RoomHeader({
             {t('pod.chat_room.page_context')}
           </Link>
         )}
-        <button
-          type="button"
-          className="pod-chat-avatar-cluster"
-          aria-label={t('pod.chat_room.participants_list', {
-            names: room.participants.map(member => member.displayName).join(', ')
-          })}
-          title={room.participants.map(member => member.displayName).join(', ')}
-          // The avatars show who is here: a group's member popover, otherwise the summary's member list.
-          // Starting a group from a task or DM stays on its own labelled button.
-          aria-expanded={room.conversationKind === 'group' ? undefined : summaryOpen}
-          onClick={room.conversationKind === 'group' ? onInvite : onSummary}>
-          {room.participants.slice(0, 4).map(member => (
-            <ChatAvatar
-              key={member.uid}
-              name={member.displayName}
-              src={member.avatarURL}
-              agent={member.type === 'agent'}
-            />
-          ))}
-          {room.participants.length > 4 && (
-            <span className="pod-chat-avatar pod-chat-avatar-overflow">+{room.participants.length - 4}</span>
-          )}
-        </button>
+        <ParticipantsPopover room={room} />
         <Button
           size="sm"
           variant="ghost"

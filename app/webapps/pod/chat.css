@@ -496,11 +496,6 @@
   background: var(--accent);
   color: var(--accent-foreground);
 }
-.pod-chat-avatar-cluster {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-}
 .pod-chat-avatar-cluster .pod-chat-avatar + .pod-chat-avatar {
   margin-left: -8px;
 }
