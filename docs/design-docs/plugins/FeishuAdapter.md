@@ -121,6 +121,15 @@ Chat bindings and real-time directory sync share one WebSocket whenever their
 conflicting secrets for the same pair, Ankole marks that connection unavailable.
 Restarts rebuild the active connection set from PostgreSQL.
 
+Feishu and Lark deliver each event to only one of an application's long
+connections. A connection that serves no chat binding, such as one opened for
+real-time directory sync alone, can therefore receive chat messages meant for
+another deployment that answers them through the same application. The adapter
+drops such a message and logs `lark_adapter.inbound.message_without_chat_binding`
+with the app ID. When another deployment does answer messages through that
+application, the operator gives each deployment its own application, or turns
+off `sync.websocket` in the deployment that only signs users in.
+
 The WebSocket client manages reconnects, keepalive pings, frame reassembly, and
 event dispatch, acknowledging frames only after their handlers finish (provider
 redeliveries are safe because control-plane writes are idempotent). In a

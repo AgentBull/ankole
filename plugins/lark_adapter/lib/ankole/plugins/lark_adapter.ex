@@ -328,8 +328,9 @@ defmodule Ankole.Plugins.LarkAdapter do
         %{"default" => "Sync directory changes", "zh-Hans-CN" => "实时同步通讯录变更"},
         %{
           "default" =>
-            "Receive user and department changes over a long connection. Requires directory sync.",
-          "zh-Hans-CN" => "通过长连接接收用户和部门变更；需先开启通讯录同步。"
+            "Receive user and department changes over a long connection. Requires directory sync. Lark delivers each event to only one long connection of an app, so turn this off when another deployment receives chat messages through the same app.",
+          "zh-Hans-CN" =>
+            "通过长连接接收用户和部门变更；需先开启通讯录同步。飞书只把每个事件投递给同一应用的一条长连接，如果另一处部署通过同一应用接收聊天消息，请关闭此项。"
         },
         :boolean,
         default: true,

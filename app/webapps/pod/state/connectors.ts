@@ -77,6 +77,22 @@ export function connectorReturnTo({
   return `/connectors?${params}`
 }
 
+/**
+ * Returns the Connectors address to keep once an authorization has finished.
+ *
+ * The page starts an authorization when it loads with a `connection` and no result, so the
+ * finished request leaves the address; otherwise the next load would ask the person to
+ * authorize again. A trigger draft reopens from its parameters, so those stay.
+ */
+export function connectorAddressAfterAuthorization(url: URL): URL {
+  const next = new URL(url)
+  next.searchParams.delete('connector_completion')
+  if (!next.searchParams.has('trigger_type')) {
+    for (const name of ['connection', 'scopes', 'subject_kind']) next.searchParams.delete(name)
+  }
+  return next
+}
+
 export function connectorTriggerConfigFromURL(params: URLSearchParams): Record<string, unknown> {
   const config = safeJsonParse(params.get('trigger_config') ?? '{}').unwrapOr(undefined)
   return isRecord(config) ? config : {}
