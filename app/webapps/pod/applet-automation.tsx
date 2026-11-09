@@ -138,6 +138,8 @@ export function useAppletJobsController(detail: PageDetail, enabled: boolean) {
   const job = selectedJobID === undefined ? list.data?.[0] : list.data?.find(item => item.id === selectedJobID)
   const canEdit = !detail.page.deleted_at && detail.actions.includes('node_edit')
   const canCreate = !detail.page.deleted_at && detail.actions.includes('node_contribute')
+  // Jobs run published Actions, so an Applet without Actions has nothing to automate.
+  const noActions = actions.isSuccess && actions.data.length === 0
 
   useEffect(() => {
     if (!inspectRunMutation.error) return
@@ -194,6 +196,7 @@ export function useAppletJobsController(detail: PageDetail, enabled: boolean) {
     inspectRunError: inspectRunMutation.error,
     canEdit,
     canCreate,
+    noActions,
     inspectRun,
     startCreateWithAction
   }
@@ -238,7 +241,8 @@ export function AppletJobSelectorBar({
     draftNonce,
     setDraftNonce
   } = controller
-  const { canCreate, canEdit, createJob, inspectRunError, errorElement, createErrorElement } = controller
+  const { canCreate, canEdit, noActions, createJob, inspectRunError, errorElement, createErrorElement } = controller
+  const noActionsMessage = canEdit ? t('pod.automation.no_actions_editor') : t('pod.automation.no_actions_contributor')
 
   return (
     <div className="grid gap-4">
@@ -248,7 +252,7 @@ export function AppletJobSelectorBar({
         </div>
       )}
       {list.isPending && <ContentSkeleton variant="list" rows={2} />}
-      {(!!list.data?.length || canCreate) && (
+      {(!!list.data?.length || (canCreate && !noActions)) && (
         <div className="flex flex-wrap items-end gap-3">
           {!!list.data?.length && (
             <div className="min-w-52 flex-1">
@@ -263,7 +267,7 @@ export function AppletJobSelectorBar({
               />
             </div>
           )}
-          {canCreate && (
+          {canCreate && !noActions && (
             <Button
               variant="outline"
               aria-expanded={creating}
@@ -284,12 +288,17 @@ export function AppletJobSelectorBar({
           )}
         </div>
       )}
+      {noActions && (
+        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          {noActionsMessage}
+        </div>
+      )}
       {list.isSuccess && selectedJobID !== undefined && !job && (
         <p role="status" className="text-sm text-muted-foreground">
           {t('pod.automation.return_job_unavailable')}
         </p>
       )}
-      {creating && (
+      {creating && !noActions && (
         <section className="rounded-lg border border-border bg-card p-4">
           {!!(createJob.error ?? actions.error) && (
             <div ref={createErrorElement} tabIndex={-1} className="mb-3 outline-none">
@@ -310,8 +319,6 @@ export function AppletJobSelectorBar({
             />
           ) : actions.isPending ? (
             <InlineLoading />
-          ) : actions.isSuccess ? (
-            <p className="text-sm">{t('pod.automation.no_actions')}</p>
           ) : null}
         </section>
       )}
@@ -424,22 +431,18 @@ export function AppletAutomationTab({
   onOpenLogs: () => void
 }) {
   const { t } = useTranslation()
-  const { job, list, creating, pageID, canEdit, canCreate } = controller
+  const { job, list, creating, pageID, canEdit, canCreate, noActions } = controller
   const write = useJobWriteMutation(pageID)
   const canManage = job ? (job.authorization_kind === 'service' ? canEdit : canCreate) : false
 
   return (
     <div className="grid gap-5">
-      <header className="grid gap-1">
-        <h2 className="text-base font-semibold text-foreground">{t('pod.automation.title')}</h2>
-        <p className="text-sm text-muted-foreground">{t('pod.automation.description')}</p>
-      </header>
       {!!write.mutation.error && (
         <div ref={write.errorElement} tabIndex={-1} className="outline-none">
           <ContentError error={write.mutation.error} />
         </div>
       )}
-      {list.isSuccess && !list.data.length && !creating && (
+      {list.isSuccess && !list.data.length && !creating && !noActions && (
         <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           {t('pod.automation.no_jobs')}
         </div>
@@ -586,7 +589,7 @@ export function AppletWebhooksTab({
   onOpenLogs: () => void
 }) {
   const { t } = useTranslation()
-  const { job, list, creating, pageID, canEdit, canCreate } = controller
+  const { job, list, creating, pageID, canEdit, canCreate, noActions } = controller
   const write = useJobWriteMutation(pageID)
   const canManage = job ? (job.authorization_kind === 'service' ? canEdit : canCreate) : false
   const { sources, webhooks } = useJobSourcesQueries(pageID, job, { webhooks: true, isActive })
@@ -594,16 +597,12 @@ export function AppletWebhooksTab({
 
   return (
     <div className="grid gap-5">
-      <header className="grid gap-1">
-        <h2 className="text-base font-semibold text-foreground">{t('pod.automation.webhooks')}</h2>
-        <p className="text-sm text-muted-foreground">{t('pod.applet_settings.webhooks_description')}</p>
-      </header>
       {!!write.mutation.error && (
         <div ref={write.errorElement} tabIndex={-1} className="outline-none">
           <ContentError error={write.mutation.error} />
         </div>
       )}
-      {list.isSuccess && !list.data.length && !creating && (
+      {list.isSuccess && !list.data.length && !creating && !noActions && (
         <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           {t('pod.applet_settings.webhooks_need_job')}
         </div>
@@ -636,7 +635,7 @@ export function AppletLogsTab({
   isActive?: boolean
 }) {
   const { t } = useTranslation()
-  const { job, list, creating, pageID, selectedRun } = controller
+  const { job, list, creating, pageID, selectedRun, noActions } = controller
   const [statusFilter, setStatusFilter] = useState<'all' | 'failed' | 'running' | 'succeeded'>('all')
   const { schedules, webhooks, runs } = useJobSourcesQueries(pageID, job, {
     schedules: true,
@@ -667,11 +666,7 @@ export function AppletLogsTab({
 
   return (
     <div className="grid gap-5">
-      <header className="grid gap-1">
-        <h2 className="text-base font-semibold text-foreground">{t('pod.applet_settings.tab_logs')}</h2>
-        <p className="text-sm text-muted-foreground">{t('pod.applet_settings.logs_description')}</p>
-      </header>
-      {list.isSuccess && !list.data.length && !creating && (
+      {list.isSuccess && !list.data.length && !creating && !noActions && (
         <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           {t('pod.applet_settings.logs_need_job')}
         </div>
@@ -773,7 +768,9 @@ export function AppletFunctionsTab({
               </Badge>
             </div>
             {functions.data.routes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('pod.applet_settings.routes_empty')}</p>
+              <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+                {t('pod.applet_settings.routes_empty')}
+              </p>
             ) : (
               <div className="divide-y divide-border rounded-lg border border-border bg-card">
                 {functions.data.routes.map(route => (
@@ -803,7 +800,9 @@ export function AppletFunctionsTab({
               </Badge>
             </div>
             {functions.data.actions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('pod.applet_settings.actions_empty')}</p>
+              <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+                {t('pod.applet_settings.actions_empty')}
+              </p>
             ) : (
               <div className="divide-y divide-border rounded-lg border border-border bg-card">
                 {functions.data.actions.map(action => (

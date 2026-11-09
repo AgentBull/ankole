@@ -20,7 +20,15 @@ const BEACON_ID = '11223344-5566-7788-99aa-bbccddeeff00'
 const APPLET_PAGE_ID = '019a2b00-0000-7000-8000-000000000099'
 const CONVERSATION_ID = '019a2b00-0000-7000-8000-000000000088'
 
-function makeAppletDetail(): PodPageReadResponse {
+const EDITOR_ACTIONS: PodPageReadResponse['actions'] = [
+  'node_view',
+  'node_comment',
+  'node_contribute',
+  'node_edit',
+  'node_manage'
+]
+
+function makeAppletDetail(actions = EDITOR_ACTIONS, role: PodPageReadResponse['role'] = 'edit'): PodPageReadResponse {
   return {
     page: {
       id: APPLET_PAGE_ID,
@@ -36,12 +44,12 @@ function makeAppletDetail(): PodPageReadResponse {
       created_at: '2026-11-08T00:00:00Z',
       updated_at: '2026-11-08T00:00:00Z',
       deleted_at: null,
-      actions: ['node_view', 'node_comment', 'node_contribute', 'node_edit', 'node_manage'],
-      role: 'edit'
+      actions,
+      role
     },
     ancestors: [],
-    actions: ['node_view', 'node_comment', 'node_contribute', 'node_edit', 'node_manage'],
-    role: 'edit',
+    actions,
+    role,
     child_count: 0
   }
 }
@@ -342,7 +350,7 @@ test('.env batch import refreshes once, retains only failed entries on partial f
   await expect.poll(() => envListFetches).toBeGreaterThanOrEqual(1)
   const fetchesBeforeImport = envListFetches
 
-  await dialog.getByRole('button', { name: 'Paste .env', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Bulk import', exact: true }).click()
   const dotenvArea = dialog.getByLabel('Environment entries (.env)', { exact: true })
   await dotenvArea.fill('FIRST_OK=alpha\nSECOND_BAD="line 1\\nline 2"\nTHIRD_OK=omega')
   await dialog.getByRole('button', { name: 'Import 3 variables', exact: true }).click()
@@ -359,6 +367,108 @@ test('.env batch import refreshes once, retains only failed entries on partial f
   await dialog.getByRole('button', { name: 'Import 1 variable', exact: true }).click()
   await expect(dotenvArea).toBeHidden()
   await expect(page.getByText('Imported 1 variable.', { exact: true })).toBeVisible()
+})
+
+test('Applet settings puts each Job tab heading first and explains a missing Action by permission', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1365, height: 900 })
+  await installDocumentIdentity(page)
+
+  let detail = makeAppletDetail()
+
+  await page.route('**/api/v2/browser/session', route =>
+    route.fulfill({
+      json: {
+        authenticated: true,
+        principalUID: 'alice',
+        displayName: 'Alice',
+        canManagePod: true,
+        tenant: { id: HARBOR_ID, slug: 'harbor', displayName: 'Harbor' },
+        accounts: [],
+        pendingAccounts: [],
+        siteAuthentications: []
+      } satisfies BrowserSessionResponse
+    })
+  )
+
+  await page.route('**/api/v2/pod/**', route => {
+    const path = new URL(route.request().url()).pathname
+
+    if (path.endsWith('/events')) {
+      return route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' })
+    }
+    if (path.endsWith('/agents')) {
+      return route.fulfill({
+        json: { agents: [], personalAssistant: null, personalAssistantAvailable: true } satisfies PodAgentsResponse
+      })
+    }
+    if (path.endsWith('/pages/navigation')) {
+      return route.fulfill({ json: { path: [], directories: [] } satisfies PodPageNavigationResponse })
+    }
+    if (path === `/api/v2/pod/pages/${APPLET_PAGE_ID}`) {
+      return route.fulfill({ json: detail })
+    }
+    if (path === `/api/v2/pod/pages/${APPLET_PAGE_ID}/envs`) {
+      return route.fulfill({ json: { can_decrypt: true, envs: [] } satisfies PodAppletEnvsResponse })
+    }
+    if (path === `/api/v2/pod/pages/${APPLET_PAGE_ID}/job-actions`) {
+      return route.fulfill({ json: { actions: [] } })
+    }
+    if (path === `/api/v2/pod/pages/${APPLET_PAGE_ID}/jobs`) {
+      return route.fulfill({ json: { jobs: [] } })
+    }
+    if (path === `/api/v2/pod/pages/${APPLET_PAGE_ID}/files`) {
+      return route.fulfill({ json: { revision: 1, files: [] } })
+    }
+    if (path.endsWith('/conversations')) {
+      return route.fulfill({ json: { conversations: [], nextCursor: null } })
+    }
+    if (path.startsWith('/api/v2/pod/pages')) {
+      return route.fulfill({
+        json: {
+          pages: [],
+          can_create_space: true,
+          can_create_private: true,
+          can_manage_space: true,
+          next_cursor: null
+        }
+      })
+    }
+    return route.fulfill({ json: [] })
+  })
+
+  const openAutomation = async () => {
+    await page.goto(podLocation(`/pages/${APPLET_PAGE_ID}`).pathname)
+    await page.getByRole('button', { name: 'Applet settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Applet settings', exact: true })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('tab', { name: 'Automation', exact: true }).click()
+    return dialog
+  }
+  const editorMessage =
+    'This Applet has no background Actions to run yet. Ask the Agent to add and publish one, then create a Job here.'
+  const contributorMessage =
+    'This Applet has no background Actions to run yet. Ask a member who can edit this Page to publish one.'
+  const webhooksNeedJob = 'Webhooks trigger an Automation Job. Create or select a Job first to add callback URLs.'
+
+  const dialog = await openAutomation()
+  const heading = dialog.getByRole('heading', { name: 'Automation', exact: true })
+  const message = dialog.getByText(editorMessage, { exact: true })
+  await expect(heading).toBeVisible()
+  await expect(message).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'New Job', exact: true })).toHaveCount(0)
+  expect((await heading.boundingBox())!.y).toBeLessThan((await message.boundingBox())!.y)
+
+  await dialog.getByRole('tab', { name: 'Webhooks', exact: true }).click()
+  await expect(dialog.getByRole('heading', { name: 'Webhooks', exact: true })).toBeVisible()
+  await expect(message).toBeVisible()
+  await expect(dialog.getByText(webhooksNeedJob, { exact: true })).toBeHidden()
+
+  detail = makeAppletDetail(['node_view', 'node_comment', 'node_contribute'], 'contribute')
+  const contributorDialog = await openAutomation()
+  await expect(contributorDialog.getByText(contributorMessage, { exact: true })).toBeVisible()
+  await expect(contributorDialog.getByRole('button', { name: 'New Job', exact: true })).toHaveCount(0)
 })
 
 test('AccountMenu renders each Space avatar from its own Pod origin and authenticationRef', async ({ page }) => {
@@ -980,7 +1090,7 @@ test('.env batch import preserves newer .env and single-entry drafts edited whil
   await expect(dialog).toBeVisible()
 
   // 1. Full-success import finishing after user typed NEXT_BATCH=beta keeps panel open with NEXT_BATCH=beta intact
-  await dialog.getByRole('button', { name: 'Paste .env', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Bulk import', exact: true }).click()
   const dotenvArea = dialog.getByLabel('Environment entries (.env)', { exact: true })
   await dotenvArea.fill('FIRST_OK=alpha')
   await dialog.getByRole('button', { name: 'Import 1 variable', exact: true }).click()

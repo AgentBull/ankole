@@ -259,9 +259,9 @@ export function EnvVarsEditor({
         <TableRow key={item.name} data-state={editingName === item.name ? 'selected' : undefined}>
           <th
             scope="row"
-            className="max-w-[260px] border-b border-border px-3 py-2 text-left align-top font-normal whitespace-normal text-foreground">
+            className="max-w-[260px] border-b border-border px-3 py-1.5 text-left align-top font-normal whitespace-normal text-foreground">
             <div className="grid gap-1">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex min-h-6 flex-wrap items-center gap-1.5">
                 <span className="font-mono text-xs font-medium break-all">{item.name}</span>
                 {item.required ? <Badge variant="outline">{t('pod.env_vars.required')}</Badge> : null}
                 {item.secret ? <Badge variant="secondary">{t('pod.env_vars.secret')}</Badge> : null}
@@ -270,7 +270,7 @@ export function EnvVarsEditor({
             </div>
           </th>
           <TableCell className="max-w-[240px] align-top font-mono text-xs whitespace-normal">
-            <div className="flex items-center gap-1.5">
+            <div className="flex min-h-6 items-center gap-1.5">
               <span className="line-clamp-2 break-all text-foreground">
                 {(canRevealRow ? revealedValues[item.name] : undefined) ??
                   maskSummary(item, t('pod.env_vars.not_configured'))}
@@ -286,7 +286,7 @@ export function EnvVarsEditor({
                   }
                   title={isRowRevealed ? t('common.hide_secret') : t('common.reveal_secret')}
                   disabled={revealingName === item.name}
-                  className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                  className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
                   onClick={() => {
                     if (isRowRevealed) hideRevealed(item.name)
                     else void handleReveal(item.name)

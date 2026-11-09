@@ -225,7 +225,9 @@ can find that assistant by uid, display name, `my assistant`, or `助理`; searc
 does not create one. Shared content can resolve a referenced assistant belonging
 to someone else under its existing visibility rules. Invoking an assistant from
 a comment requires the caller's `agent:<uid>` chat permission. Assistant labels
-use the owner's current display name.
+use the owner's current display name. An assistant that keeps its default name
+is labeled with the owner phrase alone, such as `Alex's assistant` or
+`Alex的助理`; a renamed assistant shows its name followed by that phrase.
 
 Selecting a candidate
 commits an atomic self-closing `<mention page="<uuid>" />` or

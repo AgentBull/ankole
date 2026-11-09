@@ -35,7 +35,7 @@ import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { DiscardConfirmDialog, LabeledField, focusFirstInvalidControl, useDialogDiscardGuard } from '../../console-form'
-import { ResourceListPage, useListCreateTrigger } from '../../console-list-page'
+import { ResourceListPage, useCreateActionVariant, useListCreateTrigger } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 import { BrainSourceLabel, BrainSourceSelector } from './brain-scope'
 
@@ -45,6 +45,7 @@ type BrainSource = Flat<NonNullable<ListBrainSourcesResponse['data']>[number]>
 
 export function BrainSourcesPage() {
   const { t } = useTranslation()
+  const createVariant = useCreateActionVariant()
   const [registerOpen, setRegisterOpen] = useState(false)
   const registerTrigger = useListCreateTrigger()
   const [kind, setKind] = useState<(typeof SOURCE_KINDS)[number]>('file')
@@ -137,7 +138,7 @@ export function BrainSourcesPage() {
         emptyIcon={<RiInboxArchiveLine aria-hidden />}
         pagination={sources}
         createAction={
-          <Button ref={registerTrigger.ref} size="sm" type="button" onClick={openRegister}>
+          <Button ref={registerTrigger.ref} size="sm" type="button" variant={createVariant} onClick={openRegister}>
             {t('console.brain.register_source')}
           </Button>
         }>

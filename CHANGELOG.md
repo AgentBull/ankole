@@ -1,5 +1,38 @@
 # Changelog
 
+## Version 2.0.0-alpha.96 (2026-11-08)
+
+- Tidy the environment variable editor shared by Space settings and Applet
+  settings. The save button now reads "Save variable" instead of a raw message
+  key, the name and value fields drop their long hints, the encryption switch
+  explains the plaintext choice when it is off, the stored-secret hint sits
+  under the value it describes, and the inherited-variable table lines up its
+  columns. "Paste .env" is now "Bulk import", because the button opens the
+  import form rather than reading the clipboard.
+- Put the heading first on the Applet Automation, Webhooks, and Run logs tabs.
+  When an Applet publishes no Action, these tabs no longer offer "New Job" and
+  instead tell a Page editor to ask the Agent to add one, or tell a contributor
+  to ask an editor.
+- Make the Space settings sections consistent: Members, Agents, Invitations,
+  and Enterprise SSO now each open with a heading and a description, SSO shows
+  an empty state when no identity provider is connected, and the save bar
+  appears only while there are unsaved changes. On member cards, "Offboard" is
+  an outline button that opens the confirmation, and each member's sign-in
+  methods carry a label.
+- Name a personal assistant that keeps its default name after its owner alone,
+  such as "Alex's assistant" instead of "Assistant (Alex's assistant)".
+- Polish page details across Pod and Console: headings balance their lines and
+  paragraphs avoid a lone last word, Base number cells align right with even
+  digits, Base creates tables, views, and fields from buttons with an add icon,
+  the Child pages button collapses to an icon on narrow screens like its
+  neighbours, Share and the document status button show a tooltip, chat
+  participant avatars overlap less, and the account menu shows a placeholder
+  instead of a stray initial while it loads.
+- In Console, each page now opens at its top instead of keeping the previous
+  page's scroll position, the all-tenants view uses outline create buttons so
+  each screen keeps one primary action, Files has its own navigation icon, and
+  the Chinese interface calls Worker providers "Worker 提供商".
+
 ## Version 2.0.0-alpha.95 (2026-11-08)
 
 - Redesign Pod personal and space settings with responsive section navigation,

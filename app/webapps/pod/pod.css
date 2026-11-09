@@ -176,7 +176,6 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   flex: none;
   color: var(--fg-tertiary);
   font-size: 11px;
-  letter-spacing: 0.04em;
 }
 
 .pod-sidebar-top {

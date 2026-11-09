@@ -33,7 +33,10 @@ export function PageSharingButton({ pageID, page }: { pageID: string; page?: Pag
         if (!next) model.reset()
         setOpen(next)
       }}>
-      <PopoverTrigger render={<Button variant="outline" size="sm" aria-label={t('pod.content.share')} />}>
+      <PopoverTrigger
+        render={
+          <Button variant="outline" size="sm" aria-label={t('pod.content.share')} title={t('pod.content.share')} />
+        }>
         <ScopeIcon aria-hidden className="size-4 text-muted-foreground" />
         <span className="@max-[640px]:sr-only">{t('pod.content.share')}</span>
       </PopoverTrigger>

@@ -347,7 +347,8 @@ function BaseWorkspace({
                   create.mutate()
                 }
               }}>
-              {t('pod.content.table_2')}
+              <RiAddLine aria-hidden="true" />
+              {t('pod.content.new_table')}
             </Button>
           )}
         </div>
@@ -1424,7 +1425,8 @@ function CreateViewButton({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button size="sm" variant="ghost" disabled={create.isPending} />}>
-        {t('pod.content.view')}
+        <RiAddLine aria-hidden="true" />
+        {t('pod.content.new_view')}
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         {(Object.keys(viewLabels) as ViewType[]).map(type => {

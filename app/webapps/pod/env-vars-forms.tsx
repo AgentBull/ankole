@@ -201,7 +201,9 @@ export function EnvVarDotEnvImportForm({
         className="items-center justify-between rounded-md border border-border bg-muted/30 p-3">
         <div className="grid gap-0.5 pr-3">
           <FieldLabel htmlFor={importSecretId}>{t('pod.env_vars.secret_storage')}</FieldLabel>
-          <FieldDescription>{t('pod.env_vars.secret_hint')}</FieldDescription>
+          <FieldDescription>
+            {importSecret ? t('pod.env_vars.secret_hint') : t('pod.env_vars.plaintext_value_hint')}
+          </FieldDescription>
         </div>
         <Switch
           id={importSecretId}
@@ -428,8 +430,8 @@ export function EnvVarSingleEntryForm({
   }
 
   const nameId = `${baseId}-name`
-  const nameHintId = `${baseId}-name-hint`
   const valueId = `${baseId}-value`
+  const valueHintId = `${baseId}-value-hint`
   const secretId = `${baseId}-secret`
   const secretHintId = `${baseId}-secret-hint`
   const descId = `${baseId}-description`
@@ -444,7 +446,6 @@ export function EnvVarSingleEntryForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor={nameId}>{t('pod.env_vars.name')}</FieldLabel>
-          <FieldDescription id={nameHintId}>{t('pod.env_vars.name_hint')}</FieldDescription>
           <Input
             ref={nameInputRef}
             id={nameId}
@@ -456,7 +457,6 @@ export function EnvVarSingleEntryForm({
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
-            aria-describedby={nameHintId}
             placeholder="EXAMPLE_API_KEY"
             className="font-mono text-xs user-invalid:border-destructive"
             value={editingName ?? name}
@@ -476,11 +476,6 @@ export function EnvVarSingleEntryForm({
         </Field>
         <Field>
           <FieldLabel htmlFor={valueId}>{t('pod.env_vars.value')}</FieldLabel>
-          <FieldDescription>
-            {secret || isEncryptedValueMask(value)
-              ? t('pod.env_vars.secret_value_hint')
-              : t('pod.env_vars.plaintext_value_hint')}
-          </FieldDescription>
           {secret || isEncryptedValueMask(value) ? (
             <EncryptedValueInput
               key={`${editingName ?? '__new__'}:${formResetCount}`}
@@ -509,6 +504,7 @@ export function EnvVarSingleEntryForm({
                 }
               }}
               onReveal={canRevealEditing ? onReveal : undefined}
+              aria-describedby={isEncryptedValueMask(value) ? valueHintId : undefined}
             />
           ) : (
             <Input
@@ -538,6 +534,9 @@ export function EnvVarSingleEntryForm({
               }}
             />
           )}
+          {isEncryptedValueMask(value) ? (
+            <FieldDescription id={valueHintId}>{t('pod.env_vars.secret_value_hint')}</FieldDescription>
+          ) : null}
         </Field>
       </div>
 
@@ -546,7 +545,9 @@ export function EnvVarSingleEntryForm({
         className="items-center justify-between rounded-md border border-border bg-muted/30 p-3">
         <div className="grid gap-0.5 pr-3">
           <FieldLabel htmlFor={secretId}>{t('pod.env_vars.secret_storage')}</FieldLabel>
-          <FieldDescription id={secretHintId}>{t('pod.env_vars.secret_hint')}</FieldDescription>
+          <FieldDescription id={secretHintId}>
+            {secret ? t('pod.env_vars.secret_hint') : t('pod.env_vars.plaintext_value_hint')}
+          </FieldDescription>
         </div>
         <Switch
           id={secretId}
@@ -576,7 +577,7 @@ export function EnvVarSingleEntryForm({
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" size="sm" disabled={saving}>
-          {t('pod.env_vars.save')}
+          {t('pod.env_vars.save_variable')}
         </Button>
         {editingName ? (
           <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={resetForm}>

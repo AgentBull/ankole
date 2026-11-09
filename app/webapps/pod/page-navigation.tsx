@@ -538,9 +538,9 @@ export function PageChildrenMenu({
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger render={<Button size="sm" variant="ghost" />}>
+        <PopoverTrigger render={<Button size="sm" variant="ghost" title={t('pod.content.child_pages')} />}>
           <RiNodeTree aria-hidden className="size-4" />
-          {t('pod.content.child_pages')}
+          <span className="@max-[640px]:sr-only">{t('pod.content.child_pages')}</span>
         </PopoverTrigger>
         <PopoverContent
           align="end"

@@ -35,7 +35,7 @@ export function SettingsLayout({
         onValueChange={onValueChange}
         className="mx-auto grid w-full max-w-6xl grid-cols-1 content-start gap-6 px-4 py-7 sm:px-6 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-x-10 md:px-8 md:py-10 lg:gap-x-14 lg:px-10">
         <header className="grid gap-1.5 md:col-span-2">
-          <h1 className="text-2xl font-semibold tracking-[-0.02em] text-foreground">{title}</h1>
+          <h1 className="title-page text-foreground">{title}</h1>
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
         </header>
         <TabsList
@@ -79,7 +79,7 @@ function SettingsSectionHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
       <div className="grid min-w-0 gap-1">
-        <h2 className="text-base font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+        <h2 className="text-base font-semibold text-foreground">{title}</h2>
         {description && <p className="max-w-2xl text-sm leading-5 text-muted-foreground">{description}</p>}
       </div>
       {action}
@@ -92,20 +92,27 @@ export function SettingsSection({
   description,
   action,
   children,
-  className
+  className,
+  framed = true
 }: {
   title: string
   description?: string
   action?: ReactNode
   children: ReactNode
   className?: string
+  /** A section whose content is already a list of cards places it directly under the heading. */
+  framed?: boolean
 }) {
   return (
     <section className="grid content-start gap-3">
       <SettingsSectionHeader title={title} description={description} action={action} />
-      <Card size="sm" className={cn('gap-0 rounded-xl bg-card py-0 shadow-none', className)}>
-        <CardContent className="px-5 py-5 sm:px-6 sm:py-6">{children}</CardContent>
-      </Card>
+      {framed ? (
+        <Card size="sm" className={cn('gap-0 rounded-xl bg-card py-0 shadow-none', className)}>
+          <CardContent className="px-5 py-5 sm:px-6 sm:py-6">{children}</CardContent>
+        </Card>
+      ) : (
+        children
+      )}
     </section>
   )
 }

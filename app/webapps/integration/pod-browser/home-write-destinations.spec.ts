@@ -366,7 +366,7 @@ test('structure edits and page management do not imply record submission', async
       await expect(member.getByRole('button', { name: 'Table 1', exact: true })).toBeVisible()
       expect((await request<{ actions: string[] }>(member, `/pages/${sourceID}`)).actions).toEqual(actions)
       await expect(member.getByRole('button', { name: '新增记录', exact: true })).toHaveCount(0)
-      await expect(member.getByRole('button', { name: '+ 数据表', exact: true })).toHaveCount(role === 'edit' ? 1 : 0)
+      await expect(member.getByRole('button', { name: '新建数据表', exact: true })).toHaveCount(role === 'edit' ? 1 : 0)
       await member.getByRole('button', { name: '数据表操作', exact: true }).click()
       await expect(member.getByRole('menu')).toBeVisible()
       await expect(member.getByRole('menuitem', { name: '删除数据表', exact: true })).toHaveCount(

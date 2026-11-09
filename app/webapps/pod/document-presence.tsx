@@ -53,7 +53,15 @@ export function DocumentPresence({
       aria-label={t('pod.collaboration.region')}>
       <Popover>
         <PopoverTrigger
-          render={<Button variant="ghost" size="sm" className="gap-1 @max-[860px]:px-1" aria-label={peopleLabel} />}>
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 @max-[860px]:px-1"
+              aria-label={peopleLabel}
+              title={`${statusLabel} · ${peopleLabel}`}
+            />
+          }>
           <span role="status" className="flex items-center gap-1.5" data-sync-status={label}>
             <Icon aria-hidden className="size-3.5" />
             <span className="@max-[860px]:sr-only">{statusLabel}</span>

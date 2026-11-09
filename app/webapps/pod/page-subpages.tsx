@@ -814,7 +814,7 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
     return (
       <div className="flex h-[132px] items-center justify-center overflow-hidden border-b border-border/70 bg-muted/35 px-4">
         <div className="flex min-w-[96px] flex-col items-center gap-1 border border-border bg-background px-4 py-2.5 shadow-2xs">
-          <span className="font-mono text-xs font-semibold tracking-wider text-foreground">{badge}</span>
+          <span className="font-mono text-xs font-semibold text-foreground">{badge}</span>
           <span className="text-xs tabular-nums text-fg-tertiary">{size}</span>
         </div>
       </div>

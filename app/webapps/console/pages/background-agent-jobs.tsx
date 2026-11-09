@@ -760,7 +760,7 @@ function JobTrajectory({ job, page }: { job: BackgroundAgentJobItem; page: Backg
       <div className="grid gap-6">
         {groupTurnsByAttempt(turns, job.attempts, job.runtime_thread_id).map(group => (
           <section key={group.attempt} className="grid min-w-0 gap-3">
-            <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase">
               {t('console.background_agent_jobs.attempt_label', { count: group.attempt })}
             </h4>
             <ol className="grid min-w-0 gap-4 border-l border-border pl-6">

@@ -34,7 +34,14 @@ import {
   type StatusTone
 } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
-import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, useListCreateTrigger } from '../console-list-page'
+import {
+  AgentCell,
+  FilterSwitch,
+  ResourceListPage,
+  ResourceSearch,
+  useCreateActionVariant,
+  useListCreateTrigger
+} from '../console-list-page'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { instantFromDateTimeLocal } from '../state/token-quota-editor-model'
 
@@ -67,6 +74,7 @@ function live(endpoint: WebhookEndpointItem): boolean {
 
 export function WebhooksPage() {
   const { t } = useTranslation()
+  const createVariant = useCreateActionVariant()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
@@ -160,6 +168,7 @@ export function WebhooksPage() {
           <Button
             ref={createTrigger.ref}
             type="button"
+            variant={createVariant}
             onClick={() => {
               resetDialog()
               setOpen(true)

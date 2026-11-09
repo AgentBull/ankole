@@ -124,9 +124,7 @@ function BrainLayersCard({
 
       {entityLayers.length > 0 && (
         <div className="space-y-1">
-          <div className="px-1 text-[11px] font-medium tracking-wide text-fg-tertiary uppercase">
-            {t('pod.meta.layers_nodes')}
-          </div>
+          <div className="px-1 text-[11px] font-medium text-fg-tertiary uppercase">{t('pod.meta.layers_nodes')}</div>
           {entityLayers.map(layer => {
             const swatch = palette.ramps[layer.ramp].fill
             return (
@@ -155,9 +153,7 @@ function BrainLayersCard({
 
       {relationLayers.length > 0 && (
         <div className="mt-3 space-y-1 border-t border-border/70 pt-2.5">
-          <div className="px-1 text-[11px] font-medium tracking-wide text-fg-tertiary uppercase">
-            {t('pod.meta.layers_edges')}
-          </div>
+          <div className="px-1 text-[11px] font-medium text-fg-tertiary uppercase">{t('pod.meta.layers_edges')}</div>
           {relationLayers.map(layer => {
             const swatch = palette.ramps[layer.ramp].fill
             const dashed = layer.kind === 'reference' || layer.kind === 'evidence'

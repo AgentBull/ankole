@@ -193,9 +193,7 @@ export function CommandMenuPreview({
 
           {xmlPreview.headings.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[11px] font-medium tracking-wide text-fg-tertiary uppercase">
-                {t('pod.command.sections')}
-              </p>
+              <p className="text-[11px] font-medium text-fg-tertiary uppercase">{t('pod.command.sections')}</p>
               <div className="flex flex-col gap-0.5">
                 {xmlPreview.headings.slice(0, 10).map((sec, idx) => (
                   <button

@@ -185,11 +185,11 @@ test('field editing cancels cleanly and requires confirmation before converting 
     expect((await read())[0]!.data[memo.id]).toBeUndefined()
     expect((await schema()).fields.find(field => field.id === revenue.id)?.type).toBe('number')
 
-    await owner.getByRole('button', { name: '+ 字段', exact: true }).first().click()
+    await owner.getByRole('button', { name: '添加字段', exact: true }).first().click()
     await owner.getByRole('textbox', { name: '字段名称', exact: true }).fill('New property')
     await owner.getByRole('button', { name: '保存字段', exact: true }).click()
     await expect(owner.getByRole('dialog')).toHaveCount(0)
-    await owner.getByRole('button', { name: '+ 字段', exact: true }).first().click()
+    await owner.getByRole('button', { name: '添加字段', exact: true }).first().click()
     await expect(owner.getByRole('textbox', { name: '字段名称', exact: true })).toHaveValue('')
     await owner.getByRole('button', { name: '取消', exact: true }).click()
   } finally {

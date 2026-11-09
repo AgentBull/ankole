@@ -8,6 +8,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Skeleton,
   toast,
   useTheme
 } from '@ankole/uikit'
@@ -112,11 +113,22 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
             ? t('pod.sidebar.account_menu', { name, tenant: tenantName })
             : t('pod.sidebar.account_menu_name', { name })
         }>
-        <SpaceMark name={tenantName || name} avatarURL={data?.tenant?.avatarURL} context={currentAvatarContext} />
-        <span className="pod-account-text">
-          <span className="truncate">{tenantName || name}</span>
-          {tenantName && <small className="truncate">{name}</small>}
-        </span>
+        {session.isPending ? (
+          <>
+            <Skeleton aria-hidden className="pod-account-mark" />
+            <span className="pod-account-text">
+              <Skeleton aria-hidden className="h-4 w-24" />
+            </span>
+          </>
+        ) : (
+          <>
+            <SpaceMark name={tenantName || name} avatarURL={data?.tenant?.avatarURL} context={currentAvatarContext} />
+            <span className="pod-account-text">
+              <span className="truncate">{tenantName || name}</span>
+              {tenantName && <small className="truncate">{name}</small>}
+            </span>
+          </>
+        )}
         <RiExpandUpDownLine aria-hidden className="pod-account-chevron" />
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" sideOffset={6} className="pod-account-menu">

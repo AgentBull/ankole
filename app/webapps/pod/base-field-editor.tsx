@@ -20,7 +20,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiEqualizerLine } from '@remixicon/react'
+import { RiAddLine, RiEqualizerLine } from '@remixicon/react'
 import { FieldEditorModel } from './state/field-editor'
 import { requestErrorCode } from '../common/request-errors'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -159,7 +159,10 @@ export function FieldEditorButton({
         {iconOnly ? (
           <RiEqualizerLine aria-hidden="true" />
         ) : (
-          <span className="truncate">{field ? field.name : t('pod.content.field')}</span>
+          <>
+            {!field && <RiAddLine aria-hidden="true" />}
+            <span className="truncate">{field ? field.name : t('pod.content.add_field')}</span>
+          </>
         )}
       </PopoverTrigger>
       <PopoverContent

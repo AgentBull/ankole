@@ -127,16 +127,33 @@ export function PodSettings() {
         <GeneralSettings model={model} />
       </SettingsPanel>
       <SettingsPanel value="members">
-        <Members model={model} />
+        <SettingsSection
+          framed={false}
+          title={t('pod.settings.members')}
+          description={t('pod.settings.members_description')}>
+          <Members model={model} />
+        </SettingsSection>
       </SettingsPanel>
       <SettingsPanel value="agents">
-        <ManagedAgents />
+        <SettingsSection framed={false} title={t('pod.settings.agents')} description={t('pod.settings.agents_hint')}>
+          <ManagedAgents />
+        </SettingsSection>
       </SettingsPanel>
       <SettingsPanel value="invitations">
-        <Invitations model={model} />
+        <SettingsSection
+          framed={false}
+          title={t('pod.settings.invitations')}
+          description={t('pod.settings.invitations_description')}>
+          <Invitations model={model} />
+        </SettingsSection>
       </SettingsPanel>
       <SettingsPanel value="providers">
-        <Providers model={model} />
+        <SettingsSection
+          framed={false}
+          title={t('pod.settings.providers')}
+          description={t('pod.settings.providers_description')}>
+          <Providers model={model} />
+        </SettingsSection>
       </SettingsPanel>
       <SettingsPanel value="environment">
         <PodEnvironmentSettings />
@@ -248,13 +265,11 @@ function RenameMember({ member }: { member: Member }) {
 }
 
 function ManagedAgents() {
-  const { t } = useTranslation()
   const client = useQueryClient()
   const agents = useQuery({ queryKey: keys.agents, queryFn: () => api.podAdminAgents() })
   const refresh = () => refreshAgentQueries(client)
   return (
     <section className="grid gap-4">
-      <p className="text-sm text-muted-foreground">{t('pod.settings.agents_hint')}</p>
       <ContentError error={agents.error} />
       {agents.data?.agents.map(agent => (
         <ManagedAgent key={agent.uid} agent={agent} onSuccess={refresh} />
@@ -293,7 +308,7 @@ export function ManagedAgent({
             {t(`console.status.${agent.status}`)}
           </Badge>
         </div>
-        <p className="break-all text-sm text-muted-foreground">
+        <p className="text-sm wrap-anywhere text-muted-foreground">
           @{agent.uid} · {t('pod.settings.agent_owner', { uid: agent.ownerUID })}
         </p>
       </CardHeader>
@@ -448,7 +463,7 @@ function GeneralSettings({ model }: { model: Model }) {
               {t('pod.settings.default_locale_hint')}
             </p>
           </div>
-          <label className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm">
+          <label className="flex items-start gap-3 text-sm">
             <Checkbox
               checked={model.guests.value}
               onCheckedChange={value => {
@@ -513,16 +528,14 @@ function GeneralSettings({ model }: { model: Model }) {
           )}
         </div>
       </SettingsSection>
-      <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
-        <p className="text-sm text-muted-foreground">
-          {t(model.dirty.value ? 'pod.settings.unsaved_changes' : 'pod.settings.all_saved')}
-        </p>
-        <Button
-          type="submit"
-          disabled={!model.dirty.value || !model.displayName.value.trim() || save.isPending || !settings.data}>
-          {t('pod.settings.save_changes')}
-        </Button>
-      </div>
+      {(model.dirty.value || save.isPending) && (
+        <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
+          <p className="text-sm text-muted-foreground">{t('pod.settings.unsaved_changes')}</p>
+          <Button type="submit" disabled={!model.displayName.value.trim() || save.isPending || !settings.data}>
+            {t('pod.settings.save_changes')}
+          </Button>
+        </div>
+      )}
     </form>
   )
 }
@@ -642,7 +655,7 @@ function Members({ model }: { model: Model }) {
       ) : (
         <Card className="rounded-xl">
           <CardHeader>
-            <h2>{t('pod.settings.precreate_member')}</h2>
+            <h3 className="title-section">{t('pod.settings.precreate_member')}</h3>
           </CardHeader>
           <CardContent>
             <form
@@ -706,7 +719,7 @@ function Members({ model }: { model: Model }) {
           <Card className="rounded-xl" key={member.uid}>
             <CardHeader>
               <div className="flex flex-wrap items-center gap-2">
-                <h2>{member.displayName}</h2>
+                <h3 className="title-section">{member.displayName}</h3>
                 {member.administrator && (
                   <Badge variant="info">{t('pod.settings.role_admin', { defaultValue: 'Administrator' })}</Badge>
                 )}
@@ -736,7 +749,7 @@ function Members({ model }: { model: Model }) {
                   {t('pod.settings.suspend')}
                 </Button>
                 <Button
-                  variant="destructive"
+                  variant="outline"
                   disabled={member.status !== 'active' || isSelf}
                   onClick={() => select(member, 'offboarded')}>
                   {t('pod.settings.offboard')}
@@ -747,10 +760,15 @@ function Members({ model }: { model: Model }) {
                   </Button>
                 )}
               </div>
+              {member.credentials.length > 0 && (
+                <p className="border-t border-border pt-3 text-xs font-medium text-muted-foreground">
+                  {t('pod.account.login_methods')}
+                </p>
+              )}
               {member.credentials.map(credential => (
                 <div key={credential.id} className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="break-all">{credential.identifier}</span>
+                    <span className="wrap-anywhere">{credential.identifier}</span>
                     {credential.provider !== 'email_otp' && (
                       <Badge variant="secondary">{humanizeTechnicalLabel(credential.provider)}</Badge>
                     )}
@@ -924,7 +942,7 @@ function Invitations({ model }: { model: Model }) {
       <ContentError error={invitations.error ?? create.error ?? revoke.error} />
       <Card className="rounded-xl">
         <CardHeader>
-          <h2>{t('pod.settings.create_invitation')}</h2>
+          <h3 className="title-section">{t('pod.settings.create_invitation')}</h3>
         </CardHeader>
         <CardContent>
           <form
@@ -1012,7 +1030,9 @@ function Invitations({ model }: { model: Model }) {
       {create.data && (
         <Card className="border-foreground/40 bg-muted/30">
           <CardHeader>
-            <h2>{t('pod.settings.invitation_ready', { defaultValue: 'Invitation link ready' })}</h2>
+            <h3 className="title-section">
+              {t('pod.settings.invitation_ready', { defaultValue: 'Invitation link ready' })}
+            </h3>
           </CardHeader>
           <CardContent className="grid gap-3">
             <div className="flex min-w-0 flex-col gap-3 border border-border/70 bg-background p-3 sm:flex-row sm:items-center">
@@ -1202,7 +1222,15 @@ function Providers({ model }: { model: Model }) {
         )
       })}
       {!adapter && adapters.length > 0 && (
-        <div className="flex">
+        <div
+          className={
+            providers.data?.providers.length === 0
+              ? 'grid justify-items-center gap-3 rounded-lg border border-dashed border-border px-4 py-6 text-center'
+              : 'flex'
+          }>
+          {providers.data?.providers.length === 0 && (
+            <p className="text-sm text-muted-foreground">{t('pod.settings.providers_empty')}</p>
+          )}
           <Button variant="outline" disabled={save.isPending} onClick={() => selectAdapter(adapters[0]!.adapter_id)}>
             {t('console.identity.new')}
           </Button>
@@ -1211,13 +1239,13 @@ function Providers({ model }: { model: Model }) {
       {adapter && (
         <Card className="rounded-xl">
           <CardHeader>
-            <h2>
+            <h3 className="title-section">
               {model.editingProviderID.value
                 ? (localizedText(editingProvider?.display_name, i18n.language) ??
                   localizedText(adapter.display_name, i18n.language) ??
                   humanizeTechnicalLabel(adapter.adapter_id))
                 : t('console.identity.new')}
-            </h2>
+            </h3>
           </CardHeader>
           <CardContent className="grid gap-4">
             {!model.editingProviderID.value && adapters.length > 1 && (

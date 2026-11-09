@@ -197,6 +197,15 @@ export function AppletSettingsDialog({
 
   const jobsEnabled = open && (visitedTabs.has('automation') || visitedTabs.has('webhooks') || visitedTabs.has('logs'))
   const jobsController = useAppletJobsController(detail, jobsEnabled)
+  // The Job tabs share one selector, so the dialog renders their headings above it.
+  const jobTabHeader =
+    activeTab === 'automation'
+      ? { title: t('pod.automation.title'), description: t('pod.automation.description') }
+      : activeTab === 'webhooks'
+        ? { title: t('pod.applet_settings.tab_webhooks'), description: t('pod.applet_settings.webhooks_description') }
+        : activeTab === 'logs'
+          ? { title: t('pod.applet_settings.tab_logs'), description: t('pod.applet_settings.logs_description') }
+          : null
 
   useEffect(() => {
     if (requestedJobSelection !== undefined) {
@@ -321,13 +330,14 @@ export function AppletSettingsDialog({
                   ) : null}
                 </TabsContent>
               )}
-              <div
-                hidden={activeTab !== 'automation' && activeTab !== 'webhooks' && activeTab !== 'logs'}
-                className="mb-5 [&[hidden]]:hidden">
-                <AppletJobSelectorBar
-                  controller={jobsController}
-                  isActive={activeTab === 'automation' || activeTab === 'webhooks' || activeTab === 'logs'}
-                />
+              <div hidden={!jobTabHeader} className="mb-5 grid gap-5 [&[hidden]]:hidden">
+                {jobTabHeader ? (
+                  <header className="grid gap-1">
+                    <h2 className="text-base font-semibold text-foreground">{jobTabHeader.title}</h2>
+                    <p className="text-sm text-muted-foreground">{jobTabHeader.description}</p>
+                  </header>
+                ) : null}
+                <AppletJobSelectorBar controller={jobsController} isActive={Boolean(jobTabHeader)} />
               </div>
               <TabsContent value="automation" keepMounted className="outline-none [&[hidden]]:hidden">
                 {visitedTabs.has('automation') ? (

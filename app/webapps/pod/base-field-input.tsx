@@ -293,6 +293,7 @@ export function FieldInput({
         aria-label={field.name}
         type={field.type === 'number' ? 'number' : datetime ? 'datetime-local' : 'text'}
         step={field.type === 'number' ? 'any' : undefined}
+        className={field.type === 'number' ? 'text-right tabular-nums' : undefined}
         value={draft}
         onFocus={() => {
           editStartValue.current = value

@@ -67,6 +67,8 @@ defmodule Ankole.Principals.Agents do
     end
   end
 
+  @default_assistant_names ["助理", "Assistant"]
+
   defp create_personal_assistant_in_tx(owner) do
     with {:ok, locale} <- Ankole.I18n.configured_default_locale() do
       create_agent_in_tx(%{
@@ -154,10 +156,15 @@ defmodule Ankole.Principals.Agents do
 
         {:ok, locale} = Ankole.I18n.configured_default_locale()
         owner_name = short_name(owner)
+        zh? = String.starts_with?(locale, "zh")
 
-        if String.starts_with?(locale, "zh"),
-          do: "#{name}（#{owner_name}的助理）",
-          else: "#{name} (#{owner_name}'s assistant)"
+        # The default name only repeats "assistant", so the owner phrase alone names it.
+        cond do
+          name in @default_assistant_names and zh? -> "#{owner_name}的助理"
+          name in @default_assistant_names -> "#{owner_name}'s assistant"
+          zh? -> "#{name}（#{owner_name}的助理）"
+          true -> "#{name} (#{owner_name}'s assistant)"
+        end
 
       _ ->
         name

@@ -612,7 +612,7 @@ test('a new board immediately groups by an existing single-choice field', async 
     })
     await page.goto(location(pageID))
     await page.getByRole('button', { name: 'Responses', exact: true }).click()
-    await page.getByRole('button', { name: '+ 视图', exact: true }).click()
+    await page.getByRole('button', { name: '新建视图', exact: true }).click()
     await page.getByRole('menuitem', { name: '看板', exact: true }).click()
     await expect(page.getByRole('combobox', { name: '选择分组字段', exact: true })).toContainText('Stage')
     await expect(page.getByRole('heading', { name: 'Open 1', exact: true })).toBeVisible()

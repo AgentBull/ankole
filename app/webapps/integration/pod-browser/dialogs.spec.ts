@@ -118,7 +118,7 @@ test('table and view forms submit with Enter while field and record deletion ret
     })
     baseID = base.id
     await page.goto(pageRoute(base.id))
-    await page.getByRole('button', { name: '+ 数据表', exact: true }).click()
+    await page.getByRole('button', { name: '新建数据表', exact: true }).click()
     const tableName = page.getByRole('textbox', { name: '数据表名称', exact: true })
     await expect(tableName).toBeFocused()
     await tableName.fill('客户台账')
@@ -128,7 +128,7 @@ test('table and view forms submit with Enter while field and record deletion ret
     expect(tables).toHaveLength(2)
     const table = tables.find(table => table.name === '客户台账')!
     expect(table).toBeDefined()
-    await page.getByRole('button', { name: '+ 视图', exact: true }).click()
+    await page.getByRole('button', { name: '新建视图', exact: true }).click()
     await page.getByRole('menuitem', { name: '看板', exact: true }).click()
     await page.getByRole('button', { name: '看板', exact: true }).dblclick()
     const viewName = page.getByRole('textbox', { name: '视图名称', exact: true })

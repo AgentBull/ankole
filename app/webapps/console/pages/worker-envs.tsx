@@ -47,7 +47,7 @@ import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
 import { ConfirmDeleteButton, EditorNotFound, LabeledField, ResourceEditorPage } from '../console-form'
-import { ResourceListPage, ResourceSearch } from '../console-list-page'
+import { ResourceListPage, ResourceSearch, useCreateActionVariant } from '../console-list-page'
 import { WorkerEnvEditorModel } from '../state/worker-env-editor-model'
 import { workerEnvValueText } from '../state/worker-env-visibility'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -125,6 +125,7 @@ export function WorkerEnvPlaintextConfirmDialog({
 
 export function WorkerEnvsListPage() {
   const { t } = useTranslation()
+  const createVariant = useCreateActionVariant()
   const globalList = useBaseQuery(listSiteWorkerEnvsOptions())
   const tenantList = useQuery(listWorkerEnvsOptions())
   const globalItems = new Map((globalList.data?.worker_envs ?? []).map(item => [item.name, item]))
@@ -161,7 +162,10 @@ export function WorkerEnvsListPage() {
           <Link to="new" search={{ scope: 'global' }} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
             {t('console.worker_envs.new_global')}
           </Link>
-          <Link to="new" search={{ scope: 'tenant' }} className={buttonVariants({ size: 'sm' })}>
+          <Link
+            to="new"
+            search={{ scope: 'tenant' }}
+            className={buttonVariants({ size: 'sm', variant: createVariant })}>
             {t('console.worker_envs.new_tenant')}
           </Link>
         </div>
@@ -205,15 +209,21 @@ function WorkerEnvValueCell({ item, scope }: { item?: WorkerEnvItem; scope: 'glo
   if (!item) return <TableCell className="text-muted-foreground">—</TableCell>
   return (
     <TableCell className="max-w-72 whitespace-normal">
-      <div className="grid gap-1.5">
-        <code className="line-clamp-3 break-all text-xs">{workerEnvValueText(item)}</code>
-        <div className="flex flex-wrap items-center gap-2">
-          <WorkerEnvSourceBadge source={item.source} />
-          {item.secret ? <Badge variant="info">{t('console.worker_envs.secret')}</Badge> : null}
-          <Link className="link text-xs" to={encodeURIComponent(item.name)} search={{ scope }}>
-            {t('common.edit')}
-          </Link>
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1.5">
+          <code className="line-clamp-3 break-all text-xs">{workerEnvValueText(item)}</code>
+          <div className="flex flex-wrap items-center gap-2">
+            <WorkerEnvSourceBadge source={item.source} />
+            {item.secret ? <Badge variant="info">{t('console.worker_envs.secret')}</Badge> : null}
+          </div>
         </div>
+        <Link
+          className="link shrink-0 text-xs"
+          to={encodeURIComponent(item.name)}
+          search={{ scope }}
+          aria-label={`${t('common.edit')} ${item.name}`}>
+          {t('common.edit')}
+        </Link>
       </div>
     </TableCell>
   )

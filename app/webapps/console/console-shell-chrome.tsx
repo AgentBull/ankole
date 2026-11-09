@@ -24,6 +24,7 @@ import {
   RiCloseLine,
   RiCodeSSlashLine,
   RiDashboardLine,
+  RiFolder3Line,
   RiGitBranchLine,
   RiKey2Line,
   RiLogoutBoxRLine,
@@ -41,7 +42,7 @@ import {
 } from '@remixicon/react'
 
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef, type ComponentType } from 'react'
+import { useEffect, useLayoutEffect, useRef, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useLocation, useMatches } from '@tanstack/react-router'
 import { browserSession } from '../common/api/generated/sdk.gen'
@@ -86,7 +87,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'console.nav.group_work',
     items: [
       { to: '/agents', label: 'console.nav.agents', icon: RiRobot2Line },
-      { to: '/drive', label: 'console.drive.title', icon: RiTerminalBoxLine },
+      { to: '/drive', label: 'console.drive.title', icon: RiFolder3Line },
       { to: '/conversations', label: 'console.nav.conversations', icon: RiChat3Line },
       { to: '/background-agent-jobs', label: 'console.nav.background_agent_jobs', icon: RiGitBranchLine },
       { to: '/automation-jobs', label: 'console.nav.automation_jobs', icon: RiCodeSSlashLine },
@@ -153,6 +154,12 @@ function ConsoleFrame() {
   const { open, openMobile: navigationOpen, setOpenMobile: setNavigationOpen } = useSidebar()
   const sidebarCollapsed = !open
   const navigationTriggerRef = useRef<HTMLButtonElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const pathname = useLocation({ select: location => location.pathname })
+  // The page body scrolls inside this pane, so each new page starts at its top.
+  useLayoutEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 })
+  }, [pathname])
   useEffect(() => {
     try {
       window.localStorage?.setItem(SIDEBAR_STORAGE_KEY, open ? '0' : '1')
@@ -318,7 +325,7 @@ function ConsoleFrame() {
             )}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable] md:p-6 xl:p-8">
+          <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable] md:p-6 xl:p-8">
             {matchedSlotRoute ? (
               <SlotGate slot={matchedSlotRoute}>
                 {enabled =>

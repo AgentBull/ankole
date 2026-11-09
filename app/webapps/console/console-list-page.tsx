@@ -76,6 +76,14 @@ export function useListCreateTrigger() {
  * consistent loading, empty, and error surfaces. Rows are supplied by the caller
  * so each resource keeps ownership of its columns and cells.
  */
+/**
+ * The all-tenants view repeats a page once per tenant, so each tenant's create action uses an outline button and the
+ * view keeps a single accent.
+ */
+export function useCreateActionVariant(): 'default' | 'outline' {
+  return useConsoleTenant() ? 'outline' : 'default'
+}
+
 export function ResourceListPage({
   children,
   columns,
@@ -143,10 +151,11 @@ export function ResourceListPage({
   // A list has one primary create action. Empty lists place it beside the
   // explanation; populated lists keep it in the page header. Filtered empty
   // lists show only the action that clears the filter.
+  const createVariant = useCreateActionVariant()
   const createControl =
     createAction ??
     (createTo ? (
-      <Link {...linkTarget(createTo)} className={cn(buttonVariants({ size: 'sm' }))}>
+      <Link {...linkTarget(createTo)} className={cn(buttonVariants({ size: 'sm', variant: createVariant }))}>
         {createLabel ?? t('common.new')}
       </Link>
     ) : null)

@@ -513,7 +513,7 @@ test('a large business table uses global groups and per-group paging across its 
     }
     await expectDensity('.pod-base-grid [data-grid-record]', 'Name')
     const createView = async (type: string) => {
-      await owner.getByRole('button', { name: '+ 视图', exact: true }).click()
+      await owner.getByRole('button', { name: '新建视图', exact: true }).click()
       await owner.getByRole('menuitem', { name: type, exact: true }).click()
     }
     await createView('看板')

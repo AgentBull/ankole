@@ -159,7 +159,7 @@ defmodule Ankole.Principals.PersonalAssistantTest do
     assert [%{name: name, access: :ok}] = resolved.principals
     assert name =~ "Other"
     assert {:ok, _} = Principals.update_human(other.uid, %{display_name: "New Owner"})
-    assert Principals.display_name(other_pa) =~ "New Owner"
+    assert Principals.display_name(other_pa) == "New Owner's assistant"
   end
 
   test "document attribution resolves the complete tenant and name", %{tenant: tenant} do

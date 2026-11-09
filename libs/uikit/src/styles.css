@@ -326,6 +326,23 @@
     font-family: var(--font-family-mono);
   }
 
+  /* Headings balance their lines and running text avoids a lone last word or character. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    text-wrap: balance;
+  }
+
+  p,
+  li,
+  figcaption,
+  blockquote {
+    text-wrap: pretty;
+  }
+
   /* Keyboard focus is a 2px ink ring outside the element. A component that shows focus in its own
      way removes the outline or changes its offset. */
   :focus-visible {
