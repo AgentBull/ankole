@@ -18,7 +18,7 @@ import {
 } from '@ankole/uikit'
 import type { EditorHost, MentionItem, MentionTarget } from '@ankole/block-editor/editor'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiCheckLine, RiFileCopyLine, RiLockLine, RiRobot2Line } from '@remixicon/react'
+import { RiCheckLine, RiFileCopyLine, RiLockLine, RiRobot2Line, RiWindowLine } from '@remixicon/react'
 import { QueryClientProvider, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import type { i18n as I18nInstance } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
@@ -107,16 +107,19 @@ function InlinePageMention({
   store,
   currentPageID,
   pageHref,
-  openPage
+  openPage,
+  embedPage
 }: {
   id: string
   store: MentionStore
   currentPageID?: string
   pageHref: (id: string, title?: string | null) => string
   openPage?: (id: string) => void
+  embedPage?: (id: string) => void
 }) {
   useSignals()
   const { t, i18n } = useTranslation()
+  const [hoverOpen, setHoverOpen] = useState(false)
   const transliterationReady = usePageTransliteration()
   useEffect(() => store.observePage(id, currentPageID), [store, id, currentPageID])
   const snapshot = store.pageSignal(id).value
@@ -153,7 +156,18 @@ function InlinePageMention({
       : ''
 
   return (
-    <HoverCard>
+    <HoverCard
+      open={hoverOpen}
+      onOpenChange={next => {
+        if (
+          next &&
+          typeof document !== 'undefined' &&
+          document.querySelector('[data-mention-toolbar]')?.getAttribute('data-mention-toolbar') === id
+        ) {
+          return
+        }
+        setHoverOpen(next)
+      }}>
       <HoverCardTrigger
         href={href}
         delay={250}
@@ -193,6 +207,14 @@ function InlinePageMention({
         ) : null}
         {updatedLabel && (
           <p className="text-xs text-fg-tertiary">{t('pod.mention.updated_at', { time: updatedLabel })}</p>
+        )}
+        {embedPage && !trashed && (pageType === 'base' || pageType === 'file' || pageType === 'applet') && (
+          <div className="pt-0.5">
+            <Button type="button" variant="outline" size="xs" onClick={() => embedPage(id)}>
+              <RiWindowLine aria-hidden />
+              {t('pod.mention.switch_to_embed')}
+            </Button>
+          </div>
         )}
       </HoverCardContent>
     </HoverCard>
@@ -330,8 +352,18 @@ export function createMentionHostAdapters({
   openPage?: (id: string) => void
   i18n: I18nInstance
   canQuery?: boolean
-}): Pick<EditorHost, 'mountMention' | 'queryMentions' | 'mentionText' | 'matchPageUrl'> {
+}): Pick<
+  EditorHost,
+  | 'mountMention'
+  | 'queryMentions'
+  | 'mentionText'
+  | 'matchPageUrl'
+  | 'describePageLink'
+  | 'canEmbedPage'
+  | 'subscribePageLinks'
+> {
   const store = mentionStore(client)
+  const metadata = pageMetadata(client)
 
   return {
     mountMention: (target: MentionTarget, container: HTMLElement, options) => {
@@ -346,6 +378,7 @@ export function createMentionHostAdapters({
                 currentPageID={currentPageID}
                 pageHref={pageHref}
                 openPage={options.openPage ?? openPage}
+                embedPage={options.embedPage}
               />
             ) : (
               <InlinePrincipalMention uid={target.principal} store={store} currentPageID={currentPageID} />
@@ -437,6 +470,33 @@ export function createMentionHostAdapters({
         }
       : {}),
     mentionText: target => mentionPlainText(client, target, currentPageID),
-    matchPageUrl: url => matchPodPageUrl(url)
+    matchPageUrl: url => matchPodPageUrl(url),
+    describePageLink: pageId => {
+      const snap = store.peekPage(pageId)
+      const restricted = snap?.access === 'restricted'
+      const live = restricted ? undefined : metadata.collection.get(pageId)
+      if (!live && !snap) store.ensurePage(pageId, currentPageID)
+      const rawTitle = restricted ? undefined : (live?.title ?? snap?.title)
+      const title =
+        rawTitle != null ? rawTitle.trim() || i18n.t('pod.content.untitled', { lng: i18n.language }) : undefined
+      const relativeHref = pageHref(pageId, snap?.access === 'trashed' || restricted ? '' : rawTitle)
+      const href = typeof window !== 'undefined' ? new URL(relativeHref, window.location.origin).href : relativeHref
+      return { href, ...(title ? { title } : {}) }
+    },
+    canEmbedPage: pageId => {
+      const isEmbeddable = (snap: ReturnType<typeof store.peekPage>) =>
+        snap?.access === 'ok' && (snap.type === 'base' || snap.type === 'file' || snap.type === 'applet')
+      const snap = store.peekPage(pageId)
+      if (snap) return isEmbeddable(snap)
+      return store.resolvePage(pageId, currentPageID).then(isEmbeddable)
+    },
+    subscribePageLinks: listener => {
+      const unsubStore = store.subscribe(listener)
+      const unsubMeta = metadata.subscribe(listener)
+      return () => {
+        unsubStore()
+        unsubMeta()
+      }
+    }
   }
 }

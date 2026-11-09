@@ -9,7 +9,14 @@ export {
   type CommentRange
 } from './comments'
 export { insertEmbed } from '../blocks/embed'
-export type { EditorHost, EmbedAttributes, MentionItem, MentionQueryResult, MountMentionOptions } from './host-context'
+export type {
+  EditorHost,
+  EmbedAttributes,
+  LinkMetadata,
+  MentionItem,
+  MentionQueryResult,
+  MountMentionOptions
+} from './host-context'
 export { commitMention, insertMention, mentionField, type MentionCategory, type MentionSession } from './mention'
 export type { MentionTarget } from './schema'
 export { PageCollaboration, type PageChanges } from './page-collaboration'
@@ -21,3 +28,4 @@ export { GardSelection as EditorSelection } from '../core/state'
 export { insertResource, type ResourceAttributes, type ResourceKind } from '../blocks/resources'
 export { remoteSelections, type RemoteSelection } from './remote-selections'
 export { foldedHeadings, headingSections, toggleHeading } from './headings'
+export { pasteTextAtDocumentStart, splitPastedDocumentTitle } from './clipboard'

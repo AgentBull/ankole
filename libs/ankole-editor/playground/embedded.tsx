@@ -97,6 +97,20 @@ function EmbeddedHost() {
       openComment: ids => setCommentEvent(ids.join(' ')),
       openPage: id => setOpenedPage(id),
       resolveAsset: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      async resolveLinkMetadata(url, signal) {
+        const parsed = new URL(url, window.location.href)
+        if (parsed.origin !== window.location.origin) return null
+        const response = await fetch(parsed.href, { signal })
+        if (!response.ok) return null
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/html')
+        const description = doc.querySelector('meta[name="description"]')?.getAttribute('content')?.trim() || undefined
+        const imageHref = doc.querySelector('meta[property="og:image"]')?.getAttribute('content')?.trim()
+        return {
+          title: doc.title.trim() || undefined,
+          description,
+          image: imageHref ? new URL(imageHref, parsed.href).href : undefined
+        }
+      },
       queryMentions({ query, category }) {
         const needle = query.trim().toLowerCase()
         const match = (entry: (typeof mentionCatalog)[number]) =>
@@ -154,13 +168,35 @@ function EmbeddedHost() {
         const match = /^https:\/\/ankole\.test\/p\/([0-9a-f-]{36})(?:[?#].*)?$/i.exec(url)
         return match?.[1] ?? null
       },
-      mountEmbed(attributes, container) {
+      describePageLink(pageId) {
+        const entry = mentionCatalog.find(item => 'page' in item.target && item.target.page === pageId)
+        return {
+          href: `https://ankole.test/p/${pageId}`,
+          ...(entry ? { title: entry.title } : {})
+        }
+      },
+      canEmbedPage(pageId) {
+        if (pageId === '019a2b00-0000-7000-8000-000000000103') {
+          return new Promise<boolean>(resolve => setTimeout(() => resolve(true), 40))
+        }
+        return pageId === '019a2b00-0000-7000-8000-000000000102'
+      },
+      mountEmbed(attributes, container, _update, _remove, collapseToMention) {
         const code = document.createElement('code')
         code.textContent = attributes.ref ?? ''
         container.append(code)
+        let collapseButton: HTMLButtonElement | undefined
+        if (collapseToMention) {
+          collapseButton = document.createElement('button')
+          collapseButton.type = 'button'
+          collapseButton.textContent = '切换为提及视图'
+          collapseButton.onclick = () => collapseToMention()
+          container.append(collapseButton)
+        }
         container.dataset.host = 'mounted'
         return () => {
           code.remove()
+          collapseButton?.remove()
         }
       }
     }),

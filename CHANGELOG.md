@@ -1,5 +1,36 @@
 # Changelog
 
+## Version 2.0.0-alpha.98 (2026-11-09)
+
+- Switch external links in Pod documents across four views—inline `Link`,
+  inline `Title`, `Card`, and `Preview`—and unfurl webpage titles, descriptions,
+  favicons, and preview images through SSRF-guarded metadata fetching
+  (`POST /api/v2/pod/links/unfurl`). External `<embed href="..." />` blocks
+  replace separate `<bookmark>` blocks (existing Document and Knowledge
+  bookmarks migrate on upgrade), embeddable `@Page` mentions and inline Pod
+  Page embeds switch between inline mention and embedded views, pasted Pod Page
+  links become `<mention>` or `<embed>` references automatically, and image,
+  video, audio, file, and embed blocks share compact single-line creation bars,
+  floating actions, and resizable frames.
+- Paste structured Markdown, IDE code selections, and `<iframe>` snippets
+  cleanly into Pod documents. Multi-block GitHub Flavored Markdown (headings,
+  nested task lists, tables, callouts, math, Mermaid and Infographic diagrams,
+  and YAML frontmatter) pasted as plain text or `<pre>` wrappers converts into
+  document blocks while `Shift+Paste` keeps plain text, VS Code and Cursor
+  selections keep their language-tagged code, Mermaid, or Infographic blocks,
+  standalone `<iframe src="...">` snippets become `<embed>` previews, and
+  multi-line Markdown pasted when replacing a Document Page title places the
+  first heading into the title and the remaining blocks into the document body.
+- Allow any Base field type to serve as a table's primary display column, lift
+  forced primary-column locking in Grid views and column deletion when at least
+  one other column remains, and add server-side `search` filtering to
+  `POST /api/v2/pod/tables/:table_id/query`. Members and Agents can convert a
+  table's initial column in one step while empty, promote another column with
+  `is_primary: true` on `PATCH /api/v2/pod/fields/:field_id`, format non-text
+  display fields consistently across linked-record pills, cards, charts, VFS
+  exports, and table copies, and search linked-record pickers across all pages
+  on the server.
+
 ## Version 2.0.0-alpha.97 (2026-11-09)
 
 - Fix the Pod Connectors page asking for the same authorization again on every

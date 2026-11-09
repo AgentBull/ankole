@@ -428,7 +428,7 @@ test('external resource blocks open their inline editor on menu insert, Space, a
   for (const source of [
     '<embed href="https://example.com" />',
     '<media src="https://example.com/a.png" />',
-    '<bookmark src="https://example.com" />'
+    '<embed href="https://example.com" view="card" />'
   ]) {
     for (const key of [' ', 'Meta-Enter']) {
       const editor = open(source)
@@ -541,3 +541,56 @@ test.each(['> ---\n>\n> x', '<callout tone="info">\n  ---\n\n  x\n</callout>'])(
     expect(editor.state.doc.eq(before)).toBe(true)
   }
 )
+
+test('Meta+A inside an empty Mermaid, code, paragraph, or table cell block selects that block before escalating', () => {
+  const pageWithEmptyMermaid = open('before\n\n```mermaid\n```\n\nafter')
+  let mermaidStart = -1
+  pageWithEmptyMermaid.state.doc.iterate((node, pos) => {
+    if (node.name === 'Mermaid') mermaidStart = pos + 1
+  })
+  select(pageWithEmptyMermaid, mermaidStart)
+
+  // First Meta+A consumes the shortcut inside the empty Mermaid block rather than selecting the whole page.
+  expect(press(pageWithEmptyMermaid, 'Meta-a')).toBe(true)
+  expect(pageWithEmptyMermaid.state.selection.from).toBe(mermaidStart)
+  expect(pageWithEmptyMermaid.state.selection.to).toBe(mermaidStart)
+
+  // An unrelated non-doc, non-selection transaction (such as async focus or highlight refresh) preserves the step.
+  pageWithEmptyMermaid.dispatch({})
+  // Second Meta+A escalates to core selectAll across the entire page.
+  expect(press(pageWithEmptyMermaid, 'Meta-a')).toBe(true)
+  expect(pageWithEmptyMermaid.state.selection.from).toBe(0)
+  expect(pageWithEmptyMermaid.state.selection.to).toBe(pageWithEmptyMermaid.state.doc.length)
+
+  // Typing after a single Meta+A in an empty Mermaid block inserts into the Mermaid block without wiping neighbors.
+  select(pageWithEmptyMermaid, mermaidStart)
+  expect(press(pageWithEmptyMermaid, 'Meta-a')).toBe(true)
+  typeText(pageWithEmptyMermaid, 'flowchart LR')
+  expect(exportMarkdown(pageWithEmptyMermaid)).toBe('before\n\n```mermaid\nflowchart LR\n```\n\nafter')
+
+  // Empty table cell: 1st Meta+A stays in cell paragraph, 2nd selects all table cells, 3rd selects the page.
+  const tableEditor = open('| A | B |\n| - | - |\n|   | y |')
+  let emptyCellPara = -1
+  tableEditor.state.doc.iterate((node, pos) => {
+    if (node.name === 'Paragraph' && node.isPlot && !node.content.length) emptyCellPara = pos + 1
+  })
+  select(tableEditor, emptyCellPara)
+  expect(press(tableEditor, 'Meta-a')).toBe(true)
+  expect(tableEditor.state.selection.from).toBe(emptyCellPara)
+  expect(tableEditor.state.selection.to).toBe(emptyCellPara)
+  expect(press(tableEditor, 'Meta-a')).toBe(true)
+  expect(tableEditor.state.selection.constructor.name).toBe('CellSelection')
+  expect(press(tableEditor, 'Meta-a')).toBe(true)
+  expect(tableEditor.state.selection.from).toBe(0)
+  expect(tableEditor.state.selection.to).toBe(tableEditor.state.doc.length)
+})
+
+test('ArrowLeft and ArrowRight on a diagram-only Mermaid block at document boundaries place gap cursors outside it', () => {
+  const editor = open('<mermaid view="diagram">\n```mermaid\nflowchart LR\n```\n</mermaid>')
+  editor.dispatch({ selection: BlockSelection.between(editor.state.doc, 0, 0)! })
+  expect(press(editor, 'ArrowLeft')).toBe(true)
+  expect(editor.state.selection.head).toBe(0)
+  editor.dispatch({ selection: BlockSelection.between(editor.state.doc, 0, 0)! })
+  expect(press(editor, 'ArrowRight')).toBe(true)
+  expect(editor.state.selection.head).toBe(editor.state.doc.length)
+})

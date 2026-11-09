@@ -8,7 +8,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { InternalAPIError } from '../common/internal-api-client'
-import { contentKeys, fileURL, pageAPI, type PageDetail } from './content-api'
+import { contentKeys, fileURL, pageAPI, resolvePodLinkMetadata, type PageDetail } from './content-api'
 import { usePageHref } from './use-page-metadata'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { useContent } from './content-context'
@@ -72,6 +72,7 @@ export function KnowledgePage({
         source.startsWith('ankole:asset/')
           ? fileURL(detail.page.id, `assets/${source.slice('ankole:asset/'.length)}`)
           : source,
+      resolveLinkMetadata: (url, signal) => resolvePodLinkMetadata(client, url, signal),
       uploadAsset: async file => {
         const uploaded = await uploadPageFile(detail.page.id, file, 'asset')
         if (!uploaded.src) throw new Error(t('pod.editor.resource_upload_failed'))

@@ -175,12 +175,50 @@ Fold state belongs to that editor instance and never modifies
 the document. The slash menu searches translated labels and multilingual aliases,
 so Chinese and English names can select the same block in either interface.
 
-Media blocks store image and video addresses in `<media>`, and webpage cards
-use `<bookmark>`. Each block persists its display metadata and view in Page XML.
-Media blocks offer link, card, and preview views; webpage cards add a title view
-and let editors enter the title, description, and cover image. Ankole uploads
-image and video bytes through the Page's existing asset contract before storing
-`ankole:asset/<full-sha256>/<name>` in the block.
+Media blocks store image and video addresses in `<media>`, while external
+webpages and internal live Pages share `<embed>`. `<media>` persists its display
+metadata and `view` (`link`, `card`, or `preview`, showing the asset title in
+`link` view for `ankole:asset/…` sources) in Page XML, uploading image and video
+bytes through the Page's asset contract before storing
+`ankole:asset/<full-sha256>/<name>` in the block. External HTTP(S) webpage links
+convert across four representations in Document Pages: inline link view
+(`<a href="…">url</a>`), inline title view (`<a href="…">Title</a>`), card view
+(`<embed href="…" view="card" title="…" description="…" image="…" />`, rendering
+the cover image, site icon, URL, title, and description, with editable
+metadata), and preview view (`<embed href="…" title="…" description="…"
+image="…" height="…" />`, an external iframe embed block with persisted pixel
+`height` between `160` and `1600`, a bottom pointer/keyboard resize handle, and
+floating reload and open-in-new-tab controls). Toggling an external `<embed
+href="…" />` between card and preview views mutates `view` on the same node,
+preserving `title`, `description`, `image`, `height`, and extra attributes
+across collaborative edits. Saving an internal Page address (`ankole:page/<uuid>`
+or a same-origin Pod Page URL) inside an external `<embed>` address bar converts
+the block into `<embed ref="<uuid>" />` for embeddable Pages (`base`, `file`,
+`applet`) or `<p><mention page="<uuid>" /></p>` for Document Pages. Knowledge
+Pages expose the inline link and title views. Pasting a bare HTTP(S) URL at a
+collapsed caret links the URL in place (even when the clipboard carries
+`text/html` wrapper markup), pasting a bare URL over selected inline text
+outside code links the selection in place, selecting a single HTTP(S) link
+surfaces the view switcher inside the selection toolbar, and placing a collapsed
+caret on or hovering over an inline link opens a floating link bar with URL
+navigation (resolving Page titles and canonical Pod URLs for
+`ankole:page/<uuid>` links), link text and address editing, unlinking, and the
+view switcher. Switching to title, card, or preview view or saving an external
+`<embed>` without a manual title queries `POST /api/v2/pod/links/unfurl` to
+populate missing webpage metadata outside undo history so a single Undo restores
+the prior state. Changing `href` on an existing external `<embed>` clears stale
+metadata from the previous URL unless overridden in that edit, then unfurls the
+updated URL. Pasting a standalone `<iframe src="https://…">` embed snippet
+inserts `<embed href="…" />` in preview view directly. Outside code and without
+Shift, the editor also parses Markdown pasted as plain text, copied from IDEs
+with `vscode-editor-data` (creating `<pre lang="…">`, `<mermaid>`, or
+`<infographic>` blocks for multi-line code and diagram copies), or wrapped in
+non-semantic `text/html` containers, normalizing YAML frontmatter, HTML
+comments, angle-bracket autolinks, standalone task checkboxes, single-line
+`$$…$$` formula blocks, and unquoted `<placeholder>` tokens; pasting multi-line
+Markdown into an editable Document Page's title field places the leading heading
+or title line in the Page title and pastes the remaining Markdown into the
+document body.
 
 Every other file belongs to its own File Page. The **File** entry in the `/` and
 `+` menus opens an upload panel at the caret; each chosen or dropped file becomes
@@ -191,16 +229,20 @@ children through the same path as the upload panel. The new children appear in
 the subpages directory below the body. Files upload one at a time, and a failure
 stops at that file while the children created before it remain.
 
-External embeds use `<embed href="…" title="…" />` and render an iframe,
-deriving provider URLs for Figma, YouTube, and Vimeo while preserving the original
-link. The external site controls whether its content permits framing. Internal live embeds use `<embed ref="…" />` (with optional `table` and `view`
-on Base embeds, where `view` holds either a shared saved view UUID or an inline
-JSON `ViewConfig`) for interactive non-document Pages (`base`, `file`, and
-`applet`): editors insert them by creating a child Base, choosing **Embed Base
-or app** from the document `+` menu, or invoking `/chart` to embed a Base table
-in quiet chart-card chrome. Embed pickers query `GET
+External embeds use `<embed href="…" title="…" height="…" />` and render a quiet
+iframe without permanent chrome, deriving provider URLs for Figma, YouTube, and
+Vimeo while preserving the original link and revealing a floating ceramic
+toolbar on hover or selection. The external site controls whether its content
+permits framing. Internal live embeds use `<embed ref="…" />` (with optional
+`table` and `view` on Base embeds, where `view` holds either a shared saved view
+UUID or an inline JSON `ViewConfig`) for interactive non-document Pages (`base`,
+`file`, and `applet`): editors insert them by creating a child Base, choosing
+**Embed Base or app** from the `/` or `+` menu, invoking `/chart` to embed a
+Base table in quiet chart-card chrome, or switching an embeddable inline
+`<mention page="…" />` to embed view. Embed pickers query `GET
 /api/v2/pod/pages/search?embeddable=true` so Document Pages never appear as
-canvas embeds.
+canvas embeds, and an embedded Page's header view switcher collapses `<embed
+ref="…" />` back into `<mention page="…" />` in one undo step.
 
 Resource forms submit only edited fields, preserving concurrent updates to the
 other fields. Replacing a source removes its old MIME type, size, and explicit
@@ -258,8 +300,10 @@ other attributes. Live documents advance their revision through the ordinary
 document commit path.
 
 Accessible Page mentions render inline with `PageIcon`, wrap naturally across
-lines, preview location and body excerpts on hover, and open the target Page on
-click. Mention candidates and resolutions list the titles of the readable
+lines, preview location and body excerpts on hover (offering a one-click switch
+to embed view for `base`, `file`, and `applet` targets, alongside a floating
+mention bar when the caret sits adjacent to an embeddable Page mention), and
+open the target Page on click. Mention candidates and resolutions list the titles of the readable
 ancestors below the content root, so the browser starts the location with the
 Space name or the Private label and then follows those titles. Accessible
 Principal mentions render as unbreakable inline pills
@@ -980,11 +1024,21 @@ Within the domain:
   false), and emits offset-safe `snippet.segments` plus discriminated-union
   `primary_target` locators (resolving document headings through
   `Ankole.Kernel.page_sections/1`) exclusively for the post-`LIMIT` result
-  slice. Page lifecycle mutations, document saves (including `<bookmark>` and
-  `<media>` attributes), Knowledge metadata updates, Base table/view/field
+  slice. Page lifecycle mutations, document saves (including external `<embed>`
+  and `<media>` attributes), Knowledge metadata updates, Base table/view/field
   schema edits, spreadsheet commits, and inline text-file commits update
   `page_search_documents` atomically in the owning transaction whenever
   projected text changes.
+- `Ankole.Pod.Pages.LinkPreview` serves `POST /api/v2/pod/links/unfurl`
+  (`LinkPreview.unfurl/3`) for editor webpage title and external `<embed>` card
+  or preview metadata hydration. It authorizes an active Pod Principal and reads
+  `security.ssrf_filter` inside a single repeatable-read read-only transaction,
+  then fetches HTML `<head>` metadata outside any database transaction through
+  `Ankole.EgressProxy` and `Ankole.Kernel` URL and IP validation—rejecting cloud
+  metadata addresses unconditionally and private or loopback ranges when
+  `security.ssrf_filter` is enabled, re-validating up to five HTTP redirects,
+  and halting streaming on non-HTML responses, `</head>`, or 256 KB—to extract
+  `title`, `description`, `image`, and `icon`.
 - `Ankole.Pod.Pages.Sharing` manages collaborator pickers, Space access policy
   (where the unconditional `all_humans` rule sets the Space default role while
   conditional rules keep their own scope), and Page sharing reads and writes.
@@ -1834,9 +1888,19 @@ replay.
 
 `Ankole.Pod.Bases` owns table schemas, record writes, and queries. Tables,
 fields, and views are Ash resources that inherit their host Base Page's access
-and lifecycle. Each table has one primary text field (whose name and position
-can change, though its type stays `text` and values cap at `2,048` UTF-8 bytes),
-at most `200` active fields, and at most `100,000` records. Every table and
+and lifecycle. Each table keeps at least one field, at most `200` active
+fields, and at most `100,000` records, with exactly one field marked
+`is_primary` as the active display field for relation labels, card headers, and
+record summaries. Every business column is a peer: any field (including the
+active display field) may use or convert to any supported field type, hide in
+`grid` views as long as at least one column stays visible, or be deleted while
+at least two fields exist on the table. Creating or updating a field with
+`is_primary: true` promotes it to the display field and demotes the prior one
+in the same transaction, whereas deleting the active display field promotes the
+first remaining scalar or system field by position (falling back to the first
+remaining field). In the browser field editor, type, option, or relation-shape
+changes save in a single step when the field holds zero non-empty stored values
+and prompt for conversion confirmation when stored values exist. Every table and
 field also carries a `description` of at most `2,048` UTF-8 bytes (empty by
 default) that states what its values mean, such as the unit, currency, tax
 inclusion, or source system. Editors set it when they create a table or field
@@ -1871,11 +1935,11 @@ In physical storage, tables are named `tbl_<table_hex>` and columns
 `f_<field_hex>`. Text, number, checkbox, datetime, and auto-number fields map to
 native `text`, `numeric`, `boolean`, `timestamptz`, and `bigint` columns, while
 structured cells use `jsonb`; system columns store record ID, field versions,
-timestamps, and authors. Indexes cover the primary key, primary text field
-(`COLLATE "C"`), auto-numbers, and link edges. Text sorting and equality use `C`
-collation to match the primary index, whereas case conversion and `ILIKE` use
-the database locale. Per-table schema version, data version, row count, and next
-auto-number live in the shard's `t_<tenant_hex>._table_states` table.
+timestamps, and authors. Indexes cover the primary key, auto-numbers, composite
+unique business keys, and link edges. Text sorting and equality use `C`
+collation, whereas case conversion and `ILIKE` use the database locale.
+Per-table schema version, data version, row count, and next auto-number live in
+the shard's `t_<tenant_hex>._table_states` table.
 
 Physical record writes first acquire the Agent commit fence and `FOR KEY SHARE`
 on sorted active page metadata rows in the control plane (allowing concurrent
@@ -2010,6 +2074,13 @@ for `inline` tables and native column/edge SQL for `physical` tables:
 
 - Array equality checks both JSONB equality and containment, and author system
   fields accept either a single Principal UID or a UID list.
+- Record queries accept an optional `search` substring that filters rows before
+  keyset pagination against the table's formatted `is_primary` display label
+  across any field type (resolving select option names, attachment filenames,
+  authorized Principal display names, formatted timestamps, one-hop `#<id6>`
+  link summaries, and the `#<id6>` fallback for empty display values); the
+  browser's relation picker sends `search` directly so matches beyond the first
+  page resolve without manual pagination.
 - Aggregate queries support `count`, `count_distinct`, `sum`, `avg`, `min`, and
   `max` (`count` without a field counts rows; `count` with a field counts
   non-null values), up to two group fields with date bucketing in
@@ -2124,8 +2195,9 @@ holding source metadata locks:
   directly into the tenant shard otherwise), assigning fresh UUIDs and adding
   new references to existing attachment blobs without copying bytes, so later
   edits to the source table never affect the copy.
-- Link fields flatten into `text` fields containing the linked records' primary
-  titles joined by `", "` in link order (`null` when empty, fetching titles per
+- Link fields flatten into `text` fields containing the linked records' formatted
+  display-field labels joined by `", "` in link order (`null` when empty,
+  evaluating the target table's `is_primary` field across any field type per
   batch).
 - Copied formulas rebind to the copied fields and re-typecheck: formulas whose
   inputs changed to incompatible types freeze into ordinary fields populated
@@ -2155,7 +2227,9 @@ the remaining request deadline).
 
 A mounted Base exposes tables under `._abase/`. Dot-directory paths compose
 saved views, filters, ordering, selected columns, and first/last windows. Saved
-views apply their filter, sort, and visible fields, including the primary field;
+`grid` views apply their filter, sort, and `visible_fields` directly (falling
+back to the first field if empty), while saved `kanban` and `gallery` views
+include the `is_primary` display field alongside `visible_fields`;
 column projection applies to both record JSON and exports. A table
 listing contains at most 200 records; any `rec_<id>.json` remains directly
 addressable. `.info/schema.json` lists the table and its fields with their

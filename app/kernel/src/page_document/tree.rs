@@ -232,7 +232,7 @@ fn content(name: &str) -> Content {
         "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "a" | "span" | "comment" => Content::Inline,
         "pre" | "math" => Content::Text,
         tag if super::attributes::is_source_diagram_tag(tag) => Content::Text,
-        "hr" | "embed" | "media" | "bookmark" | "img" | "br" | "mention" => Content::Empty,
+        "hr" | "embed" | "media" | "img" | "br" | "mention" => Content::Empty,
         "ul" | "ol" => Content::Items,
         "table" => Content::Rows,
         "tr" => Content::Cells,

@@ -10,23 +10,56 @@
   overflow: hidden;
   font-size: 14px;
   line-height: 1.5;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .resource-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 4px 8px;
+:where(.ankole-editor, .ankole-editor-overlay) .resource-block[data-selected='true'] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
 }
-:where(.ankole-editor, .ankole-editor-overlay) .resource-toolbar a {
+:where(.ankole-editor-overlay).resource-floating-toolbar .resource-toolbar-link {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-control);
   color: var(--fg-secondary);
-  padding: 4px;
+}
+:where(.ankole-editor-overlay).resource-floating-toolbar .resource-toolbar-link:hover {
+  background: var(--menu-hover);
+  color: var(--foreground);
+}
+:where(.ankole-editor-overlay).resource-floating-toolbar .resource-toolbar-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-view-trigger {
+  gap: 4px;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-form {
   display: grid;
   gap: 12px;
   padding: 16px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-form.resource-form-compact {
+  gap: 6px;
+  padding: 8px 10px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-form-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-form-row input {
+  min-width: 0;
+  flex: 1;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-form-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--destructive);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-form label {
   display: grid;
@@ -50,26 +83,75 @@
   text-decoration: none;
   color: var(--foreground);
 }
+:where(.ankole-editor, .ankole-editor-overlay) .resource-summary.resource-bookmark-card {
+  align-items: stretch;
+  gap: 16px;
+  padding: 12px 16px;
+}
 :where(.ankole-editor, .ankole-editor-overlay) .resource-summary:hover {
   background: var(--accent);
 }
+:where(.ankole-editor, .ankole-editor-overlay) .resource-summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
 :where(.ankole-editor, .ankole-editor-overlay) .resource-copy {
   display: grid;
+  align-content: center;
   gap: 4px;
   min-width: 0;
+  flex: 1;
   overflow-wrap: anywhere;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .resource-name {
-  font-weight: 500;
+:where(.ankole-editor, .ankole-editor-overlay) .resource-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .resource-copy small,
-:where(.ankole-editor, .ankole-editor-overlay) .resource-hint {
+:where(.ankole-editor, .ankole-editor-overlay) .resource-favicon,
+:where(.ankole-editor, .ankole-editor-overlay) .resource-favicon-fallback {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border-radius: 3px;
+  object-fit: contain;
+  color: var(--fg-tertiary);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary);
+  font-size: 12px;
+  line-height: 16px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-name {
+  font-weight: 600;
+  color: var(--foreground);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-description {
+  color: var(--fg-secondary);
+  font-size: 12.5px;
+  line-height: 18px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-copy small:not(.resource-url),
+:where(.ankole-editor, .ankole-editor-overlay) .resource-empty {
   color: var(--fg-secondary);
   font-size: 12px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .resource-hint {
+:where(.ankole-editor, .ankole-editor-overlay) .resource-empty {
   margin: 0;
-  padding: 8px 16px;
+  padding: 10px 14px;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-symbol {
   width: 24px;
@@ -78,11 +160,16 @@
   color: var(--fg-tertiary);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-cover {
-  width: 120px;
-  height: 96px;
+  width: 168px;
+  min-height: 92px;
+  max-height: 112px;
   object-fit: cover;
   flex: 0 0 auto;
   border-radius: var(--radius-control);
+  background: var(--layer-01);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-frame-wrap {
+  position: relative;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-frame {
   display: block;
@@ -90,8 +177,51 @@
   height: 480px;
   border: 0;
   background: var(--layer-01);
-  resize: vertical;
   min-height: 160px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-frame-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: ns-resize;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-resize-handle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 10px;
+  background: var(--background);
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  cursor: ns-resize;
+  touch-action: pan-x;
+  -webkit-user-select: none;
+  user-select: none;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-resize-handle::after {
+  content: '';
+  width: 36px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg-tertiary) 45%, transparent);
+  transition:
+    background-color 120ms ease,
+    width 120ms ease;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-resize-handle:is(:hover, :focus-visible),
+:where(.ankole-editor, .ankole-editor-overlay) .resource-frame-wrap[data-resizing='true'] .resource-resize-handle {
+  background: var(--layer-01);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-resize-handle:is(:hover, :focus-visible)::after,
+:where(.ankole-editor, .ankole-editor-overlay)
+  .resource-frame-wrap[data-resizing='true']
+  .resource-resize-handle::after {
+  width: 48px;
+  background: var(--primary);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .resource-resize-handle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-media {
   display: block;
@@ -105,9 +235,6 @@
   font-weight: 400;
 }
 @media (max-width: 600px) {
-  :where(.ankole-editor, .ankole-editor-overlay) .resource-frame {
-    height: 300px;
-  }
   :where(.ankole-editor, .ankole-editor-overlay) .resource-cover {
     width: 80px;
     height: 80px;

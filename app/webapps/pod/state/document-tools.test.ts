@@ -104,7 +104,7 @@ describe('document export and statistics', () => {
 
   test('resource blocks export portable links and collect their uploaded files', () => {
     const xml =
-      '<page><media src="ankole:asset/hash/photo.png" title="Photo"/><media src="ankole:asset/hash/movie.mp4" kind="video" title="Movie"/><bookmark src="https://example.com" title="Website" view="card"/><embed href="https://www.figma.com/design/test" title="Design"/></page>'
+      '<page><media src="ankole:asset/hash/photo.png" title="Photo"/><media src="ankole:asset/hash/movie.mp4" kind="video" title="Movie"/><embed href="https://example.com" title="Website" view="card"/><embed href="https://www.figma.com/design/test" title="Design"/></page>'
     expect(documentAssets(xml)).toEqual(['ankole:asset/hash/photo.png', 'ankole:asset/hash/movie.mp4'])
     expect(documentReferenceIDs(xml)).toEqual([])
     const markdown = documentMarkdown(xml, '', { resolveAsset: source => `./assets/${source.split('/').at(-1)}` })

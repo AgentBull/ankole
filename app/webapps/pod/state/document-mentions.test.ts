@@ -1,6 +1,8 @@
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, test } from 'bun:test'
-import type { MentionsResolveInput, MentionsResolveResponse } from '../content-api'
+import i18n from '../../common/i18n'
+import { pageAPI, type MentionsResolveInput, type MentionsResolveResponse } from '../content-api'
+import { createMentionHostAdapters } from '../document-mentions'
 import { MentionStore, matchPodPageUrl, mentionPlainText, mentionStore, readPageMention } from './document-mentions'
 import { pageMetadata } from './page-metadata'
 
@@ -242,5 +244,147 @@ describe('MentionStore and internal Pod URL matching', () => {
     expect(mentionPlainText(client, { page: pageID })).not.toContain('改名后')
 
     meta.dispose()
+  })
+
+  test('createMentionHostAdapters describes internal page links, checks embeddable page types, and notifies link subscribers', () => {
+    const client = new QueryClient()
+    const store = mentionStore(client)
+    const meta = pageMetadata(client)
+    const baseID = '33333333-4444-5555-8666-777777777777'
+    const docID = '44444444-5555-6666-8777-888888888888'
+
+    const adapters = createMentionHostAdapters({
+      client,
+      pageHref: (id, title) => (title ? `/pages/${title.toLowerCase().replace(/\s+/g, '-')}-${id}` : `/pages/${id}`),
+      i18n,
+      canQuery: false
+    })
+
+    let notifications = 0
+    const unsubscribe = adapters.subscribePageLinks!(() => {
+      notifications++
+    })
+
+    store.primeCandidates({
+      space_name: 'Workspace',
+      total_all_matches: 2,
+      pages: [
+        {
+          id: baseID,
+          type: 'base',
+          title: 'Sprint Board',
+          icon: '📊',
+          ancestors: [],
+          updated_at: '2026-11-09T00:00:00Z'
+        },
+        {
+          id: docID,
+          type: 'doc',
+          title: 'Design Doc',
+          icon: '📄',
+          ancestors: [],
+          updated_at: '2026-11-09T00:00:00Z'
+        }
+      ],
+      principals: [],
+      ranking: [
+        { kind: 'page', id: baseID },
+        { kind: 'page', id: docID }
+      ]
+    })
+    expect(notifications).toBe(1)
+    expect(adapters.canEmbedPage!(baseID)).toBe(true)
+    expect(adapters.canEmbedPage!(docID)).toBe(false)
+    expect(adapters.describePageLink!(baseID)).toEqual({
+      href: `/pages/sprint-board-${baseID}`,
+      title: 'Sprint Board'
+    })
+
+    // Live title updates notify link subscribers and project immediately into describePageLink.
+    meta.update({ id: baseID, title: 'Q4 Tracker', icon: '📊' })
+    expect(notifications).toBe(2)
+    expect(adapters.describePageLink!(baseID)).toEqual({
+      href: `/pages/q4-tracker-${baseID}`,
+      title: 'Q4 Tracker'
+    })
+
+    // Restricted pages hide title and slug from describePageLink and cannot be embedded.
+    ;(store.pageSignal(baseID) as { value: unknown }).value = { id: baseID, access: 'restricted' }
+    expect(adapters.canEmbedPage!(baseID)).toBe(false)
+    expect(adapters.describePageLink!(baseID)).toEqual({
+      href: `/pages/${baseID}`
+    })
+
+    unsubscribe()
+    meta.update({ id: docID, title: 'Ignored After Unsubscribe' })
+    expect(notifications).toBe(2)
+    meta.dispose()
+  })
+
+  test('canEmbedPage awaits cold-cache resolution instead of collapsing unknown pages to false', async () => {
+    const client = new QueryClient()
+    const meta = pageMetadata(client)
+    const coldBaseID = '55555555-6666-7777-8888-999999999999'
+    const coldDocID = '66666666-7777-8888-9999-aaaaaaaaaaaa'
+    const originalResolve = pageAPI.resolveMentions
+    const gate = Promise.withResolvers<MentionsResolveResponse>()
+    pageAPI.resolveMentions = () => gate.promise
+
+    try {
+      const adapters = createMentionHostAdapters({
+        client,
+        currentPageID: '11111111-2222-3333-8444-555555555555',
+        pageHref: id => `/pages/${id}`,
+        i18n,
+        canQuery: false
+      })
+
+      const baseCheck = adapters.canEmbedPage!(coldBaseID)
+      const docCheck = adapters.canEmbedPage!(coldDocID)
+      expect(baseCheck).toBeInstanceOf(Promise)
+      expect(docCheck).toBeInstanceOf(Promise)
+
+      gate.resolve({
+        space_name: 'Workspace',
+        pages: [
+          {
+            id: coldBaseID,
+            access: 'ok',
+            type: 'base',
+            title: 'Roadmap Base',
+            icon: '📊',
+            system_key: null,
+            private_owner_uid: null,
+            ancestors: [],
+            updated_at: '2026-11-09T00:00:00Z',
+            excerpt: null,
+            file: null
+          },
+          {
+            id: coldDocID,
+            access: 'ok',
+            type: 'doc',
+            title: 'Plain Doc',
+            icon: '📄',
+            system_key: null,
+            private_owner_uid: null,
+            ancestors: [],
+            updated_at: '2026-11-09T00:00:00Z',
+            excerpt: null,
+            file: null
+          }
+        ],
+        principals: []
+      })
+
+      expect(await baseCheck).toBe(true)
+      expect(await docCheck).toBe(false)
+      // Once cached, subsequent checks return booleans synchronously.
+      expect(adapters.canEmbedPage!(coldBaseID)).toBe(true)
+      expect(adapters.canEmbedPage!(coldDocID)).toBe(false)
+    } finally {
+      pageAPI.resolveMentions = originalResolve
+      meta.dispose()
+    }
   })
 })

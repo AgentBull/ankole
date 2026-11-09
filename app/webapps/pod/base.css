@@ -98,7 +98,6 @@
 
 .pod-base-grid .pod-base-primary {
   min-width: 220px;
-  font-weight: 500;
 }
 
 /* Idle cells edit inline. Hover, focus, disabled and invalid states use the

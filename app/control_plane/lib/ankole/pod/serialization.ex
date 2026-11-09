@@ -181,10 +181,11 @@ defmodule Ankole.Pod.Serialization do
       details: nil
     }
 
-  def error(:primary_field_size_limit),
+  def error(:primary_field_required),
     do: %{
-      code: "primary_field_size_limit",
-      message: "Primary field values must not exceed 2 KiB.",
+      code: "primary_field_required",
+      message:
+        "Each table must keep at least one field, with one designated as the display field.",
       details: nil
     }
 
@@ -199,6 +200,13 @@ defmodule Ankole.Pod.Serialization do
     do: %{
       code: "guest_forbidden_in_private",
       message: "External guests cannot access private pages.",
+      details: nil
+    }
+
+  def error(:invalid_url),
+    do: %{
+      code: "invalid_url",
+      message: "Enter a valid HTTP or HTTPS URL.",
       details: nil
     }
 

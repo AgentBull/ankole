@@ -102,10 +102,9 @@ pub(super) fn valid_value(name: &str, key: &str, value: &str) -> bool {
         "tone" => ["info", "warning", "success", "danger", "neutral"].contains(&value),
         "wrap" => value == "true",
         "view" if is_source_diagram_tag(name) => DIAGRAM_VIEWS.contains(&value),
-        "view" if ["media", "bookmark"].contains(&name) => {
-            ["link", "title", "card", "preview"].contains(&value)
-        }
-        "kind" if ["media", "bookmark"].contains(&name) => ["image", "video"].contains(&value),
+        "view" if name == "media" => ["link", "title", "card", "preview"].contains(&value),
+        "kind" if name == "media" => ["image", "video"].contains(&value),
+        "height" if name == "embed" => integer_text(value, 160, 1600),
         "theme" if is_source_diagram_tag(name) => DIAGRAM_THEMES.contains(&value),
         "page" | "principal" if name == "mention" => !value.is_empty(),
         _ => true,
@@ -127,8 +126,11 @@ fn allowed_attribute(name: &str, key: &str) -> bool {
             source_diagram_by_tag(tag).is_some_and(|spec| spec.doc_attrs.contains(&key))
         }
         "callout" => matches!(key, "tone" | "icon"),
-        "embed" => matches!(key, "ref" | "table" | "view" | "href" | "title"),
-        "media" | "bookmark" => matches!(
+        "embed" => matches!(
+            key,
+            "ref" | "table" | "view" | "href" | "title" | "description" | "image" | "height"
+        ),
+        "media" => matches!(
             key,
             "src" | "title" | "description" | "image" | "mime" | "size" | "kind" | "view"
         ),

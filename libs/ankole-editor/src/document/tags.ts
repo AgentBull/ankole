@@ -9,10 +9,19 @@ export type PreparedSource = {
   original(offset: number): number
 }
 
-type Edit = { at: number; length: number; insert: string }
+export type SourceEdit = { at: number; length: number; insert: string }
+
+export type ScannedTag = {
+  nameIndex: number
+  nameEnd: number
+  closing: boolean
+  end: number
+  edits: SourceEdit[]
+}
+
 type Scan =
   | { kind: 'text' }
-  | { kind: 'tag'; end: number; edits: Edit[] }
+  | { kind: 'tag'; end: number; edits: SourceEdit[] }
   | { kind: 'error'; end: number; reason: string; fix: string }
 
 const voidElements = new Set([
@@ -46,7 +55,7 @@ const autolink =
  */
 export function prepareTags(source: string): PreparedSource {
   const code = codeRanges(source)
-  const edits: Edit[] = []
+  const edits: SourceEdit[] = []
   let range = 0
   for (let index = source.indexOf('<'); index !== -1; index = source.indexOf('<', index)) {
     while (range < code.length && code[range]![1] <= index) range++
@@ -55,7 +64,7 @@ export function prepareTags(source: string): PreparedSource {
       index = current[1]
       continue
     }
-    if (escaped(source, index) || destination(source, index)) {
+    if (isEscaped(source, index) || isLinkDestination(source, index)) {
       index++
       continue
     }
@@ -71,13 +80,7 @@ export function prepareTags(source: string): PreparedSource {
       index = result.end
     }
   }
-  let prepared = ''
-  let last = 0
-  for (const edit of edits) {
-    prepared += source.slice(last, edit.at) + edit.insert
-    last = edit.at + edit.length
-  }
-  prepared += source.slice(last)
+  const prepared = applySourceEdits(source, edits)
   return {
     source: prepared,
     original(offset) {
@@ -93,7 +96,18 @@ export function prepareTags(source: string): PreparedSource {
   }
 }
 
-function codeRanges(source: string): [number, number][] {
+export function applySourceEdits(source: string, edits: readonly SourceEdit[]): string {
+  if (!edits.length) return source
+  let result = ''
+  let last = 0
+  for (const edit of edits) {
+    result += source.slice(last, edit.at) + edit.insert
+    last = edit.at + edit.length
+  }
+  return result + source.slice(last)
+}
+
+export function codeRanges(source: string): [number, number][] {
   const ranges: [number, number][] = []
   function visit(node: Nodes) {
     if ((node.type === 'code' || node.type === 'inlineCode') && node.position) {
@@ -106,14 +120,14 @@ function codeRanges(source: string): [number, number][] {
   return ranges.sort((a, b) => a[0] - b[0])
 }
 
-function escaped(source: string, index: number) {
+export function isEscaped(source: string, index: number): boolean {
   let slashes = 0
   while (source[index - 1 - slashes] === '\\') slashes++
   return slashes % 2 === 1
 }
 
 // `[text](<destination>)` uses angle brackets for a link destination.
-const destination = (source: string, index: number) =>
+export const isLinkDestination = (source: string, index: number): boolean =>
   /\]\([ \t]*(?:\r?\n[ \t]*)?$/.test(source.slice(Math.max(0, index - 64), index))
 
 function scan(source: string, index: number): Scan {
@@ -135,7 +149,8 @@ function scan(source: string, index: number): Scan {
       fix: '请改用 [文字](网址)，或直接写网址。'
     }
   }
-  return tag(source, index)
+  const matched = scanTag(source, index)
+  return matched ? { kind: 'tag', end: matched.end, edits: matched.edits } : { kind: 'text' }
 }
 
 function characterAt(source: string, index: number) {
@@ -166,34 +181,35 @@ function closingBrace(source: string, index: number) {
   return -1
 }
 
-/** Read one tag with the accepted forms. Anything that is not a tag is text. */
-function tag(source: string, index: number): Scan {
-  const text: Scan = { kind: 'text' }
+/** Read one tag with the accepted forms, returning `null` when `<` at `index` does not form a tag. */
+export function scanTag(source: string, index: number): ScannedTag | null {
   const closing = source[index + 1] === '/'
   const nameIndex = index + (closing ? 2 : 1)
   const nameEnd = readName(source, nameIndex)
-  if (nameEnd === nameIndex) return text
+  if (nameEnd === nameIndex) return null
   const name = source.slice(nameIndex, nameEnd)
-  const edits: Edit[] = []
+  const edits: SourceEdit[] = []
   for (let position = nameEnd; ;) {
     const next = skipSpace(source, position)
     const spaced = next > position
     position = next
     const character = source[position]
-    if (character === undefined) return text
+    if (character === undefined) return null
     if (character === '>') {
       if (!closing && voidElements.has(name)) edits.push({ at: position, length: 0, insert: ' /' })
-      return { kind: 'tag', end: position + 1, edits }
+      return { nameIndex, nameEnd, closing, end: position + 1, edits }
     }
-    if (character === '/' && source[position + 1] === '>' && !closing) return { kind: 'tag', end: position + 2, edits }
-    if (closing || !spaced) return text
+    if (character === '/' && source[position + 1] === '>' && !closing) {
+      return { nameIndex, nameEnd, closing, end: position + 2, edits }
+    }
+    if (closing || !spaced) return null
     if (character === '{') {
       position = closingBrace(source, position)
-      if (position === -1) return text
+      if (position === -1) return null
       continue
     }
     const attributeEnd = readName(source, position)
-    if (attributeEnd === position) return text
+    if (attributeEnd === position) return null
     position = attributeEnd
     const equals = /^[ \t]*=[ \t]*/.exec(source.slice(position, position + 64))
     if (!equals) continue
@@ -201,14 +217,14 @@ function tag(source: string, index: number): Scan {
     const quote = source[position]
     if (quote === '"' || quote === "'") {
       const end = source.indexOf(quote, position + 1)
-      if (end === -1 || /\n[ \t]*\r?\n/.test(source.slice(position, end))) return text
+      if (end === -1 || /\n[ \t]*\r?\n/.test(source.slice(position, end))) return null
       position = end + 1
     } else if (quote === '{') {
       position = closingBrace(source, position)
-      if (position === -1) return text
+      if (position === -1) return null
     } else {
       const value = /^[^\s"'=<>`{}]+/.exec(source.slice(position, position + 4096))?.[0]
-      if (!value) return text
+      if (!value) return null
       edits.push({ at: position, length: value.length, insert: `"${value}"` })
       position += value.length
     }

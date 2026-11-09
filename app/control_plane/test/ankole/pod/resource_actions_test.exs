@@ -182,7 +182,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
     for {record, action, attrs} <- [
           {table, :commit_write,
            %{id: table.id, page_id: page.id, data_version: 100, delta: 0, inserted: 0}},
-          {field, :update_definition, %{table_id: table.id, is_primary: false, version: 100}},
+          {field, :update_definition, %{id: field.id, table_id: table.id, version: 100}},
           {view, :update_definition, %{table_id: table.id, version: 100}}
         ] do
       record = reload(record)

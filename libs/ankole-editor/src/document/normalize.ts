@@ -33,6 +33,7 @@ const valueHints: Record<string, string> = {
   colspan: '1 到 9999 的整数',
   rowspan: '1 到 9999 的整数',
   width: '1 到 9999 的整数',
+  height: '160 到 1600 的整数',
   tone: 'info、warning、success、danger 或 neutral',
   wrap: 'true',
   view: 'both、code 或 diagram',

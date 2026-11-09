@@ -60,7 +60,6 @@ pub enum NodeKind {
     Callout,
     Embed,
     Media,
-    Bookmark,
     Math,
     Mermaid,
     Infographic,
@@ -310,12 +309,9 @@ fn mark_target(name: &str, kind: NodeKind) -> bool {
         "ImageAlt" | "ImageTitle" => kind == NodeKind::Image,
         "PagePlaceholder" => kind == NodeKind::Paragraph,
         "CalloutTone" | "CalloutIcon" => kind == NodeKind::Callout,
-        "EmbedRef" | "EmbedTable" | "EmbedView" | "EmbedHref" | "EmbedTitle" => {
-            kind == NodeKind::Embed
-        }
-        name if resource_mark(name) => {
-            matches!(kind, NodeKind::Media | NodeKind::Bookmark)
-        }
+        "EmbedRef" | "EmbedTable" | "EmbedView" | "EmbedHref" | "EmbedTitle"
+        | "EmbedDescription" | "EmbedImage" | "EmbedHeight" => kind == NodeKind::Embed,
+        name if resource_mark(name) => kind == NodeKind::Media,
         "Attrs" => !matches!(
             kind,
             NodeKind::Doc | NodeKind::Text | NodeKind::UnknownBlock | NodeKind::InlineElement
@@ -330,6 +326,7 @@ fn attribute_mark(name: &str) -> Option<(&'static str, &'static str, bool)> {
     Some(match name {
         "Resource_kind" => ("media", "kind", false),
         "Resource_view" => ("media", "view", false),
+        "EmbedHeight" => ("embed", "height", false),
         "CodeWrap" => ("pre", "wrap", false),
         "TableWidths" => ("table", "widths", false),
         "TableLayout" => ("table", "layout", false),
@@ -360,7 +357,7 @@ pub(super) fn validate_mark(name: &str, value: &Value) -> Result<()> {
             }),
             "TextStyle" | "BlockStyle" | "CodeBlockLanguage" | "CodeMeta" | "ImageAlt"
             | "ImageTitle" | "EmbedRef" | "EmbedTable" | "EmbedView" | "EmbedHref"
-            | "EmbedTitle" | "CalloutIcon" => value.is_string(),
+            | "EmbedTitle" | "EmbedDescription" | "EmbedImage" | "CalloutIcon" => value.is_string(),
             name if attribute_mark(name).is_some() => {
                 let (element, attribute, numeric) = attribute_mark(name).unwrap();
                 if numeric {

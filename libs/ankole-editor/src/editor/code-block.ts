@@ -4,7 +4,7 @@ import { Elt, type Plot } from '../core/doc'
 import { Decoration, Wordgard } from '../core/editor'
 import type { Widget } from '../core/editor/decoration'
 import { history } from '../core/history'
-import { GardState, Transaction } from '../core/state'
+import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { markChange } from './attributes'
 import { editorPhrases } from './phrases'
@@ -364,11 +364,29 @@ const codeToolbarWidget = connectedWidget<CodeToolbarValue, HTMLDivElement>({
         : null
     }
     const mouseDown = (event: MouseEvent) => {
-      if ((event.target as Element | null)?.closest('[data-code-action]')) event.preventDefault()
+      if (event.button === 0) event.preventDefault()
     }
     const click = (event: MouseEvent) => {
       const target = (event.target as Element | null)?.closest<HTMLElement>('[data-code-action]')
-      if (!target) return
+      if (!target) {
+        if (value.readOnly) return
+        const found = find()
+        if (!found) return
+        const { selection } = editor.state
+        const end = found.pos + found.node.length
+        const inside =
+          (selection.from >= found.pos + 1 && selection.to <= end - 1) ||
+          (selection.from === found.pos && selection.to === end)
+        if (!inside) {
+          editor.dispatch({
+            selection: GardSelection.cursor(end - 1),
+            userEvent: 'select.pointer',
+            scrollIntoView: true
+          })
+        }
+        editor.focus()
+        return
+      }
       event.preventDefault()
       const action = target.dataset.codeAction
       const found = find()

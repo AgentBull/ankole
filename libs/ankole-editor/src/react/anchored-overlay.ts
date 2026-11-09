@@ -11,8 +11,10 @@ export type AnchoredOverlayOptions = {
   onClose?: () => void
   /** Elements that belong to the trigger and must not count as outside clicks. */
   shouldIgnore?: (target: Element) => boolean
-  /** Align the overlay's left edge with the anchor, or its right edge for `end`. */
-  align?: 'start' | 'end'
+  /** Align the overlay's left edge with the anchor, center it, or align its right edge for `end`. */
+  align?: 'start' | 'center' | 'end'
+  /** Prefer placing the overlay below (`bottom`, default) or above (`top`) the anchor, flipping if clipped. */
+  side?: 'top' | 'bottom'
   /** Gap between the anchor and the overlay. */
   sideOffset?: number
   /** An element whose size changes should re-place the overlay, such as the block it belongs to. */
@@ -29,7 +31,7 @@ export type OverlayPosition = { left: number; top: number } | null
  * dismissal. Components keep their own content, focus, and keyboard handling.
  */
 export function useAnchoredOverlay(options: AnchoredOverlayOptions): OverlayPosition {
-  const { open, panelRef, align = 'start', sideOffset = 4, dependencies = [] } = options
+  const { open, panelRef, align = 'start', side = 'bottom', sideOffset = 4, dependencies = [] } = options
   const latest = useRef(options)
   latest.current = options
   const [position, setPosition] = useState<OverlayPosition>(null)
@@ -54,10 +56,20 @@ export function useAnchoredOverlay(options: AnchoredOverlayOptions): OverlayPosi
       const minY = (viewport?.offsetTop ?? 0) + 8
       const maxY = minY + (viewport?.height ?? window.innerHeight) - 16
       const below = rect.bottom + sideOffset
-      const left = align === 'end' ? rect.right - width : rect.left
+      const above = rect.top - height - sideOffset
+      const left =
+        align === 'end' ? rect.right - width : align === 'center' ? rect.left + rect.width / 2 - width / 2 : rect.left
+      const top =
+        side === 'top'
+          ? above >= minY
+            ? above
+            : Math.min(below, maxY - height)
+          : below + height <= maxY
+            ? below
+            : Math.max(minY, above)
       setPosition({
         left: Math.max(minX, Math.min(left, maxX - width)),
-        top: below + height <= maxY ? below : Math.max(minY, rect.top - height - sideOffset)
+        top
       })
     }
     const schedule = () => {

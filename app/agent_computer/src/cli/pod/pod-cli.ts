@@ -50,7 +50,7 @@ Read operations:
   files.download   {id, path, local_path, sha256?}
   base.tables  {id: base_page_id}
   base.schema  {id: table_id}
-  base.query   {id, filter?, sort?, page_size?, page_token?, ids?, group?}
+  base.query   {id, search?, filter?, sort?, page_size?, page_token?, ids?, group?}
   base.aggregate {id, filter?, group_by?, metrics, order_by?, top_n?, omit_empty?}
   jobs.schedules.list {page_id, job_id}
   jobs.schedules.runs {page_id, job_id, id}
@@ -81,8 +81,8 @@ Write operations:
   base.create_table {id: base_page_id, name, description?}
   base.configure_table {id: table_id, description?, unique_field_ids?, emit_changes?}
   base.delete_table {id: table_id} — requires manage access
-  base.create_field {id: table_id, name, type, description?, config?}
-  base.update_field {id: field_id, version, ...changes}
+  base.create_field {id: table_id, name, type, description?, config?, is_primary?}
+  base.update_field {id: field_id, version, is_primary?, clear_invalid?, ...changes}
   base.delete_field {id: field_id, version}
   base.create_view  {id: table_id, name, type, config?}
   base.update_view  {id: view_id, version, ...changes}
@@ -132,7 +132,7 @@ Base parameter shapes:
     tables yourself.
   query results: {records:[{id,data,versions,...}],complete,page_token,data_version}
     When complete is false, pass page_token to the next query with the same
-    filter and sort. Aggregate calculates over all matching rows.
+    search, filter, sort, ids, and group. Aggregate calculates over all matching rows.
     For chart drill-down, pass group: [{field_id, value?, value_json?, bucket?,
     cumulative_from_json?, other_exclude_values_json?}] on base.query / base.records.
   Upserts require a configured scalar business key and every key value. Unchanged
@@ -152,6 +152,7 @@ Base parameter shapes:
 
 Document & Knowledge visualizations:
   :doc pages embed saved or inline Base chart views via <embed ref="<base-page-id>" table="<table-id>" view="<view-id-or-json>" />,
+  external webpage cards/previews via <embed href="https://..." view="card"? title? description? image? height? />,
   structured AntV infographics via <infographic> or \`\`\`infographic (:doc only), and Mermaid diagrams via <mermaid> or \`\`\`mermaid.
   :knowledge pages support plain \`\`\`mermaid / <mermaid> (without attributes); \`\`\`infographic in :knowledge renders as a plain code block and <infographic> XML is rejected.
   New or modified Mermaid and Infographic blocks are syntax-checked before pages.create, pages.append, pages.write, and pages.patch.

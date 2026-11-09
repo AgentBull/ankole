@@ -200,6 +200,8 @@ export function applyInfographicTemplate(editor: Wordgard, pos: number, source: 
   const unchanged = node.textContent() === source
   editor.dispatch({
     changes: unchanged ? undefined : { from: pos + 1, to: pos + node.length - 1, insert: codeNodes(source) },
+    selection: (_cx, changes) =>
+      GardSelection.cursor(unchanged ? pos + node.length - 1 : changes.mapPos(pos + node.length - 1, 1)),
     effects: closeMermaidMenu.of(null),
     annotations: history.isolate.of(true),
     userEvent: 'infographic.template'
@@ -295,6 +297,14 @@ const infographicViewsPlugin = Wordgard.Plugin.define(
   },
   plugin =>
     Wordgard.updateListener.of(update => {
+      if (
+        !update.docChanged &&
+        update.startState.readOnly === update.state.readOnly &&
+        editorPhrases.get(update.startState, 'infographic_placeholder') ===
+          editorPhrases.get(update.state, 'infographic_placeholder')
+      ) {
+        return
+      }
       update.editor.plugin(plugin)?.sync(update.editor)
     })
 )

@@ -10,6 +10,7 @@ const schema = {
 } as TableSchema
 test('numeric predicates and totals retain PostgreSQL precision while unfiltered small tables remain local', () => {
   expect(canQueryLocally(schema, {})).toBe(true)
+  expect(canQueryLocally(schema, { search: 'Enterprise' })).toBe(false)
   for (const field_id of ['amount', 'total']) {
     expect(
       canQueryLocally(schema, {

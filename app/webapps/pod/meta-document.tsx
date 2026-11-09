@@ -1,10 +1,12 @@
 import { KnowledgeReader } from '@ankole/block-editor/reader'
+import type { EditorHost } from '@ankole/block-editor/editor'
 import { Button } from '@ankole/uikit'
 import { useModel, useSignal } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { resolvePodLinkMetadata } from './content-api'
 import { DocumentDraftModel } from './state/document-draft'
 import { DraftNavigationGuard } from './draft-navigation-guard'
 import { createMentionHostAdapters } from './document-mentions'
@@ -53,7 +55,13 @@ export function MetaDocument<Result>({
   const body = useModel(DocumentDraftModel)
   const client = useQueryClient()
   const pageHref = usePageHref()
-  const host = useMemo(() => createMentionHostAdapters({ client, pageHref, i18n }), [client, pageHref, i18n])
+  const host = useMemo<EditorHost>(
+    () => ({
+      ...createMentionHostAdapters({ client, pageHref, i18n }),
+      resolveLinkMetadata: (url, signal) => resolvePodLinkMetadata(client, url, signal)
+    }),
+    [client, pageHref, i18n]
+  )
   const [reviewing, setReviewing] = useState(false)
   const editorError = useSignal<unknown>(null)
   const showBody = typeof bodyEnabled === 'function' ? bodyEnabled(draft.editing.value) : bodyEnabled

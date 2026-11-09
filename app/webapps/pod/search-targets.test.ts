@@ -294,7 +294,7 @@ describe('search-targets', () => {
     const xml = `<page>
       <h1>Architecture</h1>
       <columns><column><p>Control plane owns durable state.</p></column></columns>
-      <bookmark href="https://example.com" title="Runbook" description="Production checklist" />
+      <embed href="https://example.com" view="card" title="Runbook" description="Production checklist" />
       <media kind="image" title="Topology diagram" description="Region failover" />
       <pre>mix ecto.migrate</pre>
     </page>`

@@ -1,10 +1,19 @@
 defmodule Ankole.Pod.MentionsTest do
   use Ankole.DataCase, async: false
 
-  Code.require_file(
-    "../../../priv/repo/migrations/20261030050000_migrate_doc_embeds_to_mentions.exs",
-    __DIR__
-  )
+  unless Code.ensure_loaded?(Ankole.Repo.Migrations.MigrateDocEmbedsToMentions) do
+    Code.require_file(
+      "../../../priv/repo/migrations/20261030050000_migrate_doc_embeds_to_mentions.exs",
+      __DIR__
+    )
+  end
+
+  unless Code.ensure_loaded?(Ankole.Repo.Migrations.MigrateBookmarksToEmbeds) do
+    Code.require_file(
+      "../../../priv/repo/migrations/20261109183000_migrate_bookmarks_to_embeds.exs",
+      __DIR__
+    )
+  end
 
   import Ankole.PrincipalsFixtures
   alias Ankole.Pod.{Documents, Pages}
@@ -371,6 +380,63 @@ defmodule Ankole.Pod.MentionsTest do
              Ankole.Repo.Migrations.MigrateDocEmbedsToMentions.migrate_doc_embeds_xml(
                malformed,
                MapSet.new([doc_id])
+             )
+  end
+
+  test "migrate_bookmarks_xml rewrites legacy bookmark blocks to unified embeds and inline links while preserving CDATA, comments, and OT diff replay" do
+    comment_id = Ankole.Ecto.UUIDv7.autogenerate()
+
+    source =
+      ~s(<page><p>Before <comment ids="#{comment_id}">note</comment></p><bookmark href="https://arxiv.org/abs/2510.04374?x=1&amp;y=2" title='GDPval &quot;A &gt; B&quot;' description="Real-world tasks" image="https://arxiv.org/logo.png" custom="kept" /><bookmark src="https://example.com/frame" view="preview" title="Board" height="640" /><bookmark href="https://example.com/raw" view="link" /><bookmark href="https://example.com/doc" view="title" title="Doc Title" /><bookmark /><p>After</p></page>)
+
+    assert {:ok, migrated} =
+             Ankole.Repo.Migrations.MigrateBookmarksToEmbeds.migrate_bookmarks_xml(source)
+
+    refute migrated.xml =~ "<bookmark"
+
+    assert migrated.xml =~
+             ~s(<embed custom="kept" description="Real-world tasks" href="https://arxiv.org/abs/2510.04374?x=1&amp;y=2" image="https://arxiv.org/logo.png" title="GDPval &quot;A &gt; B&quot;" view="card" />)
+
+    assert migrated.xml =~
+             ~s(<embed height="640" href="https://example.com/frame" title="Board" />)
+
+    assert migrated.xml =~
+             ~s(<p><a href="https://example.com/raw">https://example.com/raw</a></p>)
+
+    assert migrated.xml =~ ~s(<p><a href="https://example.com/doc">Doc Title</a></p>)
+    assert migrated.xml =~ ~s(<embed href="" view="card" />)
+    assert migrated.xml =~ ~s(<comment ids="#{comment_id}">note</comment>)
+    assert migrated.plain_text =~ "GDPval"
+    assert migrated.plain_text =~ "Real-world tasks"
+
+    assert {:ok, changes} = Ankole.Kernel.page_diff(source, migrated.xml)
+    assert changes != []
+    assert {:ok, applied} = Ankole.Kernel.page_apply(source, changes)
+    assert applied.xml == migrated.xml
+
+    cdata_only =
+      ~s(<page><pre lang="xml"><![CDATA[<bookmark href="https://example.com" />]]></pre></page>)
+
+    assert {:ok, :unchanged} =
+             Ankole.Repo.Migrations.MigrateBookmarksToEmbeds.migrate_bookmarks_xml(cdata_only)
+
+    knowledge_source =
+      ~s(<page><p>Guide</p><bookmark src="https://example.com/spec" title="Spec" /><bookmark /></page>)
+
+    assert {:ok, knowledge_migrated} =
+             Ankole.Repo.Migrations.MigrateBookmarksToEmbeds.migrate_bookmarks_xml(
+               knowledge_source,
+               :knowledge
+             )
+
+    assert knowledge_migrated.xml =~ ~s(<p><a href="https://example.com/spec">Spec</a></p>)
+    refute knowledge_migrated.xml =~ "<embed"
+
+    assert {:ok, _} =
+             Ankole.Kernel.vfs_projection(
+               :knowledge,
+               knowledge_migrated.xml,
+               %{"frontmatter" => "---\nname: demo\ndescription: demo\n---\n"}
              )
   end
 

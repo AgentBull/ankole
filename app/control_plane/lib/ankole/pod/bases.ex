@@ -228,13 +228,17 @@ defmodule Ankole.Pod.Bases do
 
   @doc false
   def query_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
-    query_transaction(actor, id, fn table, limits, definitions, _context ->
+    has_search? =
+      match?(value when is_binary(value) and value != "", Ankole.Attrs.get(attrs, :search))
+
+    query_transaction(actor, id, [search: has_search?], fn table, limits, definitions, context ->
       if Ankole.Attrs.get(attrs, :local, false) == true do
-        local_records(table, definitions, attrs, limits)
+        local_records(table, definitions, attrs, limits, context.principal_names)
       else
         Query.records(table, definitions, attrs,
           limit: min(limits["query_rows"], 200),
-          max_limit: limits["query_rows"]
+          max_limit: limits["query_rows"],
+          principal_names: context.principal_names
         )
       end
     end)
@@ -252,7 +256,7 @@ defmodule Ankole.Pod.Bases do
   defp local_snapshot?(table, fields),
     do: local_candidate?(table) and Query.snapshot_fits?(table, fields, @inline_max_bytes)
 
-  defp local_records(table, fields, attrs, _limits) do
+  defp local_records(table, fields, attrs, _limits, principal_names) do
     if local_snapshot?(table, fields) do
       attrs =
         attrs
@@ -261,7 +265,11 @@ defmodule Ankole.Pod.Bases do
         |> Map.delete("page_size")
         |> Map.put(:page_size, @inline_max_rows)
 
-      with {:ok, result} <- Query.records(table, fields, attrs, max_limit: @inline_max_rows) do
+      with {:ok, result} <-
+             Query.records(table, fields, attrs,
+               max_limit: @inline_max_rows,
+               principal_names: principal_names
+             ) do
         if result.complete,
           do: {:ok, result},
           else: {:error, :local_table_changed}
@@ -455,10 +463,13 @@ defmodule Ankole.Pod.Bases do
 
       capabilities = query_capabilities()
 
+      principal_names = search_principal_names(actor, table, definitions, opts[:search] == true)
+
       context = %{
         views: views,
         capabilities: capabilities,
         timezone: timezone,
+        principal_names: principal_names,
         tables:
           for(
             linked <- tables,
@@ -488,6 +499,25 @@ defmodule Ankole.Pod.Bases do
       nil -> {:error, :not_found}
       :error -> {:error, :not_found}
       error -> error
+    end
+  end
+
+  defp search_principal_names(_actor, _table, _definitions, false), do: nil
+
+  defp search_principal_names(actor, table, definitions, true) do
+    primary = Enum.find(definitions, & &1.is_primary) || List.first(definitions)
+
+    if match?(%{type: type} when type in [:user, :created_by, :updated_by], primary) do
+      case Ankole.Pod.Pages.Collaborators.subjects_in_tx(actor, context_page_id: table.page_id) do
+        {:ok, subjects} ->
+          for %{principal_uid: uid, name: name} <- subjects,
+              is_binary(uid) and is_binary(name),
+              into: %{},
+              do: {String.downcase(uid), name}
+
+        _ ->
+          %{}
+      end
     end
   end
 

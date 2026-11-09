@@ -22,7 +22,6 @@ defmodule Ankole.Pod.BaseField do
 
     check_constraints do
       check_constraint(:type, "base_fields_type_check")
-      check_constraint(:type, "base_fields_primary_text")
       check_constraint(:version, "base_fields_version")
       check_constraint(:config, "base_fields_config_object")
     end
@@ -90,13 +89,6 @@ defmodule Ankole.Pod.BaseField do
     end
   end
 
-  validations do
-    validate(attribute_equals(:type, :text),
-      where: [attribute_equals(:is_primary, true)],
-      message: "Primary fields must use the text type"
-    )
-  end
-
   actions do
     defaults([:read])
 
@@ -106,7 +98,7 @@ defmodule Ankole.Pod.BaseField do
 
     update :update_definition do
       require_atomic?(true)
-      accept([:name, :description, :position, :type, :config])
+      accept([:name, :description, :position, :type, :config, :is_primary])
       change(atomic_update(:version, expr(version + 1)))
     end
 

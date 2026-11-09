@@ -4,14 +4,13 @@
  * `Command.dispatch(editor, setLink, { href })`. Each command is one undo step.
  */
 import { Command, enter } from '../core/command'
-import { Node, type ChangeSet, type Leaf, type Mark, type Pos } from '../core/doc'
+import { Leaf, Node, type ChangeSet, type Mark, type Pos } from '../core/doc'
 import { Wordgard } from '../core/editor'
 import { history } from '../core/history'
-import { GardState, Transaction } from '../core/state'
+import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { pairsOf, recordOf, type Pairs } from './attributes'
-import { openLinkHref } from './host'
-import { editorHost } from './host-context'
+import { editorHost, openLinkHref } from './host-context'
 import * as S from './schema'
 
 /** A link: its address and title, and the range of its text. */
@@ -79,6 +78,124 @@ export function linkAt(state: GardState): LinkInfo | null {
   return found ? infoOf(found) : null
 }
 
+/** Return the single link covering `[range.from, range.to]` when every inline leaf in `range` belongs to that link. */
+export function singleLinkInRange(state: GardState, range: { from: number; to: number }): LinkInfo | null {
+  if (range.from >= range.to) return null
+  const found: Found[] = []
+  let unlinkedLeaf = false
+  state.doc.iterate(range.from, range.to, (node, pos) => {
+    if (!node.isLeaf || !node.isInline) return
+    const mark = S.Link.isInSet(node.marks)
+    if (!mark) {
+      unlinkedLeaf = true
+      return false
+    }
+    if (!found.some(item => item.from <= pos && pos < item.to)) {
+      const at = state.doc.resolve(pos)
+      found.push(extent(at.parent, at.index, mark))
+    }
+  })
+  if (unlinkedLeaf || found.length !== 1) return null
+  const single = found[0]!
+  return single.from <= range.from && range.to <= single.to ? infoOf(single) : null
+}
+
+/** The link covering or immediately adjacent to `pos`, used for pointer hover resolution. */
+export function linkAtPos(state: GardState, pos: number): LinkInfo | null {
+  if (pos < 0 || pos > state.doc.length) return null
+  const at = state.doc.resolve(pos)
+  const block = at.parent
+  if (!block.node.inlineContent) return null
+  const indexes = at.inText ? [at.index] : [at.index, at.index - 1]
+  for (const index of indexes) {
+    const leaf = block.node.content[index]
+    const mark = leaf && S.Link.isInSet(leaf.marks)
+    if (mark) return infoOf(extent(block, index, mark))
+  }
+  return null
+}
+
+function inlineMarksForLink(state: GardState, pos: number, linkMark: Mark<Pairs>): readonly Mark[] {
+  const at = state.doc.resolve(pos)
+  const block = at.parent
+  const leaf = block.node.inlineContent
+    ? at.inText
+      ? block.node.content[at.index]
+      : (block.node.content[at.index] ?? block.node.content[at.index - 1])
+    : undefined
+  const kept = leaf ? leaf.marks.filter(mark => mark.type !== S.Link && mark.type !== T.Code.type) : []
+  return linkMark.addToSet(kept)
+}
+
+function linkMarkAt(state: GardState, pos: number): Mark<Pairs> | null {
+  const at = state.doc.resolve(pos)
+  const block = at.parent
+  if (!block.node.inlineContent) return null
+  const leaf = at.inText
+    ? block.node.content[at.index]
+    : (block.node.content[at.index] ?? block.node.content[at.index - 1])
+  return (leaf && S.Link.isInSet(leaf.marks)) ?? null
+}
+
+/** Update the link at `range`, optionally replacing its visible text in the same undo step. */
+export function updateLinkAt(
+  editor: Wordgard,
+  range: { from: number; to: number },
+  target: LinkTarget & { text?: string },
+  options?: { addToHistory?: boolean; keepSelectionOutsideRange?: boolean }
+): boolean {
+  const { state } = editor
+  const href = S.safeLinkHref(target.href)
+  if (state.readOnly || !href || range.from < 0 || range.to > state.doc.length || range.from > range.to) return false
+  const normalizedTarget = href === target.href ? target : { ...target, href }
+  const existing = linkAtPos(state, range.from)
+  const sameLink = existing && existing.from === range.from && existing.to === range.to
+  const baseMark = sameLink ? linkMarkAt(state, range.from) : null
+  const mark = S.Link.of(linkValue(baseMark?.value ?? [], normalizedTarget))
+  const annotations = options?.addToHistory === false ? Transaction.addToHistory.of(false) : history.isolate.of(true)
+  if (target.text !== undefined) {
+    const singleLine = target.text.replace(/\r?\n/g, ' ')
+    if (!singleLine.trim()) return false
+    const marks = inlineMarksForLink(state, range.from, mark)
+    const moveSelection =
+      !options?.keepSelectionOutsideRange ||
+      (state.selection instanceof GardSelection.Text &&
+        state.selection.from >= range.from &&
+        state.selection.to <= range.to)
+    editor.dispatch({
+      changes: { from: range.from, to: range.to, insert: [Leaf.text(singleLine, marks)] },
+      ...(moveSelection ? { selection: GardSelection.cursor(range.from + singleLine.length) } : {}),
+      annotations,
+      userEvent: 'mark.add'
+    })
+    return true
+  }
+  if (range.from === range.to) return false
+  editor.dispatch({ changes: { from: range.from, to: range.to, add: mark }, annotations, userEvent: 'mark.add' })
+  return true
+}
+
+/** Remove any link marks covering `range` as one undo step. */
+export function removeLinkAt(editor: Wordgard, range: { from: number; to: number }): boolean {
+  const { state } = editor
+  if (state.readOnly || range.from >= range.to) return false
+  const found: Found[] = []
+  state.doc.iterate(range.from, range.to, (node, pos) => {
+    const mark = node.isLeaf ? S.Link.isInSet(node.marks) : null
+    if (!mark || found.some(item => item.from <= pos && pos < item.to)) return
+    const at = state.doc.resolve(pos)
+    found.push(extent(at.parent, at.index, mark))
+  })
+  if (!found.length) return false
+  editor.dispatch(
+    step({
+      changes: found.map(({ mark, from, to }) => ({ from, to, remove: mark })),
+      userEvent: 'mark.remove'
+    })
+  )
+  return true
+}
+
 /** Link attributes with a new address and title. A title of '' removes the title. */
 function linkValue(base: Pairs, target: LinkTarget): Pairs {
   const attrs: Record<string, string> = { ...recordOf(base), href: target.href }
@@ -87,7 +204,7 @@ function linkValue(base: Pairs, target: LinkTarget): Pairs {
   return pairsOf(attrs)
 }
 
-const step = (spec: { changes: ChangeSet.Spec; userEvent: string }): Transaction.Spec => ({
+const step = (spec: { changes: ChangeSet.Spec; selection?: GardSelection; userEvent: string }): Transaction.Spec => ({
   ...spec,
   annotations: history.isolate.of(true)
 })

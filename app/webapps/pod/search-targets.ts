@@ -385,11 +385,13 @@ type XmlNode = ReturnType<typeof parseXml>['children'][number]
 
 function collectNodeText(node: XmlNode): string {
   if (node.type === 'text') return node.value
-  if (node.name === 'bookmark' || node.name === 'media' || node.name === 'embed' || node.name === 'img') {
-    const parts = [node.attrs.title, node.attrs.description, node.attrs.alt, node.attrs.src]
+  if (node.name === 'media' || node.name === 'embed' || node.name === 'img') {
+    const parts = [node.attrs.title, node.attrs.description, node.attrs.alt]
       .map(value => value?.trim())
       .filter((value): value is string => Boolean(value))
-    return parts.join(' — ')
+    if (parts.length > 0) return parts.join(' — ')
+    const address = (node.attrs.href ?? node.attrs.src)?.trim()
+    return address && !address.startsWith('ankole:') ? address : ''
   }
   return node.children.map(collectNodeText).join('')
 }
@@ -432,7 +434,7 @@ export function extractXmlPreview(xml: string | null | undefined, rawQuery = '')
           if (text && allBlocks.length < MAX_PREVIEW_SCAN_BLOCKS) allBlocks.push({ kind: 'quote', text })
           continue
         }
-        if (node.name === 'bookmark' || node.name === 'media' || node.name === 'embed') {
+        if (node.name === 'media' || node.name === 'embed') {
           const text = collectNodeText(node).trim()
           if (text && allBlocks.length < MAX_PREVIEW_SCAN_BLOCKS) allBlocks.push({ kind: 'paragraph', text })
           continue

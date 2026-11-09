@@ -155,9 +155,11 @@ defmodule Ankole.Pod.Bases.Schema do
 
       attrs =
         attrs
-        |> atom_attrs([:name, :description, :type, :config, :position])
+        |> atom_attrs([:name, :description, :type, :config, :position, :is_primary])
+        |> drop_nil_key(:is_primary)
         |> strip_edge_config()
-        |> Map.merge(%{id: Ankole.Ecto.UUIDv7.autogenerate(), table_id: id, is_primary: false})
+        |> Map.put_new(:is_primary, false)
+        |> Map.merge(%{id: Ankole.Ecto.UUIDv7.autogenerate(), table_id: id})
         |> Map.put_new_lazy(:position, fn -> next_schema_position(BaseField, id) end)
 
       with true <- length(fields(id)) < 200,
@@ -170,6 +172,7 @@ defmodule Ankole.Pod.Bases.Schema do
            :ok <- validate_field_config(candidate, table),
            {:ok, candidate, write} <- reverse_field(candidate, write),
            {:ok, checked} <- Formula.validate_all([candidate | fields(id)]),
+           :ok <- maybe_demote_primary(id, candidate.is_primary),
            {:ok, field} <-
              Ankole.Ash.create(
                BaseField,
@@ -206,11 +209,13 @@ defmodule Ankole.Pod.Bases.Schema do
                Ankole.Ash.for_update(
                  field,
                  :update_definition,
-                 strip_edge_config(
-                   atom_attrs(attrs, [:name, :description, :type, :config, :position])
-                 )
+                 attrs
+                 |> atom_attrs([:name, :description, :type, :config, :position, :is_primary])
+                 |> drop_nil_key(:is_primary)
+                 |> strip_edge_config()
                )
                |> Ash.Changeset.apply_attributes(),
+             :ok <- primary_field_change(field, candidate),
              :ok <- description_size(candidate),
              :ok <- unique_field_change(table, field, candidate),
              candidate <- carry_reverse(field, candidate),
@@ -229,14 +234,20 @@ defmodule Ankole.Pod.Bases.Schema do
                  Ankole.Attrs.get(attrs, :clear_invalid, false)
                ),
              {:ok, candidate, write} <- transition_link(write, field, candidate),
+             :ok <-
+               sync_peer_fields(
+                 table.id,
+                 checked,
+                 id,
+                 definitions,
+                 candidate.is_primary and not field.is_primary
+               ),
              {:ok, saved} <-
                Ankole.Ash.update(
                  field,
                  :update_definition,
-                 Map.take(candidate, [:name, :description, :position, :type, :config])
+                 Map.take(candidate, [:name, :description, :position, :type, :config, :is_primary])
                ) do
-          persist_formula_metadata(checked, id, definitions)
-
           {:ok, saved, write}
         else
           nil -> {:error, :not_found}
@@ -251,14 +262,15 @@ defmodule Ankole.Pod.Bases.Schema do
     with {:ok, field} <- field_by_id(id) do
       schema_write(actor, field.table_id, fn write ->
         table = write.table
-        field = Ankole.Ash.read_one!(Ash.Query.filter(BaseField, id == ^id))
+        definitions = fields(table.id)
+        field = Enum.find(definitions, &(&1.id == id))
 
         cond do
           is_nil(field) -> {:error, :not_found}
           field.version != version -> {:error, {:schema_conflict, field}}
           id in table.unique_field_ids -> {:error, :unique_field_referenced}
-          field.is_primary -> {:error, :primary_field_required}
-          Enum.any?(fields(table.id), &Formula.references?(&1, id)) -> {:error, :field_referenced}
+          length(definitions) <= 1 -> {:error, :primary_field_required}
+          Enum.any?(definitions, &Formula.references?(&1, id)) -> {:error, :field_referenced}
           true -> delete_field_in_tx(field, write)
         end
       end)
@@ -267,18 +279,53 @@ defmodule Ankole.Pod.Bases.Schema do
 
   defp delete_field_in_tx(field, write) do
     with {:ok, write} <- detach_reverse(field, write),
-         :ok <- scrub_field_from_views(field.table_id, field.id),
-         {:ok, deleted} <- Ankole.Ash.destroy(field, :remove) do
+         {:ok, deleted} <- Ankole.Ash.destroy(field, :remove),
+         remaining = fields(field.table_id),
+         :ok <- ensure_primary_field(remaining),
+         :ok <- scrub_field_from_views(field.table_id, field.id, remaining) do
       {:ok, deleted, write}
     end
   end
 
-  defp scrub_field_from_views(table_id, field_id) do
+  defp primary_field_change(%{is_primary: true}, %{is_primary: false}),
+    do: {:error, :primary_field_required}
+
+  defp primary_field_change(_old, _candidate), do: :ok
+
+  defp maybe_demote_primary(_table_id, false), do: :ok
+
+  defp maybe_demote_primary(table_id, true) do
+    fields(table_id)
+    |> Enum.filter(& &1.is_primary)
+    |> Enum.reduce_while(:ok, fn current, :ok ->
+      case Ankole.Ash.update(current, :update_definition, %{is_primary: false}) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp ensure_primary_field(remaining) do
+    if Enum.any?(remaining, & &1.is_primary) do
+      :ok
+    else
+      target = Enum.find(remaining, &(&1.type not in [:attachment, :link])) || hd(remaining)
+
+      case Ankole.Ash.update(target, :update_definition, %{is_primary: true}) do
+        {:ok, _} -> :ok
+        {:error, _} = error -> error
+      end
+    end
+  end
+
+  defp drop_nil_key(map, key), do: if(is_nil(map[key]), do: Map.delete(map, key), else: map)
+
+  defp scrub_field_from_views(table_id, field_id, remaining) do
     BaseView
     |> Ash.Query.filter(table_id == ^table_id)
     |> Ankole.Ash.read!()
     |> Enum.reduce_while(:ok, fn view, :ok ->
-      cleaned = scrub_view_config(view.config, field_id)
+      cleaned = scrub_view_config(view.config, view.type, field_id, remaining)
 
       if cleaned == view.config do
         {:cont, :ok}
@@ -291,12 +338,19 @@ defmodule Ankole.Pod.Bases.Schema do
     end)
   end
 
-  defp scrub_view_config(config, field_id) when is_map(config) do
+  defp scrub_view_config(config, view_type, field_id, remaining) when is_map(config) do
     config
     |> then(fn map ->
       case map["visible_fields"] do
         visible when is_list(visible) ->
-          Map.put(map, "visible_fields", Enum.reject(visible, &(&1 == field_id)))
+          next = Enum.reject(visible, &(&1 == field_id))
+
+          next =
+            if view_type == :grid and visible != [] and next == [] and remaining != [],
+              do: [hd(remaining).id],
+              else: next
+
+          Map.put(map, "visible_fields", next)
 
         _ ->
           map
@@ -307,7 +361,7 @@ defmodule Ankole.Pod.Bases.Schema do
     |> scrub_chart_config(field_id)
   end
 
-  defp scrub_view_config(config, _field_id), do: config
+  defp scrub_view_config(config, _view_type, _field_id, _remaining), do: config
 
   defp drop_matching_field(config, key, field_id) do
     if config[key] == field_id, do: Map.delete(config, key), else: config
@@ -625,18 +679,47 @@ defmodule Ankole.Pod.Bases.Schema do
   defp replace_definition(definitions, id, candidate),
     do: Enum.map(definitions, fn field -> if field.id == id, do: candidate, else: field end)
 
-  defp persist_formula_metadata(fields, changed_id, previous) do
-    previous = Map.new(previous, &{&1.id, &1})
+  defp sync_peer_fields(table_id, checked, changed_id, previous, promote?) do
+    previous_by_id = Map.new(previous, &{&1.id, &1})
 
-    fields
-    |> Enum.filter(&(&1.id != changed_id and &1.type == :formula))
-    |> Enum.each(fn field ->
-      before = Map.fetch!(previous, field.id)
+    formula_updates =
+      Map.new(
+        for field <- checked,
+            field.id != changed_id,
+            field.type == :formula,
+            before = Map.get(previous_by_id, field.id),
+            not is_nil(before) and before.config != field.config,
+            do: {field.id, field.config}
+      )
 
-      if before.config != field.config do
-        {:ok, _field} = Ankole.Ash.update(before, :update_definition, %{config: field.config})
-      end
-    end)
+    if not promote? and map_size(formula_updates) == 0 do
+      :ok
+    else
+      fields(table_id)
+      |> Enum.reject(&(&1.id == changed_id))
+      |> Enum.reduce_while(:ok, fn current, :ok ->
+        changes =
+          %{}
+          |> then(fn acc ->
+            if promote? and current.is_primary, do: Map.put(acc, :is_primary, false), else: acc
+          end)
+          |> then(fn acc ->
+            case Map.fetch(formula_updates, current.id) do
+              {:ok, config} -> Map.put(acc, :config, config)
+              :error -> acc
+            end
+          end)
+
+        if map_size(changes) == 0 do
+          {:cont, :ok}
+        else
+          case Ankole.Ash.update(current, :update_definition, changes) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, _} = error -> {:halt, error}
+          end
+        end
+      end)
+    end
   end
 
   defp prepare_changed_formula(old, candidate, definitions, attrs) do

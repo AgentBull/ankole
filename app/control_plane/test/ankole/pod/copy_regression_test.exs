@@ -546,6 +546,101 @@ defmodule Ankole.Pod.CopyRegressionTest do
     end
   end
 
+  test "copy_table flattens links when target tables use select or formula display fields", ctx do
+    actor = actor_fixture(ctx.uid)
+
+    {:ok, categories} = Bases.create_table(actor, ctx.page.id, %{name: "Categories"})
+    cat_primary = Enum.find(Bases.fields(categories.id), & &1.is_primary)
+
+    {:ok, cat_primary} =
+      Bases.update_field(actor, cat_primary.id, %{
+        version: cat_primary.version,
+        type: "select",
+        config: %{
+          "options" => [
+            %{"id" => "opt_hw", "name" => "Hardware"},
+            %{"id" => "opt_sw", "name" => "Software"}
+          ]
+        }
+      })
+
+    {:ok, %{records: [hw, sw, untitled]}} =
+      Bases.write_records(actor, categories.id, %{
+        creates: [
+          %{data: %{cat_primary.id => "opt_hw"}},
+          %{data: %{cat_primary.id => "opt_sw"}},
+          %{data: %{}}
+        ]
+      })
+
+    {:ok, owners} = Bases.create_table(actor, ctx.page.id, %{name: "Owners"})
+    owner_primary = Enum.find(Bases.fields(owners.id), & &1.is_primary)
+
+    {:ok, owner_primary} =
+      Bases.update_field(actor, owner_primary.id, %{
+        version: owner_primary.version,
+        type: "user"
+      })
+
+    {:ok, %{records: [owner_row]}} =
+      Bases.write_records(actor, owners.id, %{
+        creates: [%{data: %{owner_primary.id => [ctx.uid]}}]
+      })
+
+    {:ok, orders} = Bases.create_table(actor, ctx.page.id, %{name: "Orders"})
+    {:ok, amount} = Bases.create_field(actor, orders.id, %{name: "Amount", type: "number"})
+
+    {:ok, label_formula} =
+      Bases.create_field(actor, orders.id, %{
+        name: "Order Label",
+        type: "formula",
+        config: %{"source" => "\"ORD-\" & [Amount]"},
+        is_primary: true
+      })
+
+    assert label_formula.is_primary
+
+    {:ok, %{records: [ord]}} =
+      Bases.write_records(actor, orders.id, %{creates: [%{data: %{amount.id => 42}}]})
+
+    {:ok, cat_link} = field(ctx, "Category", "link", %{"table_id" => categories.id})
+    {:ok, owner_link} = field(ctx, "Owner", "link", %{"table_id" => owners.id})
+    {:ok, ord_link} = field(ctx, "Order", "link", %{"table_id" => orders.id})
+
+    {:ok, _} =
+      Bases.write_records(actor, ctx.table.id, %{
+        creates: [
+          %{
+            data: %{
+              ctx.primary.id => "Item 1",
+              cat_link.id => [hw.id, sw.id],
+              owner_link.id => [owner_row.id],
+              ord_link.id => [ord.id]
+            }
+          },
+          %{
+            data: %{
+              ctx.primary.id => "Item 2",
+              cat_link.id => [untitled.id]
+            }
+          }
+        ]
+      })
+
+    assert {:ok, copy} = Bases.copy_table(actor, ctx.table.id, %{})
+    assert {:ok, schema} = Bases.get_table(actor, copy.table.id)
+    copied_fields = Map.new(schema.fields, &{&1.name, &1})
+    assert {:ok, %{records: rows}} = Bases.query(actor, copy.table.id, %{})
+    item1 = Enum.find(rows, &(&1["data"][copied_fields["Name"].id] == "Item 1"))
+    item2 = Enum.find(rows, &(&1["data"][copied_fields["Name"].id] == "Item 2"))
+
+    assert item1["data"][copied_fields["Category"].id] == "Hardware, Software"
+    assert item1["data"][copied_fields["Owner"].id] == ctx.uid
+    assert item1["data"][copied_fields["Order"].id] == "ORD-42"
+    assert is_nil(item2["data"][copied_fields["Category"].id])
+    refute Map.has_key?(item2["data"], copied_fields["Category"].id)
+  end
+
   defp field(ctx, name, type, config \\ %{}),
     do:
       Bases.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{

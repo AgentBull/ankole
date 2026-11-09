@@ -26,7 +26,7 @@ function walkDocument(xml: string, visit: (node: DocumentElement) => void): Docu
 }
 
 function assetSource(node: DocumentElement): [string, string] | undefined {
-  const attribute = ['img', 'media', 'bookmark'].includes(node.name) ? 'src' : node.name === 'a' ? 'href' : undefined
+  const attribute = ['img', 'media'].includes(node.name) ? 'src' : node.name === 'a' ? 'href' : undefined
   const source = attribute && node.attrs[attribute]
   return attribute && source?.startsWith('ankole:asset/') ? [attribute, source] : undefined
 }

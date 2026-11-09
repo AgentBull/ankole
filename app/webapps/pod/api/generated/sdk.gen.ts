@@ -369,6 +369,9 @@ import type {
   PodKnowledgePanelData,
   PodKnowledgePanelErrors,
   PodKnowledgePanelResponses,
+  PodLinkUnfurlData,
+  PodLinkUnfurlErrors,
+  PodLinkUnfurlResponses,
   PodMeData,
   PodMeErrors,
   PodMentionCandidatesData,
@@ -1095,6 +1098,23 @@ export const podAppletJobConfigure = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{page_id}/jobs/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podLinkUnfurl operation on pod_page_operation resource
+ */
+export const podLinkUnfurl = <ThrowOnError extends boolean = true>(
+  options: Options<PodLinkUnfurlData, ThrowOnError>
+): RequestResult<PodLinkUnfurlResponses, PodLinkUnfurlErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodLinkUnfurlResponses, PodLinkUnfurlErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/links/unfurl',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

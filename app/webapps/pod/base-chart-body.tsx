@@ -17,7 +17,7 @@ import { RiExpandDiagonalLine, RiRefreshLine } from '@remixicon/react'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
 import { ContentError, ContentSkeleton } from './content-primitives'
-import { FieldValue } from './base-fields'
+import { FieldValue, RecordTitle } from './base-fields'
 import { ReferenceLabelsProvider } from './base-field-value'
 import type { RecordDetailsDialogComponent, ViewProps } from './base-views'
 import { fieldValue } from './state/table-query'
@@ -656,15 +656,7 @@ function ChartDrilldownDialog(
                   className="flex items-center justify-between gap-3 py-2.5 text-sm hover:bg-layer-01/60">
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="truncate font-medium text-foreground">
-                      {primaryField ? (
-                        <FieldValue
-                          field={primaryField}
-                          value={fieldValue(record, primaryField)}
-                          pageID={props.pageID}
-                        />
-                      ) : (
-                        record.id
-                      )}
+                      <RecordTitle record={record} primary={primaryField} />
                     </div>
                     {previewFields.length > 0 && (
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-fg-tertiary">

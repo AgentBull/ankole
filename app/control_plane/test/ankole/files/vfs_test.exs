@@ -99,6 +99,66 @@ defmodule Ankole.Files.VfsTest do
     assert request(ctx, "GET", "AgentDrive/moved/report.txt").resp_body == "replacement"
   end
 
+  test "migrate_bookmarks_to_embeds refreshes Drive VFS projections for both expanding and shrinking Markdown",
+       ctx do
+    short_put = request(ctx, "PUT", "AgentDrive/expanding._adoc.md", "Hi")
+    assert short_put.status == 201
+    [expanding_id] = get_resp_header(short_put, "x-ankole-node-id")
+
+    long_put =
+      request(
+        ctx,
+        "PUT",
+        "AgentDrive/shrinking._adoc.md",
+        String.duplicate("Long paragraph ", 40)
+      )
+
+    assert long_put.status == 201
+    [shrinking_id] = get_resp_header(long_put, "x-ankole-node-id")
+
+    expanding_legacy =
+      ~s(<page><bookmark href="https://arxiv.org/abs/2510.04374" title="GDPval Benchmark" description="Evaluating AI on real-world tasks across 44 occupations" image="https://arxiv.org/logo.png" /><p>Trailing paragraph after migrated embed</p></page>)
+
+    shrinking_legacy =
+      ~s(<page><bookmark href="https://example.com/brief" view="link" /></page>)
+
+    Repo.query!(
+      "UPDATE page_contents SET content = $3 WHERE tenant_id = $1::text::uuid AND page_id = $2::text::uuid",
+      [ctx.agent.tenant_id, expanding_id, expanding_legacy]
+    )
+
+    Repo.query!(
+      "UPDATE page_contents SET content = $3 WHERE tenant_id = $1::text::uuid AND page_id = $2::text::uuid",
+      [ctx.agent.tenant_id, shrinking_id, shrinking_legacy]
+    )
+
+    Code.require_file(
+      Path.expand(
+        "../../../priv/repo/migrations/20261109183000_migrate_bookmarks_to_embeds.exs",
+        __DIR__
+      )
+    )
+
+    apply(Ankole.Repo.Migrations.MigrateBookmarksToEmbeds, :migrate_repo, [Repo])
+
+    expanding_get = request(ctx, "GET", "AgentDrive/expanding._adoc.md")
+    assert expanding_get.status == 200
+    assert expanding_get.resp_body =~ ~s(kind="embed")
+    assert expanding_get.resp_body =~ "Trailing paragraph after migrated embed"
+
+    shrinking_get = request(ctx, "GET", "AgentDrive/shrinking._adoc.md")
+    assert shrinking_get.status == 200
+    assert shrinking_get.resp_body =~ "https://example.com/brief"
+
+    propfind = request(ctx, "PROPFIND", "AgentDrive", "", [{"depth", "1"}]).resp_body
+
+    assert propfind =~
+             "<d:getcontentlength>#{byte_size(expanding_get.resp_body)}</d:getcontentlength>"
+
+    assert propfind =~
+             "<d:getcontentlength>#{byte_size(shrinking_get.resp_body)}</d:getcontentlength>"
+  end
+
   test "empty Pages project as directories and body writes keep their identity and children",
        ctx do
     created = request(ctx, "MKCOL", "AgentDrive/Notes")
@@ -744,7 +804,7 @@ defmodule Ankole.Files.VfsTest do
     assert record[metadata.id] == "Business ID"
     refute Map.has_key?(record, slashed.name)
     exported = request(ctx, "GET", prefix <> "/.views/Metadata/.export/json")
-    assert Torque.decode!(exported.resp_body) == [Map.take(data, ["Name", metadata.id])]
+    assert Torque.decode!(exported.resp_body) == [Map.take(data, [metadata.id])]
 
     filtered =
       request(

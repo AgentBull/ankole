@@ -28,7 +28,9 @@ export const coreBlockTypes = [
   'columns5',
   'mention',
   'file',
-  'chart'
+  'page_embed',
+  'chart',
+  'bookmark'
 ] as const
 export type CoreBlockType = (typeof coreBlockTypes)[number]
 export type BlockType = CoreBlockType | (typeof blocks)[number]['name']
@@ -163,6 +165,13 @@ export const blockOptions: readonly BlockOption[] = [
     turnInto: false
   },
   {
+    type: 'page_embed',
+    title: editorPhrases.ref('page_embed_title'),
+    detail: editorPhrases.ref('page_embed_detail'),
+    keywords: 'embed page base table applet app workspace 嵌入 多维表 数据表 应用 页面 已有内容',
+    turnInto: false
+  },
+  {
     type: 'chart',
     title: editorPhrases.ref('chart_title'),
     detail: editorPhrases.ref('chart_detail'),
@@ -170,13 +179,26 @@ export const blockOptions: readonly BlockOption[] = [
       'chart graph plot bar line pie area scatter combo visualization 图表 统计图 柱状图 折线图 饼图 数据图表 多维表图表',
     turnInto: false
   },
-  ...blocks.map(block => ({
-    type: block.name,
-    title: block.insert.title,
-    detail: block.insert.detail,
-    keywords: block.insert.keywords,
-    turnInto: block.insert.turnInto
-  }))
+  ...blocks.flatMap((block): BlockOption[] => {
+    const entry: BlockOption = {
+      type: block.name,
+      title: block.insert.title,
+      detail: block.insert.detail,
+      keywords: block.insert.keywords,
+      turnInto: block.insert.turnInto
+    }
+    if (block.name !== 'media') return [entry]
+    return [
+      entry,
+      {
+        type: 'bookmark',
+        title: editorPhrases.ref('bookmark_title'),
+        detail: editorPhrases.ref('bookmark_detail'),
+        keywords: 'bookmark website webpage link url card 网页 网站 网址 链接 卡片 书签',
+        turnInto: false
+      }
+    ]
+  })
 ]
 
 /** All insertion entry points search the same translated block catalogue. */
@@ -188,11 +210,13 @@ export function filterBlockOptions(
   const terms = query.trim().normalize('NFKC').toLowerCase().split(/\s+/)
   const knowledge = mode ? mode === 'knowledge' : isKnowledge(state)
   const files = acceptsFiles(state)
+  const pageEmbeds = !knowledge && Boolean(state.facet(hostFacet)?.insertPageEmbed)
   const charts = !knowledge && Boolean(state.facet(hostFacet)?.insertChart)
   return blockOptions.filter(
     option =>
       (!knowledge || knowledgeBlockTypes.has(option.type)) &&
       (option.type !== 'file' || files) &&
+      (option.type !== 'page_embed' || pageEmbeds) &&
       (option.type !== 'chart' || charts) &&
       terms.every(term =>
         `${option.type} ${option.title(state)} ${option.detail(state)} ${option.keywords ?? ''}`

@@ -6,6 +6,7 @@ import {
   RiH4,
   RiH5,
   RiH6,
+  RiLayoutGridLine,
   RiMindMap,
   RiTableLine,
   RiImageLine,
@@ -250,15 +251,26 @@ const glyphs = {
   math: <RiFormula />,
   mermaid: <RiFlowChart />,
   infographic: <RiMindMap />,
+  page_embed: <RiLayoutGridLine />,
   chart: <RiBarChartBoxLine />
 } satisfies Record<Exclude<BlockType, `columns${number}`>, ReactElement>
 
 export function blockMenuGroup(type: BlockType) {
   if (type.startsWith('columns')) return 'layout_blocks'
   if (
-    ['mention', 'callout', 'embed', 'math', 'mermaid', 'infographic', 'chart', 'media', 'file', 'bookmark'].includes(
-      type
-    )
+    [
+      'mention',
+      'callout',
+      'embed',
+      'page_embed',
+      'math',
+      'mermaid',
+      'infographic',
+      'chart',
+      'media',
+      'file',
+      'bookmark'
+    ].includes(type)
   ) {
     return 'advanced_blocks'
   }

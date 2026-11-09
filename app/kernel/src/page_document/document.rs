@@ -239,12 +239,8 @@ fn from_block(node: &Element) -> Result<DocNode> {
             add_num_attr(&mut marks, attrs, "rowspan", "RowSpan");
             children = Some(blocks(node)?);
         }
-        "media" | "bookmark" => {
-            kind = if node.name == "media" {
-                NodeKind::Media
-            } else {
-                NodeKind::Bookmark
-            };
+        "media" => {
+            kind = NodeKind::Media;
             marks = extras(attrs, &RESOURCE_FIELDS);
             for key in RESOURCE_FIELDS {
                 add_str_attr(&mut marks, attrs, key, &format!("Resource_{key}"));
@@ -253,13 +249,28 @@ fn from_block(node: &Element) -> Result<DocNode> {
         }
         "embed" => {
             kind = NodeKind::Embed;
-            marks = extras(attrs, &["ref", "table", "view", "href", "title"]);
+            marks = extras(
+                attrs,
+                &[
+                    "ref",
+                    "table",
+                    "view",
+                    "href",
+                    "title",
+                    "description",
+                    "image",
+                    "height",
+                ],
+            );
             for (key, name) in [
                 ("ref", "EmbedRef"),
                 ("table", "EmbedTable"),
                 ("view", "EmbedView"),
                 ("href", "EmbedHref"),
                 ("title", "EmbedTitle"),
+                ("description", "EmbedDescription"),
+                ("image", "EmbedImage"),
+                ("height", "EmbedHeight"),
             ] {
                 add_str_attr(&mut marks, attrs, key, name);
             }
@@ -434,13 +445,8 @@ fn to_block(node: &DocNode) -> Result<Element> {
             children = to_inline(node.content.as_deref().unwrap_or_default())?;
         }
         NodeKind::UnknownBlock => return thaw(&node.param),
-        NodeKind::Media | NodeKind::Bookmark => {
-            name = if node.kind == NodeKind::Media {
-                "media"
-            } else {
-                "bookmark"
-            }
-            .into();
+        NodeKind::Media => {
+            name = "media".into();
             for key in RESOURCE_FIELDS {
                 restore(&mut attrs, node, key, &format!("Resource_{key}"));
             }
@@ -527,6 +533,9 @@ fn to_block(node: &DocNode) -> Result<Element> {
                 ("view", "EmbedView"),
                 ("href", "EmbedHref"),
                 ("title", "EmbedTitle"),
+                ("description", "EmbedDescription"),
+                ("image", "EmbedImage"),
+                ("height", "EmbedHeight"),
             ] {
                 restore(&mut attrs, node, key, mark);
             }

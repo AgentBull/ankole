@@ -6,11 +6,13 @@ import { parseMarkdown } from '../document/markdown'
 import type { Element } from '../document/tree'
 import { normalizedPageDocument, pageDocument } from './convert'
 import { blockKeys } from './block-keys'
-import { blockSelection, clearCompositionHost } from './block-selection'
+import { blockSelection, clearCompositionHost, isDiagramOnlyBlock } from './block-selection'
 import { clipboard } from './clipboard'
 import { codeBlockExtension } from './code-block'
 import { commentDraftSelection } from './comments'
 import { pageCorrections } from './corrections'
+import { isKnowledge } from './knowledge-context'
+import { linkViews } from './link-views'
 import { links } from './links'
 import { listEditing } from './lists'
 import { mentions } from './mention'
@@ -36,6 +38,7 @@ export function editorExtension(): GardState.Extension {
     listEditing,
     shortcuts,
     links,
+    linkViews,
     mentions,
     clipboard,
     commentDraftSelection,
@@ -64,7 +67,10 @@ export function editorExtension(): GardState.Extension {
 export function initialState(initial: string | Element, config: GardState.Extension): GardState {
   const doc = typeof initial === 'string' ? normalizedPageDocument(parseMarkdown(initial)) : pageDocument(initial)
   const state = GardState.create({ doc, config })
-  return state.update({ selection: GardSelection.near(state, doc.length, -1) }).state
+  const near = GardSelection.near(state, doc.length, -1)
+  const inDiagramOnly =
+    near instanceof GardSelection.Text && !isKnowledge(state) && isDiagramOnlyBlock(doc.resolve(near.from).parent.node)
+  return state.update({ selection: inDiagramOnly ? GardSelection.cursor(doc.length, -1) : near }).state
 }
 
 /** An editor state without a view, with the same assembly as the visible editor. */

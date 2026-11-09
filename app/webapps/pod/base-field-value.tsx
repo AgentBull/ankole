@@ -1,4 +1,3 @@
-import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -88,9 +87,59 @@ export function ReferenceLabelsProvider({
   )
 }
 
+const shortRecordID = (id: string) => `#${id.slice(-6)}`
+
+const hasTitleValue = (value: Value): boolean =>
+  value !== null && value !== '' && (!Array.isArray(value) || value.length > 0)
+
+export function formatRecordLabel(
+  record: BaseRecord,
+  primary: BaseField | undefined,
+  subjects?: { principal_uid?: string | null; name: string }[]
+): string {
+  if (!primary) return shortRecordID(record.id)
+  const value = fieldValue(record, primary)
+  if (!hasTitleValue(value)) return shortRecordID(record.id)
+  if (['user', 'created_by', 'updated_by'].includes(primary.type)) {
+    const items = Array.isArray(value) ? value : [value]
+    return items
+      .map(item => {
+        const uid = principalUID(item as Value) ?? String(item)
+        return subjects?.find(subject => subject.principal_uid === uid)?.name ?? uid
+      })
+      .join(', ')
+  }
+  if (primary.type === 'link') {
+    // Keep cross-table display formatting bounded to one hop so cyclic links never recurse.
+    const items = Array.isArray(value) ? value : [value]
+    return items.map(item => shortRecordID(String(item))).join(', ')
+  }
+  return displayValue(primary, value)
+}
+
+export function RecordTitle({
+  record,
+  primary,
+  fields
+}: {
+  record: BaseRecord
+  primary?: BaseField
+  fields?: readonly BaseField[]
+}) {
+  const resolved = primary ?? fields?.find(field => field.is_primary) ?? fields?.[0]
+  const value = resolved ? fieldValue(record, resolved) : null
+  return resolved && hasTitleValue(value) ? (
+    <FieldValue field={resolved} value={value} plain />
+  ) : (
+    <>{shortRecordID(record.id)}</>
+  )
+}
+
 export async function loadReferenceLabels(tableID: string, ids: string[]) {
   const schema = await baseHTTP.schema(tableID)
-  const primary = schema.fields.find(field => field.is_primary)
+  const primary = schema.fields.find(field => field.is_primary) ?? schema.fields[0]
+  const subjects =
+    primary && ['user', 'created_by', 'updated_by'].includes(primary.type) ? (await podSubjects()).subjects : undefined
   const records: BaseRecord[] = []
   for (let offset = 0; offset < ids.length; offset += 1000) {
     let page_token: string | undefined
@@ -100,15 +149,20 @@ export async function loadReferenceLabels(tableID: string, ids: string[]) {
       page_token = result.page_token ?? undefined
     } while (page_token)
   }
-  return new Map(
-    records.map(record => [
-      record.id,
-      primary ? displayValue(primary, fieldValue(record, primary)) : t('pod.content.untitled')
-    ])
-  )
+  return new Map(records.map(record => [record.id, formatRecordLabel(record, primary, subjects)]))
 }
 
-export function FieldValue({ field, value, pageID }: { field: BaseField; value: Value; pageID?: string }) {
+export function FieldValue({
+  field,
+  value,
+  pageID,
+  plain = false
+}: {
+  field: BaseField
+  value: Value
+  pageID?: string
+  plain?: boolean
+}) {
   const { t } = useTranslation()
   const sharedLabels = useContext(ReferenceLabels)
   const people = ['user', 'created_by', 'updated_by'].includes(field.type)
@@ -142,7 +196,7 @@ export function FieldValue({ field, value, pageID }: { field: BaseField; value: 
           const ownerPageID = pageID ?? match?.[1]
           const relativePath =
             ownerPageID && typeof file.path === 'string' ? file.path.replace(`pages/${ownerPageID}/`, '') : undefined
-          return ownerPageID && relativePath ? (
+          return !plain && ownerPageID && relativePath ? (
             <a
               key={`${file.path}:${index}`}
               className="link inline-flex max-w-full min-w-0 items-center truncate"
@@ -152,7 +206,9 @@ export function FieldValue({ field, value, pageID }: { field: BaseField; value: 
               <BdiLabel value={file.name} />
             </a>
           ) : (
-            <span key={index} className="inline-flex max-w-full min-w-0 items-center truncate">
+            <span
+              key={`${file.path ?? index}:${index}`}
+              className="inline-flex max-w-full min-w-0 items-center truncate">
               <BdiLabel value={file.name} />
             </span>
           )

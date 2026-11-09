@@ -132,6 +132,8 @@ export function applyMermaidTemplate(editor: Wordgard, pos: number, source: stri
   const unchanged = node.textContent() === source
   editor.dispatch({
     changes: unchanged ? undefined : { from: pos + 1, to: pos + node.length - 1, insert: codeNodes(source) },
+    selection: (_cx, changes) =>
+      GardSelection.cursor(unchanged ? pos + node.length - 1 : changes.mapPos(pos + node.length - 1, 1)),
     effects: closeMermaidMenu.of(null),
     annotations: history.isolate.of(true),
     userEvent: 'mermaid.template'
@@ -189,11 +191,29 @@ export function createDiagramToolbarWidget(nodeType: Node.Type, helpUrl: string)
         return found?.node.type === nodeType ? found.pos : null
       }
       const mouseDown = (event: MouseEvent) => {
-        if ((event.target as Element | null)?.closest('[data-mermaid-action]')) event.preventDefault()
+        if (event.button === 0) event.preventDefault()
       }
       const click = (event: MouseEvent) => {
         const target = (event.target as Element | null)?.closest<HTMLElement>('[data-mermaid-action]')
-        if (!target) return
+        if (!target) {
+          if (editor.state.readOnly) return
+          const pos = find()
+          const node = pos === null ? null : editor.state.doc.nodeAt(pos)
+          if (pos === null || !node?.isPlot) return
+          const { selection } = editor.state
+          const inside =
+            (selection.from >= pos + 1 && selection.to <= pos + node.length - 1) ||
+            (selection.from === pos && selection.to === pos + node.length)
+          if (!inside) {
+            editor.dispatch({
+              selection: GardSelection.cursor(pos + node.length - 1),
+              userEvent: 'select.pointer',
+              scrollIntoView: true
+            })
+          }
+          editor.focus()
+          return
+        }
         event.preventDefault()
         const action = target.dataset.mermaidAction
         const pos = find()
@@ -341,6 +361,14 @@ const mermaidViewsPlugin = Wordgard.Plugin.define(
   },
   plugin =>
     Wordgard.updateListener.of(update => {
+      if (
+        !update.docChanged &&
+        update.startState.readOnly === update.state.readOnly &&
+        editorPhrases.get(update.startState, 'mermaid_placeholder') ===
+          editorPhrases.get(update.state, 'mermaid_placeholder')
+      ) {
+        return
+      }
       update.editor.plugin(plugin)?.sync(update.editor)
     })
 )

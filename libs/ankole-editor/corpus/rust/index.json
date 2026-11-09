@@ -467,8 +467,8 @@
     },
     {
       "name": "rich-resources",
-      "xml": "<page><h6>Section</h6><media kind=\"video\" src=\"ankole:asset/movie.mp4\" mime=\"video/mp4\" title=\"Movie\" /><bookmark src=\"https://example.com/\" view=\"card\" title=\"Example\" description=\"Description\" /><embed href=\"https://www.figma.com/design/example\" /><callout tone=\"success\" icon=\"✅\"><p>Ready</p></callout></page>",
-      "canonicalXml": "<page><h6>Section</h6><media kind=\"video\" mime=\"video/mp4\" src=\"ankole:asset/movie.mp4\" title=\"Movie\" /><bookmark description=\"Description\" src=\"https://example.com/\" title=\"Example\" view=\"card\" /><embed href=\"https://www.figma.com/design/example\" /><callout icon=\"✅\" tone=\"success\"><p>Ready</p></callout></page>",
+      "xml": "<page><h6>Section</h6><media kind=\"video\" src=\"ankole:asset/movie.mp4\" mime=\"video/mp4\" title=\"Movie\" /><embed href=\"https://example.com/\" view=\"card\" title=\"Example\" description=\"Description\" image=\"https://example.com/cover.png\" /><embed href=\"https://www.figma.com/design/example\" /><callout tone=\"success\" icon=\"✅\"><p>Ready</p></callout></page>",
+      "canonicalXml": "<page><h6>Section</h6><media kind=\"video\" mime=\"video/mp4\" src=\"ankole:asset/movie.mp4\" title=\"Movie\" /><embed description=\"Description\" href=\"https://example.com/\" image=\"https://example.com/cover.png\" title=\"Example\" view=\"card\" /><embed href=\"https://www.figma.com/design/example\" /><callout icon=\"✅\" tone=\"success\"><p>Ready</p></callout></page>",
       "document": {
         "type": "Doc",
         "content": [
@@ -493,13 +493,14 @@
             }
           },
           {
-            "type": "Bookmark",
+            "type": "Embed",
             "param": null,
             "marks": {
-              "Resource_description": "Description",
-              "Resource_src": "https://example.com/",
-              "Resource_title": "Example",
-              "Resource_view": "card"
+              "EmbedDescription": "Description",
+              "EmbedHref": "https://example.com/",
+              "EmbedImage": "https://example.com/cover.png",
+              "EmbedTitle": "Example",
+              "EmbedView": "card"
             }
           },
           {

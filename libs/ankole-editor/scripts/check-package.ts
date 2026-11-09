@@ -110,12 +110,15 @@ import {
   insertMention,
   insertResource,
   mentionField,
+  pasteTextAtDocumentStart,
   remoteSelections,
   revealComment,
+  splitPastedDocumentTitle,
   trackCommentSelection,
   type CommentRange,
   type CommentSelection,
   type EditorHost,
+  type LinkMetadata,
   type MentionCategory,
   type MentionItem,
   type MentionQueryResult,
@@ -133,13 +136,14 @@ const mentionTarget: MentionTarget = { page: '019a2b00-0000-7000-8000-0000000000
 const mentionCategory: MentionCategory = 'all'
 const mentionItem: MentionItem = { target: mentionTarget, title: 'Roadmap' }
 const mentionResult: MentionQueryResult = { items: [mentionItem], totalAllMatches: 1 }
-const resourceKind: ResourceKind = 'bookmark'
-const resourceAttrs: ResourceAttributes = { src: 'https://example.com', title: 'Example', view: 'card' }
+const resourceKind: ResourceKind = 'media'
+const resourceAttrs: ResourceAttributes = { src: 'https://example.com/image.png', title: 'Example', view: 'card' }
 const commentSel: CommentSelection = { from: 1, to: 4, quote: 'abc' }
 const commentRange: CommentRange = { id: '019a2b00-0000-7000-8000-000000000002', from: 1, to: 4 }
 const peerSelection: RemoteSelection = { id: 'peer', name: 'Alice', color: '#2469a2', anchor: 1, head: 1 }
 const host: EditorHost = {
   resolveAsset: value => value,
+  resolveLinkMetadata: async (): Promise<LinkMetadata> => ({ title: 'Example' }),
   queryMentions: () => mentionResult,
   mountMention: (_target, _container, _options: MountMentionOptions) => () => {},
   requestComment: selection => void selection,
@@ -163,6 +167,8 @@ if (
   !trackCommentSelection ||
   !commentRanges ||
   !revealComment ||
+  !pasteTextAtDocumentStart ||
+  !splitPastedDocumentTitle ||
   !remoteSelections ||
   !host.resolveAsset ||
   !mentionCategory ||
@@ -181,7 +187,7 @@ const source = [
   '  Content **with marks** and <mention page="019a2b00-0000-7000-8000-000000000001" />',
   '</future>',
   '',
-  '<bookmark src="https://example.com" title="Example" view="card" />'
+  '<embed href="https://example.com" title="Example" view="card" />'
 ].join('\\n')
 const page = parseMarkdown(source)
 const xml = printXml(page)
@@ -189,12 +195,12 @@ if (printXml(parseXml(xml)) !== xml) throw new Error('Package XML mismatch')
 if (printXml(parseMarkdown(printMarkdown(page))) !== xml) throw new Error('Package Markdown mismatch')
 const commentXml = '<page><p><comment ids="019a2b00-0000-7000-8000-000000000002">Anchored</comment></p></page>'
 if (printXml(parseXml(commentXml)) !== commentXml) throw new Error('Package comment anchor XML mismatch')
-const bookmarkNode = page.children[1]
+const embedNode = page.children[1]
 if (
-  !bookmarkNode ||
-  !('name' in bookmarkNode) ||
-  resourceContent(bookmarkNode)?.src !== 'https://example.com' ||
-  !resourceText(bookmarkNode)
+  !embedNode ||
+  !('name' in embedNode) ||
+  resourceContent(embedNode)?.src !== 'https://example.com' ||
+  !resourceText(embedNode)
 ) {
   throw new Error('Package resource helper mismatch')
 }

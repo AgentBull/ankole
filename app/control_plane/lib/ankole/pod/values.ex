@@ -14,7 +14,6 @@ defmodule Ankole.Pod.Values do
           else
             case cast(field, value, page_id) do
               {:ok, value} -> {:cont, {:ok, Map.put(patch, id, value)}}
-              {:error, :primary_field_size_limit} -> {:halt, {:error, :primary_field_size_limit}}
               _ -> {:halt, {:error, {:invalid_value, id}}}
             end
           end
@@ -34,14 +33,11 @@ defmodule Ankole.Pod.Values do
 
   def cast(_field, value, _page) when value in [nil, "", []], do: {:ok, nil}
 
-  def cast(%{is_primary: true, type: :text}, value, _) when is_binary(value) do
-    if byte_size(value) <= 2_048, do: {:ok, value}, else: {:error, :primary_field_size_limit}
-  end
-
   def cast(%{type: :text}, value, _) when is_binary(value), do: {:ok, value}
 
-  def cast(%{type: type}, value, _) when type in [:number, :auto_number] and is_number(value),
-    do: {:ok, value}
+  def cast(%{type: :number}, value, _) when is_number(value), do: {:ok, value}
+
+  def cast(%{type: :auto_number}, value, _) when is_integer(value), do: {:ok, value}
 
   def cast(%{type: :checkbox}, value, _) when is_boolean(value), do: {:ok, value}
 

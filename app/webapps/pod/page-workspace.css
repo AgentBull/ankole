@@ -353,22 +353,6 @@ textarea.pod-page-title:focus-visible {
   background: var(--layer-hover);
 }
 
-.pod-inline-page {
-  min-width: 0;
-  margin-block: 16px;
-}
-
-.pod-inline-page-title[data-slot='button'] {
-  /* A long title truncates from its end instead of overflowing both sides of a centred button. */
-  justify-content: flex-start;
-  height: 30px;
-  max-width: 100%;
-  padding: 3px 4px;
-  margin: 0 0 6px -4px;
-  font-size: 16px;
-  font-weight: 600;
-}
-
 .pod-document .drag-handle {
   color: var(--fg-tertiary);
 }

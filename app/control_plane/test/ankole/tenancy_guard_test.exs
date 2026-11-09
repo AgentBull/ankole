@@ -140,7 +140,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/base_repo.ex:run" => 3,
     "raw_sql:lib/ankole/pod/bases.ex:query_transaction" => 1,
     "raw_sql:lib/ankole/pod/bases/ddl.ex:add_column!" => 1,
-    "raw_sql:lib/ankole/pod/bases/ddl.ex:alter_table" => 4,
+    "raw_sql:lib/ankole/pod/bases/ddl.ex:alter_table" => 5,
     "raw_sql:lib/ankole/pod/bases/ddl.ex:apply_changes" => 1,
     "raw_sql:lib/ankole/pod/bases/ddl.ex:change_edges" => 4,
     "raw_sql:lib/ankole/pod/bases/ddl.ex:change_inline_tables" => 1,

@@ -274,9 +274,18 @@ defmodule Ankole.Files.Vfs.Base do
           end)
 
         columns =
-          case view.config["visible_fields"] do
-            nil -> fields
-            ids -> Enum.filter(fields, &(&1.is_primary || &1.id in ids))
+          case {view.type, view.config["visible_fields"]} do
+            {_, nil} ->
+              fields
+
+            {:grid, ids} ->
+              case Enum.filter(fields, &(&1.id in ids)) do
+                [] -> Enum.take(fields, 1)
+                visible -> visible
+              end
+
+            {_, ids} ->
+              Enum.filter(fields, &(&1.is_primary || &1.id in ids))
           end
 
         {:ok, %{state | query: query, columns: columns}}

@@ -77,27 +77,31 @@ export const vocabulary: Readonly<Record<string, ElementRule>> = {
   embed: {
     kind: 'block',
     content: 'empty',
-    attributes: { ref: null, table: null, view: null, href: null, title: null }
+    attributes: {
+      ref: null,
+      table: null,
+      view: null,
+      href: null,
+      title: null,
+      description: null,
+      image: null,
+      height: /^(?:1[6-9][0-9]|[2-9][0-9]{2}|1[0-5][0-9]{2}|1600)$/
+    }
   },
-  ...Object.fromEntries(
-    ['media', 'bookmark'].map(name => [
-      name,
-      {
-        kind: 'block',
-        content: 'empty',
-        attributes: {
-          src: null,
-          title: null,
-          description: null,
-          image: null,
-          mime: null,
-          size: null,
-          kind: /^(image|video)$/,
-          view: /^(link|title|card|preview)$/
-        }
-      } as ElementRule
-    ])
-  ),
+  media: {
+    kind: 'block',
+    content: 'empty',
+    attributes: {
+      src: null,
+      title: null,
+      description: null,
+      image: null,
+      mime: null,
+      size: null,
+      kind: /^(image|video)$/,
+      view: /^(link|title|card|preview)$/
+    }
+  },
   a: { kind: 'inline', content: 'inline', attributes: { href: null, title: null }, required: ['href'] },
   img: { kind: 'inline', content: 'empty', attributes: { src: null, alt: null, title: null }, required: ['src'] },
   br: { kind: 'inline', content: 'empty', attributes: {} },

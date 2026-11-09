@@ -48,42 +48,159 @@ test('nested heading collapse hides only the section and preserves the saved doc
   await expect(editor.getByText('Nested body', { exact: true })).toBeVisible()
 })
 
-test('external embed edits an iframe URL and renders the actual frame', async ({ page, baseURL }) => {
+test('external embed edits an iframe URL, renders the actual frame, and persists height resizing', async ({
+  page,
+  baseURL
+}) => {
   await openDocument(page, '<embed href="" />')
   const resource = page.locator('.resource-block')
+  // Creation mode uses progressive 1-line URL bar without upfront metadata clutter.
+  await expect(resource.getByLabel('标题', { exact: true })).toHaveCount(0)
   await resource.getByLabel('链接地址', { exact: true }).fill(`${baseURL}/resource-preview.html`)
-  await resource.getByLabel('标题', { exact: true }).fill('Preview frame')
   await resource.getByRole('button', { name: '保存', exact: true }).click()
   await expect(
-    page.frameLocator('iframe[title="Preview frame"]').getByRole('heading', { name: 'Embedded resource' })
+    page.frameLocator('iframe[title="Embedded resource"]').getByRole('heading', { name: 'Embedded resource' })
   ).toBeVisible()
+
+  // Resize handle supports keyboard adjustment and persists height across reopen and undo.
+  const handle = resource.getByRole('separator', { name: '拖动或使用上下方向键调整高度', exact: true })
+  await handle.focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(handle).toHaveAttribute('aria-valuenow', '544')
+  await expectMarkdown(page, `<embed height="544" href="${baseURL}/resource-preview.html" title="Embedded resource" />`)
   await reopen(page)
-  await expect(
-    page.frameLocator('iframe[title="Preview frame"]').getByRole('heading', { name: 'Embedded resource' })
-  ).toBeVisible()
+  await expect(resource.locator('iframe')).toHaveCSS('height', '544px')
 })
 
-test('web card switches four views and keeps metadata when reopened', async ({ page, baseURL }) => {
-  await openDocument(page, '<bookmark />')
+test('webpage link and card switch seamlessly across link, title, card, and embed preview views', async ({
+  page,
+  baseURL
+}) => {
+  const targetUrl = `${baseURL}/resource-preview.html`
+  await openDocument(page, '<embed href="" view="card" />')
   const card = page.locator('.resource-block')
-  await card.getByLabel('链接地址', { exact: true }).fill(`${baseURL}/resource-preview.html`)
+  await card.getByLabel('链接地址', { exact: true }).fill(targetUrl)
+  await card.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(card).toHaveAttribute('data-kind', 'embed')
+  await expect(card).toHaveAttribute('data-view', 'card')
+
+  await card.hover()
+  const cardToolbar = page.getByRole('toolbar', { name: '网页卡片', exact: true })
+  await cardToolbar.getByRole('button', { name: '编辑', exact: true }).click()
   await card.getByLabel('标题', { exact: true }).fill('Project website')
   await card.getByLabel('描述', { exact: true }).fill('Project description')
   await card.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(card).toContainText('Project description')
+
+  // Card (`<embed href="..." view="card" />`) -> Link view (inline `<a>` with raw URL + floating link bar)
+  await cardToolbar.getByRole('button', { name: '视图', exact: true }).click()
+  await page.getByRole('menuitem', { name: '链接视图', exact: true }).click()
+  const inlineLink = page.locator('.editor-content p a')
+  await expect(inlineLink).toHaveText(targetUrl)
+  const linkToolbar = page.getByRole('toolbar', { name: '链接', exact: true })
+  await expect(linkToolbar).toBeVisible()
+  await expect(linkToolbar.getByRole('button', { name: '视图', exact: true })).toContainText('链接视图')
+
+  // Link view -> Title view (fetches HTML `<title>` "Embedded resource")
+  await linkToolbar.getByRole('button', { name: '视图', exact: true }).click()
+  await page.getByRole('menuitem', { name: '标题视图', exact: true }).click()
+  await expect(inlineLink).toHaveText('Embedded resource')
+  await expect(linkToolbar.getByRole('button', { name: '视图', exact: true })).toContainText('标题视图')
+
+  // Title view -> Preview view (`<embed href="..." title="..." />` block)
+  await linkToolbar.getByRole('button', { name: '视图', exact: true }).click()
+  await page.getByRole('menuitem', { name: '预览视图', exact: true }).click()
+  await expect(card).toHaveAttribute('data-kind', 'embed')
+  await expect(card).toHaveAttribute('data-view', 'preview')
+  await expect(card.locator('.resource-summary')).toHaveCount(0)
+  const embedToolbar = page.getByRole('toolbar', { name: '嵌入', exact: true })
+  await expect(embedToolbar.getByRole('button', { name: '刷新预览', exact: true })).toBeVisible()
+  await expect(
+    page.frameLocator('iframe[title="Embedded resource"]').getByRole('heading', { name: 'Embedded resource' })
+  ).toBeVisible()
+  await expectMarkdown(page, `<embed href="${targetUrl}" title="Embedded resource" />`)
+
+  // Preview view -> Card view (mutates `view="card"` on the same `<embed>` node and unfurls description + cover image)
+  await embedToolbar.getByRole('button', { name: '视图', exact: true }).click()
+  await page.getByRole('menuitem', { name: '卡片视图', exact: true }).click()
+  await expect(card).toHaveAttribute('data-kind', 'embed')
   await expect(card).toHaveAttribute('data-view', 'card')
-  await expect(card).toContainText('Project description')
-  for (const [name, view] of [
-    ['链接视图', 'link'],
-    ['标题视图', 'title'],
-    ['预览视图', 'preview'],
-    ['卡片视图', 'card']
-  ]) {
-    await card.getByRole('button', { name: '视图', exact: true }).click()
-    await page.getByRole('menuitem', { name: name!, exact: true }).click()
-    await expect(card).toHaveAttribute('data-view', view!)
-  }
+  await expect(card).toContainText("This page runs inside the document's iframe.")
+  await expect(card.locator('img.resource-cover')).toBeVisible()
+
   await reopen(page)
-  await expect(card).toContainText('Project description')
+  await expect(card).toContainText("This page runs inside the document's iframe.")
+})
+
+test('rich-text URL paste auto-links at caret, selection toolbar switches link view, and changing embed URL clears stale metadata', async ({
+  page,
+  baseURL
+}) => {
+  const previewUrl = `${baseURL}/resource-preview.html`
+  await openDocument(page, '')
+  const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
+  await editor.click()
+
+  // Pasting a bare URL copied from VS Code / chat apps (div + span syntax-highlight HTML wrapper) auto-links cleanly.
+  await clipboard(editor, 'paste', {
+    'text/plain': previewUrl,
+    'text/html': `<meta charset="utf-8"><div style="color:#d4d4d4;background-color:#1e1e1e"><span style="color:#ce9178">${previewUrl}</span></div>`
+  })
+  const link = page.locator('.editor-content p a')
+  await expect(link).toHaveAttribute('href', previewUrl)
+  await expect(link).toHaveText(previewUrl)
+
+  // Selecting the whole link exposes the view switcher directly inside SelectionToolbar.
+  await page.keyboard.press('ControlOrMeta+a')
+  const selectionToolbar = page.getByRole('toolbar', { name: '选区格式', exact: true })
+  await expect(selectionToolbar).toBeVisible()
+  await expect(selectionToolbar.getByRole('button', { name: '视图', exact: true })).toContainText('链接视图')
+  await selectionToolbar.getByRole('button', { name: '视图', exact: true }).click()
+  await page.getByRole('menuitem', { name: '卡片视图', exact: true }).click()
+
+  const card = page.locator('.resource-block')
+  await expect(card).toHaveAttribute('data-kind', 'embed')
+  await expect(card).toHaveAttribute('data-view', 'card')
+  await expect(card).toContainText('Embedded resource')
+  await expect(card).toContainText("This page runs inside the document's iframe.")
+
+  // Changing the URL on an existing card clears stale title/description/cover and normalizes bare domains.
+  const cardToolbar = page.getByRole('toolbar', { name: '网页卡片', exact: true })
+  await cardToolbar.getByRole('button', { name: '编辑', exact: true }).click()
+  await card.getByLabel('链接地址', { exact: true }).fill('example.com/fresh-page')
+  await card.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(card).toContainText('https://example.com/fresh-page')
+  await expect(card).not.toContainText('Embedded resource')
+  await expect(card).not.toContainText("This page runs inside the document's iframe.")
+  await expectMarkdown(page, '<embed href="https://example.com/fresh-page" view="card" />')
+})
+
+test('hovering an inline link shows the Feishu-style link bar and supports editing link text and unlinking', async ({
+  page,
+  baseURL
+}) => {
+  const targetUrl = `${baseURL}/resource-preview.html`
+  await openDocument(page, `${targetUrl}\n\nSecond paragraph`)
+  await caret(page.locator('.editor-content > p').nth(1), 'end')
+  const linkToolbar = page.getByRole('toolbar', { name: '链接', exact: true })
+  await expect(linkToolbar).toBeHidden()
+
+  const link = page.locator('.editor-content > p').first().locator('a')
+  await link.hover()
+  await expect(linkToolbar).toBeVisible()
+  await expect(linkToolbar.getByRole('button', { name: '打开链接', exact: true })).toHaveText(targetUrl)
+
+  await linkToolbar.getByRole('button', { name: '编辑链接', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑链接', exact: true })
+  await dialog.getByRole('textbox', { name: '链接文本', exact: true }).fill('Custom Title')
+  await dialog.getByRole('button', { name: '应用链接', exact: true }).click()
+  await expect(link).toHaveText('Custom Title')
+
+  await link.hover()
+  await expect(linkToolbar.getByRole('button', { name: '视图', exact: true })).toContainText('标题视图')
+  await linkToolbar.getByRole('button', { name: '移除链接', exact: true }).click()
+  await expect(page.locator('.editor-content a')).toHaveCount(0)
+  await expect(page.locator('.editor-content > p').first()).toHaveText('Custom Title')
 })
 
 test('media renders real images and playable videos and preserves view changes', async ({ page, baseURL }) => {
@@ -102,7 +219,11 @@ test('media renders real images and playable videos and preserves view changes',
     return video.play()
   })
   await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeGreaterThan(0)
-  await picture.getByRole('button', { name: '视图', exact: true }).click()
+  await picture.hover()
+  await page
+    .getByRole('toolbar', { name: '媒体', exact: true })
+    .getByRole('button', { name: '视图', exact: true })
+    .click()
   await page.getByRole('menuitem', { name: '链接视图', exact: true }).click()
   await expect(picture).toHaveAttribute('data-view', 'link')
   await expect(picture.locator('img')).toHaveCount(0)
@@ -149,7 +270,11 @@ test('replacing an uploaded image address infers video and clears obsolete uploa
     `<media src="${baseURL}/resource-image.png" mime="image/png" size="100" kind="image" title="Media" />`
   )
   const resource = page.locator('.resource-block')
-  await resource.getByRole('button', { name: '编辑', exact: true }).click()
+  await resource.hover()
+  await page
+    .getByRole('toolbar', { name: '媒体', exact: true })
+    .getByRole('button', { name: '编辑', exact: true })
+    .click()
   await resource.getByLabel('链接地址', { exact: true }).fill(`${baseURL}/resource-video.mp4`)
   await resource.getByRole('button', { name: '保存', exact: true }).click()
   await expect(resource.locator('img')).toHaveCount(0)
@@ -166,7 +291,7 @@ test('resource copies provide portable images, links and plain text while intern
   page,
   baseURL
 }) => {
-  const source = `<media src="${baseURL}/resource-image.png" title="Picture" view="card" custom="kept" />\n\n<media src="${baseURL}/resource-video.mp4" title="Movie" view="link" />\n\n<bookmark src="${baseURL}/resource-preview.html" title="Site" description="Details" />\n\n<embed href="${baseURL}/resource-preview.html" title="Frame" />`
+  const source = `<media src="${baseURL}/resource-image.png" title="Picture" view="card" custom="kept" />\n\n<media src="${baseURL}/resource-video.mp4" title="Movie" view="link" />\n\n<embed href="${baseURL}/resource-preview.html" view="card" title="Site" description="Details" />\n\n<embed href="${baseURL}/resource-preview.html" title="Frame" />`
   await openDocument(page, source)
   const original = await (await showSource(page)).inputValue()
   await page.getByRole('button', { name: '关闭 Markdown', exact: true }).click()
@@ -193,6 +318,18 @@ test('resource copies provide portable images, links and plain text while intern
   await selectDocument(page)
   await clipboard(editor, 'paste', copied)
   await expect(await showSource(page)).toHaveValue(original)
+})
+
+test('submitting an internal ankole:page address inside an embed URL bar converts it into an inline page mention', async ({
+  page
+}) => {
+  const pageId = '019a2b00-0000-7000-8000-000000000001'
+  await openDocument(page, '<embed href="" />')
+  const embedBlock = page.locator('.resource-block')
+  await embedBlock.getByLabel('链接地址', { exact: true }).fill(`ankole:page/${pageId}`)
+  await embedBlock.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(embedBlock).toHaveCount(0)
+  await expectMarkdown(page, `<p><mention page="${pageId}" /></p>`)
 })
 
 test('the callout icon field writes only the committed IME candidate', async ({ page, browserName }) => {
@@ -248,25 +385,39 @@ test('resource blocks complete a keyboard-first insert, IME guard, card selectio
   await address.press('Enter')
   await expect(resource.locator('form.resource-form')).toHaveCount(0)
   await expect(editor).toBeFocused()
-  await page.keyboard.insertText('After embed')
-  await expectMarkdown(page, `<embed href="${baseURL}/resource-preview.html" />\n\nAfter embed`)
 
-  await resource.locator('.resource-toolbar').click({ position: { x: 8, y: 8 } })
+  // Undoing the initial URL save reopens the compact URL creation bar rather than stranding an empty block; redo restores it.
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(resource.locator('form.resource-form-compact')).toBeVisible()
+  await page.getByRole('button', { name: '重做', exact: true }).click()
+  await expect(resource.locator('form.resource-form')).toHaveCount(0)
+  await editor.focus()
+
+  await page.keyboard.insertText('After embed')
+  await expectMarkdown(
+    page,
+    `<embed href="${baseURL}/resource-preview.html" title="Embedded resource" />\n\nAfter embed`
+  )
+
+  await resource.locator('.resource-resize-handle').click()
   await expect(page.locator('.editor-selected-block')).toHaveCount(1)
   await expect(editor).toBeFocused()
 
   await page.keyboard.press('Shift+Enter')
   await page.keyboard.insertText('Before embed')
-  await expectMarkdown(page, `Before embed\n\n<embed href="${baseURL}/resource-preview.html" />\n\nAfter embed`)
+  await expectMarkdown(
+    page,
+    `Before embed\n\n<embed href="${baseURL}/resource-preview.html" title="Embedded resource" />\n\nAfter embed`
+  )
 
-  await resource.locator('.resource-toolbar').click({ position: { x: 8, y: 8 } })
+  await resource.locator('.resource-resize-handle').click()
   await expect(page.locator('.editor-selected-block')).toHaveCount(1)
   await page.keyboard.press('Space')
   await expect(address).toBeFocused()
   await address.fill('https://discarded.example.com')
   await address.press('Escape')
   await expect(resource.locator('form.resource-form')).toHaveCount(0)
-  await expect(resource.locator('.resource-summary')).toHaveAttribute('href', `${baseURL}/resource-preview.html`)
+  await expect(resource.locator('iframe')).toHaveAttribute('src', `${baseURL}/resource-preview.html`)
   await expect(page.locator('.editor-selected-block')).toHaveCount(1)
   await expect(editor).toBeFocused()
 

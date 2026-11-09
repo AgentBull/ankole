@@ -83,6 +83,7 @@ export type GroupSlice = {
   other_exclude_values_json?: string[]
 }
 export type RecordQuery = {
+  search?: string
   filter?: Filter
   sort?: Sort[]
   page_size?: number

@@ -251,9 +251,16 @@ defmodule Ankole.Pod.Bases.DDL do
 
           Physical.sql_type(old) != Physical.sql_type(field) ->
             BaseRepo.query!(
+              ~s(DROP INDEX IF EXISTS "#{BaseRepo.tenant_schema!()}"."ix_#{BaseRepo.hex(field.id)}"),
+              []
+            )
+
+            BaseRepo.query!(
               "ALTER TABLE #{BaseRepo.table(table.id)} ALTER COLUMN #{BaseRepo.column(field.id)} TYPE #{Physical.sql_type(field)} USING NULL",
               []
             )
+
+            Physical.index!(table, field)
 
           true ->
             :ok

@@ -9,6 +9,8 @@ export const clipboardOutputTextFilter = GardState.Facet.define<(html: string, s
 
 export const clipboardInputFilter = GardState.Facet.define<(slice: Slice, state: GardState) => Slice>()
 export const clipboardInputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
+export const clipboardDataParser =
+  GardState.Facet.define<(data: DataTransfer, state: GardState, targetContext: Pos) => Slice | null>()
 export const clipboardTextParser = GardState.Facet.define<(text: string, state: GardState) => Slice | null>()
 export const clipboardInputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
 
@@ -92,34 +94,43 @@ function isOpen(elt: Element) {
 }
 
 export function readClipboard(state: GardState, data: DataTransfer, targetContext: Pos, plain: boolean): Slice | null {
-  let html = data.getData('text/html')
-  let text = data.getData('text/plain') || data.getData('Text') || data.getData('text/uri-list').replace(/\r?\n/g, ' ')
-  let slice: Slice
   const inCode = targetContext.parent.node.type.hasRole(Node.Role.Code)
-  if (text && (inCode || !html || plain)) {
-    for (const filter of state.facet(clipboardInputTextFilter)) text = filter(text, state)
-    slice = readClipboardText(state, text, targetContext, plain)
-  } else if (!html) {
-    return null
-  } else {
-    for (const filter of state.facet(clipboardInputHTMLFilter)) html = filter(html, state)
-    const dom = readHTML(html)
-    if (browser.webkit) restoreReplacedSpaces(dom)
-
-    const fromWordgard = dom.querySelector('[wg-content=true]')
-    const exact = fromWordgard && readSliceData(state, fromWordgard.getAttribute('wg-slice'))
-    if (exact) slice = exact
-    else {
-      slice = parse.slice(state.schema, dom, {
-        collapseWhiteSpace: !fromWordgard,
-        isOpen: fromWordgard ? isOpen : undefined
-      })
+  let slice: Slice | null = null
+  if (!inCode && !plain) {
+    for (const parser of state.facet(clipboardDataParser)) {
+      slice = parser(data, state, targetContext)
+      if (slice) break
     }
-    // Code takes text only. Without a text form, use the text of the HTML, one line for each block.
-    if (inCode) {
-      text = slice.textContent({ blockSeparator: '\n' })
+  }
+  if (!slice) {
+    let html = data.getData('text/html')
+    let text =
+      data.getData('text/plain') || data.getData('Text') || data.getData('text/uri-list').replace(/\r?\n/g, ' ')
+    if (text && (inCode || !html || plain)) {
       for (const filter of state.facet(clipboardInputTextFilter)) text = filter(text, state)
       slice = readClipboardText(state, text, targetContext, plain)
+    } else if (!html) {
+      return null
+    } else {
+      for (const filter of state.facet(clipboardInputHTMLFilter)) html = filter(html, state)
+      const dom = readHTML(html)
+      if (browser.webkit) restoreReplacedSpaces(dom)
+
+      const fromWordgard = dom.querySelector('[wg-content=true]')
+      const exact = fromWordgard && readSliceData(state, fromWordgard.getAttribute('wg-slice'))
+      if (exact) slice = exact
+      else {
+        slice = parse.slice(state.schema, dom, {
+          collapseWhiteSpace: !fromWordgard,
+          isOpen: fromWordgard ? isOpen : undefined
+        })
+      }
+      // Code takes text only. Without a text form, use the text of the HTML, one line for each block.
+      if (inCode) {
+        text = slice.textContent({ blockSeparator: '\n' })
+        for (const filter of state.facet(clipboardInputTextFilter)) text = filter(text, state)
+        slice = readClipboardText(state, text, targetContext, plain)
+      }
     }
   }
   for (const filter of state.facet(clipboardInputFilter)) slice = filter(slice, state)
@@ -171,6 +182,10 @@ function readClipboardText(state: GardState, text: string, context: Pos, plain: 
     }
   }
 
+  return plainTextSlice(state, text, context, marks)
+}
+
+export function plainTextSlice(state: GardState, text: string, context: Pos, marks = context.marks()): Slice {
   const lines = text.split(/(?:\r\n?|\n)+/)
   const content: Token[] = lines[0] ? [Leaf.text(lines[0], marks)] : []
   if (lines.length == 1) return Slice.of(content)
@@ -215,7 +230,7 @@ function maybeWrapTrusted(html: string): string {
   return trustedTypes.createPolicy('detachedDocument', { createHTML: (s: string) => s }).createHTML(html)
 }
 
-function readHTML(html: string) {
+export function readHTML(html: string) {
   const metas = /^(\s*<meta [^>]*>)*/.exec(html)
   if (metas) html = html.slice(metas[0].length)
   let elt: HTMLElement = detachedDoc().createElement('div')

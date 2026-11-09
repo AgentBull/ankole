@@ -1,16 +1,17 @@
 import { editorPhrases, type EditorLabels } from '../../editor/phrases'
-import { Elt, Leaf, Mark, Node, Plot, Schema } from '../../core/doc'
+import { Elt, Leaf, Mark, Node, Plot, Schema, type ChangeSet } from '../../core/doc'
 import { Decoration } from '../../core/editor'
 import { element } from '../../document/tree'
+import { vocabulary } from '../../document/vocabulary'
 import { Attrs, extraAttrs, extraOf, markSet, markValue } from '../../editor/attributes'
 import type { BlockDefinition } from '../../editor/block'
 import { openResourceEditor, resourceWidget } from '../resources'
 import { insertBlock } from '../../editor/block-insert'
 
 /**
- * An embed shows an external iframe through `href`, or another page through `ref`.
- * A base embed can also carry `table` and `view`; the referenced page owns its fields,
- * records, and views.
+ * An embed renders an external webpage card or iframe through `href`, or an internal
+ * workspace page (Base, Applet, or File) through `ref`. A Base embed can also carry `table`
+ * and `view`; the referenced page owns its fields, records, and views.
  */
 export const Embed = Leaf.define('Embed', {
   group: Node.Group.Content,
@@ -37,7 +38,7 @@ export const EmbedTable = Mark.Type.define<string>('EmbedTable', {
   shape: { attribute: 'data-table', value: 0 }
 })
 
-/** `view` of a base embed. */
+/** `view` of a base embed (`viw_...`) or external webpage embed (`card`, or omitted for preview). */
 export const EmbedView = Mark.Type.define<string>('EmbedView', {
   target: Embed,
   validate: 'string',
@@ -54,9 +55,40 @@ export const EmbedTitle = Mark.Type.define<string>('EmbedTitle', {
   validate: 'string',
   shape: { attribute: 'data-title', value: 0 }
 })
+export const EmbedDescription = Mark.Type.define<string>('EmbedDescription', {
+  target: Embed,
+  validate: 'string',
+  shape: { attribute: 'data-description', value: 0 }
+})
+export const EmbedImage = Mark.Type.define<string>('EmbedImage', {
+  target: Embed,
+  validate: 'string',
+  shape: { attribute: 'data-image', value: 0 }
+})
+export const EmbedHeight = Mark.Type.define<string>('EmbedHeight', {
+  target: Embed,
+  validate: value => {
+    const pattern = vocabulary.embed!.attributes.height!
+    if (typeof value !== 'string' || !pattern.test(value)) {
+      throw new TypeError('Invalid embed height')
+    }
+  },
+  shape: { attribute: 'data-height', value: 0 }
+})
 
-const names = ['ref', 'table', 'view', 'href', 'title'] as const
-const types = { ref: EmbedRef, table: EmbedTable, view: EmbedView, href: EmbedHref, title: EmbedTitle } as const
+const names = ['ref', 'table', 'view', 'href', 'title', 'description', 'image', 'height'] as const
+const types = {
+  ref: EmbedRef,
+  table: EmbedTable,
+  view: EmbedView,
+  href: EmbedHref,
+  title: EmbedTitle,
+  description: EmbedDescription,
+  image: EmbedImage,
+  height: EmbedHeight
+} as const
+
+export type EmbedPatch = Partial<Record<(typeof names)[number], string | undefined>>
 
 export function embedAttributes(node: Node | Plot.Tag): Record<string, string> {
   const attrs: Record<string, string> = {}
@@ -65,6 +97,17 @@ export function embedAttributes(node: Node | Plot.Tag): Record<string, string> {
     if (value !== undefined) attrs[name] = value
   }
   return attrs
+}
+
+/** Only fields present in `patch` change; `undefined` removes a mark while other marks keep their values. */
+export function embedChanges(node: Node, from: number, patch: EmbedPatch): ChangeSet.Spec[] {
+  return names.flatMap(name => {
+    if (!Object.hasOwn(patch, name)) return []
+    const value = patch[name]
+    const previous = markValue(node, types[name])
+    if (previous === value) return []
+    return [value === undefined ? { from, remove: types[name].of(previous!) } : { from, add: types[name].of(value) }]
+  })
 }
 
 /** The card that shows an embed, in the editor and in read-only elements. */
@@ -88,6 +131,9 @@ export const embed: BlockDefinition = {
     EmbedView,
     EmbedHref,
     EmbedTitle,
+    EmbedDescription,
+    EmbedImage,
+    EmbedHeight,
     Schema.Override.markTarget(Attrs, target => [target, Embed])
   ],
   extension: [
@@ -114,7 +160,7 @@ export const embed: BlockDefinition = {
   insert: {
     title: editorPhrases.ref('embed_title'),
     detail: editorPhrases.ref('embed_detail'),
-    keywords: 'embed iframe figma miro youtube 嵌入 外部 网页 设计',
+    keywords: 'embed iframe webpage website link url card figma miro youtube 嵌入 外部 网页 网站 网址 链接 设计',
     turnInto: false,
     insert: wg => insertBlock(wg, Embed.withMarks([EmbedHref.of('')]), at => ({ effects: openResourceEditor.of(at) }))
   }

@@ -35,6 +35,8 @@ export class MentionStore {
   private readonly observedPages = new Map<string, { count: number; contextPageID?: string }>()
   private readonly observedPrincipals = new Map<string, { uid: string; count: number; contextPageID?: string }>()
   private readonly pendingByContext = new Map<string, PendingBatch>()
+  private readonly pageWaiters = new Map<string, Set<(resolved: ResolvedPageMention | undefined) => void>>()
+  private readonly listeners = new Set<() => void>()
   private flushScheduled = false
   private readonly resolveFn: (body: MentionsResolveInput) => Promise<MentionsResolveResponse>
 
@@ -58,6 +60,17 @@ export class MentionStore {
 
   peekPrincipal(uid: string, contextPageID?: string): ResolvedPrincipalMention | undefined {
     return this.principals.get(principalKey(uid, contextPageID))?.peek()
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener()
   }
 
   observePage(id: string, contextPageID?: string): () => void {
@@ -99,6 +112,28 @@ export class MentionStore {
     if (this.fetchedPages.has(id) || this.inflightPages.has(id)) return
     this.enqueue(contextPageID).pages.add(id)
     this.scheduleFlush()
+  }
+
+  resolvePage(id: string, contextPageID?: string): Promise<ResolvedPageMention | undefined> {
+    const cached = this.peekPage(id)
+    if (cached || this.fetchedPages.has(id)) return Promise.resolve(cached)
+    return new Promise(resolve => {
+      let waiters = this.pageWaiters.get(id)
+      if (!waiters) {
+        waiters = new Set()
+        this.pageWaiters.set(id, waiters)
+      }
+      waiters.add(resolve)
+      this.ensurePage(id, contextPageID)
+    })
+  }
+
+  private settlePageWaiters(id: string): void {
+    const waiters = this.pageWaiters.get(id)
+    if (!waiters) return
+    this.pageWaiters.delete(id)
+    const value = this.peekPage(id)
+    for (const resolve of waiters) resolve(value)
   }
 
   ensurePrincipal(uid: string, contextPageID?: string): void {
@@ -147,6 +182,8 @@ export class MentionStore {
         this.fetchedPrincipals.add(principalKey(candidate.principal_uid, contextPageID))
       }
     })
+    for (const candidate of response.pages) this.settlePageWaiters(candidate.id)
+    this.notify()
   }
 
   revalidateObserved(): void {
@@ -211,6 +248,9 @@ export class MentionStore {
     this.pendingByContext.clear()
     await Promise.all(
       batches.map(async ([contextKey, pending]) => {
+        for (const id of pending.pages) {
+          if (this.fetchedPages.has(id) || this.peekPage(id)) this.settlePageWaiters(id)
+        }
         const pageIDs = [...pending.pages].filter(id => !this.fetchedPages.has(id) && !this.inflightPages.has(id))
         const principalUIDs = [...pending.principals].filter(
           uid =>
@@ -248,11 +288,15 @@ export class MentionStore {
                 this.fetchedPrincipals.add(principalKey(resolved.principal_uid, contextKey))
               }
             })
+            this.notify()
           }
         } catch {
           // Leave unfetched so subsequent revalidations or remounts can retry cleanly.
         } finally {
-          for (const id of pageIDs) this.inflightPages.delete(id)
+          for (const id of pageIDs) {
+            this.inflightPages.delete(id)
+            this.settlePageWaiters(id)
+          }
           for (const uid of principalUIDs) this.inflightPrincipals.delete(principalKey(uid, contextKey))
         }
       })

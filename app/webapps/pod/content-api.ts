@@ -23,7 +23,8 @@ import type {
   PodMentionCandidatesData,
   PodMentionCandidatesResponse,
   PodMentionsResolveData,
-  PodMentionsResolveResponse
+  PodMentionsResolveResponse,
+  PodLinkUnfurlResponse
 } from './api/generated/types.gen'
 import {
   podPageList,
@@ -55,6 +56,7 @@ import {
   podDocumentWrite,
   podKnowledgePanel,
   podKnowledgeExport,
+  podLinkUnfurl,
   podPageMove,
   podPageDelete,
   podEmbedsDelete,
@@ -599,4 +601,29 @@ export const commentAttentionQuery = {
       () => podCommentAttention({ signal }),
       rows => rows.map(row => row.page)
     )
+}
+
+export async function resolvePodLinkMetadata(
+  client: QueryClient,
+  url: string,
+  signal?: AbortSignal
+): Promise<{ title?: string; description?: string; image?: string; icon?: string } | null> {
+  const trimmed = url.trim()
+  if (!trimmed) return null
+  const response: PodLinkUnfurlResponse = await client.fetchQuery({
+    queryKey: [...contentKeys.all, 'link-unfurl', trimmed],
+    queryFn: ({ signal: querySignal }) =>
+      podLinkUnfurl({
+        body: { data: { url: trimmed } },
+        signal: signal ?? querySignal
+      }),
+    staleTime: 5 * 60_000,
+    retry: false
+  })
+  return {
+    title: response.title ?? undefined,
+    description: response.description ?? undefined,
+    image: response.image ?? undefined,
+    icon: response.icon ?? undefined
+  }
 }

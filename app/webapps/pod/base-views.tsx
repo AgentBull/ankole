@@ -11,6 +11,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  cn,
   toast
 } from '@ankole/uikit'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
@@ -32,7 +33,16 @@ import type {
 import { fileURL } from './content-api'
 import { baseGridRowEstimate } from './base-row-size'
 import { Choice, ContentError } from './content-primitives'
-import { BaseCell, FieldEditorButton, FieldInput, FieldValue, fieldOptions, writableField } from './base-fields'
+import {
+  BaseCell,
+  FieldEditorButton,
+  FieldInput,
+  FieldValue,
+  RecordTitle,
+  fieldOptions,
+  resolveVisibleFields,
+  writableField
+} from './base-fields'
 import { fieldValue } from './state/table-query'
 import { ReferenceLabelsProvider } from './base-field-value'
 import { RecordFormModel } from './state/record-form'
@@ -99,9 +109,7 @@ function BaseView(props: ViewProps) {
 
 function GridView(props: ViewProps) {
   const { t } = useTranslation()
-  const visible = props.view.config.visible_fields
-    ? props.fields.filter(field => field.is_primary || props.view.config.visible_fields!.includes(field.id))
-    : props.fields
+  const visible = resolveVisibleFields(props.fields, props.view.config.visible_fields, 'grid')
   const scroll = useRef<HTMLDivElement>(null)
   const [retained, setRetained] = useState<string[]>([])
   const [detailID, setDetailID] = useState<string>()
@@ -220,9 +228,14 @@ function GridView(props: ViewProps) {
                     ref={virtual.measureElement}
                     className="pod-base-row"
                     aria-rowindex={row.index + 2}>
-                    {visible.map(field => (
-                      <TableCell key={field.id} className={field.is_primary ? 'pod-base-primary' : undefined}>
-                        {field.is_primary ? (
+                    {visible.map((field, colIndex) => (
+                      <TableCell
+                        key={field.id}
+                        className={cn(
+                          field.is_primary && 'font-medium',
+                          (field.is_primary || colIndex === 0) && field.type !== 'checkbox' && 'pod-base-primary'
+                        )}>
+                        {colIndex === 0 ? (
                           <div className="flex items-center gap-1">
                             <div className="min-w-0 flex-1">
                               <BaseCell
@@ -336,7 +349,6 @@ function RecordCard(
     coverImage?: { name: string; src: string }
   }
 ) {
-  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const primary = props.fields.find(field => field.is_primary) ?? props.fields[0]
   return (
@@ -363,11 +375,7 @@ function RecordCard(
           className="max-w-full justify-start px-0 font-semibold"
           onClick={() => setOpen(true)}>
           <span className="min-w-0 truncate">
-            {primary ? (
-              <FieldValue field={primary} value={fieldValue(props.record, primary)} pageID={props.pageID} />
-            ) : (
-              t('pod.content.record')
-            )}
+            <RecordTitle record={props.record} primary={primary} />
           </span>
         </Button>
         {props.fields
@@ -469,7 +477,6 @@ function RecordDeleteButton({
   const saving = useRef(false)
   const cancel = useRef<HTMLButtonElement>(null)
   const [error, setError] = useState<unknown>()
-  const primary = fields.find(field => field.is_primary) ?? fields[0]
   return (
     <Dialog
       open={open}
@@ -497,7 +504,7 @@ function RecordDeleteButton({
         aria-busy={pending}>
         <DialogTitle>{t('pod.content.delete_record')}</DialogTitle>
         <p>
-          {primary && <FieldValue field={primary} value={fieldValue(deleting ?? record, primary)} />}{' '}
+          <RecordTitle record={deleting ?? record} fields={fields} />{' '}
           {t('pod.content.deleted_records_cannot_be_restored_from_page_trash')}
         </p>
         <ContentError error={error} />
@@ -850,6 +857,8 @@ export function RecordForm(
     pending = model.pending.value,
     generation = model.generation.value
 
+  const writableFields = props.fields.filter(field => writableField(field))
+
   return (
     <form
       className="contents"
@@ -865,9 +874,8 @@ export function RecordForm(
         void model.submit(props.write)
       }}>
       <div className="pod-dialog-body grid gap-5">
-        {props.fields
-          .filter(field => writableField(field))
-          .map(field => (
+        {writableFields.length > 0 ? (
+          writableFields.map(field => (
             <div key={`${field.id}:${generation}`} className="grid gap-2 text-sm">
               <span>{field.name}</span>
               <FieldInput
@@ -880,7 +888,25 @@ export function RecordForm(
                 onChange={value => model.change(field.id, value)}
               />
             </div>
-          ))}
+          ))
+        ) : (
+          <div className="grid gap-2 text-sm text-fg-secondary">
+            {props.fields.map(field => {
+              const Icon = fieldIcons[field.type]
+              return (
+                <div
+                  key={field.id}
+                  className="flex items-center justify-between gap-3 rounded-control border border-border px-3 py-2">
+                  <span className="flex min-w-0 items-center gap-2 truncate text-foreground">
+                    <Icon aria-hidden="true" className="size-4 shrink-0 text-fg-tertiary" />
+                    <span className="truncate">{field.name}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-fg-tertiary">{fieldTypes[field.type]}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
         <ContentError error={model.error.value} />
         {!props.editable && <p role="status">{t('pod.errors.forbidden')}</p>}
         {!!model.uploading.value.size && (

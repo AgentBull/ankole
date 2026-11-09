@@ -1,14 +1,11 @@
 import { composingKey } from '@ankole/uikit/lib/keyboard'
 import { Button } from '@ankole/uikit/components/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@ankole/uikit/components/dropdown-menu'
-import { Input } from '@ankole/uikit/components/input'
 import {
   RiArrowDownSLine,
   RiBold,
-  RiCloseLine,
-  RiCodeLine,
   RiChat1Line,
-  RiExternalLinkLine,
+  RiCodeLine,
   RiItalic,
   RiLink,
   RiMarkPenLine,
@@ -19,24 +16,48 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Command } from '../core/command'
-import { Node, type Mark, type Plot } from '../core/doc'
+import { Node, type Leaf, type Mark, type Plot } from '../core/doc'
 import type { Wordgard } from '../core/editor'
 import browser from '../core/editor/browser'
 import { GardSelection, type GardState } from '../core/state'
+import { webURL, type ResourceView } from '../document/resources'
 import { toggleFormat, type FormatName } from '../editor/commands'
 import { blockTypeAt, canTurnInto, turnBlockInto } from '../editor/block-actions'
 import { blockOptions, type BlockType } from '../editor/block-catalog'
 import { selectedUnits } from '../editor/block-selection'
-import { openLinkHref } from '../editor/host'
-import { editorHost } from '../editor/host-context'
+import { editorHost, openLinkHref, type EditorHost } from '../editor/host-context'
 import { commentSelection, type CommentSelection } from '../editor/comments'
-import { linkAt, removeLink, setLink, type LinkInfo } from '../editor/links'
-import { Mention, formats, safeLinkHref } from '../editor/schema'
+import {
+  availableLinkViews,
+  convertInlineLinkView,
+  convertPageMentionToEmbed,
+  inlineLinkView,
+  isWebLink
+} from '../editor/link-views'
+import {
+  linkAt,
+  linkAtPos,
+  removeLink,
+  removeLinkAt,
+  setLink,
+  singleLinkInRange,
+  updateLinkAt,
+  type LinkInfo
+} from '../editor/links'
+import { Mention, formats, safeLinkHref, type MentionTarget } from '../editor/schema'
 import { editorPhrases } from '../editor/phrases'
 import type { PhraseSet } from '../core/phrases'
 import { BlockTypeItems } from './BlockTypeItems'
 import { useEditor, useEditorLabel, useEditorState } from './context'
 import { isKnowledge, knowledgeBlockTypes } from '../editor/knowledge'
+import {
+  LinkEditForm,
+  LinkFloatingBar,
+  LinkViewDropdown,
+  MentionFloatingBar,
+  rovingToolbarKeyDown,
+  type LinkBarDescription
+} from './link-view-menu'
 
 // How the text looks. Highlight is a look of the text like the others, so it closes this group.
 const buttons = [
@@ -61,11 +82,62 @@ function sharedBlockType(state: GardState): BlockType | null {
 }
 
 /** The address for the link form input, or null when it is not a usable address (SPEC §7.6). */
-function linkUrl(value: string) {
+export function resolveLinkInputUrl(value: string, host?: EditorHost): string | null {
   const url = value.trim()
-  const safe = safeLinkHref(url)
-  if (safe) return safe
-  if (/^[^\s/:]+\.[^\s/:]+(?:[/?#].*)?$/.test(url)) return `https://${url}`
+  if (!url) return null
+  const pageId =
+    host?.matchPageUrl?.(url) ??
+    (/^[^\s/:@]+\.[a-z\d-]{2,}(?:[:/?#].*)?$/i.test(url) ? host?.matchPageUrl?.(`https://${url}`) : null)
+  if (pageId) return `ankole:page/${pageId}`
+  if (url.startsWith('/') || url.startsWith('#') || url.startsWith('ankole:page/') || url.startsWith('ankole:asset/')) {
+    return safeLinkHref(url)
+  }
+  if (/^(?:mailto:|tel:)/i.test(url)) {
+    return /\s/.test(url) ? null : safeLinkHref(url)
+  }
+  if (/^https?:\/\//i.test(url)) {
+    return webURL(url) ? safeLinkHref(url) : null
+  }
+  if (/^[a-z][a-z\d+.-]*:/i.test(url)) return null
+  if (/^[^\s@/:]+@[^\s@/:]+\.[^\s@/:]+$/.test(url)) {
+    return safeLinkHref(`mailto:${url}`)
+  }
+  if (/^[^\s/:@]+\.[a-z\d-]{2,}(?:[:/?#].*)?$/i.test(url)) {
+    const candidate = `https://${url}`
+    return webURL(candidate) ? safeLinkHref(candidate) : null
+  }
+  return null
+}
+
+function describeLinkForBar(host: EditorHost | undefined, href: string): LinkBarDescription {
+  if (href.startsWith('ankole:page/')) {
+    const pageId = href.slice('ankole:page/'.length)
+    const described = host?.describePageLink?.(pageId)
+    if (described) {
+      const display = described.title?.trim() || described.href
+      return { display, title: described.href, editHref: described.href }
+    }
+  }
+  return { display: href, title: href, editHref: href }
+}
+
+type PageMentionInfo = { id: string; from: number; to: number }
+
+function caretPageMention(state: GardState): PageMentionInfo | null {
+  if (!(state.selection instanceof GardSelection.Text) || !state.selection.empty) return null
+  const head = state.sel.head
+  if (head.inText) return null
+  const block = head.parent
+  if (!block.node.inlineContent) return null
+  for (const index of [head.index - 1, head.index]) {
+    const leaf = block.node.content[index]
+    if (leaf?.type !== Mention) continue
+    const target = (leaf as Leaf<MentionTarget>).param
+    if (!('page' in target)) continue
+    let from = block.start
+    for (let i = 0; i < index; i++) from += block.node.content[i]!.length
+    return { id: target.page, from, to: from + leaf.length }
+  }
   return null
 }
 
@@ -84,6 +156,18 @@ function hasFormat(doc: Plot.Doc, from: number, to: number, mark: Mark) {
 }
 
 type Range = { from: number; to: number }
+
+function isPlainTextRange(doc: Plot.Doc, { from, to }: Range): boolean {
+  if (from >= to) return false
+  let allText = true
+  doc.iterate(from, to, node => {
+    if (node.isLeaf && !node.isText) {
+      allText = false
+      return false
+    }
+  })
+  return allText
+}
 
 /** The selected range that the toolbar formats: non-blank text outside code blocks. */
 function formattable(state: GardState): Range | null {
@@ -138,19 +222,30 @@ const actsOnSelection = (editor: Wordgard) => {
   return !!((!isKnowledge(editor.state) && host?.requestComment) || host?.askAgent)
 }
 
-type Info = { rect: DOMRect; active: boolean[]; link: boolean; caretLink: LinkInfo | null }
+type Info = {
+  rect: DOMRect
+  active: boolean[]
+  link: boolean
+  selectedLink: LinkInfo | null
+  caretLink: LinkInfo | null
+  caretMention: PageMentionInfo | null
+}
 /** The open link form, with the link that it edits, if any. */
-type LinkForm = { link: LinkInfo | null }
+type LinkForm = { link: LinkInfo | null; canEditText: boolean; initialText: string }
 
 export function SelectionToolbar() {
   const label = useEditorLabel()
   const editor = useEditor()
   const state = useEditorState()
+  const host = editorHost(editor)
   const toolbar = useRef<HTMLDivElement>(null)
   const [info, setInfo] = useState<Info | null>(null)
   const [linkForm, setLinkForm] = useState<LinkForm | null>(null)
   const [url, setUrl] = useState('')
+  const [linkText, setLinkText] = useState('')
   const [error, setError] = useState(false)
+  const [unfurling, setUnfurling] = useState(false)
+  const [, setPageVersion] = useState(0)
   const [position, setPosition] = useState({ left: 0, top: 0 })
   const form = useRef<LinkForm | null>(null)
   form.current = linkForm
@@ -158,28 +253,62 @@ export function SelectionToolbar() {
   const dismissed = useRef<GardSelection | null>(null)
   // The state that Ask Agent or comment handed off. Any later state shows the toolbar again.
   const handedOff = useRef<GardState | null>(null)
-  // The block type menu renders outside the toolbar; the toolbar holds its place while focus is in either.
+  // Portaled menus render outside the toolbar; the toolbar holds its place while focus or interaction is in them.
   const typeMenu = useRef<HTMLDivElement>(null)
+  const viewMenu = useRef<HTMLDivElement>(null)
+  const viewMenuOpen = useRef(false)
+  const hovered = useRef<{ link: LinkInfo; anchor: HTMLAnchorElement } | null>(null)
+  const pendingHoverAnchor = useRef<HTMLAnchorElement | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const embeddableCache = useRef(new Map<string, boolean>())
+  const pendingEmbeddable = useRef(new Set<string>())
   const refresh = useRef(() => {})
 
-  // ⌘K and the link button: edit the selected text, or the link at the caret.
-  const openLink = () => {
+  const clearHoverTimer = () => {
+    pendingHoverAnchor.current = null
+    if (hoverTimer.current !== null) {
+      clearTimeout(hoverTimer.current)
+      hoverTimer.current = null
+    }
+  }
+
+  const scheduleClearHover = () => {
+    clearHoverTimer()
+    hoverTimer.current = setTimeout(() => {
+      hoverTimer.current = null
+      if (viewMenuOpen.current || form.current) return
+      if (hovered.current) {
+        hovered.current = null
+        refresh.current()
+      }
+    }, 180)
+  }
+
+  // ⌘K and the link button: edit the selected text, the link at the caret, or a hovered link.
+  const openLink = (explicitLink?: LinkInfo) => {
     const { state } = editor
     if (state.readOnly) return false
-    const range = formattable(state)
-    const link = linkAt(state)
-    const target = range ?? (state.selection.empty ? link : null)
+    const range = explicitLink ? null : formattable(state)
+    const link = explicitLink ?? linkAt(state)
+    const target = explicitLink ?? range ?? (state.selection.empty ? link : null)
     if (!target) return false
-    setLinkForm({ link })
-    setUrl(link?.href ?? '')
+    clearHoverTimer()
+    const canEditText = Boolean(link && isPlainTextRange(state.doc, link))
+    const initialText = link && canEditText ? state.doc.textContent({ from: link.from, to: link.to }) : ''
+    const currentHost = editorHost(editor)
+    setLinkForm({ link, canEditText, initialText })
+    setUrl(link ? describeLinkForBar(currentHost, link.href).editHref : '')
+    setLinkText(initialText)
     setError(false)
     setInfo(
-      info =>
-        info ?? {
+      current =>
+        current ?? {
           rect: selectionRect(editor, target),
           active: [],
           link: !!link,
-          caretLink: range ? null : link
+          selectedLink: range ? singleLinkInRange(state, range) : null,
+          caretLink: range ? null : link,
+          caretMention: null
         }
     )
     return true
@@ -192,14 +321,26 @@ export function SelectionToolbar() {
   }
 
   useEffect(() => {
+    return host?.subscribePageLinks?.(() => {
+      setPageVersion(version => version + 1)
+      refresh.current()
+    })
+  }, [host])
+
+  useEffect(() => {
     let frame = 0,
       pointer = false,
       composing = false
     const update = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        // The toolbar keeps its place while the user works in it.
-        if ([toolbar.current, typeMenu.current].some(part => part?.contains(document.activeElement))) return
+        // The toolbar keeps its place while the user works in it or an open portaled menu.
+        if (
+          viewMenuOpen.current ||
+          [toolbar.current, typeMenu.current, viewMenu.current].some(part => part?.contains(document.activeElement))
+        ) {
+          return
+        }
         const focused = document.activeElement === editor.contentDOM
         // The link form takes focus right after it opens.
         if (form.current && focused) return
@@ -210,57 +351,190 @@ export function SelectionToolbar() {
           setInfo(null)
           return
         }
-        const caretLink = !range && state.selection.empty && !state.readOnly ? linkAt(state) : null
-        const target = range ?? caretLink
-        if (
-          !target ||
-          !focused ||
-          pointer ||
-          composing ||
-          editor.composing ||
-          dismissed.current?.eq(state.selection) ||
-          handedOff.current === state
-        ) {
-          setInfo(null)
-          setLinkForm(null)
-          return
-        }
-        dismissed.current = null
-        const rect = selectionRect(editor, target)
-        const area = visibleArea(editor)
-        if ((!rect.width && !rect.height) || rect.bottom < area.top || rect.top > area.bottom) {
-          setInfo(null)
-          return
-        }
+
         if (range) {
+          hovered.current = null
+          if (
+            !focused ||
+            pointer ||
+            composing ||
+            editor.composing ||
+            dismissed.current?.eq(state.selection) ||
+            handedOff.current === state
+          ) {
+            setInfo(null)
+            setLinkForm(null)
+            return
+          }
+          dismissed.current = null
+          const rect = selectionRect(editor, range)
+          const area = visibleArea(editor)
+          if ((!rect.width && !rect.height) || rect.bottom < area.top || rect.top > area.bottom) {
+            setInfo(null)
+            return
+          }
           setInfo({
             rect,
             active: buttons.map(({ format }) => hasFormat(state.doc, range.from, range.to, formats[format])),
             link: !!linkAt(state),
-            caretLink: null
+            selectedLink: !state.readOnly ? singleLinkInRange(state, range) : null,
+            caretLink: null,
+            caretMention: null
           })
-        } else {
+          return
+        }
+
+        const caretLink =
+          state.selection.empty && !state.readOnly && focused && !dismissed.current?.eq(state.selection)
+            ? linkAt(state)
+            : null
+
+        let hoveredLink: LinkInfo | null = null
+        let hoveredRect: DOMRect | null = null
+        if (!caretLink && !state.readOnly && hovered.current) {
+          const { anchor } = hovered.current
+          if (anchor.isConnected && editor.contentDOM.contains(anchor)) {
+            const pos = editor.posAtDOM(anchor, 0)
+            const fresh = linkAtPos(state, pos)
+            if (fresh) {
+              hovered.current = { link: fresh, anchor }
+              hoveredLink = fresh
+              hoveredRect = anchor.getBoundingClientRect()
+            } else {
+              hovered.current = null
+            }
+          } else {
+            hovered.current = null
+          }
+        }
+
+        const activeLink = caretLink ?? hoveredLink
+        if (activeLink && !pointer && !composing && !editor.composing && handedOff.current !== state) {
+          const rect = hoveredRect ?? selectionRect(editor, activeLink)
+          const area = visibleArea(editor)
+          if ((!rect.width && !rect.height) || rect.bottom < area.top || rect.top > area.bottom) {
+            setInfo(null)
+            return
+          }
           setInfo({
             rect,
             active: [],
             link: true,
-            caretLink
+            selectedLink: null,
+            caretLink: activeLink,
+            caretMention: null
           })
+          return
         }
+
+        const currentHost = editorHost(editor)
+        const mention =
+          state.selection.empty &&
+          !state.readOnly &&
+          !isKnowledge(state) &&
+          focused &&
+          !pointer &&
+          !composing &&
+          !editor.composing &&
+          !dismissed.current?.eq(state.selection) &&
+          handedOff.current !== state
+            ? caretPageMention(state)
+            : null
+        let canEmbedMention = false
+        if (mention && currentHost?.canEmbedPage) {
+          const decision = currentHost.canEmbedPage(mention.id)
+          if (typeof decision === 'boolean') {
+            embeddableCache.current.set(mention.id, decision)
+            canEmbedMention = decision
+          } else if (embeddableCache.current.has(mention.id)) {
+            canEmbedMention = embeddableCache.current.get(mention.id)!
+          } else if (!pendingEmbeddable.current.has(mention.id)) {
+            pendingEmbeddable.current.add(mention.id)
+            void decision
+              .then(
+                allowed => {
+                  embeddableCache.current.set(mention.id, allowed)
+                  if (allowed) refresh.current()
+                },
+                () => {
+                  embeddableCache.current.set(mention.id, false)
+                }
+              )
+              .finally(() => {
+                pendingEmbeddable.current.delete(mention.id)
+              })
+          }
+        }
+        if (mention && canEmbedMention) {
+          const mentionDom = editor.nodeDOM(mention.from)
+          const rect = mentionDom ? mentionDom.getBoundingClientRect() : selectionRect(editor, mention)
+          const area = visibleArea(editor)
+          if ((!rect.width && !rect.height) || rect.bottom < area.top || rect.top > area.bottom) {
+            setInfo(null)
+            return
+          }
+          setInfo({
+            rect,
+            active: [],
+            link: false,
+            selectedLink: null,
+            caretLink: null,
+            caretMention: mention
+          })
+          return
+        }
+
+        setInfo(null)
+        if (!form.current) setLinkForm(null)
       })
     }
     refresh.current = update
     const content = editor.contentDOM
     const pointerDown = () => {
       pointer = true
+      clearHoverTimer()
+      hovered.current = null
       update()
     }
     const pointerUp = () => {
       pointer = false
       update()
     }
+    const pointerOver = (event: PointerEvent) => {
+      if (pointer || editor.state.readOnly) return
+      const target = event.target instanceof Element ? event.target : null
+      const anchor = target?.closest('a[href]') as HTMLAnchorElement | null
+      if (anchor && content.contains(anchor) && !anchor.closest('.editor-mention, [contenteditable="false"]')) {
+        if (hovered.current?.anchor === anchor) {
+          clearHoverTimer()
+          return
+        }
+        if (pendingHoverAnchor.current === anchor) return
+        clearHoverTimer()
+        pendingHoverAnchor.current = anchor
+        hoverTimer.current = setTimeout(() => {
+          hoverTimer.current = null
+          pendingHoverAnchor.current = null
+          if (pointer || editor.state.readOnly || !anchor.isConnected) return
+          const pos = editor.posAtDOM(anchor, 0)
+          const found = linkAtPos(editor.state, pos)
+          if (found) {
+            hovered.current = { link: found, anchor }
+            update()
+          }
+        }, 120)
+      } else {
+        if (pendingHoverAnchor.current) clearHoverTimer()
+        if (hovered.current) scheduleClearHover()
+      }
+    }
+    const pointerLeave = () => {
+      if (pendingHoverAnchor.current) clearHoverTimer()
+      if (hovered.current) scheduleClearHover()
+    }
     const compositionStart = () => {
       composing = true
+      hovered.current = null
       setLinkForm(null)
       update()
     }
@@ -273,7 +547,14 @@ export function SelectionToolbar() {
       // ⌘K on Apple platforms, where Ctrl+K deletes to the end of the line; Ctrl+K elsewhere.
       const mod = browser.mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
       if (event.key === 'Escape') {
-        if (commentSelection(editor) || (editor.state.selection.empty && linkAt(editor.state))) {
+        clearHoverTimer()
+        const hadHover = hovered.current !== null
+        hovered.current = null
+        if (
+          hadHover ||
+          commentSelection(editor) ||
+          (editor.state.selection.empty && (linkAt(editor.state) || caretPageMention(editor.state)))
+        ) {
           dismissed.current = editor.state.selection
           update()
         }
@@ -291,6 +572,8 @@ export function SelectionToolbar() {
     document.addEventListener('focusout', update)
     document.addEventListener('pointerup', pointerUp)
     content.addEventListener('pointerdown', pointerDown)
+    content.addEventListener('pointerover', pointerOver)
+    content.addEventListener('pointerleave', pointerLeave)
     content.addEventListener('compositionstart', compositionStart)
     content.addEventListener('compositionend', compositionEnd)
     content.addEventListener('keydown', key)
@@ -300,10 +583,13 @@ export function SelectionToolbar() {
     window.visualViewport?.addEventListener('scroll', update)
     return () => {
       cancelAnimationFrame(frame)
+      clearHoverTimer()
       document.removeEventListener('focusin', update)
       document.removeEventListener('focusout', update)
       document.removeEventListener('pointerup', pointerUp)
       content.removeEventListener('pointerdown', pointerDown)
+      content.removeEventListener('pointerover', pointerOver)
+      content.removeEventListener('pointerleave', pointerLeave)
       content.removeEventListener('compositionstart', compositionStart)
       content.removeEventListener('compositionend', compositionEnd)
       content.removeEventListener('keydown', key)
@@ -339,25 +625,61 @@ export function SelectionToolbar() {
   }
 
   const submitLink = () => {
-    const href = linkUrl(url)
+    const href = resolveLinkInputUrl(url, editorHost(editor))
     if (!href) {
       setError(true)
       return
     }
-    Command.dispatch(editor, setLink, { href })
+    if (linkForm?.link) {
+      if (linkForm.canEditText && linkText !== linkForm.initialText) {
+        if (!linkText.trim()) {
+          setError(true)
+          return
+        }
+        updateLinkAt(editor, linkForm.link, { href, text: linkText })
+      } else {
+        updateLinkAt(editor, linkForm.link, { href })
+      }
+    } else {
+      Command.dispatch(editor, setLink, { href })
+    }
+    hovered.current = null
     closeLink()
   }
 
+  const switchInlineView = async (target: LinkInfo, nextView: ResourceView) => {
+    clearHoverTimer()
+    hovered.current = null
+    if (nextView === 'title') setUnfurling(true)
+    try {
+      await convertInlineLinkView(editor, target, nextView)
+    } finally {
+      setUnfurling(false)
+      refresh.current()
+    }
+  }
+
   if (!info) return null
+  const activeInlineView =
+    info.caretLink && info.caretLink.to <= state.doc.length ? inlineLinkView(state, info.caretLink) : 'link'
+  const linkViews = availableLinkViews(state)
+  const caretLinkDisplay = info.caretLink ? describeLinkForBar(host, info.caretLink.href) : null
+  const caretMentionDisplay = info.caretMention ? describeLinkForBar(host, `ankole:page/${info.caretMention.id}`) : null
+
   return createPortal(
     <div
       ref={toolbar}
       className="selection-toolbar ankole-editor-overlay ceramic"
       style={position}
       role={linkForm ? 'dialog' : 'toolbar'}
-      aria-label={label(linkForm ? 'edit_link' : info.caretLink ? 'link' : 'selection_format')}
+      data-mention-toolbar={info.caretMention?.id}
+      aria-label={label(linkForm ? 'edit_link' : info.caretLink || info.caretMention ? 'link' : 'selection_format')}
+      onPointerEnter={clearHoverTimer}
+      onPointerLeave={() => {
+        if (hovered.current && !viewMenuOpen.current && !form.current) scheduleClearHover()
+      }}
       onKeyDown={event => {
-        // React bubbles keys from the portaled block type menu through here; that menu handles its own keys.
+        // React bubbles keys from the portaled menus through here; those menus handle their own keys.
         if (
           composingKey(event.nativeEvent) ||
           (event.target instanceof Element && !event.currentTarget.contains(event.target))
@@ -367,114 +689,105 @@ export function SelectionToolbar() {
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
+          hovered.current = null
           if (linkForm) closeLink()
           else {
             dismissed.current = editor.state.selection
             setInfo(null)
             editor.focus()
           }
-        } else if (!linkForm && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
-          const all = [...event.currentTarget.querySelectorAll('button')]
-          const index = all.indexOf(document.activeElement as HTMLButtonElement)
-          const next =
-            event.key === 'Home'
-              ? 0
-              : event.key === 'End'
-                ? all.length - 1
-                : (index + (event.key === 'ArrowRight' ? 1 : -1) + all.length) % all.length
-          event.preventDefault()
-          all[next]?.focus()
+        } else if (!linkForm) {
+          rovingToolbarKeyDown(event, 'button')
         }
       }}>
       {linkForm ? (
-        <form
-          className="link-form"
-          onSubmit={event => {
-            event.preventDefault()
-            submitLink()
-          }}>
-          <div className="link-form-row">
-            <Input
-              variant="overlay"
-              autoFocus
-              aria-label={label('link_address')}
-              value={url}
-              placeholder={label('link_placeholder')}
-              aria-invalid={!!error}
-              onChange={event => {
-                setUrl(event.target.value)
-                setError(false)
-              }}
-              onKeyDown={event => {
-                if (event.key === 'Enter' && composingKey(event.nativeEvent)) event.preventDefault()
-              }}
-            />
-            <Button type="submit" size="xs">
-              {label('apply_link')}
-            </Button>
-            <Button type="button" variant="ghost" size="icon-xs" aria-label={label('cancel_link')} onClick={closeLink}>
-              <RiCloseLine />
-            </Button>
-          </div>
-          {error && <p role="alert">{label('invalid_link')}</p>}
-          {linkForm.link && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={() => {
-                Command.dispatch(editor, removeLink)
-                closeLink()
-              }}>
-              {label('remove_link')}
-            </Button>
-          )}
-        </form>
-      ) : info.caretLink ? (
-        <div className="link-bar">
-          <span className="link-bar-url" title={info.caretLink.href}>
-            {info.caretLink.href}
-          </span>
-          <span className="toolbar-divider" />
-          <Button
-            variant="ghost"
-            size="xs"
-            title={info.caretLink.href}
-            onMouseDown={event => event.preventDefault()}
-            onClick={() => openLinkHref(editor, info.caretLink!.href)}>
-            <RiExternalLinkLine />
-            {label('open_link')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onMouseDown={event => event.preventDefault()}
-            onClick={() => void openLink()}>
-            {label('edit_link')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onMouseDown={event => event.preventDefault()}
-            onClick={() => {
-              Command.dispatch(editor, removeLink)
-              setInfo(null)
-              editor.focus()
-            }}>
-            {label('remove_link')}
-          </Button>
-        </div>
+        <LinkEditForm
+          canEditText={linkForm.canEditText}
+          hasExistingLink={Boolean(linkForm.link)}
+          linkText={linkText}
+          url={url}
+          error={error}
+          onChangeText={value => {
+            setLinkText(value)
+            setError(false)
+          }}
+          onChangeUrl={value => {
+            setUrl(value)
+            setError(false)
+          }}
+          onSubmit={submitLink}
+          onCancel={closeLink}
+          onRemove={() => {
+            if (linkForm.link) removeLinkAt(editor, linkForm.link)
+            else Command.dispatch(editor, removeLink)
+            hovered.current = null
+            closeLink()
+          }}
+        />
+      ) : info.caretLink && caretLinkDisplay ? (
+        <LinkFloatingBar
+          editor={editor}
+          link={info.caretLink}
+          display={caretLinkDisplay}
+          activeView={activeInlineView}
+          views={linkViews}
+          unfurling={unfurling}
+          menuRef={viewMenu}
+          onOpenLink={() => openLinkHref(editor, info.caretLink!.href)}
+          onEditLink={() => void openLink(info.caretLink!)}
+          onRemoveLink={() => {
+            const target = info.caretLink!
+            hovered.current = null
+            removeLinkAt(editor, target)
+            setInfo(null)
+            editor.focus()
+          }}
+          onSwitchView={viewOption => void switchInlineView(info.caretLink!, viewOption)}
+          onMenuOpenChange={open => {
+            viewMenuOpen.current = open
+            if (open) clearHoverTimer()
+            else refresh.current()
+          }}
+          onMenuPointerEnter={clearHoverTimer}
+          onMenuPointerLeave={() => {
+            if (hovered.current && !viewMenuOpen.current) scheduleClearHover()
+          }}
+        />
+      ) : info.caretMention && caretMentionDisplay ? (
+        <MentionFloatingBar
+          editor={editor}
+          display={caretMentionDisplay}
+          canOpenPage={Boolean(host?.openPage)}
+          menuRef={viewMenu}
+          onOpenPage={() => host?.openPage?.(info.caretMention!.id)}
+          onEmbed={() => {
+            const target = info.caretMention!
+            setInfo(null)
+            convertPageMentionToEmbed(editor, target, target.id)
+          }}
+          onMenuOpenChange={open => {
+            viewMenuOpen.current = open
+            if (!open) refresh.current()
+          }}
+        />
       ) : (
         <SelectionActions
           editable={!state.readOnly && !!formattable(state)}
           info={info}
           apply={apply}
-          openLink={openLink}
+          openLink={() => openLink()}
+          switchInlineView={switchInlineView}
+          unfurling={unfurling}
           hide={() => {
             handedOff.current = editor.state
             setInfo(null)
           }}
           typeMenu={typeMenu}
+          viewMenu={viewMenu}
+          onViewMenuOpenChange={open => {
+            viewMenuOpen.current = open
+            if (!open) refresh.current()
+          }}
         />
       )}
     </div>,
@@ -485,23 +798,31 @@ export function SelectionToolbar() {
 /**
  * The selection toolbar groups its actions by the question each answers, in this order: who helps with the
  * text (ask an Agent), what the blocks are (block type), how the text looks (marks), and what the text
- * connects to (link, comment). Read-only documents and code keep only the actions that leave the text as it
- * is: asking an Agent and commenting.
+ * connects to (link, comment, link view). Read-only documents and code keep only the actions that leave the
+ * text as it is: asking an Agent and commenting.
  */
 function SelectionActions({
   editable,
   info,
   apply,
   openLink,
+  switchInlineView,
+  unfurling,
   hide,
-  typeMenu
+  typeMenu,
+  viewMenu,
+  onViewMenuOpenChange
 }: {
   editable: boolean
   info: Info
   apply(format: FormatName): void
   openLink(): boolean
+  switchInlineView(target: LinkInfo, nextView: ResourceView): Promise<void>
+  unfurling: boolean
   hide(): void
   typeMenu: RefObject<HTMLDivElement | null>
+  viewMenu: RefObject<HTMLDivElement | null>
+  onViewMenuOpenChange(open: boolean): void
 }) {
   const label = useEditorLabel()
   const editor = useEditor()
@@ -517,6 +838,10 @@ function SelectionActions({
   const askAgent = host?.askAgent
   const requestComment = isKnowledge(state) ? undefined : host?.requestComment
   const type = sharedBlockType(state)
+  const selectedLink = editable && info.selectedLink && isWebLink(info.selectedLink.href) ? info.selectedLink : null
+  const activeSelectedView =
+    selectedLink && selectedLink.to <= state.doc.length ? inlineLinkView(state, selectedLink) : 'link'
+  const linkViews = selectedLink ? availableLinkViews(state) : []
   return (
     <>
       {askAgent && (
@@ -529,7 +854,7 @@ function SelectionActions({
             title={label('ask_agent')}
             onMouseDown={event => event.preventDefault()}
             onClick={() => handOff(askAgent)}>
-            <RiRobot2Line />
+            <RiRobot2Line aria-hidden="true" />
             <span className="selection-ask-label">{label('ask_agent')}</span>
           </Button>
         </div>
@@ -551,7 +876,7 @@ function SelectionActions({
               <span className="selection-block-type-label">
                 {type ? blockOptions.find(option => option.type === type)?.title(state) : label('turn_into')}
               </span>
-              <RiArrowDownSLine />
+              <RiArrowDownSLine aria-hidden="true" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               ref={typeMenu}
@@ -586,7 +911,7 @@ function SelectionActions({
                   aria-pressed={info.active[index]}
                   onMouseDown={event => event.preventDefault()}
                   onClick={() => apply(format)}>
-                  <Icon />
+                  <Icon aria-hidden="true" />
                 </Button>
               )
           )}
@@ -603,7 +928,7 @@ function SelectionActions({
               aria-pressed={info.link}
               onMouseDown={event => event.preventDefault()}
               onClick={openLink}>
-              <RiLink />
+              <RiLink aria-hidden="true" />
             </Button>
           )}
           {requestComment && (
@@ -614,9 +939,22 @@ function SelectionActions({
               title={label('comment')}
               onMouseDown={event => event.preventDefault()}
               onClick={() => handOff(requestComment)}>
-              <RiChat1Line />
+              <RiChat1Line aria-hidden="true" />
             </Button>
           )}
+        </div>
+      )}
+      {selectedLink && (
+        <div role="group" className="selection-group">
+          <LinkViewDropdown
+            editor={editor}
+            current={activeSelectedView}
+            views={linkViews}
+            unfurling={unfurling}
+            menuRef={viewMenu}
+            onOpenChange={onViewMenuOpenChange}
+            onSelect={viewOption => void switchInlineView(selectedLink, viewOption)}
+          />
         </div>
       )}
     </>

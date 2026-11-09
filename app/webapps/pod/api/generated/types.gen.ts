@@ -2736,6 +2736,7 @@ export type PodBaseQueryData = {
       local?: boolean | null
       page_size?: number | null
       page_token?: string | null
+      search?: string | null
       sort?: Array<{
         direction: 'asc' | 'desc'
         field_id: string
@@ -2861,6 +2862,44 @@ export type PodAppletJobConfigureResponses = {
 }
 
 export type PodAppletJobConfigureResponse = PodAppletJobConfigureResponses[keyof PodAppletJobConfigureResponses]
+
+export type PodLinkUnfurlData = {
+  /**
+   * Request body for the podLinkUnfurl operation on pod_page_operation resource
+   */
+  body: {
+    data: {
+      url: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/links/unfurl'
+}
+
+export type PodLinkUnfurlErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodLinkUnfurlError = PodLinkUnfurlErrors[keyof PodLinkUnfurlErrors]
+
+export type PodLinkUnfurlResponses = {
+  /**
+   * Success
+   */
+  201: {
+    description?: string | null
+    icon?: string | null
+    image?: string | null
+    title?: string | null
+    url: string
+  }
+}
+
+export type PodLinkUnfurlResponse = PodLinkUnfurlResponses[keyof PodLinkUnfurlResponses]
 
 export type PodPageHistoryRestoreData = {
   /**
@@ -8063,6 +8102,7 @@ export type PodBaseFieldUpdateData = {
         [key: string]: unknown
       } | null
       description?: string | null
+      is_primary?: boolean | null
       name?: string | null
       position?: string | null
       type?:

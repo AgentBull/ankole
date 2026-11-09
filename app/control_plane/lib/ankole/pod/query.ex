@@ -20,6 +20,8 @@ defmodule Ankole.Pod.Query do
 
     with {:ok, where, params} <-
            filter(fields, Ankole.Attrs.get(attrs, :filter), [Repo.tenant_id!(), table.id]),
+         {:ok, search_sql, params} <-
+           search_filter(fields, Ankole.Attrs.get(attrs, :search), params, opts),
          {:ok, slices} <- normalize_group_slices(attrs),
          {:ok, group, params} <- group_slices_filter(fields, slices, params),
          {:ok, order, params} <- sort(fields, Ankole.Attrs.get(attrs, :sort, []), params),
@@ -41,7 +43,7 @@ defmodule Ankole.Pod.Query do
 
         case execute(
                table,
-               "SELECT (#{record_sql(table, fields, projection)})#{json_cast}, jsonb_build_array(#{Enum.map_join(order, ",", &cursor_value/1)}) FROM #{source(table)} r WHERE #{scope(table)} AND (#{where}) AND (#{group}) AND (#{cursor}) AND (#{ids_sql}) ORDER BY #{Enum.join(Enum.map(order, &(&1.sql <> " " <> &1.direction <> " NULLS LAST")) ++ ["r.id ASC"], ",")} LIMIT #{limit_param} OFFSET #{offset_param}",
+               "SELECT (#{record_sql(table, fields, projection)})#{json_cast}, jsonb_build_array(#{Enum.map_join(order, ",", &cursor_value/1)}) FROM #{source(table)} r WHERE #{scope(table)} AND (#{where}) AND (#{search_sql}) AND (#{group}) AND (#{cursor}) AND (#{ids_sql}) ORDER BY #{Enum.join(Enum.map(order, &(&1.sql <> " " <> &1.direction <> " NULLS LAST")) ++ ["r.id ASC"], ",")} LIMIT #{limit_param} OFFSET #{offset_param}",
                params
              ) do
           {:ok, result} ->
@@ -727,6 +729,124 @@ defmodule Ankole.Pod.Query do
     end)
   end
 
+  @doc "Formats a table's display field as SQL text for link flattening and record search."
+  def display_label_sql(primary, fields, params, opts \\ []) do
+    with {:ok, sql, _value_type, params} <-
+           display_label_sql_with_type(primary, fields, params, opts) do
+      {:ok, sql, params}
+    end
+  end
+
+  defp display_label_sql_with_type(primary, fields, params, opts) do
+    with {:ok, expr, value_type, params} <- Formula.expression(primary, fields, params) do
+      array_expr =
+        "(SELECT CASE WHEN jsonb_typeof(_raw.v) = 'array' THEN _raw.v ELSE '[]'::jsonb END FROM (SELECT #{expr} AS v) _raw)"
+
+      principal_names = Keyword.get(opts, :principal_names)
+
+      cond do
+        primary.type == :select ->
+          options_json =
+            Torque.encode!(Map.new(primary.config["options"] || [], &{&1["id"], &1["name"]}))
+
+          {opts_param, params} = Formula.bind(params, options_json)
+
+          sql =
+            if value_type == :array do
+              "(SELECT string_agg(COALESCE((#{opts_param}::text::jsonb)->>opt.id, opt.id), ', ' ORDER BY opt.pos) FROM jsonb_array_elements_text(#{array_expr}) WITH ORDINALITY AS opt(id, pos))"
+            else
+              "(SELECT CASE WHEN _raw.v IS NULL THEN NULL ELSE COALESCE((#{opts_param}::text::jsonb)->>(_raw.v), (_raw.v)::text) END FROM (SELECT #{expr} AS v) _raw)"
+            end
+
+          {:ok, sql, value_type, params}
+
+        primary.type == :attachment ->
+          {:ok,
+           "(SELECT string_agg(NULLIF(att.item->>'name', ''), ', ' ORDER BY att.pos) FROM jsonb_array_elements(#{array_expr}) WITH ORDINALITY AS att(item, pos))",
+           value_type, params}
+
+        primary.type == :user and is_map(principal_names) ->
+          {names_param, params} = Formula.bind(params, Torque.encode!(principal_names))
+
+          uid_sql =
+            "lower(btrim(COALESCE(NULLIF(split_part(elem.val, ':principal/', 2), ''), elem.val)))"
+
+          {:ok,
+           "(SELECT string_agg(COALESCE((#{names_param}::text::jsonb)->>(#{uid_sql}), #{uid_sql}), ', ' ORDER BY elem.pos) FROM jsonb_array_elements_text(#{array_expr}) WITH ORDINALITY AS elem(val, pos))",
+           value_type, params}
+
+        primary.type == :user ->
+          {:ok,
+           "(SELECT string_agg(COALESCE(NULLIF(split_part(elem.val, ':principal/', 2), ''), elem.val), ', ' ORDER BY elem.pos) FROM jsonb_array_elements_text(#{array_expr}) WITH ORDINALITY AS elem(val, pos))",
+           value_type, params}
+
+        primary.type == :link ->
+          {:ok,
+           "(SELECT string_agg('#' || right(elem.val, 6), ', ' ORDER BY elem.pos) FROM jsonb_array_elements_text(#{array_expr}) WITH ORDINALITY AS elem(val, pos))",
+           value_type, params}
+
+        value_type == :array ->
+          {:ok,
+           "(SELECT string_agg(elem.val, ', ' ORDER BY elem.pos) FROM jsonb_array_elements_text(#{array_expr}) WITH ORDINALITY AS elem(val, pos))",
+           value_type, params}
+
+        primary.type in [:created_by, :updated_by] and is_map(principal_names) ->
+          {names_param, params} = Formula.bind(params, Torque.encode!(principal_names))
+
+          {:ok,
+           "(SELECT CASE WHEN _raw.v IS NULL OR _raw.v = '' THEN NULL ELSE COALESCE((#{names_param}::text::jsonb)->>(_u.uid), _u.uid) END FROM (SELECT (#{expr})::text AS v) _raw, LATERAL (SELECT lower(btrim(COALESCE(NULLIF(split_part(_raw.v, ':principal/', 2), ''), _raw.v))) AS uid) _u)",
+           value_type, params}
+
+        primary.type in [:created_by, :updated_by] ->
+          {:ok,
+           "(SELECT COALESCE(NULLIF(split_part(_raw.v, ':principal/', 2), ''), _raw.v) FROM (SELECT (#{expr})::text AS v) _raw)",
+           value_type, params}
+
+        true ->
+          {:ok, "(#{expr})::text", value_type, params}
+      end
+    end
+  end
+
+  defp search_filter(_fields, search, params, _opts) when search in [nil, ""],
+    do: {:ok, "TRUE", params}
+
+  defp search_filter(fields, search, params, opts) when is_binary(search) do
+    {param, params} = Formula.bind(params, "%" <> Repo.escape_like(search) <> "%")
+    fallback = "'#' || right(r.id::text, 6)"
+
+    case Enum.find(fields, & &1.is_primary) || List.first(fields) do
+      nil ->
+        {:ok, "(#{fallback}) ILIKE #{param}::text", params}
+
+      %{type: :checkbox} = primary ->
+        with {:ok, expr, _type, params} <- Formula.expression(primary, fields, params) do
+          haystack =
+            "(SELECT CASE WHEN _raw.v IS NULL THEN #{fallback} WHEN _raw.v THEN '✓ true' ELSE '— false' END FROM (SELECT #{expr} AS v) _raw)"
+
+          {:ok, "(#{haystack}) ILIKE #{param}::text", params}
+        end
+
+      primary ->
+        with {:ok, label_sql, value_type, params} <-
+               display_label_sql_with_type(primary, fields, params, opts) do
+          haystack =
+            if value_type == :datetime do
+              formatted =
+                "to_char((_lbl.val)::timestamptz, 'YYYY-MM-DD HH24:MI:SS FMMonth FMDD, YYYY FMMon FMDD, YYYY, FMHH12:MI:SS AM YYYY/MM/DD YYYY/FMMM/FMDD YYYY. FMMM. FMDD. YYYY\"年\"FMMM\"月\"FMDD\"日\"')"
+
+              "(SELECT CASE WHEN _lbl.val IS NULL OR _lbl.val = '' THEN #{fallback} ELSE (_lbl.val || ' ' || #{formatted}) END FROM (SELECT #{label_sql} AS val) _lbl)"
+            else
+              "COALESCE(NULLIF(#{label_sql}, ''), #{fallback})"
+            end
+
+          {:ok, "(#{haystack}) ILIKE #{param}::text", params}
+        end
+    end
+  end
+
+  defp search_filter(_fields, _search, _params, _opts), do: {:error, :invalid_query}
+
   defp ids(nil, params), do: {:ok, "TRUE", params}
 
   defp ids(ids, params) when is_list(ids) do
@@ -803,11 +923,17 @@ defmodule Ankole.Pod.Query do
         _ -> {Ankole.Attrs.get(attrs, :group), Ankole.Attrs.get(attrs, :groups)}
       end
 
+    search =
+      case Ankole.Attrs.get(attrs, :search) do
+        value when is_binary(value) and value != "" -> value
+        _ -> nil
+      end
+
     :crypto.hash(
       :sha256,
       :erlang.term_to_binary(
         {Ankole.Attrs.get(attrs, :sort, []), Ankole.Attrs.get(attrs, :filter),
-         Ankole.Attrs.get(attrs, :ids), slices},
+         Ankole.Attrs.get(attrs, :ids), slices, search},
         [:deterministic]
       )
     )

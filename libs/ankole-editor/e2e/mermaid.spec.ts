@@ -227,3 +227,169 @@ test('the Mermaid extension renders in a standalone Wordgard view and reuses emp
   expect(standalone.gutter).toBe('1\n2')
   expect(standalone.hasSvg).toBe(true)
 })
+
+test('pasting into a selected Mermaid block updates its source and keeps its block attributes, while whole-block copy still replaces', async ({
+  page
+}) => {
+  await openDocument(page, `Intro\n\n${taggedFence('<mermaid theme="dark">', 'flowchart LR\n  X --> Y')}\n\nOutro`)
+  const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
+  const block = page.locator('.mermaid-block')
+
+  // Escape selects the Mermaid block as a whole block; pasting rich external HTML + text replaces its source.
+  await caret(block.locator('.mermaid-pre'), 'end')
+  await page.keyboard.press('Escape')
+  await expect(block).toHaveClass(/editor-selected-block/)
+  await clipboard(editor, 'paste', {
+    'text/html': '<div style="color:#d4d4d4"><span>flowchart TD</span><br><span>  A[Start] --&gt; B[End]</span></div>',
+    'text/plain': 'flowchart TD\n  A[Start] --> B[End]'
+  })
+  await expect(block).toHaveCount(1)
+  await expect(block).toHaveAttribute('data-theme', 'dark')
+  await expectMarkdown(
+    page,
+    `Intro\n\n${taggedFence('<mermaid theme="dark">', 'flowchart TD\n  A[Start] --> B[End]')}\n\nOutro`
+  )
+
+  // Duplicating with Mod+D selects the new Mermaid block; pasting updates the duplicate's source in place.
+  await caret(block.locator('.mermaid-pre'), 'end')
+  await editor.press('ControlOrMeta+d')
+  const second = page.locator('.mermaid-block').nth(1)
+  await expect(second).toHaveClass(/editor-selected-block/)
+  await clipboard(editor, 'paste', { 'text/plain': 'flowchart LR\n  M --> N' })
+  await expectMarkdown(
+    page,
+    `Intro\n\n${taggedFence('<mermaid theme="dark">', 'flowchart TD\n  A[Start] --> B[End]')}\n\n${taggedFence('<mermaid theme="dark">', 'flowchart LR\n  M --> N')}\n\nOutro`
+  )
+
+  // Switching the second block to diagram-only view and clicking its preview selects it as a whole block for paste.
+  await second.locator('[data-mermaid-action="view"]').click()
+  await page.getByRole('menuitemradio', { name: '仅展示图表' }).click()
+  await expect(second).toHaveAttribute('data-view', 'diagram')
+  await caret(page.locator('.editor-content > p').first(), 'end')
+  await second.locator('.mermaid-preview').click()
+  await expect(second).toHaveClass(/editor-selected-block/)
+  await clipboard(editor, 'paste', { 'text/plain': 'flowchart TD\n  P --> Q' })
+  await expect(second).toHaveClass(/editor-selected-block/)
+  await expectMarkdown(
+    page,
+    `Intro\n\n${taggedFence('<mermaid theme="dark">', 'flowchart TD\n  A[Start] --> B[End]')}\n\n${taggedFence('<mermaid theme="dark" view="diagram">', 'flowchart TD\n  P --> Q')}\n\nOutro`
+  )
+
+  // Whole-block copy inside the editor still replaces the selected Mermaid block.
+  await caret(page.locator('.editor-content > p').first(), 0)
+  await editor.press('Escape')
+  const copiedBlock = await clipboard(editor, 'copy')
+  await second.locator('.mermaid-preview').click()
+  await clipboard(editor, 'paste', copiedBlock)
+  await expect(page.locator('.mermaid-block')).toHaveCount(1)
+  await expectMarkdown(
+    page,
+    `Intro\n\n${taggedFence('<mermaid theme="dark">', 'flowchart TD\n  A[Start] --> B[End]')}\n\nIntro\n\nOutro`
+  )
+})
+
+test('Mod+A and paste inside an empty Mermaid block keeps neighbors and never turns the Mermaid block into a paragraph', async ({
+  page
+}) => {
+  await openDocument(page, 'Before\n\n```mermaid\n```\n\nAfter')
+  const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
+  const pre = page.locator('.mermaid-block .mermaid-pre')
+
+  await pre.click()
+  await editor.press('ControlOrMeta+a')
+  await clipboard(editor, 'paste', {
+    'text/html': '<p>flowchart TD</p><p>  A --&gt; B</p>',
+    'text/plain': 'flowchart TD\n  A --> B'
+  })
+  await expect(page.locator('.mermaid-block')).toHaveCount(1)
+  await expectMarkdown(page, `Before\n\n${fence('flowchart TD\n  A --> B')}\n\nAfter`)
+
+  // Even when an empty Mermaid block is the sole block on the page and Mod+A is pressed twice, paste enters Mermaid.
+  await openDocument(page, '```mermaid\n```')
+  await page.locator('.mermaid-block .mermaid-pre').click()
+  await editor.press('ControlOrMeta+a')
+  await editor.press('ControlOrMeta+a')
+  await clipboard(editor, 'paste', { 'text/plain': 'flowchart LR\n  Solo --> Node' })
+  await expect(page.locator('.mermaid-block')).toHaveCount(1)
+  await expectMarkdown(page, fence('flowchart LR\n  Solo --> Node'))
+})
+
+test('same-editor cut of multi-paragraph commented text pastes into a Mermaid block with comment anchors intact', async ({
+  page
+}) => {
+  const commentId = '019a2b00-0000-7000-8000-000000000001'
+  await page.goto('/playground/embedded.html')
+  await page.getByRole('button', { name: 'Apply comment to first', exact: true }).click()
+  const first = page.getByRole('textbox', { name: 'First document', exact: true })
+  await expect(first.locator('[data-comment-ids]')).toHaveAttribute('data-comment-ids', commentId)
+
+  await caret(first.locator('p').last(), 'end')
+  await first.press('Enter')
+  await page.keyboard.type('/mermaid')
+  await page.getByRole('option', { name: /Mermaid/ }).click()
+  const mermaidBlock = first.locator('.mermaid-block')
+  await expect(mermaidBlock).toBeVisible()
+
+  const selectInFirst = async () => {
+    await first.evaluate(element => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+      const texts: Text[] = []
+      while (walker.nextNode()) texts.push(walker.currentNode as Text)
+      const anchor = texts.find(node => node.data === 'Anchored text')!
+      const focus = texts.find(node => node.data === 'Destination')!
+      ;(element as HTMLElement).focus()
+      window.getSelection()!.setBaseAndExtent(anchor, 0, focus, 11)
+      document.dispatchEvent(new Event('selectionchange'))
+    })
+  }
+
+  await selectInFirst()
+  const cut = await clipboard(first, 'cut')
+  await expect(first.locator('[data-comment-ids]')).toHaveCount(0)
+
+  // Pasting at a caret inside the Mermaid source preserves both the Mermaid block and the comment anchor.
+  await mermaidBlock.locator('.mermaid-pre').click()
+  await clipboard(first, 'paste', cut)
+  await expect(mermaidBlock).toHaveCount(1)
+  await expect(mermaidBlock.locator('.mermaid-pre br')).toHaveCount(1)
+  await expect(mermaidBlock.locator('[data-comment-ids]')).toHaveText('Anchored text')
+  await expect(mermaidBlock.locator('[data-comment-ids]')).toHaveAttribute('data-comment-ids', commentId)
+  await expect(page.getByLabel('First Markdown', { exact: true })).toContainText(
+    '```mermaid\nAnchored text\nDestination\n```'
+  )
+
+  // Cutting from inside the Mermaid source and pasting onto a whole-block-selected Mermaid block also keeps both.
+  await selectInFirst()
+  const cutAgain = await clipboard(first, 'cut')
+  await first.press('Escape')
+  await expect(mermaidBlock).toHaveClass(/editor-selected-block/)
+  await clipboard(first, 'paste', cutAgain)
+  await expect(mermaidBlock).toHaveCount(1)
+  await expect(mermaidBlock.locator('.mermaid-pre br')).toHaveCount(1)
+  await expect(mermaidBlock.locator('[data-comment-ids]')).toHaveText('Anchored text')
+  await expect(mermaidBlock.locator('[data-comment-ids]')).toHaveAttribute('data-comment-ids', commentId)
+  await expect(page.getByLabel('First Markdown', { exact: true })).toContainText(
+    '```mermaid\nAnchored text\nDestination\n```'
+  )
+})
+
+test('clicking the Mermaid toolbar or choosing a template focuses the Mermaid block for immediate paste and typing', async ({
+  page
+}) => {
+  await openDocument(page, 'Intro\n\n```mermaid\n```')
+  const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
+  const block = page.locator('.mermaid-block')
+
+  await caret(page.locator('.editor-content > p').first(), 'end')
+  await block.hover()
+  await block.locator('.mermaid-toolbar').click({ position: { x: 16, y: 18 } })
+  await clipboard(editor, 'paste', { 'text/plain': 'flowchart LR\n  T --> U' })
+  await expectMarkdown(page, `Intro\n\n${fence('flowchart LR\n  T --> U')}`)
+
+  await caret(page.locator('.editor-content > p').first(), 'end')
+  await block.locator('[data-mermaid-action="template"]').click()
+  await page.getByRole('menuitem', { name: '横向流程' }).click()
+  await editor.press('Enter')
+  await page.keyboard.type('  C --> D')
+  await expectMarkdown(page, `Intro\n\n${fence('flowchart LR\n  A[输入] --> B[处理] --> C[输出]\n  C --> D')}`)
+})

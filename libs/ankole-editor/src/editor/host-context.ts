@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { UploadedAsset } from '../document/resources'
+import { assetURL, safeLinkHref, type UploadedAsset } from '../document/resources'
 import type { Wordgard } from '../core/editor'
 import { GardState } from '../core/state'
 import type { MentionCategory } from './mention'
@@ -7,6 +7,14 @@ import type { MentionTarget } from './schema'
 import type { CommentSelection } from './comments'
 
 export type EmbedAttributes = { ref?: string; table?: string; view?: string }
+
+export type LinkMetadata = {
+  url?: string
+  title?: string
+  description?: string
+  image?: string
+  icon?: string
+}
 
 export type MentionItem = {
   target: MentionTarget
@@ -27,6 +35,7 @@ export type MentionQueryResult = {
 export type MountMentionOptions = {
   readOnly: boolean
   openPage?: (id: string) => void
+  embedPage?: (id: string) => void
 }
 
 export type EditorHost = {
@@ -34,7 +43,8 @@ export type EditorHost = {
     attributes: EmbedAttributes,
     container: HTMLElement,
     update: (attributes: EmbedAttributes) => void,
-    remove: () => void
+    remove: () => void,
+    collapseToMention?: () => void
   ): void | (() => void)
   mountMention?(target: MentionTarget, container: HTMLElement, options: MountMentionOptions): void | (() => void)
   queryMentions?(request: {
@@ -46,6 +56,17 @@ export type EditorHost = {
   mentionText?(target: MentionTarget): string | null
   /** Match a bare pasted internal page URL and return its page UUID, or `null` if external. */
   matchPageUrl?(url: string): string | null
+  /** Describe an internal `ankole:page/<id>` link target for link toolbars and editing forms. */
+  describePageLink?(id: string): { title?: string; href: string } | null
+  /**
+   * Whether a referenced internal page can switch between inline `<mention>` and block
+   * `<embed ref>`. May return a `Promise<boolean>` while page metadata is still loading.
+   */
+  canEmbedPage?(id: string): boolean | Promise<boolean>
+  /** Subscribe to host page metadata updates so inline page link and mention toolbars refresh reactively. */
+  subscribePageLinks?(listener: () => void): () => void
+  /** Resolve metadata (title, description, preview image, site icon) for an external HTTP or HTTPS URL. */
+  resolveLinkMetadata?(url: string, signal?: AbortSignal): Promise<LinkMetadata | null> | LinkMetadata | null
   resolveAsset?(address: string): string
   /** Upload bytes once through the host and return a durable address and metadata. */
   uploadAsset?(file: File): Promise<UploadedAsset>
@@ -65,6 +86,8 @@ export type EditorHost = {
   deleteEmbeds?(ids: readonly string[]): Promise<boolean>
   /** Ask the host to insert a chart block at the current selection. */
   insertChart?(editor: Wordgard): void
+  /** Ask the host to pick and insert an internal page embed (`<embed ref="..." />`) at the current selection. */
+  insertPageEmbed?(editor: Wordgard): void
 }
 
 export const hostFacet = GardState.Facet.define<EditorHost, EditorHost | undefined>({
@@ -79,4 +102,25 @@ export function attachHost(editor: Wordgard, host?: EditorHost) {
   return () => {
     hosts.delete(editor)
   }
+}
+
+/** Open a safe link address through the host or the browser. */
+export function openLinkHref(editor: Wordgard, href: string): boolean {
+  const safe = safeLinkHref(href)
+  if (!safe) return false
+  const host = editorHost(editor)
+  if (safe.startsWith('ankole:page/')) {
+    if (!host?.openPage) return false
+    host.openPage(safe.slice('ankole:page/'.length))
+    return true
+  }
+  const target = safe.startsWith('ankole:asset/') ? assetURL(safe, host?.resolveAsset) : safe
+  const allowedTarget = target ? safeLinkHref(target) : null
+  if (!allowedTarget || allowedTarget.startsWith('ankole:') || typeof window === 'undefined') return false
+  if (allowedTarget.startsWith('#')) {
+    window.location.hash = allowedTarget
+    return true
+  }
+  window.open(allowedTarget, '_blank', 'noopener,noreferrer')
+  return true
 }

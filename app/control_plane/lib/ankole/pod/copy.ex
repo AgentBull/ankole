@@ -201,8 +201,9 @@ defmodule Ankole.Pod.Copy do
     |> Enum.filter(&(&1.type == :link))
     |> Enum.reduce_while({:ok, []}, fn field, {:ok, links} ->
       with {:ok, table} <- Bases.table_access(actor, field.config["table_id"], :read),
-           primary when not is_nil(primary) <- Enum.find(Bases.fields(table.id), & &1.is_primary) do
-        {:cont, {:ok, [{field, table, primary} | links]}}
+           target_fields <- Bases.fields(table.id),
+           primary when not is_nil(primary) <- Enum.find(target_fields, & &1.is_primary) do
+        {:cont, {:ok, [{field, table, primary, target_fields} | links]}}
       else
         nil -> {:halt, {:error, :not_found}}
         error -> {:halt, error}
@@ -265,29 +266,38 @@ defmodule Ankole.Pod.Copy do
   # Read only the linked labels in this batch. Keep the JSON text in PostgreSQL
   # so a copy does not round numeric cells through an Elixir float.
   defp materialize_links(snapshot, links) do
-    Enum.reduce_while(links, {:ok, snapshot}, fn {field, table, primary}, {:ok, snapshot} ->
+    Enum.reduce_while(links, {:ok, snapshot}, fn {field, table, primary, target_fields},
+                                                 {:ok, snapshot} ->
       payload = "[" <> Enum.join(snapshot.records, ",") <> "]"
 
-      result =
-        BaseRepo.query(
-          """
-          SELECT jsonb_set(record, ARRAY['data', $2::text], COALESCE((
-            SELECT to_jsonb(string_agg(COALESCE(target.#{BaseRepo.column(primary.id)}, ''), ', ' ORDER BY ref.position))
-            FROM jsonb_array_elements_text(COALESCE(NULLIF(record->'data'->$2::text, 'null'::jsonb), '[]'::jsonb))
-              WITH ORDINALITY AS ref(id, position)
-            JOIN #{BaseRepo.table(table.id)} target ON target.id=ref.id::uuid
-          ), 'null'::jsonb), true)::text
-          FROM jsonb_array_elements($1::text::jsonb) WITH ORDINALITY AS source(record, position)
-          ORDER BY source.position
-          """,
-          [payload, field.id]
-        )
-
-      case result do
-        {:ok, %{rows: rows}} -> {:cont, {:ok, %{snapshot | records: Enum.map(rows, &hd/1)}}}
+      with {:ok, label_sql, params} <-
+             link_label_sql(table, primary, target_fields, [payload, field.id]),
+           {:ok, %{rows: rows}} <-
+             BaseRepo.query(
+               """
+               SELECT jsonb_set(record, ARRAY['data', $2::text], COALESCE((
+                 SELECT to_jsonb(NULLIF(string_agg(COALESCE(label.value, ''), ', ' ORDER BY ref.position), ''))
+                 FROM jsonb_array_elements_text(COALESCE(NULLIF(record->'data'->$2::text, 'null'::jsonb), '[]'::jsonb))
+                   WITH ORDINALITY AS ref(id, position)
+                 JOIN #{BaseRepo.table(table.id)} r ON r.id=ref.id::uuid
+                 CROSS JOIN LATERAL (SELECT #{label_sql} AS value) label
+               ), 'null'::jsonb), true)::text
+               FROM jsonb_array_elements($1::text::jsonb) WITH ORDINALITY AS source(record, position)
+               ORDER BY source.position
+               """,
+               params
+             ) do
+        {:cont, {:ok, %{snapshot | records: Enum.map(rows, &hd/1)}}}
+      else
         error -> {:halt, error}
       end
     end)
+  end
+
+  defp link_label_sql(table, primary, target_fields, params) do
+    physical_fields = Physical.fields(table, target_fields)
+    physical_primary = Enum.find(physical_fields, &(&1.id == primary.id))
+    Query.display_label_sql(physical_primary, physical_fields, params)
   end
 
   defp stage_records(actor, source, target, fields, copied, limits, options) do

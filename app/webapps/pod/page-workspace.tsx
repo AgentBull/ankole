@@ -22,6 +22,8 @@ import {
   revealComment,
   foldedHeadings,
   toggleHeading,
+  pasteTextAtDocumentStart,
+  splitPastedDocumentTitle,
   EditorSelection,
   type Editor
 } from '@ankole/block-editor/editor'
@@ -901,6 +903,35 @@ function PageWorkspace({
                           titleDraft.value.value
                         ))
                       }
+                      onPaste={event => {
+                        const editor = documentEditor.current
+                        if (!editor || editor.state.readOnly) return
+                        const rawText = event.clipboardData?.getData('text/plain') ?? ''
+                        if (!rawText) return
+                        const current = event.currentTarget.value
+                        const start = event.currentTarget.selectionStart ?? current.length
+                        const end = event.currentTarget.selectionEnd ?? current.length
+                        const split = splitPastedDocumentTitle(rawText, {
+                          replaceAllTitle: start === 0 && end === current.length
+                        })
+                        if (!split) return
+                        event.preventDefault()
+                        if (split.title) {
+                          const merged = `${current.slice(0, start)}${split.title.replace(/\n/g, ' ')}${current.slice(end)}`
+                          const next = limitPageTitle(merged, titleDraft.value.value)
+                          titleDraft.value.value = next
+                          const caretPos = Math.min(next.length, start + split.title.length)
+                          queueMicrotask(() => {
+                            const input = titleInput.current
+                            if (!split.body && input && input === document.activeElement) {
+                              input.setSelectionRange(caretPos, caretPos)
+                            }
+                          })
+                        }
+                        if (split.body) {
+                          pasteTextAtDocumentStart(editor, split.body)
+                        }
+                      }}
                       onCompositionStart={() => setTitleComposing(true)}
                       onCompositionEnd={() => setTitleComposing(false)}
                       onKeyDown={event => {

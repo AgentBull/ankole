@@ -7,6 +7,7 @@ import {
   reopen,
   replaceDocument,
   selectDocument,
+  selectText,
   test
 } from './helpers'
 
@@ -159,3 +160,90 @@ for (const { name, markdown, at, text, expected } of [
     await expectMarkdown(page, expected)
   })
 }
+
+test('pasting a bare URL links selected text in place and opens the floating link view bar on caret paste', async ({
+  page,
+  baseURL
+}) => {
+  const url = `${baseURL}/resource-preview.html`
+  await openDocument(page, 'Read guide today')
+  await selectText(page, 'Read guide today', 5, 'Read guide today', 10)
+  const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
+  await clipboard(editor, 'paste', { 'text/plain': url })
+
+  const link = page.locator('.editor-content a')
+  await expect(link).toHaveText('guide')
+  await expect(link).toHaveAttribute('href', url)
+  const linkToolbar = page.getByRole('toolbar', { name: '链接', exact: true })
+  await expect(linkToolbar).toBeVisible()
+  await expect(linkToolbar.getByRole('button', { name: '视图', exact: true })).toContainText('标题视图')
+
+  await page.getByRole('button', { name: '撤销', exact: true }).click()
+  await expect(page.locator('.editor-content a')).toHaveCount(0)
+  await expectMarkdown(page, 'Read guide today')
+
+  // Pasting a bare URL at an empty caret inserts a link in link view and immediately opens the link bar.
+  await openDocument(page, '')
+  await editor.click()
+  await clipboard(editor, 'paste', { 'text/plain': url })
+  await expect(link).toHaveText(url)
+  await expect(linkToolbar).toBeVisible()
+  await expect(linkToolbar.getByRole('button', { name: '视图', exact: true })).toContainText('链接视图')
+})
+
+test('IDE Markdown paste, multi-line VS Code code paste, and iframe snippet paste produce structured blocks', async ({
+  page,
+  baseURL
+}) => {
+  const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
+  await openDocument(page, '')
+  await editor.click()
+
+  const md = [
+    '# Ankole 生命周期',
+    '',
+    '配置 `<botId>` 与 <placeholder> 说明：',
+    '',
+    '- [x] 启动完成',
+    '',
+    '```mermaid',
+    'stateDiagram-v2',
+    '  [*] --> Ready',
+    '```'
+  ].join('\n')
+
+  await clipboard(editor, 'paste', {
+    'text/plain': md,
+    'text/html':
+      '<div style="color:#ccc;background:#1f1f1f;white-space:pre"><div><span># Ankole 生命周期</span></div><br><div><span>配置 `&lt;botId&gt;` 与 &lt;placeholder&gt; 说明：</span></div></div>',
+    'vscode-editor-data': JSON.stringify({ version: 1, mode: 'markdown' })
+  })
+
+  await expect(page.locator('.editor-content h1')).toHaveText('Ankole 生命周期')
+  await expectMarkdown(
+    page,
+    '# Ankole 生命周期\n\n配置 `<botId>` 与 \\<placeholder> 说明：\n\n- [x] 启动完成\n\n```mermaid\nstateDiagram-v2\n  [*] --> Ready\n```'
+  )
+
+  await openDocument(page, '')
+  await editor.click()
+  await clipboard(editor, 'paste', {
+    'text/plain': 'export const Card = () => <section>Hi</section>\nexport default Card\n',
+    'text/html':
+      '<div style="white-space:pre"><div><span>export const Card = () =&gt; &lt;section&gt;Hi&lt;/section&gt;</span></div></div>',
+    'vscode-editor-data': JSON.stringify({ version: 1, mode: 'typescriptreact' })
+  })
+  await expect(page.locator('.editor-content pre[data-language="tsx"]')).toContainText('export const Card')
+  await expectMarkdown(page, '```tsx\nexport const Card = () => <section>Hi</section>\nexport default Card\n```')
+
+  const previewUrl = `${baseURL}/resource-preview.html`
+  await openDocument(page, '')
+  await editor.click()
+  await clipboard(editor, 'paste', {
+    'text/plain': `<iframe src="${previewUrl}" height="320" title="Preview demo"></iframe>`
+  })
+  const embedBlock = page.locator('.editor-content .resource-block[data-kind="embed"][data-view="preview"]')
+  await expect(embedBlock).toHaveCount(1)
+  await expect(embedBlock.locator('iframe')).toHaveAttribute('src', previewUrl)
+  await expectMarkdown(page, `<embed height="320" href="${previewUrl}" title="Preview demo" />`)
+})

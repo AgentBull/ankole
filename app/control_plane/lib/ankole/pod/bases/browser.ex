@@ -225,6 +225,7 @@ defmodule Ankole.Pod.Bases.Browser do
       )
 
       argument(:id, UUIDv7, allow_nil?: false)
+      argument(:search, :string, constraints: [allow_empty?: true])
       argument(:filter, :map, constraints: @filter)
 
       argument(:sort, {:array, :map},
@@ -438,6 +439,7 @@ defmodule Ankole.Pod.Bases.Browser do
       argument(:position, :string)
       argument(:type, :atom, constraints: @field_types)
       argument(:config, JSONMap)
+      argument(:is_primary, :boolean)
       argument(:clear_invalid, :boolean)
 
       run(fn input, context ->

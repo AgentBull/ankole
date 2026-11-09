@@ -221,11 +221,9 @@ defmodule Ankole.Pod.Bases.Physical do
   end
 
   def index!(table, field) do
-    if stored?(field) and (field.is_primary or field.type == :auto_number) do
-      collation = if Formula.type(field) == :text, do: " COLLATE \"C\"", else: ""
-
+    if stored?(field) and field.type == :auto_number do
       BaseRepo.query!(
-        "CREATE INDEX \"ix_#{BaseRepo.hex(field.id)}\" ON #{BaseRepo.table(table.id)} (#{BaseRepo.column(field.id)}#{collation})",
+        "CREATE INDEX \"ix_#{BaseRepo.hex(field.id)}\" ON #{BaseRepo.table(table.id)} (#{BaseRepo.column(field.id)})",
         []
       )
     end

@@ -20,8 +20,27 @@ import {
   type EmbedAttributes,
   type PageChanges
 } from '@ankole/block-editor/editor'
-import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, DropdownMenuItem, toast } from '@ankole/uikit'
-import { RiBarChartBoxLine, RiCloseLine, RiExternalLinkLine, RiLayoutGridLine } from '@remixicon/react'
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  toast
+} from '@ankole/uikit'
+import {
+  RiArrowDownSLine,
+  RiAtLine,
+  RiBarChartBoxLine,
+  RiCheckLine,
+  RiCloseLine,
+  RiExternalLinkLine,
+  RiWindowLine
+} from '@remixicon/react'
 
 import { useModel } from '@preact/signals-react'
 import { DocumentPresence } from './document-presence'
@@ -39,7 +58,7 @@ import {
 } from '../common/external-translation-guard'
 
 import { requestErrorMessage } from '../common/request-errors'
-import { contentKeys, fileURL, pageAPI, pageQuery, type PageDetail } from './content-api'
+import { contentKeys, fileURL, pageAPI, pageQuery, resolvePodLinkMetadata, type PageDetail } from './content-api'
 import { contentError } from './content-errors'
 import { ContentError, ContentLoading, ContentSkeleton, InlineLoading } from './content-primitives'
 import { createMentionHostAdapters } from './document-mentions'
@@ -155,7 +174,7 @@ export function DocumentPage({
       ...(canAskAgent
         ? { askAgent: (selection: { from: number; to: number; quote: string }) => askAgent(selection) }
         : {}),
-      mountEmbed: (attributes, container, update, remove) => {
+      mountEmbed: (attributes, container, update, remove, collapseToMention) => {
         const trashed = Boolean(detail.page.deleted_at)
         // The editor can hand a reused container to the next embed before this root unmounts.
         const mount = container.appendChild(document.createElement('div'))
@@ -180,6 +199,7 @@ export function DocumentPage({
                     trashed={trashed}
                     model={model}
                     remove={remove}
+                    collapseToMention={collapseToMention}
                     configure={(config, table) =>
                       update({ ...attributes, ...(table ? { table } : {}), view: JSON.stringify(config) })
                     }
@@ -213,6 +233,7 @@ export function DocumentPage({
       openPage: id => void navigate({ to: content.pageHref(id) }),
       resolveAsset: src =>
         src.startsWith('ankole:asset/') ? fileURL(detail.page.id, `assets/${src.slice('ankole:asset/'.length)}`) : src,
+      resolveLinkMetadata: (url, signal) => resolvePodLinkMetadata(client, url, signal),
       deleteEmbeds: async ids => {
         try {
           await pageAPI.removeEmbeds(detail.page.id, ids)
@@ -225,6 +246,10 @@ export function DocumentPage({
           toast.error(requestErrorMessage(contentError(error)))
           return false
         }
+      },
+      insertPageEmbed: () => {
+        if (!canEdit || detail.page.deleted_at || model.conflict.value) return
+        queueMicrotask(() => setEmbedPickerOpen(true))
       },
       insertChart: () => {
         if (!canEdit || detail.page.deleted_at || model.conflict.value) return
@@ -358,36 +383,18 @@ export function DocumentPage({
             )}
             toolbar={null}
             insertMenu={prepareInsertion => (
-              <>
-                <CreatePageSubmenu
-                  parentID={detail.page.id}
-                  label={t('pod.content.new_page')}
-                  types={['doc', 'base']}
-                  create={{
-                    ...createChildPage,
-                    submit: type => {
-                      prepareInsertion()
-                      return createChildPage.submit(type)
-                    }
-                  }}
-                />
-                <DropdownMenuItem
-                  onClick={() => {
+              <CreatePageSubmenu
+                parentID={detail.page.id}
+                label={t('pod.content.new_page')}
+                types={['doc', 'base']}
+                create={{
+                  ...createChildPage,
+                  submit: type => {
                     prepareInsertion()
-                    queueMicrotask(() => setEmbedPickerOpen(true))
-                  }}>
-                  <RiLayoutGridLine aria-hidden />
-                  {t('pod.content.embed_existing_content')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    prepareInsertion()
-                    queueMicrotask(() => setChartPickerOpen(true))
-                  }}>
-                  <RiBarChartBoxLine aria-hidden />
-                  {t('pod.editor.chart', { defaultValue: 'Chart' })}
-                </DropdownMenuItem>
-              </>
+                    return createChildPage.submit(type)
+                  }
+                }}
+              />
             )}
             onError={setCollaborationError}
             onReady={(instance, editorHandle) => {
@@ -809,6 +816,7 @@ export function PageEmbed({
   trashed,
   model,
   remove,
+  collapseToMention,
   configure,
   bindSavedView,
   openPage
@@ -818,6 +826,7 @@ export function PageEmbed({
   trashed: boolean
   model: InstanceType<typeof DocumentDraftModel>
   remove(): void
+  collapseToMention?(): void
   configure(config: Record<string, unknown>, table?: string): void
   bindSavedView?(viewID: string, table?: string): void
   openPage(id: string): void
@@ -891,14 +900,47 @@ export function PageEmbed({
   return (
     <div
       ref={containerRef}
-      className="pod-inline-page"
+      className="pod-inline-page group/inline-page my-4 min-w-0"
       data-page-type={page.type}
       data-chart-embed={isChartIntent || undefined}>
-      <Button variant="ghost" className="pod-inline-page-title" onClick={() => openPage(query.data!.page.id)}>
-        <PageIcon page={page} />
-        <span className="truncate">{page.title || t('pod.content.untitled')}</span>
-        <RiExternalLinkLine aria-hidden />
-      </Button>
+      <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
+        <Button
+          variant="ghost"
+          className="-ml-1 h-7.5 min-w-0 max-w-full justify-start px-1 py-0.5 text-base font-semibold"
+          onClick={() => openPage(query.data!.page.id)}>
+          <PageIcon page={page} />
+          <span className="truncate">{page.title || t('pod.content.untitled')}</span>
+          <RiExternalLinkLine aria-hidden className="shrink-0" />
+        </Button>
+        {canConfigureEmbed && collapseToMention && (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="shrink-0 gap-1 text-fg-secondary opacity-0 transition-opacity duration-120 group-focus-within/inline-page:opacity-100 group-hover/inline-page:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100"
+                  aria-label={t('pod.editor.resource_view')}
+                />
+              }>
+              <RiWindowLine aria-hidden />
+              <span>{t('pod.editor.mention_view_embed')}</span>
+              <RiArrowDownSLine aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" aria-label={t('pod.editor.resource_view')}>
+              <DropdownMenuItem onClick={collapseToMention}>
+                <RiAtLine aria-hidden />
+                <span>{t('pod.editor.mention_view_inline')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem data-active="true">
+                <RiWindowLine aria-hidden />
+                <span>{t('pod.editor.mention_view_embed')}</span>
+                <RiCheckLine aria-hidden className="ml-auto text-foreground" />
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
       {page.type === 'base' ? (
         !chartVisible ? (
           <ContentSkeleton variant="block" className="h-[280px]" />

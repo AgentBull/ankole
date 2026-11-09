@@ -27,26 +27,24 @@ export const resourceWidget = Widget.define<ResourceKind | 'embed'>({
   propagateEvent: false
 })
 
-const leaf = (kind: ResourceKind) =>
-  Leaf.define({ media: 'Media', bookmark: 'Bookmark' }[kind], {
-    group: Node.Group.Content,
-    selectable: true,
-    shape: { structure: resourceShape(kind), selector: `div[data-resource="${kind}"]` }
-  })
+export const Media = Leaf.define('Media', {
+  group: Node.Group.Content,
+  selectable: true,
+  shape: { structure: resourceShape('media'), selector: 'div[data-resource="media"]' }
+})
 
-const nodes = { media: leaf('media'), bookmark: leaf('bookmark') }
+const nodes: Record<ResourceKind, typeof Media> = { media: Media }
 
 /** Open and focus the resource form for the block at this position. */
 export const openResourceEditor = Transaction.Effect.define<number>()
 /** Close the resource form focus request. */
 export const closeResourceEditor = Transaction.Effect.define<null>()
 
-/** True for media, bookmark, and external URL embed blocks rendered by `ResourceBlock`. */
+/** True for media and external URL embed blocks rendered by `ResourceBlocks`. */
 export function isEditableResource(node: Node | null | undefined): boolean {
   return (
     !!node &&
-    (node.type === nodes.media.type ||
-      node.type === nodes.bookmark.type ||
+    (node.type === Media.type ||
       (node.type.name === 'Embed' && node.marks.some(mark => mark.type.name === 'EmbedHref')))
   )
 }
@@ -121,9 +119,8 @@ export function resourceChanges(node: Node, from: number, attrs: ResourceAttribu
   })
 }
 
-const keywords = {
-  media: 'media image picture img photo video movie 图片 图像 媒体 照片 视频 影片',
-  bookmark: 'bookmark website webpage link url card 网页 网站 网址 链接 卡片 书签'
+const keywords: Record<ResourceKind, string> = {
+  media: 'media image picture img photo video movie 图片 图像 媒体 照片 视频 影片'
 }
 
 export const resourceBlocks: readonly BlockDefinition[] = (Object.keys(nodes) as ResourceKind[]).map((kind, index) => ({
@@ -155,7 +152,7 @@ export const resourceBlocks: readonly BlockDefinition[] = (Object.keys(nodes) as
   }
 }))
 
-function resourceNode(kind: ResourceKind, attrs: ResourceAttributes) {
+export function resourceNode(kind: ResourceKind, attrs: ResourceAttributes) {
   return resourceBlocks
     .find(block => block.name === kind)!
     .import(element(kind, attrs as Record<string, string>), { blocks: () => [], code: () => [] })

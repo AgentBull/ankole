@@ -59,7 +59,7 @@ import { ContentError, ContentSkeleton } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
 import { BaseViewContent, RecordForm, type ViewProps } from './base-views'
 import { QueryControls } from './base-query-controls'
-import { FieldEditorButton } from './base-fields'
+import { FieldEditorButton, resolveVisibleFields } from './base-fields'
 import { podBaseCopy } from './api/generated/sdk.gen'
 import { pageSearchQuery, pageQuery, type Page } from './content-api'
 import { BaseSummary } from './base-summary'
@@ -188,16 +188,15 @@ export function nextViewName(views: readonly Pick<BaseView, 'name'>[], baseLabel
 }
 
 export function sanitizeViewConfig(config: ViewConfig, fields: BaseField[], viewType?: ViewType): ViewConfig {
-  if (viewType === 'chart' || config.type === 'chart' || Boolean(config.chart) || Boolean(config.chart_type)) {
+  const effectiveType: ViewType = viewType ?? (config.type as ViewType | undefined) ?? 'grid'
+  if (effectiveType === 'chart' || Boolean(config.chart) || Boolean(config.chart_type)) {
     // Preserve chart field references intact so deleted fields trigger in-place repair instead of silent erasure.
     return { ...config }
   }
   const known = new Set(fields.map(field => field.id))
-  const primaryID = fields.find(field => field.is_primary)?.id
   const next: ViewConfig = { ...config }
   if (next.visible_fields) {
-    const filtered = next.visible_fields.filter(id => known.has(id))
-    next.visible_fields = primaryID && !filtered.includes(primaryID) ? [primaryID, ...filtered] : filtered
+    next.visible_fields = resolveVisibleFields(fields, next.visible_fields, effectiveType).map(field => field.id)
   }
   if (!next.group_field_id || !known.has(next.group_field_id)) delete next.group_field_id
   if (!next.cover_field_id || !known.has(next.cover_field_id)) delete next.cover_field_id
@@ -775,6 +774,11 @@ function TableWorkspace({
     onFieldCreated: handleFieldCreated
   }
   const copiedLocation = copiedPageID ? pageHref(copiedPageID) : undefined
+  const isGridView = effective.type === 'grid'
+  const visibleFieldIDs =
+    effective.type === 'chart'
+      ? []
+      : resolveVisibleFields(schema.data.fields, effective.config.visible_fields, effective.type).map(item => item.id)
   const showDraftBanner =
     Boolean(draft) &&
     !(isInlineConfigEmbed && canEditDocInline) &&
@@ -991,10 +995,11 @@ function TableWorkspace({
                   <div className="min-h-0 flex-1 grid gap-1 overflow-y-auto">
                     {schema.data.fields.map(field => {
                       const Icon = fieldIcons[field.type]
-                      const checked =
-                        field.is_primary ||
-                        !effective.config.visible_fields ||
-                        effective.config.visible_fields.includes(field.id)
+                      const checked = visibleFieldIDs.includes(field.id)
+                      const disableToggle =
+                        updateView.isPending ||
+                        (!isGridView && field.is_primary) ||
+                        (isGridView && checked && visibleFieldIDs.length <= 1)
                       return (
                         <div
                           key={field.id}
@@ -1002,20 +1007,13 @@ function TableWorkspace({
                           <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm">
                             <Checkbox
                               checked={checked}
-                              disabled={field.is_primary || updateView.isPending}
+                              disabled={disableToggle}
                               onCheckedChange={next => {
-                                const visible = effective.config.visible_fields
-                                  ? schema
-                                      .data!.fields.filter(
-                                        item => item.is_primary || effective.config.visible_fields!.includes(item.id)
-                                      )
-                                      .map(item => item.id)
-                                  : schema.data!.fields.map(item => item.id)
                                 configure({
                                   ...effective.config,
                                   visible_fields: next
-                                    ? [...new Set([...visible, field.id])]
-                                    : visible.filter(id => id !== field.id)
+                                    ? [...new Set([...visibleFieldIDs, field.id])]
+                                    : visibleFieldIDs.filter(id => id !== field.id)
                                 })
                               }}
                             />

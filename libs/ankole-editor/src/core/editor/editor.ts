@@ -10,6 +10,7 @@ import {
   clipboardOutputFilter,
   clipboardOutputHTMLFilter,
   clipboardOutputTextFilter,
+  clipboardDataParser,
   clipboardInputFilter,
   clipboardInputHTMLFilter,
   clipboardInputTextFilter,
@@ -742,6 +743,14 @@ export class Wordgard {
    * clipboard.
    */
   static clipboardInputHTMLFilter = clipboardInputHTMLFilter
+
+  /**
+   * When the editor reads clipboard data outside code and without Shift,
+   * this facet can inspect the full `DataTransfer` (such as IDE metadata
+   * or plain-text HTML wrappers) and return a slice before default HTML
+   * or plain-text parsing runs.
+   */
+  static clipboardDataParser = clipboardDataParser
 
   /**
    * When the editor reads plain text from the clipboard, this facet

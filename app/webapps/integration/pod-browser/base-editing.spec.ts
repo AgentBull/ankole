@@ -29,24 +29,84 @@ async function choose(page: Page, name: string, option: string) {
   await expect(trigger).toHaveAttribute('aria-expanded', 'false')
 }
 
-test('the primary field can be renamed while its text type stays fixed', async ({ browser }) => {
+test('empty columns change type in one step, populated columns confirm conversion, and any column can be display, hidden, or deleted', async ({
+  browser
+}) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   let pageID: string | undefined
   try {
-    const saved = await base(page, 'Primary field')
+    const saved = await base(page, 'Peer columns and empty type change')
     pageID = saved.pageID
     await page.goto(location(saved.pageID))
     await page.getByRole('button', { name: 'Responses', exact: true }).click()
+
+    // 1. Initial display column on a 0-row table can change type in 1 step without confirmation, and has no delete button while sole column.
     await page.getByRole('button', { name: saved.primary.name, exact: true }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('combobox', { name: '字段类型', exact: true })).toBeDisabled()
-    await dialog.getByRole('textbox', { name: '字段名称', exact: true }).fill('Title')
+    await expect(dialog.getByRole('combobox', { name: '字段类型', exact: true })).toBeEnabled()
+    await expect(dialog.getByRole('button', { name: '删除字段', exact: true })).toHaveCount(0)
+    await dialog.getByRole('textbox', { name: '字段名称', exact: true }).fill('分类')
+    await choose(page, '字段类型', '选项')
+    await dialog.getByRole('button', { name: '添加选项', exact: true }).click()
+    await dialog.getByRole('textbox', { name: '选项 1', exact: true }).fill('硬件')
     await dialog.getByRole('button', { name: '保存字段', exact: true }).click()
     await expect(dialog).not.toBeVisible()
-    const schema = await request<TableSchema>(page, `/tables/${saved.tableID}`)
-    expect(schema.fields.find(field => field.is_primary)).toMatchObject({ name: 'Title', type: 'text' })
+
+    let schema = await request<TableSchema>(page, `/tables/${saved.tableID}`)
+    const category = schema.fields.find(field => field.id === saved.primary.id)!
+    expect(category).toMatchObject({ name: '分类', type: 'select', is_primary: true })
+
+    // 2. Without reloading the page, add a second column and create a row via the UI so live schema record_count advances from 0 to 1 while page tables cache stays at 0.
+    await page.locator('thead').getByRole('button', { name: '添加字段', exact: true }).click()
+    await dialog.getByRole('textbox', { name: '字段名称', exact: true }).fill('备注')
+    await dialog.getByRole('button', { name: '保存字段', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+
+    await page.getByRole('button', { name: '新增记录', exact: true }).click()
+    await choose(page, '分类', '硬件')
+    await dialog.getByRole('button', { name: '提交记录', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+
+    // 3. Empty column on a non-empty table still changes type in 1 step without confirmation, and can be promoted to display field.
+    await page.getByRole('button', { name: '备注', exact: true }).click()
+    await choose(page, '字段类型', '数字')
+    await dialog.getByRole('checkbox', { name: '设为展示列（用于跨表关联与卡片标题）', exact: true }).check()
+    await dialog.getByRole('button', { name: '保存字段', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+
+    schema = await request<TableSchema>(page, `/tables/${saved.tableID}`)
+    const noteField = schema.fields.find(field => field.name === '备注')!
+    expect(noteField).toMatchObject({
+      name: '备注',
+      type: 'number',
+      is_primary: true
+    })
+
+    // 4. Populated column requires confirmation before converting existing values, and can now be deleted since >= 2 columns exist.
+    await page.getByRole('button', { name: '分类', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: '删除字段', exact: true })).toBeVisible()
+    await choose(page, '字段类型', '文本')
+    await dialog.getByRole('button', { name: '保存字段', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: '确认更改字段', exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: '确认更改字段', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+
+    // 5. Grid view allows hiding the active display column as long as >= 1 column stays visible, and deleting any column when >= 2 columns exist.
+    await page.getByRole('button', { name: '字段', exact: true }).click()
+    await expect(page.getByRole('checkbox', { name: '备注', exact: true })).toBeEnabled()
+    await page.getByRole('checkbox', { name: '备注', exact: true }).uncheck()
+    await expect(page.getByRole('checkbox', { name: '分类', exact: true })).toBeDisabled()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('thead').getByRole('button', { name: '备注', exact: true })).toHaveCount(0)
+
+    await page.getByRole('button', { name: '分类', exact: true }).click()
+    await dialog.getByRole('button', { name: '删除字段', exact: true }).click()
+    await dialog.getByRole('button', { name: '确认删除字段', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    schema = await request<TableSchema>(page, `/tables/${saved.tableID}`)
+    expect(schema.fields.map(field => field.id)).toEqual([noteField.id])
   } finally {
     if (pageID) await request(page, `/pages/${pageID}`, 'DELETE').catch(() => {})
     await context.close()

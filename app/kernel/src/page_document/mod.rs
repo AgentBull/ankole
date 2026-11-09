@@ -211,12 +211,12 @@ fn collect_plain_text(root: &Element, record_sections: bool) -> (String, Vec<Pag
         let section_start = text.len();
 
         match node.name.as_str() {
-            "bookmark" | "media" => {
+            "media" => {
                 let mut parts = Vec::with_capacity(3);
                 push_unique(&mut parts, node.attrs.get("title"));
                 push_unique(&mut parts, node.attrs.get("description"));
                 if let Some(src) = node.attrs.get("src")
-                    && searchable_url(src, node.name == "bookmark")
+                    && searchable_url(src, false)
                 {
                     push_unique(&mut parts, Some(src));
                 }
@@ -228,10 +228,11 @@ fn collect_plain_text(root: &Element, record_sections: bool) -> (String, Vec<Pag
                 }
             }
             "embed" => {
-                let mut parts = Vec::with_capacity(2);
+                let mut parts = Vec::with_capacity(3);
                 push_unique(&mut parts, node.attrs.get("title"));
+                push_unique(&mut parts, node.attrs.get("description"));
                 if let Some(href) = node.attrs.get("href")
-                    && searchable_url(href, false)
+                    && searchable_url(href, true)
                 {
                     push_unique(&mut parts, Some(href));
                 }

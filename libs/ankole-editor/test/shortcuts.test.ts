@@ -12,6 +12,7 @@ import { headlessState } from '../src/editor/extension'
 import { addressLink, linkAt, removeLink, setLink } from '../src/editor/links'
 import { fenceShortcut } from '../src/editor/markdown-shortcuts'
 import { Link, safeLinkHref, schema } from '../src/editor/schema'
+import { resolveLinkInputUrl } from '../src/react/SelectionToolbar'
 import { open, openWithHost } from './helpers'
 
 const markdown = (state: GardState) => printMarkdown(readTree(state.doc))
@@ -318,9 +319,30 @@ test('link protocol allowlist protects toDOM, parseDOM, Markdown shortcuts, and 
     expect(dispatchAnchorClick(readOnlyEditor, href)).toBe(true)
 
     const hostedWithoutOpenPage = openWithHost('text', {})
+    expect(dispatchAnchorClick(hostedWithoutOpenPage, href)).toBe(false)
     expect(dispatchAnchorClick(hostedWithoutOpenPage, href, { metaKey: true })).toBe(true)
     const hostedReadOnly = openWithHost('text', {})
     hostedReadOnly.dispatch({ effects: GardState.appendConfig.of(GardState.readOnly.of(true)) })
     expect(dispatchAnchorClick(hostedReadOnly, href)).toBe(true)
   }
+
+  // Link form address normalization preserves relative/fragment/scheme links, normalizes emails/domains, and rejects garbage.
+  const host = {
+    matchPageUrl: (candidate: string) =>
+      candidate === 'https://ankole.test/p/019a2b00-0000-7000-8000-000000000101'
+        ? '019a2b00-0000-7000-8000-000000000101'
+        : null
+  }
+  expect(resolveLinkInputUrl('#overview', host)).toBe('#overview')
+  expect(resolveLinkInputUrl('/docs/intro', host)).toBe('/docs/intro')
+  expect(resolveLinkInputUrl('mailto:alice@example.com', host)).toBe('mailto:alice@example.com')
+  expect(resolveLinkInputUrl('alice@example.com', host)).toBe('mailto:alice@example.com')
+  expect(resolveLinkInputUrl('tel:+1234567', host)).toBe('tel:+1234567')
+  expect(resolveLinkInputUrl('example.org', host)).toBe('https://example.org')
+  expect(resolveLinkInputUrl('ankole.test/p/019a2b00-0000-7000-8000-000000000101', host)).toBe(
+    'ankole:page/019a2b00-0000-7000-8000-000000000101'
+  )
+  expect(resolveLinkInputUrl('javascript:alert(1)', host)).toBeNull()
+  expect(resolveLinkInputUrl('not a url', host)).toBeNull()
+  expect(resolveLinkInputUrl('justword', host)).toBeNull()
 })

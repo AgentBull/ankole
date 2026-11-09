@@ -1,4 +1,4 @@
-import { expect, test, caret } from './helpers'
+import { expect, test, caret, clipboard } from './helpers'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/playground/embedded.html')
@@ -262,14 +262,16 @@ test('an open resource form preserves host edits to fields the user did not chan
   const panel = page.getByTestId('second-editor')
   const block = panel.locator('.resource-block')
   const output = page.getByLabel('Second Markdown', { exact: true })
-  await source.fill(
-    `<bookmark src="${baseURL}/resource-preview.html" title="Original" description="Old" view="card" />`
-  )
+  await source.fill(`<embed href="${baseURL}/resource-preview.html" title="Original" description="Old" view="card" />`)
   await apply.click()
   await source.fill(
-    `<bookmark src="${baseURL}/resource-preview.html" title="Original" description="Remote description" view="link" />`
+    `<embed href="${baseURL}/resource-preview.html" title="Original" description="Remote description" view="card" height="600" />`
   )
-  await block.getByRole('button', { name: '编辑', exact: true }).click()
+  await block.hover()
+  await page
+    .getByRole('toolbar', { name: '网页卡片', exact: true })
+    .getByRole('button', { name: '编辑', exact: true })
+    .click()
   await block.getByLabel('标题', { exact: true }).fill('Local title')
   await apply.dispatchEvent('click')
   await expect(block.getByLabel('标题', { exact: true })).toHaveValue('Local title')
@@ -277,13 +279,18 @@ test('an open resource form preserves host edits to fields the user did not chan
   await block.getByRole('button', { name: '保存', exact: true }).click()
   await expect(output).toContainText('title="Local title"')
   await expect(output).toContainText('description="Remote description"')
-  await expect(output).toContainText('view="link"')
+  await expect(output).toContainText('height="600"')
+  await expect(output).toContainText('view="card"')
 
   await source.fill(`<embed href="${baseURL}/resource-preview.html" title="Original" />`)
   await apply.click()
   await expect(block.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-forms')
   await source.fill(`<embed href="${baseURL}/resource-preview.html?remote=1" title="Original" />`)
-  await block.getByRole('button', { name: '编辑', exact: true }).click()
+  await block.hover()
+  await page
+    .getByRole('toolbar', { name: '嵌入', exact: true })
+    .getByRole('button', { name: '编辑', exact: true })
+    .click()
   await block.getByLabel('标题', { exact: true }).fill('Local frame title')
   await apply.dispatchEvent('click')
   await expect(block.getByLabel('标题', { exact: true })).toHaveValue('Local frame title')
@@ -331,4 +338,107 @@ test('the file entry hands chosen files to the host and leaves the document unch
   await expect(panel).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(panel).toBeHidden()
+})
+
+test('describePageLink hides raw ankole:page URIs, embeddable page mentions toggle with <embed ref>, and read-only iframes keep floating escape actions', async ({
+  page,
+  baseURL
+}) => {
+  const source = page.getByLabel('Host source', { exact: true })
+  const apply = page.getByRole('button', { name: 'Apply source without moving focus', exact: true })
+  const panel = page.getByTestId('second-editor')
+  const editor = page.getByRole('textbox', { name: 'Second document', exact: true })
+  const output = page.getByLabel('Second Markdown', { exact: true })
+
+  // Internal ankole:page/<uuid> links display the resolved page title in the link bar and canonical URL in ⌘K.
+  await source.fill('[See roadmap](ankole:page/019a2b00-0000-7000-8000-000000000101)')
+  await apply.click()
+  await panel.locator('p a').hover()
+  const linkBar = page.getByRole('toolbar', { name: '链接', exact: true })
+  await expect(linkBar).toBeVisible()
+  await expect(linkBar.getByRole('button', { name: '打开链接', exact: true })).toHaveText('Product Roadmap')
+  await linkBar.getByRole('button', { name: '编辑链接', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑链接', exact: true })
+  const urlInput = dialog.getByRole('textbox', { name: '链接地址', exact: true })
+  await expect(urlInput).toHaveValue('https://ankole.test/p/019a2b00-0000-7000-8000-000000000101')
+  await urlInput.fill('https://ankole.test/p/019a2b00-0000-7000-8000-000000000102')
+  await dialog.getByRole('button', { name: '应用链接', exact: true }).click()
+  await expect(output).toContainText('[See roadmap](ankole:page/019a2b00-0000-7000-8000-000000000102)')
+
+  // Pasting an embeddable internal page URL opens the floating mention bar and toggles <mention> <-> <embed ref>.
+  await source.fill('')
+  await apply.click()
+  await editor.click()
+  await clipboard(editor, 'paste', {
+    'text/plain': 'https://ankole.test/p/019a2b00-0000-7000-8000-000000000102'
+  })
+  await expect(panel.locator('[data-mention-page="019a2b00-0000-7000-8000-000000000102"]')).toHaveCount(1)
+  await expect(linkBar).toBeVisible()
+  await expect(linkBar.getByRole('button', { name: '打开页面', exact: true })).toHaveText('季度复盘报告')
+  await linkBar.getByRole('button', { name: '视图', exact: true }).click()
+  await page.getByRole('menuitem', { name: '嵌入视图', exact: true }).click()
+  await expect(panel.locator('.embed code')).toHaveText('019a2b00-0000-7000-8000-000000000102')
+  await expect(output).toContainText('<embed ref="019a2b00-0000-7000-8000-000000000102" />')
+
+  await panel.getByRole('button', { name: '切换为提及视图', exact: true }).click()
+  await expect(panel.locator('[data-mention-page="019a2b00-0000-7000-8000-000000000102"]')).toHaveCount(1)
+  await expect(output).toContainText('<mention page="019a2b00-0000-7000-8000-000000000102" />')
+
+  // Saving an internal page URL inside `/embed` converts embeddable pages to `<embed ref>` and docs to `<mention page>`.
+  await source.fill('')
+  await apply.click()
+  await editor.click()
+  await editor.pressSequentially('/embed')
+  await page.getByRole('listbox').getByRole('option', { name: /嵌入/ }).first().click()
+  await panel
+    .locator('.resource-block')
+    .getByLabel('链接地址', { exact: true })
+    .fill('https://ankole.test/p/019a2b00-0000-7000-8000-000000000102')
+  await panel.locator('.resource-block').getByRole('button', { name: '保存', exact: true }).click()
+  await expect(panel.locator('.embed code')).toHaveText('019a2b00-0000-7000-8000-000000000102')
+  await expect(output).toContainText('<embed ref="019a2b00-0000-7000-8000-000000000102" />')
+
+  // Uncached internal Base/Applet URLs await async canEmbedPage resolution before converting to `<embed ref>`.
+  await source.fill('')
+  await apply.click()
+  await editor.click()
+  await editor.pressSequentially('/embed')
+  await page.getByRole('listbox').getByRole('option', { name: /嵌入/ }).first().click()
+  await panel
+    .locator('.resource-block')
+    .getByLabel('链接地址', { exact: true })
+    .fill('https://ankole.test/p/019a2b00-0000-7000-8000-000000000103')
+  await panel.locator('.resource-block').getByRole('button', { name: '保存', exact: true }).click()
+  await expect(panel.locator('.embed code')).toHaveText('019a2b00-0000-7000-8000-000000000103')
+  await expect(output).toContainText('<embed ref="019a2b00-0000-7000-8000-000000000103" />')
+
+  await source.fill('')
+  await apply.click()
+  await editor.click()
+  await editor.pressSequentially('/bookmark')
+  await page
+    .getByRole('listbox')
+    .getByRole('option', { name: /网页卡片/ })
+    .first()
+    .click()
+  await panel
+    .locator('.resource-block')
+    .getByLabel('链接地址', { exact: true })
+    .fill('https://ankole.test/p/019a2b00-0000-7000-8000-000000000101')
+  await panel.locator('.resource-block').getByRole('button', { name: '保存', exact: true }).click()
+  await expect(panel.locator('[data-mention-page="019a2b00-0000-7000-8000-000000000101"]')).toHaveCount(1)
+  await expect(output).toContainText('<mention page="019a2b00-0000-7000-8000-000000000101" />')
+
+  // Read-only external iframe embeds hide editing controls while exposing floating reload + open-in-new-tab on hover.
+  await page.getByLabel('Source target', { exact: true }).selectOption('first')
+  await source.fill(`<embed href="${baseURL}/resource-preview.html" title="Frame" />`)
+  await apply.click()
+  await page.getByRole('button', { name: 'Toggle read only', exact: true }).click()
+  const firstPanel = page.getByTestId('first-editor')
+  await firstPanel.locator('.resource-block').hover()
+  const roToolbar = page.getByRole('toolbar', { name: '嵌入', exact: true })
+  await expect(roToolbar.getByRole('button', { name: '刷新预览', exact: true })).toBeVisible()
+  await expect(roToolbar.getByRole('link', { name: '在新窗口打开', exact: true })).toBeVisible()
+  await expect(roToolbar.getByRole('button', { name: '编辑', exact: true })).toHaveCount(0)
+  await expect(roToolbar.getByRole('button', { name: '视图', exact: true })).toHaveCount(0)
 })

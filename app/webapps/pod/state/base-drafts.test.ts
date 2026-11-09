@@ -1,9 +1,15 @@
 import { expect, test } from 'bun:test'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { BaseCellModel } from './base-cell'
-import { FieldEditorModel } from './field-editor'
+import { FieldEditorModel, fieldHasStoredValues } from './field-editor'
 import { FieldInputModel } from './field-input'
 import { TableWorkspaceModel } from './table-workspace'
-import type { BaseField } from '@ankole/applet-sdk/types'
+import { sanitizeViewConfig } from '../base-page'
+import { resolveVisibleFields } from '../base-field-types'
+import { RecordTitle, formatRecordLabel } from '../base-field-value'
+import type { BaseField, BaseRecord } from '@ankole/applet-sdk/types'
 
 const field: BaseField = {
   id: 'price',
@@ -150,4 +156,131 @@ test('renaming an existing link preserves default multiple semantics and its rev
     multiple: false,
     bidirectional: true
   })
+})
+
+test('display-field state and empty-column detection skip confirmation when no stored values exist', () => {
+  const primaryField: BaseField = { ...field, id: 'title', name: 'Category', type: 'text', is_primary: true }
+  const formulaField: BaseField = {
+    ...field,
+    id: 'total',
+    name: 'Total',
+    type: 'formula',
+    config: { source: '[Price] * 2', result_type: 'number' }
+  }
+  const model = new FieldEditorModel()
+  model.load(primaryField)
+  expect(model.isPrimary.value).toBe(true)
+  model.load(field)
+  expect(model.isPrimary.value).toBe(false)
+  model.setIsPrimary(true)
+  expect(model.isPrimary.value).toBe(true)
+  expect(model.changesValues.value).toBe(false)
+
+  expect(fieldHasStoredValues(undefined, 10, 5)).toBe(false)
+  expect(fieldHasStoredValues(primaryField, 0, undefined)).toBe(false)
+  expect(fieldHasStoredValues(formulaField, 50, undefined)).toBe(false)
+  expect(fieldHasStoredValues(field, 12, 0)).toBe(false)
+  expect(fieldHasStoredValues(field, 12, 3)).toBe(true)
+  expect(fieldHasStoredValues(field, 12, undefined)).toBe(true)
+})
+
+test('grid views allow hiding the display field while keeping at least one visible column', () => {
+  const primaryField: BaseField = { ...field, id: 'title', name: 'Title', type: 'text', is_primary: true }
+  const gridHiddenPrimary = sanitizeViewConfig({ visible_fields: ['price'] }, [primaryField, field], 'grid')
+  expect(gridHiddenPrimary.visible_fields).toEqual(['price'])
+
+  const gridDefaultType = sanitizeViewConfig({ visible_fields: ['price'] }, [primaryField, field])
+  expect(gridDefaultType.visible_fields).toEqual(['price'])
+
+  const gridFallback = sanitizeViewConfig({ visible_fields: ['deleted'] }, [primaryField, field], 'grid')
+  expect(gridFallback.visible_fields).toEqual(['title'])
+
+  const kanbanConfig = sanitizeViewConfig({ visible_fields: ['price'] }, [primaryField, field], 'kanban')
+  expect(kanbanConfig.visible_fields).toEqual(['title', 'price'])
+
+  expect(resolveVisibleFields([primaryField, field], undefined, 'grid').map(item => item.id)).toEqual([
+    'title',
+    'price'
+  ])
+  expect(resolveVisibleFields([primaryField, field], ['price'], 'kanban').map(item => item.id)).toEqual([
+    'title',
+    'price'
+  ])
+})
+
+test('formatRecordLabel and RecordTitle format non-text display fields safely and fall back to short IDs when empty', () => {
+  const selectPrimary: BaseField = {
+    id: 'cat',
+    name: 'Category',
+    description: '',
+    type: 'select',
+    config: { options: [{ id: 'hw', name: 'Hardware' }] },
+    version: 1,
+    is_primary: true
+  }
+  const ownerPrimary: BaseField = {
+    id: 'owner',
+    name: 'Owner',
+    description: '',
+    type: 'user',
+    config: {},
+    version: 1,
+    is_primary: true
+  }
+  const formulaPrimary: BaseField = {
+    id: 'label',
+    name: 'Label',
+    description: '',
+    type: 'formula',
+    config: { source: '""', result_type: 'text' },
+    version: 1,
+    is_primary: true
+  }
+  const attachmentPrimary: BaseField = {
+    id: 'files',
+    name: 'Files',
+    description: '',
+    type: 'attachment',
+    config: {},
+    version: 1,
+    is_primary: true
+  }
+  const record: BaseRecord = {
+    id: '019a2b00-0000-7000-8000-000000abcdef',
+    data: {
+      cat: 'hw',
+      owner: ['alice'],
+      label: '',
+      files: [{ path: 'pages/page-1/attachments/spec.pdf', name: 'spec.pdf' }]
+    },
+    versions: { cat: 1, owner: 1 },
+    created_by: 'alice',
+    updated_by: 'alice',
+    created_at: '2026-11-09T00:00:00Z',
+    updated_at: '2026-11-09T00:00:00Z'
+  }
+  expect(formatRecordLabel(record, selectPrimary)).toBe('Hardware')
+  expect(formatRecordLabel(record, ownerPrimary, [{ principal_uid: 'alice', name: 'Alice Chen' }])).toBe('Alice Chen')
+  expect(formatRecordLabel({ ...record, data: {} }, selectPrimary)).toBe('#abcdef')
+  expect(formatRecordLabel(record, formulaPrimary)).toBe('#abcdef')
+
+  const queryClient = new QueryClient()
+  const attachmentTitleHtml = renderToStaticMarkup(
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(RecordTitle, { record, primary: attachmentPrimary })
+    )
+  )
+  expect(attachmentTitleHtml).toContain('spec.pdf')
+  expect(attachmentTitleHtml).not.toContain('<a')
+
+  const emptyFormulaTitleHtml = renderToStaticMarkup(
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(RecordTitle, { record, primary: formulaPrimary })
+    )
+  )
+  expect(emptyFormulaTitleHtml).toBe('#abcdef')
 })

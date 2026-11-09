@@ -15,6 +15,7 @@ import { isEditableResource, openResourceEditor } from '../blocks/resources'
 import { isList } from './block-insert'
 import { adjacentUnit, blockContent, blockRemovalRanges, blocksBetween, targetAt, unitAt } from './block-target'
 import { flattenColumns } from './corrections'
+import { isKnowledge } from './knowledge-context'
 import { Columns } from './schema'
 
 /** Whole blocks, including children and ranges across list boundaries. */
@@ -102,10 +103,11 @@ export class BlockSelection extends GardSelection {
   }
 }
 
-const isNonEditableBlock = (node: Node) =>
-  node.isLeaf ||
+export const isDiagramOnlyBlock = (node: Node) =>
   (node.type === MermaidBlock.type && node.mark(MermaidView) === 'diagram') ||
   (node.type === InfographicBlock.type && node.mark(InfographicView) === 'diagram')
+
+const isNonEditableBlock = (node: Node) => node.isLeaf || isDiagramOnlyBlock(node)
 
 const isEmptyMarklessParagraph = (node: Node) =>
   node.type === T.Paragraph.type && node.isPlot && !node.content.length && !node.marks.length
@@ -250,9 +252,18 @@ const editEdge =
     if (!(state.selection instanceof BlockSelection)) return false
     const block = state.selection.last
     const editable = firstEditableBlock(state.doc, block)
-    const selection = editable
-      ? GardSelection.near(state, end ? editable.after - 1 : editable.before + 1, end ? -1 : 1)
-      : GardSelection.near(state, end ? block.after : block.before, end ? 1 : -1)
+    if (editable) {
+      return {
+        selection: GardSelection.near(state, end ? editable.after - 1 : editable.before + 1, end ? -1 : 1),
+        scrollIntoView: true
+      }
+    }
+    const edge = end ? block.after : block.before
+    const near = GardSelection.near(state, edge, end ? 1 : -1)
+    const selection =
+      near instanceof GardSelection.Text && near.from >= block.before + 1 && near.to <= block.after - 1
+        ? GardSelection.cursor(edge, end ? 1 : -1)
+        : near
     return { selection, scrollIntoView: true }
   }
 
@@ -463,15 +474,60 @@ export const blockSelection: GardState.Extension = [
       ? Decoration.Point.set(state.selection.blocks.map(block => [selectedBlock, block.before]))
       : Decoration.Point.none
   ),
+  Transaction.extender.of(tr => {
+    if (tr.startState.readOnly || isKnowledge(tr.startState)) return null
+    if (tr.isUserEvent('mermaid.configure') || tr.isUserEvent('infographic.configure')) {
+      const prev = tr.startState.selection
+      if (prev instanceof BlockSelection && prev.blocks.length === 1) {
+        const unit = tr.newDoc.resolvePlot(tr.changes.mapPos(prev.blocks[0]!.before, 1))
+        if (unit && (unit.node.type === MermaidBlock.type || unit.node.type === InfographicBlock.type)) {
+          return isDiagramOnlyBlock(unit.node) ? null : { selection: GardSelection.cursor(unit.end) }
+        }
+      }
+      if (tr.newSelection instanceof GardSelection.Text && tr.newSelection.ranges.length === 1) {
+        const { from, to } = tr.newSelection.ranges[0]!
+        const parent = tr.newDoc.resolve(from).parent
+        if (isDiagramOnlyBlock(parent.node) && from >= parent.start && to <= parent.end) {
+          const sel = BlockSelection.between(tr.newDoc, parent.before, parent.before)
+          return sel ? { selection: sel } : null
+        }
+      }
+      return null
+    }
+    if (!tr.selection || tr.annotation(Transaction.userEvent) === undefined) return null
+    if (tr.newSelection instanceof GardSelection.Text && tr.newSelection.ranges.length === 1) {
+      const { from, to } = tr.newSelection.ranges[0]!
+      const parent = tr.newDoc.resolve(from).parent
+      if (isDiagramOnlyBlock(parent.node) && from >= parent.start && to <= parent.end) {
+        const sel = BlockSelection.between(tr.newDoc, parent.before, parent.before)
+        return sel ? { selection: sel } : null
+      }
+    }
+    return null
+  }),
   GardState.prec.high([
     Wordgard.domEventHandler('mousedown', (event, wg) => {
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return false
       const selected = wg.state.selection
-      if (event.button !== 0 || !event.shiftKey || !(selected instanceof BlockSelection)) return false
-      const pos = wg.posAtCoords({ x: event.clientX, y: event.clientY })
-      const target = unitAt(wg.state.doc, pos.pos, pos.side)
-      const selection = target && BlockSelection.between(wg.state.doc, selected.first.before, target.before)
+      if (event.shiftKey) {
+        if (!(selected instanceof BlockSelection)) return false
+        const pos = wg.posAtCoords({ x: event.clientX, y: event.clientY })
+        const target = unitAt(wg.state.doc, pos.pos, pos.side)
+        const selection = target && BlockSelection.between(wg.state.doc, selected.first.before, target.before)
+        if (!selection) return false
+        wg.dispatch({ selection, userEvent: 'select.block' })
+        return true
+      }
+      if (wg.state.readOnly || isKnowledge(wg.state)) return false
+      const diagram = (event.target as Element | null)?.closest('.mermaid-block[data-view="diagram"]')
+      if (!diagram) return false
+      const found = wg.nodeFromDOM(diagram)
+      if (!found || !isDiagramOnlyBlock(found.node)) return false
+      const selection = BlockSelection.between(wg.state.doc, found.pos, found.pos)
       if (!selection) return false
+      event.preventDefault()
       wg.dispatch({ selection, userEvent: 'select.block' })
+      wg.focus()
       return true
     }),
     KeyBinding.of({ key: 'Escape', run: escapeSelection }),

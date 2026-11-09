@@ -253,7 +253,7 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     ),
     sample(
       'rich-resources',
-      '<page><h6>Section</h6><media kind="video" src="ankole:asset/movie.mp4" mime="video/mp4" title="Movie" /><bookmark src="https://example.com/" view="card" title="Example" description="Description" /><embed href="https://www.figma.com/design/example" /><callout tone="success" icon="✅"><p>Ready</p></callout></page>'
+      '<page><h6>Section</h6><media kind="video" src="ankole:asset/movie.mp4" mime="video/mp4" title="Movie" /><embed href="https://example.com/" view="card" title="Example" description="Description" image="https://example.com/cover.png" /><embed href="https://www.figma.com/design/example" /><callout tone="success" icon="✅"><p>Ready</p></callout></page>'
     ),
     sample('callout', '<page><callout tone="warning"><p>本期包含新增产品。</p></callout></page>'),
     sample(

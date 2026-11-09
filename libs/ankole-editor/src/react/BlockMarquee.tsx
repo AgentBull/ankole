@@ -91,7 +91,10 @@ export function BlockMarquee({ anchor }: { anchor: HTMLElement }) {
         if (active) draw()
         else if (!focusPageEnd(editor, pointer.clientY)) {
           const pos = editor.posAtCoords({ x: pointer.clientX, y: pointer.clientY })
-          editor.dispatch({ selection: GardSelection.near(editor.state, pos.pos, pos.side) })
+          editor.dispatch({
+            selection: GardSelection.near(editor.state, pos.pos, pos.side),
+            userEvent: 'select.pointer'
+          })
           editor.focus()
         }
         stop()

@@ -13,23 +13,23 @@
  *    is a text block. Other blocks are inserted whole.
  *  - Plain text that reads as Markdown beyond plain paragraphs is pasted as page content.
  */
-import { Node, Plot, type Leaf, type Pos, type Schema, Slice, Token } from '../core/doc'
+import { ChangeSet, Leaf, Node, Plot, type Pos, type Schema, Slice, Token } from '../core/doc'
 import { Wordgard } from '../core/editor'
 import { Command, deleteCut } from '../core/command'
-import { writeClipboard } from '../core/editor/clipboard'
+import { plainTextSlice, readClipboard, readHTML, writeClipboard } from '../core/editor/clipboard'
 import { GardSelection, Transaction, type GardState } from '../core/state'
 import { CellSelection } from '../core/table'
 import * as T from '../core/types'
-import { parseMarkdown } from '../document/markdown'
-import { validateKnowledge } from '../document/knowledge'
-import { element, type Element } from '../document/tree'
-import { assetURL, resourceContent, resourceText } from '../document/resources'
+import { looksLikeMarkdown, parsePastedMarkdown, splitPastedDocumentTitle } from '../document/markdown-paste'
+import { element, removeInvalidCharacters, type Element } from '../document/tree'
+import { assetURL, resourceContent, resourceText, safeLinkHref, webURL } from '../document/resources'
 import { blocks } from '../blocks'
-import { InfographicBlock } from '../blocks/infographic'
-import { MermaidBlock } from '../blocks/mermaid'
+import { InfographicBlock, InfographicView } from '../blocks/infographic'
+import { MermaidBlock, MermaidView } from '../blocks/mermaid'
 import { unknownNames, vocabulary } from '../document/vocabulary'
-import { recordOf } from './attributes'
+import { codeNodes, recordOf } from './attributes'
 import { dispatchStep } from './block-insert'
+import { codeLanguageState } from './code-block'
 import { normalizedPageDocument } from './convert'
 import { BlockSelection } from './block-selection'
 import { withoutCommentSlice } from './comments'
@@ -252,30 +252,395 @@ export function downgradeKnowledgeSlice(slice: Slice): Slice {
 
 /**
  * Plain text that reads as Markdown beyond plain paragraphs pastes as page content. Plain
- * paragraphs, unknown elements and unreadable Markdown paste as plain text. The core does not ask
- * this parser in code.
+ * paragraphs, unknown elements and unreadable Markdown paste as plain text. Code, diagram and
+ * formula blocks stay closed so they never unwrap into inline text or absorb trailing text.
  */
 function readMarkdown(text: string, state: GardState): Slice | null {
   const knowledge = isKnowledge(state)
-  let page: Element
+  const page = parsePastedMarkdown(text, knowledge ? 'knowledge' : 'doc')
+  if (!page || !hasMarkdown(page) || unknownNames(page).length) return null
+  const nodes = normalizedPageDocument(page).content
+  const first = nodes[0]
+  const last = nodes.at(-1)
+  const openStart = Boolean(first?.isPlot && first.isTextblock && !first.type.hasRole(Node.Role.Code))
+  const openEnd = Boolean(last?.isPlot && last.isTextblock && !last.type.hasRole(Node.Role.Code))
+  return edges(nodes, openStart, openEnd)
+}
+
+type VSCodeClipboardMeta = {
+  version?: number
+  isFromEmptySelection?: boolean
+  multicursorText?: string[] | null
+  mode?: string
+}
+
+const vscodeProseModes = new Set(['', 'markdown', 'mdx', 'plaintext', 'scminput', 'git-commit', 'tex', 'latex'])
+
+const vscodeLanguageAliases: Readonly<Record<string, string>> = {
+  typescriptreact: 'tsx',
+  javascriptreact: 'jsx',
+  shellscript: 'shell',
+  'terraform-vars': 'hcl',
+  properties: 'ini',
+  dockercompose: 'yaml',
+  jsonl: 'json'
+}
+
+function resolveVSCodeLanguage(mode: string): string | undefined {
+  const candidate = vscodeLanguageAliases[mode] ?? mode
+  const canonical = codeLanguageState(candidate).canonical
+  if (canonical === 'plaintext') return undefined
+  if (canonical) return canonical
+  return /^[a-z0-9_+#.-]+$/i.test(candidate) ? candidate : undefined
+}
+
+function parseVSCodeMetadata(raw: string): VSCodeClipboardMeta | null {
+  if (!raw) return null
   try {
-    page = parseMarkdown(text, knowledge ? 'knowledge' : 'doc')
-    if (knowledge) validateKnowledge(page)
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? (parsed as VSCodeClipboardMeta) : null
   } catch {
     return null
   }
-  if (!hasMarkdown(page) || unknownNames(page).length) return null
-  // Open at both ends, as pasted HTML.
-  // The tokens already name their open edges. The parser result does not also carry that context.
-  return Slice.of(edges(normalizedPageDocument(page).content, true, true).content)
 }
 
-function canPasteBarePageMention(state: GardState): boolean {
+function parseIframeAttributes(trimmed: string): { src?: string; title?: string; height?: string } | null {
+  if (typeof document !== 'undefined') {
+    const dom = readHTML(trimmed)
+    if (dom.children.length !== 1 || dom.firstElementChild?.tagName !== 'IFRAME') return null
+    for (const node of dom.childNodes) {
+      if (node.nodeType === 3 && node.textContent?.trim()) return null
+    }
+    const iframe = dom.firstElementChild
+    return {
+      src: iframe.getAttribute('src')?.trim(),
+      title: iframe.getAttribute('title')?.trim(),
+      height: iframe.getAttribute('height')?.trim()
+    }
+  }
+  const match = /^<iframe\b([^>]*?)(?:\/>|>\s*<\/iframe>)$/i.exec(trimmed)
+  if (!match) return null
+  const attrSource = match[1]!
+  const readAttr = (name: string): string | undefined => {
+    const pattern = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=>]+))`, 'i')
+    const found = pattern.exec(attrSource)
+    return (found?.[1] ?? found?.[2] ?? found?.[3])?.trim()
+  }
+  return { src: readAttr('src'), title: readAttr('title'), height: readAttr('height') }
+}
+
+function readSingleIframeEmbed(text: string, state: GardState): Slice | null {
+  if (isKnowledge(state)) return null
+  const trimmed = text.trim()
+  if (!/^<iframe\b[\s\S]*(?:<\/iframe>|\/?>)$/i.test(trimmed)) return null
+  const parsed = parseIframeAttributes(trimmed)
+  const href = parsed?.src ? webURL(parsed.src) : null
+  if (!href) return null
+  const heightPattern = vocabulary.embed!.attributes.height!
+  const attrs: Record<string, string> = {
+    href,
+    ...(parsed?.title ? { title: parsed.title } : {}),
+    ...(parsed?.height && heightPattern.test(parsed.height) ? { height: parsed.height } : {})
+  }
+  return Slice.of(normalizedPageDocument(element('page', {}, [element('embed', attrs)])).content)
+}
+
+const richHtmlTags = new Set([
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'ul',
+  'ol',
+  'li',
+  'dl',
+  'dt',
+  'dd',
+  'table',
+  'thead',
+  'tbody',
+  'tfoot',
+  'tr',
+  'th',
+  'td',
+  'blockquote',
+  'hr',
+  'figure',
+  'figcaption',
+  'details',
+  'summary',
+  'img',
+  'video',
+  'audio',
+  'picture',
+  'svg',
+  'iframe',
+  'object',
+  'embed',
+  'strong',
+  'b',
+  'em',
+  'i',
+  'u',
+  's',
+  'del',
+  'strike',
+  'ins',
+  'mark',
+  'sub',
+  'sup',
+  'kbd',
+  'code',
+  'input'
+])
+
+const richHtmlAttrs = new Set([
+  'data-resource',
+  'data-href',
+  'data-mention-page',
+  'data-mention-principal',
+  'data-callout',
+  'data-language',
+  'data-align',
+  'align',
+  'aria-checked'
+])
+
+const richInlineStyle =
+  /\b(?:font-weight\s*:\s*(?:bold|[6-9]00)|font-style\s*:\s*italic|text-decoration(?:-[a-z]+)?\s*:[^;]*(?:underline|line-through)|text-transform\s*:\s*(?!none\b)[a-z-]+|text-align\s*:\s*(?:center|right|end|justify))\b/i
+const highlightedPreClass = /\b(?:language-|lang-|hljs|shiki|prism|highlight)\b/i
+
+function classifyPlainHtmlWrapper(html: string): 'rich' | 'pre' | 'plain' {
+  if (/wg-content|wg-slice|data-pm-slice|mso-list|urn:schemas-microsoft-com:office|docs-internal-guid-/i.test(html)) {
+    return 'rich'
+  }
+  if (typeof document !== 'undefined') {
+    const dom = readHTML(html)
+    let sawPre = false
+    const elements = dom.querySelectorAll('*')
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i]!
+      const tag = el.tagName.toLowerCase()
+      if (richHtmlTags.has(tag)) return 'rich'
+      if (tag === 'a' && el.hasAttribute('href')) return 'rich'
+      for (let a = 0; a < el.attributes.length; a++) {
+        const attrName = el.attributes[a]!.name.toLowerCase()
+        if (richHtmlAttrs.has(attrName)) return 'rich'
+      }
+      const style = el.getAttribute('style')
+      if (style && richInlineStyle.test(style)) return 'rich'
+      if (tag === 'pre') {
+        const cls = el.getAttribute('class') ?? ''
+        if (highlightedPreClass.test(cls)) return 'rich'
+        sawPre = true
+      }
+    }
+    return sawPre ? 'pre' : 'plain'
+  }
+
+  let sawPre = false
+  const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-]*)(\s[^>]*?)?\/?>/g
+  for (const match of html.matchAll(tagRegex)) {
+    const tag = match[1]!.toLowerCase()
+    const attrs = match[2] ?? ''
+    if (richHtmlTags.has(tag)) return 'rich'
+    if (tag === 'a' && /\bhref\s*=/i.test(attrs)) return 'rich'
+    if (
+      /\b(?:data-resource|data-href|data-mention-page|data-mention-principal|data-callout|data-language|data-align|align|aria-checked)\s*=/i.test(
+        attrs
+      )
+    ) {
+      return 'rich'
+    }
+    const styleMatch = /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs)
+    const styleVal = styleMatch?.[1] ?? styleMatch?.[2] ?? ''
+    if (styleVal && richInlineStyle.test(styleVal)) return 'rich'
+    if (tag === 'pre') {
+      const classMatch = /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs)
+      const classVal = classMatch?.[1] ?? classMatch?.[2] ?? ''
+      if (classVal && highlightedPreClass.test(classVal)) return 'rich'
+      sawPre = true
+    }
+  }
+  return sawPre ? 'pre' : 'plain'
+}
+
+function readSmartClipboardData(data: DataTransfer, state: GardState, targetContext: Pos): Slice | null {
+  const html = data.getData('text/html')
+  const rawText = data.getData('text/plain') || data.getData('Text')
+  if (!rawText) return null
+  if (
+    html &&
+    (html.includes('wg-content') ||
+      html.includes('wg-slice') ||
+      html.includes('data-pm-slice') ||
+      html.includes('data-mention-') ||
+      html.includes('data-resource'))
+  ) {
+    return null
+  }
+  // Keep bare URLs on the link / page-mention path.
+  if (bareWebHref(rawText)) return null
+
+  const iframeSlice = readSingleIframeEmbed(rawText, state)
+  if (iframeSlice) return iframeSlice
+
+  const vscodeMeta = parseVSCodeMetadata(data.getData('vscode-editor-data'))
+  if (vscodeMeta) {
+    const mode = typeof vscodeMeta.mode === 'string' ? vscodeMeta.mode.trim().toLowerCase() : ''
+    if (vscodeProseModes.has(mode)) {
+      return readMarkdown(rawText, state) ?? plainTextSlice(state, rawText, targetContext)
+    }
+    let codeText = removeInvalidCharacters(rawText).replace(/\r\n?|\n/g, '\n')
+    if (/\n/.test(codeText)) {
+      if (codeText.endsWith('\n')) codeText = codeText.slice(0, -1)
+      if (mode === 'mermaid') return Slice.of([MermaidBlock.create(codeNodes(codeText))])
+      if (mode === 'infographic') return Slice.of([InfographicBlock.create(codeNodes(codeText))])
+      const lang = resolveVSCodeLanguage(mode)
+      const tag = lang ? T.CodeBlock.withMarks([T.CodeBlockLanguage.of(lang)]) : T.CodeBlock
+      return Slice.of([tag.create(codeNodes(codeText))])
+    }
+    return Slice.of(codeText ? [Leaf.text(codeText, targetContext.marks())] : [])
+  }
+
+  if (!html) return null
+  const wrapperKind = classifyPlainHtmlWrapper(html)
+  if (wrapperKind === 'rich') return null
+  if (!looksLikeMarkdown(rawText, { fromPreWrapper: wrapperKind === 'pre' })) return null
+  return readMarkdown(rawText, state)
+}
+
+export { splitPastedDocumentTitle }
+
+/**
+ * Insert pasted text (such as the body portion of a multi-line title paste) at the start of the
+ * document in a single undoable transaction, parsing Markdown or links as an ordinary paste does.
+ */
+export function pasteTextAtDocumentStart(editor: Wordgard, text: string): boolean {
+  if (editor.state.readOnly || !text.trim()) return false
+  let baseState = editor.state
+  let prefixChange: ChangeSet | null = null
+  const first = baseState.doc.content[0]
+  const hasLeadingEmptyParagraph = first?.isPlot && first.type === T.Paragraph.type && first.content.length === 0
+  if (!hasLeadingEmptyParagraph) {
+    prefixChange = ChangeSet.create(baseState.doc, {
+      from: 0,
+      to: 0,
+      insert: [T.Paragraph.create([])]
+    })
+    baseState = baseState.update({ changes: prefixChange }).state
+  }
+  const targetContext = baseState.doc.resolve(1)
+  let slice =
+    readSingleIframeEmbed(text, baseState) ??
+    readBarePageUrl(text, baseState) ??
+    readBareWebUrl(text, baseState) ??
+    readMarkdown(text, baseState) ??
+    plainTextSlice(baseState, text, targetContext)
+  for (const filter of baseState.facet(Wordgard.clipboardInputFilter)) {
+    slice = filter(slice, baseState)
+  }
+  const pasteChange = ChangeSet.create(baseState.doc, {
+    correct: { from: 1, to: 1, insert: slice, fit: true },
+    local: true
+  })
+  const combined = prefixChange ? prefixChange.compose(pasteChange) : pasteChange
+  const caretAfter = pasteChange.mapPos(1, 1)
+  editor.dispatch({
+    changes: combined,
+    selection: cx => GardSelection.near(cx, caretAfter, -1),
+    userEvent: 'input.paste',
+    scrollIntoView: true
+  })
+  editor.focus()
+  return true
+}
+
+function bareWebHref(text: string): string | null {
+  const trimmed = text.trim()
+  if (!trimmed || /\s/.test(trimmed) || !webURL(trimmed)) return null
+  return safeLinkHref(trimmed) ?? webURL(trimmed)
+}
+
+function canLinkSelectedText(state: GardState): boolean {
+  if (state.readOnly || !(state.selection instanceof GardSelection.Text) || state.selection.empty) return false
+  for (const { from, to } of state.selection.ranges) {
+    if (from >= to) return false
+    const startBlock = state.doc.resolve(from).textblockParent
+    const endBlock = state.doc.resolve(to).textblockParent
+    if (!startBlock || !endBlock || startBlock.before !== endBlock.before) return false
+    if (startBlock.node.type.hasRole(Node.Role.Code)) return false
+    let linkableText = false
+    let disallowed = false
+    state.doc.iterate(from, to, node => {
+      if (node.type.hasRole(Node.Role.Code)) {
+        disallowed = true
+        return false
+      }
+      if (node.isLeaf && node.isInline) {
+        if (!state.schema.markAllowed(Link, node.type) || T.Code.isInSet(node.marks)) {
+          disallowed = true
+          return false
+        }
+        if (node.isText && (node as Leaf<string>).param.trim()) linkableText = true
+      }
+    })
+    if (disallowed || !linkableText) return false
+  }
+  return true
+}
+
+function readBareWebUrl(text: string, state: GardState): Slice | null {
+  if (!canAutoLinkCaretPaste(state)) return null
+  const href = bareWebHref(text)
+  if (!href) return null
+  const marks = Link.of([['href', href]]).addToSet(
+    state.sel.activeMarks.filter(mark => mark.type !== T.Code.type && mark.type !== Link)
+  )
+  return Slice.of([Leaf.text(text.trim(), marks)])
+}
+
+function canAutoLinkCaretPaste(state: GardState): boolean {
   if (state.readOnly || !(state.selection instanceof GardSelection.Text) || !state.selection.empty) return false
   const head = state.sel.head
   if (!head.parent.node.isTextblock || head.parent.node.type.hasRole(Node.Role.Code)) return false
   if (T.Code.isInSet(state.sel.activeMarks) || linkAt(state) !== null) return false
-  return Boolean(state.facet(hostFacet)?.matchPageUrl)
+  return true
+}
+
+function isBareUrlHtmlSlice(slice: Slice, expectedUrl: string, expectedHref: string): boolean {
+  if (!slice.content.length) return false
+  if (!slice.context.every(tag => tag.type === T.Paragraph.type)) return false
+  const normalizedExpected = webURL(expectedHref) ?? expectedHref
+  const checkTokens = (tokens: readonly Token[]): boolean => {
+    for (const token of tokens) {
+      if (isOpen(token)) {
+        if (token.type !== T.Paragraph.type) return false
+        continue
+      }
+      if (isClose(token)) continue
+      const node = token as Node
+      if (node.isPlot) {
+        if (node.type !== T.Paragraph.type || !checkTokens(node.content)) return false
+        continue
+      }
+      if (!node.isText || T.Code.isInSet(node.marks)) return false
+      const linkMark = Link.isInSet(node.marks)
+      if (linkMark) {
+        const markHref = recordOf(linkMark.value).href?.trim() ?? ''
+        const normalizedMarkHref = webURL(markHref) ?? markHref
+        if (normalizedMarkHref !== normalizedExpected && markHref !== expectedUrl) return false
+      }
+    }
+    return true
+  }
+  return checkTokens(slice.content) && slice.textContent().trim() === expectedUrl
+}
+
+function canPasteBarePageMention(state: GardState): boolean {
+  return canAutoLinkCaretPaste(state) && Boolean(state.facet(hostFacet)?.matchPageUrl)
 }
 
 function readBarePageUrl(text: string, state: GardState): Slice | null {
@@ -287,29 +652,112 @@ function readBarePageUrl(text: string, state: GardState): Slice | null {
   return Slice.of([Mention.of({ page: pageId }, inheritedMentionMarks(state, state.selection.from))])
 }
 
+function clipboardLeafText(leaf: Leaf, state: GardState): string {
+  const host = state.facet(hostFacet)
+  if (leaf.type === Mention) {
+    const target = leaf.param as MentionTarget
+    return host?.mentionText?.(target) ?? `@${'page' in target ? target.page : target.principal}`
+  }
+  const block = blocks.find(block => block.type === leaf.type)
+  if (!block) return ''
+  const node = block.read(leaf, { children: () => [], code: () => [] })
+  const source = node.name === 'embed' ? 'href' : 'src'
+  if (node.attrs[source]) {
+    const address = assetURL(node.attrs[source], host?.resolveAsset)
+    if (address) {
+      node.attrs[source] = typeof document === 'undefined' ? address : new URL(address, document.baseURI).href
+    }
+  }
+  return resourceText(node) ?? ''
+}
+
+const isDiagramOnlyCodeBlock = (node: Node, state: GardState) =>
+  !isKnowledge(state) &&
+  ((node.type === MermaidBlock.type && node.mark(MermaidView) === 'diagram') ||
+    (node.type === InfographicBlock.type && node.mark(InfographicView) === 'diagram'))
+
+/** A single selected code or diagram block whose outer range `[before, after]` is the replacement target. */
+function singleCodeBlockTarget(state: GardState): Pos.Plot | null {
+  if (state.readOnly) return null
+  if (state.selection instanceof BlockSelection) {
+    if (state.selection.blocks.length !== 1) return null
+    const plot = state.doc.resolvePlot(state.selection.blocks[0]!.before)
+    return plot?.node.type.hasRole(Node.Role.Code) ? plot : null
+  }
+  if (state.selection instanceof GardSelection.Text) {
+    if (state.selection.ranges.length !== 1) return null
+    const { from, to } = state.selection.ranges[0]!
+    if (from >= to) return null
+    const plot = state.doc.resolvePlot(from)
+    return plot?.node.type.hasRole(Node.Role.Code) && plot.after === to ? plot : null
+  }
+  return null
+}
+
+const isClosedBlockSlice = (slice: Slice) =>
+  slice.context.length === 0 &&
+  slice.content.length > 0 &&
+  slice.content.every(tok => tok.tokenType === Token.Type.Node && tok.isBlock)
+
+function isWholeBlockCopy(data: DataTransfer, slice: Slice, plain: boolean): boolean {
+  if (plain || !isClosedBlockSlice(slice)) return false
+  const html = data.getData('text/html')
+  if (!html.includes('wg-slice')) return false
+  return new DOMParser().parseFromString(html, 'text/html').querySelector('[wg-content="true"][wg-slice]') !== null
+}
+
+/** Convert a same-editor cut slice into code text and line-break leaves while preserving comment anchors. */
+function codeSliceFromCut(slice: Slice, state: GardState): Slice {
+  const out: Token[] = []
+  const lineBreak = state.schema.lineBreak ?? T.LineBreak
+  let started = slice.context.some(tag => tag.isTextblock)
+  const openBlock = () => {
+    if (started) out.push(lineBreak)
+    else started = true
+  }
+  const visit = (node: Node): void => {
+    if (node.isPlot) {
+      if (node.isTextblock) openBlock()
+      return
+    }
+    const comments = node.marks.filter(mark => mark.type === Comment)
+    if (node.type === T.LineBreak.type) {
+      out.push(T.LineBreak.withMarks(comments))
+      started = true
+      return
+    }
+    const text = node.isText
+      ? (node.param as string)
+      : node.type.spec.toText
+        ? node.type.spec.toText(node)
+        : clipboardLeafText(node, state)
+    if (node.isBlock && text) openBlock()
+    if (text) {
+      out.push(...codeNodes(text.replace(/\r\n?|\n/g, '\n'), comments))
+      started = true
+    }
+  }
+  for (const tok of slice.content) {
+    if (tok.tokenType === Token.Type.Open) {
+      if (tok.isTextblock) openBlock()
+    } else if (tok.tokenType === Token.Type.Node) {
+      if (tok.isLeaf) visit(tok)
+      else {
+        tok.iterate(node => {
+          visit(node)
+        })
+      }
+    }
+  }
+  return Slice.of(out)
+}
+
 /**
  * Plain text, as before: one line for each text block. A copied table gives a line for each row,
  * with a tab between cells, as spreadsheets read it.
  */
 function plainText(slice: Slice, state: GardState): string {
-  const host = state.facet(hostFacet)
-  const leafText = (leaf: Leaf): string => {
-    if (leaf.type === Mention) {
-      const target = leaf.param as MentionTarget
-      return host?.mentionText?.(target) ?? `@${'page' in target ? target.page : target.principal}`
-    }
-    const block = blocks.find(block => block.type === leaf.type)
-    if (!block) return ''
-    const node = block.read(leaf, { children: () => [], code: () => [] })
-    const source = node.name === 'embed' ? 'href' : 'src'
-    if (node.attrs[source]) {
-      const address = assetURL(node.attrs[source], host?.resolveAsset)
-      if (address) {
-        node.attrs[source] = typeof document === 'undefined' ? address : new URL(address, document.baseURI).href
-      }
-    }
-    return resourceText(node) ?? ''
-  }
+  const leafText = (leaf: Leaf): string => clipboardLeafText(leaf, state)
   const [table] = slice.content
   const lines = (node: Node) => Slice.of([node]).textContent({ blockSeparator: '\n', leafText })
   if (slice.content.length == 1 && table instanceof Plot && table.type.hasRole(Node.Role.Table)) {
@@ -372,13 +820,37 @@ export const clipboard: GardState.Extension = [
   Wordgard.pasteHandler.of((editor, event) => {
     const cut = cuts.get(editor)
     const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
-    if (!cut || data?.getData(cutMime) !== cut.token) return false
+    if (!cut || data?.getData(cutMime) !== cut.token || editor.state.readOnly) return false
     cuts.delete(editor)
+    const codeBlock = singleCodeBlockTarget(editor.state)
+    if (codeBlock && (editor.inputState.shiftKey || !isClosedBlockSlice(cut.slice))) {
+      const codeSlice = codeSliceFromCut(cut.slice, editor.state)
+      const diagramOnly = isDiagramOnlyCodeBlock(codeBlock.node, editor.state)
+      editor.dispatch({
+        changes: {
+          correct: { from: codeBlock.start, to: codeBlock.end, insert: codeSlice, fit: true },
+          local: true
+        },
+        selection: (cx, changes) =>
+          diagramOnly
+            ? BlockSelection.between(cx.doc, codeBlock.before, codeBlock.before)!
+            : GardSelection.near(cx, changes.mapPos(codeBlock.end, 1), -1),
+        userEvent: 'move.paste',
+        scrollIntoView: true
+      })
+      return true
+    }
     const { ranges } = editor.state.selection
+    const inCode = ranges.every(
+      ({ from, to }) =>
+        editor.state.doc.resolve(from).parent.node.type.hasRole(Node.Role.Code) &&
+        editor.state.doc.resolve(to).parent.node.type.hasRole(Node.Role.Code)
+    )
+    const insert = inCode ? codeSliceFromCut(cut.slice, editor.state) : cut.slice
     const { to } = ranges[0]!
     editor.dispatch({
       changes: {
-        correct: ranges.map(({ from, to }, index) => ({ from, to, insert: index ? [] : cut.slice, fit: true })),
+        correct: ranges.map(({ from, to }, index) => ({ from, to, insert: index ? [] : insert, fit: true })),
         local: true
       },
       selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1),
@@ -388,26 +860,80 @@ export const clipboard: GardState.Extension = [
     return true
   }),
   Wordgard.pasteHandler.of((editor, event, slice) => {
-    if (!canPasteBarePageMention(editor.state)) return false
+    const block = singleCodeBlockTarget(editor.state)
+    if (!block) return false
+    const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
+    if (!data || isWholeBlockCopy(data, slice, editor.inputState.shiftKey)) return false
+    const codeSlice = readClipboard(
+      editor.state,
+      data,
+      editor.state.doc.resolve(block.start),
+      editor.inputState.shiftKey
+    )
+    if (!codeSlice) return false
+    const diagramOnly = isDiagramOnlyCodeBlock(block.node, editor.state)
+    editor.dispatch({
+      changes: { correct: { from: block.start, to: block.end, insert: codeSlice, fit: true }, local: true },
+      selection: (cx, changes) =>
+        diagramOnly
+          ? BlockSelection.between(cx.doc, block.before, block.before)!
+          : GardSelection.near(cx, changes.mapPos(block.end, 1), -1),
+      userEvent: 'input.paste',
+      scrollIntoView: true
+    })
+    return true
+  }),
+  Wordgard.pasteHandler.of((editor, event, slice) => {
+    if (editor.inputState.shiftKey || !canAutoLinkCaretPaste(editor.state)) return false
     const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
     const html = data?.getData('text/html') ?? ''
     if (!html || html.includes('wg-content') || html.includes('wg-slice') || html.includes('data-mention-')) {
       return false
     }
-    if (slice.content.length !== 1 || slice.context.length !== 0) return false
-    const first = slice.content[0]
-    if (!first || first.tokenType !== Token.Type.Node || !first.isText) return false
-    const linkMark = Link.isInSet(first.marks)
-    if (!linkMark) return false
-    const href = recordOf(linkMark.value).href?.trim() ?? ''
-    if (!href || (first as Leaf<string>).param.trim() !== href) return false
-    const pageId = editor.state.facet(hostFacet)?.matchPageUrl?.(href)
-    if (!pageId) return false
+    const rawText = (data?.getData('text/plain') ?? '').trim() || slice.textContent().trim()
+    const webHref = bareWebHref(rawText)
+    if (!webHref || !isBareUrlHtmlSlice(slice, rawText, webHref)) return false
     const from = editor.state.selection.from
-    const leaf = Mention.of({ page: pageId }, inheritedMentionMarks(editor.state, from))
+    const pageId = editor.state.facet(hostFacet)?.matchPageUrl?.(rawText)
+    if (pageId) {
+      const leaf = Mention.of({ page: pageId }, inheritedMentionMarks(editor.state, from))
+      dispatchStep(editor, {
+        changes: { from, to: from, insert: [leaf] },
+        selection: GardSelection.cursor(from + leaf.length),
+        userEvent: 'input.paste',
+        scrollIntoView: true
+      })
+      return true
+    }
+    const marks = Link.of([['href', webHref]]).addToSet(
+      editor.state.sel.activeMarks.filter(mark => mark.type !== T.Code.type && mark.type !== Link)
+    )
+    const leaf = Leaf.text(rawText, marks)
     dispatchStep(editor, {
       changes: { from, to: from, insert: [leaf] },
       selection: GardSelection.cursor(from + leaf.length),
+      userEvent: 'input.paste',
+      scrollIntoView: true
+    })
+    return true
+  }),
+  Wordgard.pasteHandler.of((editor, event, slice) => {
+    if (editor.inputState.shiftKey || !canLinkSelectedText(editor.state)) return false
+    const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
+    const html = data?.getData('text/html') ?? ''
+    if (html.includes('wg-content') || html.includes('wg-slice') || html.includes('data-mention-')) {
+      return false
+    }
+    const rawText = (data?.getData('text/plain') ?? '').trim()
+    const webHref = bareWebHref(rawText)
+    if (!webHref) return false
+    if (html && slice.content.length > 0 && slice.textContent().trim() !== rawText) return false
+    const pageId = editor.state.facet(hostFacet)?.matchPageUrl?.(rawText)
+    const href = pageId ? `ankole:page/${pageId}` : webHref
+    const mark = Link.of([['href', href]])
+    dispatchStep(editor, {
+      changes: editor.state.selection.ranges.map(({ from, to }) => ({ from, to, add: mark })),
+      selection: GardSelection.cursor(editor.state.selection.to),
       userEvent: 'input.paste',
       scrollIntoView: true
     })
@@ -425,5 +951,12 @@ export const clipboard: GardState.Extension = [
     const stripped = withoutCommentSlice(normalized)
     return isKnowledge(state) ? downgradeKnowledgeSlice(stripped) : stripped
   }),
-  Wordgard.clipboardTextParser.of((text, state) => readBarePageUrl(text, state) ?? readMarkdown(text, state))
+  Wordgard.clipboardDataParser.of(readSmartClipboardData),
+  Wordgard.clipboardTextParser.of(
+    (text, state) =>
+      readSingleIframeEmbed(text, state) ??
+      readBarePageUrl(text, state) ??
+      readBareWebUrl(text, state) ??
+      readMarkdown(text, state)
+  )
 ]

@@ -10,7 +10,7 @@ import {
   RadioGroup,
   RadioGroupItem
 } from '@ankole/uikit'
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedValue } from '../common/use-debounced-value'
 import { useModel } from '@preact/signals-react'
@@ -22,9 +22,8 @@ import { Choice, ContentError, InlineLoading } from './content-primitives'
 import { baseHTTP, baseSchemaQuery } from './base-api'
 import { uploadPageFile } from './page-files'
 import { podSubjects } from './api/generated/sdk.gen'
-import { fieldValue } from './state/table-query'
 import { displayValue, fieldOptions } from './base-field-types'
-import { FieldValue } from './base-field-value'
+import { FieldValue, formatRecordLabel } from './base-field-value'
 
 export function FieldInput({
   field,
@@ -335,6 +334,59 @@ export function FieldInput({
   )
 }
 
+export function referenceCandidatesQuery(
+  client: QueryClient,
+  pageID: string,
+  field: BaseField,
+  settledQuery: string,
+  pageToken?: string
+) {
+  return {
+    queryKey: [...contentKeys.page(pageID), 'reference', field.id, settledQuery, pageToken] as const,
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      if (field.type === 'user') {
+        const result = await client.fetchQuery({
+          queryKey: [...contentKeys.all, 'subjects'],
+          queryFn: ({ signal: subjectSignal }) => podSubjects({ signal: subjectSignal }),
+          staleTime: 30_000
+        })
+        const items = result.subjects
+          .filter(subject => subject.kind === 'human' && !!subject.principal_uid)
+          .map(subject => ({ id: subject.principal_uid!, name: subject.name }))
+          .filter(subject => subject.name.toLocaleLowerCase().includes(settledQuery.toLocaleLowerCase()))
+        return { items, next: undefined as string | undefined }
+      }
+      const schema = await client.fetchQuery({ ...baseSchemaQuery(String(field.config.table_id)), staleTime: 30_000 })
+      const primary = schema.fields.find(item => item.is_primary) ?? schema.fields[0]
+      const [result, subjectList] = await Promise.all([
+        baseHTTP.query(
+          schema.table.id,
+          {
+            page_size: 100,
+            page_token: pageToken,
+            ...(settledQuery ? { search: settledQuery } : {})
+          },
+          signal
+        ),
+        primary && ['user', 'created_by', 'updated_by'].includes(primary.type)
+          ? client.fetchQuery({
+              queryKey: [...contentKeys.all, 'subjects'],
+              queryFn: ({ signal: subjectSignal }) => podSubjects({ signal: subjectSignal }),
+              staleTime: 30_000
+            })
+          : Promise.resolve(undefined)
+      ])
+      return {
+        items: result.records.map(record => ({
+          id: record.id,
+          name: formatRecordLabel(record, primary, subjectList?.subjects)
+        })),
+        next: result.page_token ?? undefined
+      }
+    }
+  }
+}
+
 function ReferencePicker({
   open,
   close,
@@ -361,48 +413,9 @@ function ReferencePicker({
   const search = useRef<HTMLInputElement>(null)
   const client = useQueryClient()
   const candidates = useQuery({
-    queryKey: [...contentKeys.page(pageID), 'reference', field.id, settledQuery, pageToken],
+    ...referenceCandidatesQuery(client, pageID, field, settledQuery, pageToken),
     enabled: open && query === settledQuery,
-    placeholderData: keepPreviousData,
-    queryFn: async ({ signal }) => {
-      if (field.type === 'user') {
-        const result = await client.fetchQuery({
-          queryKey: [...contentKeys.all, 'subjects'],
-          queryFn: ({ signal }) => podSubjects({ signal }),
-          staleTime: 30_000
-        })
-        const items = result.subjects
-          .filter(subject => subject.kind === 'human' && !!subject.principal_uid)
-          .map(subject => ({ id: subject.principal_uid!, name: subject.name }))
-          .filter(subject => subject.name.toLocaleLowerCase().includes(settledQuery.toLocaleLowerCase()))
-        return { items, next: undefined as string | undefined }
-      }
-      const schema = await client.fetchQuery({ ...baseSchemaQuery(String(field.config.table_id)), staleTime: 30_000 })
-      const primary = schema.fields.find(field => field.is_primary) ?? schema.fields[0]
-      const result = await baseHTTP.query(
-        schema.table.id,
-        {
-          page_size: 100,
-          page_token: pageToken,
-          ...(settledQuery && primary
-            ? {
-                filter: {
-                  conjunction: 'and',
-                  conditions: [{ field_id: primary.id, operator: 'text_contains', value: settledQuery }]
-                }
-              }
-            : {})
-        },
-        signal
-      )
-      return {
-        items: result.records.map(record => ({
-          id: record.id,
-          name: primary ? displayValue(primary, fieldValue(record, primary)) : record.id
-        })),
-        next: result.page_token ?? undefined
-      }
-    }
+    placeholderData: keepPreviousData
   })
   const searching = query !== settledQuery || candidates.isPlaceholderData
   const items = searching ? undefined : candidates.data?.items

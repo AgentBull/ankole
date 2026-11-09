@@ -38,6 +38,7 @@ defmodule Ankole.Pod.Pages.Browser do
     allow(:remove_space_agent, check: :guardrail)
     allow(:mention_candidates, check: :guardrail)
     allow(:resolve_mentions, check: :guardrail)
+    allow(:unfurl_link, check: :guardrail)
     allow(:list_recent_searches, check: :guardrail)
     allow(:record_recent_search, check: :guardrail)
     allow(:delete_recent_search, check: :guardrail)
@@ -1336,6 +1337,24 @@ defmodule Ankole.Pod.Pages.Browser do
 
       run(fn input, context ->
         APIError.result(Pages.resolve_mentions(context.actor, input.arguments))
+      end)
+    end
+
+    action :unfurl_link, :map do
+      constraints(
+        fields: [
+          url: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+          title: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+          description: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+          image: [type: :string],
+          icon: [type: :string]
+        ]
+      )
+
+      argument(:url, :string, allow_nil?: false, constraints: [allow_empty?: true, trim?: false])
+
+      run(fn input, context ->
+        APIError.result(Pages.unfurl_link(context.actor, input.arguments.url))
       end)
     end
   end

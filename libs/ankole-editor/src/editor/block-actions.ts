@@ -10,8 +10,10 @@ import type { Wordgard } from '../core/editor'
 import { GardSelection, type GardState, type Transaction } from '../core/state'
 import * as T from '../core/types'
 import { blocks } from '../blocks'
+import { Embed, EmbedHref, EmbedView } from '../blocks/embed'
 import { InfographicBlock } from '../blocks/infographic'
 import { MermaidBlock } from '../blocks/mermaid'
+import { openResourceEditor } from '../blocks/resources'
 import { fileUploadSpec } from './file-upload'
 import { blockOptions, type BlockType, type CoreBlockType } from './block-catalog'
 import { Callout } from '../blocks/callout'
@@ -23,6 +25,7 @@ import {
   blockInsertion,
   compose,
   dispatchStep,
+  insertBlock,
   isContainer,
   isList,
   isListItem,
@@ -54,7 +57,16 @@ export function blockTypeAt(state: GardState, pos: number): BlockType | null {
   if (node.type === T.HorizontalRule.type) return 'divider'
   if (node.type === S.Blockquote.type) return 'quote'
   if (node.type === S.Columns.type && node.isPlot) return `columns${node.content.length}`
+  if (node.type === Embed.type && markValue(node, EmbedHref) !== undefined && markValue(node, EmbedView) === 'card') {
+    return 'bookmark'
+  }
   return blocks.find(block => block.type === node.type)?.name ?? null
+}
+
+function insertWebCard(editor: Wordgard) {
+  insertBlock(editor, Embed.withMarks([EmbedHref.of(''), EmbedView.of('card')]), at => ({
+    effects: openResourceEditor.of(at)
+  }))
 }
 
 /** What the selected blocks become. A code target can give a custom code-role plot or a fence's language and `meta`. */
@@ -76,11 +88,23 @@ export function applyBlockType(editor: Wordgard, type: BlockType, replace?: { fr
   if (editor.state.readOnly) return false
   if (isKnowledge(editor.state) && !knowledgeBlockTypes.has(type)) return false
   const deletion = replace && replace.from < replace.to ? { changes: { from: replace.from, to: replace.to } } : null
+  if (type === 'page_embed') {
+    const host = editorHost(editor)
+    if (!host?.insertPageEmbed) return false
+    if (deletion) withLeadingEdit(editor, deletion, () => host.insertPageEmbed!(editor))
+    else host.insertPageEmbed(editor)
+    return true
+  }
   if (type === 'chart') {
     const host = editorHost(editor)
     if (!host?.insertChart) return false
     if (deletion) withLeadingEdit(editor, deletion, () => host.insertChart!(editor))
     else host.insertChart(editor)
+    return true
+  }
+  if (type === 'bookmark') {
+    if (deletion) withLeadingEdit(editor, deletion, () => insertWebCard(editor))
+    else insertWebCard(editor)
     return true
   }
   const definition = blocks.find(block => block.name === type)
@@ -190,6 +214,7 @@ export function insertBesideBlock(editor: Wordgard, pos: number, type: BlockType
   const block = specifiedUnits(state, pos)?.[0]
   if (!block || state.readOnly) return false
   if (isKnowledge(state) && !knowledgeBlockTypes.has(type)) return false
+  if (type === 'page_embed' && !editorHost(editor)?.insertPageEmbed) return false
   if (type === 'chart' && !editorHost(editor)?.insertChart) return false
   if (!before && block.node.isPlot && block.node.type === T.Paragraph.type && !block.node.content.length) {
     editor.dispatch({ selection: GardSelection.cursor(block.before + 1) })
@@ -210,8 +235,12 @@ export function insertBesideBlock(editor: Wordgard, pos: number, type: BlockType
     selection: GardSelection.cursor(at + (insert[0] === Plot.End ? 2 : 1))
   }
   const definition = blocks.find(definition => definition.name === type)
-  if (type === 'chart') {
+  if (type === 'page_embed') {
+    withLeadingEdit(editor, paragraph, () => editorHost(editor)!.insertPageEmbed!(editor))
+  } else if (type === 'chart') {
     withLeadingEdit(editor, paragraph, () => editorHost(editor)!.insertChart!(editor))
+  } else if (type === 'bookmark') {
+    withLeadingEdit(editor, paragraph, () => insertWebCard(editor))
   } else if (definition) {
     withLeadingEdit(editor, paragraph, () => definition.insert.insert(editor))
   } else {
@@ -390,7 +419,9 @@ export function blockChange(state: GardState, type: CoreBlockType): Transaction.
       return mentionTriggerSpec(state)
     case 'file':
       return fileUploadSpec(state)
+    case 'bookmark':
     case 'chart':
+    case 'page_embed':
       return null
   }
 }

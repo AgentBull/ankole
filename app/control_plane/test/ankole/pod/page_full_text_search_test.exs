@@ -48,7 +48,7 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
         <page>
           <h2>Incident Escalation</h2>
           <p>Run <code>Repo.query!</code> diagnostics when 延迟 spikes during handoff.</p>
-          <bookmark src="https://runbooks.example.com/nebula-pager" title="PagerDuty Matrix" description="On-call rotation for Nebula" />
+          <embed href="https://runbooks.example.com/nebula-pager" view="card" title="PagerDuty Matrix" description="On-call rotation for Nebula" />
           <media kind="image" src="https://cdn.example.com/arch.png" title="Topology diagram" description="Multi-region failover flow" />
         </page>
         """
@@ -60,7 +60,7 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
         xml: "<page><p>Run diagnostics during normal deploy windows.</p></page>"
       })
 
-    # Rich block attributes (<bookmark> and <media>) are indexed and searchable
+    # Rich block attributes (<embed> and <media>) are indexed and searchable
     assert {:ok, %{pages: [found_bm], matches: [bm_match]}} =
              Pages.search(ctx.actor, "PagerDuty rotation")
 
@@ -582,13 +582,13 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
         xml: """
         <page>
           <h2>Cust<strong>om</strong> <code>Section</code></h2>
-          <bookmark href="https://example.com/runbook" title="Bookmarktargetneedle" description="Ops link" />
+          <embed href="https://example.com/runbook" view="card" title="Embedtargetneedle" description="Ops link" />
         </page>
         """
       })
 
     assert {:ok, %{pages: [%{id: id}], matches: [match]}} =
-             Pages.search(ctx.actor, "Bookmarktargetneedle")
+             Pages.search(ctx.actor, "Embedtargetneedle")
 
     assert id == rich_doc.id
     assert %{kind: :doc_section, heading: "Custom Section", level: 2} = match.primary_target

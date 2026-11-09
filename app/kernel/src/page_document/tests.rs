@@ -58,11 +58,25 @@ fn resource_marks_follow_xml_attribute_limits() {
     for (name, valid, invalid) in [
         ("Resource_kind", "video", "audio"),
         ("Resource_view", "preview", "grid"),
+        ("EmbedHeight", "640", "120"),
     ] {
         assert!(document_schema::validate_mark(name, &json!(valid)).is_ok());
         assert!(document_schema::validate_mark(name, &json!(invalid)).is_err());
         assert!(document_schema::validate_mark(name, &json!(42)).is_err());
     }
+    let resized = r#"<page><embed height="640" href="https://figma.com/file/abc" title="Design Spec" /></page>"#;
+    let plain = r#"<page><embed href="https://figma.com/file/abc" title="Design Spec" /></page>"#;
+    assert_eq!(validate(resized).unwrap().xml, resized);
+    assert!(
+        validate(r#"<page><embed height="120" href="https://figma.com/file/abc" /></page>"#)
+            .is_err()
+    );
+    assert!(
+        validate(r#"<page><embed height="1601" href="https://figma.com/file/abc" /></page>"#)
+            .is_err()
+    );
+    let delta = diff(plain, resized).unwrap();
+    assert_eq!(apply(plain, &delta.to_string()).unwrap().xml, resized);
 }
 
 #[test]
@@ -209,7 +223,7 @@ fn derives_search_text() {
     assert_eq!(result.plain_text, "标题\n正文");
 
     let rich = validate(
-        r#"<page><h1>参考资料</h1><bookmark src="https://docs.stripe.com/webhooks" title="Stripe Webhooks" description="Signature verification guide" /><media src="ankole:attachment/raw-uuid" title="架构总览图.png" description="2026 Q4 拓扑" kind="image" /><embed href="https://figma.com/file/abc" title="Design Spec" /><p>说明<img src="https://example.com/a.png" alt="流程图" /></p></page>"#,
+        r#"<page><h1>参考资料</h1><embed href="https://docs.stripe.com/webhooks" view="card" title="Stripe Webhooks" description="Signature verification guide" /><media src="ankole:attachment/raw-uuid" title="架构总览图.png" description="2026 Q4 拓扑" kind="image" /><embed href="https://figma.com/file/abc" title="Design Spec" /><p>说明<img src="https://example.com/a.png" alt="流程图" /></p></page>"#,
     )
     .unwrap();
     assert_eq!(
@@ -696,7 +710,7 @@ fn sections_preserves_inline_heading_text_and_rich_block_offsets() {
         "<h2>Cust<strong>om</strong> <code>Section</code></h2>",
         "<p>Reviewneedle below</p>",
         "<h3>Links &amp; Media</h3>",
-        r#"<bookmark src="https://docs.example.com/runbook" title="Incident Runbook" description="Bookmarkneedle" />"#,
+        r#"<embed href="https://docs.example.com/runbook" view="card" title="Incident Runbook" description="Bookmarkneedle" />"#,
         "</page>"
     );
     let parsed = super::sections(xml).unwrap();
@@ -710,6 +724,19 @@ fn sections_preserves_inline_heading_text_and_rich_block_offsets() {
     assert!(needle_pos >= parsed.sections[0].start_byte);
     assert!(needle_pos < parsed.sections[1].start_byte);
 
-    let bookmark_pos = parsed.plain_text.find("Bookmarkneedle").unwrap();
-    assert!(bookmark_pos >= parsed.sections[1].start_byte);
+    let card_pos = parsed.plain_text.find("Bookmarkneedle").unwrap();
+    assert!(card_pos >= parsed.sections[1].start_byte);
+}
+
+#[test]
+fn diffs_unknown_legacy_bookmark_into_unified_embed_card() {
+    let old = r#"<page><p>Before</p><bookmark src="https://example.com/doc" title="Example" description="Summary" image="https://example.com/og.png" /><p>After</p></page>"#;
+    let new = r#"<page><p>Before</p><embed description="Summary" href="https://example.com/doc" image="https://example.com/og.png" title="Example" view="card" /><p>After</p></page>"#;
+    let changes = super::diff(old, new).unwrap();
+    let applied = apply(old, &serde_json::to_string(&changes).unwrap()).unwrap();
+    assert_eq!(applied.xml, new);
+    assert_eq!(
+        applied.plain_text,
+        "Before\nExample\nSummary\nhttps://example.com/doc\nAfter"
+    );
 }

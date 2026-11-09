@@ -12,7 +12,7 @@ import {
   RiUserLine
 } from '@remixicon/react'
 import { t } from 'i18next'
-import type { BaseField, FieldType, Value } from '@ankole/applet-sdk/types'
+import type { BaseField, FieldType, Value, ViewType } from '@ankole/applet-sdk/types'
 
 export const fieldTypes: Record<FieldType, string> = {
   get text() {
@@ -119,4 +119,18 @@ export function effectiveFieldType(field: BaseField) {
     return 'array'
   }
   return field.type
+}
+
+export function resolveVisibleFields(
+  fields: readonly BaseField[],
+  visibleFieldIDs: readonly string[] | undefined,
+  viewType: ViewType
+): BaseField[] {
+  if (!visibleFieldIDs) return [...fields]
+  const selected = new Set(visibleFieldIDs)
+  if (viewType === 'grid') {
+    const matched = fields.filter(field => selected.has(field.id))
+    return matched.length > 0 ? matched : fields.slice(0, 1)
+  }
+  return fields.filter(field => field.is_primary || selected.has(field.id))
 }

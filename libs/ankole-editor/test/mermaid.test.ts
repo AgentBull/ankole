@@ -6,9 +6,18 @@ import { normalizeTree } from '../src/document/normalize'
 import { parseXml, printXml } from '../src/document/xml'
 import { element, text } from '../src/document/tree'
 import { Leaf } from '../src/core/doc'
+import { GardSelection } from '../src/core/state'
 import * as T from '../src/core/types'
 import { markSet } from '../src/editor/attributes'
-import { MermaidTheme, MermaidView } from '../src/blocks/mermaid'
+import { BlockSelection } from '../src/editor/block-selection'
+import {
+  applyMermaidTemplate,
+  mermaidTemplates,
+  MermaidTheme,
+  MermaidView,
+  setMermaidView
+} from '../src/blocks/mermaid'
+import { open } from './helpers'
 
 const page = (...children: ReturnType<typeof element>[]) => element('page', {}, children)
 const source = 'flowchart TD\n  A[开始] --> B{是否继续?}'
@@ -67,4 +76,44 @@ test('carriage returns inside Mermaid XML survive editor round-trips', () => {
   const xml = '<page><mermaid>flowchart LR&#13;\n  A --&gt; B</mermaid></page>'
   const state = headlessState(parseXml(xml))
   expect(printXml(readTree(state.doc))).toBe(xml)
+})
+
+test('applying a Mermaid template focuses the block and switching to or from diagram-only view keeps selection valid', () => {
+  const editor = open('Intro\n\n```mermaid\n```')
+  editor.dispatch({ selection: GardSelection.cursor(1) })
+  const mermaidPos = editor.state.doc.content[0]!.length
+  const template = mermaidTemplates[0]!.source
+  applyMermaidTemplate(editor, mermaidPos, template)
+
+  const afterTemplate = editor.state.doc.resolvePlot(mermaidPos)!
+  expect(afterTemplate.node.textContent()).toBe(template)
+  expect(editor.state.selection).toBeInstanceOf(GardSelection.Text)
+  expect(editor.state.selection.head).toBe(afterTemplate.end)
+
+  // Caret inside the Mermaid block switches to whole-block selection when entering diagram-only view.
+  setMermaidView(editor, mermaidPos, 'diagram')
+  expect(editor.state.selection).toBeInstanceOf(BlockSelection)
+  expect((editor.state.selection as BlockSelection).blocks.map(unit => unit.before)).toEqual([mermaidPos])
+
+  // Applying another template while in diagram-only view keeps the whole-block selection on the diagram.
+  applyMermaidTemplate(editor, mermaidPos, mermaidTemplates[2]!.source)
+  expect(editor.state.selection).toBeInstanceOf(BlockSelection)
+  expect((editor.state.selection as BlockSelection).blocks.map(unit => unit.before)).toEqual([mermaidPos])
+
+  // Switching back to source view moves the caret into the source pane.
+  setMermaidView(editor, mermaidPos, 'both')
+  const restored = editor.state.doc.resolvePlot(mermaidPos)!
+  expect(editor.state.selection).toBeInstanceOf(GardSelection.Text)
+  expect(editor.state.selection.head).toBe(restored.end)
+
+  // Toggling view when selection is in another block leaves that selection untouched.
+  editor.dispatch({ selection: GardSelection.cursor(2) })
+  setMermaidView(editor, mermaidPos, 'diagram')
+  expect(editor.state.selection).toBeInstanceOf(GardSelection.Text)
+  expect(editor.state.selection.head).toBe(2)
+
+  // Initial state on a page ending in a diagram-only Mermaid block stays outside the hidden source pane.
+  const initialDiagram = headlessState('<mermaid view="diagram">\n```mermaid\nflowchart LR\n```\n</mermaid>')
+  expect(initialDiagram.selection).toBeInstanceOf(GardSelection.Text)
+  expect(initialDiagram.selection.head).toBe(initialDiagram.doc.length)
 })

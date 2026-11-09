@@ -14,7 +14,7 @@ defmodule Ankole.Pod.Pages do
   alias Ankole.Pod.PageContent
   alias Ankole.Pod.PageUserState
   alias Ankole.Pod.Position
-  alias Ankole.Pod.Pages.{Mentions, Queries, RecentSearches, Sharing}
+  alias Ankole.Pod.Pages.{LinkPreview, Mentions, Queries, RecentSearches, Sharing}
   alias Ankole.Pod.Documents.History
 
   defdelegate list_children(actor, parent_id, opts \\ %{}), to: Queries
@@ -36,6 +36,7 @@ defmodule Ankole.Pod.Pages do
   defdelegate mention_candidates(actor, opts \\ %{}), to: Mentions, as: :candidates
   defdelegate resolve_mentions(actor, attrs), to: Mentions, as: :resolve
   defdelegate resolve_xml_references(actor, xml, context_page_id \\ nil), to: Mentions
+  defdelegate unfurl_link(actor, url, opts \\ []), to: LinkPreview, as: :unfurl
 
   def can_create_space?(%Ankole.AuthZ.Actor{} = actor),
     do: match?(:ok, destination(actor, nil, nil))

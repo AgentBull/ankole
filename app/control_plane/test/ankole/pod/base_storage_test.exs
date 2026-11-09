@@ -317,54 +317,127 @@ defmodule Ankole.Pod.BaseStorageTest do
     end
   end
 
-  test "primary fields keep their text type while their name and position can change", ctx do
-    for mode <- [:inline, :physical] do
-      if mode == :physical do
-        assert {:ok, _} =
-                 Bases.create_field(ctx.actor, ctx.table.id, %{
-                   name: "Related",
-                   type: "link",
-                   config: %{"table_id" => ctx.table.id}
-                 })
-      end
+  test "display fields can change type, switch columns, and be deleted when other fields remain",
+       ctx do
+    assert {:error, :primary_field_required} =
+             Bases.delete_field(ctx.actor, ctx.primary.id, ctx.primary.version)
 
-      primary = Enum.find(Bases.fields(ctx.table.id), & &1.is_primary)
-      assert {:ok, before} = Bases.get_table(ctx.actor, ctx.table.id)
+    assert {:error, :primary_field_required} =
+             Bases.update_field(ctx.actor, ctx.primary.id, %{
+               version: ctx.primary.version,
+               is_primary: false
+             })
 
-      for type <- ~w(number datetime checkbox attachment user select formula auto_number link) do
-        assert {:error, _} =
-                 Bases.update_field(ctx.actor, primary.id, %{
-                   version: primary.version,
-                   type: type
-                 })
-      end
+    assert {:ok, select_primary} =
+             Bases.update_field(ctx.actor, ctx.primary.id, %{
+               version: ctx.primary.version,
+               name: "Category",
+               type: "select",
+               config: %{"options" => [%{"id" => "a", "name" => "Hardware"}]}
+             })
 
-      assert {:ok, after_rejection} = Bases.get_table(ctx.actor, ctx.table.id)
-      assert after_rejection == before
+    assert select_primary.is_primary
+    assert select_primary.type == :select
 
-      assert {:ok, renamed} =
-               Bases.update_field(ctx.actor, primary.id, %{
-                 version: primary.version,
-                 name: "Title #{mode}",
-                 position: "A"
-               })
+    assert {:ok, number_primary} =
+             Bases.update_field(ctx.actor, select_primary.id, %{
+               version: select_primary.version,
+               type: "number"
+             })
 
-      assert renamed.type == :text
-      assert renamed.name == "Title #{mode}"
-      assert renamed.position == "A"
-    end
-  end
+    assert number_primary.is_primary
+    assert number_primary.type == :number
 
-  test "PostgreSQL rejects a non-text primary field even outside the domain action", ctx do
-    assert_raise Postgrex.Error, ~r/base_fields_primary_text/, fn ->
-      Repo.query!(
-        "UPDATE base_fields SET type='number' WHERE tenant_id=$1::text::uuid AND id=$2::text::uuid",
-        [Repo.tenant_id!(), ctx.primary.id]
+    assert {:ok, _attachment} =
+             Bases.create_field(ctx.actor, ctx.table.id, %{name: "Files", type: "attachment"})
+
+    assert {:ok, promoted_on_create} =
+             Bases.create_field(ctx.actor, ctx.table.id, %{
+               name: "Code",
+               type: "text",
+               is_primary: true
+             })
+
+    assert promoted_on_create.is_primary
+    refute Enum.find(Bases.fields(ctx.table.id), &(&1.id == number_primary.id)).is_primary
+
+    reloaded_number = Enum.find(Bases.fields(ctx.table.id), &(&1.id == number_primary.id))
+
+    assert {:ok, promoted_on_update} =
+             Bases.update_field(ctx.actor, reloaded_number.id, %{
+               version: reloaded_number.version,
+               is_primary: true
+             })
+
+    assert promoted_on_update.is_primary
+    refute Enum.find(Bases.fields(ctx.table.id), &(&1.id == promoted_on_create.id)).is_primary
+
+    # Renaming a referenced field while promoting it over a formula display field updates the formula once.
+    assert {:ok, formula_primary} =
+             Bases.create_field(ctx.actor, ctx.table.id, %{
+               name: "Summary",
+               type: "formula",
+               config: %{"source" => "[Code]"},
+               is_primary: true
+             })
+
+    assert formula_primary.is_primary
+    reloaded_code = Enum.find(Bases.fields(ctx.table.id), &(&1.id == promoted_on_create.id))
+
+    assert {:ok, renamed_code} =
+             Bases.update_field(ctx.actor, reloaded_code.id, %{
+               version: reloaded_code.version,
+               name: "SKU",
+               is_primary: true
+             })
+
+    assert renamed_code.is_primary
+    demoted_formula = Enum.find(Bases.fields(ctx.table.id), &(&1.id == formula_primary.id))
+    refute demoted_formula.is_primary
+    assert demoted_formula.config["source"] == "[SKU]"
+    assert demoted_formula.version == formula_primary.version + 1
+
+    # Promote to physical storage and verify altering a primary column drops any legacy collated index cleanly.
+    assert {:ok, _} =
+             Bases.create_field(ctx.actor, ctx.table.id, %{
+               name: "Related",
+               type: "link",
+               config: %{"table_id" => ctx.table.id}
+             })
+
+    reloaded_code = Enum.find(Bases.fields(ctx.table.id), &(&1.id == promoted_on_create.id))
+    assert reloaded_code.is_primary
+
+    BaseRepo.with_shard(BaseRepo.shard!(), fn ->
+      BaseRepo.query!(
+        ~s|CREATE INDEX "ix_#{BaseRepo.hex(reloaded_code.id)}" ON #{BaseRepo.table(ctx.table.id)} (#{BaseRepo.column(reloaded_code.id)} COLLATE "C")|,
+        []
       )
-    end
+    end)
+
+    assert {:ok, physical_auto} =
+             Bases.update_field(ctx.actor, reloaded_code.id, %{
+               version: reloaded_code.version,
+               type: "auto_number"
+             })
+
+    assert physical_auto.is_primary
+    assert physical_auto.type == :auto_number
+
+    assert {:error, :field_referenced} =
+             Bases.delete_field(ctx.actor, physical_auto.id, physical_auto.version)
+
+    demoted_formula = Enum.find(Bases.fields(ctx.table.id), &(&1.id == formula_primary.id))
+    assert {:ok, _} = Bases.delete_field(ctx.actor, demoted_formula.id, demoted_formula.version)
+
+    # Deleting the active display field promotes the first remaining non-attachment/non-link field.
+    assert {:ok, _} = Bases.delete_field(ctx.actor, physical_auto.id, physical_auto.version)
+    remaining = Bases.fields(ctx.table.id)
+    assert Enum.find(remaining, & &1.is_primary).id == number_primary.id
   end
 
-  test "the primary index supports C ordering when the column has another collation", ctx do
+  test "physical text queries order in C collation even when the column has another collation",
+       ctx do
     {:ok, _} =
       Bases.write_records(ctx.actor, ctx.table.id, %{
         creates: Enum.map(["ä", "z", "a"], &%{data: %{ctx.primary.id => &1}})
@@ -384,18 +457,6 @@ defmodule Ankole.Pod.BaseStorageTest do
             ~s|ALTER TABLE #{BaseRepo.table(ctx.table.id)} ALTER COLUMN #{BaseRepo.column(ctx.primary.id)} TYPE text COLLATE "POSIX"|,
             []
           )
-
-          BaseRepo.query!("SET LOCAL enable_seqscan=off", [])
-
-          plan =
-            BaseRepo.query!(
-              ~s|EXPLAIN (COSTS OFF) SELECT id FROM #{BaseRepo.table(ctx.table.id)} ORDER BY #{BaseRepo.column(ctx.primary.id)} COLLATE "C"|,
-              []
-            ).rows
-
-          assert Enum.any?(plan, fn [line] ->
-                   String.contains?(line, "ix_#{BaseRepo.hex(ctx.primary.id)}")
-                 end)
 
           {:ok, :ok}
         end)
@@ -614,10 +675,10 @@ defmodule Ankole.Pod.BaseStorageTest do
     end
   end
 
-  test "primary UTF-8 bytes have the same limit before and after a link promotes the table",
+  test "display text fields accept large UTF-8 values before and after a link promotes the table",
        ctx do
-    value = String.duplicate("界", 682) <> "ab"
-    assert byte_size(value) == 2048
+    value = String.duplicate("界", 2000)
+    assert byte_size(value) == 6000
 
     for mode <- [:inline, :physical] do
       if mode == :physical do
@@ -629,15 +690,12 @@ defmodule Ankole.Pod.BaseStorageTest do
                  })
       end
 
-      assert {:ok, _} =
+      assert {:ok, %{records: [saved]}} =
                Bases.write_records(ctx.actor, ctx.table.id, %{
                  creates: [%{data: %{ctx.primary.id => value}}]
                })
 
-      assert {:error, :primary_field_size_limit} =
-               Bases.write_records(ctx.actor, ctx.table.id, %{
-                 creates: [%{data: %{ctx.primary.id => value <> "x"}}]
-               })
+      assert saved.data[ctx.primary.id] == value
     end
   end
 
@@ -1205,5 +1263,233 @@ defmodule Ankole.Pod.BaseStorageTest do
              Bases.get_table(ctx.actor, ctx.table.id)
 
     assert {:error, :local_table_changed} = Bases.query(ctx.actor, ctx.table.id, %{local: true})
+  end
+
+  test "relax_base_primary_field_types drops legacy physical display-field B-tree indexes so >2704-byte values write cleanly while preserving auto_number indexes",
+       ctx do
+    {:ok, seq} =
+      Bases.create_field(ctx.actor, ctx.table.id, %{name: "Seq", type: "auto_number"})
+
+    assert {:ok, _} =
+             Bases.create_field(ctx.actor, ctx.table.id, %{
+               name: "Peer",
+               type: "link",
+               config: %{"table_id" => ctx.table.id}
+             })
+
+    tenant_schema = BaseRepo.tenant_schema!()
+    legacy_index = ~s("#{tenant_schema}"."ix_#{BaseRepo.hex(ctx.primary.id)}")
+    auto_index = ~s("#{tenant_schema}"."ix_#{BaseRepo.hex(seq.id)}")
+    high_entropy_text = Base.encode64(:crypto.strong_rand_bytes(4_500))
+
+    BaseRepo.with_shard(ctx.tenant.base_db_id, fn ->
+      BaseRepo.query!(
+        ~s[CREATE INDEX "ix_#{BaseRepo.hex(ctx.primary.id)}" ON #{BaseRepo.table(ctx.table.id)} (#{BaseRepo.column(ctx.primary.id)} COLLATE "C")],
+        []
+      )
+
+      assert BaseRepo.query!("SELECT to_regclass($1)::text", [legacy_index]).rows != [[nil]]
+      assert BaseRepo.query!("SELECT to_regclass($1)::text", [auto_index]).rows != [[nil]]
+
+      error =
+        assert_raise Postgrex.Error, fn ->
+          BaseRepo.query!(
+            "INSERT INTO #{BaseRepo.table(ctx.table.id)} (id, #{BaseRepo.column(ctx.primary.id)}, #{BaseRepo.column(seq.id)}, versions, created_by, updated_by, created_at, updated_at) VALUES ($1::text::uuid, $2, 1, '{}'::jsonb, 'u', 'u', now(), now())",
+            [Ankole.Ecto.UUIDv7.autogenerate(), high_entropy_text]
+          )
+        end
+
+      assert Exception.message(error) =~ "index row size"
+    end)
+
+    Code.require_file(
+      Path.expand(
+        "../../../priv/repo/migrations/20261109164500_relax_base_primary_field_types.exs",
+        __DIR__
+      )
+    )
+
+    apply(Ankole.Repo.Migrations.RelaxBasePrimaryFieldTypes, :drop_legacy_field_indexes, [
+      Ankole.Repo
+    ])
+
+    BaseRepo.with_shard(ctx.tenant.base_db_id, fn ->
+      assert BaseRepo.query!("SELECT to_regclass($1)::text", [legacy_index]).rows == [[nil]]
+      assert BaseRepo.query!("SELECT to_regclass($1)::text", [auto_index]).rows != [[nil]]
+    end)
+
+    assert {:ok, %{records: [created]}} =
+             Bases.write_records(ctx.actor, ctx.table.id, %{
+               creates: [%{data: %{ctx.primary.id => high_entropy_text}}]
+             })
+
+    assert created.data[ctx.primary.id] == high_entropy_text
+  end
+
+  for mode <- [:inline, :physical] do
+    test "#{mode} record search filters primary display labels before pagination across non-text field types",
+         ctx do
+      colleague = human_fixture(%{display_name: "Zelda Nightingale"})
+
+      if unquote(mode) == :physical do
+        assert {:ok, _} =
+                 Bases.create_field(ctx.actor, ctx.table.id, %{
+                   name: "Peer",
+                   type: "link",
+                   config: %{"table_id" => ctx.table.id}
+                 })
+      end
+
+      {:ok, select_primary} =
+        Bases.update_field(ctx.actor, ctx.primary.id, %{
+          version: ctx.primary.version,
+          type: "select",
+          config: %{
+            "options" => [
+              %{"id" => "opt_std", "name" => "Standard"},
+              %{"id" => "opt_ent", "name" => "Enterprise Tier"}
+            ]
+          }
+        })
+
+      noise = List.duplicate(%{data: %{select_primary.id => "opt_std"}}, 105)
+
+      {:ok, %{records: inserted}} =
+        Bases.write_records(ctx.actor, ctx.table.id, %{
+          creates: noise ++ [%{data: %{select_primary.id => "opt_ent"}}, %{data: %{}}]
+        })
+
+      target = Enum.at(inserted, 105)
+      empty_row = Enum.at(inserted, 106)
+
+      assert {:ok, %{records: [found], complete: true, page_token: nil}} =
+               Bases.query(ctx.actor, ctx.table.id, %{
+                 page_size: 100,
+                 search: "enterprise"
+               })
+
+      assert found["id"] == target.id
+
+      short_id = "#" <> String.slice(empty_row.id, -6, 6)
+
+      assert {:ok, %{records: [found_empty]}} =
+               Bases.query(ctx.actor, ctx.table.id, %{page_size: 100, search: short_id})
+
+      assert found_empty["id"] == empty_row.id
+
+      assert {:ok, page1} =
+               Bases.query(ctx.actor, ctx.table.id, %{page_size: 50, search: "standard"})
+
+      assert length(page1.records) == 50
+      assert is_binary(page1.page_token)
+
+      assert {:error, :invalid_page_token} =
+               Bases.query(ctx.actor, ctx.table.id, %{
+                 page_size: 50,
+                 search: "enterprise",
+                 page_token: page1.page_token
+               })
+
+      assert {:ok, page2} =
+               Bases.query(ctx.actor, ctx.table.id, %{
+                 page_size: 60,
+                 search: "standard",
+                 page_token: page1.page_token
+               })
+
+      assert length(page2.records) == 55
+      assert page2.complete
+
+      # Verify user, number, formula, and datetime primary display fields
+      {:ok, people_table} = Bases.create_table(ctx.actor, ctx.page.id, %{name: "Directory"})
+      people_primary = Enum.find(Bases.fields(people_table.id), & &1.is_primary)
+
+      if unquote(mode) == :physical do
+        assert {:ok, _} =
+                 Bases.create_field(ctx.actor, people_table.id, %{
+                   name: "Peer",
+                   type: "link",
+                   config: %{"table_id" => people_table.id}
+                 })
+      end
+
+      {:ok, people_primary} =
+        Bases.update_field(ctx.actor, people_primary.id, %{
+          version: people_primary.version,
+          type: "user"
+        })
+
+      {:ok, qty} = Bases.create_field(ctx.actor, people_table.id, %{name: "Qty", type: "number"})
+
+      {:ok, scheduled_at} =
+        Bases.create_field(ctx.actor, people_table.id, %{name: "When", type: "datetime"})
+
+      {:ok, code_formula} =
+        Bases.create_field(ctx.actor, people_table.id, %{
+          name: "Double Qty",
+          type: "formula",
+          config: %{"source" => "[Qty] * 2"}
+        })
+
+      people_noise =
+        List.duplicate(
+          %{data: %{people_primary.id => [ctx.actor.principal.uid], qty.id => 1}},
+          102
+        )
+
+      {:ok, %{records: people_rows}} =
+        Bases.write_records(ctx.actor, people_table.id, %{
+          creates:
+            people_noise ++
+              [
+                %{
+                  data: %{
+                    people_primary.id => [colleague.principal.uid],
+                    qty.id => 456,
+                    scheduled_at.id => "2026-11-09T14:30:00Z"
+                  }
+                }
+              ]
+        })
+
+      zelda_row = List.last(people_rows)
+
+      assert {:ok, %{records: [matched_person]}} =
+               Bases.query(ctx.actor, people_table.id, %{page_size: 100, search: "nightingale"})
+
+      assert matched_person["id"] == zelda_row.id
+
+      {:ok, qty} =
+        Bases.update_field(ctx.actor, qty.id, %{version: qty.version, is_primary: true})
+
+      assert qty.is_primary
+
+      assert {:ok, %{records: [matched_number]}} =
+               Bases.query(ctx.actor, people_table.id, %{page_size: 100, search: "456"})
+
+      assert matched_number["id"] == zelda_row.id
+
+      {:ok, _} =
+        Bases.update_field(ctx.actor, code_formula.id, %{
+          version: code_formula.version,
+          is_primary: true
+        })
+
+      assert {:ok, %{records: [matched_formula]}} =
+               Bases.query(ctx.actor, people_table.id, %{page_size: 100, search: "912"})
+
+      assert matched_formula["id"] == zelda_row.id
+
+      {:ok, _} =
+        Bases.update_field(ctx.actor, scheduled_at.id, %{
+          version: scheduled_at.version,
+          is_primary: true
+        })
+
+      assert {:ok, %{records: [matched_date]}} =
+               Bases.query(ctx.actor, people_table.id, %{page_size: 100, search: "Nov 9, 2026"})
+
+      assert matched_date["id"] == zelda_row.id
+    end
   end
 end

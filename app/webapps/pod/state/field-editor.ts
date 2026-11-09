@@ -3,6 +3,18 @@ import { match } from '@agentbull/active-support'
 import type { BaseField, FieldType } from '@ankole/applet-sdk/types'
 import { fieldOptions, type Option } from '../base-field-types'
 
+export function fieldHasStoredValues(
+  field: BaseField | undefined,
+  recordCount: number | undefined,
+  nonEmptyCount: number | undefined
+): boolean {
+  if (!field) return false
+  if (['formula', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(field.type)) return false
+  if (recordCount === 0) return false
+  if (nonEmptyCount !== undefined) return nonEmptyCount > 0
+  return true
+}
+
 export const FieldEditorModel = createModel(() => {
   const original = signal<BaseField>()
   const definitionDirty = signal(false)
@@ -15,6 +27,7 @@ export const FieldEditorModel = createModel(() => {
   const options = signal<Option[]>([])
   const target = signal('')
   const bidirectional = signal(false)
+  const isPrimary = signal(false)
   const baseVersion = signal(0)
   const confirmation = signal<'delete' | 'change' | 'clear'>()
   const config = computed(() =>
@@ -64,6 +77,7 @@ export const FieldEditorModel = createModel(() => {
     options,
     target,
     bidirectional,
+    isPrimary,
     baseVersion,
     confirmation,
     config,
@@ -101,6 +115,9 @@ export const FieldEditorModel = createModel(() => {
       bidirectional.value = value
       definitionDirty.value = true
     },
+    setIsPrimary: (value: boolean) => {
+      isPrimary.value = value
+    },
     setConfirmation: (value: 'delete' | 'change' | 'clear' | undefined) => {
       confirmation.value = value
     },
@@ -116,6 +133,7 @@ export const FieldEditorModel = createModel(() => {
         options.value = field ? fieldOptions(field) : []
         target.value = String(field?.config.table_id ?? '')
         bidirectional.value = !!field?.config.reverse_field_id || field?.config.bidirectional === true
+        isPrimary.value = field?.is_primary ?? false
         baseVersion.value = field?.version ?? 0
         confirmation.value = undefined
       })

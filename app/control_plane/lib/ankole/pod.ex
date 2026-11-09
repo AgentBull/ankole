@@ -746,6 +746,7 @@ defmodule Ankole.Pod do
         )
 
         route(:post, "/mentions/resolve", :resolve_mentions, name: "podMentionsResolve")
+        route(:post, "/links/unfurl", :unfurl_link, name: "podLinkUnfurl")
       end
     end
   end

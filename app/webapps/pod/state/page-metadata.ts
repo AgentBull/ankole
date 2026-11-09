@@ -23,6 +23,7 @@ export function createPageMetadata() {
   let disposed = false
   let version = 0
   const changed = new Map<string, number>()
+  const listeners = new Set<() => void>()
   const collection = createCollection<PageMetadata, string>({
     getKey: page => page.id,
     startSync: true,
@@ -38,6 +39,7 @@ export function createPageMetadata() {
 
   function receive(pages: readonly PageMetadata[], readVersion = version, fromRead = false) {
     if (disposed) return
+    let wrote = false
     sync.begin()
     for (const page of new Map(pages.map(page => [page.id, page])).values()) {
       // A read already in flight when a rename/icon write completed cannot undo that write.
@@ -60,12 +62,20 @@ export function createPageMetadata() {
         continue
       }
       sync.write({ type: previous ? 'update' : 'insert', value: next })
+      wrote = true
     }
     sync.commit()
+    if (wrote) for (const listener of listeners) listener()
   }
 
   return {
     collection,
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
     async read<T>(request: () => Promise<T>, pages: (result: T) => readonly PageMetadata[]): Promise<T> {
       const readVersion = version
       const result = await request()
@@ -97,6 +107,7 @@ export function createPageMetadata() {
     dispose() {
       disposed = true
       changed.clear()
+      listeners.clear()
       void collection.cleanup({ dependents: true })
     }
   }

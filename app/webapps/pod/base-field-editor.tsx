@@ -16,18 +16,19 @@ import {
   resolveSelectOptionColor,
   useTheme
 } from '@ankole/uikit'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRef } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef, useState } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiAddLine, RiEqualizerLine } from '@remixicon/react'
-import { FieldEditorModel } from './state/field-editor'
+import { FieldEditorModel, fieldHasStoredValues } from './state/field-editor'
 import { requestErrorCode } from '../common/request-errors'
 import { InternalAPIError } from '../common/internal-api-client'
 import type { BaseField, BaseTable } from '@ankole/applet-sdk/types'
 import { contentKeys } from './content-api'
+import { useContent } from './content-context'
 import { Choice, ContentError, TextField } from './content-primitives'
-import { baseHTTP } from './base-api'
+import { baseHTTP, baseSchemaQuery } from './base-api'
 import { fieldTypes, SELECT_OPTION_COLORS } from './base-field-types'
 
 export function FieldEditorButton({
@@ -61,6 +62,7 @@ export function FieldEditorButton({
   const options = model.options.value
   const target = model.target.value
   const bidirectional = model.bidirectional.value
+  const isPrimary = model.isPrimary.value
   const baseVersion = model.baseVersion.value
   const confirmation = model.confirmation.value
   const {
@@ -73,11 +75,36 @@ export function FieldEditorButton({
     setOptions,
     setTarget,
     setBidirectional,
+    setIsPrimary,
     setConfirmation
   } = model
+  const { base } = useContent()
   const client = useQueryClient()
   const saving = useRef(false)
+  const [checkingValues, setCheckingValues] = useState(false)
   const cancel = useRef<HTMLButtonElement>(null)
+  const schema = useQuery(baseSchemaQuery(tableID))
+  const liveTable = schema.data?.table ?? tables.find(item => item.id === tableID)
+  const recordCount = liveTable?.record_count
+  const needsValueCheck =
+    !!field &&
+    !['formula', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(field.type) &&
+    recordCount !== 0
+  const nonEmptyQueryKey = [...base.key(tableID), 'aggregate', 'field-non-empty', field?.id, liveTable?.data_version]
+  const fetchNonEmptyCount = async () => {
+    const result = await base.aggregate(tableID, {
+      metrics: [{ operation: 'count', field_id: field!.id, alias: 'non_empty' }]
+    })
+    const count = result.groups[0]?.metrics.non_empty
+    return typeof count === 'number' ? count : 0
+  }
+  const changesValues = model.changesValues.value
+  const valueCount = useQuery({
+    queryKey: nonEmptyQueryKey,
+    queryFn: fetchNonEmptyCount,
+    enabled: open && needsValueCheck && changesValues,
+    staleTime: 10_000
+  })
   const invalidate = () =>
     Promise.all([
       client.invalidateQueries({ queryKey: [...contentKeys.all, 'table'] }),
@@ -87,7 +114,8 @@ export function FieldEditorButton({
   const write = useMutation({
     mutationFn: () => {
       const config = model.config.value
-      const definition = { name: name.trim(), description: description.trim(), type, config }
+      const promotePrimary = isPrimary && !field?.is_primary ? { is_primary: true } : {}
+      const definition = { name: name.trim(), description: description.trim(), type, config, ...promotePrimary }
       return field
         ? baseHTTP.updateField(
             field.id,
@@ -117,13 +145,13 @@ export function FieldEditorButton({
       saving.current = false
     }
   })
-  const pending = write.isPending || remove.isPending
+  const pending = write.isPending || remove.isPending || checkingValues
+  const canDelete = !!field && (schema.data?.fields.length ?? 0) > 1
   const load = () => {
     model.load(field)
     write.reset()
     remove.reset()
   }
-  const changesValues = model.changesValues.value
   const conversionFailed =
     write.error instanceof InternalAPIError && requestErrorCode(write.error.payload) === 'conversion_failed'
   const confirm = (next: 'delete' | 'change' | 'clear') => {
@@ -132,11 +160,35 @@ export function FieldEditorButton({
   }
   const save = () => {
     if (saving.current || !name.trim() || confirmation === 'delete' || (type === 'link' && !target)) return
-    if (changesValues && confirmation !== 'change' && confirmation !== 'clear') confirm('change')
-    else {
-      saving.current = true
-      write.mutate()
+    if (changesValues && confirmation !== 'change' && confirmation !== 'clear') {
+      if (needsValueCheck && valueCount.data === undefined) {
+        saving.current = true
+        setCheckingValues(true)
+        void client
+          .fetchQuery({ queryKey: nonEmptyQueryKey, queryFn: fetchNonEmptyCount, staleTime: 10_000 })
+          .then(count => {
+            setCheckingValues(false)
+            if (fieldHasStoredValues(field, recordCount, count)) {
+              saving.current = false
+              confirm('change')
+            } else {
+              write.mutate()
+            }
+          })
+          .catch(() => {
+            setCheckingValues(false)
+            saving.current = false
+            confirm('change')
+          })
+        return
+      }
+      if (fieldHasStoredValues(field, recordCount, valueCount.data)) {
+        confirm('change')
+        return
+      }
     }
+    saving.current = true
+    write.mutate()
   }
   if (!canManage) {
     return (
@@ -207,7 +259,7 @@ export function FieldEditorButton({
               value={type}
               onChange={setType}
               options={fieldTypes}
-              disabled={pending || field?.is_primary}
+              disabled={pending}
             />
             {type === 'formula' && (
               <label className="grid gap-2 text-sm">
@@ -346,6 +398,10 @@ export function FieldEditorButton({
                 {t('pod.content.allow_multiple_selections')}
               </label>
             )}
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox disabled={pending || field?.is_primary} checked={isPrimary} onCheckedChange={setIsPrimary} />
+              {t('pod.content.use_as_display_field')}
+            </label>
           </fieldset>
           <ContentError error={write.error || remove.error} />
           {!!(write.error || remove.error) && (
@@ -382,7 +438,7 @@ export function FieldEditorButton({
             }}>
             {t('pod.content.cancel')}
           </Button>
-          {field && !field.is_primary && (
+          {canDelete && (
             <Button
               type="button"
               variant={confirmation === 'delete' ? 'destructive' : 'ghost'}

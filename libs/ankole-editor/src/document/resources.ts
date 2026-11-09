@@ -1,6 +1,6 @@
 import type { Element } from './tree'
 
-export type ResourceKind = 'media' | 'bookmark'
+export type ResourceKind = 'media'
 export type MediaKind = 'image' | 'video'
 export type ResourceView = 'link' | 'title' | 'card' | 'preview'
 
@@ -25,7 +25,7 @@ export function replaceResourceSource(source: UploadedAsset): ResourceAttributes
 /** The same image/link decision drives clipboard content and portable document exports. */
 export function resourceContent(node: Element) {
   const externalEmbed = node.name === 'embed' && node.attrs.href !== undefined
-  if (!externalEmbed && !['media', 'bookmark'].includes(node.name)) return null
+  if (!externalEmbed && node.name !== 'media') return null
   const src = (externalEmbed ? node.attrs.href : node.attrs.src) ?? ''
   return {
     src,
@@ -50,6 +50,18 @@ export function webURL(value: string): string | null {
   } catch {
     return null
   }
+}
+
+/** Accept an HTTP(S) URL or a bare domain (`figma.com/file/...`) and return a canonical HTTP(S) URL, or null. */
+export function normalizeWebURL(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const direct = webURL(trimmed)
+  if (direct) return direct
+  if (/^[^\s/:@]+\.[^\s/:]+(?:[/?#].*)?$/.test(trimmed)) {
+    return webURL(`https://${trimmed}`)
+  }
+  return null
 }
 
 export function assetURL(value: string, resolve?: (source: string) => string): string | null {

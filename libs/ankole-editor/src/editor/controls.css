@@ -348,8 +348,11 @@
   max-width: calc(100vw - 16px);
 }
 :where(.ankole-editor-overlay).selection-toolbar .toolbar-divider {
+  width: 1px;
   height: 16px;
+  flex-shrink: 0;
   margin: 0 4px;
+  background: var(--editor-toolbar-divider);
 }
 /* Each group of actions follows the one before it across a divider. */
 :where(.ankole-editor-overlay).selection-toolbar .selection-group {
@@ -392,6 +395,8 @@
   background: var(--menu-hover);
 }
 :where(.ankole-editor-overlay) .link-form {
+  display: grid;
+  gap: 5px;
   width: 370px;
   max-width: calc(100vw - 28px);
 }
@@ -406,7 +411,8 @@
   font-size: 12px;
 }
 :where(.ankole-editor-overlay) .link-form p {
-  padding: 5px;
+  margin: 0;
+  padding: 2px 5px;
   font-size: 11px;
   color: var(--destructive);
 }
@@ -414,16 +420,55 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  max-width: min(440px, calc(100vw - 24px));
+  max-width: min(480px, calc(100vw - 24px));
 }
 :where(.ankole-editor-overlay) .link-bar-url {
-  max-width: 180px;
-  padding: 0 6px;
+  max-width: 196px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  color: var(--fg-secondary, var(--editor-quote-fg));
+  font-size: 12.5px;
+  line-height: 24px;
+  color: var(--foreground);
+  cursor: pointer;
+}
+:where(.ankole-editor-overlay) .link-bar-url:hover {
+  background: var(--menu-hover);
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+:where(.ankole-editor-overlay) .link-bar-url:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+:where(.ankole-editor-overlay) .link-view-trigger {
+  gap: 4px;
+  padding-inline: 7px 5px;
+  color: var(--foreground);
+  font-weight: 500;
+}
+:where(.ankole-editor-overlay).link-view-menu {
+  min-width: 164px;
+  padding: 4px;
+}
+:where(.ankole-editor-overlay).link-view-menu [data-slot='dropdown-menu-item'] {
+  gap: 8px;
+  min-height: 32px;
+  font-size: 13px;
+}
+:where(.ankole-editor-overlay).link-view-menu [data-slot='dropdown-menu-item'][data-active='true'] {
+  color: var(--foreground);
+  font-weight: 500;
+}
+:where(.ankole-editor-overlay).link-view-menu .link-view-check {
+  margin-left: auto;
+  color: var(--foreground);
 }
 
 @media (min-width: 1700px) {

@@ -1,4 +1,4 @@
-import { editorHost, hostFacet, type EditorHost, type EmbedAttributes } from './host-context'
+import { hostFacet, openLinkHref, type EditorHost, type EmbedAttributes } from './host-context'
 import { resourceWidget } from '../blocks/resources'
 import { Elt, type Node } from '../core/doc'
 import { Wordgard, Decoration } from '../core/editor'
@@ -8,33 +8,13 @@ import { history } from '../core/history'
 import { GardState } from '../core/state'
 import * as T from '../core/types'
 import { Embed, embed as embedBlock, embedAttributes } from '../blocks/embed'
-import { assetURL } from '../document/resources'
 import { element } from '../document/tree'
 import { markValue } from './attributes'
 import { deleteBlock } from './block-actions'
 import { dispatchStep } from './block-insert'
-import { ImageTitle, Mention, safeLinkHref, sameMentionTarget, type MentionTarget } from './schema'
-
-/** Open a safe link address through the host or the browser. */
-export function openLinkHref(editor: Wordgard, href: string): boolean {
-  const safe = safeLinkHref(href)
-  if (!safe) return false
-  const host = editorHost(editor)
-  if (safe.startsWith('ankole:page/')) {
-    if (!host?.openPage) return false
-    host.openPage(safe.slice('ankole:page/'.length))
-    return true
-  }
-  const target = safe.startsWith('ankole:asset/') ? assetURL(safe, host?.resolveAsset) : safe
-  const allowedTarget = target ? safeLinkHref(target) : null
-  if (!allowedTarget || allowedTarget.startsWith('ankole:') || typeof window === 'undefined') return false
-  if (allowedTarget.startsWith('#')) {
-    window.location.hash = allowedTarget
-    return true
-  }
-  window.open(allowedTarget, '_blank', 'noopener,noreferrer')
-  return true
-}
+import { isKnowledge } from './knowledge'
+import { convertPageEmbedToMention, convertPageMentionToEmbed } from './link-views'
+import { ImageTitle, Mention, sameMentionTarget, type MentionTarget } from './schema'
 
 /** The host owns embedded resources. The editor owns their reference and DOM lifecycle. */
 export function hostExtension(host: EditorHost): GardState.Extension {
@@ -91,7 +71,17 @@ export function hostExtension(host: EditorHost): GardState.Extension {
         }
         editor.focus()
       }
-      const dispose = host.mountEmbed?.(attributes, dom as HTMLElement, update, remove)
+      const collapseToMention = attributes.ref
+        ? () => {
+            const editor = editors.get(dom as Element)
+            if (!active || !editor || editor.state.readOnly || !attributes.ref) return
+            const position = editor.posAtDOM(dom)
+            const found = editor.state.doc.resolveNode(position)
+            if (found?.node.type !== Embed.type) return
+            convertPageEmbedToMention(editor, position, attributes.ref)
+          }
+        : undefined
+      const dispose = host.mountEmbed?.(attributes, dom as HTMLElement, update, remove, collapseToMention)
       cleanup.set(dom as Element, () => {
         active = false
         dispose?.()
@@ -110,9 +100,10 @@ export function hostExtension(host: EditorHost): GardState.Extension {
     },
     propagateEvent: false
   })
-  const mention = Widget.define<MentionTarget>({
-    eq: sameMentionTarget,
-    render: (target, editor) => {
+  type MentionWidgetValue = { target: MentionTarget; readOnly: boolean; canEmbed: boolean }
+  const mention = Widget.define<MentionWidgetValue>({
+    eq: (a, b) => a.readOnly === b.readOnly && a.canEmbed === b.canEmbed && sameMentionTarget(a.target, b.target),
+    render: ({ target }, editor) => {
       const span = document.createElement('span')
       span.contentEditable = 'false'
       if ('page' in target) {
@@ -125,15 +116,24 @@ export function hostExtension(host: EditorHost): GardState.Extension {
       editors.set(span, editor)
       return span
     },
-    connect: (target, dom) => {
+    connect: ({ target, readOnly, canEmbed }, dom) => {
       const editor = editors.get(dom as Element)
       const dispose = host.mountMention?.(target, dom as HTMLElement, {
-        readOnly: editor?.state.readOnly ?? true,
-        openPage: host.openPage ? id => host.openPage!(id) : undefined
+        readOnly,
+        openPage: host.openPage ? id => host.openPage!(id) : undefined,
+        embedPage: canEmbed
+          ? id => {
+              if (!editor || !dom.isConnected || editor.state.readOnly) return
+              const pos = editor.posAtDOM(dom, 0)
+              const node = editor.state.doc.nodeAt(pos)
+              if (node?.type !== Mention) return
+              convertPageMentionToEmbed(editor, { from: pos, to: pos + node.length }, id)
+            }
+          : undefined
       })
       if (dispose) cleanup.set(dom as Element, dispose)
     },
-    disconnect: (_target, dom) => {
+    disconnect: (_value, dom) => {
       cleanup.get(dom as Element)?.()
       cleanup.delete(dom as Element)
     },
@@ -171,7 +171,13 @@ export function hostExtension(host: EditorHost): GardState.Extension {
           return attrs.href !== undefined ? resourceWidget.of('embed') : embed.of(attrs)
         })
       : [],
-    host.mountMention ? Decoration.Tag.shape(Mention, tag => mention.of(tag.param)) : [],
+    host.mountMention
+      ? Decoration.Tag.shape.derived(Mention, state => {
+          const readOnly = state.readOnly
+          const canEmbed = !readOnly && !isKnowledge(state)
+          return tag => mention.of({ target: tag.param, readOnly, canEmbed })
+        })
+      : [],
     host.resolveAsset
       ? Decoration.Tag.shape(T.Image, tag =>
           Elt.mk('img', {
@@ -192,13 +198,8 @@ export function hostExtension(host: EditorHost): GardState.Extension {
       }
       const link = (event.target as Element | null)?.closest('a[href]')
       if (!link) return false
-      const href = (link.getAttribute('href') ?? '').trim()
-      if (href.startsWith('ankole:page/')) {
-        event.preventDefault()
-        host.openPage?.(href.slice('ankole:page/'.length))
-        return true
-      }
       if (!editor.state.readOnly && !event.metaKey && !event.ctrlKey) return false
+      const href = (link.getAttribute('href') ?? '').trim()
       event.preventDefault()
       openLinkHref(editor, href)
       return true

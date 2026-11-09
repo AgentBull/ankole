@@ -14,12 +14,13 @@ import {
   RiRefreshLine,
   RiUploadLine
 } from '@remixicon/react'
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { BlockEditor } from '@ankole/block-editor'
-import { PageSession, type Editor } from '@ankole/block-editor/editor'
+import { PageSession, type Editor, type EditorHost } from '@ankole/block-editor/editor'
 import { parseMarkdown, printXml } from '@ankole/block-editor/document'
 import type { PageWrite } from '../src/editor/page-session'
 import type { SourceFormat } from '../src/document/tree'
+import { resolvePlaygroundLinkMetadata } from './link-metadata'
 import { sampleMarkdown } from './sample'
 
 const storageKey = 'ankole.block-lab.markdown.v2'
@@ -85,6 +86,12 @@ export function App() {
     }
   }, [])
   const onChange = useCallback(() => setRevision(value => value + 1), [])
+  const host = useMemo<EditorHost>(
+    () => ({
+      resolveLinkMetadata: (url, signal) => resolvePlaygroundLinkMetadata(url, signal)
+    }),
+    []
+  )
   const source = draft?.source ?? snapshot[format]
   const formatName = format === 'xml' ? 'XML' : 'Markdown'
   const save = useEffectEvent(() => {
@@ -296,6 +303,7 @@ export function App() {
             <BlockEditor
               key={session.id}
               initial={session.source}
+              host={host}
               onReady={onReady}
               onChange={onChange}
               readOnly={draft !== null}

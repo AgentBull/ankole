@@ -120,12 +120,16 @@ purge begins. Deleting a chat does not delete the pages saved from it.
 
 ## Business data
 
-A primary text field accepts at most 2 KiB of UTF-8 text. A link cell accepts
-at most 2,000 IDs. Use a one-way child-to-parent link for a parent with more
-than 2,000 children. The same API serves inline and physical tables.
+Each table keeps at least one field, with one field marked `is_primary` as its
+display field for relation labels and card titles; any field can use or convert
+to any field type, and promoting another field via `is_primary: true` switches
+the display field. A link cell accepts at most 2,000 IDs. Use a one-way
+child-to-parent link for a parent with more than 2,000 children. The same API
+serves inline and physical tables.
 
 Create the Base and typed fields before the applet. A new Base has
-`Table 1` with a primary Name field; read it with `base.tables` before
+`Table 1` with an initial `Name` field (`is_primary: true`) that you can rename,
+retype, or replace once another field exists; read it with `base.tables` before
 creating another table. Give every table and field you create a short
 `description` of at most 2 KiB that states what its values mean: the unit,
 currency, tax inclusion, and source system when they apply, such as

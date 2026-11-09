@@ -6,7 +6,7 @@
 import { redo, type Command } from '../core/command'
 import { Node } from '../core/doc'
 import { KeyBinding, type Wordgard } from '../core/editor'
-import { GardSelection, type GardState } from '../core/state'
+import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { Embed, embedAttributes } from '../blocks/embed'
 import { MathBlock, openMathEditor } from '../blocks/math'
@@ -53,6 +53,17 @@ function toggleBlockType(wg: Wordgard, type: CoreBlockType) {
   applyBlockType(wg, type)
 }
 
+const selectEmptyBlock = Transaction.Effect.define<number>()
+
+const emptyBlockSelected = GardState.Field.define<number | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const effect of tr.effects) if (effect.is(selectEmptyBlock)) return effect.value
+    if (tr.docChanged || tr.selection) return null
+    return value
+  }
+})
+
 /** ⌘A selects the text of the block at the caret first, then a table's cells, then the page. */
 const selectBlock: Command = wg => {
   const { selection, sel, schema, doc } = wg.state
@@ -61,6 +72,9 @@ const selectBlock: Command = wg => {
   if (block && sel.anchor.textblockParent?.start === block.start) {
     if (selection.from > block.start || selection.to < block.end) {
       return { selection: GardSelection.range(block.start, block.end), userEvent: 'select' }
+    }
+    if (block.start === block.end && wg.state.field(emptyBlockSelected, false) !== block.before) {
+      return { effects: selectEmptyBlock.of(block.before), userEvent: 'select' }
     }
   }
   const cell = sel.head.matchingParent(plot => schema.matchNode(plot.type, Node.Group.TableCell))
@@ -136,4 +150,4 @@ const keys: KeyBinding.Spec[] = [
 ]
 
 /** Format, block and typing shortcuts. */
-export const shortcuts: GardState.Extension = [keys.map(KeyBinding.of), markdownShortcuts]
+export const shortcuts: GardState.Extension = [emptyBlockSelected, keys.map(KeyBinding.of), markdownShortcuts]
