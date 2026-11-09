@@ -2673,6 +2673,24 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Repo.aggregate(Ankole.Principals.MappingRequest, :count) == 0
     end
 
+    test "a message on a connection without a chat binding is dropped with a warning" do
+      consumer = IdentityProvider.identity_consumer("lark-main", identity_config())
+
+      log =
+        capture_log([level: :warning, format: "$metadata$message\n", metadata: :all], fn ->
+          assert {:ok, []} =
+                   Inbound.handle_message_receive("im.message.receive_v1", receive_event(), [
+                     consumer
+                   ])
+        end)
+
+      assert log =~ "this long connection serves no chat binding"
+      assert log =~ "cli_test"
+
+      assert Repo.aggregate(Signal, :count) == 0
+      assert Repo.aggregate(Message, :count) == 0
+    end
+
     test "user senders without any sender id are ignored with warning" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)

@@ -3,6 +3,7 @@ import { localReturnPath, podRouteID } from '../../common/pod-url'
 import i18n, { loadLocale } from '../../common/i18n'
 import {
   automationJobID,
+  connectorAddressAfterAuthorization,
   connectorAutomationContext,
   connectorAutomationReturnTo,
   connectorFailureMessage,
@@ -175,4 +176,39 @@ test('account-wide subscriptions submit the declared scope without asking for a 
   } finally {
     model[Symbol.dispose]()
   }
+})
+
+test('a finished authorization leaves the address so that the next load does not ask for it again', () => {
+  const origin = 'https://ankole.test'
+  const returned = new URL(
+    connectorReturnTo({
+      connection: 'work',
+      scopes: ['read', 'write'],
+      subjectKind: 'human',
+      intent: '/pages/abc',
+      automation: { pageID: '0193b494-3210-7000-8000-000000000001', jobID: 42 }
+    }),
+    origin
+  )
+  returned.searchParams.set('connector_completion', 'code')
+  const kept = connectorAddressAfterAuthorization(returned).searchParams
+  expect([...kept.keys()].sort()).toEqual(['automation_job', 'automation_page', 'intent'])
+  expect(returned.searchParams.get('connection')).toBe('work')
+})
+
+test('a finished authorization keeps the trigger draft that reopens from the address', () => {
+  const returned = new URL(
+    connectorReturnTo({
+      connection: 'figma',
+      subjectKind: 'human',
+      trigger: { type: 'file_update', scope: 'file-1' }
+    }),
+    'https://ankole.test'
+  )
+  returned.searchParams.set('connector_completion', 'code')
+  const kept = connectorAddressAfterAuthorization(returned).searchParams
+  expect(kept.has('connector_completion')).toBe(false)
+  expect(kept.get('connection')).toBe('figma')
+  expect(kept.get('subject_kind')).toBe('human')
+  expect(kept.get('trigger_type')).toBe('file_update')
 })

@@ -40,6 +40,7 @@ import * as api from './api/generated/sdk.gen'
 import { ConnectionEditorDialog } from './connector-connection-dialog'
 import { CredentialBindingDialog } from './connector-credential-dialog'
 import {
+  connectorAddressAfterAuthorization,
   connectorAutomationContext,
   connectorAutomationReturnTo,
   connectorFailureMessage,
@@ -125,8 +126,7 @@ export function Connectors() {
     if (!code || claimed.current) return
     claimed.current = true
     claim.mutate(code)
-    url.searchParams.delete('connector_completion')
-    window.history.replaceState(null, '', url)
+    window.history.replaceState(null, '', connectorAddressAfterAuthorization(url))
   }, [claim.mutate])
   const disconnect = useMutation({
     mutationFn: (id: string) => api.podConnectorAccountsDisconnect({ path: { id } }),
@@ -250,11 +250,15 @@ export function Connectors() {
     oauth.mutate({ connection: connection.slug, scopes, subjectKind: requestedSubjectKind })
   }, [connections.data, catalog.data, session.isSuccess, requested, requestedSubjectKind, credentialMode])
   const focusedTarget = useRef(false)
+  const requestedTarget = params.get('trigger_id') ?? (requested ? `${requestedSubjectKind}-${requested}` : undefined)
+  // The address loses its connection once an authorization finishes, usually before the lists
+  // load, so the card to focus is remembered from the first render.
+  const arrivalTarget = useRef(requestedTarget)
   useEffect(() => {
     if (focusedTarget.current || !connections.data || !triggers.data) return
     if (params.has('trigger_type') && !params.has('trigger_id')) return
     if (model.triggerConnection.value || model.credentialConnection.value || model.editing.value !== undefined) return
-    const target = params.get('trigger_id') ?? (requested ? `${requestedSubjectKind}-${requested}` : undefined)
+    const target = requestedTarget ?? arrivalTarget.current
     if (!target) return
     const element = document.getElementById(`connector-${target}`)
     if (element) {
@@ -262,7 +266,7 @@ export function Connectors() {
       element.scrollIntoView({ block: 'center' })
       element.focus({ preventScroll: true })
     }
-  }, [connections.data, triggers.data, requested])
+  }, [connections.data, triggers.data, requestedTarget])
   useEffect(() => {
     if (restoredDraft.current || !connections.data || !catalog.data) return
     restoredDraft.current = true

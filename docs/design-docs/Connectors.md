@@ -137,7 +137,10 @@ OAuth callback URL and platform-specific setup instructions for registration in
 the external application. When a member
 returns from a cancelled authorization, the page preserves the requested
 connection and scopes so they can retry the same consent. A successful claim
-directs them back to their conversation or Applet to retry the task. A member can
+directs them back to their conversation or Applet to retry the task, and the
+page removes the requested connection and scopes from its address so that a
+reload shows the connected account instead of starting the authorization again.
+A member can
 start a personal event subscription before connecting an account. The selected
 trigger declares its required OAuth scopes; missing grants lead to the same
 authorization flow. The return URL carries the subscription's event type and

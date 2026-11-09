@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 2.0.0-alpha.97 (2026-11-09)
+
+- Fix the Pod Connectors page asking for the same authorization again on every
+  reload after a member connected an account from a consent link.
+- Log `lark_adapter.inbound.message_without_chat_binding` when a Feishu or Lark
+  long connection that serves no chat binding receives a chat message. Feishu
+  delivers each event to only one long connection of an application, so this
+  warning shows that a connection opened for real-time directory sync is taking
+  messages from another deployment that uses the same application. The
+  `Sync directory changes` setting now explains when to turn it off.
+
 ## Version 2.0.0-alpha.96 (2026-11-08)
 
 - Tidy the environment variable editor shared by Space settings and Applet

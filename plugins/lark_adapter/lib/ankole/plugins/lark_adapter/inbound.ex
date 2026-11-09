@@ -51,10 +51,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @spec handle_message_receive(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_receive(_event_type, %Event{} = event, consumers) do
     observed_at = DateTime.utc_now(:microsecond)
+    chat_consumers = Enum.filter(consumers, &match?(%{kind: :chat}, &1))
+
+    if chat_consumers == [], do: log_message_without_chat_binding(event, consumers)
 
     result =
-      consumers
-      |> Enum.filter(&match?(%{kind: :chat}, &1))
+      chat_consumers
       |> Enum.map(&prepare_message_receive(&1, event, observed_at))
       |> collect_results()
       |> emit_prepared_messages()
@@ -538,6 +540,24 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp maybe_log_missing_platform_subject(_event, _result), do: :ok
+
+  # Lark delivers each event to only one of an app's long connections. A
+  # connection opened for directory sync or connector events alone therefore
+  # takes chat messages away from whichever deployment answers them, and the
+  # operator has no other sign of it.
+  defp log_message_without_chat_binding(%Event{} = event, consumers) do
+    Logging.warning(
+      "lark_adapter.inbound.message_without_chat_binding",
+      "lark adapter dropped a chat message because this long connection serves no chat binding; " <>
+        "a deployment that answers messages through the same app does not receive this one",
+      %{
+        event_id: event.id,
+        event_type: event.type,
+        app_id: Enum.find_value(consumers, &get_in(&1, [:config, "appID"])),
+        tenant_key: event.tenant_key
+      }
+    )
+  end
 
   defp message_text(message) do
     message_type = optional_text(message, "message_type")
