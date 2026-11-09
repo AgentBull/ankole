@@ -72,11 +72,6 @@ export function useListCreateTrigger() {
 }
 
 /**
- * List-page frame: title, optional create action, and a data table with
- * consistent loading, empty, and error surfaces. Rows are supplied by the caller
- * so each resource keeps ownership of its columns and cells.
- */
-/**
  * The all-tenants view repeats a page once per tenant, so each tenant's create action uses an outline button and the
  * view keeps a single accent.
  */
@@ -84,6 +79,11 @@ export function useCreateActionVariant(): 'default' | 'outline' {
   return useConsoleTenant() ? 'outline' : 'default'
 }
 
+/**
+ * List-page frame: title, optional create action, and a data table with
+ * consistent loading, empty, and error surfaces. Rows are supplied by the caller
+ * so each resource keeps ownership of its columns and cells.
+ */
 export function ResourceListPage({
   children,
   columns,

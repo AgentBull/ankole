@@ -145,7 +145,11 @@ export function FieldEditorButton({
       </span>
     )
   }
-  const iconLabel = iconOnly && field ? `${t('pod.content.edit_field')} ${field.name}` : undefined
+  const iconLabel = !iconOnly
+    ? undefined
+    : field
+      ? `${t('pod.content.edit_field')} ${field.name}`
+      : t('pod.content.add_field')
   return (
     <Popover
       open={open}
@@ -157,7 +161,11 @@ export function FieldEditorButton({
       <PopoverTrigger
         render={<Button size={iconOnly ? 'icon-xs' : 'sm'} variant="ghost" aria-label={iconLabel} title={iconLabel} />}>
         {iconOnly ? (
-          <RiEqualizerLine aria-hidden="true" />
+          field ? (
+            <RiEqualizerLine aria-hidden="true" />
+          ) : (
+            <RiAddLine aria-hidden="true" />
+          )
         ) : (
           <>
             {!field && <RiAddLine aria-hidden="true" />}

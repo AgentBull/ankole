@@ -63,6 +63,8 @@ export function AccountSettings() {
       void refreshMemberProfileQueries(client)
     }
   })
+  const profileChanged =
+    model.displayName.value !== undefined && model.displayName.value.trim() !== (me.data?.displayName ?? '')
   const request = useMutation({
     mutationFn: (_resend?: boolean) => requestPodEmailBinding({ body: { data: { email: model.email.value } } }),
     onSuccess: (data, resend) => {
@@ -166,24 +168,20 @@ export function AccountSettings() {
                   }}
                 />
               </div>
-              <div className="flex items-center justify-end gap-3">
-                {profile.isSuccess && model.displayName.value === undefined && (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    {t('pod.settings.saved')}
-                  </p>
-                )}
-                <Button
-                  type="submit"
-                  disabled={
-                    profile.isPending ||
-                    !me.data ||
-                    model.displayName.value === undefined ||
-                    !model.displayName.value.trim() ||
-                    model.displayName.value.trim() === me.data.displayName
-                  }>
-                  {t('pod.settings.save_changes')}
-                </Button>
-              </div>
+              {/* Like the Space settings save bar, the save action appears only while there is a change. */}
+              {(profileChanged || profile.isPending || profile.isSuccess) && (
+                <div className="flex items-center justify-end gap-3">
+                  {profile.isSuccess && model.displayName.value === undefined ? (
+                    <p role="status" className="text-sm text-muted-foreground">
+                      {t('pod.settings.saved')}
+                    </p>
+                  ) : (
+                    <Button type="submit" disabled={profile.isPending || !me.data || !model.displayName.value?.trim()}>
+                      {t('pod.settings.save_changes')}
+                    </Button>
+                  )}
+                </div>
+              )}
             </form>
           </div>
         </SettingsSection>

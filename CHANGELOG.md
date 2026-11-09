@@ -22,7 +22,8 @@
 - Name a personal assistant that keeps its default name after its owner alone,
   such as "Alex's assistant" instead of "Assistant (Alex's assistant)".
 - Polish page details across Pod and Console: headings balance their lines and
-  paragraphs avoid a lone last word, Base number cells align right with even
+  paragraphs avoid a lone last word (text being edited keeps normal wrapping),
+  Base number cells align right with even
   digits, Base creates tables, views, and fields from buttons with an add icon,
   the Child pages button collapses to an icon on narrow screens like its
   neighbours, Share and the document status button show a tooltip, chat
@@ -32,6 +33,16 @@
   page's scroll position, the all-tenants view uses outline create buttons so
   each screen keeps one primary action, Files has its own navigation icon, and
   the Chinese interface calls Worker providers "Worker 提供商".
+- Fix layout on phones and narrow pages: a continued chat message no longer
+  draws its time over the previous message's actions, an embedded Page title
+  truncates instead of overflowing both sides, and the Base header shows adding
+  a field as an icon button so a narrow table keeps its label readable.
+- Base boards leave the grouping field off their cards, galleries keep space
+  below the toolbar, personal settings show the save button only while the name
+  has changed, and the Space guest option wraps its hint evenly.
+- In Console, header actions stay on the right when they wrap, the Workers
+  empty state names Workers, Schedules translates its Cron and Checkbacks tabs,
+  and the Chinese Worker provider and Automation Job pages use consistent terms.
 
 ## Version 2.0.0-alpha.95 (2026-11-08)
 

@@ -68,7 +68,7 @@ export function PageHeader({
         ) : null}
       </div>
       {actions || tenant ? (
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+        <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
           {tenant ? <ConsoleReadiness /> : null}
           {actions}
         </div>

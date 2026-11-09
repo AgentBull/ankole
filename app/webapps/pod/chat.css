@@ -1303,9 +1303,14 @@
   font-variant-numeric: tabular-nums;
   opacity: 0;
 }
-.pod-chat-timeline-message:hover .pod-chat-message-identity time,
 .pod-chat-timeline-message:focus-within .pod-chat-message-identity time {
   opacity: 1;
+}
+/* A tap also counts as hover on a touch screen, so only a real pointer reveals the time on hover. */
+@media (hover: hover) {
+  .pod-chat-timeline-message:hover .pod-chat-message-identity time {
+    opacity: 1;
+  }
 }
 .pod-chat-archived {
   color: var(--fg-tertiary);
@@ -2400,7 +2405,8 @@
   .pod-chat-timeline .pod-chat-history-content {
     padding: 18px 22px 28px 16px;
   }
-  .pod-chat-message-identity time {
+  /* A continued message floats its time over the previous message's actions, so it keeps it for hover. */
+  .pod-chat-message-identity:not([data-quiet]) time {
     opacity: 0.8;
   }
   .pod-chat-turn-rail {
@@ -2409,8 +2415,12 @@
 }
 @media (hover: none) {
   .pod-chat-timeline .pod-chat-message-actions,
-  .pod-chat-message-identity time {
+  .pod-chat-message-identity:not([data-quiet]) time {
     opacity: 1;
+  }
+  /* The actions stay visible here, so a continued message's floating time never covers them. */
+  .pod-chat-timeline-message .pod-chat-message-identity[data-quiet] time {
+    opacity: 0;
   }
 }
 

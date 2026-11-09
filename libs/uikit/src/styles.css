@@ -326,20 +326,13 @@
     font-family: var(--font-family-mono);
   }
 
-  /* Headings balance their lines and running text avoids a lone last word or character. */
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
+  /* Headings balance their lines and running text avoids a lone last word or character. Editable text keeps
+     normal wrapping, because rebalancing lines while someone types would move words under the caret. */
+  :is(h1, h2, h3, h4, h5, h6):not([contenteditable] *) {
     text-wrap: balance;
   }
 
-  p,
-  li,
-  figcaption,
-  blockquote {
+  :is(p, li, figcaption, blockquote):not([contenteditable] *) {
     text-wrap: pretty;
   }
 

@@ -473,7 +473,9 @@ function GeneralSettings({ model }: { model: Model }) {
             />
             <span className="grid gap-1">
               <span>{t('pod.settings.allow_guests')}</span>
-              <span className="text-xs leading-5 text-muted-foreground">{t('pod.settings.allow_guests_hint')}</span>
+              <span className="text-xs leading-5 text-pretty text-muted-foreground">
+                {t('pod.settings.allow_guests_hint')}
+              </span>
             </span>
           </label>
         </div>

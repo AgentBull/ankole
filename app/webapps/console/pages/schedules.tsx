@@ -70,7 +70,15 @@ import {
   StatusIndicator,
   type StatusTone
 } from '../console-form'
-import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions, SubNav } from '../console-list-page'
+import {
+  AgentCell,
+  FilterSwitch,
+  ResourceListPage,
+  ResourceSearch,
+  RowActions,
+  SubNav,
+  useCreateActionVariant
+} from '../console-list-page'
 import {
   decomposeEveryMs,
   deliveryTargetDrafts,
@@ -113,6 +121,7 @@ function pending(row: ScheduledEventItem): boolean {
 
 export function SchedulesListPage() {
   const { t } = useTranslation()
+  const createVariant = useCreateActionVariant()
   const [query, setQuery] = useState('')
   const scope = useAgentScope()
   const hasActiveAgents = activeAgents(scope.agents).length > 0
@@ -194,7 +203,7 @@ export function SchedulesListPage() {
       }
       emptyAction={
         hasActiveAgents ? undefined : (
-          <Link className={cn(buttonVariants({ size: 'sm' }))} to="/agents/new">
+          <Link className={cn(buttonVariants({ size: 'sm', variant: createVariant }))} to="/agents/new">
             {t('console.agents.new')}
           </Link>
         )

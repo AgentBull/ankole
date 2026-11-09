@@ -896,7 +896,7 @@ export function PageEmbed({
       data-chart-embed={isChartIntent || undefined}>
       <Button variant="ghost" className="pod-inline-page-title" onClick={() => openPage(query.data!.page.id)}>
         <PageIcon page={page} />
-        {page.title || t('pod.content.untitled')}
+        <span className="truncate">{page.title || t('pod.content.untitled')}</span>
         <RiExternalLinkLine aria-hidden />
       </Button>
       {page.type === 'base' ? (

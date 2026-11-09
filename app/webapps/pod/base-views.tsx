@@ -198,6 +198,7 @@ function GridView(props: ViewProps) {
               })}
               <TableHead className="pod-base-row-actions">
                 <FieldEditorButton
+                  iconOnly
                   tableID={props.tableID}
                   pageID={props.pageID}
                   tables={props.tables}
@@ -373,6 +374,8 @@ function RecordCard(
           .filter(
             field =>
               field !== primary &&
+              // A board column already names the group, so its cards leave the grouping field out.
+              field.id !== props.view.config.group_field_id &&
               (!props.view.config.visible_fields || props.view.config.visible_fields.includes(field.id))
           )
           .map(field => (
@@ -788,7 +791,7 @@ function GalleryView(props: ViewProps) {
   const attachmentFields = props.fields.filter(field => field.type === 'attachment')
   const cover = attachmentFields.find(field => field.id === props.view.config.cover_field_id)
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pt-2">
       {attachmentFields.length > 0 && (
         <Choice
           label={t('pod.content.gallery_cover')}

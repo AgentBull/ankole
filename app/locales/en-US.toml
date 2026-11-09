@@ -2083,7 +2083,7 @@ result = "Result"
 [console.workers]
 agent = "Agent"
 empty_description = "Each Agent has one Worker. Create an Agent; its Worker starts when the Agent first needs it."
-empty_title = "No Agents"
+empty_title = "No Workers"
 last_heartbeat = "Last heartbeat"
 load = "Load"
 reason = "Reason"
