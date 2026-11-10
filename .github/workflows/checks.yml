@@ -84,7 +84,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/kernel
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ (github.ref == 'refs/heads/main' || github.head_ref == 'claude/ci-speedup-measure') }}
       - run: bun run --filter @ankole/kernel lint
 
   # Formatting, warnings, Credo, and compile-cycle checks read compiled modules
@@ -129,7 +129,7 @@ jobs:
         env:
           MIX_ENV: prod
       - uses: actions/cache/save@v6
-        if: ${{ github.ref == 'refs/heads/main' && steps.mix-cache.outputs.cache-hit != 'true' }}
+        if: ${{ (github.ref == 'refs/heads/main' || github.head_ref == 'claude/ci-speedup-measure') && steps.mix-cache.outputs.cache-hit != 'true' }}
         with:
           path: |
             app/control_plane/deps
@@ -172,7 +172,7 @@ jobs:
         with:
           workspaces: app/kernel
           shared-key: control-plane-nif
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ (github.ref == 'refs/heads/main' || github.head_ref == 'claude/ci-speedup-measure') }}
       - uses: actions/cache/restore@v6
         id: mix-cache
         with:
@@ -198,12 +198,12 @@ jobs:
           git diff --exit-code -- app/webapps/openapi app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated
           test -z "$(git ls-files --others --exclude-standard -- app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated)"
       - uses: actions/cache/save@v6
-        if: ${{ github.ref == 'refs/heads/main' && steps.nif-cache.outputs.cache-hit != 'true' }}
+        if: ${{ (github.ref == 'refs/heads/main' || github.head_ref == 'claude/ci-speedup-measure') && steps.nif-cache.outputs.cache-hit != 'true' }}
         with:
           path: app/kernel/priv/native
           key: ${{ steps.nif-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@v6
-        if: ${{ github.ref == 'refs/heads/main' && steps.mix-cache.outputs.cache-hit != 'true' }}
+        if: ${{ (github.ref == 'refs/heads/main' || github.head_ref == 'claude/ci-speedup-measure') && steps.mix-cache.outputs.cache-hit != 'true' }}
         with:
           path: |
             app/control_plane/deps
