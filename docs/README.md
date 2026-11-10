@@ -252,3 +252,4 @@ tools/e2e/run --real-llm
 Messaging and identity adapter protocol specifications, together with the [Database Connectors](design-docs/plugins/DatabaseConnectors.md) specification, live under `design-docs/plugins/`, while the `github-adapter` and `linear-adapter` Connector specifications live in [Connectors](design-docs/Connectors.md).
 
 Files in `design-docs/` state current architectural contracts rather than historical incident postmortems or one-off test logs; release-by-release changes live in `CHANGELOG.md`.
+
