@@ -16,6 +16,9 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
 
   @client_id "app_EMoamEEZ73f0CkXaXp7hrann"
   @default_issuer "https://auth.openai.com"
+  @official_issuer_hosts ["auth.openai.com"]
+  @loopback_hosts ["127.0.0.1", "localhost", "::1"]
+  @allow_loopback_http Mix.env() == :test
   @device_lifetime_seconds 15 * 60
   @access_refresh_window_seconds 5 * 60
   @last_refresh_interval_seconds 8 * 24 * 60 * 60
@@ -199,6 +202,131 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
     refresh_credential(provider_id, credential_id, Keyword.put(opts, :force, true))
   end
 
+  @doc """
+  Exchanges a refresh token against the ChatGPT OAuth authority without persistence side effects.
+  """
+  @spec refresh_tokens_with_authority(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def refresh_tokens_with_authority(credential, opts \\ []) when is_map(credential) do
+    issuer_url = Keyword.get(opts, :issuer, @default_issuer)
+    exchange_refresh_token(issuer_url, credential, opts)
+  end
+
+  @doc """
+  Exchanges a refresh token against an explicit OAuth issuer URL and merges updated token metadata.
+  """
+  @spec exchange_refresh_token(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def exchange_refresh_token(issuer_url, credential, opts \\ [])
+      when is_binary(issuer_url) and is_map(credential) do
+    normalized_credential = Ankole.Attrs.normalize_external_attrs(credential)
+    merged_opts = merge_credential_proxy_opts(normalized_credential, opts)
+
+    with {:ok, validated_issuer} <- validate_issuer_url(issuer_url, merged_opts),
+         {:ok, refresh_token} <- required_text(normalized_credential, "refresh_token"),
+         {:ok, response} <-
+           request(
+             :post,
+             "#{validated_issuer}/oauth/token",
+             [
+               json: %{
+                 "client_id" => @client_id,
+                 "grant_type" => "refresh_token",
+                 "refresh_token" => refresh_token
+               }
+             ],
+             merged_opts
+           ) do
+      handle_refresh_token_response(normalized_credential, response, merged_opts)
+    else
+      {:error, :missing_refresh_token} ->
+        {:error, {:chatgpt_refresh_permanent, "missing_refresh_token"}}
+
+      {:error, {:request_failed, reason}} ->
+        {:error, {:chatgpt_refresh_transient, nil, %{}, reason}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Validates and normalizes an OAuth issuer authority URL, requiring HTTPS
+  and an allowed authority host (allowing loopback HTTP only in tests unless
+  disabled via `allow_loopback_http: false`).
+  """
+  @spec validate_issuer_url(term(), keyword()) ::
+          {:ok, String.t()} | {:error, :invalid_auth_issuer}
+  def validate_issuer_url(value, opts \\ [])
+
+  def validate_issuer_url(value, opts) when is_binary(value) and is_list(opts) do
+    trimmed = String.trim_trailing(String.trim(value), "/")
+
+    with {:ok, %URI{scheme: scheme, host: host} = uri} <- URI.new(trimmed),
+         true <- is_binary(host) and host != "",
+         true <- is_nil(uri.userinfo) and is_nil(uri.query) and is_nil(uri.fragment),
+         true <- uri.path in [nil, "", "/"],
+         true <- allowed_issuer_uri?(scheme, String.downcase(host), opts) do
+      {:ok, trimmed}
+    else
+      _value -> {:error, :invalid_auth_issuer}
+    end
+  end
+
+  def validate_issuer_url(_value, _opts), do: {:error, :invalid_auth_issuer}
+
+  defp handle_refresh_token_response(normalized_credential, response, opts) do
+    case response.status do
+      status when status in 200..299 ->
+        with {:ok, updated} <-
+               merge_refreshed_tokens(normalized_credential, response.body, opts),
+             :ok <- same_account(normalized_credential, updated) do
+          {:ok, updated}
+        end
+
+      status when status in [301, 302, 303, 307, 308] ->
+        {:error, {:chatgpt_refresh_transient, status, response.headers, "redirect_blocked"}}
+
+      status ->
+        code = response_error_code(response.body)
+
+        if status == 401 or code in @permanent_refresh_codes do
+          {:error, {:chatgpt_refresh_permanent, code || "unauthorized"}}
+        else
+          {:error,
+           {:chatgpt_refresh_transient, status, response.headers, code || "refresh_failed"}}
+        end
+    end
+  end
+
+  defp merge_credential_proxy_opts(credential, opts) do
+    proxy_url =
+      Keyword.get(opts, :proxy_url) ||
+        text_or_nil(Map.get(credential, "proxy_url")) ||
+        text_or_nil(get_in(credential, ["egress_profile", "proxy_url"]))
+
+    require_proxy? =
+      Keyword.get(opts, :require_proxy, false) == true or
+        Map.get(credential, "require_proxy") == true or
+        get_in(credential, ["egress_profile", "require_proxy"]) == true or
+        not is_nil(text_or_nil(Map.get(credential, "proxy_id"))) or
+        not is_nil(proxy_url)
+
+    opts
+    |> Keyword.put(:proxy_url, proxy_url)
+    |> Keyword.put(:require_proxy, require_proxy?)
+  end
+
+  @doc """
+  Extracts ChatGPT account metadata (`account_id`, `plan_type`, `email`, `fedramp`) from a JWT token.
+  """
+  @spec parse_token_metadata(String.t() | nil) :: map()
+  def parse_token_metadata(token), do: token_metadata(token)
+
+  @doc """
+  Extracts an upstream OAuth error code summary from a response body.
+  """
+  @spec extract_error_code(term()) :: String.t() | nil
+  def extract_error_code(body), do: response_error_code(body)
+
   defp refresh_credential(provider_id, credential_id, opts) do
     ProviderConfigs.update_credential_under_lock(
       provider_id,
@@ -291,49 +419,27 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   end
 
   defp refresh_from_authority(provider, credential, opts) do
-    with {:ok, refresh_token} <- required_text(credential, "refresh_token"),
-         {:ok, issuer} <- issuer(provider),
-         {:ok, response} <-
-           request(
-             :post,
-             "#{issuer}/oauth/token",
-             [
-               json: %{
-                 "client_id" => @client_id,
-                 "grant_type" => "refresh_token",
-                 "refresh_token" => refresh_token
-               }
-             ],
-             opts
-           ) do
-      case response.status do
-        status when status in 200..299 ->
-          with {:ok, updated} <- merge_refreshed_tokens(credential, response.body, opts),
-               :ok <- same_account(credential, updated) do
-            {:ok, updated}
-          end
-
-        status ->
-          code = response_error_code(response.body)
-
-          if status == 401 or code in @permanent_refresh_codes do
-            {:error, {:chatgpt_refresh_permanent, code || "unauthorized"}}
-          else
-            {:error,
-             {:chatgpt_refresh_transient, status, response.headers, code || "refresh_failed"}}
-          end
-      end
-    else
-      {:error, :missing_refresh_token} ->
-        {:error, {:chatgpt_refresh_permanent, "missing_refresh_token"}}
-
-      {:error, {:request_failed, reason}} ->
-        {:error, {:chatgpt_refresh_transient, nil, %{}, reason}}
-
-      {:error, _reason} = error ->
-        error
+    with {:ok, issuer_url} <- issuer(provider) do
+      provider_opts = merge_provider_proxy_opts(provider, opts)
+      exchange_refresh_token(issuer_url, credential, provider_opts)
     end
   end
+
+  defp merge_provider_proxy_opts(%Provider{connection_options: %{} = options}, opts) do
+    proxy_url = Keyword.get(opts, :proxy_url) || text_or_nil(Map.get(options, "proxy_url"))
+
+    require_proxy? =
+      Keyword.get(opts, :require_proxy, false) == true or
+        Map.get(options, "require_proxy") == true or
+        not is_nil(text_or_nil(Map.get(options, "proxy_id"))) or
+        not is_nil(proxy_url)
+
+    opts
+    |> Keyword.put_new(:proxy_url, proxy_url)
+    |> Keyword.put(:require_proxy, require_proxy?)
+  end
+
+  defp merge_provider_proxy_opts(_provider, opts), do: opts
 
   defp merge_refreshed_tokens(credential, body, opts) when is_map(body) do
     tokens =
@@ -591,15 +697,20 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
         _value -> @default_issuer
       end
 
-    with value when is_binary(value) <- value,
-         value <- String.trim_trailing(String.trim(value), "/"),
-         {:ok, %URI{scheme: scheme, host: host}} when scheme in ["http", "https"] <-
-           URI.new(value),
-         true <- is_binary(host) and host != "" do
-      {:ok, value}
-    else
-      _value -> {:error, :invalid_auth_issuer}
-    end
+    validate_issuer_url(value)
+  end
+
+  defp allowed_issuer_uri?("https", host, opts) do
+    allowed = Keyword.get(opts, :allowed_issuer_hosts, @official_issuer_hosts)
+    host in Enum.map(allowed, &String.downcase/1) or loopback_allowed?(host, opts)
+  end
+
+  defp allowed_issuer_uri?("http", host, opts), do: loopback_allowed?(host, opts)
+  defp allowed_issuer_uri?(_scheme, _host, _opts), do: false
+
+  defp loopback_allowed?(host, opts) do
+    host in @loopback_hosts and
+      Keyword.get(opts, :allow_loopback_http, @allow_loopback_http) == true
   end
 
   defp chatgpt_provider(provider_id) do
@@ -723,25 +834,33 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   end
 
   defp request(method, url, request_options, opts) do
-    options =
-      [
-        method: method,
-        url: url,
-        retry: false,
-        receive_timeout: Keyword.get(opts, :receive_timeout, 30_000)
-      ] ++ EgressProxy.req_options(url) ++ request_options ++ Keyword.get(opts, :req_options, [])
+    with {:ok, proxy_options} <- EgressProxy.resolve_req_options(url, opts) do
+      options =
+        ([
+           method: method,
+           url: url,
+           retry: false,
+           redirect: false,
+           receive_timeout: Keyword.get(opts, :receive_timeout, 30_000)
+         ] ++ proxy_options ++ request_options ++ Keyword.get(opts, :req_options, []))
+        |> Keyword.put(:redirect, false)
+        |> Keyword.put(:retry, false)
 
-    case Req.request(options) do
-      {:ok, %Req.Response{} = response} ->
-        {:ok,
-         %{
-           status: response.status,
-           body: response.body,
-           headers: response.headers
-         }}
+      case Req.request(options) do
+        {:ok, %Req.Response{} = response} ->
+          {:ok,
+           %{
+             status: response.status,
+             body: response.body,
+             headers: response.headers
+           }}
 
-      {:error, reason} ->
-        {:error, {:request_failed, request_error(reason)}}
+        {:error, reason} ->
+          {:error, {:request_failed, request_error(reason)}}
+      end
+    else
+      {:error, proxy_reason} ->
+        {:error, {:request_failed, proxy_reason}}
     end
   end
 

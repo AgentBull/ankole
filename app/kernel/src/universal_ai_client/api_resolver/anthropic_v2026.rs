@@ -1,0 +1,255 @@
+use std::collections::BTreeSet;
+
+use serde_json::{Map, Value};
+
+use super::anthropic::unexpressible_anthropic_field;
+use super::{ConversionPolicy, ResponseContext, StreamError};
+
+pub(crate) const ANTHROPIC_VERSION_2023_06_01: &str = "2023-06-01";
+pub(crate) const ANTHROPIC_VERSION_2026_10_21: &str = "2026-10-21";
+
+const VERSION_KEYS: [&str; 3] = ["api_version", "anthropic_version", "anthropic-version"];
+const DEPRECATED_V2026_SAMPLING_KEYS: [&str; 3] = ["temperature", "top_p", "top_k"];
+
+pub(crate) fn is_claude_45_plus_model(model: &str) -> bool {
+    let trimmed = model.trim().to_ascii_lowercase();
+    let normalized = trimmed
+        .strip_prefix("anthropic/")
+        .or_else(|| trimmed.strip_prefix("anthropic."))
+        .unwrap_or(&trimmed);
+
+    normalized.starts_with("claude-4.5")
+        || normalized.starts_with("claude-4-5")
+        || (normalized.starts_with("claude-")
+            && (normalized.contains("-4-5") || normalized.contains("-4.5")))
+        || normalized.starts_with("claude-opus-4-8")
+        || normalized.starts_with("claude-opus-4.8")
+        || normalized.starts_with("claude-sonnet-5")
+        || normalized.starts_with("claude-fable-5")
+        || normalized.starts_with("claude-mythos-5")
+}
+
+pub(crate) fn resolve_anthropic_api_version(
+    context: &ResponseContext,
+    request: &Map<String, Value>,
+    body: &Map<String, Value>,
+) -> &'static str {
+    if let Some(explicit) = explicit_api_version(context, request, body) {
+        return if explicit == ANTHROPIC_VERSION_2026_10_21 {
+            ANTHROPIC_VERSION_2026_10_21
+        } else {
+            ANTHROPIC_VERSION_2023_06_01
+        };
+    }
+    if target_model_is_claude_45_plus(context, request, body) {
+        return ANTHROPIC_VERSION_2026_10_21;
+    }
+    ANTHROPIC_VERSION_2023_06_01
+}
+
+fn explicit_api_version<'a>(
+    context: &'a ResponseContext,
+    request: &'a Map<String, Value>,
+    body: &'a Map<String, Value>,
+) -> Option<&'a str> {
+    let provider_opts = context.provider_options.as_object();
+    for key in VERSION_KEYS {
+        if let Some(ver) = provider_opts
+            .and_then(|opts| opts.get(key))
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+        {
+            return Some(ver.trim());
+        }
+        if let Some(ver) = request
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+        {
+            return Some(ver.trim());
+        }
+        if let Some(ver) = body
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+        {
+            return Some(ver.trim());
+        }
+    }
+    None
+}
+
+fn target_model_is_claude_45_plus(
+    context: &ResponseContext,
+    request: &Map<String, Value>,
+    body: &Map<String, Value>,
+) -> bool {
+    is_claude_45_plus_model(&context.model)
+        || request
+            .get("model")
+            .and_then(Value::as_str)
+            .is_some_and(is_claude_45_plus_model)
+        || body
+            .get("model")
+            .and_then(Value::as_str)
+            .is_some_and(is_claude_45_plus_model)
+}
+
+pub(crate) fn has_non_empty_citations(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) => true,
+        Some(Value::String(s)) => !s.trim().is_empty(),
+        Some(Value::Array(arr)) => !arr.is_empty(),
+        Some(Value::Object(obj)) => {
+            if obj.len() == 1 && obj.get("enabled").is_some_and(Value::is_boolean) {
+                false
+            } else {
+                !obj.is_empty()
+            }
+        }
+        Some(Value::Number(_)) => true,
+    }
+}
+
+pub(crate) fn enforce_anthropic_v2026_boundary(
+    context: &ResponseContext,
+    request: &Map<String, Value>,
+    body: &mut Map<String, Value>,
+    consumed: &mut BTreeSet<&'static str>,
+) -> Result<(), StreamError> {
+    for key in VERSION_KEYS {
+        if request.contains_key(key) {
+            consumed.insert(key);
+        }
+        body.remove(key);
+    }
+
+    if resolve_anthropic_api_version(context, request, body) != ANTHROPIC_VERSION_2026_10_21 {
+        return Ok(());
+    }
+
+    let strict = context.policy() == ConversionPolicy::Strict;
+    enforce_v2026_sampling_params(request, body, consumed, strict)?;
+    enforce_v2026_input_items(request.get("input"), strict)?;
+    enforce_v2026_messages(body.get_mut("messages"), strict)
+}
+
+fn enforce_v2026_sampling_params(
+    request: &Map<String, Value>,
+    body: &mut Map<String, Value>,
+    consumed: &mut BTreeSet<&'static str>,
+    strict: bool,
+) -> Result<(), StreamError> {
+    for key in DEPRECATED_V2026_SAMPLING_KEYS {
+        let present = request.get(key).is_some_and(|v| !v.is_null())
+            || body.get(key).is_some_and(|v| !v.is_null());
+        if present {
+            if strict {
+                return Err(unexpressible_anthropic_field(key));
+            }
+            body.remove(key);
+            consumed.insert(key);
+        }
+    }
+    Ok(())
+}
+
+fn enforce_v2026_input_items(input: Option<&Value>, strict: bool) -> Result<(), StreamError> {
+    let Some(Value::Array(items)) = input else {
+        return Ok(());
+    };
+    for item in items {
+        let Some(map) = item.as_object() else {
+            continue;
+        };
+        let role = map.get("role").and_then(Value::as_str).unwrap_or("user");
+        if role != "assistant" && has_non_empty_citations(map.get("citations")) && strict {
+            return Err(unexpressible_anthropic_field("citations"));
+        }
+    }
+    Ok(())
+}
+
+fn enforce_v2026_messages(messages: Option<&mut Value>, strict: bool) -> Result<(), StreamError> {
+    let Some(Value::Array(msgs)) = messages else {
+        return Ok(());
+    };
+    for msg in msgs.iter_mut() {
+        let Some(map) = msg.as_object_mut() else {
+            continue;
+        };
+        let role = map
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("user")
+            .to_string();
+        if role == "assistant" {
+            sanitize_v2026_assistant_message(map, strict)?;
+        } else {
+            sanitize_v2026_user_message(map, strict)?;
+        }
+    }
+
+    msgs.retain(|message| {
+        let assistant = message.get("role").and_then(Value::as_str) == Some("assistant");
+        let empty = message
+            .get("content")
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty);
+
+        !(assistant && empty)
+    });
+    Ok(())
+}
+
+fn sanitize_v2026_assistant_message(
+    map: &mut Map<String, Value>,
+    strict: bool,
+) -> Result<(), StreamError> {
+    let Some(Value::Array(blocks)) = map.get_mut("content") else {
+        return Ok(());
+    };
+    let has_doc = blocks
+        .iter()
+        .any(|b| b.get("type").and_then(Value::as_str) == Some("document"));
+    if has_doc {
+        if strict {
+            return Err(unexpressible_anthropic_field("messages.assistant.document"));
+        }
+        blocks.retain(|b| b.get("type").and_then(Value::as_str) != Some("document"));
+    }
+    Ok(())
+}
+
+fn sanitize_v2026_user_message(
+    map: &mut Map<String, Value>,
+    strict: bool,
+) -> Result<(), StreamError> {
+    if has_non_empty_citations(map.get("citations")) {
+        if strict {
+            return Err(unexpressible_anthropic_field("citations"));
+        }
+        map.remove("citations");
+    }
+    let Some(Value::Array(blocks)) = map.get_mut("content") else {
+        return Ok(());
+    };
+    for block in blocks {
+        let Some(obj) = block.as_object_mut() else {
+            continue;
+        };
+        if has_non_empty_citations(obj.get("citations")) {
+            if strict {
+                return Err(unexpressible_anthropic_field("citations"));
+            }
+            obj.remove("citations");
+        } else if matches!(
+            obj.get("citations"),
+            Some(Value::Array(_)) | Some(Value::Null)
+        ) {
+            obj.remove("citations");
+        }
+    }
+    Ok(())
+}

@@ -16,7 +16,7 @@ defmodule Ankole.Tenants do
   alias Ankole.AuthZ.Grants
   alias Ankole.AuthZ.Root
   alias Ankole.AuthZ.Store
-  alias Ankole.Tenants.Tenant
+  alias Ankole.Tenants.{DeletionHooks, Tenant}
 
   resources do
     resource Tenant do
@@ -118,57 +118,26 @@ defmodule Ankole.Tenants do
     |> Ash.Query.filter(is_nil(suspended_at) and is_nil(deleting_at))
     |> Ash.Query.sort(inserted_at: :asc, id: :asc)
     |> Ankole.Ash.read!()
-    |> map(fun)
+    |> DeletionHooks.map_tenants(fun)
   end
 
   @doc "Runs retention work in every tenant, including suspended and deleting tenants."
-  def map_all(fun) when is_function(fun, 0), do: map(list(), fun)
-
-  defp map(tenants, fun) do
-    Enum.map(tenants, fn tenant ->
-      result =
-        Repo.with_tenant(tenant.id, fn ->
-          try do
-            case fun.() do
-              {:error, reason} = error ->
-                log_fanout_failure(tenant.id, :error, reason, [])
-                error
-
-              result ->
-                result
-            end
-          rescue
-            error ->
-              log_fanout_failure(tenant.id, :error, error, __STACKTRACE__)
-              {:error, {:exception, Exception.message(error)}}
-          catch
-            kind, reason ->
-              log_fanout_failure(tenant.id, kind, reason, __STACKTRACE__)
-              {:error, {kind, reason}}
-          end
-        end)
-
-      {tenant.id, result}
-    end)
-  end
-
-  defp log_fanout_failure(tenant_id, kind, reason, stacktrace) do
-    Ankole.Logging.warning(
-      "tenants.site_fanout_failed",
-      "Site work failed for one tenant",
-      Ankole.Logging.failure_fields(kind, reason, stacktrace) |> Map.put(:tenant_id, tenant_id)
-    )
-  end
+  def map_all(fun) when is_function(fun, 0), do: DeletionHooks.map_tenants(list(), fun)
 
   @doc false
-  def fanout_result(results) do
-    errors = for {tenant_id, {:error, reason}} <- results, do: {tenant_id, reason}
+  defdelegate fanout_result(results), to: DeletionHooks
 
-    case errors do
-      [] -> :ok
-      errors -> {:error, {:tenant_failures, errors}}
-    end
-  end
+  @doc "Registers an idempotent tenant deletion hook (`{module, fun}`, `module`, or 1-arity fun)."
+  defdelegate register_deletion_hook(hook), to: DeletionHooks
+
+  @doc "Unregisters a previously registered tenant deletion hook."
+  defdelegate unregister_deletion_hook(hook), to: DeletionHooks
+
+  @doc "Returns the configured tenant deletion hooks."
+  defdelegate deletion_hooks(), to: DeletionHooks
+
+  @doc "Executes all registered tenant deletion hooks as a retryable step."
+  defdelegate run_deletion_hooks(tenant_id), to: DeletionHooks
 
   @doc "Checks a loaded tenant, or reads its current state by ID, for new work."
   def accepting_work?(%Tenant{suspended_at: nil, deleting_at: nil}), do: true
@@ -349,19 +318,7 @@ defmodule Ankole.Tenants do
          :ok <- not_privileged(target, privileged_id),
          true <- accepting_work?(target),
          :ok <- lock_permission_trees([privileged_id, target.id]),
-         {:ok, _} <-
-           Repo.with_tenant(target.id, fn ->
-             with {:ok, group} <- Root.ensure_site_admin_group(),
-                  {:ok, _} <- Store.lock_group(group.id),
-                  {:ok, principal} <- Store.fetch_principal_for_update(uid),
-                  :ok <- Store.ensure_active_human(principal),
-                  {:ok, _} <- Store.insert_membership(group.id, principal.uid),
-                  {:ok, _} <- Grants.upsert_console_admin_grants(group),
-                  {:ok, pod_group} <- Root.ensure_pod_admin_group(),
-                  {:ok, _} <- Grants.upsert_pod_admin_grants(pod_group),
-                  {:ok, _} <- Store.insert_membership(pod_group.id, principal.uid),
-                  do: {:ok, group}
-           end),
+         {:ok, _} <- Repo.with_tenant(target.id, fn -> grant_site_admin_to_uid(uid) end),
          {:ok, _write} <-
            AppConfigure.put_global_by_key_in_tx(@privileged_key, target.id),
          :ok <-
@@ -372,6 +329,19 @@ defmodule Ankole.Tenants do
       {:error, {:built_in_group_conflict, "siteadmin"}} -> {:error, :group_name_taken}
       error -> error
     end
+  end
+
+  defp grant_site_admin_to_uid(uid) do
+    with {:ok, group} <- Root.ensure_site_admin_group(),
+         {:ok, _} <- Store.lock_group(group.id),
+         {:ok, principal} <- Store.fetch_principal_for_update(uid),
+         :ok <- Store.ensure_active_human(principal),
+         {:ok, _} <- Store.insert_membership(group.id, principal.uid),
+         {:ok, _} <- Grants.upsert_console_admin_grants(group),
+         {:ok, pod_group} <- Root.ensure_pod_admin_group(),
+         {:ok, _} <- Grants.upsert_pod_admin_grants(pod_group),
+         {:ok, _} <- Store.insert_membership(pod_group.id, principal.uid),
+         do: {:ok, group}
   end
 
   defp lock_permission_trees(ids) do

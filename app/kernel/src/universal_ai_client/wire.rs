@@ -20,6 +20,7 @@ pub struct SSEParser {
     scan_from: usize,
     stream_start: bool,
     pending_lf: bool,
+    ready_frames: Vec<SSEFrame>,
 }
 
 impl SSEParser {
@@ -30,7 +31,12 @@ impl SSEParser {
             scan_from: 0,
             stream_start: true,
             pending_lf: false,
+            ready_frames: Vec::new(),
         }
+    }
+
+    pub fn take_ready_frames(&mut self) -> Vec<SSEFrame> {
+        std::mem::take(&mut self.ready_frames)
     }
 
     pub(crate) fn push(&mut self, bytes: &[u8]) -> Result<Vec<SSEEvent>, StreamError> {
@@ -56,10 +62,11 @@ impl SSEParser {
             }
             self.stream_start = false;
         }
-        let mut frames = Vec::new();
+        let mut frames = std::mem::take(&mut self.ready_frames);
 
         while let Some((index, boundary_len)) = find_sse_boundary(&self.buffer, self.scan_from) {
             if index > self.max_event_bytes {
+                self.ready_frames = frames;
                 return Err(StreamError::new(
                     "sse_event_too_large",
                     "wire",
@@ -103,6 +110,7 @@ impl SSEParser {
             0
         };
         if self.buffer.len() - suffix > self.max_event_bytes {
+            self.ready_frames = frames;
             return Err(StreamError::new(
                 "sse_event_too_large",
                 "wire",
@@ -117,7 +125,28 @@ impl SSEParser {
         Ok(frames)
     }
 
+    pub fn flush_trailing_done(&mut self) -> Option<SSEFrame> {
+        let mut raw = self.buffer.as_slice();
+        while let Some(stripped) = raw.strip_suffix(b"\n").or_else(|| raw.strip_suffix(b"\r")) {
+            raw = stripped;
+        }
+        let event = parse_sse_event(raw)?;
+        if event.event.is_none() && event.data.trim() == "[DONE]" {
+            let mut raw_frame = raw.to_vec();
+            raw_frame.extend_from_slice(b"\n\n");
+            self.buffer.clear();
+            self.scan_from = 0;
+            Some(SSEFrame {
+                raw: raw_frame,
+                event: Some(event),
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn finish(&mut self) -> Result<(), StreamError> {
+        let _ = self.flush_trailing_done();
         if self.buffer.iter().all(|byte| byte.is_ascii_whitespace()) {
             self.buffer.clear();
             self.scan_from = 0;

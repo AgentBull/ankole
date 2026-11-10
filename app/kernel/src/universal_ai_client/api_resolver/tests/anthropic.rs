@@ -748,3 +748,45 @@ fn anthropic_build_body_merges_consecutive_tool_outputs_into_one_user_message() 
         ])
     );
 }
+
+#[test]
+fn anthropic_strict_rejects_unconsumed_fields() {
+    for unexpressible in [
+        json!({"model": "claude-test", "input": "hi", "response_format": "json_object"}),
+        json!({"model": "claude-test", "input": "hi", "text": {"format": {"type": "json_object"}}}),
+        json!({"model": "claude-test", "input": "hi", "text": {"format": {"type": "text", "extra": 1}}}),
+        json!({"model": "claude-test", "input": "hi", "stop": ""}),
+        json!({"model": "claude-test", "input": "hi", "tool_choice": "invalid_choice"}),
+    ] {
+        let resolver = APIResolver::new(
+            APIResolverKind::AnthropicMessages,
+            ResponseContext {
+                model: "claude-test".to_string(),
+                request: unexpressible,
+                provider_options: json!({}),
+                stream: None,
+                include_model: true,
+                policy: ConversionPolicy::Strict,
+            },
+        );
+        let err = resolver.build_body().unwrap_err();
+        assert_eq!(err.code, "unexpressible_field");
+        assert_eq!(err.provider_status, Some(400));
+    }
+}
+
+#[test]
+fn anthropic_skips_null_output_limits_and_uses_max_tokens() {
+    let resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext {
+            model: "claude-test".to_string(),
+            request: json!({"input": "hello", "max_output_tokens": null, "max_tokens": 128}),
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+
+    let body = resolver.build_body().unwrap();
+    assert_eq!(body["max_tokens"], 128);
+}

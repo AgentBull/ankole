@@ -68,7 +68,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "web_fetch" in jina_reader["capabilities"]
     assert "web_search" in bright_data_serp["capabilities"]
     assert "web_search" in agentbull_cloud["capabilities"]
-    assert agentbull_cloud["default_base_url"] == "https://cloudapis.agentbull.com"
+    assert agentbull_cloud["default_base_url"] == "https://cloudapis.agentbull.com/v1"
 
     agentbull_cloud_settings = Map.new(agentbull_cloud["settings"], &{&1["key"], &1})
     assert agentbull_cloud_settings["api_key"]["required"]

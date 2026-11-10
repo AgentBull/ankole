@@ -211,7 +211,45 @@ impl ChatState {
     }
 
     pub(super) fn set_usage(&mut self, usage: Value) {
-        self.usage = usage;
+        self.merge_usage(&usage);
+    }
+
+    fn merge_usage(&mut self, incoming: &Value) {
+        let Some(incoming_obj) = incoming.as_object() else {
+            return;
+        };
+        if incoming_obj.is_empty() {
+            return;
+        }
+        let mut merged = self.usage.as_object().cloned().unwrap_or_default();
+        for (key, value) in incoming_obj {
+            if value.is_null() {
+                continue;
+            }
+            if let Some(sub_in) = value.as_object() {
+                if sub_in.is_empty() {
+                    continue;
+                }
+                let mut sub_out = merged
+                    .get(key)
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                for (k, v) in sub_in {
+                    if !v.is_null() {
+                        sub_out.insert(k.clone(), v.clone());
+                    }
+                }
+                if !sub_out.is_empty() {
+                    merged.insert(key.clone(), Value::Object(sub_out));
+                }
+            } else {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+        if !merged.is_empty() {
+            self.usage = Value::Object(merged);
+        }
     }
 
     pub(super) fn is_terminal(&self) -> bool {
@@ -229,7 +267,7 @@ impl ChatState {
 
         self.put_chat_metadata(&chunk);
         if let Some(usage) = chunk.get("usage").filter(|value| value.is_object()) {
-            self.usage = usage.clone();
+            self.merge_usage(usage);
         }
 
         let mut events = self.ensure_response_started(context);
@@ -1051,6 +1089,16 @@ fn output_text_part(text: &str) -> Option<Value> {
 }
 
 fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
+    let strict = context.policy() == ConversionPolicy::Strict;
+    if strict
+        && context
+            .request
+            .as_object()
+            .and_then(|raw| raw.get("previous_response_id"))
+            .is_some_and(|v| !v.is_null())
+    {
+        return Err(unexpressible_chat_field("previous_response_id"));
+    }
     let token_field = match context.request.get("__ankole_chat_max_tokens_field") {
         None => "max_tokens",
         Some(value) => match value.as_str() {
@@ -1066,14 +1114,21 @@ fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value
         },
     };
     let request = context.resolved_provider_request_object();
-    let stream = request
-        .get("stream")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let mut consumed = BTreeSet::new();
+    let stream = match request.get("stream") {
+        Some(Value::Bool(flag)) => {
+            consumed.insert("stream");
+            *flag
+        }
+        _ => false,
+    };
     let mut body = provider_options_object(context);
 
-    if let Some(extra_body) = request.get("extra_body").and_then(Value::as_object) {
+    if let Some(extra_body) = request.get("extra_body").and_then(Value::as_object)
+        && (!strict || !extra_body.is_empty())
+    {
         merge_object(&mut body, extra_body);
+        consumed.insert("extra_body");
     }
 
     for key in [
@@ -1084,46 +1139,369 @@ fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value
         "parallel_tool_calls",
         "service_tier",
         "user",
+        "stop",
+        "seed",
+        "logprobs",
         "top_logprobs",
+        "logit_bias",
+        "n",
+        "reasoning_effort",
+        "modalities",
+        "audio",
+        "prediction",
+        "verbosity",
+        "store",
         "metadata",
     ] {
-        maybe_put_from(&mut body, &request, key);
+        if let Some(value) = request.get(key).cloned().filter(useful_value) {
+            body.insert(key.to_string(), value);
+            consumed.insert(key);
+        }
+    }
+    if let Some(reasoning) = request.get("reasoning").filter(|v| !v.is_null()) {
+        if strict {
+            let effort =
+                validate_strict_chat_reasoning(reasoning, request.get("reasoning_effort"))?;
+            body.insert("reasoning_effort".to_string(), json!(effort));
+            consumed.insert("reasoning");
+        } else if !body.contains_key("reasoning_effort")
+            && let Some(effort) = reasoning
+                .as_object()
+                .and_then(|r| r.get("effort"))
+                .filter(|v| v.as_str().is_some_and(|s| !s.trim().is_empty()))
+        {
+            body.insert("reasoning_effort".to_string(), effort.clone());
+            consumed.insert("reasoning");
+        }
+    }
+    if let Some(stop_seq) = request.get("stop_sequences").cloned().filter(useful_value) {
+        if !body.contains_key("stop") {
+            body.insert("stop".to_string(), stop_seq);
+            consumed.insert("stop_sequences");
+        } else if body.get("stop") == Some(&stop_seq) {
+            consumed.insert("stop_sequences");
+        }
     }
 
-    if let Some(response_format) = chat_response_format(&request) {
+    if strict {
+        consume_strict_chat_response_format_and_text(&mut body, &request, &mut consumed)?;
+    } else if let Some(response_format) = chat_response_format(&request) {
         body.insert("response_format".to_string(), response_format);
     }
 
-    if let Some(value) = request
-        .get("max_output_tokens")
-        .or_else(|| request.get("max_tokens"))
+    if let Some(value) = ["max_output_tokens", "max_tokens", "max_completion_tokens"]
+        .iter()
+        .find_map(|key| request.get(*key).filter(|value| useful_value(value)))
         .cloned()
-        .filter(useful_value)
     {
+        if strict {
+            for k in ["max_output_tokens", "max_tokens", "max_completion_tokens"] {
+                if let Some(other) = request.get(k).filter(|v| !v.is_null())
+                    && other != &value
+                {
+                    return Err(unexpressible_chat_field(k));
+                }
+            }
+        }
         body.remove("max_output_tokens");
         body.remove("max_tokens");
         body.remove("max_completion_tokens");
         body.insert(token_field.to_string(), value);
+        for k in ["max_output_tokens", "max_tokens", "max_completion_tokens"] {
+            if request.get(k).is_some_and(useful_value) {
+                consumed.insert(k);
+            }
+        }
     }
 
-    if let Some(tools) = chat_tools(request.get("tools"))? {
-        body.insert("tools".to_string(), tools);
+    if let Some(raw_tools) = request.get("tools").filter(|v| !v.is_null()) {
+        if let Some(tools) = chat_tools(Some(raw_tools), strict)? {
+            body.insert("tools".to_string(), tools);
+            consumed.insert("tools");
+        } else if raw_tools.as_array().is_some_and(Vec::is_empty) {
+            consumed.insert("tools");
+        }
     }
 
-    if let Some(tool_choice) = chat_tool_choice(request.get("tool_choice")) {
+    if let Some(tool_choice) = chat_tool_choice(request.get("tool_choice"), strict)? {
         body.insert("tool_choice".to_string(), tool_choice);
+        consumed.insert("tool_choice");
     }
 
-    if let Some(stream_options) = chat_stream_options(request.get("stream_options"), stream) {
+    if let Some(stream_options) =
+        chat_stream_options(request.get("stream_options"), stream, strict)?
+    {
         body.insert("stream_options".to_string(), stream_options);
+        if request.get("stream_options").is_some_and(|v| !v.is_null()) {
+            consumed.insert("stream_options");
+        }
     }
 
     if context.include_model {
         put_default_if_useful(&mut body, "model", json!(context.model));
+        if request.get("model").is_some_and(useful_value)
+            && body.get("model").is_some_and(useful_value)
+        {
+            consumed.insert("model");
+        }
     }
     body.insert("stream".to_string(), json!(stream));
+    if let Some(inst) = request.get("instructions").filter(|v| !v.is_null())
+        && (!strict || inst.is_string() || inst.is_array())
+        && !chat_text_content(inst).is_empty()
+    {
+        consumed.insert("instructions");
+    }
+    if matches!(
+        request.get("input"),
+        Some(Value::String(_) | Value::Array(_))
+    ) {
+        consumed.insert("input");
+    }
     body.insert("messages".to_string(), chat_messages(context, &request)?);
+    if strict {
+        verify_strict_consumed(&request, &consumed, "OpenAI Chat")?;
+    }
     Ok(body)
+}
+
+fn unexpressible_chat_field(field: impl std::fmt::Display) -> StreamError {
+    StreamError::new(
+        "unexpressible_field",
+        "api_resolver",
+        format!("OpenAI Chat cannot express request field `{field}`"),
+    )
+    .provider_status(400)
+}
+
+pub(super) fn verify_strict_consumed(
+    request: &Map<String, Value>,
+    consumed: &BTreeSet<&str>,
+    protocol_label: &str,
+) -> Result<(), StreamError> {
+    for (key, value) in request {
+        if key.starts_with("__ankole") || value.is_null() {
+            continue;
+        }
+        if !consumed.contains(key.as_str()) {
+            return Err(StreamError::new(
+                "unexpressible_field",
+                "api_resolver",
+                format!("{protocol_label} cannot express request field `{key}`"),
+            )
+            .provider_status(400));
+        }
+    }
+    Ok(())
+}
+
+fn consume_strict_chat_response_format_and_text(
+    body: &mut Map<String, Value>,
+    request: &Map<String, Value>,
+    consumed: &mut BTreeSet<&'static str>,
+) -> Result<(), StreamError> {
+    if let Some(rf) = request.get("response_format").filter(|v| !v.is_null()) {
+        let normalized_rf = validate_strict_chat_response_format_obj(rf)?;
+        body.insert("response_format".to_string(), normalized_rf);
+        consumed.insert("response_format");
+    }
+    if let Some(text) = request.get("text").filter(|v| !v.is_null()) {
+        let Some(text_obj) = text.as_object() else {
+            return Err(unexpressible_chat_field("text"));
+        };
+        let mut consumed_any = false;
+        for (k, v) in text_obj {
+            if v.is_null() {
+                continue;
+            }
+            match k.as_str() {
+                "verbosity" => {
+                    let Some(s) = v.as_str().filter(|s| !s.trim().is_empty()) else {
+                        return Err(unexpressible_chat_field("text.verbosity"));
+                    };
+                    if let Some(existing) = body.get("verbosity").and_then(Value::as_str)
+                        && existing != s
+                    {
+                        return Err(unexpressible_chat_field("text.verbosity"));
+                    }
+                    body.insert("verbosity".to_string(), json!(s));
+                    consumed_any = true;
+                }
+                "format" => {
+                    consume_strict_chat_text_format(body, v)?;
+                    consumed_any = true;
+                }
+                other => return Err(unexpressible_chat_field(format!("text.{other}"))),
+            }
+        }
+        if !consumed_any {
+            return Err(unexpressible_chat_field("text"));
+        }
+        consumed.insert("text");
+    }
+    Ok(())
+}
+
+fn validate_strict_chat_response_format_obj(rf: &Value) -> Result<Value, StreamError> {
+    let Some(obj) = rf.as_object() else {
+        return Err(unexpressible_chat_field("response_format"));
+    };
+    let Some(fmt_type) = obj.get("type").and_then(Value::as_str) else {
+        return Err(unexpressible_chat_field("response_format.type"));
+    };
+    match fmt_type {
+        "text" | "json_object" => {
+            for (k, v) in obj {
+                if !v.is_null() && k != "type" {
+                    return Err(unexpressible_chat_field(format!("response_format.{k}")));
+                }
+            }
+            Ok(rf.clone())
+        }
+        "json_schema" => {
+            for (k, v) in obj {
+                if !v.is_null() && !matches!(k.as_str(), "type" | "json_schema") {
+                    return Err(unexpressible_chat_field(format!("response_format.{k}")));
+                }
+            }
+            let Some(js) = obj.get("json_schema").and_then(Value::as_object) else {
+                return Err(unexpressible_chat_field("response_format.json_schema"));
+            };
+            if js.is_empty() {
+                return Err(unexpressible_chat_field("response_format.json_schema"));
+            }
+            for (k, v) in js {
+                if !v.is_null()
+                    && !matches!(k.as_str(), "name" | "description" | "schema" | "strict")
+                {
+                    return Err(unexpressible_chat_field(format!(
+                        "response_format.json_schema.{k}"
+                    )));
+                }
+            }
+            Ok(rf.clone())
+        }
+        other => Err(unexpressible_chat_field(format!(
+            "response_format.type={other}"
+        ))),
+    }
+}
+
+fn consume_strict_chat_text_format(
+    body: &mut Map<String, Value>,
+    format: &Value,
+) -> Result<(), StreamError> {
+    let Some(fmt_obj) = format.as_object() else {
+        return Err(unexpressible_chat_field("text.format"));
+    };
+    let Some(fmt_type) = fmt_obj.get("type").and_then(Value::as_str) else {
+        return Err(unexpressible_chat_field("text.format.type"));
+    };
+    match fmt_type {
+        "text" => {
+            for (k, v) in fmt_obj {
+                if !v.is_null() && k != "type" {
+                    return Err(unexpressible_chat_field(format!("text.format.{k}")));
+                }
+            }
+            if body
+                .get("response_format")
+                .and_then(|rf| rf.get("type"))
+                .and_then(Value::as_str)
+                .is_some_and(|t| t != "text")
+            {
+                return Err(unexpressible_chat_field("text.format"));
+            }
+            Ok(())
+        }
+        "json_object" => {
+            for (k, v) in fmt_obj {
+                if !v.is_null() && k != "type" {
+                    return Err(unexpressible_chat_field(format!("text.format.{k}")));
+                }
+            }
+            let target = json!({ "type": "json_object" });
+            if body
+                .get("response_format")
+                .is_some_and(|existing| existing != &target)
+            {
+                return Err(unexpressible_chat_field("text.format"));
+            }
+            body.insert("response_format".to_string(), target);
+            Ok(())
+        }
+        "json_schema" => {
+            for (k, v) in fmt_obj {
+                if !v.is_null()
+                    && !matches!(
+                        k.as_str(),
+                        "type" | "name" | "description" | "schema" | "strict"
+                    )
+                {
+                    return Err(unexpressible_chat_field(format!("text.format.{k}")));
+                }
+            }
+            if let Some(name) = fmt_obj.get("name").filter(|v| !v.is_null())
+                && !name.as_str().is_some_and(|s| !s.trim().is_empty())
+            {
+                return Err(unexpressible_chat_field("text.format.name"));
+            }
+            let mut json_schema = Map::new();
+            json_schema.insert(
+                "name".to_string(),
+                fmt_obj
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| json!("response")),
+            );
+            maybe_put_from(&mut json_schema, fmt_obj, "description");
+            maybe_put_from(&mut json_schema, fmt_obj, "schema");
+            maybe_put_from(&mut json_schema, fmt_obj, "strict");
+            let target = json!({ "type": "json_schema", "json_schema": json_schema });
+            if body
+                .get("response_format")
+                .is_some_and(|existing| existing != &target)
+            {
+                return Err(unexpressible_chat_field("text.format"));
+            }
+            body.insert("response_format".to_string(), target);
+            Ok(())
+        }
+        other => Err(unexpressible_chat_field(format!(
+            "text.format.type={other}"
+        ))),
+    }
+}
+
+fn validate_strict_chat_reasoning<'a>(
+    reasoning: &'a Value,
+    explicit_effort: Option<&Value>,
+) -> Result<&'a str, StreamError> {
+    let Some(obj) = reasoning.as_object() else {
+        return Err(unexpressible_chat_field("reasoning"));
+    };
+    let mut effort_val = None;
+    for (k, v) in obj {
+        if v.is_null() {
+            continue;
+        }
+        if k == "effort"
+            && let Some(s) = v.as_str().filter(|s| !s.trim().is_empty())
+        {
+            effort_val = Some(s);
+        } else {
+            return Err(unexpressible_chat_field(format!("reasoning.{k}")));
+        }
+    }
+    let Some(effort) = effort_val else {
+        return Err(unexpressible_chat_field("reasoning"));
+    };
+    if let Some(exp) = explicit_effort.and_then(Value::as_str)
+        && exp != effort
+    {
+        return Err(unexpressible_chat_field("reasoning.effort"));
+    }
+    Ok(effort)
 }
 
 fn chat_response_format(request: &Map<String, Value>) -> Option<Value> {
@@ -1155,9 +1533,19 @@ fn chat_response_format(request: &Map<String, Value>) -> Option<Value> {
     }
 }
 
-fn chat_stream_options(value: Option<&Value>, stream: bool) -> Option<Value> {
+fn chat_stream_options(
+    value: Option<&Value>,
+    stream: bool,
+    strict: bool,
+) -> Result<Option<Value>, StreamError> {
     if !stream {
-        return None;
+        return Ok(None);
+    }
+    if let Some(raw) = value.filter(|v| !v.is_null())
+        && strict
+        && !raw.is_object()
+    {
+        return Err(unexpressible_chat_field("stream_options"));
     }
 
     let mut options = value
@@ -1167,7 +1555,7 @@ fn chat_stream_options(value: Option<&Value>, stream: bool) -> Option<Value> {
     options
         .entry("include_usage".to_string())
         .or_insert_with(|| json!(true));
-    Some(Value::Object(options))
+    Ok(Some(Value::Object(options)))
 }
 
 fn chat_messages(
@@ -1856,36 +2244,66 @@ fn chat_image_url_part(image_url: Option<&Value>, strict: bool) -> Result<Value,
     }
 }
 
-fn chat_tools(tools: Option<&Value>) -> Result<Option<Value>, StreamError> {
+fn chat_tools(tools: Option<&Value>, strict: bool) -> Result<Option<Value>, StreamError> {
     let Some(tools) = tools.and_then(Value::as_array) else {
         return Ok(None);
     };
-    let mapped: Vec<Value> = tools
-        .iter()
-        .flat_map(|tool| {
-            let Some(map) = tool.as_object() else {
-                return Vec::new();
-            };
-            match map.get("type").and_then(Value::as_str) {
-                Some("namespace") => chat_namespace_tools(map),
-                Some("function") => {
-                    let function = map
-                        .get("function")
-                        .and_then(Value::as_object)
-                        .unwrap_or(map);
-                    vec![json!({
-                        "type": "function",
-                        "function": chat_function_tool(function, map)
-                    })]
+    let mut mapped = Vec::new();
+    for tool in tools {
+        let Some(map) = tool.as_object() else {
+            if strict {
+                return Err(unexpressible_chat_field("tools"));
+            }
+            continue;
+        };
+        match map.get("type").and_then(Value::as_str) {
+            Some("namespace") => {
+                let expected_len = map
+                    .get("tools")
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
+                let ns_tools = chat_namespace_tools(map);
+                if strict && (ns_tools.is_empty() || ns_tools.len() != expected_len) {
+                    return Err(unexpressible_chat_field("tools"));
                 }
-                Some("custom") => vec![json!({
+                mapped.extend(ns_tools);
+            }
+            Some("function") => {
+                let function = map
+                    .get("function")
+                    .and_then(Value::as_object)
+                    .unwrap_or(map);
+                if strict
+                    && !function
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .is_some_and(|n| !n.trim().is_empty())
+                {
+                    return Err(unexpressible_chat_field("tools"));
+                }
+                mapped.push(json!({
+                    "type": "function",
+                    "function": chat_function_tool(function, map)
+                }));
+            }
+            Some("custom") => {
+                if strict
+                    && !map
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .is_some_and(|n| !n.trim().is_empty())
+                {
+                    return Err(unexpressible_chat_field("tools"));
+                }
+                mapped.push(json!({
                     "type": "function",
                     "function": chat_custom_function_tool(map)
-                })],
-                _other => vec![tool.clone()],
+                }));
             }
-        })
-        .collect();
+            _other if strict => return Err(unexpressible_chat_field("tools")),
+            _other => mapped.push(tool.clone()),
+        }
+    }
 
     reject_duplicate_emulated_tool_names(mapped.iter().filter_map(|tool| {
         tool.get("function")
@@ -2002,10 +2420,19 @@ fn chat_function_tool(function: &Map<String, Value>, tool: &Map<String, Value>) 
     Value::Object(mapped)
 }
 
-fn chat_tool_choice(choice: Option<&Value>) -> Option<Value> {
-    let value = choice?;
+fn chat_tool_choice(choice: Option<&Value>, strict: bool) -> Result<Option<Value>, StreamError> {
+    let Some(value) = choice.filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
     let Some(map) = value.as_object() else {
-        return Some(value.clone());
+        if strict
+            && !value
+                .as_str()
+                .is_some_and(|s| matches!(s, "none" | "auto" | "required"))
+        {
+            return Err(unexpressible_chat_field("tool_choice"));
+        }
+        return Ok(Some(value.clone()));
     };
 
     if map
@@ -2013,22 +2440,31 @@ fn chat_tool_choice(choice: Option<&Value>) -> Option<Value> {
         .and_then(Value::as_object)
         .and_then(|function| function.get("name"))
         .and_then(Value::as_str)
-        .is_some()
+        .is_some_and(|n| !n.trim().is_empty())
     {
-        return Some(value.clone());
+        return Ok(Some(value.clone()));
     }
 
     if matches!(
         map.get("type").and_then(Value::as_str),
         Some("function" | "custom")
-    ) && let Some(name) = map.get("name").and_then(Value::as_str)
+    ) && let Some(name) = map
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|n| !n.trim().is_empty())
     {
         let name = match map.get("namespace").and_then(Value::as_str) {
             Some(namespace) => flattened_namespace_tool_name(namespace, name),
             None => flattened_namespace_tool_name("", name),
         };
-        return Some(json!({ "type": "function", "function": { "name": name } }));
+        return Ok(Some(
+            json!({ "type": "function", "function": { "name": name } }),
+        ));
     }
 
-    Some(value.clone())
+    if strict {
+        return Err(unexpressible_chat_field("tool_choice"));
+    }
+
+    Ok(Some(value.clone()))
 }

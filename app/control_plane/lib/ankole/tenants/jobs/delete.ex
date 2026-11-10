@@ -63,6 +63,12 @@ defmodule Ankole.Tenants.Jobs.Delete do
   end
 
   defp step(tenant) do
+    with :ok <- Tenants.run_deletion_hooks(tenant.id) do
+      do_step(tenant)
+    end
+  end
+
+  defp do_step(tenant) do
     humans =
       Principals.list_principals!(query: [filter: [type: :human, status: :active], limit: 50])
 
@@ -87,7 +93,9 @@ defmodule Ankole.Tenants.Jobs.Delete do
             {:snooze, 1}
 
           true ->
-            finish(tenant)
+            with :ok <- Tenants.run_deletion_hooks(tenant.id) do
+              finish(tenant)
+            end
         end
       else
         {:ok, _released} -> {:snooze, 1}

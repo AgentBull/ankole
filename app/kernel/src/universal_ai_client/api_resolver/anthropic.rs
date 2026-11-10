@@ -891,49 +891,193 @@ fn thinking_blocks(content: &[Value]) -> Vec<Value> {
 }
 
 fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
+    let strict = context.policy() == ConversionPolicy::Strict;
+    if strict
+        && context
+            .request
+            .as_object()
+            .and_then(|raw| raw.get("previous_response_id"))
+            .is_some_and(|v| !v.is_null())
+    {
+        return Err(unexpressible_anthropic_field("previous_response_id"));
+    }
     let request = context.resolved_provider_request_object();
+    let mut consumed = BTreeSet::new();
     let mut body = provider_options_object(context);
 
-    maybe_put_from(&mut body, &request, "instructions");
-    if let Some(system) = body.remove("instructions") {
+    if let Some(instructions) = request.get("instructions").cloned().filter(useful_value) {
+        if strict
+            && let Some(sys) = request.get("system").filter(|v| !v.is_null())
+            && sys != &instructions
+        {
+            return Err(unexpressible_anthropic_field("system"));
+        }
+        body.insert("system".to_string(), instructions);
+        consumed.insert("instructions");
+        if request.get("system").is_some_and(useful_value) {
+            consumed.insert("system");
+        }
+    } else if let Some(system) = request.get("system").cloned().filter(useful_value) {
         body.insert("system".to_string(), system);
+        consumed.insert("system");
     }
 
+    let max_tokens_val = ["max_output_tokens", "max_tokens"]
+        .iter()
+        .find_map(|key| request.get(*key).filter(|value| useful_value(value)))
+        .cloned();
+    if let Some(ref val) = max_tokens_val {
+        if strict
+            && let Some(other) = request.get("max_tokens").filter(|v| !v.is_null())
+            && other != val
+        {
+            return Err(unexpressible_anthropic_field("max_tokens"));
+        }
+        for k in ["max_output_tokens", "max_tokens"] {
+            if request.get(k).is_some_and(useful_value) {
+                consumed.insert(k);
+            }
+        }
+    }
     body.insert(
         "max_tokens".to_string(),
-        request
-            .get("max_output_tokens")
-            .or_else(|| request.get("max_tokens"))
-            .cloned()
-            .filter(useful_value)
-            .unwrap_or_else(|| json!(4096)),
+        max_tokens_val.unwrap_or_else(|| json!(4096)),
     );
 
-    for key in ["temperature", "top_p", "metadata", "thinking"] {
-        maybe_put_from(&mut body, &request, key);
+    for key in [
+        "temperature",
+        "top_p",
+        "top_k",
+        "stop_sequences",
+        "service_tier",
+        "metadata",
+        "thinking",
+    ] {
+        if let Some(value) = request.get(key).cloned().filter(useful_value) {
+            body.insert(key.to_string(), value);
+            consumed.insert(key);
+        }
+    }
+    if let Some(stop) = request.get("stop").filter(|v| !v.is_null()) {
+        match stop {
+            Value::String(s) if !s.is_empty() && !body.contains_key("stop_sequences") => {
+                body.insert("stop_sequences".to_string(), json!([s]));
+                consumed.insert("stop");
+            }
+            Value::Array(arr)
+                if !arr.is_empty()
+                    && !body.contains_key("stop_sequences")
+                    && (!strict
+                        || arr
+                            .iter()
+                            .all(|v| v.as_str().is_some_and(|s| !s.is_empty()))) =>
+            {
+                body.insert("stop_sequences".to_string(), Value::Array(arr.clone()));
+                consumed.insert("stop");
+            }
+            _ => {}
+        }
     }
 
-    if let Some(tools) = anthropic_tools(request.get("tools"))? {
-        body.insert("tools".to_string(), tools);
+    if strict {
+        consume_strict_anthropic_text_and_format(&request, &mut consumed)?;
+    }
+
+    if let Some(raw_tools) = request.get("tools").filter(|v| !v.is_null()) {
+        if let Some(tools) = anthropic_tools(Some(raw_tools), strict)? {
+            body.insert("tools".to_string(), tools);
+            consumed.insert("tools");
+        } else if raw_tools.as_array().is_some_and(Vec::is_empty) {
+            consumed.insert("tools");
+        }
     }
 
     let thinking_enabled = anthropic_thinking_enabled(body.get("thinking"));
     if let Some(tool_choice) = anthropic_tool_choice(request.get("tool_choice"), thinking_enabled) {
         body.insert("tool_choice".to_string(), tool_choice);
+        consumed.insert("tool_choice");
     }
 
     if context.include_model {
         body.insert("model".to_string(), json!(context.model));
+        if request.get("model").is_some_and(useful_value) {
+            consumed.insert("model");
+        }
     }
-    body.insert(
-        "stream".to_string(),
-        request.get("stream").cloned().unwrap_or(Value::Bool(false)),
-    );
-    body.insert(
-        "messages".to_string(),
-        anthropic_messages(context, request.get("input"))?,
-    );
+    let stream = match request.get("stream") {
+        Some(Value::Bool(flag)) => {
+            consumed.insert("stream");
+            Value::Bool(*flag)
+        }
+        Some(other) if !strict => other.clone(),
+        _ => Value::Bool(false),
+    };
+    body.insert("stream".to_string(), stream);
+    if matches!(
+        request.get("input"),
+        Some(Value::String(_) | Value::Array(_))
+    ) {
+        consumed.insert("input");
+        body.insert(
+            "messages".to_string(),
+            anthropic_messages(context, request.get("input"))?,
+        );
+    } else if let Some(messages) = request.get("messages").filter(|v| v.is_array()).cloned() {
+        consumed.insert("messages");
+        body.insert("messages".to_string(), messages);
+    } else if !body.get("messages").is_some_and(Value::is_array) {
+        body.insert(
+            "messages".to_string(),
+            anthropic_messages(context, request.get("input"))?,
+        );
+    }
+    enforce_anthropic_v2026_boundary(context, &request, &mut body, &mut consumed)?;
+    if strict {
+        verify_strict_consumed(&request, &consumed, "Anthropic Messages")?;
+    }
     Ok(body)
+}
+
+pub(super) fn unexpressible_anthropic_field(field: impl std::fmt::Display) -> StreamError {
+    StreamError::new(
+        "unexpressible_field",
+        "api_resolver",
+        format!("Anthropic Messages cannot express request field `{field}`"),
+    )
+    .provider_status(400)
+}
+
+fn consume_strict_anthropic_text_and_format(
+    request: &Map<String, Value>,
+    consumed: &mut BTreeSet<&'static str>,
+) -> Result<(), StreamError> {
+    if let Some(rf) = request.get("response_format").filter(|v| !v.is_null()) {
+        let Some(obj) = rf.as_object() else {
+            return Err(unexpressible_anthropic_field("response_format"));
+        };
+        if obj.get("type").and_then(Value::as_str) != Some("text")
+            || obj.iter().any(|(k, v)| !v.is_null() && k != "type")
+        {
+            return Err(unexpressible_anthropic_field("response_format"));
+        }
+        consumed.insert("response_format");
+    }
+    if let Some(text) = request.get("text").filter(|v| !v.is_null()) {
+        let Some(text_obj) = text.as_object() else {
+            return Err(unexpressible_anthropic_field("text"));
+        };
+        let Some(fmt_obj) = text_obj.get("format").and_then(Value::as_object) else {
+            return Err(unexpressible_anthropic_field("text"));
+        };
+        if text_obj.iter().any(|(k, v)| !v.is_null() && k != "format")
+            || fmt_obj.get("type").and_then(Value::as_str) != Some("text")
+            || fmt_obj.iter().any(|(k, v)| !v.is_null() && k != "type")
+        {
+            return Err(unexpressible_anthropic_field("text.format"));
+        }
+        consumed.insert("text");
+    }
+    Ok(())
 }
 
 // One Anthropic assistant turn arrives back as several Responses items: a
@@ -1233,10 +1377,26 @@ fn anthropic_content(content: Option<&Value>, strict: bool) -> Result<Value, Str
                     continue;
                 };
                 let block = match map.get("type").and_then(Value::as_str) {
-                    Some("input_text" | "output_text" | "text") => json!({
-                        "type": "text",
-                        "text": map.get("text").map(value_to_text).unwrap_or_default()
-                    }),
+                    Some("input_text" | "output_text" | "text") => {
+                        let mut text_block = Map::new();
+                        text_block.insert("type".to_string(), json!("text"));
+                        text_block.insert(
+                            "text".to_string(),
+                            json!(map.get("text").map(value_to_text).unwrap_or_default()),
+                        );
+                        for key in ["cache_control", "citations"] {
+                            maybe_put_from(&mut text_block, map, key);
+                        }
+                        Value::Object(text_block)
+                    }
+                    Some("document") => {
+                        let mut doc = Map::new();
+                        doc.insert("type".to_string(), json!("document"));
+                        for key in ["source", "title", "context", "cache_control", "citations"] {
+                            maybe_put_from(&mut doc, map, key);
+                        }
+                        Value::Object(doc)
+                    }
                     Some("tool_use") => {
                         let mut tool = Map::new();
                         for key in ["type", "id", "name", "input"] {
@@ -1396,45 +1556,70 @@ fn anthropic_image_placeholder() -> Value {
     json!({ "type": "text", "text": "[image content omitted: unsupported image source]" })
 }
 
-fn anthropic_tools(tools: Option<&Value>) -> Result<Option<Value>, StreamError> {
+fn anthropic_tools(tools: Option<&Value>, strict: bool) -> Result<Option<Value>, StreamError> {
     let Some(tools) = tools.and_then(Value::as_array) else {
         return Ok(None);
     };
-    let mapped: Vec<Value> = tools
-        .iter()
-        .flat_map(|tool| {
-            let Some(map) = tool.as_object() else {
-                return Vec::new();
-            };
-            if map.get("type").and_then(Value::as_str) == Some("namespace") {
-                return anthropic_namespace_tools(map);
+    let mut mapped = Vec::new();
+    for tool in tools {
+        let Some(map) = tool.as_object() else {
+            if strict {
+                return Err(unexpressible_anthropic_field("tools"));
             }
-            if map.get("type").and_then(Value::as_str) == Some("custom") {
-                return vec![anthropic_custom_tool(map, "")];
+            continue;
+        };
+        if map.get("type").and_then(Value::as_str) == Some("namespace") {
+            let expected_len = map
+                .get("tools")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            let ns_tools = anthropic_namespace_tools(map);
+            if strict && (ns_tools.is_empty() || ns_tools.len() != expected_len) {
+                return Err(unexpressible_anthropic_field("tools"));
             }
-            if let Some(function) = map.get("function").and_then(Value::as_object) {
-                let name = function
+            mapped.extend(ns_tools);
+            continue;
+        }
+        if map.get("type").and_then(Value::as_str) == Some("custom") {
+            if strict
+                && !map
                     .get("name")
                     .and_then(Value::as_str)
-                    .map(|name| flattened_namespace_tool_name("", name))
-                    .unwrap_or_default();
-                return vec![json!({
-                    "name": name,
-                    "description": function.get("description").map(value_to_text).unwrap_or_default(),
-                    "input_schema": function.get("parameters").cloned().unwrap_or_else(|| json!({ "type": "object" }))
-                })];
+                    .is_some_and(|n| !n.trim().is_empty())
+            {
+                return Err(unexpressible_anthropic_field("tools"));
             }
-            if let Some(name) = map.get("name").filter(|value| useful_value(value)) {
-                let name = flattened_namespace_tool_name("", &value_to_text(name));
-                return vec![json!({
-                    "name": name,
-                    "description": map.get("description").map(value_to_text).unwrap_or_default(),
-                    "input_schema": map.get("input_schema").or_else(|| map.get("parameters")).cloned().unwrap_or_else(|| json!({ "type": "object" }))
-                })];
+            mapped.push(anthropic_custom_tool(map, ""));
+            continue;
+        }
+        if let Some(function) = map.get("function").and_then(Value::as_object) {
+            let raw_name = function.get("name").and_then(Value::as_str);
+            if strict && !raw_name.is_some_and(|n| !n.trim().is_empty()) {
+                return Err(unexpressible_anthropic_field("tools"));
             }
-            Vec::new()
-        })
-        .collect();
+            let name = raw_name
+                .map(|name| flattened_namespace_tool_name("", name))
+                .unwrap_or_default();
+            mapped.push(json!({
+                "name": name,
+                "description": function.get("description").map(value_to_text).unwrap_or_default(),
+                "input_schema": function.get("parameters").cloned().unwrap_or_else(|| json!({ "type": "object" }))
+            }));
+            continue;
+        }
+        if let Some(name) = map.get("name").filter(|value| useful_value(value)) {
+            let name = flattened_namespace_tool_name("", &value_to_text(name));
+            mapped.push(json!({
+                "name": name,
+                "description": map.get("description").map(value_to_text).unwrap_or_default(),
+                "input_schema": map.get("input_schema").or_else(|| map.get("parameters")).cloned().unwrap_or_else(|| json!({ "type": "object" }))
+            }));
+            continue;
+        }
+        if strict {
+            return Err(unexpressible_anthropic_field("tools"));
+        }
+    }
 
     reject_duplicate_emulated_tool_names(
         mapped

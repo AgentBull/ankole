@@ -6,6 +6,32 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
   alias Ankole.AIGateway.ModelMetadata.Cache
   alias Ankole.AIGateway.ProviderConfigs
 
+  setup_all do
+    if Process.whereis(Ankole.Repo) == nil do
+      {:ok, _} = Application.ensure_all_started(:ecto_sql)
+      {:ok, _} = Application.ensure_all_started(:postgrex)
+      {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+
+      children = [
+        Ankole.Repo,
+        Ankole.Pod.BaseCluster,
+        {Phoenix.PubSub, name: Ankole.PubSub},
+        Ankole.AIGateway.ModelMetadata.Cache,
+        Ankole.AppConfigure.Registry,
+        Ankole.AppConfigure.Cache,
+        Ankole.AIGateway.CredentialPool,
+        {DynamicSupervisor, name: Ankole.Sessions.Drivers, strategy: :one_for_one},
+        {DynamicSupervisor, name: Ankole.Conversations.Delivery.Previews, strategy: :one_for_one}
+      ]
+
+      {:ok, sup} = Supervisor.start_link(children, strategy: :one_for_one)
+      Process.unlink(sup)
+      Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual)
+    end
+
+    :ok
+  end
+
   setup do
     Cache.clear_for_test()
 
@@ -353,6 +379,40 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
                end,
                force_refresh: true
              )
+  end
+
+  test "supports agentbull_cloud image catalog and derives images/models endpoint paths" do
+    provider_id = "agentbull-cloud-images-#{System.unique_integer([:positive])}"
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "agentbull_cloud",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-image-test"}]
+               }
+             })
+
+    runtime = %{
+      "provider_id" => provider.provider_id,
+      "provider_kind" => provider.provider_kind,
+      "provider" => provider,
+      "model" => "openai/gpt-image-2"
+    }
+
+    assert {:ok, selection} =
+             ImageModelCatalog.select_endpoint(
+               runtime,
+               "openai/gpt-image-2",
+               %{"quality" => "high"},
+               1,
+               http_client: catalog_client(),
+               force_refresh: true
+             )
+
+    assert selection.model == "openai/gpt-image-2"
+    assert selection.provider_slug == "openai"
+    assert selection.supports_streaming
   end
 
   defp catalog_client(supported_overrides \\ %{}) do

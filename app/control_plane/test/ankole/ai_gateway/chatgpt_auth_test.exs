@@ -512,6 +512,65 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
     assert by_id["fresh"]["status"] == "ok"
   end
 
+  test "OAuth token refresh blocks 307/308 redirects and never forwards refresh_token to redirect target" do
+    test_pid = self()
+
+    redirect_target =
+      start_upstream_server(fn request ->
+        send(test_pid, {:redirect_target_hit, request.body})
+        {:json, 200, %{"access_token" => "leaked"}}
+      end)
+
+    for status <- [307, 308] do
+      issuer =
+        start_upstream_server(fn request ->
+          send(test_pid, {:issuer_hit, status, request.body["refresh_token"]})
+          {:json, status, [{"location", "#{redirect_target}/oauth/token"}], %{"redirect" => true}}
+        end)
+
+      cred = %{"refresh_token" => "rt-secret-#{status}", "account_id" => "acct-redir"}
+
+      assert {:error, {:chatgpt_refresh_transient, ^status, _headers, "redirect_blocked"}} =
+               ChatGPTAuth.refresh_tokens_with_authority(cred, issuer: issuer)
+
+      assert_receive {:issuer_hit, ^status, _}
+      refute_receive {:redirect_target_hit, _}
+    end
+  end
+
+  test "OAuth token refresh enforces HTTPS authority pinning and fails closed when mandatory proxy is missing or invalid" do
+    test_pid = self()
+
+    issuer =
+      start_upstream_server(fn request ->
+        send(test_pid, {:unexpected_direct_request, request.path})
+        {:json, 200, oauth_tokens("direct-access", "direct-refresh", "acct-proxy")}
+      end)
+
+    cred = %{"refresh_token" => "rt-proxy-test", "account_id" => "acct-proxy"}
+
+    assert {:error, :invalid_auth_issuer} =
+             ChatGPTAuth.refresh_tokens_with_authority(cred, issuer: "http://auth.openai.com")
+
+    assert {:error, :invalid_auth_issuer} =
+             ChatGPTAuth.refresh_tokens_with_authority(cred, issuer: "https://evil.example.com")
+
+    assert {:error, {:chatgpt_refresh_transient, nil, %{}, :proxy_required}} =
+             ChatGPTAuth.refresh_tokens_with_authority(cred,
+               issuer: issuer,
+               require_proxy: true
+             )
+
+    assert {:error, {:chatgpt_refresh_transient, nil, %{}, :invalid_proxy}} =
+             ChatGPTAuth.refresh_tokens_with_authority(cred,
+               issuer: issuer,
+               proxy_url: "http://user:secret_pass@bad-proxy:70000",
+               require_proxy: true
+             )
+
+    refute_receive {:unexpected_direct_request, _}
+  end
+
   defp create_chatgpt_provider!(provider_id, issuer, entries \\ []) do
     assert {:ok, provider} = create_chatgpt_provider(provider_id, issuer, entries)
     provider
