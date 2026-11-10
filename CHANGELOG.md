@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.104 (2026-11-10)
+
+- Fix the arm64 control-plane image build, which failed with `revision ... not
+  found` for the `gridcraft` git dependency. The kernel WebAssembly stage and
+  the Elixir build stage ran in parallel and cloned the dependency into the
+  same Cargo git cache at once; the WebAssembly stage now keeps its own Cargo
+  caches.
+
 ## Version 2.0.0-alpha.103 (2026-11-10)
 
 - Record prompt-cache reads and writes in the model usage ledger. Each
