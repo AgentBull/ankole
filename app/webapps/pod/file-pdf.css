@@ -1,0 +1,19 @@
+@layer pdfjs {
+  /* pdf.js lays its pages out in the default box model, which the Ankole base styles replace with `border-box`. */
+  .pdfViewer,
+  .pdfViewer * {
+    box-sizing: content-box;
+  }
+}
+
+/* pdf.js spaces pages with a transparent border, so the hairline goes around the page content inside it. */
+.pod-pdf-pages .pdfViewer .page .canvasWrapper {
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+/* Find matches take two strengths of the primary colour. The tints are translucent whatever the theme, because the
+   text layer sits over the drawn page and an opaque fill would cover the word it marks. */
+.pod-pdf-pages .textLayer .highlight {
+  --highlight-bg-color: color-mix(in srgb, var(--primary) 20%, transparent);
+  --highlight-selected-bg-color: color-mix(in srgb, var(--primary) 50%, transparent);
+}

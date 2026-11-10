@@ -20,6 +20,7 @@ defmodule Ankole.Pod.Chat.Execution do
     input_tokens: [type: :integer],
     output_tokens: [type: :integer],
     cached_input_tokens: [type: :integer],
+    cache_creation_input_tokens: [type: :integer],
     reasoning_tokens: [type: :integer]
   ]
   @model_usage @usage ++

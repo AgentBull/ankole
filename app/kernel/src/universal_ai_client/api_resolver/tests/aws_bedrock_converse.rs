@@ -23,7 +23,13 @@ fn bedrock_converse_one_shot_body_maps_text_usage_and_stop_reason() {
                     {"text": "bedrock"}
                 ]}},
                 "stopReason": "end_turn",
-                "usage": {"inputTokens": 3, "outputTokens": 5, "totalTokens": 8},
+                "usage": {
+                    "inputTokens": 3,
+                    "outputTokens": 5,
+                    "cacheReadInputTokens": 20,
+                    "cacheWriteInputTokens": 10,
+                    "totalTokens": 38
+                },
                 "metrics": {"latencyMs": 42}
             }),
         )
@@ -33,9 +39,19 @@ fn bedrock_converse_one_shot_body_maps_text_usage_and_stop_reason() {
     assert!(!response["completed_at"].is_null());
     assert_eq!(response["output"][0]["type"], "message");
     assert_eq!(response["output"][0]["content"][0]["text"], "hello bedrock");
-    assert_eq!(response["usage"]["input_tokens"], 3);
+    // Bedrock reports cache reads and writes apart from `inputTokens`, so the
+    // OpenResponses input count adds them back.
+    assert_eq!(response["usage"]["input_tokens"], 33);
     assert_eq!(response["usage"]["output_tokens"], 5);
-    assert_eq!(response["usage"]["total_tokens"], 8);
+    assert_eq!(response["usage"]["total_tokens"], 38);
+    assert_eq!(
+        response["usage"]["input_tokens_details"]["cached_tokens"],
+        20
+    );
+    assert_eq!(
+        response["usage"]["input_tokens_details"]["cache_creation_tokens"],
+        10
+    );
 }
 
 #[test]

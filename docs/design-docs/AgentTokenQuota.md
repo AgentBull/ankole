@@ -45,7 +45,7 @@ Embedding, rerank, web search, web fetch, and image generation do not write thes
 For each provider round that ends with `response.completed` or
 `response.incomplete`, the ledger records `usage.input_tokens` and
 `usage.output_tokens` as that provider reported them, and a quota window counts
-their sum. Cached input tokens remain part of `input_tokens` without separate
+their sum. Cache reads and cache writes remain part of `input_tokens` without separate
 weighting, and Ankole counts raw tokens equally regardless of which model ran.
 The ledger starts empty at deployment.
 
@@ -78,7 +78,8 @@ enforced by a plugin.
 | `model_profile` | The model profile that the caller requested, such as `light`; NULL for an explicit `provider_id/model` selector |
 | `served_profile` | The profile whose model served the round, such as `primary` when `light` falls back to it; NULL without a profile |
 | `input_tokens`, `output_tokens` | Non-negative provider usage of the round; NULL when the Provider did not report the count |
-| `cached_input_tokens`, `reasoning_tokens` | The cached part of the input and the reasoning part of the output; NULL when not reported |
+| `cached_input_tokens`, `cache_creation_input_tokens` | The parts of the input that the Provider read from and wrote to its prompt cache; NULL when not reported |
+| `reasoning_tokens` | The reasoning part of the output; NULL when not reported |
 | `human_uid` | The Human that the work serves (see [AIGateway](AIGateway.md)); NULL when the work serves no Human |
 | `session_id` | The Session whose Turn made the round; `job:<id>` for a Background Agent Job; NULL when unknown |
 | `signal_id` | The Signal that started that Turn; NULL when unknown |

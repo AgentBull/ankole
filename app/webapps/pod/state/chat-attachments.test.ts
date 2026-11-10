@@ -50,6 +50,27 @@ describe('Human chat attachments', () => {
     model.dispose()
   })
 
+  test('an upload reports the share of the file sent until its receipt arrives', async () => {
+    let report!: (loaded: number, total: number) => void
+    let finish!: (result: ReturnType<typeof receipt>) => void
+    const model = new ChatAttachments((_file, _id, _signal, onProgress) => {
+      report = onProgress
+      return new Promise(resolve => {
+        finish = resolve
+      })
+    })
+    model.add([file()])
+    expect(model.files.peek()[0]!.progress).toBe(0)
+    report(2, 5)
+    expect(model.files.peek()[0]!.progress).toBe(0.4)
+    finish(receipt('prepared'))
+    await tick()
+    expect(model.files.peek()[0]!.state).toBe('ready')
+    model.remove(model.files.peek()[0]!.id)
+    report(5, 5)
+    expect(model.files.peek()).toEqual([])
+  })
+
   test('remove aborts work and a late upload response cannot restore the removed attachment', async () => {
     let finish!: (result: ReturnType<typeof receipt>) => void
     let request!: AbortSignal

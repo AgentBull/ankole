@@ -959,7 +959,7 @@ remains after AIGateway subtracts the image usage.
 A row records the subject, origin, requested `provider_id/model` selector, the
 model that the Provider reported when it differs from the requested one, the
 requested model profile and the profile that served it, the input, output,
-cached input, and reasoning tokens, and work attribution (`session_id`,
+cache read, cache write, and reasoning tokens, and work attribution (`session_id`,
 `signal_id`, `job_id`, `attempts`, and `human_uid`, read from the same
 request-context keys as the Turn root span):
 
@@ -1361,16 +1361,27 @@ for audit, and hard deletion deletes only the validated rows.
 
 The Rust kernel normalizes Provider usage to the Responses usage shape and
 keeps a count that the Provider did not report as `null`; a usage that the
-Provider omitted entirely is `null` as a whole. A hosted composite response sums
+Provider omitted entirely is `null` as a whole. `input_tokens` always includes
+the prompt-cache portions, which `input_tokens_details` breaks out as
+`cached_tokens` for cache reads and `cache_creation_tokens` for cache writes.
+Anthropic Messages and Bedrock Converse report uncached input, cache reads, and
+cache writes as disjoint fields, so the kernel adds the cache portions back into
+`input_tokens`. Chat Completions Providers that name these counts differently
+keep their meaning: DeepSeek's `prompt_cache_hit_tokens` and Kimi's flat
+`cached_tokens` become `cached_tokens` when the canonical detail is absent, and
+OpenRouter's and Kimi's `cache_write_tokens` and DashScope's
+`cache_creation_input_tokens` become `cache_creation_tokens`.
+A hosted composite response sums
 the counts that its main-model rounds reported, keeps a count that no main-model
-round reported `null`, and adds the image tokens only to the counts that the
+round reported `null`, carries `cache_creation_tokens` only when some main-model
+round reported it, and adds the image tokens only to the counts that the
 main-model rounds reported, so subtracting `tool_usage.image_gen` never turns an
 image-only report into a reported zero. `tool_usage.image_gen` itself keeps
 integer counts. The composite `model` is the model that the last main-model
 round reported.
 
 `AIGateway.Usage` reads that usage in two ways. `counts/1` returns the input,
-output, cached input, and reasoning counts with `nil` for an unreported count,
+output, cache read, cache write, and reasoning counts with `nil` for an unreported count,
 and the usage ledger records exactly those values. `normalize/1` projects usage
 to the public Responses object with non-negative integers for stored Responses,
 compaction artifacts, and every public terminal event or non-streaming body:

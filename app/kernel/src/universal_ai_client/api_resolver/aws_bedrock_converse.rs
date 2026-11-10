@@ -39,7 +39,7 @@ impl AWSBedrockConverseState {
         }
 
         if let Some(usage) = event.pointer("/metadata/usage") {
-            self.inner.set_usage(normalize_provider_token_usage(usage));
+            self.inner.set_usage(normalize_bedrock_usage(usage));
         }
 
         events
@@ -163,7 +163,7 @@ fn aws_bedrock_converse_body_to_response(
             "status": status,
             "incomplete_details": incomplete_reason.map(|reason| json!({"reason": reason})).unwrap_or(Value::Null),
             "output": output,
-            "usage": normalize_provider_token_usage(body.get("usage").unwrap_or(&Value::Null))
+            "usage": normalize_bedrock_usage(body.get("usage").unwrap_or(&Value::Null))
         }),
     ))
 }

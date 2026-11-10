@@ -427,7 +427,12 @@ When expanded, the heading omits the count badge and offers List and Grid views,
 column-order popover (`Creator`, `Modified`, and `Created` alongside the locked
 `Name` column), three-state column sorting (`asc`, `desc`, and tree sibling
 order), inline multi-file uploads that remain on the parent document, and child
-Document or Base creation. `Page.children_view` (`collapsed`, `view`,
+Document or Base creation. A Grid card previews its Page: an image File Page
+shows the image, a PDF File Page shows its first page, and every other file
+shows its extension and size. The browser draws the PDF page with a lazily
+loaded pdf.js once the card scrolls near the viewport, reading the bytes from
+the authorized Pod file URL, and the card keeps the extension and size while
+the page renders or when it cannot be drawn. `Page.children_view` (`collapsed`, `view`,
 `field_order`, `visible_fields`) persists these presentation settings on the
 Page: editors save changes through `PATCH /api/v2/pod/pages/:id` without
 advancing `updated_at` or recording a content contributor edit, whereas
@@ -2313,11 +2318,12 @@ delivery attachment can continue referencing the previous object; see
 [Files](Files.md).
 
 File Pages render in-browser previews for PDFs, images, audio, video, workbooks,
-and presentations. Workbook and presentation viewers lazy-load their rendering
-libraries and stream bytes from the authorized Pod file URL without sending
-files to any external service—supporting sheet switching for workbooks, slide
-switching for presentations, and original-file downloads (preview fidelity
-follows supported format features and installed fonts). `.xlsx` and `.xlsm`
+and presentations. Workbook, presentation, and PDF viewers lazy-load their
+rendering libraries and stream bytes from the authorized Pod file URL without
+sending files to any external service—supporting sheet switching for workbooks,
+slide switching for presentations, the [PDF viewer](#pdf-viewer) for PDFs, and
+original-file downloads (preview fidelity follows supported format features and
+installed fonts). `.xlsx` and `.xlsm`
 files open in the collaborative spreadsheet editor (see
 [Spreadsheet Pages](#spreadsheet-pages)); `.xls`, `.xlsb`, and `.ods` workbooks
 and presentations keep the read-only preview. `Ankole.Pod.FileExtraction`
@@ -2368,6 +2374,31 @@ Native Conversation messages carry Page links and verified attachments:
   originating Human Message across continuations until a new Human message starts
   a continuation, staying strictly within the same Agent and tenant and halting
   on cycles or missing messages.
+
+### PDF viewer
+
+A PDF File Page and the Chat attachment preview show a PDF in the same
+viewer. The pdf.js viewer component draws the pages near the scroll position,
+so a long file costs only what the reader looks at, and it lays a text layer
+over each page so that the reader can select and copy text and follow links;
+an external link opens in a new tab. The toolbar above the pages carries
+Ankole controls for the previous and next page, the page position, zoom, and
+find. A document opens fitted to the width of the viewer, up to 125%, and
+keeps fitting as the viewer changes size until the reader zooms. Find searches
+the whole document, counts the matches, and scrolls to each one;
+Command/Control+F opens it while the focus is in the viewer, in its dialog, or
+on no element, because the browser's own find reaches only the pages drawn so
+far. A page-number search jump opens the File Page at that page.
+
+Ankole bundles the predefined CMaps, the Symbol and ZapfDingbats fonts, and the
+JBIG2 and JPEG 2000 decoders of pdf.js as separate assets, and the browser
+fetches one only when a document asks for it, so a PDF that does not embed its
+CJK fonts and a scanned PDF both render; the other standard fonts come from the
+system. The build keeps only the page, text-layer, and annotation-layer rules
+of the pdf.js stylesheet, in a cascade layer below the Ankole theme. The Grid
+card thumbnail reads the first page through the same pdf.js setup and worker. Printing and rotation stay with the browser's own viewer,
+which the attachment preview's open-in-new-tab link and the original-file
+download reach.
 
 ### Spreadsheet Pages
 

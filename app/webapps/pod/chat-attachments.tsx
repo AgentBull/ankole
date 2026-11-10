@@ -1,10 +1,11 @@
-import { Button } from '@ankole/uikit'
+import { Button, cn, ProgressRing } from '@ankole/uikit'
 import { RiAttachment2, RiCloseLine, RiRefreshLine } from '@remixicon/react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useRef, type ClipboardEventHandler, type DragEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ConversationAttachment } from './api'
 import { containsBidi, stripBidi } from '../common/bidi'
+import { formatFileBytes } from '../common/file-format'
 import { InternalAPIError } from '../common/internal-api-client'
 import { conversationAttachmentURL } from './native-transfers'
 import type { ChatAttachments } from './state/chat-attachments'
@@ -91,13 +92,22 @@ export function ChatAttachmentDrafts({
               <span className="flex max-w-48">
                 <AttachmentName name={file.file.name} />
               </span>
-              {!recovery && (
-                <span role={file.state === 'failed' ? 'alert' : 'status'} className="text-fg-tertiary">
-                  {t(
-                    `pod.chat_attachments.${file.error instanceof InternalAPIError && file.error.status === 413 ? 'too_large' : file.state === 'failed' ? 'failed' : file.state === 'uploading' ? 'uploading' : 'ready'}`
-                  )}
-                </span>
-              )}
+              {!recovery &&
+                (file.state === 'failed' ? (
+                  <span role="alert" className="text-destructive">
+                    {t(
+                      `pod.chat_attachments.${file.error instanceof InternalAPIError && file.error.status === 413 ? 'too_large' : 'failed'}`
+                    )}
+                  </span>
+                ) : (
+                  <span className="tabular-nums text-fg-tertiary">
+                    {file.state === 'uploading' && `${formatFileBytes((file.progress ?? 0) * file.file.size)} / `}
+                    {formatFileBytes(file.file.size)}
+                    <span role="status" className="sr-only">
+                      {t(`pod.chat_attachments.${file.state}`)}
+                    </span>
+                  </span>
+                ))}
             </span>
           </AttachmentPreview>
           {!recovery && (
@@ -118,9 +128,23 @@ export function ChatAttachmentDrafts({
                 variant="ghost"
                 size="icon-sm"
                 disabled={disabled}
+                className="group/remove"
                 aria-label={t('pod.chat_attachments.remove', { name: file.file.name })}
                 onClick={() => model.remove(file.id)}>
-                <RiCloseLine aria-hidden />
+                {/* While a file uploads, the remove control shows its progress and turns into the cross on hover or focus. */}
+                {file.state === 'uploading' && (
+                  <ProgressRing
+                    aria-hidden
+                    value={(file.progress ?? 0) * 100}
+                    className="group-hover/remove:hidden group-focus-visible/remove:hidden"
+                  />
+                )}
+                <RiCloseLine
+                  aria-hidden
+                  className={cn(
+                    file.state === 'uploading' && 'hidden group-hover/remove:block group-focus-visible/remove:block'
+                  )}
+                />
               </Button>
             </>
           )}
@@ -190,8 +214,11 @@ export function MessageAttachments({
             url={conversationAttachmentURL(conversationID, messageID, attachment.position)}
             downloadURL={conversationAttachmentURL(conversationID, messageID, attachment.position, true)}
             conversationID={conversationID}>
-            <span className="flex min-w-0 max-w-64 text-xs">
-              <AttachmentName name={attachment.name} />
+            <span className="grid min-w-0 text-xs">
+              <span className="flex max-w-64">
+                <AttachmentName name={attachment.name} />
+              </span>
+              <span className="tabular-nums text-fg-tertiary">{formatFileBytes(attachment.size)}</span>
             </span>
           </AttachmentPreview>
           {renderAction?.(attachment)}

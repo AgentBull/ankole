@@ -1518,6 +1518,15 @@ fn add_usage(total: &mut Value, usage: &Value) {
                 .and_then(|details| details.get(value_key)),
         );
     }
+    // Only Providers with explicit prompt caching report cache writes, so the
+    // aggregate carries the count only when some round reported it.
+    let cache_creation_tokens = add_reported(
+        total["input_tokens_details"].get("cache_creation_tokens"),
+        normalized["input_tokens_details"].get("cache_creation_tokens"),
+    );
+    if !cache_creation_tokens.is_null() {
+        total["input_tokens_details"]["cache_creation_tokens"] = cache_creation_tokens;
+    }
 }
 
 // The composite usage adds the image tokens to each count that the main rounds
@@ -1579,6 +1588,23 @@ mod tests {
         assert_eq!(total["input_tokens"], json!(5));
         assert_eq!(total["output_tokens"], json!(0));
         assert_eq!(total["input_tokens_details"]["cached_tokens"], Value::Null);
+        assert_eq!(
+            total["input_tokens_details"].get("cache_creation_tokens"),
+            None
+        );
+
+        add_usage(
+            &mut total,
+            &json!({"input_tokens": 4, "input_tokens_details": {"cache_creation_tokens": 3}}),
+        );
+        add_usage(
+            &mut total,
+            &json!({"input_tokens": 1, "input_tokens_details": {"cache_creation_tokens": 2}}),
+        );
+        assert_eq!(
+            total["input_tokens_details"]["cache_creation_tokens"],
+            json!(5)
+        );
     }
 
     #[test]

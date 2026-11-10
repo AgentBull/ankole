@@ -8375,6 +8375,7 @@ export type GetAiGatewayUsageResponses = {
    */
   200: {
     by_agent: Array<{
+      cache_creation_input_tokens?: number | null
       cached_input_tokens?: number | null
       input_tokens?: number | null
       key?: string | null
@@ -8385,6 +8386,7 @@ export type GetAiGatewayUsageResponses = {
       rounds: number
     }>
     by_human: Array<{
+      cache_creation_input_tokens?: number | null
       cached_input_tokens?: number | null
       input_tokens?: number | null
       key?: string | null
@@ -8395,6 +8397,7 @@ export type GetAiGatewayUsageResponses = {
       rounds: number
     }>
     by_origin: Array<{
+      cache_creation_input_tokens?: number | null
       cached_input_tokens?: number | null
       input_tokens?: number | null
       key?: string | null
@@ -8405,6 +8408,7 @@ export type GetAiGatewayUsageResponses = {
       rounds: number
     }>
     total: {
+      cache_creation_input_tokens?: number | null
       cached_input_tokens?: number | null
       input_tokens?: number | null
       key?: string | null
