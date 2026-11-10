@@ -393,6 +393,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   # explicitly configured provider value with the same wire name.
   defp response_context(ctx, include_model?, provider_options_override) do
     model = map_get(ctx, :model) || ""
+    provider_options = provider_options_override || map_get(ctx, :provider_options) || %{}
 
     %{
       model: model,
@@ -400,24 +401,91 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
         put_reasoning_source(
           map_get(ctx, :request) || %{},
           ctx |> map_get(:provider) |> map_get(:provider_kind),
-          model
+          model,
+          resolve_reasoning_account_id(ctx, provider_options)
         ),
-      provider_options: provider_options_override || map_get(ctx, :provider_options) || %{},
+      provider_options: provider_options,
       stream: map_get(ctx, :stream?) || false,
       include_model: include_model?
     }
   end
 
-  defp put_reasoning_source(request, provider_type, model_id)
+  defp put_reasoning_source(request, provider_type, model_id, account_id)
        when is_map(request) and is_binary(provider_type) and provider_type != "" and
               is_binary(model_id) and model_id != "" do
-    Map.put(request, "__ankole_reasoning_source", %{
-      "provider_type" => provider_type,
-      "model_id" => model_id
-    })
+    source =
+      %{
+        "provider_type" => provider_type,
+        "model_id" => model_id
+      }
+      |> maybe_put_account_id(account_id)
+
+    Map.put(request, "__ankole_reasoning_source", source)
   end
 
-  defp put_reasoning_source(request, _provider_type, _model_id), do: request
+  defp put_reasoning_source(request, _provider_type, _model_id, _account_id), do: request
+
+  defp maybe_put_account_id(source, account_id)
+       when is_binary(account_id) and account_id != "" do
+    Map.put(source, "account_id", account_id)
+  end
+
+  defp maybe_put_account_id(source, _account_id), do: source
+
+  defp resolve_reasoning_account_id(ctx, provider_options) do
+    runtime = map_get(ctx, :runtime) || %{}
+    settings = map_get(ctx, :settings) || %{}
+    request_context = map_get(ctx, :request_context) || %{}
+    request = map_get(ctx, :request) || %{}
+
+    explicit =
+      first_non_empty_binary([
+        map_get(provider_options, :account_id),
+        map_get(ctx, :account_id),
+        map_get(runtime, :account_id),
+        map_get(settings, :account_id),
+        map_get(request_context, :account_id),
+        map_get(request, :account_id),
+        Map.get(request, "__ankole_account_id")
+      ])
+
+    if is_binary(explicit) do
+      explicit
+    else
+      provider_id =
+        first_non_empty_binary([
+          map_get(runtime, :provider_id),
+          runtime |> map_get(:provider) |> map_get(:id),
+          map_get(ctx, :provider_id),
+          map_get(provider_options, :provider_id)
+        ])
+
+      credential_id =
+        first_non_empty_binary([
+          map_get(runtime, :credential_id),
+          map_get(ctx, :credential_id),
+          map_get(provider_options, :credential_id)
+        ])
+
+      cond do
+        is_binary(provider_id) and is_binary(credential_id) -> "#{provider_id}:#{credential_id}"
+        is_binary(credential_id) -> credential_id
+        is_binary(provider_id) -> provider_id
+        true -> nil
+      end
+    end
+  end
+
+  defp first_non_empty_binary(values) do
+    Enum.find_value(values, fn
+      v when is_binary(v) ->
+        trimmed = String.trim(v)
+        if trimmed != "", do: trimmed, else: nil
+
+      _other ->
+        nil
+    end)
+  end
 
   defp ctx_settings(%{settings: settings}) when is_map(settings), do: settings
   defp ctx_settings(%{"settings" => settings}) when is_map(settings), do: atomize_keys(settings)

@@ -1454,3 +1454,161 @@ fn native_failure_has_one_openresponses_terminal_with_all_error_facts() {
         r#"{"error":"upstream unavailable"}"#
     );
 }
+
+#[test]
+fn openai_chat_strict_rejects_unconsumed_responses_fields() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gpt-4o".to_string(),
+            request: json!({
+                "model": "gpt-4o",
+                "input": "hi",
+                "include": ["reasoning.encrypted_content"],
+                "truncation": "auto"
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+            policy: ConversionPolicy::Strict,
+        },
+    );
+    let err = resolver.build_body().unwrap_err();
+    assert_eq!(err.code, "unexpressible_field");
+    assert_eq!(err.provider_status, Some(400));
+
+    for unexpressible in [
+        json!({"model": "gpt-4o", "input": "hi", "truncation": "auto"}),
+        json!({"model": "gpt-4o", "input": "hi", "previous_response_id": "resp_123"}),
+        json!({"model": "gpt-4o", "input": "hi", "prompt_cache_key": "k"}),
+        json!({"model": "gpt-4o", "input": "hi", "prompt_cache_retention": "24h"}),
+        json!({"model": "gpt-4o", "input": "hi", "reasoning": {"summary": "auto"}}),
+        json!({"model": "gpt-4o", "input": "hi", "response_format": "json_object"}),
+        json!({"model": "gpt-4o", "input": "hi", "response_format": {"type": "json_object", "extra": 1}}),
+        json!({"model": "gpt-4o", "input": "hi", "text": {"format": {"type": "json_object", "extra_unconsumed": true}}}),
+        json!({"model": "gpt-4o", "input": "hi", "text": {"unknown_sub": "x"}}),
+        json!({"model": "gpt-4o", "input": "hi", "stream_options": {"include_usage": true}}),
+    ] {
+        let strict_res = APIResolver::new(
+            APIResolverKind::OpenAIChatCompletions,
+            ResponseContext {
+                model: "gpt-4o".to_string(),
+                request: unexpressible,
+                provider_options: json!({}),
+                stream: None,
+                include_model: true,
+                policy: ConversionPolicy::Strict,
+            },
+        );
+        let strict_err = strict_res.build_body().unwrap_err();
+        assert_eq!(strict_err.code, "unexpressible_field");
+        assert_eq!(strict_err.provider_status, Some(400));
+    }
+
+    let valid_effort = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gpt-4o".to_string(),
+            request: json!({
+                "model": "gpt-4o",
+                "input": "hi",
+                "reasoning": {"effort": "high"}
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+            policy: ConversionPolicy::Strict,
+        },
+    );
+    let body = Value::Object(valid_effort.build_body().unwrap());
+    assert_eq!(body["reasoning_effort"], "high");
+}
+
+#[test]
+fn openai_chat_drops_reasoning_when_account_id_changes() {
+    let mut source = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "deepseek/model-a".to_string(),
+            request: json!({
+                "input": "Answer.",
+                "__ankole_reasoning_source": {
+                    "provider_type": "openrouter",
+                    "model_id": "deepseek/model-a",
+                    "account_id": "acct-a"
+                }
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+            policy: ConversionPolicy::Strict,
+        },
+    );
+    let response = source
+        .normalize_body(
+            200,
+            json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "Visible answer.",
+                        "reasoning": "Hidden reasoning."
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+            }),
+        )
+        .unwrap();
+
+    for target_account in [Some("acct-b"), None] {
+        let mut src_meta = json!({
+            "provider_type": "openrouter",
+            "model_id": "deepseek/model-a"
+        });
+        if let Some(acct) = target_account {
+            src_meta["account_id"] = json!(acct);
+        }
+        let replay = APIResolver::new(
+            APIResolverKind::OpenAIChatCompletions,
+            ResponseContext {
+                model: "deepseek/model-a".to_string(),
+                request: json!({
+                    "input": response["output"].clone(),
+                    "__ankole_reasoning_source": src_meta
+                }),
+                provider_options: json!({}),
+                stream: Some(false),
+                include_model: true,
+                policy: ConversionPolicy::Strict,
+            },
+        );
+        let body = Value::Object(replay.build_body().unwrap());
+        let message = &body["messages"][0];
+        assert_eq!(message["role"], "assistant");
+        assert_eq!(message["content"], "Visible answer.");
+        assert!(message.get("reasoning").is_none());
+        assert!(message.get("reasoning_details").is_none());
+    }
+}
+
+#[test]
+fn chat_skips_null_token_limits_and_uses_the_next_useful_key() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "deployment".to_string(),
+            request: json!({
+                "input": "hello",
+                "max_output_tokens": null,
+                "max_completion_tokens": 128
+            }),
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+
+    let body = resolver.build_body().unwrap();
+    assert_eq!(body["max_tokens"], 128);
+    assert!(body.get("max_output_tokens").is_none());
+}

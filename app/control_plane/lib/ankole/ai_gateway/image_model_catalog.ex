@@ -11,6 +11,7 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
+  alias Ankole.AIGateway.Providers.AgentBullCloud
   alias Ankole.AIGateway.Providers.OpenRouter
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -43,30 +44,34 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
     with :ok <- require_openrouter(runtime, opts),
          {:ok, model} <- normalize_model(requested_model, opts),
          {:ok, source} <- source(runtime, opts),
-         {:ok, models} <- cached_models(runtime, source, opts),
-         {:ok, _model_record} <- exact_model(models, model, opts),
-         {:ok, endpoints} <- cached_endpoints(runtime, source, model, opts),
-         {:ok, matching_endpoints} <-
-           satisfying_endpoints(endpoints, tool, reference_count, opts) do
-      endpoint = hd(matching_endpoints)
-
-      provider_tags =
-        matching_endpoints |> Enum.map(&Map.fetch!(&1, "provider_tag")) |> Enum.uniq()
-
-      provider_slugs =
-        matching_endpoints |> Enum.map(&Map.fetch!(&1, "provider_slug")) |> Enum.uniq()
-
-      {:ok,
-       %{
-         model: model,
-         endpoint: endpoint,
-         provider_tag: hd(provider_tags),
-         provider_tags: provider_tags,
-         provider_slug: hd(provider_slugs),
-         provider_slugs: provider_slugs,
-         supports_streaming: Map.get(endpoint, "supports_streaming") == true
-       }}
+         {:ok, endpoints} <- load_model_endpoints(runtime, source, model, opts),
+         {:ok, matching} <- satisfying_endpoints(endpoints, tool, reference_count, opts) do
+      {:ok, build_selection(model, matching)}
     end
+  end
+
+  defp load_model_endpoints(runtime, source, model, opts) do
+    with {:ok, models} <- cached_models(runtime, source, opts),
+         {:ok, _record} <- exact_model(models, model, opts) do
+      cached_endpoints(runtime, source, model, opts)
+    end
+  end
+
+  defp build_selection(model, [endpoint | _] = matching_endpoints) do
+    provider_tags = matching_endpoints |> Enum.map(&Map.fetch!(&1, "provider_tag")) |> Enum.uniq()
+
+    provider_slugs =
+      matching_endpoints |> Enum.map(&Map.fetch!(&1, "provider_slug")) |> Enum.uniq()
+
+    %{
+      model: model,
+      endpoint: endpoint,
+      provider_tag: hd(provider_tags),
+      provider_tags: provider_tags,
+      provider_slug: hd(provider_slugs),
+      provider_slugs: provider_slugs,
+      supports_streaming: Map.get(endpoint, "supports_streaming") == true
+    }
   end
 
   @doc """
@@ -123,7 +128,9 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
      )}
   end
 
-  defp require_openrouter(%{"provider_kind" => "openrouter"}, _opts), do: :ok
+  defp require_openrouter(%{"provider_kind" => kind}, _opts)
+       when kind in ["openrouter", "agentbull_cloud"],
+       do: :ok
 
   defp require_openrouter(_runtime, opts) do
     {:error,
@@ -134,57 +141,99 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
      )}
   end
 
-  defp source(%{"provider" => %Provider{} = provider}, opts) do
-    with {:ok, ctx} <-
-           ProviderRuntime.context(provider, Keyword.put(opts, :capability, "image_generate")),
-         {:ok, source} <- OpenRouter.image_models_metadata_source(ctx) do
+  defp source(%{"provider" => %Provider{} = provider} = runtime, opts) do
+    with {:ok, ctx} <- build_catalog_context(provider, runtime, opts),
+         {:ok, source} <- dispatch_image_models_source(provider.provider_kind, ctx) do
       {:ok, source}
     else
       _reason -> catalog_fetch_error(:upstream, opts)
     end
   end
 
+  defp source(%{"provider_kind" => "agentbull_cloud"} = runtime, opts) do
+    runtime
+    |> AgentBullCloud.build_catalog_context(opts)
+    |> AgentBullCloud.image_models_metadata_source()
+  end
+
   defp source(_runtime, opts), do: catalog_unavailable(opts)
+
+  defp build_catalog_context(%Provider{} = provider, runtime, opts) do
+    case ProviderRuntime.context(provider, Keyword.put(opts, :capability, "image_generate")) do
+      {:ok, ctx} ->
+        {:ok,
+         Map.merge(ctx, %{
+           runtime: runtime,
+           pod: Map.get(runtime, "pod", %{}),
+           auth: Map.get(runtime, "auth", %{}),
+           request_context: Map.get(runtime, "request_context", %{}),
+           options: Map.new(opts)
+         })}
+
+      {:error, _reason} when provider.provider_kind == "agentbull_cloud" ->
+        {:ok, AgentBullCloud.build_catalog_context(runtime, opts)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp dispatch_image_models_source("agentbull_cloud", ctx),
+    do: AgentBullCloud.image_models_metadata_source(ctx)
+
+  defp dispatch_image_models_source(_openrouter, ctx),
+    do: OpenRouter.image_models_metadata_source(ctx)
 
   # `updated_at` is the provider revision, so an operator edit reads a different
   # key instead of the stale entry. The Cache has no sweeper, so entries for old
   # revisions stay in ETS until the next restart, which operator edit rates make
   # acceptable.
-  defp cached_models(%{"provider" => %Provider{} = provider}, source, opts) do
-    key = {:image_model_catalog, provider.provider_id, provider.updated_at, source.cache_key}
+  defp cached_models(runtime, source, opts) do
+    {prov_id, prov_rev} = provider_cache_identity(runtime)
+    key = {:image_model_catalog, prov_id, prov_rev, source.cache_key}
 
     cached_fetch(key, opts, fn ->
       fetch_list(source, source.models_path, &model_list/1)
     end)
   end
 
-  defp cached_endpoints(%{"provider" => %Provider{} = provider}, source, model, opts) do
-    path = endpoint_path(model)
-    key = {:image_model_endpoints, provider.provider_id, provider.updated_at, path}
+  defp cached_endpoints(runtime, source, model, opts) do
+    path = endpoint_path(source.models_path, model)
+    {prov_id, prov_rev} = provider_cache_identity(runtime)
+    key = {:image_model_endpoints, prov_id, prov_rev, path}
 
     cached_fetch(key, opts, fn ->
       fetch_list(source, path, &endpoint_list/1)
     end)
   end
 
+  defp provider_cache_identity(%{"provider" => %Provider{} = provider}) do
+    {provider.provider_id, provider.updated_at}
+  end
+
+  defp provider_cache_identity(runtime) when is_map(runtime) do
+    {Map.get(runtime, "provider_id", "agentbull_cloud"), Map.get(runtime, "updated_at", 0)}
+  end
+
   defp cached_fetch(key, opts, fetch_fun) do
     lookup = if Keyword.get(opts, :force_refresh, false), do: :miss, else: Cache.lookup(key)
 
     case lookup do
-      {:fresh, value} ->
+      {:fresh, value} -> {:ok, value}
+      stale_or_miss -> refresh_or_fallback(key, stale_or_miss, opts, fetch_fun)
+    end
+  end
+
+  defp refresh_or_fallback(key, stale_or_miss, opts, fetch_fun) do
+    case fetch_fun.() do
+      {:ok, value} ->
+        :ok = Cache.put(key, value, Keyword.get(opts, :cache_ttl_ms, @default_cache_ttl_ms))
         {:ok, value}
 
-      stale_or_miss ->
-        case fetch_fun.() do
-          {:ok, value} ->
-            :ok = Cache.put(key, value, Keyword.get(opts, :cache_ttl_ms, @default_cache_ttl_ms))
-            {:ok, value}
-
-          {:error, reason} ->
-            case stale_or_miss do
-              {:stale, value} -> {:ok, value}
-              :miss -> catalog_fetch_error(reason, opts)
-            end
+      {:error, reason} ->
+        case stale_or_miss do
+          {:stale, value} -> {:ok, value}
+          :miss -> catalog_fetch_error(reason, opts)
         end
     end
   end
@@ -192,10 +241,7 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
   defp fetch_list(source, path, body_mapper) do
     case UniversalAIRequest.raw_get(source.ctx, path, headers: source.headers) do
       {:ok, %{"status" => status, "body" => body}} when status in 200..299 ->
-        case body_mapper.(stringify_keys(body)) do
-          values when is_list(values) -> {:ok, Enum.map(values, &stringify_keys/1)}
-          _body -> {:error, :image_model_catalog_unavailable}
-        end
+        decode_catalog_list(body, body_mapper)
 
       {:ok, %{"status" => status}} when is_integer(status) ->
         {:error, classify_catalog_status(status)}
@@ -205,6 +251,13 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
 
       _response ->
         {:error, :image_model_catalog_unavailable}
+    end
+  end
+
+  defp decode_catalog_list(body, body_mapper) do
+    case body_mapper.(stringify_keys(body)) do
+      values when is_list(values) -> {:ok, Enum.map(values, &stringify_keys/1)}
+      _body -> {:error, :image_model_catalog_unavailable}
     end
   end
 
@@ -339,35 +392,44 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
 
   defp unsupported_field(endpoints, tool, reference_count, outer_stream?, partial_images) do
     cond do
-      partial_images > 0 and
-          not Enum.any?(endpoints, &partials_supported?(&1, outer_stream?, partial_images)) ->
-        "partial_images"
-
-      reference_count > 0 and
-          not Enum.any?(endpoints, fn endpoint ->
-            references_supported?(Map.get(endpoint, "supported_parameters", %{}), reference_count)
-          end) ->
-        "input"
-
-      Map.has_key?(tool, "moderation") and
-          not Enum.any?(endpoints, &moderation_supported?(&1, tool)) ->
-        "moderation"
-
-      true ->
-        Enum.find_value(@endpoint_fields, "model", fn {public_field, upstream_field} ->
-          value = Map.get(tool, public_field)
-
-          if not is_nil(value) and
-               not Enum.any?(endpoints, fn endpoint ->
-                 descriptor_accepts?(
-                   get_in(endpoint, ["supported_parameters", upstream_field]),
-                   value
-                 )
-               end) do
-            public_field
-          end
-        end)
+      unsupported_partials?(endpoints, outer_stream?, partial_images) -> "partial_images"
+      unsupported_references?(endpoints, reference_count) -> "input"
+      unsupported_moderation?(endpoints, tool) -> "moderation"
+      true -> first_unsupported_endpoint_field(endpoints, tool)
     end
+  end
+
+  defp unsupported_partials?(endpoints, outer_stream?, partial_images) do
+    partial_images > 0 and
+      not Enum.any?(endpoints, &partials_supported?(&1, outer_stream?, partial_images))
+  end
+
+  defp unsupported_references?(endpoints, reference_count) do
+    reference_count > 0 and
+      not Enum.any?(endpoints, fn endpoint ->
+        references_supported?(Map.get(endpoint, "supported_parameters", %{}), reference_count)
+      end)
+  end
+
+  defp unsupported_moderation?(endpoints, tool) do
+    Map.has_key?(tool, "moderation") and
+      not Enum.any?(endpoints, &moderation_supported?(&1, tool))
+  end
+
+  defp first_unsupported_endpoint_field(endpoints, tool) do
+    Enum.find_value(@endpoint_fields, "model", fn {public_field, upstream_field} ->
+      value = Map.get(tool, public_field)
+
+      if not is_nil(value) and not any_endpoint_accepts?(endpoints, upstream_field, value) do
+        public_field
+      end
+    end)
+  end
+
+  defp any_endpoint_accepts?(endpoints, upstream_field, value) do
+    Enum.any?(endpoints, fn endpoint ->
+      descriptor_accepts?(get_in(endpoint, ["supported_parameters", upstream_field]), value)
+    end)
   end
 
   defp provider_tag_present?(endpoint),
@@ -376,10 +438,11 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
   defp provider_slug_present?(endpoint),
     do: is_binary(Map.get(endpoint, "provider_slug")) and Map.get(endpoint, "provider_slug") != ""
 
-  defp endpoint_path(model) do
+  defp endpoint_path(models_path, model) when is_binary(models_path) do
     [author, slug] = String.split(model, "/", parts: 2)
+    prefix = String.trim_trailing(models_path, "/")
 
-    "images/models/#{URI.encode(author, &URI.char_unreserved?/1)}/#{URI.encode(slug, &URI.char_unreserved?/1)}/endpoints"
+    "#{prefix}/#{URI.encode(author, &URI.char_unreserved?/1)}/#{URI.encode(slug, &URI.char_unreserved?/1)}/endpoints"
   end
 
   defp catalog_unavailable(opts) do

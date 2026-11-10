@@ -584,23 +584,76 @@ pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
     // disjoint fields; the OpenResponses shape counts them all as input and
     // keeps the cache portions in `input_tokens_details`.
     let cache_read_tokens = usage_count(usage, &["cache_read_input_tokens"]);
-    let cache_creation_tokens = usage_count(usage, &["cache_creation_input_tokens"]);
+    let ephemeral_creation = usage
+        .get("cache_creation")
+        .and_then(Value::as_object)
+        .and_then(|cc| {
+            let m5 = cc.get("ephemeral_5m_input_tokens").and_then(integer_value);
+            let h1 = cc.get("ephemeral_1h_input_tokens").and_then(integer_value);
+            if m5.is_some() || h1.is_some() {
+                Some(m5.unwrap_or(0).saturating_add(h1.unwrap_or(0)))
+            } else {
+                None
+            }
+        });
+    let cache_creation_tokens = match (
+        usage_count(usage, &["cache_creation_input_tokens"]),
+        ephemeral_creation,
+    ) {
+        (Some(top), Some(eph)) => Some(top.max(eph)),
+        (Some(top), None) => Some(top),
+        (None, Some(eph)) => Some(eph),
+        (None, None) => None,
+    };
     let input_tokens = usage_count(usage, &["input_tokens"]).map(|input| {
         input
             .saturating_add(cache_read_tokens.unwrap_or(0))
             .saturating_add(cache_creation_tokens.unwrap_or(0))
     });
     let output_tokens = usage_count(usage, &["output_tokens"]);
-    json!({
+    let mut input_details = usage_details(usage, "input_tokens_details", "prompt_tokens_details");
+    input_details.insert(
+        "cached_tokens".to_string(),
+        cache_read_tokens.map_or(Value::Null, Value::from),
+    );
+    input_details.insert(
+        "cache_creation_tokens".to_string(),
+        cache_creation_tokens.map_or(Value::Null, Value::from),
+    );
+    if let Some(cc) = usage.get("cache_creation").filter(|v| v.is_object()) {
+        input_details.insert("cache_creation".to_string(), cc.clone());
+    }
+    let mut output_details =
+        usage_details(usage, "output_tokens_details", "completion_tokens_details");
+    if let Some(thinking) =
+        usage_count(usage, &["thinking_tokens", "reasoning_tokens"]).or_else(|| {
+            output_details
+                .get("thinking_tokens")
+                .or_else(|| output_details.get("reasoning_tokens"))
+                .and_then(integer_value)
+        })
+    {
+        output_details
+            .entry("thinking_tokens".to_string())
+            .or_insert_with(|| Value::from(thinking));
+        output_details
+            .entry("reasoning_tokens".to_string())
+            .or_insert_with(|| Value::from(thinking));
+    }
+    let mut out = json!({
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": input_tokens.zip(output_tokens).map(|(input, output)| input.saturating_add(output)),
-        "input_tokens_details": {
-            "cached_tokens": cache_read_tokens,
-            "cache_creation_tokens": cache_creation_tokens
-        },
-        "output_tokens_details": {}
-    })
+        "input_tokens_details": input_details,
+        "output_tokens_details": output_details
+    });
+    if let (Some(cc), Some(obj)) = (
+        usage.get("cache_creation").filter(|v| v.is_object()),
+        out.as_object_mut(),
+    ) {
+        obj.insert("cache_creation".to_string(), cc.clone());
+    }
+    out
 }
 
 pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
@@ -651,9 +704,32 @@ pub(super) fn merge_anthropic_usage(left: Value, right: &Value) -> Value {
             "output_tokens",
             "cache_read_input_tokens",
             "cache_creation_input_tokens",
+            "thinking_tokens",
+            "reasoning_tokens",
         ] {
-            if let Some(value) = right.get(key) {
+            if let Some(value) = right.get(key).filter(|v| !v.is_null()) {
                 merged.insert(key.to_string(), value.clone());
+            }
+        }
+        for nested_key in [
+            "cache_creation",
+            "input_tokens_details",
+            "output_tokens_details",
+        ] {
+            if let Some(sub_right) = right.get(nested_key).and_then(Value::as_object) {
+                let mut sub_merged = merged
+                    .get(nested_key)
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                for (k, v) in sub_right {
+                    if !v.is_null() {
+                        sub_merged.insert(k.clone(), v.clone());
+                    }
+                }
+                if !sub_merged.is_empty() {
+                    merged.insert(nested_key.to_string(), Value::Object(sub_merged));
+                }
             }
         }
     }

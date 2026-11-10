@@ -17,9 +17,15 @@ pub enum APIResolverKind {
     OpenrouterEmbeddings,
     JinaEmbeddings,
     GoogleEmbeddings,
+    #[serde(rename = "openai_embeddings")]
+    OpenAIEmbeddings,
     OpenrouterRerank,
     JinaRerank,
+    CohereRerank,
     OpenrouterImages,
+    #[serde(rename = "openai_images")]
+    OpenAIImages,
+    GoogleImages,
     ParallelWebSearch,
     ParallelWebFetch,
     BrightDataSerpWebSearch,
@@ -38,9 +44,13 @@ impl APIResolverKind {
             Self::OpenrouterEmbeddings => "openrouter_embeddings",
             Self::JinaEmbeddings => "jina_embeddings",
             Self::GoogleEmbeddings => "google_embeddings",
+            Self::OpenAIEmbeddings => "openai_embeddings",
             Self::OpenrouterRerank => "openrouter_rerank",
             Self::JinaRerank => "jina_rerank",
+            Self::CohereRerank => "cohere_rerank",
             Self::OpenrouterImages => "openrouter_images",
+            Self::OpenAIImages => "openai_images",
+            Self::GoogleImages => "google_images",
             Self::ParallelWebSearch => "parallel_web_search",
             Self::ParallelWebFetch => "parallel_web_fetch",
             Self::BrightDataSerpWebSearch => "bright_data_serp_web_search",
@@ -334,6 +344,8 @@ impl ResponseContext {
         // Caller metadata belongs to the local Response, never to a provider.
         request.remove("metadata");
         request.remove("__ankole_reasoning_source");
+        request.remove("__ankole_account_id");
+        request.remove("account_id");
         request.remove("__ankole_native_encrypted_tool_fields");
         request.remove("__ankole_stateful_provider_replay");
         request.remove("__ankole_emulate_custom_tools");

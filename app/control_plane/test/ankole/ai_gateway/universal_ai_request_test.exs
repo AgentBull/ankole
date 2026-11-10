@@ -81,6 +81,32 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
              "provider_type" => "openrouter",
              "model_id" => "test-model"
            }
+
+    runtime_with_account =
+      Map.merge(runtime, %{
+        "provider_id" => "prov-1",
+        "credential_id" => "cred-a"
+      })
+
+    assert {:ok, ctx_acct} =
+             PrepareContext.build(
+               provider,
+               :language_model,
+               runtime_with_account,
+               %{"input" => "hello"},
+               stream?: false
+             )
+
+    assert {:ok, spec_acct} =
+             ctx_acct
+             |> OpenRouter.prepare_language_model()
+             |> UniversalAIRequest.to_spec()
+
+    assert spec_acct.response_context.request["__ankole_reasoning_source"] == %{
+             "provider_type" => "openrouter",
+             "model_id" => "test-model",
+             "account_id" => "prov-1:cred-a"
+           }
   end
 
   test "credential header helpers omit missing optional settings" do

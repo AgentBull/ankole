@@ -1,8 +1,10 @@
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-use super::api_resolver::APIResolver;
+use super::api_resolver::{APIResolver, anthropic_v2026::resolve_anthropic_api_version};
 use super::error::StreamError;
-use super::spec::{ModelRequestSpec, StreamSpec, UpstreamKind, UpstreamSpec};
+use super::spec::{
+    APIResolverKind, ModelRequestSpec, ResponseContext, StreamSpec, UpstreamKind, UpstreamSpec,
+};
 
 pub(crate) fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, StreamError> {
     match spec.upstream.kind {
@@ -15,7 +17,14 @@ pub(crate) fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, St
         }
         UpstreamKind::HTTPSSE | UpstreamKind::HTTPEventstream => {
             let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
-            spec.upstream.body = Some(encode_json(&Value::Object(resolver.build_body()?))?);
+            let body = resolver.build_body()?;
+            put_resolved_anthropic_version(
+                spec.api_resolver,
+                &spec.response_context,
+                &body,
+                &mut spec.upstream,
+            );
+            spec.upstream.body = Some(encode_json(&Value::Object(body))?);
             put_default_model_headers(&mut spec.upstream);
         }
     }
@@ -26,9 +35,33 @@ pub(crate) fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, St
 pub(crate) fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<UpstreamSpec, StreamError> {
     let mut upstream = spec.stream_upstream();
     let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
-    upstream.body = Some(encode_json(&Value::Object(resolver.build_body()?))?);
+    let body = resolver.build_body()?;
+    put_resolved_anthropic_version(
+        spec.api_resolver,
+        &spec.response_context,
+        &body,
+        &mut upstream,
+    );
+    upstream.body = Some(encode_json(&Value::Object(body))?);
     put_default_json_headers(&mut upstream);
     Ok(upstream)
+}
+
+/// Anthropic selects its protocol through the request header, so the version
+/// that shaped the body must also be sent when the caller did not set one.
+fn put_resolved_anthropic_version(
+    api_resolver: APIResolverKind,
+    context: &ResponseContext,
+    body: &Map<String, Value>,
+    upstream: &mut UpstreamSpec,
+) {
+    if api_resolver != APIResolverKind::AnthropicMessages {
+        return;
+    }
+
+    let request = context.resolved_provider_request_object();
+    let version = resolve_anthropic_api_version(context, &request, body);
+    put_new_header(&mut upstream.headers, "anthropic-version", version);
 }
 
 fn put_default_model_headers(upstream: &mut UpstreamSpec) {
@@ -138,6 +171,50 @@ mod tests {
             "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
         );
         assert_eq!(payload["service_tier"], "priority");
+    }
+
+    #[test]
+    fn anthropic_requests_send_the_resolved_protocol_version() {
+        let spec = |headers: Vec<(String, String)>| StreamSpec {
+            api_resolver: APIResolverKind::AnthropicMessages,
+            upstream: UpstreamSpec {
+                kind: UpstreamKind::HTTPSSE,
+                method: "POST".to_string(),
+                url: "https://api.anthropic.com/v1/messages".to_string(),
+                headers,
+                body: None,
+                websocket_initial_messages: Vec::new(),
+                timeout: TimeoutSpec::default(),
+                transport: TransportSpec::default(),
+            },
+            response_context: ResponseContext {
+                model: "claude-sonnet-5".to_string(),
+                request: json!({"input": "hello"}),
+                stream: Some(true),
+                ..ResponseContext::default()
+            },
+            limits: StreamLimits::default(),
+            hosted_tools: None,
+        };
+
+        let prepared = prepare_stream_spec(spec(Vec::new())).unwrap();
+        let version = prepared
+            .upstream
+            .headers
+            .iter()
+            .find(|(name, _)| name == "anthropic-version")
+            .map(|(_, value)| value.as_str());
+        assert_eq!(version, Some("2026-10-21"));
+
+        let explicit = vec![("anthropic-version".to_string(), "2023-06-01".to_string())];
+        let prepared = prepare_stream_spec(spec(explicit)).unwrap();
+        let version = prepared
+            .upstream
+            .headers
+            .iter()
+            .find(|(name, _)| name == "anthropic-version")
+            .map(|(_, value)| value.as_str());
+        assert_eq!(version, Some("2023-06-01"));
     }
 
     #[test]
