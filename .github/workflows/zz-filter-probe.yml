@@ -1,0 +1,84 @@
+# Temporary probe for the measurement PR: runs the `changes` filter and the
+# `checks-passed` aggregation of checks.yml over two fixed commit ranges.
+name: Filter probe
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - label: docs-only
+            base: da2297e6042b96ff0339297e0e0aa94fbff7cf15
+            ref: 02c15a81947cc4d03c3c96cb7c267b6f89788c31
+          - label: code
+            base: 873e34a8d950070deed83997974e116660848a9f
+            ref: da2297e6042b96ff0339297e0e0aa94fbff7cf15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.ref }}
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          base: ${{ matrix.base }}
+          ref: ${{ matrix.ref }}
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!*.md'
+              - '!docs/**'
+              - '!**/README*.md'
+              - '!**/SPEC.md'
+              - '!**/AGENTS.md'
+              - '!**/CLAUDE.md'
+              - '!**/CHANGELOG*.md'
+              - '!LICENSE'
+      - run: echo "${{ matrix.label }} code=${{ steps.filter.outputs.code }} files=${{ steps.filter.outputs.code_files }}"
+      - if: ${{ (matrix.label == 'docs-only') == (steps.filter.outputs.code == 'true') }}
+        run: |
+          echo "Unexpected filter result for ${{ matrix.label }}" >&2
+          exit 1
+  docs-only-filter:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 02c15a81947cc4d03c3c96cb7c267b6f89788c31
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          base: da2297e6042b96ff0339297e0e0aa94fbff7cf15
+          ref: 02c15a81947cc4d03c3c96cb7c267b6f89788c31
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!*.md'
+              - '!docs/**'
+              - '!**/README*.md'
+  heavy:
+    needs: docs-only-filter
+    if: ${{ needs.docs-only-filter.outputs.code == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo heavy
+  passed:
+    needs: [docs-only-filter, heavy]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for result in $RESULTS; do
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then exit 1; fi
+          done
