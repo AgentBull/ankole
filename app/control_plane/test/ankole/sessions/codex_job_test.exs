@@ -179,7 +179,17 @@ defmodule Ankole.Sessions.CodexJobTest do
     %{job: pinned, dispatch_event: dispatch} =
       create_device_job!(agent.uid, creator, runner_id, "revoked-running")
 
-    hosted = create_job!(agent.uid, "after-device-revoke")
+    assert {:ok, %{job: hosted}} =
+             create_job_with_stub_driver(%{
+               "agent_uid" => agent.uid,
+               "created_by" => creator,
+               "owner_session_id" => "owner-session-after-device-revoke",
+               "source_tool_call_id" => "tool-after-device-revoke",
+               "title" => "Hosted Job",
+               "task" => "Run the analysis on the hosted Worker.",
+               "reply_route" => %{"binding_name" => "bot"}
+             })
+
     device_key = %{agent_uid: agent.uid, session_id: dispatch.session_id}
     hosted_key = %{device_key | session_id: BackgroundAgentJobs.job_session_id(hosted.id)}
     now = DateTime.add(hosted.queued_at, 1, :second)
