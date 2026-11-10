@@ -603,7 +603,16 @@ Creating a group from a private conversation prefills its referenced Page links
 for the Human to review and edit; the new group receives those references, while
 the private conversation keeps its transcript and membership.
 Room controls offer participant management, share-link copy, and Markdown export,
-while keyboard shortcuts toggle in-room search and the summary drawer:
+while keyboard shortcuts toggle in-room search and the summary drawer.
+A room has one right sidebar, which shows the summary, a linked execution or
+colleague exchange, or an attachment preview; opening one replaces the other.
+The summary is a 296 px drawer beside the full chat. On desktop an execution or
+a file takes everything right of a 300 px chat column instead: the sidebar
+slides in from the room's right edge while the chat narrows into that column
+over the same motion, and it slides back out while the chat widens again. A room
+narrower than 760 px lays the sidebar over the chat instead, and phones and the
+Page assistant panel open executions in a slide-over sheet and attachments in a
+dialog:
 
 - **Summary drawer:** lists participating Agents (with active models and
   per-Agent `may_intervene` toggles in group rooms; direct rooms always address
@@ -701,8 +710,8 @@ In the timeline, compact event notices sit alongside attributed messages:
   onto the latest job card and hiding duplicate launch tool steps in the turn's
   work trace when their card is present (while keeping failed launch steps and
   non-expandable Skill load badges visible). Selecting a linked execution or
-  colleague exchange opens a resizable right-hand inspector split pane on
-  desktop (falling back to a slide-over sheet in narrow or embedded layouts)
+  colleague exchange opens it in the room's right sidebar on desktop (falling
+  back to a slide-over sheet on phones and in the Page assistant panel)
   with narrative progress, collapsible tool groups, subthread filters, inline
   Stop controls, and a composer for steering, answering pending questions, or
   continuing a finished Background Job.
@@ -1245,6 +1254,26 @@ Principal/AuthZ projection used for disclosure.
 Membership does not grant node manage access; an Agent reads and changes nodes
 under its own Principal permissions.
 
+Pod shows each Message attachment as a file card. Selecting the card opens the
+attachment preview, which owns **Download original** and **Open in new tab**.
+In a desktop room the preview opens in the room's right sidebar, takes focus,
+and closes with `Escape` or its close button, which returns focus to the card;
+the sidebar also closes once no card for that file remains, for example when
+its queued message is taken back. On phones, in the Page assistant panel, and
+in other places that show chat files, the preview opens in a dialog;
+for a file type that Pod cannot render, the preview shows the file's type and
+size together with those two actions. Reply cards place **Save to Pod** beside
+the card as a separate button.
+The preview renders the formats that the Pod file page renders: images
+(PNG, JPEG, GIF, WebP, AVIF, BMP, and SVG, up to 16 MiB), PDFs, audio and
+video, CSV and TSV as the file page's UTF-8 table (the first 64 KiB and at most
+500 rows), workbooks (`.xlsx`, `.xlsm`, `.xls`, `.xlsb`, and `.ods`) as a
+read-only sheet view, `.pptx` slides, Markdown rendered as in chat messages, and
+other text or code files as highlighted source (the first 64 KiB; HTML stays
+source). When an attachment records no media type or only
+`application/octet-stream`, Pod chooses the preview from the file extension,
+and the control plane serves the file with the media type that `MIME.from_path/1`
+derives from its name.
 Browser downloads identify an attachment by conversation ID, Message ID, and
 zero-based position, so same-name files remain distinct. The Worker command is
 `ankole-pod chat attachment get <conversation_id> <message_id> <position> --to <worker-path>`.

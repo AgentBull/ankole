@@ -5,7 +5,7 @@ import { pageRoute } from './routes'
 const editor = (page: Page) => page.locator('.pod-document .editor-content')
 const comments = (page: Page) => page.getByRole('complementary', { name: '评论', exact: true })
 const commentButton = (page: Page) =>
-  page.locator('.pod-page-header').getByRole('button', { name: '评论', exact: true })
+  page.locator('.pod-page-actions').getByRole('button', { name: '评论', exact: true })
 
 async function saved(page: Page, id: string, text: string) {
   await expect
@@ -137,7 +137,7 @@ test('history previews and restores through OT while keeping resolved discussion
     await saved(page, id, 'Quoted paragraph after review')
 
     const openHistory = async () => {
-      await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+      await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
       await page.getByRole('menuitem', { name: '版本历史', exact: true }).click()
       return page.getByRole('dialog', { name: '版本历史', exact: true })
     }

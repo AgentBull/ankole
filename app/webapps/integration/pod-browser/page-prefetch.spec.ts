@@ -192,7 +192,7 @@ test('page data loads in parallel and cached navigation does not wait for revali
       }
       await route.continue()
     })
-    await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
     const removed = page.waitForResponse(
       response =>
         response.request().method() === 'DELETE' && new URL(response.url()).pathname === `/api/v2/pod/pages/${pageID}`

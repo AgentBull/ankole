@@ -5,19 +5,19 @@ import {
   DialogFooter,
   DialogTitle,
   Input,
-  SidebarTrigger,
-  useSidebar,
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   toast
 } from '@ankole/uikit'
 import {
   RiInformationLine,
   RiSearchLine,
+  RiPencilLine,
   RiMoreLine,
-  RiLink,
+  RiShareLine,
   RiDownloadLine,
   RiPushpinLine,
   RiDeleteBinLine,
@@ -37,6 +37,8 @@ import { ParticipantsPopover } from './participants-popover'
 import { useRoomActions } from './room-api'
 import { exportConversation } from './room-export'
 import type { PanelInputEvent } from '../panel-motion'
+import { isApplePlatform } from '../../common/platform'
+import { PodSidebarToggle, PodTopBarActions } from '../top-bar'
 
 export function RoomHeader({
   detail,
@@ -63,7 +65,6 @@ export function RoomHeader({
 }) {
   const { t } = useTranslation()
   const pageHref = usePageHref()
-  const { state } = useSidebar()
   const client = useQueryClient()
   const room = detail.conversation
   const colleague = room.conversationKind === 'colleague_dm' ? room.agents[0] : undefined
@@ -82,10 +83,12 @@ export function RoomHeader({
   const [leaving, setLeaving] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const saving = useRef(false)
-  const keepFocusInTitle = useRef(false)
+  const moreTrigger = useRef<HTMLButtonElement>(null)
+  // Rename and find move focus into their own field, so the menu leaves focus where they put it.
+  const keepMenuFocus = useRef(false)
   const menuFinalFocus = () => {
-    const restore = !keepFocusInTitle.current
-    keepFocusInTitle.current = false
+    const restore = !keepMenuFocus.current
+    keepMenuFocus.current = false
     return restore
   }
   useEffect(() => {
@@ -122,9 +125,9 @@ export function RoomHeader({
   return (
     <>
       <header className="pod-chat-header pod-room-header">
-        <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
+        <PodSidebarToggle />
         {colleague ? (
-          <h1 className="m-0 min-w-0 flex-1 truncate text-sm leading-none" title={agentLabel(colleague)}>
+          <h1 className="m-0 min-w-0 truncate text-sm leading-none" title={agentLabel(colleague)}>
             <AgentName agent={colleague} />
           </h1>
         ) : editing ? (
@@ -137,7 +140,7 @@ export function RoomHeader({
             <Input
               ref={input}
               variant="inline"
-              className="w-full py-1"
+              className="w-auto max-w-full min-w-16 py-1 [field-sizing:content]"
               aria-label={t('pod.chat_room.rename')}
               value={title}
               onChange={event => setTitle(event.target.value)}
@@ -154,11 +157,11 @@ export function RoomHeader({
             />
           </form>
         ) : (
-          <h1 className="m-0 min-w-0 flex-1 text-sm leading-none">
+          <h1 className="m-0 min-w-0 text-sm leading-none">
             <button
               type="button"
-              className="pod-chat-header-title w-full"
-              title={t('pod.chat_room.rename')}
+              className="pod-chat-header-title max-w-full"
+              title={room.title || t('pod.chat_room.rename')}
               disabled={!canParticipate}
               onClick={() => {
                 saving.current = false
@@ -178,41 +181,11 @@ export function RoomHeader({
             {t('pod.chat_room.page_context')}
           </Link>
         )}
-        <ParticipantsPopover room={room} />
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label={inviteLabel}
-          title={inviteLabel}
-          onClick={onInvite}
-          disabled={!canParticipate}>
-          <RiUserAddLine aria-hidden />
-          <span className="pod-chat-invite-label">{inviteLabel}</span>
-        </Button>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label={t('pod.chat_room.find')}
-          title={t('pod.chat_room.find')}
-          aria-keyshortcuts="Meta+F Control+F"
-          onClick={onFind}>
-          <RiSearchLine aria-hidden />
-        </Button>
-        <Button
-          ref={summaryTrigger}
-          size="icon-sm"
-          variant="ghost"
-          aria-label={t('pod.chat_room.summary')}
-          title={t('pod.chat_room.summary')}
-          aria-keyshortcuts="Meta+I Control+I"
-          aria-expanded={summaryOpen}
-          onClick={onSummary}>
-          <RiInformationLine aria-hidden />
-        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <Button
+                ref={moreTrigger}
                 size="icon-sm"
                 variant="ghost"
                 aria-label={t('pod.chat_room.more')}
@@ -222,31 +195,34 @@ export function RoomHeader({
             <RiMoreLine aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" finalFocus={menuFinalFocus}>
+            <DropdownMenuItem
+              aria-keyshortcuts="Meta+F Control+F"
+              onClick={() => {
+                // The find bar takes focus, and closing it returns focus to this menu's trigger.
+                keepMenuFocus.current = true
+                moreTrigger.current?.focus()
+                onFind()
+              }}>
+              <RiSearchLine aria-hidden />
+              {t('pod.chat_room.find')}
+              <DropdownMenuShortcut>{isApplePlatform() ? '⌘F' : 'Ctrl+F'}</DropdownMenuShortcut>
+            </DropdownMenuItem>
             {!colleague && (
               <DropdownMenuItem
                 disabled={!canParticipate}
                 onClick={() => {
-                  keepFocusInTitle.current = true
+                  keepMenuFocus.current = true
                   saving.current = false
                   setTitle(room.title)
                   onEditingChange(true)
                 }}>
+                <RiPencilLine aria-hidden />
                 {t('pod.chat_room.rename')}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={() => actions.update.mutate({ pinned: !room.viewer.pinned })}>
               <RiPushpinLine aria-hidden />
               {t(room.viewer.pinned ? 'pod.chat_room.unpin' : 'pod.chat_room.pin')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                void navigator.clipboard.writeText(new URL(conversationPath(room), location.origin).href).then(
-                  () => toast.success(t('pod.chat_room.link_copied')),
-                  () => toast.error(t('pod.chat_room.copy_failed'))
-                )
-              }}>
-              <RiLink aria-hidden />
-              {t('pod.chat_room.copy_link')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => void exportConversation(detail)}>
               <RiDownloadLine aria-hidden />
@@ -269,6 +245,49 @@ export function RoomHeader({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* The room's people and sharing actions sit at the end of the shell's top bar; the room header keeps its
+            title, find, and more actions. */}
+        <PodTopBarActions>
+          <div className="pod-room-actions flex shrink-0 items-center gap-2">
+            <ParticipantsPopover room={room} />
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={inviteLabel}
+              title={inviteLabel}
+              onClick={onInvite}
+              disabled={!canParticipate}>
+              <RiUserAddLine aria-hidden />
+              <span className="pod-chat-invite-label">{inviteLabel}</span>
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t('pod.chat_room.copy_link')}
+              title={t('pod.chat_room.copy_link')}
+              onClick={() => {
+                void navigator.clipboard.writeText(new URL(conversationPath(room), location.origin).href).then(
+                  () => toast.success(t('pod.chat_room.link_copied')),
+                  () => toast.error(t('pod.chat_room.copy_failed'))
+                )
+              }}>
+              <RiShareLine aria-hidden />
+            </Button>
+            <Button
+              ref={summaryTrigger}
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t('pod.chat_room.summary')}
+              title={t('pod.chat_room.summary')}
+              aria-keyshortcuts="Meta+I Control+I"
+              aria-expanded={summaryOpen}
+              // The open summary panel is the button's feedback, so the button keeps its resting look while it is open.
+              className="aria-expanded:bg-transparent aria-expanded:text-muted-foreground hover:aria-expanded:bg-accent hover:aria-expanded:text-foreground"
+              onClick={onSummary}>
+              <RiInformationLine aria-hidden />
+            </Button>
+          </div>
+        </PodTopBarActions>
       </header>
       <Dialog open={leaving} onOpenChange={open => !open && !actions.participants.isPending && setLeaving(false)}>
         <DialogContent closeLabel={t('common.close')}>

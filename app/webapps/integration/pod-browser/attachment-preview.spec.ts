@@ -28,7 +28,21 @@ async function clearPending(page: Page, id: string) {
   }
 }
 
-async function createChat(page: Page) {
+const defaultFiles = [
+  {
+    name: 'preview-note.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(`Preview prefix\n${'x'.repeat(200_000)}\nUNREAD TAIL`)
+  },
+  { name: 'preview-image.png', mimeType: 'image/png', buffer: png },
+  {
+    name: 'preview-markup.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from('<script>window.previewExecuted = true</script>')
+  }
+]
+
+async function createChat(page: Page, files = defaultFiles) {
   await page.goto('/')
   const group = await request(page, '/conversations', 'POST', {
     conversationID: uuidV4(),
@@ -42,22 +56,8 @@ async function createChat(page: Page) {
   const composer = page.locator('.pod-chat-composer')
   const choose = page.waitForEvent('filechooser')
   await composer.getByRole('button', { name: '添加文件', exact: true }).click()
-  await (
-    await choose
-  ).setFiles([
-    {
-      name: 'preview-note.txt',
-      mimeType: 'text/plain',
-      buffer: Buffer.from(`Preview prefix\n${'x'.repeat(200_000)}\nUNREAD TAIL`)
-    },
-    { name: 'preview-image.png', mimeType: 'image/png', buffer: png },
-    {
-      name: 'preview-markup.html',
-      mimeType: 'text/html',
-      buffer: Buffer.from('<script>window.previewExecuted = true</script>')
-    }
-  ])
-  await expect(composer.getByRole('status')).toHaveText(['已就绪', '已就绪', '已就绪'])
+  await (await choose).setFiles(files)
+  await expect(composer.getByRole('status')).toHaveText(files.map(() => '已就绪'))
   await composer.getByRole('textbox', { name: '消息', exact: true }).fill('Attachment preview browser fixture')
   const sent = page.waitForResponse(
     response =>
@@ -70,7 +70,7 @@ async function createChat(page: Page) {
   return detail.conversation.id
 }
 
-test('real frozen attachments preview in the same chat with bounded text, escaped markup, focus and Escape', async ({
+test('real frozen attachments preview in the room sidebar with bounded text, escaped markup, focus and Escape', async ({
   browser
 }) => {
   const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 900, height: 800 } })
@@ -108,8 +108,8 @@ test('real frozen attachments preview in the same chat with bounded text, escape
     const previewRequest = await read
     expect(new URL(previewRequest.url()).searchParams.get('authentication_ref')).toBe(expectedIdentity)
     expect(previewRequest.headers()['x-ankole-authentication']).toBe(expectedIdentity)
-    const dialog = page.getByRole('dialog', { name: 'preview-note.txt', exact: true })
-    await expect(dialog.locator('.pod-dialog-body')).toBeFocused()
+    const dialog = page.getByRole('complementary', { name: 'preview-note.txt', exact: true })
+    await expect(dialog.locator('.pod-chat-file-panel-body')).toBeFocused()
     expect((await rejected).status()).toBe(404)
     await expect(dialog.getByRole('alert')).toBeVisible()
     await dialog.getByRole('button', { name: '重试', exact: true }).click()
@@ -131,29 +131,8 @@ test('real frozen attachments preview in the same chat with bounded text, escape
     expect(retryFocus.withinDialog).toBe(true)
     await expect(dialog.getByRole('link', { name: '下载原文件', exact: true })).toBeInViewport()
     await expect(dialog.getByRole('link', { name: '在新标签页打开', exact: true })).toHaveAttribute('target', '_blank')
-    for (let tab = 0; tab < 6; tab++) {
-      await page.keyboard.press('Tab')
-      const tabFocus = await dialog.evaluate(element => ({
-        withinDialog: element.contains(document.activeElement),
-        tag: document.activeElement?.tagName,
-        role: document.activeElement?.getAttribute('role'),
-        label: document.activeElement?.getAttribute('aria-label'),
-        focusGuard: document.activeElement?.getAttribute('data-base-ui-focus-guard'),
-        guardType: document.activeElement?.getAttribute('data-type')
-      }))
-      if (!tabFocus.withinDialog) {
-        await test.info().attach('attachment-preview-tab-focus', {
-          body: JSON.stringify(tabFocus),
-          contentType: 'application/json'
-        })
-      }
-      // Base UI moves its inside focus guard back to content on the next animation frame.
-      if (!tabFocus.withinDialog) {
-        expect(tabFocus.focusGuard).not.toBeNull()
-        expect(tabFocus.guardType).toBe('inside')
-      }
-      await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
-    }
+    // The sidebar is not modal: Tab leaves it for the rest of the room, and Escape closes it from inside.
+    await dialog.locator('.pod-chat-file-panel-body').focus()
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     await expect(trigger).toBeFocused()
@@ -161,14 +140,14 @@ test('real frozen attachments preview in the same chat with bounded text, escape
     await expect(page).toHaveURL(state.base_url + conversationRoute(id))
 
     await page.getByRole('button', { name: fileLabel('预览', 'preview-markup.html') }).click()
-    const markup = page.getByRole('dialog', { name: 'preview-markup.html', exact: true })
+    const markup = page.getByRole('complementary', { name: 'preview-markup.html', exact: true })
     await expect(markup.locator('pre')).toHaveText('<script>window.previewExecuted = true</script>')
     expect(await page.evaluate(() => 'previewExecuted' in window)).toBe(false)
     await page.keyboard.press('Escape')
 
     const imageTrigger = page.getByRole('button', { name: fileLabel('预览', 'preview-image.png') })
     await imageTrigger.click()
-    const imageDialog = page.getByRole('dialog', { name: 'preview-image.png', exact: true })
+    const imageDialog = page.getByRole('complementary', { name: 'preview-image.png', exact: true })
     const image = imageDialog.getByRole('img', { name: 'preview-image.png', exact: true })
     await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
     const blob = (await image.getAttribute('src'))!
@@ -214,6 +193,81 @@ test('real frozen attachments preview in the same chat with bounded text, escape
   }
 })
 
+test('a wide room narrows its chat to a 300px column beside the file sidebar and restores it on close', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1440, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    id = await createChat(page, [defaultFiles[0]!])
+    const body = page.locator('.pod-chat-room-body')
+    const chat = body.locator('> .pod-chat-room-main')
+    const roomWidth = (await body.boundingBox())!.width
+    expect((await chat.boundingBox())!.width).toBeCloseTo(roomWidth, 0)
+    const trigger = page.getByRole('button', { name: fileLabel('预览', 'preview-note.txt') })
+    await trigger.click()
+    const panel = page.getByRole('complementary', { name: 'preview-note.txt', exact: true })
+    await expect(panel.locator('pre')).toContainText('Preview prefix')
+    await expect.poll(async () => Math.round((await chat.boundingBox())!.width)).toBe(300)
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(Math.round(roomWidth - 300))
+    await panel.getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(panel).toHaveCount(0)
+    await expect.poll(async () => Math.round((await chat.boundingBox())!.width)).toBe(Math.round(roomWidth))
+  } finally {
+    if (id) {
+      await clearPending(page, id)
+      await request(page, `/conversations/${id}`, 'DELETE')
+    }
+    page.on('dialog', dialog => dialog.accept())
+    await context.close()
+  }
+})
+
+test('frozen CSV and Markdown attachments preview as a UTF-8 table and as rendered Markdown', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 900, height: 800 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    // An empty browser type reaches the control plane as `application/octet-stream`, so the file name decides.
+    id = await createChat(page, [
+      { name: 'quotes.csv', mimeType: '', buffer: Buffer.from('名称,涨跌幅\n贵州茅台,"1,2%"\n宁德时代,-0.5%\n') },
+      {
+        name: 'review.md',
+        mimeType: 'text/markdown',
+        buffer: Buffer.from('# 季度复盘\n\n- **营收**增长\n\n| 指标 | 数值 |\n| --- | --- |\n| 毛利率 | 52% |\n')
+      }
+    ])
+    const tableTrigger = page.getByRole('button', { name: fileLabel('预览', 'quotes.csv') })
+    await tableTrigger.click()
+    const table = page.getByRole('complementary', { name: 'quotes.csv', exact: true })
+    await expect(table.getByRole('columnheader', { name: '涨跌幅', exact: true })).toBeVisible()
+    await expect(table.getByRole('cell', { name: '贵州茅台', exact: true })).toBeVisible()
+    await expect(table.getByRole('cell', { name: '1,2%', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(table).toHaveCount(0)
+    await expect(tableTrigger).toBeFocused()
+
+    await page.getByRole('button', { name: fileLabel('预览', 'review.md') }).click()
+    const markdown = page.getByRole('complementary', { name: 'review.md', exact: true })
+    await expect(markdown.getByRole('heading', { level: 1, name: '季度复盘', exact: true })).toBeVisible()
+    await expect(markdown.locator('strong')).toHaveText('营收')
+    await expect(markdown.getByRole('cell', { name: '52%', exact: true })).toBeVisible()
+    await expect(markdown.locator('pre')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(markdown).toHaveCount(0)
+  } finally {
+    if (id) {
+      await clearPending(page, id)
+      await request(page, `/conversations/${id}`, 'DELETE')
+    }
+    page.on('dialog', dialog => dialog.accept())
+    await context.close()
+  }
+})
+
 test('closing a pending preview aborts its request, and removing its owning message releases it before deletion', async ({
   browser
 }) => {
@@ -244,7 +298,7 @@ test('closing a pending preview aborts its request, and removing its owning mess
     const trigger = page.getByRole('button', { name: fileLabel('预览', 'preview-note.txt') })
     await trigger.click()
     await started.promise
-    const dialog = page.getByRole('dialog', { name: 'preview-note.txt', exact: true })
+    const dialog = page.getByRole('complementary', { name: 'preview-note.txt', exact: true })
     await expect(dialog.getByRole('status')).toHaveText('正在加载文件…')
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
@@ -274,7 +328,9 @@ test('closing a pending preview aborts its request, and removing its owning mess
   }
 })
 
-test('local text and image previews keep unsent text and selected files in the composer', async ({ browser }) => {
+test('local text, image, and unsupported-file previews keep unsent text and selected files in the composer', async ({
+  browser
+}) => {
   const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 390, height: 844 } })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
@@ -289,9 +345,10 @@ test('local text and image previews keep unsent text and selected files in the c
       await choose
     ).setFiles([
       { name: 'local-note.txt', mimeType: 'text/plain', buffer: Buffer.from('Local draft attachment') },
-      { name: 'local-image.png', mimeType: 'image/png', buffer: png }
+      { name: 'local-image.png', mimeType: 'image/png', buffer: png },
+      { name: 'local-bundle.zip', mimeType: 'application/zip', buffer: Buffer.from('PK\u0005\u0006') }
     ])
-    await expect(composer.getByRole('status')).toHaveText(['已就绪', '已就绪'])
+    await expect(composer.getByRole('status')).toHaveText(['已就绪', '已就绪', '已就绪'])
     const textTrigger = composer.getByRole('button', { name: fileLabel('预览', 'local-note.txt') })
     await textTrigger.click()
     const text = page.getByRole('dialog', { name: 'local-note.txt', exact: true })
@@ -312,11 +369,23 @@ test('local text and image previews keep unsent text and selected files in the c
       .toBeGreaterThan(0)
     await page.keyboard.press('Escape')
     await expect(image).toHaveCount(0)
+    const bundleTrigger = composer.getByRole('button', { name: fileLabel('预览', 'local-bundle.zip') })
+    await bundleTrigger.click()
+    const bundle = page.getByRole('dialog', { name: 'local-bundle.zip', exact: true })
+    await expect(bundle.getByText('无法在此预览该文件。可在新标签页打开或下载原文件。', { exact: true })).toBeVisible()
+    await expect(bundle.getByRole('link', { name: '下载原文件', exact: true })).toHaveAttribute(
+      'download',
+      'local-bundle.zip'
+    )
+    await page.keyboard.press('Escape')
+    await expect(bundle).toHaveCount(0)
+    await expect(bundleTrigger).toBeFocused()
     await expect(message).toHaveValue('Keep my unsent draft')
-    await expect(composer.getByRole('link', { name: fileLabel('下载', 'local-note.txt') })).toBeVisible()
-    await expect(composer.getByRole('link', { name: fileLabel('下载', 'local-image.png') })).toBeVisible()
+    await expect(composer.getByRole('button', { name: fileLabel('预览', 'local-note.txt') })).toBeVisible()
+    await expect(composer.getByRole('button', { name: fileLabel('预览', 'local-image.png') })).toBeVisible()
     await composer.getByRole('button', { name: fileLabel('移除', 'local-note.txt') }).click()
     await composer.getByRole('button', { name: fileLabel('移除', 'local-image.png') }).click()
+    await composer.getByRole('button', { name: fileLabel('移除', 'local-bundle.zip') }).click()
     await message.clear()
   } finally {
     page.on('dialog', dialog => dialog.accept())

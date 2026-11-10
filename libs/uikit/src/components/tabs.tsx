@@ -2,6 +2,7 @@
 
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import { cva, type VariantProps } from 'class-variance-authority'
+import { useLayoutEffect, useRef } from 'react'
 
 import { cn } from '../lib/utils'
 
@@ -25,9 +26,9 @@ const tabsListVariants = cva(
     variants: {
       variant: {
         default: 'border-b border-border bg-transparent',
-        // Tabs on the ground that name a place: the open tab takes the same ink wash as the current
-        // row in a navigation list.
-        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-7'
+        // Tabs that name a place, like a segmented control: the open tab sits on the selected fill, which slides
+        // and stretches to the next tab when the selection changes.
+        object: 'relative isolate gap-0.5 bg-transparent group-data-horizontal/tabs:h-7'
       }
     },
     defaultVariants: {
@@ -39,6 +40,7 @@ const tabsListVariants = cva(
 function TabsList({
   className,
   variant = 'default',
+  children,
   ...props
 }: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) {
   return (
@@ -46,7 +48,104 @@ function TabsList({
       data-slot="tabs-list"
       data-variant={variant}
       className={cn(tabsListVariants({ variant }), className)}
-      {...props}
+      {...props}>
+      {children}
+      {variant === 'object' && <SegmentIndicator />}
+    </TabsPrimitive.List>
+  )
+}
+
+type SegmentBox = { tab: Element; left: number; top: number; width: number; height: number }
+
+// Where the open tab ends up once its content settles. Tab content may still be animating (a label opening or
+// closing), so the list is cloned with transitions turned off and the open tab is measured in the clone.
+function settledBox(list: HTMLElement): SegmentBox | null {
+  const tabs = [...list.querySelectorAll<HTMLElement>('[role="tab"]')].filter(
+    tab => tab.closest('[role="tablist"]') === list
+  )
+  const index = tabs.findIndex(tab => tab.hasAttribute('data-active'))
+  if (index < 0 || !list.parentElement || list.offsetWidth === 0) return null
+  const ghost = list.cloneNode(true) as HTMLElement
+  ghost.setAttribute('data-tabs-measure', '')
+  ghost.setAttribute('aria-hidden', 'true')
+  ghost.removeAttribute('id')
+  ghost.inert = true
+  Object.assign(ghost.style, { position: 'absolute', left: '0', top: '0', visibility: 'hidden', pointerEvents: 'none' })
+  list.parentElement.appendChild(ghost)
+  const ghostTabs = [...ghost.querySelectorAll<HTMLElement>('[role="tab"]')].filter(
+    tab => tab.closest('[role="tablist"]') === ghost
+  )
+  const frame = ghost.getBoundingClientRect()
+  const rect = ghostTabs[index]?.getBoundingClientRect()
+  ghost.remove()
+  const tab = tabs[index]
+  if (!rect || !tab) return null
+  return {
+    tab,
+    left: rect.left - frame.left - list.clientLeft,
+    top: rect.top - frame.top - list.clientTop,
+    width: rect.width,
+    height: rect.height
+  }
+}
+
+// The selected fill of object tabs. When the selection changes it travels once, straight to where the new tab
+// settles, on the same duration and curve as the tab content, so the fill and the content move as one shape and
+// never chase each other. A change of size alone (first layout, fonts, a narrower window) moves it without motion.
+function SegmentIndicator() {
+  const ref = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const indicator = ref.current
+    const list = indicator?.parentElement
+    if (!indicator || !list) return
+    let placed: SegmentBox | null = null
+    let travellingUntil = 0
+    const place = () => {
+      const box = settledBox(list)
+      if (!box) {
+        indicator.hidden = true
+        placed = null
+        return
+      }
+      if (
+        placed &&
+        placed.tab === box.tab &&
+        placed.left === box.left &&
+        placed.top === box.top &&
+        placed.width === box.width &&
+        placed.height === box.height
+      ) {
+        return
+      }
+      const travel = placed !== null && (placed.tab !== box.tab || performance.now() < travellingUntil)
+      if (travel && placed?.tab !== box.tab) {
+        travellingUntil = performance.now() + Number.parseFloat(getComputedStyle(indicator).transitionDuration) * 1000
+      }
+      indicator.toggleAttribute('data-instant', !travel)
+      indicator.hidden = false
+      indicator.style.setProperty('--segment-left', `${box.left}px`)
+      indicator.style.setProperty('--segment-top', `${box.top}px`)
+      indicator.style.setProperty('--segment-width', `${box.width}px`)
+      indicator.style.setProperty('--segment-height', `${box.height}px`)
+      placed = box
+    }
+    place()
+    const mutations = new MutationObserver(place)
+    mutations.observe(list, { subtree: true, attributes: true, attributeFilter: ['data-active', 'data-open'] })
+    const resizes = new ResizeObserver(place)
+    resizes.observe(list)
+    return () => {
+      mutations.disconnect()
+      resizes.disconnect()
+    }
+  }, [])
+  return (
+    <span
+      ref={ref}
+      data-slot="tabs-indicator"
+      aria-hidden
+      hidden
+      className="pointer-events-none absolute -z-10 rounded-control selected-surface"
     />
   )
 }
@@ -59,7 +158,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
         "relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-[13px] font-normal whitespace-nowrap text-muted-foreground transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-foreground focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         'data-active:text-foreground',
         'after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-1px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 data-active:after:opacity-100',
-        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:after:hidden group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-accent group-data-[variant=object]/tabs-list:hover:text-foreground group-data-[variant=object]/tabs-list:data-active:bg-layer-current group-data-[variant=object]/tabs-list:data-active:fine-hover:hover:bg-layer-current group-data-[variant=object]/tabs-list:data-active:text-foreground',
+        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:after:hidden group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-accent group-data-[variant=object]/tabs-list:hover:text-foreground group-data-[variant=object]/tabs-list:data-active:text-foreground group-data-[variant=object]/tabs-list:data-active:fine-hover:hover:bg-transparent',
         className
       )}
       {...props}

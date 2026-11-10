@@ -97,5 +97,8 @@ export const ChatAttachments = createModel(createChatAttachments)
 export type ChatAttachments = InstanceType<typeof ChatAttachments>
 
 export function isPreviewImage(type: string | undefined): boolean {
-  return !!type && ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp'].includes(type)
+  return (
+    !!type &&
+    ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/svg+xml'].includes(type)
+  )
 }

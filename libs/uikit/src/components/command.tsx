@@ -147,7 +147,7 @@ function CommandSeparator({ className, ...props }: React.ComponentProps<typeof C
   return (
     <CommandPrimitive.Separator
       data-slot="command-separator"
-      className={cn('mx-2.5 my-1.5 h-px bg-(--menu-field-edge)', className)}
+      className={cn('mx-2.5 my-1.5 h-px bg-divider-overlay', className)}
       {...props}
     />
   )
@@ -158,7 +158,7 @@ function CommandItem({ className, children, ...props }: React.ComponentProps<typ
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-control px-2.5 py-2 text-sm leading-5 outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-disabled data-[selected=true]:bg-(--menu-hover) data-[selected=true]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[selected=true]:*:[svg]:text-foreground",
+        "group/command-item relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-control px-2.5 py-2 text-sm leading-5 outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-disabled data-[selected=true]:bg-(--layer-hover) data-[selected=true]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[selected=true]:*:[svg]:text-foreground",
         className
       )}
       {...props}>

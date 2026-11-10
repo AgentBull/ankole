@@ -13,11 +13,14 @@ defmodule AnkoleWeb.PodResponse do
 
   @chunk_bytes 1024 * 1024
 
+  # A missing or generic recorded type falls back to the type that the file name implies, so a PDF or image
+  # that an upload or external channel stored without a media type still previews inline.
   def send_sandboxed_object(conn, object, name, type, download?) do
     type =
       case if(is_binary(type), do: Plug.Conn.Utils.media_type(type), else: :error) do
+        {:ok, "application", "octet-stream", _} -> MIME.from_path(name)
         {:ok, _, _, _} -> type
-        :error -> "application/octet-stream"
+        :error -> MIME.from_path(name)
       end
 
     inline? =

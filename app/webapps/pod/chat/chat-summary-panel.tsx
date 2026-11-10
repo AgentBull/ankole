@@ -31,7 +31,7 @@ export function ChatSummaryPanel({
   const { pageIDs, attachments } = detail.artifacts
   return (
     <PodPanelSurface
-      className="pod-chat-summary"
+      className="pod-chat-side-panel pod-chat-summary"
       aria-label={t('pod.chat_room.summary')}
       onKeyDown={event => {
         if (

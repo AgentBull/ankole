@@ -828,7 +828,10 @@ function PageTreeRow({
               {pending ? (
                 <Spinner aria-hidden />
               ) : (
-                <RiArrowRightSLine aria-hidden className={cn(open && 'rotate-90')} />
+                <>
+                  <RiArrowRightSLine aria-hidden className={cn('pod-tree-chevron', open && 'rotate-90')} />
+                  <PageIcon page={page} />
+                </>
               )}
               {pending && (
                 <span role="status" className="sr-only">
@@ -837,7 +840,11 @@ function PageTreeRow({
               )}
             </button>
           ) : (
-            <span aria-hidden className="pod-tree-toggle-space" />
+            renaming && (
+              <span aria-hidden className="pod-tree-icon">
+                <PageIcon page={page} />
+              </span>
+            )
           )}
           {renaming ? (
             <PageRenameField page={page} onDone={() => setRenaming(false)} />
@@ -851,7 +858,11 @@ function PageTreeRow({
               current={active}
               activeProps={{}}
               title={stripBidi(label)}>
-              <PageIcon page={page} />
+              {!page.has_children && (
+                <span aria-hidden className="pod-tree-icon">
+                  <PageIcon page={page} />
+                </span>
+              )}
               <span className="min-w-0 truncate text-left" dir="auto">
                 <BdiLabel value={page.title} fallback={t('pod.content.untitled')} />
               </span>

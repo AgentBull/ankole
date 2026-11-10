@@ -142,7 +142,7 @@ export function ConsoleLayout() {
     <SidebarProvider
       defaultOpen={!readInitialSidebarCollapsed()}
       mobileBreakpoint={1024}
-      className="h-svh min-h-0 flex-col overflow-hidden bg-ground text-foreground">
+      className="h-svh min-h-0 flex-col overflow-hidden bg-background text-foreground">
       <ConsoleFrame />
     </SidebarProvider>
   )
@@ -186,6 +186,11 @@ function ConsoleFrame() {
   const tenantName = session.data?.tenant?.displayName ?? ''
   const signOutLabel = tenantName ? t('pod.sidebar.sign_out_name', { name: tenantName }) : t('pod.sidebar.sign_out')
   const multipleAccounts = (session.data?.accounts.length ?? 0) > 1
+  const slots = useConsoleSlots()
+  const sectionLabel = currentNavItem(pathname, [
+    ...NAV_SECTIONS.flatMap(section => section.items),
+    ...(slots.navSections ?? []).flatMap(section => section.items)
+  ])?.label
   const toggleLabel = sidebarCollapsed ? t('console.aria.expand_navigation') : t('console.aria.collapse_navigation')
 
   return (
@@ -198,133 +203,135 @@ function ConsoleFrame() {
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-background">
         {t('console.aria.skip_to_content')}
       </a>
-      <header className="z-20 flex h-11 shrink-0 items-center bg-ground px-3 text-foreground">
+      <header className="flex h-14 shrink-0 items-center px-3 text-foreground">
         <div className="flex min-w-0 items-center gap-2">
-          <Sheet
-            open={navigationOpen}
-            onOpenChange={setNavigationOpen}
-            onOpenChangeComplete={open => {
-              if (!open) navigationTriggerRef.current?.focus()
-            }}>
-            <SheetTrigger
-              render={
-                <Button
-                  ref={navigationTriggerRef}
-                  aria-label={t('console.aria.open_navigation')}
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                />
-              }
-              className="hover:bg-accent hover:text-accent-foreground lg:hidden">
-              <RiMenuLine />
-            </SheetTrigger>
-            <SheetContent
-              side="left"
-              showCloseButton={false}
-              className="data-[side=left]:w-[min(320px,88vw)] bg-ground p-0 text-foreground">
-              <SheetHeader className="flex-row items-center justify-between border-b border-border p-3">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <BrandIcon className="size-6 shrink-0" />
-                  <SheetTitle className="truncate text-[13px] font-semibold text-foreground">
-                    {t('console.title')}
-                  </SheetTitle>
-                </div>
-                <SheetClose
-                  render={<Button aria-label={t('common.close')} size="icon-sm" type="button" variant="ghost" />}
-                  className="hover:bg-accent hover:text-accent-foreground">
-                  <RiCloseLine />
-                </SheetClose>
-              </SheetHeader>
-              <ErrorBoundary variant="inline" className="m-2">
-                <ConsoleNavigation mobile onNavigate={() => setNavigationOpen(false)} />
-              </ErrorBoundary>
-            </SheetContent>
-          </Sheet>
           <Link to="/" className="flex min-w-0 items-center gap-2.5 rounded-control py-1 pr-1.5">
             <BrandIcon className="size-6 shrink-0" />
             <h1 className="truncate text-[13px] font-semibold tracking-normal">{t('console.title')}</h1>
           </Link>
-          <SidebarTrigger
-            label={toggleLabel}
-            aria-expanded={open}
-            className="hidden text-fg-tertiary hover:bg-accent hover:text-foreground lg:inline-flex"
-          />
+        </div>
+        {/* The top bar spans the whole window, so the account actions sit at its far end. */}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {dataTenantID() ? (
+            <ErrorBoundary fallback={null}>
+              <ConsoleReadiness />
+            </ErrorBoundary>
+          ) : null}
+          <ThemeToggle />
+          {multipleAccounts ? (
+            <DropdownMenu onOpenChange={open => open && void session.refetch()}>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    aria-label={t('console.aria.sign_out')}
+                    disabled={signOut.isPending || signOutAll.isPending}
+                    size="icon-sm"
+                    type="button"
+                    variant="ghost"
+                  />
+                }
+                className="hover:bg-accent hover:text-accent-foreground">
+                <RiLogoutBoxRLine />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6}>
+                <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
+                  <RiLogoutBoxRLine aria-hidden />
+                  {signOutLabel}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={signOutAll.isPending} onClick={() => signOutAll.mutate()}>
+                  <RiLogoutCircleRLine aria-hidden />
+                  {t('auth.sign_out_all')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              aria-label={tenantName ? signOutLabel : t('console.aria.sign_out')}
+              disabled={signOut.isPending}
+              onClick={() => signOut.mutate()}
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+              className="hover:bg-accent hover:text-accent-foreground">
+              <RiLogoutBoxRLine />
+            </Button>
+          )}
         </div>
       </header>
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      {/* The sheet's edge is a ring drawn just outside it, so this row leaves overflow visible: its top edge then
+          shows against the top bar, which sits on the same background. */}
+      <div className="relative flex min-h-0 flex-1">
         <aside
           className={cn(
-            'z-0 hidden shrink-0 flex-col overflow-hidden bg-ground transition-[width,opacity] duration-(--duration-feedback) ease-productive motion-reduce:transition-none lg:flex',
-            sidebarCollapsed ? 'w-0 opacity-0' : 'w-60 opacity-100'
+            'z-0 hidden shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width,opacity] duration-(--duration-feedback) ease-productive motion-reduce:transition-none lg:flex',
+            sidebarCollapsed ? 'w-0 opacity-0' : 'w-[236px] opacity-100'
           )}
           aria-hidden={sidebarCollapsed || undefined}
           inert={sidebarCollapsed || undefined}>
-          <div className="flex h-full w-60 flex-col">
+          <div className="flex h-full w-[236px] flex-col">
             <ErrorBoundary variant="inline" className="m-2">
               <ConsoleNavigation />
             </ErrorBoundary>
           </div>
         </aside>
 
-        {/* The page is a sheet of paper elevated above the ground, with its own
-            sheet header holding the account actions as in the Pod shell. The
-            header and navigation remain on the ground layer. */}
+        {/* The page fills the area right of the navigation and below the top bar, edge to edge, with small
+            rounded top corners. */}
         <main
           id="console-content"
           tabIndex={-1}
-          className={cn(
-            'relative z-10 m-1.5 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden paper-sheet transition-[margin] duration-(--duration-feedback) ease-productive motion-reduce:transition-none',
-            sidebarCollapsed ? 'lg:ml-1.5' : 'lg:ml-0'
-          )}>
-          <div className="sheet-header justify-end gap-1.5 border-b border-border">
-            {dataTenantID() ? (
-              <ErrorBoundary fallback={null}>
-                <ConsoleReadiness />
-              </ErrorBoundary>
-            ) : null}
-            <ThemeToggle />
-            {multipleAccounts ? (
-              <DropdownMenu onOpenChange={open => open && void session.refetch()}>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      aria-label={t('console.aria.sign_out')}
-                      disabled={signOut.isPending || signOutAll.isPending}
-                      size="icon-sm"
-                      type="button"
-                      variant="ghost"
-                    />
-                  }
-                  className="hover:bg-accent hover:text-accent-foreground">
-                  <RiLogoutBoxRLine />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={6}>
-                  <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
-                    <RiLogoutBoxRLine aria-hidden />
-                    {signOutLabel}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={signOutAll.isPending} onClick={() => signOutAll.mutate()}>
-                    <RiLogoutCircleRLine aria-hidden />
-                    {t('auth.sign_out_all')}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                aria-label={tenantName ? signOutLabel : t('console.aria.sign_out')}
-                disabled={signOut.isPending}
-                onClick={() => signOut.mutate()}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
-                className="hover:bg-accent hover:text-accent-foreground">
-                <RiLogoutBoxRLine />
-              </Button>
-            )}
+          className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden paper-sheet rounded-t-control! rounded-b-none!">
+          {/* The card's header starts with the navigation toggle, left of the current section's name, as on a Pod
+              sheet. */}
+          <div className="sheet-header gap-1 border-b border-border">
+            <Sheet
+              open={navigationOpen}
+              onOpenChange={setNavigationOpen}
+              onOpenChangeComplete={open => {
+                if (!open) navigationTriggerRef.current?.focus()
+              }}>
+              <SheetTrigger
+                render={
+                  <Button
+                    ref={navigationTriggerRef}
+                    aria-label={t('console.aria.open_navigation')}
+                    size="icon-sm"
+                    type="button"
+                    variant="ghost"
+                  />
+                }
+                className="hover:bg-accent hover:text-accent-foreground lg:hidden">
+                <RiMenuLine />
+              </SheetTrigger>
+              <SheetContent
+                side="left"
+                showCloseButton={false}
+                className="data-[side=left]:w-[min(320px,88vw)] bg-sidebar p-0 text-foreground">
+                <SheetHeader className="flex-row items-center justify-between border-b border-border p-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <BrandIcon className="size-6 shrink-0" />
+                    <SheetTitle className="truncate text-[13px] font-semibold text-foreground">
+                      {t('console.title')}
+                    </SheetTitle>
+                  </div>
+                  <SheetClose
+                    render={<Button aria-label={t('common.close')} size="icon-sm" type="button" variant="ghost" />}
+                    className="hover:bg-accent hover:text-accent-foreground">
+                    <RiCloseLine />
+                  </SheetClose>
+                </SheetHeader>
+                <ErrorBoundary variant="inline" className="m-2">
+                  <ConsoleNavigation mobile onNavigate={() => setNavigationOpen(false)} />
+                </ErrorBoundary>
+              </SheetContent>
+            </Sheet>
+            <SidebarTrigger
+              label={toggleLabel}
+              className="hidden text-fg-tertiary hover:bg-accent hover:text-foreground lg:inline-flex"
+            />
+            {sectionLabel ? <span className="sheet-title">{t(sectionLabel)}</span> : null}
           </div>
-
           <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable] md:p-6 xl:p-8">
             {matchedSlotRoute ? (
               <SlotGate slot={matchedSlotRoute}>
@@ -481,9 +488,7 @@ function ConsoleNavLink({
 }) {
   const { t } = useTranslation()
   const Icon = item.icon
-  const isActive =
-    (item.to === '/' ? pathname === '/' : pathname === item.to || pathname.startsWith(`${item.to}/`)) ||
-    (Boolean(item.match) && (pathname === item.match || pathname.startsWith(`${item.match}/`)))
+  const isActive = navItemActive(item, pathname)
   return (
     <Link
       to={item.to}
@@ -498,6 +503,20 @@ function ConsoleNavLink({
       <span className="truncate">{t(item.label)}</span>
     </Link>
   )
+}
+
+function navItemActive(item: Pick<NavItem, 'to' | 'match'>, pathname: string): boolean {
+  return (
+    (item.to === '/' ? pathname === '/' : pathname === item.to || pathname.startsWith(`${item.to}/`)) ||
+    (Boolean(item.match) && (pathname === item.match || pathname.startsWith(`${item.match}/`)))
+  )
+}
+
+/** The navigation destination that owns the current path; the most specific match wins. */
+function currentNavItem<Item extends Pick<NavItem, 'to' | 'match'>>(pathname: string, items: Item[]): Item | undefined {
+  return items
+    .filter(item => navItemActive(item, pathname))
+    .sort((a, b) => (b.match ?? b.to).length - (a.match ?? a.to).length)[0]
 }
 
 function systemVersion(): string {

@@ -46,13 +46,14 @@ test('room actions cancel rename, copy its link, and export the full paged trans
     await title.press('Escape')
     await expect(header.locator('.pod-chat-header-title')).toHaveText(original)
     expect(writes).toBe(0)
-    await header.getByRole('button', { name: '更多操作', exact: true }).click()
-    await page.getByRole('menuitem', { name: '复制链接', exact: true }).click()
+    // Copy link is a share button among the room's top bar actions, outside the more-actions menu.
+    await page.locator('.pod-room-actions').getByRole('button', { name: '复制链接', exact: true }).click()
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toBe(new URL(conversationRoute(id), state.base_url).href)
     const download = page.waitForEvent('download')
     await header.getByRole('button', { name: '更多操作', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: '复制链接', exact: true })).toHaveCount(0)
     await page.getByRole('menuitem', { name: '导出 Markdown 纪要', exact: true }).click()
     const exported = await download
     const path = info.outputPath('full-chat.md')
@@ -75,7 +76,7 @@ test('the summary opens a real attachment preview and returns keyboard focus to 
   const page = await context.newPage()
   try {
     await page.goto(conversationRoute(state.conversation_id))
-    await page.locator('.pod-room-header').getByRole('button', { name: '会话摘要', exact: true }).click()
+    await page.locator('.pod-room-actions').getByRole('button', { name: '会话摘要', exact: true }).click()
     const summary = page.getByRole('complementary', { name: '会话摘要', exact: true })
     const preview = summary.getByRole('button', { name: /^预览 / }).first()
     await expect(preview).toBeVisible()
@@ -88,7 +89,7 @@ test('the summary opens a real attachment preview and returns keyboard focus to 
     await expect(preview).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(summary).toBeHidden()
-    await expect(page.locator('.pod-room-header').getByRole('button', { name: '会话摘要', exact: true })).toBeFocused()
+    await expect(page.locator('.pod-room-actions').getByRole('button', { name: '会话摘要', exact: true })).toBeFocused()
   } finally {
     await context.close()
   }

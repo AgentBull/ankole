@@ -58,6 +58,11 @@
   inherits: false;
 }
 
+@property --ceramic-tier-body {
+  syntax: '*';
+  inherits: false;
+}
+
 /* A sheet of paper on the ground: the page, and a side panel beside it, take the same radius, fill, and edge. */
 @utility paper-sheet {
   border-radius: var(--radius-panel);
@@ -70,7 +75,7 @@
 @utility ceramic {
   background:
     linear-gradient(145deg, var(--ceramic-tint, var(--ceramic-glaze)), transparent 70%),
-    rgb(var(--ceramic-body) / var(--ceramic-tier-opacity, var(--ceramic-opacity)));
+    rgb(var(--ceramic-tier-body, var(--ceramic-body)) / var(--ceramic-tier-opacity, var(--ceramic-opacity)));
   -webkit-backdrop-filter: blur(var(--ceramic-blur)) saturate(1.15);
   backdrop-filter: blur(var(--ceramic-blur)) saturate(1.15);
   border-radius: var(--ceramic-radius);
@@ -90,8 +95,10 @@
   --ceramic-tint: var(--ceramic-glaze-attention);
 }
 
-/* Menus reveal the blurred shapes behind the surface while keeping their labels legible. */
+/* Menus take the primary tier: a more translucent body that reveals the blurred shapes behind the surface while
+   keeping their labels legible. */
 @utility ceramic-primary {
+  --ceramic-tier-body: var(--ceramic-primary-body);
   --ceramic-tier-opacity: var(--ceramic-primary-opacity);
 }
 
@@ -161,6 +168,13 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Every selected item, such as the current place, the chosen tab, a selected row, or a pressed toggle, takes the
+   selected fill inside its hairline edge. */
+@utility selected-surface {
+  background-color: var(--layer-current);
+  box-shadow: inset 0 0 0 0.2px var(--layer-current-edge);
 }
 
 /* A link is ink text with an underline. The underline, not a color, marks it as a link. */
@@ -235,10 +249,11 @@
   font-weight: 600;
 }
 
-/* A navigation row names a place. Every state is ink, never a change of material: hover is a light
-   wash under the pointer, and the current place is one step denser and stays put under the pointer.
-   The weight of the text does not change, so the row keeps its width. Icons read `--nav-icon`. When the
-   system forces its own colours, the wash disappears, so the current place takes an outline instead. */
+/* A navigation row names a place. Its states are the secondary interaction fills, never a change of material:
+   hover is a light wash under the pointer, pressing lays a little black over it, and the current place takes the
+   solid selected fill and stays put under the pointer. The weight of the text does not change, so the row keeps
+   its width. Icons read `--nav-icon`. When the system forces its own colours, the fill disappears, so the
+   current place takes an outline instead. */
 @utility nav-row {
   --nav-icon: var(--fg-tertiary);
   color: var(--fg-secondary);
@@ -254,9 +269,14 @@
     }
   }
 
+  &:active {
+    background-color: var(--layer-pressed);
+  }
+
   &:is([aria-current='page'], [data-active]) {
     --nav-icon: var(--foreground);
     background-color: var(--layer-current);
+    box-shadow: inset 0 0 0 0.2px var(--layer-current-edge);
     color: var(--foreground);
   }
 
@@ -269,7 +289,7 @@
 }
 
 /* Sonner styles its toasts outside the cascade layers, so a utility class cannot change them.
-   These rules are more specific than the Sonner rules: a toast gets the ceramic surface and an ink focus ring. */
+   These rules are more specific than the Sonner rules: a toast gets the ceramic surface and the focus ring. */
 [data-sonner-toaster][data-y-position='bottom'] {
   /* Keep entry and exit motion above the footer, with room for the toast shadow. */
   clip-path: inset(-100dvh -100vw -0.5rem);
@@ -336,7 +356,7 @@
     text-wrap: pretty;
   }
 
-  /* Keyboard focus is a 2px ink ring outside the element. A component that shows focus in its own
+  /* Keyboard focus is a 2px brand ring outside the element. A component that shows focus in its own
      way removes the outline or changes its offset. */
   :focus-visible {
     outline: 2px solid var(--ring);
@@ -373,6 +393,28 @@
     transform-origin: center;
     rotate: -90deg;
     animation: ankole-spinner-arc 2.4s ease-in-out infinite;
+  }
+
+  /* The selected fill of object tabs. Its box comes from the open tab's settled position; it travels on the same
+     duration and curve as tab content, and a size change alone moves it at once. */
+  [data-slot='tabs-indicator'] {
+    top: var(--segment-top);
+    left: var(--segment-left);
+    width: var(--segment-width);
+    height: var(--segment-height);
+    transition-property: left, top, width, height;
+    transition-duration: var(--duration-segment);
+    transition-timing-function: var(--ease-segment);
+  }
+
+  [data-slot='tabs-indicator'][data-instant] {
+    transition: none;
+  }
+
+  /* The settled-position probe clones a tab list; nothing in the clone animates, so it shows the end state. */
+  :is([data-tabs-measure], [data-tabs-measure] *) {
+    transition: none !important;
+    animation: none !important;
   }
 
   /* A drop place is ink and has a shape: a line between rows, or a ring around the new parent. */
@@ -441,7 +483,7 @@
     --ankole-json-number: var(--color-purple-70);
     --ankole-json-boolean: var(--color-green-70);
     --ankole-json-null: var(--color-red-70);
-    --ankole-json-punctuation: var(--color-gray-60);
+    --ankole-json-punctuation: var(--color-gray-80);
   }
 
   [data-theme='dark'] .ankole-json-editor {
@@ -450,7 +492,7 @@
     --ankole-json-number: var(--color-purple-30);
     --ankole-json-boolean: var(--color-green-30);
     --ankole-json-null: var(--color-red-30);
-    --ankole-json-punctuation: var(--color-gray-40);
+    --ankole-json-punctuation: var(--color-gray-60);
   }
 
   .ankole-json-editor.jer-editor-container {

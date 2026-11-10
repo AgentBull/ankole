@@ -153,7 +153,6 @@ describe('Pod unavailable conversations', () => {
       expect(html).not.toContain('Private title')
       expect(html).not.toContain('<textarea')
       expect(html).not.toContain('data-slot="input-group"')
-      expect(html).toContain('data-slot="sidebar-trigger"')
     } finally {
       client.clear()
     }

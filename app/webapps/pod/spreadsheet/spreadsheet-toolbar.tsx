@@ -92,7 +92,7 @@ const NUMBER_FORMATS = {
 } as const
 const TEXT_COLORS = [
   '--color-gray-100',
-  '--color-gray-60',
+  '--color-gray-80',
   '--color-red-60',
   '--color-orange-50',
   '--color-yellow-50',
@@ -103,7 +103,7 @@ const TEXT_COLORS = [
   '--color-magenta-60'
 ]
 const FILL_COLORS = [
-  '--color-gray-20',
+  '--color-gray-40',
   '--color-red-20',
   '--color-orange-20',
   '--color-yellow-20',

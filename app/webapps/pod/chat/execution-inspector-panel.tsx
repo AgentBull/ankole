@@ -14,7 +14,7 @@ import {
   RiTimeLine
 } from '@remixicon/react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { chatError, podKeys } from '../api'
@@ -46,10 +46,6 @@ import { PeerExchangeInspectorBody } from './peer-exchange-card'
 import { ToolRunView, formatToolDetail, localizedStepTitle } from './tool-run-view'
 import type { ConversationExecutionDetail, ConversationExecutionItem, InspectorTarget } from './types'
 
-const MIN_PANEL_WIDTH = 360
-const MAX_PANEL_WIDTH = 560
-const DEFAULT_PANEL_WIDTH = 420
-
 export function ExecutionInspectorPanel({
   conversationID,
   target,
@@ -70,8 +66,6 @@ export function ExecutionInspectorPanel({
   onSwitchTarget: (next: InspectorTarget) => void
 }) {
   const { t } = useTranslation()
-  const [width, setWidth] = useState(DEFAULT_PANEL_WIDTH)
-  const resizing = useRef<{ x: number; width: number } | undefined>(undefined)
 
   useEffect(() => {
     if (variant !== 'panel') return
@@ -122,8 +116,7 @@ export function ExecutionInspectorPanel({
   return (
     <PodPanelSurface
       aria-label={surfaceLabel}
-      className="pod-chat-inspector-panel"
-      style={{ '--pod-inspector-width': `${width}px` } as CSSProperties}
+      className="pod-chat-side-panel pod-chat-inspector-panel"
       onKeyDown={event => {
         if (
           event.key === 'Escape' &&
@@ -137,45 +130,6 @@ export function ExecutionInspectorPanel({
           onClose()
         }
       }}>
-      <div
-        role="separator"
-        tabIndex={0}
-        aria-label={t('pod.chat_room.resize_chat')}
-        aria-orientation="vertical"
-        aria-valuemin={MIN_PANEL_WIDTH}
-        aria-valuemax={MAX_PANEL_WIDTH}
-        aria-valuenow={width}
-        className="pod-page-chat-resize"
-        onPointerDown={event => {
-          resizing.current = { x: event.clientX, width }
-          event.currentTarget.setPointerCapture(event.pointerId)
-          event.preventDefault()
-        }}
-        onPointerMove={event => {
-          if (resizing.current) {
-            setWidth(
-              Math.max(
-                MIN_PANEL_WIDTH,
-                Math.min(MAX_PANEL_WIDTH, resizing.current.width + resizing.current.x - event.clientX)
-              )
-            )
-          }
-        }}
-        onPointerUp={() => {
-          resizing.current = undefined
-        }}
-        onPointerCancel={() => {
-          resizing.current = undefined
-        }}
-        onKeyDown={event => {
-          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-            event.preventDefault()
-            setWidth(current =>
-              Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, current + (event.key === 'ArrowLeft' ? 12 : -12)))
-            )
-          }
-        }}
-      />
       {body}
     </PodPanelSurface>
   )

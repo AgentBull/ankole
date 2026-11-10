@@ -1,6 +1,6 @@
 import { isApplePlatform } from '../common/platform'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { SidebarInset, SidebarProvider, SidebarTrigger, TooltipProvider, useSidebar } from '@ankole/uikit'
+import { SidebarInset, SidebarProvider, TooltipProvider } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import {
   createRootRoute,
@@ -36,6 +36,7 @@ import { StandaloneActionCardDialog } from './chat/standalone-action-card-dialog
 import { StandaloneInteractionDialog } from './chat/standalone-interaction-dialog'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
 import { SidebarLayoutModel } from './state/sidebar-layout'
+import { PodTopBar, PodTopBarProvider } from './top-bar'
 import { watchPodSession } from './session-redirect'
 import './pod.css'
 
@@ -277,7 +278,6 @@ function PodRouteLoading() {
   // A page and a page list have a known shape, so they load as skeletons; other routes show the spinner.
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PodTopBar pageFallback />
       {pathname.startsWith('/pages/') ? (
         <ContentSkeleton variant="page" />
       ) : pathname.startsWith('/content/') ? (
@@ -324,16 +324,13 @@ function PodRouteError({ error, reset }: { error: unknown; reset?: () => void })
   const isRequestFailure =
     error instanceof InternalAPIError || error instanceof RealtimeRequestError || error instanceof Response
   return (
-    <>
-      <PodTopBar pageFallback />
-      <div className="p-8">
-        {isRequestFailure ? (
-          <ContentError error={error} retry={retry} />
-        ) : (
-          <ErrorFallback variant="panel" error={error} reset={retry} />
-        )}
-      </div>
-    </>
+    <div className="p-8">
+      {isRequestFailure ? (
+        <ContentError error={error} retry={retry} />
+      ) : (
+        <ErrorFallback variant="panel" error={error} reset={retry} />
+      )}
+    </div>
   )
 }
 
@@ -480,55 +477,40 @@ function PodShell() {
   return (
     <PodCommandContext value={openCommand}>
       <TooltipProvider>
-        <SidebarProvider
-          className="pod-shell h-svh overflow-clip"
-          style={{ '--sidebar-width': `${sidebarLayout.width.value}px` } as CSSProperties}>
-          <ErrorBoundary
-            variant="panel"
-            className="fixed bottom-3 left-3 z-50 w-(--sidebar-width) max-w-[calc(100vw-1.5rem)] md:static md:m-2 md:shrink-0 md:self-start"
-            resetKeys={[pathname]}>
-            <SlotGate slot={accountNavigation}>
-              {enabled => (
-                <PodSidebar
-                  accountNavigation={enabled ? accountNavigation?.content : undefined}
-                  layout={sidebarLayout}
-                />
-              )}
-            </SlotGate>
-          </ErrorBoundary>
-          <SidebarInset className="min-h-0 overflow-hidden">
+        <PodTopBarProvider>
+          <SidebarProvider
+            className="pod-shell h-svh flex-col overflow-clip"
+            style={{ '--sidebar-width': `${sidebarLayout.width.value}px` } as CSSProperties}>
+            {/* The top bar spans the window; the sidebar and the content sheets sit below it. */}
             <PodTopBar />
-            <div className="min-h-0 flex-1 overflow-hidden has-data-sheet:overflow-visible">
-              <Outlet />
+            <div className="pod-shell-body">
+              <ErrorBoundary
+                variant="panel"
+                className="fixed bottom-3 left-3 z-50 w-(--sidebar-width) max-w-[calc(100vw-1.5rem)] md:static md:m-2 md:shrink-0 md:self-start"
+                resetKeys={[pathname]}>
+                <SlotGate slot={accountNavigation}>
+                  {enabled => (
+                    <PodSidebar
+                      accountNavigation={enabled ? accountNavigation?.content : undefined}
+                      layout={sidebarLayout}
+                    />
+                  )}
+                </SlotGate>
+              </ErrorBoundary>
+              <SidebarInset className="min-h-0 overflow-hidden md:peer-data-[variant=inset]:m-0">
+                <div className="min-h-0 flex-1 overflow-hidden has-data-sheet:overflow-visible">
+                  <Outlet />
+                </div>
+              </SidebarInset>
             </div>
-          </SidebarInset>
-          <PodCommandMenu open={commandOpen} onOpenChange={setCommandOpen} returnFocus={commandReturnFocus} />
-          {actionCardID && <StandaloneActionCardDialog cardID={actionCardID} onClose={closeActionCardDialog} />}
-          {interactionID && (
-            <StandaloneInteractionDialog interactionID={interactionID} onClose={closeInteractionDialog} />
-          )}
-        </SidebarProvider>
+            <PodCommandMenu open={commandOpen} onOpenChange={setCommandOpen} returnFocus={commandReturnFocus} />
+            {actionCardID && <StandaloneActionCardDialog cardID={actionCardID} onClose={closeActionCardDialog} />}
+            {interactionID && (
+              <StandaloneInteractionDialog interactionID={interactionID} onClose={closeInteractionDialog} />
+            )}
+          </SidebarProvider>
+        </PodTopBarProvider>
       </TooltipProvider>
     </PodCommandContext>
-  )
-}
-
-function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
-  const { t } = useTranslation()
-  const { state } = useSidebar()
-  const pathname = useLocation({ select: location => location.pathname })
-  const contentHeader =
-    pathname === '/' ||
-    pathname.startsWith('/meta/') ||
-    pathname.startsWith('/pages/') ||
-    pathname.startsWith('/conversations/') ||
-    pathname.startsWith('/dm/')
-  if (contentHeader && !pageFallback) return null
-  if (!contentHeader && pageFallback) return null
-
-  return (
-    <header className="flex h-11 shrink-0 items-center gap-2 px-3">
-      <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
-    </header>
   )
 }

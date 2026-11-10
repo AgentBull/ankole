@@ -8,16 +8,16 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // A disabled button keeps its outline and drops its fill, so it still reads as a button that cannot be pressed
-        // now. A grey fill would make it read as an empty field.
-        // The one solid button of a view: brand coral-crimson with a darker bottom edge, distinct from warm vermilion destructive actions.
+        // The one solid button of a view: brand-60 with a darker bottom edge. Disabled, it keeps a faint brand fill so
+        // it still reads as the primary action that cannot be pressed now.
         default:
-          'border-primary border-b-primary-edge bg-primary text-primary-foreground hover:border-primary-hover hover:border-b-primary-edge hover:bg-primary-hover active:border-primary-active active:bg-primary-active disabled:border-border disabled:bg-transparent disabled:text-fg-disabled',
-        // The normal button is a paper object. Pressed, it sinks into a slot.
+          'border-primary border-b-primary-edge bg-primary text-primary-foreground hover:border-primary-hover hover:border-b-primary-edge hover:bg-primary-hover active:border-primary-active active:bg-primary-active disabled:border-primary-disabled disabled:bg-primary-disabled disabled:text-primary-disabled-foreground',
+        // The normal button is a paper object. Pressed, it sinks into a slot. Disabled, it keeps its outline and drops
+        // its fill, so it still reads as a button rather than an empty field.
         outline:
           'border-control-edge border-b-control-base bg-control text-foreground shadow-control hover:bg-control-hover active:bg-field active:shadow-none aria-expanded:bg-field aria-expanded:shadow-none disabled:border-border disabled:bg-transparent disabled:text-fg-disabled disabled:shadow-none',
         ghost:
-          'text-muted-foreground hover:bg-accent hover:text-foreground active:bg-muted aria-expanded:bg-accent aria-expanded:text-foreground disabled:text-fg-disabled',
+          'text-muted-foreground hover:bg-accent hover:text-foreground active:bg-layer-pressed aria-expanded:bg-accent aria-expanded:text-foreground disabled:text-fg-disabled',
         // The confirmation of an action that cannot be undone. Deep red sits darker than the brand primary, so the two
         // solid buttons differ in lightness as well as hue; the white label stays above 7:1 in both themes.
         destructive:

@@ -26,7 +26,7 @@ function Switch({
       data-slot="switch"
       data-size={size}
       className={cn(
-        'peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-offset-1 aria-invalid:border-destructive data-[size=default]:h-5 data-[size=default]:w-[38px] data-[size=default]:[--switch-thumb:14px] data-[size=default]:[--switch-x:20px] data-[size=default]:[--switch-x0:2px] data-[size=sm]:h-4 data-[size=sm]:w-[30px] data-[size=sm]:[--switch-thumb:10px] data-[size=sm]:[--switch-x:16px] data-[size=sm]:[--switch-x0:2px] data-checked:bg-foreground data-unchecked:bg-gray-50 data-disabled:cursor-not-allowed data-disabled:bg-gray-30! dark:data-unchecked:bg-gray-60 dark:data-disabled:bg-gray-70!',
+        'peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-offset-1 aria-invalid:border-destructive data-[size=default]:h-5 data-[size=default]:w-[38px] data-[size=default]:[--switch-thumb:14px] data-[size=default]:[--switch-x:20px] data-[size=default]:[--switch-x0:2px] data-[size=sm]:h-4 data-[size=sm]:w-[30px] data-[size=sm]:[--switch-thumb:10px] data-[size=sm]:[--switch-x:16px] data-[size=sm]:[--switch-x0:2px] data-checked:bg-foreground data-unchecked:bg-gray-70 data-disabled:cursor-not-allowed data-disabled:bg-gray-50! dark:data-unchecked:bg-gray-80 dark:data-disabled:bg-gray-90!',
         className
       )}
       {...props}>

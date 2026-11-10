@@ -63,6 +63,7 @@
 
   &[data-epr-open][data-epr-active] {
     background-color: var(--layer-current);
+    box-shadow: inset 0 0 0 0.2px var(--layer-current-edge);
   }
 
   &:focus-visible {
@@ -148,6 +149,7 @@
 
   &[data-epr-active] {
     background-color: var(--layer-current);
+    box-shadow: inset 0 0 0 0.2px var(--layer-current-edge);
     color: var(--foreground);
   }
 

@@ -39,7 +39,8 @@ import { currentProfileAvatarContext, profileAvatarURL, type ProfileAvatarContex
 
 const initial = avatarInitials
 
-function SpaceMark({
+/** The Pod's mark: its uploaded avatar, or the initials of its name. */
+export function SpaceMark({
   name,
   avatarURL,
   context
@@ -59,6 +60,16 @@ function SpaceMark({
       )}
     </span>
   )
+}
+
+/** Where the signed-in account loads avatars from: its own Pod account when the browser lists it, else this page. */
+export function sessionAvatarContext(data: BrowserSessionResponse | undefined): ProfileAvatarContext {
+  const account = data?.accounts.find(
+    account => account.tenant.id === podID() && account.principalUID === data.principalUID
+  )
+  return account
+    ? { podURL: account.podURL, authenticationRef: account.authenticationRef }
+    : currentProfileAvatarContext()
 }
 
 /**
@@ -99,10 +110,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
   const tenantName = data?.tenant?.displayName ?? ''
   const current = (account: BrowserAccount) =>
     account.tenant.id === podID() && account.principalUID === data?.principalUID
-  const currentAccount = data?.accounts.find(current)
-  const currentAvatarContext: ProfileAvatarContext = currentAccount
-    ? { podURL: currentAccount.podURL, authenticationRef: currentAccount.authenticationRef }
-    : currentProfileAvatarContext()
+  const currentAvatarContext = sessionAvatarContext(data)
   const returnTo = encodeURIComponent(location.href)
   return (
     <DropdownMenu onOpenChange={open => open && void session.refetch()}>

@@ -143,7 +143,7 @@ test('page chat fits a small viewport and returns focus to its opener', async ({
     await page.setViewportSize({ width: 1440, height: 900 })
     await opener.click()
     await expect(page.getByRole('complementary', { name: '助理', exact: true })).toBeVisible()
-    await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).focus()
+    await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).focus()
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(panel).toBeVisible()
     await panel.getByRole('button', { name: '关闭助理', exact: true }).click()

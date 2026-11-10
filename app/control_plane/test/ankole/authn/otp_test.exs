@@ -601,7 +601,7 @@ defmodule Ankole.Authn.OtpTest do
       assert inv_html =~ "<!doctype html>"
       assert inv_html =~ ~s(lang="#{expected_locale}")
       assert inv_html =~ ~s(src="cid:ankole-logo.png")
-      assert inv_html =~ "#E10059"
+      assert inv_html =~ "#FF4669"
 
       assert inv_html =~
                ~s(href="https://ankole.example.com/join/inv-token-123?source=email&amp;lang=en")

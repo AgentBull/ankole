@@ -83,10 +83,13 @@ test.each([
   expect(html.includes(`aria-label="${i18n.t('console.tenants.data_context')}"`)).toBe(visible)
   expect(html).toContain('fill="#FF4669"')
   expect(html).toContain(`>${i18n.t('console.title')}</h1>`)
-  // The account actions sit in the content sheet header, not on the ground.
-  const contentStart = html.indexOf('id="console-content"')
-  expect(contentStart).toBeGreaterThan(-1)
-  expect(html.indexOf(`aria-label="${i18n.t('console.aria.sign_out')}"`)).toBeGreaterThan(contentStart)
+  // The account actions sit at the end of the full-width top bar, ahead of the content sheet.
+  const signOut = html.indexOf(`aria-label="${i18n.t('console.aria.sign_out')}"`)
+  expect(signOut).toBeGreaterThan(html.indexOf(`>${i18n.t('console.title')}</h1>`))
+  expect(signOut).toBeLessThan(html.indexOf('</header>'))
+  expect(html.indexOf('id="console-content"')).toBeGreaterThan(signOut)
+  // The navigation toggle starts the content sheet's header, left of the section's name.
+  expect(html.indexOf('data-slot="sidebar-trigger"')).toBeGreaterThan(html.indexOf('id="console-content"'))
   expect(html).not.toContain('Control plane')
   client.clear()
 })

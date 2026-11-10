@@ -154,7 +154,7 @@
   cursor: pointer;
 }
 :where(.ankole-editor-overlay).mention-menu .mention-option[aria-selected='true'] {
-  background: var(--menu-hover);
+  background: var(--layer-hover);
 }
 :where(.ankole-editor-overlay).mention-menu .mention-option-icon {
   display: inline-flex;
@@ -250,7 +250,7 @@
 :where(.ankole-editor-overlay).block-menu .block-type-option:hover,
 :where(.ankole-editor-overlay).block-menu .block-type-option[aria-selected='true'],
 :where(.ankole-editor-overlay).block-menu .block-type-option[data-current='true'] {
-  background: var(--menu-hover);
+  background: var(--layer-hover);
 }
 :where(.ankole-editor-overlay).block-menu .block-type-slot {
   display: inline-flex;
@@ -392,7 +392,7 @@
 }
 :where(.ankole-editor-overlay).selection-toolbar
   [data-slot='button']:is(:hover, [aria-pressed='true'], [data-popup-open]) {
-  background: var(--menu-hover);
+  background: var(--layer-hover);
 }
 :where(.ankole-editor-overlay) .link-form {
   display: grid;
@@ -438,7 +438,7 @@
   cursor: pointer;
 }
 :where(.ankole-editor-overlay) .link-bar-url:hover {
-  background: var(--menu-hover);
+  background: var(--layer-hover);
   color: var(--foreground);
   text-decoration: underline;
   text-underline-offset: 2px;

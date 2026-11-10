@@ -3,7 +3,7 @@ import { pageRoute, listRoute } from './routes'
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 async function pageAction(page: Page, name: string) {
-  await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+  await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
   await page.getByRole('menuitem', { name, exact: true }).click()
 }
 
@@ -128,7 +128,7 @@ test('a document title saves while focused and continues directly into its body'
       expect(gap).toBeLessThan(35)
       await info.attach(`title-body-gap-${viewport.width}`, { body: `${gap}px`, contentType: 'text/plain' })
 
-      const header = page.locator('.pod-page-header')
+      const header = page.locator('.pod-page-actions')
       const presence = header.locator('[data-document-presence]')
       await expect(presence.locator('[data-sync-status=saved]')).toBeVisible()
       const people = presence.getByRole('button', { name: '1 人在线', exact: true })
@@ -554,7 +554,7 @@ test('editors move pages without changing access and retain the destination afte
     await expect(editor.getByRole('dialog', { name: '分享文档', exact: true })).toBeVisible()
     await expect(editor.getByRole('button', { name: '权限设置', exact: true })).toHaveCount(0)
     await editor.keyboard.press('Escape')
-    await editor.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    await editor.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
     await expect(editor.getByRole('menuitem', { name: '移到回收站', exact: true })).toHaveCount(0)
     await editor.getByRole('menuitem', { name: '移动', exact: true }).click()
     const dialog = editor.getByRole('dialog', { name: '移动页面' })
@@ -677,7 +677,9 @@ test('move destinations respect the visible tree and sharing cannot discard a pe
     await choose(owner, '目标位置', '私人页面')
     await expect(dialog).toContainText('单独授权仍然保留')
     await owner.keyboard.press('Escape')
-    await expect(owner.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true })).toBeFocused()
+    await expect(
+      owner.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true })
+    ).toBeFocused()
     await owner.getByRole('button', { name: '分享', exact: true }).click()
     await owner.getByRole('button', { name: '权限设置', exact: true }).click()
     const inherit = owner.getByRole('dialog', { name: '权限设置' }).getByRole('switch')

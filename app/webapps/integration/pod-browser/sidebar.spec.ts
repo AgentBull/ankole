@@ -181,7 +181,7 @@ test('mobile navigation has touch targets and closes when reopening the current 
     await expect(currentPage).toHaveAttribute('aria-current', 'page')
     await expect(
       sidebar.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true })
-    ).toHaveAttribute('title', '新建页面')
+    ).toHaveCount(0)
     for (const targets of [sidebar.locator('.pod-nav-link'), sidebar.locator('.pod-tree-link')]) {
       const heights = await targets.evaluateAll(elements =>
         elements.map(element => element.getBoundingClientRect().height)
@@ -315,26 +315,26 @@ test('desktop sidebar width persists and a collapsed sidebar can be previewed wi
     await page.goto(pageRoute(state.report_id))
     const handle = page.getByRole('separator', { name: '调整侧栏宽度', exact: true })
     const gap = page.locator('[data-slot="sidebar-gap"]')
-    await expect(handle).toHaveAttribute('aria-valuenow', '248')
+    await expect(handle).toHaveAttribute('aria-valuenow', '236')
     const bounds = (await handle.boundingBox())!
     await page.mouse.move(bounds.x + bounds.width / 2, 400)
     await page.mouse.down()
     await page.mouse.move(bounds.x + bounds.width / 2 + 96, 400, { steps: 8 })
     await page.mouse.up()
-    await expect(handle).toHaveAttribute('aria-valuenow', '344')
-    await expect(gap).toHaveCSS('width', '344px')
-    expect(await page.evaluate(() => localStorage.getItem('ankole.pod.sidebar-width'))).toBe('344')
+    await expect(handle).toHaveAttribute('aria-valuenow', '332')
+    await expect(gap).toHaveCSS('width', '332px')
+    expect(await page.evaluate(() => localStorage.getItem('ankole.pod.sidebar-width'))).toBe('332')
 
     await page.reload()
-    await expect(handle).toHaveAttribute('aria-valuenow', '344')
-    await expect(gap).toHaveCSS('width', '344px')
+    await expect(handle).toHaveAttribute('aria-valuenow', '332')
+    await expect(gap).toHaveCSS('width', '332px')
     await handle.focus()
     await handle.press('ArrowRight')
-    await expect(handle).toHaveAttribute('aria-valuenow', '360')
+    await expect(handle).toHaveAttribute('aria-valuenow', '348')
     await handle.press('Home')
-    await expect(handle).toHaveAttribute('aria-valuenow', '248')
-    await expect(gap).toHaveCSS('width', '248px')
-    expect(await page.evaluate(() => localStorage.getItem('ankole.pod.sidebar-width'))).toBe('248')
+    await expect(handle).toHaveAttribute('aria-valuenow', '236')
+    await expect(gap).toHaveCSS('width', '236px')
+    expect(await page.evaluate(() => localStorage.getItem('ankole.pod.sidebar-width'))).toBe('236')
 
     const sidebar = page.locator('[data-slot="sidebar"]')
     await page.getByRole('button', { name: '收起侧栏', exact: true }).click()
@@ -353,7 +353,8 @@ test('desktop sidebar width persists and a collapsed sidebar can be previewed wi
 
     await page.locator('.pod-sidebar-hover-rail').hover()
     await expect(preview).toBeVisible()
-    await preview.getByRole('button', { name: '收起侧栏', exact: true }).click()
+    // The toggle left of the sheet's title pins the previewed sidebar open.
+    await page.getByRole('button', { name: '展开侧栏', exact: true }).click()
     await expect(sidebar).toHaveAttribute('data-state', 'expanded')
     await expect(preview).toHaveCount(0)
     await expect(handle).toBeVisible()

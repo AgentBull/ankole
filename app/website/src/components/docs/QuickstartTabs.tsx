@@ -390,14 +390,14 @@ function FieldList({ fields }: { fields: QuickstartField[] }) {
 
 function CodeBlock({ block, labels }: { block: QuickstartCode; labels: QuickstartLabels }) {
   return (
-    <div className="mt-4 border border-border bg-gray-100 dark:bg-gray-90">
-      <div className="flex items-center justify-between border-b border-gray-80 px-3 py-2 dark:border-gray-80">
-        <span className="font-mono text-[11px] tracking-[0.14em] text-gray-50 uppercase">
+    <div className="mt-4 border border-border bg-gray-100 dark:bg-gray-100">
+      <div className="flex items-center justify-between border-b border-gray-90 px-3 py-2 dark:border-gray-90">
+        <span className="font-mono text-[11px] tracking-[0.14em] text-gray-70 uppercase">
           {block.language ?? 'text'}
         </span>
         <CopyButton inverted itemLabel={block.language ?? 'text'} labels={labels} value={block.code} />
       </div>
-      <pre className="m-0 overflow-x-auto border-0 bg-transparent p-4 text-sm leading-6 text-gray-20">
+      <pre className="m-0 overflow-x-auto border-0 bg-transparent p-4 text-sm leading-6 text-gray-40">
         <code>{block.code}</code>
       </pre>
     </div>
@@ -431,7 +431,7 @@ function CopyButton({
       aria-label={targetLabel ? `${actionLabel}: ${targetLabel}` : actionLabel}
       className={`inline-flex h-7 w-fit shrink-0 cursor-pointer items-center gap-1.5 border px-2 font-mono text-[10px] transition-colors focus-visible:ring-2 focus-visible:outline-none ${
         inverted
-          ? 'border-gray-70 text-gray-30 hover:bg-gray-80 hover:text-white focus-visible:ring-brand-40'
+          ? 'border-gray-90 text-gray-50 hover:bg-gray-90 hover:text-white focus-visible:ring-brand-40'
           : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground focus-visible:ring-ring/50'
       }`}>
       {copied ? (

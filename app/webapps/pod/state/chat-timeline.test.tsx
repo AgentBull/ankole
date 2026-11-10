@@ -683,6 +683,23 @@ test('frozen attachments choose the existing in-chat preview for supported offic
   expect(attachmentPreviewKind('worker.ts', 'video/mp2t')).toBe('text')
 })
 
+test('attachments without a recorded media type preview by extension with the Pod file page formats', () => {
+  expect(attachmentPreviewKind('report.pdf')).toBe('pdf')
+  expect(attachmentPreviewKind('photo.jpg', 'application/octet-stream')).toBe('image')
+  expect(attachmentPreviewKind('logo.svg', 'image/svg+xml')).toBe('image')
+  expect(attachmentPreviewKind('clip.mov')).toBe('video')
+  expect(attachmentPreviewKind('行情.csv')).toBe('table')
+  expect(attachmentPreviewKind('export.tsv', 'text/tab-separated-values')).toBe('table')
+  expect(attachmentPreviewKind('macro.xlsm')).toBe('spreadsheet')
+  expect(attachmentPreviewKind('legacy.xlsb', 'application/vnd.ms-excel.sheet.binary.macroenabled.12')).toBe(
+    'spreadsheet'
+  )
+  expect(attachmentPreviewKind('研报.md', 'text/markdown')).toBe('markdown')
+  expect(attachmentPreviewKind('notes.markdown')).toBe('markdown')
+  expect(attachmentPreviewKind('page.html', 'text/html')).toBe('text')
+  expect(attachmentPreviewKind('proposal.docx')).toBeUndefined()
+})
+
 test('a committed clarification replaces its stream without hiding another Agent', () => {
   const streams: TimelineLiveStream[] = [
     {

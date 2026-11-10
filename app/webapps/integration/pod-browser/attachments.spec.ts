@@ -101,18 +101,21 @@ test('file preparation and an uncertain send retain stable identities through pa
     })
     await composer.getByRole('button', { name: '发送消息', exact: true }).click()
     await expect(panel.getByRole('button', { name: '重试发送', exact: true })).toBeVisible()
-    await expect(composer.getByRole('link', { name: fileLabel('下载', '季度说明.txt') })).toBeVisible()
+    await expect(composer.getByRole('button', { name: fileLabel('预览', '季度说明.txt') })).toBeVisible()
     await panel.getByRole('button', { name: '重试发送', exact: true }).click()
     await expect.poll(() => messageIDs.length).toBe(2)
     expect(messageIDs[1]).toBe(messageIDs[0])
-    await expect(composer.getByRole('link', { name: fileLabel('下载', '季度说明.txt') })).toHaveCount(0)
+    await expect(composer.getByRole('button', { name: fileLabel('预览', '季度说明.txt') })).toHaveCount(0)
     await page.goto(conversationRoute(id!))
     await page.reload()
-    const download = page
+    const card = page
       .getByRole('region', { name: '对话消息', exact: true })
-      .getByRole('link', { name: fileLabel('下载', '季度说明.txt') })
-    await expect(download).toHaveCount(1)
-    const href = (await download.getAttribute('href'))!
+      .getByRole('button', { name: fileLabel('预览', '季度说明.txt') })
+    await expect(card).toHaveCount(1)
+    await card.click()
+    const preview = page.getByRole('dialog', { name: '季度说明.txt', exact: true })
+    await expect(preview.locator('pre')).toHaveText('Original Human file contents')
+    const href = (await preview.getByRole('link', { name: '下载原文件', exact: true }).getAttribute('href'))!
     const contents = await page.evaluate(async href => (await fetch(href, { credentials: 'same-origin' })).text(), href)
     expect(contents).toBe('Original Human file contents')
     const detail = await request(page, `/conversations/${id}`)
@@ -167,19 +170,23 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
     expect(detail.conversation.title).toBe('dropped.txt')
     expect(detail.messages[0].text).toBe('')
     expect(detail.messages[0].attachments).toHaveLength(1)
-    await expect(composer.getByRole('link', { name: fileLabel('下载', 'dropped.txt') })).toHaveCount(0)
+    await expect(composer.getByRole('button', { name: fileLabel('预览', 'dropped.txt') })).toHaveCount(0)
     await expect(page).toHaveURL(url => url.pathname === conversationRoute(id!))
     await page.reload()
-    const download = page
+    const card = page
       .getByRole('region', { name: '对话消息', exact: true })
-      .getByRole('link', { name: fileLabel('下载', 'dropped.txt') })
-    await expect(download).toHaveCount(1)
+      .getByRole('button', { name: fileLabel('预览', 'dropped.txt') })
+    await expect(card).toHaveCount(1)
+    const bounds = await card.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
+    await card.click()
+    const download = page
+      .getByRole('dialog', { name: 'dropped.txt', exact: true })
+      .getByRole('link', { name: '下载原文件', exact: true })
     expect(await page.evaluate(async href => (await fetch(href!)).text(), await download.getAttribute('href'))).toBe(
       'Dropped file body'
     )
-    const bounds = await download.boundingBox()
-    expect(bounds!.x).toBeGreaterThanOrEqual(0)
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
   } finally {
     await removeConversation(page, id)
     page.on('dialog', dialog => dialog.accept())

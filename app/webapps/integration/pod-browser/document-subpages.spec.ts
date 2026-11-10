@@ -46,14 +46,14 @@ test('a leaf Doc hides subpages UI, while a Hub Doc appends a Feishu-style colla
     await page.goto(pageRoute(leafID))
     await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(leafTitle)
     await expect(page.getByText('Decisions from the weekly sync.')).toBeVisible()
-    await expect(page.locator('.pod-page-header').getByRole('button', { name: '子页面' })).toHaveCount(0)
+    await expect(page.locator('.pod-page-actions').getByRole('button', { name: '子页面' })).toHaveCount(0)
     await expect(page.locator('[data-pod-subpages]')).toHaveCount(0)
     expect(childRequests.get(leafID) ?? []).toHaveLength(0)
 
     // An empty Doc offers the subpages directory so editors can create or upload its first child.
     await page.goto(pageRoute(hubID))
     await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(hubTitle)
-    await expect(page.locator('.pod-page-header').getByRole('button', { name: '子页面' })).toHaveCount(0)
+    await expect(page.locator('.pod-page-actions').getByRole('button', { name: '子页面' })).toHaveCount(0)
     const emptyDirectory = page.locator('[data-pod-subpages]')
     await expect(emptyDirectory.getByRole('button', { name: '新建', exact: true })).toBeVisible()
     await expect(emptyDirectory.getByRole('button', { name: '上传', exact: true })).toBeVisible()

@@ -275,7 +275,7 @@ test('knowledge supports whole-page discussions without inline anchors', async (
     await page.goto(state.base_url + pageRoute(state.report_id))
     id = (await create(page, { summary: 'Discussion source' })).page.id
     await page.goto(state.base_url + pageRoute(id))
-    await page.locator('.pod-page-header').getByRole('button', { name: '评论', exact: true }).click()
+    await page.locator('.pod-page-actions').getByRole('button', { name: '评论', exact: true }).click()
     const comments = page.getByRole('complementary', { name: '评论', exact: true })
     await comments.getByRole('textbox', { name: '添加评论…', exact: true }).fill('Please update the shared definition.')
     await comments.getByRole('button', { name: '发送', exact: true }).click()
@@ -343,8 +343,8 @@ test('a manager can enable learning for existing folder content and see its inhe
       title: '供应商复盘',
       xml: '<page><p>Supplier review</p></page>'
     })
-    // Page managers read the learning state on the page header and change it in the header popover.
-    const header = page.locator('.pod-page-header')
+    // Page managers read the learning state among the page actions and change it in their popover.
+    const header = page.locator('.pod-page-actions')
     const learning = page.getByRole('switch', { name: '学习业务事实', exact: true })
     const openLearning = async (label: '学习业务事实' | '学习中') => {
       await header.getByRole('button', { name: label, exact: true }).click()

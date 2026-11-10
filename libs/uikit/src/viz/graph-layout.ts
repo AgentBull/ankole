@@ -90,13 +90,13 @@ const FALLBACK_RAMP_STEPS: Record<
   blue: { 10: '#edf5ff', 30: '#a8caff', 50: '#4a88ff', 60: '#1561ff', 70: '#0140cc', 90: '#001c64' },
   teal: { 10: '#ddfbfc', 30: '#44e2df', 50: '#00a3a0', 60: '#008583', 70: '#006162', 90: '#022c30' },
   purple: { 10: '#f6f1ff', 30: '#d1baff', 50: '#a066ff', 60: '#8838f2', 70: '#6524b8', 90: '#2e1157' },
-  brand: { 10: '#fff0f3', 30: '#ffaeba', 50: '#ff4669', 60: '#e10059', 70: '#990e4d', 90: '#4a0325' },
+  brand: { 10: '#ffeaed', 30: '#ff9aa5', 50: '#ff5468', 60: '#ff4669', 70: '#e72b41', 90: '#a6183a' },
   green: { 10: '#e3fce9', 30: '#76e494', 50: '#24a94f', 60: '#1a8a3c', 70: '#126629', 90: '#052f0e' },
   orange: { 10: '#fff1e6', 30: '#ffb588', 50: '#e26300', 60: '#b94f00', 70: '#883a00', 90: '#3e1b00' },
   cyan: { 10: '#e7f7ff', 30: '#8dd1ff', 50: '#1294eb', 60: '#0077c8', 70: '#005698', 90: '#012749' },
   magenta: { 10: '#ffeff7', 30: '#ffabcd', 50: '#ea468d', 60: '#c9256f', 70: '#97144f', 90: '#4a0524' },
   yellow: { 10: '#fcf5d7', 30: '#f3c11c', 50: '#b28700', 60: '#916d00', 70: '#6b5000', 90: '#302500' },
-  gray: { 10: '#f4f4f2', 30: '#cbcac7', 50: '#87898a', 60: '#636566', 70: '#47494a', 90: '#232526' }
+  gray: { 10: '#fbfbfb', 30: '#f4f4f4', 50: '#d3d3d3', 60: '#b6b6b6', 70: '#929292', 90: '#424242' }
 }
 
 function readToken(styles: CSSStyleDeclaration | null, name: string, fallback: string): string {
@@ -136,16 +136,16 @@ export function resolveCanvasThemePalette(
 
   return {
     isDark,
-    background: readToken(styles, '--background', isDark ? '#18191a' : '#fffefd'),
-    layer01: readToken(styles, '--layer-01', isDark ? '#232526' : '#f4f4f2'),
-    layer02: readToken(styles, '--layer-02', isDark ? '#343637' : '#fffefd'),
-    foreground: readToken(styles, '--foreground', isDark ? '#f4f4f2' : '#18191a'),
-    fgSecondary: readToken(styles, '--fg-secondary', isDark ? '#cbcac7' : '#47494a'),
-    fgTertiary: readToken(styles, '--fg-tertiary', isDark ? '#abaaa7' : '#636566'),
-    border: readToken(styles, '--border', isDark ? '#343637' : '#e5e4e1'),
-    borderStrong: readToken(styles, '--border-strong', '#87898a'),
-    ring: readToken(styles, '--ring', isDark ? '#f4f4f2' : '#18191a'),
-    selection: readToken(styles, '--selection', isDark ? '#213b51' : '#d5e8f4'),
+    background: readToken(styles, '--background', isDark ? '#0b0b0b' : '#ffffff'),
+    layer01: readToken(styles, '--layer-01', isDark ? '#000000' : '#f8f8f8'),
+    layer02: readToken(styles, '--layer-02', isDark ? '#0b0b0b' : '#ffffff'),
+    foreground: readToken(styles, '--foreground', isDark ? '#ffffff' : '#424242'),
+    fgSecondary: readToken(styles, '--fg-secondary', isDark ? '#f8f8f8' : '#5e5e5e'),
+    fgTertiary: readToken(styles, '--fg-tertiary', isDark ? '#d3d3d3' : '#929292'),
+    border: readToken(styles, '--border', isDark ? '#1c1c1e' : '#d3d3d3'),
+    borderStrong: readToken(styles, '--border-strong', '#929292'),
+    ring: readToken(styles, '--ring', isDark ? '#e72b41' : '#ff4669'),
+    selection: readToken(styles, '--selection', isDark ? 'rgb(160 20 28 / 0.26)' : 'rgb(255 154 165 / 0.3)'),
     fontSans: readToken(styles, '--font-family-sans', "'IBMPlexSansCN', 'Helvetica Neue', Arial, sans-serif"),
     fontMono: readToken(styles, '--font-family-mono', "'IBMPlexMonoCN', monospace"),
     ramps

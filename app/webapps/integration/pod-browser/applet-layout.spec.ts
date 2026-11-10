@@ -177,7 +177,7 @@ test('the Applet Page menu shows the running Applet on the whole screen and retu
         }
       })
 
-    await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
     await page.getByRole('menuitem', { name: '全屏显示', exact: true }).click()
     await expect.poll(async () => (await sizes()).fullScreen).toBe(true)
     await expect
@@ -228,7 +228,7 @@ test('an Applet Page renames its title in the header and links the conversation 
     const appletTitle = page.frameLocator('iframe').locator('.applet-page-title')
     await expect(appletTitle).toHaveText('Applet from a conversation')
     await expect(appletTitle).toHaveAttribute('data-embedded', 'false')
-    await header.getByRole('button', { name: '更多操作', exact: true }).click()
+    await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
     await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
     const field = header.getByRole('textbox', { name: /^重命名 / })
     await expect(field).toBeFocused()

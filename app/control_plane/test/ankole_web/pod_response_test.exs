@@ -72,6 +72,35 @@ defmodule AnkoleWeb.PodResponseTest do
     end
   end
 
+  test "a missing or generic recorded type falls back to the type the file name implies", %{
+    object: object
+  } do
+    served = fn name, type, download? ->
+      conn =
+        PodResponse.send_sandboxed_object(
+          Plug.Test.conn(:get, "/file"),
+          object,
+          name,
+          type,
+          download?
+        )
+
+      {get_resp_header(conn, "content-type"), get_resp_header(conn, "content-disposition")}
+    end
+
+    assert {["application/pdf" <> _], ["inline;" <> _]} = served.("report.pdf", nil, false)
+
+    assert {["image/png" <> _], ["inline;" <> _]} =
+             served.("photo.png", "application/octet-stream", false)
+
+    assert {["text/csv" <> _], ["attachment;" <> _]} = served.("数据.csv", "", false)
+    assert {["application/pdf" <> _], ["attachment;" <> _]} = served.("report.pdf", nil, true)
+    assert {["text/plain" <> _], ["inline;" <> _]} = served.("notes.pdf", "text/plain", false)
+
+    assert {["application/octet-stream" <> _], ["attachment;" <> _]} =
+             served.("archive", nil, false)
+  end
+
   test "large responses stream across storage chunks and missing objects fail before 200" do
     bytes = :binary.copy("range", 500_000)
     {:ok, stored} = Files.store(bytes)

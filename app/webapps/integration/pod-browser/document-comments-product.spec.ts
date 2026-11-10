@@ -4,7 +4,7 @@ import { pageRoute } from './routes'
 
 const editor = (page: Page) => page.locator('.pod-document .editor-content')
 const comments = (page: Page) => page.getByRole('complementary', { name: '评论', exact: true })
-const trigger = (page: Page) => page.locator('.pod-page-header').getByRole('button', { name: '评论', exact: true })
+const trigger = (page: Page) => page.locator('.pod-page-actions').getByRole('button', { name: '评论', exact: true })
 
 async function create(page: Page, title: string) {
   await page.goto(state.base_url + pageRoute(state.report_id))

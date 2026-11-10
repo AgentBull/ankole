@@ -52,7 +52,7 @@ function TableRow({ className, onClick, ...props }: React.ComponentProps<'tr'>) 
     <tr
       data-slot="table-row"
       className={cn(
-        'h-8 transition-colors fine-hover:hover:bg-accent has-aria-expanded:bg-accent has-data-row-link:cursor-pointer data-[state=selected]:bg-selection fine-hover:[&:hover_[data-row-link]]:underline',
+        'h-8 transition-colors fine-hover:hover:bg-accent has-aria-expanded:bg-accent has-data-row-link:cursor-pointer data-[state=selected]:selected-surface fine-hover:[&:hover_[data-row-link]]:underline',
         className
       )}
       onClick={event => {
@@ -87,7 +87,7 @@ function TableHead({ className, scope = 'col', ...props }: React.ComponentProps<
       data-slot="table-head"
       scope={scope}
       className={cn(
-        'h-8 border-b border-gray-30 px-3 text-left align-middle text-xs leading-4 font-medium whitespace-nowrap text-muted-foreground dark:border-gray-70 [&:has([role=checkbox])]:pr-0',
+        'h-8 border-b border-gray-50 px-3 text-left align-middle text-xs leading-4 font-medium whitespace-nowrap text-muted-foreground dark:border-gray-90 [&:has([role=checkbox])]:pr-0',
         className
       )}
       {...props}

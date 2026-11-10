@@ -36,7 +36,7 @@ test('history identifies old content, icons, and references and compares it with
     await request(page, `/pages/${id}`, 'PATCH', { icon: '🚀' })
     await expect(page.getByRole('button', { name: '更改图标', exact: true })).toHaveText('🚀')
 
-    await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
     await page.getByRole('menuitem', { name: '版本历史', exact: true }).click()
     const history = page.getByRole('dialog', { name: '版本历史', exact: true })
     await history
@@ -78,7 +78,7 @@ test('history identifies old content, icons, and references and compares it with
 
     await page.route(`**/api/v2/pod/pages/${reference.page.id}`, route => route.abort('failed'))
     await page.reload()
-    await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
     await page.getByRole('menuitem', { name: '版本历史', exact: true }).click()
     await history
       .locator('.pod-document-history-list')
@@ -111,7 +111,7 @@ test('restore refreshes its fence before confirmation and rejects edits made aft
     id = created.page.id
     await page.goto(state.base_url + pageRoute(id))
     const openHistory = async () => {
-      await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+      await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
       await page.getByRole('menuitem', { name: '版本历史', exact: true }).click()
       const history = page.getByRole('dialog', { name: '版本历史', exact: true })
       await history

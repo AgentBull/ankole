@@ -4,7 +4,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useRef, type ClipboardEventHandler, type DragEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ConversationAttachment } from './api'
-import { containsBidi, sanitizeFileName, stripBidi } from '../common/bidi'
+import { containsBidi, stripBidi } from '../common/bidi'
 import { InternalAPIError } from '../common/internal-api-client'
 import { conversationAttachmentURL } from './native-transfers'
 import type { ChatAttachments } from './state/chat-attachments'
@@ -85,25 +85,21 @@ export function ChatAttachmentDrafts({
   return (
     <ul aria-label={t('pod.chat_attachments.files')} className="flex flex-wrap gap-2 px-3 py-2">
       {model.files.value.map(file => (
-        <li key={file.id} className="flex max-w-full items-center gap-2 rounded-control border border-border p-2">
-          <AttachmentPreview name={file.file.name} type={file.file.type} url={file.url} local />
-          <div className="min-w-0 text-xs">
-            <a
-              href={file.url}
-              download={sanitizeFileName(file.file.name)}
-              className="flex max-w-48"
-              title={sanitizeFileName(file.file.name)}
-              aria-label={t('pod.chat_attachments.download', { name: sanitizeFileName(file.file.name) })}>
-              <AttachmentName name={file.file.name} />
-            </a>
-            {!recovery && (
-              <span role={file.state === 'failed' ? 'alert' : 'status'} className="text-fg-tertiary">
-                {t(
-                  `pod.chat_attachments.${file.error instanceof InternalAPIError && file.error.status === 413 ? 'too_large' : file.state === 'failed' ? 'failed' : file.state === 'uploading' ? 'uploading' : 'ready'}`
-                )}
+        <li key={file.id} className="flex max-w-full items-center gap-1 rounded-control border border-border pr-1">
+          <AttachmentPreview name={file.file.name} type={file.file.type} size={file.file.size} url={file.url} local>
+            <span className="grid min-w-0 text-xs">
+              <span className="flex max-w-48">
+                <AttachmentName name={file.file.name} />
               </span>
-            )}
-          </div>
+              {!recovery && (
+                <span role={file.state === 'failed' ? 'alert' : 'status'} className="text-fg-tertiary">
+                  {t(
+                    `pod.chat_attachments.${file.error instanceof InternalAPIError && file.error.status === 413 ? 'too_large' : file.state === 'failed' ? 'failed' : file.state === 'uploading' ? 'uploading' : 'ready'}`
+                  )}
+                </span>
+              )}
+            </span>
+          </AttachmentPreview>
           {!recovery && (
             <>
               {file.state === 'failed' && (
@@ -183,31 +179,24 @@ export function MessageAttachments({
   if (!attachments.length) return null
   return (
     <ul aria-label={t('pod.chat_attachments.files')} className="flex flex-wrap gap-2">
-      {attachments.map(attachment => {
-        const url = conversationAttachmentURL(conversationID, messageID, attachment.position)
-        return (
-          <li
-            key={attachment.attachment_id ?? attachment.path}
-            className="flex max-w-full items-center gap-2 rounded-control border border-border p-2">
-            <AttachmentPreview
-              name={attachment.name}
-              type={attachment.content_type ?? attachment.mime_type ?? undefined}
-              url={url}
-              downloadURL={conversationAttachmentURL(conversationID, messageID, attachment.position, true)}
-              conversationID={conversationID}
-            />
-            <a
-              href={conversationAttachmentURL(conversationID, messageID, attachment.position, true)}
-              className="flex min-w-0 max-w-64 text-xs"
-              download={sanitizeFileName(attachment.name)}
-              title={sanitizeFileName(attachment.name)}
-              aria-label={t('pod.chat_attachments.download', { name: sanitizeFileName(attachment.name) })}>
+      {attachments.map(attachment => (
+        <li
+          key={attachment.attachment_id ?? attachment.path}
+          className="flex max-w-full items-center gap-1 rounded-control border border-border pr-1">
+          <AttachmentPreview
+            name={attachment.name}
+            type={attachment.content_type ?? attachment.mime_type ?? undefined}
+            size={attachment.size}
+            url={conversationAttachmentURL(conversationID, messageID, attachment.position)}
+            downloadURL={conversationAttachmentURL(conversationID, messageID, attachment.position, true)}
+            conversationID={conversationID}>
+            <span className="flex min-w-0 max-w-64 text-xs">
               <AttachmentName name={attachment.name} />
-            </a>
-            {renderAction?.(attachment)}
-          </li>
-        )
-      })}
+            </span>
+          </AttachmentPreview>
+          {renderAction?.(attachment)}
+        </li>
+      ))}
     </ul>
   )
 }

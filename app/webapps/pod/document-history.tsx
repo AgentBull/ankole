@@ -138,7 +138,7 @@ export function DocumentHistory({
                       <Button
                         size="sm"
                         variant="outline"
-                        className="aria-pressed:bg-selection"
+                        className="aria-pressed:selected-surface"
                         aria-pressed={compare}
                         onClick={() => setCompare(value => !value)}>
                         {t('pod.document.compare_current')}
@@ -176,7 +176,7 @@ export function DocumentHistory({
               </p>
               <Button
                 variant="ghost"
-                className="h-auto flex-col items-start whitespace-normal text-start aria-pressed:bg-selection"
+                className="h-auto flex-col items-start whitespace-normal text-start aria-pressed:selected-surface"
                 aria-pressed={selected === 'current'}
                 disabled={denied || prepareRestore.isPending || restore.isPending}
                 onClick={() => {
@@ -193,7 +193,7 @@ export function DocumentHistory({
                 <Button
                   key={item.id}
                   variant="ghost"
-                  className="h-auto flex-col items-start whitespace-normal text-start aria-pressed:bg-selection"
+                  className="h-auto flex-col items-start whitespace-normal text-start aria-pressed:selected-surface"
                   aria-pressed={entryID === item.id}
                   disabled={prepareRestore.isPending || restore.isPending}
                   onClick={() => {

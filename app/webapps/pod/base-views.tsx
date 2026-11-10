@@ -595,6 +595,10 @@ function KanbanView(props: ViewProps) {
       })
     }
   }
+  // Every option keeps its column, even when empty, so a card can be dragged into it; the Ungrouped column shows
+  // only while some records have no value.
+  const ungrouped = groups.get('null')
+  if (ungrouped && ungrouped.count <= 0) groups.delete('null')
   const columns = [...groups.entries()]
   const start = Math.min(offset, Math.max(0, columns.length - 1))
   return (
