@@ -56,3 +56,4 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v5
 # measure warm run A
+# measure warm run B
