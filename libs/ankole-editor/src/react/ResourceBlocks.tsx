@@ -32,6 +32,7 @@ import {
   convertPageEmbedToMention,
   convertResourceBlockView,
   selectBlockAt,
+  switchBlockView,
   subscribeLinkMetadata,
   unfurlEmbed
 } from '../editor/link-views'
@@ -274,7 +275,17 @@ export function MediaResourceBlock({
           ctrl.setViewMenuOpen(open)
           if (open) ctrl.clearHoverTimer()
         }}
-        onSelectView={value => updateMedia({ view: value })}
+        onSelectView={value => {
+          const target = container.isConnected ? ctrl.editor.nodeFromDOM(container) : null
+          if (!target || ctrl.editor.state.readOnly) return
+          switchBlockView(
+            ctrl.editor,
+            target.pos,
+            resourceChanges(target.node, target.pos, { view: value }),
+            'resource.configure'
+          )
+          ctrl.editor.focus()
+        }}
         onReload={() => setReloadKey(current => current + 1)}
         onEdit={ctrl.startEditing}
         onPointerEnter={() => {

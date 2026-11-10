@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.0.0-alpha.101 (2026-11-10)
+
+- Leave the caret on the line after the block when you switch a page mention
+  to the embed view, a link to the card or preview view, or a web embed or
+  media block between views, instead of selecting the block. Typing and IME
+  input continue below it, and when no text follows the block the switch adds
+  an empty paragraph there in the same undo step.
+- Show a selected Applet, Base, or other Pod page embed with a ring around the
+  whole block. The selection fill used to tint only the embed's title row once
+  the page content loaded. Mermaid diagrams, tables, and dividers use the same
+  ring, and web previews, web cards, and media show their highlighted border in
+  every block selection, not only when they are selected alone.
+- Align the Brain knowledge graph toolbar: the search field, category select,
+  layout switcher, view toggles, and zoom buttons share one 32 px height, so
+  their edges and labels line up.
+
 ## Version 2.0.0-alpha.100 (2026-11-10)
 
 - Internal changes only.

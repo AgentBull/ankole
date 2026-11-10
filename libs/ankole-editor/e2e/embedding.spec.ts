@@ -379,6 +379,17 @@ test('describePageLink hides raw ankole:page URIs, embeddable page mentions togg
   await page.getByRole('menuitem', { name: '嵌入视图', exact: true }).click()
   await expect(panel.locator('.embed code')).toHaveText('019a2b00-0000-7000-8000-000000000102')
   await expect(output).toContainText('<embed ref="019a2b00-0000-7000-8000-000000000102" />')
+  // The switch leaves the caret on a new line after the embed instead of selecting it, so typing continues below.
+  await expect(panel.locator('.editor-selected-block')).toHaveCount(0)
+  await page.keyboard.insertText('After embed')
+  await expect(output).toContainText(/<embed ref="019a2b00-0000-7000-8000-000000000102" \/>\s+After embed/)
+  // The host content covers most of a selected embed, so the selection is a ring around the block rather than a
+  // fill that would show only in the gaps of that content.
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('ArrowUp')
+  const selectedEmbed = panel.locator('.editor-selected-block:has(> .embed)')
+  await expect(selectedEmbed).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(selectedEmbed).toHaveCSS('outline-style', 'solid')
 
   await panel.getByRole('button', { name: '切换为提及视图', exact: true }).click()
   await expect(panel.locator('[data-mention-page="019a2b00-0000-7000-8000-000000000102"]')).toHaveCount(1)

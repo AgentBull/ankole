@@ -14,7 +14,10 @@
     border-color 120ms ease,
     box-shadow 120ms ease;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .resource-block[data-selected='true'] {
+/* A web embed or media block covers the selection fill with its own surface, so every block selection that
+   includes it, not only a single one, shows on the block border. */
+:where(.ankole-editor, .ankole-editor-overlay) .resource-block[data-selected='true'],
+.ankole-editor .editor-content .editor-selected-block > .editor-resource .resource-block {
   border-color: var(--primary);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
 }

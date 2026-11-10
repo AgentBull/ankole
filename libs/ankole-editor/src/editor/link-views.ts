@@ -7,7 +7,7 @@
  *  - `card`: block `<embed href="url" view="card" title="..." description="..." image="..." />`
  *  - `preview`: block `<embed href="url" title="..." />`
  */
-import { Leaf, Node, Plot, Token } from '../core/doc'
+import { Leaf, Node, Plot, Token, type ChangeSet } from '../core/doc'
 import { Wordgard } from '../core/editor'
 import { GardSelection, Transaction, type GardState } from '../core/state'
 import * as T from '../core/types'
@@ -179,6 +179,35 @@ export function selectBlockAt(doc: Plot.Doc, pos: number): GardSelection {
   )
 }
 
+/**
+ * A view switch leaves a text caret on the line after the converted block: at the start of the text block that
+ * follows it, or in an empty paragraph that the switch adds there. A caret between blocks has no place in the DOM,
+ * so the browser would move it into another block when focus returns from the view menu or an IME composition
+ * starts.
+ */
+function caretAfterBlock(state: GardState, pos: number): Transaction.Spec {
+  const unit = unitAt(state.doc, pos, 1)
+  const after = unit ? unit.after : Math.max(0, Math.min(pos, state.doc.length))
+  const next = state.doc.nodeAt(after)
+  if (next?.isPlot && next.isTextblock) return { selection: GardSelection.cursor(after + 1) }
+  return { changes: { from: after, insert: [T.Paragraph.create()] }, selection: GardSelection.cursor(after + 1) }
+}
+
+/** Apply the `changes` that switch the view of the block at `pos` and leave the caret after it, as one undo step. */
+export function switchBlockView(
+  editor: Wordgard,
+  pos: number,
+  changes: ChangeSet.Spec[],
+  userEvent = 'embed.configure'
+) {
+  const { state } = editor
+  const spec = changes.length
+    ? compose(state, { changes }, next => caretAfterBlock(next, pos))
+    : caretAfterBlock(state, pos)
+  if (spec.changes) dispatchStep(editor, { ...spec, userEvent })
+  else editor.dispatch({ ...spec, userEvent: 'select' })
+}
+
 export function replaceInlineRangeWithBlock(
   editor: Wordgard,
   range: { from: number; to: number },
@@ -195,7 +224,7 @@ export function replaceInlineRangeWithBlock(
   while (delTo < textblock.end && isWhitespaceOnly(state.doc, range.to, delTo + 1)) delTo++
 
   let insertedAt = 0
-  const composed = compose(state, { changes: { from: delFrom, to: delTo } }, afterDelete => {
+  const inserted = compose(state, { changes: { from: delFrom, to: delTo } }, afterDelete => {
     const tb = afterDelete.doc.resolve(delFrom).textblockParent
     if (
       tb &&
@@ -206,18 +235,13 @@ export function replaceInlineRangeWithBlock(
       !Attrs.isInSet(tb.node.marks)
     ) {
       insertedAt = tb.before
-      return {
-        changes: { from: tb.before, to: tb.after, insert: [blockNode] },
-        selection: cx => selectBlockAt(cx.doc, tb.before)
-      }
+      return { changes: { from: tb.before, to: tb.after, insert: [blockNode] } }
     }
     const { changes, at } = splitInsert(afterDelete.doc, delFrom, [blockNode], false)
     insertedAt = at
-    return {
-      changes,
-      selection: cx => selectBlockAt(cx.doc, at)
-    }
+    return { changes }
   })
+  const composed = compose(state, inserted, withBlock => caretAfterBlock(withBlock, insertedAt))
 
   dispatchStep(editor, { ...composed, userEvent: 'block.insert' })
   editor.focus()
@@ -591,16 +615,7 @@ export async function convertResourceBlockView(
       ...(!embedAttrs.description && cached?.description ? { description: cached.description } : {}),
       ...(!embedAttrs.image && cached?.image ? { image: cached.image } : {})
     }
-    const changes = embedChanges(node, pos, patch)
-    if (changes.length) {
-      dispatchStep(editor, {
-        changes,
-        selection: cx => selectBlockAt(cx.doc, pos),
-        userEvent: 'embed.configure'
-      })
-    } else {
-      editor.dispatch({ selection: selectBlockAt(state.doc, pos), userEvent: 'select.block' })
-    }
+    switchBlockView(editor, pos, embedChanges(node, pos, patch))
     editor.focus()
     const hasTitle = Boolean(embedAttrs.title || knownTitle)
     const hasBody = Boolean(embedAttrs.description || cached?.description || embedAttrs.image || cached?.image)
@@ -613,16 +628,7 @@ export async function convertResourceBlockView(
     view: undefined,
     ...(!embedAttrs.title && knownTitle ? { title: knownTitle } : {})
   }
-  const changes = embedChanges(node, pos, patch)
-  if (changes.length) {
-    dispatchStep(editor, {
-      changes,
-      selection: cx => selectBlockAt(cx.doc, pos),
-      userEvent: 'embed.configure'
-    })
-  } else {
-    editor.dispatch({ selection: selectBlockAt(state.doc, pos), userEvent: 'select.block' })
-  }
+  switchBlockView(editor, pos, embedChanges(node, pos, patch))
   editor.focus()
   if (!embedAttrs.title && !knownTitle) void unfurlEmbed(editor, url, pos)
   return true
