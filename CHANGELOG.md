@@ -1,5 +1,25 @@
 # Changelog
 
+## Version 2.0.0-alpha.103 (2026-11-10)
+
+- Speed up repository checks. The control-plane checks run as two parallel
+  jobs: static checks compile `Ankole.Kernel` without its crate
+  (`ANKOLE_KERNEL_SKIP_NIF=1`) and need no Rust toolchain, and the
+  generated-contract checks restore the kernel NIF from a cache keyed on the
+  kernel's inputs. `mix ankole.toolkits` formats the generated contracts in one
+  `oxfmt` run instead of one per file, and its check compares JSON contracts by
+  value without formatting them. Torque uses its precompiled NIF in these
+  checks.
+- Skip the repository checks for documentation-only changes. The
+  `Repository checks passed` job always reports a result, so branch protection
+  can require it. Pull requests restore the caches that `main` saves and no
+  longer save their own copies.
+- Build the runtime images while the repository checks run on `main`; the
+  immutable control-plane, Worker, and Function Runtime tags still wait for the
+  checks. The control-plane and Worker images declare the per-release build
+  arguments after their package layers, so a release no longer rebuilds those
+  layers.
+
 ## Version 2.0.0-alpha.102 (2026-11-10)
 
 - Fix the arm64 control-plane image build, which failed with `revision ... not

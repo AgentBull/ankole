@@ -289,9 +289,6 @@ FROM ${RUNNER_IMAGE}
 WORKDIR /app
 
 ARG ANKOLE_EDITION=foss
-ARG ANKOLE_VERSION=development
-ARG ANKOLE_RELEASE_REVISION=development
-ARG ANKOLE_AGENT_COMPUTER_IMAGE=""
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
@@ -334,6 +331,12 @@ ENV LC_ALL=en_US.UTF-8
 ENV MIX_ENV=prod
 ENV PHX_SERVER=true
 ENV PORT=4000
+
+# Each release sets these arguments. Every RUN after an ARG sees its value, so a RUN
+# above this point would miss the layer cache on every release.
+ARG ANKOLE_VERSION=development
+ARG ANKOLE_RELEASE_REVISION=development
+ARG ANKOLE_AGENT_COMPUTER_IMAGE=""
 ENV ANKOLE_VERSION=${ANKOLE_VERSION}
 ENV ANKOLE_RELEASE_REVISION=${ANKOLE_RELEASE_REVISION}
 ENV ANKOLE_AGENT_COMPUTER_IMAGE=${ANKOLE_AGENT_COMPUTER_IMAGE}

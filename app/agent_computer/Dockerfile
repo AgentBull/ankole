@@ -211,7 +211,6 @@ ARG TYPST_VERSION
 ARG KUBECTL_VERSION
 ARG AWS_CLI_VERSION
 ARG TARGETARCH
-ARG ANKOLE_RELEASE_REVISION=development
 
 WORKDIR /repo
 
@@ -346,6 +345,9 @@ RUN set -eux; \
 WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
+# Each release sets this argument. Every RUN after an ARG sees it, so declaring
+# it above the package and tool layers would rebuild them on every release.
+ARG ANKOLE_RELEASE_REVISION=development
 ENV ANKOLE_RELEASE_REVISION=${ANKOLE_RELEASE_REVISION}
 ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 ENV BASH_ENV=/etc/profile.d/ankole-agent-computer.sh

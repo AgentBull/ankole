@@ -1,10 +1,10 @@
 name: Publish RuntimeFabric image pair
 
 on:
-  # Every push to main runs static repository checks and the release gate in
-  # this single workflow so the queued image and GitHub Release jobs are visible
-  # immediately on the commit. Documentation-only pushes still run static checks
-  # while `release_gate` skips image builds and release publication.
+  # Every push to main runs the repository checks and the release gate in this
+  # single workflow so the queued image and GitHub Release jobs are visible
+  # immediately on the commit. A documentation-only push skips the checks, and
+  # `release_gate` skips image builds and release publication.
   push:
     branches: [main]
   workflow_dispatch:
@@ -13,6 +13,9 @@ permissions:
   contents: read
   packages: write
 
+# Releases run one at a time. A running release finishes, and a newer push
+# replaces a release that is still waiting, so consecutive merges publish only
+# the newest pending commit.
 concurrency:
   group: runtime-images-${{ github.ref }}
   cancel-in-progress: false
@@ -32,6 +35,7 @@ jobs:
     uses: ./.github/workflows/checks.yml
     permissions:
       contents: read
+      pull-requests: read
 
   release_gate:
     name: Admit the checked revision
@@ -97,12 +101,14 @@ jobs:
           echo "Only documentation changed since ${release_tag}; there is nothing to release"
           echo "admitted=false" >> "${GITHUB_OUTPUT}"
 
+  # Image builds run alongside `checks` and push only staging tags. The jobs
+  # that publish the control-plane, worker, and function-runtime tags wait for
+  # `checks` to pass. The OS base tag does not wait: the worker build needs its
+  # digest, and Dockerfile.base alone determines it.
   inspect_existing:
     name: Inspect immutable release tags
-    needs:
-      - checks
-      - release_gate
-    if: ${{ needs.checks.result == 'success' && needs.release_gate.outputs.admitted == 'true' }}
+    needs: release_gate
+    if: ${{ needs.release_gate.outputs.admitted == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       base_exists: ${{ steps.inspect.outputs.base_exists }}
@@ -158,9 +164,6 @@ jobs:
           fi
 
           echo "value=${protocol_version}" >> "${GITHUB_OUTPUT}"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -281,8 +284,12 @@ jobs:
         with:
           ref: ${{ env.RELEASE_REVISION }}
 
+      # The runner is discarded after the job, so removing the builder only
+      # adds time.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          cleanup: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -317,9 +324,6 @@ jobs:
       digest: ${{ steps.resolve.outputs.digest }}
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -415,8 +419,12 @@ jobs:
         with:
           ref: ${{ env.RELEASE_REVISION }}
 
+      # The runner is discarded after the job, so removing the builder only
+      # adds time.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          cleanup: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -449,15 +457,13 @@ jobs:
   publish_control_plane:
     name: Publish immutable control-plane image
     needs:
+      - checks
       - inspect_existing
       - build_control_plane
-    if: ${{ always() && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.control_plane_exists == 'true' || needs.build_control_plane.result == 'success') }}
+    if: ${{ always() && needs.checks.result == 'success' && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.control_plane_exists == 'true' || needs.build_control_plane.result == 'success') }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -501,8 +507,12 @@ jobs:
         with:
           ref: ${{ env.RELEASE_REVISION }}
 
+      # The runner is discarded after the job, so removing the builder only
+      # adds time.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          cleanup: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -534,15 +544,13 @@ jobs:
   publish_function_runtime:
     name: Publish immutable function-runtime image
     needs:
+      - checks
       - inspect_existing
       - build_function_runtime
-    if: ${{ always() && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.function_runtime_exists == 'true' || needs.build_function_runtime.result == 'success') }}
+    if: ${{ always() && needs.checks.result == 'success' && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.function_runtime_exists == 'true' || needs.build_function_runtime.result == 'success') }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -589,8 +597,12 @@ jobs:
         with:
           ref: ${{ env.RELEASE_REVISION }}
 
+      # The runner is discarded after the job, so removing the builder only
+      # adds time.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          cleanup: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -622,15 +634,13 @@ jobs:
   publish_worker:
     name: Publish immutable Agent Computer worker image
     needs:
+      - checks
       - inspect_existing
       - build_worker
-    if: ${{ always() && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.worker_exists == 'true' || needs.build_worker.result == 'success') }}
+    if: ${{ always() && needs.checks.result == 'success' && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.worker_exists == 'true' || needs.build_worker.result == 'success') }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -674,9 +684,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -772,9 +779,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v4

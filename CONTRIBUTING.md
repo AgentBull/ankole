@@ -579,12 +579,15 @@ Use `kit --help` to discover database, service, generation, worker-test, and ana
 
 Start with the targeted checks that cover the area you changed—failures are much faster to diagnose when isolated from unrelated worktree activity.
 
-On pull requests, the `Repository checks` GitHub Actions workflow runs three static-verification jobs against the FOSS edition:
+On pull requests, the `Repository checks` GitHub Actions workflow runs four static-verification jobs against the FOSS edition in parallel:
 - **`bun-static`** — `oxlint`, `oxfmt`, workspace dependency/unused-export analysis, and TypeScript checks
 - **`kernel-lint`** — `rustfmt`, `clippy` across every Cargo feature combination, and Elixir formatting
-- **`control-plane-lint`** — Elixir formatting, `mix compile --warnings-as-errors`, Credo, compile-connected cycle checks, Plugin dependency boundaries, and OpenAPI / generated SDK drift checks
+- **`control-plane-static`** — Elixir formatting, `mix compile --warnings-as-errors`, Credo, compile-connected cycle checks, and Plugin dependency boundaries. It sets `ANKOLE_KERNEL_SKIP_NIF=1`, which compiles `Ankole.Kernel` without building its crate, so the job needs no Rust toolchain; `kernel-lint` covers the NIF code.
+- **`control-plane-contracts`** — OpenAPI, connector toolkit, and generated SDK drift checks. Mix configuration loads the kernel NIF, so this job restores the library from a cache keyed on every `app/kernel` input and builds it only when the kernel changed.
 
-On pushes to `main`, `Publish RuntimeFabric image pair` calls `Repository checks` directly and, once all three static checks and the changelog release gate pass, builds, verifies, and publishes the runtime images and GitHub Release in the same workflow run.
+A pull request that changes only documentation (root Markdown files, `docs/`, and `README`, `SPEC`, `AGENTS`, `CLAUDE`, or `CHANGELOG` Markdown files) skips these jobs. The `Repository checks passed` job always runs and fails when any check failed, so branch protection should require that job rather than the individual checks. A new push to a pull request cancels its running checks. Pull requests restore the caches that `main` saves and do not save their own.
+
+On pushes to `main`, `Publish RuntimeFabric image pair` calls `Repository checks` directly and builds the runtime images alongside it. Once the static checks and the changelog release gate pass, it publishes the immutable images and the GitHub Release in the same workflow run. Releases run one at a time: a running release finishes, and a newer push replaces a release that is still waiting, so consecutive merges publish only the newest pending commit.
 
 | Changed area | Recommended initial checks |
 | --- | --- |
@@ -1103,7 +1106,7 @@ Bump `PATCH` by default. Bump `MINOR` (resetting `PATCH` to `0`) when a release 
 
 ### Runtime image releases
 
-On every push to `main`, `Publish RuntimeFabric image pair` runs `Repository checks` alongside the changelog release gate; when those checks pass and changes since the previous release go beyond documentation, the workflow reads the top version from `CHANGELOG.md`, builds and verifies the paired control-plane, Worker, and Function Runtime images, pushes immutable image tags, and creates the matching `vVERSION` GitHub Release using that exact changelog section (`alpha`/`beta` move the `canary` tag as pre-releases; `rc`/stable versions move `main-latest` as full releases). The workflow fails hard rather than reusing a version number, overwriting an existing image tag digest, or publishing release notes that diverge from `CHANGELOG.md`.
+On every push to `main`, `Publish RuntimeFabric image pair` runs `Repository checks` alongside the changelog release gate; when changes since the previous release go beyond documentation, the workflow reads the top version from `CHANGELOG.md`, builds the paired control-plane, Worker, and Function Runtime images while the checks run, and once the checks pass it verifies the images, pushes immutable image tags, and creates the matching `vVERSION` GitHub Release using that exact changelog section (`alpha`/`beta` move the `canary` tag as pre-releases; `rc`/stable versions move `main-latest` as full releases). The workflow fails hard rather than reusing a version number, overwriting an existing image tag digest, or publishing release notes that diverge from `CHANGELOG.md`.
 
 That same workflow publishes `ghcr.io/agentbull/ankole-agent-os-base:REVISION`, reusing the published multi-platform manifest whenever `app/agent_computer/Dockerfile.base` and its patch inputs match an existing recipe and building `Dockerfile.base` only when that recipe changes. Local Worker builds pull the prebuilt base image pinned in `app/agent_computer/base-image.lock` whenever `Dockerfile.base` matches that pinned commit, falling back to a local build when `Dockerfile.base` has changed. Because CI publishes the new base image only *after* a `Dockerfile.base` change lands on `main`, a commit editing `Dockerfile.base` cannot update `base-image.lock` in the same commit; once CI publishes the new base image, run `bun run kit pin-base-image` (which verifies that the target commit is an ancestor of `HEAD` with an identical `Dockerfile.base` and a published image) and commit the updated lockfile. Note that Codex, MCPorter, OfficeCLI, Typst, `kubectl`, and AWS CLI are installed in the outer Worker Dockerfile, so bumping their versions does not invalidate `Dockerfile.base`.
 

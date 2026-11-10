@@ -94,9 +94,20 @@ defmodule Ankole.Kernel do
                  end
                )
 
-  Mix.shell().info("Building Ankole.Kernel NIF in #{@rustler_mode} mode")
+  # Static checks such as `mix credo` and `mix xref` read compiled modules and
+  # never load native code. With `ANKOLE_KERNEL_SKIP_NIF=1`, Mix compiles this
+  # module without building the crate, so those checks need no Rust toolchain.
+  # Calls into the NIF then fail because no library exists to load.
+  @skip_nif System.get_env("ANKOLE_KERNEL_SKIP_NIF", "") in ~w(1 true)
+
+  if @skip_nif do
+    Mix.shell().info("Skipping the Ankole.Kernel NIF build because ANKOLE_KERNEL_SKIP_NIF is set")
+  else
+    Mix.shell().info("Building Ankole.Kernel NIF in #{@rustler_mode} mode")
+  end
 
   use Rustler,
+    skip_compilation?: @skip_nif,
     otp_app: :ankole_kernel,
     crate: "ankole_kernel",
     # Rustler compares this path verbatim when excluding target artifacts from
