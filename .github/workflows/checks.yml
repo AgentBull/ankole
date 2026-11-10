@@ -110,11 +110,14 @@ jobs:
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
-      # Protox runs protoc when it compiles `Ankole.RuntimeFabric.Proto`.
-      - uses: arduino/setup-protoc@v3
-        with:
-          version: '21.12'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # Protox runs protoc when it compiles `Ankole.RuntimeFabric.Proto`. The
+      # pinned release archive downloads in about a second.
+      - name: Install protoc
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
       - uses: actions/cache/restore@v6
         id: mix-cache
         with:
@@ -161,10 +164,12 @@ jobs:
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
-      - uses: arduino/setup-protoc@v3
-        with:
-          version: '21.12'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile
       - uses: actions/cache/restore@v6
         id: nif-cache
