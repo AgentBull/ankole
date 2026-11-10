@@ -60,8 +60,12 @@ COPY app/kernel ./app/kernel
 
 WORKDIR /repo/app/kernel
 
-RUN --mount=type=cache,target=/root/.cargo/git \
-  --mount=type=cache,target=/root/.cargo/registry \
+# This stage runs in parallel with `build`, whose steps share the default Cargo
+# caches. Cargo locks those caches only within one container, so two stages
+# that fetch the same git dependency at once corrupt each other's clone. The
+# wasm build keeps its own Cargo caches.
+RUN --mount=type=cache,id=ankole-cp-kernel-wasm-cargo-git-${TARGETARCH},target=/root/.cargo/git \
+  --mount=type=cache,id=ankole-cp-kernel-wasm-cargo-registry-${TARGETARCH},target=/root/.cargo/registry \
   --mount=type=cache,id=ankole-cp-kernel-wasm-${TARGETARCH},target=/repo/app/kernel/target \
   bun run build:wasm
 
