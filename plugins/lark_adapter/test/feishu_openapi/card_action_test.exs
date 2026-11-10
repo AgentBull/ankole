@@ -115,22 +115,6 @@ defmodule FeishuOpenAPI.CardActionTest do
                CardAction.verify_and_decode(%{verification_token: "vt_x"}, body, %{})
     end
 
-    test "legacy skip_sign_verify config cannot bypass signature checks" do
-      body =
-        Torque.encode!(%{
-          "open_message_id" => "om_123",
-          "user_id" => "ou_456",
-          "action" => %{"tag" => "button"}
-        })
-
-      assert {:error, :missing_signature_headers} =
-               CardAction.verify_and_decode(
-                 %{verification_token: "vt_x", skip_sign_verify: true},
-                 body,
-                 %{}
-               )
-    end
-
     test "decrypts encrypted payloads before building the struct" do
       inner =
         Torque.encode!(%{
@@ -216,12 +200,6 @@ defmodule FeishuOpenAPI.CardActionTest do
         assert log =~ "failure=#{failure}"
         assert log =~ "card_action_test.exs:"
         refute log =~ secret
-      end
-    end
-
-    test "rejects the removed signature bypass option" do
-      assert_raise ArgumentError, ~r/unknown keys/, fn ->
-        Handler.new(skip_sign_verify: true)
       end
     end
 

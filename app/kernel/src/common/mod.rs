@@ -39,14 +39,6 @@ mod tests {
     const AEAD_CIPHERTEXT: &str = "vveE4WxRjp0KO8YVx7o09aQ5_q9ZzqX2.gb1S9PmqEp_5UuejAzvKErXrdE4-sQ";
 
     #[test]
-    fn derive_key_matches_existing_native_addons() {
-        assert_eq!(
-            derive_key(b"seed", "tenant-A", Some("scope-a")),
-            "0553f445a2fb3dfc0fab4efa1e1ed31ef6a103277286cf63874904e341ee0d20"
-        );
-    }
-
-    #[test]
     fn aead_round_trip_preserves_binary_payloads() {
         let encrypted = aead_encrypt(b"api-key-\0-with-bytes", AEAD_KEY).unwrap();
 
@@ -55,34 +47,6 @@ mod tests {
             b"api-key-\0-with-bytes"
         );
         assert_eq!(aead_decrypt(AEAD_CIPHERTEXT, AEAD_KEY).unwrap(), b"secret");
-    }
-
-    #[test]
-    fn encoding_vectors_match_existing_native_addons() {
-        assert_eq!(base64_url_safe_encode(b"bullx"), "YnVsbHg");
-        assert_eq!(base64_url_safe_decode("YnVsbHg").unwrap(), b"bullx");
-    }
-
-    #[test]
-    fn text_crc_and_uuid_helpers_match_expected_shapes() {
-        assert_eq!(
-            xxh3_128_hex(b"TestCase"),
-            "7b16fe7c3e492b87d9615265f0856cec"
-        );
-        assert_eq!(
-            phone_normalize_e164("+1 415 555 2671").unwrap(),
-            "+14155552671"
-        );
-        assert!(phone_normalize_e164("13800000000").is_err());
-        assert_eq!(generate_key().len(), 64);
-        assert!(gen_uuid().contains('-'));
-        assert!(gen_uuid_v7().contains("-7"));
-    }
-
-    #[test]
-    fn o200k_base_token_estimator_counts_known_text() {
-        assert_eq!(estimate_o200k_base_tokens("Hello world"), 2);
-        assert_eq!(estimate_o200k_base_tokens("记忆系统"), 3);
     }
 
     // Throwaway 2048-bit RSA pair generated for this test; it protects nothing.

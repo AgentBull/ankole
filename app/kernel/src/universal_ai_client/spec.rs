@@ -1269,15 +1269,4 @@ mod transport_tests {
         .unwrap();
         assert_eq!(transport.proxy.as_deref(), Some("http://proxy.test:8080"));
     }
-
-    #[cfg(feature = "test-ca")]
-    #[test]
-    fn ca_cert_pem_is_deserialized_when_test_ca_feature_is_enabled() {
-        let transport: TransportSpec = serde_json::from_str(
-            r#"{"proxy":"http://proxy.test:8080","ca_cert_pem":"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"}"#,
-        )
-        .unwrap();
-        assert_eq!(transport.proxy.as_deref(), Some("http://proxy.test:8080"));
-        assert!(transport.ca_cert_pem.is_some());
-    }
 }

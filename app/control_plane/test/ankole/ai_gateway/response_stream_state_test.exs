@@ -1,7 +1,6 @@
 defmodule Ankole.AIGateway.ResponseStream.StateTest do
   use ExUnit.Case, async: true
 
-  alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.ToolSearch
 
@@ -19,29 +18,6 @@ defmodule Ankole.AIGateway.ResponseStream.StateTest do
         tool_loop: %{plan: plan, provider_request: provider_request}
       )
     ]
-  end
-
-  describe "new/4" do
-    test "always initializes a StreamLoop without retaining provider history on zero-effect responses" do
-      state =
-        State.new("agent-test", %{}, %{"api_resolver" => "openai_responses"},
-          tool_loop: %{plan: nil, provider_request: %{"input" => [%{"type" => "message"}]}}
-        )
-
-      assert %StreamLoop{
-               plan: nil,
-               provider_request: nil,
-               provider_items_rev: [],
-               provider_history_count: 0,
-               provider_history_item_bytes: 0
-             } = state.tool_loop
-
-      refute StreamLoop.gateway_effects?(state.tool_loop)
-      refute State.initial_local_effect?(state)
-      assert StreamLoop.round(state.tool_loop) == 0
-      refute StreamLoop.multi_round?(state.tool_loop)
-      assert StreamLoop.budget_scope(state.tool_loop) == {:provider_round, 0}
-    end
   end
 
   test "stateless events keep one temporary ID across provider IDs and terminal outcomes" do

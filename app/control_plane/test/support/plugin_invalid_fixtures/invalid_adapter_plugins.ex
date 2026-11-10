@@ -1,67 +1,3 @@
-defmodule Ankole.PluginFixtures.InvalidAdapterModulePlugin do
-  @moduledoc false
-
-  @behaviour Ankole.Plugins.Plugin
-
-  @impl true
-  def plugin_id, do: "invalid-adapter-module"
-
-  @impl true
-  def adapter_declarations do
-    [
-      %{
-        contract_id: "principals.identity_provider",
-        id: "missing-module",
-        module: Ankole.PluginFixtures.MissingIdentityAdapter
-      }
-    ]
-  end
-end
-
-defmodule Ankole.PluginFixtures.StringLocalizedTextPlugin do
-  @moduledoc false
-
-  @behaviour Ankole.Plugins.Plugin
-
-  @impl true
-  def plugin_id, do: "string-localized-text"
-
-  @impl true
-  def display_name, do: "String Display Name"
-end
-
-defmodule Ankole.PluginFixtures.MissingDefaultLocalizedTextPlugin do
-  @moduledoc false
-
-  @behaviour Ankole.Plugins.Plugin
-
-  @impl true
-  def plugin_id, do: "missing-default-localized-text"
-
-  @impl true
-  def display_name, do: %{"en-US" => "Missing Default"}
-end
-
-defmodule Ankole.PluginFixtures.StringAdapterDisplayNamePlugin do
-  @moduledoc false
-
-  @behaviour Ankole.Plugins.Plugin
-
-  @impl true
-  def plugin_id, do: "string-adapter-display-name"
-
-  @impl true
-  def adapter_declarations do
-    [
-      %{
-        contract_id: "test.adapter",
-        id: "string-display",
-        display_name: "String Display Name"
-      }
-    ]
-  end
-end
-
 defmodule Ankole.PluginFixtures.MissingIdentityCallbackPlugin do
   @moduledoc false
 
@@ -129,31 +65,6 @@ defmodule Ankole.PluginFixtures.MissingRemovedCallbackPlugin do
   end
 
   def chat_consumer(_context, _config), do: %{}
-end
-
-defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
-  @moduledoc false
-
-  @behaviour Ankole.Plugins.Plugin
-
-  @impl true
-  def plugin_id, do: "unknown-signals-inbound-capability"
-
-  @impl true
-  def adapter_declarations do
-    [
-      %{
-        contract_id: "signals.adapter",
-        id: "unknown-signals-inbound-capability",
-        adapter_category: "enterprise_im",
-        observe_module: __MODULE__,
-        inbound_capabilities: ["entry_receive", "made_up"]
-      }
-    ]
-  end
-
-  def chat_consumer(_context, _config), do: %{}
-  def handle_message_receive(_event_type, _event, _consumers), do: {:ok, []}
 end
 
 defmodule Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin do

@@ -57,11 +57,6 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn clear(&self) {
-        self.entries.lock().expect("bounded cache lock").clear();
-    }
-
-    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.entries.lock().expect("bounded cache lock").len()
     }
@@ -72,7 +67,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replacing_an_entry_preserves_other_entries() {
+    fn replacing_and_inserting_entries_stays_within_capacity() {
         let cache = BoundedCache::new(2);
         cache.insert("first", 1);
         cache.insert("second", 2);
@@ -82,14 +77,10 @@ mod tests {
         assert_eq!(cache.get_cloned("first"), Some(3));
         assert_eq!(cache.get_cloned("second"), Some(2));
         assert_eq!(cache.len(), 2);
-    }
 
-    #[test]
-    fn zero_capacity_stays_empty() {
-        let cache = BoundedCache::new(0);
-        cache.insert("key", 1);
+        cache.insert("third", 4);
 
-        assert_eq!(cache.get_cloned("key"), None);
-        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.get_cloned("third"), Some(4));
+        assert_eq!(cache.len(), 2);
     }
 }

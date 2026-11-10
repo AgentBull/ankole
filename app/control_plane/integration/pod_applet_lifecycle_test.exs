@@ -9,6 +9,8 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
   defmodule TransportPlug do
     @moduledoc false
     import Plug.Conn
+    @session_opts Plug.Session.init(AnkoleWeb.SessionCookies.session_options())
+
     def init(opts), do: opts
 
     def call(conn, opts) do
@@ -16,6 +18,8 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         # This test isolates disconnect handling. Controller tests cover the authenticated router.
         conn =
           conn
+          |> Plug.Session.call(@session_opts)
+          |> fetch_session()
           |> AnkoleWeb.Plugs.AppletRouteBody.call([])
           |> assign(:authz_actor, Ankole.PrincipalsFixtures.actor_fixture(opts[:uid]))
 
@@ -618,54 +622,6 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
       {:error, :closed} -> :closed
       other -> other
     end
-  end
-
-  test "measure inspection and pooled invocation separately",
-       ctx do
-    source = "export default {'GET /':()=>1}"
-    applet = publish(ctx.owner, source)
-
-    native =
-      for _ <- 1..100 do
-        {micros, {:ok, %{"routes" => ["GET /"], "actions" => %{}, "concurrencyKeys" => %{}}}} =
-          :timer.tc(fn -> Ankole.FunctionRuntime.AppletClient.inspect(source, []) end)
-
-        micros
-      end
-
-    invocation =
-      for _ <- 1..100 do
-        {micros, {:ok, %{"status" => 200, "body" => 1}}} =
-          :timer.tc(fn ->
-            Applets.call(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), applet.id, %{
-              "method" => "GET",
-              "path" => "/",
-              "query" => %{}
-            })
-          end)
-
-        micros
-      end
-
-    IO.puts(
-      "APPLET_STARTUP_BENCHMARK " <>
-        Torque.encode!(%{
-          samples: 100,
-          unit: "milliseconds",
-          isolate_and_module: timings(native),
-          control_plane_invocation: timings(invocation)
-        })
-    )
-  end
-
-  defp timings(samples) do
-    sorted = Enum.sort(samples)
-
-    %{
-      first: hd(samples) / 1000,
-      median: Enum.at(sorted, 49) / 1000,
-      p95: Enum.at(sorted, 94) / 1000
-    }
   end
 
   defp eventually(fun, remaining \\ 100)

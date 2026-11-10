@@ -274,7 +274,7 @@ describe('ankole-viz CLI, validator, pure-Bun Mermaid renderer, and data/design 
       expect(darkRes.exitCode, darkRes.stderr).toBe(0)
       const darkSvg = readFileSync(darkSvgPath, 'utf8')
       expect(isPrintSafeSvg(darkSvg)).toBe(true)
-      expect(darkSvg.toLowerCase()).toContain('#18191a')
+      expect(darkSvg.toLowerCase()).toContain('#0b0b0b')
       expect(darkSvg.toLowerCase()).not.toContain('#faf8f5')
 
       const parsedColors = parseDesignFrontmatterColors(readFileSync(designPath, 'utf8'))

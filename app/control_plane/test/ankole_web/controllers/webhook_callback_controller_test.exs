@@ -53,15 +53,6 @@ defmodule AnkoleWeb.WebhookCallbackControllerTest do
     assert response(conn, 404) == ""
   end
 
-  test "legacy callback route is not exposed", %{conn: conn} do
-    conn =
-      conn
-      |> put_req_header("content-type", "application/octet-stream")
-      |> post("/cb/#{@token}", "")
-
-    assert conn.status == 404
-  end
-
   test "callback route rejects a body above the declared limit", %{conn: conn} do
     body = String.duplicate("x", 1_048_576 + 1)
 

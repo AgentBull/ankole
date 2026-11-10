@@ -109,8 +109,6 @@ describe('CellSelection', () => {
 
   it('Can select a single cell', () => testSel(mkTable(), 24, 29, '2,2'))
 
-  it('Can select a single cell in reverse', () => testSel(mkTable(), 24, 29, '2,2'))
-
   it('Can select a square of cells', () => testSel(mkTable(), 7, 34, '2,1 3,1 2,2 3,2'))
 
   it('Can select a square of cells in reverse', () => testSel(mkTable(), 34, 7, '2,1 3,1 2,2 3,2'))

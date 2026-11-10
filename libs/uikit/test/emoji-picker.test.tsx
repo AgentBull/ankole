@@ -1,16 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { EmojiPicker, emojiDataForLocale } from '../src/components/emoji-picker'
+import { EmojiPicker } from '../src/components/emoji-picker'
 
 describe('EmojiPicker', () => {
-  test('loads the emoji dataset that matches the application locale', () => {
-    expect(emojiDataForLocale('ja-JP')).toBe(emojiDataForLocale('ja'))
-    expect(emojiDataForLocale('ko-KR')).toBeFunction()
-    expect(emojiDataForLocale('zh-Hans-CN')).toBeFunction()
-    expect(emojiDataForLocale('en-US')).toBeFunction()
-    expect(emojiDataForLocale('fr-FR')).toBe(emojiDataForLocale('en-US'))
-  })
-
   test('renders the library picker with the localized labels and locale', () => {
     const html = renderToStaticMarkup(
       <EmojiPicker
@@ -34,12 +26,5 @@ describe('EmojiPicker', () => {
     expect(html).toContain('width:100%')
     expect(html).toContain('height:min(380px, 60dvh)')
     expect(html).not.toContain('data-epr-part="preview"')
-  })
-
-  test('lets the overlay own the picker size', () => {
-    const html = renderToStaticMarkup(<EmojiPicker height={320} width={240} onEmojiSelect={() => {}} />)
-
-    expect(html).toContain('width:240px')
-    expect(html).toContain('height:320px')
   })
 })

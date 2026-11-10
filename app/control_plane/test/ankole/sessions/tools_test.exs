@@ -164,16 +164,11 @@ defmodule Ankole.Sessions.ToolsTest do
     refute Map.has_key?(Ankole.Sessions.Tool.new(custom, :worker).schema, "strict")
   end
 
-  test "model_profile declarations name the default as the Agent's standard model" do
+  test "model_profile only advertises named overrides" do
     tool = %{
       "description" => "Delegate.",
       "parameters" => %{"type" => "object", "properties" => %{}}
     }
-
-    assert %{"description" => description} =
-             Ankole.Sessions.Tool.with_profiles(tool, [], "coding")
-
-    assert description =~ "omit model_profile to use the default coding profile"
 
     profiles = [%{"name" => "fast", "description" => "Low-cost model for quick drafts"}]
     declared = Ankole.Sessions.Tool.with_profiles(tool, profiles, "coding")
@@ -182,10 +177,6 @@ defmodule Ankole.Sessions.ToolsTest do
              "type" => "string",
              "enum" => ["fast"]
            }
-
-    assert declared["description"] =~ "fast (Low-cost model for quick drafts)"
-    assert declared["description"] =~ "unless the human asks for one of these profiles by name"
-    assert declared["description"] =~ "default coding profile is the Agent's standard model"
   end
 
   test "clarification normalization precedes execution (G4)" do

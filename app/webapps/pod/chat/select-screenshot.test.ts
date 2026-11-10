@@ -5,7 +5,6 @@ import {
   resolveCaptureSnapshotsInSubtree
 } from './dom-capture-snapshot'
 import { applyResolvedSnapshotsToClone, prepareClonedArticleImages } from './select-screenshot'
-import { SelectShareLightbox } from './select-share-lightbox'
 
 class MiniNode {
   readonly attrs = new Map<string, string>()
@@ -73,7 +72,7 @@ class MiniNode {
   }
 }
 
-describe('DOM capture snapshot replacement & share lightbox', () => {
+describe('DOM capture snapshot replacement', () => {
   test('replaces sandboxed Mermaid iframe card in cloned DOM with snapshot <img>', async () => {
     const root = new MiniNode('div')
     const mermaidCard = new MiniNode('div')
@@ -154,9 +153,5 @@ describe('DOM capture snapshot replacement & share lightbox', () => {
     } finally {
       unregister()
     }
-  })
-
-  test('SelectShareLightbox component module exports cleanly', () => {
-    expect(typeof SelectShareLightbox).toBe('function')
   })
 })

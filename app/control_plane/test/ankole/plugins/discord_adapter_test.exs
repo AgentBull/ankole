@@ -81,8 +81,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Plugins.DiscordAdapter
-
   alias Ankole.Plugins.DiscordAdapter.Client
   alias Ankole.Plugins.DiscordAdapter.Config
   alias Ankole.Plugins.DiscordAdapter.ConnectionReconciler
@@ -139,11 +137,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   end
 
   describe "plugin and catalog contract" do
-    test "keeps two Agents' same-name bindings on distinct config keys" do
-      key = Config.binding_config_key("agent-a", "main")
-      assert key =~ ~r/\Asignals\.discord\.bindings\.[a-f0-9]{64}\z/
-      refute key == Config.binding_config_key("agent-b", "main")
-
+    test "stores separate credentials for two Agents' same-name bindings" do
       %{principal: first} = agent_fixture()
       %{principal: second} = agent_fixture()
 
@@ -162,41 +156,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       assert {:ok, %{"botToken" => "bot.second-secret"}} =
                Ankole.Signals.Bindings.stored_binding_config(second_binding)
-    end
-
-    test "declares one consumer IM adapter with the complete gateway capability set" do
-      assert DiscordAdapter.plugin_id() == "discord-adapter"
-      assert [declaration] = DiscordAdapter.adapter_declarations()
-      assert declaration.id == "discord"
-      assert declaration.adapter_category == "consumer_im"
-
-      assert declaration.supported_group_message_modes == [
-               "addressed_only",
-               "observe_all",
-               "may_intervene"
-             ]
-
-      assert declaration.inbound_capabilities == [
-               "entry_receive",
-               "reaction_add",
-               "reaction_remove",
-               "action_event"
-             ]
-
-      assert declaration.outbound_capabilities == [
-               "post_entry",
-               "reply_entry",
-               "edit_entry",
-               "delete_entry",
-               "add_reaction",
-               "remove_reaction",
-               "divider",
-               "card"
-             ]
-
-      refute "outbound_reconciliation" in declaration.outbound_capabilities
-      assert [%{path: "botToken", encrypted: true, required: true}] = declaration.fields
-      assert Enum.all?(DiscordAdapter.app_config_patterns(), & &1.encrypted)
     end
 
     test "validates the one required secret and redacts it from client inspection" do

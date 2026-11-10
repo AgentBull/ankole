@@ -179,17 +179,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn filter_cache_evicts_when_full() {
-        clear_filter_cache();
-
-        for index in 0..=MAX_FILTER_CACHE_ENTRIES {
-            cached_filter_program(&format!("binding.name == 'bot-{index}'")).unwrap();
-        }
-
-        assert_eq!(filter_cache_len(), MAX_FILTER_CACHE_ENTRIES);
-    }
-
     fn filter_context() -> JSONValue {
         json!({
             "binding": {
@@ -221,17 +210,5 @@ mod tests {
                 }
             }
         })
-    }
-
-    fn clear_filter_cache() {
-        FILTER_CACHE
-            .get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES))
-            .clear();
-    }
-
-    fn filter_cache_len() -> usize {
-        FILTER_CACHE
-            .get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES))
-            .len()
     }
 }

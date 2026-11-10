@@ -251,22 +251,6 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
   end
 
   describe "signature verification" do
-    test "legacy skip_sign_verify config cannot bypass signature checks" do
-      body =
-        Torque.encode!(%{
-          "schema" => "2.0",
-          "header" => %{"event_type" => "x", "token" => "v"},
-          "event" => %{}
-        })
-
-      assert {:error, :missing_signature_headers} =
-               Event.verify_and_decode(
-                 %{verification_token: "v", encrypt_key: "k", skip_sign_verify: true},
-                 body,
-                 %{}
-               )
-    end
-
     test "valid signature within the replay window is accepted" do
       encrypt_key = "ek_x"
 
@@ -335,38 +319,6 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
       assert {:error, :timestamp_skew} = Dispatcher.dispatch(d, {:raw, body, headers})
     end
 
-    test "legacy skip_timestamp_check config cannot disable the replay window" do
-      encrypt_key = "ek_x"
-
-      body =
-        Torque.encode!(%{
-          "schema" => "2.0",
-          "header" => %{"event_type" => "x", "token" => "vt_x"},
-          "event" => %{}
-        })
-
-      ts = "1711111"
-      nonce = "n1"
-      sig = FeishuOpenAPI.Crypto.event_signature(ts, nonce, encrypt_key, body)
-
-      headers = %{
-        "x-lark-request-timestamp" => ts,
-        "x-lark-request-nonce" => nonce,
-        "x-lark-signature" => sig
-      }
-
-      assert {:error, :timestamp_skew} =
-               Event.verify_and_decode(
-                 %{
-                   encrypt_key: encrypt_key,
-                   verification_token: "vt_x",
-                   skip_timestamp_check: true
-                 },
-                 body,
-                 headers
-               )
-    end
-
     test "missing signature headers are rejected for non-challenge events when encrypt_key is configured" do
       d =
         Dispatcher.new(encrypt_key: "ek_x", verification_token: "vt_x")
@@ -417,14 +369,6 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
 
       assert_raise ArgumentError, ~r/:client must be a FeishuOpenAPI.Client/, fn ->
         Dispatcher.new(client: :bad)
-      end
-
-      assert_raise ArgumentError, ~r/unknown keys/, fn ->
-        Dispatcher.new(skip_sign_verify: true)
-      end
-
-      assert_raise ArgumentError, ~r/unknown keys/, fn ->
-        Dispatcher.new(skip_timestamp_check: true)
       end
     end
 

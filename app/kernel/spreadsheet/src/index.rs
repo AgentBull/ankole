@@ -196,7 +196,7 @@ mod tests {
     use gridcraft_core::{CellRef, Value};
     use gridcraft_model::{Comment, Sheet, Workbook};
 
-    use super::{PLAIN_TEXT_LIMIT, SourceReport, plain_text};
+    use super::{PLAIN_TEXT_LIMIT, plain_text};
 
     #[test]
     fn plain_text_lists_names_text_cells_and_comments() {
@@ -233,19 +233,5 @@ mod tests {
         wb.sheets = vec![std::sync::Arc::new(sheet)];
         let text = plain_text(&wb);
         assert!(text.len() <= PLAIN_TEXT_LIMIT && text.len() > PLAIN_TEXT_LIMIT - 4);
-    }
-
-    #[test]
-    fn only_warnings_about_lost_content_flag_unsupported_objects() {
-        let kept = SourceReport::new(
-            b"",
-            vec!["macros (VBA project) were kept but not executed".into()],
-        );
-        assert!(!kept.has_unsupported_objects);
-        let lost = SourceReport::new(
-            b"",
-            vec!["grouped shapes are not supported and were skipped (x, object 1)".into()],
-        );
-        assert!(lost.has_unsupported_objects);
     }
 }

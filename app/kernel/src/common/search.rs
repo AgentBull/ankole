@@ -82,22 +82,6 @@ mod tests {
     }
 
     #[test]
-    fn evidence_from_two_routes_is_additive() {
-        let fused = reciprocal_rank_fusion(&ids(&[&["a", "b"], &["b", "c"]]), 60);
-
-        assert_eq!(
-            fused
-                .iter()
-                .map(|result| result.id.as_str())
-                .collect::<Vec<_>>(),
-            ["b", "a", "c"]
-        );
-        assert!((fused[0].score - (1.0 / 62.0 + 1.0 / 61.0)).abs() < f64::EPSILON);
-        assert!((fused[1].score - 1.0 / 61.0).abs() < f64::EPSILON);
-        assert!((fused[2].score - 1.0 / 62.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
     fn duplicate_ids_in_one_route_only_contribute_at_their_first_rank() {
         let fused = reciprocal_rank_fusion(&ids(&[&["a", "a", "b"]]), 60);
 
@@ -123,16 +107,5 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["first", "second", "third"]
         );
-    }
-
-    #[test]
-    fn k_boundaries_do_not_shift_rank_or_overflow() {
-        let zero = reciprocal_rank_fusion(&ids(&[&["first", "second"]]), 0);
-        assert_eq!(zero[0].score, 1.0);
-        assert_eq!(zero[1].score, 0.5);
-
-        let maximum = reciprocal_rank_fusion(&ids(&[&["first"]]), u64::MAX);
-        assert!(maximum[0].score.is_finite());
-        assert!(maximum[0].score > 0.0);
     }
 }

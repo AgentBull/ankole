@@ -732,29 +732,6 @@ defmodule Ankole.Brain.DataSemanticsTest do
              read.(%{"metric_slug" => slug, "revision" => 9})
   end
 
-  @tag skip: "needs a reachable external database connection named warehouse"
-  test "a connector metric executes through the Connectors read-query contract", ctx do
-    {:ok, dataset} =
-      create_object(ctx, ctx.datasets, "Invoices", %{
-        "grain" => "invoice",
-        "source" => %{"kind" => "connector", "connection" => "warehouse", "table" => "invoices"}
-      })
-
-    {:ok, metric} =
-      create_object(ctx, ctx.metrics, "Invoice count", %{
-        "dataset" => dataset.id,
-        "grain" => "invoice",
-        "unit" => "invoices",
-        "numerator" => "Invoices",
-        "sql" => "SELECT count(*) AS value FROM invoices"
-      })
-
-    assert {:ok, %{result: evidence, revision: %{revision: 1}}} =
-             Brain.execute_metric(ctx.actor, metric.id, :latest, %{})
-
-    assert evidence
-  end
-
   test "a reader who cannot view the metric object cannot execute it", ctx do
     write_orders(ctx)
     %{metric: metric, slug: slug} = metric_fixture(ctx)

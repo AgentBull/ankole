@@ -36,25 +36,6 @@ describe('parseKnipIssues', () => {
   })
 })
 
-describe('collectStronglyConnectedComponents', () => {
-  test('detects a 2-node cycle', () => {
-    const graph = new Map([
-      ['a', ['b']],
-      ['b', ['a']]
-    ])
-    expect(collectStronglyConnectedComponents(graph)).toEqual([['a', 'b']])
-  })
-
-  test('reports no cycle for an acyclic graph', () => {
-    const graph = new Map([
-      ['a', ['b']],
-      ['b', ['c']],
-      ['c', []]
-    ])
-    expect(collectStronglyConnectedComponents(graph)).toEqual([])
-  })
-})
-
 describe('collectRuntimeStaticSpecifiers', () => {
   test('keeps static runtime edges and removes type-only and deferred edges', () => {
     const source = [

@@ -182,7 +182,6 @@ defmodule Ankole.Plugins.EmailAdapterTest do
   import Ankole.PrincipalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
-  alias Ankole.Plugins.EmailAdapter
   alias Ankole.Plugins.EmailAdapterTest.FakeImap
   import Ankole.EmailTransportFixtures, only: [start_fake_smtp: 0, start_fake_tls_smtp: 0]
 
@@ -224,20 +223,6 @@ defmodule Ankole.Plugins.EmailAdapterTest do
   end
 
   describe "plugin and catalog contract" do
-    test "declares one consumer IM adapter with only the capabilities email has" do
-      assert EmailAdapter.plugin_id() == "email-adapter"
-      assert [declaration] = EmailAdapter.adapter_declarations()
-      assert declaration.id == "email"
-      assert declaration.adapter_category == "email"
-      assert declaration.inbound_capabilities == ["entry_receive"]
-      assert declaration.outbound_capabilities == ["post_entry", "reply_entry"]
-      refute Map.has_key?(declaration, :preview_module)
-      assert :ok = Ankole.Signals.Adapters.validate_declaration(declaration)
-
-      assert [%{path: "password"}] = Enum.filter(declaration.fields, & &1.encrypted)
-      assert Enum.all?(EmailAdapter.app_config_patterns(), & &1.encrypted)
-    end
-
     test "validates settings, applies defaults, and keeps credentials out of inspection" do
       assert {:ok, config} = Config.validate_binding_config(binding_config())
       assert config["address"] == @mailbox

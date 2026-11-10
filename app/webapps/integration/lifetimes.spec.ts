@@ -114,8 +114,12 @@ async function pod(page: Page) {
     const url = new URL(route.request().url())
     const path = url.pathname
     if (route.request().method() === 'POST') {
-      writes.push(route)
-      return
+      if (path === `${base}/conversations` || path === `${base}/conversations/${oldID}/messages`) {
+        writes.push(route)
+        return
+      }
+      if (path === `${base}/next-steps`) return route.fulfill({ status: 201, json: { steps: [] } })
+      return route.fulfill({ status: 404 })
     }
     if (path.endsWith('/agents')) {
       return route.fulfill({
@@ -240,7 +244,9 @@ test('a failed first create remains reachable from New and retries its original 
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Newer local draft')
   await server.writes[0]!.fulfill({ status: 503, json: { error: 'unavailable' } })
   const recovery = page.getByRole('region', { name: 'Retained chat text' })
-  await expect(recovery.getByRole('textbox')).toHaveValue('Recover this first create')
+  await expect(recovery.getByRole('textbox', { name: 'Local text 1', exact: true })).toHaveValue(
+    'Recover this first create'
+  )
   await recovery.getByRole('button', { name: 'Restore', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Recover this first create')
   await page.getByRole('button', { name: 'Retry sending', exact: true }).click()
@@ -252,6 +258,7 @@ test('a failed first create remains reachable from New and retries its original 
   })
   await page.getByRole('link', { name: 'New conversation', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('')
+  await expect(recovery.getByRole('textbox', { name: 'Local text 2', exact: true })).toBeVisible()
   const newerDraft = recovery.locator('div').filter({ has: page.locator('textarea', { hasText: 'Newer local draft' }) })
   await expect(newerDraft.getByRole('textbox')).toHaveValue('Newer local draft')
   await newerDraft.getByRole('button', { name: 'Restore', exact: true }).click()
@@ -535,7 +542,8 @@ test('current activity survives reconnect snapshots, clears at completion, and n
       { operation_id: 'search', label: 'Searching source material' }
     ]
   })
-  const tools = page.getByRole('list', { name: 'Tool steps', exact: true })
+  await page.getByText('Work steps', { exact: true }).click()
+  const tools = page.getByRole('list', { name: 'Work steps', exact: true })
   await expect(tools.getByText('Reading the report', { exact: true })).toBeVisible()
   await expect(tools.getByText('Searching source material', { exact: true })).toBeVisible()
   await emit({ ...snapshot, revision: 3, state: 'settled', phase: null })

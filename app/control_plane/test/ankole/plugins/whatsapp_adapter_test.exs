@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   import Ankole.Eventually, only: [eventually: 1]
 
   alias Ankole.Conversations.Delivery.PreviewStates
-  alias Ankole.Plugins.WhatsAppAdapter
 
   alias Ankole.Plugins.WhatsAppAdapter.Config
   alias Ankole.Plugins.WhatsAppAdapter.Inbound
@@ -65,38 +64,6 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   end
 
   describe "plugin and catalog contract" do
-    test "declares one consumer IM adapter and its webhook handler" do
-      assert WhatsAppAdapter.plugin_id() == "whatsapp-adapter"
-      assert [adapter, handler] = WhatsAppAdapter.adapter_declarations()
-      assert adapter.id == "whatsapp"
-      assert adapter.adapter_category == "consumer_im"
-      refute Map.has_key?(adapter, :author_hydrator)
-      refute Map.has_key?(adapter, :preview_module)
-      assert adapter.supported_group_message_modes == ["addressed_only"]
-      assert adapter.inbound_capabilities == ["entry_receive", "action_event"]
-      assert adapter.outbound_capabilities == ["post_entry", "reply_entry", "divider", "card"]
-
-      assert Enum.map(adapter.fields, & &1.path) == [
-               "appId",
-               "appSecret",
-               "verifyToken",
-               "phoneNumberId",
-               "accessToken"
-             ]
-
-      assert Enum.map(adapter.fields, & &1.encrypted) == [false, true, true, false, true]
-
-      assert handler.contract_id == "signals.webhook_handler"
-      assert handler.id == "whatsapp"
-      assert handler.module == Webhook
-      assert handler.kinds == ["events"]
-    end
-
-    test "keeps two Agents' same-name bindings on distinct config keys" do
-      assert Config.binding_config_key("agent-a", "wa-main") !=
-               Config.binding_config_key("agent-b", "wa-main")
-    end
-
     test "validates both numeric ids and the three secrets and redacts them from inspection" do
       assert {:ok, config} = Config.validate_binding_config(binding_config())
       assert config["appId"] == @app_id

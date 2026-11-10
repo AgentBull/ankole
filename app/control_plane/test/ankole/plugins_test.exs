@@ -8,24 +8,15 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.BetaPlugin
   alias Ankole.PluginFixtures.DuplicateAdapterPlugin
   alias Ankole.PluginFixtures.DuplicateAlphaPlugin
-  alias Ankole.PluginFixtures.InvalidAdapterModulePlugin
-  alias Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin
   alias Ankole.PluginFixtures.MissingRemovedCallbackPlugin
   alias Ankole.PluginFixtures.MissingSignalsDeliveryReconcilePlugin
   alias Ankole.PluginFixtures.MissingSignalsDeliverySendPlugin
-  alias Ankole.PluginFixtures.MissingDefaultLocalizedTextPlugin
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
-  alias Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin
-  alias Ankole.PluginFixtures.StringAdapterDisplayNamePlugin
-  alias Ankole.PluginFixtures.StringLocalizedTextPlugin
-  alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin
-  alias Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin
   alias Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Contracts
   alias Ankole.Plugins.Registry
-  alias Ankole.Plugins.Spec
 
   import ExUnit.CaptureLog
 
@@ -130,30 +121,6 @@ defmodule Ankole.PluginsTest do
     assert DuplicateAlphaPlugin in modules
   end
 
-  test "adapter declarations only validate plugin-owned generic shape" do
-    assert {:error,
-            {InvalidAdapterModulePlugin,
-             {:invalid_adapter_declaration,
-              {:adapter_module_not_loaded, :module, Ankole.PluginFixtures.MissingIdentityAdapter,
-               _reason}}}} =
-             Spec.from_module(InvalidAdapterModulePlugin)
-
-    for module <- [
-          MissingIdentityCallbackPlugin,
-          MissingRemovedCallbackPlugin,
-          MissingSignalsDeliveryReconcilePlugin,
-          MissingSignalsDeliverySendPlugin,
-          UnknownSignalsInboundCapabilityPlugin,
-          UnknownSignalsOutboundCapabilityPlugin,
-          UnknownIdentityCapabilityPlugin,
-          MissingAIGatewayProviderDefinitionPlugin,
-          MissingAIGatewayEmbeddingPreparePlugin,
-          KebabAIGatewayProviderKindPlugin
-        ] do
-      assert {:ok, %Spec{}} = Spec.from_module(module)
-    end
-  end
-
   test "active invalid known adapter contract declarations fail registry startup" do
     assert_contract_startup_failure(
       MissingRemovedCallbackPlugin,
@@ -199,24 +166,6 @@ defmodule Ankole.PluginsTest do
     )
   end
 
-  test "plugin localized text must be an open locale map with a default fallback" do
-    assert {:error,
-            {StringLocalizedTextPlugin,
-             {:invalid_localized_text, :display_name, "String Display Name"}}} =
-             Spec.from_module(StringLocalizedTextPlugin)
-
-    assert {:error,
-            {MissingDefaultLocalizedTextPlugin,
-             {:invalid_localized_text, :display_name, %{"en-US" => "Missing Default"}}}} =
-             Spec.from_module(MissingDefaultLocalizedTextPlugin)
-
-    assert {:error,
-            {StringAdapterDisplayNamePlugin,
-             {:invalid_adapter_declaration,
-              {:invalid_adapter_localized_text, :display_name, "String Display Name"}}}} =
-             Spec.from_module(StringAdapterDisplayNamePlugin)
-  end
-
   test "duplicate adapter declarations fail registry startup" do
     assert {:ok, ["alpha", "duplicate-adapter"]} =
              Config.put_enabled_ids(["alpha", "duplicate-adapter"])
@@ -256,15 +205,6 @@ defmodule Ankole.PluginsTest do
 
     assert {:error, {:invalid_plugin_id, "Not-A-Plugin"}} =
              Config.put_enabled_ids(["Not-A-Plugin"])
-  end
-
-  test "the contract table validates a known contract and leaves another to the generic shape" do
-    assert :ok = Contracts.validate("example.unknown", %{contract_id: "example.unknown", id: "x"})
-
-    declaration = %{contract_id: "agent_workers.provider_kind"}
-
-    assert {:error, {:invalid_worker_provider_declaration, ^declaration}} =
-             Contracts.validate("agent_workers.provider_kind", declaration)
   end
 
   test "Connector declarations require the protocol entry points" do

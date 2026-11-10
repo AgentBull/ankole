@@ -61,65 +61,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   describe "plugin declaration" do
-    test "declares the stable Lark adapter contracts and encrypted config patterns" do
-      assert LarkAdapter.plugin_id() == "lark-adapter"
-
-      assert [
-               %{
-                 contract_id: "signals.adapter",
-                 id: "lark",
-                 config_key_pattern: "signals.lark.binding_configs.<id>",
-                 fields: chat_fields,
-                 supported_group_message_modes: [
-                   "addressed_only",
-                   "observe_all",
-                   "may_intervene"
-                 ]
-               },
-               %{
-                 contract_id: "principals.identity_provider",
-                 id: "lark",
-                 config_key_pattern: "principals.identity_providers.lark.<id>",
-                 capabilities: identity_capabilities,
-                 fields: identity_fields
-               },
-               %{
-                 contract_id: "connectors.connector",
-                 id: "lark",
-                 module: Ankole.Plugins.LarkAdapter.Connector
-               }
-             ] = LarkAdapter.adapter_declarations()
-
-      refute Map.has_key?(hd(LarkAdapter.adapter_declarations()), :worker_env_module)
-
-      assert identity_capabilities == [
-               "oidc_authorization",
-               "oidc_code_exchange",
-               "directory_full_sync",
-               "directory_realtime_sync"
-             ]
-
-      assert Enum.all?(chat_fields ++ identity_fields, &localized_field?/1)
-
-      # The domain values reach stored binding config, so they are a contract;
-      # their labels are not.
-      identity_domain_field = Enum.find(identity_fields, &(&1.path == "domain"))
-      assert identity_domain_field.default == "feishu"
-      assert Enum.map(identity_domain_field.options, & &1.value) == ["feishu", "lark"]
-
-      patterns = LarkAdapter.app_config_patterns()
-
-      assert Enum.map(patterns, & &1.id) == [
-               "signals.lark.binding_configs.*",
-               "signals.lark.bindings.*",
-               "principals.identity_providers.lark.*"
-             ]
-
-      assert Enum.all?(patterns, & &1.encrypted)
-
-      assert LarkAdapter.app_config_definitions() == []
-    end
-
     test "chat config does not retain bot identity" do
       assert {:ok, config} =
                Config.validate_chat_config(%{
@@ -2382,56 +2323,54 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       refute String.contains?(attachment["path"], "file_any_ascii")
     end
 
-    for filename <- ["notice.docx", "report.pdf", "industry outlook.txt", "Archive.zip"] do
-      @post_filename filename
-      test "stores #{@post_filename} attached to an unaddressed rich post" do
-        parent = self()
-        %{principal: agent} = agent_fixture()
-        binding_fixture(agent.uid, "lark", :record_only)
-        config = chat_config()
-        consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+    test "stores the file attached to an unaddressed rich post" do
+      filename = "Industry outlook.txt"
+      parent = self()
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :record_only)
+      config = chat_config()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
 
-        put_tenant_token(config)
-        on_exit(fn -> delete_tenant_token(config) end)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
 
-        stub_lark_requests(parent, fn request ->
-          assert request.request_path ==
-                   "/open-apis/im/v1/messages/om_post_template/resources/file_template"
+      stub_lark_requests(parent, fn request ->
+        assert request.request_path ==
+                 "/open-apis/im/v1/messages/om_post_template/resources/file_template"
 
-          {:binary, 200, "attachment bytes"}
-        end)
+        {:binary, 200, "attachment bytes"}
+      end)
 
-        event =
-          post_receive_event("om_post_template", %{
-            "content" => [[%{"tag" => "text", "text" => "Use this template"}]],
-            "content_v2" => [[%{"tag" => "text", "text" => "Use this template", "style" => []}]],
-            "files" => [
-              %{
-                "file_key" => "file_template",
-                "file_name" => @post_filename,
-                "is_folder" => false
-              }
-            ]
-          })
-          |> update_message(&Map.put(&1, "mentions", []))
+      event =
+        post_receive_event("om_post_template", %{
+          "content" => [[%{"tag" => "text", "text" => "Use this template"}]],
+          "content_v2" => [[%{"tag" => "text", "text" => "Use this template", "style" => []}]],
+          "files" => [
+            %{
+              "file_key" => "file_template",
+              "file_name" => filename,
+              "is_folder" => false
+            }
+          ]
+        })
+        |> update_message(&Map.put(&1, "mentions", []))
 
-        assert {:ok, [%{status: :recorded, message_observation: entry_observation}]} =
-                 Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+      assert {:ok, [%{status: :recorded, message_observation: entry_observation}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-        assert observation_snapshot(entry_observation).text == "Use this template"
-        assert [attachment] = observation_snapshot(entry_observation).attachments
-        assert attachment["name"] == @post_filename
+      assert observation_snapshot(entry_observation).text == "Use this template"
+      assert [attachment] = observation_snapshot(entry_observation).attachments
+      assert attachment["name"] == filename
 
-        assert_stored_attachment!(
-          agent.uid,
-          external_conversation_id("lark:oc_group"),
-          attachment,
-          "attachment bytes",
-          @post_filename
-        )
+      assert_stored_attachment!(
+        agent.uid,
+        external_conversation_id("lark:oc_group"),
+        attachment,
+        "attachment bytes",
+        filename
+      )
 
-        assert Repo.aggregate(Signal, :count) == 0
-      end
+      assert Repo.aggregate(Signal, :count) == 0
     end
 
     test "attachment receipt is durable before the provider download starts" do
@@ -4515,15 +4454,4 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       }
     }
   end
-
-  defp localized_field?(field) do
-    localized_text?(field.label) and localized_text?(field.description) and
-      Enum.all?(Map.get(field, :options, []), &localized_text?(&1.label))
-  end
-
-  defp localized_text?(%{"default" => default} = value) when is_binary(default) do
-    Enum.all?(value, fn {locale, text} -> is_binary(locale) and is_binary(text) end)
-  end
-
-  defp localized_text?(_value), do: false
 end

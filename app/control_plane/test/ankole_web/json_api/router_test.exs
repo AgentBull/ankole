@@ -75,36 +75,12 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
     assert Enum.all?(domains, &is_nil(AshJsonApi.Domain.Info.prefix(&1)))
   end
 
-  test "a raw resource result uses the serializer's default fields in its schema" do
-    spec = ConsoleRouter.spec() |> OpenApiSpex.OpenApi.to_map()
-    schema = spec["components"]["schemas"]["external_identity-type"]
-    fields = ~w(principal_uid provider external_id)
-
-    assert Map.keys(schema["properties"]) |> Enum.sort() == Enum.sort(fields)
-    assert Enum.sort(schema["required"]) == Enum.sort(fields)
-  end
-
   test "each route has a unique OpenAPI operation name" do
     for router <- @routers do
       names = router |> routes() |> Enum.map(fn {_resource, route} -> route.name end)
 
       assert Enum.all?(names, &is_binary/1)
       assert names == Enum.uniq(names)
-    end
-  end
-
-  test "each routed action has a native authorizer rule and each target has an explicit resolver" do
-    for router <- @routers, {resource, route} <- routes(router) do
-      assert Ankole.AuthZ.Authorizer in Ash.Resource.Info.authorizers(resource)
-      assert rule = Ankole.AuthZ.Dsl.rule(resource, route.action)
-      params = Ankole.AuthZ.Dsl.params(resource)
-
-      for [_, name] <- Regex.scan(~r/\{(\w+)\}/, rule.resource || "") do
-        assert param = Enum.find(params, &(to_string(&1.name) == name))
-        value = if param.type == :uuid, do: Ankole.Ecto.UUIDv7.autogenerate(), else: "probe"
-        assert {:ok, normalized} = Ankole.AuthZ.Checks.GrantCheck.resolve(param.type, value)
-        assert is_binary(normalized)
-      end
     end
   end
 

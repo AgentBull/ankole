@@ -444,48 +444,6 @@ fn open_rejects_invalid_specs() {
 }
 
 #[test]
-fn open_accepts_an_s3_compatible_spec_without_network_io() {
-    let spec = serde_json::json!({
-        "scheme": "s3",
-        "bucket": "ankole-files",
-        "region": "auto",
-        "endpoint": "https://account.r2.cloudflarestorage.com",
-        "root": "/installation",
-        "access_key_id": "key",
-        "secret_access_key": "secret"
-    })
-    .to_string();
-
-    assert!(open(&spec).is_ok());
-}
-
-#[test]
-fn open_accepts_requested_remote_backends_without_network_io() {
-    let specs = [
-        serde_json::json!({"scheme": "azblob", "container": "files", "endpoint": "https://example.blob.core.windows.net", "account_name": "example", "account_key": "a2V5"}),
-        serde_json::json!({"scheme": "d1", "account_id": "account", "database_id": "database", "token": "token", "table": "objects", "key_field": "key", "value_field": "value"}),
-        serde_json::json!({"scheme": "cos", "bucket": "files-123", "endpoint": "https://cos.ap-singapore.myqcloud.com", "secret_id": "id", "secret_key": "key"}),
-        serde_json::json!({"scheme": "postgresql", "connection_string": "postgresql://user:password@127.0.0.1:1/objects", "table": "objects", "key_field": "key", "value_field": "value"}),
-        serde_json::json!({"scheme": "oss", "bucket": "files", "endpoint": "https://oss-ap-southeast-1.aliyuncs.com", "access_key_id": "id", "access_key_secret": "key"}),
-        serde_json::json!({"scheme": "tos", "bucket": "files", "endpoint": "https://tos-ap-southeast-1.volces.com", "region": "ap-southeast-1", "access_key_id": "id", "secret_access_key": "key"}),
-        serde_json::json!({"scheme": "gcs", "bucket": "files"}),
-        serde_json::json!({"scheme": "sftp", "endpoint": "ssh://127.0.0.1:1", "user": "files", "root": "/files", "known_hosts_strategy": "strict"}),
-        serde_json::json!({"scheme": "webdav", "endpoint": "https://example.com/dav", "username": "files", "password": "password"}),
-    ];
-
-    for spec in specs {
-        let scheme = spec["scheme"].as_str().expect("scheme");
-        let store =
-            open(&spec.to_string()).unwrap_or_else(|error| panic!("open {scheme}: {error:?}"));
-        let capability = store.operator.info().capability();
-        assert!(
-            capability.read && capability.write && capability.delete,
-            "{scheme}"
-        );
-    }
-}
-
-#[test]
 #[ignore = "requires ANKOLE_OBJECT_STORE_TEST_SPECS pointing to provisioned test backends"]
 fn configured_remote_stores_round_trip_and_replace_objects() {
     let path = std::env::var("ANKOLE_OBJECT_STORE_TEST_SPECS").expect("test spec file path");
