@@ -25,10 +25,19 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
   alias Ankole.Sessions.Common
   alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.RunnerConnection
   alias Ankole.AgentWorkers.WorkerAdmission
   alias Ankole.AgentWorkers.WorkerTracker
 
-  @type target :: %{worker_id: String.t(), transport_route: String.t()} | String.t()
+  @type target ::
+          %{
+            required(:worker_id) => String.t(),
+            required(:transport_route) => String.t(),
+            optional(:runner_id) => String.t() | nil,
+            optional(:generation) => String.t(),
+            optional(:incarnation_id) => String.t()
+          }
+          | String.t()
   @default_rpc_timeout_ms 60_000
   @deliver_timeout_ms 15_000
 
@@ -38,6 +47,12 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
   @doc "Returns the tracker topic of one Worker."
   @spec topic(String.t()) :: String.t()
   def topic(worker_id), do: "worker/#{Ankole.Repo.tenant_id!()}/#{worker_id}"
+
+  @doc "Returns the target of the Worker that issued an RPC."
+  def caller(%{worker: worker}), do: worker
+
+  def caller(%{worker_id: worker_id, route: route}),
+    do: %{worker_id: worker_id, transport_route: route}
 
   @doc "Returns the metadata required to fence one admitted connection."
   @spec directory_meta(String.t()) :: map()
@@ -141,9 +156,9 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
     defp deliver(target, request, timeout_ms), do: channel_call(target, request, timeout_ms)
   end
 
-  defp channel_call(%{worker_id: worker_id, transport_route: route}, request, timeout_ms)
+  defp channel_call(%{worker_id: worker_id, transport_route: route} = target, request, timeout_ms)
        when is_binary(worker_id) and is_binary(route) do
-    with {:ok, pid} <- route_member(worker_id, route) do
+    with {:ok, pid} <- route_member(target) do
       try do
         GenServer.call(pid, request, timeout_ms)
       catch
@@ -170,17 +185,17 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
   if Mix.env() == :test do
     @doc "Resolves the admitted channel process so protocol tests can monitor its lifetime."
     @spec connection_pid(target()) :: {:ok, pid()} | {:error, term()}
-    def connection_pid(%{worker_id: worker_id, transport_route: route}),
-      do: route_member(worker_id, route)
+    def connection_pid(%{worker_id: _, transport_route: _} = target),
+      do: route_member(target)
   end
 
-  defp route_member(worker_id, route) do
+  defp route_member(%{worker_id: worker_id, transport_route: route} = target) do
     case Phoenix.Tracker.get_by_key(WorkerTracker, topic(worker_id), route) do
       [] ->
         {:error, :unknown_route}
 
       entries ->
-        case current_fence(worker_id) do
+        case current_fence(target) do
           %{transport_route: ^route, incarnation_id: incarnation_id} ->
             entries
             |> Enum.filter(fn {_pid, meta} ->
@@ -198,9 +213,10 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
     end
   end
 
-  # The worker id of a channel route is the Agent UID: each Agent has one
-  # Worker row, and only a ready or draining row has a connection.
-  defp current_fence(agent_uid) do
+  defp current_fence(%{runner_id: runner_id} = target) when is_binary(runner_id),
+    do: RunnerConnection.current(target)
+
+  defp current_fence(%{worker_id: agent_uid}) do
     case AgentWorkers.get_agent_worker!(agent_uid,
            query: [select: [:state, :transport_route, :incarnation_id]]
          ) do

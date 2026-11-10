@@ -2,18 +2,16 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
   @moduledoc """
   WebSocket entry for Agent Computer Workers.
 
-  One Worker holds one socket. The `worker_id` parameter is the Agent UID of
-  the Worker, and the Phoenix auth token (`Sec-WebSocket-Protocol`, never the
-  URL) is the random credential that the control plane created for that
-  Agent's current generation. `AgentWorkers.authenticate/2` compares its
-  digest with the Agent's row, so a credential of one Agent cannot connect as
-  another, and a credential of a former generation, or of a stopped,
-  draining, or deleted Worker, cannot connect at all.
+  The `worker_id` parameter is the Agent UID. The Phoenix auth token in
+  `Sec-WebSocket-Protocol` identifies a managed generation or a paired device's
+  Agent binding. The socket records the verified tenant and optional Runner ID
+  before it admits any Worker traffic.
   """
 
   use Phoenix.Socket
 
   alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.RunnerDevices
 
   channel "worker", AnkoleWeb.WorkerChannel
 
@@ -21,18 +19,34 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
   def connect(params, socket, connect_info) do
     with true <- AnkoleWeb.Plugs.RequestHost.worker_allowed?(Map.get(connect_info, :uri)),
          {:ok, worker_id} <- worker_id(params),
-         {:ok, %{generation: generation, tenant_id: tenant_id}} <-
-           AgentWorkers.authenticate(worker_id, Map.get(connect_info, :auth_token)) do
+         {:ok, %{generation: generation, tenant_id: tenant_id} = identity} <-
+           authenticate(worker_id, Map.get(connect_info, :auth_token)) do
       {:ok,
-       assign(socket, %{worker_id: worker_id, worker_generation: generation, tenant_id: tenant_id})}
+       assign(socket, %{
+         worker_id: worker_id,
+         runner_id: Map.get(identity, :runner_id),
+         worker_generation: generation,
+         tenant_id: tenant_id
+       })}
     else
       _error -> :error
     end
   end
 
   @impl true
+  def id(%{assigns: %{runner_id: runner_id}} = socket) when is_binary(runner_id),
+    do:
+      "runtime_fabric_runner:#{socket.assigns.tenant_id}:#{socket.assigns.worker_id}:#{runner_id}"
+
   def id(socket),
     do: "runtime_fabric_worker:#{socket.assigns.tenant_id}:#{socket.assigns.worker_id}"
+
+  defp authenticate(worker_id, token) do
+    case AgentWorkers.authenticate(worker_id, token) do
+      {:error, :invalid_worker_credential} -> RunnerDevices.authenticate(worker_id, token)
+      result -> result
+    end
+  end
 
   defp worker_id(%{"worker_id" => worker_id}) when is_binary(worker_id) do
     case String.trim(worker_id) do

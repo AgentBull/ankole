@@ -1,11 +1,11 @@
 defmodule Ankole.BackgroundAgentJobs.WorkerWait do
   @moduledoc false
 
-  alias Ankole.AgentWorkers
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Wakeups
+  alias Ankole.BackgroundAgentJobs.Worker
   alias Ankole.Repo
   alias Ankole.Sessions.Queue
   alias Ankole.Signals.Signal
@@ -65,7 +65,7 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
   @spec resolve_timeout_in_tx(Signal.t(), Job.t(), DateTime.t()) ::
           {:ok, map()} | {:error, term()}
   def resolve_timeout_in_tx(%Signal{} = event, %Job{} = snapshot, %DateTime{} = now) do
-    _worker = AgentWorkers.lock_in_tx(snapshot.agent_uid)
+    _worker = Worker.lock_in_tx(snapshot)
 
     with :ok <- Lifecycle.lock_agent_slots(snapshot.agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(snapshot.id, snapshot.agent_uid) do

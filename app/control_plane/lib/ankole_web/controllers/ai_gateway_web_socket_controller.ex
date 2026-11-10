@@ -18,6 +18,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
           tenant_id: Ankole.Repo.tenant_id!(),
           subject_type: conn.assigns.current_ai_gateway_subject_type,
           oidc_grant: conn.assigns[:oidc_grant],
+          runner_claims: runner_claims(conn.assigns[:ai_gateway_token_claims]),
           request_context:
             CodexModelBinding.request_context(
               binding,
@@ -64,12 +65,16 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
     end
   end
 
+  defp runner_claims(%{"runner_worker" => _} = claims),
+    do: Map.take(claims, ["exp", "sub", "runner_worker"])
+
+  defp runner_claims(_claims), do: nil
+
   defp codex_model_binding(conn) do
-    case get_req_header(conn, CodexModelBinding.header_name()) do
-      [] -> {:ok, nil}
-      [encoded] -> CodexModelBinding.decode(encoded)
-      _values -> {:error, :invalid_codex_model_binding}
-    end
+    CodexModelBinding.from_headers(
+      get_req_header(conn, CodexModelBinding.header_name()),
+      conn.assigns[:ai_gateway_token_claims]
+    )
   end
 
   defp maybe_put_model_binding(state, nil), do: state

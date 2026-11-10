@@ -41,12 +41,12 @@ export type RPCCallOptions = {
 
 /**
  * A turn method names its turn fence. Pod methods use a turn frame or an
- * Automation Job attempt in the payload. files.get can carry the turn frame
- * for a Pod download. Other worker-agent calls use the connection identity.
+ * Automation Job attempt in the payload. File and environment calls can
+ * carry a turn frame when a Job uses those capabilities.
  */
 export type RPCFrame<M extends ControlPlaneOwnedRPCMethod> = (typeof rpcOperations)[M] extends { scope: 'turn' }
   ? TurnRPCFrame
-  : M extends 'pod.read' | 'pod.write' | 'files.get' | 'worker_env.resolve'
+  : M extends 'pod.read' | 'pod.write' | 'files.get' | 'files.list' | 'files.commit' | 'worker_env.resolve'
     ? TurnRPCFrame | void
     : void
 

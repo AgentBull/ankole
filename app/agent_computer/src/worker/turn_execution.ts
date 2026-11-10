@@ -29,7 +29,7 @@ export async function executeActiveTurn(
     operation: turnOperation(turnStart.turn.signal_id)
   })
   const rpc = throwingRPCRequester(rpcClient, active.abortSignal)
-  const drive = new Drive({ agentHome: paths.home, rpc })
+  const drive = new Drive({ agentHome: paths.home, rpc, frame: { jobTurn: turnStart.turn } })
   const cliBridges = startRunCLIBridges({
     drive,
     rpc,

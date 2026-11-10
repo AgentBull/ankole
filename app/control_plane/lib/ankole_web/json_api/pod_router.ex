@@ -11,7 +11,7 @@ defmodule AnkoleWeb.JSONAPI.PodRouter do
   def context(conn, route) do
     conn = AnkoleWeb.JSONAPI.Context.before_dispatch(conn, route, :pod)
 
-    if is_map(route) and route.resource == AnkoleWeb.MeOperations,
+    if is_map(route) and route.resource in [AnkoleWeb.MeOperations, Ankole.Pod.RunnerBrowser],
       do:
         Ash.PlugHelpers.set_context(conn, Map.put(Ash.PlugHelpers.get_context(conn), :conn, conn)),
       else: conn

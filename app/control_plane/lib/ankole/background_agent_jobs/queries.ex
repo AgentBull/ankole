@@ -28,7 +28,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     :status,
     :title,
     :reply_route,
-    :workspace_owner_job_id
+    :workspace_owner_job_id,
+    :runner_id
   ]
   @result_path_keys ~w(project_path artifacts artifact_roots)
   @result_window_bytes 16_384
@@ -233,6 +234,13 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   def get(job_id) when Ankole.ModelIntegerID.valid?(job_id) do
     Job
     |> Ash.Query.filter(id == ^job_id)
+    |> Ankole.Ash.read_one!()
+  end
+
+  def running_for_runner(runner_id) when is_binary(runner_id) do
+    Job
+    |> Ash.Query.filter(runner_id == ^runner_id and status == :running)
+    |> Ash.Query.select([:id, :agent_uid])
     |> Ankole.Ash.read_one!()
   end
 

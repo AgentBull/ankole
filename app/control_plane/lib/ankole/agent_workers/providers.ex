@@ -109,6 +109,15 @@ defmodule Ankole.AgentWorkers.Providers do
   end
 
   @doc "Returns the connection addresses selected for this Agent's current generation."
+  def connection_endpoints(%{runner_id: runner_id} = target) when is_binary(runner_id) do
+    case Ankole.AgentWorkers.RunnerConnection.current(target) do
+      %{instance_settings: settings} -> {:ok, Map.get(settings, "endpoints", %{})}
+      nil -> {:error, :stale_transport_route}
+    end
+  end
+
+  def connection_endpoints(%{worker_id: agent_uid}), do: connection_endpoints(agent_uid)
+
   def connection_endpoints(agent_uid) do
     case AgentWorkers.get_agent_worker!(agent_uid) do
       %AgentWorker{} = worker -> {:ok, Map.get(worker.instance_settings, "endpoints", %{})}

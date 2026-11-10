@@ -9,6 +9,9 @@ import type {
   AnswerPodInteractionData,
   AnswerPodInteractionErrors,
   AnswerPodInteractionResponses,
+  BindPodRunnerDeviceData,
+  BindPodRunnerDeviceErrors,
+  BindPodRunnerDeviceResponses,
   ChangePodMembershipData,
   ChangePodMembershipErrors,
   ChangePodMembershipResponses,
@@ -33,6 +36,9 @@ import type {
   CreatePodMemberData,
   CreatePodMemberErrors,
   CreatePodMemberResponses,
+  CreatePodRunnerJobData,
+  CreatePodRunnerJobErrors,
+  CreatePodRunnerJobResponses,
   DecryptPodAdminWorkerEnvData,
   DecryptPodAdminWorkerEnvErrors,
   DecryptPodAdminWorkerEnvResponses,
@@ -63,6 +69,9 @@ import type {
   GetPodInteractionData,
   GetPodInteractionErrors,
   GetPodInteractionResponses,
+  ListPodRunnerDevicesData,
+  ListPodRunnerDevicesErrors,
+  ListPodRunnerDevicesResponses,
   MessageConversationExecutionData,
   MessageConversationExecutionErrors,
   MessageConversationExecutionResponses,
@@ -528,6 +537,9 @@ import type {
   ReauthenticatePodMemberData,
   ReauthenticatePodMemberErrors,
   ReauthenticatePodMemberResponses,
+  RegisterPodRunnerDeviceData,
+  RegisterPodRunnerDeviceErrors,
+  RegisterPodRunnerDeviceResponses,
   RenamePodAgentData,
   RenamePodAgentErrors,
   RenamePodAgentResponses,
@@ -549,6 +561,9 @@ import type {
   RevokePodInvitationData,
   RevokePodInvitationErrors,
   RevokePodInvitationResponses,
+  RevokePodRunnerDeviceData,
+  RevokePodRunnerDeviceErrors,
+  RevokePodRunnerDeviceResponses,
   SavePodIdentityProviderData,
   SavePodIdentityProviderErrors,
   SavePodIdentityProviderResponses,
@@ -709,6 +724,23 @@ export const updateConversationParticipants = <ThrowOnError extends boolean = tr
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/conversations/{id}/participants',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * create_pod_runner_job operation on pod_runner_operation resource
+ */
+export const createPodRunnerJob = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodRunnerJobData, ThrowOnError>
+): RequestResult<CreatePodRunnerJobResponses, CreatePodRunnerJobErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<CreatePodRunnerJobResponses, CreatePodRunnerJobErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/runner-jobs',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1934,6 +1966,23 @@ export const disablePodMember = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/admin/members/{uid}/restrictions',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * bind_pod_runner_device operation on pod_runner_operation resource
+ */
+export const bindPodRunnerDevice = <ThrowOnError extends boolean = true>(
+  options: Options<BindPodRunnerDeviceData, ThrowOnError>
+): RequestResult<BindPodRunnerDeviceResponses, BindPodRunnerDeviceErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<BindPodRunnerDeviceResponses, BindPodRunnerDeviceErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/runner-devices/{id}/bindings',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -3463,6 +3512,41 @@ export const updatePodProfile = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * list_pod_runner_devices operation on pod_runner_operation resource
+ */
+export const listPodRunnerDevices = <ThrowOnError extends boolean = true>(
+  options?: Options<ListPodRunnerDevicesData, ThrowOnError>
+): RequestResult<ListPodRunnerDevicesResponses, ListPodRunnerDevicesErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<ListPodRunnerDevicesResponses, ListPodRunnerDevicesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/runner-devices',
+    ...options
+  })
+
+/**
+ * register_pod_runner_device operation on pod_runner_operation resource
+ */
+export const registerPodRunnerDevice = <ThrowOnError extends boolean = true>(
+  options: Options<RegisterPodRunnerDeviceData, ThrowOnError>
+): RequestResult<RegisterPodRunnerDeviceResponses, RegisterPodRunnerDeviceErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    RegisterPodRunnerDeviceResponses,
+    RegisterPodRunnerDeviceErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/runner-devices',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * metaSaveAgentContract operation on meta_library resource
  */
 export const metaSaveAgentContract = <ThrowOnError extends boolean = true>(
@@ -3649,6 +3733,19 @@ export const metaSkillSetBinding = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * revoke_pod_runner_device operation on pod_runner_operation resource
+ */
+export const revokePodRunnerDevice = <ThrowOnError extends boolean = true>(
+  options: Options<RevokePodRunnerDeviceData, ThrowOnError>
+): RequestResult<RevokePodRunnerDeviceResponses, RevokePodRunnerDeviceErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<RevokePodRunnerDeviceResponses, RevokePodRunnerDeviceErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/runner-devices/{id}',
+    ...options
   })
 
 /**

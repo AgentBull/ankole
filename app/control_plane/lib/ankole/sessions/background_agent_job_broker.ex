@@ -99,7 +99,7 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
              turn_ref.agent_uid,
              attrs,
              turn_ref,
-             ctx.worker_id
+             ctx[:worker] || ctx.worker_id
            ) do
       {:ok,
        %FabricProto.BackgroundAgentJobTurnUpsertResponse{
@@ -137,7 +137,7 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
              turn_ref.agent_uid,
              attrs,
              turn_ref: turn_ref,
-             worker_id: ctx.worker_id,
+             worker_id: ctx[:worker] || ctx.worker_id,
              applied_signal_ids: request.applied_signal_ids
            ),
          {:ok, response} <- job_response(job) do
@@ -168,6 +168,8 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
   defp job_response(%Job{} = job) do
     with {:ok, projection} <-
            Ankole.BackgroundAgentJobs.RuntimeProjection.for_worker(job.runtime_projection) do
+      projection = device_projection(projection, job.runner_id)
+
       {:ok,
        %FabricProto.BackgroundAgentJobResponse{
          agent_uid: job.agent_uid,
@@ -183,6 +185,11 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
        }}
     end
   end
+
+  defp device_projection(projection, runner_id) when is_map(projection) and is_binary(runner_id),
+    do: Map.put(projection, "worker_env", %{"names" => [], "plain_values" => %{}})
+
+  defp device_projection(projection, _runner_id), do: projection
 
   defp attempt_history_entries(nil), do: []
 

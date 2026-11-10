@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.108 (2026-11-11)
+
+- Connect your own devices in Pod account settings and choose one when
+  starting a background Job. The Job resumes on the same device and
+  workspace after a connection interruption. Agents continue to use their
+  managed Workers for ordinary work.
+
 ## Version 2.0.0-alpha.107 (2026-11-11)
 
 - Give shared controls immediate visual feedback. Switch thumbs stretch on

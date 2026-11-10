@@ -8,6 +8,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.RunnerDevices
   alias Ankole.AgentWorkers.WorkerRoute
   alias Ankole.AgentWorkers.WorkerTracker
   alias Ankole.SessionsCase
@@ -121,6 +122,110 @@ defmodule AnkoleWeb.WorkerChannelTest do
   end
 
   describe "join and admission" do
+    test "two paired device Workers and the managed Worker keep distinct routes for the same Agent" do
+      Ankole.PrincipalsFixtures.worker_provider_fixture(%{is_default: true})
+      %{principal: owner} = Ankole.PrincipalsFixtures.human_fixture()
+      actor = Ankole.AuthZ.Actor.new(owner)
+      origin = AnkoleWeb.PodURL.site_origin(Phoenix.ConnTest.build_conn())
+
+      assert {:ok, first, first_spec} = pair_runner(actor, "First device", origin)
+      assert {:ok, second, second_spec} = pair_runner(actor, "Second device", origin)
+      assert first_spec.agent_uid == second_spec.agent_uid
+      uid = first_spec.agent_uid
+
+      :ok = SessionsCase.provision_worker(uid)
+
+      {managed, managed_route} =
+        join!(%{
+          worker_id: uid,
+          token: Process.get({:worker_token, uid}),
+          incarnation_id: "managed"
+        })
+
+      {first_socket, first_route} =
+        join!(%{worker_id: uid, token: first_spec.worker_token, incarnation_id: "first"})
+
+      {second_socket, second_route} =
+        join!(%{worker_id: uid, token: second_spec.worker_token, incarnation_id: "second"})
+
+      assert first_socket.assigns.runner_id == first.id
+      assert second_socket.assigns.runner_id == second.id
+
+      assert {:ok, %AgentWorker{transport_route: ^managed_route}} =
+               AgentWorkers.connected_worker(uid)
+
+      assert {:ok, pid} = WorkerRoute.connection_pid(target(%{worker_id: uid}, managed_route))
+      assert pid == managed.channel_pid
+
+      first_target = AgentWorkers.target(RunnerDevices.get_binding(uid, first.id))
+      second_target = AgentWorkers.target(RunnerDevices.get_binding(uid, second.id))
+      assert first_target.transport_route == first_route
+      assert second_target.transport_route == second_route
+      assert {:ok, pid} = WorkerRoute.connection_pid(first_target)
+      assert pid == first_socket.channel_pid
+      assert {:ok, pid} = WorkerRoute.connection_pid(second_target)
+      assert pid == second_socket.channel_pid
+
+      assert {:error, :stale_route} =
+               WorkerRoute.connection_pid(%{first_target | transport_route: second_route})
+
+      heartbeat = heartbeat_envelope(%{incarnation_id: "first"})
+      ref = push(first_socket, "control", {:binary, sealed(heartbeat, :control, 1)})
+      assert_reply ref, :ok, %{"stream" => "control"}
+
+      ref =
+        push(
+          first_socket,
+          "durable",
+          {:binary, sealed(rpc_request_envelope("no-job"), :durable, 1)}
+        )
+
+      assert_reply ref, :ok, %{}, 2_000
+      assert_push "reply", {:binary, bytes}, 2_000
+
+      assert {:ok, %FabricProto.Envelope{body: {:rpc_error, error}}} =
+               RuntimeFabric.decode_and_validate(bytes)
+
+      assert error.code == "worker_not_assigned_to_turn"
+
+      request =
+        WorkerRoute.rpc_request_envelope(
+          "runner-model-key",
+          "ai_gateway.api_key_for.create_or_find_by_agent",
+          <<>>,
+          2_000
+        )
+
+      ref = push(first_socket, "durable", {:binary, sealed(request, :durable, 2)})
+      assert_reply ref, :ok, %{}, 2_000
+      assert_push "reply", {:binary, bytes}, 2_000
+
+      assert {:ok, %FabricProto.Envelope{body: {:rpc_response, response}}} =
+               RuntimeFabric.decode_and_validate(bytes)
+
+      assert {:ok, key} = FabricProto.AIGatewayAPIKeyResponse.decode(response.payload)
+
+      assert {:ok, claims} =
+               Attesto.Token.verify(Ankole.OIDC.Config.get("ankole.ai_gateway"), key.api_key)
+
+      assert claims["runner_worker"]["id"] == first.id
+      assert :ok = Ankole.AIGateway.Tokens.authorize_worker_claims(claims)
+
+      Process.unlink(first_socket.channel_pid)
+      monitor = Process.monitor(first_socket.channel_pid)
+      assert {:ok, _} = RunnerDevices.revoke(actor, first.id)
+      assert_receive {:DOWN, ^monitor, :process, _, {:shutdown, :runner_revoked}}, 2_000
+      assert {:error, :invalid_token} = Ankole.AIGateway.Tokens.authorize_worker_claims(claims)
+
+      assert :error =
+               connect(RuntimeFabricSocket, %{"worker_id" => uid},
+                 connect_info: connect_info(first_spec.worker_token)
+               )
+
+      assert {:ok, pid} = WorkerRoute.connection_pid(second_target)
+      assert pid == second_socket.channel_pid
+    end
+
     test "a socket authenticated before replacement cannot join the new generation", ctx do
       old_socket = connect!(ctx)
       next_generation = "nextgen001"
@@ -903,6 +1008,13 @@ defmodule AnkoleWeb.WorkerChannelTest do
   defp connect_info(token) do
     origin = AnkoleWeb.PodURL.site_origin(Phoenix.ConnTest.build_conn())
     %{auth_token: token, uri: URI.parse(origin)}
+  end
+
+  defp pair_runner(actor, name, origin) do
+    with {:ok, runner} <- RunnerDevices.register(actor, name, origin),
+         {:ok, %{token: token}} <- RunnerDevices.pair(runner.code),
+         {:ok, [spec]} <- RunnerDevices.bootstrap(token, origin),
+         do: {:ok, runner, spec}
   end
 
   defp join_payload(%{incarnation_id: incarnation_id}) do

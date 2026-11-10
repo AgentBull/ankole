@@ -58,6 +58,8 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
          {:ok, principal} <- put_subject_tenant(claims["tenant_id"], agent_uid),
          :agent <- principal.type,
          :active <- principal.status,
+         :ok <- authorize_runner_route(conn, claims),
+         :ok <- AgentTokens.authorize_worker_claims(claims),
          :ok <- authorize_non_client_origin(conn, source) do
       conn
       |> assign(
@@ -80,6 +82,15 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
       _invalid -> unauthorized(conn, "invalid_token", "bearer token is invalid")
     end
   end
+
+  defp authorize_runner_route(%{method: method, path_info: ["api", "v1", "ai-gateway", route]}, %{
+         "runner_worker" => _
+       })
+       when {method, route} in [{"GET", "models"}, {"GET", "responses"}, {"POST", "responses"}],
+       do: :ok
+
+  defp authorize_runner_route(_conn, %{"runner_worker" => _}), do: {:error, :invalid_token}
+  defp authorize_runner_route(_conn, _claims), do: :ok
 
   defp authenticate_oidc_claims(conn, token, claims, source) do
     with {:ok, client} <-

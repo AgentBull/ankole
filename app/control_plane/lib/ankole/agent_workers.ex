@@ -71,6 +71,8 @@ defmodule Ankole.AgentWorkers do
       define(:assign_worker_provider, action: :assign_provider)
     end
 
+    resource(Ankole.AgentWorkers.RunnerDevice)
+    resource(Ankole.AgentWorkers.RunnerBinding)
     resource(Ankole.AgentWorkers.WorkerEnv.EnvVar)
     resource(Ankole.AgentWorkers.WorkerEnv.SiteEnvVar)
   end
@@ -264,7 +266,7 @@ defmodule Ankole.AgentWorkers do
   The caller owns work capacity, persistence, and the result of a timeout.
   """
   @spec wait_status(
-          AgentWorker.t() | nil,
+          AgentWorker.t() | Ankole.AgentWorkers.RunnerBinding.t() | nil,
           boolean(),
           DateTime.t() | nil,
           DateTime.t(),
@@ -290,7 +292,7 @@ defmodule Ankole.AgentWorkers do
     end
   end
 
-  defp ready?(%AgentWorker{state: :ready}), do: true
+  defp ready?(%{state: :ready}), do: true
   defp ready?(_worker), do: false
 
   @doc """
@@ -354,9 +356,18 @@ defmodule Ankole.AgentWorkers do
   end
 
   @doc "The `WorkerRoute` target of the row's current connection."
-  @spec target(AgentWorker.t()) :: WorkerRoute.target()
+  @spec target(AgentWorker.t() | Ankole.AgentWorkers.RunnerBinding.t()) :: WorkerRoute.target()
   def target(%AgentWorker{agent_uid: agent_uid, transport_route: route}),
     do: %{worker_id: agent_uid, transport_route: route}
+
+  def target(%Ankole.AgentWorkers.RunnerBinding{} = binding),
+    do: %{
+      worker_id: binding.agent_uid,
+      runner_id: binding.runner_id,
+      transport_route: binding.transport_route,
+      generation: binding.generation,
+      incarnation_id: binding.incarnation_id
+    }
 
   @doc """
   Records that a path needs the Agent's Worker now, and schedules

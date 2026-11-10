@@ -76,6 +76,11 @@ defmodule AnkoleWeb.Router do
     post "/triggers/:trigger_id", ConnectorWebhookController, :trigger
   end
 
+  scope "/api/internal/runner-devices", AnkoleWeb do
+    post "/pair", RunnerDeviceController, :pair
+    get "/bindings", RunnerDeviceController, :bindings
+  end
+
   scope "/api/internal/connectors", AnkoleWeb do
     post "/git-credentials", ConnectorMCPController, :git_credentials
   end

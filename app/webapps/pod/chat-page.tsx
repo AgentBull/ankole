@@ -39,6 +39,7 @@ import { useConversationEvents } from './use-conversation-events'
 import { refreshConversationDetail } from './query-cache'
 import { deleteConversation } from './api/generated/sdk.gen'
 import { Composer } from './chat/composer'
+import { RunnerJobDialog } from './chat/runner-job-dialog'
 import { isExecutionActive, isPeerActive } from './chat/timeline-projections'
 import { TurnTimeline } from './chat/turn-timeline'
 import { ChatHomeView } from './chat/chat-home-view'
@@ -722,6 +723,19 @@ export function ChatPage({
                 </p>
               )}
               {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
+              {conversationID &&
+                data.conversation.accessScope === 'participants' &&
+                data.conversation.viewer.uid === data.conversation.createdBy &&
+                agentUID && (
+                  <RunnerJobDialog
+                    conversationID={conversationID}
+                    agentUID={agentUID}
+                    onCreated={id => {
+                      void refreshConversationDetail(client, conversationID)
+                      openInspector({ type: 'execution', kind: 'background_agent_job', runID: String(id) })
+                    }}
+                  />
+                )}
               {composer}
             </div>
           </div>

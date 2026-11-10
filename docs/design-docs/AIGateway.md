@@ -191,6 +191,12 @@ standard Responses with native tool declarations. As a result, Codex sees the
 real model and reasoning effort it needs locally while AIGateway stays the sole
 authority for upstream requests.
 
+Ankole limits a paired device's Gateway token to the model manifest and
+Responses endpoints. For inference, the Gateway uses the Job and attempt in
+the binding header to check that the device owns the active turn. It reads
+the model selection and options from the persisted Job snapshot before
+dispatching the request.
+
 Each AIGateway model card enforces a 10,000-token ceiling on tool output visible
 to the model (and states that same limit in the card instructions). Callers can
 pass a smaller `max_output_tokens` value to lower output further, but passing a

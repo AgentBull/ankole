@@ -8,6 +8,7 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Signals.Signal
   alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.RunnerConnection
 
   @doc """
   Authorizes one Worker RPC in its own transaction.
@@ -15,50 +16,96 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   The transaction takes the same locks as a terminal write, so the check
   waits for a concurrent cancellation or terminal write to commit.
   """
-  def authorize_turn(ref, worker_id, effect) when is_binary(worker_id) and worker_id != "" do
-    case Repo.transact_top_level(fn -> authorize_turn_in_tx(ref, worker_id, effect) end) do
+  def authorize_turn(ref, worker, effect) do
+    case Repo.transact_top_level(fn -> authorize_turn_in_tx(ref, worker, effect) end) do
       {:ok, :authorized} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  def authorize_turn(_ref, _worker_id, _effect),
-    do: {:error, :worker_not_assigned_to_turn}
-
   def authorize_turn_in_tx(ref, worker_id, effect, opts \\ [])
 
-  def authorize_turn_in_tx(ref, uid, effect, opts)
+  def authorize_turn_in_tx(%JobTurnRef{} = ref, worker, effect, opts)
       when effect in [:read, :write, :terminal] do
-    case ref do
-      %JobTurnRef{} ->
-        # The locked Job and attempt fence serialize cancellation and terminal
-        # writes. Lock the input only when its lifecycle mutation runs, after
-        # Turn and Session locks.
-        with :ok <- lock_job_write(uid, effect),
-             %Job{attempts: attempt, status: status} <-
-               job(ref, effect),
-             true <- attempt == ref.attempt and (status == :running or effect == :terminal),
-             :ok <- input(ref, status != :running, Keyword.delete(opts, :lock)) do
-          {:ok, :authorized}
-        else
-          {:error, _} = error -> error
-          _ -> {:error, :background_agent_job_attempt_changed}
-        end
+    # The locked Job and attempt fence serialize cancellation and terminal
+    # writes. Lock the input only when its lifecycle mutation runs, after
+    # Turn and Session locks.
+    with {:ok, source} <- source(ref, worker),
+         :ok <- check_worker(ref, source, effect),
+         %Job{attempts: attempt, status: status} = job <- job(ref, effect),
+         :ok <- assigned(job, source),
+         true <- attempt == ref.attempt and (status == :running or effect == :terminal),
+         :ok <- input(ref, status != :running, Keyword.delete(opts, :lock)) do
+      {:ok, :authorized}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :background_agent_job_attempt_changed}
+    end
+  end
 
-      %RunRef{} ->
-        with :ok <- input(ref, false, opts), do: {:ok, :authorized}
+  def authorize_turn_in_tx(%RunRef{} = ref, worker, effect, opts)
+      when effect in [:read, :write, :terminal] do
+    with {:ok, :managed} <- source(ref, worker),
+         :ok <- input(ref, false, opts) do
+      {:ok, :authorized}
+    else
+      {:ok, _} -> {:error, :worker_not_assigned_to_turn}
+      error -> error
     end
   end
 
   def authorize_turn_in_tx(_ref, _worker_id, _effect, _opts),
     do: {:error, :worker_not_assigned_to_turn}
 
-  defp lock_job_write(_uid, :read), do: :ok
+  defp source(%JobTurnRef{}, :internal), do: {:ok, :internal}
 
-  defp lock_job_write(uid, _effect) do
+  defp source(%{agent_uid: uid}, %{worker_id: uid, runner_id: runner_id} = worker)
+       when is_binary(runner_id),
+       do: {:ok, worker}
+
+  defp source(%JobTurnRef{agent_uid: uid, worker: %{worker_id: uid} = worker}, uid),
+    do: {:ok, worker}
+
+  defp source(%{agent_uid: uid}, %{worker_id: uid, runner_id: nil}), do: {:ok, :managed}
+
+  defp source(%{agent_uid: uid}, %{worker_id: uid} = worker)
+       when not is_map_key(worker, :runner_id),
+       do: {:ok, :managed}
+
+  defp source(%{agent_uid: uid}, uid), do: {:ok, :managed}
+  defp source(_ref, _worker), do: {:error, :worker_not_assigned_to_turn}
+
+  defp check_worker(_ref, worker, :read) when is_map(worker) do
+    if RunnerConnection.current?(worker), do: :ok, else: {:error, :stale_transport_route}
+  end
+
+  defp check_worker(_ref, _worker, :read), do: :ok
+
+  defp check_worker(%{agent_uid: uid}, :managed, _effect) do
     AgentWorkers.lock_in_tx(uid)
     Lifecycle.lock_agent_slots(uid)
   end
+
+  defp check_worker(ref, :internal, _effect) do
+    case job(ref, :read) do
+      %Job{} = job ->
+        BackgroundAgentJobs.lock_worker_in_tx(job)
+        Lifecycle.lock_agent_slots(ref.agent_uid)
+
+      nil ->
+        {:error, :job_not_found}
+    end
+  end
+
+  defp check_worker(ref, worker, _effect) do
+    with :ok <- RunnerConnection.lock_current_in_tx(worker),
+         do: Lifecycle.lock_agent_slots(ref.agent_uid)
+  end
+
+  defp assigned(%Job{runner_id: runner_id}, %{runner_id: runner_id}), do: :ok
+  defp assigned(%Job{runner_id: nil}, :managed), do: :ok
+  defp assigned(_job, :internal), do: :ok
+  defp assigned(_job, _worker), do: {:error, :worker_not_assigned_to_turn}
 
   defp job(ref, :read),
     do: BackgroundAgentJobs.get_job_for_agent(ref.job_id, ref.agent_uid)

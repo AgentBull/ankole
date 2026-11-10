@@ -30,7 +30,7 @@ The Elixir control plane persists all authoritative domain state in PostgreSQL:
 - Mirrored provider messages and outbound provider delivery intents
 - Background Agent Job state
 
-Each Agent owns one Worker provisioned, started, and stopped by the control
+Each Agent owns a managed Worker provisioned, started, and stopped by the control
 plane (see [AgentWorkers](AgentWorkers.md)). The Worker executes Agent code
 against a persistent Agent Home mounted at `/workspace` (which survives Worker
 instance replacement) plus a rebuildable local cache at `/var/cache/ankole`,
@@ -51,18 +51,26 @@ Channel on the control plane:
 - That Channel process addresses the live Worker connection, and PostgreSQL
   stores its `connection_id` as the Worker's `transport_route`.
 
-Every Worker connection carries three distinct identifiers:
+A user device can host an additional Agent Computer for an Agent. It joins
+the same topic with that Agent UID and its own binding credential. Ankole
+authenticates the tenant and Runner from that credential, and it attaches
+the Runner to the route's connection state. Device Job routing and commit
+authority check the Job's stored Runner and the binding's generation and
+incarnation. A newer route can reconnect to the same binding; a different
+device cannot adopt that Job.
+
+Every Worker connection carries these identifiers:
 
 | Identity | Owner | Changes when |
 | --- | --- | --- |
 | `worker_id` | the Agent UID of the Worker | never |
+| `runner_id` | the paired device, when the credential names a device binding | a different device is paired |
 | `incarnation_id` | worker process | the worker process restarts |
 | `connection_id` | control plane | the WebSocket reconnects |
 
-The generation credential proves ownership of `worker_id` (see
-[Authenticate a Worker](#authenticate-a-worker)); provisioning a new Worker
-generation boots a fresh instance over the same persistent `/workspace` while
-keeping `worker_id` unchanged.
+The generation credential proves which Worker may serve the Agent. A new
+generation boots over the persistent `/workspace` of the managed Worker or
+device binding. See [Authenticate a Worker](#authenticate-a-worker).
 
 Actor and RPC frames serialize as binary Protobuf envelopes sent directly in
 WebSocket binary frames, with no JSON or Base64 wrapper. Two envelope fields
@@ -142,17 +150,17 @@ either cap returns `{:error, :backpressure}`.
 `Ankole.AgentWorkers.WorkerRoute` is the sole module that sends frames to a
 Worker, backed by `Ankole.AgentWorkers.WorkerTracker` (`Phoenix.Tracker`):
 
-- Each Worker has its own tracker topic `worker/<worker_id>` (authentication
-  loads the Worker row across tenants and hands its tenant to the Channel),
-  sharded across `pool_size` tracker shards via `phash2(topic, pool_size)`; no
-  scheduling code ever lists a full topic.
+- The tracker topic `worker/<tenant_id>/<agent_uid>` holds the managed and
+  device routes for that Agent. Authentication resolves the tenant before join.
+  The tracker shards these topics via `phash2(topic, pool_size)`, and callers
+  look up one route without listing its topic.
 - Each entry is keyed by `connection_id`, carries `incarnation_id` in metadata,
   and supplies the Channel PID and Erlang node, while heartbeat, load, and
-  capacity live on the PostgreSQL `agent_workers` row.
+  capacity live on the managed Worker or device binding row in PostgreSQL.
 
-Callers read the target route from `agent_workers` at send time—conversation
-inputs never persist a Worker route, so a reconnected Worker is addressed on its
-live connection—and `WorkerRoute` executes five steps:
+Callers resolve the current route at send time. Device Jobs retain the Runner
+ID so a reconnected Worker receives their commands on the new route.
+`WorkerRoute` executes five steps:
 
 1. Looks up `(topic, route)` via `Phoenix.Tracker.get_by_key/3`.
 2. Compares the tracker entry's `connection_id` and `incarnation_id` against the
@@ -217,10 +225,9 @@ Worker's ready capacity fields, every join acts as a full admission, and the
 Worker opens its outbound send windows only after `join/3` succeeds.
 
 Reconnecting from the same live Worker process keeps `incarnation_id` while
-assigning a new `connection_id`: `join/3` updates `agent_workers` to the new
-route and closes the superseded socket without disturbing turn fences. When the
-superseded Channel process exits afterward, it leaves the Worker `ready` because
-`agent_workers` already points to the new `connection_id`. Before failing
+assigning a new `connection_id`: `join/3` updates the Worker or binding row to
+the new route and closes the superseded socket without disturbing turn fences.
+When that Channel exits, the row keeps its `ready` state and new route. Before failing
 in-flight RPC calls from the closed socket, the Worker first dispatches any
 replies already buffered in its receive queue; unsent requests still waiting in
 memory can ride the next join up to their original deadline, while requests
@@ -255,11 +262,10 @@ scheduling and run termination strictly to the control plane.
 
 ## Routing State
 
-Each Agent's `agent_workers` row persists its Worker generation, credential, and
-live connection state (route, `incarnation_id`, capacity, and load) in logged
-PostgreSQL storage—since losing a generation credential would strand its running
-Worker—without maintaining a separate RuntimeFabric delivery or activation
-table.
+Ankole persists each Worker generation, credential, and live connection state
+in PostgreSQL. The managed Worker's row lives in `agent_workers`, and the
+device's Agent binding lives in `runner_bindings`. These records let a Worker
+reconnect after a control plane restart.
 
 On the control plane, `Sessions.Driver` registers one `:global` name per `(agent,
 session)`, backed by the signal queue and Response tape in PostgreSQL and
@@ -271,15 +277,17 @@ admission increments the epoch.
 Workers never see `sessions.epoch`: for environment work, the Worker echoes
 `RunRef` (keying tool results by `(response_id, call_id)` so results survive
 Driver handoff), and for Codex Jobs, the Worker echoes `JobTurnRef` verified
-against the persisted attempt by the Job owner, while `WorkerRouteAuth` confirms
-that the socket belongs to the target Agent. `AgentWorkers` manages Worker
-placement and slot capacity rather than Session execution state.
+against the persisted attempt by the Job owner. `WorkerRouteAuth` confirms that
+the socket belongs to the target Agent and matches the Job's Runner assignment.
+`AgentWorkers` manages Worker placement and slot capacity. `Sessions` owns the
+execution state.
 
 ## Authenticate a Worker
 
 Every Worker generation receives a fresh 32-byte random credential encoded as
-`base64url`; `agent_workers` stores its SHA-256 digest for admission alongside
-an encrypted copy for retrying instance creation within the same generation.
+`base64url`. Ankole stores the SHA-256 digest for admission alongside an encrypted
+copy for launching the same generation. The row lives in `agent_workers` for a
+managed Worker and in `runner_bindings` for a paired device.
 
 Starting a Worker container requires these environment variables:
 
@@ -303,15 +311,15 @@ During WebSocket upgrade, the Worker passes its credential as the Phoenix auth
 token in `Sec-WebSocket-Protocol` (never in the URL), validates the endpoint,
 copies the key into process memory, and scrubs it from the environment inherited
 by child processes. The credential's globally unique SHA-256 digest locates an
-`agent_workers` row and its tenant. `RuntimeFabricSocket.connect/3` then checks
-`worker_id` against that row's Agent UID and admits the socket only when it is
-`starting`, `stale`, or `ready`—rejecting `absent`, `paused`, `draining`, or
-`deleting` rows as well as credentials from superseded generations—and binds the
-verified tenant, generation and `worker_id` (the Agent UID) on the socket so message
-bodies never carry an Agent ID.
+managed Worker or device binding and its tenant. `RuntimeFabricSocket.connect/3`
+checks `worker_id` against that row's Agent UID and binds the verified tenant,
+generation, Agent UID and optional Runner ID on the socket. Managed admission
+accepts rows in `starting`, `stale` or `ready`. Device admission also requires
+an active device owner and a live grant to use that Agent. The Worker derives
+its identity from this authenticated connection.
 
 On channel join, the Worker sends `incarnation_id`, `max_slots`, and
-`available_slots`. Under the `agent_workers` row lock, `WorkerAdmission`
+`available_slots`. Under the managed Worker or device binding lock, `WorkerAdmission`
 re-verifies the generation, admission state (`stale_worker_generation` on an
 outdated generation), and stored protocol version, then writes the route,
 `incarnation_id`, capacity, and heartbeat timestamp—marking the Worker `ready`
@@ -320,11 +328,11 @@ immediately with no second ready message.
 Subsequent lifecycle transitions stay ordered per Channel without a global
 lifecycle dispatcher (while RPC and Actor handlers spawn supervised tasks):
 
-- **Heartbeats** report current capacity and load, renewing `agent_workers` only
+- **Heartbeats** report current capacity and load, renewing the connection only
   when the row is `ready` or `draining` on the matching route and
   `incarnation_id`.
 - **Graceful shutdown (`control_shutdown`)** notifies the control plane that the
-  Worker process is exiting, transitioning `agent_workers` to `draining` so it
+  Worker process is exiting, transitioning its row to `draining` so it
   stops accepting new workspaces or Codex Jobs while finishing in-flight work
   and receiving RPC replies.
 - **Process replacement** brings a new `incarnation_id`: the control plane drops
@@ -338,10 +346,11 @@ lifecycle dispatcher (while RPC and Actor handlers spawn supervised tasks):
   push receives `stale_transport_route` or socket closure leaves its stale
   Channel and passes `join/3` again on a fresh route.
 
-This handshake authenticates trusted first-party Workers (with ingress handling
-`wss://` TLS termination in front of the control plane and database turn fences
-still guarding every write); Ankole does not admit untrusted third-party
-workers.
+Ankole admits its managed runtimes and the Agent Computers of paired devices
+over WSS. A device executes only Jobs assigned to its binding. Ankole checks the
+binding and attempt when it commits Worker actions. The device's AIGateway token
+also carries its binding and process incarnation. AIGateway rechecks these claims
+on HTTP requests and before each new response on an existing model socket.
 
 ## Encode and Check Actor and RPC Messages
 
@@ -522,8 +531,10 @@ Outer RPC frames carry execution authority outside the business payload (and
 payloads never duplicate Agent IDs or `request_id`):
 
 - **`turn`-scoped methods** carry one `RunRef` or `JobTurnRef`.
-- **`worker_agent`-scoped methods** carry no execution ref, taking the Agent UID
-  directly from the authenticated socket's `worker_id`.
+- **`worker_agent`-scoped methods** take the Agent UID directly from the socket.
+  Device file and environment calls also carry the assigned `JobTurnRef`.
+  A device receives the Job's scoped connector context, while Ankole keeps
+  operator and binding shell variables on managed Workers.
 
 The control plane authorizes the outer frame before decoding the business
 payload: Job lifecycle methods require `JobTurnRef` (allowing idempotent
@@ -651,7 +662,9 @@ method (redacting the bearer URL from logs on both runtimes and filtering
 browser Host checks, body parsers, and session plugs, while leaving normal Host
 policy in place for browser pages and APIs. If the relay Pod, Worker, or drive
 RPC fails—or if the idle timeout fires—both sides discard state with no partial
-resume, and the caller retries from scratch.
+resume, and the caller retries from scratch. A device reaches the same relay
+path through the public site origin. That origin must reach the single control
+plane replica that issued the transfer.
 
 On the Worker filesystem, path checks block `..` traversal and symlinks escaping
 `/workspace`. Pulls stream into `/tmp/ankole-file-transfer/<transfer-id>/` first

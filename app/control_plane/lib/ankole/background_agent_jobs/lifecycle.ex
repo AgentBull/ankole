@@ -7,7 +7,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.AgentWorkers.WorkerRouteAuth
-  alias Ankole.AgentWorkers
   alias Ankole.Principals
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Dispatch
@@ -16,6 +15,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
+  alias Ankole.BackgroundAgentJobs.Worker
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.BackgroundAgentJobs.Wakeups
   alias Ankole.BackgroundAgentJobs.WorkerWait
@@ -31,7 +31,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           String.t(),
           map(),
           JobTurnRef.t(),
-          String.t()
+          String.t() | map()
         ) :: {:ok, Turn.t()} | {:error, term()}
   def upsert_turn_from_worker_in_tx(
         job_id,
@@ -41,7 +41,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         worker_id
       )
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_map(attrs) and
-             is_binary(worker_id) do
+             (is_binary(worker_id) or is_map(worker_id)) do
     with {:ok, :authorized} <-
            WorkerRouteAuth.authorize_turn_in_tx(turn_ref, worker_id, :write, lock: true),
          :ok <- lock_agent_slots(agent_uid),
@@ -248,6 +248,32 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     )
   end
 
+  def fail_revoked_runner_job_in_tx(runner_id, now) do
+    with %Job{id: id, agent_uid: uid} <- Queries.running_for_runner(runner_id),
+         :ok <- lock_agent_slots(uid),
+         %Job{status: :running} <- Queries.lock_for_agent_in_tx(id, uid) do
+      error = %{"code" => "runner_revoked", "summary" => "The owner disconnected the device."}
+
+      with {:ok, result} <-
+             commit_status_after_runtime_prefix_in_tx(
+               id,
+               uid,
+               %{"status" => :failed, "error" => error},
+               now,
+               nil,
+               error,
+               transition_action: :fail_turn
+             ),
+           {:ok, :ok} <- Dispatch.complete_all_open_events_in_tx(id, uid, now) do
+        {:ok, result}
+      end
+    else
+      nil -> {:ok, nil}
+      %Job{} -> {:ok, nil}
+      {:error, _reason} = error -> error
+    end
+  end
+
   @doc false
   @spec commit_status_with_wakeup_in_tx(
           pos_integer(),
@@ -273,7 +299,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     # Every transition locks the Agent's Worker row before taking the agent/job
     # locks. Worker writes also validate the Job attempt and process identity.
     with :ok <- lock_successor_owner_prefix_in_tx(job_id, agent_uid, attrs, opts),
-         :ok <- lock_runtime_prefix_in_tx(agent_uid, turn_ref, worker_id),
+         :ok <- lock_runtime_prefix_in_tx(job_id, agent_uid, turn_ref, worker_id),
          {:ok, result} <-
            commit_status_after_runtime_prefix_in_tx(
              job_id,
@@ -581,15 +607,15 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   # A Worker write proves its turn with the connection's worker id; a turn
   # reference without one fails the turn check.
-  defp lock_runtime_prefix_in_tx(_agent_uid, %JobTurnRef{} = turn_ref, worker_id) do
+  defp lock_runtime_prefix_in_tx(_job_id, _agent_uid, %JobTurnRef{} = turn_ref, worker_id) do
     case WorkerRouteAuth.authorize_turn_in_tx(turn_ref, worker_id, :terminal, lock: true) do
       {:ok, :authorized} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  defp lock_runtime_prefix_in_tx(agent_uid, nil, _worker_id) do
-    _worker = AgentWorkers.lock_in_tx(agent_uid)
+  defp lock_runtime_prefix_in_tx(job_id, agent_uid, nil, _worker_id) do
+    if job = Queries.get_for_agent(job_id, agent_uid), do: Worker.lock_in_tx(job)
     :ok
   end
 
@@ -770,11 +796,11 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     attrs = attrs |> Attrs.normalize() |> normalize_status_attr()
 
     if needs_successor_owner?(attrs, opts) do
-      AgentWorkers.lock_in_tx(agent_uid)
-      :ok = lock_agent_slots(agent_uid)
-
       case Queries.get_for_agent(job_id, agent_uid) do
-        %Job{owner_session_id: session_id} ->
+        %Job{owner_session_id: session_id} = job ->
+          Worker.lock_in_tx(job)
+          :ok = lock_agent_slots(agent_uid)
+
           case Ankole.Workflow.Queries.parse_task_session_id(session_id) do
             {:ok, _call_id} -> Ankole.Workflow.Slot.lock_agent_slots(agent_uid)
             :error -> :ok

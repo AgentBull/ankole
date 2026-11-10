@@ -4,8 +4,220 @@ defmodule Ankole.Sessions.CodexJobTest do
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.CodexJob
   alias Ankole.Sessions.JobTurnRef
+  alias Ankole.AgentWorkers.RunnerDevices
+  alias Ankole.AuthZ.Actor
   alias Ankole.BackgroundAgentJobs
   alias Ankole.AIGateway.Schemas.Conversation
+
+  test "a Job waits for its selected device and respawns on the same Home" do
+    %{principal: owner} = human_fixture()
+
+    %{principal: agent} =
+      agent_fixture(%{type: :personal_assistant, owner_principal_uid: owner.uid})
+
+    origin = "https://ankole.example.test"
+
+    assert {:ok, %{id: runner_id, code: code}} =
+             RunnerDevices.register(Actor.new(owner), "Research machine", origin)
+
+    assert {:ok, %{token: token}} = RunnerDevices.pair(code)
+    assert {:ok, [spec]} = RunnerDevices.bootstrap(token, origin)
+    uid = spec.agent_uid
+    assert uid == agent.uid
+
+    assert {:ok, cloud} = admit_worker(unique_route(), %{worker_id: uid})
+    creator = %{"principal_uid" => to_string(Ankole.ActorRef.from_principal(owner))}
+
+    %{job: job, dispatch_event: dispatch} = create_device_job!(uid, creator, runner_id, "device")
+
+    assert {:ok, devices} =
+             Ankole.Sessions.Tools.Jobs.execute(
+               %{agent_uid: uid, signal_id: dispatch.id},
+               %{"name" => "list_background_job_devices"},
+               %{}
+             )
+
+    assert devices.details["devices"] == [
+             %{"runner_id" => runner_id, "name" => "Research machine", "status" => "offline"}
+           ]
+
+    key = %{agent_uid: uid, session_id: dispatch.session_id}
+    now = DateTime.add(job.queued_at, 1, :second)
+
+    assert {:ok, %{status: :waiting_for_worker, runner_id: ^runner_id}} =
+             CodexJob.admit(key, dispatch, now: now)
+
+    assert %{status: :queued, runner_id: ^runner_id, attempts: 0} =
+             BackgroundAgentJobs.get_job_for_agent(job.id, uid)
+
+    assert {:ok, managed} = AgentWorkers.get_agent_worker(uid)
+    assert managed.wanted_until == cloud.wanted_until
+
+    route = unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+
+    binding = admit_device_binding!(spec, runner_id, route)
+
+    assert {:ok, run} = CodexJob.admit(key, dispatch, now: DateTime.add(now, 1, :second))
+    assert run.job_worker.transport_route == route
+    assert {:ok, _} = CodexJob.start(run)
+    assert_receive {:actor_lane, envelope}
+    assert turn_start_payload!(envelope).drive_vfs == nil
+
+    assert {:error, :worker_not_assigned_to_turn} =
+             Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn(
+               run.job_ref,
+               AgentWorkers.target(cloud),
+               :read
+             )
+
+    assert {:ok, _} =
+             BackgroundAgentJobs.commit_status_with_wakeup(
+               job.id,
+               uid,
+               %{"status" => "running", "runtime_thread_id" => "device-thread"},
+               turn_ref: run.job_ref,
+               worker_id: AgentWorkers.target(binding)
+             )
+
+    assert {:ok, %{job: completed}} =
+             BackgroundAgentJobs.request_complete(job.id, %{
+               "agent_uid" => uid,
+               "result_summary" => "Verified on the research machine"
+             })
+
+    assert {:ok, %{job: successor}} =
+             BackgroundAgentJobs.respawn_with_dispatch(completed.id, %{
+               "agent_uid" => uid,
+               "created_by" => creator,
+               "owner_session_id" => completed.owner_session_id,
+               "source_tool_call_id" => "tool-device-job-successor",
+               "message" => "Continue with the next dataset.",
+               "reply_route" => completed.reply_route
+             })
+
+    assert successor.runner_id == runner_id
+    assert successor.workspace_owner_job_id == job.id
+    assert successor.runtime_thread_id == "device-thread"
+  end
+
+  test "two Agent bindings share the device's durable Job capacity" do
+    %{principal: owner} = human_fixture()
+    actor = Actor.new(owner)
+    creator = %{"principal_uid" => to_string(Ankole.ActorRef.from_principal(owner))}
+    origin = "https://ankole.example.test"
+
+    %{principal: assistant} =
+      agent_fixture(%{type: :personal_assistant, owner_principal_uid: owner.uid})
+
+    %{principal: colleague} = agent_fixture(%{owner_principal_uid: owner.uid})
+
+    assert {:ok, %{id: runner_id, code: code}} =
+             RunnerDevices.register(actor, "Shared device capacity", origin)
+
+    assert {:ok, %{token: token}} = RunnerDevices.pair(code)
+    assert {:ok, _} = RunnerDevices.bind(actor, runner_id, colleague.uid, origin)
+    assert {:ok, specs} = RunnerDevices.bootstrap(token, origin)
+    assert Enum.sort(Enum.map(specs, & &1.agent_uid)) == Enum.sort([assistant.uid, colleague.uid])
+
+    for spec <- specs, do: admit_device_binding!(spec, runner_id, unique_route())
+
+    %{job: first, dispatch_event: first_dispatch} =
+      create_device_job!(assistant.uid, creator, runner_id, "shared-first")
+
+    %{job: second, dispatch_event: second_dispatch} =
+      create_device_job!(colleague.uid, creator, runner_id, "shared-second")
+
+    first_key = %{agent_uid: assistant.uid, session_id: first_dispatch.session_id}
+    second_key = %{agent_uid: colleague.uid, session_id: second_dispatch.session_id}
+    now = DateTime.add(second.queued_at, 1, :second)
+
+    assert {:ok, %CodexJob.Attempt{}} = CodexJob.admit(first_key, first_dispatch, now: now)
+
+    assert {:ok, %{status: :waiting_for_worker, reason: :no_worker_capacity}} =
+             CodexJob.admit(second_key, second_dispatch, now: now)
+
+    assert %{status: :queued, attempts: 0} =
+             BackgroundAgentJobs.get_job_for_agent(second.id, colleague.uid)
+
+    assert {:ok, %{job: %{status: :stopped}}} =
+             BackgroundAgentJobs.request_stop(first.id, %{"agent_uid" => assistant.uid})
+
+    assert {:ok, %CodexJob.Attempt{job_worker: %{runner_id: ^runner_id}}} =
+             CodexJob.admit(second_key, second_dispatch, now: DateTime.add(now, 1, :second))
+  end
+
+  test "revoking a device fails its running Job and frees the Agent's hosted capacity" do
+    assert {:ok, 1} =
+             Ankole.AppConfigure.put_tenant_by_key(
+               "background_agent_jobs.max_running_per_agent",
+               1
+             )
+
+    %{principal: owner} = human_fixture()
+    actor = Actor.new(owner)
+    creator = %{"principal_uid" => to_string(Ankole.ActorRef.from_principal(owner))}
+    origin = "https://ankole.example.test"
+
+    %{principal: agent} =
+      agent_fixture(%{type: :personal_assistant, owner_principal_uid: owner.uid})
+
+    assert {:ok, %{id: runner_id, code: code}} =
+             RunnerDevices.register(actor, "Revoked device", origin)
+
+    assert {:ok, %{token: token}} = RunnerDevices.pair(code)
+    assert {:ok, [spec]} = RunnerDevices.bootstrap(token, origin)
+    route = unique_route()
+    admit_device_binding!(spec, runner_id, route)
+
+    cloud_route = unique_route()
+    :ok = WorkerRoute.register_local_worker(cloud_route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(cloud_route) end)
+    assert {:ok, _} = admit_worker(cloud_route, %{worker_id: agent.uid})
+
+    %{job: pinned, dispatch_event: dispatch} =
+      create_device_job!(agent.uid, creator, runner_id, "revoked-running")
+
+    hosted = create_job!(agent.uid, "after-device-revoke")
+    device_key = %{agent_uid: agent.uid, session_id: dispatch.session_id}
+    hosted_key = %{device_key | session_id: BackgroundAgentJobs.job_session_id(hosted.id)}
+    now = DateTime.add(hosted.queued_at, 1, :second)
+
+    assert {:ok, %CodexJob.Attempt{} = run} = CodexJob.admit(device_key, dispatch, now: now)
+
+    assert {:ok, %{reason: :background_agent_job_agent_at_capacity}} =
+             admit_job(hosted_key, now: now)
+
+    assert {:ok, :marked_stale} =
+             AgentWorkers.WorkerAdmission.mark_route_unusable(route, :socket_closed)
+
+    assert {:ok, :disconnected} = CodexJob.observe(run)
+    assert %{status: :running} = BackgroundAgentJobs.get_job(pinned.id)
+
+    assert {:ok, _} = RunnerDevices.revoke(actor, runner_id)
+    assert {:ok, _} = RunnerDevices.revoke(actor, runner_id)
+
+    assert %{status: :failed, error: %{"code" => "runner_revoked"}} =
+             BackgroundAgentJobs.get_job(pinned.id)
+
+    assert {:ok, %{status: :completed}} = Ankole.Signals.get_signal(dispatch.id)
+
+    assert {:ok, [%{data: %{"job_id" => id}}]} =
+             Ankole.Signals.list_signals(
+               query: [
+                 filter: [
+                   session_id: pinned.owner_session_id,
+                   type: "background_agent_job.failed"
+                 ]
+               ]
+             )
+
+    assert id == pinned.id
+
+    assert {:ok, %CodexJob.Attempt{job_worker: %{transport_route: ^cloud_route}}} =
+             admit_job(hosted_key, now: DateTime.add(now, 1, :second))
+  end
 
   test "a reflection without Bindings starts with its Agent context and a fenced attempt" do
     %{principal: agent} = agent_fixture()
@@ -1249,6 +1461,37 @@ defmodule Ankole.Sessions.CodexJobTest do
       result ->
         result
     end
+  end
+
+  defp admit_device_binding!(spec, runner_id, route) do
+    assert {:ok, binding} =
+             AgentWorkers.admit_join(
+               %{incarnation_id: "device-" <> route, max_slots: 1, available_slots: 1},
+               %{
+                 transport_route: route,
+                 worker_id: spec.agent_uid,
+                 runner_id: runner_id,
+                 generation: spec.generation
+               }
+             )
+
+    binding
+  end
+
+  defp create_device_job!(uid, creator, runner_id, suffix) do
+    assert {:ok, value} =
+             create_job_with_stub_driver(%{
+               "agent_uid" => uid,
+               "created_by" => creator,
+               "runner_id" => runner_id,
+               "owner_session_id" => "owner-session-#{suffix}-job",
+               "source_tool_call_id" => "tool-#{suffix}-job",
+               "title" => "Device Job #{suffix}",
+               "task" => "Run the analysis on the selected device.",
+               "reply_route" => %{"binding_name" => "bot"}
+             })
+
+    value
   end
 
   defp create_job!(agent_uid, suffix) do

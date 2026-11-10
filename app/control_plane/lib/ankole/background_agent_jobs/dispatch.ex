@@ -15,6 +15,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Worker
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.Signals.Signal
@@ -27,6 +28,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     model_profile
     owner_session_id
     reply_route
+    runner_id
     source_signal_id
     source_tool_call_id
     task
@@ -69,6 +71,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   defp prepare_new_job(attrs, agent_uid) do
     with {:ok, reply_route} <- reply_route(attrs),
+         {:ok, runner_id} <- cast_runner_id(attrs["runner_id"]),
          {:ok, model_profile} <- requested_model_profile(agent_uid, attrs),
          {:ok, workspace_template_id} <- validate_workspace_template_id(agent_uid, attrs),
          {:ok, metadata} <- job_metadata(attrs, true) do
@@ -77,6 +80,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       attrs =
         attrs
         |> Map.put("reply_route", reply_route)
+        |> Map.put("runner_id", runner_id)
         |> Map.put("model_profile", model_profile)
         |> Map.put("workspace_template_id", workspace_template_id)
         |> Map.put("metadata", metadata)
@@ -160,6 +164,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
          :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
+         :ok <-
+           Worker.authorize_for_work(attrs["human_uid"], attrs["agent_uid"], attrs["runner_id"]),
          :ok <- Lifecycle.lock_agent_slots(attrs["agent_uid"]),
          :ok <- lock_start_idempotency(attrs) do
       case find_existing_job(attrs) do
@@ -183,6 +189,17 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
+  defp cast_runner_id(nil), do: {:ok, nil}
+
+  defp cast_runner_id(runner_id) when is_binary(runner_id) do
+    case Ecto.UUID.cast(runner_id) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :invalid_runner_id}
+    end
+  end
+
+  defp cast_runner_id(_value), do: {:error, :invalid_runner_id}
+
   defp prepare_persist_respawn(source_job_id, attrs, now) do
     attrs = Ankole.Principals.WorkAccess.inherit(attrs) |> Map.delete("created_by")
 
@@ -198,6 +215,12 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
           with :ok <- lock_delegated_parent(attrs),
                {:ok, source_job} <- lock_respawn_source(source_job_id, attrs["agent_uid"]),
                :ok <- validate_respawn_source(source_job),
+               :ok <-
+                 Worker.authorize_for_work(
+                   attrs["human_uid"],
+                   source_job.agent_uid,
+                   source_job.runner_id
+                 ),
                :ok <- ensure_no_successor(source_job),
                :ok <-
                  Workflow.TaskLifecycle.authorize_delegated_job_owner_in_tx(

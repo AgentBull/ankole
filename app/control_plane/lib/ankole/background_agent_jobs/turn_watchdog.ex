@@ -7,7 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
-  alias Ankole.AgentWorkers
+  alias Ankole.BackgroundAgentJobs.Worker
   alias Ankole.AgentWorkers.WorkerRouteAuth
   alias Ankole.Repo
   alias Ankole.Sessions.TurnControl
@@ -66,7 +66,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
           "details_json" => %{"retryable" => stalls < @max_stalls, "stalls" => stalls}
         }
 
-        with {:ok, _} <- CodexJob.abort(ref, ref.agent_uid, reason) do
+        with {:ok, _} <- CodexJob.abort(ref, :internal, reason) do
           TurnControl.dispatch([
             %{turn_ref: ref, verb: :retry, reason: @stall_code, payload: %{}}
           ])
@@ -88,7 +88,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   def inspect_stall_in_tx(job_id, %DateTime{} = now) do
     case Queries.get(job_id) do
       %Job{status: :running} = job ->
-        _worker = AgentWorkers.lock_in_tx(job.agent_uid)
+        _worker = Worker.lock_in_tx(job)
         :ok = Lifecycle.lock_agent_slots(job.agent_uid)
         job = Queries.lock_for_agent_in_tx(job.id, job.agent_uid)
         # A Worker can accept an attempt and fail before its first trajectory.

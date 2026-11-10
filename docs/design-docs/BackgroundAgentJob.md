@@ -91,9 +91,10 @@ selected).
 
 When `result_offset` is supplied (starting at `0`), the tool accepts only a
 `succeeded` Job with a persisted `output_text`. It returns `title`, `status`,
-`result_ref`, `workspace_owner_job_id`, `project_path`, `artifacts`,
-`artifact_roots`, and one UTF-8-safe `result` chunk (`{offset, output_text,
-next_offset}`):
+`result_ref`, `workspace_owner_job_id`, and one UTF-8-safe `result` chunk
+(`{offset, output_text, next_offset}`). The result identifies a device Job by
+`runner_id`. A managed cloud Job includes `project_path`, `artifacts`, and
+`artifact_roots`:
 
 - Path metadata repeats on every chunk so later Turns or other sessions can
   locate real Job files (including an inherited continuation Workspace) without
@@ -110,7 +111,7 @@ next_offset}`):
 
 ### `create_background_job`
 
-`create_background_job` creates one durable Job from up to four fields:
+`create_background_job` creates one durable Job from these fields:
 
 - `title`: required management and UI label (never sent to Codex).
 - `task`: required prompt text passed verbatim as the initial Codex user
@@ -121,14 +122,35 @@ next_offset}`):
   provider IDs, or reasoning-effort overrides).
 - `workspace_template_id`: optional enabled workspace template materialized
   only when Agent Computer first creates the Job Workspace.
+- `runner_id`: optional device ID explicitly selected by the user. The main
+  Agent uses `list_background_job_devices` to resolve a device's name and ID.
+  Omitting the field selects the Agent's default cloud Worker.
 
 The tool description instructs the main Agent to omit `model_profile` unless the
 human explicitly requests a named custom profile (whose description must state
 its purpose), and explains the Job capability boundary: because a Job can
 neither spawn another Background Agent Job nor load a `main`-only Skill, the
 main Agent executes `main` Skill orchestration steps itself and creates every
-needed Job with its concrete task brief. Creation returns only `{job_id, status:
-"queued"}`.
+needed Job with its concrete task brief. Creation returns `{job_id, status:
+"queued"}` and includes `runner_id` for a device Job.
+
+### Device placement
+
+`list_background_job_devices` returns the paired devices that the current
+Human and Agent can use, including their names, IDs and connection status.
+The control plane checks the device binding at Job creation and at fresh
+attempt admission. It reserves device capacity and claims the Job in the
+same transaction. A Job waits for the selected device to become ready, using
+the existing Worker readiness deadline. The managed cloud Worker continues
+to serve work that uses the default placement.
+
+The Job and its successors retain the same `runner_id` and Workspace owner.
+The device's Agent Computer can reconnect and continue from its persistent
+Home. Stop and recovery operations address that binding, and a Job attempt
+accepts writes only from its assigned execution route. To share a deliverable
+across devices, the Job saves it in Pod or Drive, for example with
+`ankole-files put`, and reports its node ID to the parent. Device workspace
+paths remain local to the device.
 
 ### `send_message_to_background_job`
 
@@ -826,8 +848,9 @@ waits):
   completions fail the Job immediately without requeueing. Only turn-scoped
   RuntimeFabric read handler errors retry, preserving `failure_id`.
 
-Retries run on the Agent's single Worker (or a replacement mounting the same
-persistent Home), resuming the Workspace and Codex thread file. Terminal commits
+Retries use the Job's selected Worker and its persistent Home, resuming the
+Workspace and Codex thread file. A replacement Worker on the same placement
+uses the same Home. Terminal commits
 store the final Job status and wakeup notification in one transaction, and
 callers deliver owner wakeups, successor dispatches, or external-completion stop
 signals strictly after the outer transaction commits. Agent Computer commits

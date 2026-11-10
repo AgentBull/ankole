@@ -22,9 +22,7 @@ defmodule Ankole.AgentWorkers.WorkerEnvBroker do
       with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
            {:ok, %{operator: operator, binding: binding}} <-
-             WorkerEnv.effective_env_parts(principal.uid,
-               binding_name: Ankole.Attrs.optional_text(request.binding_name)
-             ),
+             environment(principal.uid, request.binding_name, ctx),
            {:ok, mcp_secret_keys} <- Ankole.AIAgent.mcp_credential_env_keys(),
            {:ok, mcp_env} <- Ankole.Connectors.Tokens.worker(agent_uid, ctx[:turn_ref]) do
         operator = Map.drop(operator, mcp_secret_keys)
@@ -44,6 +42,13 @@ defmodule Ankole.AgentWorkers.WorkerEnvBroker do
       :disabled -> {:error, error_payload(ctx.request_id, agent_uid, :agent_disabled)}
     end
   end
+
+  defp environment(_uid, _binding_name, %{worker: %{runner_id: runner_id}})
+       when is_binary(runner_id),
+       do: {:ok, %{operator: %{}, binding: %{}}}
+
+  defp environment(uid, binding_name, _ctx),
+    do: WorkerEnv.effective_env_parts(uid, binding_name: Ankole.Attrs.optional_text(binding_name))
 
   defp error_payload(request_id, agent_uid, reason) do
     RPCWire.error_payload(request_id, reason,

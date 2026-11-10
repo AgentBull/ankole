@@ -11,6 +11,11 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers
   import ExUnit.CaptureLog
 
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.{RunnerDevices, WorkerRoute}
+  alias Ankole.AuthZ.Actor
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.Sessions.CodexJob
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
@@ -136,6 +141,148 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> post(~p"/api/v1/ai-gateway/responses", %{"model" => "primary", "input" => "hello"})
 
     assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
+  end
+
+  test "a device token only uses the frozen model of its admitted Job", %{conn: conn} do
+    worker_provider_fixture(%{is_default: true})
+    %{principal: owner} = human_fixture()
+    origin = AnkoleWeb.PodURL.site_origin(conn)
+
+    assert {:ok, %{id: runner_id, code: code}} =
+             RunnerDevices.register(Actor.new(owner), "Untrusted device", origin)
+
+    assert {:ok, %{token: enrollment}} = RunnerDevices.pair(code)
+
+    assert {:ok, [%{agent_uid: uid, generation: generation}]} =
+             RunnerDevices.bootstrap(enrollment, origin)
+
+    route = Ankole.SessionsCase.unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+
+    assert {:ok, runner} =
+             AgentWorkers.admit_join(
+               %{incarnation_id: "runner-test", max_slots: 1, available_slots: 1},
+               %{
+                 transport_route: route,
+                 worker_id: uid,
+                 runner_id: runner_id,
+                 generation: generation
+               }
+             )
+
+    assert {:ok, api_key} = Tokens.mint_for_worker(uid, AgentWorkers.target(runner))
+
+    authorized_conn = fn ->
+      put_req_header(conn, "authorization", "Bearer #{api_key.api_key}")
+    end
+
+    assert %{"models" => _} =
+             authorized_conn.()
+             |> get(~p"/api/v1/ai-gateway/models?client_version=0.1.0")
+             |> json_response(200)
+
+    assert %{"error" => %{"code" => "invalid_token"}} =
+             authorized_conn.()
+             |> post(~p"/api/v1/ai-gateway/embeddings", %{"model" => "site/embeddings"})
+             |> json_response(401)
+
+    request = %{"model" => "site/unassigned-model", "input" => "hello"}
+
+    assert %{"error" => %{"code" => "invalid_codex_model_binding"}} =
+             authorized_conn.()
+             |> post(~p"/api/v1/ai-gateway/responses", request)
+             |> json_response(400)
+
+    assert %{"error" => %{"code" => "invalid_codex_model_binding"}} =
+             authorized_conn.()
+             |> websocket_upgrade_headers()
+             |> get(~p"/api/v1/ai-gateway/responses")
+             |> json_response(400)
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200, Ankole.AIGatewayCase.chat_completion_body("openai/gpt-5.6-sol", "done")}
+      end)
+
+    assert {:ok, _} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "runner-frozen-model",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "test-key"}]
+               }
+             })
+
+    assert {:ok, _} =
+             ModelProfiles.put_model_profile(uid, "coding", %{
+               provider_id: "runner-frozen-model",
+               model: "openai/gpt-5.6-sol",
+               provider_options: %{"reasoningEffort" => "xhigh"}
+             })
+
+    assert {:ok, %{job: job, dispatch_event: signal}} =
+             Ankole.SessionsCase.create_job_with_stub_driver(%{
+               "agent_uid" => uid,
+               "created_by" => %{
+                 "principal_uid" => to_string(Ankole.ActorRef.from_principal(owner))
+               },
+               "runner_id" => runner_id,
+               "owner_session_id" => "runner-owner-session",
+               "source_tool_call_id" => "runner-gateway-test",
+               "title" => "Bound model",
+               "task" => "Use the frozen model",
+               "reply_route" => %{"binding_name" => "bot"}
+             })
+
+    key = %{agent_uid: uid, session_id: signal.session_id}
+    assert {:ok, %CodexJob.Attempt{job_ref: ref}} = CodexJob.admit(key, signal, [])
+
+    encoded =
+      %{
+        "selector" => "site/unassigned-model",
+        "provider_options" => %{"reasoningEffort" => "minimal"},
+        "supports_parallel_tool_calls" => false,
+        "input_modalities" => ["text"],
+        "job" => %{"id" => job.id, "attempt" => ref.attempt, "signal_id" => ref.signal_id}
+      }
+      |> Ankole.JSON.encode!()
+      |> Base.url_encode64(padding: false)
+
+    bound_conn = fn ->
+      put_req_header(authorized_conn.(), "x-ankole-aigateway-model-binding", encoded)
+    end
+
+    assert %{"status" => "completed"} =
+             bound_conn.()
+             |> post(~p"/api/v1/ai-gateway/responses", request)
+             |> json_response(200)
+
+    assert_receive {:gateway_request, %{path: "chat/completions"} = upstream}
+    assert upstream.body["model"] == "openai/gpt-5.6-sol"
+    assert upstream.body["reasoning"] == %{"effort" => "xhigh"}
+
+    conn =
+      bound_conn.()
+      |> websocket_upgrade_headers()
+      |> get(~p"/api/v1/ai-gateway/responses")
+
+    assert conn.state == :upgraded
+
+    assert_receive {_ref, :upgrade,
+                    {:websocket, {AnkoleWeb.AIGatewayResponsesSocket, state, _opts}}}
+
+    assert state.codex_model_binding["selector"] == "runner-frozen-model/openai/gpt-5.6-sol"
+    assert {:ok, _} = BackgroundAgentJobs.request_stop(job.id, %{"agent_uid" => uid})
+
+    payload =
+      Ankole.JSON.encode!(Map.merge(request, %{"type" => "response.create", "generate" => false}))
+
+    assert {:push, {:text, error}, _state} =
+             AnkoleWeb.AIGatewayResponsesSocket.handle_in({payload, [opcode: :text]}, state)
+
+    assert Ankole.JSON.decode!(error)["error"]["code"] == "invalid_codex_model_binding"
   end
 
   test "Codex binding routes the semantic model through the frozen selector and options", %{

@@ -198,13 +198,40 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate admit_attempt_in_tx(snapshot, event, prepare, opts),
     to: Ankole.BackgroundAgentJobs.Admission
 
+  @doc "Returns the running Job placed on a device while the caller holds its runner lock."
+  defdelegate running_for_runner(runner_id), to: Queries
+
+  @doc "Fails the running Job after revoking its device in the same transaction."
+  defdelegate fail_revoked_runner_job_in_tx(runner_id, now), to: Lifecycle
+
+  @doc false
+  defdelegate publish_status_commit(result), to: Lifecycle
+
+  @doc "Returns the connection of a Job's selected Worker."
+  defdelegate connected_worker(agent_uid, runner_id),
+    to: Ankole.BackgroundAgentJobs.Worker,
+    as: :connected
+
+  @doc false
+  defdelegate lock_worker_in_tx(job), to: Ankole.BackgroundAgentJobs.Worker, as: :lock_in_tx
+
+  @doc false
+  defdelegate worker_ready_for_mode?(agent_uid, runner_id, mode),
+    to: Ankole.BackgroundAgentJobs.Worker,
+    as: :ready_for_mode?
+
   @doc """
   Authorizes and locks an attempt, settles its input, and commits abort compensation.
 
   The returned Signal carries the compensation in its `:compensation` metadata so
   the transaction owner can publish the resulting wakeup after commit.
   """
-  @spec abort_attempt_in_tx(Ankole.Sessions.JobTurnRef.t(), String.t(), map(), DateTime.t()) ::
+  @spec abort_attempt_in_tx(
+          Ankole.Sessions.JobTurnRef.t(),
+          String.t() | map() | :internal,
+          map(),
+          DateTime.t()
+        ) ::
           {:ok, Signal.t()} | {:error, term()}
   defdelegate abort_attempt_in_tx(ref, worker_id, error, now),
     to: Ankole.BackgroundAgentJobs.TurnWatchdog
@@ -467,7 +494,8 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Records one Worker Turn checkpoint and its items atomically."
   def upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, worker_id)
-      when is_integer(job_id) and is_binary(agent_uid) and is_map(attrs) and is_binary(worker_id) do
+      when is_integer(job_id) and is_binary(agent_uid) and is_map(attrs) and
+             (is_binary(worker_id) or is_map(worker_id)) do
     Repo.transact_top_level(
       fn ->
         Lifecycle.upsert_turn_from_worker_in_tx(job_id, agent_uid, attrs, turn_ref, worker_id)

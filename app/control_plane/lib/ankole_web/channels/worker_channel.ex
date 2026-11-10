@@ -34,6 +34,7 @@ defmodule AnkoleWeb.WorkerChannel do
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers.InboundDispatcher
+  alias Ankole.AgentWorkers.RunnerConnection
   alias Ankole.AgentWorkers.WorkerAdmission
   alias Ankole.AgentWorkers.WorkerRoute
   alias Ankole.AgentWorkers.WorkerTracker
@@ -70,6 +71,7 @@ defmodule AnkoleWeb.WorkerChannel do
       auth = %{
         transport_route: connection_id,
         worker_id: worker_id,
+        runner_id: Map.get(socket.assigns, :runner_id),
         generation: socket.assigns.worker_generation
       }
 
@@ -91,17 +93,21 @@ defmodule AnkoleWeb.WorkerChannel do
         {:ok, _worker} ->
           limits = limits()
 
-          if Map.get(ready, :drive_vfs, false) do
+          drive_vfs? = is_nil(auth.runner_id) and Map.get(ready, :drive_vfs, false)
+
+          if drive_vfs? do
             Ankole.Files.Vfs.Invalidator.subscribe()
             Process.send_after(self(), :vfs_emit, 100)
           end
+
+          if auth.runner_id, do: Process.send_after(self(), :check_runner_route, 15_000)
 
           socket =
             assign(socket, %{
               incarnation_id: ready.incarnation_id,
               vfs_ids: MapSet.new(),
               vfs_all: true,
-              vfs_timer: Map.get(ready, :drive_vfs, false),
+              vfs_timer: drive_vfs?,
               connection_id: connection_id,
               limits: limits,
               streams: Map.new(@streams, &{&1, new_stream()}),
@@ -270,6 +276,15 @@ defmodule AnkoleWeb.WorkerChannel do
   end
 
   @impl true
+  def handle_info(:check_runner_route, socket) do
+    if RunnerConnection.current?(auth(socket)) do
+      Process.send_after(self(), :check_runner_route, 15_000)
+      {:noreply, socket}
+    else
+      {:stop, {:shutdown, :stale_transport_route}, socket}
+    end
+  end
+
   def handle_info({:page_updated, id}, socket), do: vfs_changed(socket, id)
 
   def handle_info({:tree_changed, _locations, _id, _removed}, socket),
@@ -547,7 +562,13 @@ defmodule AnkoleWeb.WorkerChannel do
   defp release_rpc_task(socket, _envelope), do: socket
 
   defp auth(socket) do
-    %{transport_route: socket.assigns.connection_id, worker_id: socket.assigns.worker_id}
+    %{
+      transport_route: socket.assigns.connection_id,
+      worker_id: socket.assigns.worker_id,
+      runner_id: Map.get(socket.assigns, :runner_id),
+      generation: socket.assigns.worker_generation,
+      incarnation_id: socket.assigns.incarnation_id
+    }
   end
 
   defp mailbox_overflow? do

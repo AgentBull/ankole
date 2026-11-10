@@ -171,13 +171,17 @@ defmodule Ankole.Sessions.CodexJob do
            ) do
       # A running attempt's trigger precedes every unapplied steer. It stays open
       # until its terminal status commit, so adoption uses the same identity.
-      ref = %JobTurnRef{
-        agent_uid: key.agent_uid,
-        session_id: key.session_id,
-        signal_id: event.id,
-        job_id: job.id,
-        attempt: job.attempts
-      }
+      ref =
+        JobTurnRef.with_worker(
+          %JobTurnRef{
+            agent_uid: key.agent_uid,
+            session_id: key.session_id,
+            signal_id: event.id,
+            job_id: job.id,
+            attempt: job.attempts
+          },
+          AgentWorkers.target(worker)
+        )
 
       {:ok,
        %Attempt{
@@ -251,8 +255,10 @@ defmodule Ankole.Sessions.CodexJob do
 
   @doc false
   def check_turn_in_tx(run) do
+    worker = if run.job.runner_id, do: AgentWorkers.target(run.job_worker), else: run.agent_uid
+
     with {:ok, :authorized} <-
-           WorkerRouteAuth.authorize_turn_in_tx(run.job_ref, run.agent_uid, :write),
+           WorkerRouteAuth.authorize_turn_in_tx(run.job_ref, worker, :write),
          :ok <- Fence.check_in_tx(run, :share),
          do: {:ok, :live}
   end
@@ -332,8 +338,8 @@ defmodule Ankole.Sessions.CodexJob do
     Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(run.job.id)
 
     case BackgroundAgentJobs.get_job_for_agent(run.job.id, run.agent_uid) do
-      %Job{status: :running, attempts: attempt} when attempt == run.job_ref.attempt ->
-        case AgentWorkers.connected_worker(run.agent_uid) do
+      %Job{status: :running, attempts: attempt} = job when attempt == run.job_ref.attempt ->
+        case BackgroundAgentJobs.connected_worker(run.agent_uid, job.runner_id) do
           {:ok, worker}
           when worker.transport_route != run.job_worker.transport_route or
                  worker.incarnation_id != run.job_worker.incarnation_id ->
@@ -354,7 +360,8 @@ defmodule Ankole.Sessions.CodexJob do
     end
   end
 
-  @spec abort(JobTurnRef.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @spec abort(JobTurnRef.t(), String.t() | map() | :internal, map()) ::
+          {:ok, map()} | {:error, term()}
   def abort(ref, worker_id, error) do
     now = DateTime.utc_now(:microsecond)
 
@@ -383,8 +390,8 @@ defmodule Ankole.Sessions.CodexJob do
        do: admission_result({:error, :background_agent_job_attempts_exhausted}, event, job, now)
 
   defp admission_result({:ok, %{status: :waiting_for_worker} = waiting}, _event, job, _now) do
-    AgentWorkers.request(job.agent_uid)
-    {:ok, waiting}
+    if is_nil(job.runner_id), do: AgentWorkers.request(job.agent_uid)
+    {:ok, Map.put(waiting, :runner_id, job.runner_id)}
   end
 
   defp admission_result({:error, :agent_worker_ready_timeout}, event, %Job{} = job, now) do

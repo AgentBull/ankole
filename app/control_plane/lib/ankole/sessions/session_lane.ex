@@ -15,11 +15,16 @@ defmodule Ankole.Sessions.SessionLane do
   def turn_type?(type), do: type in @job_types or type in @workspace_types
   def workspace_type?(type), do: type in @workspace_types
 
-  def handle(%Proto.Envelope{body: {type, payload}}, %{worker_id: uid}) when type in @job_types do
+  def handle(%Proto.Envelope{body: {type, payload}}, %{worker_id: uid} = worker)
+      when type in @job_types do
     with {:ok, ref} <- JobTurnRef.from_proto(payload.turn, uid),
-         :ok <- WorkerRouteAuth.authorize_turn(ref, uid, :read),
+         :ok <- WorkerRouteAuth.authorize_turn(ref, worker, :read),
          do: forward(ref, type, payload)
   end
+
+  def handle(%Proto.Envelope{body: {type, _payload}}, %{runner_id: runner_id})
+      when type in @workspace_types and is_binary(runner_id),
+      do: {:error, :worker_not_assigned_to_turn}
 
   def handle(%Proto.Envelope{body: {type, payload}}, %{worker_id: uid})
       when type in @workspace_types do

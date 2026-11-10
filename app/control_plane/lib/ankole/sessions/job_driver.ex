@@ -9,6 +9,7 @@ defmodule Ankole.Sessions.JobDriver do
   alias Ankole.{Observability, Repo}
   alias Ankole.Signals.Signal
   alias Ankole.AgentWorkers
+  alias Ankole.BackgroundAgentJobs
 
   @poll_ms 60_000
   @idle_ms :timer.minutes(5)
@@ -45,7 +46,8 @@ defmodule Ankole.Sessions.JobDriver do
        start_dirty: false,
        observe_dirty: false,
        deferred_reason: nil,
-       deferred_mode: nil
+       deferred_mode: nil,
+       deferred_runner_id: nil
      }, [{:next_event, :internal, :rebuild}]}
   end
 
@@ -79,8 +81,13 @@ defmodule Ankole.Sessions.JobDriver do
         :deferred,
         %{key: %{agent_uid: uid}, deferred_reason: :agent_worker_unavailable} = data
       ) do
-    if worker_ready_for_mode?(uid, data.deferred_mode) do
-      {:next_state, :admitting, %{data | deferred_reason: nil, deferred_mode: nil},
+    if BackgroundAgentJobs.worker_ready_for_mode?(
+         uid,
+         data.deferred_runner_id,
+         data.deferred_mode
+       ) do
+      {:next_state, :admitting,
+       %{data | deferred_reason: nil, deferred_mode: nil, deferred_runner_id: nil},
        [{:next_event, :internal, :admit}]}
     else
       :keep_state_and_data
@@ -172,7 +179,13 @@ defmodule Ankole.Sessions.JobDriver do
     do: {:next_state, :idle, data, [{:state_timeout, @idle_ms, :retire}]}
 
   defp result(:rebuild, {:ok, %{event: event, delay_ms: delay}}, _, data) do
-    data = %{data | event: event, deferred_reason: nil, deferred_mode: nil}
+    data = %{
+      data
+      | event: event,
+        deferred_reason: nil,
+        deferred_mode: nil,
+        deferred_runner_id: nil
+    }
 
     if delay > 0,
       do: {:next_state, :deferred, data, [{:state_timeout, delay, :admit}]},
@@ -184,7 +197,8 @@ defmodule Ankole.Sessions.JobDriver do
       data
       | attempt: Observability.attach_turn(attempt),
         deferred_reason: nil,
-        deferred_mode: nil
+        deferred_mode: nil,
+        deferred_runner_id: nil
     })
   end
 
@@ -203,7 +217,8 @@ defmodule Ankole.Sessions.JobDriver do
        data
        | event: event,
          deferred_reason: Map.get(outcome, :reason),
-         deferred_mode: Map.get(outcome, :mode)
+         deferred_mode: Map.get(outcome, :mode),
+         deferred_runner_id: Map.get(outcome, :runner_id)
      }, [{:state_timeout, delay, :admit}]}
   end
 
@@ -299,15 +314,10 @@ defmodule Ankole.Sessions.JobDriver do
        start_dirty: false,
        observe_dirty: false,
        deferred_reason: nil,
-       deferred_mode: nil
+       deferred_mode: nil,
+       deferred_runner_id: nil
      }), [{:next_event, :internal, :rebuild}]}
   end
-
-  defp worker_ready_for_mode?(uid, "adopt"),
-    do: match?({:ok, _}, AgentWorkers.connected_worker(uid))
-
-  defp worker_ready_for_mode?(uid, _mode),
-    do: match?({:ok, _}, AgentWorkers.ready_worker(uid))
 
   defp clear_tasks(data) do
     Enum.each(data.tasks, fn {ref, {_, pid}} ->

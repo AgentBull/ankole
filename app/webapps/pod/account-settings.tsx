@@ -12,7 +12,14 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiArrowRightLine, RiLinksLine, RiLogoutBoxRLine, RiShieldKeyholeLine, RiUser3Line } from '@remixicon/react'
+import {
+  RiArrowRightLine,
+  RiLinksLine,
+  RiLogoutBoxRLine,
+  RiShieldKeyholeLine,
+  RiUser3Line,
+  RiComputerLine
+} from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -36,6 +43,7 @@ import { requestErrorCode } from '../common/request-errors'
 import { ProfileAvatarUpload } from './profile-avatar-upload'
 import { refreshMemberProfileQueries } from './query-cache'
 import { SettingsLayout, SettingsPanel, SettingsSection } from './settings-layout'
+import { RunnerDevicesSettings } from './runner-devices'
 import { AccountSettingsModel } from './state/account-settings'
 
 export function AccountSettings() {
@@ -111,6 +119,7 @@ export function AccountSettings() {
     { value: 'profile', label: t('pod.account.profile'), icon: <RiUser3Line aria-hidden /> },
     { value: 'login', label: t('pod.account.login_methods'), icon: <RiShieldKeyholeLine aria-hidden /> },
     { value: 'connections', label: t('pod.connectors.title'), icon: <RiLinksLine aria-hidden /> },
+    { value: 'devices', label: t('pod.runner.title'), icon: <RiComputerLine aria-hidden /> },
     { value: 'exit', label: t('pod.account.exit'), icon: <RiLogoutBoxRLine aria-hidden /> }
   ]
 
@@ -313,6 +322,9 @@ export function AccountSettings() {
             <RiArrowRightLine aria-hidden data-icon="inline-end" />
           </Link>
         </SettingsSection>
+      </SettingsPanel>
+      <SettingsPanel value="devices">
+        <RunnerDevicesSettings />
       </SettingsPanel>
       <SettingsPanel value="exit">
         <SettingsSection

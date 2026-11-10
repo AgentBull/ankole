@@ -1,7 +1,7 @@
 defmodule Ankole.Sessions.JobTurnRef do
   @moduledoc "The durable Job attempt fence. Driver replacement does not change this reference."
   @enforce_keys [:agent_uid, :session_id, :signal_id, :job_id, :attempt]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [:worker]
   @type t :: %__MODULE__{}
   alias Ankole.RuntimeFabric.V1, as: Proto
   require Ankole.ModelIntegerID
@@ -19,6 +19,15 @@ defmodule Ankole.Sessions.JobTurnRef do
   end
 
   def from_proto(_, _uid), do: {:error, :invalid_job_turn_ref}
+
+  def with_worker(%__MODULE__{} = ref, %{runner_id: runner_id} = worker)
+      when is_binary(runner_id),
+      do: %{
+        ref
+        | worker: Map.take(worker, [:worker_id, :runner_id, :generation, :incarnation_id])
+      }
+
+  def with_worker(%__MODULE__{} = ref, _worker), do: ref
 
   # The same key as `Ankole.BackgroundAgentJobs.job_session_id/1`. A Job
   # resource argument holds this struct, so this module calls no domain module.

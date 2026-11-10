@@ -34,7 +34,8 @@ defmodule Ankole.Connectors.Tokens do
 
   def worker(uid, ref) when is_struct(ref, RunRef) or is_struct(ref, JobTurnRef) do
     with :ok <- Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn(ref, uid, :read),
-         {:ok, endpoints} <- Ankole.AgentWorkers.Providers.connection_endpoints(uid),
+         {:ok, endpoints} <-
+           Ankole.AgentWorkers.Providers.connection_endpoints(Map.get(ref, :worker) || uid),
          {:ok, connections} <- connections(uid),
          {:ok, token} <-
            sign(

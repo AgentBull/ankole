@@ -316,7 +316,17 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       kind == :compose_upgrade_read ->
         {:tool_call, scheduled_finish_call(kind, count, "reply", "COMPOSE_UPGRADE_OK")}
 
-      kind in [:job_create, :job_reply, :job_work, :job_finish, :job_notice, :job_reconnect] ->
+      kind in [
+        :job_create,
+        :job_reply,
+        :job_work,
+        :job_finish,
+        :job_notice,
+        :job_reconnect,
+        :runner_backtest,
+        :runner_backtest_notice,
+        :runner_backtest_open
+      ] ->
         FakeOpenAIJobScenarios.action_for(kind, count, request)
 
       kind == :direct and count == 1 ->

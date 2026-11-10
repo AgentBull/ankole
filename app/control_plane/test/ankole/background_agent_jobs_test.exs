@@ -648,6 +648,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              :title,
              :runtime_thread_id,
              :workspace_owner_job_id,
+             :runner_id,
              :workspace_template_id,
              :model_profile
            ]

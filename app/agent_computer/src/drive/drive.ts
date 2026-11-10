@@ -14,8 +14,8 @@ import { type RPCRequester, type TurnRPCFrame } from '../lanes/rpc_lane'
  * Bytes never travel in the RPC payload: `files.get` and
  * `files.commit` make the control plane move them over the WorkerFiles relay
  * of this Worker, naming each local file by its path inside the Agent Home.
- * The operations have `worker_agent` scope, so they also work while the
- * Worker drains and no Turn is active.
+ * A Job passes its turn so the control plane can validate device execution
+ * before reading or committing files.
  */
 
 export type DriveFile = {
@@ -58,6 +58,7 @@ export class Drive {
     private readonly opts: {
       agentHome: string
       rpc: RPCRequester
+      frame?: TurnRPCFrame
     }
   ) {}
 
@@ -94,7 +95,7 @@ export class Drive {
         limit: opts.limit ?? listPageLimit,
         after: opts.after ?? ''
       },
-      undefined,
+      this.opts.frame,
       { retryOnDisconnect: true }
     )
     return { files: response.files.map(driveFileFromWire), nextAfter: response.nextAfter, revision: response.revision }
@@ -108,7 +109,7 @@ export class Drive {
         homeRelativePath: await this.homeRelativePath(localPath, { create: true }),
         nodeId: opts.node ? path : ''
       },
-      opts.frame,
+      opts.frame ?? this.opts.frame,
       { timeoutMs: transferTimeoutMs, retryOnDisconnect: true }
     )
     if (!response.file) throw new Error(`files.get returned no file for ${path}`)
@@ -134,7 +135,7 @@ export class Drive {
     const response = await this.opts.rpc(
       'files.commit',
       { upserts: wireUpserts, deletes: deletes.map(assertDrivePath) },
-      undefined,
+      this.opts.frame,
       { timeoutMs: transferTimeoutMs }
     )
     return { files: response.files.map(driveFileFromWire), deleted: response.deleted }

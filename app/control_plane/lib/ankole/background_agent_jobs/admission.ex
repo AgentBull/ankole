@@ -5,6 +5,7 @@ defmodule Ankole.BackgroundAgentJobs.Admission do
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Worker
   alias Ankole.BackgroundAgentJobs.WorkerWait
   alias Ankole.Principals.WorkAccess
   alias Ankole.Repo
@@ -14,7 +15,7 @@ defmodule Ankole.BackgroundAgentJobs.Admission do
     # Principal rows precede the Worker, slot, and Job locks.
     :ok = WorkAccess.lock_authorizers_in_tx([event, snapshot])
     access_result = admission_access(event, snapshot)
-    worker = AgentWorkers.lock_in_tx(snapshot.agent_uid)
+    worker = Worker.lock_in_tx(snapshot)
 
     with :ok <- Lifecycle.lock_agent_slots(snapshot.agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(snapshot.id, snapshot.agent_uid) do
@@ -42,7 +43,8 @@ defmodule Ankole.BackgroundAgentJobs.Admission do
       with :ok <- Ankole.Tenants.check_work_admission_in_tx(Repo.tenant_id!()),
            :ok <- WorkAccess.lock_authorizers_in_tx([event, job]),
            :ok <- WorkAccess.check_in_tx(event),
-           do: WorkAccess.check_in_tx(job)
+           :ok <- WorkAccess.check_in_tx(job),
+           do: Worker.authorize_for_work(job.human_uid, job.agent_uid, job.runner_id)
     end
   end
 
@@ -51,6 +53,7 @@ defmodule Ankole.BackgroundAgentJobs.Admission do
 
   defp admit_locked_in_tx(job, event, worker, prepare, opts) do
     mode = if job.status == :running, do: "adopt", else: "start"
+    worker = current_worker(job, worker)
 
     with {:ok, spec} <- prepare.(mode) do
       case place_and_claim_in_tx(event, job, worker, spec, mode, opts) do
@@ -58,6 +61,15 @@ defmodule Ankole.BackgroundAgentJobs.Admission do
         {:wait, reason} -> {:wait, reason, mode}
         {:error, _reason} = error -> error
       end
+    end
+  end
+
+  defp current_worker(%Job{runner_id: nil}, worker), do: worker
+
+  defp current_worker(job, _locked_worker) do
+    case Worker.connected(job.agent_uid, job.runner_id) do
+      {:ok, worker} -> worker
+      {:error, _reason} -> nil
     end
   end
 
@@ -101,7 +113,7 @@ defmodule Ankole.BackgroundAgentJobs.Admission do
   end
 
   defp reserve_and_claim_in_tx(event, job, spec, cap) do
-    with {:ok, worker} <- AgentWorkers.reserve_slot_in_tx(job.agent_uid),
+    with {:ok, worker} <- Worker.reserve_in_tx(job),
          {:ok, job} <- claim(event, job, spec, cap) do
       {:ok, job, worker}
     else
