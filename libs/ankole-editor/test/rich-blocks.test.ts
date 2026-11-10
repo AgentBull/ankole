@@ -354,13 +354,14 @@ test('webpage links convert across link, title, card, and embed preview views wi
   const titledLink = linkAt(editor.state)!
   expect(inlineLinkView(editor.state, titledLink)).toBe('title')
 
-  // 2. Title view -> Card view (`<embed href="..." view="card" />` with unfurled description + image)
+  // 2. Title view -> Card view (`<embed href="..." view="card" />` with unfurled description + image). The link was
+  // the whole document, so the switch adds an empty paragraph after the card for the caret.
   expect(await convertInlineLinkView(editor, titledLink, 'card')).toBe(true)
   expect(blockTypeAt(editor.state, 0)).toBe('bookmark')
   await Promise.resolve()
   await Promise.resolve()
   expect(exportMarkdown(editor)).toBe(
-    `<embed description="Benchmarking real-world economically valuable tasks." href="${url}" image="https://arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png" title="GDPval: Evaluating AI Model Performance" view="card" />`
+    `<embed description="Benchmarking real-world economically valuable tasks." href="${url}" image="https://arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png" title="GDPval: Evaluating AI Model Performance" view="card" />\n\n<p />`
   )
 
   // Single undo returns directly to the inline titled link despite async metadata unfurling!
@@ -374,16 +375,16 @@ test('webpage links convert across link, title, card, and embed preview views wi
   expect(await convertResourceBlockView(editor, 0, 'preview')).toBe(true)
   expect(blockTypeAt(editor.state, 0)).toBe('embed')
   expect(exportMarkdown(editor)).toBe(
-    `<embed description="Benchmarking real-world economically valuable tasks." height="640" href="${url}" image="https://arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png" title="GDPval: Evaluating AI Model Performance" />`
+    `<embed description="Benchmarking real-world economically valuable tasks." height="640" href="${url}" image="https://arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png" title="GDPval: Evaluating AI Model Performance" />\n\n<p />`
   )
   expect(await convertResourceBlockView(editor, 0, 'card')).toBe(true)
   expect(blockTypeAt(editor.state, 0)).toBe('bookmark')
   expect(exportMarkdown(editor)).toBe(
-    `<embed description="Benchmarking real-world economically valuable tasks." height="640" href="${url}" image="https://arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png" title="GDPval: Evaluating AI Model Performance" view="card" />`
+    `<embed description="Benchmarking real-world economically valuable tasks." height="640" href="${url}" image="https://arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png" title="GDPval: Evaluating AI Model Performance" view="card" />\n\n<p />`
   )
 
   expect(await convertResourceBlockView(editor, 0, 'link')).toBe(true)
-  expect(printXml(readTree(editor))).toBe(`<page><p><a href="${url}">${url}</a></p></page>`)
+  expect(printXml(readTree(editor))).toBe(`<page><p><a href="${url}">${url}</a></p><p /></page>`)
 })
 
 test('converting a mid-paragraph inline link to card or preview splits surrounding text cleanly and undoes in one step', async () => {
@@ -458,7 +459,9 @@ test('unfurlEmbed populates missing external embed titles outside undo history, 
   const link = linkAt(editor.state)!
   expect(await convertInlineLinkView(editor, link, 'preview')).toBe(true)
   await Bun.sleep(0)
-  expect(exportMarkdown(editor)).toBe(`<embed href="${url}" title="GDPval: Evaluating AI Model Performance" />`)
+  expect(exportMarkdown(editor)).toBe(
+    `<embed href="${url}" title="GDPval: Evaluating AI Model Performance" />\n\n<p />`
+  )
 
   // Single undo steps directly back to the bare URL link because unfurlEmbed attached outside history
   undo(editor)

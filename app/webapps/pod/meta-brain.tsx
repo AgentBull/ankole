@@ -11,7 +11,10 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
+  Toggle,
+  ToggleGroup,
+  ToggleGroupItem
 } from '@ankole/uikit'
 import {
   AnkoleGraph,
@@ -552,7 +555,7 @@ export function MetaBrain() {
               next.set('category', String(value))
               setParams(next)
             }}>
-            <SelectTrigger aria-labelledby="brain-category">
+            <SelectTrigger aria-labelledby="brain-category" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -566,84 +569,72 @@ export function MetaBrain() {
           </Select>
         </div>
 
-        <div className="flex items-center rounded-control border border-border bg-bg-secondary/40 p-0.5">
-          {LAYOUT_OPTIONS.map(({ mode, labelKey, Icon }) => {
-            const active = layoutMode === mode
-            return (
-              <button
-                key={mode}
-                type="button"
-                aria-label={t(`pod.meta.${labelKey}`)}
-                aria-pressed={active}
-                onClick={() => {
-                  const next = new URLSearchParams(params)
-                  if (mode === 'force') next.delete('layout')
-                  else next.set('layout', mode)
-                  setParams(next)
-                }}
-                className={`inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  active ? 'bg-background text-fg-primary shadow-xs' : 'text-fg-secondary hover:text-fg-primary'
-                }`}>
-                <Icon className="size-3.5" />
-                <span className="hidden sm:inline">{t(`pod.meta.${labelKey}`)}</span>
-              </button>
-            )
-          })}
-        </div>
+        <ToggleGroup
+          spacing={0}
+          value={[layoutMode]}
+          onValueChange={value => {
+            const mode = value[0] as AnkoleGraphLayoutMode | undefined
+            if (!mode || mode === layoutMode) return
+            const next = new URLSearchParams(params)
+            if (mode === 'force') next.delete('layout')
+            else next.set('layout', mode)
+            setParams(next)
+          }}>
+          {LAYOUT_OPTIONS.map(({ mode, labelKey, Icon }) => (
+            <ToggleGroupItem key={mode} value={mode} aria-label={t(`pod.meta.${labelKey}`)}>
+              <Icon className="size-3.5" />
+              <span className="hidden sm:inline">{t(`pod.meta.${labelKey}`)}</span>
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
 
         <div className="flex items-center gap-1.5">
-          <Button
+          <Toggle
             variant="outline"
-            size="sm"
             aria-label={t('pod.meta.toggle_layers')}
-            aria-pressed={layersOpen}
-            onClick={() => setLayersOpen(prev => !prev)}
-            className={layersOpen ? 'gap-1.5 bg-bg-secondary text-fg-primary' : 'gap-1.5 text-fg-secondary'}>
+            pressed={layersOpen}
+            onPressedChange={setLayersOpen}>
             <RiStackLine className="size-3.5" />
             <span className="hidden md:inline">{t('pod.meta.toggle_layers')}</span>
-          </Button>
+          </Toggle>
           {layoutMode !== 'combo' && (
-            <Button
+            <Toggle
               variant="outline"
-              size="sm"
               aria-label={t('pod.meta.category_hubs')}
-              aria-pressed={includeCategoryHubs}
-              onClick={() => setIncludeCategoryHubs(prev => !prev)}
-              className={includeCategoryHubs ? 'gap-1.5 bg-bg-secondary text-fg-primary' : 'gap-1.5 text-fg-secondary'}>
+              pressed={includeCategoryHubs}
+              onPressedChange={setIncludeCategoryHubs}>
               <RiNodeTree className="size-3.5" />
               <span className="hidden lg:inline">{t('pod.meta.category_hubs')}</span>
-            </Button>
+            </Toggle>
           )}
-          <Button
+          <Toggle
             variant="outline"
-            size="sm"
             aria-label={t('pod.meta.edge_labels')}
-            aria-pressed={showEdgeLabels}
-            onClick={() => setShowEdgeLabels(prev => !prev)}
-            className={showEdgeLabels ? 'gap-1.5 bg-bg-secondary text-fg-primary' : 'gap-1.5 text-fg-secondary'}>
+            pressed={showEdgeLabels}
+            onPressedChange={setShowEdgeLabels}>
             <RiPriceTag3Line className="size-3.5" />
             <span className="hidden lg:inline">{t('pod.meta.edge_labels')}</span>
-          </Button>
+          </Toggle>
         </div>
 
         <div className="flex items-center gap-1">
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
             onClick={() => graphRef.current?.zoomOut()}
             aria-label={t('pod.meta.zoom_out')}>
             <RiZoomOutLine className="size-4" />
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
             onClick={() => graphRef.current?.fitView()}
             aria-label={t('pod.meta.fit_view')}>
             <RiFullscreenLine className="size-4" />
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
             onClick={() => graphRef.current?.zoomIn()}
             aria-label={t('pod.meta.zoom_in')}>
             <RiZoomInLine className="size-4" />

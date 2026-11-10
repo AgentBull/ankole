@@ -124,6 +124,14 @@
 .ankole-editor .editor-content .editor-selected-block *::selection {
   background: transparent;
 }
+/* A host page embed, a diagram, or a table paints its own surface over most of the block, and a divider is
+   too thin to show a fill. The editor marks these selected blocks with a ring so that the selection looks the
+   same however much of the block its content covers, including while that content is still loading. */
+.ankole-editor .editor-content .editor-selected-block:is(:has(> .embed), .mermaid-block, .table-block, hr) {
+  background: transparent;
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 
 /* Blocks */
 
