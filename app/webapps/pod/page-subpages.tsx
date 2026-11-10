@@ -78,6 +78,7 @@ import { PageIcon } from './page-icon'
 import { MovePageDialog } from './page-move-dialog'
 import { KnowledgeTable } from './knowledge-table'
 import { PageRenameField } from './page-navigation'
+import { PdfThumbnail } from './pdf-thumbnail'
 import { updatePageMetadata } from './state/navigation-cache'
 import {
   PageSubpagesModel,
@@ -811,12 +812,23 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
     }
     const badge = fileExtensionBadge(file?.path ?? item.title, file?.content_type)
     const size = file ? formatFileBytes(file.size) : typeLabels.file
+    const mark = (
+      <div className="flex min-w-[96px] flex-col items-center gap-1 border border-border bg-background px-4 py-2.5 shadow-2xs">
+        <span className="font-mono text-xs font-semibold text-foreground">{badge}</span>
+        <span className="text-xs tabular-nums text-fg-tertiary">{size}</span>
+      </div>
+    )
     return (
-      <div className="flex h-[132px] items-center justify-center overflow-hidden border-b border-border/70 bg-muted/35 px-4">
-        <div className="flex min-w-[96px] flex-col items-center gap-1 border border-border bg-background px-4 py-2.5 shadow-2xs">
-          <span className="font-mono text-xs font-semibold text-foreground">{badge}</span>
-          <span className="text-xs tabular-nums text-fg-tertiary">{size}</span>
-        </div>
+      <div className="flex h-[132px] items-center justify-center overflow-hidden border-b border-border/70 bg-muted/35">
+        {file?.content_type === 'application/pdf' ? (
+          <PdfThumbnail
+            url={fileURL(item.id, file.path, file.sha256)}
+            className="flex size-full items-center justify-center"
+            fallback={mark}
+          />
+        ) : (
+          mark
+        )}
       </div>
     )
   }

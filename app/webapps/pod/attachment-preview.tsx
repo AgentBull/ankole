@@ -32,6 +32,7 @@ import { podKeys } from './api'
 import { ContentError, ContentLoading } from './content-primitives'
 import { isPreviewImage } from './state/chat-attachments'
 import { ChatMarkdown } from './chat/chat-markdown'
+import { fileExtensionBadge } from './state/page-subpages'
 import { CodeBlockView } from './chat/code-block-view'
 import { ImageZoomView } from './chat/zoomable-image'
 import { DelimitedTablePreview } from './page-file-previews'
@@ -39,6 +40,7 @@ import { PodPanelSurface, popupOpen, type PanelInputEvent } from './panel-motion
 
 const SpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
 const PresentationPreview = lazy(() => import('./file-presentation'))
+const PdfPreview = lazy(() => import('./file-pdf'))
 
 /**
  * Chooses the in-chat preview from the same format rules as the Pod file page. Attachments from uploads and
@@ -154,6 +156,14 @@ export function AttachmentPreview({
   const file: AttachmentPreviewFile = { name, type, size, url, downloadURL, conversationID, local }
   const image = attachmentPreviewKind(name, type) === 'image'
   useEffect(() => host?.mount(url), [host, url])
+  const mark = (
+    <span className="flex size-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-control bg-muted text-fg-tertiary">
+      <RiFileLine className="size-5" aria-hidden />
+      <span className="max-w-full truncate px-0.5 text-[10px] font-medium leading-3 text-fg-secondary">
+        {fileExtensionBadge(stripBidi(name), type)}
+      </span>
+    </span>
+  )
   // The surrounding control already names the file, so the thumbnail is decoration and falls back to the file mark.
   const thumbnail =
     image && !thumbnailFailed ? (
@@ -165,7 +175,7 @@ export function AttachmentPreview({
         onError={() => setThumbnailFailed(true)}
       />
     ) : (
-      <RiFileLine className="size-6 shrink-0 text-fg-tertiary" aria-hidden />
+      mark
     )
   const card = (
     <Button
@@ -290,11 +300,7 @@ function AttachmentPreviewBody({ file }: { file: AttachmentPreviewFile }) {
   return (
     <Suspense fallback={<ContentLoading label={t('pod.content.loading_file')} />}>
       {kind === 'pdf' ? (
-        <iframe
-          className="pod-attachment-pdf h-[70dvh] w-full border border-border"
-          src={url}
-          title={stripBidi(name)}
-        />
+        <PdfPreview className="pod-attachment-pdf" url={url} title={stripBidi(name)} />
       ) : kind === 'video' ? (
         <video controls playsInline preload="metadata" className="max-h-[70dvh] w-full rounded" src={url} />
       ) : kind === 'audio' ? (

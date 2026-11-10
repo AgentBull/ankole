@@ -563,7 +563,25 @@ pub(crate) fn normalize_response_usage(usage: &Value) -> Value {
     let mut input_details = usage_details(usage, "input_tokens_details", "prompt_tokens_details");
     let mut output_details =
         usage_details(usage, "output_tokens_details", "completion_tokens_details");
-    put_default(&mut input_details, "cached_tokens", Value::Null);
+    // Some OpenAI-compatible Providers report the cache read outside the
+    // details object: DeepSeek as `prompt_cache_hit_tokens` and Kimi as a flat
+    // `cached_tokens`. Both already count it in `prompt_tokens`.
+    if !input_details
+        .get("cached_tokens")
+        .is_some_and(Value::is_number)
+    {
+        let cached_tokens = usage_count(usage, &["prompt_cache_hit_tokens", "cached_tokens"]);
+        input_details.insert("cached_tokens".to_string(), json!(cached_tokens));
+    }
+    // OpenRouter and Kimi name the cache write `cache_write_tokens`, and
+    // DashScope names it `cache_creation_input_tokens`.
+    for alias in ["cache_write_tokens", "cache_creation_input_tokens"] {
+        if let Some(cache_write_tokens) = input_details.remove(alias) {
+            input_details
+                .entry("cache_creation_tokens")
+                .or_insert(cache_write_tokens);
+        }
+    }
     put_default(&mut output_details, "reasoning_tokens", Value::Null);
 
     json!({
@@ -656,25 +674,18 @@ pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
     out
 }
 
-pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
+// Bedrock Converse counts uncached input, cache reads, and cache writes as
+// disjoint fields, as Anthropic does, so its usage takes the same conversion.
+pub(super) fn normalize_bedrock_usage(usage: &Value) -> Value {
     if !usage.is_object() {
         return Value::Null;
     }
-
-    let input_tokens = usage_count(usage, &["input_tokens", "prompt_tokens", "inputTokens"]);
-    let output_tokens = usage_count(
-        usage,
-        &["output_tokens", "completion_tokens", "outputTokens"],
-    );
-    let total_tokens = usage_count(usage, &["total_tokens", "totalTokens"])
-        .or_else(|| Some(input_tokens?.saturating_add(output_tokens?)));
-    json!({
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "total_tokens": total_tokens,
-        "input_tokens_details": {},
-        "output_tokens_details": {}
-    })
+    normalize_anthropic_usage(&json!({
+        "input_tokens": usage.get("inputTokens"),
+        "output_tokens": usage.get("outputTokens"),
+        "cache_read_input_tokens": usage.get("cacheReadInputTokens"),
+        "cache_creation_input_tokens": usage.get("cacheWriteInputTokens")
+    }))
 }
 
 // `keys` lists the canonical name first; the first key present decides the count.
@@ -924,11 +935,68 @@ mod tests {
         assert_eq!(anthropic["input_tokens"], json!(i64::MAX));
         assert_eq!(anthropic["total_tokens"], json!(i64::MAX));
 
-        let provider = normalize_provider_token_usage(&json!({
-            "input_tokens": i64::MAX,
-            "output_tokens": 1
+        let bedrock = normalize_bedrock_usage(&json!({
+            "inputTokens": i64::MAX,
+            "cacheReadInputTokens": 1,
+            "outputTokens": 1
         }));
-        assert_eq!(provider["total_tokens"], json!(i64::MAX));
+        assert_eq!(bedrock["input_tokens"], json!(i64::MAX));
+        assert_eq!(bedrock["total_tokens"], json!(i64::MAX));
+    }
+
+    #[test]
+    fn provider_specific_cache_counts_use_the_canonical_details() {
+        let deepseek = normalize_response_usage(&json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 5,
+            "prompt_cache_hit_tokens": 60,
+            "prompt_cache_miss_tokens": 40
+        }));
+        assert_eq!(deepseek["input_tokens"], json!(100));
+        assert_eq!(deepseek["input_tokens_details"]["cached_tokens"], json!(60));
+
+        let kimi = normalize_response_usage(&json!({
+            "prompt_tokens": 19,
+            "completion_tokens": 13,
+            "cached_tokens": 12
+        }));
+        assert_eq!(kimi["input_tokens_details"]["cached_tokens"], json!(12));
+
+        // The canonical detail wins over a flat count, including a reported zero.
+        let canonical = normalize_response_usage(&json!({
+            "prompt_tokens": 19,
+            "cached_tokens": 12,
+            "prompt_tokens_details": {"cached_tokens": 0}
+        }));
+        assert_eq!(canonical["input_tokens_details"]["cached_tokens"], json!(0));
+
+        let openrouter = normalize_response_usage(&json!({
+            "prompt_tokens": 100,
+            "prompt_tokens_details": {"cached_tokens": 60, "cache_write_tokens": 30}
+        }));
+        let details = &openrouter["input_tokens_details"];
+        assert_eq!(details["cached_tokens"], json!(60));
+        assert_eq!(details["cache_creation_tokens"], json!(30));
+        assert_eq!(details.get("cache_write_tokens"), None);
+        assert_eq!(normalize_response_usage(&openrouter), openrouter);
+
+        let dashscope = normalize_response_usage(&json!({
+            "prompt_tokens": 3019,
+            "prompt_tokens_details": {"cached_tokens": 0, "cache_creation_input_tokens": 3013}
+        }));
+        let details = &dashscope["input_tokens_details"];
+        assert_eq!(details["cache_creation_tokens"], json!(3013));
+        assert_eq!(details.get("cache_creation_input_tokens"), None);
+
+        // A Bedrock usage that reports no cache counts keeps them unreported.
+        let bedrock = normalize_bedrock_usage(&json!({"inputTokens": 3, "outputTokens": 5}));
+        assert_eq!(bedrock["input_tokens"], json!(3));
+        assert_eq!(bedrock["total_tokens"], json!(8));
+        assert_eq!(
+            bedrock["input_tokens_details"]["cached_tokens"],
+            Value::Null
+        );
+        assert_eq!(normalize_bedrock_usage(&Value::Null), Value::Null);
     }
 
     #[test]

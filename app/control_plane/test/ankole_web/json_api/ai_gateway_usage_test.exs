@@ -49,7 +49,8 @@ defmodule AnkoleWeb.JSONAPI.AIGatewayUsageTest do
              "reported_rounds" => 3,
              "input_tokens" => 150,
              "output_tokens" => 25,
-             "cached_input_tokens" => nil
+             "cached_input_tokens" => nil,
+             "cache_creation_input_tokens" => nil
            } = total
 
     assert by_agent["key"] == agent.uid

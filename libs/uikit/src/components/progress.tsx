@@ -1,5 +1,5 @@
 import { Progress as ProgressPrimitive } from '@base-ui/react/progress'
-import type { CSSProperties } from 'react'
+import type { ComponentPropsWithoutRef, CSSProperties } from 'react'
 
 import { cn } from '../lib/utils'
 
@@ -75,4 +75,32 @@ function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props) {
   )
 }
 
-export { Progress, ProgressIndicator, ProgressLabel, ProgressTrack, ProgressValue }
+/**
+ * Determinate progress drawn in the Spinner's geometry, for progress that has to fit an icon slot.
+ * `value` runs from 0 to 100.
+ */
+function ProgressRing({
+  value,
+  className,
+  ...props
+}: { value: number } & Omit<ComponentPropsWithoutRef<'svg'>, 'children'>) {
+  const percent = Math.round(progressFraction(value, 0, 100) * 100)
+  return (
+    <svg
+      data-slot="progress-ring"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      viewBox="0 0 16 16"
+      fill="none"
+      strokeWidth="1.75"
+      className={cn('inline-block size-4 -rotate-90 stroke-current', className)}
+      {...props}>
+      <circle cx="8" cy="8" r="6.5" opacity="0.24" />
+      <circle cx="8" cy="8" r="6.5" pathLength="100" strokeLinecap="round" strokeDasharray={`${percent} 100`} />
+    </svg>
+  )
+}
+
+export { Progress, ProgressIndicator, ProgressLabel, ProgressRing, ProgressTrack, ProgressValue }

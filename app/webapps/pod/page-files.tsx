@@ -32,6 +32,7 @@ export type UploadedFile = PodFileCopyResponse
 const SpreadsheetPage = lazy(() => import('./spreadsheet/spreadsheet-page'))
 const LegacySpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
 const PresentationPreview = lazy(() => import('./file-presentation'))
+const PdfPreview = lazy(() => import('./file-pdf'))
 const filesQuery = (id: string) => ({
   queryKey: [...contentKeys.page(id), 'files'],
   queryFn: () => podFiles({ path: { id } })
@@ -304,11 +305,14 @@ function FilePreview({
       ) : mime?.startsWith('image/') ? (
         <img className="mx-auto max-h-[70vh] max-w-full object-contain" alt={name} src={url} />
       ) : mime === 'application/pdf' ? (
-        <iframe
-          className="h-[70vh] w-full rounded border border-border"
-          src={searchTarget?.kind === 'page' ? `${url}#page=${searchTarget.page}` : url}
-          title={name}
-        />
+        <Suspense fallback={<ContentLoading label={t('pod.content.loading_file')} />}>
+          <PdfPreview
+            key={url}
+            url={url}
+            title={name}
+            initialPage={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
+          />
+        </Suspense>
       ) : mime?.startsWith('video/') || mime?.startsWith('audio/') ? (
         <MediaFilePreview
           key={url}

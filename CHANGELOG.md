@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.103 (2026-11-10)
+## Version 2.0.0-alpha.105 (2026-11-10)
 
 - Speed up repository checks. The control-plane checks run as two parallel
   jobs: static checks compile `Ankole.Kernel` without its crate
@@ -20,13 +20,38 @@
   arguments after their package layers, so a release no longer rebuilds those
   layers.
 
-## Version 2.0.0-alpha.102 (2026-11-10)
+## Version 2.0.0-alpha.104 (2026-11-10)
 
 - Fix the arm64 control-plane image build, which failed with `revision ... not
   found` for the `gridcraft` git dependency. The kernel WebAssembly stage and
   the Elixir build stage ran in parallel and cloned the dependency into the
   same Cargo git cache at once; the WebAssembly stage now keeps its own Cargo
   caches.
+
+## Version 2.0.0-alpha.103 (2026-11-10)
+
+- Record prompt-cache reads and writes in the model usage ledger. Each
+  `ai_gateway_usage_records` row gains `cache_creation_input_tokens` for cache
+  writes beside `cached_input_tokens` for cache reads, and the Console Model
+  usage page adds a Cache writes column beside the column that it now labels
+  Cache reads. AIGateway now reads the cache reads that DeepSeek reports as
+  `prompt_cache_hit_tokens` and Kimi as a flat `cached_tokens`, and the cache
+  writes that OpenRouter and Kimi report as `cache_write_tokens` and DashScope
+  as `cache_creation_input_tokens`. Rows written before the upgrade keep `NULL`
+  cache writes.
+
+## Version 2.0.0-alpha.102 (2026-11-10)
+
+- Show upload progress on chat attachments. While a file uploads, its card
+  shows the bytes sent against the total and a progress ring on the remove
+  control; a finished or sent attachment shows its size.
+- Show the first page of a PDF as its thumbnail on Grid cards of the subpages
+  directory. Chat attachment cards show an image as its thumbnail and mark any
+  other file with its extension.
+- Read PDFs in an Ankole viewer on File Pages and in the chat attachment
+  preview. The viewer follows the light and dark themes and has page, zoom,
+  and whole-document find controls, selectable text, and working links; it
+  also renders PDFs that do not embed their CJK fonts.
 
 ## Version 2.0.0-alpha.101 (2026-11-10)
 

@@ -175,12 +175,63 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       assert record.input_tokens == nil
       assert record.output_tokens == nil
       assert record.cached_input_tokens == nil
+      assert record.cache_creation_input_tokens == nil
       assert record.model == "openai-token-quota/gpt-5.5"
       assert record.provider_model == "gpt-5.5-2026-10-01"
       assert record.model_profile == "light"
       assert record.served_profile == "primary"
       assert record.human_uid == human.uid
       assert UsageLedger.window_tokens(agent.uid, window_started_at) == 0
+    end
+
+    test "a Claude round records its cache reads and writes as parts of the input" do
+      %{principal: agent} = agent_fixture()
+      window_started_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      base_url =
+        start_upstream_server(fn _request ->
+          {:json, 200,
+           %{
+             "id" => "msg_cache",
+             "type" => "message",
+             "role" => "assistant",
+             "model" => "claude-sonnet-5-5",
+             "content" => [%{"type" => "text", "text" => "hello"}],
+             "stop_reason" => "end_turn",
+             "usage" => %{
+               "input_tokens" => 5,
+               "cache_read_input_tokens" => 20,
+               "cache_creation_input_tokens" => 10,
+               "output_tokens" => 7
+             }
+           }}
+        end)
+
+      assert {:ok, _provider} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: "claude-token-quota",
+                 provider_kind: "claude",
+                 base_url: base_url,
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-ant"}]
+                 }
+               })
+
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, "primary", %{
+                 provider_id: "claude-token-quota",
+                 model: "claude-sonnet-5-5"
+               })
+
+      assert {:ok, _response} =
+               AIGateway.create_response(agent.uid, request(), subject_type: "agent")
+
+      assert [record] = usage_records()
+      assert record.input_tokens == 35
+      assert record.output_tokens == 7
+      assert record.cached_input_tokens == 20
+      assert record.cache_creation_input_tokens == 10
+      assert UsageLedger.window_tokens(agent.uid, window_started_at) == 42
     end
 
     test "a round still counts when the Human it served no longer exists" do
@@ -264,7 +315,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       record.("gpt-5.5", %{
         "input_tokens" => 100,
         "output_tokens" => 0,
-        "input_tokens_details" => %{"cached_tokens" => 40}
+        "input_tokens_details" => %{"cached_tokens" => 40, "cache_creation_tokens" => 25}
       })
 
       record.("gpt-5.5", nil)
@@ -276,6 +327,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                "input_tokens" => 107,
                "output_tokens" => 3,
                "cached_input_tokens" => 40,
+               "cache_creation_input_tokens" => 25,
                "reasoning_tokens" => nil,
                "models" => [
                  %{
