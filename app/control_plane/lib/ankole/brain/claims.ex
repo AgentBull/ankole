@@ -215,7 +215,8 @@ defmodule Ankole.Brain.Claims do
   Writes one Take through the shared contract. Takes keep GBrain's open kind
   string and never enter fact dedup.
   """
-  @spec write_take(map(), writer(), keyword()) :: {:ok, Claim.t()} | {:error, term()}
+  @spec write_take(map(), writer() | Ankole.AuthZ.Actor.t(), keyword()) ::
+          {:ok, Claim.t()} | {:error, term()}
   def write_take(attrs, writer, opts \\ []) when is_map(attrs) do
     with :ok <- validate_parent(attrs),
          :ok <- validate_claim_text(attrs[:claim]),
@@ -229,7 +230,7 @@ defmodule Ankole.Brain.Claims do
       now = DateTime.utc_now(:microsecond)
 
       attrs = %{
-        author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
+        author: take_author(writer, opts),
         provenance_session: attrs[:provenance_session],
         subject_page_id: attrs[:subject_page_id],
         conversation_id: attrs[:conversation_id],
@@ -890,7 +891,13 @@ defmodule Ankole.Brain.Claims do
 
   defp validate_holder(_holder), do: {:error, :missing_holder}
 
+  defp take_author(%Ankole.AuthZ.Actor{} = actor, _opts), do: Ankole.ActorRef.from_actor(actor)
+  defp take_author(writer, opts), do: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts)
+
   defp validate_scope(scope, :system), do: Scope.validate(scope)
+
+  defp validate_scope(scope, %Ankole.AuthZ.Actor{} = actor),
+    do: Scope.validate_writable(scope, actor)
 
   defp validate_scope(scope, writer_uid) when is_binary(writer_uid),
     do: Scope.validate_writable(scope, writer_uid)

@@ -41,6 +41,10 @@ defmodule Ankole.Brain do
     to: Ankole.Brain.DataSemantics.Execution,
     as: :execute
 
+  defdelegate applet_list_takes(actor, options), to: Ankole.Brain.AppletTakes, as: :list
+  defdelegate applet_write_take(actor, options), to: Ankole.Brain.AppletTakes, as: :write
+  defdelegate applet_calibration(actor, options), to: Ankole.Brain.AppletTakes, as: :calibration
+
   @doc "Marks the metric revisions that a Base schema change broke as `needs_review`."
   defdelegate base_tables_changed_in_tx(table_ids), to: Ankole.Brain.DataSemantics.Drift
 

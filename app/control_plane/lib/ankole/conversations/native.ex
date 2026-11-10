@@ -370,6 +370,44 @@ defmodule Ankole.Conversations.Native do
     |> committed(actor)
   end
 
+  @doc "Posts a notification to an existing native conversation without addressing an Agent."
+  def post_applet_notification(actor, applet_id, id, message_id, text) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+    authority = actor.turn_authority
+
+    Repo.transact_top_level(
+      fn ->
+        with {:ok, id} <- Queries.cast_id(id),
+             {:ok, message_id} <- Queries.cast_id(message_id),
+             {:ok, text} <- native_text(text, []),
+             :ok <- Ankole.Pod.lock_tree_in_tx(shared: true),
+             {:ok, _} <- Ankole.Pod.authorize_applet(actor, applet_id, "node_contribute"),
+             %Conversation{} = visible <- visible_conversation(actor, id),
+             {:ok, _} <- Ankole.Principals.lock_principals_in_tx([uid, visible.created_by]),
+             :ok <- check_human_in_tx(actor),
+             :ok <- Ankole.AuthZ.authorize_turn_in_tx(authority, lock: false),
+             %Conversation{} = conversation <- visible_conversation(actor, id, lock: true),
+             {:ok, _} <- NativeRoom.join_speaker(conversation, actor),
+             {:ok, message, inserted?} <-
+               append_human_message_in_tx(conversation, uid, message_id, text, [], %{},
+                 applet_id: applet_id
+               ),
+             :ok <- Ankole.AuthZ.authorize_turn_in_tx(authority) do
+          {:ok,
+           %{conversationId: id, messageId: message.id, publications: publications(id, inserted?)}}
+        else
+          nil -> {:error, :not_found}
+          error -> error
+        end
+      end,
+      after_commit: &publish_native_change/1
+    )
+    |> case do
+      {:ok, receipt} -> {:ok, Map.drop(receipt, [:publications])}
+      error -> error
+    end
+  end
+
   @doc "Deletes the room for its owner or a Pod administrator."
   def delete(actor, id, opts \\ []) do
     Repo.transact_top_level(fn -> delete_in_tx(actor, id, opts) end,
@@ -840,8 +878,17 @@ defmodule Ankole.Conversations.Native do
     Ankole.Conversations.TitleGenerator.truncate_generated_title(text || hd(attachments)["name"])
   end
 
-  def append_human_message_in_tx(conversation, human_uid, id, text, attachments, input_attrs) do
+  def append_human_message_in_tx(
+        conversation,
+        human_uid,
+        id,
+        text,
+        attachments,
+        input_attrs,
+        opts \\ []
+      ) do
     existing = message(id)
+    applet_id = opts[:applet_id]
 
     links =
       Enum.uniq(
@@ -864,6 +911,7 @@ defmodule Ankole.Conversations.Native do
         "interaction_answer",
         Ankole.Attrs.get(input_attrs, :interaction_answer)
       )
+      |> Ankole.Attrs.maybe_put("applet_page_id", applet_id)
 
     attachments =
       Ankole.Conversations.Attachments.prepare_native_in_tx(
@@ -885,7 +933,8 @@ defmodule Ankole.Conversations.Native do
       when conversation_id == conversation.id ->
         if Enum.sort(NativeQueue.canonical_links(message.links)) == Enum.sort(links) and
              Enum.sort(NativeQueue.canonical_mentions(message.mentions)) == Enum.sort(mentions) and
-             message.rich_content["target_agent_uid"] == target_uid,
+             message.rich_content["target_agent_uid"] == target_uid and
+             message.rich_content["applet_page_id"] == applet_id,
            do: {:ok, message, false},
            else: {:error, :conversation_conflict}
 
@@ -920,7 +969,9 @@ defmodule Ankole.Conversations.Native do
                  author_type: :human,
                  kind: :message
                } = message <- message(id),
-               true <- conversation_id == conversation.id,
+               true <-
+                 conversation_id == conversation.id and
+                   message.rich_content["applet_page_id"] == applet_id,
                {:ok, _} <- touch(conversation, message.created_at) do
             {:ok, message, true}
           else

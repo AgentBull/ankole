@@ -144,6 +144,7 @@ defmodule Ankole.Conversations do
   defdelegate create(human_uid, attrs), to: Native
   defdelegate create_in_tx(human_uid, attrs), to: Native
   defdelegate post(human_uid, id, attrs), to: Native
+  defdelegate post_applet_notification(actor, applet_id, id, message_id, text), to: Native
   defdelegate post_in_tx(human_uid, id, attrs), to: Native
   defdelegate post_in_tx(target, statement), to: Native
   defdelegate update_queue(human_uid, id, attrs), to: NativeQueue

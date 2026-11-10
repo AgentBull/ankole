@@ -35,6 +35,15 @@ Facts preserve provenance, effective dates and optional qualifying context. Conf
 
 The Pod knowledge panel computes visible claims, timelines, backlinks and calibration scores at read time. A claim or timeline appears on its subject page and its source page, with the same source permission filter in both places. An empty scorecard has no Brier score. Users edit the page in Pod and can inspect its knowledge alongside the content without copying projections into the document.
 
+Applet backends list Takes and compute calibration for one source at a time.
+They may narrow either read to a subject, holder Principal or Take kind, and
+calibration may select a domain that the grader assigned. Saving a Take uses
+the execution Principal as both author and holder and requires contribution
+access on the source. Brain persists the Take without a model call at submit
+time. Dreaming evaluates eligible Takes using Facts visible to the source,
+including Takes whose `untilDate` has passed. Each write records a distinct
+Take. After an uncertain submission, check the source before submitting again.
+
 `Ankole.Brain.Browser` projects the workspace ontology graph for `/meta/brain` under the caller's live Page authorization predicate. The response pairs each visible ontology category (`entity_type` and `primitive` from `brain_schema_types`) with visible Brain objects (`subtype` and nearest visible `parent_id`, skipping unreadable intermediate nodes) and deduplicated directed edges across five relation kinds: `hierarchy` (`contains`), `ownership` (`assists` and `owned_by` from Principal records), `semantic` and `reference` (`brain_links`), and `evidence` (`evidences`, `holds_take` and `involves` derived from authorized current claims and timelines). Pod renders this projection through `@ankole/uikit/components/graph` (`@antv/g6`) with network, hierarchy, category-combo and radial layouts alongside interactive entity and relation layer filters.
 
 ## Retrieval and progressive reads

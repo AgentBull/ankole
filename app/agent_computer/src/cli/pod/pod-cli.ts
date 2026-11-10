@@ -186,7 +186,7 @@ Frontend build emits browser ESM chunks and dist/index.html (Bun.build without T
 write custom layout CSS in src/style.css using Ankole semantic CSS variables such as
 var(--background), var(--layer-01), var(--foreground), var(--fg-secondary), var(--border),
 and var(--radius-control) rather than arbitrary Tailwind utility classes or hardcoded hex colors).
-Import components (Button, Badge, Card, Table, Tabs, Input, Textarea, Select, Combobox,
+Import components (Button, Badge, Card, Table, DataGrid, ApprovalCard, Tabs, Input, Textarea, Select, Combobox,
 Checkbox, Switch, Field, Label, Dialog, Sheet, Drawer, Popover, DropdownMenu, Tooltip,
 Alert, Empty, Skeleton, Spinner, Toaster, toast, useTheme, AnkoleChart, AnkoleFinancialChart,
 AnkoleYieldCurveChart, AnkoleInfographic, AnkoleStatCard, AnkoleSparkline, Graph) from the root "@ankole/uikit"
@@ -221,7 +221,11 @@ The runtime provides Node builtins, temporary /tmp files, fetch, process.env mer
 Site -> Pod -> applet.env.json defaults -> Applet environment overrides (applet.env.json accepts
 flat string defaults or {default?, required?, secret?, description?} declarations), and
 AnkoleRuntime base, file, ai ({generateText, generateImage}), web ({search, fetch}), mcp, signals
-and HttpError. GET handlers cannot write or call ai.generateImage.
+and HttpError. GET handlers cannot write or call ai.generateImage. Use file.read(path, {sha256})
+to read the listed version or receive a manifest_changed conflict.
+Use notifications.post for native room alerts. Use approvals.request/list/get/decide for
+Human decisions; only the assigned reviewer can decide in a browser mutation route.
+Use brain.listTakes/writeTake/calibration for source-scoped research predictions.
 Backend exports may contain {routes, actions}. Each Action declares idempotent,
 concurrency (parallel|serial_fifo|serial_coalesce), concurrencyKey(ctx), maxSlices,
 and handler(ctx). Jobs hold configuration and durable state; code owns policy.
@@ -233,8 +237,8 @@ calls are read-only. mcp.call(tool,args,{server,connection?,account?,skill?})
 uses a Toolkit, or an enabled remote HTTP Skill when skill is supplied.
 admin.mcp uses the current Page owner; HttpError.details preserves consent links
 and recovery metadata. signals.emit({targetJobId,type,data}) accepts a same-Page Job;
-omit targetJobId to publish to Bindings: routes use applet://<page-id>,
-Actions use job://<job-id>. An Agent wakeup needs
+omit targetJobId to publish to Bindings and check delivered for a delivery receipt.
+Routes use applet://<page-id> and Actions use job://<job-id>. An Agent wakeup needs
 a Binding to its conversation. signals.call({actionKey,data}) runs synchronously
 within the remaining budget.
 Applet pull restores source and package files, then runs bun install --ignore-scripts.

@@ -1,5 +1,19 @@
 # Changelog
 
+## Version 2.0.0-alpha.106 (2026-11-11)
+
+- Build Applet tables with sticky headers and columns, keyboard navigation,
+  controlled sorting, and virtual scrolling for loaded rows.
+- Ask a designated reviewer for a decision in an Applet and display it with
+  `ApprovalCard`. Applet Actions can also post unread notices to authorized
+  native conversations without starting an Agent turn. The control-plane
+  migration creates `pod_applet_approvals` to store requests and decisions.
+- Record and read Brain Takes from Applets and show source-scoped calibration
+  scores by researcher.
+- Read Applet evidence files by expected SHA-256 and report a conflict when
+  the contents change. Applets can also tell whether a Signal reached a
+  matching Binding.
+
 ## Version 2.0.0-alpha.105 (2026-11-10)
 
 - Speed up repository checks. The control-plane checks run as two parallel

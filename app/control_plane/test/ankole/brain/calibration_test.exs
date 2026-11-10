@@ -153,6 +153,94 @@ defmodule Ankole.Brain.CalibrationTest do
              )
   end
 
+  test "an Applet Take enters Dreaming and calibration stays scoped to the source", context do
+    alias Ankole.{ActorRef, Brain}
+    alias Ankole.AuthZ.Actor
+    alias Ankole.Pod.Pages
+
+    assert {:ok, _} = SchemaPacks.install_packs(["public_markets"])
+    actor = Actor.new(context.member)
+    stranger = human_fixture().principal |> Actor.new()
+
+    {:ok, source} =
+      Pages.create(actor, %{type: "doc", private_owner_uid: context.member.uid})
+
+    scope = %{"sourceNodeId" => source.id, "subjectPageId" => context.object.id}
+
+    prediction =
+      Map.merge(scope, %{
+        "claim" => "The instrument will meet its stated delivery target",
+        "kind" => "market_call",
+        "weight" => 0.6,
+        "untilDate" => Date.utc_today() |> Date.add(-1) |> Date.to_iso8601(),
+        "provenance" => "Approved investment note",
+        "holder" => "world",
+        "author" => "world"
+      })
+
+    assert {:error, :forbidden} = Brain.applet_write_take(stranger, prediction)
+    assert {:ok, take} = Brain.applet_write_take(actor, prediction)
+    assert take.author == ActorRef.from_principal(context.member)
+    assert {:ok, holder} = Ankole.Brain.Scope.canonical_page_id(context.member.uid)
+    assert take.holder == holder
+    assert take.sourceNodeId == source.id
+    assert take.untilDate == prediction["untilDate"]
+    assert {:ok, %{takes: [^take]}} = Brain.applet_list_takes(actor, scope)
+    assert {:error, :not_found} = Brain.applet_list_takes(stranger, scope)
+    assert {:error, :not_found} = Brain.applet_calibration(stranger, scope)
+
+    market_scope = Map.put(scope, "domain", "market_call")
+    assert {:ok, %{resolvedCount: 0, brier: nil}} = Brain.applet_calibration(actor, market_scope)
+
+    write_fact!(context, "The delivery target was met", source_node_id: source.id)
+    write_fact!(context, "Other source evidence is distinct")
+
+    Agent.update(context.upstream, fn _ ->
+      %{output: %{"quality" => "correct", "confidence" => 0.8, "domains" => ["market_call"]}}
+    end)
+
+    assert %{status: :ok, candidates: 1, attempted: 1, graded: 1} = Calibration.grade_takes()
+    assert_receive {:calibration_prompt, prompt}, 1_000
+    assert prompt =~ prediction["claim"]
+    assert prompt =~ "The delivery target was met"
+    assert prompt =~ "Installed calibration domains: market_call"
+    refute prompt =~ "Other source evidence is distinct"
+
+    assert {:ok, %{resolvedCount: 1, brier: 0.16}} =
+             Brain.applet_calibration(actor, market_scope)
+
+    assert {:ok, %{resolvedCount: 1, brier: 0.16}} =
+             Brain.applet_calibration(
+               actor,
+               Map.put(market_scope, "holderUid", context.member.uid)
+             )
+
+    assert {:ok, %{resolvedCount: 0, brier: nil}} =
+             Brain.applet_calibration(
+               actor,
+               Map.put(market_scope, "holderUid", stranger.principal.uid)
+             )
+
+    assert {:ok, %{resolvedCount: 0, brier: nil}} =
+             Brain.applet_calibration(actor, Map.put(market_scope, "domain", "other"))
+
+    assert {:ok, %{takes: [%{resolvedQuality: "correct", resolvedOutcome: true}]}} =
+             Brain.applet_list_takes(actor, scope)
+
+    legacy =
+      write_take!(
+        context.member,
+        %{source_node_id: source.id, subject_page_id: context.object.id},
+        "A Take with a holder path",
+        until_date: "2040-01-01"
+      )
+
+    assert {:ok, %{takes: takes}} =
+             Brain.applet_list_takes(actor, Map.put(scope, "holderUid", context.member.uid))
+
+    assert MapSet.new(takes, & &1.id) == MapSet.new([take.id, legacy.id])
+  end
+
   test "a Pod with only primary runs Dreaming and attributes calibration to its system Principal",
        context do
     assert Repo.aggregate(Ankole.Principals.Agent, :count) == 0

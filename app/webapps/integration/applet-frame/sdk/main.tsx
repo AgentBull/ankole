@@ -14,7 +14,7 @@ import {
   usePod
 } from '@ankole/applet-sdk'
 import type { AppletRuntime, RouteCall, BaseRecord, RecordWrite, TableEvent } from '@ankole/applet-sdk/types'
-import { useTheme } from '@ankole/uikit'
+import { DataGrid, useTheme, type DataGridSort } from '@ankole/uikit'
 import { loadLocale } from '../../../common/i18n'
 import { InternalAPIError } from '../../../common/internal-api-client'
 import { podFileURL } from '../../../pod/content-api'
@@ -304,7 +304,61 @@ function App() {
     </section>
   )
 }
-const provider = defineApplet(App)
+const dataGridMode = new URLSearchParams(location.search).get('data-grid')
+if (dataGridMode !== null) await import('@ankole/uikit/styles.css')
+
+function DataGridCheck() {
+  const [selected, setSelected] = useState('')
+  const [sort, setSort] = useState<DataGridSort | null>(null)
+  const virtualize = dataGridMode === 'virtual'
+  const sortable = dataGridMode === 'sort'
+  const rows = Array.from({ length: virtualize ? 4_000 : 20 }, (_, index) => ({
+    name: `Symbol ${index + 1}`,
+    value: index * 10
+  }))
+  if (sort?.direction === 'desc') rows.reverse()
+  return (
+    <div style={{ width: 240 }}>
+      <DataGrid
+        label="Positions"
+        maxHeight={140}
+        stickyFirstColumn
+        virtualize={virtualize}
+        sort={sort}
+        onSortChange={setSort}
+        rows={rows}
+        getRowId={row => row.name}
+        columns={[
+          {
+            id: 'symbol',
+            header: 'Symbol',
+            renderCell: row => (
+              <button type="button" data-row-link onClick={() => setSelected(row.name)}>
+                {row.name}
+              </button>
+            )
+          },
+          {
+            id: 'value',
+            header: 'Closing market value (CNY)',
+            numeric: true,
+            sortable,
+            renderCell: row => row.value
+          },
+          {
+            id: 'turnover',
+            header: 'Last reported turnover (CNY)',
+            numeric: true,
+            renderCell: row => row.value * 2
+          }
+        ]}
+      />
+      <output data-selected>{selected}</output>
+    </div>
+  )
+}
+
+const provider = defineApplet(dataGridMode === null ? App : DataGridCheck)
 const controls = document.createElement('div')
 controls.innerHTML =
   '<button data-emit>Emit fixture event</button><button data-unmount>Unmount SDK</button><button data-remount>Remount SDK</button><button data-reload hidden>Reload applet</button><output data-lifecycle></output><output data-request></output><output data-confirmed></output>'

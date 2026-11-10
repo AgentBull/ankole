@@ -300,7 +300,7 @@ defmodule Ankole.Pod.Serialization do
       code
       when code in ~w(revision_conflict title_conflict document_conflict sharing_conflict cannot_restore manifest_changed
                           field_conflict record_conflict record_exists schema_conflict local_table_changed
-                          client_sequence_conflict applet_revision_changed
+                          client_sequence_conflict applet_revision_changed approval_conflict conversation_conflict
                           position_conflict spreadsheet_conflict spreadsheet_busy
                           job_sources_changed binding_source_changed automation_job_not_active
                           signal_source_in_use connector_trigger_busy connection_changed connector_trigger_changed

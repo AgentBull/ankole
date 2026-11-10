@@ -133,6 +133,61 @@ export interface HttpError extends Error {
   retryable?: boolean
   request_sent?: boolean
 }
+export type ApprovalDecision = 'approved' | 'rejected'
+export type ApprovalRequest = {
+  requestKey: string
+  reviewerUid: string
+  summary: string
+  details?: string
+}
+export type Approval = {
+  id: string
+  requestKey: string
+  requesterUid: string
+  reviewerUid: string
+  summary: string
+  details: string | null
+  status: 'pending' | ApprovalDecision
+  requestedAt: string
+  decidedAt: string | null
+  note: string | null
+}
+export type TakeScope = {
+  sourceNodeId: string
+  subjectPageId?: string
+}
+export type TakeFilter = TakeScope & {
+  holderUid?: string
+  kind?: string
+}
+export type TakeInput = TakeScope & {
+  claim: string
+  kind: string
+  weight: number
+  sinceDate?: string
+  untilDate?: string
+  provenance: string
+}
+export type Take = {
+  id: string
+  sourceNodeId: string
+  subjectPageId: string | null
+  holder: string
+  author: { tenant_id: string; uid: string } | null
+  claim: string
+  kind: string
+  weight: number
+  active: boolean
+  sinceDate: string | null
+  untilDate: string | null
+  provenance: string
+  createdAt: string
+  resolvedAt: string | null
+  resolvedQuality: string | null
+  resolvedOutcome: boolean | null
+  resolutionProvenance: string | null
+  supersededBy: string | null
+}
 export type RuntimeCapabilities = {
   base: {
     schema(tableId: string): Promise<TableSchema>
@@ -142,9 +197,27 @@ export type RuntimeCapabilities = {
   }
   /** Executes a published Brain metric (`metrics/<name>` or object ID) without a model; GET routes may call it. */
   metrics: { query(metric: string, options?: MetricQueryOptions): Promise<MetricResult> }
+  brain: {
+    listTakes(options: TakeFilter & { limit?: number }): Promise<{ takes: Take[] }>
+    writeTake(options: TakeInput): Promise<Take>
+    calibration(options: TakeFilter & { domain?: string }): Promise<{ resolvedCount: number; brier: number | null }>
+  }
+  notifications: {
+    /** Posts to an existing native conversation using a stable message UUIDv7. */
+    post(request: { conversationId: string; messageId: string; text: string }): Promise<{
+      conversationId: string
+      messageId: string
+    }>
+  }
+  approvals: {
+    request(request: ApprovalRequest): Promise<Approval>
+    get(id: string): Promise<Approval>
+    list(): Promise<{ approvals: Approval[] }>
+  }
   file: {
     list(pageId: string): Promise<{ revision: number; files: FileEntry[] }>
-    read(path: string): Promise<FileRead>
+    /** Pin to the lowercase SHA-256 from the manifest; a changed file returns `manifest_changed`. */
+    read(path: string, options?: { sha256?: string }): Promise<FileRead>
     write(pageId: string, file: FileWrite): Promise<FileWriteResult>
   }
   ai: {
@@ -182,12 +255,16 @@ export type RuntimeCapabilities = {
       type: string
       data?: Record<string, unknown>
       responseMode?: 'fire_and_forget'
-    }): Promise<{ accepted: true; signalId: string }>
+    }): Promise<{ accepted: true; signalId: string; delivered: boolean }>
     run(runId: number): Promise<ActionRun>
   }
 }
 
 export type AnkoleRuntimeAPI = RuntimeCapabilities & {
+  approvals: RuntimeCapabilities['approvals'] & {
+    /** The assigned reviewer decides through a signed-in browser mutation route. */
+    decide(request: { id: string; decision: ApprovalDecision; note?: string }): Promise<Approval>
+  }
   HttpError: new (status: number, code: string, message?: string, details?: unknown) => HttpError
   admin: RuntimeCapabilities
 }

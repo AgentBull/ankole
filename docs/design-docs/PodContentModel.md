@@ -2871,6 +2871,17 @@ observer across Applet generations until the Pod unmounts:
   cache, whereas creates and deletes appear once confirmed by the server (which
   owns auto-numbers, formulas, and filter/page membership; failed creates keep
   form input and failed deletes keep the confirmation dialog).
+- **`DataGrid` from `@ankole/uikit`** renders rows with sticky column headers,
+  an optional sticky first column, and aligned numeric cells. The Applet owns
+  paging and sorting. Columns opt into controlled sorting with `sortable` and
+  the Applet supplies `sort` and `onSortChange`. With `virtualize`, the grid
+  renders a window of loaded rows, retaining focus as the window moves. It
+  uses the supplied column widths or a 160px default. Mark a button or link in
+  a cell with `data-row-link` to open the record from the row or the keyboard.
+- **`ApprovalCard` from `@ankole/uikit`** shows an approval's summary, status
+  and details. Applets supply localized labels and provide review controls when
+  the assigned reviewer opens a pending request. The Applet owns submission,
+  query refresh and the optional reason field.
 - **`useChannel`**: Joins `applet:<page-id>:<room>` for ephemeral messages and
   presence, rechecking each recipient's authentication, Pod login policy, and
   Page access before every delivery and closing the subscription on denial.
@@ -3019,8 +3030,12 @@ business write:
   writes enforce normal field-version conflicts and broadcasts, and capability
   calls do not span a multi-call transaction—guarded updates read field
   versions, write against them, and reread on conflict. File capabilities return
-  `objectId` with each file entry. To replace a file Page, the caller sends that
-  value as `baseObjectId`; null or omission is valid only for an empty file Page.
+  `objectId` and `sha256` with each file entry. To read the file an Applet listed,
+  call `file.read(path, {sha256})` with that entry's lowercase 64-digit hex digest.
+  If the current manifest points to different content, the read returns HTTP 409
+  `manifest_changed`. Reading without a digest uses the current manifest. To
+  replace a file Page, send its `objectId` as `baseObjectId`; null or omission is
+  valid only for an empty file Page.
   A stale object ID returns a conflict. Document assets and Base attachments use
   their standard page-type rules. File capabilities enforce the Worker transfer
   byte cap up front, passing bytes as `Uint8Array` (including empty files).
@@ -3030,6 +3045,33 @@ business write:
   capability is read-only, so `GET` routes may call it. It returns the metric
   result and fails with the metric error codes that
   [Brain](BrainV3.md#executing-a-metric) defines.
+- **`brain.listTakes`, `brain.writeTake`, and `brain.calibration`** read and
+  record Takes for a specific `sourceNodeId` and optional `subjectPageId`.
+  Brain applies the execution Principal's source access and any Agent turn
+  disclosure limits. The writer needs `node_contribute` on the source, and
+  Brain attributes the Take to that Principal. Reads can filter by `holderUid`
+  and `kind`. Calibration can also filter by the domain assigned to a resolved
+  Take. [Brain](BrainV3.md#atomic-knowledge-and-authorization) owns grading and
+  evidence scope.
+- **`notifications.post({conversationId, messageId, text})`** posts a native
+  chat message and advances the room's unread marker without addressing an
+  Agent. The execution Principal is a Human who can contribute to the Applet
+  and post to the destination room. Use the same `messageId` (UUIDv7) and text
+  on retry. [Conversations](Conversations.md#native-room-access-and-participants)
+  owns room access and message delivery.
+- **`approvals.request`, `approvals.list`, `approvals.get`, and `approvals.decide`**
+  operate on requests owned by the Applet Page. Each request records an immutable
+  summary, details, requester and assigned Human reviewer. Creating a request needs contribution access for
+  the execution Principal and view access for both the requester and reviewer.
+  The requester and reviewer can read it while they can view the Page. Listing
+  returns up to 100 of their requests, with pending requests first. Only the
+  assigned reviewer can record `approved` or `rejected` through a signed-in
+  browser mutation route. An Applet records the result before taking any later
+  business action. Reusing a `requestKey` with identical inputs returns the
+  original request. Repeating a decision with the same note returns the stored
+  decision. A changed request or decision returns HTTP 409 `approval_conflict`.
+  `request`, `decide`, `notifications.post`, and `brain.writeTake` require a
+  writable route or Action. Review decisions require the reviewer in the browser.
 - **`ai.generateText` and `ai.generateImage`**: Configuration, authorization, and
   usage attribution follow the selected ordinary or `admin` execution Principal
   (mirrored on `AnkoleRuntime.admin.ai`). `ai.generateText` accepts a built-in

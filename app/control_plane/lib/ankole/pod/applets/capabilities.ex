@@ -3,7 +3,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   alias Ankole.Pod.Access
   alias Ankole.Pod.{Bases, Files, Pages, Serialization}
-  alias Ankole.Pod.Applets.{AI, Web}
+  alias Ankole.Pod.Applets.{AI, Approvals, Web}
 
   def call(context, caller, operation, args) do
     {admin?, operation} =
@@ -19,19 +19,28 @@ defmodule Ankole.Pod.Applets.Capabilities do
         "state.set",
         "state.delete",
         "signals.emit",
-        "ai.generateImage"
+        "ai.generateImage",
+        "notifications.post",
+        "approvals.request",
+        "approvals.decide",
+        "brain.writeTake"
       ]
 
-    if (context["read_only"] == true or context["method"] == "GET") and write? do
-      error(:read_only_route)
-    else
-      outcome =
-        with {:ok, page} <- Pages.fetch(context["applet"]["pageId"]),
-             :ok <- Ankole.Pod.Applets.available(page),
-             {:ok, actor} <- actor(context, page, caller, admin?, operation),
-             do: dispatch_context(context, page, actor, caller, operation, args)
+    cond do
+      (context["read_only"] == true or context["method"] == "GET") and write? ->
+        error(:read_only_route)
 
-      result(outcome)
+      operation == "approvals.decide" and (admin? or not browser_review?(context, caller)) ->
+        error(:forbidden)
+
+      true ->
+        outcome =
+          with {:ok, page} <- Pages.fetch(context["applet"]["pageId"]),
+               :ok <- Ankole.Pod.Applets.available(page),
+               {:ok, actor} <- actor(context, page, caller, admin?, operation),
+               do: dispatch_context(context, page, actor, caller, operation, args)
+
+        result(outcome)
     end
   rescue
     exception ->
@@ -55,6 +64,15 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
       error(:handler_error)
   end
+
+  defp browser_review?(
+         %{"authentication_ref" => ref, "method" => method},
+         %Ankole.AuthZ.Actor{principal: %{type: :human}}
+       )
+       when is_binary(ref) and ref != "" and method in ["POST", "PUT", "PATCH", "DELETE"],
+       do: true
+
+  defp browser_review?(_context, _caller), do: false
 
   @doc false
   def actor(context, page, caller, admin?, operation) do
@@ -89,6 +107,18 @@ defmodule Ankole.Pod.Applets.Capabilities do
   defp dispatch_context(context, page, actor, caller, "signals." <> operation, args),
     do: Ankole.Signals.applet_dispatch(context, page, actor, caller, operation, args)
 
+  defp dispatch_context(_context, page, actor, caller, "approvals.request", [request]),
+    do: Approvals.request(page.id, actor, caller || actor, request)
+
+  defp dispatch_context(_context, page, actor, caller, "approvals.get", [id]),
+    do: Approvals.get(page.id, caller || actor, id)
+
+  defp dispatch_context(_context, page, actor, caller, "approvals.list", []),
+    do: Approvals.list(page.id, caller || actor)
+
+  defp dispatch_context(_context, page, _actor, caller, "approvals.decide", [request]),
+    do: Approvals.decide(page.id, caller, request)
+
   defp dispatch_context(context, page, actor, _caller, "ai.generateImage", [options])
        when is_map(options),
        do:
@@ -113,6 +143,20 @@ defmodule Ankole.Pod.Applets.Capabilities do
   defp dispatch(_page, actor, "metrics.query", [metric, options]) when is_map(options),
     do: Ankole.Brain.execute_metric(actor, metric, options["revision"], options["params"] || %{})
 
+  defp dispatch(_page, actor, "brain.listTakes", [options]) when is_map(options),
+    do: Ankole.Brain.applet_list_takes(actor, options)
+
+  defp dispatch(_page, actor, "brain.writeTake", [options]) when is_map(options),
+    do: Ankole.Brain.applet_write_take(actor, options)
+
+  defp dispatch(_page, actor, "brain.calibration", [options]) when is_map(options),
+    do: Ankole.Brain.applet_calibration(actor, options)
+
+  defp dispatch(page, actor, "notifications.post", [
+         %{"conversationId" => id, "messageId" => message_id, "text" => text}
+       ]),
+       do: Ankole.Conversations.post_applet_notification(actor, page.id, id, message_id, text)
+
   defp dispatch(_page, actor, "base.write", [id, changes]) when is_map(changes),
     do: Bases.write_records(actor, id, changes, actor.turn_authority)
 
@@ -122,10 +166,14 @@ defmodule Ankole.Pod.Applets.Capabilities do
     end
   end
 
-  defp dispatch(_page, actor, "file.read", [path]) do
-    with {:ok, id, relative} <- Files.parse_path(path),
+  defp dispatch(page, actor, "file.read", [path]),
+    do: dispatch(page, actor, "file.read", [path, %{}])
+
+  defp dispatch(_page, actor, "file.read", [path, options]) when is_map(options) do
+    with {:ok, digest} <- file_read_digest(options),
+         {:ok, id, relative} <- Files.parse_path(path),
          {:ok, entry, bytes} <-
-           Files.read(actor, id, relative, nil,
+           Files.read(actor, id, relative, digest,
              max_bytes: Ankole.WorkerFiles.max_transfer_bytes()
            ) do
       {:ok, Map.put(file_entry(id, entry), :bytes, %{"__ankole_bytes" => Base.encode64(bytes)})}
@@ -176,6 +224,17 @@ defmodule Ankole.Pod.Applets.Capabilities do
     do: Web.fetch(actor, options)
 
   defp dispatch(_page, _actor, _operation, _args), do: {:error, :invalid_request}
+
+  defp file_read_digest(options) when map_size(options) == 0, do: {:ok, nil}
+
+  defp file_read_digest(%{"sha256" => digest} = options)
+       when map_size(options) == 1 and is_binary(digest) do
+    if Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
+      do: {:ok, digest},
+      else: {:error, :invalid_request}
+  end
+
+  defp file_read_digest(_options), do: {:error, :invalid_request}
 
   defp upload_role(:file), do: {:ok, "file"}
   defp upload_role(:doc), do: {:ok, "asset"}
