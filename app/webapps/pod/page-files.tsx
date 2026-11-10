@@ -1,4 +1,10 @@
-import { isTextFile } from '../common/file-preview'
+import {
+  isDelimitedTextTable,
+  isPresentationFile,
+  isTextFile,
+  isWorkbookFile,
+  previewMediaType
+} from '../common/file-preview'
 import { formatFileBytes } from '../common/file-format'
 import { useTranslation } from 'react-i18next'
 import { Button, buttonVariants, cn, Spinner } from '@ankole/uikit'
@@ -222,10 +228,6 @@ export function FilePage({
   )
 }
 
-function isDelimitedTextTable(name: string, mime?: string) {
-  return /\.(csv|tsv)$/i.test(name) || mime === 'text/csv' || mime === 'text/tab-separated-values'
-}
-
 function resolveFileSearchAnchor(searchTarget?: ParsedSearchTarget): FileCommentAnchor | undefined {
   if (!searchTarget) return undefined
   if (searchTarget.kind === 'file_anchor') return searchTarget.anchor
@@ -268,14 +270,14 @@ function FilePreview({
   const { t } = useTranslation()
   const url = fileURL(pageID, file.path, file.sha256)
   const name = file.path.split('/').at(-1) ?? t('pod.content.file')
-  const mime = file.content_type?.split(';')[0]?.trim().toLowerCase()
+  const mime = previewMediaType(name, file.content_type)
   const initialAnchor = resolveFileSearchAnchor(searchTarget)
   return (
     <div className="space-y-3">
       {isDelimitedTextTable(name, mime) ? (
         <DelimitedTablePreview
           key={url}
-          pageID={pageID}
+          cacheKey={contentKeys.page(pageID)}
           url={url}
           name={name}
           canComment={canComment}
@@ -283,7 +285,7 @@ function FilePreview({
           previewRef={innerPreview}
           initialAnchor={initialAnchor?.kind === 'csv_rows' ? initialAnchor : undefined}
         />
-      ) : /\.(xls|xlsb|ods)$/i.test(name) || mime?.includes('spreadsheet') ? (
+      ) : isWorkbookFile(name, mime) ? (
         <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.content.loading_spreadsheet_preview')} />}>
           <LegacySpreadsheetPreview
             key={url}
@@ -291,7 +293,7 @@ function FilePreview({
             initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
           />
         </Suspense>
-      ) : /\.pptx$/i.test(name) || mime?.includes('presentationml') ? (
+      ) : isPresentationFile(name, mime) ? (
         <Suspense fallback={<ContentLoading label={t('pod.content.loading_slide_preview')} />}>
           <PresentationPreview
             key={url}

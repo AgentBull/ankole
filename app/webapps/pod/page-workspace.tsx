@@ -42,7 +42,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  SidebarTrigger,
   Toggle,
   useSidebar,
   toast
@@ -109,6 +108,7 @@ import { canMovePage } from './state/page-move'
 import { PageFindBar, readSingleLineSelectionInContainer, shouldHandlePageFindShortcut } from './find-bar'
 import { normalizeSearchQuery, parseSearchTarget } from './search-targets'
 import { isSpreadsheetFileName } from './state/spreadsheet-grid'
+import { PodSidebarToggle, PodTopBarActions } from './top-bar'
 import './page-workspace.css'
 
 const AppletSettingsControl = lazy(() =>
@@ -118,15 +118,6 @@ const AppletSettingsControl = lazy(() =>
 export function PageRoute() {
   const { t } = useTranslation()
   const pageID = podPageRouteID(useParams({ strict: false }).pageID) ?? ''
-  const { state: sidebarState } = useSidebar()
-  const navigation = (
-    <header className="pod-page-header sheet-header border-b border-border">
-      <SidebarTrigger
-        className={sidebarState === 'expanded' ? 'md:hidden' : undefined}
-        label={t('pod.sidebar.expand')}
-      />
-    </header>
-  )
   const page = useQuery(pageQuery(pageID))
   const pathname = useLocation({ select: location => location.pathname })
   const navigate = useNavigate()
@@ -154,7 +145,6 @@ export function PageRoute() {
   if (page.isPending) {
     return (
       <section className="flex h-full min-h-0 flex-col">
-        {navigation}
         <ContentSkeleton variant="page" label={t('pod.content.loading_page')} />
       </section>
     )
@@ -162,7 +152,6 @@ export function PageRoute() {
   if (page.error && !page.data) {
     return (
       <section className="flex h-full min-h-0 flex-col">
-        {navigation}
         <div className="overflow-auto p-8">
           <ContentError
             error={page.error}
@@ -192,7 +181,7 @@ function PageWorkspace({
   const page = usePageMetadata(snapshot.page)
   const detail = { ...snapshot, page }
   const { actions } = detail
-  const { state: sidebarState, isMobile } = useSidebar()
+  const { isMobile } = useSidebar()
   const [moving, setMoving] = useState(false)
   // An Applet Page has no title in its body, so its menu renames the title where the header shows it.
   const [renamingTitle, setRenamingTitle] = useState(false)
@@ -575,18 +564,13 @@ function PageWorkspace({
       />
     ) : null
   return (
-    <section
-      className="pod-page flex h-full min-h-0 overflow-hidden md:gap-3 md:overflow-visible"
-      data-page-type={page.type}>
+    <section className="pod-page flex h-full min-h-0 overflow-hidden md:overflow-visible" data-page-type={page.type}>
       <div
         ref={pageColumn}
         data-sheet
         className="pod-page-main relative flex min-w-0 flex-1 flex-col bg-background md:paper-sheet md:overflow-hidden">
         <header className="pod-page-header sheet-header @container gap-2 border-b border-border max-md:gap-1 max-md:px-2">
-          <SidebarTrigger
-            className={sidebarState === 'expanded' ? 'md:hidden' : undefined}
-            label={t('pod.sidebar.expand')}
-          />
+          <PodSidebarToggle />
           <div className="flex min-w-0 flex-1 items-center gap-0.5">
             <ErrorBoundary variant="inline" resetKeys={[page.id]}>
               <PageBreadcrumbs
@@ -634,143 +618,148 @@ function PageWorkspace({
               </Link>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {page.type === 'doc' && <div ref={setPresenceContainer} />}
-            {!accessDenied && !trashed && page.type !== 'doc' && page.type !== 'file' && (
-              <PageChildrenMenu
-                pageID={page.id}
-                types={page.type === 'knowledge' ? ['knowledge', 'file'] : undefined}
-                canCreate={canCreateChild({ ...page, actions })}
-                scope={page.private_owner_uid ? 'private' : 'space'}
-                privateOwner={page.private_owner_uid ?? undefined}
-              />
-            )}
-            {!accessDenied && !trashed && assistantAvailable && (
-              <Toggle
-                size="sm"
-                aria-label={t('pod.page_chat.title')}
-                title={t('pod.page_chat.title')}
-                pressed={!!chat}
-                aria-expanded={!!chat}
-                ref={chatTrigger}
-                onPressedChange={(_, details) => selectChat(chat ? null : 'latest', true, details.event)}>
-                <RiChat3Line aria-hidden />
-                <span className="@max-[640px]:sr-only">{t('pod.page_chat.title')}</span>
-              </Toggle>
-            )}
-            {!accessDenied && !trashed && commentsAvailable && (
-              <Toggle
-                size="sm"
-                aria-label={t('pod.document.comments')}
-                title={t('pod.document.comments')}
-                pressed={comments}
-                aria-expanded={comments}
-                ref={commentsTrigger}
-                onPressedChange={(_, details) =>
-                  comments ? closeComments(details.event) : openComments(focusedComment, [], details.event)
-                }>
-                <RiChatQuoteLine aria-hidden />
-                <span className="@max-[640px]:sr-only">{t('pod.document.comments')}</span>
-                {!!commentSummary.data?.unread_count && (
-                  <span role="status" className="tabular-nums" aria-label={t('pod.document.unread_comments')}>
-                    {commentSummary.data.unread_count}
-                  </span>
-                )}
-              </Toggle>
-            )}
-            {!accessDenied && !trashed && <PageLearningButton detail={contentDetail} />}
-            {!accessDenied && !trashed && page.type === 'applet' && (
-              <Suspense fallback={null}>
-                <AppletSettingsControl key={page.id} detail={contentDetail} />
-              </Suspense>
-            )}
-            {commentsAvailable && isMobile && !comments && focusedComment && (
-              <Button variant="ghost" size="xs" onClick={() => openComments(focusedComment)}>
-                {t('pod.document.return_to_comment')}
-              </Button>
-            )}
-            {!accessDenied && !trashed ? (
-              <ErrorBoundary variant="inline" resetKeys={[page.id]}>
-                <PageSharingButton pageID={page.id} page={page} />
-              </ErrorBoundary>
-            ) : (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={t('pod.content.copy_link')}
-                title={t('pod.content.copy_link')}
-                onClick={() => void copyLink()}>
-                <RiLink aria-hidden className="size-4" />
-              </Button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label={t('common.more_actions')}
-                    title={t('common.more_actions')}
-                    ref={actionsTrigger}
-                  />
-                }>
-                <RiMoreFill aria-hidden className="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-60" finalFocus={menuFinalFocus}>
-                {!accessDenied && !trashed && page.type === 'applet' && document.fullscreenEnabled && (
-                  <DropdownMenuItem
-                    onClick={() => void pageColumn.current?.querySelector('[data-applet-stage]')?.requestFullscreen()}>
-                    <RiFullscreenLine aria-hidden />
-                    {t('pod.content.applet_full_screen')}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => void copyLink()}>
-                  <RiFileCopyLine aria-hidden />
-                  {t('pod.content.copy_link')}
-                </DropdownMenuItem>
-                {page.type === 'applet' && canRename && !trashed && (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      keepFocusInTitle.current = true
-                      setRenamingTitle(true)
-                    }}>
-                    <RiPencilLine aria-hidden />
-                    {t('pod.sidebar.rename')}
-                  </DropdownMenuItem>
-                )}
-                {canMove && (
-                  <DropdownMenuItem disabled={remove.isPending} onClick={() => setMoving(true)}>
-                    <RiFolderTransferLine aria-hidden />
-                    {t('pod.content.move')}
-                  </DropdownMenuItem>
-                )}
-                {toolsAvailable && (
-                  <DocumentMenuItems
-                    detail={detail}
-                    draft={model!}
-                    title={titleDraft.value}
-                    model={documentTools!}
-                    mobile={isMobile}
-                    openInsights={() => setInsights(true)}
-                    openComments={() => openComments()}
-                    openHistory={edit ? () => setHistory(true) : undefined}
-                  />
-                )}
-                {canTrash && (
-                  <>
-                    <DropdownMenuSeparator />
+          {/* The page's actions sit at the end of the shell's top bar; the sheet header keeps the page's path. */}
+          <PodTopBarActions>
+            <div className="pod-page-actions flex shrink-0 items-center gap-1">
+              {page.type === 'doc' && <div ref={setPresenceContainer} />}
+              {!accessDenied && !trashed && page.type !== 'doc' && page.type !== 'file' && (
+                <PageChildrenMenu
+                  pageID={page.id}
+                  types={page.type === 'knowledge' ? ['knowledge', 'file'] : undefined}
+                  canCreate={canCreateChild({ ...page, actions })}
+                  scope={page.private_owner_uid ? 'private' : 'space'}
+                  privateOwner={page.private_owner_uid ?? undefined}
+                />
+              )}
+              {!accessDenied && !trashed && assistantAvailable && (
+                <Toggle
+                  size="sm"
+                  aria-label={t('pod.page_chat.title')}
+                  title={t('pod.page_chat.title')}
+                  pressed={!!chat}
+                  aria-expanded={!!chat}
+                  ref={chatTrigger}
+                  onPressedChange={(_, details) => selectChat(chat ? null : 'latest', true, details.event)}>
+                  <RiChat3Line aria-hidden />
+                  <span className="@max-[640px]:sr-only">{t('pod.page_chat.title')}</span>
+                </Toggle>
+              )}
+              {!accessDenied && !trashed && commentsAvailable && (
+                <Toggle
+                  size="sm"
+                  aria-label={t('pod.document.comments')}
+                  title={t('pod.document.comments')}
+                  pressed={comments}
+                  aria-expanded={comments}
+                  ref={commentsTrigger}
+                  onPressedChange={(_, details) =>
+                    comments ? closeComments(details.event) : openComments(focusedComment, [], details.event)
+                  }>
+                  <RiChatQuoteLine aria-hidden />
+                  <span className="@max-[640px]:sr-only">{t('pod.document.comments')}</span>
+                  {!!commentSummary.data?.unread_count && (
+                    <span role="status" className="tabular-nums" aria-label={t('pod.document.unread_comments')}>
+                      {commentSummary.data.unread_count}
+                    </span>
+                  )}
+                </Toggle>
+              )}
+              {!accessDenied && !trashed && <PageLearningButton detail={contentDetail} />}
+              {!accessDenied && !trashed && page.type === 'applet' && (
+                <Suspense fallback={null}>
+                  <AppletSettingsControl key={page.id} detail={contentDetail} />
+                </Suspense>
+              )}
+              {commentsAvailable && isMobile && !comments && focusedComment && (
+                <Button variant="ghost" size="xs" onClick={() => openComments(focusedComment)}>
+                  {t('pod.document.return_to_comment')}
+                </Button>
+              )}
+              {!accessDenied && !trashed ? (
+                <ErrorBoundary variant="inline" resetKeys={[page.id]}>
+                  <PageSharingButton pageID={page.id} page={page} />
+                </ErrorBoundary>
+              ) : (
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t('pod.content.copy_link')}
+                  title={t('pod.content.copy_link')}
+                  onClick={() => void copyLink()}>
+                  <RiLink aria-hidden className="size-4" />
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t('common.more_actions')}
+                      title={t('common.more_actions')}
+                      ref={actionsTrigger}
+                    />
+                  }>
+                  <RiMoreFill aria-hidden className="size-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-60" finalFocus={menuFinalFocus}>
+                  {!accessDenied && !trashed && page.type === 'applet' && document.fullscreenEnabled && (
                     <DropdownMenuItem
-                      variant="destructive"
-                      disabled={remove.isPending}
-                      onClick={() => remove.mutate(page)}>
-                      <RiDeleteBinLine aria-hidden />
-                      {t('pod.content.move_to_trash')}
+                      onClick={() =>
+                        void pageColumn.current?.querySelector('[data-applet-stage]')?.requestFullscreen()
+                      }>
+                      <RiFullscreenLine aria-hidden />
+                      {t('pod.content.applet_full_screen')}
                     </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+                  )}
+                  <DropdownMenuItem onClick={() => void copyLink()}>
+                    <RiFileCopyLine aria-hidden />
+                    {t('pod.content.copy_link')}
+                  </DropdownMenuItem>
+                  {page.type === 'applet' && canRename && !trashed && (
+                    <DropdownMenuItem
+                      onClick={() => {
+                        keepFocusInTitle.current = true
+                        setRenamingTitle(true)
+                      }}>
+                      <RiPencilLine aria-hidden />
+                      {t('pod.sidebar.rename')}
+                    </DropdownMenuItem>
+                  )}
+                  {canMove && (
+                    <DropdownMenuItem disabled={remove.isPending} onClick={() => setMoving(true)}>
+                      <RiFolderTransferLine aria-hidden />
+                      {t('pod.content.move')}
+                    </DropdownMenuItem>
+                  )}
+                  {toolsAvailable && (
+                    <DocumentMenuItems
+                      detail={detail}
+                      draft={model!}
+                      title={titleDraft.value}
+                      model={documentTools!}
+                      mobile={isMobile}
+                      openInsights={() => setInsights(true)}
+                      openComments={() => openComments()}
+                      openHistory={edit ? () => setHistory(true) : undefined}
+                    />
+                  )}
+                  {canTrash && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(page)}>
+                        <RiDeleteBinLine aria-hidden />
+                        {t('pod.content.move_to_trash')}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </PodTopBarActions>
         </header>
         {insights && toolsAvailable && (
           <DocumentInsights detail={detail} close={() => setInsights(false)} returnFocus={actionsTrigger} />

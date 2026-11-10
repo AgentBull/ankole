@@ -28,7 +28,7 @@
   color: var(--fg-secondary);
 }
 :where(.ankole-editor-overlay).resource-floating-toolbar .resource-toolbar-link:hover {
-  background: var(--menu-hover);
+  background: var(--layer-hover);
   color: var(--foreground);
 }
 :where(.ankole-editor-overlay).resource-floating-toolbar .resource-toolbar-link:focus-visible {

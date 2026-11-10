@@ -4,7 +4,10 @@ import { pageIDFromURL, pageRoute } from './routes'
 
 async function createDocument(page: Page, title?: string) {
   await page.goto(state.base_url + pageRoute(state.report_id))
-  await page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true }).click()
+  await page
+    .locator('section[aria-label="空间"] > .pod-nav-section-heading')
+    .getByRole('button', { name: '新建页面', exact: true })
+    .click()
   const created = page.waitForResponse(
     response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
   )
@@ -162,7 +165,7 @@ test('inline @ mentions replace block page references, render hover/click cards,
       .toContain(`<mention page="${state.report_id}" />`)
 
     // Portable copy resolves page mentions to links/titles and principal mentions to @DisplayName without raw <mention> tags.
-    const moreActions = owner.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true })
+    const moreActions = owner.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true })
     await moreActions.click()
     await owner.getByRole('menuitem', { name: '复制', exact: true }).hover()
     await owner.getByRole('menuitem', { name: '复制为 Markdown', exact: true }).click()

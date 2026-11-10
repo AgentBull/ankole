@@ -321,7 +321,7 @@ test('leaves keep child creation without an expansion request and become branche
     const row = space(page).locator('.pod-tree-row', { has: page.getByRole('link', { name: title, exact: true }) })
     await expect(row).toBeVisible()
     await expect(row.locator('.pod-tree-toggle')).toHaveCount(0)
-    await expect(row.locator('.pod-tree-toggle-space')).toHaveCount(1)
+    await expect(row.locator('.pod-tree-icon')).toHaveCount(1)
     expect(childRequests).toEqual([])
 
     await row.hover()

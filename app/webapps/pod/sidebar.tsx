@@ -4,13 +4,11 @@ import { useChatDrafts } from './chat-drafts'
 import { authenticationRef, podID, podLocation } from '../common/browser-context'
 import {
   Badge,
-  Button,
   buttonVariants,
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarTrigger,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -20,7 +18,7 @@ import {
   TabsList,
   TabsTrigger
 } from '@ankole/uikit'
-import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSearchLine, RiSettings3Line } from '@remixicon/react'
+import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSettings3Line } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -38,8 +36,6 @@ import { ErrorBoundary } from '../common/error-boundary'
 import { ChatSidebar } from './chat/chat-sidebar'
 import { AccountMenu } from './account-menu'
 import { ContentNavigation } from './page-navigation'
-import { CreatePageButton } from './page-create-menu'
-import { usePodCommandMenu } from './command-menu'
 import type { PodSidebarNavigationState } from './state/navigation'
 import { POD_SIDEBAR_MAX_WIDTH, POD_SIDEBAR_MIN_WIDTH, SidebarLayoutModel } from './state/sidebar-layout'
 
@@ -92,7 +88,6 @@ export function PodSidebar({
     select: location => routeSidebarTab(location.pathname, location.state as PodSidebarNavigationState | null)
   })
   const { isMobile, state, setOpenMobile } = useSidebar()
-  const openCommand = usePodCommandMenu()
   const [tab, setTab] = useState<'home' | 'chat'>(() => routeTab ?? 'chat')
   // New Chat sits above both tabs, so it opens the composer without switching away from the open tab.
   useEffect(() => {
@@ -112,7 +107,6 @@ export function PodSidebar({
   const trashPath = podLocation('/content/trash').pathname
   const trashActive = pathname === trashPath
   const mac = isApplePlatform()
-  const shortcut = mac ? '⌘K' : 'Ctrl+K'
   const preview = previewOpen && state === 'collapsed' && !isMobile
   const closeMobile = () => {
     if (isMobile) setOpenMobile(false)
@@ -175,7 +169,10 @@ export function PodSidebar({
                         />
                       }>
                       <Icon aria-hidden />
-                      <span className={tab === value ? undefined : 'sr-only'}>{label}</span>
+                      {/* The label opens and closes with the selection; the tab's accessible name comes from aria-label. */}
+                      <span className="pod-sidebar-tab-label" data-open={tab === value ? '' : undefined} aria-hidden>
+                        <span>{label}</span>
+                      </span>
                       {/* Both tabs announce work that waits for the viewer with the same badge. */}
                       {(value === 'chat' ? chatAttention : homeAttention) > 0 && (
                         <Badge variant="info" size="sm" aria-hidden>
@@ -187,29 +184,6 @@ export function PodSidebar({
                   </Tooltip>
                 ))}
               </TabsList>
-              <div className="pod-sidebar-top-actions">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t('pod.command.open')}
-                        aria-keyshortcuts="Meta+K Control+K"
-                        onClick={() => {
-                          openCommand()
-                          closeMobile()
-                        }}
-                      />
-                    }>
-                    <RiSearchLine aria-hidden />
-                  </TooltipTrigger>
-                  <TooltipContent>{`${t('pod.command.open')} (${shortcut})`}</TooltipContent>
-                </Tooltip>
-                {tab === 'home' && <CreatePageButton compact />}
-                <SidebarTrigger label={t('pod.sidebar.collapse')} />
-              </div>
             </div>
             {agents.data?.personalAssistantAvailable && (
               <Link
@@ -257,7 +231,6 @@ export function PodSidebar({
                     aria-current={trashActive ? 'page' : undefined}
                     onClick={closeMobile}
                     className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'pod-footer-action' })}
-                    data-active={trashActive ? '' : undefined}
                     aria-label={t('pod.content.trash')}
                   />
                 }>
@@ -274,7 +247,6 @@ export function PodSidebar({
                       aria-current={settingsActive ? 'page' : undefined}
                       onClick={closeMobile}
                       className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'pod-footer-action' })}
-                      data-active={settingsActive ? '' : undefined}
                       aria-label={t('pod.settings.title')}
                     />
                   }>

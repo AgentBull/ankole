@@ -399,14 +399,14 @@ test('mobile opens the same command menu from a closed or open sidebar', async (
     await expect(menu.locator('[cmdk-input]')).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(menu).toBeHidden()
-    await page.getByRole('button', { name: '展开侧栏', exact: true }).click()
-    const sidebar = page.getByRole('dialog', { name: '工作台导航', exact: true })
-    await sidebar.getByRole('button', { name: '搜索或跳转', exact: true }).click()
+    // On a phone the top bar keeps search one tap away without opening the sidebar.
+    const search = page.getByRole('button', { name: '搜索或跳转', exact: true })
+    await expect(search).toBeInViewport({ ratio: 1 })
+    await search.click()
     await expect(menu).toBeVisible()
-    await expect(sidebar).toBeHidden()
     await page.keyboard.press('Escape')
     await expect(menu).toBeHidden()
-    await expect(page.getByRole('button', { name: '展开侧栏', exact: true })).toBeFocused()
+    await expect(search).toBeFocused()
   } finally {
     await context.close()
   }

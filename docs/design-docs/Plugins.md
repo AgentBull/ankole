@@ -354,7 +354,11 @@ declares public SPA entries, while in SaaS builds
 `internals/webapps/entries.json` adds an `entries` map for private SPAs and an
 optional `overrides` map for wrappers around public entries. Every additional
 entry must use a unique name, every override must target an existing public
-entry, and both maps resolve source paths inside `internals/webapps`. Phoenix
+entry, and both maps resolve source paths inside `internals/webapps`. An
+optional `assets` map replaces shared asset files, such as the UIKit fonts:
+each key names a shared file, and Vite resolves every import or CSS `url()`
+that ends in that file name to the mapped file inside `internals/webapps`, so
+the build emits the asset under the SaaS file name. Phoenix
 and Vite consume the same resolved entry names, and every SPA loads the build's
 merged locale catalog (allowing private extensions to define their own TOML key
 namespaces).

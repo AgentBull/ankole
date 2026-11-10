@@ -11,7 +11,7 @@
 }
 
 :where(.ankole-editor) .editor-content .math-block:is(:hover, :focus-visible) {
-  background: var(--menu-hover);
+  background: var(--layer-hover);
 }
 
 :where(.ankole-editor) .editor-content .math-block:focus-visible {

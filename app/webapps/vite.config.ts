@@ -5,6 +5,7 @@ import {
   artifactRoot,
   assetsDirectory,
   edition,
+  editionAssetAliases,
   internalsRoot,
   localeDirectory,
   prepareEdition,
@@ -376,7 +377,7 @@ export default defineConfig(({ command }): UserConfig => ({
     ]
   },
   publicDir: false,
-  resolve: { alias: { '@ankole/locales': localeDirectory } },
+  resolve: { alias: [{ find: '@ankole/locales', replacement: localeDirectory }, ...editionAssetAliases()] },
   root: dirname,
   server: {
     fs: { allow: edition === 'saas' ? [repositoryRoot, artifactRoot, internalsRoot] : [repositoryRoot, artifactRoot] },

@@ -243,7 +243,7 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
       </TableCell>
       <TableCell>
         <span className="inline-flex items-center gap-1.5 text-sm">
-          <span className={cn('size-1.5 rounded-full', active ? 'bg-success' : 'bg-gray-40')} aria-hidden />
+          <span className={cn('size-1.5 rounded-full', active ? 'bg-success' : 'bg-gray-60')} aria-hidden />
           <span className={active ? undefined : 'text-muted-foreground'}>
             {active ? t('console.conversations.status_active') : t('console.conversations.status_ended')}
           </span>

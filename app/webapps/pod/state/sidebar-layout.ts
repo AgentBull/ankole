@@ -1,6 +1,6 @@
 import { createModel, signal } from '@preact/signals-react'
 
-export const POD_SIDEBAR_MIN_WIDTH = 248
+export const POD_SIDEBAR_MIN_WIDTH = 236
 export const POD_SIDEBAR_MAX_WIDTH = 480
 const POD_SIDEBAR_WIDTH_STORAGE_KEY = 'ankole.pod.sidebar-width'
 

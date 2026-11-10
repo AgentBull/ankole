@@ -1,7 +1,35 @@
 @import '@ankole/uikit/emoji.css';
 .pod-shell {
+  --pod-top-bar-height: 56px;
   color: var(--foreground);
-  background: var(--ground);
+  background: var(--background);
+}
+
+/* The top bar spans the window, so the sidebar column, its resize handle, and its hover rail start below it. */
+.pod-shell-body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.pod-shell .pod-sidebar {
+  top: var(--pod-top-bar-height);
+  height: auto;
+}
+
+/* The page fills the area right of the sidebar and below the top bar, edge to edge, with small rounded top corners. A
+   drawer beside it, such as comments or the Page assistant, is a flat column that the page's edge divides from it. */
+@media (min-width: 768px) {
+  .pod-shell-body :is([data-slot='sidebar-inset'], .pod-page-main) {
+    border-radius: var(--radius-control) var(--radius-control) 0 0;
+  }
+
+  .pod-shell-body :is(.pod-comments, .pod-page-chat) {
+    border-radius: 0;
+    box-shadow: none;
+    border-left: 1px solid var(--border);
+  }
 }
 
 body:has(.pod-shell) [data-slot='dialog-content']:not(.pod-applet-settings-dialog) {
@@ -91,6 +119,12 @@ body:has(.pod-shell) [data-slot='dialog-footer'] {
   }
 }
 
+/* The docked sidebar is a white column that ends in the overlay divider; the hover preview stays ceramic. */
+.pod-sidebar:not(.pod-sidebar-preview) {
+  background: var(--sidebar);
+  border-right: 1px solid var(--sidebar-border);
+}
+
 .pod-sidebar [data-sidebar='content'] {
   scrollbar-width: thin;
 }
@@ -98,7 +132,7 @@ body:has(.pod-shell) [data-slot='dialog-footer'] {
 .pod-sidebar-resize-handle {
   position: fixed;
   z-index: 30;
-  top: 0;
+  top: var(--pod-top-bar-height);
   bottom: 0;
   left: calc(var(--sidebar-width) - 6px);
   width: 12px;
@@ -137,7 +171,7 @@ body:has(.pod-sidebar-resize-handle[data-resizing]) {
 .pod-sidebar-hover-rail {
   position: fixed;
   z-index: 30;
-  top: 0;
+  top: var(--pod-top-bar-height);
   bottom: 0;
   left: 0;
   width: 12px;
@@ -186,22 +220,50 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   gap: 4px;
 }
 
-.pod-sidebar-top-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 1px;
-}
-
-/* The open tab shows its label; every other tab is an icon with a tooltip, so the tabs stay short. */
+/* The open tab shows its label; every other tab is an icon with a tooltip, so the tabs stay short. Switching tabs
+   is one motion: the closing label's column and the opening label's column change on the selected fill's own
+   duration and curve while the fill travels, and the text cross-fades on top of that. The old text blurs away in
+   the first part of the motion and the new text comes into focus after a short delay; the two fades overlap
+   briefly so no frame shows a blank tab, and the texts sit in different tabs, so they never cover each other.
+   The padding stays fixed, so the icons hold still inside their tabs. */
 .pod-sidebar-tabs > [role='tab'] {
   height: 28px;
-  padding-inline: 8px;
+  gap: 0;
+  padding-inline: 6px;
 }
 
 .pod-sidebar-tabs > [role='tab']:not([data-active]) {
   min-width: 28px;
-  padding-inline: 6px;
+}
+
+.pod-sidebar-tab-label {
+  display: grid;
+  grid-template-columns: minmax(0, 0fr);
+  transition: grid-template-columns var(--duration-segment) var(--ease-segment);
+}
+
+.pod-sidebar-tab-label > span {
+  min-width: 0;
+  overflow: hidden;
+  padding-inline: 6px 2px;
+  white-space: nowrap;
+  opacity: 0;
+  filter: blur(2px);
+  transition:
+    opacity 160ms var(--ease-out),
+    filter 160ms var(--ease-out);
+}
+
+.pod-sidebar-tab-label[data-open] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pod-sidebar-tab-label[data-open] > span {
+  opacity: 1;
+  filter: none;
+  transition:
+    opacity 240ms var(--ease-out) 60ms,
+    filter 240ms var(--ease-out) 60ms;
 }
 
 .pod-navigation {
@@ -310,9 +372,44 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   background: var(--accent);
 }
 
-.pod-tree-toggle svg {
+.pod-tree-toggle > svg:not(.pod-page-icon) {
   width: 16px;
   height: 16px;
+}
+
+/* Every page row starts with its icon in the same 20px slot, so icons and titles line up whether or not a page has
+   children. A parent page's icon is its expand button: the icon turns into the chevron while the row is hovered or
+   focused, and stays a chevron on a touch screen, which has no hover. */
+.pod-tree-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+}
+
+.pod-tree-toggle:has(> .pod-page-icon) > .pod-tree-chevron,
+.pod-tree-row:is(:hover, :focus-within) > .pod-tree-toggle > .pod-page-icon {
+  display: none;
+}
+
+.pod-tree-row:is(:hover, :focus-within) > .pod-tree-toggle > .pod-tree-chevron {
+  display: block;
+}
+
+@media (hover: none) {
+  .pod-tree-toggle:has(> .pod-page-icon) > .pod-tree-chevron {
+    display: block;
+  }
+
+  .pod-tree-toggle > .pod-page-icon {
+    display: none;
+  }
+}
+
+/* The toggle sits outside the link, so the link adds the link's own icon gap before a parent page's title. */
+.pod-tree-toggle + .pod-tree-link {
+  padding-left: 5px;
 }
 
 .pod-tree-link {
@@ -473,11 +570,6 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   align-items: center;
   gap: 4px;
   padding: 4px 6px 2px;
-}
-
-.pod-footer-action[data-active] {
-  background: var(--layer-current);
-  color: var(--foreground);
 }
 
 .pod-account-trigger {
@@ -687,7 +779,6 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
     min-width: 36px;
   }
 
-  .pod-sidebar-top-actions > *,
   .pod-sidebar-footer .pod-footer-action {
     width: 36px;
     height: 36px;
@@ -702,7 +793,8 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   }
 
   .pod-tree-toggle,
-  .pod-tree-toggle-space {
+  .pod-tree-toggle-space,
+  .pod-tree-icon {
     width: 32px;
     height: 32px;
   }

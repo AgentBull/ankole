@@ -1,17 +1,16 @@
-import { SidebarTrigger, useSidebar } from '@ankole/uikit'
 import { Outlet, useParams } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { MetaLink } from './meta-navigation'
+import { PodSidebarToggle } from './top-bar'
 
 export function MetaLayout() {
   const { t } = useTranslation()
-  const { state } = useSidebar()
   const { pageID } = useParams({ strict: false })
   if (pageID) return <Outlet />
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex shrink-0 flex-wrap items-center gap-4 border-b border-border px-5 py-3">
-        <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
+        <PodSidebarToggle />
         <span className="shrink-0 font-semibold">Meta Ankole</span>
         <nav
           aria-label={t('pod.meta.modules')}

@@ -5,11 +5,14 @@ import { parseMarkdown } from '@ankole/block-editor/document'
 import { state, request } from './fixtures'
 import { pageRoute } from './routes'
 
-const actions = (page: Page) => page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true })
+const actions = (page: Page) => page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true })
 
 async function createDocument(page: Page) {
   await page.goto(state.base_url + pageRoute(state.report_id))
-  await page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true }).click()
+  await page
+    .locator('section[aria-label="空间"] > .pod-nav-section-heading')
+    .getByRole('button', { name: '新建页面', exact: true })
+    .click()
   const created = page.waitForResponse(
     response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
   )

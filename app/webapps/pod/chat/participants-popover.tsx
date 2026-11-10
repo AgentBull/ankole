@@ -14,7 +14,8 @@ export function ParticipantsPopover({ room }: { room: ConversationDetail['conver
           <Button
             size="sm"
             variant="ghost"
-            className="pod-chat-avatar-cluster gap-0 px-1"
+            // The avatars are the control; the cluster shows no hover or open fill behind them.
+            className="pod-chat-avatar-cluster gap-0 px-1 hover:bg-transparent aria-expanded:bg-transparent"
             aria-label={t('pod.chat_room.participants_list', { names })}
             title={names}
           />

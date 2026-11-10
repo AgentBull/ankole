@@ -229,7 +229,7 @@ html.js-reveal [data-reveal='wipe']:not(.is-in) {
   --tw-prose-captions: var(--muted-foreground);
   --tw-prose-kbd: var(--foreground);
   --tw-prose-code: var(--foreground);
-  --tw-prose-pre-code: var(--color-gray-20);
+  --tw-prose-pre-code: var(--color-gray-40);
   --tw-prose-pre-bg: var(--color-gray-100);
   --tw-prose-th-borders: var(--border);
   --tw-prose-td-borders: var(--border);
@@ -247,8 +247,8 @@ html.js-reveal [data-reveal='wipe']:not(.is-in) {
   --tw-prose-invert-captions: var(--muted-foreground);
   --tw-prose-invert-kbd: var(--foreground);
   --tw-prose-invert-code: var(--foreground);
-  --tw-prose-invert-pre-code: var(--color-gray-20);
-  --tw-prose-invert-pre-bg: var(--color-gray-90);
+  --tw-prose-invert-pre-code: var(--color-gray-40);
+  --tw-prose-invert-pre-bg: var(--color-gray-100);
   --tw-prose-invert-th-borders: var(--border);
   --tw-prose-invert-td-borders: var(--border);
 }

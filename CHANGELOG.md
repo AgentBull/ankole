@@ -1,5 +1,93 @@
 # Changelog
 
+## Version 2.0.0-alpha.99 (2026-11-10)
+
+- Open a Pod chat file in its preview when you select its card, in Agent
+  replies, your own sent messages, the composer, queued messages, and the
+  conversation summary. The preview carries **Download original** and **Open in
+  new tab**, and files that Pod cannot render open it with their type, size, and
+  those actions instead of downloading straight away. **Save to Pod** stays a
+  separate button on reply cards.
+- Preview Pod chat files in the formats that the Pod file page renders. CSV and
+  TSV files open as the file page's UTF-8 table, so Chinese text in a CSV saved
+  without a byte-order mark no longer turns into garbled characters; Markdown
+  files open rendered, with tables, formulas, and Mermaid diagrams; `.xlsm` and
+  `.xlsb` workbooks open in the read-only workbook preview; and SVG images open
+  in the image viewer. A chat file that arrives without a media type, as some
+  uploads and channel files do, previews by its extension, and Ankole serves
+  such files with the media type that their name implies, so a PDF or image
+  without a recorded type opens inline instead of downloading.
+- Restyle Pod, Console, the website, and system emails to the Ankole colour
+  schema in light and dark themes. Primary actions, keyboard focus, hovered and
+  selected rows, and text selection use the brand colour `#ff4669`; the
+  neutral `--color-gray-*` ramp becomes pure grey from `#fbfbfb` to `#1c1c1e`;
+  the dark theme sits on a black ground with a `#0b0b0b` page; status marks,
+  backgrounds, and badges take the schema's state colours; and a disabled
+  primary button keeps a faint brand fill. Every selected item (the current
+  sidebar row, the chosen tab, a selected table row, a pressed toggle) shares
+  one selected fill with a hairline edge, and the Pod and Console sidebars sit
+  on white beside a faint divider. Applets that read `--color-gray-*` steps
+  directly see lighter greys at the same step numbers.
+- Let a SaaS build replace shared webapp assets such as the UIKit fonts through
+  an `assets` map in `internals/webapps/entries.json`, so the build emits them
+  under the SaaS file names.
+- Slide the selected fill between object tabs (the Pod sidebar's **Home** and
+  **Chat** tabs, Pod settings, and Applet settings) instead of switching it at
+  once; in the sidebar the old tab's label closes and blurs away while the new
+  label opens.
+- Remove the create button from the top of the Pod sidebar's Home tab. Create
+  Pages from the **Space** and **Private** section headings, a Page row, or a
+  content list.
+- Move the Console's setup readiness, theme toggle, and sign-out buttons to the
+  right end of the full-width top bar, in both the open-source and SaaS
+  Consoles. The navigation toggle moves from the top bar to the start of the
+  page sheet's header, left of the current section's name, as on a Pod sheet.
+  In both the Console and Pod, the top bar and the shell around the page sheets
+  sit on the page background (`--background`) instead of the grey ground.
+- Lay out the Pod and Console shells on the Ankole layout grid: a 56 px top bar,
+  a 236 px sidebar (Pod's resizable sidebar starts there), and a page that fills
+  the rest of the window edge to edge with small rounded top corners. A Pod
+  document's column is 832 px wide with at least 68 px on either side and starts
+  68 px below the page's top edge, and the comments and Page assistant drawers
+  are 296 px wide and sit flush against the page and the window's edge.
+- Give Pod the same full-width top bar above the sidebar and the page sheets.
+  **Search or jump** moves from the sidebar into its centre, and the open
+  route's actions sit at its right: a Page's actions, from its save state and
+  presence through **Share** and the more-actions menu, and a Conversation's
+  participants, invite, and summary buttons. **Copy link** leaves the
+  Conversation's more-actions menu and becomes a share icon among those top bar
+  buttons. The sidebar toggle moves to the left of each sheet's title, while the
+  Page's sheet header keeps the path and the favorite star and a Conversation's
+  header keeps its title, with no hover wash, followed by the more-actions
+  menu. Find in the conversation moves into that menu, and every item in it
+  carries an icon. The Pod's mark and name start the Pod top bar, and the search entry in its
+  centre is a quiet, borderless field up to 240 px wide that becomes an icon
+  button on a narrow top bar. A Conversation's
+  title and its rename field take the width of the title text, and a long
+  title truncates with its full text in a tooltip.
+- Keep a chat message's hover actions from covering the next message when the
+  same author posts again. Consecutive messages from one author now sit 28 px
+  apart, which leaves room for the copy, quote, and select bar and for the next
+  message's time.
+- Line up every Page row in the Pod sidebar's Space and Private trees on its
+  icon. A Page with children shows its icon in the same slot as its siblings
+  and turns it into the expand chevron on hover or focus, instead of placing a
+  chevron to the left of the icon.
+- Stop icon buttons from looking selected after a click. **Trash** and **Pod
+  settings** in the sidebar footer keep their resting look while their page is
+  open, the conversation summary button keeps its resting look while the
+  summary is open, and the participant avatars in the top bar show no hover
+  fill.
+- Show a Base kanban board's **Ungrouped** column only when some records have
+  no value in the grouping field, instead of always showing an empty one.
+- Give each Pod chat room one right sidebar for its summary, a linked
+  execution, or a file. The summary is a 296 px drawer; on desktop an execution
+  or a file slides in from the right and takes everything beside a 300 px chat
+  column, which narrows over the same motion, and selecting a file card now
+  previews the file in that sidebar instead of a dialog. The execution inspector no longer has its own resize
+  handle, because the sidebar's width follows the room. Phones and the Page
+  assistant panel keep the slide-over sheet and the preview dialog.
+
 ## Version 2.0.0-alpha.98 (2026-11-09)
 
 - Switch external links in Pod documents across four views—inline `Link`,

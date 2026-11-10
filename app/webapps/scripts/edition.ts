@@ -44,6 +44,22 @@ export function webappEntries(): Record<string, string> {
   return entries
 }
 
+/**
+ * The SaaS manifest can replace a shared asset, such as a UIKit font, with its own file. Each `assets` key names the
+ * shared file, and every import or CSS `url()` that ends in that file name resolves to the SaaS file instead.
+ */
+export function editionAssetAliases(): { find: RegExp; replacement: string }[] {
+  if (edition !== 'saas') return []
+  const privateRoot = path.join(internalsRoot, 'webapps')
+  const manifest = JSON.parse(readFileSync(path.join(privateRoot, 'entries.json'), 'utf8'))
+  return Object.entries(readEntries(privateRoot, manifest.assets ?? {}, /^[A-Za-z0-9][A-Za-z0-9._-]*$/)).map(
+    ([name, file]) => ({
+      find: new RegExp(`^(?:.*/)?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
+      replacement: file
+    })
+  )
+}
+
 export function prepareEdition(): void {
   if (edition === 'saas') {
     const sharedDependencies = path.join(repositoryRoot, 'app/webapps/node_modules')
@@ -72,11 +88,11 @@ function publicEntries(): Record<string, string> {
   return readEntries(root, JSON.parse(readFileSync(path.join(root, 'entries.json'), 'utf8')))
 }
 
-function readEntries(root: string, entries: unknown): Record<string, string> {
+function readEntries(root: string, entries: unknown, names = /^[a-z][a-z0-9-]*$/): Record<string, string> {
   if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new Error('Invalid webapp entries')
   return Object.fromEntries(
     Object.entries(entries).map(([name, relative]) => {
-      if (!/^[a-z][a-z0-9-]*$/.test(name) || typeof relative !== 'string') throw new Error('Invalid webapp entry')
+      if (!names.test(name) || typeof relative !== 'string') throw new Error('Invalid webapp entry')
       const file = path.resolve(root, relative)
       if (!file.startsWith(root + path.sep) || !existsSync(file)) throw new Error(`Missing webapp entry: ${file}`)
       return [name, file]

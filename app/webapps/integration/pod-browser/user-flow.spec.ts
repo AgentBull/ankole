@@ -6,7 +6,7 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 const content = (page: Page) => page.locator('.editor-content')
 
 async function pageAction(page: Page, name: string) {
-  await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+  await page.locator('.pod-page-actions').getByRole('button', { name: '更多操作', exact: true }).click()
   await page.getByRole('menuitem', { name, exact: true }).click()
 }
 

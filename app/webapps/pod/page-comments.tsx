@@ -333,7 +333,7 @@ export function PageComments({
   return (
     <PodPanelSurface
       data-sheet
-      className="pod-comments flex min-h-0 w-[360px] shrink-0 flex-col paper-sheet"
+      className="pod-comments flex min-h-0 w-[296px] shrink-0 flex-col paper-sheet"
       aria-label={t('pod.document.comments')}
       onKeyDown={event => {
         if (event.key === 'Escape') {

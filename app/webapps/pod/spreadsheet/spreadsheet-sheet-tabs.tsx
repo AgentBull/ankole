@@ -40,7 +40,7 @@ const TAB_COLORS = [
   '--color-blue-60',
   '--color-purple-60',
   '--color-magenta-60',
-  '--color-gray-60'
+  '--color-gray-80'
 ]
 
 /** The tabs of the visible sheets in workbook order, with sheet actions for editors. */

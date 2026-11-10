@@ -34,14 +34,11 @@ test('Recent retries a failed capabilities request independently of navigation',
   }
 })
 
-for (const entry of [
-  { scope: 'trash', selector: '.pod-sidebar-top', label: 'default sidebar' },
-  ...['recent', 'favorites', 'shared', 'search'].map(scope => ({
-    scope,
-    selector: '.pod-content-list',
-    label: scope
-  }))
-]) {
+for (const entry of ['recent', 'favorites', 'shared', 'search'].map(scope => ({
+  scope,
+  selector: '.pod-content-list',
+  label: scope
+}))) {
   test(`${entry.label} can create a document from a cold cache when navigation fails`, async ({ browser }) => {
     const context = await browser.newContext({ baseURL: state.base_url })
     await context.addCookies(state.owner.cookies)
@@ -77,22 +74,15 @@ for (const entry of [
       })
       await expect.poll(() => navigationAttempts).toBeGreaterThan(0)
 
-      if (entry.scope !== 'trash') {
-        await page.getByRole('tab', { name: '对话', exact: true }).click()
-        await expect(
-          page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true })
-        ).toHaveCount(0)
-        // Joining invalidates content queries. Only the list can refresh root capabilities
-        // here: the default create button is unmounted and navigation has failed.
-        const refreshed = page.waitForResponse(response => {
-          const url = new URL(response.url())
-          return url.pathname === '/api/v2/pod/pages/children' && url.searchParams.get('scope') === 'space'
-        })
-        realtime.resolve()
-        expect((await refreshed).ok()).toBe(true)
-      } else {
-        realtime.resolve()
-      }
+      await page.getByRole('tab', { name: '对话', exact: true }).click()
+      // Joining invalidates content queries. Only the list can refresh root capabilities
+      // here: the Home tab's trees are hidden and navigation has failed.
+      const refreshed = page.waitForResponse(response => {
+        const url = new URL(response.url())
+        return url.pathname === '/api/v2/pod/pages/children' && url.searchParams.get('scope') === 'space'
+      })
+      realtime.resolve()
+      expect((await refreshed).ok()).toBe(true)
 
       const create = page.locator(entry.selector).getByRole('button', { name: '新建页面', exact: true })
       await expect(create).toBeEnabled()

@@ -57,7 +57,7 @@ export function PageChat({
   const chats = useQuery({ ...pageConversationsQuery(pageID), enabled: !!selection })
   const accessDenied = isRealtimeAccessDenied(chats.error)
   const conversationID = selected === 'latest' || selected === 'new' ? undefined : (selected ?? undefined)
-  const [width, setWidth] = useState(400)
+  const [width, setWidth] = useState(296)
   const resizing = useRef<{ x: number; width: number } | undefined>(undefined)
   const assistantChats = chats.data?.conversations.filter(chat => chat.conversationKind === 'assistant_task') ?? []
   useEffect(() => {
@@ -211,7 +211,7 @@ export function PageChat({
             tabIndex={0}
             aria-label={t('pod.chat_room.resize_chat')}
             aria-orientation="vertical"
-            aria-valuemin={360}
+            aria-valuemin={296}
             aria-valuemax={480}
             aria-valuenow={width}
             className="pod-page-chat-resize"
@@ -222,7 +222,7 @@ export function PageChat({
             }}
             onPointerMove={event => {
               if (resizing.current) {
-                setWidth(Math.max(360, Math.min(480, resizing.current.width + resizing.current.x - event.clientX)))
+                setWidth(Math.max(296, Math.min(480, resizing.current.width + resizing.current.x - event.clientX)))
               }
             }}
             onPointerUp={() => {
@@ -234,7 +234,7 @@ export function PageChat({
             onKeyDown={event => {
               if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
                 event.preventDefault()
-                setWidth(current => Math.max(360, Math.min(480, current + (event.key === 'ArrowLeft' ? 10 : -10))))
+                setWidth(current => Math.max(296, Math.min(480, current + (event.key === 'ArrowLeft' ? 10 : -10))))
               }
             }}
           />

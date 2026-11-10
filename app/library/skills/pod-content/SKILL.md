@@ -250,9 +250,11 @@ the sheet's edge:
   `src/style.css` with Ankole's semantic tokens:
   - Surfaces: `var(--background)` (page paper), `var(--layer-01)` (raised
     band, table header, or code block), `var(--layer-02)`, `var(--layer-03)` /
-    `var(--muted)`, `var(--layer-hover)` / `var(--accent)`,
-    `var(--layer-current)` (selected nav/tab wash), `var(--field)` (input slot),
-    `var(--control)` (outline button), `var(--selection)`.
+    `var(--muted)`, `var(--layer-hover)` / `var(--accent)`, `var(--layer-pressed)`,
+    `var(--layer-current)` with a `0.2px` inset `var(--layer-current-edge)`
+    (selected row, nav item, tab, or pressed toggle), `var(--field)` (input
+    slot), `var(--control)` (outline button), `var(--selection)` (text
+    selection and find highlights).
   - Ink & typography: `var(--foreground)`, `var(--fg-secondary)` /
     `var(--muted-foreground)`, `var(--fg-tertiary)`, `var(--fg-placeholder)`,
     `var(--fg-disabled)`, `var(--font-family-sans)`, `var(--font-family-mono)`.
@@ -260,10 +262,10 @@ the sheet's edge:
     and IDs. Keep section headings light and restrained (`14px` `600` inline
     headings or `16px` `400` section headings).
   - Borders & radius: `1px solid var(--border)` (`var(--border-strong)` for
-    stronger dividers) and `var(--radius-control)` (`4px`). Keep controls at
+    stronger edges, `var(--divider)` for separators) and `var(--radius-control)` (`4px`). Keep controls at
     `4px` and cards/panels on paper square or `4px` without heavy drop shadows;
     `8px` ceramic glass belongs exclusively to UIKit overlays.
-  - Brand & status roles: `var(--primary)` (`#e10059`) +
+  - Brand & status roles: `var(--primary)` (`#ff4669`) +
     `var(--primary-foreground)`—limit solid `<Button>` (`variant="default"`) to
     **at most one** primary call-to-action per view; use `variant="outline"` for
     standard actions, `variant="ghost"` for quiet toolbar/row actions, and
@@ -272,9 +274,10 @@ the sheet's edge:
     `--info-subtle`, `--success` / `--success-foreground` / `--success-subtle`,
     `--warning` / `--warning-foreground` / `--warning-subtle`, and
     `--destructive` / `--destructive-foreground` / `--destructive-subtle` (plus
-    perceptual ramps `--color-{gray,blue,cyan,teal,green,yellow,orange,red,magenta,purple}-{10..100}`
+    perceptual ramps `--color-{blue,cyan,teal,green,yellow,orange,red,magenta,purple}-{10..100}`
     for categorical charts: steps `60`–`70` in light mode, `30`–`50` in dark
-    mode).
+    mode; the neutral `--color-gray-{10..100}` ramp runs from `#fbfbfb` to
+    `#1c1c1e`).
 - **Use `@ankole/uikit` components and `@base-ui/react` composition**: Native
   HTML `<button>`, `<input>`, `<select>`, and `<table>` elements do not carry
   Pod control styling. Import components from root `@ankole/uikit`:

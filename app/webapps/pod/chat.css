@@ -125,9 +125,9 @@
 .pod-page-chat {
   position: relative;
   display: flex;
-  flex: 0 0 var(--pod-page-chat-width, 400px);
+  flex: 0 0 var(--pod-page-chat-width, 296px);
   flex-direction: column;
-  width: var(--pod-page-chat-width, 400px);
+  width: var(--pod-page-chat-width, 296px);
   max-width: 55%;
   min-height: 0;
 }
@@ -516,12 +516,19 @@
   border-radius: var(--radius-control);
   padding: 4px;
 }
-.pod-room-header .pod-chat-header-title:hover {
-  background: var(--accent);
+/* The title and its rename field take the width of the title text, up to the room header's free space, so the
+   Page link follows the title and a long title truncates (or scrolls while it is edited) instead of pushing the
+   header's actions out. */
+.pod-room-header > h1,
+.pod-room-title-form {
+  flex: 0 1 auto;
+}
+.pod-room-header > [data-slot='dropdown-menu-trigger'] {
+  margin-left: auto;
 }
 /* The rename field takes the title's own type, so the title is edited where it stands. */
 .pod-room-title-form {
-  flex: 1;
+  display: flex;
   min-width: 0;
   font-size: var(--text-sm);
   font-weight: 500;
@@ -537,27 +544,84 @@
   font-size: 12px;
   color: var(--fg-secondary);
 }
+/* A room's right sidebar (its summary, an execution, or a file) takes everything right of a 300px chat column, so the
+   chat narrows into a message column beside it. The sidebar enters and leaves by sliding its right margin (see
+   `PodPanelSurface`), and the chat column narrows and widens over that same motion. The room body and the chat column
+   are size containers, so the sidebar sizes against the room and the messages lay out against their own column. */
 .pod-chat-room-body {
+  --pod-chat-split-width: 300px;
   position: relative;
+  container-type: inline-size;
   display: flex;
   flex: 1;
   min-width: 0;
   min-height: 0;
 }
 .pod-chat-room-main {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
 }
-.pod-chat-summary {
-  flex: 0 0 290px;
-  overflow-y: auto;
+.pod-chat-room-body > .pod-chat-side-panel {
+  flex: none;
+  width: calc(100cqw - var(--pod-chat-split-width));
   min-width: 0;
-  padding: 12px 16px;
+  min-height: 0;
   border-left: 1px solid var(--border);
   background: var(--background);
+}
+/* The 300px chat column beside a sidebar uses the page chat's tighter insets. */
+@container (max-width: 480px) {
+  .pod-chat-room-body:has(> .pod-chat-side-panel) > .pod-chat-room-main .pod-chat-history-content {
+    gap: 20px;
+    padding: 20px 16px;
+  }
+  .pod-chat-room-body:has(> .pod-chat-side-panel) > .pod-chat-room-main .pod-chat-composer-dock {
+    padding: 10px 14px 14px;
+  }
+}
+/* The summary stays a narrow drawer, so the chat keeps its full column beside it. */
+.pod-chat-room-body > .pod-chat-summary {
+  width: 296px;
+}
+.pod-chat-summary {
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+.pod-chat-file-panel {
+  display: flex;
+  flex-direction: column;
+}
+.pod-chat-file-panel-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 8px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+.pod-chat-file-panel-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pod-chat-file-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 24px;
+}
+.pod-chat-file-panel-body > .pod-attachment-pdf {
+  height: 100%;
 }
 .pod-chat-summary header {
   display: flex;
@@ -1031,7 +1095,7 @@
   text-align: left;
 }
 .pod-chat-completion-option[aria-selected='true'] {
-  background: var(--menu-hover);
+  background: var(--layer-hover);
 }
 .pod-chat-completion-group,
 .pod-chat-completion-empty {
@@ -1152,14 +1216,6 @@
   .pod-chat-anchor {
     display: none;
   }
-  .pod-chat-room-body > .pod-chat-summary {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 15;
-    width: min(320px, 100%);
-  }
 }
 @container (max-width: 480px) {
   .pod-chat-find {
@@ -1192,13 +1248,6 @@
   }
 }
 
-.pod-chat-home-toolbar {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  height: 44px;
-  padding: 0 12px;
-}
 .pod-chat-draft-pages {
   display: flex;
   flex-wrap: wrap;
@@ -1251,8 +1300,10 @@
 .pod-chat-own-message > .pod-chat-message-identity[data-quiet] {
   right: 0;
 }
+/* A continued message drops its identity row and moves up into the previous message's 32px bottom gap, leaving the
+   28px that the previous message's action bar takes there, so that bar never covers this message's first line. */
 .pod-chat-timeline-message.pod-chat-continued-message {
-  margin-top: -24px;
+  margin-top: -4px;
 }
 .pod-chat-reply-source {
   display: flex;
@@ -1950,7 +2001,7 @@
 }
 .pod-chat-choice[aria-pressed='true'] {
   border-color: var(--border-strong);
-  background: var(--selection);
+  background: var(--layer-current);
 }
 .pod-chat-choice-card[data-state='answered'] .pod-chat-choice:disabled {
   opacity: 1;
@@ -2451,17 +2502,11 @@
 .pod-chat-inspector-panel {
   position: relative;
   display: flex;
-  flex: 0 0 var(--pod-inspector-width, 420px);
   flex-direction: column;
-  width: var(--pod-inspector-width, 420px);
-  max-width: 55%;
-  min-width: 0;
-  min-height: 0;
-  border-left: 1px solid var(--border);
-  background: var(--background);
 }
+/* A room too narrow for a 300px chat column beside a usable sidebar lays the sidebar over the chat instead. */
 @container (max-width: 760px) {
-  .pod-chat-room-body > .pod-chat-inspector-panel {
+  .pod-chat-room-body > .pod-chat-side-panel {
     position: absolute;
     top: 0;
     right: 0;

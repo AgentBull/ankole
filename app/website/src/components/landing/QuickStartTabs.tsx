@@ -41,7 +41,7 @@ function CopyButton({ text, label, copiedLabel }: CopyButtonProps) {
       type="button"
       onClick={copy}
       aria-label={currentLabel}
-      className="inline-flex h-7 cursor-pointer items-center gap-1.5 border border-gray-70 px-2 font-mono text-xs text-gray-30 transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-gray-80 hover:text-white">
+      className="inline-flex h-7 cursor-pointer items-center gap-1.5 border border-gray-90 px-2 font-mono text-xs text-gray-50 transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-gray-90 hover:text-white">
       {copied ? (
         <RiCheckLine aria-hidden="true" className="size-3.5" />
       ) : (
@@ -63,21 +63,21 @@ function CodeBlock({ code, copyLabel, copiedLabel }: CodeBlockProps) {
   const lines = code.split('\n')
 
   return (
-    <div className="border border-gray-90 bg-gray-100 dark:border-gray-80">
-      <div className="flex items-center justify-between border-b border-gray-90 px-3 py-2 dark:border-gray-80">
-        <span className="font-mono text-[11px] tracking-[0.14em] text-gray-50 uppercase">bash</span>
+    <div className="border border-gray-100 bg-gray-100 dark:border-gray-90">
+      <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 dark:border-gray-90">
+        <span className="font-mono text-[11px] tracking-[0.14em] text-gray-70 uppercase">bash</span>
         <CopyButton text={code} label={copyLabel} copiedLabel={copiedLabel} />
       </div>
-      <pre className="overflow-x-auto p-4 font-mono text-sm leading-6 text-gray-20">
+      <pre className="overflow-x-auto p-4 font-mono text-sm leading-6 text-gray-40">
         <code>
           {lines.map((line, index) => {
             const comment = line.startsWith('#')
             return (
               <span key={`${index}-${line}`} className="grid grid-cols-[1.25rem_1fr]">
-                <span aria-hidden="true" className={comment ? 'text-gray-60' : 'text-brand-40'}>
+                <span aria-hidden="true" className={comment ? 'text-gray-80' : 'text-brand-40'}>
                   {comment ? '#' : '$'}
                 </span>
-                <span className={comment ? 'text-gray-50' : undefined}>
+                <span className={comment ? 'text-gray-70' : undefined}>
                   {comment ? line.replace(/^#\s?/, '') : line}
                 </span>
               </span>

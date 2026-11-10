@@ -14,12 +14,14 @@
   padding: 0;
 }
 
+/* The document column is 832px wide with at least 68px on either side, and its first line sits 68px below the
+   page's top edge, counting the 44px sheet header. */
 .pod-page-content {
-  --pod-page-gutter-start: 48px;
-  --pod-page-gutter-end: 48px;
-  width: min(100%, 856px);
+  --pod-page-gutter-start: 68px;
+  --pod-page-gutter-end: 68px;
+  width: min(100%, 968px);
   margin-inline: auto;
-  padding-block: 40px 120px;
+  padding-block: 24px 120px;
   padding-inline: var(--pod-page-gutter-start) var(--pod-page-gutter-end);
 }
 

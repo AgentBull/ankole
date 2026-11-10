@@ -34,13 +34,14 @@ import type { PodCommandNavigationState } from './command-menu'
 import type { PodSidebarNavigationState } from './state/navigation'
 import { editingSnapshot, useChatCommands, type ChatCommands } from './chat-commands'
 import { ChatAttachmentDrafts } from './chat-attachments'
+import { AttachmentPreviewHost, AttachmentPreviewPanel, useAttachmentPreviewHost } from './attachment-preview'
 import { useConversationEvents } from './use-conversation-events'
 import { refreshConversationDetail } from './query-cache'
 import { deleteConversation } from './api/generated/sdk.gen'
 import { Composer } from './chat/composer'
 import { isExecutionActive, isPeerActive } from './chat/timeline-projections'
 import { TurnTimeline } from './chat/turn-timeline'
-import { ChatHomeView, ChatHomeToolbar } from './chat/chat-home-view'
+import { ChatHomeView } from './chat/chat-home-view'
 import { RoomHeader } from './chat/room-header'
 import { SharePopover } from './chat/share-popover'
 import { NewGroupDialog } from './chat/new-group-dialog'
@@ -78,7 +79,7 @@ export function DirectChatRoute() {
   const started = useCallback(() => {
     void client.invalidateQueries({ queryKey: podKeys.agents })
   }, [client])
-  if (agents.isPending) return <ChatHomeToolbar />
+  if (agents.isPending) return null
   if (agents.error) return <RequestFailure error={agents.error} retry={() => void agents.refetch()} />
   return (
     <ChatPage
@@ -140,13 +141,27 @@ export function ChatPage({
   const summaryTrigger = useRef<HTMLButtonElement>(null)
   const isMobile = useIsMobile()
   const useSplitInspector = !isMobile && !pageID
-  const rightPanelOpen = summary || (useSplitInspector && !!inspector)
+  // The summary, an execution, and a file each open in the room's one right sidebar, so opening one replaces the other.
+  const preview = useAttachmentPreviewHost(event => {
+    rightPanelMotion.prepare(true, event)
+    setSummary(false)
+    setInspector(null)
+  })
+  const rightPanelOpen = summary || (useSplitInspector && (!!inspector || !!preview.file))
   const rightPanelMotion = usePanelMotion(rightPanelOpen)
   const changeSummary = (next: boolean, event?: PanelInputEvent) => {
     rightPanelMotion.prepare(next, event)
-    if (next && useSplitInspector) setInspector(null)
+    if (next && useSplitInspector) {
+      setInspector(null)
+      preview.close()
+    }
     setSummary(next)
     if (!next) summaryTrigger.current?.focus()
+  }
+  const closePreview = (event?: PanelInputEvent) => {
+    rightPanelMotion.prepare(false, event)
+    preview.close()
+    if (preview.trigger?.isConnected) preview.trigger.focus({ preventScroll: true })
   }
   const closeInspector = (event?: PanelInputEvent) => {
     if (useSplitInspector) rightPanelMotion.prepare(false, event)
@@ -174,6 +189,7 @@ export function ChatPage({
     if (useSplitInspector) {
       rightPanelMotion.prepare(true, event)
       if (summary) setSummary(false)
+      preview.close()
     }
     setInspector({ ...target, fromSummary })
   }
@@ -438,7 +454,6 @@ export function ChatPage({
   if (!conversationID && !colleagueUID && !pageID && agents.isSuccess && !agents.data.personalAssistantAvailable) {
     return (
       <section className="pod-chat pod-chat-standalone">
-        <ChatHomeToolbar />
         <p className="m-auto p-6 text-sm text-fg-secondary">{t('pod.superagent.choose_colleague')}</p>
       </section>
     )
@@ -448,7 +463,7 @@ export function ChatPage({
       <section
         ref={root}
         className={cn('pod-chat pod-chat-empty', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
-        {pageHeader ?? (!pageID && <ChatHomeToolbar />)}
+        {pageHeader}
         <ChatHomeView
           composer={composer}
           pageID={pageID}
@@ -477,7 +492,7 @@ export function ChatPage({
   if (gone) {
     return (
       <section className={cn('pod-chat flex-col', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
-        {pageHeader ?? (!pageID && <ChatHomeToolbar />)}
+        {pageHeader}
         <ConversationGone model={model} onNewConversation={onExitConversation ?? onNewConversation} />
       </section>
     )
@@ -485,7 +500,7 @@ export function ChatPage({
   if (!data) {
     return (
       <section className={cn('pod-chat flex-col', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
-        {pageHeader ?? (!pageID && <ChatHomeToolbar />)}
+        {pageHeader}
         <div className="pod-chat-loading">
           {detail.isError ? (
             <RequestFailure error={detail.error} retry={() => void detail.refetch()} />
@@ -568,185 +583,197 @@ export function ChatPage({
           onClose={closeFinding}
         />
       )}
-      <div className="pod-chat-room-body">
-        <div className="pod-chat-room-main">
-          <ErrorBoundary
-            variant="panel"
-            className="m-4 content-start"
-            resetKeys={[conversationID, data]}
-            onReset={() => void refreshConversationDetail(client, conversationID)}>
-            <TurnTimeline
-              model={model}
-              presentation={pageID ? 'page' : 'standalone'}
-              unreadMessageID={entry?.id === conversationID ? firstUnreadMessageID(data, entry) : undefined}
-              detail={data}
-              history={history}
-              messages={messages}
-              viewerUID={data.conversation.viewer.uid}
-              members={data.conversation.participants}
-              working={commands.working}
-              waiting={waiting}
-              activity={activity}
-              retryTime={retryTime}
-              conversationID={conversationID}
-              conversationTitle={data.conversation.title}
-              onRefresh={() => void refreshConversationDetail(client, conversationID)}
-              retryableMessageIDs={data.pendingQueues.flatMap(queue =>
-                queue.retryableMessageID ? [queue.retryableMessageID] : []
-              )}
-              editableMessageIDs={commands.editableMessageIDs}
-              actions={commands.messageActions}
-              chatContainerRef={root}
-              inlineEdit={{
-                canSubmit: commands.canSubmitEdit,
-                recipientAvailable: commands.editRecipientAvailable,
-                submitting: commands.pendingQueueAction?.action === 'edit_last',
-                editConflict: commands.editConflict && model.editing.value?.kind === 'last',
-                submitError: commands.inlineEditError,
-                recovery: commands.recovery,
-                onSubmit: () => commands.submitEdit(),
-                onCancel: () => {
-                  commands.cancelEdit()
-                  composerInput.current?.focus({ preventScroll: true })
-                }
-              }}
-              onReturnFocusToComposer={() => composerInput.current?.focus({ preventScroll: true })}
-              latestInput={data.latestInput}
-              liveStreams={liveStreams}
-              pendingInteractions={data.pendingInteractions}
-              linkedRuns={data.linkedRuns.map(run => ({
-                ...run,
-                agentName:
-                  data.conversation.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
-                  data.messages.findLast(
-                    message => message.authorType === 'agent' && message.authorUID === run.agentUID
-                  )?.authorDisplayName
-              }))}
-              showAgentOnRuns={data.conversation.roomMode === 'group' && data.conversation.agents.length > 1}
-              activeInspector={inspector}
-              onOpenInspector={openInspector}
-              canAnswer={uid => availableAgents.some(agent => agent.uid === uid && agent.active)}
-              readOnlyReason={t('pod.chat_room.answer_unavailable')}
-              onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
-              onResolveActionCard={(cardID, decision) => actions.resolveActionCard.mutateAsync({ cardID, decision })}
-              onComposeAnswer={
-                model.editing.value?.kind !== 'queue' && !actions.answer.isPending
-                  ? (interactionID, text) => {
-                      if (model.startAnswer(interactionID, text)) {
-                        composerInput.current?.focus()
-                      }
-                    }
-                  : undefined
-              }
-              onQuote={(quote, message) => {
-                model.quote({ kind: 'message', id: message.id, quote })
-                composerInput.current?.focus()
-              }}
-            />
-          </ErrorBoundary>
-          <div className="pod-chat-composer-dock">
-            <QueuedStrip
-              detail={data}
-              pending={commands.pendingQueueAction}
-              callableAgentUIDs={availableAgents.map(agent => agent.uid)}
-              disabled={commands.disabled}
-              editing={model.editing.value?.kind === 'queue'}
-              editingMessageID={model.editing.value?.kind === 'queue' ? model.editing.value.messageID : undefined}
-              change={commands.changeQueue}
-              edit={commands.editQueued}
-              takeBack={commands.takeBackQueued}
-            />
-            {model.neededInvites.value.map(person => (
-              <div key={person.uid} className="pod-chat-invite-notice">
-                <span>{t('pod.chat_room.mention_outside', { name: person.displayName })}</span>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={actions.participants.isPending}
-                  onClick={() =>
-                    actions.participants.mutate(
-                      { addUIDs: [person.uid] },
-                      {
-                        onSuccess: () => {
-                          model.neededInvites.value = model.neededInvites.value.filter(item => item.uid !== person.uid)
-                        }
-                      }
-                    )
-                  }>
-                  {t('pod.chat_room.invite')}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => {
-                    model.neededInvites.value = model.neededInvites.value.filter(item => item.uid !== person.uid)
-                  }}>
-                  {t('pod.chat_room.dismiss')}
-                </Button>
-              </div>
-            ))}
-            {!!commands.queueError &&
-              !(
-                model.editing.value?.kind === 'last' &&
-                (commands.editConflict || commands.inlineEditError != null)
-              ) && <RequestFailure error={commands.queueError} />}
-            {commands.editConflict && model.editing.value?.kind === 'queue' && (
-              <EditRecovery model={model} data={data} recovery={commands.recovery} />
-            )}
-            {!!commands.recovery.error && model.editing.value?.kind !== 'last' && (
-              <RequestFailure error={commands.recovery.error} />
-            )}
-            {agents.isError && <RequestFailure error={agents.error} retry={() => void agents.refetch()} />}
-            {detail.isError && <RequestFailure error={detail.error} retry={() => void detail.refetch()} />}
-            {model.connecting.value && (
-              <p role="status" className="text-xs text-fg-tertiary">
-                {t('pod.chat.reconnecting')}
-              </p>
-            )}
-            {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
-            {composer}
-          </div>
-        </div>
-        <PodPanelPresence animate={!isMobile && rightPanelMotion.animate}>
-          {summary ? (
+      <AttachmentPreviewHost host={useSplitInspector ? preview.host : null}>
+        <div className="pod-chat-room-body">
+          <div className="pod-chat-room-main">
             <ErrorBoundary
-              key="summary"
               variant="panel"
-              className="m-3 w-72 shrink-0 self-start"
-              resetKeys={[conversationID]}>
-              <ChatSummaryPanel
+              className="m-4 content-start"
+              resetKeys={[conversationID, data]}
+              onReset={() => void refreshConversationDetail(client, conversationID)}>
+              <TurnTimeline
+                model={model}
+                presentation={pageID ? 'page' : 'standalone'}
+                unreadMessageID={entry?.id === conversationID ? firstUnreadMessageID(data, entry) : undefined}
                 detail={data}
-                callableAgentUIDs={availableAgents.map(agent => agent.uid)}
+                history={history}
+                messages={messages}
+                viewerUID={data.conversation.viewer.uid}
+                members={data.conversation.participants}
+                working={commands.working}
+                waiting={waiting}
+                activity={activity}
+                retryTime={retryTime}
+                conversationID={conversationID}
+                conversationTitle={data.conversation.title}
+                onRefresh={() => void refreshConversationDetail(client, conversationID)}
+                retryableMessageIDs={data.pendingQueues.flatMap(queue =>
+                  queue.retryableMessageID ? [queue.retryableMessageID] : []
+                )}
+                editableMessageIDs={commands.editableMessageIDs}
+                actions={commands.messageActions}
+                chatContainerRef={root}
+                inlineEdit={{
+                  canSubmit: commands.canSubmitEdit,
+                  recipientAvailable: commands.editRecipientAvailable,
+                  submitting: commands.pendingQueueAction?.action === 'edit_last',
+                  editConflict: commands.editConflict && model.editing.value?.kind === 'last',
+                  submitError: commands.inlineEditError,
+                  recovery: commands.recovery,
+                  onSubmit: () => commands.submitEdit(),
+                  onCancel: () => {
+                    commands.cancelEdit()
+                    composerInput.current?.focus({ preventScroll: true })
+                  }
+                }}
+                onReturnFocusToComposer={() => composerInput.current?.focus({ preventScroll: true })}
+                latestInput={data.latestInput}
+                liveStreams={liveStreams}
+                pendingInteractions={data.pendingInteractions}
+                linkedRuns={data.linkedRuns.map(run => ({
+                  ...run,
+                  agentName:
+                    data.conversation.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
+                    data.messages.findLast(
+                      message => message.authorType === 'agent' && message.authorUID === run.agentUID
+                    )?.authorDisplayName
+                }))}
+                showAgentOnRuns={data.conversation.roomMode === 'group' && data.conversation.agents.length > 1}
                 activeInspector={inspector}
                 onOpenInspector={openInspector}
-                onClose={event => changeSummary(false, event)}
-              />
-            </ErrorBoundary>
-          ) : useSplitInspector && inspector ? (
-            <ErrorBoundary
-              key="inspector"
-              variant="panel"
-              className="m-3 w-96 shrink-0 self-start"
-              resetKeys={[conversationID, inspector.type === 'peer' ? inspector.exchangeID : inspector.runID]}>
-              <ExecutionInspectorPanel
-                conversationID={conversationID}
-                target={inspector}
-                variant="panel"
-                finalFocus={inspectorTrigger}
-                resolveAgentName={uid =>
-                  data.conversation.agents.find(agent => agent.uid === uid)?.displayName ??
-                  availableAgents.find(agent => agent.uid === uid)?.displayName ??
-                  data.messages.findLast(message => message.authorType === 'agent' && message.authorUID === uid)
-                    ?.authorDisplayName
+                canAnswer={uid => availableAgents.some(agent => agent.uid === uid && agent.active)}
+                readOnlyReason={t('pod.chat_room.answer_unavailable')}
+                onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
+                onResolveActionCard={(cardID, decision) => actions.resolveActionCard.mutateAsync({ cardID, decision })}
+                onComposeAnswer={
+                  model.editing.value?.kind !== 'queue' && !actions.answer.isPending
+                    ? (interactionID, text) => {
+                        if (model.startAnswer(interactionID, text)) {
+                          composerInput.current?.focus()
+                        }
+                      }
+                    : undefined
                 }
-                onClose={closeInspector}
-                onBackToSummary={backToSummary}
-                onSwitchTarget={setInspector}
+                onQuote={(quote, message) => {
+                  model.quote({ kind: 'message', id: message.id, quote })
+                  composerInput.current?.focus()
+                }}
               />
             </ErrorBoundary>
-          ) : null}
-        </PodPanelPresence>
-      </div>
+            <div className="pod-chat-composer-dock">
+              <QueuedStrip
+                detail={data}
+                pending={commands.pendingQueueAction}
+                callableAgentUIDs={availableAgents.map(agent => agent.uid)}
+                disabled={commands.disabled}
+                editing={model.editing.value?.kind === 'queue'}
+                editingMessageID={model.editing.value?.kind === 'queue' ? model.editing.value.messageID : undefined}
+                change={commands.changeQueue}
+                edit={commands.editQueued}
+                takeBack={commands.takeBackQueued}
+              />
+              {model.neededInvites.value.map(person => (
+                <div key={person.uid} className="pod-chat-invite-notice">
+                  <span>{t('pod.chat_room.mention_outside', { name: person.displayName })}</span>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={actions.participants.isPending}
+                    onClick={() =>
+                      actions.participants.mutate(
+                        { addUIDs: [person.uid] },
+                        {
+                          onSuccess: () => {
+                            model.neededInvites.value = model.neededInvites.value.filter(
+                              item => item.uid !== person.uid
+                            )
+                          }
+                        }
+                      )
+                    }>
+                    {t('pod.chat_room.invite')}
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      model.neededInvites.value = model.neededInvites.value.filter(item => item.uid !== person.uid)
+                    }}>
+                    {t('pod.chat_room.dismiss')}
+                  </Button>
+                </div>
+              ))}
+              {!!commands.queueError &&
+                !(
+                  model.editing.value?.kind === 'last' &&
+                  (commands.editConflict || commands.inlineEditError != null)
+                ) && <RequestFailure error={commands.queueError} />}
+              {commands.editConflict && model.editing.value?.kind === 'queue' && (
+                <EditRecovery model={model} data={data} recovery={commands.recovery} />
+              )}
+              {!!commands.recovery.error && model.editing.value?.kind !== 'last' && (
+                <RequestFailure error={commands.recovery.error} />
+              )}
+              {agents.isError && <RequestFailure error={agents.error} retry={() => void agents.refetch()} />}
+              {detail.isError && <RequestFailure error={detail.error} retry={() => void detail.refetch()} />}
+              {model.connecting.value && (
+                <p role="status" className="text-xs text-fg-tertiary">
+                  {t('pod.chat.reconnecting')}
+                </p>
+              )}
+              {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
+              {composer}
+            </div>
+          </div>
+          <PodPanelPresence animate={!isMobile && rightPanelMotion.animate}>
+            {summary ? (
+              <ErrorBoundary
+                key="summary"
+                variant="panel"
+                className="m-3 w-72 shrink-0 self-start"
+                resetKeys={[conversationID]}>
+                <ChatSummaryPanel
+                  detail={data}
+                  callableAgentUIDs={availableAgents.map(agent => agent.uid)}
+                  activeInspector={inspector}
+                  onOpenInspector={openInspector}
+                  onClose={event => changeSummary(false, event)}
+                />
+              </ErrorBoundary>
+            ) : useSplitInspector && inspector ? (
+              <ErrorBoundary
+                key="inspector"
+                variant="panel"
+                className="m-3 w-96 shrink-0 self-start"
+                resetKeys={[conversationID, inspector.type === 'peer' ? inspector.exchangeID : inspector.runID]}>
+                <ExecutionInspectorPanel
+                  conversationID={conversationID}
+                  target={inspector}
+                  variant="panel"
+                  finalFocus={inspectorTrigger}
+                  resolveAgentName={uid =>
+                    data.conversation.agents.find(agent => agent.uid === uid)?.displayName ??
+                    availableAgents.find(agent => agent.uid === uid)?.displayName ??
+                    data.messages.findLast(message => message.authorType === 'agent' && message.authorUID === uid)
+                      ?.authorDisplayName
+                  }
+                  onClose={closeInspector}
+                  onBackToSummary={backToSummary}
+                  onSwitchTarget={setInspector}
+                />
+              </ErrorBoundary>
+            ) : useSplitInspector && preview.file ? (
+              <ErrorBoundary
+                key="file"
+                variant="panel"
+                className="m-3 w-96 shrink-0 self-start"
+                resetKeys={[preview.file.url]}>
+                <AttachmentPreviewPanel file={preview.file} onClose={closePreview} />
+              </ErrorBoundary>
+            ) : null}
+          </PodPanelPresence>
+        </div>
+      </AttachmentPreviewHost>
       {!useSplitInspector && inspector && (
         <ExecutionInspectorPanel
           conversationID={conversationID}

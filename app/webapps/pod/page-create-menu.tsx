@@ -14,12 +14,12 @@ import {
 } from '@ankole/uikit'
 import { RiAddLine, RiFileAddLine, RiFileExcel2Line } from '@remixicon/react'
 import { useRef } from 'react'
-import { useInfiniteQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { podPagePath } from '../common/pod-url'
 import { requestErrorMessage } from '../common/request-errors'
 import { podSpreadsheetCreate } from './api/generated/sdk.gen'
-import { directoryCapabilitiesQuery, pageAPI, type Page } from './content-api'
+import { pageAPI, type Page } from './content-api'
 import { contentError } from './content-errors'
 import { typeLabels } from './content-primitives'
 import { PageIcon } from './page-icon'
@@ -167,19 +167,17 @@ export function CreatePageButton({
   label: providedLabel,
   types,
   onCreated
-}: CreatePageOptions & { compact?: boolean; disabled?: boolean; label?: string; types?: readonly PageType[] }) {
+}: CreatePageOptions & {
+  scope: 'space' | 'private'
+  compact?: boolean
+  disabled?: boolean
+  label?: string
+  types?: readonly PageType[]
+}) {
   const { t } = useTranslation()
   const label = providedLabel ?? t('pod.content.new_page')
-  const needsCapabilities = !parentID && scope === undefined
-  const destinations = useInfiniteQuery({ ...directoryCapabilitiesQuery(), enabled: needsCapabilities })
-  const capabilities = destinations.data
-  const effectiveScope = scope ?? (capabilities?.can_create_space ? 'space' : 'private')
-  const owner = privateOwner ?? (scope === undefined ? capabilities?.principal_uid : undefined)
-  const unavailable =
-    needsCapabilities &&
-    (!capabilities || destinations.isError || (!capabilities.can_create_space && !capabilities.can_create_private))
-  const waitingForIdentity = !parentID && effectiveScope === 'private' && !owner
-  const create = usePageCreation({ parentID, scope: effectiveScope, privateOwner: owner, onCreated })
+  const waitingForIdentity = !parentID && scope === 'private' && !privateOwner
+  const create = usePageCreation({ parentID, scope, privateOwner, onCreated })
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
@@ -190,7 +188,7 @@ export function CreatePageButton({
             aria-label={label}
             title={label}
             aria-busy={create.isPending}
-            disabled={disabled || unavailable || waitingForIdentity || create.isPending}
+            disabled={disabled || waitingForIdentity || create.isPending}
           />
         }>
         {create.isPending ? <Spinner aria-hidden className="size-4" /> : <RiAddLine aria-hidden className="size-4" />}

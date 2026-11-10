@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
-import { SidebarTrigger, useSidebar } from '@ankole/uikit'
 import { authenticationRef, podID } from '../../common/browser-context'
 import { browserSession } from '../../common/api/generated/sdk.gen'
 import { podKeys, type PodAgent } from '../api'
@@ -103,15 +102,5 @@ export function ChatHomeView({
         </div>
       )}
     </div>
-  )
-}
-
-export function ChatHomeToolbar() {
-  const { t } = useTranslation()
-  const { state } = useSidebar()
-  return (
-    <header className="pod-chat-home-toolbar">
-      <SidebarTrigger className={state === 'expanded' ? 'md:hidden' : undefined} label={t('pod.sidebar.expand')} />
-    </header>
   )
 }

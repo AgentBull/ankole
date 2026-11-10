@@ -176,18 +176,24 @@ export function MediaFilePreview({
   )
 }
 
+/**
+ * Renders the first 64 KiB of a UTF-8 CSV or TSV file as a table. `cacheKey` names the owning page or conversation
+ * cache, and `local` reads a composer draft's object URL with the browser's own fetch.
+ */
 export function DelimitedTablePreview({
-  pageID,
+  cacheKey,
   url,
   name,
+  local = false,
   canComment,
   onRequestComment,
   previewRef,
   initialAnchor
 }: {
-  pageID: string
+  cacheKey: readonly unknown[]
   url: string
   name: string
+  local?: boolean
   canComment: boolean
   onRequestComment?: (selection: FileCommentSelection) => void
   previewRef?: Ref<FilePreviewHandle | null>
@@ -204,9 +210,9 @@ export function DelimitedTablePreview({
   const [highlightedRows, setHighlightedRows] = useState<{ start: number; end: number } | null>(null)
 
   const query = useQuery({
-    queryKey: [...contentKeys.page(pageID), 'file-delimited-preview', url],
+    queryKey: [...cacheKey, 'file-delimited-preview', url],
     queryFn: async ({ signal }) => {
-      const response = await transport(url, { credentials: 'same-origin', signal })
+      const response = await (local ? fetch : transport)(url, { credentials: 'same-origin', signal })
       if (!response.body) throw new Error(t('pod.chat_attachments.preview_unavailable'))
       const result = await readPrefix(response, TEXT_PREVIEW_BYTES, signal)
       const decoder = new TextDecoder()

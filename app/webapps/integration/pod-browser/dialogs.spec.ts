@@ -25,7 +25,9 @@ test('sidebar type menu stays anchored, dismisses naturally, retries a failed cr
   let calls = 0
   try {
     await page.goto(pageRoute(state.report_id))
-    const trigger = page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true })
+    const trigger = page
+      .locator('section[aria-label="空间"] > .pod-nav-section-heading')
+      .getByRole('button', { name: '新建页面', exact: true })
     await expect(trigger).toBeEnabled()
     await trigger.focus()
     await trigger.press('Enter')
@@ -282,7 +284,9 @@ test('choosing a file creates one named Page with its bytes and replaces it by d
     page.on('request', request => {
       if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v2/pod/file-pages') writes++
     })
-    const trigger = page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true })
+    const trigger = page
+      .locator('section[aria-label="空间"] > .pod-nav-section-heading')
+      .getByRole('button', { name: '新建页面', exact: true })
     await trigger.click()
     const chosen = page.waitForEvent('filechooser')
     await page.getByRole('menuitem', { name: '文件', exact: true }).click()

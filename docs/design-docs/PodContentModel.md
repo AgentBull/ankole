@@ -527,11 +527,32 @@ desktop lists use compact row density and touch layouts expand hit targets.
 Mobile sidebar section links have a minimum height of 40 px across the full link
 target.
 
-The Pod shell layers a rounded paper sheet (`main`) above the ground-level
-sidebar (`Home` and `Chat` tabs at top-left, paired with search,
-quick-create, and sidebar-collapse icon buttons at top-right; when the desktop
-sidebar collapses, the expand trigger flows into the 44 px sheet header without
-shifting content vertically). On a Page, that header starts with the Page path
+The Pod shell opens with a 56 px top bar that spans the window on the page
+background (`--background`), the same surface as the sidebar. The top bar
+carries the Pod's mark (its avatar, or the initials of its name) and name at
+its start, the same pair the account menu shows, linking to the Pod's chat
+home; on a phone only the mark remains. It then carries the search entry in
+its centre and the open route's actions at its end. The search entry is a
+quiet, borderless field up to 240 px wide that names `Search or jump` and its
+`⌘K` / `Ctrl+K` shortcut; on a top bar narrower than 720 px it becomes an icon
+button. The route's actions are
+a Page's actions on a Page, and the participants, invite, copy-link (a share
+icon), and summary buttons in a Conversation. Below the top bar, the sidebar
+(`Home` and `Chat` tabs at its top, while the `Space` and `Private` section
+headings carry the create buttons) sits beside the page (`main`), which fills
+the rest of the window edge to edge with small rounded top corners. On a Page,
+the document column is 832 px wide with at least 68 px on either side, and its
+first line sits 68 px below the page's top edge. Each sheet
+opens with its own 44 px header, and the sidebar toggle starts that header,
+left of the sheet's title, whether the sidebar is open or hidden; a route whose
+sheet has no header shows the toggle at the start of the top bar instead. A
+Conversation's header follows the toggle with its title, which shows no hover
+wash and takes only the width of its text: a long title truncates with an
+ellipsis and names itself in full in a tooltip, and the rename field grows with
+the text up to the header's free space and scrolls beyond it. The Page link
+follows the title, and the more-actions menu sits at the header's end. That menu opens with
+`Find in conversation` (`⌘F` / `Ctrl+F`), followed by rename, pin, export, and
+delete or leave, and every item carries an icon. On a Page, that header starts with the Page path
 in text only: every path begins at `Pages`, which links to all Pages, then names
 the direct parent and ends with the open Page in full ink beside its favorite
 star. On an Applet Page, a muted link to the Conversation where an Agent created
@@ -541,17 +562,18 @@ and on a narrow header the link keeps only its icon. Any ancestors between
 phone, `Pages` gives way to the title and every ancestor folds into that menu.
 The path is the Page read's `ancestors`, so an unreadable parent starts the path
 below it. A hairline under the header
-separates it from the scrolling content. The header's actions follow the path:
-`Assistant` and `Comments` are toggles that stay pressed while their panel is
+separates it from the scrolling content. The Page's actions sit at the end of
+the top bar: the document's save state and presence, `Assistant` and `Comments` are toggles that stay pressed while their panel is
 open, with `Comments` showing the unread count, and `Share` is the one bordered
 button (displaying a scope icon on live Pages and opening a two-level sharing
 popover across overview, multi-select invite, collaborator management, and
 permission settings subviews; viewers without `node_manage` open a read-only
 collaborator overview with link copy, while trashed Pages render a standalone
-Copy link icon button). When the header runs short, action labels give way before the title
-does. On desktop, an open chat or comments panel is a second paper sheet beside
-the Page, with the same radius, edge, and clearance. Each sheet keeps the
-shell's 6 px clearance, so the two sheets sit 12 px apart. The panel's 44 px
+Copy link icon button). When the top bar runs short, the search entry narrows
+first and the action labels then give way to their icons. On desktop, an open
+chat or comments panel is a 296 px drawer flush against the Page and the
+window's right edge, divided from the Page by a hairline; the Assistant panel
+can widen to 480 px from its edge separator. The panel's 44 px
 header carries no hairline, and its title starts on the same 18 px edge as the
 Page path. Selects in either header are borderless text with a chevron. The
 chat composer docks at the bottom of the panel before the first message as
@@ -574,12 +596,22 @@ the user's navigation context stays stable, and New Chat keeps whichever tab
 is open. `Favorites` renders inline above the
 `Space` and `Private` trees whenever the user has favorited Pages, while the
 account switcher, `Trash`, and `Pod settings` sit in the sidebar footer.
+`Trash` and `Pod settings` are icon buttons that keep their resting look while
+their page is open; the open page announces itself through `aria-current`.
+Every Page row in the `Space` and `Private` trees starts with the Page's icon in
+one fixed slot, so a nested Page's icon and title line up with its siblings
+whether or not it has children. A Page with children uses that icon as its
+expand button: the icon turns into the chevron while the row is hovered or
+focused, and a touch screen, which has no hover, shows the chevron there.
 The account button shows the Pod name before the Human name; its accessible
 name includes both names in that same order. When the Pod name is empty, the
 button announces the Human name alone with its account menu label.
-The Pod and Console share sidebar controls. Command/Control+B toggles the
+The Pod and Console share sidebar controls. In both, the sidebar toggle starts
+the content sheet's header, left of the sheet's title; the Console's sheet
+header names the current navigation section, while its full-width top bar keeps
+the brand and the account actions. Command/Control+B toggles the
 sidebar while leaving shortcuts inside editable controls to those controls.
-On desktop, the Pod sidebar starts at its 248 px minimum width and its edge
+On desktop, the Pod sidebar starts at its 236 px minimum width and its edge
 separator widens it up to 480 px. Dragging updates the layout immediately and
 stores the final width in origin-scoped `localStorage`; Left and Right adjust a
 focused separator by 16 px, while Home and End select the minimum and maximum.
@@ -588,9 +620,12 @@ sidebar is collapsed, hovering the left screen edge opens it as a temporary
 ceramic overlay without changing the collapse preference or moving the page.
 Leaving the overlay closes it, while `Show sidebar` expands it persistently.
 The open sidebar tab shows its icon and label; the other tab shows only its
-icon and names itself in a tooltip. The open tab and the current row in the Pod
-and Console sidebars share one mark: an ink wash one step denser than the hover
-wash, with ink text at the same weight. Only the Sidebar row the user followed
+icon and names itself in a tooltip. Switching tabs slides the selected fill to
+the new tab and stretches it to the new width, while the old label closes and
+blurs away and the new label opens and comes into focus. The open tab and the current row in the Pod
+and Console sidebars share one mark: the selected fill (brand-10 inside a 0.2 px
+blue hairline), with ink text at the same weight. Both sidebars are white
+columns that end in a faint divider beside the page. Only the Sidebar row the user followed
 marks the open Page, so a Page listed under both Recently visited and a tree
 highlights once; a Page opened without a Sidebar row marks its Space or Private
 row instead. The browser history entry records the followed section, so reloads
@@ -2124,7 +2159,9 @@ for `inline` tables and native column/edge SQL for `physical` tables:
   Base shard.
 - Large kanban boards fetch full-table group counts and paginate each column
   independently, resetting to page 1 whenever grouping, filters, or sorts
-  change.
+  change. Every option of the grouping field keeps a column even when it is
+  empty, while the `Ungrouped` column appears only when at least one record
+  matching the view's filter has no value in that field.
 - Physical reads hold `FOR KEY SHARE` on control-plane metadata, open one
   `REPEATABLE READ, READ ONLY` shard transaction across records and
   `_table_states`, verify the schema version before returning rows, and count

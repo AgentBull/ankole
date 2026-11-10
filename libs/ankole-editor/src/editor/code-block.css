@@ -225,7 +225,7 @@
 }
 
 :where(.ankole-editor-overlay).code-language-menu .code-language-option:is(:hover, [aria-selected='true']) {
-  background: var(--menu-hover);
+  background: var(--layer-hover);
 }
 
 :where(.ankole-editor-overlay).code-language-menu .code-language-check {

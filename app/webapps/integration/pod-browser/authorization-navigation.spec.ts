@@ -100,7 +100,7 @@ test('document sharing grants comment access without editing or management, and 
     expect((await requestResponse(memberPage, sharingPath, 'PATCH', { inherit_permissions: true })).status).toBe(403)
 
     for (const page of [ownerPage, memberPage]) {
-      await page.locator('.pod-page-header').getByRole('button', { name: '评论', exact: true }).click()
+      await page.locator('.pod-page-actions').getByRole('button', { name: '评论', exact: true }).click()
     }
     const memberComments = memberPage.getByRole('complementary', { name: '评论', exact: true })
     const comment = `Shared comment ${suffix()}`
