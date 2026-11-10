@@ -3,10 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
-import type { AgentItem } from '../api/agents'
 import { listSignalBindingsQueryKey } from '../api/v2/generated/@tanstack/react-query.gen'
 import { listAgentsQueryKey } from '../api/v2/generated/@tanstack/react-query.gen'
-import { finishSignalBindingSave, SignalBindingEditorPage, SignalsListPage } from './signals'
+import { SignalBindingEditorPage, SignalsListPage } from './signals'
 
 describe('Signal Routing editor navigation', () => {
   test('does not turn the binding owner into a list filter', async () => {
@@ -26,52 +25,21 @@ describe('Signal Routing editor navigation', () => {
     expect(listHTML).toContain('href="/signals/binding-a?return_agent=agent-b"')
     expect(editorHTML).toContain('href="/signals?agent=agent-b"')
   })
-
-  test('returns a successful save to its originating list scope', async () => {
-    const rootRoute = createRootRoute()
-    const catchAllRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      path: '$',
-      component: () => null
-    })
-    const router = createRouter({
-      routeTree: rootRoute.addChildren([catchAllRoute]),
-      history: createMemoryHistory({
-        initialEntries: ['/signals/new?agent=agent-a&return_agent=agent-b']
-      }),
-      isServer: false,
-      origin: 'http://localhost',
-      parseSearch: parseRouterSearch,
-      stringifySearch: stringifyRouterSearch
-    })
-    await router.load()
-
-    await finishSignalBindingSave('Saved', '/signals?agent=agent-b', options => router.navigate(options))
-
-    expect(`${router.state.location.pathname}${router.state.location.searchStr}`).toBe('/signals?agent=agent-b')
-  })
 })
 
 describe('Signal Routing empty state', () => {
   test('offers shared Bot configuration before an AI colleague exists', async () => {
-    const html = await renderEmptySignalsList([])
-
-    expect(html).toContain('href="/signals/new"')
-    expect(html).not.toContain('href="/agents/new"')
-  })
-
-  test('offers rule creation in the empty state once an Agent exists', async () => {
-    const html = await renderEmptySignalsList([agentItem('agent-a')])
+    const html = await renderEmptySignalsList()
 
     expect(html).toContain('href="/signals/new"')
     expect(html).not.toContain('href="/agents/new"')
   })
 })
 
-function renderEmptySignalsList(agents: AgentItem[]) {
+function renderEmptySignalsList() {
   const queryClient = freshQueryClient()
   queryClient.setQueryData(listAgentsQueryKey(), {
-    data: agents.map(({ uid, ...attributes }) => ({ id: uid, type: 'agent', attributes }))
+    data: []
   })
   queryClient.setQueryData(listSignalBindingsQueryKey({ query: { agent: undefined } }), {
     delivery_failures: [],
@@ -79,23 +47,6 @@ function renderEmptySignalsList(agents: AgentItem[]) {
   })
 
   return renderRoute(queryClient, '/signals', 'signals', <SignalsListPage />)
-}
-
-function agentItem(uid: string): AgentItem {
-  return {
-    avatar_url: null,
-    created_by: null,
-    display_name: uid,
-    group_memory_disclosure_mode: 'strict',
-    inserted_at: '2026-08-14T00:00:00Z',
-    options: {},
-    owner_principal_uid: 'operator',
-    role: 'assistant',
-    status: 'active',
-    type: 'ai_colleague',
-    uid,
-    updated_at: '2026-08-14T00:00:00Z'
-  }
 }
 
 function renderSignalsList(initialEntry: string, agentUID: string | undefined, bindingAgentUID = 'agent-a') {

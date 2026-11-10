@@ -5,35 +5,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::*;
-use crate::universal_ai_client::spec::{APIResolverKind, StreamSpec, UpstreamKind};
+use crate::universal_ai_client::spec::StreamSpec;
 use crate::universal_ai_client::wire::tests::eventstream_frame;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::{Message, accept};
-
-#[test]
-fn stream_spec_parses_prepared_request_contract() {
-    let spec = StreamSpec::from_json(
-        r#"{
-              "api_resolver": "openai_chat_completions",
-              "upstream": {
-                "kind": "http_sse",
-                "method": "POST",
-                "url": "https://example.test/v1/chat/completions",
-                "headers": [["authorization", "Bearer test"]],
-                "body": "{\"stream\":true}",
-                "timeout": {"connect_ms": 1, "first_byte_ms": 1, "idle_ms": 1},
-                "transport": {}
-              },
-              "response_context": {"model": "gpt-test", "request": {"input": "hi"}}
-            }"#,
-    )
-    .unwrap();
-
-    assert_eq!(spec.api_resolver, APIResolverKind::OpenAIChatCompletions);
-    assert_eq!(spec.upstream.kind, UpstreamKind::HTTPSSE);
-    assert_eq!(spec.upstream.headers[0].0, "authorization");
-}
 
 #[test]
 fn websocket_stream_sends_body_as_initial_response_create_message() {

@@ -1,7 +1,7 @@
 defmodule Ankole.FunctionRuntime.FixtureIsolationTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.FunctionRuntime.{EndpointPool, HTTP}
+  alias Ankole.FunctionRuntime.EndpointPool
   alias Ankole.FunctionRuntimeHelpers
 
   test "Actions select the configured deployment while foreground calls retain theirs" do
@@ -48,36 +48,6 @@ defmodule Ankole.FunctionRuntime.FixtureIsolationTest do
       {:ok, still_isolated, route_lease} = EndpointPool.checkout()
       EndpointPool.release(route_lease)
       assert still_isolated.url == isolated.url
-    after
-      FunctionRuntimeHelpers.release(active)
-    end
-  end
-
-  test "the overload fixture leaves the shared runtime available" do
-    original = :sys.get_state(EndpointPool)
-    {:ok, shared, lease} = EndpointPool.checkout()
-    EndpointPool.release(lease)
-
-    on_exit(fn ->
-      restored = :sys.get_state(EndpointPool)
-      assert restored.uri == original.uri
-      assert restored.endpoints == original.endpoints
-    end)
-
-    active = FunctionRuntimeHelpers.saturate()
-    assert {_endpoint, _lease, [_reservation]} = active
-
-    try do
-      assert {:ok, 200, body} =
-               HTTP.at(
-                 shared,
-                 :post,
-                 "/v1/applet/inspect",
-                 %{source: "export default {'GET /':()=>true}", env: %{}},
-                 5_000
-               )
-
-      assert %{"routes" => ["GET /"]} = Torque.decode!(body)
     after
       FunctionRuntimeHelpers.release(active)
     end

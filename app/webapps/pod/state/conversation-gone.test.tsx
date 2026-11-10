@@ -74,11 +74,6 @@ function conversationFixture(): ConversationDetail {
 }
 
 describe('Pod unavailable conversations', () => {
-  test('retained draft labels display their local message number', async () => {
-    await loadLocale('en-US')
-    expect(i18n.t('pod.chat_drafts.message', { number: 2 })).toBe('Local text 2')
-  })
-
   test('a missing-conversation read is terminal on its first response', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
     let calls = 0

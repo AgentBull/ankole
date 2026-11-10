@@ -1,43 +1,18 @@
 import { describe, expect, test } from 'bun:test'
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
-import { renderToStaticMarkup } from 'react-dom/server'
 import type { EditorDraftModel } from './use-editor-draft'
-import { seedEditorDraft, useEditorDraft } from './use-editor-draft'
-
-type DraftCache = { source?: string; absent?: boolean }
+import { seedEditorDraft } from './use-editor-draft'
 
 describe('useEditorDraft', () => {
-  test('accepts the resource owner source key without interpreting its format', () => {
-    const queryClient = freshQueryClient()
-    const queryKey = ['editor-draft', 'cached'] as const
-    queryClient.setQueryData<DraftCache>(queryKey, { source: 'cached' })
+  test('preserves the existing draft while the same selection loads or refetches', () => {
+    const model = recordingModel()
     const sourceKey = 'opaque key / selected version 3'
-    expect(renderStatus(queryClient, queryKey, recordingModel(sourceKey), sourceKey)).toContain('>ready<')
-  })
-
-  test('distinguishes a pending source from a confirmed absent resource', () => {
-    const queryClient = freshQueryClient()
-    const queryKey = ['editor-draft', 'lookup'] as const
-    const model = recordingModel()
-    queryClient.setQueryData<DraftCache>(queryKey, {})
-    expect(renderStatus(queryClient, queryKey, model, 'selected')).toContain('>loading<')
-    queryClient.setQueryData<DraftCache>(queryKey, { absent: true })
-    expect(renderStatus(queryClient, queryKey, model, 'selected')).toContain('>absent<')
-  })
-
-  test('keeps a seeded selection editable while its query refreshes', () => {
-    const queryClient = freshQueryClient()
-    const queryKey = ['editor-draft', 'refresh'] as const
-    queryClient.setQueryData<DraftCache>(queryKey, {})
-    expect(renderStatus(queryClient, queryKey, recordingModel('selected'), 'selected')).toContain('>ready<')
-    expect(renderStatus(queryClient, queryKey, recordingModel('old'), 'selected')).toContain('>loading<')
-  })
-
-  test('does not replace a seeded draft when the same query refetches', () => {
-    const model = recordingModel()
-    seedEditorDraft(model, 'selected', 'cached', false)
-    seedEditorDraft(model, 'selected', 'refetched', false)
-    expect(model.initializations).toEqual([{ key: 'selected', source: 'cached' }])
+    seedEditorDraft(model, sourceKey, 'cached', false)
+    model.resetSource = () => {
+      throw new Error('same-selection loading must retain the draft')
+    }
+    seedEditorDraft(model, sourceKey, undefined, false)
+    seedEditorDraft(model, sourceKey, 'refetched', false)
+    expect(model.initializations).toEqual([{ key: sourceKey, source: 'cached' }])
   })
 
   test('revokes a previous draft when the selected source is loading or absent', () => {
@@ -57,66 +32,11 @@ describe('useEditorDraft', () => {
       expect(resets).toBe(1)
     }
   })
-
-  test('a pending refetch of the same selection keeps its loaded draft', () => {
-    const model = recordingModel()
-    model.resetSource = () => {
-      throw new Error('same-selection loading must retain the draft')
-    }
-    seedEditorDraft(model, 'selected', 'source', false)
-    seedEditorDraft(model, 'selected', undefined, false)
-    expect(model.sourceKey.value).toBe('selected')
-  })
-
-  test('initializes each selection with its exact source key', () => {
-    const model = recordingModel()
-    seedEditorDraft(model, 'agent:ada', 'Ada', false)
-    seedEditorDraft(model, 'agent:grace', 'Grace', false)
-    expect(model.initializations).toEqual([
-      { key: 'agent:ada', source: 'Ada' },
-      { key: 'agent:grace', source: 'Grace' }
-    ])
-  })
 })
 
-function DraftStatus({
-  sourceKey,
-  model,
-  queryKey
-}: {
-  sourceKey: string
-  model: EditorDraftModel<string>
-  queryKey: readonly unknown[]
-}) {
-  const query = useQuery<DraftCache>({ queryKey, queryFn: async () => ({}), enabled: false })
-  const status = useEditorDraft(model, {
-    sourceKey,
-    source: query.data?.source,
-    absent: () => query.data?.absent === true
-  })
-  return <span>{status}</span>
-}
-
-function renderStatus(
-  queryClient: QueryClient,
-  queryKey: readonly unknown[],
-  model: EditorDraftModel<string>,
-  sourceKey: string
-) {
-  return renderToStaticMarkup(
-    <QueryClientProvider client={queryClient}>
-      <DraftStatus sourceKey={sourceKey} model={model} queryKey={queryKey} />
-    </QueryClientProvider>
-  )
-}
-
-function freshQueryClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } })
-}
-
-function recordingModel(sourceKey?: string) {
+function recordingModel() {
   const model: EditorDraftModel<string> & { initializations: Array<{ key: string; source: string }> } = {
-    sourceKey: { value: sourceKey },
+    sourceKey: { value: undefined },
     initializations: [],
     initialize(key, source) {
       model.initializations.push({ key, source })

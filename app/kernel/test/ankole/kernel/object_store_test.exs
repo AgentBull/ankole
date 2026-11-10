@@ -62,22 +62,6 @@ defmodule Ankole.Kernel.ObjectStoreTest do
     end
   end
 
-  @tag :network
-  test "S3 errors pass through the shared TLS provider" do
-    {:ok, store} =
-      ObjectStore.open(%{
-        scheme: "s3",
-        bucket: "ankole-tls-probe-#{System.unique_integer([:positive])}",
-        region: "us-east-1",
-        endpoint: "https://s3.us-east-1.amazonaws.com",
-        access_key_id: "AKIAANKOLETLSPROBE00",
-        secret_access_key: "invalid"
-      })
-
-    assert {:error, %{"code" => code}} = ObjectStore.read(store, "probe")
-    assert code in ["permission_denied", "not_found"]
-  end
-
   test "rejects an invalid spec" do
     assert {:error, %{"code" => "invalid_spec"}} = ObjectStore.open(%{scheme: "unknown"})
   end

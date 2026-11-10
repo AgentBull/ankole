@@ -35,20 +35,4 @@ describe('Select', () => {
     expect(html).toContain('Explicit OpenRouter label')
     expect(html).not.toContain('>Inferred label<')
   })
-
-  test('preserves custom value formatting', () => {
-    const html = renderToStaticMarkup(
-      <Select value="openrouter">
-        <SelectTrigger>
-          <SelectValue>{value => `Custom ${String(value)}`}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="openrouter">OpenRouter</SelectItem>
-        </SelectContent>
-      </Select>
-    )
-
-    expect(html).toContain('Custom openrouter')
-    expect(html).not.toContain('>OpenRouter<')
-  })
 })

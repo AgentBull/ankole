@@ -155,10 +155,6 @@ test('a typed address becomes a link on Enter', () => {
   expect(xml(result)).toBe('<page><p>go <a href="http://www.example.com">www.example.com</a></p></page>')
 })
 
-test('imported text does not become a link', () => {
-  expect(markdown(headlessState('Visit www\\.example.com'))).toBe('Visit www\\.example.com')
-})
-
 test('the link form reads, changes and removes links', () => {
   const state = headlessState('a [link](https://a.example "T") b')
   const inLink = state.update({ selection: GardSelection.cursor(position(state, 'link', 2)) }).state

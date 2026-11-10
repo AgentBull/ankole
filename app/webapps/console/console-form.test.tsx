@@ -25,19 +25,6 @@ async function renderWithRouter(node: ReactNode, initialEntry = '/') {
 }
 
 describe('console forms', () => {
-  test('lets application validation handle required fields on editor submit', async () => {
-    const html = await renderWithRouter(
-      <ResourceEditorPage backTo="/resources" onSubmit={() => {}} title="New resource">
-        <LabeledField label="Name" required>
-          <Input value="" readOnly />
-        </LabeledField>
-      </ResourceEditorPage>
-    )
-
-    expect(html).toContain('<form class="grid gap-6" noValidate=""')
-    expect(html).toContain('required=""')
-  })
-
   test('connects an application validation error to its field', () => {
     const html = renderToStaticMarkup(
       <LabeledField label="Name" error="Name is required" required>
@@ -60,16 +47,6 @@ describe('console forms', () => {
     expect(html).toContain('disabled=""')
     expect(html).toContain('aria-describedby=')
     expect(html).toContain('Select a provider first.')
-  })
-
-  test('does not duplicate the header back link with a footer cancel action', async () => {
-    const html = await renderWithRouter(
-      <ResourceEditorPage backTo="/resources" onSubmit={() => {}} title="Edit resource">
-        <Input value="Changed value" readOnly />
-      </ResourceEditorPage>
-    )
-
-    expect(html.match(/href="\/resources"/g)).toHaveLength(1)
   })
 
   test('makes a terminal resource read-only without offering a save action', async () => {

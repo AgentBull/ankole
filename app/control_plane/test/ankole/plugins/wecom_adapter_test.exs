@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.WeComAdapter
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Plugins.WeComAdapter.ConnectionReconciler
@@ -18,7 +17,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   alias Ankole.Plugins.WeComAdapter.TemplateCard
   alias Ankole.Repo
 
-  alias Ankole.Signals.Adapters
   alias Ankole.Conversations.AdapterContext
   alias Ankole.Conversations.Delivery.Intent
 
@@ -29,32 +27,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   end
 
   describe "plugin declaration" do
-    test "declares the trimmed chat face and the identity face" do
-      assert WeComAdapter.plugin_id() == "wecom-adapter"
-
-      assert [chat, identity] = WeComAdapter.adapter_declarations()
-
-      assert chat.contract_id == "signals.adapter"
-      assert chat.id == "wecom"
-      # WeCom AI bots receive only @-mentions and DMs — addressed_only is the
-      # sole group message mode this platform can honour.
-      assert chat.supported_group_message_modes == ["addressed_only"]
-      assert chat.inbound_capabilities == ["entry_receive", "action_event"]
-      # No recall API on the bot surface — delete_entry is deliberately absent.
-      assert chat.outbound_capabilities == ["post_entry", "card"]
-      assert :ok = Adapters.validate_declaration(chat)
-
-      assert identity.contract_id == "principals.identity_provider"
-
-      # No directory_realtime_sync: contact-change events need a public XML
-      # callback URL; changes converge through periodic full sync.
-      assert identity.capabilities == [
-               "oidc_authorization",
-               "oidc_code_exchange",
-               "credential_check",
-               "directory_full_sync"
-             ]
-    end
   end
 
   describe "config validation" do

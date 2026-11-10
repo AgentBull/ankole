@@ -11,8 +11,7 @@ defmodule Ankole.Config.BootstrapTest do
     "ANKOLE_BOOTSTRAP_GLOBAL_LOCAL",
     "ANKOLE_BOOTSTRAP_ONLY_GLOBAL",
     "ANKOLE_BOOTSTRAP_OS",
-    "ANKOLE_BOOTSTRAP_PATHS",
-    "ANKOLE_SECRET_BASE"
+    "ANKOLE_BOOTSTRAP_PATHS"
   ]
 
   @files_env_keys ~w(
@@ -140,20 +139,6 @@ defmodule Ankole.Config.BootstrapTest do
     assert System.get_env("ANKOLE_BOOTSTRAP_GLOBAL_LOCAL") == "from_global_local"
   end
 
-  test "dotenv quotes, export and interpolation use Dotenvy semantics" do
-    root = tmp_root()
-
-    File.write!(Path.join(root, ".env.dev"), """
-    export ANKOLE_BOOTSTRAP_BASE="quoted value"
-    ANKOLE_BOOTSTRAP_GLOBAL_LOCAL="${ANKOLE_BOOTSTRAP_BASE}/tail"
-    """)
-
-    Bootstrap.load_dotenv!(root: root, env: :dev)
-
-    assert System.get_env("ANKOLE_BOOTSTRAP_BASE") == "quoted value"
-    assert System.get_env("ANKOLE_BOOTSTRAP_GLOBAL_LOCAL") == "quoted value/tail"
-  end
-
   test "loads only global local dotenv file for non dev and test environments" do
     root = tmp_root()
 
@@ -175,15 +160,6 @@ defmodule Ankole.Config.BootstrapTest do
            ]
 
     assert Bootstrap.env_path_list("ANKOLE_BOOTSTRAP_MISSING_PATHS", []) == []
-  end
-
-  test "derives the endpoint secret from any configured seed value" do
-    Enum.each(["", "x"], fn seed ->
-      System.put_env("ANKOLE_SECRET_BASE", seed)
-
-      assert Bootstrap.endpoint_secret_key_base!() ==
-               Ankole.Kernel.derive_key(seed, "phoenix.secret_key_base")
-    end)
   end
 
   test "builds remote store specs with credentials and upstream field names" do

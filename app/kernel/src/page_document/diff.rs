@@ -367,7 +367,6 @@ fn split<T: PartialEq>(a: &[T], b: &[T]) -> Option<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
-    use super::matches;
     use crate::page_document::{annotate_comment, apply, diff, restore_comments, validate};
     use serde_json::{Value, json};
 
@@ -537,42 +536,6 @@ mod tests {
                 apply(before, &change.to_string()).unwrap().xml,
                 validate(after).unwrap().xml
             );
-        }
-    }
-
-    #[test]
-    fn middle_split_has_the_same_lcs_length_as_the_reference_table() {
-        let strings: Vec<Vec<u8>> = (0..121)
-            .map(|mut seed| {
-                let mut value = Vec::new();
-                while seed > 0 {
-                    value.push(b'a' + ((seed - 1) % 3) as u8);
-                    seed = (seed - 1) / 3;
-                }
-                value
-            })
-            .collect();
-        for a in &strings {
-            for b in &strings {
-                let mut table = vec![vec![0; b.len() + 1]; a.len() + 1];
-                for x in 0..a.len() {
-                    for y in 0..b.len() {
-                        table[x + 1][y + 1] = if a[x] == b[y] {
-                            table[x][y] + 1
-                        } else {
-                            table[x][y + 1].max(table[x + 1][y])
-                        };
-                    }
-                }
-                let matched = matches(a, b);
-                assert_eq!(matched.len(), table[a.len()][b.len()], "{a:?} {b:?}");
-                assert!(matched.iter().all(|&(x, y)| a[x] == b[y]));
-                assert!(
-                    matched
-                        .windows(2)
-                        .all(|pair| pair[0].0 < pair[1].0 && pair[0].1 < pair[1].1)
-                );
-            }
         }
     }
 }

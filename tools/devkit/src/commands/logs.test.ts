@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { ankolePrettyLogOptions, formatPrettyLogMessage, isRoutineOTPApplicationStop } from './logs'
+import { formatPrettyLogMessage, isRoutineOTPApplicationStop } from './logs'
 
 describe('pretty logs', () => {
   test('formats a supplied stream and drains its final line', async () => {
@@ -8,7 +8,7 @@ describe('pretty logs', () => {
       import { Readable } from 'node:stream'
       import { runPrettyLogs } from ${JSON.stringify(new URL('./logs.ts', import.meta.url).href)}
       await runPrettyLogs(Readable.from([
-        JSON.stringify({ severity: 'INFO', message: 'Phoenix started' }) + '\\n',
+        JSON.stringify({ severity: 'INFO', message: 'Phoenix started', error_logger: { type: 'formatter-only' } }) + '\\n',
         'Vite ready\\n',
         JSON.stringify({ severity: 'ERROR', message: 'Final diagnostic' })
       ]))
@@ -27,6 +27,7 @@ describe('pretty logs', () => {
     expect(status).toBe(0)
     expect(errors).toBe('')
     expect(output).toContain('Phoenix started')
+    expect(output).not.toContain('formatter-only')
     expect(output).toContain('Vite ready')
     expect(output).toContain('Final diagnostic')
   })
@@ -47,10 +48,6 @@ describe('pretty logs', () => {
     expect(isRoutineOTPApplicationStop({ ...routineStop, message: 'Application ankole exited: eaddrinuse' })).toBe(
       false
     )
-  })
-
-  test('hides redundant Erlang formatter metadata from local output', () => {
-    expect(ankolePrettyLogOptions().ignore?.split(',')).toContain('error_logger')
   })
 
   test('uses the control-plane message for activation code events', () => {

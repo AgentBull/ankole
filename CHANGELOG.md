@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.100 (2026-11-10)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.99 (2026-11-10)
 
 - Open a Pod chat file in its preview when you select its card, in Agent

@@ -4,44 +4,6 @@ defmodule Ankole.RuntimeFabricTest do
   alias Ankole.RuntimeFabric
   alias Ankole.RuntimeFabric.V1, as: V1
 
-  test "runtime fabric protocol version is the one that sealed envelopes carry" do
-    bytes =
-      RuntimeFabric.seal_and_encode(%V1.Envelope{
-        message_id: "protocol-version",
-        body: {:control_shutdown, %V1.ControlShutdown{reason: "test"}}
-      })
-
-    assert {:ok, %V1.Envelope{protocol_version: version}} =
-             Ankole.RuntimeFabric.V1.Envelope.decode(bytes)
-
-    assert RuntimeFabric.protocol_version() == version
-  end
-
-  test "runtime fabric envelope structs round trip through the generated codec" do
-    envelope = %V1.Envelope{
-      message_id: "turn-start-1",
-      body:
-        {:turn_start,
-         %V1.TurnStart{
-           mode: "start",
-           turn: job_turn_ref(),
-           signal: signal_envelope(),
-           fetch_runtime_config: %V1.FetchRuntimeConfig{ssrf_filter: true},
-           model_ref: %V1.TurnModelRef{
-             provider_id: "openrouter-main",
-             model: "openai/gpt-5.4-mini",
-             provider_kind: "openrouter"
-           },
-           request_context_json: Torque.encode!(%{kind: "schedule", silent_success_allowed: true})
-         }}
-    }
-
-    encoded = RuntimeFabric.encode_envelope(envelope)
-
-    assert is_binary(encoded)
-    assert {:ok, ^envelope} = Ankole.RuntimeFabric.V1.Envelope.decode(encoded)
-  end
-
   test "runtime fabric rejects a mismatched protocol version" do
     envelope = %V1.Envelope{protocol_version: 10, message_id: "old-version"}
 

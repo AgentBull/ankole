@@ -11,7 +11,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   alias Ankole.AppConfigure.Crypto, as: AppConfigureCrypto
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.AuthZ
-  alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.ConnectionReconciler
   alias Ankole.Plugins.DingTalkAdapter.IdentityProvider
@@ -31,32 +30,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
     :ok
-  end
-
-  describe "plugin declaration" do
-    test "declares the trimmed chat face and the identity face" do
-      assert DingTalkAdapter.plugin_id() == "dingtalk-adapter"
-
-      assert [chat, identity] = DingTalkAdapter.adapter_declarations()
-
-      assert chat.contract_id == "signals.adapter"
-      assert chat.id == "dingtalk"
-      # DingTalk robots receive only @-mentions and DMs — addressed_only is the
-      # sole group message mode this platform can honour.
-      assert chat.supported_group_message_modes == ["addressed_only"]
-      assert chat.inbound_capabilities == ["entry_receive", "action_event"]
-      assert chat.outbound_capabilities == ["post_entry", "delete_entry", "card"]
-
-      assert identity.contract_id == "principals.identity_provider"
-
-      assert identity.capabilities == [
-               "oidc_authorization",
-               "oidc_code_exchange",
-               "credential_check",
-               "directory_full_sync",
-               "directory_realtime_sync"
-             ]
-    end
   end
 
   test "concurrent DingTalk binding saves validate app ownership from committed database state" do

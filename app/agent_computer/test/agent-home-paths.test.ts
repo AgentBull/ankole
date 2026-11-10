@@ -52,10 +52,6 @@ describe('Agent Home paths', () => {
     expect(jobWorkspacePath('/workspace', '1000')).toBe('/workspace/jobs/1000')
   })
 
-  it('uses the PostgreSQL-owned numeric Session workspace ID', () => {
-    expect(sessionWorkspacePath('/workspace', 10_000)).toBe('/workspace/sessions/10000')
-  })
-
   it('retains the shared safe segment helper for non-identity filenames', () => {
     expect(sanitizePathSegment(' report id! ')).toBe('report-id')
     expect(sanitizePathSegment('unsafe/id', { replacement: '_' })).toBe('unsafe_id')

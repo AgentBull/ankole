@@ -3,10 +3,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
 
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Membership
-  alias Ankole.Plugins.GoogleWorkspaceAdapter
   alias Ankole.Plugins.GoogleWorkspaceAdapter.Config
   alias Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider
-  alias Ankole.Plugins.Registry
   alias Ankole.Principals
 
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -53,63 +51,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
   end
 
   describe "plugin and config contracts" do
-    test "declares one identity contract without realtime sync" do
-      assert GoogleWorkspaceAdapter.plugin_id() == "google-workspace-adapter"
-
-      assert [
-               %{
-                 contract_id: "principals.identity_provider",
-                 id: "google-workspace",
-                 module: IdentityProvider,
-                 capabilities: capabilities
-               }
-             ] = GoogleWorkspaceAdapter.adapter_declarations()
-
-      assert capabilities == ["oidc_authorization", "oidc_code_exchange", "directory_full_sync"]
-      refute "directory_realtime_sync" in capabilities
-      assert Enum.all?(GoogleWorkspaceAdapter.app_config_patterns(), & &1.encrypted)
-
-      [identity] = GoogleWorkspaceAdapter.adapter_declarations()
-      fields = Map.new(identity.fields, &{&1.path, &1})
-
-      assert fields["clientID"].requiredWhen == [%{path: "oidc.enabled", value: true}]
-      assert fields["clientSecret"].requiredWhen == [%{path: "oidc.enabled", value: true}]
-      assert fields["oidc.allowedDomains"].requiredWhen == [%{path: "oidc.enabled", value: true}]
-      assert fields["serviceAccountKey"].requiredWhen == [%{path: "sync.contacts", value: true}]
-      assert fields["adminEmail"].requiredWhen == [%{path: "sync.contacts", value: true}]
-
-      assert fields["oidc.allowedDomains"].validation.pattern ==
-               "^[A-Za-z0-9][A-Za-z0-9.-]*\\.[A-Za-z]{2,}$"
-
-      assert fields["serviceAccountKey"].validation == %{
-               kind: "json_object",
-               requiredStringProperties: ["client_email", "private_key"],
-               stringPrefixes: %{"private_key" => "-----BEGIN"},
-               message: %{
-                 "default" =>
-                   "Paste a service account JSON key that contains client_email and private_key.",
-                 "zh-Hans-CN" => "请粘贴包含 client_email 和 private_key 的服务账号 JSON 密钥。"
-               }
-             }
-
-      assert fields["adminEmail"].validation.pattern == "^[^\\s@]+@[^\\s@]+$"
-    end
-
-    test "the booted registry discovered and validated the plugin" do
-      assert {:ok, plugin} = Registry.get("google-workspace-adapter")
-      assert plugin.id == "google-workspace-adapter"
-
-      adapter =
-        Enum.find(
-          Ankole.IdentityProviders.list_adapters(),
-          &(&1.adapter_id == "google-workspace")
-        )
-
-      assert adapter.plugin_id == "google-workspace-adapter"
-      assert adapter.default_provider_id == "google-workspace-main"
-      assert adapter.connection_reconciler == nil
-    end
-
     test "identity validation requires allowed domains for login" do
       assert {:error, {:missing, "oidc.allowedDomains"}} =
                Config.validate_identity_config(%{

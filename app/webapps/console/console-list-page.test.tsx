@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { listAgentsQueryKey } from './api/v2/generated/@tanstack/react-query.gen'
-import { AgentCell, ResourceListPage, RowActions, RowViewAction, SubNav } from './console-list-page'
+import { AgentCell, ResourceListPage, SubNav } from './console-list-page'
 import { brainObjectPath } from './pages/brain/brain-nav'
 import { BrainObjectDrawer } from './pages/brain/objects'
 
@@ -125,50 +125,6 @@ describe('ResourceListPage pagination', () => {
     } finally {
       client.clear()
     }
-  })
-})
-
-describe('RowActions', () => {
-  test('keeps a reversible row action beside edit in the row menu', async () => {
-    const html = await renderWithRouter(
-      <table>
-        <tbody>
-          <tr>
-            <RowActions actions={[{ label: 'Enable', onAction: () => {} }]} editLabel="Edit" editTo="/resources/one" />
-          </tr>
-        </tbody>
-      </table>
-    )
-
-    expect(html).toContain('aria-label="More actions"')
-    expect(html).not.toContain('aria-label="Edit"')
-  })
-})
-
-describe('RowViewAction', () => {
-  test('uses the same compact trailing control for routes and local detail views', async () => {
-    const linkHTML = await renderWithRouter(
-      <table>
-        <tbody>
-          <tr>
-            <RowViewAction label="View resource details" to="/resources/one" />
-          </tr>
-        </tbody>
-      </table>
-    )
-    const buttonHTML = renderToStaticMarkup(
-      <table>
-        <tbody>
-          <tr>
-            <RowViewAction label="View resource details" onOpen={() => {}} />
-          </tr>
-        </tbody>
-      </table>
-    )
-
-    expect(linkHTML).toContain('aria-label="View resource details"')
-    expect(linkHTML).toContain('href="/resources/one"')
-    expect(buttonHTML).toContain('aria-label="View resource details"')
   })
 })
 

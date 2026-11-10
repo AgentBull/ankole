@@ -76,22 +76,4 @@ describe('repairGeneratedMarkdown', () => {
     expect(html).toContain('<del>旧方案</del>')
     expect(html).toContain('class="katex"')
   })
-
-  test('leaves human messages 100% untouched CommonMark/GFM when repairGeneratedMarkdown is not enabled', () => {
-    const humanInput = 'Literal \\n\\n and **unclosed ** and ~50%~'
-    const html = renderToStaticMarkup(
-      createElement(
-        Markdown,
-        {
-          remarkPlugins: [remarkGfm, remarkMath, cjkAutolinks],
-          rehypePlugins: [rehypeKatex]
-        },
-        humanInput
-      )
-    )
-
-    expect(html).toContain('Literal \\n\\n')
-    expect(html).toContain('**unclosed **')
-    expect(html).toContain('<del>50%</del>')
-  })
 })

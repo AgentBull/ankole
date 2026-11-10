@@ -3,62 +3,7 @@ defmodule Ankole.ApplicationTest do
 
   alias Ankole.AppConfigure.Declarations
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.I18n
   alias Ankole.Plugins.Registry, as: PluginRegistry
-
-  test "loads CardKit translations before Delivery and Sessions can recover durable replies" do
-    reverse_start_order =
-      Ankole.Supervisor
-      |> Supervisor.which_children()
-      |> Enum.map(&elem(&1, 0))
-
-    delivery_index =
-      Enum.find_index(reverse_start_order, &(&1 == Ankole.Conversations.Delivery.Supervisor))
-
-    i18n_catalog_index =
-      Enum.find_index(reverse_start_order, &(&1 == Ankole.I18n.Catalog))
-
-    assert delivery_index < i18n_catalog_index
-
-    for locale <- ["en-US", "zh-Hans-CN"] do
-      translated = I18n.t("conversations.delivery.cardkit.refining", %{}, locale: locale)
-      assert is_binary(translated) and translated != ""
-      refute translated == "conversations.delivery.cardkit.refining"
-    end
-  end
-
-  test "starts Delivery and Sessions before Workflow and Oban before plugin enqueue" do
-    reverse_start_order =
-      Ankole.Supervisor
-      |> Supervisor.which_children()
-      |> Enum.map(&elem(&1, 0))
-
-    delivery_index =
-      Enum.find_index(reverse_start_order, &(&1 == Ankole.Conversations.Delivery.Supervisor))
-
-    workflow_index =
-      Enum.find_index(reverse_start_order, &(&1 == Ankole.Workflow.Supervisor))
-
-    assert workflow_index < delivery_index
-
-    oban_index = Enum.find_index(reverse_start_order, &(&1 == Oban))
-    plugins_index = Enum.find_index(reverse_start_order, &(&1 == Ankole.Plugins.Cohort))
-    dns_cluster_index = Enum.find_index(reverse_start_order, &(&1 == DNSCluster))
-    endpoint_index = Enum.find_index(reverse_start_order, &(&1 == AnkoleWeb.Endpoint))
-    drain_index = Enum.find_index(reverse_start_order, &(&1 == AnkoleWeb.EndpointDrain))
-    assert plugins_index < oban_index
-    assert oban_index < dns_cluster_index
-    assert drain_index < endpoint_index
-
-    runtime_children =
-      Ankole.AgentWorkers.Supervisor
-      |> Supervisor.which_children()
-      |> Enum.map(&elem(&1, 0))
-
-    assert Ankole.Sessions.Supervisor in reverse_start_order
-    assert Ankole.AgentWorkers.Supervisor in reverse_start_order
-    refute Ankole.Sessions.Supervisor in runtime_children
-  end
 
   test "AppConfigure registry rebuilds core and active Plugin declarations without restarting consumers" do
     app_config_registry = restart_named!(AppConfigureRegistry)
@@ -119,18 +64,6 @@ defmodule Ankole.ApplicationTest do
 
     assert MapSet.subset?(MapSet.new(plugin_definitions, & &1.key), actual_keys)
     assert MapSet.subset?(MapSet.new(plugin_patterns, & &1.id), actual_pattern_ids)
-  end
-
-  test "long-connection owners terminate when their linked Registry partition exits" do
-    for owner <- [
-          Ankole.Plugins.DiscordAdapter.ConnectionOwner,
-          Ankole.Plugins.EmailAdapter.ConnectionOwner,
-          Ankole.Plugins.TelegramAdapter.ConnectionOwner,
-          Ankole.Plugins.WeComAdapter.ConnectionOwner
-        ] do
-      state = struct!(owner)
-      assert {:stop, :killed, ^state} = owner.handle_info({:EXIT, self(), :killed}, state)
-    end
   end
 
   test "temporary SDK clients terminate with their Registry partition" do

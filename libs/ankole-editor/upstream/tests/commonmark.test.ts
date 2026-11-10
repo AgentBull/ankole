@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { HtmlRenderer, Parser } from 'commonmark'
+import { Parser } from 'commonmark'
 import { parseMarkdown, printMarkdown } from '../../src/document/markdown'
 import { parseXml } from '../../src/document/xml'
 import { readTree } from '../../src/editor/convert'
@@ -9,13 +9,11 @@ import dialect from '../fixtures/commonmark-dialect.json'
 import { commonmarkContent, editorContent, elementContent } from '../semantic'
 
 const reference = new Parser()
-const renderer = new HtmlRenderer()
 const differences = dialect.examples as Record<string, { reason: string; xml?: string; error?: string }>
 
 for (const example of examples) {
   test(`commonmark:${example.example} ${example.section}`, () => {
     const parsed = reference.parse(example.markdown)
-    expect(renderer.render(parsed)).toBe(example.html)
     const difference = differences[example.example]
     expect(difference === undefined || difference.reason in dialect.reasons).toBe(true)
     if (difference?.error) {

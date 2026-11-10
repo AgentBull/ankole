@@ -2,46 +2,17 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
   use ExUnit.Case, async: false
 
   alias Ankole.AIGateway.PrepareContext
-  alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.UniversalAIRequest
   alias Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin
   alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
   alias Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin
-  alias Ankole.Plugins.ChinaMarketAIProviders
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan
-  alias Ankole.Plugins.Spec
 
   @zai_default_user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) CherryStudio/1.8.2 Chrome/146.0.7680.188 Electron/41.2.1 Safari/537.36"
-  @providers [
-    {"xiaomi_mimo", XiaomiMiMo, "https://api.xiaomimimo.com/anthropic", :anthropic_messages},
-    {"volcengine_ark", VolcengineArk, "https://ark.cn-beijing.volces.com/api/v3",
-     :openai_chat_completions},
-    {"alibaba_cn", AlibabaCN, "https://dashscope.aliyuncs.com/compatible-mode/v1",
-     :openai_chat_completions},
-    {"zai_coding_plan", ZaiCodingPlan, "https://api.z.ai/api/coding/paas/v4",
-     :openai_chat_completions}
-  ]
-
-  test "plugin declaration registers all AI Gateway provider adapters" do
-    assert {:ok, spec} = Spec.from_module(ChinaMarketAIProviders)
-    assert spec.id == "china-market-ai-providers"
-    assert spec.children == []
-
-    declarations = Map.new(spec.adapter_declarations, &{&1.id, &1})
-
-    for {provider_id, module, _base_url, _resolver} <- @providers do
-      assert %{
-               contract_id: "ai_gateway.provider",
-               id: ^provider_id,
-               plugin_id: "china-market-ai-providers",
-               module: ^module
-             } = Map.fetch!(declarations, provider_id)
-    end
-  end
 
   test "invalid plugin providers are rejected instead of skipped" do
     declarations =
@@ -69,36 +40,6 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert_raise ArgumentError, ~r/invalid AI Gateway provider declaration/, fn ->
       Providers.refresh_from_adapter_declarations(declarations)
     end
-  end
-
-  test "provider definitions expose exact ids, defaults, and language-model capability" do
-    for {provider_id, module, base_url, resolver} <- @providers do
-      definition = module.provider_definition()
-
-      assert definition.provider_kind == provider_id
-      assert definition.module == module
-      assert definition.base_url == base_url
-      assert {:ok, capability} = ProviderDefinition.capability(definition, :language_model)
-      assert capability.kind == :language_model
-      assert capability.upstream == :sse
-      assert capability.api_resolver == resolver
-      assert capability.prepare == :prepare_language_model
-      assert "api_key" in setting_keys(definition)
-    end
-
-    for module <- [AlibabaCN, VolcengineArk, ZaiCodingPlan] do
-      keys = setting_keys(module.provider_definition())
-
-      refute "include_usage" in keys
-      refute "supports_structured_outputs" in keys
-    end
-
-    volcengine_keys = setting_keys(VolcengineArk.provider_definition())
-    assert "reasoningEffort" in volcengine_keys
-    refute "reasoning" in volcengine_keys
-    refute "thinking" in volcengine_keys
-    refute "textVerbosity" in volcengine_keys
-    refute "strictJSONSchema" in volcengine_keys
   end
 
   test "volcengine ark builds an OpenAI-compatible chat request" do

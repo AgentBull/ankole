@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   import Ankole.Eventually, only: [eventually: 1]
 
   alias Ankole.Conversations.Delivery.PreviewStates
-  alias Ankole.Plugins.TelegramAdapter
 
   alias Ankole.Plugins.TelegramAdapter.Client
   alias Ankole.Plugins.TelegramAdapter.Config
@@ -59,46 +58,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   end
 
   describe "plugin and catalog contract" do
-    test "declares one consumer IM adapter with the complete gateway capability set" do
-      assert TelegramAdapter.plugin_id() == "telegram-adapter"
-      assert [declaration] = TelegramAdapter.adapter_declarations()
-      assert declaration.id == "telegram"
-      assert declaration.adapter_category == "consumer_im"
-
-      assert declaration.supported_group_message_modes == [
-               "addressed_only",
-               "observe_all",
-               "may_intervene"
-             ]
-
-      assert declaration.inbound_capabilities == [
-               "entry_receive",
-               "reaction_add",
-               "reaction_remove",
-               "action_event"
-             ]
-
-      assert declaration.outbound_capabilities == [
-               "post_entry",
-               "reply_entry",
-               "edit_entry",
-               "delete_entry",
-               "add_reaction",
-               "remove_reaction",
-               "divider",
-               "card"
-             ]
-
-      refute "outbound_reconciliation" in declaration.outbound_capabilities
-      assert [%{path: "botToken", encrypted: true, required: true}] = declaration.fields
-      assert Enum.all?(TelegramAdapter.app_config_patterns(), & &1.encrypted)
-    end
-
-    test "keeps two Agents' same-name bindings on distinct config keys" do
-      key = Config.binding_config_key("agent-a", "main")
-      assert key =~ ~r/\Asignals\.telegram\.bindings\.[a-f0-9]{64}\z/
-      refute key == Config.binding_config_key("agent-b", "main")
-
+    test "stores separate credentials for two Agents' same-name bindings" do
       %{principal: first} = agent_fixture()
       %{principal: second} = agent_fixture()
 

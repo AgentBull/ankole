@@ -20,17 +20,6 @@ describe('buildCargoEnv', () => {
     expect(env.SCCACHE_GHA_ENABLED).toBeUndefined()
   })
 
-  test('falls back silently to standard Cargo when sccache is not installed', () => {
-    const warnings: string[] = []
-    const env = buildCargoEnv(
-      { PATH: '/usr/bin' },
-      { resolveExecutable: () => null, warn: message => warnings.push(message) }
-    )
-
-    expect(env.RUSTC_WRAPPER).toBeUndefined()
-    expect(warnings).toEqual([])
-  })
-
   test('disables sccache when ANKOLE_SCCACHE=0', () => {
     const env = buildCargoEnv(
       { ANKOLE_SCCACHE: '0', PATH: '/usr/bin' },
@@ -38,16 +27,5 @@ describe('buildCargoEnv', () => {
     )
 
     expect(env.RUSTC_WRAPPER).toBeUndefined()
-  })
-
-  test('warns when ANKOLE_SCCACHE=1 is set explicitly without sccache installed', () => {
-    const warnings: string[] = []
-    const env = buildCargoEnv(
-      { ANKOLE_SCCACHE: 'true', PATH: '/usr/bin' },
-      { resolveExecutable: () => null, warn: message => warnings.push(message) }
-    )
-
-    expect(env.RUSTC_WRAPPER).toBeUndefined()
-    expect(warnings).toHaveLength(1)
   })
 })

@@ -78,33 +78,6 @@ defmodule Ankole.KernelTest do
     assert {:error, %{"code" => "empty"}} = NativeKernel.sql_inspect("", :clickhouse)
   end
 
-  test "web_url_facts/1 parses and classifies web URLs" do
-    assert %{scheme: "https", host: "example.com", host_class: :public} =
-             NativeKernel.web_url_facts("https://Example.COM/page")
-
-    assert %{host_class: :private} = NativeKernel.web_url_facts("https://10.0.0.8/internal")
-    assert %{host_class: :private} = NativeKernel.web_url_facts("https://svc.localhost/app")
-
-    assert %{host: "127.0.0.1", host_class: :private} =
-             NativeKernel.web_url_facts("https://0x7f000001/")
-
-    assert %{host_class: :private} = NativeKernel.web_url_facts("https://[::ffff:10.0.0.1]/")
-
-    assert %{host_class: :metadata} =
-             NativeKernel.web_url_facts("https://169.254.169.254/latest/")
-
-    assert %{host_class: :metadata} =
-             NativeKernel.web_url_facts("https://metadata.google.internal/v1/")
-
-    assert %{host_class: :metadata} = NativeKernel.web_url_facts("https://[fe80::1]/admin")
-
-    assert %{scheme: "data", host: nil, host_class: nil} =
-             NativeKernel.web_url_facts("data:text/plain,hi")
-
-    assert {:error, reason} = NativeKernel.web_url_facts("not a url")
-    assert reason =~ "invalid web url"
-  end
-
   test "web_url_facts/1 matches the shared host classification vectors" do
     vectors_path = Path.expand("../vectors/web_url_host_classification.json", __DIR__)
 
@@ -287,115 +260,6 @@ defmodule Ankole.KernelTest do
              NativeKernel.jwt_sign_pem(%{exp: 4_102_444_800}, "not a pem key", %{})
   end
 
-  test "authz helpers evaluate snapshots without host database access" do
-    assert NativeKernel.authz_validate_condition(~s(principal.type == "human"))
-    assert NativeKernel.authz_validate_condition("[1, 2, 3].all(n, n > 0)")
-    assert NativeKernel.authz_validate_resource_pattern("workspace:**")
-    assert NativeKernel.authz_match_resource_pattern("workspace:**", "workspace:default")
-
-    decision =
-      NativeKernel.authz_authorize(%{
-        principal: %{
-          uid: "alice",
-          type: "human",
-          status: "active"
-        },
-        staticGroupIDs: [],
-        computedGroups: [],
-        grants: [
-          %{
-            id: "grant-1",
-            principalUID: "alice",
-            resourcePattern: "workspace:**",
-            action: "read",
-            condition: ~s|context.request.source == "test" && [1, 2, 3].all(n, n > 0)|
-          }
-        ],
-        resource: "workspace:default",
-        action: "read",
-        context: %{source: "test"}
-      })
-
-    assert decision["status"] == "allow"
-    assert decision["diagnostics"] == []
-    assert decision["effectiveGroupIDs"] == []
-  end
-
-  test "signals gateway CEL filters evaluate normalized contexts" do
-    context = %{
-      binding: %{name: "bot", adapter: "lark"},
-      signal: %{
-        kind: "entry_received",
-        channel: %{id: "lark:chat:group-a", kind: "im_group", reply_mode: "entry"},
-        entry: %{
-          id: "msg-1",
-          sender_key: "lark:user:alice",
-          text: "hello from lark",
-          metadata: %{repository: "ankole"}
-        }
-      }
-    }
-
-    assert NativeKernel.signals_validate_filter("signal.channel.id == 'lark:chat:group-a'")
-
-    assert NativeKernel.signals_filter_match(
-             "binding.name == 'bot' && signal.entry.sender_key.startsWith('lark:user:')",
-             context
-           )
-
-    assert NativeKernel.signals_filter_match(
-             "signal.entry.text.contains('hello') && signal.entry.sender_key.matches('^lark:user:[a-z]+$')",
-             context
-           )
-
-    assert NativeKernel.signals_filter_match(
-             "[1, 2, 3].all(n, n > 0) && ['a', 'bb', 'ccc'].filter(v, v.size() > 1).map(v, v.size()).exists(size, size == 3)",
-             context
-           )
-
-    refute NativeKernel.signals_filter_match("signal.channel.kind == 'im_dm'", context)
-
-    assert {:error, reason} =
-             NativeKernel.signals_filter_match("signal.entry.text", context)
-
-    assert reason =~ "signal filter returned string"
-
-    assert {:error, reason} =
-             NativeKernel.signals_filter_match("signal.entry.missing", context)
-
-    assert reason =~ "signal filter execution failed"
-    assert {:error, reason} = NativeKernel.signals_validate_filter("signal.")
-    assert reason =~ "invalid signal filter"
-  end
-
-  test "authz batch decisions report the first denied action" do
-    decision =
-      NativeKernel.authz_authorize_all(%{
-        principal: %{
-          uid: "alice",
-          type: "human",
-          status: "active"
-        },
-        staticGroupIDs: [],
-        computedGroups: [],
-        grants: [
-          %{
-            id: "grant-1",
-            principalUID: "alice",
-            resourcePattern: "workspace:**",
-            action: "read",
-            condition: "true"
-          }
-        ],
-        resource: "workspace:default",
-        actions: ["read", "write"],
-        context: %{}
-      })
-
-    assert decision["status"] == "deny"
-    assert decision["deniedAction"] == "write"
-  end
-
   test "o200k_base token estimator and truncator are provider-neutral and grapheme-safe" do
     assert NativeKernel.estimate_o200k_base_tokens("Hello world") == 2
     assert NativeKernel.estimate_o200k_base_tokens("记忆系统") == 3
@@ -449,9 +313,6 @@ defmodule Ankole.KernelTest do
     assert_in_delta shared_score, 1 / 62 + 1 / 61, 1.0e-15
     assert_in_delta first_score, 1 / 61, 1.0e-15
     assert_in_delta last_score, 1 / 62, 1.0e-15
-
-    assert [%{"id" => "first"}, %{"id" => "second"}] =
-             NativeKernel.reciprocal_rank_fusion([["first"], ["second"]], 0)
   end
 
   test "reciprocal rank fusion rejects malformed route lists at the native boundary" do

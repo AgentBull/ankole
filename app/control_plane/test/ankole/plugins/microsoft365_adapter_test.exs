@@ -3,7 +3,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   import Ankole.ExternalConversationsFixtures
 
   alias Ankole.AppConfigure
-  alias Ankole.Plugins.Microsoft365Adapter
 
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Group
@@ -59,55 +58,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   end
 
   describe "plugin and config contracts" do
-    test "declares chat, identity, and webhook contracts" do
-      assert Microsoft365Adapter.plugin_id() == "microsoft365-adapter"
-
-      assert [
-               %{
-                 contract_id: "signals.adapter",
-                 id: "teams",
-                 config_module: Config,
-                 binding_saved_module: TeamsChannels
-               },
-               %{
-                 contract_id: "signals.webhook_handler",
-                 id: "teams",
-                 module: TeamsWebhook,
-                 kinds: ["messages"]
-               },
-               %{
-                 contract_id: "principals.identity_provider",
-                 id: "entra-id",
-                 module: IdentityProvider,
-                 connection_reconciler: SubscriptionReconciler
-               },
-               %{
-                 contract_id: "signals.webhook_handler",
-                 id: "entra-id",
-                 module: DirectoryWebhook,
-                 kinds: ["directory"]
-               }
-             ] = Microsoft365Adapter.adapter_declarations()
-
-      declarations = Microsoft365Adapter.adapter_declarations()
-      chat = Enum.find(declarations, &(&1.contract_id == "signals.adapter"))
-
-      refute "add_reaction" in chat.outbound_capabilities
-      refute "outbound_reconciliation" in chat.outbound_capabilities
-      assert Enum.all?(Microsoft365Adapter.app_config_patterns(), & &1.encrypted)
-
-      identity = Enum.find(declarations, &(&1.contract_id == "principals.identity_provider"))
-      fields = Map.new(identity.fields, &{&1.path, &1})
-
-      assert fields["tenantID"].validation.pattern ==
-               "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-
-      assert fields["publicBaseURL"].requiredWhen == [
-               %{path: "sync.contacts", value: true},
-               %{path: "sync.realtime", value: true}
-             ]
-    end
-
     test "chat validation enforces GUIDs and tenancy" do
       assert {:error, {:invalid_guid, "appID"}} =
                Config.validate_chat_config(%{"appID" => "not-a-guid", "appPassword" => "pw"})

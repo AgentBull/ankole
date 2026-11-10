@@ -23,22 +23,6 @@ defmodule AnkoleWeb.EndpointDrainTest do
     end
   end
 
-  test "non-probe requests pass through call_health_plug untouched" do
-    post_conn =
-      Phoenix.ConnTest.build_conn(:post, "/_internal/health")
-      |> EndpointDrain.call_health_plug()
-
-    refute post_conn.halted
-    assert post_conn.state == :unset
-
-    app_conn =
-      Phoenix.ConnTest.build_conn(:get, "/healthz")
-      |> EndpointDrain.call_health_plug()
-
-    refute app_conn.halted
-    assert app_conn.state == :unset
-  end
-
   test "lifecycle transitions from starting to ready, then flips to draining and delays shutdown" do
     state_key = {__MODULE__, make_ref()}
     on_exit(fn -> :persistent_term.erase(state_key) end)

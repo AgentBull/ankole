@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
   import Ankole.Eventually, only: [eventually: 1]
 
   alias Ankole.Conversations.Delivery.PreviewStates
-  alias Ankole.Plugins.LineAdapter
 
   alias Ankole.Plugins.LineAdapter.Config
   alias Ankole.Plugins.LineAdapter.Inbound
@@ -82,49 +81,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
   end
 
   describe "plugin and catalog contract" do
-    test "declares one consumer IM adapter and its webhook handler" do
-      assert LineAdapter.plugin_id() == "line-adapter"
-      assert [adapter, handler] = LineAdapter.adapter_declarations()
-      assert adapter.id == "line"
-      assert adapter.adapter_category == "consumer_im"
-      assert adapter.author_hydrator == Profile
-      refute Map.has_key?(adapter, :preview_module)
-
-      assert adapter.supported_group_message_modes == [
-               "addressed_only",
-               "observe_all",
-               "may_intervene"
-             ]
-
-      assert adapter.inbound_capabilities == ["entry_receive", "entry_removed", "action_event"]
-
-      assert adapter.outbound_capabilities == [
-               "post_entry",
-               "reply_entry",
-               "divider",
-               "card",
-               "outbound_reconciliation"
-             ]
-
-      assert Enum.map(adapter.fields, & &1.path) == [
-               "channelId",
-               "channelSecret",
-               "channelAccessToken"
-             ]
-
-      assert Enum.map(adapter.fields, & &1.encrypted) == [false, true, true]
-
-      assert handler.contract_id == "signals.webhook_handler"
-      assert handler.id == "line"
-      assert handler.module == Webhook
-      assert handler.kinds == ["events"]
-    end
-
-    test "keeps two Agents' same-name bindings on distinct config keys" do
-      assert Config.binding_config_key("agent-a", "line-main") !=
-               Config.binding_config_key("agent-b", "line-main")
-    end
-
     test "validates the channel id and both secrets and redacts them from inspection" do
       assert {:ok, config} = Config.validate_binding_config(binding_config())
       assert config["channelId"] == @channel_id

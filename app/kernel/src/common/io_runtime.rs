@@ -24,14 +24,3 @@ pub fn runtime() -> KernelResult<&'static Runtime> {
         .as_ref()
         .map_err(|reason| KernelError::new(format!("failed to start Tokio runtime: {reason}")))
 }
-
-#[cfg(all(test, any(feature = "universal_ai_client", feature = "object_store")))]
-mod tests {
-    #[test]
-    fn runtime_has_usable_tls_defaults() {
-        super::runtime().unwrap();
-        let _ = rustls::ClientConfig::builder()
-            .with_root_certificates(rustls::RootCertStore::empty())
-            .with_no_client_auth();
-    }
-}

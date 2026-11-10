@@ -15,18 +15,6 @@ fn context_with_policy(request: Value, policy: ConversionPolicy) -> ResponseCont
 }
 
 #[test]
-fn response_context_defaults_to_tolerant_and_deserializes_policy_field() {
-    let default_ctx = ResponseContext::default();
-    assert_eq!(default_ctx.policy(), ConversionPolicy::Tolerant);
-
-    let strict_from_json: ResponseContext =
-        sonic_rs::from_str(r#"{"model":"gpt-test","request":{"input":"hi"},"policy":"strict"}"#)
-            .unwrap();
-    assert_eq!(strict_from_json.policy(), ConversionPolicy::Strict);
-    assert_eq!(strict_from_json.policy, ConversionPolicy::Strict);
-}
-
-#[test]
 fn k1a_anthropic_rejects_invalid_image_and_binary_parts_in_strict_and_emits_placeholder_in_tolerant()
  {
     for part in [

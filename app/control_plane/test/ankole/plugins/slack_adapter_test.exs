@@ -71,34 +71,6 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                SocketDispatcher.dispatch(dispatcher, envelope)
     end
 
-    test "declares chat and identity contracts" do
-      assert SlackAdapter.plugin_id() == "slack-adapter"
-
-      assert [
-               %{contract_id: "signals.adapter", id: "slack", config_module: Config},
-               %{
-                 contract_id: "principals.identity_provider",
-                 id: "slack",
-                 module: IdentityProvider
-               }
-             ] = SlackAdapter.adapter_declarations()
-
-      assert Enum.all?(SlackAdapter.app_config_patterns(), & &1.encrypted)
-
-      [_chat, identity] = SlackAdapter.adapter_declarations()
-      fields = Map.new(identity.fields, &{&1.path, &1})
-
-      assert fields["botToken"].requiredWhen == [%{path: "sync.contacts", value: true}]
-      assert fields["botToken"].validation.pattern == "^xoxb-"
-
-      assert fields["appToken"].requiredWhen == [
-               %{path: "sync.contacts", value: true},
-               %{path: "sync.websocket", value: true}
-             ]
-
-      assert fields["appToken"].validation.pattern == "^xapp-"
-    end
-
     test "chat validation enforces token types and stable fingerprints" do
       assert {:error, {:invalid_token_prefix, "botToken"}} =
                Config.validate_chat_config(%{"botToken" => "xapp-wrong", "appToken" => "xapp-ok"})

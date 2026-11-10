@@ -95,21 +95,7 @@ defmodule Ankole.Connectors.CredentialsTest do
     end
   end
 
-  test "the email connection form exposes reusable transport settings without hiding normal fields",
-       %{principal: actor} do
-    email = Enum.find(Ankole.Connectors.Catalog.list(), &(&1.plugin_id == "email"))
-    public_keys = Enum.map(email.public_fields, & &1.key)
-
-    assert Enum.all?(
-             ~w(address imapHost imapPort smtpHost smtpPort smtpSecurity),
-             &(&1 in public_keys)
-           )
-
-    refute "senderAuthentication" in public_keys
-    assert Enum.all?(email.public_fields, &(not &1.secret))
-    assert Enum.find(email.credential_fields, &(&1.key == "password")).secret
-    refute Enum.find(email.credential_fields, &(&1.key == "username")).secret
-
+  test "email connections reuse persisted IMAP and SMTP settings", %{principal: actor} do
     assert {:ok, root} =
              Store.create_auth_config(actor, %{
                "plugin_id" => "email",

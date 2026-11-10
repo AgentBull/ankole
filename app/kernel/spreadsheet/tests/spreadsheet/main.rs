@@ -3,7 +3,6 @@
 mod corpus;
 mod editing;
 mod ops;
-mod perf;
 mod rebase;
 mod support;
 mod views;

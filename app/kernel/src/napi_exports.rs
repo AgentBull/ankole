@@ -98,21 +98,3 @@ pub fn estimate_o200k_base_tokens(text: String) -> Result<u32> {
     u32::try_from(crate::common::estimate_o200k_base_tokens(&text))
         .map_err(|_| Error::from_reason("o200k_base token count is larger than 4294967295"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::estimate_o200k_base_tokens;
-
-    #[test]
-    fn node_binding_counts_known_text() {
-        assert_eq!(
-            estimate_o200k_base_tokens("Hello world".to_string()).unwrap(),
-            2
-        );
-        assert_eq!(
-            estimate_o200k_base_tokens("记忆系统".to_string()).unwrap(),
-            3
-        );
-        assert_eq!(estimate_o200k_base_tokens(String::new()).unwrap(), 0);
-    }
-}

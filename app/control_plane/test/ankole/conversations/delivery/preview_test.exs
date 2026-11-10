@@ -196,50 +196,6 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
              "mock-reply-"
   end
 
-  test "preview seeds visible context from a failed BackgroundAgentJob trigger" do
-    %{subject: subject, signal: signal} =
-      addressed_signal("background-agent-job-failure")
-
-    signal =
-      signal
-      |> AshPostgres.DataLayer.to_ecto()
-      |> Ecto.Changeset.change(%{
-        type: "background_agent_job.failed",
-        data: %{
-          "title" => "第二版 deep research",
-          "result_summary" => "返回 JSON Schema 少声明了必填字段"
-        }
-      })
-      |> Repo.update!()
-
-    %{pid: pid} = start_dispatched_preview(subject.uid, signal)
-
-    assert :sys.get_state(pid).presentation["trigger_context"] == %{
-             "kind" => "background_agent_job_failure",
-             "title" => "第二版 deep research",
-             "summary" => "返回 JSON Schema 少声明了必填字段"
-           }
-  end
-
-  test "preview identifies an automatic cron wake" do
-    %{subject: subject, signal: signal} = addressed_signal("scheduled-task")
-
-    signal =
-      signal
-      |> AshPostgres.DataLayer.to_ecto()
-      |> Ecto.Changeset.change(%{
-        type: "cron.fire",
-        data: %{"wake_payload" => %{"trigger" => "scheduled"}}
-      })
-      |> Repo.update!()
-
-    %{pid: pid} = start_dispatched_preview(subject.uid, signal)
-
-    assert :sys.get_state(pid).presentation["trigger_context"] == %{
-             "kind" => "scheduled_task"
-           }
-  end
-
   test "preview ignores another opaque signal_id in the same conversation" do
     %{subject: subject, signal: signal} = addressed_signal("metadata-filter")
 

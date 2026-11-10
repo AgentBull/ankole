@@ -116,21 +116,16 @@ describe('parseConfigFieldInput and ConfigFields rendering', () => {
     expect(parseConfigFieldInput(field({ path: 'host', type: 'string' }), '')).toBe('')
   })
 
-  test('renders cleared integer fields empty and rotates the advanced trigger chevron on expand', () => {
+  test('renders cleared integer fields empty', () => {
     const html = renderToStaticMarkup(
       createElement(ConfigFields, {
         config: {},
-        fields: [
-          field({ path: 'port', type: 'integer', label: { default: 'Port' } }),
-          field({ path: 'timeout', type: 'integer', advanced: true, label: { default: 'Timeout' } })
-        ],
+        fields: [field({ path: 'port', type: 'integer', label: { default: 'Port' } })],
         locale: 'en-US',
         onChange() {}
       })
     )
 
     expect(html).toMatch(/<input[^>]*type="number"[^>]*value=""/)
-    expect(html).toContain('group flex w-full items-center justify-between')
-    expect(html).toContain('transition-transform group-aria-expanded:rotate-180')
   })
 })

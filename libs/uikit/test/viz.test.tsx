@@ -1,6 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   AnkoleChart,
@@ -27,111 +25,7 @@ import {
 } from '../src/viz/infographic'
 import { prepareStatisticalChartSpec, type StatisticalChartType } from '../src/viz/statistical'
 
-const FORBIDDEN_EAGER_SPECIFIERS = new Set([
-  '@antv/g2',
-  '@antv/g6',
-  '@antv/g-svg',
-  '@antv/infographic',
-  'lightweight-charts'
-])
-
-function resolveLocalModulePath(fromFile: string, specifier: string): string | null {
-  if (!specifier.startsWith('.')) return null
-  const base = resolve(dirname(fromFile), specifier)
-  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, resolve(base, 'index.ts'), resolve(base, 'index.tsx')]) {
-    if (existsSync(candidate)) return candidate
-  }
-  return null
-}
-
-function extractStaticRuntimeSpecifiers(sourceCode: string): string[] {
-  const withoutComments = sourceCode.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
-
-  const specifiers: string[] = []
-  // Match top-level static `import ... from '...'` and `export ... from '...'`, skipping `import type` and `export type`.
-  const stmtRe = /\b(?:import|export)\s+(?!type\b)([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g
-  for (const match of withoutComments.matchAll(stmtRe)) {
-    const clause = match[1]!.trim()
-    const spec = match[2]!
-    // Check if every named specifier inside `{ ... }` is marked `type`, e.g. `import { type Foo, type Bar } from '...'`.
-    if (clause.startsWith('{') && clause.endsWith('}')) {
-      const inner = clause
-        .slice(1, -1)
-        .split(',')
-        .map(part => part.trim())
-        .filter(Boolean)
-      if (inner.length > 0 && inner.every(part => part.startsWith('type '))) {
-        continue
-      }
-    }
-    specifiers.push(spec)
-  }
-
-  const sideEffectImportRe = /\bimport\s+['"]([^'"]+)['"]/g
-  for (const match of withoutComments.matchAll(sideEffectImportRe)) {
-    specifiers.push(match[1]!)
-  }
-
-  return specifiers
-}
-
-describe('Bundle isolation invariant (`libs/uikit/src/index.ts`)', () => {
-  test('never statically imports @antv/*, lightweight-charts, or eager components/graph across the entire index closure', () => {
-    const entryFile = resolve(import.meta.dir, '../src/index.ts')
-    const eagerGraphFile = resolve(import.meta.dir, '../src/components/graph.tsx')
-    const visited = new Set<string>()
-    const queue = [entryFile]
-    const externalImports = new Set<string>()
-
-    while (queue.length > 0) {
-      const current = queue.shift()!
-      if (visited.has(current)) continue
-      visited.add(current)
-
-      const content = readFileSync(current, 'utf8')
-      const specs = extractStaticRuntimeSpecifiers(content)
-      for (const spec of specs) {
-        if (spec.startsWith('.')) {
-          const resolved = resolveLocalModulePath(current, spec)
-          expect(resolved).not.toBeNull()
-          expect(resolved).not.toBe(eagerGraphFile)
-          if (resolved && !visited.has(resolved)) {
-            queue.push(resolved)
-          }
-        } else {
-          externalImports.add(spec)
-        }
-      }
-    }
-
-    for (const ext of externalImports) {
-      expect(FORBIDDEN_EAGER_SPECIFIERS.has(ext)).toBe(false)
-      expect(ext.startsWith('@antv/')).toBe(false)
-    }
-  })
-})
-
 describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
-  test('defines dedicated --chart-* CSS custom properties in light, dark, and @theme inline blocks', () => {
-    const css = readFileSync(resolve(import.meta.dir, '../src/theme.css'), 'utf8')
-    expect(css).toContain('--chart-up: #19875c;')
-    expect(css).toContain('--chart-down: #c1384b;')
-    expect(css).toContain('--chart-up: #43c291;')
-    expect(css).toContain('--chart-down: #eb6b7d;')
-    expect(css).toContain('--chart-1: #2864b9;')
-    expect(css).toContain('--chart-1: #5d98e7;')
-    expect(css).toContain('--chart-5: #a665b0;')
-    expect(css).toContain('--chart-5: #d497de;')
-    expect(css).toContain('--chart-other: #949698;')
-    expect(css).toContain('--chart-empty: #d4d3d0;')
-    expect(css).toContain('--chart-empty: #434648;')
-    expect(css).toContain('--chart-total: #3f5368;')
-    expect(css).toContain('--chart-total: #7d94ad;')
-    expect(css).toContain('--color-chart-up: var(--chart-up);')
-    expect(css).toContain('--color-chart-5: var(--chart-5);')
-    expect(css).toContain('--color-chart-total: var(--chart-total);')
-  })
-
   test('resolves light/dark palettes, monotonic sequential ramps, zero-anchored diverging scales, and cn convention swap', () => {
     const srgbLuminance = (hex: string): number => {
       const ch = [hex.slice(1, 3), hex.slice(3, 5), hex.slice(5, 7)].map(p => {

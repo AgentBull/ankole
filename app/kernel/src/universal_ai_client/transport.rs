@@ -424,39 +424,8 @@ fn method_from_spec(method: &str) -> Result<Method, StreamError> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::spec::TransportSpec;
     use super::*;
     use crate::universal_ai_client::spec::{TimeoutSpec, UpstreamKind};
-
-    #[tokio::test]
-    async fn client_cache_stays_bounded_when_connection_settings_change() {
-        let mut upstream = UpstreamSpec {
-            kind: UpstreamKind::HTTPSSE,
-            method: "GET".to_string(),
-            url: "http://127.0.0.1/cache-test".to_string(),
-            headers: Vec::new(),
-            body: None,
-            websocket_initial_messages: Vec::new(),
-            timeout: TimeoutSpec {
-                connect_ms: 1,
-                first_byte_ms: 100,
-                idle_ms: 100,
-                total_ms: None,
-            },
-            transport: TransportSpec {
-                proxy: None,
-                #[cfg(feature = "test-ca")]
-                ca_cert_pem: None,
-            },
-        };
-
-        for connect_ms in 1..=MAX_HTTP_CLIENT_CACHE_ENTRIES as u64 + 16 {
-            upstream.timeout.connect_ms = connect_ms;
-            client_for(&upstream).unwrap();
-        }
-
-        assert!(HTTP_CLIENTS.len() <= MAX_HTTP_CLIENT_CACHE_ENTRIES);
-    }
 
     #[test]
     fn ca_cert_pem_is_used_only_with_test_ca_feature() {

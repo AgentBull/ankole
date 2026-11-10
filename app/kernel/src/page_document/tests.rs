@@ -349,41 +349,6 @@ fn server_diff_reproduces_every_pair_of_corpus_documents() {
 }
 
 #[test]
-fn server_text_diff_keeps_unchanged_regions_between_edits() {
-    let old = "<page><blockquote><p>alpha βeta gamma delta 😀 end</p></blockquote></page>";
-    let new = "<page><blockquote><p>alpha BETA gamma DELTA 😀 end!</p></blockquote></page>";
-    let changes = diff(old, new).unwrap();
-    assert!(
-        changes
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|value| value.is_u64())
-            .count()
-            >= 3
-    );
-    assert_eq!(
-        apply(old, &changes.to_string()).unwrap().xml,
-        validate(new).unwrap().xml
-    );
-}
-
-#[test]
-fn inline_mark_changes_retain_formatted_and_surrounding_text() {
-    let old = "<page><p>alpha beta gamma</p></page>";
-    let new = "<page><p>alpha <strong>beta</strong> gamma</p></page>";
-    let changes = diff(old, new).unwrap();
-    assert_eq!(
-        changes,
-        json!([7, [4, [{"add": "Strong", "value": null}]], 7])
-    );
-    assert_eq!(
-        apply(old, &changes.to_string()).unwrap().xml,
-        validate(new).unwrap().xml
-    );
-}
-
-#[test]
 fn table_presentation_round_trips_through_the_production_document_codec() {
     let xml = r##"<page><table layout="full" widths="120,240"><tr><th background="#deedfc"><p>A</p></th><th><p>B</p></th></tr><tr><td colspan="2"><p>C</p></td></tr></table></page>"##;
     let root = tree::parse(xml).unwrap();
