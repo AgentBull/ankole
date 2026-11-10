@@ -14,6 +14,7 @@ import {
   webappEntries
 } from './scripts/edition.ts'
 import { fileURLToPath } from 'node:url'
+import postcss from 'postcss'
 import babel from '@rolldown/plugin-babel'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -230,6 +231,25 @@ export default defineConfig(({ command }): UserConfig => ({
         ) {
           return `${code}\n@source ${JSON.stringify(path.join(internalsRoot, 'webapps'))};\n`
         }
+      }
+    },
+    {
+      // The pdf.js stylesheet also styles the editor, dialogs, and sidebar of the pdf.js app under generic class
+      // names. Ankole keeps the rules of the layers that its viewer renders, in a cascade layer below its theme.
+      name: 'ankole-pdfjs-viewer-styles',
+      enforce: 'pre',
+      transform(code, id) {
+        if (!id.split('?', 1)[0]!.replaceAll('\\', '/').endsWith('/pdfjs-dist/web/pdf_viewer.css')) return
+        const styles = postcss.parse(code)
+        styles.each(node => {
+          const rendered =
+            node.type === 'rule' &&
+            /^(:root|\.pdfViewer|\.canvasWrapper|\.textLayer|\.annotationLayer|:is\(\.annotationLayer)/.test(
+              node.selector
+            )
+          if (!rendered) node.remove()
+        })
+        return `@layer pdfjs {\n${styles.toString()}\n}`
       }
     },
     react(),

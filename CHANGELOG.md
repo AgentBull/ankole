@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.102 (2026-11-10)
+
+- Show upload progress on chat attachments. While a file uploads, its card
+  shows the bytes sent against the total and a progress ring on the remove
+  control; a finished or sent attachment shows its size.
+- Show the first page of a PDF as its thumbnail on Grid cards of the subpages
+  directory. Chat attachment cards show an image as its thumbnail and mark any
+  other file with its extension.
+- Read PDFs in an Ankole viewer on File Pages and in the chat attachment
+  preview. The viewer follows the light and dark themes and has page, zoom,
+  and whole-document find controls, selectable text, and working links; it
+  also renders PDFs that do not embed their CJK fonts.
+
 ## Version 2.0.0-alpha.101 (2026-11-10)
 
 - Leave the caret on the line after the block when you switch a page mention

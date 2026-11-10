@@ -9,6 +9,8 @@ export type AttachmentDraft = {
   file: File
   url: string
   state: 'uploading' | 'ready' | 'failed'
+  /** The share of the request body sent so far, from 0 to 1, while the file uploads. */
+  progress?: number
   receipt?: string
   error?: unknown
 }
@@ -29,9 +31,11 @@ function createChatAttachments(upload: Upload = uploadAttachment) {
     requests.get(item.id)?.abort()
     const request = new AbortController()
     requests.set(item.id, request)
-    update(item.id, { state: 'uploading', error: undefined })
+    update(item.id, { state: 'uploading', progress: 0, error: undefined })
     try {
-      const result = await upload(item.file, item.id, request.signal)
+      const result = await upload(item.file, item.id, request.signal, (loaded, total) => {
+        if (requests.get(item.id) === request && total > 0) update(item.id, { progress: loaded / total })
+      })
       if (requests.get(item.id) === request) update(item.id, { state: 'ready', receipt: result.receipt })
     } catch (error) {
       if (requests.get(item.id) === request) update(item.id, { state: 'failed', error })

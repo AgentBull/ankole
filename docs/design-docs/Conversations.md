@@ -738,6 +738,16 @@ overrides:
   input, before the user can type into the completed text.
   Removing a named Page-reference chip deletes only that structured reference
   while leaving surrounding prose untouched.
+- **File attachments:** Each selected file uploads as soon as it is added and
+  appears as a card with a thumbnail, its name, and its size. An image shows
+  itself, and any other file shows its extension.
+  While a file uploads, the card shows the bytes sent against the total and
+  its remove control shows a progress ring, which turns into the cross on
+  hover or keyboard focus; removing the card cancels the upload. A failed
+  upload keeps the file and offers a retry. Sending waits until every file
+  has finished uploading. Selecting the card opens the same attachment preview
+  as a sent attachment, which shows a PDF in the
+  [PDF viewer](PodContentModel.md#pdf-viewer).
 - **References and permissions:** Quoted messages and Page chips travel as
   structured message links into model context, though Agent tools still enforce
   live permissions when reading referenced Pages. Users without `chat`
