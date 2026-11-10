@@ -131,7 +131,7 @@ export function UsageTable({
         <p className="border border-border bg-card p-6 text-sm text-muted-foreground">{t('console.ai_usage.empty')}</p>
       ) : (
         <div className="overflow-x-auto border border-border bg-card">
-          <Table aria-labelledby={titleID} className="min-w-[560px]">
+          <Table aria-labelledby={titleID} className="min-w-[640px]">
             <TableHeader>
               <TableRow>
                 <TableHead>{t('console.ai_usage.name')}</TableHead>
@@ -139,6 +139,7 @@ export function UsageTable({
                 <TableHead className="text-right">{t('console.ai_usage.input')}</TableHead>
                 <TableHead className="text-right">{t('console.ai_usage.output')}</TableHead>
                 <TableHead className="text-right">{t('console.ai_usage.cached')}</TableHead>
+                <TableHead className="text-right">{t('console.ai_usage.cache_write')}</TableHead>
                 <TableHead className="text-right">{t('console.ai_usage.reasoning')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -155,6 +156,7 @@ export function UsageTable({
                   <TableCell className="text-right tabular-nums">{count(row.input_tokens)}</TableCell>
                   <TableCell className="text-right tabular-nums">{count(row.output_tokens)}</TableCell>
                   <TableCell className="text-right tabular-nums">{count(row.cached_input_tokens)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(row.cache_creation_input_tokens)}</TableCell>
                   <TableCell className="text-right tabular-nums">{count(row.reasoning_tokens)}</TableCell>
                 </TableRow>
               ))}

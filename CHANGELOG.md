@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 2.0.0-alpha.103 (2026-11-10)
+
+- Record prompt-cache reads and writes in the model usage ledger. Each
+  `ai_gateway_usage_records` row gains `cache_creation_input_tokens` for cache
+  writes beside `cached_input_tokens` for cache reads, and the Console Model
+  usage page adds a Cache writes column beside the column that it now labels
+  Cache reads. AIGateway now reads the cache reads that DeepSeek reports as
+  `prompt_cache_hit_tokens` and Kimi as a flat `cached_tokens`, and the cache
+  writes that OpenRouter and Kimi report as `cache_write_tokens` and DashScope
+  as `cache_creation_input_tokens`. Rows written before the upgrade keep `NULL`
+  cache writes.
+
 ## Version 2.0.0-alpha.102 (2026-11-10)
 
 - Show upload progress on chat attachments. While a file uploads, its card

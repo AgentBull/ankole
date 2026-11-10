@@ -18,7 +18,13 @@ defmodule Ankole.AIGateway.UsageLedger do
   alias Ankole.AIGateway.Usage
   alias Ankole.Logging
 
-  @token_fields [:input_tokens, :output_tokens, :cached_input_tokens, :reasoning_tokens]
+  @token_fields [
+    :input_tokens,
+    :output_tokens,
+    :cached_input_tokens,
+    :cache_creation_input_tokens,
+    :reasoning_tokens
+  ]
 
   @doc "Records one completed provider round of a classified LLM request."
   @spec record(map() | nil, String.t() | nil, map(), keyword()) :: :ok
@@ -179,6 +185,7 @@ defmodule Ankole.AIGateway.UsageLedger do
       input_tokens: totals["input_tokens"],
       output_tokens: totals["output_tokens"],
       cached_input_tokens: totals["cached_input_tokens"],
+      cache_creation_input_tokens: totals["cache_creation_input_tokens"],
       reasoning_tokens: totals["reasoning_tokens"]
     }
   end
@@ -257,6 +264,7 @@ defmodule Ankole.AIGateway.UsageLedger do
       input_tokens: counts.input_tokens,
       output_tokens: counts.output_tokens,
       cached_input_tokens: counts.cached_input_tokens,
+      cache_creation_input_tokens: counts.cache_creation_input_tokens,
       reasoning_tokens: counts.reasoning_tokens,
       human_uid: human_uid(origin, runtime, request_context),
       session_id: Ankole.Attrs.optional_text(Map.get(request_context, "session_id")),

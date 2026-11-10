@@ -7700,9 +7700,11 @@ export type PodPeerExchangeResponses = {
         }> | null
         thinking_summary?: string | null
         usage?: {
+          cache_creation_input_tokens?: number | null
           cached_input_tokens?: number | null
           input_tokens?: number | null
           models: Array<{
+            cache_creation_input_tokens?: number | null
             cached_input_tokens?: number | null
             input_tokens?: number | null
             model: string

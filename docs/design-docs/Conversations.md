@@ -1206,7 +1206,8 @@ each model that served the turn with its requested `provider_id/model`, the
 model that the Provider reported when it differs, the requested profile and the
 profile that served it when they differ, and its own totals. Every level carries
 `rounds`, `reported_rounds`, and `input_tokens`, `output_tokens`,
-`cached_input_tokens`, and `reasoning_tokens`; a token total is `null` when no
+`cached_input_tokens`, `cache_creation_input_tokens`, and `reasoning_tokens`;
+a token total is `null` when no
 round reported that count. A turn without ledger rows has no `usage`.
 `Ankole.Pod.Chat.Execution` declares the execution record's fields for the Pod
 API, so the generated Pod client derives the record's steps and usage types
