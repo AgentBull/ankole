@@ -252,6 +252,50 @@ defmodule Ankole.SignalActionFoundationTest do
              1
   end
 
+  test "Applet routes distinguish a delivered signal from one with no matching Binding", ctx do
+    publish_applet_fixture(ctx, """
+    export default {
+      routes: {'POST /send': ({body}) => AnkoleRuntime.signals.emit(body)},
+      actions: {work: {idempotent: true, handler: () => 1}}
+    }
+    """)
+
+    {:ok, job} =
+      AutomationJobs.create_applet_job(ctx.actor, ctx.page.id, "work", %{
+        authorization_kind: "service"
+      })
+
+    {:ok, binding} =
+      Signals.put_event_binding(ctx.actor, %{
+        config_ref: "applet://#{ctx.page.id}",
+        filters: %{cel: "signal.subject == 'research'"},
+        automation_job_id: job.id
+      })
+
+    send_signal = fn id, subject ->
+      Applets.call(ctx.actor, ctx.page.id, %{
+        "method" => "POST",
+        "path" => "/send",
+        "query" => %{},
+        "body" => %{"id" => id, "type" => "review.requested", "subject" => subject}
+      })
+    end
+
+    assert {:ok, %{"status" => 200, "body" => %{"accepted" => true, "delivered" => false}}} =
+             send_signal.("no-match", "unrelated")
+
+    assert {:ok, %{"status" => 200, "body" => %{"delivered" => true, "signalId" => signal_id}}} =
+             send_signal.("request-1", "research")
+
+    assert {:ok, %{"status" => 200, "body" => %{"delivered" => true, "signalId" => ^signal_id}}} =
+             send_signal.("request-1", "research")
+
+    assert [%{signal_id: ^signal_id, automation_job_run_id: run_id}] =
+             Ankole.Ash.read!(Ash.Query.filter(Signals.BindingReceipt, binding_id == ^binding.id))
+
+    assert AutomationJobs.get_run_record(run_id).automation_job_id == job.id
+  end
+
   test "Applet emissions retain the original work authorization through admin calls", ctx do
     personal = actor_fixture(human_fixture().principal.uid)
     %{principal: agent} = agent_fixture(owner_principal_uid: personal.principal.uid)
@@ -317,7 +361,7 @@ defmodule Ankole.SignalActionFoundationTest do
         target: %{session_id: source.session_id}
       })
 
-    assert {:ok, %{"status" => 200}} =
+    assert {:ok, %{"status" => 200, "body" => %{"delivered" => true}}} =
              Applets.call(personal, ctx.page.id, %{
                "method" => "POST",
                "path" => "/",

@@ -42,7 +42,7 @@ defmodule Ankole.Pod do
 
   defdelegate node_committed(node), to: Nodes, as: :content_committed
   defdelegate fetch_node(id), to: Nodes, as: :fetch
-  defdelegate lock_tree_in_tx(), to: Nodes, as: :lock_tree
+  defdelegate lock_tree_in_tx(opts \\ []), to: Nodes, as: :lock_tree
   defdelegate lock_root_ids_in_tx(ids), to: Nodes, as: :lock_roots
   defdelegate root_ids_for_principal(uid), to: Nodes
   defdelegate root_ids_for_conversations(ids), to: Nodes
@@ -131,6 +131,7 @@ defmodule Ankole.Pod do
     end
 
     resource(Ankole.Pod.PodFile)
+    resource(Ankole.Pod.AppletApproval)
     resource(Ankole.Pod.AppletEnv)
     resource(Ankole.Pod.PageContent)
     resource(Ankole.Pod.PageChange)

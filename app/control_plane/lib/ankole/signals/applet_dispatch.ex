@@ -29,7 +29,7 @@ defmodule Ankole.Signals.AppletDispatch do
              authorization: authorization,
              attempt_authority: attempt_authority(actor)
            ) do
-      {:ok, %{accepted: true, signalId: result.signal_id}}
+      {:ok, %{accepted: true, signalId: result.signal_id, delivered: result.receipts != []}}
     end
   end
 

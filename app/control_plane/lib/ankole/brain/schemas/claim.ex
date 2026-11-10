@@ -375,6 +375,10 @@ defmodule Ankole.Brain.Schemas.Claim do
       define_attribute?(false)
       attribute_type(Ankole.Ash.Types.UUIDv7)
     end
+
+    has_many :take_domains, Ankole.Brain.Schemas.TakeDomainAssignment do
+      destination_attribute(:take_claim_id)
+    end
   end
 
   calculations do

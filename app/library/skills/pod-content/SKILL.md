@@ -286,7 +286,9 @@ the sheet's edge:
     `ButtonGroup`, `Tabs` / `TabsList` (`variant`: `'default' | 'object'`) /
     `TabsTrigger` / `TabsContent`, `Toggle`, `ToggleGroup`, `Pagination`.
   - Data & feedback: `Table` / `TableHeader` / `TableBody` / `TableRow` /
-    `TableHead` / `TableCell`, `Card` (`size`: `'default' | 'sm'`) /
+    `TableHead` / `TableCell`, `DataGrid` for dense tabular results, `ApprovalCard`
+    for an approval request or decision,
+    `Card` (`size`: `'default' | 'sm'`) /
     `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` /
     `CardContent` / `CardFooter`, `Badge` (`variant`:
     `'secondary' | 'info' | 'success' | 'warning' | 'destructive' | 'outline' | 'ghost'`,
@@ -319,6 +321,13 @@ the sheet's edge:
 Use `useRecords(tableID, query)` for records and its `create`, `update`, and
 `remove` methods for writes. Its TanStack Query result holds rows at
 `result.data?.records`; `useAggregate` holds groups at `result.data?.groups`.
+Pass the current page of rows to `DataGrid` with `label`, `getRowId`, and
+`columns` (`id`, `header`, `renderCell`, optional `numeric` and `width`). Use
+`stickyFirstColumn` to keep the row label in view. Mark the cell's details button
+or link with `data-row-link` and keep pagination and query state in the Applet.
+For sorting, mark columns `sortable` and use `sort` and `onSortChange` to update
+the query. Use `virtualize` for a large set of loaded rows and set column widths
+where the 160px default does not fit the data.
 `usePod().actions` lists the selected user's permitted actions on the Applet
 page. View access permits use of the Applet. Record writes require contribution
 access to the target Base, and file content writes require edit access to
@@ -416,6 +425,31 @@ Function workers are reused by tenant, page, revision, and code-plus-environment
 request-specific state inside the handler. Calls have no cross-call transaction; a later failure does not undo committed writes. Put an atomic batch
 in one `base.write`, and include the field versions captured by the read.
 
+When reading a listed file for review, pass its digest to
+`file.read(path, {sha256})`. If the file's contents changed, the runtime returns HTTP 409
+`manifest_changed`. Ask the reader to review the current file before continuing.
+
+Use `notifications.post({conversationId, messageId, text})` to send a notice to
+an existing native conversation as a Human with access to the room and
+contribution access to the Applet. Reuse the same UUIDv7 `messageId` on retry.
+For a team Action, use the Human Applet owner's `admin.notifications` surface.
+
+Use `approvals.request({requestKey, reviewerUid, summary, details?})` to ask a
+Human who can view the Applet to decide. Use `approvals.list()` or `approvals.get(id)`
+in a read route and render the result with `ApprovalCard`. A separate mutation
+route calls `approvals.decide({id, decision, note?})` as the assigned reviewer
+in their signed-in browser. A request or a decision can be retried with the
+same values. If the request or decision conflicts, display the stored result.
+Link the Applet in a native notification when reviewers need a reminder.
+
+Use `brain.writeTake({sourceNodeId, subjectPageId?, claim, kind, weight,
+sinceDate?, untilDate?, provenance})` for a signed prediction. Call it as the
+researcher to retain their authorship and use a source Page they can contribute
+to. `brain.listTakes` and `brain.calibration` use that same source and accept
+`holderUid` to filter by analyst. `brain.calibration` can select a grader-assigned
+domain. Dreaming grades eligible Takes against Facts with the same source and
+subject. After an uncertain save, read the source before writing again.
+
 `ai.generateText`, `ai.generateImage`, `web.search`, and `web.fetch` run under the selected execution Principal (`AnkoleRuntime` uses the caller or personal Job Human; `AnkoleRuntime.admin` uses the Applet's current `owner_uid`). Human callers resolve the space's `system` model profiles and Agent owners resolve that Agent's model profiles, attributing usage to the executing Principal without spending interactive Agent token quota. For `ai.generateText`, pass a built-in
 model profile such as `light` (never a raw provider/model ID); the
 runtime returns `{text, finishReason, usage}`, so handle an empty or truncated result
@@ -442,8 +476,10 @@ durable state. A failure preserves its input, timestamps, logs and structured
 error in the Run, so reconcile uncertain external writes before retrying.
 
 `signals.emit({targetJobId,type,data})` queues a same-Page Job; omit `targetJobId`
-to publish to configured Bindings. A route emits on `applet://<page-id>`; an
-Action emits on `job://<job-id>`. An Agent wakeup
+to publish to configured Bindings. Check `delivered` to tell whether a matching
+Binding accepted the event. Track completion separately in the Applet's request
+record. A route emits on `applet://<page-id>`; an Action emits on
+`job://<job-id>`. An Agent wakeup
 requires a Binding to its conversation. `signals.call({actionKey,data})` invokes
 a same-Page Action synchronously in the remaining budget; it cannot continue a
 slice. GET routes and nested calls remain read-only.

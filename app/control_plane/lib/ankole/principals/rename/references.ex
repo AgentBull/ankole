@@ -31,6 +31,7 @@ defmodule Ankole.Principals.Rename.References do
     {"human_access_restrictions", "principal_uid"},
     {"oidc_sessions", "principal_uid"},
     {"page_user_states", "principal_uid"},
+    {"pod_applet_approvals", "requester_uid"},
     {"pod_search_queries", "principal_uid"},
     {"principal_site_credentials", "principal_uid"},
     {"scheduled_events", "human_uid"},

@@ -389,6 +389,111 @@ defmodule Ankole.Pod.AppletsTest do
              Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), file.id, "data.bin")
   end
 
+  test "GET routes pin file reads to the listed SHA-256", ctx do
+    owner = actor_fixture(ctx.owner)
+    reader = actor_fixture(ctx.reader)
+    {:ok, file} = Pages.create(owner, %{type: "file", private_owner_uid: ctx.owner})
+    {:ok, first} = Files.upload(owner, file.id, "file", nil, "source.txt", "A")
+    page = create(ctx.owner)
+
+    source = """
+    async function read(files, {query}) {
+      const options = query.sha256 === undefined ? undefined : {sha256: query.sha256};
+      const result = await files.read('pages/#{file.id}/source.txt', options);
+      return {sha256: result.sha256, bytes: Array.from(result.bytes)};
+    }
+    export default {
+      'GET /manifest': () => AnkoleRuntime.file.list('#{file.id}'),
+      'GET /source': r => read(AnkoleRuntime.file, r),
+      'GET /owner-source': r => read(AnkoleRuntime.admin.file, r)
+    }
+    """
+
+    assert {:ok, _} = publish(ctx.owner, page, 0, source)
+    share(ctx.owner, page.id, ctx.reader, "view")
+
+    read = fn actor, route, query ->
+      Applets.call(actor, page.id, %{"method" => "GET", "path" => route, "query" => query})
+    end
+
+    assert {:ok, %{"body" => %{"files" => [%{"sha256" => original_sha}]}}} =
+             read.(owner, "/manifest", %{})
+
+    original_pin = %{"sha256" => original_sha}
+
+    assert {:ok, %{"status" => 200, "body" => %{"sha256" => ^original_sha, "bytes" => [65]}}} =
+             read.(owner, "/source", original_pin)
+
+    assert {:ok, %{"status" => 403}} = read.(reader, "/source", original_pin)
+
+    assert {:ok, _} =
+             Files.upload(owner, file.id, "file", first.file.object_id, "source.txt", "B")
+
+    for route <- ["/source", "/owner-source"] do
+      assert {:ok, %{"status" => 409, "body" => %{"error" => %{"code" => "manifest_changed"}}}} =
+               read.(owner, route, original_pin)
+    end
+
+    assert {:ok, %{"status" => 200, "body" => %{"sha256" => current_sha, "bytes" => [66]}}} =
+             read.(owner, "/source", %{})
+
+    assert current_sha != original_sha
+
+    assert {:ok, %{"status" => 200, "body" => %{"sha256" => ^current_sha, "bytes" => [66]}}} =
+             read.(owner, "/owner-source", %{"sha256" => current_sha})
+
+    for invalid <- ["", String.upcase(current_sha), [original_sha, current_sha]] do
+      assert {:ok, %{"status" => 422, "body" => %{"error" => %{"code" => "invalid_request"}}}} =
+               read.(owner, "/source", %{"sha256" => invalid})
+    end
+  end
+
+  test "published routes read and write authorized Brain Takes", ctx do
+    owner = actor_fixture(ctx.owner)
+    reader = actor_fixture(ctx.reader)
+    {:ok, source} = Pages.create(owner, %{type: "doc", private_owner_uid: ctx.owner})
+    page = create(ctx.owner)
+
+    routes = """
+    const scope = {sourceNodeId: '#{source.id}'};
+    export default {
+      'GET /takes': () => AnkoleRuntime.brain.listTakes(scope),
+      'GET /calibration': () => AnkoleRuntime.brain.calibration(scope),
+      'GET /write': () => AnkoleRuntime.brain.writeTake(scope),
+      'POST /takes': r => AnkoleRuntime.brain.writeTake({...r.body, ...scope})
+    }
+    """
+
+    assert {:ok, _} = publish(ctx.owner, page, 0, routes)
+    share(ctx.owner, page.id, ctx.reader, "view")
+    share(ctx.owner, source.id, ctx.reader, "view")
+
+    prediction = %{
+      "claim" => "The instrument will meet its stated delivery target",
+      "kind" => "market_call",
+      "weight" => 0.6,
+      "untilDate" => "2040-01-02",
+      "provenance" => "Approved investment note"
+    }
+
+    write = request("POST", "/takes", prediction)
+    assert {:ok, %{"status" => 403}} = Applets.call(reader, page.id, write)
+
+    assert {:ok, %{"status" => 200, "body" => take}} = Applets.call(owner, page.id, write)
+    assert take["claim"] == prediction["claim"]
+    assert take["untilDate"] == prediction["untilDate"]
+    assert take["author"] == to_string(Ankole.ActorRef.from_actor(owner))
+
+    assert {:ok, %{"status" => 200, "body" => %{"takes" => [^take]}}} =
+             call(ctx.reader, page.id, "GET", "/takes")
+
+    assert {:ok, %{"status" => 200, "body" => %{"resolvedCount" => 0, "brier" => nil}}} =
+             call(ctx.reader, page.id, "GET", "/calibration")
+
+    assert {:ok, %{"status" => 500, "body" => %{"error" => %{"code" => "read_only_route"}}}} =
+             call(ctx.owner, page.id, "GET", "/write")
+  end
+
   test "Applet viewers submit through writable targets and save attachments as themselves",
        ctx do
     owner = actor_fixture(ctx.owner)

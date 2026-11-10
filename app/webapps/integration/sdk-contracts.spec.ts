@@ -1,5 +1,78 @@
 import { expect, test } from '@playwright/test'
 
+test('an Applet data grid keeps headings visible while scrolling and exposes a real row action', async ({ page }) => {
+  await page.goto('/integration/applet-frame/sdk/index.html?data-grid')
+  const grid = page.getByRole('region', { name: 'Positions' })
+  const symbol = grid.getByRole('button', { name: 'Symbol 1', exact: true })
+  await grid.focus()
+  await page.keyboard.press('Tab')
+  await expect(symbol).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('[data-selected]')).toHaveText('Symbol 1')
+
+  const table = grid.getByRole('table')
+  const heading = grid.getByRole('columnheader', { name: 'Symbol', exact: true })
+  const leadingCell = grid.getByRole('cell', { name: 'Symbol 4', exact: true })
+  const regionBounds = (await grid.boundingBox())!
+  const tableBefore = (await table.boundingBox())!
+  await grid.evaluate(element => {
+    element.scrollTop = 80
+    element.scrollLeft = 100
+  })
+  await expect.poll(async () => (await table.boundingBox())!.x).toBeLessThan(tableBefore.x)
+  await expect.poll(async () => (await table.boundingBox())!.y).toBeLessThan(tableBefore.y)
+  await expect.poll(async () => (await heading.boundingBox())!.x).toBe(regionBounds.x)
+  await expect.poll(async () => (await heading.boundingBox())!.y).toBe(regionBounds.y)
+  await expect.poll(async () => (await leadingCell.boundingBox())!.x).toBe(regionBounds.x)
+})
+
+test('a sortable Applet grid requests sort changes from a keyboard-accessible heading', async ({ page }) => {
+  await page.goto('/integration/applet-frame/sdk/index.html?data-grid=sort')
+  const grid = page.getByRole('region', { name: 'Positions' })
+  const heading = grid.getByRole('columnheader', { name: 'Closing market value (CNY)' })
+  const sort = heading.getByRole('button')
+  await grid.focus()
+  await page.keyboard.press('Tab')
+  await expect(sort).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(heading).toHaveAttribute('aria-sort', 'ascending')
+  await expect(grid.getByRole('button', { name: /^Symbol / }).first()).toHaveText('Symbol 1')
+  await page.keyboard.press('Space')
+  await expect(heading).toHaveAttribute('aria-sort', 'descending')
+  await expect(grid.getByRole('button', { name: /^Symbol / }).first()).toHaveText('Symbol 20')
+})
+
+test('a virtualized Applet grid renders a scroll window and retains the keyboard path', async ({ page }) => {
+  await page.goto('/integration/applet-frame/sdk/index.html?data-grid=virtual')
+  const grid = page.getByRole('region', { name: 'Positions' })
+  const table = grid.getByRole('table')
+  const first = grid.getByRole('button', { name: 'Symbol 1', exact: true })
+  await expect(table).toHaveAttribute('aria-rowcount', '4001')
+  await grid.focus()
+  await page.keyboard.press('Tab')
+  await expect(first).toBeFocused()
+  await grid.evaluate(element => {
+    element.scrollTop = element.scrollHeight / 2
+    element.scrollLeft = 100
+  })
+  await expect
+    .poll(async () => {
+      return grid
+        .getByRole('row')
+        .evaluateAll(rows => rows.some(row => Number(row.getAttribute('aria-rowindex')) > 1_000))
+    })
+    .toBe(true)
+  expect(await grid.getByRole('row').count()).toBeLessThan(50)
+  await expect(first).toBeFocused()
+  const bounds = (await grid.boundingBox())!
+  const heading = (await grid.getByRole('columnheader', { name: 'Symbol', exact: true }).boundingBox())!
+  expect({ x: heading.x, y: heading.y }).toEqual({ x: bounds.x, y: bounds.y })
+  await page.keyboard.press('Tab')
+  await expect(grid.getByRole('button', { name: 'Symbol 2', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('[data-selected]')).toHaveText('Symbol 2')
+})
+
 test('same-table hooks refresh once per live event and do not read after revocation', async ({ page }) => {
   await page.goto('/integration/applet-frame/sdk/index.html')
   await expect(page.locator('[data-current]')).toHaveText('1')

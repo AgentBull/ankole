@@ -170,6 +170,13 @@ their own pin state, mute state, monotonic `last_read_seq`, and `last_visited_at
 `may_intervene` flag controls whether that Agent receives unaddressed group
 messages.
 
+An Applet may post a notification to an existing native room as an authorized
+Human. Conversations records it as a message with the Applet Page as provenance,
+advances the unread sequence and publishes the room change after commit. The
+message can include a link to the Applet. A retry with the same message ID and
+content reuses the committed message, and a different payload conflicts. This
+posting path creates no addressed Agent input.
+
 In group rooms, members can set or clear room-wide standing orders via the
 `set_channel_standing_orders` tool (native `dm` rooms omit this tool). The room
 stores the full policy text together with the Principal who set it, scoping its

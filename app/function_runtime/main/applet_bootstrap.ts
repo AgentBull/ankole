@@ -91,7 +91,18 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
     const capability = operation.replace(/^admin\./, '')
     if (
       state.readOnly &&
-      ['base.write', 'file.write', 'state.set', 'state.delete', 'signals.emit', 'ai.generateImage'].includes(capability)
+      [
+        'base.write',
+        'file.write',
+        'state.set',
+        'state.delete',
+        'signals.emit',
+        'ai.generateImage',
+        'notifications.post',
+        'approvals.request',
+        'approvals.decide',
+        'brain.writeTake'
+      ].includes(capability)
     ) {
       throw hostError({ status: 500, code: 'read_only_route', message: 'GET routes cannot write data' })
     }
@@ -117,9 +128,24 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
       metrics: Object.freeze({
         query: (metric: string, options = {}) => invoke('metrics.query', [metric, options])
       }),
+      brain: Object.freeze({
+        listTakes: (options: unknown) => invoke('brain.listTakes', [options]),
+        writeTake: (options: unknown) => invoke('brain.writeTake', [options]),
+        calibration: (options: unknown) => invoke('brain.calibration', [options])
+      }),
+      notifications: Object.freeze({
+        post: (request: unknown) => invoke('notifications.post', [request])
+      }),
+      approvals: Object.freeze({
+        request: (request: unknown) => invoke('approvals.request', [request]),
+        get: (id: string) => invoke('approvals.get', [id]),
+        list: () => invoke('approvals.list', []),
+        ...(prefix === '' ? { decide: (request: unknown) => invoke('approvals.decide', [request]) } : {})
+      }),
       file: Object.freeze({
         list: (pageId: string) => invoke('file.list', [pageId]),
-        read: (path: string) => invoke('file.read', [path]),
+        read: (path: string, options?: { sha256?: string }) =>
+          invoke('file.read', options === undefined ? [path] : [path, options]),
         write: (pageId: string, file: { bytes: Uint8Array }) => {
           store()
           if (!(file.bytes instanceof Uint8Array)) throw new TypeError('file.write bytes must be Uint8Array')

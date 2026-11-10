@@ -254,6 +254,7 @@
         "@atlaskit/pragmatic-drag-and-drop-hitbox": "3.0.0",
         "@base-ui/react": "1.9.0",
         "@remixicon/react": "4.9.0",
+        "@tanstack/react-virtual": "3.14.23",
         "class-variance-authority": "0.7.1",
         "clsx": "2.1.1",
         "cmdk": "^1.1.1",

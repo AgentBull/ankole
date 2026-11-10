@@ -408,7 +408,11 @@ Ankole indexes source Bindings by `(tenant_id, config_ref, id)`. Dispatch reads
 distinct destination Jobs in one batch before preparing deliveries.
 Applet `signals.emit` without `targetJobId`
 accepts a stable business `id` for retry deduplication and an optional `subject` for filtering; the root
-`signal_id` remains a generated UUID. Emissions from a Job inherit that Job's
+`signal_id` remains a generated UUID. It returns `{accepted: true, signalId, delivered}`.
+`delivered` is true when at least one currently matching Binding has a committed
+delivery receipt, including one reused on retry. It is false when no Binding
+accepts the event. The receipt confirms intake by a destination, whose work
+continues asynchronously. Emissions from a Job inherit that Job's
 WorkAccess, while interactive emissions inherit the original caller's WorkAccess.
 Using an `admin` capability changes the resource execution Principal without
 changing this authorization provenance. Migrated private Session targets resolve through their recorded long-lived
