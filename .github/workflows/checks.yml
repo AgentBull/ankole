@@ -8,12 +8,48 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request supersedes its running checks. Pushes to `main`
+# call this workflow from `runtime-images.yml`, and every one of them runs to
+# completion before a release.
 concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # A change that touches only documentation skips the checks below. The
+  # workflow still runs, and `checks-passed` reports a result, so a required
+  # status check never waits for a workflow that a path filter did not start.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+        if: ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' }}
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!*.md'
+              - '!docs/**'
+              - '!**/README*.md'
+              - '!**/SPEC.md'
+              - '!**/AGENTS.md'
+              - '!**/CLAUDE.md'
+              - '!**/CHANGELOG*.md'
+              - '!LICENSE'
+
   bun-static:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -28,6 +64,8 @@ jobs:
       - run: bun run type-check --filter='!@ankole/control-plane'
 
   kernel-lint:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -39,54 +77,56 @@ jobs:
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
-      - run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+      - run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt --target wasm32-unknown-unknown
       - run: rustup default 1.99.1
-      - run: rustup target add wasm32-unknown-unknown
+      # Pull requests restore the cache that `main` saves and do not save their
+      # own copy, which would crowd the repository's 10 GB cache quota.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/kernel
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: bun run --filter @ankole/kernel lint
 
-  control-plane-lint:
+  # Formatting, warnings, Credo, and compile-cycle checks read compiled modules
+  # only. `ANKOLE_KERNEL_SKIP_NIF` compiles the kernel module without building
+  # its crate, and `kernel-lint` already runs Clippy on the NIF features, so
+  # this job needs no Rust toolchain.
+  control-plane-static:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       MIX_ENV: test
       ANKOLE_EDITION: foss
-      TORQUE_BUILD: 'true'
+      ANKOLE_KERNEL_SKIP_NIF: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
       - uses: erlef/setup-beam@v1
+        id: beam
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
-      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - run: rustup toolchain install 1.99.1 --profile minimal
-      - run: rustup default 1.99.1
-      - run: bun install --frozen-lockfile
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            app/kernel/target
-            app/kernel/priv/native
-          key: control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.99.1-${{ hashFiles('app/kernel/Cargo.lock', 'app/kernel/Cargo.toml', 'app/kernel/src/**', 'app/kernel/proto/**', 'app/kernel/lib/**') }}
-          restore-keys: |
-            control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.99.1-${{ hashFiles('app/kernel/Cargo.lock') }}-
-            control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.99.1-
-      - uses: actions/cache@v6
+      # Protox runs protoc when it compiles `Ankole.RuntimeFabric.Proto`. The
+      # pinned release archive downloads in about a second.
+      - name: Install protoc
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache/restore@v6
+        id: mix-cache
         with:
           path: |
             app/control_plane/deps
             app/control_plane/_build
-          key: control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane/patches/**', 'app/kernel/mix.exs', 'libs/*/mix.exs') }}
+          key: control-plane-static-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane/patches/**', 'app/kernel/mix.exs', 'libs/*/mix.exs') }}
           restore-keys: |
-            control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-
+            control-plane-static-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-
       - run: mix local.hex --force && mix local.rebar --force && mix deps.get
         working-directory: app/control_plane
       - run: bun run --filter @ankole/control-plane lint
@@ -96,6 +136,72 @@ jobs:
         working-directory: app/control_plane
         env:
           MIX_ENV: prod
+      - uses: actions/cache/save@v6
+        if: ${{ github.ref == 'refs/heads/main' && steps.mix-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: |
+            app/control_plane/deps
+            app/control_plane/_build
+          key: ${{ steps.mix-cache.outputs.cache-primary-key }}
+
+  # Mix configuration loads the kernel NIF, so the generated-contract checks
+  # need the library. A cache keyed on every kernel input restores it, and only
+  # a kernel change builds it again.
+  control-plane-contracts:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MIX_ENV: test
+      ANKOLE_EDITION: foss
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - name: Install protoc
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+      - run: bun install --frozen-lockfile
+      - uses: actions/cache/restore@v6
+        id: nif-cache
+        with:
+          path: app/kernel/priv/native
+          key: control-plane-nif-${{ runner.os }}-rust-1.99.1-${{ hashFiles('app/kernel/**', '!app/kernel/target/**', '!app/kernel/priv/**', '!app/kernel/dist/**', '!app/kernel/node_modules/**', '!app/kernel/_build/**', '!app/kernel/deps/**') }}
+      - name: Use the cached kernel NIF
+        if: ${{ steps.nif-cache.outputs.cache-hit == 'true' }}
+        run: echo "ANKOLE_KERNEL_SKIP_NIF=1" >> "$GITHUB_ENV"
+      - if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
+        run: rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
+        with:
+          workspaces: app/kernel
+          shared-key: control-plane-nif
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/cache/restore@v6
+        id: mix-cache
+        with:
+          path: |
+            app/control_plane/deps
+            app/control_plane/_build
+          key: control-plane-contracts-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane/patches/**', 'app/kernel/mix.exs', 'libs/*/mix.exs') }}
+          restore-keys: |
+            control-plane-contracts-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+        working-directory: app/control_plane
+      # A restored build can hold a kernel module compiled without its crate.
+      # Removing it makes Mix build the NIF when the cache above has no library.
+      - if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
+        run: rm -rf app/control_plane/_build/${ANKOLE_EDITION}/test/lib/ankole_kernel
       - run: mix ankole.openapi.check
         working-directory: app/control_plane
       - run: mix ankole.toolkits
@@ -105,3 +211,36 @@ jobs:
           bun run --filter @ankole/webapps openapi:generate
           git diff --exit-code -- app/webapps/openapi app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated
           test -z "$(git ls-files --others --exclude-standard -- app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated)"
+      - uses: actions/cache/save@v6
+        if: ${{ github.ref == 'refs/heads/main' && steps.nif-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: app/kernel/priv/native
+          key: ${{ steps.nif-cache.outputs.cache-primary-key }}
+      - uses: actions/cache/save@v6
+        if: ${{ github.ref == 'refs/heads/main' && steps.mix-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: |
+            app/control_plane/deps
+            app/control_plane/_build
+          key: ${{ steps.mix-cache.outputs.cache-primary-key }}
+
+  # Require this job, not the individual checks, in branch protection. It
+  # reports success when every check passed or a documentation-only change
+  # skipped them.
+  checks-passed:
+    name: Repository checks passed
+    needs: [changes, bun-static, kernel-lint, control-plane-static, control-plane-contracts]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check the results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "A required check finished with: $RESULTS" >&2
+              exit 1
+            fi
+          done
