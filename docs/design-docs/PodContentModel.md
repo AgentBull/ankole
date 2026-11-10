@@ -493,9 +493,28 @@ destructive confirmations focus Cancel initially; tall dialogs scroll their body
 while pinning the header and action bar, and property pickers stay anchored to
 their trigger field.
 
-Clicking the sidebar search icon button or pressing Command/Control+K opens a
+The shared UI Kit controls acknowledge actions at the control itself. Buttons
+compress on press and show a light sweep while their action reports it is busy.
+A switch thumb stretches toward the other side while pressed and slides into
+place when the setting changes. Checkboxes draw the check or the mixed-state
+dash. In a select, the popup enters from its anchor and one highlight follows
+the focused option as the pointer or keyboard moves through the list. Text
+fields and text areas give a short nudge when invalid, and new validation
+messages fade into place. In a verification code field, the focus line follows
+the active digit and pasted digits appear in sequence. These cues follow the
+control state as soon as it changes, while focus stays where the user's action
+puts it. With reduced motion, controls settle directly into the new state.
+
+Clicking the top bar search entry or pressing Command/Control+K opens a
 single quick-navigation menu linking to Pages, Brain knowledge, Chats, and
-content roots without mutating or discarding an unfinished Chat draft. When text
+content roots without mutating or discarding an unfinished Chat draft. A single
+highlight follows the active result, and the list changes height as results
+appear or narrow. Both changes are immediate with reduced motion. Arrow keys
+move between results, Alt+Arrow keys jump between sections, and Tab reaches
+the filter and sort controls. From the search field, Escape clears the query
+first and closes the menu when the field is empty. Visible navigation actions
+advertise Command/Control+1–5 for New Chat, Search Pages, Space, Private, and
+Shared, according to what is available to the current user. When text
 is selected in an editable document, the platform link shortcut (Command+K on
 Apple platforms, Control+K elsewhere) opens the editor's link form instead; the
 menu still opens where the editor cannot add a link, such as in code. Control+K
@@ -626,8 +645,10 @@ ceramic overlay without changing the collapse preference or moving the page.
 Leaving the overlay closes it, while `Show sidebar` expands it persistently.
 The open sidebar tab shows its icon and label; the other tab shows only its
 icon and names itself in a tooltip. Switching tabs slides the selected fill to
-the new tab and stretches it to the new width, while the old label closes and
-blurs away and the new label opens and comes into focus. The open tab and the current row in the Pod
+the new tab. The leading edge arrives first, so the fill briefly stretches
+while the old label closes and blurs away and the new label opens and comes
+into focus. Underlined tab lists use the same motion for their active line.
+The open tab and the current row in the Pod
 and Console sidebars share one mark: the selected fill (brand-10 inside a 0.2 px
 blue hairline), with ink text at the same weight. Both sidebars are white
 columns that end in a faint divider beside the page. Only the Sidebar row the user followed

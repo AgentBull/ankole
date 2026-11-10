@@ -47,6 +47,28 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 @custom-variant fine-hover (@media (hover: hover) and (pointer: fine));
 
+@theme {
+  --animate-field-nudge: ankole-field-nudge 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-field-message-in: ankole-field-message-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  @keyframes ankole-field-nudge {
+    30% {
+      translate: -3px;
+    }
+    65% {
+      translate: 2px;
+    }
+  }
+
+  @keyframes ankole-field-message-in {
+    from {
+      opacity: 0;
+      translate: 0 -3px;
+      filter: blur(2px);
+    }
+  }
+}
+
 /* A tint or a tier set on one surface must not reach a ceramic surface inside it. */
 @property --ceramic-tint {
   syntax: '*';
@@ -395,26 +417,89 @@
     animation: ankole-spinner-arc 2.4s ease-in-out infinite;
   }
 
-  /* The selected fill of object tabs. Its box comes from the open tab's settled position; it travels on the same
-     duration and curve as tab content, and a size change alone moves it at once. */
+  /* The leading edge travels faster so the selected mark stretches toward the next tab before it settles. */
   [data-slot='tabs-indicator'] {
-    top: var(--segment-top);
-    left: var(--segment-left);
-    width: var(--segment-width);
-    height: var(--segment-height);
-    transition-property: left, top, width, height;
-    transition-duration: var(--duration-segment);
-    transition-timing-function: var(--ease-segment);
+    --segment-start-time: 380ms;
+    --segment-end-time: 380ms;
+    transition:
+      left var(--segment-start-time) var(--ease-segment),
+      right var(--segment-end-time) var(--ease-segment),
+      top var(--segment-start-time) var(--ease-segment),
+      bottom var(--segment-end-time) var(--ease-segment),
+      scale 200ms var(--ease-segment);
   }
 
   [data-slot='tabs-indicator'][data-instant] {
-    transition: none;
+    transition-property: scale;
+  }
+
+  [data-slot='tabs-indicator']:is([data-activation-direction='right'], [data-activation-direction='down']) {
+    --segment-start-time: var(--duration-segment);
+    --segment-end-time: 270ms;
+  }
+
+  [data-slot='tabs-indicator']:is([data-activation-direction='left'], [data-activation-direction='up']) {
+    --segment-start-time: 270ms;
+    --segment-end-time: var(--duration-segment);
+  }
+
+  [data-variant='object'] > [data-slot='tabs-indicator'] {
+    top: var(--segment-top);
+    bottom: calc(100% - var(--segment-top) - var(--segment-height));
+    left: var(--segment-left);
+    right: calc(100% - var(--segment-left) - var(--segment-width));
+  }
+
+  [data-variant='default'] > [data-slot='tabs-indicator'][data-orientation='horizontal'] {
+    bottom: 0;
+    left: var(--active-tab-left);
+    right: calc(100% - var(--active-tab-left) - var(--active-tab-width));
+    height: 2px;
+  }
+
+  [data-variant='default'] > [data-slot='tabs-indicator'][data-orientation='vertical'] {
+    top: var(--active-tab-top);
+    bottom: calc(100% - var(--active-tab-top) - var(--active-tab-height));
+    right: 0;
+    width: 2px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    [data-slot='tabs-list'][data-variant='object']:has(> [role='tab'][data-active]:active)
+      > [data-slot='tabs-indicator'] {
+      scale: 0.97;
+    }
   }
 
   /* The settled-position probe clones a tab list; nothing in the clone animates, so it shows the end state. */
   :is([data-tabs-measure], [data-tabs-measure] *) {
     transition: none !important;
     animation: none !important;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    [data-slot='select-content'][data-open]:not([data-side='none']) {
+      animation: ankole-select-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    [data-slot='select-content'][data-side='top'] {
+      --select-enter-y: 4px;
+    }
+
+    [data-slot='select-content'][data-side='left'] {
+      --select-enter-x: 4px;
+      --select-enter-y: 0px;
+    }
+
+    [data-slot='select-content'][data-side='right'] {
+      --select-enter-x: -4px;
+      --select-enter-y: 0px;
+    }
+
+    [data-slot='select-check'] path {
+      stroke-dasharray: 1;
+      animation: ankole-check-draw 280ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
+    }
   }
 
   /* A drop place is ink and has a shape: a line between rows, or a ring around the new parent. */
@@ -601,9 +686,66 @@
   }
 }
 
+@utility button-press {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    scale 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease;
+
+  &:active:not(:disabled, [aria-disabled='true'], [aria-busy='true']) {
+    scale: 0.97;
+  }
+}
+
+@theme {
+  --animate-button-shimmer: ankole-button-shimmer 1040ms linear infinite;
+  --animate-otp-digit: ankole-otp-digit 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-otp-caret: ankole-otp-caret 1.1s ease-in-out infinite;
+
+  @keyframes ankole-button-shimmer {
+    from {
+      background-position: 100% 0;
+    }
+    to {
+      background-position: 0% 0;
+    }
+  }
+
+  @keyframes ankole-otp-digit {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.7);
+      filter: blur(3px);
+    }
+  }
+
+  @keyframes ankole-otp-caret {
+    50% {
+      opacity: 0;
+    }
+  }
+}
+
 @keyframes ankole-spinner-turn {
   to {
     rotate: 1turn;
+  }
+}
+
+@keyframes ankole-select-enter {
+  from {
+    opacity: 0;
+    translate: var(--select-enter-x, 0px) var(--select-enter-y, -4px);
+    scale: 0.98;
+  }
+}
+
+@keyframes ankole-check-draw {
+  from {
+    stroke-dashoffset: 1;
   }
 }
 

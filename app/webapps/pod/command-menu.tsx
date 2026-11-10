@@ -1,5 +1,5 @@
 import { knownPageTitle, usePageHref, usePagesMetadata } from './use-page-metadata'
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useDebouncedValue } from '../common/use-debounced-value'
 import {
   Button,
@@ -9,6 +9,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandShortcut,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
@@ -19,6 +20,7 @@ import {
   DialogContent,
   DialogTitle,
   isCommandInteractiveTarget,
+  Kbd,
   useSidebar
 } from '@ankole/uikit'
 import {
@@ -37,6 +39,7 @@ import { useLocation, useNavigate } from '@tanstack/react-router'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import { authenticationRef, podID } from '../common/browser-context'
 import { podLocation, podPagePathnameID } from '../common/pod-url'
+import { isApplePlatform } from '../common/platform'
 import { linkTarget } from '../common/router'
 import { ErrorBoundary } from '../common/error-boundary'
 import { agentsQuery, conversationSearchQuery } from './api'
@@ -86,6 +89,8 @@ type CommandEntryGroup =
   | { kind: 'colleague'; heading: string; entries: CommandColleagueEntry[] }
   | { kind: 'chat'; heading: string; entries: CommandChatEntry[] }
 
+const shortcutCommands = ['new-chat', 'scope:search', 'scope:space', 'scope:private', 'scope:shared']
+
 export function usePodCommandMenu() {
   const open = useContext(PodCommandContext)
   if (!open) throw new Error('Pod command menu provider is missing')
@@ -99,6 +104,34 @@ function resolvePodTarget(href: string): { to: string; search?: Record<string, s
   const loc = podLocation(rawPathname, rawQuery)
   const target = linkTarget(loc)
   return { ...target, url: `${loc.pathname}${loc.search}` }
+}
+
+function CommandHighlight() {
+  const ref = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const highlight = ref.current
+    const sizer = highlight?.parentElement
+    if (!highlight || !sizer) return
+
+    const place = () => {
+      const row = sizer.querySelector<HTMLElement>('[cmdk-item][aria-selected="true"]')
+      highlight.toggleAttribute('data-visible', row !== null)
+      if (!row) return
+      highlight.style.transform = `translateY(${row.offsetTop}px)`
+      highlight.style.height = `${row.offsetHeight}px`
+    }
+    const selection = new MutationObserver(place)
+    selection.observe(sizer, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-selected'] })
+    const size = new ResizeObserver(place)
+    size.observe(sizer)
+    place()
+    return () => {
+      selection.disconnect()
+      size.disconnect()
+    }
+  }, [])
+
+  return <span ref={ref} aria-hidden className="pod-command-highlight" />
 }
 
 export function PodCommandMenu({
@@ -123,6 +156,7 @@ export function PodCommandMenu({
   const [sort, setSort] = useState<PageSearchSort>('best')
   const [inCurrentPage, setInCurrentPage] = useState(false)
   const [activeValue, setActiveValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const currentPageID = useMemo(() => podPagePathnameID(pathname), [pathname])
   const currentPageTitle = currentPageID ? knownPageTitle(client, currentPageID) : undefined
@@ -484,11 +518,18 @@ export function PodCommandMenu({
 
   const label = t('pod.command.open')
   const isSearching = trimmedQuery !== settledQuery.trim() || pages.isFetching || conversations.isFetching
+  const apple = isApplePlatform()
 
   return (
     <Dialog
       open={open}
-      onOpenChange={next => {
+      onOpenChange={(next, details) => {
+        if (!next && details.reason === 'escape-key' && details.event.target === inputRef.current && query) {
+          details.cancel()
+          setQuery('')
+          setActiveValue('')
+          return
+        }
         if (!next) resetMenuState()
         onOpenChange(next)
       }}>
@@ -515,11 +556,28 @@ export function PodCommandMenu({
             value={effectiveActiveValue}
             onValueChange={setActiveValue}
             onKeyDownCapture={event => {
-              if (event.key === 'Enter' && isImeComposingKey(event)) {
-                event.stopPropagation()
+              if (isImeComposingKey(event)) {
+                if (event.key === 'Enter') event.stopPropagation()
                 return
               }
               if (isCommandInteractiveTarget(event.target)) return
+              if (
+                event.target === inputRef.current &&
+                (apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) &&
+                !event.altKey &&
+                !event.shiftKey &&
+                !event.repeat &&
+                /^[1-5]$/.test(event.key)
+              ) {
+                const value = shortcutCommands[Number(event.key) - 1]
+                const entry = entries.find(item => item.value === value)
+                if (entry?.kind === 'nav') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void choose(entry.href, entry.state)
+                }
+                return
+              }
               if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
                 const url = effectiveActiveEntry && 'url' in effectiveActiveEntry ? effectiveActiveEntry.url : undefined
                 if (url) {
@@ -535,7 +593,9 @@ export function PodCommandMenu({
               }
             }}>
             <CommandInput
+              ref={inputRef}
               aria-label={label}
+              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
               placeholder={t('pod.command.placeholder')}
               value={query}
               onValueChange={next => {
@@ -618,7 +678,8 @@ export function PodCommandMenu({
             </div>
 
             <div className="grid min-h-0 md:grid-cols-[minmax(0,1fr)_minmax(0,300px)]">
-              <CommandList label={label} className="min-w-0">
+              <CommandList label={label} aria-busy={isSearching} className="min-w-0">
+                <CommandHighlight />
                 <CommandEmpty>{t(isSearching ? 'pod.content.loading' : 'pod.content.no_matches')}</CommandEmpty>
 
                 {groups.map(group => {
@@ -714,14 +775,24 @@ export function PodCommandMenu({
                         <CommandGroup key="nav" heading={group.heading}>
                           {group.entries.map(item => {
                             const Icon = item.icon
+                            const shortcut = shortcutCommands.indexOf(item.value) + 1
                             return (
                               <CommandItem
                                 key={item.value}
                                 value={item.value}
                                 keywords={item.keywords}
+                                aria-keyshortcuts={shortcut ? `${apple ? 'Meta' : 'Control'}+${shortcut}` : undefined}
                                 onSelect={() => void choose(item.href, item.state)}>
                                 <Icon aria-hidden />
                                 {item.label}
+                                {shortcut > 0 && (
+                                  <CommandShortcut aria-hidden className="hidden sm:inline-flex">
+                                    <Kbd>
+                                      {apple ? '⌘' : 'Ctrl+'}
+                                      {shortcut}
+                                    </Kbd>
+                                  </CommandShortcut>
+                                )}
                               </CommandItem>
                             )
                           })}
@@ -798,6 +869,9 @@ export function PodCommandMenu({
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-(--menu-field-edge) px-2 pt-1.5 text-[11px] text-fg-tertiary">
               <div className="flex items-center gap-3">
                 <span>{t('pod.command.hint_navigate')}</span>
+                <span className="hidden md:inline">
+                  {t('pod.command.hint_group', { modifier: apple ? '⌥' : 'Alt+' })}
+                </span>
                 <span>{t('pod.command.hint_open')}</span>
                 <span className="hidden sm:inline">{t('pod.command.hint_new_tab')}</span>
               </div>

@@ -21,14 +21,14 @@ function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive
 }
 
 const tabsListVariants = cva(
-  'group/tabs-list inline-flex w-fit items-center justify-center text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col',
+  'group/tabs-list relative isolate inline-flex w-fit items-center justify-center text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col',
   {
     variants: {
       variant: {
         default: 'border-b border-border bg-transparent',
         // Tabs that name a place, like a segmented control: the open tab sits on the selected fill, which slides
         // and stretches to the next tab when the selection changes.
-        object: 'relative isolate gap-0.5 bg-transparent group-data-horizontal/tabs:h-7'
+        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-7'
       }
     },
     defaultVariants: {
@@ -46,11 +46,19 @@ function TabsList({
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
-      data-variant={variant}
+      data-variant={variant ?? 'default'}
       className={cn(tabsListVariants({ variant }), className)}
       {...props}>
       {children}
-      {variant === 'object' && <SegmentIndicator />}
+      {variant === 'object' ? (
+        <SegmentIndicator />
+      ) : (
+        <TabsPrimitive.Indicator
+          data-slot="tabs-indicator"
+          aria-hidden
+          className="pointer-events-none absolute bg-foreground"
+        />
+      )}
     </TabsPrimitive.List>
   )
 }
@@ -77,21 +85,21 @@ function settledBox(list: HTMLElement): SegmentBox | null {
   )
   const frame = ghost.getBoundingClientRect()
   const rect = ghostTabs[index]?.getBoundingClientRect()
+  const { clientLeft, clientTop } = ghost
   ghost.remove()
   const tab = tabs[index]
   if (!rect || !tab) return null
   return {
     tab,
-    left: rect.left - frame.left - list.clientLeft,
-    top: rect.top - frame.top - list.clientTop,
+    left: rect.left - frame.left - clientLeft,
+    top: rect.top - frame.top - clientTop,
     width: rect.width,
     height: rect.height
   }
 }
 
-// The selected fill of object tabs. When the selection changes it travels once, straight to where the new tab
-// settles, on the same duration and curve as the tab content, so the fill and the content move as one shape and
-// never chase each other. A change of size alone (first layout, fonts, a narrower window) moves it without motion.
+// Object tabs aim their fill at the new tab's settled box, even while the label is still opening. A size change
+// alone (first layout, fonts, a narrower window) moves the fill without motion.
 function SegmentIndicator() {
   const ref = useRef<HTMLSpanElement>(null)
   useLayoutEffect(() => {
@@ -118,10 +126,14 @@ function SegmentIndicator() {
         return
       }
       const travel = placed !== null && (placed.tab !== box.tab || performance.now() < travellingUntil)
-      if (travel && placed?.tab !== box.tab) {
-        travellingUntil = performance.now() + Number.parseFloat(getComputedStyle(indicator).transitionDuration) * 1000
-      }
       indicator.toggleAttribute('data-instant', !travel)
+      if (placed && placed.tab !== box.tab) {
+        const vertical = list.closest('[data-slot="tabs"]')?.hasAttribute('data-vertical')
+        if (vertical) indicator.dataset.activationDirection = box.top < placed.top ? 'up' : 'down'
+        else indicator.dataset.activationDirection = box.left < placed.left ? 'left' : 'right'
+        const durations = getComputedStyle(indicator).transitionDuration.split(',').map(Number.parseFloat)
+        travellingUntil = performance.now() + Math.max(...durations) * 1000
+      }
       indicator.hidden = false
       indicator.style.setProperty('--segment-left', `${box.left}px`)
       indicator.style.setProperty('--segment-top', `${box.top}px`)
@@ -157,8 +169,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
       className={cn(
         "relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-[13px] font-normal whitespace-nowrap text-muted-foreground transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-foreground focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         'data-active:text-foreground',
-        'after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-1px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 data-active:after:opacity-100',
-        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:after:hidden group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-accent group-data-[variant=object]/tabs-list:hover:text-foreground group-data-[variant=object]/tabs-list:data-active:text-foreground group-data-[variant=object]/tabs-list:data-active:fine-hover:hover:bg-transparent',
+        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-accent group-data-[variant=object]/tabs-list:hover:text-foreground group-data-[variant=object]/tabs-list:data-active:text-foreground group-data-[variant=object]/tabs-list:data-active:fine-hover:hover:bg-transparent',
         className
       )}
       {...props}

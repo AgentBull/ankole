@@ -327,13 +327,14 @@ export function LiveMessage({
       <MessageIdentity name={stream.agentName || t('pod.chat_timeline.agent')} avatarURL={avatarURL} />
       <CollapsedWorkView
         active
+        startedAt={stream.startedAt}
         phaseLabel={!stream.thinkingSummary && activeActivity?.phase ? label(activeActivity.phase) : undefined}
         execution={{
           thinking_summary: stream.thinkingSummary,
           steps
         }}
       />
-      {stream.text && <ChatMarkdown text={stream.text} generated streaming className="pod-chat-live-text" />}
+      {stream.text && <ChatMarkdown text={stream.text} generated streaming />}
       {linkedRuns.map(run => (
         <LinkedExecutionCard
           key={`${run.kind}:${run.id}`}

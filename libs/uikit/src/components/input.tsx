@@ -20,7 +20,9 @@ function Input({
       data-slot="input"
       data-variant={variant}
       className={cn(
-        'h-8 w-full min-w-0 px-3 text-sm leading-5 outline-none transition-[background-color] duration-(--duration-feedback) placeholder:text-fg-placeholder disabled:cursor-not-allowed disabled:text-fg-disabled disabled:placeholder:text-fg-disabled',
+        'h-8 w-full min-w-0 px-3 text-sm leading-5 outline-none placeholder:text-fg-placeholder disabled:cursor-not-allowed disabled:text-fg-disabled disabled:placeholder:text-fg-disabled',
+        variant !== 'inline' &&
+          'transition-[background-color,box-shadow] duration-160 ease-[ease] motion-safe:aria-invalid:animate-field-nudge motion-safe:user-invalid:animate-field-nudge',
         variant === 'inline'
           ? 'h-auto rounded-control border-0 bg-transparent px-1 py-0.5 text-[length:inherit] leading-[inherit] font-[inherit] text-inherit focus:outline-2 focus:outline-offset-0 focus:outline-ring focus:outline-solid'
           : variant === 'overlay'

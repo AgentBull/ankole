@@ -1,5 +1,6 @@
 import { Button as ButtonPrimitive } from '@base-ui/react/button'
 import { cva, type VariantProps } from 'class-variance-authority'
+import { Children } from 'react'
 
 import { cn } from '@ankole/uikit/lib/utils'
 
@@ -43,23 +44,47 @@ const buttonVariants = cva(
 
 function Button({
   className,
+  children,
+  'aria-busy': busy,
   incomplete = false,
   variant = 'default',
   size = 'default',
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { incomplete?: boolean }) {
+  const isBusy = busy === true || busy === 'true'
+
   return (
     <ButtonPrimitive
+      aria-busy={busy}
       data-incomplete={incomplete || undefined}
       data-slot="button"
       className={cn(
         buttonVariants({ variant, size }),
+        'motion-safe:button-press',
         incomplete &&
           'border-border border-b-border bg-muted text-muted-foreground hover:border-border hover:bg-muted/80 hover:text-muted-foreground',
         className
       )}
-      {...props}
-    />
+      {...props}>
+      {isBusy
+        ? Children.map(children, child =>
+            typeof child === 'string' && child.trim() ? (
+              <span
+                data-busy-label={child}
+                className={cn(
+                  "relative motion-safe:text-current/55 group-disabled/button:text-current group-aria-disabled/button:text-current forced-colors:text-current motion-safe:after:pointer-events-none motion-safe:after:absolute motion-safe:after:inset-0 motion-safe:after:bg-[linear-gradient(90deg,transparent_38%,var(--button-shine)_50%,transparent_62%)] motion-safe:after:bg-size-[300%_100%] motion-safe:after:bg-position-[100%_0] motion-safe:after:bg-clip-text motion-safe:after:bg-no-repeat motion-safe:after:text-transparent motion-safe:after:animate-button-shimmer motion-safe:after:content-[attr(data-busy-label)/''] forced-colors:after:hidden",
+                  variant === 'default'
+                    ? '[--button-shine:rgb(255_255_255/0.95)]'
+                    : '[--button-shine:rgb(255_255_255/0.82)]'
+                )}>
+                {child}
+              </span>
+            ) : (
+              child
+            )
+          )
+        : children}
+    </ButtonPrimitive>
   )
 }
 

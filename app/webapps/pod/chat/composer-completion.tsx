@@ -3,6 +3,7 @@ import { Button } from '@ankole/uikit'
 import {
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -62,6 +63,56 @@ export function holdsEnter(event: Pick<KeyboardEvent, 'key' | 'shiftKey'>, loadi
 }
 
 export type CompletionOption = { id: string; group?: string; content: ReactNode; choose(): void }
+
+export function ComposerMenuHighlight() {
+  const ref = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const marker = ref.current
+    const menu = marker?.parentElement
+    if (!marker || !menu) return
+
+    let current: HTMLElement | null = null
+    const place = () => {
+      const active = menu.querySelector<HTMLElement>(
+        '[role="option"][aria-selected="true"], [data-highlighted]:not([data-disabled])'
+      )
+      if (current !== active) {
+        if (current) sizes.unobserve(current)
+        if (active) sizes.observe(active)
+        current = active
+      }
+      marker.toggleAttribute('data-visible', !!active)
+      if (!active) return
+      let top = active.offsetTop
+      for (
+        let parent = active.offsetParent;
+        parent instanceof HTMLElement && parent !== menu;
+        parent = parent.offsetParent
+      ) {
+        top += parent.offsetTop + parent.clientTop
+      }
+      marker.style.translate = `0 ${top}px`
+      marker.style.height = `${active.offsetHeight}px`
+    }
+    const sizes = new ResizeObserver(place)
+    const changes = new MutationObserver(place)
+    sizes.observe(menu)
+    changes.observe(menu, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['aria-selected', 'data-highlighted', 'data-disabled']
+    })
+    place()
+    return () => {
+      sizes.disconnect()
+      changes.disconnect()
+    }
+  }, [])
+
+  return <span ref={ref} aria-hidden className="pod-chat-completion-highlight" />
+}
+
 export function ComposerCompletionList({
   id,
   query,
@@ -136,6 +187,7 @@ export function ComposerCompletionList({
   return (
     <div className="pod-chat-composer-picker">
       <div ref={list} id={id} role="listbox" aria-label={t('pod.chat_room.completion_results')}>
+        <ComposerMenuHighlight />
         {!options.length && (
           <p className="pod-chat-completion-empty" role="status">
             {t(loading ? 'common.loading' : 'pod.chat_room.no_matches')}

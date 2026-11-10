@@ -51,9 +51,9 @@ import type { ChatCommands } from '../chat-commands'
 import type { ConversationDetail, PodAgent } from '../api'
 import {
   ChatAttachmentButton,
+  ChatAttachmentDropzone,
   ChatAttachmentDrafts,
-  MessageAttachments,
-  chatAttachmentHandlers
+  MessageAttachments
 } from '../chat-attachments'
 import { ModelControls } from '../model-controls'
 import { pageQuery } from '../content-api'
@@ -61,6 +61,7 @@ import { MentionPicker, type MentionChoice } from './mention-picker'
 import { SlashCommandPicker, type SlashCommand } from './slash-command-picker'
 import {
   completionAt,
+  ComposerMenuHighlight,
   insertCompletionTrigger,
   type ComposerCompletion,
   type CompletionHandle
@@ -311,6 +312,7 @@ export function Composer({
     !answerID &&
     ((commands.targetWorking && commands.canSteerTarget) || (!commands.targetWorking && commands.targetPaused))
   const submitActive = canSubmit && !answering && (!answerID || answerAvailable)
+  const submitPending = sending || answering || commands.pendingQueueAction?.action === 'edit'
   const unavailable = detail?.conversation.agents.filter(agent => !agent.active) ?? []
   const quoted = model.quoted.value
   const hasActiveAgent =
@@ -420,10 +422,10 @@ export function Composer({
           })}
         </p>
       )}
-      <form
-        {...chatAttachmentHandlers(
-          model.attachments,
-          attachmentsDisabled || !!queueEditing,
+      <ChatAttachmentDropzone
+        model={model.attachments}
+        disabled={attachmentsDisabled || !!queueEditing}
+        onBlocked={
           queueEditing
             ? () =>
                 toast.info(
@@ -432,13 +434,27 @@ export function Composer({
                   })
                 )
             : undefined
-        )}
+        }
         className="pod-chat-composer"
         onSubmit={event => {
           event.preventDefault()
           send()
         }}>
-        <InputGroup variant="paper" className="pod-chat-composer-field">
+        <InputGroup
+          variant="paper"
+          className="pod-chat-composer-field"
+          onClick={event => {
+            const target = event.target
+            if (
+              target === event.currentTarget ||
+              (target instanceof HTMLElement &&
+                target.matches(
+                  '.pod-chat-composer-editor, .pod-chat-composer-tools, .pod-chat-recipient-tools, .pod-chat-send-tools'
+                ))
+            ) {
+              if (window.getSelection()?.isCollapsed !== false) textarea.current?.focus({ preventScroll: true })
+            }
+          }}>
           {answerID && (
             <div className="pod-chat-answer-context" role="status">
               <div>
@@ -705,7 +721,7 @@ export function Composer({
                     aria-label={t('pod.chat.choose_agent')}>
                     <SelectValue placeholder={t('pod.chat.choose_agent')} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent side="top" align="start" className="pod-chat-composer-menu">
                     {conversationID && (group || humanOnly) && (
                       <SelectItem value="__listeners__">
                         {t(roomAgents.length ? 'pod.chat_room.listeners' : 'pod.chat_room.people_only')}
@@ -797,8 +813,9 @@ export function Composer({
                           ? t('pod.chat.send_immediately')
                           : undefined
                     }
+                    aria-busy={submitPending || undefined}
                     disabled={!submitActive}>
-                    {commands.pendingQueueAction?.action === 'edit' ? (
+                    {submitPending ? (
                       <Spinner aria-hidden />
                     ) : queueEditing ? (
                       <RiCheckLine aria-hidden />
@@ -831,7 +848,8 @@ export function Composer({
                         }>
                         <RiArrowDownSLine aria-hidden />
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-60">
+                      <DropdownMenuContent side="top" align="end" className="pod-chat-composer-menu w-60">
+                        <ComposerMenuHighlight />
                         {commands.targetWorking ? (
                           <>
                             {commands.deliveryModes.alternate && (
@@ -890,7 +908,7 @@ export function Composer({
             </div>
           </InputGroupAddon>
         </InputGroup>
-      </form>
+      </ChatAttachmentDropzone>
     </div>
   )
 }

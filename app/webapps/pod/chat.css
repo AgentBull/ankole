@@ -953,6 +953,59 @@
   font-size: 16px;
   line-height: 26px;
 }
+
+@keyframes pod-attachment-enter {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  0%,
+  99% {
+    overflow: clip;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    overflow: visible;
+  }
+}
+
+@keyframes pod-attachment-shake {
+  20% {
+    translate: -4px;
+  }
+  40% {
+    translate: 4px;
+  }
+  60% {
+    translate: -3px;
+  }
+  80% {
+    translate: 2px;
+  }
+}
+
+@keyframes pod-attachment-ready {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+@keyframes pod-attachment-bob {
+  50% {
+    translate: 0 -3px;
+  }
+}
+
+@keyframes pod-attachment-label {
+  from {
+    opacity: 0;
+    translate: 0 3px;
+    filter: blur(2px);
+  }
+}
+
 .pod-chat-composer-suggestion {
   position: absolute;
   inset-block-start: 0;
@@ -1075,11 +1128,102 @@
   padding: 4px;
   @apply ceramic ceramic-primary;
 }
+.pod-chat-composer-menu {
+  animation: none;
+}
+.pod-chat-composer-menu[data-slot='dropdown-menu-content'] {
+  position: relative;
+  isolation: isolate;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pod-chat-composer-menu,
+  .pod-chat-composer-picker {
+    --composer-clip-x: max(0px, calc(100% - var(--anchor-width, 28px)));
+    --composer-clip-y: max(0px, calc(100% - var(--anchor-height, 28px)));
+    --composer-menu-fold: inset(var(--composer-clip-y) var(--composer-clip-x) 0 0 round 6px);
+  }
+  .pod-chat-composer-menu[data-side='top'][data-align='end'] {
+    --composer-menu-fold: inset(var(--composer-clip-y) 0 0 var(--composer-clip-x) round 6px);
+  }
+  .pod-chat-composer-menu[data-side='bottom'] {
+    --composer-menu-fold: inset(0 var(--composer-clip-x) var(--composer-clip-y) 0 round 6px);
+  }
+  .pod-chat-composer-menu[data-side='bottom'][data-align='end'] {
+    --composer-menu-fold: inset(0 0 var(--composer-clip-y) var(--composer-clip-x) round 6px);
+  }
+  .pod-chat-composer-menu {
+    clip-path: inset(-40px round var(--ceramic-radius));
+    transition: clip-path 380ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .pod-chat-composer-menu:is([data-starting-style], [data-ending-style]) {
+    clip-path: var(--composer-menu-fold);
+    opacity: 1;
+  }
+  .pod-chat-composer-menu[data-ending-style] {
+    transition: clip-path 260ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .pod-chat-composer-menu > :not(.pod-chat-completion-highlight) {
+    transition:
+      opacity 220ms ease-out 100ms,
+      translate 360ms cubic-bezier(0.22, 1, 0.36, 1) 60ms;
+  }
+  .pod-chat-composer-menu:is([data-starting-style], [data-ending-style]) > :not(.pod-chat-completion-highlight) {
+    opacity: 0;
+  }
+  .pod-chat-composer-menu[data-starting-style] > :not(.pod-chat-completion-highlight) {
+    translate: 0 4px;
+  }
+  .pod-chat-composer-menu[data-ending-style] > :not(.pod-chat-completion-highlight) {
+    transition: opacity 120ms ease-out;
+  }
+  .pod-chat-composer-picker {
+    animation: pod-chat-composer-menu-in 380ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .pod-chat-inline-editor[data-picker-placement='below'] .pod-chat-composer-picker {
+    --composer-menu-fold: inset(0 var(--composer-clip-x) var(--composer-clip-y) 0 round 6px);
+  }
+  .pod-chat-composer-picker > * {
+    animation:
+      pod-chat-composer-menu-content-in 220ms ease-out 100ms both,
+      pod-chat-composer-menu-content-move 360ms cubic-bezier(0.22, 1, 0.36, 1) 60ms both;
+  }
+  .pod-chat-composer-menu-label {
+    display: inline-block;
+    animation: pod-chat-composer-label-in 460ms cubic-bezier(0.25, 1, 0.5, 1);
+  }
+}
+@keyframes pod-chat-composer-menu-in {
+  from {
+    clip-path: var(--composer-menu-fold);
+  }
+  to {
+    clip-path: inset(-40px round var(--ceramic-radius));
+  }
+}
+@keyframes pod-chat-composer-menu-content-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pod-chat-composer-menu-content-move {
+  from {
+    translate: 0 4px;
+  }
+}
+@keyframes pod-chat-composer-label-in {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    translate: 0 30%;
+  }
+}
 .pod-chat-inline-editor[data-picker-placement='below'] .pod-chat-composer-picker {
   top: calc(100% + 8px);
   bottom: auto;
 }
 .pod-chat-composer-picker [role='listbox'] {
+  position: relative;
+  isolation: isolate;
   max-height: min(300px, 36dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1096,6 +1240,34 @@
 }
 .pod-chat-completion-option[aria-selected='true'] {
   background: var(--layer-hover);
+}
+:is(.pod-chat-composer-picker [role='listbox'], .pod-chat-composer-menu):has(
+    > .pod-chat-completion-highlight[data-visible]
+  )
+  :is(.pod-chat-completion-option[aria-selected='true'], [role^='menuitem'][data-highlighted]) {
+  background: transparent;
+}
+.pod-chat-completion-highlight {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: -1;
+  border-radius: var(--radius-control);
+  background: var(--layer-hover);
+  opacity: 0;
+  pointer-events: none;
+}
+.pod-chat-composer-menu > .pod-chat-completion-highlight {
+  inset-inline: 4px;
+}
+.pod-chat-completion-highlight,
+.pod-chat-composer-menu [data-slot='select-highlight'] {
+  transition:
+    translate 190ms cubic-bezier(0.25, 1, 0.3, 1),
+    height 190ms cubic-bezier(0.25, 1, 0.3, 1),
+    opacity 160ms ease-out;
+}
+.pod-chat-completion-highlight[data-visible] {
+  opacity: 1;
 }
 .pod-chat-completion-group,
 .pod-chat-completion-empty {
@@ -1696,29 +1868,73 @@
 .pod-chat-work[data-outcome='stopped'] > summary {
   color: var(--fg-secondary);
 }
-/* While an Agent writes, a caret follows the last words it has written so far. A table or code block
+/* While an Agent writes, a dot follows the last words it has written so far. A table or code block
    ends without one; the working line above the reply still shows the turn is live. */
 .pod-chat-live-text > :is(p, h1, h2, h3, h4, h5, h6):last-child::after,
 .pod-chat-live-text > :is(ul, ol):last-child > li:last-child:not(:has(> :is(p, ul, ol)))::after,
 .pod-chat-live-text > :is(ul, ol):last-child > li:last-child > p:last-child::after {
   content: '';
   display: inline-block;
-  width: 2px;
-  height: 1.1em;
-  margin-left: 2px;
-  vertical-align: -0.15em;
+  width: 0.4em;
+  height: 0.4em;
+  margin-inline-start: 0.3em;
+  vertical-align: 0.14em;
+  border-radius: 50%;
   background: var(--foreground);
-  animation: pod-chat-caret 1s steps(2, jump-none) infinite;
+  animation: pod-chat-answer-pulse 1s ease-in-out infinite;
 }
-@keyframes pod-chat-caret {
+@keyframes pod-chat-answer-pulse {
   50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-answer-word] {
+    animation: pod-chat-answer-word 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+@keyframes pod-chat-answer-word {
+  from {
     opacity: 0;
+    filter: blur(3px);
   }
 }
 .pod-chat-work-status {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-working-phase]::after {
+    content: attr(data-working-phase) / '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    color: transparent;
+    background: linear-gradient(90deg, transparent 38%, rgb(255 255 255 / 0.82) 50%, transparent 62%) 100% 0 / 300% 100%
+      no-repeat;
+    background-clip: text;
+    animation: pod-chat-phase-sweep var(--pod-chat-phase-sweep-duration, 1.8s) linear infinite;
+  }
+}
+@keyframes pod-chat-phase-in {
+  from {
+    opacity: 0;
+    transform: translateY(70%);
+    filter: blur(3px);
+  }
+}
+@keyframes pod-chat-phase-out {
+  to {
+    opacity: 0;
+    transform: translateY(-70%);
+    filter: blur(3px);
+  }
+}
+@keyframes pod-chat-phase-sweep {
+  to {
+    background-position: 0% 0;
+  }
 }
 .pod-chat-work-errors {
   margin-left: 4px;
@@ -1772,10 +1988,59 @@
 .pod-chat-tool-step:not(details) > .pod-chat-tool-line {
   cursor: default;
 }
-.pod-chat-tool-group > .pod-chat-tool-run {
+.pod-chat-tool-group > .pod-chat-tool-body > div > .pod-chat-tool-run {
   margin: 4px 0 0 6px;
   border-left: 1px solid var(--border);
   padding-left: 10px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pod-chat-tool-run[data-live] > li {
+    position: relative;
+  }
+  .pod-chat-tool-run[data-live] > li > :is(.pod-chat-tool-step, .pod-chat-tool-group) {
+    animation: pod-chat-live-step-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .pod-chat-tool-group > .pod-chat-tool-body > div > .pod-chat-tool-run[data-live] {
+    border-left-color: transparent;
+    & > li::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 -11px;
+      width: 1px;
+      background: var(--border);
+      transform-origin: top;
+      animation: pod-chat-live-step-line 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  }
+  .pod-chat-tool-title[data-working-phase] {
+    position: relative;
+    --pod-chat-phase-sweep-duration: 1.6s;
+  }
+  .pod-chat-tool-run[data-live]
+    > li
+    > [data-status='running']
+    > :is(summary, .pod-chat-tool-line)
+    > .pod-chat-tool-state {
+    animation: pod-chat-live-step-pulse 1s ease-in-out infinite;
+  }
+}
+@keyframes pod-chat-live-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(3px);
+  }
+}
+@keyframes pod-chat-live-step-line {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes pod-chat-live-step-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.7);
+  }
 }
 .pod-chat-tool-group > summary::after {
   content: '›';
@@ -1787,6 +2052,78 @@
 }
 .pod-chat-tool-group[open] > summary::after {
   transform: rotate(90deg);
+}
+.pod-chat-tool-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+details:not([open]) > .pod-chat-tool-body {
+  interactivity: inert;
+}
+details[open] > .pod-chat-tool-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pod-chat-tool-group > summary::after {
+    transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @supports (interactivity: inert) and selector(::details-content) {
+    :is(.pod-chat-tool-step, .pod-chat-tool-group)::details-content {
+      transition: content-visibility 380ms allow-discrete;
+    }
+    .pod-chat-tool-body {
+      transition:
+        grid-template-rows 380ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 240ms ease;
+    }
+    @starting-style {
+      details[open] > .pod-chat-tool-body {
+        grid-template-rows: 0fr;
+        opacity: 0;
+      }
+    }
+  }
+  @supports not ((interactivity: inert) and selector(::details-content)) {
+    /* Keep native closing behavior when CSS cannot animate the body while removing it from the tab order. */
+    details[open] > .pod-chat-tool-body {
+      animation:
+        pod-chat-tool-open 380ms cubic-bezier(0.22, 1, 0.36, 1) both,
+        pod-chat-tool-fade 240ms ease both;
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pod-chat-tool-body,
+  .pod-chat-tool-group > summary::after {
+    transition-property: none;
+  }
+}
+@keyframes pod-chat-tool-open {
+  from {
+    grid-template-rows: 0fr;
+  }
+}
+@keyframes pod-chat-tool-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pod-chat-tool-status-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+    filter: blur(2px);
+  }
+}
+@keyframes pod-chat-tool-check {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 .pod-chat-tool-title {
   flex: 1;
