@@ -110,6 +110,11 @@ jobs:
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
+      # Protox runs protoc when it compiles `Ankole.RuntimeFabric.Proto`.
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: '21.12'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/cache/restore@v6
         id: mix-cache
         with:
@@ -156,6 +161,10 @@ jobs:
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: '21.12'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: bun install --frozen-lockfile
       - uses: actions/cache/restore@v6
         id: nif-cache
