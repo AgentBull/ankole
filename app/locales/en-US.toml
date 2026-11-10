@@ -4097,6 +4097,11 @@ label = "Conversation messages"
 
 [pod.chat_attachments]
 choose = "Choose files"
+drop = "Drop files here"
+drop_count = """.input {$count :number}
+.match $count
+one {{Drop {$count} file}}
+*   {{Drop {$count} files}}"""
 remove = "Remove {$name}"
 retry = "Retry upload {$name}"
 uploading = "Uploading"
@@ -4132,6 +4137,7 @@ preview_empty = "No text preview"
 preview_loading = "Loading preview…"
 view_all_results = "View all results in Search"
 hint_navigate = "↑↓ Navigate"
+hint_group = "{$modifier}↑↓ Change section"
 hint_open = "↵ Open"
 hint_new_tab = "⌘↵ Open in new tab"
 target_line = "Line {$line}"

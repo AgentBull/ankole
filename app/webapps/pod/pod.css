@@ -221,8 +221,8 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 }
 
 /* The open tab shows its label; every other tab is an icon with a tooltip, so the tabs stay short. Switching tabs
-   is one motion: the closing label's column and the opening label's column change on the selected fill's own
-   duration and curve while the fill travels, and the text cross-fades on top of that. The old text blurs away in
+   closes one label and opens the other while the fill stretches ahead, then both columns settle with the fill's
+   trailing edge. The old text blurs away in
    the first part of the motion and the new text comes into focus after a short delay; the two fades overlap
    briefly so no frame shows a blank tab, and the texts sit in different tabs, so they never cover each other.
    The padding stays fixed, so the icons hold still inside their tabs. */
@@ -695,8 +695,55 @@ body:has(.pod-shell) .pod-command-dialog[data-slot='dialog-content'] {
 }
 
 .pod-command-dialog [data-slot='command-list'] {
+  height: var(--cmdk-list-height, auto);
   max-height: min(440px, 52dvh);
   overscroll-behavior: contain;
+}
+
+.pod-command-dialog [cmdk-list-sizer] {
+  position: relative;
+  isolation: isolate;
+}
+
+.pod-command-highlight {
+  position: absolute;
+  z-index: -1;
+  inset: 0 4px auto;
+  border-radius: var(--radius-control);
+  background-color: var(--layer-hover);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pod-command-highlight[data-visible] {
+  opacity: 1;
+}
+
+.pod-command-dialog [cmdk-list-sizer]:has(> .pod-command-highlight[data-visible]) [cmdk-item][data-selected='true'] {
+  background-color: transparent;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pod-command-dialog [data-slot='command-list'] {
+    transition: height 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .pod-command-highlight {
+    transition:
+      transform 90ms ease-out,
+      height 90ms ease-out,
+      opacity 140ms ease;
+  }
+
+  .pod-command-dialog [cmdk-item] {
+    transition: color 140ms ease;
+  }
+}
+
+@media (forced-colors: active) {
+  .pod-command-highlight {
+    border: 1px solid Highlight;
+  }
 }
 
 .pod-command-preview {

@@ -3,18 +3,51 @@ import { Spinner } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import type { PodActivity, PodActivityItem } from '../api'
 import type { ExecutionStep, ExecutionSummary } from './types'
+import { RunningElapsed } from './execution-status'
 import { ToolRunView, localizedStepTitle, humanizeToolName } from './tool-run-view'
 import { UsageDetails, UsageSummary } from './execution-usage'
+
+export function WorkingLabel({ text }: { text: string }) {
+  const [phase, setPhase] = useState({ text, leaving: '', sequence: 0 })
+  if (phase.text !== text) {
+    setPhase({ text, leaving: phase.text, sequence: phase.sequence + 1 })
+  }
+  return (
+    <span className="relative inline-grid min-w-0 max-w-full overflow-hidden align-bottom text-fg-secondary">
+      {phase.leaving && (
+        <span
+          key={phase.sequence - 1}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 motion-safe:animate-[pod-chat-phase-out_320ms_cubic-bezier(.22,1,.36,1)_both] motion-reduce:hidden"
+          onAnimationEnd={() =>
+            setPhase(current => (current.sequence === phase.sequence ? { ...current, leaving: '' } : current))
+          }>
+          {phase.leaving}
+        </span>
+      )}
+      <span
+        key={phase.sequence}
+        data-working-phase={text}
+        className={`relative ${
+          phase.sequence > 0 ? 'motion-safe:animate-[pod-chat-phase-in_460ms_cubic-bezier(.22,1,.36,1)_both]' : ''
+        }`}>
+        {text}
+      </span>
+    </span>
+  )
+}
 
 export function CollapsedWorkView({
   execution,
   active = false,
   phaseLabel,
+  startedAt,
   attention = false
 }: {
   execution: ExecutionSummary
   active?: boolean
   phaseLabel?: string
+  startedAt?: string
   attention?: boolean
 }) {
   const { t } = useTranslation()
@@ -46,12 +79,18 @@ export function CollapsedWorkView({
     if ((active && !thinkingDisclosure) || urgent) setExpanded(true)
     else if (thinkingDisclosure) setExpanded(false)
   }, [active, thinkingDisclosure, urgent])
+  const elapsed = active && startedAt && (
+    <span aria-live="off" className="ms-1 shrink-0 empty:hidden">
+      <RunningElapsed createdAt={startedAt} status="running" />
+    </span>
+  )
   if (!steps.length && !thinking && !usage) {
     if (!active) return null
     return (
       <div className="pod-chat-work pod-chat-work-status" role="status">
         <Spinner aria-hidden className="pod-chat-working-spinner" />
-        <span className="pod-chat-working-label">{phaseLabel || t('pod.chat_timeline.thinking')}</span>
+        <WorkingLabel text={phaseLabel || t('pod.chat_timeline.thinking')} />
+        {elapsed}
       </div>
     )
   }
@@ -75,13 +114,18 @@ export function CollapsedWorkView({
       }}>
       <summary title={execution.model ?? undefined}>
         {active && <Spinner aria-hidden className="pod-chat-working-spinner" />}
-        <span className={active ? 'pod-chat-working-label' : undefined}>
-          {active
-            ? runningSteps.map(step => localizedStepTitle(step, t)).join(' · ') ||
+        {active ? (
+          <WorkingLabel
+            text={
+              runningSteps.map(step => localizedStepTitle(step, t)).join(' · ') ||
               phaseLabel ||
               t('pod.chat_timeline.thinking')
-            : settledSummary}
-        </span>
+            }
+          />
+        ) : (
+          <span>{settledSummary}</span>
+        )}
+        {elapsed}
         {!active && !outcome && errors > 0 && (
           <span className="pod-chat-work-errors">· {t('pod.chat_timeline.error_count', { count: errors })}</span>
         )}

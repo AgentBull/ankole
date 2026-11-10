@@ -92,14 +92,27 @@ export function ModelControls({
           aria-label={t('pod.chat.model')}
           title={label}
           className="max-w-48">
-          <SelectValue>{label}</SelectValue>
+          <SelectValue>
+            {inline ? (
+              <span aria-live="polite" className="min-w-0 truncate">
+                <span key={label} className="pod-chat-composer-menu-label">
+                  {label}
+                </span>
+              </span>
+            ) : (
+              label
+            )}
+          </SelectValue>
           {save.isPending && (
             <span role="status" className="text-xs text-fg-tertiary">
               {t('pod.chat.model_saving')}
             </span>
           )}
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent
+          side={inline ? 'top' : 'bottom'}
+          align={inline ? 'start' : 'center'}
+          className={inline ? 'pod-chat-composer-menu' : undefined}>
           <SelectItem value="__agent_default__">{t('pod.chat.model_follow_agent')}</SelectItem>
           {unavailable && (
             <SelectItem value={profile!} disabled>

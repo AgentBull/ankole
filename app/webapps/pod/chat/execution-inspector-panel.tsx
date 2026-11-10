@@ -42,6 +42,7 @@ import {
   type NarrativeSegment,
   type WorkGroupSegment
 } from './execution-narrative'
+import { WorkingLabel } from './collapsed-work-view'
 import { PeerExchangeInspectorBody } from './peer-exchange-card'
 import { ToolRunView, formatToolDetail, localizedStepTitle } from './tool-run-view'
 import type { ConversationExecutionDetail, ConversationExecutionItem, InspectorTarget } from './types'
@@ -679,7 +680,7 @@ function InspectorWorkGroup({
       }}>
       <summary>
         {Boolean(currentStep) && <Spinner aria-hidden className="pod-chat-working-spinner" />}
-        <span className={currentStep ? 'pod-chat-working-label' : undefined}>{summaryLabel}</span>
+        {currentStep ? <WorkingLabel text={summaryLabel} /> : <span>{summaryLabel}</span>}
         {currentStep && segment.steps.length > 1 && (
           <span className="text-fg-tertiary">
             {' '}
@@ -698,7 +699,7 @@ function InspectorWorkGroup({
                 <div className="whitespace-pre-wrap">{reasoningText}</div>
               </details>
             ))}
-          <ToolRunView steps={segment.steps} />
+          <ToolRunView steps={segment.steps} live={Boolean(currentStep)} />
           {matchingSubthreads.length > 0 && (
             <div className="pod-chat-inspector-subthread-links">
               {matchingSubthreads.map(sub => (
@@ -905,12 +906,7 @@ function JobExecutionContent({
             const streaming = isLive && index === segments.length - 1
             return (
               <div key={segment.id} className="pod-chat-inspector-prose">
-                <ChatMarkdown
-                  text={segment.text}
-                  generated
-                  streaming={streaming}
-                  className={streaming ? 'pod-chat-live-text' : undefined}
-                />
+                <ChatMarkdown text={segment.text} generated streaming={streaming} />
               </div>
             )
           }

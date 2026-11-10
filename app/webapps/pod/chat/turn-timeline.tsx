@@ -20,7 +20,7 @@ import type { PanelInputEvent } from '../panel-motion'
 import { ChatModel, type ChatPresentation, type ChatReadingPosition, type DisplayMessage } from '../state/chat'
 import { ChatMarkdown } from './chat-markdown'
 import { ChoiceCard, type ClarifyAnswer } from './choice-card'
-import { ActivityView } from './collapsed-work-view'
+import { ActivityView, WorkingLabel } from './collapsed-work-view'
 import { downloadMarkdownString, selectionToMarkdown } from './export-markdown'
 import { pairPeerExchanges } from './peer-exchange-card'
 import type { ActionCardDecision } from './room-api'
@@ -444,13 +444,15 @@ export function TurnTimeline({
             {!activeStreams.length && !activity && working && (
               <p className="pod-chat-message-state" role="status">
                 <Spinner aria-hidden className="pod-chat-working-spinner" />
-                <span className="pod-chat-working-label">
-                  {waiting
-                    ? t('pod.chat_timeline.queued')
-                    : retryTime
-                      ? t('pod.chat.retrying', { time: retryTime })
-                      : t('pod.chat.replying')}
-                </span>
+                <WorkingLabel
+                  text={
+                    waiting
+                      ? t('pod.chat_timeline.queued')
+                      : retryTime
+                        ? t('pod.chat.retrying', { time: retryTime })
+                        : t('pod.chat.replying')
+                  }
+                />
               </p>
             )}
           </div>

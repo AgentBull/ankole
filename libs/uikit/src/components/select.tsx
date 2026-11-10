@@ -1,5 +1,5 @@
 import { Select as SelectPrimitive } from '@base-ui/react/select'
-import { RiArrowDownSLine, RiArrowUpSLine, RiCheckLine } from '@remixicon/react'
+import { RiArrowDownSLine, RiArrowUpSLine } from '@remixicon/react'
 import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../lib/utils'
@@ -110,11 +110,13 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       data-variant={variant}
-      className={cn(selectTriggerVariants({ variant }), className)}
+      className={cn('group/select-trigger', selectTriggerVariants({ variant }), className)}
       {...props}>
       {children}
       <SelectPrimitive.Icon
-        render={<RiArrowDownSLine className="pointer-events-none size-3.5 text-muted-foreground" />}
+        render={
+          <RiArrowDownSLine className="pointer-events-none size-3.5 text-muted-foreground transition-transform duration-[240ms] ease-(--ease-segment) group-data-popup-open/select-trigger:rotate-180" />
+        }
       />
     </SelectPrimitive.Trigger>
   )
@@ -155,7 +157,8 @@ function SelectContent({
           )}
           {...props}>
           <SelectScrollUpButton />
-          <SelectPrimitive.List>
+          <SelectPrimitive.List className="relative isolate">
+            <SelectHighlight />
             {isEmpty && emptyLabel ? (
               <div
                 role="option"
@@ -176,6 +179,67 @@ function SelectContent({
   )
 }
 
+function SelectHighlight() {
+  const ref = React.useRef<HTMLSpanElement>(null)
+  React.useLayoutEffect(() => {
+    const highlight = ref.current
+    const list = highlight?.parentElement
+    if (!highlight || !list) return
+
+    // Base UI owns the active option for pointer, keyboard and type-ahead. The highlight follows that option.
+    let active: HTMLElement | null = null
+    const place = () => {
+      const option = list.querySelector<HTMLElement>('[data-slot="select-item"][data-highlighted]:not([data-disabled])')
+      if (active !== option) {
+        if (active) sizes.unobserve(active)
+        if (option) sizes.observe(option)
+        active = option
+      }
+      if (!option) {
+        highlight.hidden = true
+        return
+      }
+
+      // Layout offsets stay in list coordinates while the popup is scaled during entry.
+      let top = option.offsetTop
+      for (
+        let parent = option.offsetParent;
+        parent instanceof HTMLElement && parent !== list;
+        parent = parent.offsetParent
+      ) {
+        top += parent.offsetTop + parent.clientTop
+      }
+      highlight.style.translate = `0 ${top}px`
+      highlight.style.height = `${option.offsetHeight}px`
+      highlight.hidden = false
+    }
+    const sizes = new ResizeObserver(place)
+    sizes.observe(list)
+    const options = new MutationObserver(place)
+    options.observe(list, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['data-highlighted', 'data-disabled']
+    })
+    place()
+    return () => {
+      options.disconnect()
+      sizes.disconnect()
+    }
+  }, [])
+
+  return (
+    <span
+      ref={ref}
+      aria-hidden
+      hidden
+      data-slot="select-highlight"
+      className="pointer-events-none absolute inset-x-0 top-0 -z-10 rounded-control bg-(--layer-hover) transition-[translate,height] duration-[180ms] ease-(--ease-segment)"
+    />
+  )
+}
+
 function SelectLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props) {
   return (
     <SelectPrimitive.GroupLabel
@@ -191,7 +255,7 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-control py-2 pr-8 pl-2.5 text-sm leading-5 outline-hidden select-none focus:bg-(--layer-hover) data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:text-fg-disabled [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-control py-2 pr-8 pl-2.5 text-sm leading-5 outline-hidden select-none data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:text-fg-disabled [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className
       )}
       {...props}>
@@ -200,7 +264,17 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
       </SelectPrimitive.ItemText>
       <SelectPrimitive.ItemIndicator
         render={<span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />}>
-        <RiCheckLine className="pointer-events-none" />
+        <svg
+          data-slot="select-check"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden>
+          <path d="M5 12.5 9.5 17 19 7" pathLength={1} />
+        </svg>
       </SelectPrimitive.ItemIndicator>
     </SelectPrimitive.Item>
   )

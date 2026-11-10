@@ -17,10 +17,12 @@ export function ChatMarkdown({
 }) {
   const plain = <div className="whitespace-pre-wrap break-words">{text}</div>
   return (
-    <div className={cn('pod-chat-markdown', className)}>
+    <div
+      className={cn('pod-chat-markdown', streaming && 'pod-chat-live-text', className)}
+      aria-busy={streaming || undefined}>
       <ErrorBoundary resetKeys={[text, generated, streaming]} fallback={plain}>
         <Suspense fallback={plain}>
-          <MarkdownRenderer text={text} generated={generated} streaming={streaming} />
+          <MarkdownRenderer text={text} generated={generated} streaming={streaming} reveal={generated && streaming} />
         </Suspense>
       </ErrorBoundary>
     </div>

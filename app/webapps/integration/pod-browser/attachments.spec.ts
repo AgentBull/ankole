@@ -154,11 +154,23 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
     await composer.getByRole('button', { name: fileLabel('移除', 'pasted.png') }).click()
     await expect(image).toHaveCount(0)
     await expect(composer.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
-    await composer.evaluate(element => {
-      const transfer = new DataTransfer()
-      transfer.items.add(new File(['Dropped file body'], 'dropped.txt', { type: 'text/plain' }))
-      element.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }))
+    const transfer = await page.evaluateHandle(() => {
+      const data = new DataTransfer()
+      data.items.add(new File(['Dropped file body'], 'dropped.txt', { type: 'text/plain' }))
+      return data
     })
+    const feedback = composer.locator('[data-slot="attachment-drop-feedback"]')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await composer.dispatchEvent('dragenter', { dataTransfer: transfer })
+    await expect(feedback).toHaveCSS('opacity', '1')
+    await expect(feedback).toContainText('1 个文件')
+    await composer.dispatchEvent('dragleave', { dataTransfer: transfer })
+    await expect(feedback).toHaveCSS('opacity', '0')
+    await composer.dispatchEvent('dragenter', { dataTransfer: transfer })
+    await expect(feedback).toHaveCSS('opacity', '1')
+    await composer.dispatchEvent('drop', { dataTransfer: transfer })
+    await expect(feedback).toHaveCSS('opacity', '0')
+    await transfer.dispose()
     await expect(composer.getByRole('status')).toHaveText('已就绪')
     const sent = page.waitForResponse(
       response =>

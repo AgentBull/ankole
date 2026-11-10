@@ -5,11 +5,13 @@ import { Link } from '@tanstack/react-router'
 import {
   Children,
   createContext,
+  Fragment,
   isValidElement,
   lazy,
   Suspense,
   useContext,
   useRef,
+  useState,
   type HTMLAttributes,
   type ReactNode
 } from 'react'
@@ -33,6 +35,7 @@ import { repairGeneratedMarkdown } from './repair-generated-markdown'
 
 const LazyMermaidDiagram = lazy(() => import('./mermaid/mermaid-diagram'))
 const StreamingMarkdownContext = createContext(false)
+const RevealWordsContext = createContext(false)
 
 const HUMAN_REMARK_PLUGINS = [remarkGfm, remarkMath, cjkAutolinks]
 const AGENT_REMARK_PLUGINS = [remarkGfm, remarkMath, repairGeneratedMarkdown, cjkAutolinks]
@@ -40,21 +43,26 @@ const AGENT_REMARK_PLUGINS = [remarkGfm, remarkMath, repairGeneratedMarkdown, cj
 export default function MarkdownRenderer({
   text,
   generated = false,
-  streaming = false
+  streaming = false,
+  reveal = false
 }: {
   text: string
   generated?: boolean
   streaming?: boolean
+  reveal?: boolean
 }) {
+  const markdown = (
+    <Markdown
+      remarkPlugins={generated ? AGENT_REMARK_PLUGINS : HUMAN_REMARK_PLUGINS}
+      rehypePlugins={[rehypeKatex]}
+      components={components}
+      urlTransform={url => (url.startsWith('ankole:page/') ? url : defaultUrlTransform(url))}>
+      {text}
+    </Markdown>
+  )
   return (
     <StreamingMarkdownContext.Provider value={streaming}>
-      <Markdown
-        remarkPlugins={generated ? AGENT_REMARK_PLUGINS : HUMAN_REMARK_PLUGINS}
-        rehypePlugins={[rehypeKatex]}
-        components={components}
-        urlTransform={url => (url.startsWith('ankole:page/') ? url : defaultUrlTransform(url))}>
-        {text}
-      </Markdown>
+      <RevealWordsContext.Provider value={reveal}>{markdown}</RevealWordsContext.Provider>
     </StreamingMarkdownContext.Provider>
   )
 }
@@ -118,11 +126,76 @@ function Table({ children }: { children?: ReactNode }) {
   )
 }
 
-// Each block takes its direction from its own first strong character, so an Arabic or Hebrew paragraph reads
-// right to left inside an otherwise left-to-right reply.
-const directional = (Tag: 'p' | 'li' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote') =>
-  function DirectionalBlock({ node: _node, ...props }: HTMLAttributes<HTMLElement> & { node?: unknown }) {
-    return <Tag dir="auto" {...props} />
+type WordReveal = { text: string; words: { start: number; end: number; delay: number }[] }
+
+const wordSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' })
+
+function appendedWords(previous: WordReveal, text: string): WordReveal {
+  if (!text.startsWith(previous.text)) return { text, words: [] }
+  const offset = previous.text.length
+  const suffix = text.slice(offset)
+  const appended = [...wordSegmenter.segment(suffix)].filter(part => part.isWordLike).slice(-12)
+  const words = appended.map((word, index) => ({
+    start: offset + word.index,
+    end: offset + (appended[index + 1]?.index ?? suffix.length),
+    delay: index * 26
+  }))
+  return { text, words: [...previous.words, ...words].slice(-12) }
+}
+
+function IncomingWords({ text }: { text: string }) {
+  const [reveal, setReveal] = useState(() => appendedWords({ text: '', words: [] }, text))
+  if (reveal.text !== text) setReveal(appendedWords(reveal, text))
+  return (
+    <>
+      {text.slice(0, reveal.words[0]?.start)}
+      {reveal.words.map(({ start, end, delay }, index) => (
+        <Fragment key={start}>
+          <span
+            data-answer-word=""
+            style={{ animationDelay: `${delay}ms` }}
+            onAnimationEnd={
+              index === reveal.words.length - 1
+                ? event => {
+                    const block = event.currentTarget.parentElement
+                    const selection = block?.ownerDocument.getSelection()
+                    if (
+                      block &&
+                      selection?.rangeCount &&
+                      !selection.isCollapsed &&
+                      selection.getRangeAt(0).intersectsNode(block)
+                    ) {
+                      return
+                    }
+                    setReveal(current => (current === reveal ? { text, words: [] } : current))
+                  }
+                : undefined
+            }>
+            {text.slice(start, end)}
+          </span>
+          {text.slice(end, reveal.words[index + 1]?.start)}
+        </Fragment>
+      ))}
+    </>
+  )
+}
+
+function proseChild(child: ReactNode, index = 0) {
+  return typeof child === 'string' && child.trim() ? <IncomingWords key={index} text={child} /> : child
+}
+
+// Keep one parsed Markdown document. Reveal only the newest rendered prose, within its original block and direction.
+const prose = (
+  Tag: 'p' | 'li' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote' | 'strong' | 'em' | 'del',
+  dir?: 'auto'
+) =>
+  function Prose({ node: _node, children, ...props }: HTMLAttributes<HTMLElement> & { node?: unknown }) {
+    const reveal = useContext(RevealWordsContext)
+    return (
+      <Tag dir={dir} {...props}>
+        {reveal ? (Array.isArray(children) ? children.map(proseChild) : proseChild(children)) : children}
+      </Tag>
+    )
   }
 
 function MarkdownAnchor({ children, href }: { children?: ReactNode; href?: string }) {
@@ -155,15 +228,18 @@ function MarkdownAnchor({ children, href }: { children?: ReactNode; href?: strin
 }
 
 const components: Components = {
-  p: directional('p'),
-  li: directional('li'),
-  h1: directional('h1'),
-  h2: directional('h2'),
-  h3: directional('h3'),
-  h4: directional('h4'),
-  h5: directional('h5'),
-  h6: directional('h6'),
-  blockquote: directional('blockquote'),
+  p: prose('p', 'auto'),
+  li: prose('li', 'auto'),
+  h1: prose('h1', 'auto'),
+  h2: prose('h2', 'auto'),
+  h3: prose('h3', 'auto'),
+  h4: prose('h4', 'auto'),
+  h5: prose('h5', 'auto'),
+  h6: prose('h6', 'auto'),
+  blockquote: prose('blockquote', 'auto'),
+  strong: prose('strong'),
+  em: prose('em'),
+  del: prose('del'),
   a: MarkdownAnchor,
   span: ({ node: _node, className, ...props }) =>
     typeof className === 'string' && /(?:^|\s)katex(?:-display)?(?:\s|$)/.test(className) ? (

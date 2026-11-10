@@ -303,7 +303,10 @@ test('one command menu restores focus, protects IME and keeps the native new-cha
     await expect(input).toBeFocused()
     await input.pressSequentially('jk')
     await expect(input).toHaveValue('jk')
-    await input.fill('')
+    await input.press('Escape')
+    await expect(menu).toBeVisible()
+    await expect(input).toHaveValue('')
+    await expect(input).toBeFocused()
     await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true })
     await expect(menu).toBeVisible()
     await input.press('Escape')
@@ -345,7 +348,11 @@ test('one command menu restores focus, protects IME and keeps the native new-cha
     await expect(page).toHaveURL(state.base_url + conversationRoute(conversationID))
     await expect(page.getByRole('tab', { name: '对话', exact: true })).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('ControlOrMeta+k')
-    await menu.locator('[cmdk-item][data-value="scope:private"]').click()
+    await expect(menu.locator('[cmdk-item][data-value="scope:private"]')).toHaveAttribute(
+      'aria-keyshortcuts',
+      /^(Meta|Control)\+4$/
+    )
+    await input.press('ControlOrMeta+4')
     await expect(page).toHaveURL(state.base_url + listRoute('private'))
     await expect(page.getByRole('tab', { name: '主页', exact: true })).toHaveAttribute('aria-selected', 'true')
   } finally {

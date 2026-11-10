@@ -689,7 +689,10 @@ In the timeline, compact event notices sit alongside attributed messages:
   HTML, inline and reference links, images, reference definitions, and `$` / `$$`
   math. Human-authored messages use standard Markdown rendering. During streaming,
   Pod renders the entire available message as one Markdown document, preserving
-  nested block boundaries and references defined elsewhere in the message. Pod marks its
+  nested block boundaries and references defined elsewhere in the message. New prose
+  words fade in as they arrive, and a pulsing dot follows the end of a paragraph or list.
+  With reduced motion enabled, Pod renders the words as soon as they arrive and keeps
+  the dot steady. Pod marks its
   HTML shell and interactive regions (`pre`, `code`, `.katex`, Mermaid viewers,
   and choice/approval cards) with `translate="no"` to ask translation tools to
   leave their DOM unchanged. Fenced `mermaid` blocks render
@@ -705,7 +708,11 @@ In the timeline, compact event notices sit alongside attributed messages:
   language that produced it. Plain-text blocks use the native code presentation
   without loading the highlighter.
 - While a turn runs, the active step stays visible above collapsed prior steps
-  and reasoning. When the person expands or collapses the live work summary,
+  and reasoning. The work header shows elapsed time when the turn has a recorded
+  start. In the expanded live list, new step rows fade up as Pod receives them
+  and the connector grows to each row. The active row shimmers until the step
+  settles. With reduced motion enabled, the list updates in place. When the
+  person expands or collapses the live work summary,
   Pod keeps that choice for the rest of the turn while new steps and model
   Responses arrive, and opens the summary again only when the turn newly needs
   their attention. Once the reply commits, the entire execution trace collapses
@@ -723,7 +730,9 @@ In the timeline, compact event notices sit alongside attributed messages:
   Stop controls, and a composer for steering, answering pending questions, or
   continuing a finished Background Job.
 - Message actions support copying, quoting, eligible edits, Agent retries, and
-  multi-message selection, while file attachments offer **Save file to Pod** and
+  multi-message selection. A successful clipboard write briefly draws a check
+  over the copy icon. Pressing Retry rotates its arrow as Pod starts the retry.
+  File attachments offer **Save file to Pod** and
   messages display Pages created from that turn as links beneath the source
   message. Selecting messages opens a sticky toolbar to copy or download a
   Markdown excerpt that preserves code-block whitespace, or render a shareable
@@ -739,21 +748,29 @@ overrides:
 - **Input and completion:** IME composition Enter never submits a message.
   The textarea uses native `field-sizing: content` within its height limits;
   browsers without that capability use the measured-height fallback.
+  Clicking the writing surface between controls focuses the textarea.
   Autocomplete popovers keep focus inside the textarea, respond to arrow keys,
   `Tab`, `Enter`, and `Escape`, and match multi-word names and Page titles.
+  The options appear from the corner nearest the composer, and one highlight
+  follows the active option under the pointer or keyboard. The recipient,
+  model, and send-mode menus open toward the space available beside their
+  buttons. A confirmed model change fades the new label into place. With
+  reduced motion, the menus and their highlights change immediately.
   Selecting a completion restores the caret as React commits the updated
   input, before the user can type into the completed text.
   Removing a named Page-reference chip deletes only that structured reference
   while leaving surrounding prose untouched.
-- **File attachments:** Each selected file uploads as soon as it is added and
-  appears as a card with a thumbnail, its name, and its size. An image shows
-  itself, and any other file shows its extension.
-  While a file uploads, the card shows the bytes sent against the total and
-  its remove control shows a progress ring, which turns into the cross on
-  hover or keyboard focus; removing the card cancels the upload. A failed
-  upload keeps the file and offers a retry. Sending waits until every file
-  has finished uploading. Selecting the card opens the same attachment preview
-  as a sent attachment, which shows a PDF in the
+- **File attachments:** Users can choose files, paste them, or drag them into
+  the composer. When files enter the composer, it highlights the drop area and
+  fans out a stack of file icons. Each selected file uploads as soon as it is
+  added and appears as a card with a thumbnail, its name, and its size. Images
+  show a thumbnail, and other files show their extension. The card shows the
+  bytes sent against the total and fills a progress bar as the upload advances.
+  A check marks an uploaded file. A failed upload shakes its card, keeps the
+  file, and offers a retry. With reduced motion, the cards and drop area update
+  immediately. Removing a file cancels its upload. Sending waits until every
+  file is ready. Selecting the card opens the same attachment preview as a sent
+  attachment, which shows a PDF in the
   [PDF viewer](PodContentModel.md#pdf-viewer).
 - **References and permissions:** Quoted messages and Page chips travel as
   structured message links into model context, though Agent tools still enforce
@@ -1195,7 +1212,8 @@ directories) into one collapsed row that counts them, such as
 its own row, so edits, tests, and commits stay visible at a glance, and
 expanding the row lists each read with its details. The collapsed row shows a
 spinner while one of its reads runs, and otherwise marks a read that failed or
-stopped.
+stopped. Expanding a step or group unfolds and fades in its details. A
+completed step draws its check mark.
 
 While an Agent works, Pod names every running step in the work header, joined
 by ` · ` when steps run in parallel, and keeps the steps in one folded list.
@@ -1204,6 +1222,9 @@ steps run at once. Only the thinking before the first step folds the work
 summary away; after that, the summary stays open while the model thinks between
 steps, and its reasoning moves into a collapsed Thinking row inside it, so
 whatever the reader opened in the list survives those pauses.
+The active phase label shimmers and rolls when the Agent reports a new phase.
+Pod presents the final state of each change immediately when the reader
+prefers reduced motion.
 
 The execution record also carries `execution.usage`, which `AIGateway.turn_usage/1`
 sums from the usage ledger rows of the turn's Signal on completed, stopped, and

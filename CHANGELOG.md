@@ -1,5 +1,20 @@
 # Changelog
 
+## Version 2.0.0-alpha.107 (2026-11-11)
+
+- Give shared controls immediate visual feedback. Switch thumbs stretch on
+  press, checkboxes draw their marks, and one highlight follows the selection
+  in tabs and menus. Form errors and verification code fields animate as
+  their state changes.
+- Show new words and execution steps as they arrive in Pod chat, and display
+  elapsed time for live turns. Composer menus unfold from their buttons.
+  Dragging files into the composer reveals a drop target, and each card shows
+  actual upload progress and offers a retry on failure.
+- Move one highlight between quick navigation results and resize the list as
+  results change. Escape clears the search before closing the menu, and
+  Command/Control+1–5 opens the available shortcuts. All these motion cues
+  respect the device's reduced motion preference.
+
 ## Version 2.0.0-alpha.106 (2026-11-11)
 
 - Build Applet tables with sticky headers and columns, keyboard navigation,

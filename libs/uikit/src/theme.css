@@ -156,15 +156,14 @@
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-productive: cubic-bezier(0.2, 0, 0.38, 0.9);
-  /* Segmented selection: the selected fill and the tab content share one duration and this curve, which leaves
-     gently, travels most of the way in the middle, and lands without overshoot, so nothing beside it wobbles. */
-  --ease-segment: cubic-bezier(0.4, 0, 0.2, 1);
+  /* The selected mark's trailing edge and the sidebar tab labels settle together. */
+  --ease-segment: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-feedback: 140ms;
   --duration-tooltip: 150ms;
   --duration-overlay: 180ms;
   --duration-dialog: 200ms;
   --duration-drawer: 240ms;
-  --duration-segment: 360ms;
+  --duration-segment: 400ms;
 }
 
 @theme inline {

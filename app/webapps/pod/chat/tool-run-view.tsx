@@ -1,5 +1,4 @@
 import {
-  RiCheckLine,
   RiCloseLine,
   RiDatabase2Line,
   RiFileEditLine,
@@ -13,7 +12,7 @@ import {
 } from '@remixicon/react'
 import type { TFunction } from 'i18next'
 import { Spinner } from '@ankole/uikit'
-import type { SyntheticEvent } from 'react'
+import type { ReactNode, SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isRecord, safeJsonParse } from '@agentbull/active-support'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
@@ -358,7 +357,23 @@ function showOutputEnd(event: SyntheticEvent<HTMLElement>) {
   }
 }
 
-export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]; compact?: boolean }) {
+function ToolDisclosureBody({ children }: { children: ReactNode }) {
+  return (
+    <div className="pod-chat-tool-body">
+      <div className="min-h-0 min-w-0 overflow-hidden">{children}</div>
+    </div>
+  )
+}
+
+export function ToolRunView({
+  steps,
+  compact = false,
+  live = false
+}: {
+  steps: ExecutionStep[]
+  compact?: boolean
+  live?: boolean
+}) {
   const { t } = useTranslation()
   if (!steps.length) return null
   // Live work keeps one folded list however many steps run at once, so the list never collapses under the reader.
@@ -372,19 +387,26 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
           <ToolIcon tool={latest.tool} toolKind={latest.toolKind} />
           <span className="pod-chat-tool-title">{t('pod.chat_timeline.steps')}</span>
         </summary>
-        <ToolRunView steps={steps} />
+        <ToolDisclosureBody>
+          <ToolRunView steps={steps} live />
+        </ToolDisclosureBody>
       </details>
     )
   }
   return (
-    <ol className="pod-chat-tool-run" aria-label={t('pod.chat_timeline.steps')}>
+    <ol
+      className="pod-chat-tool-run"
+      data-live={live || undefined}
+      aria-label={t('pod.chat_timeline.steps')}
+      aria-live={live ? 'polite' : undefined}
+      aria-relevant={live ? 'additions' : undefined}>
       {groupExploration(steps).map(entry =>
         Array.isArray(entry) ? (
           <li key={entry[0]!.id}>
-            <ExplorationGroup steps={entry} />
+            <ExplorationGroup steps={entry} live={live} />
           </li>
         ) : (
-          <ToolStep key={entry.id} step={entry} />
+          <ToolStep key={entry.id} step={entry} live={live} />
         )
       )}
     </ol>
@@ -442,7 +464,7 @@ export function groupExploration(steps: ExecutionStep[]): Array<ExecutionStep | 
   return entries
 }
 
-function ExplorationGroup({ steps }: { steps: ExecutionStep[] }) {
+function ExplorationGroup({ steps, live }: { steps: ExecutionStep[]; live: boolean }) {
   const { t } = useTranslation()
   const counts: Record<ExplorationKind, number> = { read: 0, search: 0, list: 0 }
   for (const step of steps) counts[explorationKind(step)!] += 1
@@ -457,16 +479,21 @@ function ExplorationGroup({ steps }: { steps: ExecutionStep[] }) {
     <details className="pod-chat-tool-group" data-status={status}>
       <summary>
         <RiSearchLine aria-hidden />
-        <span className="pod-chat-tool-title" title={title}>
+        <span
+          className="pod-chat-tool-title"
+          title={title}
+          data-working-phase={live && status === 'running' ? title : undefined}>
           {title}
         </span>
         <StepState status={status} className="order-1 ml-auto" />
       </summary>
-      <ol className="pod-chat-tool-run" aria-label={title}>
-        {steps.map(step => (
-          <ToolStep key={step.id} step={step} />
-        ))}
-      </ol>
+      <ToolDisclosureBody>
+        <ol className="pod-chat-tool-run" data-live={live || undefined} aria-label={title}>
+          {steps.map(step => (
+            <ToolStep key={step.id} step={step} live={live} />
+          ))}
+        </ol>
+      </ToolDisclosureBody>
     </details>
   )
 }
@@ -483,13 +510,30 @@ function stepStatus(status: string): StepStatus {
 function StepState({ status, className = '' }: { status: StepStatus; className?: string }) {
   const { t } = useTranslation()
   return (
-    <span className={`pod-chat-tool-state ${className}`.trim()} aria-label={t(`pod.chat_timeline.${status}`)}>
+    <span
+      key={status}
+      className={`pod-chat-tool-state motion-safe:animate-[pod-chat-tool-status-in_360ms_cubic-bezier(.22,1,.36,1)_both] ${className}`.trim()}
+      aria-label={t(`pod.chat_timeline.${status}`)}>
       {status === 'stopped' ? (
         <RiStopFill aria-hidden />
       ) : status === 'failed' ? (
         <RiCloseLine aria-hidden />
       ) : status === 'completed' ? (
-        <RiCheckLine aria-hidden />
+        <svg
+          aria-hidden
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.7"
+          strokeLinecap="round"
+          strokeLinejoin="round">
+          <path
+            d="M5 12l4 4L19 6"
+            pathLength={1}
+            strokeDasharray={1}
+            className="motion-safe:animate-[pod-chat-tool-check_360ms_cubic-bezier(.22,1,.36,1)_80ms_both]"
+          />
+        </svg>
       ) : (
         <Spinner aria-hidden />
       )}
@@ -497,7 +541,7 @@ function StepState({ status, className = '' }: { status: StepStatus; className?:
   )
 }
 
-function ToolStep({ step }: { step: ExecutionStep }) {
+function ToolStep({ step, live }: { step: ExecutionStep; live: boolean }) {
   const { t } = useTranslation()
   const status = stepStatus(step.status)
   const failed = status === 'failed'
@@ -518,57 +562,45 @@ function ToolStep({ step }: { step: ExecutionStep }) {
         onToggle={terminal ? showOutputEnd : undefined}>
         <Label className="pod-chat-tool-line">
           <ToolIcon tool={step.tool} toolKind={isSkill ? 'skill' : step.toolKind} />
-          <span className="pod-chat-tool-title" title={labelText}>
+          <span
+            className="pod-chat-tool-title"
+            title={labelText}
+            data-working-phase={live && status === 'running' ? labelText : undefined}>
             {labelText}
           </span>
           {patch && <PatchCounts added={patch.added} removed={patch.removed} />}
           <StepState status={status} />
         </Label>
-        {expandable &&
-          (terminal ? (
-            <div className="pod-chat-command-terminal">
-              <header>
-                <RiTerminalBoxLine aria-hidden />
-                <span>{t('pod.chat_timeline.command')}</span>
-                {terminal.exitCode != null && (
-                  <span className="pod-chat-command-exit" data-failed={failed || undefined}>
-                    {t('pod.chat_timeline.exit_code', { code: terminal.exitCode })}
-                  </span>
-                )}
-              </header>
-              <div>
-                {terminal.workdir && <p className="pod-chat-command-workdir">{terminal.workdir}</p>}
-                <pre className="pod-chat-command-text">
-                  <span aria-hidden>$ </span>
-                  {terminal.command}
-                </pre>
-                {terminal.stdout && <pre>{terminal.stdout}</pre>}
-                {terminal.stderr && (
-                  <pre className="pod-chat-command-stderr" data-failed={failed || undefined}>
-                    {terminal.stderr}
-                  </pre>
-                )}
-              </div>
-            </div>
-          ) : patch ? (
-            <div className="pod-chat-tool-detail">
-              <PatchView patch={patch} />
-              {output && (
+        {expandable && (
+          <ToolDisclosureBody>
+            {terminal ? (
+              <div className="pod-chat-command-terminal">
+                <header>
+                  <RiTerminalBoxLine aria-hidden />
+                  <span>{t('pod.chat_timeline.command')}</span>
+                  {terminal.exitCode != null && (
+                    <span className="pod-chat-command-exit" data-failed={failed || undefined}>
+                      {t('pod.chat_timeline.exit_code', { code: terminal.exitCode })}
+                    </span>
+                  )}
+                </header>
                 <div>
-                  <span>{t('pod.chat_timeline.output')}</span>
-                  <pre>{output}</pre>
+                  {terminal.workdir && <p className="pod-chat-command-workdir">{terminal.workdir}</p>}
+                  <pre className="pod-chat-command-text">
+                    <span aria-hidden>$ </span>
+                    {terminal.command}
+                  </pre>
+                  {terminal.stdout && <pre>{terminal.stdout}</pre>}
+                  {terminal.stderr && (
+                    <pre className="pod-chat-command-stderr" data-failed={failed || undefined}>
+                      {terminal.stderr}
+                    </pre>
+                  )}
                 </div>
-              )}
-            </div>
-          ) : (
-            (input || output) && (
+              </div>
+            ) : patch ? (
               <div className="pod-chat-tool-detail">
-                {input && (
-                  <div>
-                    <span>{t('pod.chat_timeline.input')}</span>
-                    <pre>{input}</pre>
-                  </div>
-                )}
+                <PatchView patch={patch} />
                 {output && (
                   <div>
                     <span>{t('pod.chat_timeline.output')}</span>
@@ -576,8 +608,26 @@ function ToolStep({ step }: { step: ExecutionStep }) {
                   </div>
                 )}
               </div>
-            )
-          ))}
+            ) : (
+              (input || output) && (
+                <div className="pod-chat-tool-detail">
+                  {input && (
+                    <div>
+                      <span>{t('pod.chat_timeline.input')}</span>
+                      <pre>{input}</pre>
+                    </div>
+                  )}
+                  {output && (
+                    <div>
+                      <span>{t('pod.chat_timeline.output')}</span>
+                      <pre>{output}</pre>
+                    </div>
+                  )}
+                </div>
+              )
+            )}
+          </ToolDisclosureBody>
+        )}
       </Row>
     </li>
   )
