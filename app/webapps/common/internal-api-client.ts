@@ -28,10 +28,9 @@ export const createClientConfig: CreateClientConfig = config => ({
   headers: { accept: 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' },
   fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
-    request.headers.set('x-csrf-token', csrfToken())
-    const lang = typeof document !== 'undefined' ? document.documentElement?.lang?.trim() : undefined
-    if (lang && !request.headers.has('accept-language')) request.headers.set('accept-language', lang)
-    for (const [name, value] of Object.entries(identityHeaders())) request.headers.set(name, value)
+    for (const [name, value] of Object.entries(sessionHeaders())) {
+      if (name !== 'accept-language' || !request.headers.has(name)) request.headers.set(name, value)
+    }
     const response = await globalThis.fetch(request)
     if (!response.ok) {
       throw new InternalAPIError(response.status, response.statusText, await readPayload(response))
@@ -39,6 +38,40 @@ export const createClientConfig: CreateClientConfig = config => ({
     return response
   }) as typeof fetch
 })
+
+function sessionHeaders(): Record<string, string> {
+  const lang = typeof document !== 'undefined' ? document.documentElement?.lang?.trim() : undefined
+  return { 'x-csrf-token': csrfToken(), ...(lang ? { 'accept-language': lang } : {}), ...identityHeaders() }
+}
+
+/**
+ * POSTs a form with the transport's session headers and error contract. `fetch` cannot report how much of a
+ * request body has been sent, so an upload that shows progress goes through XMLHttpRequest.
+ */
+export function postFormWithProgress<T>(
+  path: string,
+  body: FormData,
+  signal: AbortSignal,
+  onProgress: (loaded: number, total: number) => void
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    request.open('POST', path)
+    for (const [name, value] of Object.entries(sessionHeaders())) request.setRequestHeader(name, value)
+    request.upload.onprogress = event => onProgress(event.loaded, event.total)
+    request.onload = () => {
+      const payload = request.responseText ? safeJsonParse(request.responseText).unwrapOr(request.responseText) : {}
+      if (request.status >= 200 && request.status < 300) resolve(payload as T)
+      else reject(new InternalAPIError(request.status, request.statusText, payload))
+    }
+    request.onerror = () => reject(new TypeError('Failed to fetch'))
+    request.onabort = () => reject(new DOMException('The upload was aborted', 'AbortError'))
+    signal.addEventListener('abort', () => request.abort(), { once: true })
+    // An unsent request fires no abort event, so a signal that is already aborted rejects here.
+    if (signal.aborted) reject(new DOMException('The upload was aborted', 'AbortError'))
+    else request.send(body)
+  })
+}
 
 export function csrfToken(): string {
   const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content

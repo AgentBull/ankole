@@ -1,5 +1,5 @@
 import { authenticationRef } from '../common/browser-context'
-import { createClientConfig } from '../common/internal-api-client'
+import { createClientConfig, postFormWithProgress } from '../common/internal-api-client'
 import type { ConversationAttachment } from './api'
 import { identityQuery } from './content-api'
 import type { PodFileCopyResponse, PodPageCreateResponse } from './api/generated/types.gen'
@@ -66,12 +66,16 @@ export function profileAvatarURL(source: string | null | undefined, context: Pro
   return `${new URL(context.podURL).origin}${relative}`
 }
 
-export async function uploadAttachment(file: File, fileID: string, signal: AbortSignal): Promise<AttachmentReceipt> {
+export function uploadAttachment(
+  file: File,
+  fileID: string,
+  signal: AbortSignal,
+  onProgress: (loaded: number, total: number) => void
+): Promise<AttachmentReceipt> {
   const body = new FormData()
   body.set('file', file)
   body.set('fileID', fileID)
-  const response = await transport('/api/v2/pod/attachments', { method: 'POST', body, signal })
-  return response.json()
+  return postFormWithProgress('/api/v2/pod/attachments', body, signal, onProgress)
 }
 
 export async function uploadFile(

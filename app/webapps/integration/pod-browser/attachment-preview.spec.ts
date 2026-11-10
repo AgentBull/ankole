@@ -392,3 +392,51 @@ test('local text, image, and unsupported-file previews keep unsent text and sele
     await context.close()
   }
 })
+
+test('a PDF draft shows its upload progress and its size, and opens in the viewer', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 900, height: 800 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  // pdf.js rebuilds the cross-reference table that this one-page file leaves out.
+  const pdf = Buffer.from(
+    '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+      '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
+  )
+  try {
+    await page.goto('/')
+    const composer = page.locator('.pod-chat-composer')
+    let release!: () => void
+    const held = new Promise<void>(resolve => {
+      release = resolve
+    })
+    // Keep the real upload adapter and hold its request so the uploading state stays on screen.
+    await page.route('**/api/v2/pod/attachments', async route => {
+      await held
+      await route.continue()
+    })
+    const choose = page.waitForEvent('filechooser')
+    await composer.getByRole('button', { name: '添加文件', exact: true }).click()
+    await (await choose).setFiles([{ name: 'first-page.pdf', mimeType: 'application/pdf', buffer: pdf }])
+    const remove = composer.getByRole('button', { name: fileLabel('移除', 'first-page.pdf') })
+    await expect(composer.getByRole('status')).toHaveText('正在上传')
+    await expect(remove.getByRole('progressbar', { includeHidden: true })).toBeVisible()
+    release()
+    await expect(composer.getByRole('status')).toHaveText('已就绪')
+    await expect(remove.getByRole('progressbar', { includeHidden: true })).toHaveCount(0)
+    await expect(composer.getByText(`${pdf.byteLength} B`)).toBeVisible()
+    // The card marks the file by its extension, and the preview dialog draws it in the PDF viewer.
+    await expect(
+      composer.getByRole('button', { name: fileLabel('预览', 'first-page.pdf') }).locator('img')
+    ).toHaveCount(0)
+    await composer.getByRole('button', { name: fileLabel('预览', 'first-page.pdf') }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('1 / 1')).toBeVisible()
+    await expect(dialog.locator('.pdfViewer canvas')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await remove.click()
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' })
+    await context.close()
+  }
+})

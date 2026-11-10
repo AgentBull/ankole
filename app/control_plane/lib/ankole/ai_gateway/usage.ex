@@ -103,6 +103,7 @@ defmodule Ankole.AIGateway.Usage do
           input_tokens: non_neg_integer() | nil,
           output_tokens: non_neg_integer() | nil,
           cached_input_tokens: non_neg_integer() | nil,
+          cache_creation_input_tokens: non_neg_integer() | nil,
           reasoning_tokens: non_neg_integer() | nil
         }
   def counts(usage) when is_map(usage) do
@@ -116,6 +117,8 @@ defmodule Ankole.AIGateway.Usage do
           ~w(cached_tokens cached cachedInputTokens),
           ~w(cached_tokens cachedTokens)
         ),
+      cache_creation_input_tokens:
+        integer(Map.get(usage, "input_tokens_details"), ~w(cache_creation_tokens)),
       reasoning_tokens:
         detail(
           usage,

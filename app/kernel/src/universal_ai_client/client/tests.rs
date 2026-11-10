@@ -745,9 +745,17 @@ fn bedrock_eventstream_completes_with_text_and_usage() {
     assert_eq!(events[4]["delta"], "bedrock");
     let response = &events[8]["response"];
     assert_eq!(response["output"][0]["content"][0]["text"], "hello bedrock");
-    assert_eq!(response["usage"]["input_tokens"], 3);
+    assert_eq!(response["usage"]["input_tokens"], 33);
     assert_eq!(response["usage"]["output_tokens"], 5);
-    assert_eq!(response["usage"]["total_tokens"], 8);
+    assert_eq!(response["usage"]["total_tokens"], 38);
+    assert_eq!(
+        response["usage"]["input_tokens_details"]["cached_tokens"],
+        20
+    );
+    assert_eq!(
+        response["usage"]["input_tokens_details"]["cache_creation_tokens"],
+        10
+    );
     assert!(matches!(end, StreamEvent::Done(_)), "{end:?}");
 }
 
@@ -767,7 +775,7 @@ fn bedrock_eventstream_finishes_with_the_message_stop_reason() {
         terminal["response"]["incomplete_details"]["reason"],
         "max_output_tokens"
     );
-    assert_eq!(terminal["response"]["usage"]["total_tokens"], 8);
+    assert_eq!(terminal["response"]["usage"]["total_tokens"], 38);
 
     let (events, _end) = bedrock_eventstream(&[
         bedrock_event("messageStop", r#"{"stopReason":"content_filtered"}"#),
@@ -792,8 +800,7 @@ fn bedrock_eventstream_finishes_with_the_message_stop_reason() {
     );
 }
 
-const BEDROCK_METADATA: &str =
-    r#"{"metrics":{"latencyMs":42},"usage":{"inputTokens":3,"outputTokens":5,"totalTokens":8}}"#;
+const BEDROCK_METADATA: &str = r#"{"metrics":{"latencyMs":42},"usage":{"inputTokens":3,"outputTokens":5,"cacheReadInputTokens":20,"cacheWriteInputTokens":10,"totalTokens":38}}"#;
 
 fn bedrock_event(event_type: &str, payload: &str) -> Vec<u8> {
     eventstream_frame(

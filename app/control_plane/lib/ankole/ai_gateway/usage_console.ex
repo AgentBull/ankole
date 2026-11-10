@@ -20,6 +20,7 @@ defmodule Ankole.AIGateway.UsageConsole do
     input_tokens: @count,
     output_tokens: @count,
     cached_input_tokens: @count,
+    cache_creation_input_tokens: @count,
     reasoning_tokens: @count
   ]
 
