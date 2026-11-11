@@ -55,7 +55,11 @@ export type MarkdownMode = 'doc' | 'knowledge'
 const isActiveDiagramFence = (lang: string, mode: MarkdownMode) =>
   lang === 'mermaid' || (mode === 'doc' && lang === 'infographic')
 
-export function parseMarkdown(source: string, mode: 'doc' | 'knowledge' = 'doc'): Element {
+export function readMarkdownTree(
+  source: string,
+  mode: MarkdownMode = 'doc',
+  postprocess: (tree: Element) => Element = normalizeTree
+): Element {
   checkSource(source, 'markdown')
   let prepared: PreparedSource = { source, original: offset => offset }
   let root: Root
@@ -72,7 +76,7 @@ export function parseMarkdown(source: string, mode: 'doc' | 'knowledge' = 'doc')
   }
   const positions = new WeakMap<Node, [number, number]>()
   try {
-    return normalizeTree(readMdast(root, positions, mode))
+    return postprocess(readMdast(root, positions, mode))
   } catch (error) {
     if (!(error instanceof TreeError)) throw error
     const range = (error.node && positions.get(error.node)) ?? [0, prepared.source.length]
@@ -85,6 +89,10 @@ export function parseMarkdown(source: string, mode: 'doc' | 'knowledge' = 'doc')
       source
     )
   }
+}
+
+export function parseMarkdown(source: string, mode: MarkdownMode = 'doc'): Element {
+  return readMarkdownTree(source, mode, normalizeTree)
 }
 
 type Message = { reason?: string; ruleId?: string; place?: { offset?: number; start?: { offset?: number } } }

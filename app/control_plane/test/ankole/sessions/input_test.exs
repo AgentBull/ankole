@@ -222,6 +222,19 @@ defmodule Ankole.Sessions.InputTest do
     assert text =~ "additional paths can be present under the Artifact discovery roots"
   end
 
+  test "ui_blocks_hint offers interactive ui blocks to native rooms and tells external IM to avoid them" do
+    assert Input.ui_blocks_hint(%{kind: :native}) =~ "ui_blocks: interactive"
+    assert Input.ui_blocks_hint(%{kind: :native}) =~ "references/chat-ui-block.md"
+
+    for kind <- [:im_group, :im_dm] do
+      hint = Input.ui_blocks_hint(%{external_kind: kind})
+      assert hint =~ "ui_blocks: code_only"
+      refute hint =~ "interactive"
+    end
+
+    assert Input.ui_blocks_hint(%{external_kind: :email}) == nil
+  end
+
   test "diagram_rendering_hint distinguishes native WebUI from external IM with or without Worker attachment tools" do
     assert Input.diagram_rendering_hint(%{tools: []}, %{kind: :native}) =~
              "diagram_rendering: mermaid_interactive"

@@ -1,6 +1,7 @@
 import { agentsQuery } from './api'
 import { pageDomain, canCreateChild, canRenamePage, canTrashPage } from './state/page-location'
-import { useCanonicalPageUrl, usePageMetadata } from './use-page-metadata'
+import { pageHrefFor, useCanonicalPageUrl, usePageMetadata } from './use-page-metadata'
+import { PageHostScope, type PageHostActions } from './content-context'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import { PageContent, PageLearningButton } from './page-content'
 import { KnowledgePage } from './knowledge-page'
@@ -65,7 +66,7 @@ import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
 import { createModel, effect, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 
 import { Link, useBlocker, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import { podID, principalUID } from '../common/browser-context'
@@ -84,7 +85,8 @@ import {
 } from './content-api'
 
 import { ContentError, ContentSkeleton } from './content-primitives'
-import { PageChildrenMenu, PageRenameField } from './page-navigation'
+import { PageChildrenMenu } from './page-navigation'
+import { PageRenameField } from './page-rename-field'
 import { PageBreadcrumbs } from './page-breadcrumbs'
 import { DocumentSubpages } from './page-subpages'
 import { isDocumentBodyEmpty } from './state/page-subpages'
@@ -254,7 +256,8 @@ function PageWorkspace({
   // Page's latest chat opens with it, and focus moves to the composer.
   const chatDrafts = useChatDrafts()
   const askAgent = (selection: { quote: string }) => {
-    chatDrafts.pageQuote.value = { pageID: page.id, quote: selection.quote }
+    const target = chat && chat !== 'latest' ? chat : 'latest'
+    chatDrafts.pageQuote.value = { pageID: page.id, target, quote: selection.quote }
     if (!chat) selectChat('latest', true)
   }
   const drafts = useModel(
@@ -474,6 +477,46 @@ function PageWorkspace({
   const canRestore = trashed && actions.includes('node_manage') && !accessDenied
   const canMove = !accessDenied && canMovePage({ ...page, actions })
   const contentDetail = trashed ? { ...detail, actions: ['node_view' as const] } : detail
+  const openWorkspaceChat = useEffectEvent((options?: Parameters<PageHostActions['openChat']>[0]) => {
+    if (trashed || accessDenied) return
+    const requestedID = options?.conversationID?.trim() || undefined
+    const hasPayload = Boolean(options?.quote || options?.prompt)
+    if (assistantAvailable) {
+      const target = requestedID ?? (chat && chat !== 'latest' ? chat : 'latest')
+      if (hasPayload) {
+        chatDrafts.pageQuote.value = {
+          pageID: page.id,
+          target,
+          quote: options?.quote,
+          prompt: options?.prompt
+        }
+      }
+      if (requestedID) selectChat(requestedID, true)
+      else if (!chat) selectChat('latest', true)
+    } else if (requestedID) {
+      if (hasPayload) {
+        chatDrafts.pageQuote.value = {
+          sourcePageID: page.id,
+          target: requestedID,
+          quote: options?.quote,
+          prompt: options?.prompt
+        }
+      }
+      void navigate({ to: podLocation(`/conversations/${encodeURIComponent(requestedID)}`).pathname })
+    }
+  })
+  const navigateWorkspacePage = useEffectEvent((targetPageID: string) => {
+    const trimmed = targetPageID.trim()
+    if (!trimmed) return
+    void navigate({ to: podLocation(pageHrefFor(client, trimmed)).pathname })
+  })
+  const pageHost = useMemo<PageHostActions>(
+    () => ({
+      navigateToPage: targetPageID => navigateWorkspacePage(targetPageID),
+      openChat: options => openWorkspaceChat(options)
+    }),
+    []
+  )
   const restore = useMutation({
     mutationFn: () => pageAPI.restore(page.id),
     onSuccess: async ({ page }) => {
@@ -1019,75 +1062,77 @@ function PageWorkspace({
                 )}
               </p>
             )}
-            {!accessDenied &&
-              (page.type === 'doc' ? (
-                (() => {
-                  const hideEmptyViewerBody =
-                    !trashed && contentDetail.child_count > 0 && !edit && isDocumentBodyEmpty(model!.xml.value)
-                  return (
-                    <>
-                      <ErrorBoundary
-                        variant="panel"
-                        resetKeys={[page.id, page.revision]}
-                        actions={
-                          model!.hasUnsavedChanges.value ? (
-                            <Button type="button" size="sm" onClick={() => exportDraft()}>
-                              {t('pod.content.export_draft')}
-                            </Button>
-                          ) : undefined
-                        }>
-                        <div ref={documentContent} className={hideEmptyViewerBody ? 'hidden' : undefined}>
-                          <DocumentPage
-                            detail={contentDetail}
-                            model={model!}
-                            title={titleDraft.value}
-                            presenceContainer={presenceContainer}
-                            onEditor={attachEditor}
-                            resolvedCommentIDs={commentSummary.data?.resolved_ids ?? []}
-                            onComment={ids => openComments(ids[0] ?? null, ids.length > 1 ? ids : [])}
-                            onRequestComment={captureCommentSelection}
-                            onAskAgent={!accessDenied && !trashed && assistantAvailable ? askAgent : undefined}
-                          />
-                        </div>
-                      </ErrorBoundary>
-                      {!trashed && (
+            <PageHostScope value={pageHost}>
+              {!accessDenied &&
+                (page.type === 'doc' ? (
+                  (() => {
+                    const hideEmptyViewerBody =
+                      !trashed && contentDetail.child_count > 0 && !edit && isDocumentBodyEmpty(model!.xml.value)
+                    return (
+                      <>
                         <ErrorBoundary
-                          variant="inline"
-                          label={t('pod.subpages.title')}
-                          resetKeys={[page.id]}
-                          className="mt-8">
-                          <DocumentSubpages
-                            key={page.id}
-                            detail={contentDetail}
-                            canEdit={edit}
-                            hideTopDivider={hideEmptyViewerBody}
-                          />
+                          variant="panel"
+                          resetKeys={[page.id, page.revision]}
+                          actions={
+                            model!.hasUnsavedChanges.value ? (
+                              <Button type="button" size="sm" onClick={() => exportDraft()}>
+                                {t('pod.content.export_draft')}
+                              </Button>
+                            ) : undefined
+                          }>
+                          <div ref={documentContent} className={hideEmptyViewerBody ? 'hidden' : undefined}>
+                            <DocumentPage
+                              detail={contentDetail}
+                              model={model!}
+                              title={titleDraft.value}
+                              presenceContainer={presenceContainer}
+                              onEditor={attachEditor}
+                              resolvedCommentIDs={commentSummary.data?.resolved_ids ?? []}
+                              onComment={ids => openComments(ids[0] ?? null, ids.length > 1 ? ids : [])}
+                              onRequestComment={captureCommentSelection}
+                              onAskAgent={!accessDenied && !trashed && assistantAvailable ? askAgent : undefined}
+                            />
+                          </div>
                         </ErrorBoundary>
-                      )}
-                    </>
-                  )
-                })()
-              ) : (
-                <ErrorBoundary variant="panel" resetKeys={[page.id, page.revision]}>
-                  {page.type === 'knowledge' && model && properties ? (
-                    <KnowledgePage
-                      detail={contentDetail}
-                      body={model}
-                      draft={properties}
-                      readTitle={() => titleDraft.value.value}
-                      hasUnsavedChanges={() => drafts.hasUnsavedChanges.value}
-                    />
-                  ) : (
-                    <PageContent
-                      detail={contentDetail}
-                      onRequestFileComment={!accessDenied && !trashed ? captureFileCommentSelection : undefined}
-                      filePreviewRef={filePreviewRef}
-                      searchFind={urlFind || undefined}
-                      searchTarget={urlTarget}
-                    />
-                  )}
-                </ErrorBoundary>
-              ))}
+                        {!trashed && (
+                          <ErrorBoundary
+                            variant="inline"
+                            label={t('pod.subpages.title')}
+                            resetKeys={[page.id]}
+                            className="mt-8">
+                            <DocumentSubpages
+                              key={page.id}
+                              detail={contentDetail}
+                              canEdit={edit}
+                              hideTopDivider={hideEmptyViewerBody}
+                            />
+                          </ErrorBoundary>
+                        )}
+                      </>
+                    )
+                  })()
+                ) : (
+                  <ErrorBoundary variant="panel" resetKeys={[page.id, page.revision]}>
+                    {page.type === 'knowledge' && model && properties ? (
+                      <KnowledgePage
+                        detail={contentDetail}
+                        body={model}
+                        draft={properties}
+                        readTitle={() => titleDraft.value.value}
+                        hasUnsavedChanges={() => drafts.hasUnsavedChanges.value}
+                      />
+                    ) : (
+                      <PageContent
+                        detail={contentDetail}
+                        onRequestFileComment={!accessDenied && !trashed ? captureFileCommentSelection : undefined}
+                        filePreviewRef={filePreviewRef}
+                        searchFind={urlFind || undefined}
+                        searchTarget={urlTarget}
+                      />
+                    )}
+                  </ErrorBoundary>
+                ))}
+            </PageHostScope>
           </div>
           {toolsAvailable && !isMobile && (
             <ErrorBoundary variant="inline" resetKeys={[page.id]}>

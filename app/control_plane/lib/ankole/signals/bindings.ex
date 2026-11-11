@@ -195,6 +195,17 @@ defmodule Ankole.Signals.Bindings do
            ) do
       publish_binding(definition, binding, config)
 
+      :telemetry.execute(
+        [:ankole, :signals, :binding, :saved],
+        %{count: 1},
+        %{
+          tenant_id: binding.tenant_id,
+          adapter: binding.adapter,
+          routing_mode: binding.routing_mode,
+          operation: operation
+        }
+      )
+
       {:ok,
        %{
          binding: binding,

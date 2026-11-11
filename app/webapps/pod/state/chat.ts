@@ -185,6 +185,10 @@ export function shouldSendOnEnter(event: {
 
 function createChat() {
   const draft = signal('')
+  /** Adds text after what the draft already holds, with a blank line between them. */
+  const appendDraft = (text: string) => {
+    draft.value = draft.peek().trim() ? `${draft.peek()}\n\n${text}` : text
+  }
   const attachments = new ChatAttachments()
   const conversationID = signal<string>()
   const selectedAgentUID = signal('')
@@ -352,9 +356,15 @@ function createChat() {
       if (editing.peek()?.kind === 'queue') return false
       batch(() => {
         backtrackMessageID.value = undefined
-        if (text) draft.value = draft.peek().trim() ? `${draft.peek()}\n\n${text}` : text
+        if (text) appendDraft(text)
         answeringInteractionID.value = interactionID
       })
+      return true
+    },
+    /** Adds the follow-up that a `ui` block suggests to the draft; the edit of a queued message keeps its own text. */
+    suggestReply(text: string) {
+      if (editing.peek()?.kind === 'queue') return false
+      appendDraft(text)
       return true
     },
     cancelAnswer() {
@@ -439,7 +449,7 @@ function createChat() {
           : []
       )
       batch(() => {
-        draft.value = previous.trim() ? `${previous}\n\n${input.text}` : input.text
+        appendDraft(input.text)
         if (!previous.trim()) targetAgentUID.value = agentUID
         links.value = addLinks(links.peek(), references, 'keep')
         mentions.value = [
@@ -648,7 +658,7 @@ function createChat() {
             modifiedText.trim() !== '' &&
             (modifiedText !== activeInlineEdit.originalText || !equal(modifiedLinks, activeInlineEdit.originalLinks))
           ) {
-            draft.value = draft.peek().trim() ? `${draft.peek()}\n\n${modifiedText}` : modifiedText
+            appendDraft(modifiedText)
             links.value = addLinks(links.peek(), modifiedLinks, 'keep')
           }
           cancelEdit()

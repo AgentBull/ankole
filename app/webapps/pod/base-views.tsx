@@ -607,6 +607,8 @@ function KanbanView(props: ViewProps) {
       <ContentError error={counts.error} />
       {!field ? (
         <p className="text-sm text-fg-tertiary">{t('pod.content.choose_a_field_to_organize_the_board')}</p>
+      ) : columns.length === 0 ? (
+        <p className="text-sm text-fg-tertiary">{t('pod.content.no_records')}</p>
       ) : (
         <>
           <div className="flex min-h-64 gap-4 overflow-auto pb-4">

@@ -45,7 +45,7 @@ export type JobScheduleHistory = {
 }
 
 /** Trigger management uses the same Page permission and personal authority as its Job. */
-export function createJobSources(pod: PodAPI, pageID: string, jobID: number) {
+export function createJobSources(pod: Pick<PodAPI, 'request'>, pageID: string, jobID: number) {
   const root = `/pages/${encodeURIComponent(pageID)}/jobs/${jobID}`
   async function request<T>(path: string, method = 'GET', attributes?: unknown): Promise<T> {
     const response = await pod.request<{ result: T }>(root + path, method, attributes)

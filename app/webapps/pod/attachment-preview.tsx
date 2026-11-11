@@ -78,7 +78,7 @@ export type AttachmentPreviewFile = {
 type PreviewHost = {
   open(file: AttachmentPreviewFile, trigger: HTMLElement, event?: PanelInputEvent): void
   /** Counts the cards that show a file, so the preview closes once no card shows its file any more. */
-  mount(url: string): () => void
+  mount?(url: string): () => void
 }
 
 const AttachmentPreviewHostContext = createContext<PreviewHost | null>(null)
@@ -116,7 +116,9 @@ export function useAttachmentPreviewHost(onOpen: (event?: PanelInputEvent) => vo
     }),
     []
   )
-  return { host, file: current?.file ?? null, trigger: current?.trigger ?? null, close: () => setCurrent(null) }
+  const openOnlyHost = useMemo<PreviewHost>(() => ({ open: host.open }), [host])
+  const close = useMemo(() => () => setCurrent(null), [])
+  return { host, openOnlyHost, file: current?.file ?? null, trigger: current?.trigger ?? null, close }
 }
 
 export function AttachmentPreviewHost({ host, children }: { host: PreviewHost | null; children: ReactNode }) {
@@ -155,7 +157,10 @@ export function AttachmentPreview({
   const [thumbnailFailed, setThumbnailFailed] = useState(false)
   const file: AttachmentPreviewFile = { name, type, size, url, downloadURL, conversationID, local }
   const image = attachmentPreviewKind(name, type) === 'image'
-  useEffect(() => host?.mount(url), [host, url])
+  useEffect(() => host?.mount?.(url), [host, url])
+  useEffect(() => {
+    if (host && open) setOpen(false)
+  }, [host, open])
   const mark = (
     <span className="flex size-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-control bg-muted text-fg-tertiary">
       <RiFileLine className="size-5" aria-hidden />

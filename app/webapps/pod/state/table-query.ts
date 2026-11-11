@@ -20,18 +20,42 @@ export function fieldValue(record: BaseRecord, field: BaseField): Value {
   return value === '' || (Array.isArray(value) && !value.length) ? null : value
 }
 
-export function principalUID(value: Value | undefined): string | null {
+type ParsedActor = { tenant: string | null; uid: string }
+
+function parseActor(value: Value | undefined): ParsedActor | null {
   if (value === null || value === undefined) return null
-  const raw =
-    typeof value === 'object' && !Array.isArray(value) && 'uid' in value
-      ? String(value.uid ?? '')
-      : typeof value === 'string'
-        ? value.includes(':principal/')
-          ? value.slice(value.indexOf(':principal/') + ':principal/'.length)
-          : value
-        : ''
-  const normalized = raw.trim().toLowerCase()
-  return normalized || null
+  if (typeof value === 'object' && !Array.isArray(value) && 'uid' in value) {
+    const uid = String(value.uid ?? '')
+      .trim()
+      .toLowerCase()
+    const tenant =
+      'tenant_id' in value && typeof value.tenant_id === 'string' ? value.tenant_id.trim().toLowerCase() || null : null
+    return uid ? { tenant, uid } : null
+  }
+  if (typeof value !== 'string') return null
+  const marker = value.indexOf(':principal/')
+  if (marker !== -1) {
+    const prefix = value.slice(0, marker)
+    const tenant = prefix.startsWith('ankole:') ? prefix.slice('ankole:'.length).trim().toLowerCase() || null : null
+    const uid = value
+      .slice(marker + ':principal/'.length)
+      .trim()
+      .toLowerCase()
+    return uid ? { tenant, uid } : null
+  }
+  const uid = value.trim().toLowerCase()
+  return uid ? { tenant: null, uid } : null
+}
+
+function sameActor(left: Value | undefined, right: Value | undefined): boolean | null {
+  const a = parseActor(left)
+  const b = parseActor(right)
+  if (!a || !b) return null
+  return a.uid === b.uid && (a.tenant === null || b.tenant === null || a.tenant === b.tenant)
+}
+
+export function principalUID(value: Value | undefined): string | null {
+  return parseActor(value)?.uid ?? null
 }
 
 /** PostgreSQL C collation compares Unicode scalar values in UTF-8 order. */
@@ -99,14 +123,28 @@ function matches(value: Value, condition: Condition, field?: BaseField): boolean
   if (condition.operator === 'is_not_empty') return value !== null
   // SQL comparisons with NULL never select a row.
   if (value === null || condition.value === null || condition.value === undefined) return false
-  if (condition.operator === 'is' && field && (field.type === 'created_by' || field.type === 'updated_by')) {
-    const left = principalUID(value),
-      right = principalUID(condition.value)
-    return left !== null && left === right
+  if (
+    (condition.operator === 'is' || condition.operator === 'not_is' || condition.operator === 'in') &&
+    field &&
+    (field.type === 'created_by' || field.type === 'updated_by')
+  ) {
+    if (parseActor(value) === null) return false
+    if (condition.operator === 'in') {
+      return Array.isArray(condition.value) && condition.value.some(item => sameActor(value, item as Value) === true)
+    }
+    const matched = sameActor(value, condition.value)
+    return matched !== null && (condition.operator === 'is' ? matched : !matched)
   }
   switch (condition.operator) {
     case 'is':
       return isEqual(value, condition.value)
+    case 'not_is':
+      return !isEqual(value, condition.value)
+    case 'in':
+      return (
+        Array.isArray(condition.value) &&
+        condition.value.some(item => item !== null && item !== undefined && isEqual(value, item as Value))
+      )
     case 'contains':
       return Array.isArray(value) && value.some(item => jsonbContains(item, condition.value))
     case 'text_contains':
@@ -176,9 +214,7 @@ export function queryLocalRecords(records: BaseRecord[], fields: BaseField[], qu
     const actual = fieldValue(record, field)
     if (expected === null) return actual === null
     if (field.type === 'created_by' || field.type === 'updated_by') {
-      const actualUID = principalUID(actual),
-        expectedUID = principalUID(expected)
-      return actualUID !== null && actualUID === expectedUID
+      return sameActor(actual, expected) === true
     }
     return Array.isArray(actual) ? actual.some(item => isEqual(item, expected)) : isEqual(actual, expected)
   })

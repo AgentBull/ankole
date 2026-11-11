@@ -60,20 +60,25 @@ export function PageChat({
   const [width, setWidth] = useState(296)
   const resizing = useRef<{ x: number; width: number } | undefined>(undefined)
   const assistantChats = chats.data?.conversations.filter(chat => chat.conversationKind === 'assistant_task') ?? []
+  const selectTarget = (id: string | null, flushSync?: boolean, event?: PanelInputEvent) => {
+    drafts.resolvePageQuoteTarget(pageID, id)
+    select(id, flushSync, event)
+  }
   useEffect(() => {
     // Read current drafts on each open, even when the closed panel stays mounted.
     if (selection === 'latest' && chats.data) {
       const unfinished = drafts.unfinishedPageConversation(pageID)
       if (unfinished || !chats.isFetching) {
-        select(
+        const resolved =
           unfinished ?? chats.data.conversations.find(chat => chat.conversationKind === 'assistant_task')?.id ?? 'new'
-        )
+        drafts.resolvePageQuoteTarget(pageID, resolved)
+        select(resolved)
       }
     }
   }, [selection, chats.data, chats.isFetching, drafts, pageID, select])
   const exitConversation = () => {
     void client.invalidateQueries({ queryKey: podKeys.pageConversations(pageID) })
-    if (currentSelection.current) select('new', true)
+    if (currentSelection.current) selectTarget('new', true)
   }
   const header = (
     <header className="pod-page-chat-header" title={pageTitle}>
@@ -85,12 +90,12 @@ export function PageChat({
           aria-label={t('pod.chat.new_conversation')}
           title={t('pod.chat.new_conversation')}
           disabled={accessDenied}
-          onClick={() => select('new', true)}>
+          onClick={() => selectTarget('new', true)}>
           <RiAddLine aria-hidden />
         </Button>
         <Select
           value={conversationID ?? 'new'}
-          onValueChange={id => id && select(id, true)}
+          onValueChange={id => id && selectTarget(id, true)}
           disabled={chats.isPending || accessDenied}>
           <SelectTrigger
             aria-label={t('pod.page_chat.choose_chat')}
@@ -124,7 +129,7 @@ export function PageChat({
           size="icon-xs"
           variant="ghost"
           aria-label={t('pod.page_chat.close')}
-          onClick={event => select(null, true, event)}>
+          onClick={event => selectTarget(null, true, event)}>
           <RiCloseLine aria-hidden />
         </Button>
       </div>
@@ -170,7 +175,7 @@ export function PageChat({
             pageID={pageID}
             accessScope="participants"
             pageHeader={header}
-            onNewConversation={() => select('new', true)}
+            onNewConversation={() => selectTarget('new', true)}
             onExitConversation={exitConversation}
             onConversationStarted={id => {
               if (currentSelection.current) select(id)
@@ -188,7 +193,7 @@ export function PageChat({
             eventDetails.cancel()
             return
           }
-          if (!open) select(null, true)
+          if (!open) selectTarget(null, true)
         }}>
         <SheetContent className="pod-page-chat-sheet" showCloseButton={false} finalFocus={returnFocus}>
           <SheetTitle className="sr-only">{t('pod.page_chat.title')}</SheetTitle>

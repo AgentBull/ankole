@@ -1,176 +1,99 @@
 # Tradeoffs and Known Limits
 
-This document sets out Ankole's deliberate architectural boundaries, trust assumptions, and failure-recovery limits. Each subsystem's design document covers the underlying protocol in full detail.
+This document records Ankole's non-obvious trust boundaries, accepted edge-case behaviors, and operational limits. Each subsystem's specification under [`design-docs/`](design-docs/) defines the full runtime protocol.
 
-## A Worker Is One Agent's Dedicated Computer
+## Tenants Trust the Site Operator and Shared Site Runtime
 
-Each Agent gets its own dedicated Worker instance—Agents never share a Worker container, persistent Home volume, cache disk, or Worker credential. Inside that container, the container boundary itself is the sole security boundary: shell commands, the Codex app-server, and the headless browser all run as `uid 1000` without `sudo` or an inner nested sandbox.
+Ankole isolates tenant data, Principals, AuthZ grants, physical Base shards, and per-Agent Workers by tenant, while all tenants on a site trust the site operator and share the Elixir control plane, `FunctionRuntime`, model provider pools, and Worker providers (see [Tenants](design-docs/Tenants.md)). Ankole does not provide hostile multi-tenant compute isolation within a single site deployment.
 
-Ankole does not try to defend a Worker against its own Agent. Within user space, an Agent can install local tools, modify `/workspace`, or even break its own user-space environment (though it cannot install root system packages). That is intentional: the Worker's runtime credential represents only that single Agent, whose shell commands already have access to all of that Agent's files and scoped tokens. If a Worker fails to become ready within `agent_workers.ready_timeout_seconds`, the control plane replaces it with a fresh container and a clean cache disk.
+Site administrators can also register a Brain `file` source (`site_console:brain:update`) that reads paths directly on the control-plane host. Choosing which host paths to ingest sits inside the site operator's trusted infrastructure boundary.
 
-Treat Worker containers as first-party, single-Agent compute; on Kubernetes, operators who want stronger host isolation can attach a `gVisor` `RuntimeClass` to the Worker Pod template. Compromising a Worker lets an attacker act as that one Agent, never as another Agent. By contrast, the control plane holds the Docker socket or Kubernetes namespace Role used to launch Workers, so protect the control plane as root-equivalent infrastructure.
+## Workers Isolate Control-Plane Credentials and Cross-Chat Mounts, Not an Agent's Own User Space
 
-Site administrators can register a Brain `file` source that reads a path on
-the control-plane host. Ankole requires a site administrator session and
-`site_console:brain:update` for this operation. The site operator owns the
-choice of host files to ingest; this is part of the trusted infrastructure
-boundary.
+Inside each Agent's dedicated Worker container, the root supervisor, `ankole-rclone`, and the Bun Worker process run as `uid 0` and hold the Worker channel credential and VFS tokens in root-owned memory. They spawn untrusted child executions—`command`, Codex `app-server`, MCP servers, and `ankole-browser`—as `uid 1000` with `no-new-privs` inside private Linux mount and PID namespaces that bind only the active execution's authorized `/drive/ChatDrive` alongside `/drive/{Public,MyDrive,AgentDrive,Brain,Skills}` (see [Agent Workers](design-docs/AgentWorkers.md) and [Files](design-docs/Files.md)).
 
-## Persistent Home vs. Rebuildable Cache
+Within `uid 1000`, however, Ankole intentionally does not defend a Worker against its own Agent:
 
-An Agent's Home directory (`/workspace`) persists across Worker restarts, instance replacements, and container image updates—backed by a local Docker volume, Kubernetes PVC, Cloudflare R2 snapshot, Vercel Drive, AWS EFS directory, AgenticSpace volume, or Alibaba Cloud OSS prefix depending on the Worker provider. Persistent Codex thread files live under `/workspace/.codex`, whereas Codex SQLite databases and process locks live on a disposable cache disk at `/var/cache/ankole`. Rebuilding a Worker wipes `/var/cache/ankole` once the old container terminates while leaving `/workspace` intact.
+- Every Session (`{tenant_id, agent_uid, session_id}`) and Background Agent Job belonging to the same Agent shares `/workspace`—including sibling `/workspace/sessions/*` and `/workspace/jobs/*` directories, `.ankole/turn-skills/`, and `.codex/` state. Use multiple Sessions to organize concurrent tasks, not as an intra-Agent security boundary over `/workspace`.
+- An Agent can install user-space tools, modify `/workspace`, or break its own user-space environment. When a Worker fails readiness within `agent_workers.ready_timeout_seconds`, the control plane replaces the container and wipes `/var/cache/ankole` while preserving `/workspace`.
+- Compromising a Worker lets an attacker act only as that single Agent, never as another Agent; on Kubernetes, operators who want stronger host kernel isolation can attach a `gVisor` `RuntimeClass` to the Worker Pod template.
 
-Actual storage durability depends on the underlying provider:
-- **Docker local volumes and `local-path` PVCs** do not survive losing the underlying host disk.
-- **Cloudflare Containers** snapshot `/workspace` to R2 on planned stops, so an abrupt platform kill can lose writes made since the last snapshot.
-- **Vercel Sandbox and AWS Lambda + EFS** cover planned replacements, image updates, and brief Lambda memory pauses in live-account verification, though behavior across prolonged MicroVM suspension and Lambda memory quotas still warrants deployment-specific checks.
-- **Alibaba Cloud Function Compute + OSS** mounts object storage without full POSIX filesystem semantics, and **ACS** remains disabled until its default hibernation path is proven to preserve process memory. See [Provider Verification](design-docs/AgentWorkers.md#provider-verification) and [Agent Workers](design-docs/AgentWorkers.md) for full provider verification matrices, and back up both persistent Home storage and the control-plane Drive in production.
+## Worker Storage Durability and Single-Writer Fencing
 
-To prevent split-brain writes to `/workspace`, the control plane waits until every prior Worker instance—including paused or terminating ones—has completely disappeared before starting a new generation. If a create call returns an ambiguous error, Ankole reuses the same generation token on retry rather than risking two concurrent writers, which means a cloud-provider API outage will leave the Agent safely waiting rather than double-mounting its Home.
+Durability and lifecycle guarantees across cloud Worker providers carry provider-specific limits (see [Provider Verification](design-docs/AgentWorkers.md#provider-verification)):
 
-## Sessions Isolate Active Tasks, Not Agent-Owned Files
+- **Cloudflare Containers** snapshot `/workspace` to R2 on planned drains and stops, so an abrupt platform kill loses `/workspace` writes made after the latest snapshot.
+- **Vercel Sandbox and AWS Lambda + EFS** cover planned replacements, image updates, and brief Lambda memory pauses in live verification; prolonged MicroVM suspension and Lambda memory or burst quotas still require deployment-specific validation.
+- **Alibaba Cloud Function Compute** mounts OSS prefixes via `ossfs2` without full POSIX semantics (`chown` fails with `EIO`), whereas NAS provisions an `AgenticSpace` mounted via AgenticFS; **Alibaba Container Compute Service (ACS)** is intentionally unregistered because its default hibernation path has not been proven to preserve process memory. Back up both persistent Worker Home storage and Drive object storage (`ANKOLE_FILES_STORE` plus PostgreSQL) in production.
 
-Each Session runs under the Actor identity `{agent_uid, session_id}` inside `/workspace/sessions/<workspace-id>` (where PostgreSQL allocates stable workspace IDs starting from `10000`).
+To prevent split-brain writes to `/workspace`, the control plane waits until every prior Worker instance—including paused or terminating instances—has disappeared before starting a new generation. When a create call returns an ambiguous error, Ankole retries with the same generation token rather than risking two concurrent writers, deliberately leaving the Agent waiting during a cloud-provider API outage instead of double-mounting its Home.
 
-While separate Sessions get distinct working directories, foreground child processes, and scratch files, every Session belonging to the same Agent shares one Worker container and has full filesystem visibility across `/workspace`—including shared Home files, `.ankole/turn-skills/`, sibling Session workspaces, and `.codex/` state—alongside the Agent's read-only `/drive/Skills` mount. Use multiple Sessions to keep concurrent tasks organized, not as a security boundary within a single Agent.
+## External Chat Delivery Halts on Ambiguity and Preserves Historical Context
 
-## RuntimeFabric Is Transport, Not a Queue
+When integrating external messaging platforms, keep four deliberate boundaries in mind (see [Conversations](design-docs/Conversations.md) and [Signals](design-docs/Signals.md)):
 
-`RuntimeFabric` multiplexes live control messages, RPC calls, health heartbeats, and flow control over one Phoenix Channel per Worker, while streaming file payloads over one-time HTTP relay URLs.
+1. **Ambiguous sends stop in `unknown` instead of retrying blindly.** Adapters use provider idempotency keys or read-back reconciliation whenever the platform supports them. If a final visible reply times out with an uncertain outcome, Ankole marks the `Delivery` row `unknown` and halts automatic retries to avoid spamming the chat channel; an operator can manually requeue that reply once from Console (flagged with a possible-duplicate notice).
+2. **Streaming previews are best-effort.** If a control-plane process crashes mid-stream, partial preview text can remain visible on the chat platform until turn completion, an empty outcome, dead-letter handling, or an explicit stop replaces or clears it.
+3. **External edits and withdrawals do not rewrite completed model history.** Unlike native Pod inline message edits—which retract subsequent Agent replies and `AIGateway` `Response` rows—external adapters observe only revisions emitted by the upstream platform: withdrawing an explicit triggering message cancels an in-flight turn, whereas editing or deleting an already-consumed message updates `conversation_messages` in place without rewriting prior `AIGateway` history or triggering a new turn.
+4. **WhatsApp enforces a strict customer-service window and asynchronous failure webhooks.** Ankole checks a 23-hour-55-minute window from the user's latest inbound message or interactive reply before sending and does not send paid WhatsApp template messages; delayed answers from Background Agent Jobs or schedules fail permanently (`customer_service_window_closed`) until the user messages again and an operator retries from Console. Because Meta's Cloud API reports downstream delivery failures asynchronously after returning an initial HTTP success and provides neither idempotency keys nor read-back, Ankole logs late failure webhooks for operators rather than resending automatically (see [WhatsApp Adapter](design-docs/plugins/WhatsAppAdapter.md)).
 
-That WebSocket channel is purely ephemeral transport. Any state that must survive a disconnect, trigger a retry, or commit business results is written to PostgreSQL first.
+## Steered Turns Split Attribution Across Signals
 
-## Only the Control Plane Commits Durable Business State
+When addressed follow-up messages, `/steer` commands, priority peer messages, or ambient handoffs steer an already running Session turn, Ankole records each steer as its own `Signal`, so a single turn can span two or more `Signal` rows (see [Sessions](design-docs/Sessions.md)).
 
-Workers never write directly to AIGateway tables, `Signals`, or provider Delivery outboxes. Even within the control plane, responsibilities stay strictly separated:
+When the turn finishes, the latest reply-eligible steered `Signal` claims the public `Message` (`conversation_messages.signal_id` in Pod) or outbound `Delivery` (`deliveries.source_signal_id` on external channels) so the Agent's answer threads underneath the user's newest message, while internal `AIGateway` `Response` and `ai_gateway_usage_records` rows stay linked to the opening `Signal` that started the turn. Querying either `Signal` in isolation shows only part of the turn; join through `ai_message_id` to trace a public reply back to its model output.
 
-- **AIGateway** persists individual model `Response` rows and streams token events, but never marks a `Signal` finished or dispatches external chat replies.
-- **Session Drivers** orchestrate the main model loop in the control plane. Only the Driver's closing PostgreSQL transaction—guarded by the persisted Driver epoch fence—marks `Signals` complete and enqueues external `Delivery` intents. If a Driver crashes after a model `Response` finishes, the next Driver reconstructs the turn from the committed input rows and `Response` tape.
-- **BackgroundAgentJobs** execute Codex turns on the Worker, and the control plane verifies the Job's attempt fence before committing the Worker's final report.
+## AIGateway Compaction, Wire Emulation, and Accounting Constraints
 
-## External Provider Delivery Is At-Least-Once
+Several `AIGateway` behaviors depend on upstream protocol capabilities or caller mode (see [AIGateway](design-docs/AIGateway.md) and [Agent Token Quota](design-docs/AgentTokenQuota.md)):
 
-In Ankole's messaging pipeline, `Conversations` observes incoming platform events and dispatches outbound `Delivery` intents, `Signals` authorizes and routes triggers, and `Sessions` runs the Agent and records the intended reply.
+- **Provider-native compaction (`ai_gateway.compaction.upstream`) locks stateless threads to Responses wires.** Stateful (`store=true`) conversations keep raw predecessor rows in PostgreSQL, so switching providers or falling back from a failed upstream compaction cleanly rebuilds a local summary checkpoint. Stateless (`store=false`) callers such as Codex Jobs, however, carry opaque provider compaction tokens directly in their thread items; replaying those items requires a Responses-wire upstream and fails with `unsupported_compaction_replay_wire` on other protocols.
+- **`encrypted` tool-property markers preserve schema shape without cryptographic secrecy outside Responses.** On Responses wires, `AIGateway` forwards `encrypted: true` on top-level string tool properties verbatim so providers that validate pre-registered schemas accept the call (whereas a Responses provider that rejects unknown schema markers will reject the request). On non-Responses wires, `AIGateway` round-trips values as versioned `Base64URL` tokens to preserve protocol shape without providing confidentiality.
+- **Interrupted streams are discarded rather than spliced.** `AIGateway` rejects `background=true` and never resumes half-streamed upstream chunks after a disconnect; background reconciliation marks orphaned `Response` rows failed once their heartbeat grace window expires.
+- **Missing provider usage bypasses token quota enforcement for that round.** When an upstream provider omits token usage, `AIGateway` records `NULL` rather than estimating tokens from character counts, so calls on providers that omit usage can exceed an Agent's token quota until usage is reported.
+- **Tool ceilings and pool counters measure narrow scopes.** `Response` `max_tool_calls` caps only built-in hosted tools (`Tool Search`, `Programmatic Tool Calling`, `Brain`, `web_search`, and `image_generation`), leaving client tools to the Session Driver's round ceiling. Likewise, `CredentialPool` `request_count` counts every successful credential selection—including cached `ModelMetadata` lookups and affinity hits—rather than outbound HTTP requests alone.
 
-Keep three delivery realities in mind when integrating external chat platforms:
+## Human Offboarding Sync Coverage and In-Flight Runs
 
-1. **Webhook acknowledgements mean intake, not reply.** Returning `200 OK` to Slack, Feishu, or DingTalk confirms only that Ankole recorded the inbound event, not that an Agent has finished answering.
-2. **Streaming previews are best-effort.** If a process crashes mid-stream, stale preview text can linger on the external chat platform until turn completion, an empty result, dead-letter handling, or an explicit stop clears or replaces it. Final external replies always come from durable `Delivery` intents, while native Pod replies commit directly as public `Message` rows.
-3. **Uncertain network calls stop safely rather than looping forever.** Adapters use provider idempotency keys or read-back reconciliation whenever the platform supports them. If a final visible reply times out with an ambiguous outcome, Ankole marks the Delivery row `unknown` and halts automatic retries so it does not spam the chat channel; an operator can manually requeue that reply once from Console (tagged with a possible-duplicate notice). Other ambiguous operations stay stopped, automatic retries halt at their configured ceiling, and expired intents are never sent.
+Automatic departure webhooks and periodic directory syncs are implemented only for Feishu/Lark and DingTalk (with automatic missing-member disablement gated on initial baseline approval and a 20% removal circuit breaker); Google Workspace, Microsoft 365, Slack, and generic OIDC rely on manual disablement in Console (see [Human Offboarding](design-docs/HumanOffboarding.md)).
 
-## Steered Turns Split Records Across Two Signals
+When Ankole suspends or offboards a Human, any execution attempt that already passed admission finishes its current run rather than aborting mid-tool-call; revocation blocks subsequent turns, retries, scheduled wakeups, and sign-ins.
 
-When a user sends a `/steer` follow-up while a Session Turn is already running, Ankole records that follow-up as its own `Signal`. When the Turn finishes, the latest applied `/steer` claims ownership of the final reply and its outbound `Delivery` row so the Agent's answer threads underneath the user's newest message rather than the older message that originally started the Turn.
+## Dynamic Skill Edits and Ephemeral Local Browser Profiles in Jobs
 
-At the same time, the internal `AIGateway` message remains linked to the opening `Signal` that spawned the Turn. As a result, a steered Turn spans two `Signal` rows: querying either `Signal` in isolation shows only half the picture. To trace a reply back to the exact model output that produced it, start from the outbound `Delivery` row and follow `ai_message_id` to `AIGateway`. Ankole accepts this split deliberately so replies appear where human readers are actually looking in chat.
+Two Worker runtime behaviors intentionally favor fresh state over pinned snapshots (see [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) and [Web Tools](design-docs/WebTools.md)):
 
-## Message Edits and File Transfers Follow Provider Capabilities
-
-`Conversations` tracks edits and deletions on observed external messages and forwards those revisions to `Sessions`. However, an adapter can record a deletion or edit only when the upstream platform actually emits an event for it, and deleting an earlier chat message does not retroactively rewrite prior `AIGateway` model history—instead, a subsequent turn sees the removal notice as a new event.
-
-Similarly, outbound file delivery reads each Drive file as its bytes exist at send time rather than snapshotting historical byte versions, and adapters explicitly reject files or operations that exceed the target platform's size or API limits rather than silently dropping them.
-
-## WhatsApp Enforces a 24-Hour Reply Window
-
-Meta closes a WhatsApp customer-service window 24 hours after the user's most recent inbound message. Ankole checks that timestamp before every send: if the 24-hour window has expired, the adapter fails the `Delivery` row permanently without calling Meta's Cloud API, which means delayed answers from background jobs or scheduled tasks will not go through until the user messages again (unless re-opened externally via paid WhatsApp template messages, which sit outside Ankole's adapter scope). Once the user writes again, an operator can retry the stopped `Delivery` row from Console.
-
-Meta's Cloud API also reports downstream delivery failures asynchronously *after* returning an initial send success. Because WhatsApp offers neither idempotency keys nor message read-back, Ankole logs late asynchronous failure webhooks for operator visibility rather than automatically re-sending, and marks ambiguous HTTP timeouts as `unknown` under the standard manual-requeue flow.
-
-## Stateful AIGateway Responses Require WebSockets
-
-AIGateway's HTTP `POST /v1/responses` endpoint is strictly stateless and rejects stateful continuation fields; callers that maintain server-side conversation state connect over the WebSocket Responses endpoint instead.
-
-Key invariants of stateful AIGateway sessions:
-- **Single active leaf per implicit continuation**: AIGateway tracks conversation structure directly in the message graph rather than maintaining a separate mutable cursor. Starting an implicit continuation runs a short transaction that locks the current visible leaf, inserts the new `Response` (plus a compaction checkpoint if needed), and rejects concurrent implicit callers with `response_in_progress`. Callers can still branch explicitly from any earlier turn by passing `previous_response_id`.
-- **No mid-stream provider resumption**: One WebSocket connection generates at most one `Response` at a time (`background=true` is rejected), and Session Drivers serialize model calls per Session. If a connection drops mid-generation, AIGateway does not splice half-streamed upstream chunks; a background cleanup worker marks abandoned `Response` rows as failed once the grace period expires.
-- **Exact usage accounting and strict Principal scoping**: Automatic context compaction relies on persisted provider token usage rather than estimating tokens from character counts. Every AIGateway query scopes conversations, messages, artifacts, and compaction checkpoints to the authenticated Principal, and AIGateway treats caller `metadata` (such as `signal_id`) as opaque pass-through data.
-- **Two distinct call ceilings**: `max_tool_calls` caps hosted tool invocations *within* a single `Response`, whereas the Session Driver's iteration limit caps total model rounds across an entire Session run.
-
-## Context Compaction Trusts Two Unverifiable Upstream Declarations
-
-AIGateway exposes context compaction through a single uniform protocol: a request containing a `compaction_trigger` input item, which AIGateway handles across every transport without forwarding raw trigger items to upstream providers. Within that protocol, however, two behaviors depend on configuration or caller declarations that AIGateway cannot verify ahead of time:
-
-1. **Provider-native compaction (`ai_gateway.compaction.upstream`)**: When enabled, AIGateway delegates compaction to the upstream model provider instead of generating a local summary. While a conversation contains no provider-specific compaction state, AIGateway validates the upstream reply and falls back to local summarization if the provider returns an unexpected shape. Once the conversation stores an opaque provider compaction token, however, **only that same upstream provider can compact future turns**—local summarization can no longer read the opaque state. Because that lock-in outlives a single turn, `upstream` defaults to `false` and must be opted into at the instance level.
-2. **`encrypted` tool-parameter markers**: Clients declare `encrypted` once for an entire tool schema before any parameter value exists, and Responses wire transports forward that marker verbatim. Because nothing in the request tells AIGateway whether the upstream provider expects or rejects the marker, AIGateway forwards it unchanged: providers that validate against pre-registered tool schemas reject requests if the marker is stripped (a failure observed in production), whereas a hypothetical Responses provider that rejects unknown markers would fail the request rather than silently falling back. On non-Responses wire protocols that cannot represent the marker natively, AIGateway emulates round-tripping with opaque encoded tokens—preserving protocol shape without providing cryptographic secrecy.
-
-## Provider Credentials Stay in the Control Plane
-
-The control plane holds all master provider configurations and encrypted API keys, issuing a Worker only narrowly scoped credentials when an enabled Worker capability requires one. For example, Codex Jobs authenticate back to `AIGateway` using an Agent-scoped key that `AgentCodexRuntime` writes to a private token file inside `.codex/` and refreshes automatically, while the primary Agent loop never leaves the control plane. See [Background Agent Job](design-docs/BackgroundAgentJob.md).
-
-Model metadata hooks use the Provider's ordinary credential selection path,
-including when the metadata cache supplies the result. The pool's
-`request_count` therefore counts successful credential selections, including
-affinity hits; it is not a count of outbound HTTP requests. Providers without a
-metadata hook do not select credentials for this lookup.
-
-Never place live API keys or secrets inside Agent workspace files, Skill parameters, progress messages, model prompts, or logs. Also note that `RuntimeFabric` assumes a private cluster network with trusted first-party Workers; do not expose Worker channel endpoints directly to untrusted public networks.
-
-## Human Offboarding Stops at Ankole's Boundary
-
-Disabling a Human Principal immediately blocks new logins and rejects newly arriving work attributed to that Human inside Ankole. Automatic departure detection relies on upstream identity-provider webhooks and periodic directory syncs—so if an upstream IdP has an outage or restricted API scope, operators can always disable the account manually in Console.
-
-Once offboarding triggers, three boundary rules apply:
-- **In-flight attempts finish their current run**: If a task passed its admission check before the Human was disabled, Ankole lets that attempt finish rather than aborting mid-tool-call.
-- **OIDC Relying Parties enforce logout asynchronously**: Ankole sends OIDC Back-Channel Logout notifications and reflects revocation immediately on Token Introspection, but each external Client clears its own local session cache on its own schedule.
-- **External tokens outside Ankole keep their own lifetimes**: Ankole cannot revoke credentials it did not issue—such as an external RP's cached session cookie, an OAuth grant held directly by a third-party app, or short-lived tokens already issued to an in-flight attempt—until those tokens expire at their issuer. See [Human Offboarding](design-docs/HumanOffboarding.md), [Browser Sessions](design-docs/BrowserSessions.md), and [OIDC Server](design-docs/OIDCServer.md).
-
-## Headless Browser State Lives and Dies with the Worker
-
-`ankole-browser` runs alongside Agent Computer inside the Worker container. Agent Computer assigns each browser consumer an opaque route with pre-resolved proxy/connection settings, so the Chromium daemon never communicates with the control plane directly.
-
-Each Worker supervises one browser daemon, isolating separate routes into distinct local Chromium profiles or remote browser sessions. Rendered `web_fetch` calls allocate ephemeral one-off routes, whereas Codex Jobs can hold onto a named route across turns to preserve cookies and login state. Because browser profiles, screenshots, and temporary downloads live on the Worker filesystem, replacing a Worker wipes local browser state unless the deployment mounts persistent storage for the browser data directory.
-
-## Long-Running Execution Belongs in BackgroundAgentJob
-
-Models can invoke only explicitly registered Ankole tools—merely installing a CLI binary inside the Worker image does not expose it to the model as a callable tool.
-
-For shell execution, Ankole separates short interactive commands from long-running jobs:
-- **Foreground `command` tool**: Runs synchronously with a 180-second default timeout (configurable per call) and deliberately provides no background daemon registry.
-- **`BackgroundAgentJob`**: Runs open-ended multi-turn work through `CodexRunner` on the Worker while the control plane tracks durable Job state, heartbeats turn leases to detect stalled Workers, retries transient failures, handles cancellation, and posts completion updates back to the originating Conversation. Workflows that require a wall-clock deadline can steer or cancel a Job explicitly.
-
-Interactive turns read current enabled built-in, Agent Plugin, and custom Skills from `Ankole.AIAgent.Library`, while Background Agent Jobs intersect their admission-time Skill projection with current enablement rather than pinning old Skill bytes, and Skill discovery operates independently of Control Plane Plugins. When an Agent invokes an MCP-backed Skill, `mcporter` runs in the foreground with an explicit per-call timeout rather than spawning background daemons.
-
-## Durable Timers and Wakeups Run Through Oban
-
-Whenever a domain operation sets a deadline or schedules follow-up work, it writes the authoritative domain state to PostgreSQL and enqueues an `Oban` job inside the **same database transaction**. When `Oban` fires, the owning module re-reads the PostgreSQL row to verify the work is still needed before acting, and a periodic Reconciler sweeps for any missed Conversation or Workflow wakeups. In-memory Driver progress is always rebuildable from committed input rows and the `AIGateway` Response chain.
-
-## Phoenix and Vite Own Distinct Layers
-
-Phoenix serves HTTP routes, authentication ceremonies, cookie sessions, initial setup, and the outer HTML shell, while Vite compiles the client-side React applications under `app/webapps/` using shared components from `libs/uikit`. TypeScript API clients are generated from control-plane OpenAPI schemas—always update the Elixir resource/schema first and regenerate the client rather than hand-patching frontend types.
-
-## Fast Unit Suites Do Not Prove Live Infrastructure
-
-Default `bun run test` suites skip container builds, live external chat/LLM providers, performance benchmarks, and chaos fault-injection runs. Before claiming that a Worker image, cloud provider, database failover, or external integration works end to end, run the corresponding `tools/e2e/run` mode; static code review catches contract mismatches, not live protocol or network behavior.
+- **Background Agent Jobs freeze Skill names, not Skill file bytes.** At first admission, a Job freezes its candidate Skill names and intersects them with current enablement so disabling a Skill revokes it mid-Job, while edits to a still-enabled Skill's content take effect on subsequent reads and turns.
+- **Local Chromium profiles live in ephemeral `/tmp`.** Even though a Codex Job persists its route metadata and `browser/` screenshots and downloads under `/workspace/jobs/job-<id>`, `ankole-browserd` stores local Chromium profile directories (`cookies` and `localStorage`) under `/tmp/ankole-agent-computer/browser/routes/<route>`. Context idle expiry or Worker container replacement clears local browser login state unless the route uses a remote CDP browser backend.
 
 ## Pod Documents Embed External Pages Without Confirmation
 
-A Pod document stores the `href` of an `embed` and the `src` of an image as written. When a person pastes Markdown or HTML that contains an `<embed href>` element, the editor creates an external iframe without asking first, and an image address can use any scheme, including `javascript:`.
+A Pod document stores the `href` of an `embed` and the `src` of an image verbatim. When a user pastes Markdown or HTML containing an `<embed href>` or `<iframe src>` snippet, the editor creates an external preview iframe without prompting first, and an image `src` may contain any URI scheme, including `javascript:` (see [Pod Content Model](design-docs/PodContentModel.md)).
 
-Ankole accepts this because neither case runs author-controlled script with the Pod's authority. An embed whose address is on the Pod's own origin loads in a sandbox without `allow-same-origin`, so it runs in an opaque origin. An external page keeps its own origin, so the browser's same-origin policy keeps it away from Pod data. When an external page redirects the frame to the Pod's origin, the frame shows only what the Pod serves at that address. Every Pod file response carries `Content-Security-Policy: sandbox; default-src 'none'` and `X-Content-Type-Options: nosniff`, and HTML files download as attachments instead of rendering. An Applet frame page runs with the Pod's origin, but it is a published Applet that already shares the Pod's trust boundary. A browser never runs a `javascript:` address from an `img` element. A pasted embed can still show a page that a reader did not choose to open, such as a fake sign-in form. Readers and editors should treat an embed like a link from its author. Text styles are different: the editor and the Rust kernel keep only `color`, `background-color`, and `text-transform`, because other CSS, such as a `position: fixed` overlay, would cover the page for every reader.
+Ankole accepts this because neither case executes author-controlled script with the Pod's authority:
+
+- A same-origin embed loads inside a sandbox that omits `allow-same-origin`, isolating it in an opaque origin, while a cross-origin embed stays isolated under the browser's same-origin policy (and if it redirects back to the Pod's origin, the frame renders only what the Pod serves there). Published Applet frames share the Pod's origin because they already run inside the Pod's trust boundary.
+- Every Pod file response sets `Content-Security-Policy: sandbox; default-src 'none'` and `X-Content-Type-Options: nosniff`, serving HTML and non-allowlisted MIME types as `attachment` downloads, and browsers never execute `javascript:` URIs on `<img>` elements.
+- Inline text styles in both the editor and the Rust kernel retain only `color`, `background-color`, and `text-transform` so arbitrary CSS (such as `position: fixed` overlays) cannot spoof or cover the surrounding page. Because a pasted embed can still display an unprompted external page (such as a phishing form), readers should treat embeds with the same caution as external links.
 
 ## Concurrent Cross-Column Deletions Can Leave an Empty Column
 
-When a range edit ends in another column, the editor joins the text at both ends and keeps each column's other blocks. To keep the second column, the change closes the first column after the joined text and opens the second column again. Operational transformation keeps that inserted column boundary even when another collaborator deletes the text around it at the same time.
+When a range edit starts in one column and ends in another, the editor joins the text at both ends while closing the first column and reopening the second so the remaining blocks in each column stay in place. Operational transformation preserves that inserted column boundary even if a concurrent collaborator deletes the surrounding text at the same time.
 
-So when two people delete adjacent ranges across the same column boundary concurrently, the converged page can hold an extra column with only an empty paragraph, and undoing one of the edits restores that layout. No text is lost, and deleting the empty column restores the intended layout. Ankole accepts this rare outcome: removing it needs a different change shape for cross-column edits or special handling in transformation, while an automatic cleanup cannot tell such a column from an empty column that a person inserted on purpose.
+Consequently, when two collaborators concurrently delete adjacent ranges across the same column boundary, the converged page can contain an extra column holding a single empty paragraph; no text is lost, undoing either edit restores the prior layout, and deleting the empty column cleans it up. Ankole accepts this rare outcome because automatic cleanup cannot distinguish that column from an empty column inserted intentionally by a user.
 
 ## Database Connections Trust the Database Role
 
-Ankole authorizes a database connection as a whole: a granted member or Agent may run any read-only statement that the connection's database role can run. Ankole does not enforce row-level or column-level security on external databases, and query results include sensitive columns that the role can read; only catalog samples and value probes withhold sensitive values. Administrators give each audience its own connection with a database role limited to the schemas, rows, and columns that audience may read, and they rely on that role's privileges, row-level security policies, or views.
+Ankole authorizes an external database connection as a unit: any Principal granted query access on the connection can run every read-only statement permitted to that connection's database role (see [Database Connectors](design-docs/plugins/DatabaseConnectors.md)). Ankole does not layer row- or column-level filtering onto `query` results—sensitive-value withholding applies only to catalog samples and `probe_values`—so administrators must scope each audience to a least-privileged database role, view, or row-level security policy.
 
-The read-only session, `sql_inspect`, and the operator's time and size budgets stop writes and runaway reads, and `sql_inspect` rejects known side-effecting built-in functions, but they cannot recognize a user-defined or extension function that the role may call and that causes side effects outside the transaction. A least-privileged, read-only role remains the database owner's responsibility. Database sessions also connect directly from the control plane; the HTTP egress proxy applies only to ClickHouse, whose interface is HTTP.
+Read-only session settings, `sql_inspect`, and query time/size budgets block writes, runaway reads, and known side-effecting built-in functions, yet they cannot detect side effects inside user-defined or extension functions callable by the database role. In addition, PostgreSQL and MySQL sessions connect directly over TCP from the control plane; the HTTP egress proxy applies only to ClickHouse, which speaks HTTP.
 
 ## Deliberate Non-Goals
 
-Today, Ankole intentionally does **not** provide:
+Ankole intentionally does **not** provide:
 
-- Public network admission for untrusted third-party Workers
-- A durable message broker inside `RuntimeFabric`
-- Automatic scraping of durable business records out of arbitrary Worker files
-- End-user (non-operator) authoring of external IM/channel and Console-level Signal routing rules (Pod members configure Applet Action triggers in the Pod Automation panel)
-- Nested Workflows, hot-swapping Workflow scripts mid-run, or shared token budgets across a Workflow batch
-- A public OpenAI-compatible `Conversations` CRUD API, or `Response` delete/cancel endpoints
-- Named git-style branch views over the `AIGateway` message graph
-- Hostile multi-tenant compute isolation inside a single Ankole deployment
-
-Any product decision to add one of these capabilities must designate a single owning module, specify the migration path for existing data, and define end-to-end verification coverage.
+- Admission for untrusted third-party Workers
+- End-user authoring of external IM/channel or Console-level Signal routing rules (Pod members configure Applet Jobs, schedules, webhooks, and `/api/v2/pod/signal-bindings` triggers inside each Applet's settings)
+- Nested Workflows, hot-swapping Workflow scripts mid-run, or dedicated per-Workflow token budgets (Workflow task turns draw from the Agent's shared [Agent Token Quota](design-docs/AgentTokenQuota.md))
+- A public OpenAI-compatible `Conversations` CRUD API, or `Response` delete/cancel HTTP endpoints on `AIGateway`
+- Named git-style branch refs over the `AIGateway` message graph

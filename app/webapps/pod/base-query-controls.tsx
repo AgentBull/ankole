@@ -1,7 +1,8 @@
 import { t } from 'i18next'
+import { isEqual } from '@agentbull/active-support'
 import { useTranslation } from 'react-i18next'
 import { Button, Input, Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@ankole/uikit'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Condition, BaseField, Filter, Sort, Value } from '@ankole/applet-sdk/types'
 import { Choice } from './content-primitives'
 import { FieldInput, fieldOptions } from './base-fields'
@@ -11,6 +12,12 @@ import { effectiveFieldType } from './base-field-types'
 const operators: Record<Condition['operator'], string> = {
   get is() {
     return t('pod.content.is')
+  },
+  get not_is() {
+    return t('pod.content.is_not')
+  },
+  get in() {
+    return t('pod.content.is_any_of')
   },
   get contains() {
     return t('pod.content.contains')
@@ -74,7 +81,11 @@ export function QueryControls({
       return !field || !Object.hasOwn(operatorsFor(field), condition.operator)
     }) || ordering.some(item => !fields.some(field => field.id === item.field_id))
   const missingValues = conditions.some(
-    condition => !condition.operator.endsWith('empty') && (condition.value === null || condition.value === undefined)
+    condition =>
+      !condition.operator.endsWith('empty') &&
+      (condition.value === null ||
+        condition.value === undefined ||
+        (condition.operator === 'in' && (!Array.isArray(condition.value) || condition.value.length === 0)))
   )
   return (
     <Popover
@@ -138,11 +149,18 @@ export function QueryControls({
                               operator: operator as Condition['operator'],
                               value: operator.endsWith('empty')
                                 ? undefined
-                                : item.operator.endsWith('empty')
-                                  ? effectiveFieldType(fields.find(field => field.id === item.field_id)!) === 'boolean'
-                                    ? false
-                                    : null
-                                  : item.value
+                                : operator === 'in'
+                                  ? Array.isArray(item.value)
+                                    ? item.value
+                                    : item.value !== null && item.value !== undefined && item.value !== ''
+                                      ? [item.value]
+                                      : []
+                                  : item.operator.endsWith('empty') || item.operator === 'in'
+                                    ? effectiveFieldType(fields.find(field => field.id === item.field_id)!) ===
+                                      'boolean'
+                                      ? false
+                                      : null
+                                    : item.value
                             }
                           : item
                       )
@@ -299,14 +317,19 @@ export function QueryControls({
 
 function operatorsFor(field?: BaseField) {
   const type = field ? effectiveFieldType(field) : 'missing'
+  const singleSelect = field?.type === 'select' && !field.config.multiple
   const names: Condition['operator'][] =
     type === 'array'
       ? ['contains']
       : type === 'number' || type === 'datetime'
-        ? ['is', 'gt', 'gte', 'lt', 'lte']
-        : type === 'text'
-          ? ['is', 'text_contains']
-          : ['is']
+        ? ['is', 'not_is', 'gt', 'gte', 'lt', 'lte']
+        : singleSelect
+          ? ['is', 'not_is', 'in']
+          : type === 'text'
+            ? ['is', 'not_is', 'in', 'text_contains']
+            : type === 'boolean'
+              ? ['is']
+              : ['is', 'not_is']
   return Object.fromEntries(
     [...names, 'is_empty', 'is_not_empty'].map(key => [key, operators[key as Condition['operator']]])
   )
@@ -345,6 +368,27 @@ function FilterValue({
             : ''
         }
         onChange={event => update(event.target.value ? { name: event.target.value } : null)}
+      />
+    )
+  }
+  if (condition.operator === 'in') {
+    if (field.type === 'select') {
+      return (
+        <FieldInput
+          variant="overlay"
+          commitOnChange
+          pageID={pageID}
+          field={{ ...field, config: { ...field.config, multiple: true } }}
+          value={Array.isArray(condition.value) ? condition.value : []}
+          onChange={value => update(Array.isArray(value) && value.length > 0 ? value : [])}
+        />
+      )
+    }
+    return (
+      <CommaListConditionInput
+        label={t('pod.content.is_any_of')}
+        values={Array.isArray(condition.value) ? condition.value.map(String) : []}
+        onChange={update}
       />
     )
   }
@@ -398,6 +442,48 @@ function FilterValue({
             : value
         )
       }
+    />
+  )
+}
+
+function parseCommaList(raw: string): string[] {
+  return raw
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+}
+
+function CommaListConditionInput({
+  label,
+  values,
+  onChange
+}: {
+  label: string
+  values: string[]
+  onChange(value: string[]): void
+}) {
+  const [draft, setDraft] = useState(() => values.join(', '))
+  const [focused, setFocused] = useState(false)
+  useEffect(() => {
+    if (!focused) {
+      setDraft(current => (isEqual(parseCommaList(current), values) ? current : values.join(', ')))
+    }
+  }, [focused, values])
+  return (
+    <Input
+      variant="overlay"
+      aria-label={label}
+      value={draft}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false)
+        setDraft(parseCommaList(draft).join(', '))
+      }}
+      onChange={event => {
+        const next = event.target.value
+        setDraft(next)
+        onChange(parseCommaList(next))
+      }}
     />
   )
 }

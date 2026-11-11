@@ -131,14 +131,16 @@ export function ChatPage({
   const inspectorTrigger = useRef<HTMLElement | null>(null)
   const pageQuote = drafts.pageQuote.value
   useEffect(() => {
-    setInspector(null)
-  }, [conversationID])
-  useEffect(() => {
-    if (!pageID || pageQuote?.pageID !== pageID) return
-    drafts.pageQuote.value = null
-    model.quote({ kind: 'page', id: pageID, quote: pageQuote.quote })
+    const consumed = drafts.consumePageQuote({ pageID, conversationID: requestedConversationID })
+    if (!consumed) return
+    const quotePageID = pageID ?? consumed.sourcePageID
+    if (consumed.quote && quotePageID) model.quote({ kind: 'page', id: quotePageID, quote: consumed.quote })
+    if (consumed.prompt) {
+      const existing = model.draft.peek().trimEnd()
+      model.draft.value = existing ? `${existing}\n\n${consumed.prompt}` : consumed.prompt
+    }
     composerInput.current?.focus()
-  }, [drafts, pageID, pageQuote, model])
+  }, [drafts, pageID, pageQuote, requestedConversationID, model])
   const summaryTrigger = useRef<HTMLButtonElement>(null)
   const isMobile = useIsMobile()
   const useSplitInspector = !isMobile && !pageID
@@ -148,6 +150,11 @@ export function ChatPage({
     setSummary(false)
     setInspector(null)
   })
+  useEffect(() => {
+    setInspector(null)
+    setSummary(false)
+    preview.close()
+  }, [conversationID, preview.close])
   const rightPanelOpen = summary || (useSplitInspector && (!!inspector || !!preview.file))
   const rightPanelMotion = usePanelMotion(rightPanelOpen)
   const changeSummary = (next: boolean, event?: PanelInputEvent) => {
@@ -659,6 +666,10 @@ export function ChatPage({
                   model.quote({ kind: 'message', id: message.id, quote })
                   composerInput.current?.focus()
                 }}
+                // A `ui` block's reply button leaves its text in the composer for the Human to send.
+                onReply={text => {
+                  if (model.suggestReply(text)) composerInput.current?.focus()
+                }}
               />
             </ErrorBoundary>
             <div className="pod-chat-composer-dock">
@@ -746,13 +757,15 @@ export function ChatPage({
                 variant="panel"
                 className="m-3 w-72 shrink-0 self-start"
                 resetKeys={[conversationID]}>
-                <ChatSummaryPanel
-                  detail={data}
-                  callableAgentUIDs={availableAgents.map(agent => agent.uid)}
-                  activeInspector={inspector}
-                  onOpenInspector={openInspector}
-                  onClose={event => changeSummary(false, event)}
-                />
+                <AttachmentPreviewHost host={useSplitInspector ? preview.openOnlyHost : null}>
+                  <ChatSummaryPanel
+                    detail={data}
+                    callableAgentUIDs={availableAgents.map(agent => agent.uid)}
+                    activeInspector={inspector}
+                    onOpenInspector={openInspector}
+                    onClose={event => changeSummary(false, event)}
+                  />
+                </AttachmentPreviewHost>
               </ErrorBoundary>
             ) : useSplitInspector && inspector ? (
               <ErrorBoundary

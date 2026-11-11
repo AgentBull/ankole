@@ -12,21 +12,26 @@ const VERSION_KEYS: [&str; 3] = ["api_version", "anthropic_version", "anthropic-
 const DEPRECATED_V2026_SAMPLING_KEYS: [&str; 3] = ["temperature", "top_p", "top_k"];
 
 pub(crate) fn is_claude_45_plus_model(model: &str) -> bool {
-    let trimmed = model.trim().to_ascii_lowercase();
-    let normalized = trimmed
-        .strip_prefix("anthropic/")
-        .or_else(|| trimmed.strip_prefix("anthropic."))
-        .unwrap_or(&trimmed);
+    let lower = model.trim().to_ascii_lowercase();
+    let Some((_, after_claude)) = lower.split_once("claude-") else {
+        return false;
+    };
 
-    normalized.starts_with("claude-4.5")
-        || normalized.starts_with("claude-4-5")
-        || (normalized.starts_with("claude-")
-            && (normalized.contains("-4-5") || normalized.contains("-4.5")))
-        || normalized.starts_with("claude-opus-4-8")
-        || normalized.starts_with("claude-opus-4.8")
-        || normalized.starts_with("claude-sonnet-5")
-        || normalized.starts_with("claude-fable-5")
-        || normalized.starts_with("claude-mythos-5")
+    let tokens: Vec<&str> = after_claude.split(['-', '.', ':']).collect();
+    let Some((idx, major)) = tokens
+        .iter()
+        .enumerate()
+        .find_map(|(i, tok)| tok.parse::<u32>().ok().filter(|&v| v < 100).map(|v| (i, v)))
+    else {
+        return false;
+    };
+    let minor = tokens
+        .get(idx + 1)
+        .and_then(|tok| tok.parse::<u32>().ok())
+        .filter(|&v| v < 100)
+        .unwrap_or(0);
+
+    major > 4 || (major == 4 && minor >= 5)
 }
 
 pub(crate) fn resolve_anthropic_api_version(
@@ -200,7 +205,41 @@ fn enforce_v2026_messages(messages: Option<&mut Value>, strict: bool) -> Result<
 
         !(assistant && empty)
     });
+    coalesce_adjacent_same_role_messages(msgs);
     Ok(())
+}
+
+fn coalesce_adjacent_same_role_messages(msgs: &mut Vec<Value>) {
+    let mut merged: Vec<Value> = Vec::with_capacity(msgs.len());
+    for msg in msgs.drain(..) {
+        let role = msg.get("role").and_then(Value::as_str);
+        let prev_same_role = merged
+            .last()
+            .and_then(|last| last.get("role"))
+            .and_then(Value::as_str)
+            .is_some_and(|prev| Some(prev) == role);
+        if prev_same_role && let Some(last) = merged.last_mut() {
+            let mut next_blocks = message_content_blocks(&msg);
+            let mut prev_blocks = message_content_blocks(last);
+            prev_blocks.append(&mut next_blocks);
+            if let Some(last_obj) = last.as_object_mut() {
+                last_obj.insert("content".to_string(), Value::Array(prev_blocks));
+            }
+        } else {
+            merged.push(msg);
+        }
+    }
+    *msgs = merged;
+}
+
+fn message_content_blocks(msg: &Value) -> Vec<Value> {
+    match msg.get("content") {
+        Some(Value::Array(blocks)) => blocks.clone(),
+        Some(Value::String(text)) => {
+            vec![serde_json::json!({ "type": "text", "text": text })]
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn sanitize_v2026_assistant_message(

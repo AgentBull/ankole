@@ -147,16 +147,19 @@ defmodule Ankole.Repo.Migrations.MigrateBookmarksToEmbeds do
     rows =
       repo.query!(
         """
-        SELECT id::text, content
-        FROM page_snapshots
-        WHERE tenant_id = $1::text::uuid
-          AND strpos(content, '<bookmark') > 0
+        SELECT ps.id::text, ps.content, p.type
+        FROM page_snapshots ps
+        JOIN pages p ON p.tenant_id = ps.tenant_id AND p.id = ps.page_id
+        WHERE ps.tenant_id = $1::text::uuid
+          AND strpos(ps.content, '<bookmark') > 0
         """,
         [tenant_id]
       ).rows
 
-    Enum.each(rows, fn [snapshot_id, xml] ->
-      case migrate_bookmarks_xml(xml) do
+    Enum.each(rows, fn [snapshot_id, xml, type] ->
+      page_type = String.to_existing_atom(type)
+
+      case migrate_bookmarks_xml(xml, page_type) do
         {:ok, :unchanged} ->
           :ok
 
@@ -207,12 +210,25 @@ defmodule Ankole.Repo.Migrations.MigrateBookmarksToEmbeds do
       if rewritten == xml do
         {:ok, :unchanged}
       else
-        case Ankole.Kernel.page_validate(rewritten) do
-          {:ok, %{xml: ^xml}} -> {:ok, :unchanged}
-          {:ok, parsed} -> {:ok, parsed}
-          {:error, _} = error -> error
-        end
+        validate_migrated_xml(rewritten, xml, page_type)
       end
+    end
+  end
+
+  defp validate_migrated_xml(rewritten, original, page_type)
+       when page_type in [:knowledge, "knowledge"] do
+    case Ankole.Kernel.knowledge_validate(rewritten) do
+      {:ok, %{xml: ^original}} -> {:ok, :unchanged}
+      {:ok, parsed} -> {:ok, parsed}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp validate_migrated_xml(rewritten, original, _page_type) do
+    case Ankole.Kernel.page_validate(rewritten) do
+      {:ok, %{xml: ^original}} -> {:ok, :unchanged}
+      {:ok, parsed} -> {:ok, parsed}
+      {:error, _} = error -> error
     end
   end
 
@@ -223,11 +239,11 @@ defmodule Ankole.Repo.Migrations.MigrateBookmarksToEmbeds do
       view = Map.get(attrs, "view")
 
       cond do
-        page_type == :knowledge and String.trim(href) != "" ->
+        page_type in [:knowledge, "knowledge"] and String.trim(href) != "" ->
           label = if(view == "link", do: href, else: non_empty(Map.get(attrs, "title")) || href)
           ~s(<p><a href="#{escape_xml_attr(href)}">#{escape_xml_text(label)}</a></p>)
 
-        page_type == :knowledge ->
+        page_type in [:knowledge, "knowledge"] ->
           "<p></p>"
 
         view == "link" and String.trim(href) != "" ->

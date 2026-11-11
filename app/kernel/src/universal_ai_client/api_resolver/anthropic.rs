@@ -922,6 +922,14 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
         consumed.insert("system");
     }
 
+    for empty_sys in ["instructions", "system"] {
+        if request.get(empty_sys).is_some_and(|v| {
+            v.as_str().is_some_and(str::is_empty) || v.as_array().is_some_and(Vec::is_empty)
+        }) {
+            consumed.insert(empty_sys);
+        }
+    }
+
     let max_tokens_val = ["max_output_tokens", "max_tokens"]
         .iter()
         .find_map(|key| request.get(*key).filter(|value| useful_value(value)))
@@ -958,8 +966,17 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
             consumed.insert(key);
         }
     }
+    if request
+        .get("stop_sequences")
+        .is_some_and(|v| v.as_array().is_some_and(Vec::is_empty))
+    {
+        consumed.insert("stop_sequences");
+    }
     if let Some(stop) = request.get("stop").filter(|v| !v.is_null()) {
         match stop {
+            Value::Array(arr) if arr.is_empty() => {
+                consumed.insert("stop");
+            }
             Value::String(s) if !s.is_empty() && !body.contains_key("stop_sequences") => {
                 body.insert("stop_sequences".to_string(), json!([s]));
                 consumed.insert("stop");

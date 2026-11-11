@@ -385,14 +385,14 @@ defmodule Ankole.Conversations.Native do
              %Conversation{} = visible <- visible_conversation(actor, id),
              {:ok, _} <- Ankole.Principals.lock_principals_in_tx([uid, visible.created_by]),
              :ok <- check_human_in_tx(actor),
-             :ok <- Ankole.AuthZ.authorize_turn_in_tx(authority, lock: false),
+             :ok <- Ankole.AuthZ.authorize_turn_in_tx(authority),
              %Conversation{} = conversation <- visible_conversation(actor, id, lock: true),
              {:ok, _} <- NativeRoom.join_speaker(conversation, actor),
+             {:ok, conversation} <- NativeRoom.promote(conversation),
              {:ok, message, inserted?} <-
                append_human_message_in_tx(conversation, uid, message_id, text, [], %{},
                  applet_id: applet_id
-               ),
-             :ok <- Ankole.AuthZ.authorize_turn_in_tx(authority) do
+               ) do
           {:ok,
            %{conversationId: id, messageId: message.id, publications: publications(id, inserted?)}}
         else
@@ -1411,7 +1411,8 @@ defmodule Ankole.Conversations.Native do
       Message
       |> Ash.Query.filter(
         conversation_id == ^conversation.id and seq <= ^conversation.sequence_high_water and
-          not withdrawn and author_type == :human and kind == :message
+          not withdrawn and author_type == :human and kind == :message and
+          is_nil(fragment("(?->>'applet_page_id')", rich_content))
       )
       |> Ash.Query.select([:id, :conversation_id, :author_uid])
       |> Ash.Query.sort(seq: :desc)
@@ -1505,11 +1506,19 @@ defmodule Ankole.Conversations.Native do
     {messages, if(page.more?, do: hd(messages).seq)}
   end
 
+  @doc "Returns true when `message` was posted through `notifications.post` rather than interactive human input."
+  def applet_notification?(%Message{rich_content: %{"applet_page_id" => id}})
+      when is_binary(id) and id != "",
+      do: true
+
+  def applet_notification?(_), do: false
+
   defp editable_inputs(conversation, viewer_uid, messages) do
     viewer_messages =
       Enum.filter(
         messages,
-        &(&1.author_type == :human and &1.author_uid == viewer_uid and &1.kind == :message)
+        &(&1.author_type == :human and &1.author_uid == viewer_uid and &1.kind == :message and
+            not applet_notification?(&1))
       )
 
     if viewer_messages == [] do
@@ -1536,7 +1545,8 @@ defmodule Ankole.Conversations.Native do
         Message
         |> Ash.Query.filter(
           conversation_id == ^conversation.id and seq <= ^conversation.sequence_high_water and
-            not withdrawn and author_type == :human and author_uid != ^viewer_uid
+            not withdrawn and author_type == :human and author_uid != ^viewer_uid and
+            is_nil(fragment("(?->>'applet_page_id')", rich_content))
         )
         |> Ash.Query.select([:seq])
         |> Ash.Query.sort(seq: :desc)

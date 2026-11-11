@@ -5,7 +5,7 @@ import { renderToReadableStream, renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../common/i18n'
 import { AppletPage } from './applet-page'
 import { contentKeys, type PageDetail } from './content-api'
-import { PageEmbed } from './document-editor'
+import { PageEmbed } from './document-embeds'
 import { PageContent } from './page-content'
 import { DocumentDraftModel } from './state/document-draft'
 

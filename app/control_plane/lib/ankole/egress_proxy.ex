@@ -150,24 +150,54 @@ defmodule Ankole.EgressProxy do
   end
 
   defp no_proxy?(host) do
+    normalized_host = normalize_no_proxy_host(host)
+
     case environment_value(~w(NO_PROXY no_proxy)) do
       nil ->
         false
 
       list ->
-        list
-        |> String.split(",")
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.any?(&no_proxy_entry_matches?(&1, host))
+        normalized_host != "" and
+          list
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.any?(&no_proxy_entry_matches?(&1, normalized_host))
     end
   end
 
   defp no_proxy_entry_matches?("*", _host), do: true
 
-  defp no_proxy_entry_matches?(entry, host) do
-    bare = String.trim_leading(entry, ".")
-    host == bare or String.ends_with?(host, "." <> bare)
+  defp no_proxy_entry_matches?(entry, normalized_host) do
+    bare =
+      entry
+      |> normalize_no_proxy_host()
+      |> String.trim_leading(".")
+
+    bare != "" and (normalized_host == bare or String.ends_with?(normalized_host, "." <> bare))
+  end
+
+  defp normalize_no_proxy_host(raw) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    unbracketed =
+      cond do
+        String.starts_with?(trimmed, "[") ->
+          case String.split(trimmed, "]", parts: 2) do
+            ["[" <> ipv6, _rest] -> ipv6
+            _ -> trimmed
+          end
+
+        length(:binary.matches(trimmed, ":")) == 1 ->
+          trimmed |> String.split(":", parts: 2) |> hd()
+
+        true ->
+          trimmed
+      end
+
+    unbracketed
+    |> String.trim_trailing(".")
+    |> String.downcase(:ascii)
   end
 
   defp parse_proxy(value) when is_binary(value) do

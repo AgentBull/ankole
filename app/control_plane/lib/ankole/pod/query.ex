@@ -614,11 +614,31 @@ defmodule Ankole.Pod.Query do
     end
   end
 
-  defp condition_value(%{type: :datetime}, "is", value), do: datetime_value(value)
+  defp condition_value(field, "in", values) when is_list(values) and length(values) <= 500 do
+    Enum.reduce_while(values, {:ok, []}, fn
+      nil, _acc ->
+        {:halt, {:error, :invalid_query}}
+
+      item, {:ok, acc} ->
+        case condition_value(field, "is", item) do
+          {:ok, normalized} when not is_nil(normalized) -> {:cont, {:ok, [normalized | acc]}}
+          _ -> {:halt, {:error, :invalid_query}}
+        end
+    end)
+    |> case do
+      {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+      error -> error
+    end
+  end
+
+  defp condition_value(_field, "in", _values), do: {:error, :invalid_query}
+
+  defp condition_value(%{type: :datetime}, op, value) when op in ["is", "not_is"],
+    do: datetime_value(value)
 
   defp condition_value(%{type: kind}, op, value)
        when kind in [:created_by, :updated_by, "created_by", "updated_by"] and
-              op in ["is", "gt", "gte", "lt", "lte"] and is_binary(value),
+              op in ["is", "not_is", "gt", "gte", "lt", "lte"] and is_binary(value),
        do: {:ok, actor_ref_string(value)}
 
   defp condition_value(_field, _operator, value), do: {:ok, value}
@@ -658,6 +678,12 @@ defmodule Ankole.Pod.Query do
          else: (_ -> {:error, :invalid_query})
   end
 
+  defp typed_condition(field, fields, "in", [], params) do
+    with {:ok, _expr, _type, _bound_params} <- expression(field, fields, params) do
+      {:ok, "FALSE", params}
+    end
+  end
+
   defp typed_condition(field, fields, op, value, params) do
     with {:ok, expr, type, params} <- expression(field, fields, params) do
       expr = datetime_expression(expr, type)
@@ -682,15 +708,48 @@ defmodule Ankole.Pod.Query do
           {param, params} = Formula.bind(params, Torque.encode!(value))
           {:ok, "#{expr} @> jsonb_build_array(#{param}::text::jsonb)", params}
 
-        op in ["is", "gt", "gte", "lt", "lte"] ->
+        op == "in" and is_list(value) ->
+          typed_in_condition(expr, value, params, type)
+
+        op == "not_is" and is_nil(value) ->
+          {:error, :invalid_query}
+
+        op in ["is", "not_is", "gt", "gte", "lt", "lte"] ->
           with {:ok, param, params} <- typed_bind(params, value, type) do
-            operator = %{"is" => "=", "gt" => ">", "gte" => ">=", "lt" => "<", "lte" => "<="}[op]
+            operator =
+              %{
+                "is" => "=",
+                "not_is" => "<>",
+                "gt" => ">",
+                "gte" => ">=",
+                "lt" => "<",
+                "lte" => "<="
+              }[op]
+
             {:ok, "#{expr} #{operator} #{param}", params}
           end
 
         true ->
           {:error, :invalid_query}
       end
+    end
+  end
+
+  defp typed_in_condition(expr, values, params, type) do
+    Enum.reduce_while(values, {:ok, [], params}, fn item, {:ok, bound, params} ->
+      with false <- is_nil(item),
+           {:ok, param, params} <- typed_bind(params, item, type) do
+        {:cont, {:ok, [param | bound], params}}
+      else
+        _ -> {:halt, {:error, :invalid_query}}
+      end
+    end)
+    |> case do
+      {:ok, bound, params} ->
+        {:ok, "#{expr} IN (#{bound |> Enum.reverse() |> Enum.join(", ")})", params}
+
+      error ->
+        error
     end
   end
 
@@ -831,13 +890,18 @@ defmodule Ankole.Pod.Query do
         with {:ok, label_sql, value_type, params} <-
                display_label_sql_with_type(primary, fields, params, opts) do
           haystack =
-            if value_type == :datetime do
-              formatted =
-                "to_char((_lbl.val)::timestamptz, 'YYYY-MM-DD HH24:MI:SS FMMonth FMDD, YYYY FMMon FMDD, YYYY, FMHH12:MI:SS AM YYYY/MM/DD YYYY/FMMM/FMDD YYYY. FMMM. FMDD. YYYY\"年\"FMMM\"月\"FMDD\"日\"')"
+            cond do
+              value_type == :boolean ->
+                "(SELECT CASE WHEN _lbl.val IS NULL OR _lbl.val = '' THEN #{fallback} WHEN _lbl.val = 'true' THEN '✓ true' ELSE '— false' END FROM (SELECT #{label_sql} AS val) _lbl)"
 
-              "(SELECT CASE WHEN _lbl.val IS NULL OR _lbl.val = '' THEN #{fallback} ELSE (_lbl.val || ' ' || #{formatted}) END FROM (SELECT #{label_sql} AS val) _lbl)"
-            else
-              "COALESCE(NULLIF(#{label_sql}, ''), #{fallback})"
+              value_type == :datetime ->
+                formatted =
+                  "to_char((_lbl.val)::timestamptz, 'YYYY-MM-DD HH24:MI:SS FMMonth FMDD, YYYY FMMon FMDD, YYYY, FMHH12:MI:SS AM YYYY/MM/DD YYYY/FMMM/FMDD YYYY. FMMM. FMDD. YYYY\"年\"FMMM\"月\"FMDD\"日\"')"
+
+                "(SELECT CASE WHEN _lbl.val IS NULL OR _lbl.val = '' THEN #{fallback} ELSE (_lbl.val || ' ' || #{formatted}) END FROM (SELECT #{label_sql} AS val) _lbl)"
+
+              true ->
+                "COALESCE(NULLIF(#{label_sql}, ''), #{fallback})"
             end
 
           {:ok, "(#{haystack}) ILIKE #{param}::text", params}

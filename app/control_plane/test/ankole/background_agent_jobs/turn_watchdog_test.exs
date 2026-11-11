@@ -46,7 +46,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     assert reloaded_event.status == :queued
     assert DateTime.compare(reloaded_event.available_at, stalled_at) == :gt
     # R1: the stalled attempt returns the Job to `queued` and the stall charges
-    # one execution failure. See internals/docs/BackgroundAgentJobReliability.zh.md.
+    # one execution failure. See docs/design-docs/BackgroundAgentJob.md.
     assert %{status: :queued, execution_failures: 1} =
              BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
 
@@ -72,7 +72,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     # One earlier stall left two rows, so this is the second stall, not the third.
     assert Repo.get!(Signal, event.id).status == :queued
     # R1: the stalled attempt returns the Job to `queued` and the stall charges
-    # one execution failure. See internals/docs/BackgroundAgentJobReliability.zh.md.
+    # one execution failure. See docs/design-docs/BackgroundAgentJob.md.
     assert %{status: :queued, execution_failures: 2} =
              BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
   end
@@ -122,10 +122,12 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route, %{worker_id: agent.uid})
 
+    source_signal = Ankole.WorkFixtures.service_source(agent.uid)
+
     assert {:ok, %{job: job, dispatch_event: event}} =
              Repo.transact(fn ->
                BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(%{
-                 "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+                 "source_signal_id" => source_signal.id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => "owner-session-stall-#{suffix}",
                  "source_tool_call_id" => "tool-stall-#{suffix}",

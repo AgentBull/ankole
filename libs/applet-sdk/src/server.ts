@@ -160,6 +160,13 @@ export type TakeFilter = TakeScope & {
   holderUid?: string
   kind?: string
 }
+export type FactNotability = 'high' | 'medium' | 'low'
+export type FactFilter = TakeScope & {
+  holderUid?: string
+  kind?: 'event' | 'preference' | 'commitment' | 'belief' | 'fact' | (string & {})
+  notability?: FactNotability | FactNotability[]
+  query?: string
+}
 export type TakeInput = TakeScope & {
   claim: string
   kind: string
@@ -173,7 +180,8 @@ export type Take = {
   sourceNodeId: string
   subjectPageId: string | null
   holder: string
-  author: { tenant_id: string; uid: string } | null
+  holderUid: string | null
+  author: string | { tenant_id: string; uid: string } | null
   claim: string
   kind: string
   weight: number
@@ -188,6 +196,23 @@ export type Take = {
   resolutionProvenance: string | null
   supersededBy: string | null
 }
+export type Fact = {
+  id: string
+  sourceNodeId: string
+  subjectPageId: string | null
+  holder: string
+  holderUid: string | null
+  author: string | { tenant_id: string; uid: string } | null
+  claim: string
+  kind: string
+  notability: string | null
+  confidence: number | null
+  context: string | null
+  validFrom: string | null
+  validUntil: string | null
+  provenance: string
+  createdAt: string
+}
 export type RuntimeCapabilities = {
   base: {
     schema(tableId: string): Promise<TableSchema>
@@ -199,6 +224,7 @@ export type RuntimeCapabilities = {
   metrics: { query(metric: string, options?: MetricQueryOptions): Promise<MetricResult> }
   brain: {
     listTakes(options: TakeFilter & { limit?: number }): Promise<{ takes: Take[] }>
+    listFacts(options: FactFilter & { limit?: number }): Promise<{ facts: Fact[] }>
     writeTake(options: TakeInput): Promise<Take>
     calibration(options: TakeFilter & { domain?: string }): Promise<{ resolvedCount: number; brier: number | null }>
   }

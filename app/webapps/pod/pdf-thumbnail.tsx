@@ -6,7 +6,9 @@ const THUMBNAIL_WIDTH = 640
 
 /** Draws the first page of a PDF into an image. pdf.js loads on the first call. */
 async function renderPdfThumbnail(url: string, signal: AbortSignal): Promise<Blob> {
+  if (signal.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError')
   const { openPdf } = await import('./pdfjs')
+  if (signal.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError')
   // A thumbnail needs only the first page, so pdf.js reads the byte ranges that page uses instead of the whole file.
   const task = openPdf({ url, disableAutoFetch: true, disableStream: true })
   const abort = () => void task.destroy()

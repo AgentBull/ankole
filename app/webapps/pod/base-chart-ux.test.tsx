@@ -230,6 +230,7 @@ async function renderBaseChart(options: {
             realtime,
             base,
             readDenial: () => undefined,
+            principals: async () => [],
             dispose: () => realtime.dispose(),
             pageHref: (id, title) => pageHrefFor(client, id, title)
           }}>

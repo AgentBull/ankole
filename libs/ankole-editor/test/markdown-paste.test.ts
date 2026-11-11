@@ -59,11 +59,11 @@ function monacoHtmlFromText(source: string): string {
   return `<div style="color: #cccccc; background-color: #1f1f1f; font-family: Menlo, Monaco, monospace; white-space: pre;">${body}</div>`
 }
 
-const lifecycleDocPath = resolve(import.meta.dir, '../../../internals/docs/LifecycleArchitecture.zh.md')
+const lifecycleDocPath = resolve(import.meta.dir, '../../../docs/design-docs/overview.md')
 const lifecycleMarkdown = readFileSync(lifecycleDocPath, 'utf8')
 
 describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
-  test('parses LifecycleArchitecture.zh.md across plain text, VS Code, JetBrains <pre>, and chat <div> wrappers', () => {
+  test('parses design-docs/overview.md across plain text, VS Code, JetBrains <pre>, and chat <div> wrappers', () => {
     for (const payload of [
       { 'text/plain': lifecycleMarkdown },
       {
@@ -88,9 +88,9 @@ describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
       const tree = readTree(editor)
       const first = tree.children[0]
       expect(first).toMatchObject({ type: 'element', name: 'h1' })
-      expect(printXml(tree)).toContain('<h1>Ankole 生命周期</h1>')
-      expect(printXml(tree)).toContain('<h2>一次聊天回合</h2>')
-      expect(printXml(tree)).toContain('<h2>站点启动</h2>')
+      expect(printXml(tree)).toContain('<h1>Ankole Lifecycle Overview</h1>')
+      expect(printXml(tree)).toContain('<h2>A Chat Turn</h2>')
+      expect(printXml(tree)).toContain('<h2>Site Startup</h2>')
 
       let mermaidCount = 0
       editor.state.doc.iterate(node => {
@@ -101,16 +101,16 @@ describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
     }
   })
 
-  test('splits LifecycleArchitecture.zh.md when pasted into an empty Document Page title field', () => {
+  test('splits design-docs/overview.md when pasted into an empty Document Page title field', () => {
     const split = splitPastedDocumentTitle(lifecycleMarkdown, { replaceAllTitle: true })
     expect(split).not.toBeNull()
-    expect(split!.title).toBe('Ankole 生命周期')
-    expect(split!.body.startsWith('日期：')).toBe(true)
+    expect(split!.title).toBe('Ankole Lifecycle Overview')
+    expect(split!.body.startsWith('The ten state machines')).toBe(true)
 
     const editor = open('')
     expect(pasteTextAtDocumentStart(editor, split!.body)).toBe(true)
     const xml = printXml(readTree(editor))
-    expect(xml).toContain('<h2>一次聊天回合</h2>')
+    expect(xml).toContain('<h2>A Chat Turn</h2>')
     expect(xml).toContain('<mermaid>')
     expectReopens(editor)
 
@@ -354,5 +354,23 @@ describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
     expect(looksLikeMarkdown('# Heading 1')).toBe(true)
     expect(looksLikeMarkdown('- item 1\n- item 2')).toBe(true)
     expect(looksLikeMarkdown(lifecycleMarkdown, { fromPreWrapper: true })).toBe(true)
+  })
+
+  test('strips unsafe URL schemes and legacy HTML attributes before schema normalization on paste', () => {
+    const pasted = parsePastedMarkdown(
+      [
+        '<table border="1" cellpadding="4"><tr><th>Col</th></tr><tr><td><a href="javascript:alert(1)">Unsafe</a></td></tr></table>',
+        '',
+        '<embed href="javascript:alert(1)" />',
+        '',
+        '<media src="data:text/html,<script>alert(1)</script>" />'
+      ].join('\n'),
+      'doc'
+    )
+    expect(pasted).not.toBeNull()
+    const xml = printXml(pasted!)
+    expect(xml).not.toContain('javascript:')
+    expect(xml).not.toContain('data:text/html')
+    expect(xml).toContain('<td><p>Unsafe</p></td>')
   })
 })

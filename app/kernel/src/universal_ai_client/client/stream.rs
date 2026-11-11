@@ -173,7 +173,12 @@ async fn run_http_stream(
                         return;
                     }
                     Ok(None) => {
+                        let saw_trailing_done = parser.flush_trailing_done().is_some();
                         if let Err(error) = parser.finish() {
+                            finish_after_ready_error(delivery, &mut resolver, error).await;
+                            return;
+                        }
+                        if saw_trailing_done && let Err(error) = resolver.on_done_sentinel() {
                             finish_after_ready_error(delivery, &mut resolver, error).await;
                             return;
                         }
@@ -184,7 +189,12 @@ async fn run_http_stream(
                                 return;
                             }
                         }
-                        delivery.finish_done(summary("upstream_closed")).await;
+                        let finish_reason = if saw_trailing_done {
+                            "provider_done"
+                        } else {
+                            "upstream_closed"
+                        };
+                        delivery.finish_done(summary(finish_reason)).await;
                         return;
                     }
                     Err(_) => {

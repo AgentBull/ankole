@@ -2,6 +2,8 @@
 
 Setup instructions, the repository map, and verification commands live in [CONTRIBUTING.md](CONTRIBUTING.md#run-the-right-checks). In addition, `app/webapps/`, `app/agent_computer/`, and `tools/formal/` each provide directory-specific `AGENTS.md` supplements.
 
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+
 ## Authorization
 
 Any request to answer, explain, review, audit, diagnose, or plan is strictly read-only. Commits, pushes, package publishes, writes to external services, destructive actions, and changes outside the requested scope require explicit authorization. Finish all authorized work before asking for a decision so the user can approve a concrete result.
@@ -42,7 +44,7 @@ Apply the functionality and user-experience priority above to every security dec
 
 Derive assertions from the approved user-visible behavior. When existing tests encode superseded behavior, update them to the approved contract and verify the real path.
 
-Production code must exercise the real domain contract and adapter. Only unit tests may fake that boundary; integration tests must run against the real adapter or protocol, and end-to-end tests must follow the real user flow. Never weaken an assertion, bypass a production code path, or shift ownership just to make a test pass.
+Production code must exercise the real domain contract and adapter. Only unit tests may fake that boundary; integration tests must run against the real adapter or protocol, and end-to-end tests must follow the real user flow. Never bypass a production code path, or shift ownership just to make a test pass.
 
 ## Boundaries
 

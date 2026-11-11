@@ -10,6 +10,7 @@ import {
   lazy,
   Suspense,
   useContext,
+  useMemo,
   useRef,
   useState,
   type HTMLAttributes,
@@ -34,8 +35,11 @@ import { cjkAutolinks } from './cjk-autolinks'
 import { repairGeneratedMarkdown } from './repair-generated-markdown'
 
 const LazyMermaidDiagram = lazy(() => import('./mermaid/mermaid-diagram'))
+const LazyUIBlock = lazy(() => import('./ui-block/ui-block'))
 const StreamingMarkdownContext = createContext(false)
 const RevealWordsContext = createContext(false)
+/** Set for an Agent's message, whose `ui` blocks render; a Human's fenced `ui` block stays code. */
+const UIBlocksContext = createContext<{ onReply?: (text: string) => void } | null>(null)
 
 const HUMAN_REMARK_PLUGINS = [remarkGfm, remarkMath, cjkAutolinks]
 const AGENT_REMARK_PLUGINS = [remarkGfm, remarkMath, repairGeneratedMarkdown, cjkAutolinks]
@@ -44,13 +48,16 @@ export default function MarkdownRenderer({
   text,
   generated = false,
   streaming = false,
-  reveal = false
+  reveal = false,
+  onReply
 }: {
   text: string
   generated?: boolean
   streaming?: boolean
   reveal?: boolean
+  onReply?: (text: string) => void
 }) {
+  const uiBlocks = useMemo(() => (generated ? { onReply } : null), [generated, onReply])
   const markdown = (
     <Markdown
       remarkPlugins={generated ? AGENT_REMARK_PLUGINS : HUMAN_REMARK_PLUGINS}
@@ -62,13 +69,16 @@ export default function MarkdownRenderer({
   )
   return (
     <StreamingMarkdownContext.Provider value={streaming}>
-      <RevealWordsContext.Provider value={reveal}>{markdown}</RevealWordsContext.Provider>
+      <UIBlocksContext.Provider value={uiBlocks}>
+        <RevealWordsContext.Provider value={reveal}>{markdown}</RevealWordsContext.Provider>
+      </UIBlocksContext.Provider>
     </StreamingMarkdownContext.Provider>
   )
 }
 
 function CodeBlock({ children }: { children?: ReactNode }) {
   const streaming = useContext(StreamingMarkdownContext)
+  const uiBlocks = useContext(UIBlocksContext)
   const child = Children.toArray(children).find(isValidElement)
   if (!isValidElement<{ children?: ReactNode; className?: string }>(child)) return <pre>{children}</pre>
   const language = /language-([^\s]+)/.exec(child.props.className ?? '')?.[1]
@@ -80,6 +90,16 @@ function CodeBlock({ children }: { children?: ReactNode }) {
       <ErrorBoundary resetKeys={[code, normalizedLang]} fallback={fallback}>
         <Suspense fallback={fallback}>
           <LazyMermaidDiagram code={code} streaming={streaming} kind={normalizedLang} />
+        </Suspense>
+      </ErrorBoundary>
+    )
+  }
+  if (normalizedLang === 'ui' && uiBlocks) {
+    const fallback = <CodeBlockView code={code} language="ui" />
+    return (
+      <ErrorBoundary resetKeys={[code]} fallback={fallback}>
+        <Suspense fallback={streaming ? null : fallback}>
+          <LazyUIBlock code={code} streaming={streaming} onReply={uiBlocks.onReply} />
         </Suspense>
       </ErrorBoundary>
     )

@@ -149,6 +149,12 @@ records:
 - One batch contains at most 200 records and commits as a unit.
 - A conflict requires a new read and a new decision. Different fields of the
   same record can be changed independently.
+- Record and aggregate `filter` conditions support `is`, `not_is`, `in` (up to
+  500 non-null items; `[]` matches zero rows), `contains`, `text_contains`,
+  `gt`, `gte`, `lt`, `lte`, `is_empty`, and `is_not_empty`. Both `not_is` and
+  `in` follow SQL null semantics and exclude rows whose cell is empty or null.
+  On `created_by` and `updated_by` fields, `is`, `not_is`, and `in` accept bare
+  Principal UIDs as well as full `ActorRef` strings.
 
 Contributors can create, update, and delete records and upload record
 attachments. Editors can change fields, views, and documents and publish
@@ -287,7 +293,8 @@ the sheet's edge:
     `TabsTrigger` / `TabsContent`, `Toggle`, `ToggleGroup`, `Pagination`.
   - Data & feedback: `Table` / `TableHeader` / `TableBody` / `TableRow` /
     `TableHead` / `TableCell`, `DataGrid` for dense tabular results, `ApprovalCard`
-    for an approval request or decision,
+    for an approval request or decision, `PrincipalBadge` for rendering a Human
+    member or AI colleague identity chip,
     `Card` (`size`: `'default' | 'sm'`) /
     `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` /
     `CardContent` / `CardFooter`, `Badge` (`variant`:
@@ -307,7 +314,13 @@ the sheet's edge:
     `var(--chart-down)` default to international green-up/red-down, swapping to
     red-up/green-down via `marketConvention="cn"` only for Mainland China
     A-share equities).
-  - Forms & filters: `Input`, `InputGroup`, `Textarea`, `Select` /
+  - Forms & filters: `Input`, `InputGroup`, `NumberInput` (decimal/stepper numeric
+    entry with `prefix`, `suffix`, `min`, `max`, `step`, and `precision`),
+    `Slider` (single-value or `[min, max]` range scrubbing for what-if simulators),
+    `DatePicker` and `DateRangePicker` (timezone-agnostic `YYYY-MM-DD` date and
+    period selection with optional `timezone` badge and presets), `FileDropzone`
+    (accessible drag-and-drop and keyboard file picker returning `File[]`),
+    `Textarea`, `Select` /
     `SelectTrigger` (`variant`: `'field' | 'ghost'`, `size`: `'default' | 'sm'`) /
     `SelectValue` / `SelectContent` / `SelectItem`, `Combobox`,
     `CreatableCombobox`, `Checkbox`, `Switch`, `RadioGroup` / `RadioGroupItem`,
@@ -348,10 +361,21 @@ Retain the record when editing begins. Call
 `expectedVersions` from `@ankole/applet-sdk`; call `remove(record.id, record.versions)`
 for deletion. A later query refresh must not replace this edit snapshot. The SDK
 updates the shared query cache and refreshes live data. Use `useAggregate` for
-large table statistics. Use `usePod().pod` for the other Pod contracts,
-including `pod.fileURL(target)` to build a tab-authenticated display URL from a
-persisted `pages/<id>/...` path, `GenerateImageResult['file']`, or page-relative
-file reference.
+large table statistics. Use `usePod().pod` for the other Pod contracts:
+- `pod.fileURL(target)` builds a tab-authenticated display URL from a persisted
+  `pages/<id>/...` path, `GenerateImageResult['file']`, or page-relative file
+  reference.
+- `pod.navigateToPage(pageID)` navigates the surrounding Pod workspace to another
+  Document, Base, File, or Applet Page without reloading the browser tab.
+- `pod.openChat({ prompt?, quote?, conversationID? })` opens the Pod Page Chat
+  sidebar on the host Page (embedded document or standalone Applet) and seeds
+  the composer draft with optional context `quote` and `prompt` text for
+  one-click Human-to-Agent handoffs.
+- `pod.principals()`, `usePrincipals(uids?)`, `usePrincipal(uid)`, and
+  `normalizePrincipalUID(raw)` resolve active workspace Humans and AI colleagues
+  (`{ uid, name, kind }`, normalizing `created_by` / `updated_by` `ActorRef`
+  values and `Take.holderUid`) for `PrincipalBadge` chips, reviewer pickers, and
+  calibration leaderboards.
 
 Use `useChannel(room)` for temporary presence, cursors, or drag state. Its
 `on(event, callback)` returns an unsubscribe function; register listeners in an
@@ -409,7 +433,11 @@ bounded diagnostic logs and handler exception details.
 The function worker supplies Node built-ins, public `fetch`, an in-memory
 `/tmp`, merged environment values, and `AnkoleRuntime` capabilities:
 `base.schema`, `base.query`, `base.aggregate`, `base.write`; `file.list`, `file.read`,
-`file.write`; `metrics.query`, which runs a published Brain metric; `ai.generateText`, `ai.generateImage`; `web.search`, `web.fetch`; `mcp.call`; and `signals.call/emit/run` (mirrored on `AnkoleRuntime.admin`). Read their exact types in
+`file.write`; `metrics.query`, which runs a published Brain metric; `brain.listFacts`,
+`brain.listTakes`, `brain.writeTake`, `brain.calibration`; `notifications.post`;
+`approvals.request/get/list/decide`; `ai.generateText`, `ai.generateImage`;
+`web.search`, `web.fetch`; `mcp.call`; and `signals.call/emit/run` (mirrored on
+`AnkoleRuntime.admin`). Read their exact types in
 `/repo/libs/applet-sdk/src/server.ts`. Declare publication environment defaults and required keys in
 `applet.env.json` (up to 64 KiB): each entry maps a POSIX key to either a string default or `{ default?, required?, secret?, description? }`. Runtime values merge `Site -> Space -> applet.env.json defaults -> Applet` and appear on `process.env.<KEY>` in the backend worker only. Never hardcode API keys in `applet.env.json`; declare `{ "required": true, "secret": true, "description": "..." }` so a human editor or administrator configures the secret in **Applet settings -> Variables** on the Page top bar or in Space Settings. Only editors can read
 source, backend files, and environment metadata, and decrypting stored Applet secrets requires page manage permission; viewers and contributors can
@@ -444,9 +472,16 @@ Link the Applet in a native notification when reviewers need a reminder.
 
 Use `brain.writeTake({sourceNodeId, subjectPageId?, claim, kind, weight,
 sinceDate?, untilDate?, provenance})` for a signed prediction. Call it as the
-researcher to retain their authorship and use a source Page they can contribute
-to. `brain.listTakes` and `brain.calibration` use that same source and accept
-`holderUid` to filter by analyst. `brain.calibration` can select a grader-assigned
+researcher or colleague to retain their authorship and use a source Page they can
+contribute to. `brain.listTakes`, `brain.listFacts`, and `brain.calibration` use
+that same `sourceNodeId` (and optional `subjectPageId`), work in `GET` routes,
+and accept `holderUid` and `kind` filters; `brain.listFacts` also accepts
+`notability` (`'high' | 'medium' | 'low'` or an array) and `query` to surface
+active extracted Facts alongside structured Base rows. Both `Take` and `Fact`
+payloads include `holderUid: string | null` resolved from the claim's holder so
+Applets can join `listTakes` directly to `brain.calibration({ sourceNodeId, holderUid })`
+and `usePrincipals` / `PrincipalBadge` for Brier-score calibration leaderboards.
+`brain.calibration` can also select a grader-assigned
 domain. Dreaming grades eligible Takes against Facts with the same source and
 subject. After an uncertain save, read the source before writing again.
 

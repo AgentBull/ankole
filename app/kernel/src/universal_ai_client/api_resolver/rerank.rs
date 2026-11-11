@@ -51,8 +51,10 @@ impl APIProtocol for JinaRerank {
 pub(crate) fn build_rerank_body(
     context: &ResponseContext,
 ) -> Result<Map<String, Value>, StreamError> {
-    let request = context.resolved_provider_request_object();
-    if context.policy() == ConversionPolicy::Strict {
+    let mut request = context.resolved_provider_request_object();
+    let strict = context.policy() == ConversionPolicy::Strict;
+    strip_non_streaming_flag(&mut request, strict, "rerank")?;
+    if strict {
         validate_strict_rerank_request(&request)?;
     }
     Ok(request)
@@ -172,6 +174,7 @@ fn valid_rerank_document(doc: &Value) -> bool {
 pub(super) fn validate_rerank_results_contract(
     status: u16,
     object: &Map<String, Value>,
+    documents_len: Option<usize>,
     label: &'static str,
 ) -> Result<(), StreamError> {
     let Some(results) = object.get("results").and_then(Value::as_array) else {
@@ -190,17 +193,27 @@ pub(super) fn validate_rerank_results_contract(
                 format!("{label} response `results` entry must be an object"),
             ));
         };
-        if !map.get("index").is_some_and(Value::is_u64) {
+        let Some(index) = map.get("index").and_then(Value::as_u64) else {
             return Err(invalid_upstream_body_error(
                 status.max(502),
                 Value::Object(object.clone()),
                 format!("{label} response `results` entry is missing non-negative integer `index`"),
             ));
+        };
+        if let Some(len) = documents_len
+            && len > 0
+            && !usize::try_from(index).is_ok_and(|idx| idx < len)
+        {
+            return Err(invalid_upstream_body_error(
+                status.max(502),
+                Value::Object(object.clone()),
+                format!("{label} response `results` entry `index` {index} is out of bounds"),
+            ));
         }
         let valid_score = map
             .get("relevance_score")
-            .or_else(|| map.get("score"))
             .and_then(Value::as_f64)
+            .or_else(|| map.get("score").and_then(Value::as_f64))
             .is_some_and(f64::is_finite);
         if !valid_score {
             return Err(invalid_upstream_body_error(
@@ -220,21 +233,26 @@ fn resolve_rerank_body(
     body: Value,
     label: &'static str,
 ) -> Result<Value, StreamError> {
+    resolve_rerank_body_with_usage(context, status, body, label, |_, object| {
+        Ok(object
+            .get("usage")
+            .filter(|value| value.is_object())
+            .cloned()
+            .unwrap_or_else(|| json!({})))
+    })
+}
+
+pub(super) fn resolve_rerank_body_with_usage(
+    context: &ResponseContext,
+    status: u16,
+    body: Value,
+    label: &'static str,
+    extract_usage: fn(u16, &Map<String, Value>) -> Result<Value, StreamError>,
+) -> Result<Value, StreamError> {
     let mut object = provider_object_body(status, body, label)?
         .as_object()
         .cloned()
         .unwrap_or_default();
-
-    if context.policy() == ConversionPolicy::Strict {
-        validate_rerank_results_contract(status, &object, label)?;
-        if !has_valid_rerank_usage_receipt(object.get("usage")) {
-            return Err(invalid_upstream_body_error(
-                status.max(502),
-                Value::Object(object),
-                format!("{label} response is missing valid numeric `usage` receipt"),
-            ));
-        }
-    }
 
     let request = context.resolved_provider_request();
     let documents = request
@@ -243,6 +261,23 @@ fn resolve_rerank_body(
         .cloned()
         .unwrap_or_default();
     let strict = context.policy() == ConversionPolicy::Strict;
+    if strict {
+        validate_rerank_results_contract(
+            status,
+            &object,
+            (!documents.is_empty()).then_some(documents.len()),
+            label,
+        )?;
+    }
+    let usage = extract_usage(status, &object)?;
+    if strict && !has_valid_rerank_usage_receipt(Some(&usage)) {
+        return Err(invalid_upstream_body_error(
+            status.max(502),
+            Value::Object(object),
+            format!("{label} response is missing valid numeric `usage` receipt"),
+        ));
+    }
+
     let return_documents = if strict {
         request
             .get("return_documents")
@@ -263,14 +298,7 @@ fn resolve_rerank_body(
             strict,
         ),
     );
-    object.insert(
-        "usage".to_string(),
-        object
-            .get("usage")
-            .filter(|value| value.is_object())
-            .cloned()
-            .unwrap_or_else(|| json!({})),
-    );
+    object.insert("usage".to_string(), usage);
     Ok(Value::Object(object))
 }
 
@@ -394,6 +422,6 @@ pub(super) fn normalize_rerank_document(document: &Value) -> Value {
         Value::String(text) => json!({ "text": text }),
         Value::Object(_) => document.clone(),
         Value::Null => json!({}),
-        value => json!({ "text": value_to_string(value) }),
+        value => json!({ "text": value_to_text(value) }),
     }
 }

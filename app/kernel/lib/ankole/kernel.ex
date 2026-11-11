@@ -121,8 +121,9 @@ defmodule Ankole.Kernel do
 
   # Rustler always writes `priv/native/ankole_kernel`. Copy it to the
   # environment-specific name. Remove the old file first, because a running VM
-  # can have it loaded.
-  if @build_env != :prod do
+  # can have it loaded. Skip copying when `ANKOLE_KERNEL_SKIP_NIF` is set so
+  # static checks never overwrite a live dev/test NIF with a stale binary.
+  if not @skip_nif and @build_env != :prod do
     for source <- Path.wildcard("priv/native/ankole_kernel.{so,dll}") do
       target = @rustler_load_path <> Path.extname(source)
       File.rm(target)
@@ -130,6 +131,11 @@ defmodule Ankole.Kernel do
     end
 
     Mix.Project.build_structure()
+  end
+
+  @doc false
+  def __mix_recompile__? do
+    System.get_env("ANKOLE_KERNEL_SKIP_NIF", "") in ~w(1 true) != @skip_nif
   end
 
   # The Cargo root also contains Mix and Bun outputs. Rustler lists those as

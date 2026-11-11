@@ -1216,6 +1216,125 @@ defmodule Ankole.Pod.BasesTest do
     assert grouped["id"] == record.id
   end
 
+  test "not_is and in operators match PostgreSQL null semantics, normalize principal UIDs, and reject invalid lists",
+       ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.uid)
+    other_actor = Ankole.PrincipalsFixtures.actor_fixture(human_fixture().principal.uid)
+    {:ok, amount} = field(ctx, "Amount", "number")
+    {:ok, created_by} = field(ctx, "Creator", "created_by")
+
+    {:ok, status} =
+      field(ctx, "Status", "select", %{
+        "options" => [
+          %{"id" => "draft", "name" => "Draft"},
+          %{"id" => "open", "name" => "Open"},
+          %{"id" => "closed", "name" => "Closed"}
+        ]
+      })
+
+    {:ok, %{records: [r1, r2]}} =
+      Bases.write_records(actor, ctx.table.id, %{
+        creates: [
+          %{data: %{ctx.primary.id => "Alpha", amount.id => 10, status.id => "open"}},
+          %{data: %{ctx.primary.id => "Beta", amount.id => 20}}
+        ]
+      })
+
+    {:ok, %{records: [r3]}} =
+      Bases.write_records(other_actor, ctx.table.id, %{
+        creates: [%{data: %{ctx.primary.id => "Gamma", amount.id => 30, status.id => "closed"}}]
+      })
+
+    # not_is excludes matching rows and excludes NULL / empty cells
+    assert {:ok, %{records: not_open}} =
+             Bases.query(actor, ctx.table.id, %{
+               filter: %{
+                 conditions: [%{field_id: status.id, operator: "not_is", value: "open"}]
+               }
+             })
+
+    assert Enum.map(not_open, & &1["id"]) == [r3.id]
+
+    assert {:ok, %{records: not_creator}} =
+             Bases.query(actor, ctx.table.id, %{
+               filter: %{
+                 conditions: [%{field_id: created_by.id, operator: "not_is", value: ctx.uid}]
+               }
+             })
+
+    assert Enum.map(not_creator, & &1["id"]) == [r3.id]
+
+    # in matches any listed value across text, number, select, and principal attribution
+    assert {:ok, %{records: in_names}} =
+             Bases.query(actor, ctx.table.id, %{
+               filter: %{
+                 conditions: [
+                   %{field_id: ctx.primary.id, operator: "in", value: ["Alpha", "Gamma"]}
+                 ]
+               },
+               sort: [%{field_id: amount.id, direction: "asc"}]
+             })
+
+    assert Enum.map(in_names, & &1["id"]) == [r1.id, r3.id]
+
+    assert {:ok, %{records: in_amounts}} =
+             Bases.query(actor, ctx.table.id, %{
+               filter: %{conditions: [%{field_id: amount.id, operator: "in", value: [20]}]}
+             })
+
+    assert Enum.map(in_amounts, & &1["id"]) == [r2.id]
+
+    other_ref = to_string(Ankole.ActorRef.from_actor(other_actor))
+
+    assert {:ok, %{records: in_creators}} =
+             Bases.query(actor, ctx.table.id, %{
+               filter: %{
+                 conditions: [
+                   %{
+                     field_id: created_by.id,
+                     operator: "in",
+                     value: ["  " <> String.upcase(ctx.uid) <> "  ", other_ref]
+                   }
+                 ]
+               }
+             })
+
+    assert MapSet.new(in_creators, & &1["id"]) == MapSet.new([r1.id, r2.id, r3.id])
+
+    assert {:ok, %{records: []}} =
+             Bases.query(actor, ctx.table.id, %{
+               filter: %{conditions: [%{field_id: ctx.primary.id, operator: "in", value: []}]}
+             })
+
+    for invalid <- ["Alpha", ["Alpha", nil], Enum.map(1..501, &"v#{&1}")] do
+      assert {:error, :invalid_query} =
+               Bases.query(actor, ctx.table.id, %{
+                 filter: %{
+                   conditions: [%{field_id: ctx.primary.id, operator: "in", value: invalid}]
+                 }
+               })
+    end
+
+    assert {:ok, _view} =
+             Bases.create_view(actor, ctx.table.id, %{
+               name: "Active Queue",
+               type: "grid",
+               config: %{
+                 "filter" => %{
+                   "conjunction" => "and",
+                   "conditions" => [
+                     %{"field_id" => status.id, "operator" => "not_is", "value" => "closed"},
+                     %{
+                       "field_id" => ctx.primary.id,
+                       "operator" => "in",
+                       "value" => ["Alpha", "Beta"]
+                     }
+                   ]
+                 }
+               }
+             })
+  end
+
   test "deleting a field scrubs view visible_fields, group_field_id, and cover_field_id while keeping filter references",
        ctx do
     actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.uid)

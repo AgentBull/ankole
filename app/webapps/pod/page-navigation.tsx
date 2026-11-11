@@ -14,18 +14,16 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  Input,
   Popover,
   PopoverContent,
   PopoverTitle,
   PopoverTrigger,
-  toast,
   TreeDropIndicator,
   useTreeAutoScroll,
   useTreeItemDrag,
   Spinner
 } from '@ankole/uikit'
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createContext,
   useCallback,
@@ -46,9 +44,7 @@ import { RiArrowRightSLine, RiMoreFill, RiNodeTree, RiShareLine } from '@remixic
 import { authenticationRef, podID } from '../common/browser-context'
 import { podLocation, podPageRouteID } from '../common/pod-url'
 import { BdiLabel } from '../common/bidi-file-name'
-import { sanitizeRenameValue, stripBidi } from '../common/bidi'
-import { requestErrorMessage, requestErrorCode, requestErrorDetails } from '../common/request-errors'
-import { InternalAPIError } from '../common/internal-api-client'
+import { stripBidi } from '../common/bidi'
 import { podConversations } from './api/generated/sdk.gen'
 import { ChatRowStatus, ConversationGlyph, ConversationTitle, conversationPath } from './chat/conversation-row'
 import { MetaNavigation } from './meta-navigation'
@@ -62,23 +58,21 @@ import {
 } from './state/navigation'
 import { canMovePage, dropAvailability, dropRequest, rootRequest } from './state/page-move'
 import {
-  pageAPI,
   pagesQuery,
   pageChildrenQuery,
   cachedPageMap,
   cachedPages,
-  limitPageTitle,
   type Page,
   type NavigationPage
 } from './content-api'
-import { contentError } from './content-errors'
 import { ContentError, scopeLabels, ContentSkeleton } from './content-primitives'
 import { CreatePageButton } from './page-create-menu'
 import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
 import { MovePageDialog } from './page-move-dialog'
+import { PageRenameField } from './page-rename-field'
 import { SpaceSettingsButton } from './space-settings'
 import { PageIcon } from './page-icon'
-import { navigationQuery, directoryPages, updatePageMetadata } from './state/navigation-cache'
+import { navigationQuery, directoryPages } from './state/navigation-cache'
 
 const pageTree = 'pod-pages'
 
@@ -902,105 +896,5 @@ function PageTreeRow({
       </ContextMenu>
       {moving && <MovePageDialog page={page} close={() => setMoving(false)} />}
     </>
-  )
-}
-
-export function PageRenameField({
-  page: sourcePage,
-  className,
-  onDone
-}: {
-  page: Page
-  className?: string
-  onDone(): void
-}) {
-  const { t } = useTranslation()
-  const client = useQueryClient()
-  const page = usePageMetadata(sourcePage)
-  const [value, setValue] = useState(() => sanitizeRenameValue(page.title))
-  const expectedTitle = useRef(page.title)
-  const [conflictingTitle, setConflictingTitle] = useState<string | null>(null)
-  const finished = useRef(false)
-  const finish = () => {
-    finished.current = true
-    onDone()
-  }
-  const rename = useMutation({
-    mutationFn: (title: string) => pageAPI.update(page.id, { title, expected_title: expectedTitle.current }),
-    onSuccess: (result, title) => {
-      updatePageMetadata(client, {
-        id: page.id,
-        title: result.page?.title ?? title,
-        updated_at: result.page?.updated_at
-      })
-      finish()
-    },
-    onError: error => {
-      finished.current = false
-      if (error instanceof InternalAPIError && requestErrorCode(error.payload) === 'title_conflict') {
-        const current = requestErrorDetails(error.payload).title
-        if (typeof current === 'string') {
-          setConflictingTitle(current)
-          updatePageMetadata(client, { id: page.id, title: current })
-          return
-        }
-      }
-      toast.error(requestErrorMessage(contentError(error)))
-    }
-  })
-  const submit = (confirmConflict = false) => {
-    if (!canRenamePage(page)) return finish()
-    if (finished.current || rename.isPending) return
-    if (conflictingTitle !== null) {
-      if (!confirmConflict) return
-      expectedTitle.current = conflictingTitle
-      setConflictingTitle(null)
-      const title = value.trim()
-      if (title === conflictingTitle) return finish()
-      finished.current = true
-      rename.mutate(title)
-      return
-    }
-    const title = value.trim()
-    if (title === page.title) return finish()
-    finished.current = true
-    rename.mutate(title)
-  }
-  return (
-    <span className="flex min-w-0 flex-1 flex-col">
-      <Input
-        autoFocus
-        variant="inline"
-        className={cn('pod-tree-rename', className)}
-        aria-label={t('pod.sidebar.rename_label', { title: page.title || t('pod.content.untitled') })}
-        value={value}
-        disabled={rename.isPending}
-        placeholder={t('pod.content.untitled')}
-        onFocus={event => event.currentTarget.select()}
-        onChange={event => setValue(limitPageTitle(event.target.value, value))}
-        onBlur={() => submit(false)}
-        onKeyDown={event => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return
-          if (event.key === 'Enter') {
-            event.preventDefault()
-            submit(true)
-          } else if (event.key === 'Escape') {
-            event.preventDefault()
-            finish()
-          }
-        }}
-      />
-      {conflictingTitle !== null && (
-        <span role="alert" className="flex flex-wrap gap-1 text-xs">
-          <span>{t('pod.document_title.current', { title: conflictingTitle })}</span>
-          <Button size="xs" variant="ghost" onClick={finish}>
-            {t('pod.document_title.use_current')}
-          </Button>
-          <Button size="xs" variant="ghost" disabled={rename.isPending} onClick={() => submit(true)}>
-            {t('pod.document_title.save_draft')}
-          </Button>
-        </span>
-      )}
-    </span>
   )
 }

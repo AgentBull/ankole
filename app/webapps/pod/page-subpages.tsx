@@ -3,6 +3,7 @@ import { canCreateChild, canRenamePage } from './state/page-location'
 import { BdiLabel } from '../common/bidi-file-name'
 import { stripBidi } from '../common/bidi'
 import { formatFileBytes } from '../common/file-format'
+import { previewMediaType } from '../common/file-preview'
 import { usePagesMetadata } from './use-page-metadata'
 import {
   Badge,
@@ -77,7 +78,7 @@ import { uploadFileSubpages, usePageCreation } from './page-create-menu'
 import { PageIcon } from './page-icon'
 import { MovePageDialog } from './page-move-dialog'
 import { KnowledgeTable } from './knowledge-table'
-import { PageRenameField } from './page-navigation'
+import { PageRenameField } from './page-rename-field'
 import { PdfThumbnail } from './pdf-thumbnail'
 import { updatePageMetadata } from './state/navigation-cache'
 import {
@@ -796,7 +797,8 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
 
   if (item.type === 'file') {
     const file = item.file
-    const isImage = Boolean(file?.content_type.startsWith('image/')) && !imageFailed
+    const mime = file ? previewMediaType(file.path, file.content_type) : undefined
+    const isImage = Boolean(mime?.startsWith('image/')) && !imageFailed
     if (isImage && file) {
       return (
         <div className="h-[132px] overflow-hidden border-b border-border/70 bg-muted/35">
@@ -820,7 +822,7 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
     )
     return (
       <div className="flex h-[132px] items-center justify-center overflow-hidden border-b border-border/70 bg-muted/35">
-        {file?.content_type === 'application/pdf' ? (
+        {file && mime === 'application/pdf' ? (
           <PdfThumbnail
             url={fileURL(item.id, file.path, file.sha256)}
             className="flex size-full items-center justify-center"

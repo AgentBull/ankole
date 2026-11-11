@@ -281,3 +281,45 @@ fn imagen_response_without_usage_uses_the_image_count_receipt() {
 
     assert_eq!(normalized["usage"], json!({"images": 1}));
 }
+
+#[test]
+fn google_and_openrouter_images_handle_parameterized_data_urls_and_corrupt_base64() {
+    let google_built = APIResolver::new(
+        APIResolverKind::GoogleImages,
+        ResponseContext {
+            model: "gemini-2.5-flash-image-preview".to_string(),
+            request: json!({
+                "prompt": "edit cat",
+                "images": ["data:image/webp;charset=utf-8;BASE64,aW1nMQ=="]
+            }),
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    )
+    .build_body()
+    .unwrap();
+    assert_eq!(
+        google_built["contents"][0]["parts"][0]["inlineData"],
+        json!({"mimeType": "image/webp", "data": "aW1nMQ=="})
+    );
+
+    let mut bad_resolver = APIResolver::new(
+        APIResolverKind::OpenrouterImages,
+        ResponseContext {
+            model: "openai/gpt-image-1".to_string(),
+            request: json!({"prompt": "cat", "n": 1}),
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+    let err = bad_resolver
+        .normalize_body(
+            200,
+            json!({
+                "data": [{"b64_json": "not-valid-base64!!!"}],
+                "usage": {"total_tokens": 10}
+            }),
+        )
+        .unwrap_err();
+    assert_eq!(err.provider_status, Some(502));
+}

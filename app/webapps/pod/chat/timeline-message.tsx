@@ -89,6 +89,7 @@ export const CommittedMessage = memo(function CommittedMessage({
   onEditMessage,
   onRegenerateMessage,
   onQuoteMessage,
+  onReply,
   onSelectMessageID,
   linkedRuns,
   showAgentOnRuns = false,
@@ -122,6 +123,7 @@ export const CommittedMessage = memo(function CommittedMessage({
   onEditMessage?: (message: ConversationMessage) => void
   onRegenerateMessage?: (message: ConversationMessage) => void
   onQuoteMessage?: (text: string, message: ConversationMessage) => void
+  onReply?: (text: string) => void
   onSelectMessageID?: (messageID: string) => void
   linkedRuns: LinkedExecution[]
   showAgentOnRuns?: boolean
@@ -264,7 +266,7 @@ export const CommittedMessage = memo(function CommittedMessage({
           ) : (
             message.text && (
               <div className={human ? 'pod-chat-human-text' : undefined}>
-                <ChatMarkdown text={message.text} generated={message.authorType === 'agent'} />
+                <ChatMarkdown text={message.text} generated={message.authorType === 'agent'} onReply={onReply} />
               </div>
             )
           )}
@@ -307,7 +309,8 @@ export function LiveMessage({
   linkedRuns,
   showAgentOnRuns = false,
   activeInspector,
-  onOpenInspector
+  onOpenInspector,
+  onReply
 }: {
   stream: TimelineLiveStream
   avatarURL?: string | null
@@ -316,6 +319,7 @@ export function LiveMessage({
   showAgentOnRuns?: boolean
   activeInspector?: InspectorTarget | null
   onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
+  onReply?: (text: string) => void
 }) {
   const { t } = useTranslation()
   const label = useActivityLabel()
@@ -334,7 +338,7 @@ export function LiveMessage({
           steps
         }}
       />
-      {stream.text && <ChatMarkdown text={stream.text} generated streaming />}
+      {stream.text && <ChatMarkdown text={stream.text} generated streaming onReply={onReply} />}
       {linkedRuns.map(run => (
         <LinkedExecutionCard
           key={`${run.kind}:${run.id}`}

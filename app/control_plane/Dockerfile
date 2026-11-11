@@ -100,7 +100,27 @@ RUN --mount=from=ankole-internals,source=/,target=/mnt/internals \
 
 WORKDIR /repo/app/webapps
 
-RUN bun run build:bundle
+# When building the SaaS edition with a BuildKit `posthog_cli_api_key` secret,
+# inject deterministic chunk IDs, refresh the pre-compressed `.js.gz` sidecars so
+# Plug.Static serves matching chunk IDs, upload source maps to PostHog US Cloud,
+# and strip all `.map` / `.map.gz` files from the shipped production assets.
+RUN --mount=type=secret,id=posthog_cli_api_key,required=false \
+  bun run build:bundle \
+  && if [ "${ANKOLE_EDITION}" = "saas" ]; then \
+    assets_dir="/repo/app/control_plane/_build/saas/webapps/assets"; \
+    if [ -s /run/secrets/posthog_cli_api_key ]; then \
+      POSTHOG_CLI_HOST="https://us.posthog.com" \
+      POSTHOG_CLI_PROJECT_ID="711045" \
+      POSTHOG_CLI_API_KEY="$(tr -d '\r\n' < /run/secrets/posthog_cli_api_key)" \
+      bunx @posthog/cli@latest sourcemap inject --directory "${assets_dir}" \
+      && bun -e 'import { gzipSync } from "node:zlib"; import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"; import path from "node:path"; const dir = process.argv[1]; for (const f of readdirSync(dir, { recursive: true })) { if (typeof f !== "string" || !f.endsWith(".js")) continue; const p = path.join(dir, f); const src = readFileSync(p); const gz = gzipSync(src); if (gz.byteLength < src.byteLength) writeFileSync(`${p}.gz`, gz); else try { unlinkSync(`${p}.gz`); } catch {} }' "${assets_dir}" \
+      && POSTHOG_CLI_HOST="https://us.posthog.com" \
+         POSTHOG_CLI_PROJECT_ID="711045" \
+         POSTHOG_CLI_API_KEY="$(tr -d '\r\n' < /run/secrets/posthog_cli_api_key)" \
+         bunx @posthog/cli@latest sourcemap upload --directory "${assets_dir}"; \
+    fi; \
+    find "${assets_dir}" \( -name '*.map' -o -name '*.map.gz' \) -delete; \
+  fi
 
 FROM ${ELIXIR_IMAGE} AS build
 

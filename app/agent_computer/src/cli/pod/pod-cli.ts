@@ -110,7 +110,7 @@ Base parameter shapes:
   Tables and fields carry a description (at most 2 KiB) that states what the
   values mean: unit, currency, tax inclusion, or source system.
   filter: {conjunction:"and"|"or", conditions:[{field_id, operator, value?}]}
-    operator: is|contains|is_empty|is_not_empty|gt|gte|lt|lte|text_contains
+    operator: is|not_is|in|contains|is_empty|is_not_empty|gt|gte|lt|lte|text_contains
   sort: [{field_id, direction:"asc"|"desc"}]
   group_by: [{field_id, bucket?:"day"|"week"|"month"|"quarter"|"year"}]
   metrics: [{operation:"count"|"sum"|"avg"|"min"|"max"|"count_distinct", field_id?, alias}]
@@ -186,7 +186,8 @@ Frontend build emits browser ESM chunks and dist/index.html (Bun.build without T
 write custom layout CSS in src/style.css using Ankole semantic CSS variables such as
 var(--background), var(--layer-01), var(--foreground), var(--fg-secondary), var(--border),
 and var(--radius-control) rather than arbitrary Tailwind utility classes or hardcoded hex colors).
-Import components (Button, Badge, Card, Table, DataGrid, ApprovalCard, Tabs, Input, Textarea, Select, Combobox,
+Import components (Button, Badge, Card, Table, DataGrid, ApprovalCard, Tabs, Input, NumberInput, Slider,
+DatePicker, DateRangePicker, FileDropzone, Stepper, PrincipalBadge, Textarea, Select, Combobox,
 Checkbox, Switch, Field, Label, Dialog, Sheet, Drawer, Popover, DropdownMenu, Tooltip,
 Alert, Empty, Skeleton, Spinner, Toaster, toast, useTheme, AnkoleChart, AnkoleFinancialChart,
 AnkoleYieldCurveChart, AnkoleInfographic, AnkoleStatCard, AnkoleSparkline, Graph) from the root "@ankole/uikit"
@@ -205,7 +206,8 @@ Page name. A document gives an embedded Applet its content's height up to one vi
 vh heights only for an Applet that should fill the viewport. The host syncs
 html[data-theme="light|dark"] and color-scheme on the iframe and updates usePod().theme
 ('light' | 'dark') reactively on theme switches; never use @media (prefers-color-scheme: dark).
-Import runtime APIs and visualization data helpers (recordsToFinancialSeries, densifyTimeBuckets,
+Import runtime APIs (including usePod, usePrincipals, usePrincipal, and pod.navigateToPage/openChat)
+and visualization data helpers (recordsToFinancialSeries, densifyTimeBuckets,
 formatMetricValue) from "@ankole/applet-sdk".
 Do not import their runtime subpaths or UIKit styles; the Pod host supplies styles.
 SDK type subpaths remain available through "import type".
@@ -225,7 +227,8 @@ and HttpError. GET handlers cannot write or call ai.generateImage. Use file.read
 to read the listed version or receive a manifest_changed conflict.
 Use notifications.post for native room alerts. Use approvals.request/list/get/decide for
 Human decisions; only the assigned reviewer can decide in a browser mutation route.
-Use brain.listTakes/writeTake/calibration for source-scoped research predictions.
+Use brain.listFacts for Company Brain knowledge and brain.listTakes/writeTake/calibration for
+source-scoped research predictions.
 Backend exports may contain {routes, actions}. Each Action declares idempotent,
 concurrency (parallel|serial_fifo|serial_coalesce), concurrencyKey(ctx), maxSlices,
 and handler(ctx). Jobs hold configuration and durable state; code owns policy.

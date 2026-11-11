@@ -6,8 +6,9 @@ import type { AppletRuntime } from '@ankole/applet-sdk/types'
 import { mountApplet, readDocumentTheme } from './applet-host'
 import { createAppletRuns } from './applet-runs'
 import { AppletMissingEnvBanner } from './applet-missing-env-banner'
+import { podLocation } from '../common/pod-url'
 import { contentKeys, pageQuery, podFileURL, podRequest, type PageDetail } from './content-api'
-import { useContent } from './content-context'
+import { useContent, usePageHost } from './content-context'
 import { ContentError, ContentLoading } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
 import { usePageRealtime } from './use-page-realtime'
@@ -30,7 +31,8 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
   const { t } = useTranslation()
   const container = useRef<HTMLDivElement>(null)
   const instanceID = useId().replace(/[^a-zA-Z0-9_-]/g, '')
-  const { base, realtime, readDenial } = useContent()
+  const { base, realtime, readDenial, principals, pageHref } = useContent()
+  const pageHost = usePageHost()
   const client = useQueryClient()
   const [error, setError] = useState<unknown>()
   const [retry, setRetry] = useState(0)
@@ -57,13 +59,36 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
       },
       pod: {
         request: podRequest,
-        fileURL: target => podFileURL(detail.page.id, target)
+        fileURL: target => podFileURL(detail.page.id, target),
+        navigateToPage(targetPageID) {
+          const trimmed = targetPageID.trim()
+          if (!trimmed) return
+          if (pageHost) pageHost.navigateToPage(trimmed)
+          else if (typeof window !== 'undefined') window.location.assign(podLocation(pageHref(trimmed)).pathname)
+        },
+        openChat(options) {
+          pageHost?.openChat(options)
+        },
+        principalsKey: [...contentKeys.all, 'principals'],
+        principals
       },
       channel(name) {
         return realtime.channel(detail.page.id, name)
       }
     }),
-    [detail.page.id, detail.page.title, detail.actions, instanceID, client, readDenial, base, realtime]
+    [
+      detail.page.id,
+      detail.page.title,
+      detail.actions,
+      instanceID,
+      client,
+      readDenial,
+      base,
+      realtime,
+      pageHost,
+      principals,
+      pageHref
+    ]
   )
   // Permissions update the current React tree. Publication revisions own frame lifetimes.
   const latestRuntime = useRef(runtime)

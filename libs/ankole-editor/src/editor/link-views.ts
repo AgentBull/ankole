@@ -25,7 +25,7 @@ import {
 } from '../blocks/embed'
 import { safeLinkHref, webURL, type ResourceView } from '../document/resources'
 import { Attrs } from './attributes'
-import { compose, dispatchStep, isContainer, splitInsert } from './block-insert'
+import { compose, dispatchStep, isContainer, isList, isListItem, splitInsert } from './block-insert'
 import { BlockSelection } from './block-selection'
 import { unitAt } from './block-target'
 import { editorHost, type EditorHost, type LinkMetadata } from './host-context'
@@ -186,11 +186,15 @@ export function selectBlockAt(doc: Plot.Doc, pos: number): GardSelection {
  * starts.
  */
 function caretAfterBlock(state: GardState, pos: number): Transaction.Spec {
-  const unit = unitAt(state.doc, pos, 1)
-  const after = unit ? unit.after : Math.max(0, Math.min(pos, state.doc.length))
+  const resolved = pos >= 0 && pos < state.doc.length ? state.doc.resolveNode(pos) : null
+  const after = resolved && !resolved.node.isInline ? resolved.after : Math.max(0, Math.min(pos, state.doc.length))
   const next = state.doc.nodeAt(after)
-  if (next?.isPlot && next.isTextblock) return { selection: GardSelection.cursor(after + 1) }
-  return { changes: { from: after, insert: [T.Paragraph.create()] }, selection: GardSelection.cursor(after + 1) }
+  if (next?.isPlot && next.isTextblock && !next.type.hasRole(Node.Role.Code)) {
+    return { selection: GardSelection.cursor(after + 1) }
+  }
+  const inList = isList(state.doc.resolve(after).parent.node)
+  const insert = inList ? [S.ListItem.create([T.Paragraph.create()])] : [T.Paragraph.create()]
+  return { changes: { from: after, insert }, selection: GardSelection.cursor(after + (inList ? 2 : 1)) }
 }
 
 /** Apply the `changes` that switch the view of the block at `pos` and leave the caret after it, as one undo step. */
@@ -224,23 +228,33 @@ export function replaceInlineRangeWithBlock(
   while (delTo < textblock.end && isWhitespaceOnly(state.doc, range.to, delTo + 1)) delTo++
 
   let insertedAt = 0
-  const inserted = compose(state, { changes: { from: delFrom, to: delTo } }, afterDelete => {
-    const tb = afterDelete.doc.resolve(delFrom).textblockParent
-    if (
-      tb &&
-      tb.parent &&
-      isContainer(tb.parent) &&
-      tb.node.type === T.Paragraph.type &&
-      !tb.node.content.length &&
-      !Attrs.isInSet(tb.node.marks)
-    ) {
-      insertedAt = tb.before
-      return { changes: { from: tb.before, to: tb.after, insert: [blockNode] } }
+  const inserted = compose(
+    state,
+    { changes: { from: delFrom, to: delTo }, selection: GardSelection.cursor(delFrom) },
+    afterDelete => {
+      const mappedPos = afterDelete.sel.head.pos
+      const resolved = afterDelete.doc.resolve(mappedPos)
+      const tb = resolved.textblockParent
+      if (
+        tb &&
+        tb.parent &&
+        (isContainer(tb.parent) || isListItem(tb.parent)) &&
+        tb.node.type === T.Paragraph.type &&
+        !tb.node.content.length &&
+        !Attrs.isInSet(tb.node.marks)
+      ) {
+        insertedAt = tb.before
+        return { changes: { from: tb.before, to: tb.after, insert: [blockNode] } }
+      }
+      if (isListItem(resolved.parent) && !resolved.parent.node.content.length) {
+        insertedAt = resolved.parent.start
+        return { changes: { from: resolved.parent.start, to: resolved.parent.end, insert: [blockNode] } }
+      }
+      const { changes, at } = splitInsert(afterDelete.doc, mappedPos, [blockNode], false)
+      insertedAt = at
+      return { changes }
     }
-    const { changes, at } = splitInsert(afterDelete.doc, delFrom, [blockNode], false)
-    insertedAt = at
-    return { changes }
-  })
+  )
   const composed = compose(state, inserted, withBlock => caretAfterBlock(withBlock, insertedAt))
 
   dispatchStep(editor, { ...composed, userEvent: 'block.insert' })

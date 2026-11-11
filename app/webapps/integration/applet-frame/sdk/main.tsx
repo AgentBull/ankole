@@ -190,7 +190,13 @@ let runtime: AppletRuntime = {
     request: async () => {
       throw new Error('No Pod API requests in this boundary fixture')
     },
-    fileURL: target => podFileURL('sdk-fixture', target)
+    fileURL: target => podFileURL('sdk-fixture', target),
+    navigateToPage: () => {},
+    openChat: () => {},
+    principals: async () => [
+      { uid: 'human', name: 'Fixture Operator', kind: 'human' },
+      { uid: 'ops-agent', name: 'Ops Colleague', kind: 'agent' }
+    ]
   },
   theme: 'light',
   channel: () => {

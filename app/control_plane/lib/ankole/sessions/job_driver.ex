@@ -303,7 +303,11 @@ defmodule Ankole.Sessions.JobDriver do
 
   defp rebuild(data) do
     clear_tasks(data)
-    if data.attempt, do: Observability.finish_turn(data.attempt.span, outcome: "job_finished")
+
+    if data.attempt do
+      Observability.finish_turn(data.attempt.span, outcome: "job_finished")
+      emit_turn_settled(data.attempt)
+    end
 
     {:next_state, :idle,
      Map.merge(data, %{
@@ -318,6 +322,38 @@ defmodule Ankole.Sessions.JobDriver do
        deferred_runner_id: nil
      }), [{:next_event, :internal, :rebuild}]}
   end
+
+  defp emit_turn_settled(%Attempt{event: %Signal{} = event} = attempt) do
+    started_at = event.last_attempt_at || event.inserted_at
+
+    duration_ms =
+      if started_at,
+        do: max(0, DateTime.diff(DateTime.utc_now(:microsecond), started_at, :millisecond)),
+        else: 0
+
+    human_uid =
+      case attempt.spec do
+        %{request_context: %{"human_uid" => uid}} when is_binary(uid) -> uid
+        _ -> event.human_uid
+      end
+
+    :telemetry.execute(
+      [:ankole, :sessions, :turn, :settled],
+      %{duration_ms: duration_ms},
+      %{
+        tenant_id: event.tenant_id,
+        signal_id: attempt.signal_id,
+        signal_type: event.type,
+        human_uid: human_uid,
+        agent_uid: attempt.agent_uid,
+        outcome: :job_finished,
+        used_worker: true,
+        runtime: :codex_job
+      }
+    )
+  end
+
+  defp emit_turn_settled(_attempt), do: :ok
 
   defp clear_tasks(data) do
     Enum.each(data.tasks, fn {ref, {_, pid}} ->

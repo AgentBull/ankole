@@ -28,7 +28,8 @@ test('saved references and inline settings retain their distinct meaning and all
       conjunction: 'or',
       conditions: [
         { field_id: 'name', operator: 'is', value: 'A' },
-        { field_id: 'name', operator: 'is', value: 'B' }
+        { field_id: 'name', operator: 'not_is', value: 'B' },
+        { field_id: 'name', operator: 'in', value: ['C', 'D'] }
       ]
     },
     sort: [{ field_id: 'name', direction: 'asc' }]

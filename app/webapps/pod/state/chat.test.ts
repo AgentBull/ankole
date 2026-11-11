@@ -318,6 +318,17 @@ test('a confirmed answer clears its captured references while preserving changed
   expect(model.links.value).toEqual(sent)
 })
 
+test('a suggested reply joins the draft and stays out of a queued message that is being edited', () => {
+  const model = new ChatModel()
+  expect(model.suggestReply('Break the east region down by team')).toBe(true)
+  expect(model.draft.value).toBe('Break the east region down by team')
+  model.suggestReply('Compare it with last quarter')
+  expect(model.draft.value).toBe('Break the east region down by team\n\nCompare it with last quarter')
+  model.beginEdit(editContext('queued', 'Queued text', 'q1'))
+  expect(model.suggestReply('A follow-up')).toBe(false)
+  expect(model.draft.value).toBe('Queued text')
+})
+
 test('answering is an explicit draft context that can be left and restored after a saved-message edit', () => {
   const model = new ChatModel()
   model.draft.value = 'An ordinary group comment'

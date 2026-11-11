@@ -45,6 +45,29 @@ defmodule Ankole.Kernel.RepairGeneratedMarkdownTest do
     assert content =~ "$\\nabla \\cdot E \\neq 0$"
   end
 
+  test "an external channel receives a ui block as an unchanged fenced code block" do
+    reply =
+      Enum.join(
+        [
+          "East leads this quarter.",
+          "",
+          "```ui",
+          ~s({"op":"add","path":"/root","value":"main"}),
+          ~s({"op":"add","path":"/elements/main","value":{"type":"Text","props":{"text":"**East**\\nleads ~12%~"},"children":[]}}),
+          "```",
+          "",
+          "Follow up with the south region."
+        ],
+        "\n"
+      )
+
+    assert Ankole.Kernel.repair_generated_markdown(reply) == reply
+
+    # A reply that is still streaming ends inside the block; the open fence keeps the patch lines as code.
+    streaming = reply |> String.split("\n```\n\nFollow up") |> hd()
+    assert Ankole.Kernel.repair_generated_markdown(streaming) == streaming
+  end
+
   test "plain-text channels unescape \\~ in prose while keeping code spans verbatim" do
     repaired =
       Ankole.Kernel.repair_generated_markdown("误差 ~50%~，代码 `foo\\~bar` 保持不变")

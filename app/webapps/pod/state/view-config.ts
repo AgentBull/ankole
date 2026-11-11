@@ -131,7 +131,19 @@ const configSchema = z.looseObject({
       conditions: z.array(
         z.object({
           field_id: z.string(),
-          operator: z.enum(['is', 'contains', 'is_empty', 'is_not_empty', 'gt', 'gte', 'lt', 'lte', 'text_contains']),
+          operator: z.enum([
+            'is',
+            'not_is',
+            'in',
+            'contains',
+            'is_empty',
+            'is_not_empty',
+            'gt',
+            'gte',
+            'lt',
+            'lte',
+            'text_contains'
+          ]),
           value: value.optional()
         })
       )

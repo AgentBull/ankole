@@ -298,21 +298,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   end
 
   defp merge_credential_proxy_opts(credential, opts) do
-    proxy_url =
-      Keyword.get(opts, :proxy_url) ||
-        text_or_nil(Map.get(credential, "proxy_url")) ||
-        text_or_nil(get_in(credential, ["egress_profile", "proxy_url"]))
-
-    require_proxy? =
-      Keyword.get(opts, :require_proxy, false) == true or
-        Map.get(credential, "require_proxy") == true or
-        get_in(credential, ["egress_profile", "require_proxy"]) == true or
-        not is_nil(text_or_nil(Map.get(credential, "proxy_id"))) or
-        not is_nil(proxy_url)
-
-    opts
-    |> Keyword.put(:proxy_url, proxy_url)
-    |> Keyword.put(:require_proxy, require_proxy?)
+    merge_proxy_opts([credential, Map.get(credential, "egress_profile")], opts)
   end
 
   @doc """
@@ -426,20 +412,30 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   end
 
   defp merge_provider_proxy_opts(%Provider{connection_options: %{} = options}, opts) do
-    proxy_url = Keyword.get(opts, :proxy_url) || text_or_nil(Map.get(options, "proxy_url"))
-
-    require_proxy? =
-      Keyword.get(opts, :require_proxy, false) == true or
-        Map.get(options, "require_proxy") == true or
-        not is_nil(text_or_nil(Map.get(options, "proxy_id"))) or
-        not is_nil(proxy_url)
-
-    opts
-    |> Keyword.put_new(:proxy_url, proxy_url)
-    |> Keyword.put(:require_proxy, require_proxy?)
+    merge_proxy_opts([options], opts)
   end
 
   defp merge_provider_proxy_opts(_provider, opts), do: opts
+
+  defp merge_proxy_opts(sources, opts) do
+    maps = Enum.filter(sources, &is_map/1)
+
+    proxy_url =
+      text_or_nil(Keyword.get(opts, :proxy_url)) ||
+        Enum.find_value(maps, &text_or_nil(Map.get(&1, "proxy_url")))
+
+    require_proxy? =
+      Keyword.get(opts, :require_proxy, false) == true or
+        Enum.any?(maps, fn map ->
+          Map.get(map, "require_proxy") == true or
+            not is_nil(text_or_nil(Map.get(map, "proxy_id")))
+        end) or
+        not is_nil(proxy_url)
+
+    opts
+    |> Keyword.put(:proxy_url, proxy_url)
+    |> Keyword.put(:require_proxy, require_proxy?)
+  end
 
   defp merge_refreshed_tokens(credential, body, opts) when is_map(body) do
     tokens =

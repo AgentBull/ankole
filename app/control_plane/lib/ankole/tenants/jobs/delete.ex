@@ -13,7 +13,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   # PostgreSQL foreign keys; Agent and Worker rows use their lifecycle owner.
   @tables ~w(
     base_records base_views base_fields base_tables
-    pod_files pod_applet_envs message_attachments delivery_attachments
+    pod_files pod_applet_envs pod_applet_approvals message_attachments delivery_attachments
     drive_vfs_exports
     page_user_states page_changes page_comments page_snapshots page_daily_activity page_search_documents page_contents
     pod_search_queries pod_spreadsheet_ops pod_file_caches permission_grants

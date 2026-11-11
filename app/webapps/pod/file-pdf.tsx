@@ -42,15 +42,20 @@ export default function PdfPreview({
   const [failed, setFailed] = useState(false)
   const [finding, setFinding] = useState(false)
   const [query, setQuery] = useState('')
+  const queryRef = useRef(query)
+  queryRef.current = query
   const [matches, setMatches] = useState({ current: 0, total: 0 })
   useEffect(() => {
     let closed = false
     let close = () => {}
+    setFailed(false)
+    setView({ page: 1, pages: 0, scale: 1 })
+    setMatches({ current: 0, total: 0 })
     void (async () => {
       // The viewer component reads pdf.js from `globalThis.pdfjsLib`, so it loads after `./pdfjs` has run.
       const { EventBus, LinkTarget, PDFFindController, PDFLinkService, PDFViewer } =
         await import('pdfjs-dist/legacy/web/pdf_viewer.mjs')
-      if (closed) return
+      if (closed || !container.current) return
       const eventBus = new EventBus()
       const linkService = new PDFLinkService({
         eventBus,
@@ -58,14 +63,32 @@ export default function PdfPreview({
         externalLinkRel: 'noopener noreferrer'
       })
       const findController = new PDFFindController({ eventBus, linkService })
-      const viewer = new PDFViewer({ container: container.current!, eventBus, linkService, findController })
+      const viewer = new PDFViewer({
+        container: container.current,
+        eventBus,
+        linkService,
+        findController,
+        annotationEditorMode: -1
+      })
       linkService.setViewer(viewer)
       eventBus.on('pagesinit', () => {
         // `auto` fits the page to the width up to 125%, and fits a landscape page whole.
         viewer.currentScaleValue = 'auto'
         // Setting the scale scrolls the first page flush with the toolbar; the document opens with its top gutter.
-        container.current!.scrollTop = 0
+        if (container.current) container.current.scrollTop = 0
         setView(current => ({ ...current, pages: viewer.pagesCount }))
+        if (queryRef.current) {
+          eventBus.dispatch('find', {
+            source: null,
+            type: '',
+            query: queryRef.current,
+            caseSensitive: false,
+            entireWord: false,
+            highlightAll: true,
+            findPrevious: false,
+            matchDiacritics: false
+          })
+        }
       })
       eventBus.on('pagechanging', ({ pageNumber }: { pageNumber: number }) =>
         setView(current => ({ ...current, page: pageNumber }))
@@ -78,10 +101,12 @@ export default function PdfPreview({
       const resize = new ResizeObserver(() => {
         if (viewer.currentScaleValue === 'auto') viewer.currentScaleValue = 'auto'
       })
-      resize.observe(container.current!)
+      resize.observe(container.current)
       const task = openPdf({ url })
       close = () => {
         resize.disconnect()
+        viewer.setDocument(null as never)
+        linkService.setDocument(null)
         void task.destroy()
       }
       const document = await task.promise
@@ -97,21 +122,30 @@ export default function PdfPreview({
     }
   }, [url])
   useEffect(() => {
-    if (initialPage && view.pages > 0) pdf.current!.viewer.currentPageNumber = initialPage
+    if (initialPage && view.pages > 0 && pdf.current) {
+      pdf.current.viewer.currentPageNumber = Math.min(Math.max(1, initialPage), view.pages)
+    }
   }, [initialPage, view.pages])
   useEffect(() => {
     // The browser's own find reaches only the pages drawn so far, so the shortcut opens the whole-document find
-    // while the focus is in the viewer, in its dialog, or nowhere. The listener captures the key, because a chat
-    // room binds the same shortcut to its own search further up.
+    // while the focus is in the viewer, in its dialog, or nowhere. Inside a chat's right sidebar, focus on
+    // document.body stays with the chat room's own search.
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== 'f' || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
       const active = document.activeElement
-      const scope = root.current?.closest('[role="dialog"]') ?? root.current
-      if (!scope || (active !== document.body && !scope.contains(active))) return
+      const dialog = root.current?.closest('[role="dialog"]')
+      const scope = dialog ?? root.current
+      const inChatSidebar = !dialog && Boolean(root.current?.closest('.pod-chat'))
+      if (!scope || (inChatSidebar ? !scope.contains(active) : active !== document.body && !scope.contains(active))) {
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
       setFinding(true)
-      findInput.current?.select()
+      requestAnimationFrame(() => {
+        findInput.current?.focus()
+        findInput.current?.select()
+      })
     }
     document.addEventListener('keydown', onKeyDown, true)
     return () => document.removeEventListener('keydown', onKeyDown, true)

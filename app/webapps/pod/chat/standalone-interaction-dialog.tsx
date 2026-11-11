@@ -1,6 +1,7 @@
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, toast } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
+import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
@@ -9,9 +10,11 @@ import { answerPodInteraction } from '../api/generated/sdk.gen'
 import { contentError } from '../content-errors'
 import { ContentError, ContentSkeleton } from '../content-primitives'
 import { refreshConversationQueries } from '../query-cache'
-import { ChoiceCard } from './choice-card'
 import type { InteractionAnswer } from './room-api'
 import type { ClarifyPrompt } from './types'
+
+// The card renders through json-render, which stays out of the Pod shell until a dialog or the chat page needs it.
+const ChoiceCard = lazy(() => import('./choice-card').then(module => ({ default: module.ChoiceCard })))
 
 /** Opens a form question that an external channel linked as `/?interaction=<id>`; opening it never answers. */
 export function StandaloneInteractionDialog({
@@ -58,11 +61,13 @@ export function StandaloneInteractionDialog({
           ) : query.isError ? (
             <ContentError error={query.error} retry={() => void query.refetch()} />
           ) : interaction ? (
-            <ChoiceCard
-              prompt={toPrompt(interaction)}
-              interaction={toPrompt(interaction)}
-              onAnswer={(id, answer) => answerMutation.mutateAsync({ interactionID: id, answer })}
-            />
+            <Suspense fallback={<ContentSkeleton variant="list" rows={3} />}>
+              <ChoiceCard
+                prompt={toPrompt(interaction)}
+                interaction={toPrompt(interaction)}
+                onAnswer={(id, answer) => answerMutation.mutateAsync({ interactionID: id, answer })}
+              />
+            </Suspense>
           ) : null}
         </div>
         <DialogFooter>

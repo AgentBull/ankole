@@ -878,3 +878,73 @@ fn chunk_event(event_rx: &mpsc::Receiver<StreamEvent>) -> Value {
         event => panic!("expected JSON text chunk, got {event:?}"),
     }
 }
+
+#[test]
+fn sse_stream_completes_on_trailing_done_without_final_blank_line_under_strict_policy() {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut buffer = [0_u8; 4096];
+        let _ = socket.read(&mut buffer).unwrap();
+
+        let body = concat!(
+            "data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        socket.write_all(response.as_bytes()).unwrap();
+        socket.flush().unwrap();
+    });
+
+    let (event_tx, event_rx) = mpsc::channel();
+    let sink: EventSink = Arc::new(move |event| {
+        event_tx.send(event).unwrap();
+    });
+
+    let spec = format!(
+        r#"{{
+          "api_resolver": "openai_chat_completions",
+          "upstream": {{
+            "kind": "http_sse",
+            "method": "POST",
+            "url": "http://{address}/v1/chat/completions",
+            "headers": [],
+            "body": "{{\"stream\":true}}",
+            "timeout": {{"connect_ms": 1000, "first_byte_ms": 1000, "idle_ms": 1000}},
+            "transport": {{}}
+          }},
+          "response_context": {{"model": "gpt-test", "request": {{}}, "policy": "strict"}}
+        }}"#
+    );
+
+    let handle = start_stream(&spec, sink).unwrap();
+    match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
+        StreamEvent::Ready(_) => {}
+        event => panic!("expected ready event, got {event:?}"),
+    }
+
+    handle.read(64).unwrap();
+    let mut saw_completed = false;
+    loop {
+        match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
+            StreamEvent::Chunk { bytes, .. } => {
+                let val: Value = sonic_rs::from_slice(&bytes).unwrap();
+                if val["type"] == "response.completed" {
+                    saw_completed = true;
+                }
+            }
+            StreamEvent::Done(summary) => {
+                assert_eq!(summary["reason"], "provider_done");
+                break;
+            }
+            event => panic!("expected clean stream completion, got {event:?}"),
+        }
+    }
+    assert!(saw_completed, "expected response.completed event");
+}

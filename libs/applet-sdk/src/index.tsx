@@ -33,6 +33,7 @@ import type {
   AppletRuntime,
   BaseRecord,
   EphemeralChannel,
+  PodPrincipal,
   PresenceMember,
   RecordData,
   RecordQuery,
@@ -72,6 +73,71 @@ export function useJobSources(jobID: number) {
 export function useAppletJobs() {
   const { pod, pageID } = usePod()
   return useMemo(() => createAppletJobs(pod, pageID), [pod, pageID])
+}
+
+export type PrincipalReference = string | { uid?: string | null } | null | undefined
+
+/** Extracts a normalized Principal UID from bare UIDs, ActorRef strings/maps, or Brain Principal slugs. */
+export function normalizePrincipalUID(value: PrincipalReference): string | null {
+  if (value === null || value === undefined) return null
+  const raw = typeof value === 'string' ? value : typeof value.uid === 'string' ? value.uid : ''
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const afterPrincipal = trimmed.includes(':principal/')
+    ? trimmed.slice(trimmed.indexOf(':principal/') + ':principal/'.length)
+    : /^(?:people|agents)\/[^/]+$/i.test(trimmed)
+      ? trimmed.slice(trimmed.indexOf('/') + 1)
+      : trimmed.replace(/^@/, '')
+  const normalized = afterPrincipal.trim().toLowerCase()
+  return normalized || null
+}
+
+/** Reads visible human and AI Colleague Principals in the Pod, optionally narrowed to a UID list. */
+export function usePrincipals(uids?: readonly PrincipalReference[]) {
+  const runtime = usePod()
+  const queryKey = runtime.pod.principalsKey ?? (['pod', 'principals'] as const)
+  const read = useQuery({
+    queryKey,
+    queryFn: () => runtime.pod.principals(),
+    staleTime: 60_000
+  })
+  const result = useReadResult(read, queryKey)
+  const byUid = useMemo(() => {
+    const map = new Map<string, PodPrincipal>()
+    for (const item of result.data ?? []) {
+      const normalized = normalizePrincipalUID(item.uid)
+      if (normalized) map.set(normalized, item)
+    }
+    return map as ReadonlyMap<string, PodPrincipal>
+  }, [result.data])
+  const principals = useMemo(() => {
+    if (!uids) return result.data ?? []
+    const seen = new Set<string>()
+    const resolved: PodPrincipal[] = []
+    for (const ref of uids) {
+      const normalized = normalizePrincipalUID(ref)
+      if (!normalized || seen.has(normalized)) continue
+      seen.add(normalized)
+      const match = byUid.get(normalized)
+      if (match) resolved.push(match)
+    }
+    return resolved
+  }, [byUid, result.data, uids])
+  return {
+    ...result,
+    principals,
+    byUid
+  }
+}
+
+export function usePrincipal(uid: PrincipalReference) {
+  const normalized = normalizePrincipalUID(uid)
+  const directory = usePrincipals()
+  return {
+    ...directory,
+    uid: normalized,
+    principal: normalized ? directory.byUid.get(normalized) : undefined
+  }
 }
 
 function useTableUpdates(tableID: string) {

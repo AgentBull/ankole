@@ -200,7 +200,7 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
   defp cached_endpoints(runtime, source, model, opts) do
     path = endpoint_path(source.models_path, model)
     {prov_id, prov_rev} = provider_cache_identity(runtime)
-    key = {:image_model_endpoints, prov_id, prov_rev, path}
+    key = {:image_model_endpoints, prov_id, prov_rev, source.cache_key, path}
 
     cached_fetch(key, opts, fn ->
       fetch_list(source, path, &endpoint_list/1)

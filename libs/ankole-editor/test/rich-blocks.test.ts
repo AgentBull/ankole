@@ -703,3 +703,22 @@ test('in-flight inline and embed metadata requests track their target via transa
   })
   expect(attempts).toBe(2)
 })
+
+test('converting a link to a block view skips following code blocks and preserves valid list structure', async () => {
+  const beforeCode = open('https://example.com/doc\n\n```ts\nconst x = 1\n```')
+  select(beforeCode, 4)
+  const codeLink = linkAt(beforeCode.state)!
+  expect(await convertInlineLinkView(beforeCode, codeLink, 'card')).toBe(true)
+  expect(printXml(readTree(beforeCode))).toBe(
+    '<page><embed href="https://example.com/doc" view="card" /><p /><pre lang="ts">const x = 1</pre></page>'
+  )
+
+  const inList = open('- https://example.com/item')
+  select(inList, 5)
+  const listLink = linkAt(inList.state)!
+  expect(await convertInlineLinkView(inList, listLink, 'card')).toBe(true)
+  expect(printXml(readTree(inList))).toBe(
+    '<page><ul><li><embed href="https://example.com/item" view="card" /><p /></li></ul></page>'
+  )
+  expectReopens(inList)
+})

@@ -16,14 +16,14 @@ pub(crate) fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, St
             spec.upstream.body = None;
         }
         UpstreamKind::HTTPSSE | UpstreamKind::HTTPEventstream => {
-            let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
-            let body = resolver.build_body()?;
-            put_resolved_anthropic_version(
-                spec.api_resolver,
+            let context = context_with_header_anthropic_version(
+                &spec.api_resolver,
                 &spec.response_context,
-                &body,
-                &mut spec.upstream,
+                &spec.upstream,
             );
+            let resolver = APIResolver::new(spec.api_resolver, context.clone());
+            let body = resolver.build_body()?;
+            put_resolved_anthropic_version(spec.api_resolver, &context, &body, &mut spec.upstream);
             spec.upstream.body = Some(encode_json(&Value::Object(body))?);
             put_default_model_headers(&mut spec.upstream);
         }
@@ -34,17 +34,62 @@ pub(crate) fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, St
 
 pub(crate) fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<UpstreamSpec, StreamError> {
     let mut upstream = spec.stream_upstream();
-    let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
-    let body = resolver.build_body()?;
-    put_resolved_anthropic_version(
-        spec.api_resolver,
+    let context = context_with_header_anthropic_version(
+        &spec.api_resolver,
         &spec.response_context,
-        &body,
-        &mut upstream,
+        &upstream,
     );
+    let resolver = APIResolver::new(spec.api_resolver, context.clone());
+    let body = resolver.build_body()?;
+    put_resolved_anthropic_version(spec.api_resolver, &context, &body, &mut upstream);
     upstream.body = Some(encode_json(&Value::Object(body))?);
     put_default_json_headers(&mut upstream);
     Ok(upstream)
+}
+
+fn context_with_header_anthropic_version(
+    api_resolver: &APIResolverKind,
+    context: &ResponseContext,
+    upstream: &UpstreamSpec,
+) -> ResponseContext {
+    if *api_resolver != APIResolverKind::AnthropicMessages {
+        return context.clone();
+    }
+    let Some(header_version) = upstream
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-version"))
+        .map(|(_, value)| value.trim())
+        .filter(|value| !value.is_empty())
+    else {
+        return context.clone();
+    };
+    let mut next = context.clone();
+    let mut opts = next
+        .provider_options
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let has_explicit = ["api_version", "anthropic_version", "anthropic-version"]
+        .iter()
+        .any(|k| {
+            opts.get(*k)
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.trim().is_empty())
+                || next
+                    .request
+                    .get(*k)
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| !s.trim().is_empty())
+        });
+    if !has_explicit {
+        opts.insert(
+            "anthropic-version".to_string(),
+            Value::String(header_version.to_string()),
+        );
+        next.provider_options = Value::Object(opts);
+    }
+    next
 }
 
 /// Anthropic selects its protocol through the request header, so the version

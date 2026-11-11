@@ -843,10 +843,7 @@ fn lower_input_value(
 }
 
 fn lower_function_call(call: &mut Map<String, Value>) -> Result<(), StreamError> {
-    let arguments = call
-        .get("arguments")
-        .map(value_to_string)
-        .unwrap_or_default();
+    let arguments = call.get("arguments").map(value_to_text).unwrap_or_default();
     if !contains_opaque_prefix(&arguments) {
         return Ok(());
     }
@@ -991,9 +988,7 @@ fn call_locator(event: &Value, item: Option<&Value>) -> Option<String> {
 }
 
 fn item_arguments(item: &Value) -> String {
-    item.get("arguments")
-        .map(value_to_string)
-        .unwrap_or_default()
+    item.get("arguments").map(value_to_text).unwrap_or_default()
 }
 
 fn stream_delta_event(call: &StreamCall, arguments: &str) -> Value {

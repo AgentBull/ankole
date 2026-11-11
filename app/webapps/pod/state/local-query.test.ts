@@ -17,11 +17,49 @@ test('numeric predicates and totals retain PostgreSQL precision while unfiltered
         filter: { conjunction: 'and', conditions: [{ field_id, operator: 'is', value: 1 / 3 }] }
       })
     ).toBe(false)
+    expect(
+      canQueryLocally(schema, {
+        filter: { conjunction: 'and', conditions: [{ field_id, operator: 'not_is', value: 2 }] }
+      })
+    ).toBe(false)
+    expect(
+      canQueryLocally(schema, {
+        filter: { conjunction: 'and', conditions: [{ field_id, operator: 'in', value: [2, 4] }] }
+      })
+    ).toBe(false)
     expect(canQueryLocally(schema, { sort: [{ field_id, direction: 'asc' }] })).toBe(false)
     expect(
       canAggregateLocally(schema, { group_by: [{ field_id }], metrics: [{ operation: 'count', alias: 'count' }] })
     ).toBe(false)
   }
+  expect(
+    canQueryLocally(schema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'name', operator: 'not_is', value: 'Alpha' }] }
+    })
+  ).toBe(true)
+  expect(
+    canQueryLocally(schema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'name', operator: 'in', value: ['Alpha', 'Gamma'] }] }
+    })
+  ).toBe(true)
+  expect(
+    canQueryLocally(schema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'name', operator: 'in', value: [] }] }
+    })
+  ).toBe(true)
+  expect(
+    canQueryLocally(schema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'name', operator: 'in', value: ['Alpha', null] }] }
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(schema, {
+      filter: {
+        conjunction: 'and',
+        conditions: [{ field_id: 'name', operator: 'in', value: Array.from({ length: 501 }, (_, i) => `v${i}`) }]
+      }
+    })
+  ).toBe(false)
   expect(canAggregateLocally(schema, { metrics: [{ operation: 'sum', field_id: 'amount', alias: 'total' }] })).toBe(
     false
   )
@@ -74,6 +112,22 @@ test('equivalent datetime spellings use PostgreSQL normalization while canonical
     expect(
       canQueryLocally(dates, { filter: { conjunction: 'and', conditions: [{ field_id, operator: 'is', value }] } })
     ).toBe(true)
+    expect(
+      canQueryLocally(dates, { filter: { conjunction: 'and', conditions: [{ field_id, operator: 'not_is', value }] } })
+    ).toBe(true)
+    expect(
+      canQueryLocally(dates, {
+        filter: { conjunction: 'and', conditions: [{ field_id, operator: 'in', value: [value] }] }
+      })
+    ).toBe(true)
+    expect(
+      canQueryLocally(dates, {
+        filter: {
+          conjunction: 'and',
+          conditions: [{ field_id, operator: 'in', value: [value, '2026-01-01T00:00:00Z'] }]
+        }
+      })
+    ).toBe(false)
     expect(canQueryLocally(dates, { group: { field_id, value } })).toBe(true)
     expect(
       canQueryLocally(dates, { filter: { conjunction: 'and', conditions: [{ field_id, operator: 'is_empty' }] } })
@@ -200,4 +254,38 @@ test('fail-closed allowlists route ranking, distinct counts, empty omission, dri
       ...({ future_record_option: 1 } as Record<string, unknown>)
     })
   ).toBe(false)
+})
+
+test('null binary condition values and actor range or sort clauses route fail-closed to PostgreSQL', () => {
+  const actorSchema = {
+    ...schema,
+    fields: [
+      ...schema.fields,
+      { id: 'creator', name: 'Created By', type: 'created_by', config: {}, version: 1, is_primary: false },
+      { id: 'updater', name: 'Updated By', type: 'updated_by', config: {}, version: 1, is_primary: false }
+    ]
+  } as TableSchema
+
+  expect(
+    canQueryLocally(actorSchema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'name', operator: 'is', value: null }] }
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(actorSchema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'name', operator: 'gt', value: null }] }
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(actorSchema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'creator', operator: 'is', value: 'ada' }] }
+    })
+  ).toBe(true)
+  expect(
+    canQueryLocally(actorSchema, {
+      filter: { conjunction: 'and', conditions: [{ field_id: 'creator', operator: 'gt', value: 'ada' }] }
+    })
+  ).toBe(false)
+  expect(canQueryLocally(actorSchema, { sort: [{ field_id: 'creator', direction: 'asc' }] })).toBe(false)
+  expect(canQueryLocally(actorSchema, { sort: [{ field_id: 'updater', direction: 'desc' }] })).toBe(false)
 })

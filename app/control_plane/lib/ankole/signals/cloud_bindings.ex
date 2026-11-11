@@ -6,8 +6,11 @@ defmodule Ankole.Signals.CloudBindings do
   alias Ankole.Signals.{Binding, Bindings, Target, Webhooks}
 
   def put(agent_uid, binding_name, attrs) do
-    with {:ok, cloud_binding} <- prepare(agent_uid, binding_name, attrs) do
-      Repo.transact_top_level(fn -> put_in_tx(cloud_binding) end)
+    with {:ok, cloud_binding} <- prepare(agent_uid, binding_name, attrs),
+         {:ok, %{binding: binding} = saved} <-
+           Repo.transact_top_level(fn -> put_in_tx(cloud_binding) end) do
+      emit_binding_saved(binding, :replace)
+      {:ok, saved}
     end
   end
 
@@ -16,11 +19,27 @@ defmodule Ankole.Signals.CloudBindings do
          {:ok, current_config} <- stored_config(source),
          {:ok, patch} <- Bindings.extract_binding_config(attrs),
          attrs = Map.put(attrs, "config", Map.merge(current_config, patch)),
-         {:ok, cloud_binding} <- prepare(target.uid, binding_name, attrs) do
-      Repo.transact_top_level(fn ->
-        move_in_tx(source, current_config, cloud_binding)
-      end)
+         {:ok, cloud_binding} <- prepare(target.uid, binding_name, attrs),
+         {:ok, %{binding: binding} = saved} <-
+           Repo.transact_top_level(fn ->
+             move_in_tx(source, current_config, cloud_binding)
+           end) do
+      emit_binding_saved(binding, :patch)
+      {:ok, saved}
     end
+  end
+
+  defp emit_binding_saved(binding, operation) do
+    :telemetry.execute(
+      [:ankole, :signals, :binding, :saved],
+      %{count: 1},
+      %{
+        tenant_id: binding.tenant_id,
+        adapter: binding.adapter,
+        routing_mode: binding.routing_mode,
+        operation: operation
+      }
+    )
   end
 
   def stored_config(

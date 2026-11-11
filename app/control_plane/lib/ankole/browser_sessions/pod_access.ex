@@ -8,46 +8,83 @@ defmodule Ankole.BrowserSessions.PodAccess do
   alias Ankole.Repo
 
   def accept_invitation(reference, tenant_id, invitation_id) do
-    Repo.transact_top_level(fn ->
-      with_site_authentication(reference, fn authentication ->
-        Repo.with_tenant(tenant_id, fn ->
-          proof = Map.from_struct(authentication)
+    result =
+      Repo.transact_top_level(fn ->
+        with_site_authentication(reference, fn authentication ->
+          Repo.with_tenant(tenant_id, fn ->
+            proof = Map.from_struct(authentication)
 
-          with {:ok, principal} <-
-                 Ankole.Principals.accept_site_invitation_in_tx(invitation_id, proof),
-               {:ok, _} <- record_pod_access(authentication, principal),
-               {:ok, _} <-
-                 Identity.activate_in_tx(
-                   %{"id" => authentication.browser_id},
-                   reference,
-                   tenant_id
-                 ),
-               do: {:ok, principal}
+            with {:ok, principal} <-
+                   Ankole.Principals.accept_site_invitation_in_tx(invitation_id, proof),
+                 {:ok, _} <- record_pod_access(authentication, principal),
+                 {:ok, _} <-
+                   Identity.activate_in_tx(
+                     %{"id" => authentication.browser_id},
+                     reference,
+                     tenant_id
+                   ),
+                 do: {:ok, principal}
+          end)
         end)
       end)
-    end)
+
+    case result do
+      {:ok, principal} ->
+        emit_invitation_accepted(tenant_id, principal.uid)
+        {:ok, principal}
+
+      other ->
+        other
+    end
   end
 
   def claim_membership(ref, tenant_id) do
-    Repo.transact_top_level(fn ->
-      with_site_authentication(ref, fn authentication ->
-        proof =
-          authentication |> Map.from_struct() |> Map.put(:provider_id, authentication.provider_id)
-
-        case Enum.find(
-               Ankole.Principals.pending_site_memberships(proof),
-               &(&1.tenant_id == tenant_id)
-             ) do
-          nil ->
-            claim_invitation(authentication, tenant_id, proof)
-
-          candidate ->
-            Repo.with_tenant(tenant_id, fn ->
-              claim_pending(authentication, candidate, proof)
-            end)
-        end
+    result =
+      Repo.transact_top_level(fn ->
+        with_site_authentication(ref, &claim_membership_in_tx(&1, tenant_id))
       end)
-    end)
+
+    case result do
+      {:ok, {:invited, principal}} ->
+        emit_invitation_accepted(tenant_id, principal.uid)
+        {:ok, principal}
+
+      {:ok, {:claimed, principal}} ->
+        {:ok, principal}
+
+      other ->
+        other
+    end
+  end
+
+  defp claim_membership_in_tx(authentication, tenant_id) do
+    proof =
+      authentication
+      |> Map.from_struct()
+      |> Map.put(:provider_id, authentication.provider_id)
+
+    case Enum.find(
+           Ankole.Principals.pending_site_memberships(proof),
+           &(&1.tenant_id == tenant_id)
+         ) do
+      nil ->
+        with {:ok, principal} <- claim_invitation(authentication, tenant_id, proof),
+             do: {:ok, {:invited, principal}}
+
+      candidate ->
+        Repo.with_tenant(tenant_id, fn ->
+          with {:ok, principal} <- claim_pending(authentication, candidate, proof),
+               do: {:ok, {:claimed, principal}}
+        end)
+    end
+  end
+
+  defp emit_invitation_accepted(tenant_id, principal_uid) do
+    :telemetry.execute(
+      [:ankole, :principals, :invitation, :accepted],
+      %{count: 1},
+      %{tenant_id: tenant_id, principal_uid: principal_uid}
+    )
   end
 
   defp claim_pending(authentication, candidate, proof) do

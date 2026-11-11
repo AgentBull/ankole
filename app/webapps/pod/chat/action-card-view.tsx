@@ -1,23 +1,137 @@
 import { recordValue } from '@agentbull/active-support'
-import { Badge, Button, cn } from '@ankole/uikit'
-import {
-  RiArrowRightSLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiErrorWarningLine,
-  RiFileTextLine,
-  RiShieldKeyholeLine
-} from '@remixicon/react'
+import type { Spec } from '@json-render/react'
 import { useMutationState } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BdiLabel } from '../../common/bidi-file-name'
-import { usePageHref } from '../use-page-metadata'
+import { InteractionSurface, interactionSpec } from './interaction-surface'
 import type { ActionCardDecision } from './room-api'
 import type { ActionCardState } from './types'
 
 const DESTRUCTIVE_ACTION_KINDS = new Set(['pod.page.delete', 'pod.base.delete_table'])
+const KNOWLEDGE_ACTION_KINDS = new Set(['pod.knowledge.save', 'brain.object.create'])
+
+/**
+ * Builds the Action Card as an interaction spec from the card that the control plane drafted. `enabled` says
+ * that the viewer may decide now: the card is prepared and no decision is in flight.
+ */
+function actionCardSpec(
+  card: ActionCardState,
+  view: { enabled: boolean; submitting: boolean },
+  t: ReturnType<typeof useTranslation>['t']
+): Spec {
+  const { add, spec } = interactionSpec()
+  const status = card.status ?? 'prepared'
+  const payload = card.payload ?? {}
+  const details = formatPayloadDetails(card, t)
+  const resolvedBy = card.resolved_by_name || t('pod.chat_timeline.teammate')
+  return spec(
+    add(
+      'card',
+      'InteractionCard',
+      {
+        kind: 'approval',
+        title: actionKindLabel(card.action_kind, t),
+        state: status === 'prepared' ? 'pending' : status,
+        muted: status === 'cancelled' || status === 'stale',
+        badge: {
+          text: actionStatusLabel(status, t),
+          variant: status === 'executed' ? 'secondary' : status === 'stale' ? 'destructive' : 'outline'
+        },
+        testid: 'chat-action-card',
+        actionKind: card.action_kind
+      },
+      [
+        add('summary', 'Question', { text: card.summary, bidi: true }),
+        (details.length > 0 || !!card.target_node_id) &&
+          add('details', 'Group', { kind: 'details' }, [
+            card.target_node_id &&
+              add('target', 'PageLink', {
+                pageID: card.target_node_id,
+                label: t('pod.chat_action_card.open_target', { defaultValue: 'View target page' })
+              }),
+            ...details.map((text, index) => add(`detail:${index}`, 'Line', { text }))
+          ]),
+        KNOWLEDGE_ACTION_KINDS.has(card.action_kind) &&
+          add('drafts', 'Group', { kind: 'drafts' }, [
+            typeof payload.diff === 'string' &&
+              add('diff', 'Disclosure', {
+                title: t('pod.chat_action_card.proposed_changes'),
+                text: payload.diff,
+                open: true
+              }),
+            typeof payload.markdown === 'string' &&
+              add('markdown', 'Disclosure', {
+                title: t('pod.chat_action_card.complete_draft'),
+                text: payload.markdown || t('pod.chat_action_card.empty_draft'),
+                tall: true
+              })
+          ]),
+        status === 'prepared' &&
+          add('actions', 'Group', { kind: 'actions' }, [
+            add(
+              'confirm',
+              'ActionButton',
+              {
+                label: t('pod.chat_action_card.confirm', { defaultValue: 'Confirm & Execute' }),
+                variant: DESTRUCTIVE_ACTION_KINDS.has(card.action_kind) ? 'destructive' : 'default',
+                size: 'sm',
+                icon: 'check',
+                disabled: !view.enabled
+              },
+              [],
+              { press: { action: 'resolve', params: { decision: 'confirm' } } }
+            ),
+            add(
+              'cancel',
+              'ActionButton',
+              {
+                label: t('pod.chat_action_card.cancel', { defaultValue: 'Cancel' }),
+                variant: 'outline',
+                size: 'sm',
+                icon: 'close',
+                disabled: !view.enabled
+              },
+              [],
+              { press: { action: 'resolve', params: { decision: 'cancel' } } }
+            )
+          ]),
+        status === 'executed' &&
+          add('executed', 'Outcome', {
+            icon: 'check',
+            text: [
+              t('pod.chat_action_card.executed_by', {
+                defaultValue: 'Confirmed and executed by {$name}',
+                name: resolvedBy
+              }),
+              card.resolution_note
+            ]
+              .filter(Boolean)
+              .join(' · ')
+          }),
+        status === 'cancelled' &&
+          add('cancelled', 'Outcome', {
+            icon: 'close',
+            text: t('pod.chat_action_card.cancelled_by', { defaultValue: 'Cancelled by {$name}', name: resolvedBy })
+          }),
+        status === 'stale' &&
+          add('stale', 'Outcome', {
+            icon: 'warning',
+            warning: true,
+            text:
+              card.resolution_note ||
+              t('pod.chat_action_card.stale_notice', {
+                defaultValue: 'Target changed since this card was drafted. Ask the Agent to inspect and draft again.'
+              })
+          }),
+        view.submitting &&
+          add('submitting', 'Outcome', {
+            text: t('pod.chat_action_card.submitting', { defaultValue: 'Applying decision…' }),
+            live: true
+          })
+      ]
+    )
+  )
+}
 
 export function ActionCardView({
   card,
@@ -27,9 +141,7 @@ export function ActionCardView({
   onResolve?: (cardID: string, decision: ActionCardDecision) => Promise<unknown>
 }) {
   const { t } = useTranslation()
-  const pageHref = usePageHref()
   const submitting = useRef(false)
-  const status = card.status ?? 'prepared'
   const mutationState = useMutationState({
     filters: {
       predicate: mutation => (mutation.state.variables as { cardID?: string } | undefined)?.cardID === card.card_id
@@ -37,7 +149,7 @@ export function ActionCardView({
     select: mutation => mutation.state
   }).at(-1)
   const pending = mutationState?.status === 'pending'
-  const enabled = status === 'prepared' && !!onResolve && !pending
+  const enabled = (card.status ?? 'prepared') === 'prepared' && !!onResolve && !pending
 
   const decide = (decision: ActionCardDecision) => {
     if (!enabled || submitting.current) return
@@ -49,106 +161,11 @@ export function ActionCardView({
       })
   }
 
-  const destructive = DESTRUCTIVE_ACTION_KINDS.has(card.action_kind)
-  const details = formatPayloadDetails(card, t)
-
   return (
-    <div
-      className={cn(
-        'pod-chat-choice-card',
-        (status === 'cancelled' || status === 'stale') && 'pod-chat-choice-superseded'
-      )}
-      data-testid="chat-action-card"
-      data-action-kind={card.action_kind}
-      data-state={status === 'prepared' ? 'pending' : status}>
-      <div className="pod-chat-choice-header justify-between">
-        <span className="inline-flex items-center gap-1.5">
-          <RiShieldKeyholeLine aria-hidden />
-          <span>{actionKindLabel(card.action_kind, t)}</span>
-        </span>
-        <Badge variant={status === 'executed' ? 'secondary' : status === 'stale' ? 'destructive' : 'outline'}>
-          {actionStatusLabel(status, t)}
-        </Badge>
-      </div>
-      <p className="pod-chat-choice-question">
-        <BdiLabel value={card.summary} showBidiWarning={false} />
-      </p>
-      {(details.length > 0 || card.target_node_id) && (
-        <div className="mx-3.5 mb-3 space-y-1.5 rounded-control border border-border bg-muted/35 px-3 py-2 text-xs text-fg-secondary">
-          {card.target_node_id && (
-            <div className="flex items-center gap-1.5">
-              <RiFileTextLine className="size-3.5 shrink-0 text-fg-tertiary" aria-hidden />
-              <Link className="truncate font-medium text-foreground hover:underline" to={pageHref(card.target_node_id)}>
-                {t('pod.chat_action_card.open_target', { defaultValue: 'View target page' })}
-              </Link>
-            </div>
-          )}
-          {details.map((line, index) => (
-            <div key={index} className="break-words">
-              {line}
-            </div>
-          ))}
-        </div>
-      )}
-      {['pod.knowledge.save', 'brain.object.create'].includes(card.action_kind ?? '') && (
-        <KnowledgeDraft payload={card.payload ?? {}} />
-      )}
-      {status === 'prepared' && (
-        <div className="flex flex-wrap items-center gap-2 px-3.5 pb-3">
-          <Button
-            size="sm"
-            variant={destructive ? 'destructive' : 'default'}
-            disabled={!enabled}
-            onClick={() => decide('confirm')}>
-            <RiCheckLine aria-hidden />
-            {t('pod.chat_action_card.confirm', { defaultValue: 'Confirm & Execute' })}
-          </Button>
-          <Button size="sm" variant="outline" disabled={!enabled} onClick={() => decide('cancel')}>
-            <RiCloseLine aria-hidden />
-            {t('pod.chat_action_card.cancel', { defaultValue: 'Cancel' })}
-          </Button>
-        </div>
-      )}
-      {status === 'executed' && (
-        <p className="pod-chat-choice-outcome">
-          <RiCheckLine aria-hidden />
-          <span>
-            {t('pod.chat_action_card.executed_by', {
-              defaultValue: 'Confirmed and executed by {$name}',
-              name: card.resolved_by_name || t('pod.chat_timeline.teammate')
-            })}
-            {card.resolution_note && <> · {card.resolution_note}</>}
-          </span>
-        </p>
-      )}
-      {status === 'cancelled' && (
-        <p className="pod-chat-choice-outcome">
-          <RiCloseLine aria-hidden />
-          <span>
-            {t('pod.chat_action_card.cancelled_by', {
-              defaultValue: 'Cancelled by {$name}',
-              name: card.resolved_by_name || t('pod.chat_timeline.teammate')
-            })}
-          </span>
-        </p>
-      )}
-      {status === 'stale' && (
-        <p className="pod-chat-choice-outcome text-warning-foreground">
-          <RiErrorWarningLine aria-hidden />
-          <span>
-            {card.resolution_note ||
-              t('pod.chat_action_card.stale_notice', {
-                defaultValue: 'Target changed since this card was drafted. Ask the Agent to inspect and draft again.'
-              })}
-          </span>
-        </p>
-      )}
-      {pending && (
-        <p role="status" className="pod-chat-choice-outcome">
-          {t('pod.chat_action_card.submitting', { defaultValue: 'Applying decision…' })}
-        </p>
-      )}
-    </div>
+    <InteractionSurface
+      spec={actionCardSpec(card, { enabled, submitting: pending }, t)}
+      handlers={{ resolve: params => decide(params.decision === 'confirm' ? 'confirm' : 'cancel') }}
+    />
   )
 }
 
@@ -191,7 +208,7 @@ function actionStatusLabel(
 function formatPayloadDetails(card: ActionCardState, t: ReturnType<typeof useTranslation>['t']): string[] {
   const payload = card.payload ?? {}
   const lines: string[] = []
-  if (['pod.knowledge.save', 'brain.object.create'].includes(card.action_kind ?? '')) {
+  if (KNOWLEDGE_ACTION_KINDS.has(card.action_kind)) {
     if (typeof payload.node_title === 'string') {
       lines.push(t('pod.chat_action_card.page_target', { title: payload.node_title }))
     }
@@ -253,34 +270,4 @@ function formatPayloadDetails(card: ActionCardState, t: ReturnType<typeof useTra
     }
   }
   return lines
-}
-
-function KnowledgeDraft({ payload }: { payload: Record<string, unknown> }) {
-  const { t } = useTranslation()
-  return (
-    <div className="mx-3.5 mb-3 min-w-0 space-y-2">
-      {typeof payload.diff === 'string' && (
-        <details open className="code-surface group">
-          <summary className="code-toolbar cursor-pointer px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
-            <RiArrowRightSLine className="size-3.5 shrink-0 group-open:rotate-90" aria-hidden />
-            {t('pod.chat_action_card.proposed_changes')}
-          </summary>
-          <pre className="code-text max-h-72 overflow-auto whitespace-pre-wrap break-words px-3 py-2 text-xs">
-            {payload.diff}
-          </pre>
-        </details>
-      )}
-      {typeof payload.markdown === 'string' && (
-        <details className="code-surface group">
-          <summary className="code-toolbar cursor-pointer px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
-            <RiArrowRightSLine className="size-3.5 shrink-0 group-open:rotate-90" aria-hidden />
-            {t('pod.chat_action_card.complete_draft')}
-          </summary>
-          <pre className="code-text max-h-96 overflow-auto whitespace-pre-wrap break-words px-3 py-2 text-xs">
-            {payload.markdown || t('pod.chat_action_card.empty_draft')}
-          </pre>
-        </details>
-      )}
-    </div>
-  )
 }
