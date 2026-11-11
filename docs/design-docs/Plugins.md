@@ -112,20 +112,28 @@ action; if there is no material knowledge gap, answer directly.
 
 ### Decide Which Capabilities an Agent Can Use
 
-Agent Plugins use tenant defaults and sparse per-Agent overrides. Skills use
-an all-Agents switch and positive per-Agent bindings:
+Agent Plugins use tenant defaults and sparse per-Agent overrides. Workspace
+Skills (`skills.agent_uid IS NULL`) use an all-Agents switch and positive
+per-Agent bindings, while Personal Skills (`skills.agent_uid` referencing a
+`personal_assistant` Agent) apply exclusively and automatically to that
+assistant without `agent_skills` rows:
 
 ```text
 Agent Plugin effective = agent override ?? tenant default
 Plugin Skill effective = parent effective && (enabled_for_all || bound_to_agent)
-Standalone Skill effective = enabled_for_all || bound_to_agent
+Workspace Standalone Skill effective = agent_uid == nil && (enabled_for_all || bound_to_agent)
+Personal Standalone Skill effective = agent_uid == agent.uid
 ```
 
 An official Skill's declared `default_enabled` initializes `enabled_for_all` on
-first synchronization. Custom Skills start disabled. Enabling the all-Agents
-switch preserves individual bindings and locks their editing until the switch
-is turned off. Disabling a parent Plugin makes its member Skills unavailable
-without changing these saved settings.
+first synchronization. Custom Skills start disabled when created for the
+workspace (`agent_uid == nil`), whereas Personal Skills (`agent_uid != nil`)
+must be custom packages (`source_kind == :custom`, `enabled_for_all == false`)
+owned by a `personal_assistant` Agent. Enabling the all-Agents switch on a
+Workspace Skill preserves individual bindings and locks their editing until the
+switch is turned off, while `Library.Skills` rejects binding or global-enable
+mutations on Personal Skills (`{:error, :private_skill}`). Disabling a parent
+Plugin makes its member Skills unavailable without changing saved settings.
 
 AppConfigure owns `ai_agent.library.agent_plugin_defaults`. Ordinary Plugin
 reads use its cache; initial Job projections and capability-change notifications
@@ -137,19 +145,35 @@ Trusted Skill and Agent Plugin source readers keep their short-lived disk
 snapshots in a node-local ETS cache owned by `Library.SourceCache`. Build tools
 can read the same sources before the application starts, without caching them.
 
-`Ankole.AIAgent.Library.Skills` owns manifests, companion files and positive
-bindings in `skills`, `skill_files` and `agent_skills`. Slugs are unique within a
-tenant, including Plugin member Skills. Runtime projections identify a Plugin
-member as `<agent-plugin-id>:<skill-slug>` and a standalone Skill by its slug.
-`source_kind` distinguishes `builtin`, `agent_plugin` and `custom` packages;
-Plugin members also record `agent_plugin_id`. Sparse Plugin overrides remain in
-`agent_plugin_overrides`.
+`Ankole.AIAgent.Library.Skills` owns manifests, companion files, and positive
+bindings in `skills`, `skill_files`, and `agent_skills`. Slugs remain unique
+within a tenant across both Workspace and Personal Skills so `SkillLessons` and
+runtime projections never collide, and custom Skill creation reserves built-in
+slash command identifiers (`new`, `compress`, `retry`, `steer`, `stop`, `llm`,
+`learn`, `invite`, `rename`, `page`, `model`). Runtime projections identify a
+Plugin member as `<agent-plugin-id>:<skill-slug>` and a standalone Skill by its
+slug. `source_kind` distinguishes `builtin`, `agent_plugin`, and `custom`
+packages; Plugin members also record `agent_plugin_id`. Sparse Plugin overrides
+remain in `agent_plugin_overrides`.
 
 Catalog synchronization preserves saved enablement for disabled Plugins as well.
 The current catalog uses manifest descriptions. `skill_view` reads a manifest
 and per-Agent lessons; companion files are read explicitly by relative path.
-Skill visibility follows Agent identity and enablement. Brain content follows
-its independent page sharing and conversation disclosure rules.
+Pod list and detail reads filter Personal Skills so only callers authorized on
+the owning `personal_assistant` can view or edit them, and report
+`runtime_assistant_enabled` and `runtime_agent_uids` incorporating parent
+`AgentPlugin` enablement alongside saved Skill bindings. Operators with
+`tenant_console:custom_skills` can promote their own Personal Skill to a
+Workspace Skill (`Library.Skills.publish_to_workspace/3`), atomically clearing
+`agent_uid` and recording a positive `agent_skills` binding on their assistant.
+In conversations, leading `/learn` turns and proactive workflow extraction draft
+`library.skill.save` Action Cards validated by `Library.SkillLinter` with
+draft-time ownership (`agent_uid` for Personal Assistant skills or workspace
+scope with optional colleague binding) and optimistic revision preconditions
+(redacting personal Skill `markdown` and `diff` payloads for group-room viewers
+who cannot read the owning `personal_assistant`), while leading `/<slug>`
+invocations inject the enabled Skill's manifest into the turn input. Brain
+content follows its independent page sharing and conversation disclosure rules.
 
 ### What a Job Saves and Loads
 

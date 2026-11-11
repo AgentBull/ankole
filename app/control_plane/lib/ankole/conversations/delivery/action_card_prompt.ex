@@ -120,6 +120,24 @@ defmodule Ankole.Conversations.Delivery.ActionCardPrompt do
 
           "Action: Add participants (#{names}) to this conversation"
 
+        "library.skill.save" ->
+          verb = if payload["operation"] == "update", do: "Update", else: "Save"
+
+          scope =
+            if payload["target"] == "workspace", do: "workspace skill", else: "personal skill"
+
+          title = payload["skill_name"] || payload["slug"]
+
+          note =
+            if is_binary(payload["scope_note"]), do: "\nNote: #{payload["scope_note"]}", else: ""
+
+          diff_suffix =
+            if is_nil(payload["agent_uid"]) and is_binary(payload["diff"]),
+              do: "\n#{payload["diff"]}",
+              else: ""
+
+          "Action: #{verb} #{scope} \"#{title}\" (/#{payload["slug"]})#{note}#{diff_suffix}"
+
         _ ->
           "Action: #{action_kind}"
       end

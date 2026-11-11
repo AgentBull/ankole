@@ -1,6 +1,13 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, toast, useReducedMotion } from '@ankole/uikit'
-import { RiCheckboxMultipleLine, RiDoubleQuotesL, RiEditLine, RiFileCopyLine, RiRestartLine } from '@remixicon/react'
+import {
+  RiCheckboxMultipleLine,
+  RiDoubleQuotesL,
+  RiEditLine,
+  RiFileCopyLine,
+  RiFlashlightLine,
+  RiRestartLine
+} from '@remixicon/react'
 import { useTranslation } from 'react-i18next'
 
 const actionButton = 'motion-safe:active:scale-none!'
@@ -12,6 +19,7 @@ const copyLayer =
 export function MessageActions({
   text,
   onQuote,
+  onSaveAsSkill,
   onSelectMessage,
   onEdit,
   editDisabledReason,
@@ -20,6 +28,7 @@ export function MessageActions({
 }: {
   text: string
   onQuote?: (text: string) => void
+  onSaveAsSkill?: () => void
   onSelectMessage?: () => void
   onEdit?: () => void
   editDisabledReason?: string
@@ -91,6 +100,17 @@ export function MessageActions({
             onQuote(selected.trim() ? selected : text)
           }}>
           <RiDoubleQuotesL aria-hidden className={actionIcon} />
+        </Button>
+      )}
+      {onSaveAsSkill && !!text && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className={actionButton}
+          title={t('pod.chat_timeline.save_as_skill', { defaultValue: 'Save as Skill (/learn)' })}
+          aria-label={t('pod.chat_timeline.save_as_skill', { defaultValue: 'Save as Skill (/learn)' })}
+          onClick={onSaveAsSkill}>
+          <RiFlashlightLine aria-hidden className={actionIcon} />
         </Button>
       )}
       {onSelectMessage && (

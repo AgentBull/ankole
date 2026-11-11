@@ -593,7 +593,12 @@ group mark, and a task with a conversation mark. Home interleaves Pages and
 conversations, retaining at most three attention items ahead of ordinary
 recents: pending decisions first, relevant unread comments second, and running
 work third. The Home and Chat tab badges use the same count: Chat counts unread IM and
-pending decisions, and Home counts Pages with relevant unread comments.
+pending decisions (including linked Background Agent Jobs and Workflows in
+`waiting_on_user`, which `Pod.Chat.Presentation.row_status/1` prioritizes ahead
+of `running_background`), and Home counts Pages with relevant unread comments.
+Chat pins conversations with `waiting_choice` or `waiting_approval` into a top
+`Needs your input` group so pending approvals, Clarify questions, connector
+authorizations, and restricted-page grants stay visible above ordinary history.
 
 A group invites into itself. An assistant task offers Start a group and a DM
 offers New group; both leave the source conversation unchanged. That dialog
@@ -1070,16 +1075,33 @@ an unanswered question sits above the loaded 500-message window, the UI surfaces
 it in the timeline's attention banner and smoothly restores it to its inline
 position once the user scrolls back to that message.
 
-Pod renders the Clarify card and the Action Card with the json-render renderer
+Pod renders Clarify cards, Action Cards, Connector Auth Cards
+(`rich_content.connector_auth`), and Page Access Cards
+(`rich_content.access_blocked`) with the json-render renderer
 that also renders `ui` blocks. For each card, Pod builds an interaction spec
 from the message's `rich_content` and the state of its checkpoint or card row.
 `pod/chat/interaction-surface.tsx` owns the elements of those specs: the card
-shell, choices, form fields, approval details, decision buttons, and outcome
-lines. A model-written `ui` block renders from its own catalog and cannot use
-these elements. The actions of an interaction spec call the endpoints of this
-section, so the control plane owns the answer, its validation, and the
-approval, and an external channel renders the same interaction from its
-`ReplyPresentation`.
+shell, choices, form fields, approval details, waterfall disclosures, decision
+buttons, and outcome lines. A model-written `ui` block renders from its own
+catalog and cannot use these elements. The actions of an interaction spec call
+the endpoints of this section, so the control plane owns the answer, its
+validation, and the approval, and an external channel renders the same
+interaction from its `ReplyPresentation`.
+
+When a native room turn stops on `consent_required` or on a Page `node_view`
+`access_denied` check (`Ankole.Pod.Access.BlockedWaits`), `Posting` opens an
+external-wait entry in the Delivery interaction checkpoint (`connector_auth` or
+`access_blocked`). Completing OAuth consent (`Accounts.put_tokens_in_tx/5`) or
+granting `view` access on the blocked Page (`POST
+/api/v2/pod/conversations/:id/interactions/:interaction_id/grant-page-access`,
+which grants `view` to the Personal Assistant's owning Human or to the AI
+Colleague under `node_manage` while preserving any higher existing grant) calls
+`Interactions.resolve_external_wait_in_tx/6`
+to mark the checkpoint `answered` (`connector_connected` or `access_granted`)
+and enqueue an `interaction_answer` continuation Signal for the blocked Agent
+without replaying prior side effects. Viewers who lack `node_manage` on a
+blocked Page see a redacted card without the restricted Page title or grant
+button, while any new Human turn in the room supersedes open external waits.
 
 A Clarify can carry a form instead of choices. `Delivery.ClarifyForm` owns the
 field contract: one to five fields, each with a snake_case `id`, a `label`,
@@ -1262,15 +1284,23 @@ command as a read only when no program in it can write, so a pipeline such as
 `ls && rm -rf build` or `cat a > b` reads as `Running command · ls` or
 `Running command · cat`.
 
-Pod folds each run of two or more consecutive steps that only read the
-workspace (reading files, searching code or file paths, and listing
-directories) into one collapsed row that counts them, such as
-`Read 4 files · Searched 9 times · Listed 2 directories`. Every other step keeps
-its own row, so edits, tests, and commits stay visible at a glance, and
-expanding the row lists each read with its details. The collapsed row shows a
-spinner while one of its reads runs, and otherwise marks a read that failed or
-stopped. Expanding a step or group unfolds and fades in its details. A
-completed step draws its check mark.
+Pod folds each run of two or more consecutive read-only exploration steps
+(reading files, searching code or file paths, listing directories, `recall`, web
+search or fetch, and read-only `ankole-pod` Page or Base inspections) into one
+collapsed row that counts them, such as
+`Read 4 files · Searched 9 times · Listed 2 directories`. Every mutating,
+external-connector, or approval step keeps its own row, so edits, tests, and
+commits stay visible at a glance, and expanding the row lists each read with
+its details. Steps halted on connector consent (`consent_required`) or Page
+access (`access_denied` on `node_view`) carry `status: "blocked"` and render a
+distinct lock state rather than reporting a generic runtime failure. The
+collapsed row shows a spinner while one of its reads runs, and otherwise marks a
+read that was blocked, failed, or stopped. Expanding a step or group unfolds and
+fades in its details. A completed step draws its check mark.
+
+ Linked Background Agent Jobs and Workflows in `waiting_on_user` render their
+pending Clarify choices and quick-reply composer inline on `LinkedExecutionCard`
+alongside the read-only detail drawer trigger.
 
 While an Agent works, Pod names every running step in the work header, joined
 by ` · ` when steps run in parallel, and keeps the steps in one folded list.

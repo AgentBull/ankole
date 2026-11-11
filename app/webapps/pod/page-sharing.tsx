@@ -8,6 +8,7 @@ import { useState } from 'react'
 import type { Page } from './content-api'
 import { ContentError, InlineLoading } from './content-primitives'
 import { useResolvePageHref } from './use-page-metadata'
+import { CheckAccessView } from './page-sharing/check-access-view'
 import { CollaboratorsView } from './page-sharing/collaborators-view'
 import { InviteCollaboratorsView } from './page-sharing/invite-view'
 import { MainSharingView } from './page-sharing/main-view'
@@ -83,10 +84,26 @@ function SharingPopoverBody({
   }
 
   const canManage = sharing.can_manage
-  const view = canManage ? model.view.value : model.view.value === 'collaborators' ? 'collaborators' : 'main'
+  const view = canManage
+    ? model.view.value
+    : model.view.value === 'collaborators' || model.view.value === 'explain'
+      ? model.view.value
+      : 'main'
   const backToMain = () => {
     mutations.clearError()
     model.backToMain()
+  }
+
+  if (view === 'explain') {
+    return (
+      <CheckAccessView
+        pageID={pageID}
+        sharing={sharing}
+        canManage={canManage}
+        mutations={mutations}
+        onBack={backToMain}
+      />
+    )
   }
 
   if (view === 'invite') {
@@ -154,6 +171,10 @@ function SharingPopoverBody({
       onOpenSettings={() => {
         mutations.clearError()
         model.openSettings()
+      }}
+      onOpenExplain={() => {
+        mutations.clearError()
+        model.openExplain()
       }}
       onStageSubject={(subject, defaultRole, defaultScope) => {
         mutations.clearError()

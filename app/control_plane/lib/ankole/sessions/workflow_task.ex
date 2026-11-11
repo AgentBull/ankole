@@ -121,12 +121,14 @@ defmodule Ankole.Sessions.WorkflowTask do
     end
   end
 
+  @wake_continuation_note "This turn continues your earlier work: you slept and an event woke you. Read the event, use your conversation context, and end the turn with submit_result or another sleep."
+
   def instructions(run), do: Prompt.workflow_system(run)
 
   def input(%{event: %{type: "workflow.task.dispatch"}} = run),
     do: [Run.user(run.spec.request_context["prompt"])]
 
-  def input(run), do: super(run)
+  def input(run), do: [Run.user(@wake_continuation_note) | super(run)]
   def nudge?, do: false
 
   @repair "You did not end this Workflow task turn. Call submit_result with the final result, or call sleep when you wait for a delegated job or a later condition. Do not call another tool and do not return prose."

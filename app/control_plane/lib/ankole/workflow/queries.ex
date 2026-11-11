@@ -52,6 +52,7 @@ defmodule Ankole.Workflow.Queries do
   def get(run_id, agent_uid, opts \\ [])
       when is_integer(run_id) and run_id > 0 and is_binary(agent_uid) and is_list(opts) do
     offset = Keyword.get(opts, :result_offset)
+    window_bytes = Keyword.get(opts, :window_bytes, @result_window_bytes)
 
     query =
       Run
@@ -59,10 +60,10 @@ defmodule Ankole.Workflow.Queries do
       |> Ash.Query.select([:id, :agent_uid, :title, :status, :error])
 
     query =
-      if is_integer(offset) and offset >= 0 do
+      if is_integer(offset) and offset >= 0 and is_integer(window_bytes) and window_bytes > 0 do
         Ash.Query.load(query, [
           :result_output_bytes,
-          result_output_window: [from: offset + 1, bytes: @result_window_bytes]
+          result_output_window: [from: offset + 1, bytes: window_bytes]
         ])
       else
         query
@@ -70,7 +71,7 @@ defmodule Ankole.Workflow.Queries do
 
     case Ankole.Ash.read_one(query) do
       {:ok, %Run{} = run} ->
-        with {:ok, result} <- result_projection(run, offset) do
+        with {:ok, result} <- result_projection(run, offset, window_bytes) do
           details =
             if is_nil(offset) do
               %{
@@ -316,17 +317,22 @@ defmodule Ankole.Workflow.Queries do
     Ash.Query.filter(query, id < ^cursor)
   end
 
-  defp result_projection(_run, nil) do
+  defp result_projection(_run, nil, _window_bytes) do
     {:ok, %{result_output_text: "", result_output_total_bytes: nil}}
   end
 
-  defp result_projection(%Run{status: status}, offset)
+  defp result_projection(%Run{status: status}, offset, _window_bytes)
        when status != :completed and is_integer(offset) and offset >= 0 do
     {:ok, %{result_output_text: "", result_output_total_bytes: 0}}
   end
 
-  defp result_projection(%Run{result_output_window: text, result_output_bytes: total}, offset)
-       when is_binary(text) and is_integer(total) and is_integer(offset) and offset >= 0 do
+  defp result_projection(
+         %Run{result_output_window: text, result_output_bytes: total},
+         offset,
+         window_bytes
+       )
+       when is_binary(text) and is_integer(total) and is_integer(offset) and offset >= 0 and
+              is_integer(window_bytes) and window_bytes > 0 do
     cond do
       offset > total ->
         {:error, :invalid_workflow_result_offset}
@@ -337,18 +343,18 @@ defmodule Ankole.Workflow.Queries do
       true ->
         {:ok,
          %{
-           result_output_text: Text.utf8_prefix(text, @result_window_bytes),
+           result_output_text: Text.utf8_prefix(text, window_bytes),
            result_output_total_bytes: total
          }}
     end
   end
 
-  defp result_projection(%Run{status: :completed}, offset)
+  defp result_projection(%Run{status: :completed}, offset, _window_bytes)
        when is_integer(offset) and offset >= 0 do
     {:error, :workflow_result_output_missing}
   end
 
-  defp result_projection(_run, _offset) do
+  defp result_projection(_run, _offset, _window_bytes) do
     {:error, :invalid_workflow_result_offset}
   end
 

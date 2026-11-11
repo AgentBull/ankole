@@ -42,6 +42,7 @@ const config: KnipConfig = {
         'src/worker/lambda-hooks.ts!',
         'scripts/*.ts',
         'src/cli/**/*-cli.ts!',
+        'src/cli/shim/ankole-cli-shim.ts!',
         'src/cli/viz/build-harness.ts!',
         'src/cli/viz/harness-entry.ts!'
       ],

@@ -11,7 +11,14 @@ import {
   SelectTrigger,
   SelectValue
 } from '@ankole/uikit'
-import { RiArrowRightSLine, RiBuildingLine, RiLink, RiLockLine, RiSettings3Line } from '@remixicon/react'
+import {
+  RiArrowRightSLine,
+  RiBuildingLine,
+  RiLink,
+  RiLockLine,
+  RiSettings3Line,
+  RiShieldCheckLine
+} from '@remixicon/react'
 import { useSignals } from '@preact/signals-react/runtime'
 import type { PageRole, PageSharingDetail, PageType } from '../content-api'
 import { ContentError } from '../content-primitives'
@@ -40,6 +47,7 @@ export function MainSharingView({
   copyLink,
   onOpenCollaborators,
   onOpenSettings,
+  onOpenExplain,
   onStageSubject
 }: {
   pageType?: PageType
@@ -55,6 +63,7 @@ export function MainSharingView({
   copyLink(): Promise<void>
   onOpenCollaborators(): void
   onOpenSettings(): void
+  onOpenExplain(): void
   onStageSubject(subject: SharingSubject, defaultRole?: PageRole, defaultScope?: SharingScopeTab): void
 }) {
   useSignals()
@@ -153,10 +162,14 @@ export function MainSharingView({
         <ContentError error={mutations.error} />
       </div>
 
-      <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+      <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2.5">
         <Button variant="outline" size="sm" onClick={() => void copyLink()}>
           <RiLink aria-hidden className="size-4" />
           {t('pod.content.copy_link')}
+        </Button>
+        <Button variant="ghost" size="sm" disabled={mutations.pending} onClick={onOpenExplain}>
+          <RiShieldCheckLine aria-hidden className="size-4" />
+          {t('pod.sharing.check_access')}
         </Button>
       </div>
     </div>

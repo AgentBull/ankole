@@ -30,6 +30,7 @@ defmodule Ankole.Sessions.Tools.Web do
                     "additionalProperties": false
                   },
                   "execution_mode": "parallel",
+                  "allowed_callers": ["direct", "programmatic"],
                   "read_only": true,
                   "destructive": false
                 },
@@ -60,6 +61,7 @@ defmodule Ankole.Sessions.Tools.Web do
                     "additionalProperties": false
                   },
                   "execution_mode": "sequential",
+                  "allowed_callers": ["direct", "programmatic"],
                   "read_only": true,
                   "destructive": false
                 }
@@ -127,11 +129,12 @@ defmodule Ankole.Sessions.Tools.Web do
     end
   end
 
-  def execute(run, %{"name" => "web_fetch"}, args) do
-    with :ok <- validate_urls(args["urls"]), do: fetch(run, args)
+  def execute(run, %{"name" => "web_fetch"} = call, args) do
+    with :ok <- validate_urls(args["urls"]),
+         do: fetch(run, args, Tools.result_budget(call))
   end
 
-  defp fetch(run, args) do
+  defp fetch(run, args, result_budget) do
     now = System.system_time(:millisecond)
     cached = Map.new(args["urls"], fn url -> {url, cache(run, url, now)} end)
     missing = args["urls"] |> Enum.uniq() |> Enum.reject(&cached[&1])
@@ -149,7 +152,7 @@ defmodule Ankole.Sessions.Tools.Web do
 
     case result do
       {:ok, response} ->
-        render(run, response.body, args["urls"], cached, now, missing, offset)
+        render(run, response.body, args["urls"], cached, now, missing, offset, result_budget)
 
       # The Agent's computer renders the pages in a browser; this module windows
       # its result like a gateway result.
@@ -157,15 +160,27 @@ defmodule Ankole.Sessions.Tools.Web do
         {:ok,
          {:delegate, "__rendered_web_fetch", %{"urls" => args["urls"]},
           fn run, rendered ->
-            {:ok, result} = render(run, rendered.details, args["urls"], offset)
+            {:ok, result} = render(run, rendered.details, args["urls"], offset, result_budget)
             result
           end}}
     end
   end
 
-  def render(run, body, urls, offset \\ 0) do
+  @max_result_bytes 8_000
+
+  def render(run, body, urls, offset \\ 0, result_budget \\ @max_result_bytes) do
     with :ok <- validate_urls(urls),
-         do: render(run, body, urls, %{}, System.system_time(:millisecond), urls, offset)
+         do:
+           render(
+             run,
+             body,
+             urls,
+             %{},
+             System.system_time(:millisecond),
+             urls,
+             offset,
+             result_budget
+           )
   end
 
   defp validate_urls(urls) do
@@ -180,9 +195,7 @@ defmodule Ankole.Sessions.Tools.Web do
        end), do: :ok, else: {:error, "web_fetch requires HTTPS URLs"}
   end
 
-  @max_result_bytes 8_000
-
-  defp render(run, body, urls, cached, now, missing, offset) do
+  defp render(run, body, urls, cached, now, missing, offset, result_budget) do
     by_url = Map.new(Enum.zip(missing, body["results"] || []))
 
     {pages, new_cache} =
@@ -219,18 +232,18 @@ defmodule Ankole.Sessions.Tools.Web do
       # The Worker consumes this transient body before recording only file metadata.
       {:ok, Tools.result(%{"results" => results}, text: "")}
     else
-      window_pages(pages, new_cache, offset)
+      window_pages(pages, new_cache, offset, result_budget)
     end
   end
 
-  defp window_pages(pages, new_cache, offset) do
+  defp window_pages(pages, new_cache, offset, result_budget) do
     overhead = byte_size(Ankole.JSON.encode!(%{"results" => Enum.map(pages, &elem(&1, 0))}))
 
-    if overhead + length(pages) * 64 >= @max_result_bytes do
+    if overhead + length(pages) * 64 >= result_budget do
       {:ok,
        Tools.error("The URL metadata exceeds one result window. Fetch fewer or shorter URLs.")}
     else
-      budget = div(@max_result_bytes - overhead, max(length(pages), 1)) - 64
+      budget = div(result_budget - overhead, max(length(pages), 1)) - 64
 
       results =
         Enum.map(pages, fn {info, text, _page} -> window(info, text, offset, budget) end)

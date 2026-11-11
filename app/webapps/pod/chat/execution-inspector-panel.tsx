@@ -588,44 +588,77 @@ function ExecutionInspectorBody({
 
       {target.kind === 'background_agent_job' && canMessage && (
         <footer className="pod-chat-inspector-composer">
-          {sendMutation.error && (
-            <p role="alert" className="pod-chat-inspector-composer-error">
-              {requestErrorMessage(chatError(sendMutation.error))}
-            </p>
-          )}
-          <form
-            className="pod-chat-inspector-composer-box"
-            onSubmit={event => {
-              event.preventDefault()
-              submitText(draft)
-            }}>
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={draft}
-              placeholder={placeholder}
-              aria-label={placeholder}
-              disabled={sendMutation.isPending}
-              onChange={event => setDraft(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault()
-                  submitText(draft)
-                }
-              }}
-            />
-            <Button
-              type="submit"
-              size="icon-xs"
-              variant="default"
-              disabled={!draft.trim() || sendMutation.isPending}
-              aria-label={t('pod.chat_timeline.execution_send_action')}>
-              <RiArrowUpLine aria-hidden />
-            </Button>
-          </form>
+          <JobQuickReplyComposer
+            value={draft}
+            onChange={setDraft}
+            onSubmit={submitText}
+            placeholder={placeholder}
+            submitting={sendMutation.isPending}
+            error={sendMutation.error ? requestErrorMessage(chatError(sendMutation.error)) : undefined}
+            textareaRef={textareaRef}
+          />
         </footer>
       )}
     </div>
+  )
+}
+
+export function JobQuickReplyComposer({
+  value,
+  onChange,
+  onSubmit,
+  placeholder,
+  submitting,
+  error,
+  textareaRef
+}: {
+  value: string
+  onChange: (value: string) => void
+  onSubmit: (text: string) => void
+  placeholder: string
+  submitting: boolean
+  error?: string
+  textareaRef?: RefObject<HTMLTextAreaElement | null>
+}) {
+  const { t } = useTranslation()
+  return (
+    <>
+      {error && (
+        <p role="alert" className="pod-chat-inspector-composer-error">
+          {error}
+        </p>
+      )}
+      <form
+        className="pod-chat-inspector-composer-box"
+        onSubmit={event => {
+          event.preventDefault()
+          onSubmit(value)
+        }}>
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={value}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          disabled={submitting}
+          onChange={event => onChange(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && !event.shiftKey && !(event.nativeEvent.isComposing || event.keyCode === 229)) {
+              event.preventDefault()
+              onSubmit(value)
+            }
+          }}
+        />
+        <Button
+          type="submit"
+          size="icon-xs"
+          variant="default"
+          disabled={!value.trim() || submitting}
+          aria-label={t('pod.chat_timeline.execution_send_action')}>
+          <RiArrowUpLine aria-hidden />
+        </Button>
+      </form>
+    </>
   )
 }
 
@@ -750,7 +783,7 @@ function PlanCard({ plan }: { plan: NonNullable<ConversationExecutionDetail['pla
   )
 }
 
-function PendingQuestionsCard({
+export function PendingQuestionsCard({
   questions,
   selectedChoices,
   onSelectChoice,

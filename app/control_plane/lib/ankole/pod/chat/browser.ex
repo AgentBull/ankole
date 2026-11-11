@@ -20,6 +20,7 @@ defmodule Ankole.Pod.Chat.Browser do
     allow(:update, check: :guardrail)
     allow(:manage_participants, check: :guardrail)
     allow(:answer_interaction, check: :guardrail)
+    allow(:grant_blocked_page_access, check: :guardrail)
     allow(:resolve_action_card, check: :guardrail)
     allow(:show_action_card, check: :guardrail)
     allow(:resolve_standalone_action_card, check: :guardrail)
@@ -408,6 +409,22 @@ defmodule Ankole.Pod.Chat.Browser do
           mentions: mentions(attrs),
           links: links(attrs)
         })
+        |> APIError.result(&room_detail/1)
+      end)
+    end
+
+    action :grant_blocked_page_access, Detail do
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:interaction_id, :string, allow_nil?: false)
+
+      run(fn input, context ->
+        attrs = input.arguments
+
+        Ankole.Pod.Access.BlockedWaits.grant_and_continue(
+          context.actor,
+          attrs.id,
+          attrs.interaction_id
+        )
         |> APIError.result(&room_detail/1)
       end)
     end

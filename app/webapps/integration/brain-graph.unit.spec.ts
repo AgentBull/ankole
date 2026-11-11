@@ -148,6 +148,8 @@ test('Brain graph keeps accessible node anchors synchronized across async load, 
   const brainRoute = await brainGate
   await brainRoute.fulfill({
     json: {
+      viewer_uid: 'person',
+      assistant_uid: null,
       categories: [
         { id: 'cat-companies', name: 'companies', can_edit: false, entity_type: 'company', primitive: 'entity' },
         { id: 'cat-notes', name: 'notes', can_edit: false, entity_type: 'note', primitive: 'concept' }

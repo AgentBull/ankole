@@ -1,12 +1,16 @@
+import { uuidV4 } from '@agentbull/active-support'
 import { Button } from '@ankole/uikit'
 import { RiArrowRightSLine, RiStopCircleLine } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { stopConversationExecution } from '../api/generated/sdk.gen'
+import { requestErrorMessage } from '../../common/request-errors'
+import { chatError } from '../api'
+import { messageConversationExecution, stopConversationExecution } from '../api/generated/sdk.gen'
 import type { PanelInputEvent } from '../panel-motion'
 import { refreshConversationQueries } from '../query-cache'
+import { JobQuickReplyComposer, PendingQuestionsCard } from './execution-inspector-panel'
 import { ExecutionStatusMark, RunningElapsed, executionStatusLabelKey, executionStatusTone } from './execution-status'
 import type { InspectorTarget, LinkedExecution } from './types'
 
@@ -61,6 +65,9 @@ export function LinkedExecutionCard({
   const client = useQueryClient()
   const trigger = useRef<HTMLButtonElement>(null)
 
+  const [draft, setDraft] = useState('')
+  const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({})
+
   const stopMutation = useMutation({
     mutationFn: () =>
       stopConversationExecution({
@@ -70,6 +77,25 @@ export function LinkedExecutionCard({
       refreshConversationQueries(client, conversationID)
     }
   })
+
+  const sendMutation = useMutation({
+    mutationFn: (text: string) =>
+      messageConversationExecution({
+        path: { id: conversationID, run_id: Number(run.id) },
+        body: { data: { requestID: uuidV4(), text } }
+      }),
+    onSuccess: () => {
+      setDraft('')
+      setSelectedChoices({})
+      refreshConversationQueries(client, conversationID)
+    }
+  })
+
+  const submitAnswer = (raw: string) => {
+    const text = raw.trim()
+    if (!text || sendMutation.isPending) return
+    sendMutation.mutate(text)
+  }
 
   const tone = executionStatusTone(run.status)
   const statusKey = executionStatusLabelKey(run.status)
@@ -86,7 +112,10 @@ export function LinkedExecutionCard({
   const progress = executionProgressLabel(run, t)
   if (progress) metaParts.push(progress)
 
-  const preview = !compact ? cleanExecutionPreview(run.summary) : undefined
+  const canAnswerInline =
+    !compact && run.kind === 'background_agent_job' && run.status === 'waiting_on_user' && Boolean(run.canMessage)
+  const pendingQuestions = canAnswerInline && run.pendingQuestions?.length ? run.pendingQuestions : undefined
+  const preview = !compact && !pendingQuestions ? cleanExecutionPreview(run.summary) : undefined
   const workflowPct =
     run.kind === 'workflow' && run.taskCounts && run.taskCounts.total > 0
       ? Math.round((run.taskCounts.completed / run.taskCounts.total) * 100)
@@ -106,6 +135,7 @@ export function LinkedExecutionCard({
       className="pod-chat-linked-run"
       data-status={tone}
       data-active={isActive || undefined}
+      data-answering={canAnswerInline || undefined}
       data-compact={compact || undefined}>
       <button
         ref={trigger}
@@ -152,6 +182,41 @@ export function LinkedExecutionCard({
             )}
           </span>
         </Button>
+      )}
+      {canAnswerInline && (
+        <div className="pod-chat-linked-run-answer">
+          {pendingQuestions && (
+            <PendingQuestionsCard
+              questions={pendingQuestions}
+              selectedChoices={selectedChoices}
+              onSelectChoice={(questionID, label) => {
+                if (pendingQuestions.length === 1) {
+                  submitAnswer(label)
+                } else {
+                  setSelectedChoices(prev => ({ ...prev, [questionID]: label }))
+                }
+              }}
+              onSubmitSelected={() => {
+                const lines = pendingQuestions
+                  .map(q => {
+                    const value = selectedChoices[q.id]
+                    return value ? `${q.header || q.question}: ${value}` : null
+                  })
+                  .filter((line): line is string => Boolean(line))
+                if (lines.length > 0) submitAnswer(lines.join('\n'))
+              }}
+              submitting={sendMutation.isPending}
+            />
+          )}
+          <JobQuickReplyComposer
+            value={draft}
+            onChange={setDraft}
+            onSubmit={submitAnswer}
+            placeholder={t('pod.chat_timeline.execution_answer_placeholder')}
+            submitting={sendMutation.isPending}
+            error={sendMutation.error ? requestErrorMessage(chatError(sendMutation.error)) : undefined}
+          />
+        </div>
       )}
     </div>
   )

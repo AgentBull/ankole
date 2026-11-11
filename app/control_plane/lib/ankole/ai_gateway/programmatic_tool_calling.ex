@@ -19,6 +19,8 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   @fingerprint_max_bindings 128
   @fingerprint_max_global_name_bytes 256
   @max_nested_tool_calls 256
+  @max_model_result_bytes 32_768
+  @model_result_truncation_notice "\n...[program output truncated at 32 KiB; filter or summarize inside program before calling text()]"
 
   defmodule Plan do
     @moduledoc false
@@ -171,14 +173,20 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
         |> Ankole.JSON.encode!()
 
       description =
-        "Runs JavaScript that orchestrates tool calls: loops, conditionals, " <>
-          "parallel calls with Promise.all, and intermediate processing. " <>
-          "The code runs in an isolated runtime without Node, network, " <>
-          "filesystem, or timers. Call tools with `await tools[\"<name>\"](args)`; " <>
-          "JavaScript globals with matching direct tool declarations: #{direct_global_names}; " <>
-          "programmatic-only bindings and contracts: #{embedded_contracts}. Emit results " <>
-          "with `text(value)` or `image(url)`. tool_search is not callable " <>
-          "from code; load deferred tools before starting a program."
+        "Runs JavaScript that orchestrates tool calls in an isolated runtime " <>
+          "without Node, network, filesystem, or timers. Use `program` when a task " <>
+          "needs 3+ tool calls, loops, parallel batch fan-out with `Promise.all`, " <>
+          "in-memory filter/dedupe/join/reduce over raw results, or conditional " <>
+          "branching on structured fields; emit only concise final findings with " <>
+          "`text(value)` or `image(url)` so intermediate payloads stay out of model " <>
+          "history. Do not wrap a single tool call in `program`, and call user " <>
+          "interaction, approval, delegation, and outbound messaging tools directly. " <>
+          "Call tools with `await tools[\"<name>\"](args)`; tools without " <>
+          "`output_schema` resolve to strings (check for `\"Error:\"` before " <>
+          "`JSON.parse`). JavaScript globals with matching direct tool declarations: " <>
+          "#{direct_global_names}; programmatic-only bindings and contracts: " <>
+          "#{embedded_contracts}. `tool_search` is not callable from code; load " <>
+          "deferred tools before starting a program."
 
       tool = %{
         "type" => "function",
@@ -441,7 +449,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
       "type" => "program_output",
       "id" => ResponseItems.public_item_id(%{"call_id" => call_id}, "prog_out"),
       "call_id" => call_id,
-      "status" => if(outcome[:status] == :completed, do: "completed", else: "incomplete"),
+      "status" => outcome_status(outcome),
       "result" => program_result(outcome)
     }
   end
@@ -449,7 +457,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   @spec downstream_output(String.t(), map()) :: map()
   def downstream_output(call_id, %{} = outcome) do
     body = %{
-      "status" => if(outcome[:status] == :completed, do: "completed", else: "incomplete"),
+      "status" => outcome_status(outcome),
       "result" => program_result(outcome)
     }
 
@@ -459,6 +467,9 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
       "output" => Ankole.JSON.encode!(body)
     }
   end
+
+  defp outcome_status(outcome),
+    do: if(outcome[:status] == :completed, do: "completed", else: "incomplete")
 
   @spec nested_call(String.t(), non_neg_integer(), map(), [Descriptor.t()]) ::
           {:ok, map()} | {:error, term()}
@@ -1006,16 +1017,131 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   defp snapshot_identity(_invalid), do: {nil, nil}
 
   defp program_result(outcome) do
+    status = outcome_status(outcome)
+
     parts =
       outcome
       |> Map.get(:output, [])
       |> Enum.map(fn part -> %{"kind" => part[:kind], "value" => part[:value]} end)
 
     case {parts, outcome[:error]} do
-      {[%{"kind" => "text", "value" => value}], nil} when is_binary(value) -> value
-      {parts, nil} -> Ankole.JSON.encode!(parts)
-      {parts, error} -> Ankole.JSON.encode!(%{"error" => error, "output" => parts})
+      {[%{"kind" => "text", "value" => value}], nil} when is_binary(value) ->
+        cap_program_text(value, status, @max_model_result_bytes)
+
+      {parts, nil} ->
+        encode_bounded_program_parts(parts, status, @max_model_result_bytes)
+
+      {parts, error} ->
+        encode_bounded_error_result(error, parts, status, @max_model_result_bytes)
     end
+  end
+
+  defp downstream_wire_bytes(status, result) do
+    byte_size(Ankole.JSON.encode!(%{"status" => status, "result" => result}))
+  end
+
+  defp cap_program_text(value, status, limit) do
+    if downstream_wire_bytes(status, value) <= limit do
+      value
+    else
+      notice_bytes = byte_size(@model_result_truncation_notice)
+      fit_program_text(value, status, limit, max(limit - notice_bytes - 64, 0))
+    end
+  end
+
+  defp fit_program_text(value, status, limit, text_budget) do
+    candidate = Ankole.Text.utf8_prefix(value, text_budget) <> @model_result_truncation_notice
+    wire_bytes = downstream_wire_bytes(status, candidate)
+
+    cond do
+      wire_bytes <= limit ->
+        candidate
+
+      text_budget > 0 ->
+        overshoot = wire_bytes - limit
+        fit_program_text(value, status, limit, max(text_budget - max(overshoot, 64), 0))
+
+      true ->
+        Ankole.Text.utf8_prefix(
+          String.trim_leading(@model_result_truncation_notice),
+          max(limit - 64, 0)
+        )
+    end
+  end
+
+  defp encode_bounded_program_parts(parts, status, limit) do
+    encoded = Ankole.JSON.encode!(parts)
+
+    if downstream_wire_bytes(status, encoded) <= limit do
+      encoded
+    else
+      fit_program_parts(parts, status, limit, max(limit - 1_024, 0))
+    end
+  end
+
+  defp fit_program_parts(parts, status, limit, text_budget) do
+    {capped_rev, _rem, truncated?} =
+      Enum.reduce(parts, {[], text_budget, false}, fn
+        %{"kind" => "text", "value" => value} = part, {acc, rem_bytes, trunc?}
+        when is_binary(value) ->
+          cond do
+            rem_bytes <= 0 ->
+              {acc, 0, true}
+
+            byte_size(value) <= rem_bytes ->
+              {[part | acc], rem_bytes - byte_size(value), trunc?}
+
+            true ->
+              clipped = Ankole.Text.utf8_prefix(value, rem_bytes)
+              {[%{"kind" => "text", "value" => clipped} | acc], 0, true}
+          end
+
+        part, {acc, rem_bytes, trunc?} ->
+          {[part | acc], rem_bytes, trunc?}
+      end)
+
+    candidate =
+      capped_rev
+      |> Enum.reverse()
+      |> maybe_append_parts_truncation_notice(truncated?)
+      |> Ankole.JSON.encode!()
+
+    cond do
+      downstream_wire_bytes(status, candidate) <= limit ->
+        candidate
+
+      text_budget > 0 ->
+        fit_program_parts(parts, status, limit, max(div(text_budget * 3, 4) - 512, 0))
+
+      true ->
+        Ankole.JSON.encode!([
+          %{"kind" => "text", "value" => String.trim_leading(@model_result_truncation_notice)}
+        ])
+    end
+  end
+
+  defp encode_bounded_error_result(error, parts, status, limit) do
+    encoded = Ankole.JSON.encode!(%{"error" => error, "output" => parts})
+
+    if downstream_wire_bytes(status, encoded) <= limit do
+      encoded
+    else
+      capped_error = Ankole.Text.utf8_prefix(error || "", 4_096)
+
+      Ankole.JSON.encode!(%{
+        "error" => capped_error,
+        "output" => [
+          %{"kind" => "text", "value" => String.trim_leading(@model_result_truncation_notice)}
+        ]
+      })
+    end
+  end
+
+  defp maybe_append_parts_truncation_notice(parts, false), do: parts
+
+  defp maybe_append_parts_truncation_notice(parts, true) do
+    parts ++
+      [%{"kind" => "text", "value" => String.trim_leading(@model_result_truncation_notice)}]
   end
 
   defp decode_arguments(arguments) when is_map(arguments), do: arguments

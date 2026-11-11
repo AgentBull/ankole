@@ -2,10 +2,11 @@ import { useMemo } from 'react'
 import { InlineLoading } from './content-primitives'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { RemixiconComponentType } from '@remixicon/react'
+import { RiPuzzle2Line, type RemixiconComponentType } from '@remixicon/react'
 import { useDebouncedValue } from '../common/use-debounced-value'
 import type { PodAgent } from './api'
 import { pageQuery, type Page, type PageSearchMatch, type RecentSearchEntry } from './content-api'
+import type { MetaSkill } from './meta-api'
 import { ChatAvatar } from './chat/chat-avatar'
 import { AgentName, ConversationGlyph, ConversationTitle, type RoomRow } from './chat/conversation-row'
 import { PageIcon } from './page-icon'
@@ -65,12 +66,22 @@ export type CommandChatEntry = {
   recordQuery?: string
 }
 
+export type CommandSkillEntry = {
+  kind: 'skill'
+  value: string
+  keywords: string[]
+  skill: MetaSkill
+  href: string
+  url: string
+}
+
 export type CommandEntry =
   | CommandRecentSearchEntry
   | CommandPageEntry
   | CommandNavigationEntry
   | CommandColleagueEntry
   | CommandChatEntry
+  | CommandSkillEntry
 
 export function CommandMenuPreview({
   open,
@@ -160,6 +171,27 @@ export function CommandMenuPreview({
             </div>
           </div>
           {activeEntry.agent.role && <p className="text-xs leading-5 text-fg-secondary">{activeEntry.agent.role}</p>}
+        </div>
+      ) : activeEntry?.kind === 'skill' ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <RiPuzzle2Line aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+              <HighlightedText text={activeEntry.skill.name} query={trimmedQuery} />
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-tertiary">
+            <code className="rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+              /{activeEntry.skill.slug}
+            </code>
+            <span>·</span>
+            <span>{t(`pod.meta.source_${activeEntry.skill.source_kind}`)}</span>
+          </div>
+          {activeEntry.skill.description && (
+            <p className="text-xs leading-5 text-fg-secondary">
+              <HighlightedText text={activeEntry.skill.description} query={trimmedQuery} />
+            </p>
+          )}
         </div>
       ) : activeEntry?.kind === 'nav' ? (
         <div className="space-y-1.5">

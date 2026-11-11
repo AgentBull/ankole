@@ -42,6 +42,11 @@ defmodule Ankole.Pod.Pages do
     do: match?(:ok, destination(actor, nil, nil))
 
   defdelegate sharing(actor, id), to: Sharing
+
+  defdelegate explain_sharing(actor, id, subject_uid, action \\ "node_view"),
+    to: Sharing,
+    as: :explain_access
+
   defdelegate subjects(actor), to: Sharing
   defdelegate set_sharing(actor, id, attrs, authority \\ nil), to: Sharing
   defdelegate set_sharing_in_tx(actor, id, attrs), to: Sharing

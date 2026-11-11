@@ -263,12 +263,12 @@ export namespace Elt {
     }
 
     static parse(selector: string) {
-      const name = /^[\w\d\-_\u0c00-\uffff]+/.exec(selector)
+      const name = /^[\w\d\-_\u00c0-\uffff]+/.exec(selector)
       const tag = name ? name[0] : null
       const classes: string[] = []
       let txt = name ? selector.slice(name[0].length) : selector
       for (;;) {
-        const cls = /^\.[\w\d\-_\u0c00-\uffff]+/.exec(txt)
+        const cls = /^\.[\w\d\-_\u00c0-\uffff]+/.exec(txt)
         if (!cls) break
         classes.push(cls[0].slice(1))
         txt = txt.slice(cls[0].length)

@@ -782,7 +782,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       }
       if (decision.action === 'compact_then_retry') {
         await this.compactThread()
-        await this.startCodexTurn(retryContinuationInput())
+        await this.startCodexTurn(compactContinuationInput(this.job.task))
         return
       }
       if (decision.action === 'replace_thread') {
@@ -1280,6 +1280,14 @@ function turnClientUserMessageID(turnStart: TurnStart): string | undefined {
 
 function retryContinuationInput(): string {
   return 'Continue the Job task after the transient runtime error. Inspect the current workspace before repeating any side effect, then re-check the original acceptance criteria.'
+}
+
+function compactContinuationInput(task: string): string {
+  return [
+    'Context was compacted near the window limit. Stop open-ended exploration, inspect the deliverables already materialized in the workspace or Drive, and finish or verify the remaining requirements.',
+    'Reconcile every acceptance criterion verbatim against the original task below; if any criterion cannot be satisfied within the remaining budget, state `Outcome: incomplete` with saved deliverable paths and exact unmet items.',
+    `Original task:\n${task}`
+  ].join('\n\n')
 }
 
 type ContinuationSourceContext = {

@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
 import { authenticationRef, podID } from '../../common/browser-context'
 import { browserSession } from '../../common/api/generated/sdk.gen'
-import { podKeys, type PodAgent } from '../api'
+import { conversationAttentionQuery, podKeys, type PodAgent } from '../api'
 import { podConversations } from '../api/generated/sdk.gen'
 import { ChatAvatar } from './chat-avatar'
-import { ConversationGlyph, ConversationTitle, conversationPath } from './conversation-row'
+import { ChatRowStatus, ConversationGlyph, ConversationTitle, conversationPath } from './conversation-row'
 import { formatRelativeTime } from '../../common/date-time'
 import { ContentError } from '../content-primitives'
 import { NextStepsMenu } from './next-steps-menu'
@@ -32,11 +32,18 @@ export function ChatHomeView({
     queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
     queryFn: () => browserSession()
   })
+  const attention = useQuery({
+    ...conversationAttentionQuery,
+    enabled: !pageID && !colleague
+  })
   const recent = useQuery({
     queryKey: [...podKeys.conversations, 'recent'],
     queryFn: ({ signal }) => podConversations({ query: { order: 'recent', limit: 3 }, signal }),
     enabled: !pageID && !colleague
   })
+  const needsInput = (attention.data ?? []).filter(room => room.rowStatus === 'waiting_choice')
+  const needsInputIDs = new Set(needsInput.map(room => room.id))
+  const recentRooms = (recent.data?.conversations ?? []).filter(room => !needsInputIDs.has(room.id))
   return (
     <div className="pod-chat-home">
       <div className="pod-chat-home-main">
@@ -65,6 +72,27 @@ export function ChatHomeView({
       </div>
       {!pageID && !colleague && (
         <div className="pod-chat-home-guides">
+          {needsInput.length > 0 && (
+            <section>
+              <h2>
+                {t('pod.chat_room.section_needs_input')} ({needsInput.length})
+              </h2>
+              {needsInput.map(room => (
+                <Link key={room.id} className="pod-chat-recent-row" to={conversationPath(room)}>
+                  <ConversationGlyph room={room} size="md" />
+                  <span className="pod-chat-recent-copy">
+                    <span className="pod-chat-recent-title">
+                      <ConversationTitle room={room} />
+                    </span>
+                    <span className="pod-chat-subtle flex items-center gap-1.5">
+                      <ChatRowStatus status={room.rowStatus} />
+                      <span>{formatRelativeTime(room.lastActivityAt, i18n.language)}</span>
+                    </span>
+                  </span>
+                </Link>
+              ))}
+            </section>
+          )}
           {showSuggestions && !pageID && (
             <NextStepsMenu
               onChoose={onSuggestion}
@@ -82,18 +110,21 @@ export function ChatHomeView({
               }
             />
           )}
-          {!pageID && !colleague && (!!recent.data?.conversations.length || recent.isError) && (
+          {!pageID && !colleague && (recentRooms.length > 0 || recent.isError) && (
             <section>
               <h2>{t('pod.chat_room.recent')}</h2>
               <ContentError error={recent.error} retry={() => void recent.refetch()} />
-              {recent.data?.conversations.map(room => (
+              {recentRooms.map(room => (
                 <Link key={room.id} className="pod-chat-recent-row" to={conversationPath(room)}>
                   <ConversationGlyph room={room} size="md" />
                   <span className="pod-chat-recent-copy">
                     <span className="pod-chat-recent-title">
                       <ConversationTitle room={room} />
                     </span>
-                    <span className="pod-chat-subtle">{formatRelativeTime(room.lastActivityAt, i18n.language)}</span>
+                    <span className="pod-chat-subtle flex items-center gap-1.5">
+                      <ChatRowStatus status={room.rowStatus} />
+                      <span>{formatRelativeTime(room.lastActivityAt, i18n.language)}</span>
+                    </span>
                   </span>
                 </Link>
               ))}

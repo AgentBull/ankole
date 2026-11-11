@@ -133,7 +133,7 @@ export async function executeEnvVarBatchImport({
 }
 
 export function formatImportOutcomeError(
-  translate: (key: string, options?: Record<string, unknown>) => string,
+  translate: (key: string, options: Record<string, unknown>) => string,
   outcome: EnvVarImportOutcome
 ): string | null {
   if (outcome.failures.length === 0) return null

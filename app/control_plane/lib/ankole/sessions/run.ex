@@ -925,5 +925,6 @@ defmodule Ankole.Sessions.Run do
       "call_id" => call_id(call),
       "output" => result.output
     }
+    |> Ankole.Attrs.maybe_put("caller", call["caller"])
   end
 end

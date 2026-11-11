@@ -95,6 +95,101 @@ defmodule Ankole.Pod.Pages.Sharing do
     Repo.transact_repeatable_read_only(fn -> Collaborators.subjects_in_tx(actor) end)
   end
 
+  def explain_access(
+        %Ankole.AuthZ.Actor{} = actor,
+        id,
+        subject_uid,
+        action \\ "node_view"
+      ) do
+    Repo.transact_repeatable_read_only(fn ->
+      explain_access_in_tx(actor, id, subject_uid, to_string(action))
+    end)
+  end
+
+  defp explain_access_in_tx(actor, id, subject_uid, action) do
+    caller_uid = Ankole.AuthZ.Actor.uid(actor)
+
+    with true <- action in Access.page_actions(),
+         {:ok, reachable} <- Access.reachable_anchors(actor),
+         {:ok, page} <- Pages.fetch(id),
+         {:ok, path} <- Access.path(page),
+         {:ok, can_manage} <- authorize_sharing_read(path, page, reachable),
+         {:ok, collab_scope} <- Access.collaborator_scope(actor),
+         {:ok, subject_principal} <- Ankole.Principals.get_principal(subject_uid),
+         :ok <-
+           authorize_explain_subject(
+             actor,
+             caller_uid,
+             page.id,
+             reachable,
+             can_manage,
+             collab_scope,
+             subject_principal
+           ) do
+      subject_actor = Ankole.AuthZ.Actor.new(subject_principal)
+
+      {:ok,
+       Ankole.Pod.Access.Explain.explain(subject_actor, page, action,
+         viewer_actor: actor,
+         viewer_reachable: reachable
+       )}
+    else
+      false -> {:error, :invalid_request}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp authorize_explain_subject(
+         actor,
+         caller_uid,
+         page_id,
+         reachable,
+         can_manage,
+         collab_scope,
+         subject_principal
+       ) do
+    uid = subject_principal.uid
+
+    cond do
+      uid == caller_uid ->
+        :ok
+
+      collab_scope == :shared ->
+        with {:ok, visible_subjects} <-
+               Collaborators.subjects_in_tx(actor,
+                 reachable: reachable,
+                 context_page_id: page_id
+               ) do
+          visible_uids = visible_uid_set(visible_subjects)
+
+          granted_uids =
+            MapSet.new(for g <- Access.page_grants(page_id), g.principal_uid, do: g.principal_uid)
+
+          if MapSet.member?(visible_uids, uid) or MapSet.member?(granted_uids, uid),
+            do: :ok,
+            else: {:error, :not_found}
+        end
+
+      subject_principal.type == :agent ->
+        case Ankole.Principals.get_agent_record(uid) do
+          {:ok, %{type: :personal_assistant, owner_principal_uid: ^caller_uid}} ->
+            :ok
+
+          {:ok, %{type: :personal_assistant}} when can_manage ->
+            :ok
+
+          {:ok, %{type: :ai_colleague}} ->
+            :ok
+
+          _ ->
+            {:error, :not_found}
+        end
+
+      true ->
+        :ok
+    end
+  end
+
   def set_sharing(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
     authority = authority || actor.turn_authority
 

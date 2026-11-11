@@ -47,7 +47,12 @@ defmodule Ankole.Conversations.Queries do
     Message
     |> Ash.Query.filter(
       conversation_id in ^ids and author_type == :agent and
-        fragment("?->'clarify' IS NOT NULL", rich_content)
+        fragment(
+          "(?->'clarify' IS NOT NULL OR ?->'connector_auth' IS NOT NULL OR ?->'access_blocked' IS NOT NULL)",
+          rich_content,
+          rich_content,
+          rich_content
+        )
     )
     |> Ash.Query.distinct([:conversation_id, :author_uid])
     |> Ash.Query.distinct_sort(conversation_id: :asc, author_uid: :asc, seq: :desc)
@@ -176,6 +181,83 @@ defmodule Ankole.Conversations.Queries do
            |> Ash.Query.select([:id])
            |> Ankole.Ash.read(),
          do: {:ok, Enum.uniq(Enum.map(rows, & &1.conversation_id) ++ Enum.map(external, & &1.id))}
+  end
+
+  @doc """
+  Returns 1:1 private conversation IDs between `human_uid` and their personal
+  assistant (`assistant_uid`), across Native Pod rooms and external IM DMs.
+  """
+  def assistant_dm_conversation_ids(human_uid, assistant_uid) when is_binary(human_uid) do
+    native_ids =
+      Participant
+      |> Ash.Query.filter(principal_uid == ^human_uid)
+      |> Ash.Query.select([:conversation_id])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.conversation_id)
+
+    native_pa_dms =
+      if native_ids == [] do
+        []
+      else
+        Conversation
+        |> Ash.Query.filter(
+          id in ^native_ids and kind == :native and room_mode == :dm and
+            is_nil(dm_colleague_uid)
+        )
+        |> Ash.Query.select([:id])
+        |> Ankole.Ash.read!()
+        |> Enum.map(& &1.id)
+      end
+
+    external_query =
+      if is_binary(assistant_uid) do
+        Conversation
+        |> Ash.Query.filter(
+          kind == :external and external_kind == :im_dm and
+            fragment("?->>'dm_peer_principal_uid'", metadata) == ^human_uid and
+            not exists(
+              Message,
+              conversation_id == parent(id) and author_type == :agent and
+                not is_nil(author_uid) and author_uid != ^assistant_uid
+            )
+        )
+      else
+        Conversation
+        |> Ash.Query.filter(
+          kind == :external and external_kind == :im_dm and
+            fragment("?->>'dm_peer_principal_uid'", metadata) == ^human_uid and
+            not exists(
+              Message,
+              conversation_id == parent(id) and author_type == :agent and not is_nil(author_uid)
+            )
+        )
+      end
+
+    external_pa_dms =
+      external_query
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.id)
+
+    Enum.uniq(native_pa_dms ++ external_pa_dms)
+  end
+
+  @doc "Filters `conversation_ids` down to 1:1 private DMs involving `human_uid`."
+  def dm_conversation_ids_for_human(_human_uid, []), do: MapSet.new()
+
+  def dm_conversation_ids_for_human(human_uid, conversation_ids)
+      when is_binary(human_uid) and is_list(conversation_ids) do
+    Conversation
+    |> Ash.Query.filter(
+      id in ^conversation_ids and
+        ((kind == :native and room_mode == :dm and
+            exists(Participant, conversation_id == parent(id) and principal_uid == ^human_uid)) or
+           (kind == :external and external_kind == :im_dm and
+              fragment("?->>'dm_peer_principal_uid'", metadata) == ^human_uid))
+    )
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> MapSet.new(& &1.id)
   end
 
   @doc false

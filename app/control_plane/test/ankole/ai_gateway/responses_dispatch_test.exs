@@ -2002,6 +2002,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["anthropic-version"] == "2023-06-01"
     assert request.body["model"] == "claude-sonnet-4-5"
     assert request.body["stream"] == true
+    assert request.body["cache_control"] == %{"type" => "ephemeral"}
     # The packaged metadata lists no effort levels for this model.
     refute Map.has_key?(request.body, "output_config")
     refute Map.has_key?(request.body, "effort")
@@ -2145,6 +2146,96 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert get_in(body, ["output", Access.at(0), "content", Access.at(0), "text"]) ==
              "hello via openrouter"
+  end
+
+  test "claude provider skips top-level cache_control when caller supplies 4 block breakpoints" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200,
+         %{
+           "id" => "msg_claude_4_blocks",
+           "model" => request.body["model"],
+           "content" => [%{"type" => "text", "text" => "ok"}],
+           "usage" => %{"input_tokens" => 10, "output_tokens" => 2}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "claude-4-blocks",
+               provider_kind: "claude",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "anthropic-key"}]
+               },
+               connection_options: %{"transport" => %{}}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "claude-4-blocks",
+               model: "claude-sonnet-4-5"
+             })
+
+    blocks =
+      for idx <- 1..4 do
+        %{
+          "type" => "input_text",
+          "text" => "block-#{idx}",
+          "cache_control" => %{"type" => "ephemeral"}
+        }
+      end
+
+    assert {:ok, _response} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [%{"type" => "message", "role" => "user", "content" => blocks}]
+             })
+
+    assert_receive {:gateway_request, request}
+    refute Map.has_key?(request.body, "cache_control")
+  end
+
+  test "openai chat_completions forwards prompt_cache_key in request body" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200, chat_completion_body(request.body["model"], "cached")}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-chat-cache-key",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "endpoint_kind" => "chat_completions",
+                 "transport" => %{}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-chat-cache-key",
+               model: "gpt-5.5"
+             })
+
+    assert {:ok, _response} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello",
+               "prompt_cache_key" => "session:cache-key-1"
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.path == "v1/chat/completions"
+    assert request.body["prompt_cache_key"] == "session:cache-key-1"
   end
 
   test "azure openai provider supports deployment api-key auth and v1 bearer responses" do

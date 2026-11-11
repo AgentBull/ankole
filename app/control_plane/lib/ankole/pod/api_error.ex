@@ -7,6 +7,15 @@ defmodule Ankole.Pod.APIError do
     skill_enabled_for_all:
       {409,
        "This Skill is enabled for every Agent. Turn off the global setting before changing individual bindings."},
+    private_skill:
+      {422,
+       "Personal Skills belong exclusively to your assistant. Publish it to the workspace before binding other Agents."},
+    already_workspace_skill: {409, "This Skill is already shared with the workspace."},
+    reserved_skill_slug:
+      {422, "This Skill slug is reserved by a built-in slash command. Choose another slug."},
+    personal_skill_requires_assistant:
+      {422, "Personal Skills can only be owned by a personal assistant."},
+    skill_slug_taken: {409, "A Skill with this slug already exists. Choose another slug."},
     official_skill: {422, "Official Skills cannot be renamed or deleted."},
     required_manifest: {422, "Edit SKILL.md through the manifest editor."},
     invalid_skill_manifest: {422, "A Skill requires a name, description and valid content."},
@@ -65,7 +74,18 @@ defmodule Ankole.Pod.APIError do
     invalid_worker_env_value: {422, "A non-empty string value is required"},
     invalid_worker_env_secret: {422, "The secret flag must be a boolean"},
     invalid_worker_env_description: {422, "The description must be a string"},
-    applet_env_too_large: {413, "Combined Applet environment variables must not exceed 64 KiB"}
+    applet_env_too_large: {413, "Combined Applet environment variables must not exceed 64 KiB"},
+    blank_claim: {422, "Enter non-empty memory text."},
+    claim_not_text: {422, "Memory text must be valid UTF-8 without null bytes."},
+    claim_garbled: {422, "Memory text appears corrupted or unreadable."},
+    blank_kind: {422, "Select a valid memory kind."},
+    already_superseded: {409, "This memory was already updated. Reload before editing."},
+    already_resolved: {409, "This memory is already resolved and cannot be edited."},
+    writer_not_in_claim_scope: {403, "You do not have edit access to this memory's source."},
+    forget_not_eligible:
+      {403, "Only the author or an owner of the source page can forget this memory."},
+    forget_reason_required: {422, "Enter a reason before forgetting this memory."},
+    dedup_target_contended: {409, "Another update to a similar memory is in progress. Try again."}
   }
 
   def message(error), do: public_error(error.reason).message
@@ -103,6 +123,30 @@ defmodule Ankole.Pod.APIError do
         "Authorize the account owner to use this connection with the requested permissions.",
       status: 422,
       details: details
+    }
+
+  def public_error({:claim_too_long, max}),
+    do: %{
+      code: "claim_too_long",
+      message: "Memory text must be at most #{max} characters.",
+      status: 422,
+      details: nil
+    }
+
+  def public_error({:invalid_fact_kind, _kind, allowed}),
+    do: %{
+      code: "invalid_fact_kind",
+      message: "Memory kind must be one of: #{Enum.join(allowed, ", ")}.",
+      status: 422,
+      details: nil
+    }
+
+  def public_error({:invalid_notability, _notability, allowed}),
+    do: %{
+      code: "invalid_notability",
+      message: "Notability must be one of: #{Enum.join(allowed, ", ")}.",
+      status: 422,
+      details: nil
     }
 
   def public_error(reason) do

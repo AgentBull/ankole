@@ -73,6 +73,7 @@ defmodule Ankole.Sessions.Tools.Workflow do
                     "additionalProperties": false
                   },
                   "execution_mode": "parallel",
+                  "allowed_callers": ["direct", "programmatic"],
                   "read_only": true,
                   "destructive": false
                 },
@@ -101,6 +102,7 @@ defmodule Ankole.Sessions.Tools.Workflow do
                     "additionalProperties": false
                   },
                   "execution_mode": "parallel",
+                  "allowed_callers": ["direct", "programmatic"],
                   "read_only": true,
                   "destructive": false
                 },
@@ -256,13 +258,15 @@ defmodule Ankole.Sessions.Tools.Workflow do
   alias Ankole.Workflow
 
   @impl true
-  def execute(run, %{"name" => "show_workflow"}, args) do
+  def execute(run, %{"name" => "show_workflow"} = call, args) do
+    budget = Tools.result_budget(call)
+
     with {:ok, value} <-
            Workflow.get(
              args["run_id"],
              run.agent_uid,
              if(Map.has_key?(args, "result_offset"),
-               do: [result_offset: args["result_offset"]],
+               do: [result_offset: args["result_offset"], window_bytes: budget],
                else: []
              )
            ) do
@@ -288,7 +292,8 @@ defmodule Ankole.Sessions.Tools.Workflow do
                   "next_offset" => next
                 }
               }
-            end
+            end,
+            budget
           )
         end
       else

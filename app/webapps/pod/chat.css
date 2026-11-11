@@ -2158,6 +2158,10 @@ details[open] > .pod-chat-tool-body {
 .pod-chat-tool-group[data-status='failed'] > summary > .pod-chat-tool-state {
   color: var(--destructive-foreground);
 }
+.pod-chat-tool-step[data-status='blocked'] .pod-chat-tool-state,
+.pod-chat-tool-step[data-status='blocked'] .pod-chat-tool-title {
+  color: var(--warning-foreground);
+}
 .pod-chat-tool-detail,
 .pod-chat-command-terminal {
   @apply content-object;
@@ -2486,6 +2490,7 @@ details[open] > .pod-chat-tool-body {
 }
 .pod-chat-linked-run {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   width: 100%;
   max-width: 520px;
@@ -2503,8 +2508,20 @@ details[open] > .pod-chat-tool-body {
   max-width: 100%;
   padding: 8px 10px;
 }
-.pod-chat-linked-run:hover {
+.pod-chat-linked-run:not([data-answering]):hover {
   background: color-mix(in srgb, var(--muted) 65%, var(--card));
+}
+.pod-chat-linked-run-answer {
+  flex-basis: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.pod-chat-linked-run-answer > .pod-chat-choice-card {
+  margin: 0;
 }
 .pod-chat-linked-run[data-active] {
   border-color: var(--border-strong);

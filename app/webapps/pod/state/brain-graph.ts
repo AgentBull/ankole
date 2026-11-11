@@ -82,6 +82,7 @@ interface BuildBrainOntologyGraphOptions {
   includeCategoryHubs?: boolean
   hiddenEntityTypes?: ReadonlySet<string>
   hiddenRelationKinds?: ReadonlySet<BrainRelationKind>
+  focusSlugs?: ReadonlySet<string>
 }
 
 interface BrainOntologyGraphProjection {
@@ -91,6 +92,8 @@ interface BrainOntologyGraphProjection {
   visibleObjects: BrainOntologyNode[]
   entityLayers: BrainEntityLayer[]
   relationLayers: BrainRelationLayer[]
+  focusedNodeIds: ReadonlySet<string> | null
+  primaryFocusNodeId: string | null
   inspect: (nodeId: string | null) => BrainInspectorSelection | null
 }
 
@@ -238,7 +241,8 @@ export function buildBrainOntologyGraph({
   layout = 'force',
   includeCategoryHubs = true,
   hiddenEntityTypes = new Set<string>(),
-  hiddenRelationKinds = new Set<BrainRelationKind>()
+  hiddenRelationKinds = new Set<BrainRelationKind>(),
+  focusSlugs
 }: BuildBrainOntologyGraphOptions): BrainOntologyGraphProjection {
   const categoriesById = new Map(categories.map(cat => [cat.id, cat]))
   const categoriesByName = new Map(categories.map(cat => [cat.name, cat]))
@@ -283,6 +287,39 @@ export function buildBrainOntologyGraph({
   const visibleObjects = matchedObjects.filter(node => !hiddenEntityTypes.has(node.type))
   const visibleById = new Map(visibleObjects.map(node => [node.id, node]))
 
+  let focusedNodeIds: Set<string> | null = null
+  let primaryFocusNodeId: string | null = null
+  const seedNodeIds = new Set<string>()
+  if (focusSlugs && focusSlugs.size > 0) {
+    for (const node of visibleObjects) {
+      if (focusSlugs.has(node.slug)) {
+        seedNodeIds.add(node.id)
+        if (!primaryFocusNodeId || node.slug.startsWith('people/')) {
+          primaryFocusNodeId = node.id
+        }
+      }
+    }
+    if (seedNodeIds.size > 0) {
+      focusedNodeIds = new Set<string>(seedNodeIds)
+      for (const link of links) {
+        if (seedNodeIds.has(link.from_page_id) && visibleById.has(link.to_page_id)) {
+          focusedNodeIds.add(link.to_page_id)
+        }
+        if (seedNodeIds.has(link.to_page_id) && visibleById.has(link.from_page_id)) {
+          focusedNodeIds.add(link.from_page_id)
+        }
+      }
+      for (const node of visibleObjects) {
+        if (seedNodeIds.has(node.id) && node.parent_id && visibleById.has(node.parent_id)) {
+          focusedNodeIds.add(node.parent_id)
+        }
+        if (node.parent_id && seedNodeIds.has(node.parent_id)) {
+          focusedNodeIds.add(node.id)
+        }
+      }
+    }
+  }
+
   const populatedCategories = new Map<string, BrainOntologyCategory>()
   for (const node of visibleObjects) {
     const cat = categoryByNodeId.get(node.id)
@@ -315,8 +352,12 @@ export function buildBrainOntologyGraph({
   if (emitHubs) {
     for (const cat of populatedCategories.values()) {
       const hubId = `${HUB_PREFIX}${cat.id}`
-      const ramp = resolveBrainColorRamp(cat.entity_type || cat.name, cat.primitive)
-      const count = membersByCategoryId.get(cat.id)?.length ?? 0
+      const baseRamp = resolveBrainColorRamp(cat.entity_type || cat.name, cat.primitive)
+      const members = membersByCategoryId.get(cat.id) ?? []
+      const count = members.length
+      const hubFocused = !focusedNodeIds || members.some(m => focusedNodeIds.has(m.id))
+      const ramp: AnkoleGraphColorRamp = hubFocused ? baseRamp : 'gray'
+      if (focusedNodeIds && hubFocused) focusedNodeIds.add(hubId)
       nodeRampById.set(hubId, ramp)
       graphNodes.push({
         id: hubId,
@@ -338,7 +379,9 @@ export function buildBrainOntologyGraph({
 
   for (const node of visibleObjects) {
     const cat = categoryByNodeId.get(node.id)
-    const ramp = resolveBrainColorRamp(node.type, cat?.primitive)
+    const baseRamp = resolveBrainColorRamp(node.type, cat?.primitive)
+    const isFocused = !focusedNodeIds || focusedNodeIds.has(node.id)
+    const ramp: AnkoleGraphColorRamp = isFocused ? baseRamp : 'gray'
     nodeRampById.set(node.id, ramp)
 
     const visibleObjectParentId = resolveVisibleAncestorObjectId(node, visibleById, allNodesById)
@@ -353,6 +396,7 @@ export function buildBrainOntologyGraph({
       tier: 'object',
       shape: 'circle',
       ramp,
+      weight: seedNodeIds.has(node.id) ? 4 : undefined,
       parentId: effectiveParentId,
       comboId: layout === 'combo' && cat ? `${COMBO_PREFIX}${cat.id}` : undefined
     })
@@ -397,7 +441,9 @@ export function buildBrainOntologyGraph({
     seenEdgeKeys.add(key)
 
     const sourceRamp = nodeRampById.get(link.from_page_id) ?? 'blue'
-    const edgeRamp = resolveRelationRamp(relationKind, sourceRamp)
+    const bothFocused =
+      !focusedNodeIds || (focusedNodeIds.has(link.from_page_id) && focusedNodeIds.has(link.to_page_id))
+    const edgeRamp: AnkoleGraphColorRamp = bothFocused ? resolveRelationRamp(relationKind, sourceRamp) : 'gray'
     candidateEdges.push({
       relationKind,
       edge: {
@@ -496,6 +542,8 @@ export function buildBrainOntologyGraph({
     visibleObjects,
     entityLayers,
     relationLayers,
+    focusedNodeIds,
+    primaryFocusNodeId,
     inspect
   }
 }

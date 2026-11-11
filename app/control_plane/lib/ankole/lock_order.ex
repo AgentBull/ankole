@@ -98,7 +98,8 @@ defmodule Ankole.LockOrder do
       "agent_contracts" => 12,
       "pod_files" => 12,
       "pages" => 12,
-      "pod_applet_approvals" => 12
+      "pod_applet_approvals" => 12,
+      "connector_auth_waits" => 12
     }
     # A trigger references its consumer. Lock the consumer before its cron rule,
     # including when both belong to the parent-work rank. Likewise, Action Cards

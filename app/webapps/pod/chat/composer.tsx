@@ -38,7 +38,8 @@ import {
   RiListOrdered2,
   RiStopFill,
   RiAtLine,
-  RiCommandLine
+  RiCommandLine,
+  RiFlashlightLine
 } from '@remixicon/react'
 import { useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from '@tanstack/react-router'
@@ -58,7 +59,7 @@ import {
 import { ModelControls } from '../model-controls'
 import { pageQuery } from '../content-api'
 import { MentionPicker, type MentionChoice } from './mention-picker'
-import { SlashCommandPicker, type SlashCommand } from './slash-command-picker'
+import { SlashCommandPicker, type SlashCommand, type SlashSkillChoice } from './slash-command-picker'
 import {
   completionAt,
   ComposerMenuHighlight,
@@ -253,6 +254,14 @@ export function Composer({
     }
     close()
   }
+  const chooseSkill = (skill: SlashSkillChoice) => {
+    const start = picker?.start ?? 0
+    const nextDraft = picker ? draft.slice(0, picker.start) + draft.slice(picker.end) : draft
+    pendingCaret.current = start
+    model.draft.value = nextDraft
+    model.attachedSkill.value = skill
+    close()
+  }
   const slash = (command: SlashCommand) => {
     const start = picker?.start
     const nextDraft = picker ? draft.slice(0, picker.start) + draft.slice(picker.end) : draft
@@ -261,6 +270,12 @@ export function Composer({
     if (command === 'new') {
       if (onNew) onNew()
       else void navigate({ to: podLocation('/').pathname })
+    } else if (command === 'learn') {
+      const rest = nextDraft.trimStart()
+      const next = rest ? `/learn ${rest}` : '/learn '
+      pendingCaret.current = next.length
+      model.attachedSkill.value = null
+      model.draft.value = next
     } else if (command === 'invite') onInvite()
     else if (command === 'rename') onRename()
     else if (command === 'page') open('page', start ?? nextDraft.length, nextDraft)
@@ -335,6 +350,7 @@ export function Composer({
       !hasActiveAgent &&
       !model.pending.value &&
       !draft &&
+      !model.attachedSkill.value &&
       !isComposing &&
       !model.attachments.hasFiles.value &&
       !model.links.value.length,
@@ -385,11 +401,15 @@ export function Composer({
           hasAgents={roomAgents.length > 0}
           canNew={assistantAvailable}
           canRename={detail?.conversation.conversationKind !== 'colleague_dm'}
+          targetAgentUID={modelAgentUID || (personalAssistant && agentUID ? agentUID : undefined)}
+          personalAssistant={personalAssistant}
+          allowSkills={!queueEditing && !answerID}
           query={picker.query}
           id={completionID}
           input={textarea}
           handle={completion}
           onChoose={slash}
+          onChooseSkill={chooseSkill}
           onClose={close}
         />
       ) : (
@@ -498,6 +518,27 @@ export function Composer({
             <ChatAttachmentDrafts model={model.attachments} disabled={attachmentsDisabled} />
           )}
           <div className="pod-chat-draft-pages">
+            {model.attachedSkill.value && (
+              <span className="pod-chat-draft-page" data-testid="composer-skill-pill">
+                <RiFlashlightLine aria-hidden className="size-3.5 shrink-0 text-primary" />
+                <span className="truncate font-medium text-foreground">{model.attachedSkill.value.name}</span>
+                <span className="font-mono text-[11px] text-fg-tertiary">/{model.attachedSkill.value.slug}</span>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={t('pod.chat_room.remove_skill_pill', {
+                    defaultValue: 'Remove Skill {$name}',
+                    name: model.attachedSkill.value.name
+                  })}
+                  onClick={() => {
+                    model.attachedSkill.value = null
+                    textarea.current?.focus()
+                  }}>
+                  <RiCloseLine aria-hidden />
+                </Button>
+              </span>
+            )}
             {model.links.value
               .filter(link => link.kind === 'page' && link.quote == null)
               .map(link => (
@@ -646,6 +687,7 @@ export function Composer({
                   !answerID &&
                   !queueEditing &&
                   !draft &&
+                  !model.attachedSkill.value &&
                   !model.attachments.hasFiles.value &&
                   !model.links.value.length &&
                   textarea.current?.selectionStart === textarea.current?.selectionEnd &&

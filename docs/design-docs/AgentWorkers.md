@@ -1052,6 +1052,31 @@ truncation, with any byte-loss notice kept outside the truncated text. Binary
 file transfers use a dedicated byte-exact channel that bypasses this text
 collector and Python supervisor.
 
+To reduce repetitive CLI noise in model context without altering execution
+semantics, Agent Computer applies silent perceptual output shaping in two places:
+on foreground `command` tool results after `outputLogPath` captures the raw
+bytes, and through `PATH`-prepended shims at `/usr/local/libexec/ankole-cli-shims`
+(`pytest`, `vitest`, `jest`, `mix`, `cargo`, `tsc`, `oxlint`, `eslint`, `npm`,
+`pnpm`, `yarn`, `bun`, `pip`, `pip3`, `uv`, `curl`, `git`, and `cat`) for child
+processes in Session commands and Codex Jobs. Both paths preserve the real exit
+code and pass raw bytes straight through whenever a command specifies
+machine-readable or verbose flags (`--json`, `--porcelain`, `--format`, `-v`,
+`-vv`, `--nocapture`, `-o`, `-O`), shell pipes or redirections,
+`ANKOLE_RAW=1`, or `ANKOLE_PERCEPTUAL_POSTURE=exact_data_forensics`; inside the
+container shim, `/etc/profile.d/ankole-agent-computer.sh` records
+`ANKOLE_HARNESS_STDOUT_ID` from `/proc/$$/fd/1` on shell startup, and the shim
+shapes output only when `/proc/$$/fd/1` still points to that harness stream
+(or, without an outer shell, when `stdout` is a direct `codex` child pipe/socket
+rather than a regular file), automatically bypassing downstream pipes and file
+redirections. On foreground `command` calls, Agent Computer writes
+`outputLogPath` whenever raw output exceeds the text cap or perceptual shaping
+shrinks the output, so the Agent can inspect exact unshaped bytes without
+re-running the command. Shaped outputs fold clean test suites, compiler and
+package-manager chatter, large JSON payloads, verbose `git log` streams, and
+bare source-file `cat` dumps silently without appending truncation disclaimers,
+while `read_file` and `apply_patch` always operate on exact, unmodified file
+bytes.
+
 Turn-local CLI bridges enforce a shared Worker-wide cap of 64 concurrent
 requests: each accepted socket has 10 seconds to send its newline-terminated
 request, after which a full request runs under the operation's own timeout

@@ -859,6 +859,23 @@ updates pass-through descendants by ID—stopping at child anchors—only when t
 acl_anchor_id)` and `(tenant_id, parent_anchor_id)` across live and trashed
 rows.
 
+`Ankole.Pod.Access.Explain` (`GET /api/v2/pod/pages/:id/sharing/explain`)
+evaluates why a target Principal or Agent holds or lacks a requested Page action
+by delegating verdict authority directly to `Ankole.Pod.Access.authorize/4`,
+reusing one shared `context_snapshot` across the four explanatory stages:
+`subject_resolution` (resolving Personal Assistant ownership to its owning Human
+or evaluating an AI Colleague's standalone authority), `space_and_trash_gate`
+(checking Space vs Private boundaries, Guest restrictions, and ancestor trash
+state), `acl_anchor_chain` (walking `inherit_permissions`, Space defaults, and
+matching `permission_grants`), and `brain_disclosure_gate` (evaluating
+`Ankole.Brain.Access.authorize_turn` when AI retrieval intersection applies).
+Viewers who lack `node_manage` on the Page may inspect only themselves and their
+own Personal Assistant, whereas Page managers may inspect any collaborator or
+Agent and grant `view` access directly from the Share popover's `Check access`
+view. Drafting a `pod.page.set_sharing` ActionCard attaches `explain_summaries`
+for affected principals so approvers can compare current access before
+confirming.
+
 ### Directory pagination, search, and Agent write authority
 
 Tree navigation uses Ash keyset pagination over position, name and ID. Public

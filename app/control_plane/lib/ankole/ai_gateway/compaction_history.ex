@@ -191,9 +191,20 @@ defmodule Ankole.AIGateway.CompactionHistory do
 
   defp maybe_mark_missing_ref(map, _refs), do: map
 
+  @min_wire_ratio 0.75
+  @max_wire_ratio 2.50
+  @synthetic_wire_ratio_cutoff 4.0
+
   def history_usage_tokens(messages) do
+    case latest_usage_snapshot(messages) do
+      {_index, _message, tokens} -> tokens
+      nil -> 0
+    end
+  end
+
+  def first_post_checkpoint_usage_tokens(messages) when is_list(messages) do
     messages
-    |> Enum.reverse()
+    |> rows_after_last_compaction()
     |> Enum.find_value(0, fn
       %Message{} = message ->
         case message_usage_tokens(message) do
@@ -205,6 +216,125 @@ defmodule Ankole.AIGateway.CompactionHistory do
         nil
     end)
   end
+
+  @doc """
+  Projects upcoming request tokens by combining the newest provider usage
+  snapshot with a `wire_ratio`-calibrated estimate of unmeasured trailing rows
+  (such as journaled tool outputs), `current_input`, and newly mounted tools.
+  """
+  def preflight_usage_projection(subject_uid, history, current_input, request \\ %{})
+      when is_list(history) and is_list(current_input) and is_map(request) do
+    case latest_usage_snapshot(history) do
+      nil ->
+        %{
+          history_tokens: 0,
+          projected_tokens: 0,
+          delta_tokens: 0,
+          wire_ratio: 1.0,
+          synthetic_usage?: false
+        }
+
+      {usage_index, %Message{} = measured_anchor, total_tokens} ->
+        measured_rows = Enum.take(history, usage_index + 1)
+        unmeasured_rows = Enum.drop(history, usage_index + 1)
+        measured_est = estimated_measured_tokens(subject_uid, measured_rows, measured_anchor)
+        raw_ratio = total_tokens / max(measured_est, 1)
+        wire_ratio = raw_ratio |> clamp_float(@min_wire_ratio, @max_wire_ratio) |> Float.round(4)
+
+        delta_items = messages_to_items(unmeasured_rows) ++ input_items(current_input)
+        delta_items_est = non_empty_items_token_estimate(delta_items)
+        delta_tools_est = delta_tools_token_estimate(measured_anchor, request)
+        delta_instructions_est = delta_instructions_token_estimate(measured_anchor, request)
+
+        delta_tokens =
+          round((delta_items_est + delta_tools_est + delta_instructions_est) * wire_ratio)
+
+        %{
+          history_tokens: total_tokens,
+          projected_tokens: total_tokens + delta_tokens,
+          delta_tokens: delta_tokens,
+          wire_ratio: wire_ratio,
+          synthetic_usage?: raw_ratio > @synthetic_wire_ratio_cutoff
+        }
+    end
+  end
+
+  defp latest_usage_snapshot(messages) when is_list(messages) do
+    messages
+    |> Enum.with_index()
+    |> Enum.reverse()
+    |> Enum.find_value(fn
+      {%Message{} = message, index} ->
+        case message_usage_tokens(message) do
+          tokens when tokens > 0 -> {index, message, tokens}
+          _missing -> nil
+        end
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp estimated_measured_tokens(subject_uid, measured_rows, %Message{metadata: metadata}) do
+    metadata = if is_map(metadata), do: metadata, else: %{}
+
+    items =
+      with true <- is_binary(subject_uid) and subject_uid != "",
+           {:ok, raw_items} <- history_items_for_artifact(subject_uid, measured_rows),
+           {:ok, resolved} <- CompactionArtifacts.resolve_input_handles(subject_uid, raw_items) do
+        resolved
+      else
+        _fallback -> messages_to_items(measured_rows)
+      end
+
+    non_empty_items_token_estimate(items) +
+      optional_text_token_estimate(Map.get(metadata, "instructions")) +
+      optional_tools_token_estimate(Map.get(metadata, "tools"))
+  end
+
+  defp delta_tools_token_estimate(%Message{metadata: %{"tools" => previous_tools}}, %{
+         "tools" => current_tools
+       })
+       when is_list(previous_tools) and is_list(current_tools) do
+    max(
+      optional_tools_token_estimate(current_tools) -
+        optional_tools_token_estimate(previous_tools),
+      0
+    )
+  end
+
+  defp delta_tools_token_estimate(_measured_anchor, _request), do: 0
+
+  defp delta_instructions_token_estimate(
+         %Message{metadata: %{"instructions" => previous_instructions}},
+         %{"instructions" => current_instructions}
+       )
+       when is_binary(previous_instructions) and is_binary(current_instructions) do
+    max(
+      optional_text_token_estimate(current_instructions) -
+        optional_text_token_estimate(previous_instructions),
+      0
+    )
+  end
+
+  defp delta_instructions_token_estimate(_measured_anchor, _request), do: 0
+
+  defp non_empty_items_token_estimate([]), do: 0
+  defp non_empty_items_token_estimate(items), do: items_token_estimate(items)
+
+  defp optional_tools_token_estimate(tools) when is_list(tools) and tools != [],
+    do: items_token_estimate(tools)
+
+  defp optional_tools_token_estimate(_tools), do: 0
+
+  defp optional_text_token_estimate(text) when is_binary(text) and text != "",
+    do: max(div(byte_size(text), 4), 1)
+
+  defp optional_text_token_estimate(_text), do: 0
+
+  defp clamp_float(value, min_val, _max_val) when value < min_val, do: min_val
+  defp clamp_float(value, _min_val, max_val) when value > max_val, do: max_val
+  defp clamp_float(value, _min_val, _max_val), do: value * 1.0
 
   defp message_usage_tokens(%Message{metadata: %{} = metadata}) do
     case Ankole.AIGateway.Usage.total_tokens(Map.get(metadata, "context_usage")) do
@@ -336,6 +466,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
         item
         |> Map.delete("id")
         |> ProviderSealedContent.strip()
+        |> strip_transient_replay_options()
         |> list_if_nonempty_map()
 
       ResponseItems.provider_replay_id_required?(item) ->
@@ -349,11 +480,47 @@ defmodule Ankole.AIGateway.CompactionHistory do
         item
         |> Map.delete("id")
         |> ProviderSealedContent.strip()
+        |> strip_transient_replay_options()
         |> list_if_nonempty_map()
     end
   end
 
   defp provider_neutral_item(_item), do: []
+
+  @doc """
+  Strips transient per-turn cache breakpoints and `store` flags when historical
+  items replay on later turns, keeping moving cache controls on the active tail.
+  """
+  def strip_transient_replay_options(%{} = item) do
+    item
+    |> Map.delete("cache_control")
+    |> Map.delete("store")
+    |> maybe_strip_nested_replay_parts("content")
+    |> maybe_strip_nested_replay_parts("output")
+  end
+
+  def strip_transient_replay_options(item), do: item
+
+  defp maybe_strip_nested_replay_parts(%{} = item, field) do
+    case Map.get(item, field) do
+      parts when is_list(parts) ->
+        Map.put(item, field, Enum.map(parts, &strip_transient_replay_part/1))
+
+      %{} = part ->
+        Map.put(item, field, strip_transient_replay_part(part))
+
+      _other ->
+        item
+    end
+  end
+
+  defp strip_transient_replay_part(%{} = part) do
+    part
+    |> Map.delete("cache_control")
+    |> Map.delete("store")
+  end
+
+  defp strip_transient_replay_part(part), do: part
 
   defp provider_neutral_text_item(""), do: []
 

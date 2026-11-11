@@ -12,7 +12,10 @@ import { LabeledField, ResourceEditorPage } from '../console-form'
 import { PrincipalEditorModel, type PrincipalDraftError } from '../state/principal-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 
-type Translate = (key: string, values?: Record<string, unknown>) => string
+type Translate = {
+  (key: string): string
+  (key: string, values: Record<string, unknown>): string
+}
 
 export function principalDraftErrorText(error: PrincipalDraftError, t: Translate): string {
   switch (error) {

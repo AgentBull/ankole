@@ -59,6 +59,7 @@ defmodule Ankole.Sessions.Tools.Pod do
       },
       "read_only" => read_only,
       "destructive" => false,
+      "allowed_callers" => if(read_only, do: ["direct", "programmatic"], else: ["direct"]),
       "execution_mode" => if(read_only, do: "parallel", else: "sequential")
     }
   end

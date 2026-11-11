@@ -79,6 +79,7 @@ export function ChatSidebar() {
   const search = useDebouncedValue(filter, 180)
   // Collapsed, the assistant group still shows every task that needs attention ("peek").
   const [assistant, setAssistant] = useState<'peek' | 'recent' | 'all'>('peek')
+  const [needsInputOpen, setNeedsInputOpen] = useState(true)
   const [pinnedOpen, setPinnedOpen] = useState(true)
   const [messagesOpen, setMessagesOpen] = useState(true)
   const [keepFocusInRow, menuFinalFocus] = useMenuFinalFocus()
@@ -148,9 +149,13 @@ export function ChatSidebar() {
           ].map(room => [room.id, room])
         ).values()
       ].sort((a, b) => Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt))
-  const pinned = listedRooms.filter(room => room.viewer.pinned)
-  const tasks = listedRooms.filter(room => !room.viewer.pinned && room.conversationKind === 'assistant_task')
-  const messages = listedRooms.filter(room => !room.viewer.pinned && room.conversationKind !== 'assistant_task')
+  const searching = !!search
+  const needsInput = searching ? [] : listedRooms.filter(room => room.rowStatus === 'waiting_choice')
+  const needsInputIDs = new Set(needsInput.map(room => room.id))
+  const remainingRooms = needsInputIDs.size > 0 ? listedRooms.filter(room => !needsInputIDs.has(room.id)) : listedRooms
+  const pinned = remainingRooms.filter(room => room.viewer.pinned)
+  const tasks = remainingRooms.filter(room => !room.viewer.pinned && room.conversationKind === 'assistant_task')
+  const messages = remainingRooms.filter(room => !room.viewer.pinned && room.conversationKind !== 'assistant_task')
   const knownDMs = new Set(
     listedRooms.filter(room => room.conversationKind === 'colleague_dm').map(room => room.agents[0]?.uid)
   )
@@ -160,7 +165,6 @@ export function ChatSidebar() {
       !knownDMs.has(agent.uid) &&
       `${agent.uid} ${agent.displayName} ${agent.role ?? ''}`.toLocaleLowerCase().includes(query)
   )
-  const searching = !!search
   const shownTasks =
     searching || assistant === 'all'
       ? tasks
@@ -336,6 +340,15 @@ export function ChatSidebar() {
             {t('pod.chat.retry_load')}
           </Button>
         </div>
+      )}
+      {needsInput.length > 0 && (
+        <ChatSection
+          label={t('pod.chat_room.section_needs_input')}
+          count={String(needsInput.length)}
+          open={needsInputOpen}
+          onToggle={() => setNeedsInputOpen(!needsInputOpen)}>
+          {needsInputOpen && needsInput.map(roomRow)}
+        </ChatSection>
       )}
       {pinned.length > 0 && (
         <ChatSection

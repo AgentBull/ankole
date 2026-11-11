@@ -208,7 +208,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
       |> Map.new(&{&1.signal_id, &1.checkpoint || %{}})
 
     Map.new(messages, fn message ->
-      id = get_in(message.rich_content, ["clarify", "interaction_id"])
+      id = message_interaction_id(message)
 
       value =
         if is_binary(message.signal_id) and is_binary(id),
@@ -222,6 +222,15 @@ defmodule Ankole.Conversations.Delivery.Interactions do
 
       {message.id, value}
     end)
+  end
+
+  @doc false
+  def message_interaction_id(message) do
+    rich = message.rich_content || %{}
+
+    get_in(rich, ["clarify", "interaction_id"]) ||
+      get_in(rich, ["connector_auth", "interaction_id"]) ||
+      get_in(rich, ["access_blocked", "interaction_id"])
   end
 
   defp native_interaction(signal_id, interaction_id, checkpoint) do
@@ -411,6 +420,62 @@ defmodule Ankole.Conversations.Delivery.Interactions do
             accepted
           ),
         else: wake_external_answer_in_tx(source, uid, interaction_id, accepted, now)
+    else
+      {:error, _reason} = error -> error
+      _ -> {:error, :interaction_not_pending}
+    end
+  end
+
+  @doc """
+  Resolves a pending external wait interaction (such as connector authorization
+  or resource access grant) when the caller already holds the target Session
+  advisory lock (Rank 9), locking Signal and PreviewState at Rank 11 and waking
+  the session with `signal.action.invoked`.
+  """
+  def resolve_external_wait_in_tx(
+        %Signal{} = source,
+        local_id,
+        actor_uid,
+        actor_name,
+        %{"kind" => _, "value" => value} = answer,
+        %DateTime{} = now
+      )
+      when is_binary(local_id) and is_binary(actor_uid) and is_binary(value) do
+    interaction_id = source.id <> ":" <> local_id
+
+    with %Signal{} = locked_source <- Ankole.Signals.lock_signal_in_tx(source.id),
+         preview = PreviewStates.lock_in_tx(locked_source),
+         %{"state" => "pending"} <-
+           InteractionState.interaction(preview.checkpoint || %{}, local_id),
+         nil <- first_newer_session_reset(locked_source),
+         iso_now = DateTime.to_iso8601(now),
+         resolution = %{
+           "state" => "answered",
+           "answer" => answer,
+           "answered_by_uid" => actor_uid,
+           "answered_by_name" => actor_name || actor_uid,
+           "answered_at" => iso_now,
+           "answer_text" => value,
+           "operator_principal_uid" => actor_uid,
+           "resolved_at" => iso_now
+         },
+         {:ok, checkpoint} <- InteractionState.resolve(preview.checkpoint, local_id, resolution),
+         {:ok, _source} <- PreviewStates.put_checkpoint_in_tx(locked_source, checkpoint) do
+      accepted = %{
+        "interaction_id" => local_id,
+        "source_signal_id" => locked_source.id,
+        "answer" => answer
+      }
+
+      if Ankole.Conversations.Peers.exchange(locked_source.conversation_id) do
+        Ankole.Conversations.Peers.answer_external_in_tx(
+          locked_source,
+          %{sender_key: actor_uid, source_event_id: "interaction-answer:" <> interaction_id},
+          accepted
+        )
+      else
+        wake_external_answer_in_tx(locked_source, actor_uid, interaction_id, accepted, now)
+      end
     else
       {:error, _reason} = error -> error
       _ -> {:error, :interaction_not_pending}

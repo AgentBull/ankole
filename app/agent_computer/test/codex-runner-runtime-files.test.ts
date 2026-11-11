@@ -55,4 +55,14 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     expect(content).toContain('## Skills')
     expect(content).toContain('- ordinary')
   })
+
+  it('requires progressive draft checkpointing and verbatim original-task acceptance verification', () => {
+    const content = renderCodexJobAgents({
+      jobRoot: '/agents/agent-1/jobs/job-1'
+    }).content
+
+    expect(content).toContain('materialize an initial working draft')
+    expect(content).toContain('reconcile every acceptance criterion against the original task verbatim')
+    expect(content).toContain('Outcome: incomplete')
+  })
 })
