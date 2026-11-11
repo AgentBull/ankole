@@ -519,6 +519,14 @@ defmodule Ankole.IssuesTest do
 
     assert uid == ctx.agent.uid
 
+    # The Squad follows a member's rename.
+    assert {:ok, _} = Ankole.Principals.disable_agent(ctx.agent.uid)
+    assert {:ok, _} = Ankole.Principals.rename(ctx.agent.uid, "renamed-research")
+    assert {:ok, _} = Ankole.Principals.enable_agent("renamed-research")
+
+    assert {:ok, %{squad: [%{uid: "renamed-research", name: "Research Agent"}]}} =
+             Issues.get(ctx.owner, item.id)
+
     # Only a personal assistant hands work to colleagues.
     assert {:error, :invalid_issue} =
              Issues.create(ctx.owner, %{
