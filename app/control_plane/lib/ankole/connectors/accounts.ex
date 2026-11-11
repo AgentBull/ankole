@@ -163,28 +163,26 @@ defmodule Ankole.Connectors.Accounts do
       if kind == "human" do
         put_human_tokens(config.id, actor.uid, tokens, metadata)
       else
-        Ankole.Connectors.AuthWaits.with_flush(fn ->
-          Repo.transact_top_level(
-            fn ->
-              with :ok <- Store.admin(actor),
-                   %{status: "active"} = locked <- Store.lock(config.id),
-                   do:
-                     put_tokens_in_tx(
-                       locked,
-                       "app",
-                       tokens["external_subject_id"],
-                       tokens,
-                       metadata
-                     )
-            end,
-            after_commit: fn _ -> Ankole.Connectors.AuthWaits.publish_flushed() end
-          )
-        end)
+        put_app_tokens(actor, config.id, tokens, metadata)
       end
     else
       false -> {:error, :credential_binding_not_supported}
       error -> error
     end
+  end
+
+  defp put_app_tokens(actor, auth_config_id, tokens, metadata) do
+    Ankole.Connectors.AuthWaits.with_flush(fn ->
+      Repo.transact_top_level(
+        fn ->
+          with :ok <- Store.admin(actor),
+               %{status: "active"} = locked <- Store.lock(auth_config_id),
+               do:
+                 put_tokens_in_tx(locked, "app", tokens["external_subject_id"], tokens, metadata)
+        end,
+        after_commit: fn _ -> Ankole.Connectors.AuthWaits.publish_flushed() end
+      )
+    end)
   end
 
   defp authorize_credentials(%{type: :human}, "human"), do: :ok

@@ -481,153 +481,164 @@ defmodule Ankole.Pod.Access.Explain do
          evaluated,
          viewer_reachable
        ) do
-    required_bit = Graph.action_bit(action)
     unbroken_chain = unbroken_inheritance_chain(path)
     root = hd(path)
-    reaches_root? = hd(unbroken_chain).id == root.id
 
-    satisfied = MapSet.new(evaluated["satisfiedGrantIDs"] || [])
     groups = MapSet.new(evaluated["effectiveGroupIDs"] || [])
-    group_names = load_group_names(MapSet.to_list(groups))
 
     root_sources =
-      if reaches_root? do
-        space_bits = Graph.snapshot_space_bits_for_explain(snapshot, evaluated)
-        conversation_ids = Map.get(snapshot, "conversationIDs", [])
-
-        []
-        |> maybe_append(
-          is_nil(root.parent_id) and is_nil(root.private_owner_uid) and
-            is_nil(Map.get(root, :conversation_id)) and root.inherit_permissions and
-            snapshot["canManageSpace"] == true,
-          %{
-            "kind" => "space_admin",
-            "label" => "Space administrator baseline"
-          }
-        )
-        |> maybe_append(
-          is_nil(root.parent_id) and is_nil(root.private_owner_uid) and
-            is_nil(Map.get(root, :conversation_id)) and root.inherit_permissions and
-            snapshot["canManageSpace"] != true and band(space_bits, required_bit) != 0,
-          %{
-            "kind" => "space_default",
-            "label" => "Workspace Space access"
-          }
-        )
-        |> maybe_append(
-          not is_nil(Map.get(root, :conversation_id)) and
-            Map.get(root, :conversation_id) in conversation_ids and
-            band(7, required_bit) != 0,
-          %{
-            "kind" => "conversation_participant",
-            "label" => "Conversation participant access"
-          }
-        )
-        |> maybe_append(
-          root.private_owner_uid == authority_uid,
-          %{
-            "kind" => "private_owner",
-            "label" => "Private space owner (@#{authority_uid})"
-          }
-        )
+      if hd(unbroken_chain).id == root.id do
+        root_matching_sources(root, authority_uid, Graph.action_bit(action), snapshot, evaluated)
       else
         []
       end
 
     chain_ids = Enum.map(unbroken_chain, & &1.id)
-    chain_by_id = Map.new(unbroken_chain, &{&1.id, &1})
     candidates = Access.grants(target_node_id: [in: chain_ids], action: action)
 
+    ctx = %{
+      subject_actor: subject_actor,
+      authority_uid: authority_uid,
+      page: page,
+      viewer_reachable: viewer_reachable,
+      satisfied: MapSet.new(evaluated["satisfiedGrantIDs"] || []),
+      groups: groups,
+      group_names: load_group_names(MapSet.to_list(groups)),
+      chain_by_id: Map.new(unbroken_chain, &{&1.id, &1}),
+      source_pages: load_grant_source_pages(candidates)
+    }
+
+    root_sources ++ Enum.flat_map(candidates, &grant_matching_sources(&1, ctx))
+  end
+
+  defp root_matching_sources(root, authority_uid, required_bit, snapshot, evaluated) do
+    space_bits = Graph.snapshot_space_bits_for_explain(snapshot, evaluated)
+    conversation_ids = Map.get(snapshot, "conversationIDs", [])
+
+    space_root? =
+      is_nil(root.parent_id) and is_nil(root.private_owner_uid) and
+        is_nil(Map.get(root, :conversation_id)) and root.inherit_permissions
+
+    []
+    |> maybe_append(
+      space_root? and snapshot["canManageSpace"] == true,
+      %{
+        "kind" => "space_admin",
+        "label" => "Space administrator baseline"
+      }
+    )
+    |> maybe_append(
+      space_root? and snapshot["canManageSpace"] != true and band(space_bits, required_bit) != 0,
+      %{
+        "kind" => "space_default",
+        "label" => "Workspace Space access"
+      }
+    )
+    |> maybe_append(
+      not is_nil(Map.get(root, :conversation_id)) and
+        Map.get(root, :conversation_id) in conversation_ids and
+        band(7, required_bit) != 0,
+      %{
+        "kind" => "conversation_participant",
+        "label" => "Conversation participant access"
+      }
+    )
+    |> maybe_append(
+      root.private_owner_uid == authority_uid,
+      %{
+        "kind" => "private_owner",
+        "label" => "Private space owner (@#{authority_uid})"
+      }
+    )
+  end
+
+  defp load_grant_source_pages(candidates) do
     source_node_ids =
       candidates
       |> Enum.map(& &1.source_node_id)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    source_pages =
-      if source_node_ids == [] do
-        %{}
-      else
-        Page
-        |> Ash.Query.filter(id in ^source_node_ids and is_nil(deleted_at))
-        |> Ankole.Ash.read!()
-        |> Map.new(&{&1.id, &1})
-      end
+    if source_node_ids == [] do
+      %{}
+    else
+      Page
+      |> Ash.Query.filter(id in ^source_node_ids and is_nil(deleted_at))
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.id, &1})
+    end
+  end
 
-    grant_sources =
-      Enum.flat_map(candidates, fn grant ->
-        applies_to_page? =
-          grant.target_node_id == page.id or (grant.target_scope || "container") == "container"
+  defp grant_matching_sources(grant, ctx) do
+    applies_to_page? =
+      grant.target_node_id == ctx.page.id or (grant.target_scope || "container") == "container"
 
-        condition_ok? = grant.condition == "true" or MapSet.member?(satisfied, grant.id)
+    condition_ok? = grant.condition == "true" or MapSet.member?(ctx.satisfied, grant.id)
 
-        if applies_to_page? and condition_ok? do
-          on_node = Map.get(chain_by_id, grant.target_node_id)
+    if applies_to_page? and condition_ok? do
+      grant_source(grant, grant_location_suffix(grant, ctx), ctx)
+    else
+      []
+    end
+  end
 
-          location_suffix =
-            if grant.target_node_id == page.id do
-              "on this page"
-            else
-              "inherited from #{redacted_title(on_node, viewer_reachable)}"
-            end
+  defp grant_location_suffix(grant, ctx) do
+    if grant.target_node_id == ctx.page.id do
+      "on this page"
+    else
+      on_node = Map.get(ctx.chain_by_id, grant.target_node_id)
+      "inherited from #{redacted_title(on_node, ctx.viewer_reachable)}"
+    end
+  end
 
-          cond do
-            grant.principal_uid == authority_uid ->
-              [
-                %{
-                  "kind" => "direct_grant",
-                  "target_node_id" => grant.target_node_id,
-                  "conditional" => grant.condition != "true",
-                  "label" => "Direct grant to @#{authority_uid} (#{location_suffix})"
-                }
-              ]
+  defp grant_source(grant, location_suffix, ctx) do
+    cond do
+      grant.principal_uid == ctx.authority_uid ->
+        [
+          %{
+            "kind" => "direct_grant",
+            "target_node_id" => grant.target_node_id,
+            "conditional" => grant.condition != "true",
+            "label" => "Direct grant to @#{ctx.authority_uid} (#{location_suffix})"
+          }
+        ]
 
-            not is_nil(grant.group_id) and MapSet.member?(groups, grant.group_id) ->
-              group_label = Map.get(group_names, grant.group_id, "group")
+      not is_nil(grant.group_id) and MapSet.member?(ctx.groups, grant.group_id) ->
+        group_label = Map.get(ctx.group_names, grant.group_id, "group")
 
-              [
-                %{
-                  "kind" => "group_grant",
-                  "group_id" => grant.group_id,
-                  "target_node_id" => grant.target_node_id,
-                  "conditional" => grant.condition != "true",
-                  "label" => "Group grant via #{group_label} (#{location_suffix})"
-                }
-              ]
+        [
+          %{
+            "kind" => "group_grant",
+            "group_id" => grant.group_id,
+            "target_node_id" => grant.target_node_id,
+            "conditional" => grant.condition != "true",
+            "label" => "Group grant via #{group_label} (#{location_suffix})"
+          }
+        ]
 
-            not is_nil(grant.source_node_id) ->
-              case Map.get(source_pages, grant.source_node_id) do
-                %Page{} = src_page ->
-                  if match?(
-                       {:ok, _},
-                       Access.authorize(subject_actor, src_page, grant.source_action)
-                     ) do
-                    [
-                      %{
-                        "kind" => "source_node_grant",
-                        "source_node_id" => src_page.id,
-                        "target_node_id" => grant.target_node_id,
-                        "label" =>
-                          "Linked grant from #{redacted_title(src_page, viewer_reachable)} (#{location_suffix})"
-                      }
-                    ]
-                  else
-                    []
-                  end
+      not is_nil(grant.source_node_id) ->
+        linked_grant_source(grant, location_suffix, ctx)
 
-                nil ->
-                  []
-              end
+      true ->
+        []
+    end
+  end
 
-            true ->
-              []
-          end
-        else
-          []
-        end
-      end)
-
-    root_sources ++ grant_sources
+  defp linked_grant_source(grant, location_suffix, ctx) do
+    with %Page{} = src_page <- Map.get(ctx.source_pages, grant.source_node_id),
+         {:ok, _} <- Access.authorize(ctx.subject_actor, src_page, grant.source_action) do
+      [
+        %{
+          "kind" => "source_node_grant",
+          "source_node_id" => src_page.id,
+          "target_node_id" => grant.target_node_id,
+          "label" =>
+            "Linked grant from #{redacted_title(src_page, ctx.viewer_reachable)} (#{location_suffix})"
+        }
+      ]
+    else
+      _ -> []
+    end
   end
 
   defp unbroken_inheritance_chain(path) do
@@ -698,17 +709,7 @@ defmodule Ankole.Pod.Access.Explain do
          stage_3_status
        ) do
     root = hd(path)
-
-    turn_ref =
-      case subject_actor.turn_authority do
-        {ref, _}
-        when is_struct(ref, Ankole.Sessions.RunRef) or
-               is_struct(ref, Ankole.Sessions.JobTurnRef) ->
-          ref
-
-        _ ->
-          nil
-      end
+    turn_ref = brain_turn_ref(subject_actor)
 
     applicable? =
       not is_nil(turn_ref) and page.type in [:knowledge, :file] and
@@ -736,85 +737,14 @@ defmodule Ankole.Pod.Access.Explain do
                "signal_id" => turn_ref.signal_id
              }) do
           {:ok, brain_ctx} ->
-            disclosure = brain_ctx.disclosure
-            recipients = disclosure_recipients(disclosure)
-
-            missing_view_uids =
-              Enum.filter(recipients, fn reader_uid ->
-                case Ankole.Principals.get_principal(reader_uid) do
-                  {:ok, reader_principal} ->
-                    reader_actor = Actor.new(reader_principal, authn: subject_actor.authn)
-
-                    not match?(
-                      {:ok, _},
-                      Access.authorize(reader_actor, page, "node_view", auth_opts)
-                    )
-
-                  _ ->
-                    true
-                end
-              end)
-
-            requester_action = Keyword.get(auth_opts, :requester_action, action)
-
-            missing_requester_action? =
-              if is_binary(disclosure[:asker_uid]) and requester_action != "node_view" do
-                case Ankole.Principals.get_principal(disclosure.asker_uid) do
-                  {:ok, asker} ->
-                    asker_actor = Actor.new(asker, authn: subject_actor.authn)
-
-                    not match?(
-                      {:ok, _},
-                      Access.authorize(asker_actor, page, requester_action, auth_opts)
-                    )
-
-                  _ ->
-                    true
-                end
-              else
-                false
-              end
-
-            details = %{
-              "applicable" => true,
-              "mode" => Atom.to_string(disclosure.mode),
-              "asker_uid" => disclosure[:asker_uid],
-              "recipient_count" => length(recipients),
-              "missing_reader_uids" => missing_view_uids,
-              "missing_requester_action" => missing_requester_action?
-            }
-
-            if allowed do
-              %{
-                id: "brain_disclosure_gate",
-                status: "pass",
-                summary:
-                  "All conversation recipients (#{length(recipients)}) are authorized to view this Brain node.",
-                details: details
-              }
-            else
-              summary =
-                cond do
-                  disclosure.mode == :strict and recipients == [] ->
-                    "Blocked by strict Brain disclosure because the conversation audience has no verified workspace readers."
-
-                  missing_view_uids != [] ->
-                    "Blocked to prevent Brain disclosure leak: #{Enum.map_join(missing_view_uids, ", ", &("@" <> &1))} cannot view this node."
-
-                  missing_requester_action? ->
-                    "Blocked because requester @#{disclosure[:asker_uid]} lacks #{action_label(requester_action)} on this Brain node."
-
-                  true ->
-                    "Blocked by Brain conversation disclosure boundary."
-                end
-
-              %{
-                id: "brain_disclosure_gate",
-                status: "fail",
-                summary: summary,
-                details: details
-              }
-            end
+            brain_disclosure_verdict(
+              brain_ctx.disclosure,
+              subject_actor,
+              page,
+              action,
+              auth_opts,
+              allowed
+            )
 
           _ ->
             %{
@@ -828,6 +758,92 @@ defmodule Ankole.Pod.Access.Explain do
               details: %{"applicable" => true}
             }
         end
+    end
+  end
+
+  defp brain_turn_ref(subject_actor) do
+    case subject_actor.turn_authority do
+      {ref, _}
+      when is_struct(ref, Ankole.Sessions.RunRef) or
+             is_struct(ref, Ankole.Sessions.JobTurnRef) ->
+        ref
+
+      _ ->
+        nil
+    end
+  end
+
+  defp brain_disclosure_verdict(disclosure, subject_actor, page, action, auth_opts, allowed) do
+    recipients = disclosure_recipients(disclosure)
+
+    missing_view_uids =
+      Enum.filter(
+        recipients,
+        &principal_lacks_action?(&1, subject_actor, page, "node_view", auth_opts)
+      )
+
+    requester_action = Keyword.get(auth_opts, :requester_action, action)
+
+    missing_requester_action? =
+      is_binary(disclosure[:asker_uid]) and requester_action != "node_view" and
+        principal_lacks_action?(
+          disclosure.asker_uid,
+          subject_actor,
+          page,
+          requester_action,
+          auth_opts
+        )
+
+    details = %{
+      "applicable" => true,
+      "mode" => Atom.to_string(disclosure.mode),
+      "asker_uid" => disclosure[:asker_uid],
+      "recipient_count" => length(recipients),
+      "missing_reader_uids" => missing_view_uids,
+      "missing_requester_action" => missing_requester_action?
+    }
+
+    if allowed do
+      %{
+        id: "brain_disclosure_gate",
+        status: "pass",
+        summary:
+          "All conversation recipients (#{length(recipients)}) are authorized to view this Brain node.",
+        details: details
+      }
+    else
+      summary =
+        cond do
+          disclosure.mode == :strict and recipients == [] ->
+            "Blocked by strict Brain disclosure because the conversation audience has no verified workspace readers."
+
+          missing_view_uids != [] ->
+            "Blocked to prevent Brain disclosure leak: #{Enum.map_join(missing_view_uids, ", ", &("@" <> &1))} cannot view this node."
+
+          missing_requester_action? ->
+            "Blocked because requester @#{disclosure[:asker_uid]} lacks #{action_label(requester_action)} on this Brain node."
+
+          true ->
+            "Blocked by Brain conversation disclosure boundary."
+        end
+
+      %{
+        id: "brain_disclosure_gate",
+        status: "fail",
+        summary: summary,
+        details: details
+      }
+    end
+  end
+
+  defp principal_lacks_action?(uid, subject_actor, page, action, auth_opts) do
+    case Ankole.Principals.get_principal(uid) do
+      {:ok, principal} ->
+        actor = Actor.new(principal, authn: subject_actor.authn)
+        not match?({:ok, _}, Access.authorize(actor, page, action, auth_opts))
+
+      _ ->
+        true
     end
   end
 
