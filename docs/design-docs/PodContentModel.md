@@ -3122,7 +3122,10 @@ releases the transaction before reading those immutable objects. If concurrent
 publication and object collection remove an old object before it is read, the
 request fails before execution; the caller can refresh and retry. Ankole does
 not replay a failed mutation automatically. Applet execution and each host capability call require
-a live Applet Page, so moving it to Trash closes those entry points. A stale
+a live Applet Page, so moving it to Trash closes those entry points. One
+invocation runs at most 64 host capability calls at a time; further calls wait
+in arrival order and start as earlier calls finish, so a handler can fan out
+with `Promise.all` without managing concurrency itself. A stale
 revision returns HTTP `409`
 (`applet_revision_changed`), prompting the host to reload the Page and swap in
 the latest publication without replaying a failed mutation.

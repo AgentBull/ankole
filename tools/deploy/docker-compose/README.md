@@ -242,7 +242,9 @@ docker compose ps
 ```
 
 `docker compose stop` halts the old control plane before migrations while
-keeping Docker networks intact so Workers remain reachable, and the new control
+keeping Docker networks intact so Workers remain reachable. The control plane
+gets up to 60 seconds to drain requests and finish background jobs before
+Docker forces it to stop, so this step can take up to a minute. The new control
 plane starts only after both migration jobs succeed. Existing per-Agent Workers
 reconnect automatically, and idle Workers with an outdated image are replaced on
 idle. Expect a brief service interruption during this single-host upgrade.

@@ -88,7 +88,9 @@ and retries on the next reconciliation pass, whereas already healthy connections
 compare only configured credentials so a transient Slack API hiccup never
 evicts their resolved bot identity. Each incoming Socket Mode envelope is
 acknowledged only after its handler commits, and Ankole's durable database keys
-deduplicate any events replayed after a crash.
+deduplicate any events replayed after a crash. One connection dispatches at
+most 64 envelopes at a time and leaves any further envelope unacknowledged, so
+Slack redelivers it after the burst.
 
 ## Observe Messages and Provider Conversations
 

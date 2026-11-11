@@ -18,6 +18,8 @@ defmodule SlackOpenAPI.SocketMode.Client do
   @fatal_reasons ["invalid_auth", "not_allowed_token_type", "forbidden_team"]
   @default_reconnect_interval_s 15
   @default_reconnect_nonce_s 30
+  # Envelopes beyond this many in-flight dispatches stay unacked, so Slack redelivers them.
+  @max_dispatch_tasks 64
 
   defstruct client: nil,
             dispatcher: nil,
@@ -260,6 +262,12 @@ defmodule SlackOpenAPI.SocketMode.Client do
   defp route_envelope(%{"envelope_id" => _}, %{expected_app_id: id, status: status} = state)
        when is_binary(id) and status != :connected,
        do: state
+
+  defp route_envelope(%{"envelope_id" => _}, %{dispatch_tasks: tasks} = state)
+       when map_size(tasks) >= @max_dispatch_tasks do
+    Logger.warning("slack_openapi Socket Mode busy; leaving envelope unacked for redelivery")
+    state
+  end
 
   defp route_envelope(%{"envelope_id" => envelope_id} = envelope, state) do
     started_at = System.monotonic_time(:millisecond)

@@ -15,14 +15,17 @@ defmodule Ankole.Pod.Spreadsheets.NodeCache do
   @max_documents 64
   @idle_ms :timer.minutes(10)
   @sweep_ms :timer.minutes(1)
+  @touch_ms :timer.seconds(30)
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc "Returns the cached document and its revision, or `:error`."
   def fetch(key) do
     case :ets.lookup(@table, key) do
-      [{^key, revision, doc, _used}] ->
-        :ets.update_element(@table, key, {4, now()})
+      [{^key, revision, doc, used}] ->
+        now = now()
+        # Idle eviction and LRU order need only coarse recency, so reads skip most ETS writes.
+        if now - used > @touch_ms, do: :ets.update_element(@table, key, {4, now})
         {:ok, revision, doc}
 
       [] ->

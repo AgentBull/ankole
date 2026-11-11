@@ -6,6 +6,8 @@ defmodule Ankole.Pod.Applets.Invocation do
   alias Ankole.Repo
 
   @supervisor Ankole.Pod.AppletTaskSupervisor
+  # Calls beyond this many in flight wait in arrival order until a running call finishes.
+  @max_concurrent_calls 64
 
   def start(source, context, limits, authority, opts \\ []) do
     owner = self()
@@ -66,6 +68,7 @@ defmodule Ankole.Pod.Applets.Invocation do
       context: host_context,
       authority: authority,
       tasks: %{},
+      waiting: :queue.new(),
       deadline: deadline
     }
 
@@ -108,23 +111,13 @@ defmodule Ankole.Pod.Applets.Invocation do
 
     receive do
       {:applet_runtime, ^run_id, :call, call_id, operation, args} ->
-        task =
-          Task.async(
-            Repo.bind_tenant(fn ->
-              Capabilities.call(state.context, state.authority, operation, args)
-            end)
-          )
-
-        receive_loop(%{
-          state
-          | tasks: Map.put(tasks, task.ref, {task, call_id})
-        })
+        receive_loop(start_call(state, {call_id, operation, args}))
 
       {ref, result} when is_map_key(tasks, ref) ->
         {task, call_id} = Map.fetch!(tasks, ref)
         Process.demonitor(task.ref, [:flush])
         AppletClient.reply(handle, call_id, result)
-        receive_loop(%{state | tasks: Map.delete(tasks, ref)})
+        receive_loop(finish_call(state, ref))
 
       {:DOWN, ^owner_monitor, :process, _, _} ->
         cancel_invocation(state)
@@ -149,7 +142,7 @@ defmodule Ankole.Pod.Applets.Invocation do
       {:DOWN, ref, :process, _, _} when is_map_key(tasks, ref) ->
         {_task, call_id} = Map.fetch!(tasks, ref)
         AppletClient.reply(handle, call_id, Capabilities.error(:handler_error))
-        receive_loop(%{state | tasks: Map.delete(tasks, ref)})
+        receive_loop(finish_call(state, ref))
 
       {:applet_runtime, ^run_id, :done, {execution, outcome}} ->
         stop_tasks(tasks)
@@ -176,6 +169,29 @@ defmodule Ankole.Pod.Applets.Invocation do
                "logs" => []
              }}
         end
+    end
+  end
+
+  defp start_call(state, call) when map_size(state.tasks) >= @max_concurrent_calls,
+    do: %{state | waiting: :queue.in(call, state.waiting)}
+
+  defp start_call(state, {call_id, operation, args}) do
+    task =
+      Task.async(
+        Repo.bind_tenant(fn ->
+          Capabilities.call(state.context, state.authority, operation, args)
+        end)
+      )
+
+    %{state | tasks: Map.put(state.tasks, task.ref, {task, call_id})}
+  end
+
+  defp finish_call(state, ref) do
+    state = %{state | tasks: Map.delete(state.tasks, ref)}
+
+    case :queue.out(state.waiting) do
+      {{:value, call}, waiting} -> start_call(%{state | waiting: waiting}, call)
+      {:empty, _waiting} -> state
     end
   end
 

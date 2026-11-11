@@ -329,6 +329,8 @@ defmodule Ankole.Observability do
 
   @impl true
   def init(opts) do
+    # Lets supervisor shutdown run terminate/2, which flushes buffered spans.
+    Process.flag(:trap_exit, true)
     set_provider(nil)
     set_runtime_config(nil)
     set_exporter = Keyword.get(opts, :set_exporter, &set_exporter/1)

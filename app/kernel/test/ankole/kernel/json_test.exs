@@ -12,6 +12,15 @@ defmodule Ankole.Kernel.JSONTest do
     assert Codec.decode("invalid") == Torque.decode("invalid")
   end
 
+  test "Torque options reach the Torque path" do
+    long = String.duplicate("x", 100)
+    json = Torque.encode!(%{"keep" => long, "drop" => long})
+
+    assert {:ok, %{"keep" => kept}} = Codec.decode(json, strings: :copy)
+    assert :binary.referenced_byte_size(kept) == byte_size(long)
+    assert Codec.encode!(%{"a" => 1}, dirty: true) == Torque.encode!(%{"a" => 1})
+  end
+
   test "nested transport accepts 512 containers and rejects 513 in both directions" do
     for depth <- [128, 129, 260, 512] do
       value = Enum.reduce(1..depth, "leaf", fn _, child -> %{"content" => child} end)

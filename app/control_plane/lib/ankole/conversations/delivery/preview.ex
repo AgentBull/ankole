@@ -83,20 +83,26 @@ defmodule Ankole.Conversations.Delivery.Preview do
       {:error, {:already_started, pid}} ->
         monitor = Process.monitor(pid)
 
-        case GenServer.call(pid, {:adopt_driver, stream_signal_id, opts}) do
-          :retiring ->
-            receive do
-              {:DOWN, ^monitor, :process, ^pid, _reason} ->
-                start_preview(event, subject_uid, conversation_id, stream_signal_id, opts)
-            after
-              30_000 ->
-                Process.demonitor(monitor, [:flush])
-                {:error, :reply_preview_close_timeout}
-            end
+        try do
+          case GenServer.call(pid, {:adopt_driver, stream_signal_id, opts}) do
+            :retiring ->
+              receive do
+                {:DOWN, ^monitor, :process, ^pid, _reason} ->
+                  start_preview(event, subject_uid, conversation_id, stream_signal_id, opts)
+              after
+                30_000 -> {:error, :reply_preview_close_timeout}
+              end
 
-          result ->
-            Process.demonitor(monitor, [:flush])
-            result
+            result ->
+              result
+          end
+        catch
+          # The preview may exit or time out after adopting the Driver; callers
+          # see an ordinary failure instead of exiting with it.
+          :exit, {reason, {GenServer, :call, _args}} ->
+            {:error, {:reply_preview_unavailable, reason}}
+        after
+          Process.demonitor(monitor, [:flush])
         end
 
       {:error, reason} ->
@@ -677,7 +683,9 @@ defmodule Ankole.Conversations.Delivery.Preview do
       conversation_id: conversation_id,
       # Accumulated text from deltas for the current preview round.
       text_buffer: "",
-      # Current provider-visible preview text. Tool activity can update this
+      # Current provider-visible preview text before visible-text normalization;
+      # every reader normalizes it, so text deltas store the raw buffer and the
+      # edit flush normalizes once per interval. Tool activity can update this
       # before assistant text exists; final durability still comes from
       # response content or text_buffer.
       preview_text: "",
@@ -980,13 +988,12 @@ defmodule Ankole.Conversations.Delivery.Preview do
       if ordinary_silent_success_candidate?(state, new_buffer) do
         {:noreply, %{state | text_buffer: new_buffer}}
       else
-        preview_text = Text.normalize_visible_text(new_buffer)
         candidate_before? = ordinary_silent_success_candidate?(state, state.text_buffer)
 
         state = %{
           state
           | text_buffer: new_buffer,
-            preview_text: preview_text,
+            preview_text: new_buffer,
             input_superseded: false
         }
 
@@ -1005,7 +1012,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
            |> Map.put(:silent_rich_pending, false)
            |> mark_rich_dirty(presentation)}
         else
-          handle_plain_text_output_delta(state, preview_text)
+          handle_plain_text_output_delta(state)
         end
       end
     else
@@ -1049,34 +1056,36 @@ defmodule Ankole.Conversations.Delivery.Preview do
     String.starts_with?(@silent_success_marker, String.trim(text))
   end
 
-  defp handle_plain_text_output_delta(state, preview_text) do
+  defp handle_plain_text_output_delta(state) do
     state =
       cond do
         state.preview_disabled ->
           state
 
         not state.preview_established ->
-          if preview_text == "" do
-            state
-          else
-            case establish_preview(state.signal, preview_text) do
-              {:ok, entry_id} ->
-                %{
-                  state
-                  | preview_entry_id: entry_id,
-                    preview_established: true,
-                    dirty: false
-                }
+          case Text.normalize_visible_text(state.preview_text) do
+            "" ->
+              state
 
-              {:error, reason} ->
-                Logging.warning(
-                  "conversations.delivery.preview.establish_failed",
-                  "AI reply preview establish failed",
-                  preview_fields(state, %{reason: inspect(reason)})
-                )
+            preview_text ->
+              case establish_preview(state.signal, preview_text) do
+                {:ok, entry_id} ->
+                  %{
+                    state
+                    | preview_entry_id: entry_id,
+                      preview_established: true,
+                      dirty: false
+                  }
 
-                %{state | preview_disabled: true}
-            end
+                {:error, reason} ->
+                  Logging.warning(
+                    "conversations.delivery.preview.establish_failed",
+                    "AI reply preview establish failed",
+                    preview_fields(state, %{reason: inspect(reason)})
+                  )
+
+                  %{state | preview_disabled: true}
+              end
           end
 
         true ->

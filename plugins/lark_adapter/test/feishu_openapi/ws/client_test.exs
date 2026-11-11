@@ -109,6 +109,51 @@ defmodule FeishuOpenAPI.WS.ClientTest do
     end
   end
 
+  test "a connection at its dispatch limit leaves a new frame unacked for redelivery" do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+    {:ok, {_address, port}} = :inet.sockname(listener)
+    owner = self()
+
+    frame = %Frame{
+      seq_id: 7,
+      log_id: 8,
+      service: 9,
+      method: 1,
+      headers: [{"type", "event"}],
+      payload:
+        Torque.encode!(%{
+          "schema" => "2.0",
+          "header" => %{"event_type" => "im.message.receive_v1"}
+        })
+    }
+
+    server = spawn_link(fn -> run_dispatch_server(listener, owner, frame, true) end)
+    on_exit(fn -> send(server, :close) end)
+
+    dispatcher =
+      Dispatcher.on(Dispatcher.new(), "im.message.receive_v1", fn _, _ ->
+        send(owner, :dispatched)
+        :ok
+      end)
+
+    pid =
+      start_supervised!(
+        {Client,
+         client: handshake_client("cli_ws_busy", port),
+         dispatcher: dispatcher,
+         auto_reconnect: false}
+      )
+
+    wait_until(fn -> Client.status(pid) == :connected end)
+    in_flight = Map.new(1..64, fn _ -> {make_ref(), {%Frame{}, "im.message.receive_v1", 0}} end)
+    :sys.replace_state(pid, &%{&1 | dispatch_tasks: in_flight})
+    send(server, :push)
+
+    assert_receive {:dispatch_ack, ^server, {:error, :timeout}}, 2_000
+    refute_received :dispatched
+    assert map_size(:sys.get_state(pid).dispatch_tasks) == 64
+  end
+
   test "dispatch DOWN retains exit classification and call sites without the private reason" do
     secret = "private-dispatch-exit-should-not-escape"
 
@@ -354,7 +399,7 @@ defmodule FeishuOpenAPI.WS.ClientTest do
     :gen_tcp.close(socket)
   end
 
-  defp run_dispatch_server(listener, parent, frame) do
+  defp run_dispatch_server(listener, parent, frame, await_push? \\ false) do
     result =
       with {:ok, socket} <- :gen_tcp.accept(listener, 1_000),
            :ok <- :gen_tcp.close(listener),
@@ -362,6 +407,7 @@ defmodule FeishuOpenAPI.WS.ClientTest do
            {:ok, key} <- websocket_key(request),
            :ok <- :gen_tcp.send(socket, upgrade_response(key)),
            {:ok, {0x2, _ping}} <- recv_masked_websocket_frame(socket),
+           :ok <- if(await_push?, do: receive(do: (:push -> :ok)), else: :ok),
            :ok <- :gen_tcp.send(socket, websocket_frame(0x2, Frame.encode(frame))),
            {:ok, {0x2, ack}} <- recv_masked_websocket_frame(socket) do
         send(parent, {:dispatch_ack, self(), Frame.decode(ack)})
@@ -375,7 +421,15 @@ defmodule FeishuOpenAPI.WS.ClientTest do
         :ok
       end
 
-    if result != :ok, do: send(parent, {:dispatch_ack, self(), result})
+    if result != :ok do
+      send(parent, {:dispatch_ack, self(), result})
+      # Keeps the accepted socket open until the test finishes with the client.
+      receive do
+        :close -> :ok
+      after
+        5_000 -> :ok
+      end
+    end
   end
 
   defp run_websocket_server(listener, parent, early_ping? \\ false) do

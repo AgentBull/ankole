@@ -264,7 +264,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   defp ensure_no_active_stream(_state), do: :ok
 
   defp decode_socket_event(payload, state) do
-    with {:ok, event} <- Ankole.JSON.decode(payload),
+    # Response history keeps request input for the socket's lifetime; copied
+    # strings stop that small part from holding the whole frame in memory.
+    with {:ok, event} <- Ankole.JSON.decode(payload, strings: :copy),
          {:ok, event} <- ensure_object(event),
          :ok <- ensure_socket_event_type(event) do
       {:ok, event}

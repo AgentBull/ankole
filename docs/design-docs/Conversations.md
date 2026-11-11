@@ -918,9 +918,13 @@ the snapshot and stream start. Dynamic room participant changes update the
 connection's Agent subscriptions live, and whenever an Agent switches model
 conversations, the stream re-subscribes and emits any active display snapshot.
 
-Before writing every business frame and every 15-second heartbeat (and
-immediately upon any Page-permission broadcast), the stream re-verifies Human
-status and room access. If access has been revoked, the server drops buffered
+The stream verifies Human status and room access before its first frame and
+then reuses a successful check for 5 seconds. The first business frame or
+15-second heartbeat after that window re-verifies, and every Page-permission
+broadcast forces an immediate re-check. An active stream can therefore keep
+delivering frames for up to 5 seconds after a revocation that arrives without
+a broadcast, such as a sign-out or a disabled Human, while the stream avoids a
+database check on every 40 ms text flush. If access has been revoked, the server drops buffered
 deltas, emits `access_revoked`, and closes the stream; the browser purges cached
 room history and either shows locally typed drafts in the recovery screen or
 returns to Chat Home.

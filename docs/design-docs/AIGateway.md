@@ -2126,7 +2126,8 @@ site-wide AppConfigure keys read once at node boot (changing them requires a
 restart; the control plane scrubs standard `OTEL_*` exporter environment
 variables before OpenTelemetry boots and again before configuring the exporter,
 and trace export is strictly best-effort with no database queue or retry effect
-on model calls):
+on model calls; a graceful node shutdown flushes buffered spans before the
+exporter stops):
 
 - `observability.traces.enabled` (default `false`; enabling it exports model
   prompts and outputs externally, so operators must point it only at a trusted

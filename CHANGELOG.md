@@ -1,5 +1,25 @@
 # Changelog
 
+## Version 2.0.0-alpha.128 (2026-11-11)
+
+- Cut repeated access checks on live conversation streams, and let shutdown
+  finish its cleanup.
+  - A conversation's live event stream reuses a successful access check for
+    5 seconds instead of querying the database before every 40 ms text flush.
+    A Page-permission change still rechecks at once; a sign-out or a disabled
+    Human reaches an active stream within 5 seconds.
+  - Supervisor shutdown now runs the cleanup that OpenTelemetry tracing and
+    AI Gateway response streams already define: buffered spans are flushed,
+    and open upstream streams and program tasks are cancelled.
+  - The Docker Compose control plane waits up to 60 seconds for a graceful
+    stop, matching the Helm chart, instead of Docker's 10-second default.
+  - When a channel reply preview exits or times out while a new turn takes it
+    over, the turn continues without the preview instead of failing.
+  - One Applet invocation runs at most 64 capability calls at a time; further
+    calls wait and start as earlier ones finish. Feishu, Slack, and DingTalk
+    connections dispatch at most 64 events at a time and leave further events
+    unacknowledged, so the platform redelivers them.
+
 ## Version 2.0.0-alpha.127 (2026-11-11)
 
 - Let a scanned PDF be read again, and recover sooner when an OCR run dies.

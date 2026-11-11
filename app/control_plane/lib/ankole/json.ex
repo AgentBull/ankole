@@ -7,13 +7,13 @@ defmodule Ankole.JSON do
   module keeps Phoenix's compatibility surface and response normalization local.
   """
 
-  @doc "Encodes an Elixir term into a JSON binary."
-  @spec encode(term()) :: {:ok, binary()} | {:error, term()}
-  defdelegate encode(term), to: Ankole.Kernel.JSON
+  @doc "Encodes an Elixir term into a JSON binary; see `Ankole.Kernel.JSON` for options."
+  @spec encode(term(), keyword()) :: {:ok, binary()} | {:error, term()}
+  defdelegate encode(term, opts \\ []), to: Ankole.Kernel.JSON
 
   @doc "Encodes an Elixir term into a JSON binary, raising on failure."
-  @spec encode!(term()) :: binary()
-  defdelegate encode!(term), to: Ankole.Kernel.JSON
+  @spec encode!(term(), keyword()) :: binary()
+  defdelegate encode!(term, opts \\ []), to: Ankole.Kernel.JSON
 
   @doc "Encodes an Elixir term into iodata, raising on failure."
   @spec encode_to_iodata!(term()) :: iodata()
@@ -52,13 +52,15 @@ defmodule Ankole.JSON do
   defp plain_key(key) when is_atom(key), do: Atom.to_string(key)
   defp plain_key(key) when is_integer(key), do: Integer.to_string(key)
 
-  @doc "Decodes JSON iodata into Elixir terms."
-  @spec decode(iodata()) :: {:ok, term()} | {:error, term()}
-  def decode(data), do: data |> normalize_iodata() |> Ankole.Kernel.JSON.decode()
+  @doc "Decodes JSON iodata into Elixir terms; see `Ankole.Kernel.JSON` for options."
+  @spec decode(iodata(), keyword()) :: {:ok, term()} | {:error, term()}
+  def decode(data, opts \\ []),
+    do: data |> normalize_iodata() |> Ankole.Kernel.JSON.decode(opts)
 
   @doc "Decodes JSON iodata into Elixir terms, raising on failure."
-  @spec decode!(iodata()) :: term()
-  def decode!(data), do: data |> normalize_iodata() |> Ankole.Kernel.JSON.decode!()
+  @spec decode!(iodata(), keyword()) :: term()
+  def decode!(data, opts \\ []),
+    do: data |> normalize_iodata() |> Ankole.Kernel.JSON.decode!(opts)
 
   defp normalize_iodata(data) when is_binary(data), do: data
   defp normalize_iodata(data) when is_list(data), do: IO.iodata_to_binary(data)

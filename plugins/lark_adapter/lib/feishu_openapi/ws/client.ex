@@ -30,6 +30,8 @@ defmodule FeishuOpenAPI.WS.Client do
   # broken connection can leave fragments that never complete; this bounds the
   # `fragments` map instead of letting it grow unbounded.
   @fragment_ttl_ms :timer.seconds(5)
+  # Frames beyond this many in-flight dispatches stay unacked, so Feishu redelivers them.
+  @max_dispatch_tasks 64
 
   #   service_id        — parsed from the WS URL, echoed back in every frame
   #   reconnect_attempt — count since the last successful connect; resets to 0 on
@@ -427,6 +429,12 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
+  defp dispatch_event(%Frame{}, %{dispatch_tasks: tasks} = state)
+       when map_size(tasks) >= @max_dispatch_tasks do
+    Logger.warning("feishu_openapi ws busy; leaving frame unacked for redelivery")
+    state
+  end
+
   defp dispatch_event(%Frame{payload: payload} = frame, state) do
     case Torque.decode(payload) do
       {:ok, decoded} ->
@@ -470,9 +478,11 @@ defmodule FeishuOpenAPI.WS.Client do
         Dispatcher.dispatch(dispatcher, {:trusted_decoded, decoded})
       end)
 
+    # The ack reuses only the frame header; the task owns the decoded payload.
     %{
       state
-      | dispatch_tasks: Map.put(state.dispatch_tasks, task.ref, {frame, event_type, start_ms})
+      | dispatch_tasks:
+          Map.put(state.dispatch_tasks, task.ref, {%{frame | payload: ""}, event_type, start_ms})
     }
   end
 

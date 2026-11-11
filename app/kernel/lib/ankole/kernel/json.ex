@@ -5,25 +5,29 @@ defmodule Ankole.Kernel.JSON do
   Torque handles ordinary payloads. OTP's JSON codec handles deeper payloads,
   with a 512-container limit that includes document nodes and transport envelopes.
   The document codec separately enforces its 128-level tree limit.
+
+  Callers pass Torque options to the Torque path: `dirty: true` for encoding a
+  known-large term, and `strings: :copy` for decoding a frame whose parts the
+  caller keeps long after the frame itself. The deep fallback ignores them.
   """
   @max_depth 512
 
-  def decode(data) when is_binary(data) do
-    case Torque.decode(data) do
+  def decode(data, opts \\ []) when is_binary(data) do
+    case Torque.decode(data, opts) do
       {:error, :nesting_too_deep} -> decode_deep(data)
       result -> result
     end
   end
 
-  def decode!(data) do
-    case decode(data) do
+  def decode!(data, opts \\ []) do
+    case decode(data, opts) do
       {:ok, value} -> value
       {:error, reason} -> raise ArgumentError, "decode error: #{inspect(reason)}"
     end
   end
 
-  def encode(value) do
-    case Torque.encode(value) do
+  def encode(value, opts \\ []) do
+    case Torque.encode(value, opts) do
       {:error, :nesting_too_deep} -> {:ok, value |> encode_deep(0) |> IO.iodata_to_binary()}
       result -> result
     end
@@ -32,8 +36,8 @@ defmodule Ankole.Kernel.JSON do
     {:encode_error, reason} -> {:error, reason}
   end
 
-  def encode!(value) do
-    case encode(value) do
+  def encode!(value, opts \\ []) do
+    case encode(value, opts) do
       {:ok, json} -> json
       {:error, reason} -> raise ArgumentError, "encode error: #{inspect(reason)}"
     end
