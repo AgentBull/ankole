@@ -843,6 +843,28 @@ jobs:
           echo "tag_exists=${tag_exists}" >> "${GITHUB_OUTPUT}"
           echo "release_exists=${release_exists}" >> "${GITHUB_OUTPUT}"
 
+      # The Git tag claims the version, so the job creates it before any
+      # version image tag. GitHub lets this workflow's token tag only a
+      # revision whose workflow files match the tip of the default branch. A
+      # workflow change that merges while this release is running therefore
+      # fails the release here, before anything is published under the
+      # version, and the run for the newer commit publishes the version its
+      # changelog names.
+      - name: Reserve the Git tag
+        if: ${{ steps.existing.outputs.tag_exists != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            --raw-field "ref=refs/tags/${RELEASE_TAG}" \
+            --raw-field "sha=${RELEASE_REVISION}" \
+            --silent; then
+            echo "Could not create Git tag ${RELEASE_TAG} at ${RELEASE_REVISION}, so nothing is published under ${RELEASE_VERSION}." >&2
+            echo "GitHub answers HTTP 403 when the workflow files of this revision differ from the tip of the default branch." >&2
+            exit 1
+          fi
+
       - name: Publish immutable version image tags
         shell: bash
         run: |
@@ -892,18 +914,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag_option=(--target "${RELEASE_REVISION}")
-          if [[ "${{ steps.existing.outputs.tag_exists }}" == "true" ]]; then
-            tag_option=(--verify-tag)
-          fi
-
           channel_option=(--latest)
           if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
             channel_option=(--prerelease)
           fi
 
           gh release create "${RELEASE_TAG}" \
-            "${tag_option[@]}" \
+            --verify-tag \
             --title "Version ${RELEASE_VERSION}" \
             --notes-file "${RUNNER_TEMP}/release-notes.md" \
             "${channel_option[@]}"
