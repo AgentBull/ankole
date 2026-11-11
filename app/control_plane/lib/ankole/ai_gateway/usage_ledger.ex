@@ -222,6 +222,76 @@ defmodule Ankole.AIGateway.UsageLedger do
     }
   end
 
+  @doc """
+  Sums the tenant's calls that are not language-model rounds from `since`
+  onwards, by capability and unit.
+
+  Each row says how many calls it counts, the `quantity` that they produced in
+  their unit, such as pages or seconds, and the cost that the Providers
+  reported. `quantity` is `nil` for calls that record no unit, and
+  `provider_cost` is `nil` when no call of the row reported a cost.
+  """
+  # shortcut: reads each row of the window once, like `window_summary/1`; move
+  # the grouping into an SQL read model together with it.
+  @spec capability_summary(DateTime.t()) :: [map()]
+  def capability_summary(%DateTime{} = since) do
+    since
+    |> fold_capabilities(nil, %{})
+    |> Enum.map(fn {{capability, unit}, totals} ->
+      Map.merge(totals, %{
+        capability: Atom.to_string(capability),
+        unit: unit && Atom.to_string(unit),
+        provider_cost: totals.provider_cost && Decimal.to_float(totals.provider_cost)
+      })
+    end)
+    |> Enum.sort_by(&{&1.capability, &1.unit || ""})
+  end
+
+  defp fold_capabilities(since, last, groups) do
+    rows =
+      UsageRecord
+      |> capability_page(since, last)
+      |> Ash.Query.select([:id, :inserted_at, :capability, :unit, :quantity, :provider_cost])
+      |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+      |> Ash.Query.limit(@summary_page)
+      |> Ankole.Ash.read!()
+
+    groups =
+      Enum.reduce(rows, groups, fn row, groups ->
+        Map.update(
+          groups,
+          {row.capability, row.unit},
+          %{calls: 1, quantity: row.quantity, provider_cost: row.provider_cost},
+          &%{
+            calls: &1.calls + 1,
+            quantity: sum(&1.quantity, row.quantity),
+            provider_cost: sum(&1.provider_cost, row.provider_cost)
+          }
+        )
+      end)
+
+    case rows do
+      rows when length(rows) == @summary_page -> fold_capabilities(since, List.last(rows), groups)
+      _last_page -> groups
+    end
+  end
+
+  defp capability_page(query, since, nil),
+    do: Ash.Query.filter(query, capability != :llm and inserted_at >= ^since)
+
+  defp capability_page(query, _since, %{inserted_at: at, id: id}) do
+    Ash.Query.filter(
+      query,
+      capability != :llm and (inserted_at > ^at or (inserted_at == ^at and id > ^id))
+    )
+  end
+
+  # A value that no call reported stays nil instead of becoming zero.
+  defp sum(nil, value), do: value
+  defp sum(total, nil), do: total
+  defp sum(%Decimal{} = total, %Decimal{} = value), do: Decimal.add(total, value)
+  defp sum(total, value), do: total + value
+
   # Keyset pages on `(inserted_at, id)` follow the `(tenant_id, inserted_at)` index,
   # so every page starts where the previous one ended.
   defp fold_window(since, last, groups) do

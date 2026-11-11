@@ -799,8 +799,9 @@ Provider reports no duration. A call of an OCR model is one row with `unit`
 `page` and the number of pages that the Provider processed. `provider_cost` holds the cost of such a round
 when the Provider reports one. An image that the
 language-model provider generates natively stays inside that provider's
-language-model round. Token quota windows, the usage of one Signal, and the
-Console Model usage page read language-model rows only.
+language-model round. Token quota windows and the usage of one Signal read
+language-model rows only. The Console Model usage page sums the tokens of
+language-model rows and lists the other capabilities in a table of their own.
 
 Applet backend calls to `AnkoleRuntime.ai.generateText`,
 `AnkoleRuntime.ai.generateImage`, `AnkoleRuntime.ai.decide`,
@@ -1121,7 +1122,11 @@ ledger:
   Human also carries the Principal's display name, and the Agent breakdown
   lists only Agent subjects. A deleted Agent keeps its row without a name,
   because its `agent` or `codex` rounds, which only an Agent makes, identify
-  it. The summary reads each row of the window once in
+  it. Those totals count language-model rows. `by_capability` sums the rows
+  of every other capability by capability and unit: the number of `calls`,
+  the `quantity` in that unit, such as pages or seconds, and the
+  `provider_cost` that the Providers reported, each `null` when no call of
+  the row carries it. The summary reads each row of the window once in
   `(inserted_at, id)` keyset pages. Principal/AuthZ
   authorizes it on `site_console:ai_gateway_usage` with the `read` action.
 

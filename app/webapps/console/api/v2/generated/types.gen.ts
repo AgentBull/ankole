@@ -8394,6 +8394,13 @@ export type GetAiGatewayUsageResponses = {
       reported_rounds: number
       rounds: number
     }>
+    by_capability: Array<{
+      calls: number
+      capability: string
+      provider_cost?: number | null
+      quantity?: number | null
+      unit?: string | null
+    }>
     by_human: Array<{
       cache_creation_input_tokens?: number | null
       cached_input_tokens?: number | null

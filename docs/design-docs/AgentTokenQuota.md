@@ -85,7 +85,7 @@ enforced by a plugin.
 | `signal_id` | The Signal that started that Turn; NULL when unknown |
 | `job_id` | The Background Agent Job that made the round; NULL for other work |
 | `attempt` | The attempt number of that Job; NULL for other work |
-| `capability` | What the round served: `llm`, `image_generate`, `decision`, `speech`, `transcription`, or `ocr`; only `llm` rows enter quota windows, per-turn usage, and the Console summary |
+| `capability` | What the round served: `llm`, `image_generate`, `decision`, `speech`, `transcription`, or `ocr`; only `llm` rows enter quota windows, per-turn usage, and the Console token totals, and the Console lists the other capabilities by unit |
 | `unit`, `quantity` | What a round other than a language-model round produced: `image` and the number of generated images, `character` and the length of a speech request's text, `second` and the seconds of transcribed audio, or `page` and the pages that an OCR model read; NULL for `llm` and `decision` rows, and for a transcription whose Provider reports no duration |
 | `provider_cost` | The cost that the Provider reported for a round other than a language-model round; NULL when not reported |
 | `inserted_at` | Record time; the window query uses it |

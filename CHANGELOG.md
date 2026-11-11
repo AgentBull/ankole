@@ -34,6 +34,11 @@
   capabilities, so a speech, transcription, or decision profile on a Cloudflare
   provider shows neither the search engine nor the image options, and a speech
   or transcription profile on OpenRouter shows no language-model options.
+- Show the usage of capabilities that count no tokens on the Console Model
+  usage page. A table lists OCR, transcription, speech, image generation, and
+  decision-model calls with their number, the quantity in pages, seconds,
+  characters, or images, and the cost in US dollars when the Provider reports
+  one.
 - Bring File Pages into Brain. `recall` searches a public file whose text
   Ankole can extract (PDF, Office and OpenDocument files, spreadsheets,
   CSV/TSV, and text) by page, slide, sheet, or section. A file in the Brain
