@@ -1,6 +1,7 @@
 import { Button } from '@ankole/uikit'
 import { RiArrowRightSLine, RiStopCircleLine } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { stopConversationExecution } from '../api/generated/sdk.gen'
@@ -20,6 +21,25 @@ export function cleanExecutionPreview(raw?: string | null): string | undefined {
     .replace(/\s+/g, ' ')
     .trim()
   return plain || undefined
+}
+
+type RunProgress = Pick<LinkedExecution, 'kind' | 'taskCounts' | 'planCompleted' | 'planTotal' | 'stepCount'>
+
+/** How far a run has come: a Workflow's finished tasks, a Job's plan, or else the steps it has taken. */
+export function executionProgressLabel(run: RunProgress, t: TFunction): string | undefined {
+  if (run.kind === 'workflow' && run.taskCounts && run.taskCounts.total > 0) {
+    return t('pod.chat_timeline.execution_workflow_counts', {
+      completed: run.taskCounts.completed,
+      total: run.taskCounts.total
+    })
+  }
+  if (run.planTotal && run.planTotal > 0) {
+    return t('pod.chat_timeline.execution_plan_progress', { completed: run.planCompleted ?? 0, total: run.planTotal })
+  }
+  if (run.stepCount && run.stepCount > 0) {
+    return t('pod.chat_timeline.execution_steps_count', { count: run.stepCount })
+  }
+  return undefined
 }
 
 export function LinkedExecutionCard({
@@ -63,23 +83,8 @@ export function LinkedExecutionCard({
   }
   if (statusLabel) metaParts.push(statusLabel)
 
-  if (run.kind === 'workflow' && run.taskCounts && run.taskCounts.total > 0) {
-    metaParts.push(
-      t('pod.chat_timeline.execution_workflow_counts', {
-        completed: run.taskCounts.completed,
-        total: run.taskCounts.total
-      })
-    )
-  } else if (run.planTotal && run.planTotal > 0) {
-    metaParts.push(
-      t('pod.chat_timeline.execution_plan_progress', {
-        completed: run.planCompleted ?? 0,
-        total: run.planTotal
-      })
-    )
-  } else if (run.stepCount && run.stepCount > 0) {
-    metaParts.push(t('pod.chat_timeline.execution_steps_count', { count: run.stepCount }))
-  }
+  const progress = executionProgressLabel(run, t)
+  if (progress) metaParts.push(progress)
 
   const preview = !compact ? cleanExecutionPreview(run.summary) : undefined
   const workflowPct =

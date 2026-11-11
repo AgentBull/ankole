@@ -137,7 +137,10 @@ Room visibility follows `native_access_scope`:
   the thread and post to join it (the first accepted message adds that Human as
   a participant in the same transaction). Every access check evaluates live Page
   and Principal state, so trashing or revoking access to the Page revokes room
-  access immediately.
+  access immediately. When Ankole deletes the Page for good, by a purge or
+  together with the root that holds it, it first changes each of the Page's
+  anchored rooms to `participants` access, so the room keeps its messages for
+  the people who joined it.
 
 - **`agent_peer`** isolates a delegated exchange between two Agents. Its
   `(origin_conversation_id, peer_sender_uid, peer_target_uid)` tuple is unique
@@ -153,6 +156,14 @@ Global Chat and Recents exclude `anchor_page` and `agent_peer` rooms. Comments
 use the former internally, and the origin's timeline exposes the latter.
 The Page Assistant panel lists only the viewer's private assistant tasks bound
 to that Page. Guests do not receive that panel.
+
+An [Issue](Issues.md) has one native room with `participants` access, which
+`Conversations.ensure_issue_room_in_tx/2` creates for the Issue's creator and
+its Agent without an opening message. The room is a `dm` that carries no
+colleague-DM identity, so an AI colleague's Issue room stays apart from the
+colleague's direct-message room, and it becomes a `group` when its creator
+invites another person. Starting the Issue posts its request to the room as an
+ordinary Human message.
 
 Room members, the room creator, Pod administrators, and managers of an anchor
 Page can rename the room or invite participants, though changing an Agent's
@@ -533,7 +544,7 @@ requests without valid CSRF proof are rejected before reaching domain actions.
 ## Pod Chat Workspace
 
 New Chat opens a personal-assistant task with a greeting, starter prompts and
-composer. The sidebar header offers this action below both tabs to formal
+composer. The sidebar header offers this action below its tabs to formal
 members, with Command/Control+Shift+O. The sidebar stays on the tab where the
 member started New Chat, including after the first message opens the task.
 
@@ -579,7 +590,7 @@ followed by its `@uid`, marks a DM with the colleague's avatar, a group with a
 group mark, and a task with a conversation mark. Home interleaves Pages and
 conversations, retaining at most three attention items ahead of ordinary
 recents: pending decisions first, relevant unread comments second, and running
-work third. Both tab badges use the same count: Chat counts unread IM and
+work third. The Home and Chat tab badges use the same count: Chat counts unread IM and
 pending decisions, and Home counts Pages with relevant unread comments.
 
 A group invites into itself. An assistant task offers Start a group and a DM

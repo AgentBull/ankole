@@ -231,6 +231,7 @@ tools/e2e/run --real-llm
 | [Agent Workers](design-docs/AgentWorkers.md) | Per-Agent Worker provisioning, cloud providers, lifecycle fences, persistent Home, and cache disks |
 | [Schedule](design-docs/Schedule.md) | One-shot checkbacks, recurring cron schedules, and scheduled wakeups |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Long-running asynchronous Codex jobs, turn leases, and progress reporting |
+| [Issues](design-docs/Issues.md) | Background work that a person hands to an Agent, the Issue's room, work-item status, and the Pod's Work page |
 | [Automation Jobs](design-docs/AutomationJobs.md) | Page-owned Applet Actions with native schedules, Webhooks, and durable runs |
 | [Workflow](design-docs/Workflow.md) | Fixed TypeScript orchestrations that fan out and aggregate bounded subagent calls |
 | [Principal](design-docs/Principal.md) | Unified Human, Agent, and system service identities and linked external provider accounts |

@@ -197,6 +197,32 @@ defmodule Ankole.TenantsTest do
     assert {:error, :not_found} = Tenants.get(tenant.id)
   end
 
+  test "tenant deletion removes a Page that a discussion among people is anchored to" do
+    tenant = new_tenant()
+
+    Repo.with_tenant(tenant.id, fn ->
+      author = human_fixture().principal
+      reader = human_fixture().principal
+      actor = actor_fixture(author.uid)
+      {:ok, page} = Ankole.Pod.Pages.create(actor, %{title: "Shared report"})
+
+      # No Agent takes part, so deleting the tenant's Agents leaves this room in place.
+      assert {:ok, %{conversation: %{native_access_scope: :anchor_page}}} =
+               Ankole.ConversationsFixtures.create(author.uid, %{
+                 conversation_id: Ecto.UUID.generate(),
+                 message_id: Ecto.UUID.generate(),
+                 participant_uids: [reader.uid],
+                 text: "Is this report final?",
+                 page_id: page.id,
+                 access_scope: :anchor_page
+               })
+    end)
+
+    assert {:ok, _} = Tenants.delete(tenant)
+    drain_delete(tenant.id)
+    assert {:error, :not_found} = Tenants.get(tenant.id)
+  end
+
   test "tenant deletion removes nested ACL anchors across multiple leaf batches" do
     tenant = new_tenant()
 

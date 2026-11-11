@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.114 (2026-11-11)
+## Version 2.0.0-alpha.115 (2026-11-11)
 
 - Fix long conversations that stopped answering with
   `provider_history_byte_limit_exceeded`. When a model streamed its reasoning
@@ -10,9 +10,8 @@
   could then reach the `8 MiB` history limit of one Response long before the
   token trigger for compaction. Every later message in it ended with the
   "This message could not be finished" notice, and `/retry` failed the same
-  way.
-  AIGateway now joins the fragments of one reasoning text into one entry, both
-  when it stores a response and when it replays a stored one.
+  way. AIGateway now joins the fragments of one reasoning text into one entry,
+  both when it stores a response and when it replays a stored one.
 - Compact a conversation when its stored history reaches three quarters of the
   item limit (1,024) or byte limit (`8 MiB`) of one Response, even when it is
   below the token trigger. A conversation that already fails with
@@ -20,6 +19,38 @@
   is compacted on its next message and continues; `/compress` remains
   available. When that compaction cannot write its summary, the message runs on
   the full history as before.
+
+## Version 2.0.0-alpha.114 (2026-11-11)
+
+- Add Issues and the Pod's Work tab. An Issue hands background work to an
+  Agent: it has a title, a description, and the personal assistant or AI
+  colleague that does the work. Starting an Issue posts the request as the
+  first message of the Issue's conversation, where the Agent's replies and its
+  Background Agent Jobs and Workflows appear as they do in Chat; an Issue
+  created with Start later waits. The Work tab shows Issues as a board or a
+  list whose columns follow the Agent's real work (To do, In progress, Needs
+  you, In review, Done), shows each live run on its card with a Stop action,
+  and lists the scheduled tasks of the conversations in a member's Chat list.
+  A conversation with a personal assistant becomes an Issue when the assistant
+  starts its first Background Agent Job or Workflow there. Run
+  `mix ecto.migrate`: the migration creates the `issues` table.
+- Fix permanent deletion of a Page that an Agent discussion or a shared chat
+  was anchored to. The purge failed; Ankole now keeps such a conversation for
+  the people who joined it.
+- Fix tenant deletion when a discussion among people was anchored to a Page.
+  The deletion failed at that Page and retried without end; Ankole now releases
+  such conversations from their Pages before it deletes the Pages.
+- Add the `google_vertex_ai` provider kind for Gemini and partner models on
+  Google Vertex AI. Each credential is the JSON key file of a Google Cloud
+  service account; AIGateway exchanges it for access tokens and renews them
+  without operator action. The row selects a location (`global` by default),
+  can override the project, and can set one safety filter threshold. Model
+  profiles name models as Google does, for example `gemini-2.5-pro`.
+- Fail an AgentBull Cloud request when its hosted token cannot be minted or is
+  rejected. The provider fell back to the row's static `api_key`, so a revoked
+  hosted token kept working. It now uses the static key only when no hosted
+  credential is present, and a row without any credential fails instead of
+  sending an unauthenticated request.
 
 ## Version 2.0.0-alpha.113 (2026-11-11)
 

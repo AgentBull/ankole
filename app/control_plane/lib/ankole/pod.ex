@@ -114,6 +114,7 @@ defmodule Ankole.Pod do
 
   resources do
     resource(Ankole.AutomationJobs.Browser)
+    resource(Ankole.Issues.Browser)
     resource(Ankole.Signals.EventBindingsBrowser)
     resource(Ankole.Principals.PodAdminOperations)
     resource(Ankole.AIAgent.Library.Browser)
@@ -306,6 +307,14 @@ defmodule Ankole.Pod do
           name: "podAppletEnvDecrypt",
           wrap_in_result?: false
         )
+      end
+
+      base_route "/issues", Ankole.Issues.Browser do
+        route(:get, "/", :list, name: "podIssues", wrap_in_result?: false)
+        route(:post, "/", :create, name: "createPodIssue", wrap_in_result?: false)
+        route(:get, "/scheduled", :scheduled, name: "podScheduledWork", wrap_in_result?: false)
+        route(:get, "/:id", :show, name: "podIssue", wrap_in_result?: false)
+        route(:patch, "/:id", :update, name: "updatePodIssue", wrap_in_result?: false)
       end
 
       base_route "/signal-bindings", Ankole.Signals.EventBindingsBrowser do

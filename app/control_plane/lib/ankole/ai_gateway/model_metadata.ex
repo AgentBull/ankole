@@ -95,6 +95,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
     "claude" => "anthropic",
     "gemini" => "google",
     "google_ai_studio_openai" => "google",
+    "google_vertex_ai" => "google_vertex",
     "xiaomi_mimo" => "xiaomi"
   }
 

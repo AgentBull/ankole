@@ -289,7 +289,12 @@ defmodule Ankole.Workflow.Lifecycle do
           {:ok, %{run: run}}
 
         {:ok, nil} ->
-          with {:ok, run} <- Ankole.Ash.create(Run, :create_run, attrs),
+          with :ok <-
+                 Ankole.Issues.ensure_for_task_room_in_tx(
+                   attrs["agent_uid"],
+                   attrs["owner_session_id"]
+                 ),
+               {:ok, run} <- Ankole.Ash.create(Run, :create_run, attrs),
                :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
             {:ok, %{run: run}}
           end

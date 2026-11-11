@@ -117,6 +117,9 @@ defmodule Ankole.Conversations do
               ),
               to: NativeRoom
 
+  defdelegate detach_pages(page_ids), to: NativeRoom
+  defdelegate detach_all_pages(), to: NativeRoom
+  defdelegate ensure_issue_room_in_tx(actor, attrs), to: Native
   defdelegate list_rooms(actor, opts \\ []), to: Native
   defdelegate next_steps(actor, opts \\ []), to: Ankole.Conversations.NextSteps, as: :menu
   defdelegate choose_next_step(actor, id), to: Ankole.Conversations.NextSteps, as: :choose
@@ -146,6 +149,7 @@ defmodule Ankole.Conversations do
   defdelegate post(human_uid, id, attrs), to: Native
   defdelegate post_applet_notification(actor, applet_id, id, message_id, text), to: Native
   defdelegate post_in_tx(human_uid, id, attrs), to: Native
+  defdelegate publish_native_change(result), to: Native
   defdelegate post_in_tx(target, statement), to: Native
   defdelegate update_queue(human_uid, id, attrs), to: NativeQueue
   defdelegate update_queue_in_tx(human_uid, id, attrs), to: NativeQueue

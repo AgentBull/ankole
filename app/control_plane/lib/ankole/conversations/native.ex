@@ -302,6 +302,43 @@ defmodule Ankole.Conversations.Native do
 
   def create_in_tx(_human_uid, _attrs), do: {:error, :invalid_request}
 
+  @doc """
+  Creates the room of an Issue for a Human in the caller's transaction.
+
+  The room starts without a message, because starting the Issue posts the
+  request. It is a `dm` of the Human and the Agent, so every message that the
+  Human writes there addresses the Agent. The room carries no colleague-DM
+  identity, so an AI colleague's Issue stays apart from the colleague's
+  direct messages.
+  """
+  def ensure_issue_room_in_tx(%Ankole.AuthZ.Actor{} = actor, attrs) when is_map(attrs) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+    agent_uid = Ankole.Attrs.get(attrs, :agent_uid)
+    title = Ankole.Attrs.get(attrs, :title)
+
+    with :ok <- Repo.require_transaction(),
+         :ok <- Ankole.Pod.lock_tree_in_tx(),
+         {:ok, id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :conversation_id)),
+         {:ok, _} <-
+           Ankole.Principals.lock_principals_in_tx(Enum.sort(Enum.uniq([human_uid, agent_uid]))),
+         :ok <- check_human_in_tx(actor),
+         {:ok, agent} <- active_agent_in_tx(agent_uid),
+         :ok <- authorize_agent(actor, agent_uid),
+         :ok <-
+           Ankole.Sessions.Queue.lock_sessions_in_tx([
+             {agent_uid, Ankole.Sessions.Key.conversation(id)}
+           ]),
+         {:ok, conversation} <-
+           ensure_conversation_in_tx(actor, agent, id, title, nil, :dm, nil),
+         {:ok, conversation} <-
+           Ankole.Ash.update(conversation, :rename_title, %{title: title, title_customized: true}) do
+      ModelPreferences.initialize(conversation, agent.uid, nil)
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_request}
+    end
+  end
+
   defp original_message?(conversation_id, message_id) do
     match?(%Message{conversation_id: ^conversation_id, seq: 1}, message(message_id))
   end

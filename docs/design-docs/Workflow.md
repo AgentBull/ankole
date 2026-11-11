@@ -33,6 +33,11 @@ multiplexing subcommands through an `action` parameter.
 - `max_agent_calls`: optional total task limit for the run (`1` through `1,024`)
 - `model_profile`: optional custom model profile inherited from the current turn
 
+A run records the calling Session as its owner. When that Session is the room
+of an [Issue](Issues.md), the run is one of the Issue's runs. Creating a run
+reopens the room's accepted Issue in the same transaction and gives a personal
+assistant's task room its Issue when the room has none.
+
 Deployment-wide Workflow settings cap `concurrency` and `max_agent_calls` if the
 caller requests higher numbers. `workflow` returns the decimal `run_id` and the
 initial `running` status; the main Agent must not poll the run, because the

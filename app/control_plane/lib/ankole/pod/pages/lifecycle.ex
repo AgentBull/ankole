@@ -42,25 +42,28 @@ defmodule Ankole.Pod.Pages.Lifecycle do
   def purge_nodes(ids) do
     with :ok <- Ankole.Pod.Bases.Delete.purge_pages(ids),
          :ok <- Ankole.AutomationJobs.purge_pages(ids),
+         :ok <- Ankole.Conversations.detach_pages(ids),
          do: delete_page_resources(ids)
   end
 
   def purge_nodes_in_tx(ids) do
     :ok = Ankole.Repo.require_transaction()
 
-    tables =
-      Ankole.Pod.BaseTable
-      |> Ash.Query.filter(page_id in ^ids)
-      |> Ash.Query.sort(id: :asc)
-      |> Ash.Query.lock(:for_update)
-      |> Ankole.Ash.read!()
+    with :ok <- Ankole.Conversations.detach_pages(ids) do
+      tables =
+        Ankole.Pod.BaseTable
+        |> Ash.Query.filter(page_id in ^ids)
+        |> Ash.Query.sort(id: :asc)
+        |> Ash.Query.lock(:for_update)
+        |> Ankole.Ash.read!()
 
-    Enum.reduce_while(tables, :ok, fn table, :ok ->
-      case Ankole.Pod.Bases.Delete.drop_physical(table) do
-        :ok -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
+      Enum.reduce_while(tables, :ok, fn table, :ok ->
+        case Ankole.Pod.Bases.Delete.drop_physical(table) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
+    end
   end
 
   def rename_node_in_tx(_old, node, actor) do

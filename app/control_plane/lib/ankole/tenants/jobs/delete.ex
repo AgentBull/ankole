@@ -18,7 +18,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     page_user_states page_changes page_comments page_snapshots page_daily_activity page_search_documents page_contents
     pod_search_queries pod_spreadsheet_ops pod_file_caches permission_grants
     conversation_action_cards external_message_refs conversation_messages conversation_participants
-    next_step_suggestions
+    next_step_suggestions issues
     session_ambient_judgments scheduled_events cron_schedules
     sessions agent_computer_worker_envs runner_bindings runner_devices
     agent_plugin_overrides agent_skill_lessons agent_skills agent_contracts skill_files skills
@@ -79,7 +79,9 @@ defmodule Ankole.Tenants.Jobs.Delete do
       # enqueueing WorkCleanup would let deletion erase that job's input first.
       with :ok <- cleanup_human_work(),
            :ok <- Ankole.Connectors.teardown_tenant(),
-           {:ok, 0} <- Ankole.Pod.release_applet_owners_for_tenant_deletion() do
+           {:ok, 0} <- Ankole.Pod.release_applet_owners_for_tenant_deletion(),
+           # A room anchored to a Page cannot outlive it, and `pages` goes before `conversations`.
+           :ok <- Ankole.Conversations.detach_all_pages() do
         agents = Principals.list_principals!(query: [filter: [type: :agent], limit: 50])
 
         cond do

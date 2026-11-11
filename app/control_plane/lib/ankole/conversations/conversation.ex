@@ -242,6 +242,14 @@ defmodule Ankole.Conversations.Conversation do
       validate(attribute_equals(:kind, :native))
     end
 
+    # A room that loses its Page stays with the people who joined it.
+    update :detach_page do
+      require_atomic?(true)
+      accept([])
+      change(filter(expr(kind == :native and native_access_scope == :anchor_page)))
+      change(set_attribute(:native_access_scope, :participants))
+    end
+
     update :set_agent_model_profile do
       accept([:preferred_models])
       validate(attribute_equals(:kind, :native))

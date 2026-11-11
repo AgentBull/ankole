@@ -33,6 +33,9 @@ import type {
   CreatePodInvitationData,
   CreatePodInvitationErrors,
   CreatePodInvitationResponses,
+  CreatePodIssueData,
+  CreatePodIssueErrors,
+  CreatePodIssueResponses,
   CreatePodMemberData,
   CreatePodMemberErrors,
   CreatePodMemberResponses,
@@ -330,6 +333,12 @@ import type {
   PodFilesData,
   PodFilesErrors,
   PodFilesResponses,
+  PodIssueData,
+  PodIssueErrors,
+  PodIssueResponses,
+  PodIssuesData,
+  PodIssuesErrors,
+  PodIssuesResponses,
   PodJobSchedulesDeleteData,
   PodJobSchedulesDeleteErrors,
   PodJobSchedulesDeleteResponses,
@@ -498,6 +507,9 @@ import type {
   PodReplySuggestionData,
   PodReplySuggestionErrors,
   PodReplySuggestionResponses,
+  PodScheduledWorkData,
+  PodScheduledWorkErrors,
+  PodScheduledWorkResponses,
   PodSpaceAgentDeleteData,
   PodSpaceAgentDeleteErrors,
   PodSpaceAgentDeleteResponses,
@@ -600,6 +612,9 @@ import type {
   UpdatePodAdminSettingsData,
   UpdatePodAdminSettingsErrors,
   UpdatePodAdminSettingsResponses,
+  UpdatePodIssueData,
+  UpdatePodIssueErrors,
+  UpdatePodIssueResponses,
   UpdatePodProfileData,
   UpdatePodProfileErrors,
   UpdatePodProfileResponses,
@@ -724,6 +739,36 @@ export const updateConversationParticipants = <ThrowOnError extends boolean = tr
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/conversations/{id}/participants',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podIssues operation on issue_operation resource
+ */
+export const podIssues = <ThrowOnError extends boolean = true>(
+  options?: Options<PodIssuesData, ThrowOnError>
+): RequestResult<PodIssuesResponses, PodIssuesErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodIssuesResponses, PodIssuesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/issues',
+    ...options
+  })
+
+/**
+ * createPodIssue operation on issue_operation resource
+ */
+export const createPodIssue = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodIssueData, ThrowOnError>
+): RequestResult<CreatePodIssueResponses, CreatePodIssueErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<CreatePodIssueResponses, CreatePodIssueErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/issues',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2285,6 +2330,19 @@ export const podConnectorAccountsConnectTeam = <ThrowOnError extends boolean = t
   })
 
 /**
+ * podScheduledWork operation on issue_operation resource
+ */
+export const podScheduledWork = <ThrowOnError extends boolean = true>(
+  options?: Options<PodScheduledWorkData, ThrowOnError>
+): RequestResult<PodScheduledWorkResponses, PodScheduledWorkErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodScheduledWorkResponses, PodScheduledWorkErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/issues/scheduled',
+    ...options
+  })
+
+/**
  * postConversationMessage operation on pod_chat_operation resource
  */
 export const postConversationMessage = <ThrowOnError extends boolean = true>(
@@ -3354,6 +3412,36 @@ export const metaCreateAgent = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/meta/agents',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podIssue operation on issue_operation resource
+ */
+export const podIssue = <ThrowOnError extends boolean = true>(
+  options: Options<PodIssueData, ThrowOnError>
+): RequestResult<PodIssueResponses, PodIssueErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodIssueResponses, PodIssueErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/issues/{id}',
+    ...options
+  })
+
+/**
+ * updatePodIssue operation on issue_operation resource
+ */
+export const updatePodIssue = <ThrowOnError extends boolean = true>(
+  options: Options<UpdatePodIssueData, ThrowOnError>
+): RequestResult<UpdatePodIssueResponses, UpdatePodIssueErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<UpdatePodIssueResponses, UpdatePodIssueErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/issues/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

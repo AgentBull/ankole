@@ -18,7 +18,7 @@ import {
   TabsList,
   TabsTrigger
 } from '@ankole/uikit'
-import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSettings3Line } from '@remixicon/react'
+import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSettings3Line, RiTaskLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -36,17 +36,18 @@ import { ErrorBoundary } from '../common/error-boundary'
 import { ChatSidebar } from './chat/chat-sidebar'
 import { AccountMenu } from './account-menu'
 import { ContentNavigation } from './page-navigation'
+import { WorkNavigation } from './work-navigation'
 import type { PodSidebarNavigationState } from './state/navigation'
 import { POD_SIDEBAR_MAX_WIDTH, POD_SIDEBAR_MIN_WIDTH, SidebarLayoutModel } from './state/sidebar-layout'
 
 import { agentsQuery, conversationAttentionQuery } from './api'
 import { browserSession } from '../common/api/generated/sdk.gen'
 
-export function routeSidebarTab(
-  pathname: string,
-  state?: PodSidebarNavigationState | null
-): 'home' | 'chat' | undefined {
+export type PodSidebarTab = 'home' | 'chat' | 'work'
+
+export function routeSidebarTab(pathname: string, state?: PodSidebarNavigationState | null): PodSidebarTab | undefined {
   if (state?.keepSidebarTab) return state.keepSidebarTab
+  if (pathname === '/work') return 'work'
   if (
     pathname === '/meta' ||
     pathname.startsWith('/meta/') ||
@@ -88,7 +89,7 @@ export function PodSidebar({
     select: location => routeSidebarTab(location.pathname, location.state as PodSidebarNavigationState | null)
   })
   const { isMobile, state, setOpenMobile } = useSidebar()
-  const [tab, setTab] = useState<'home' | 'chat'>(() => routeTab ?? 'chat')
+  const [tab, setTab] = useState<PodSidebarTab>(() => routeTab ?? 'chat')
   // New Chat sits above both tabs, so it opens the composer without switching away from the open tab.
   useEffect(() => {
     if (!agents.data?.personalAssistantAvailable) return
@@ -149,7 +150,8 @@ export function PodSidebar({
                 {(
                   [
                     ['home', RiHome5Line, t('pod.sidebar.tabs.home')],
-                    ['chat', RiChat3Line, t('pod.sidebar.tabs.chat')]
+                    ['chat', RiChat3Line, t('pod.sidebar.tabs.chat')],
+                    ['work', RiTaskLine, t('pod.sidebar.tabs.work')]
                   ] as const
                 ).map(([value, Icon, label]) => (
                   // Only the open tab shows its label, so a closed tab names itself in a tooltip.
@@ -174,7 +176,7 @@ export function PodSidebar({
                         <span>{label}</span>
                       </span>
                       {/* Both tabs announce work that waits for the viewer with the same badge. */}
-                      {(value === 'chat' ? chatAttention : homeAttention) > 0 && (
+                      {value !== 'work' && (value === 'chat' ? chatAttention : homeAttention) > 0 && (
                         <Badge variant="info" size="sm" aria-hidden>
                           {value === 'chat' ? chatAttention : homeAttention}
                         </Badge>
@@ -214,6 +216,11 @@ export function PodSidebar({
             <TabsContent value="chat" className="pod-conversations px-2 pb-3 text-[13px] leading-5">
               <ErrorBoundary variant="inline" resetKeys={[pathname]}>
                 <ConversationMenu />
+              </ErrorBoundary>
+            </TabsContent>
+            <TabsContent value="work" className="px-2 pb-3 text-[13px] leading-5">
+              <ErrorBoundary variant="inline" resetKeys={[pathname]}>
+                <WorkNavigation onNavigate={closeMobile} />
               </ErrorBoundary>
             </TabsContent>
           </SidebarContent>

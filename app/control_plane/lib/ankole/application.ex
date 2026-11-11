@@ -83,6 +83,7 @@ defmodule Ankole.Application do
         Ankole.Conversations.Delivery.Supervisor,
         Ankole.AgentWorkers.Supervisor,
         Ankole.AIGateway.ModelMetadata.Cache,
+        Ankole.AIGateway.GoogleServiceAccount,
         Ankole.Sessions.Supervisor,
         Ankole.Workflow.Supervisor
       ]

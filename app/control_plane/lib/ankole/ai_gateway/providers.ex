@@ -39,6 +39,7 @@ defmodule Ankole.AIGateway.Providers do
     Ankole.AIGateway.Providers.OpenAICompatible,
     Ankole.AIGateway.Providers.OpenRouter,
     Ankole.AIGateway.Providers.GoogleAIStudioOpenAI,
+    Ankole.AIGateway.Providers.GoogleVertexAI,
     Ankole.AIGateway.Providers.Jina,
     Ankole.AIGateway.Providers.Parallel,
     Ankole.AIGateway.Providers.BrightDataSERP,

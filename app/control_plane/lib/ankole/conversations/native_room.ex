@@ -73,11 +73,22 @@ defmodule Ankole.Conversations.NativeRoom do
     cursor = if opts[:cursor], do: cursor_row(opts[:cursor], uid)
 
     query
+    |> only_ids(opts[:ids])
     |> after_cursor(cursor, order)
-    |> then(&if(opts[:attention], do: &1, else: Ash.Query.limit(&1, opts[:limit] || 100)))
+    |> page(opts)
     |> Ankole.Ash.read!()
     |> project_rooms(actor, reachable)
     |> put_search_matches(opts[:query], pattern)
+  end
+
+  defp only_ids(query, nil), do: query
+  defp only_ids(query, ids), do: Ash.Query.filter(query, id in ^ids)
+
+  # An attention read and a read by ID give every match; any other read gives one page.
+  defp page(query, opts) do
+    if opts[:attention] || opts[:ids],
+      do: query,
+      else: Ash.Query.limit(query, opts[:limit] || 100)
   end
 
   @search_excerpt_chars 120
@@ -731,6 +742,28 @@ defmodule Ankole.Conversations.NativeRoom do
   end
 
   defdelegate display_name(principal), to: Ankole.Principals
+
+  @doc """
+  Releases the rooms anchored to Pages that are being purged. Each room keeps
+  its messages and its participants, who are the only people who still open it.
+  """
+  def detach_pages(page_ids) when is_list(page_ids) do
+    Conversation
+    |> Ash.Query.filter(page_id in ^page_ids and native_access_scope == :anchor_page)
+    |> detach()
+  end
+
+  @doc "Releases every anchored room of the tenant, before the tenant's Pages are deleted."
+  def detach_all_pages do
+    Conversation |> Ash.Query.filter(native_access_scope == :anchor_page) |> detach()
+  end
+
+  defp detach(rooms) do
+    case Ankole.Ash.update_where(rooms, :detach_page) do
+      {:ok, _rooms} -> :ok
+      {:error, _} = error -> error
+    end
+  end
 
   def find_anchor_page_conversation_id(page_id, agent_uid)
       when is_binary(page_id) and is_binary(agent_uid) do
