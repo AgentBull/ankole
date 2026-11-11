@@ -46,6 +46,7 @@
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 @custom-variant fine-hover (@media (hover: hover) and (pointer: fine));
+@custom-variant pointer-coarse (@media (pointer: coarse));
 
 @theme {
   --animate-field-nudge: ankole-field-nudge 320ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -271,6 +272,53 @@
   font-weight: 600;
 }
 
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  @supports not (scrollbar-width: none) {
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}
+
+@utility thin-scrollbar {
+  --scrollbar-thumb: var(--border-strong);
+  --scrollbar-track: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+
+  @supports not (scrollbar-color: auto) {
+    &::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      border-radius: 9999px;
+      background: var(--scrollbar-thumb);
+    }
+
+    &::-webkit-scrollbar-track {
+      background: var(--scrollbar-track);
+    }
+  }
+}
+
+/* Expands a compact control's hit area to at least 44×44 CSS pixels on touch screens without changing layout. */
+@utility touch-target {
+  @media (pointer: coarse) {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset-inline: min(0px, calc((100% - 44px) / 2));
+      inset-block: min(0px, calc((100% - 44px) / 2));
+    }
+  }
+}
+
 /* A navigation row names a place. Its states are the secondary interaction fills, never a change of material:
    hover is a light wash under the pointer, pressing lays a little black over it, and the current place takes the
    solid selected fill and stays put under the pointer. The weight of the text does not change, so the row keeps
@@ -341,14 +389,33 @@
   ),
 [data-slot='input-group']:hover:not(
     :has(:is(input, textarea):focus-visible),
-    :has(input:disabled),
+    :has(:is(input, textarea):disabled),
     :has([data-slot][aria-invalid='true']),
     :has(:user-invalid)
   ) {
   border-bottom-color: var(--field-border-hover);
 }
 
+/* Slot controls indicate focus with an inset box-shadow, which Forced Colors Mode strips.
+   Restore a system Highlight outline whenever a slot or composite field holds keyboard focus. */
+@media (forced-colors: active) {
+  :is([data-slot='input'], [data-slot='textarea'], [data-slot='select-trigger'][data-variant='field']):focus-visible,
+  :is([data-slot='input-group'], [data-slot='number-input'], [data-slot='combobox-chips']):has(
+    :is(input, textarea):focus-visible
+  ),
+  [data-slot='input-otp-slot'][data-active='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
 @layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    :root {
+      interpolate-size: allow-keywords;
+    }
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
@@ -394,16 +461,21 @@
 @layer components {
   /* The spinner turns once a second while its arc grows from a tenth of the circle to two thirds and back.
      Its default size sits in this layer so a button or a caller's size utility can resize it like an icon.
-     When motion is reduced, the global rule stops the animation and a quarter arc stays in place. */
+     When motion is reduced, the dash animation drops and only a slow 6s rotation remains so active work stays legible. */
   /* Preflight makes every svg a block; the spinner stays inline so it sits beside its text in running prose. */
   [data-slot='spinner'] {
+    --_spinner-duration: var(--spinner-duration, 1s);
     display: inline-block;
     width: 1rem;
     height: 1rem;
     stroke: currentColor;
     stroke-width: var(--spinner-thickness, 1.75);
     stroke-linecap: round;
-    animation: ankole-spinner-turn 1s linear infinite;
+    animation: ankole-spinner-turn var(--_spinner-duration) linear infinite;
+
+    @media (prefers-reduced-motion: reduce) {
+      --_spinner-duration: 6s;
+    }
   }
 
   [data-slot='spinner'] [data-part='track'] {
@@ -414,23 +486,31 @@
     stroke-dasharray: 25 100;
     transform-origin: center;
     rotate: -90deg;
-    animation: ankole-spinner-arc 2.4s ease-in-out infinite;
+
+    @media (prefers-reduced-motion: no-preference) {
+      animation: ankole-spinner-arc 2.4s ease-in-out infinite;
+    }
   }
 
   /* The leading edge travels faster so the selected mark stretches toward the next tab before it settles. */
   [data-slot='tabs-indicator'] {
     --segment-start-time: 380ms;
     --segment-end-time: 380ms;
-    transition:
-      left var(--segment-start-time) var(--ease-segment),
-      right var(--segment-end-time) var(--ease-segment),
-      top var(--segment-start-time) var(--ease-segment),
-      bottom var(--segment-end-time) var(--ease-segment),
-      scale 200ms var(--ease-segment);
+
+    @media (prefers-reduced-motion: no-preference) {
+      transition:
+        left var(--segment-start-time) var(--ease-segment),
+        right var(--segment-end-time) var(--ease-segment),
+        top var(--segment-start-time) var(--ease-segment),
+        bottom var(--segment-end-time) var(--ease-segment),
+        scale 200ms var(--ease-segment);
+    }
   }
 
-  [data-slot='tabs-indicator'][data-instant] {
-    transition-property: scale;
+  @media (prefers-reduced-motion: no-preference) {
+    [data-slot='tabs-indicator'][data-instant] {
+      transition-property: scale;
+    }
   }
 
   [data-slot='tabs-indicator']:is([data-activation-direction='right'], [data-activation-direction='down']) {
@@ -644,17 +724,12 @@
   *,
   *::before,
   *::after {
-    animation-duration: 1ms !important;
-    animation-delay: 0ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
-    transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
 
   .animate-spin,
   .animate-pulse {
-    animation: none !important;
+    animation: none;
   }
 
   :is(
@@ -667,22 +742,22 @@
     [data-slot='drawer-popup'],
     [data-slot='drawer-overlay']
   ) {
-    transition-property: opacity !important;
-    transition-duration: var(--duration-feedback) !important;
-    transition-timing-function: var(--ease-out) !important;
+    transition-property: opacity;
+    transition-duration: var(--duration-feedback);
+    transition-timing-function: var(--ease-out);
   }
 
   :is([data-slot='dialog-content'], [data-slot='popover-content'], [data-slot='hover-card-content']) {
-    scale: none !important;
+    scale: none;
   }
 
   [data-slot='sheet-content'] {
-    translate: none !important;
+    translate: none;
   }
 
   [data-slot='drawer-popup']:is([data-starting-style], [data-ending-style]) {
-    transform: var(--drawer-open-transform) !important;
-    opacity: 0 !important;
+    transform: var(--drawer-open-transform);
+    opacity: 0;
   }
 }
 
@@ -781,6 +856,7 @@
    emoji font when a glyph is missing. */
 .ankole-fluent-emoji {
   font-family: 'Fluent Emoji Color', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  font-variant-emoji: emoji;
   font-style: normal;
   font-weight: 400;
   line-height: 1;

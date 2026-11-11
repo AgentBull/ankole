@@ -27,7 +27,8 @@ import {
   pasteHandler,
   dropHandler,
   eventHandler,
-  eventObserver
+  eventObserver,
+  doPaste
 } from './input'
 import { ViewState, scrollIntoView, ScrollTarget, UpdateFlag } from './viewstate'
 import browser from './browser'
@@ -431,11 +432,16 @@ export class Wordgard {
       for (const p of this.plugins) p.mustUpdate = update
     }
     for (let i = 0; i < this.plugins.length; i++) this.plugins[i]!.update(this)
-    if (configChange) this.inputState.ensureHandlers(update.state)
+    if (update.state.facet(eventHandler) != update.startState.facet(eventHandler)) {
+      this.inputState.ensureHandlers(update.state)
+    }
   }
 
   private updateAttrs() {
-    const editorAttrs = attrsFromFacet(this, Wordgard.editorAttributes, ['class', this.themeClasses])
+    const editorAttrs = attrsFromFacet(this, Wordgard.editorAttributes, [
+      'class',
+      this.themeClasses + (this.inputState.notifiedFocused ? ' wg-focused' : '')
+    ])
     const contentAttrs = attrsFromFacet(this, Wordgard.contentAttributes, [
       'aria-multiline',
       'true',
@@ -699,7 +705,7 @@ export class Wordgard {
    * phrase.
    */
   static label(label: string | PhraseSet.Ref) {
-    return Wordgard.editorAttributes.of(
+    return Wordgard.contentAttributes.of(
       typeof label == 'string' ? { 'aria-label': label } : wg => ({ 'aria-label': label(wg.state) })
     )
   }
@@ -767,6 +773,19 @@ export class Wordgard {
    * behavior.
    */
   static pasteHandler = pasteHandler
+
+  /**
+   * Paste the given HTML and plain text at the selection. Paste
+   * handlers run first. When none of them handles the paste, the
+   * default paste inserts the parsed slice.
+   */
+  paste(html: string, text = '') {
+    const data = new DataTransfer()
+    if (html) data.setData('text/html', html)
+    if (text) data.setData('text/plain', text)
+    const { from, to } = this.state.selection.replacementRange
+    doPaste(this, data, from, to, null, true)
+  }
 
   /**
    * Facet for custom drop handlers. When the drop is done inside the
@@ -939,7 +958,7 @@ export class Wordgard {
    * the editor's {@link Wordgard.dom wrapper element} (to which the
    * scope class will be added) need to be explicitly differentiated
    * by adding an `&` to the selector for that element—for example
-   * `&:has(wg-content:focus)`.
+   * `&.wg-focused`.
    */
   static theme(spec: Record<string, StyleSpec>): GardState.Extension {
     const prefix = StyleModule.newName()
@@ -1048,6 +1067,15 @@ export class Wordgard {
    * part of the editor (for example a gutter).
    */
   static coveredMargins = GardState.Facet.define<(wg: Wordgard) => Partial<DOMRect> | null>()
+
+  /**
+   * Given a DOM element that may be a Wordgard editor, retrieve its
+   * editor instance. The element is the editor's outer element.
+   */
+  static findFromDOM(elt: Element): Wordgard | null {
+    const wg = (elt as { wg?: Wordgard }).wg
+    return wg instanceof Wordgard ? wg : null
+  }
 }
 
 let _wrapElement: { new (wg: Wordgard): HTMLElement } | null = null

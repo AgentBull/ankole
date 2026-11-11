@@ -226,11 +226,13 @@ export function FileDropzone({
         </Button>
       </div>
 
-      {resolvedError != null && (
-        <p id={errorId} role="alert" className="text-xs text-destructive">
-          {resolvedError}
-        </p>
-      )}
+      <p
+        id={resolvedError != null ? errorId : undefined}
+        role="status"
+        aria-live="polite"
+        className={cn('text-xs text-destructive', resolvedError == null && 'sr-only')}>
+        {resolvedError}
+      </p>
 
       {files && files.length > 0 && (
         <ul data-slot="file-dropzone-list" className="grid gap-1.5">
@@ -248,6 +250,7 @@ export function FileDropzone({
                   type="button"
                   size="icon-xs"
                   variant="ghost"
+                  className="touch-target"
                   aria-label={removeFileLabel(file.name)}
                   onClick={() => onRemoveFile(index)}>
                   <RiCloseLine aria-hidden="true" className="size-3.5" />

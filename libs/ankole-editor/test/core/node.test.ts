@@ -1,7 +1,7 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { Plot, Leaf, Node, Slice } from '../../src/core/doc'
-import { Paragraph, Image } from '../../src/core/types/schema'
+import { Paragraph, Image, Strong } from '../../src/core/types/schema'
 import { basicSchema as schema, basicBuilders, tag, eq } from './schema'
 const { doc, blockquote, p, h1, li, ul, hr, em, strong, code, $img, $a } = basicBuilders
 
@@ -23,6 +23,10 @@ describe('Node', () => {
         doc(p('foo', em('bar', strong('quux')), code('baz'))).toString(),
         'Doc(Paragraph("foo","bar"[Emphasis],"quux"[Emphasis,Strong],"baz"[Code]))'
       )
+    })
+
+    it('rejects marks on a document tag', () => {
+      ist.throws(() => schema.docTag.type.of(null, [Strong]), /Document nodes cannot have marks/)
     })
   })
 

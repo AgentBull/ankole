@@ -1,5 +1,32 @@
 # Changelog
 
+## Version 2.0.0-alpha.115 (2026-11-11)
+
+- Sync the block editor engine with Wordgard through `7008e6a`. The engine
+  lifts a wrapped paragraph on Backspace before joining it, splits a continued
+  list item when Enter lifts an empty paragraph, and removes an empty block
+  before deleting a neighboring leaf. A double-click that is not on a word
+  places a normal caret. Paste follows the DOM selection, and `Wordgard.paste`
+  inserts HTML and plain text through the same paste handlers. `Wordgard.label`
+  puts `aria-label` on the editable element, and a focused editor is marked
+  with `wg-focused`. Page block-boundary keys keep their own Backspace, Delete,
+  and Enter rules.
+- Webapp production bundles target Chrome 132, Firefox 160, and Safari 18.
+- Guard IME composition `Enter` in creatable comboboxes, number inputs, cron
+  editors, and icon upload dialogs, add 2D keyboard grid navigation to the date
+  range picker, default OTP inputs to a numeric mobile keyboard and one-time
+  code autofill, preserve focus outlines in Forced Colors mode, expand compact
+  touch targets on coarse pointers, style combobox, command, and sidebar lists
+  with high-contrast thin scrollbars, and keep color and opacity feedback under
+  `prefers-reduced-motion` while slowing spinners and turning off spatial motion.
+- Add TypeSafe SystemOne and compatible endpoints, Microsoft Foundry through
+  `azure_openai`, OpenRouter SystemOne models, and OpenAI `gpt-6-luna` as
+  decision-model providers, and map `promptCacheOptions` and `safetyIdentifier`
+  across OpenAI language and decision requests. Decision requests retain one
+  public contract across native state, image, instruction, and answer
+  encodings, record provider cost and cache writes, and reject the whole
+  request with `upstream_decision_refusal` when OpenAI declines any question.
+
 ## Version 2.0.0-alpha.114 (2026-11-11)
 
 - Add Issues and the Pod's Work tab. An Issue hands background work to an

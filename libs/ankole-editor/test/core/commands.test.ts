@@ -2,6 +2,7 @@ import { describe, it } from 'bun:test'
 import { Command } from '../../src/core/command/command'
 import {
   liftEmptyBlock,
+  liftTextblock,
   splitTextblock,
   deleteSelection,
   joinBackward,
@@ -10,7 +11,7 @@ import {
   deleteBackward,
   deleteForward
 } from '../../src/core/command/helper'
-import { insertLineBreak, insertText, enter, toggleMark } from '../../src/core/command/commands'
+import { insertLineBreak, insertText, enter, toggleMark, deleteUnit } from '../../src/core/command/commands'
 import { Plot, Mark, Leaf, Node, Schema, ChangeSet } from '../../src/core/doc'
 import { Emphasis, Strong } from '../../src/core/types/schema'
 import { Link } from './types'
@@ -238,6 +239,54 @@ describe('liftEmptyBlock', () => {
 
   it('can lift blocks with an inline node', () => {
     test(doc(blockquote(p(sp(0)))), liftEmptyBlock, doc(p(sp(0))))
+  })
+
+  it('will split continued list items', () => {
+    test(doc(ul(li(p('one'), p(0)), li(p('two')))), liftEmptyBlock, doc(ul(li(p('one')), li(p(0)), li(p('two')))))
+  })
+})
+
+describe('liftTextblock', () => {
+  it('can lift a paragraph out of a quote', () => {
+    test(doc(blockquote(p(0, '...'))), liftTextblock, doc(p(0, '...')))
+  })
+
+  it('can leave sibling nodes in parent', () => {
+    test(
+      doc(blockquote(p('a'), p(0, 'b'), p('c'))),
+      liftTextblock,
+      doc(blockquote(p('a')), p(0, 'b'), blockquote(p('c')))
+    )
+  })
+
+  it('can lift out of multiple parents', () => {
+    test(doc(ul(li(p(0, 'x')))), liftTextblock, doc(p(0, 'x')))
+  })
+
+  it('can lift out of multiple parents and leave siblings', () => {
+    test(doc(ul(li(p('a')), li(p(0, 'b')), li(p('c')))), liftTextblock, doc(ul(li(p('a'))), p(0, 'b'), ul(li(p('c')))))
+  })
+
+  it('returns false when unable to lift', () => {
+    test(doc(p(0, 'a')), liftTextblock)
+  })
+
+  it('returns false when not at the start', () => {
+    test(doc(blockquote(p('a', 0))), liftTextblock)
+  })
+})
+
+describe('deleteUnit', () => {
+  it('removes an empty block before a following leaf', () => {
+    test(doc(p(0), hr), fromCmd(deleteUnit, 'forward'), doc(hr))
+  })
+
+  it('removes an empty block before deleting the leaf behind it', () => {
+    test(doc(hr, p(0)), fromCmd(deleteUnit, 'backward'), doc(hr))
+  })
+
+  it('unwraps a textblock before joining backward', () => {
+    test(doc(blockquote(p(0, 'hello'))), fromCmd(deleteUnit, 'backward'), doc(p(0, 'hello')))
   })
 })
 

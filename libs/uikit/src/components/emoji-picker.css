@@ -30,9 +30,12 @@
   --epr-skin-tone-size: 24px;
   height: 24px;
   padding: 0;
-  transition:
-    width var(--duration-overlay) var(--ease-productive),
-    flex-basis var(--duration-overlay) var(--ease-productive);
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      width var(--duration-overlay) var(--ease-productive),
+      flex-basis var(--duration-overlay) var(--ease-productive);
+  }
 }
 
 .ankole-emoji-picker-tone-btn {
@@ -46,9 +49,15 @@
   cursor: pointer;
   outline: none;
   transition:
-    transform var(--duration-overlay) var(--ease-productive),
     opacity var(--duration-feedback) var(--ease-productive),
     background-color var(--duration-feedback) var(--ease-productive);
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      transform var(--duration-overlay) var(--ease-productive),
+      opacity var(--duration-feedback) var(--ease-productive),
+      background-color var(--duration-feedback) var(--ease-productive);
+  }
 
   &:not([data-epr-open]):not([data-epr-active]) {
     opacity: 0;

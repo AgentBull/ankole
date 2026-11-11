@@ -33,6 +33,8 @@ export type DatePickerProps = {
   placeholder?: string
   clearable?: boolean
   clearLabel?: string
+  previousMonthLabel?: string
+  nextMonthLabel?: string
   disabled?: boolean
   timezone?: string
   locale?: string
@@ -52,6 +54,8 @@ export type DateRangePickerProps = {
   placeholder?: string
   clearable?: boolean
   clearLabel?: string
+  previousMonthLabel?: string
+  nextMonthLabel?: string
   disabled?: boolean
   timezone?: string
   locale?: string
@@ -162,6 +166,119 @@ function clampISODate(iso: string, minDate?: string, maxDate?: string): string {
   return iso
 }
 
+function addDaysPlain(date: PlainCalendarDate, deltaDays: number): PlainCalendarDate {
+  const utc = new Date(Date.UTC(date.year, date.month - 1, date.day + deltaDays))
+  return {
+    year: utc.getUTCFullYear(),
+    month: utc.getUTCMonth() + 1,
+    day: utc.getUTCDate()
+  }
+}
+
+export function stepCalendarDate(
+  iso: string,
+  key: string,
+  options: { shiftKey?: boolean; minDate?: string; maxDate?: string } = {}
+): string | null {
+  const parsed = parseISODate(iso)
+  if (!parsed) return null
+
+  let next: PlainCalendarDate | null = null
+  switch (key) {
+    case 'ArrowLeft':
+      next = addDaysPlain(parsed, -1)
+      break
+    case 'ArrowRight':
+      next = addDaysPlain(parsed, 1)
+      break
+    case 'ArrowUp':
+      next = addDaysPlain(parsed, -7)
+      break
+    case 'ArrowDown':
+      next = addDaysPlain(parsed, 7)
+      break
+    case 'Home': {
+      const weekday = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day)).getUTCDay()
+      next = addDaysPlain(parsed, -weekday)
+      break
+    }
+    case 'End': {
+      const weekday = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day)).getUTCDay()
+      next = addDaysPlain(parsed, 6 - weekday)
+      break
+    }
+    case 'PageUp': {
+      const targetMonth = addMonthsPlain(parsed, options.shiftKey ? -12 : -1)
+      next = {
+        year: targetMonth.year,
+        month: targetMonth.month,
+        day: Math.min(parsed.day, daysInCalendarMonth(targetMonth.year, targetMonth.month))
+      }
+      break
+    }
+    case 'PageDown': {
+      const targetMonth = addMonthsPlain(parsed, options.shiftKey ? 12 : 1)
+      next = {
+        year: targetMonth.year,
+        month: targetMonth.month,
+        day: Math.min(parsed.day, daysInCalendarMonth(targetMonth.year, targetMonth.month))
+      }
+      break
+    }
+    default:
+      return null
+  }
+
+  const candidate = clampISODate(formatISODate(next), options.minDate, options.maxDate)
+  return isDateDisabled(candidate, options.minDate, options.maxDate) ? null : candidate
+}
+
+export function visibleMonthViewForDate(
+  monthView: { year: number; month: number },
+  targetISO: string,
+  numberOfMonths: 1 | 2 = 1
+): { year: number; month: number } {
+  const parsed = parseISODate(targetISO)
+  if (!parsed) return monthView
+  const startIndex = monthView.year * 12 + (monthView.month - 1)
+  const endIndex = startIndex + numberOfMonths - 1
+  const targetIndex = parsed.year * 12 + (parsed.month - 1)
+  if (targetIndex < startIndex) return { year: parsed.year, month: parsed.month }
+  if (targetIndex > endIndex) return addMonthsPlain({ year: parsed.year, month: parsed.month }, -(numberOfMonths - 1))
+  return monthView
+}
+
+function defaultActiveDateForView(
+  monthView: { year: number; month: number },
+  numberOfMonths: 1 | 2,
+  candidates: (string | null | undefined)[],
+  minDate?: string,
+  maxDate?: string
+): string | null {
+  const startIndex = monthView.year * 12 + (monthView.month - 1)
+  const endIndex = startIndex + numberOfMonths - 1
+  const inVisibleMonths = (iso: string | null | undefined): iso is string => {
+    const parsed = parseISODate(iso)
+    if (!parsed || isDateDisabled(iso!, minDate, maxDate)) return false
+    const idx = parsed.year * 12 + (parsed.month - 1)
+    return idx >= startIndex && idx <= endIndex
+  }
+
+  for (const candidate of candidates) {
+    if (inVisibleMonths(candidate)) return candidate
+  }
+
+  for (let offset = 0; offset < numberOfMonths; offset++) {
+    const view = addMonthsPlain(monthView, offset)
+    const total = daysInCalendarMonth(view.year, view.month)
+    for (let day = 1; day <= total; day++) {
+      const iso = formatISODate({ year: view.year, month: view.month, day })
+      if (!isDateDisabled(iso, minDate, maxDate)) return iso
+    }
+  }
+  return null
+}
+
 export function constrainDateRange(range: DateRange, minDate?: string, maxDate?: string): DateRange | null {
   let { from, to } = range
   if (from && to && compareISODate(from, to) > 0) {
@@ -203,9 +320,12 @@ function CalendarMonth({
   locale,
   selectedSingle,
   range,
+  activeISO,
   today,
   minDate,
   maxDate,
+  onFocusDate,
+  onNavigateKey,
   onSelect
 }: {
   year: number
@@ -213,9 +333,12 @@ function CalendarMonth({
   locale?: string
   selectedSingle?: string | null
   range?: DateRange
+  activeISO?: string | null
   today: string
   minDate?: string
   maxDate?: string
+  onFocusDate?: (iso: string) => void
+  onNavigateKey?: (iso: string, event: React.KeyboardEvent<HTMLButtonElement>) => void
   onSelect: (iso: string) => void
 }) {
   const weeks = React.useMemo(() => buildCalendarGrid(year, month), [year, month])
@@ -256,16 +379,22 @@ function CalendarMonth({
                   compareISODate(iso, range.to) < 0
                 const isSelected = isSingle || isRangeStart || isRangeEnd
                 const isToday = iso === today
+                const isTabStop = !disabled && activeISO === iso
                 return (
                   <td key={iso} className="p-0 text-center">
                     <button
                       type="button"
+                      data-iso={iso}
+                      tabIndex={isTabStop ? 0 : -1}
                       disabled={disabled}
                       aria-label={iso}
+                      aria-current={isToday ? 'date' : undefined}
                       aria-pressed={isSelected}
+                      onFocus={() => onFocusDate?.(iso)}
+                      onKeyDown={event => onNavigateKey?.(iso, event)}
                       onClick={() => onSelect(iso)}
                       className={cn(
-                        'inline-flex size-8 cursor-pointer items-center justify-center rounded-control text-xs tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-35',
+                        'inline-flex size-8 cursor-pointer items-center justify-center rounded-control text-xs tabular-nums transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-35',
                         isSelected
                           ? 'bg-primary font-medium text-primary-foreground'
                           : isInRange
@@ -304,6 +433,8 @@ export function DatePicker({
   placeholder = 'YYYY-MM-DD',
   clearable = true,
   clearLabel = 'Clear date',
+  previousMonthLabel = 'Previous month',
+  nextMonthLabel = 'Next month',
   disabled = false,
   timezone,
   locale,
@@ -318,6 +449,26 @@ export function DatePicker({
   const [open, setOpen] = React.useState(false)
   const today = React.useMemo(() => todayISODate(timezone), [timezone])
   const [monthView, setMonthView] = React.useState(() => initialMonthFor([selected, minDate], timezone))
+  const [focusedISO, setFocusedISO] = React.useState<string | null>(null)
+  const pendingFocusRef = React.useRef<string | null>(null)
+  const calendarRef = React.useRef<HTMLDivElement>(null)
+  const activeISO = defaultActiveDateForView(monthView, 1, [focusedISO, selected, today], minDate, maxDate)
+
+  React.useLayoutEffect(() => {
+    const target = pendingFocusRef.current
+    if (!target || !open) return
+    pendingFocusRef.current = null
+    calendarRef.current?.querySelector<HTMLButtonElement>(`button[data-iso="${target}"]`)?.focus()
+  }, [focusedISO, monthView, open])
+
+  const handleGridKeyDown = (iso: string, event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const nextISO = stepCalendarDate(iso, event.key, { shiftKey: event.shiftKey, minDate, maxDate })
+    if (!nextISO) return
+    event.preventDefault()
+    pendingFocusRef.current = nextISO
+    setFocusedISO(nextISO)
+    setMonthView(prev => visibleMonthViewForDate(prev, nextISO, 1))
+  }
 
   const update = (next: string | null) => {
     if (!controlled) setUncontrolled(next)
@@ -330,7 +481,10 @@ export function DatePicker({
         open={open}
         onOpenChange={next => {
           if (disabled && next) return
-          if (next) setMonthView(initialMonthFor([selected, minDate], timezone))
+          if (next) {
+            setMonthView(initialMonthFor([selected, minDate], timezone))
+            setFocusedISO(selected)
+          }
           setOpen(next)
         }}>
         <PopoverTrigger
@@ -355,7 +509,8 @@ export function DatePicker({
               type="button"
               variant="ghost"
               size="icon-xs"
-              aria-label="Previous month"
+              className="touch-target"
+              aria-label={previousMonthLabel}
               onClick={() => setMonthView(prev => addMonthsPlain(prev, -1))}>
               <RiArrowLeftSLine aria-hidden="true" className="size-4" />
             </Button>
@@ -364,28 +519,40 @@ export function DatePicker({
               type="button"
               variant="ghost"
               size="icon-xs"
-              aria-label="Next month"
+              className="touch-target"
+              aria-label={nextMonthLabel}
               onClick={() => setMonthView(prev => addMonthsPlain(prev, 1))}>
               <RiArrowRightSLine aria-hidden="true" className="size-4" />
             </Button>
           </div>
-          <CalendarMonth
-            year={monthView.year}
-            month={monthView.month}
-            locale={locale}
-            selectedSingle={selected}
-            today={today}
-            minDate={minDate}
-            maxDate={maxDate}
-            onSelect={iso => {
-              update(iso)
-              setOpen(false)
-            }}
-          />
+          <div ref={calendarRef}>
+            <CalendarMonth
+              year={monthView.year}
+              month={monthView.month}
+              locale={locale}
+              selectedSingle={selected}
+              activeISO={activeISO}
+              today={today}
+              minDate={minDate}
+              maxDate={maxDate}
+              onFocusDate={setFocusedISO}
+              onNavigateKey={handleGridKeyDown}
+              onSelect={iso => {
+                update(iso)
+                setOpen(false)
+              }}
+            />
+          </div>
         </PopoverContent>
       </Popover>
       {clearable && selected && !disabled && (
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={clearLabel} onClick={() => update(null)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="touch-target"
+          aria-label={clearLabel}
+          onClick={() => update(null)}>
           <RiCloseLine aria-hidden="true" className="size-3.5" />
         </Button>
       )}
@@ -403,6 +570,8 @@ export function DateRangePicker({
   placeholder = 'YYYY-MM-DD – YYYY-MM-DD',
   clearable = true,
   clearLabel = 'Clear date range',
+  previousMonthLabel = 'Previous month',
+  nextMonthLabel = 'Next month',
   disabled = false,
   timezone,
   locale,
@@ -418,7 +587,33 @@ export function DateRangePicker({
   const [open, setOpen] = React.useState(false)
   const today = React.useMemo(() => todayISODate(timezone), [timezone])
   const [monthView, setMonthView] = React.useState(() => initialMonthFor([range.from, range.to, minDate], timezone))
+  const [focusedISO, setFocusedISO] = React.useState<string | null>(null)
+  const pendingFocusRef = React.useRef<string | null>(null)
+  const calendarRef = React.useRef<HTMLDivElement>(null)
   const secondMonth = addMonthsPlain(monthView, 1)
+  const activeISO = defaultActiveDateForView(
+    monthView,
+    numberOfMonths,
+    [focusedISO, range.from, range.to, today],
+    minDate,
+    maxDate
+  )
+
+  React.useLayoutEffect(() => {
+    const target = pendingFocusRef.current
+    if (!target || !open) return
+    pendingFocusRef.current = null
+    calendarRef.current?.querySelector<HTMLButtonElement>(`button[data-iso="${target}"]`)?.focus()
+  }, [focusedISO, monthView, open])
+
+  const handleGridKeyDown = (iso: string, event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const nextISO = stepCalendarDate(iso, event.key, { shiftKey: event.shiftKey, minDate, maxDate })
+    if (!nextISO) return
+    event.preventDefault()
+    pendingFocusRef.current = nextISO
+    setFocusedISO(nextISO)
+    setMonthView(prev => visibleMonthViewForDate(prev, nextISO, numberOfMonths))
+  }
 
   const update = (next: DateRange) => {
     if (!controlled) setUncontrolled(next)
@@ -433,7 +628,10 @@ export function DateRangePicker({
         open={open}
         onOpenChange={next => {
           if (disabled && next) return
-          if (next) setMonthView(initialMonthFor([range.from, range.to, minDate], timezone))
+          if (next) {
+            setMonthView(initialMonthFor([range.from, range.to, minDate], timezone))
+            setFocusedISO(range.from ?? range.to)
+          }
           setOpen(next)
         }}>
         <PopoverTrigger
@@ -487,7 +685,8 @@ export function DateRangePicker({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="Previous month"
+                  className="touch-target"
+                  aria-label={previousMonthLabel}
                   onClick={() => setMonthView(prev => addMonthsPlain(prev, -1))}>
                   <RiArrowLeftSLine aria-hidden="true" className="size-4" />
                 </Button>
@@ -496,20 +695,24 @@ export function DateRangePicker({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="Next month"
+                  className="touch-target"
+                  aria-label={nextMonthLabel}
                   onClick={() => setMonthView(prev => addMonthsPlain(prev, 1))}>
                   <RiArrowRightSLine aria-hidden="true" className="size-4" />
                 </Button>
               </div>
-              <div className={cn('grid gap-4', numberOfMonths === 2 && 'sm:grid-cols-2')}>
+              <div ref={calendarRef} className={cn('grid gap-4', numberOfMonths === 2 && 'sm:grid-cols-2')}>
                 <CalendarMonth
                   year={monthView.year}
                   month={monthView.month}
                   locale={locale}
                   range={range}
+                  activeISO={activeISO}
                   today={today}
                   minDate={minDate}
                   maxDate={maxDate}
+                  onFocusDate={setFocusedISO}
+                  onNavigateKey={handleGridKeyDown}
                   onSelect={iso => {
                     const next = applyDateRangeSelection(range, iso)
                     update(next)
@@ -522,9 +725,12 @@ export function DateRangePicker({
                     month={secondMonth.month}
                     locale={locale}
                     range={range}
+                    activeISO={activeISO}
                     today={today}
                     minDate={minDate}
                     maxDate={maxDate}
+                    onFocusDate={setFocusedISO}
+                    onNavigateKey={handleGridKeyDown}
                     onSelect={iso => {
                       const next = applyDateRangeSelection(range, iso)
                       update(next)
@@ -542,6 +748,7 @@ export function DateRangePicker({
           type="button"
           variant="ghost"
           size="icon-xs"
+          className="touch-target"
           aria-label={clearLabel}
           onClick={() => update({ from: null, to: null })}>
           <RiCloseLine aria-hidden="true" className="size-3.5" />

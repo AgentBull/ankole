@@ -7,6 +7,7 @@ import {
   joinForward,
   joinBackward,
   liftEmptyBlock,
+  liftTextblock,
   enterInCode,
   deleteSelection,
   deleteEmptyPlot,
@@ -109,21 +110,27 @@ export const enter: Command.Pure = ({ state }) => {
 /**
  * Delete the selection, or the unit after or before the selection.
  * If that unit is the start or end of a textblock, this will try to
- * join that textblock to the next one. Otherwise, if it is a
- * character or leaf node, that is deleted. If none of that is
- * possible and the cursor is in an empty textblock, this will delete
- * the textblock.
+ * join that textblock to the next one. Otherwise, if the cursor is
+ * in an empty textblock, this will delete the textblock. Finally, if
+ * there is a character or leaf node in the given direction, that is
+ * deleted.
  *
  * When deleting backward at the start of a list item that has a
  * sibling before it, this command will try to join those list items.
+ * At the start of a wrapped textblock, it lifts that textblock before
+ * joining it backward.
  */
 export const deleteUnit: Command.Pure<'forward' | 'backward'> = ({ state }, dir) => {
   if (state.readOnly) return false
   return (
     deleteSelection(state) ||
     (dir == 'forward'
-      ? joinForward(state) || deleteForward(state) || deleteEmptyPlot(state, 1)
-      : joinListItems(state) || joinBackward(state) || deleteBackward(state) || deleteEmptyPlot(state, -1))
+      ? joinForward(state) || deleteEmptyPlot(state, 1) || deleteForward(state)
+      : joinListItems(state) ||
+        liftTextblock(state) ||
+        joinBackward(state) ||
+        deleteEmptyPlot(state, -1) ||
+        deleteBackward(state))
   )
 }
 

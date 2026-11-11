@@ -2,6 +2,7 @@
 
 import { RiAddLine, RiUploadCloud2Line } from '@remixicon/react'
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import { composingKey } from '../lib/keyboard'
 import { cn } from '../lib/utils'
 import { Button } from './button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './dialog'
@@ -260,7 +261,7 @@ function IconUploadDialog({ labels, upload }: { labels: IconPickerLabels; upload
             aria-describedby={`${inputID}-hint`}
             onChange={event => setName(event.target.value)}
             onKeyDown={event => {
-              if (event.key === 'Enter') {
+              if (event.key === 'Enter' && !composingKey(event.nativeEvent)) {
                 event.preventDefault()
                 submit()
               }

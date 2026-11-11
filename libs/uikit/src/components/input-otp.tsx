@@ -16,6 +16,8 @@ function InputOTP({
     <OTPInput
       data-slot="input-otp"
       containerClassName={cn('cn-input-otp group/input-otp flex items-center', containerClassName)}
+      inputMode="numeric"
+      autoComplete="one-time-code"
       spellCheck={false}
       className={cn('disabled:cursor-not-allowed', className)}
       {...props}

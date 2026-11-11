@@ -427,10 +427,12 @@ export default defineConfig(({ command }): UserConfig => ({
     assetsDir: '.',
     chunkSizeWarningLimit: 500,
     cssCodeSplit: true,
+    cssTarget: ['chrome132', 'firefox160', 'safari18'],
     emptyOutDir: true,
     manifest: 'manifest.json',
     outDir: outputPath,
     sourcemap: true,
+    target: ['chrome132', 'firefox160', 'safari18'],
     rolldownOptions: {
       preserveEntrySignatures: 'strict',
       input: entries,

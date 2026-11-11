@@ -10,10 +10,11 @@ Build every screen with `@ankole/uikit` and its tokens, and do not add packages 
 
 ## Browser support
 
-Chrome 126 is the minimum supported Chrome version. Use native browser features
-available at that floor, and detect newer capabilities before depending on them.
+Webapp bundles target Chrome 132, Firefox 160, and Safari 18. Use native browser
+features available at that floor, and detect newer capabilities before depending
+on them.
 The Pod browser suite accepts `POD_BROWSER_EXECUTABLE_PATH` for testing a pinned
-browser, including the Chrome 126 installation used by the block editor's
+browser, including the Chrome 132 installation used by the block editor's
 compatibility suite.
 
 ## State

@@ -65,6 +65,30 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 
 各端点的详细参数说明请参阅 [AIGateway](../ai-gateway/) 及用户指南中的对应功能页。
 
+## 带概率的决策
+
+应用需要概率而非生成文本时，可以调用 `POST /decisions`。`decision.default` 选择符解析 Pod/Site 的决策模型档案；也可以显式指定 `provider_id/model`，直接选择决策模型。
+
+```bash
+curl https://ankole.example.com/api/v1/ai-gateway/decisions \
+  -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "decision.default",
+    "state": {"ticket": "I was charged twice."},
+    "questions": {
+      "urgent": {"type": "noul", "instructions": "Does this need a reply today?"},
+      "team": {
+        "type": "choice",
+        "instructions": "Which team owns this ticket?",
+        "criteria": {"billing": "Payments and refunds", "support": "Product questions"}
+      }
+    }
+  }'
+```
+
+`score` 问题的 `criteria` 包含 2 到 10 个有序等级标签。响应包含 `model`、`answers` 和 token `usage`，每个答案都带有概率。TypeSafe、Azure Foundry、OpenRouter、OpenAI 和 Cloudflare 的决策模型共用这一公开请求格式，但上游图像能力不同：SystemOne 接受 PNG/JPEG，Microsoft-Decision-1 仅支持文本，OpenAI 还支持 WebP。OpenAI 对任一问题拒答时，网关返回 `422 upstream_decision_refusal`，不返回残缺答案。未配置决策模型档案时，由调用方的 `light` 语言模型作答，其概率未经校准。
+
 ## 本指南不是什么
 
 本页不是完整的网关协议规范——全量路由表、WebSocket 有状态生命周期与错误码定义请查阅 [AIGateway](../ai-gateway/)。同时，Ankole 也不单独维护专用客户端 SDK，调用方使用任意标准 HTTP 客户端或兼容 OpenResponses 的通用客户端即可直接接入。

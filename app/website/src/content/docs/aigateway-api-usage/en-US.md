@@ -65,6 +65,30 @@ Calls over stateless HTTP or SSE cannot include the stateful fields `previous_re
 
 Each endpoint is documented in detail on the [AIGateway](../ai-gateway/) page and the corresponding User-guide feature page.
 
+## Typed decisions
+
+Use `POST /decisions` when an application needs probabilities rather than generated prose. The `decision.default` selector resolves the Pod/Site decision profile; an explicit `provider_id/model` selector can choose a decision model directly.
+
+```bash
+curl https://ankole.example.com/api/v1/ai-gateway/decisions \
+  -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "decision.default",
+    "state": {"ticket": "I was charged twice."},
+    "questions": {
+      "urgent": {"type": "noul", "instructions": "Does this need a reply today?"},
+      "team": {
+        "type": "choice",
+        "instructions": "Which team owns this ticket?",
+        "criteria": {"billing": "Payments and refunds", "support": "Product questions"}
+      }
+    }
+  }'
+```
+
+A `score` question takes 2 to 10 ordered labels in `criteria`. The response contains `model`, `answers`, and token `usage`; every answer includes probabilities. TypeSafe, Azure Foundry, OpenRouter, OpenAI, and Cloudflare decision models use the same public request shape. Upstream image support differs: SystemOne accepts PNG/JPEG, Microsoft-Decision-1 is text-only, and OpenAI also accepts WebP. An OpenAI refusal for any question returns `422 upstream_decision_refusal` without partial answers. When no decision profile is configured, the caller's `light` language model answers with uncalibrated probabilities.
+
 ## What this guide is not
 
 This page focuses on client usage rather than protocol internals—read [AIGateway](../ai-gateway/) for the complete route table, stateful WebSocket lifecycle, and error envelope. Note also that Ankole does not ship a proprietary client SDK; callers use standard HTTP or OpenResponses-compatible clients directly against the REST API.

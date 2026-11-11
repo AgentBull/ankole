@@ -141,6 +141,22 @@ describe('RangeSet', () => {
     ist(str(RangeSet.create([[V.a, 2, 4]]).map(ChangeSet.new([0, 1, 4, -1], []))), 'a@3-5')
   })
 
+  it('can map through changes that cut in the middle of a range', () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([2, -1, 2, 2, 2, -1], []))), 'a@0-6')
+  })
+
+  it('can map through changes that cut the end of a range', () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([4, -1, 2, 2], []))), 'a@0-6')
+  })
+
+  it('can map through changes that cut the start of a range', () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([2, 2, 4, -1], []))), 'a@0-6')
+  })
+
+  it('can map across adjacent unchanged sections', () => {
+    ist(str(RangeSet.create([[V.a, 0, 10]]).map(ChangeSet.new([4, -1, 4, -1, 2, 0], []))), 'a@0-8')
+  })
+
   it('can compare sets', () => {
     const diff: number[] = []
     RangeSet.create([
@@ -176,5 +192,17 @@ describe('RangeSet', () => {
     })
     setA.compareRange(0, setB, 1, chunkSize * 3, () => ist(false))
     ist(accessCount, 10, '<')
+  })
+
+  it('can create sets with more than two layers', () => {
+    const set = RangeSet.create([
+      [V.a, 1, 3],
+      [V.b, 2, 20],
+      [V.c, 2, 4]
+    ])
+    ist(str(set), 'a@1-3 c@2-4 b@2-20')
+    const seen = []
+    for (const cursor = set.cursor(10); cursor.value; cursor.next()) seen.push(cursor.value.name)
+    ist(seen.join(), 'b')
   })
 })

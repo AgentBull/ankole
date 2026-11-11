@@ -196,6 +196,8 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::JinaReaderWebFetch => Box::new(JinaReaderWebFetch),
         APIResolverKind::CloudflareWebSearch => Box::new(CloudflareWebSearch),
         APIResolverKind::CloudflareDecision => Box::new(CloudflareDecision),
+        APIResolverKind::SystemoneDecision => Box::new(SystemOneDecision),
+        APIResolverKind::OpenAIDecision => Box::new(OpenAIDecision),
         APIResolverKind::CloudflareImages => Box::new(CloudflareImages),
     }
 }

@@ -25,7 +25,16 @@ import { findClusterBreak } from '@marijn/find-cluster-break'
 import type { Wordgard } from './editor'
 import { rangeForClick } from './selection'
 import browser from './browser'
-import { getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex } from './dom'
+import {
+  getSelection,
+  scrollableParents,
+  DOMNode,
+  textNodeBefore,
+  textNodeAfter,
+  domIndex,
+  isEquivalentPosition,
+  getSelectionRange
+} from './dom'
 import { readClipboard, writeClipboard } from './clipboard'
 import { selectionFromDOM } from './domobserver'
 import { eqArray, logException } from './util'
@@ -60,7 +69,7 @@ export const compositionComplete = GardState.Facet.define<(wg: Wordgard) => void
 type InputEventData = {
   inputType: string
   data: string | null
-  domRange: { from: number; to: number } | null
+  domRange: { from: number; to: number; range?: StaticRange } | null
   // The browser applies this change, and the input handler reads it
   // from the DOM.
   readDOM: boolean
@@ -321,8 +330,17 @@ export class InputState {
       const { from, to } = wg.state.selection
       Command.dispatch(wg, insertText, { from, to, insert, userEvent: 'input.type' })
     } else if (type == 'insertFromPaste') {
-      const { from, to } = this.unflushedSelection ? wg.state.selection.replacementRange : range!
-      pasteData(wg, event, event.dataTransfer!, from, to)
+      let atSelection = this.unflushedSelection
+      const target = data.domRange?.range
+      if (!atSelection && target) {
+        const domSel = getSelectionRange(wg.root)
+        atSelection =
+          !!domSel &&
+          isEquivalentPosition(target.startContainer, target.startOffset, domSel.startContainer, domSel.startOffset) &&
+          isEquivalentPosition(target.endContainer, target.endOffset, domSel.endContainer, domSel.endOffset)
+      }
+      const { from, to } = atSelection ? wg.state.selection.replacementRange : range!
+      doPaste(wg, event.dataTransfer!, from, to, event, atSelection)
     } else if (type == 'insertReplacementText' || type == 'insertFromYank') {
       // The browser applies a replacement that cannot be canceled, such
       // as some spelling corrections. The input handler reads it from
@@ -898,22 +916,36 @@ export const dropHandler =
   >()
 
 export const pasteHandler =
-  GardState.Facet.define<(wg: Wordgard, event: ClipboardEvent | InputEvent, slice: Slice) => boolean>()
+  GardState.Facet.define<
+    (wg: Wordgard, event: ClipboardEvent | InputEvent | null, slice: Slice, html: string, text: string) => boolean
+  >()
 
 // Paste clipboard data over a range. Paste handlers run only when the
-// range is the selection's replacement range.
-function pasteData(wg: Wordgard, event: ClipboardEvent | InputEvent, data: DataTransfer, from: number, to: number) {
+// range is the editor selection.
+export function doPaste(
+  wg: Wordgard,
+  data: DataTransfer,
+  from: number,
+  to: number,
+  event: ClipboardEvent | InputEvent | null,
+  atSelection: boolean
+) {
   const slice = readClipboard(wg.state, data, wg.state.doc.resolve(from), wg.inputState.shiftKey)
-  const isSel = from == wg.state.selection.replacementRange.from && to == wg.state.selection.replacementRange.to
-  if (isSel && wg.state.facet(pasteHandler).some(h => h(wg, event, slice || Slice.empty))) {
+  const html = data.getData('text/html')
+  const text =
+    data.getData('text/plain') || data.getData('Text') || data.getData('text/uri-list').replace(/\r?\n/g, ' ')
+  if (
+    atSelection &&
+    wg.state.facet(pasteHandler).some(handler => handler(wg, event, slice || Slice.empty, html, text))
+  ) {
     return
   }
   if (slice) {
     wg.dispatch({
       changes: { correct: { from, to, insert: slice, fit: true }, local: true },
-      selection: isSel ? (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1) : undefined,
+      selection: atSelection ? (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1) : undefined,
       userEvent: 'input.paste',
-      scrollIntoView: isSel
+      scrollIntoView: atSelection
     })
   }
 }
@@ -1120,7 +1152,7 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
     // Read a DOM selection change that has not been flushed yet.
     wg.flush()
     const { from, to } = wg.state.selection.replacementRange
-    pasteData(wg, event, event.clipboardData, from, to)
+    doPaste(wg, event.clipboardData, from, to, event, true)
     return true
   },
 
@@ -1172,7 +1204,7 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
       const r = ranges[0]!,
         empty = r.collapsed
       const from = wg.inputState.getDOMPos(r.startContainer, r.startOffset)
-      data.domRange = { from, to: empty ? from : wg.inputState.getDOMPos(r.endContainer, r.endOffset) }
+      data.domRange = { from, to: empty ? from : wg.inputState.getDOMPos(r.endContainer, r.endOffset), range: r }
       editable = inEditableDOM(wg, r.startContainer) && (empty || inEditableDOM(wg, r.endContainer))
     }
     // Composition cannot be canceled. Also let through simple

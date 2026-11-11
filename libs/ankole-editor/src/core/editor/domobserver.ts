@@ -194,6 +194,7 @@ export class DOMObserver {
   clear() {
     this.takeRecords()
     this.readSelectionRange()
+    this.selectionChanged = false
   }
 
   takeRecords() {

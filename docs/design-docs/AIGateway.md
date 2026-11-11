@@ -255,8 +255,10 @@ Every declared provider setting belongs to one of three scopes:
 A provider declares a `request` setting only when its prepare code writes the
 value to an upstream field. Public names stay camelCase, and prepare code moves
 each value to the native field name: OpenAI-family providers send
-`promptCacheKey`, `promptCacheRetention`, and `contextManagement` as
-`prompt_cache_key`, `prompt_cache_retention`, and `context_management`,
+`promptCacheKey`, `promptCacheOptions`, `promptCacheRetention`,
+`safetyIdentifier`, and `contextManagement` as `prompt_cache_key`,
+`prompt_cache_options`, `prompt_cache_retention`, `safety_identifier`, and
+`context_management`,
 OpenRouter sends `textVerbosity` as `verbosity`, and Claude sends `inferenceGeo`
 as `inference_geo`. OpenAI Chat Completions rejects the Responses-only options
 `reasoningSummary`, `truncation`, and `contextManagement` with
@@ -1691,10 +1693,63 @@ level, together with `legend`, the `probabilities` of every level, and
 
 The `default` and `decision.default` selectors resolve the Pod or Site
 `decision` profile, and an explicit `provider_id/model` selector names a
-decision model directly. The `cloudflare` provider kind serves the capability:
-Workers AI models such as `@cf/cloudflare/clef` receive the fields at the top
-level of their own run path, while partner models such as `typesafe/jev`
-receive them inside `input` on the unified run path and accept no `images`.
+decision model directly. These provider kinds serve the capability through
+three native wires:
+
+- `typesafe` calls `POST <base_url>/systemone`. Its top-level `base_url`
+  defaults to `https://api.typesafe.ai/v1`, can name any compatible SystemOne
+  endpoint, and strips a trailing `/systemone` when an operator pastes a full
+  endpoint URL. Bearer authentication is the default, `api-key` is an optional
+  alternative, and an endpoint without authentication can use the anonymous
+  credential pool member. `allow_images` controls whether the endpoint accepts
+  images, `longContext` enables the matching TypeSafe danger header, and the
+  provider-owned `GET /models` catalog accepts both TypeSafe `models` entries
+  and OpenAI-style `data` entries. A catalog failure returns an empty list and
+  does not prevent a manually configured model.
+- `azure_openai` calls Microsoft Foundry at
+  `<resource-root>/providers/microsoft/v1/systemone`. Its decision prepare
+  function strips an `/openai` or `/openai/v1` suffix from the configured base
+  URL, accepts a base URL already ending in `/providers/microsoft/v1` or
+  `/providers/microsoft/v1/systemone`, sends `deployment` as the upstream
+  model, and uses the configured API-key, Bearer, or Entra ID authentication
+  settings. Language-only request options fail preparation with
+  `unsupported_provider_option`, and Microsoft-Decision-1 rejects images.
+- `openrouter` calls `/api/v1/systemone` for
+  `microsoft/microsoft-decision-1` and `typesafe/jev-*`, forwarding
+  OpenRouter's provider routing map, attribution and caller identity headers,
+  and reported `usage.cost`. Language-only request options fail preparation
+  with `unsupported_provider_option`; Microsoft-Decision-1 rejects images, and
+  Jev follows the SystemOne image rules.
+- `openai` calls `/v1/decisions` with `gpt-6-luna`. It reuses OpenAI
+  organization, project, caller identity, and Bearer headers, and maps
+  `promptCacheKey`, `promptCacheOptions`, and `safetyIdentifier` to their
+  native request fields. Language-only reasoning, service-tier, verbosity,
+  truncation, context-management, and cache-retention options fail request
+  preparation with `unsupported_provider_option`.
+- `cloudflare` serves Workers AI models such as `@cf/cloudflare/clef` through
+  their own run path, with the fields at the top level. Partner models such as
+  `typesafe/jev` receive them inside `input` on the unified run path and accept
+  no `images`.
+
+The SystemOne resolver preserves object, array, and string states, including
+all caller-owned object keys. It serializes null, booleans, and numbers as JSON
+literal strings. PNG and JPEG data URLs become entries in `assets` with
+`data_base64`; the resolver places each collision-free asset id in one
+reference list attached to the state and adds the TypeSafe image opt-in
+header. WebP fails before transport with `400 unsupported_value`.
+
+The OpenAI Decisions resolver emits questions sorted by id. It converts `noul`
+to `predicate`, named choice criteria to `choices`, and score criteria to
+ordered `levels`, keeping string `instructions` and serializing structured
+`instructions` as JSON text. Objects and arrays containing only objects use
+`input_json`
+when their encoded form is at most 256 KiB, 32 levels, and 10,000 values;
+other states use `input_text`, and a plain string state can be the top-level
+`input`. Images become `input_image` parts in the same single user message and
+may be PNG, JPEG, or WebP. Responses become Ankole's answer dictionary again,
+including the score legend. An OpenAI `refusal` for any question fails the
+whole request with `422 upstream_decision_refusal`; AIGateway never invents or
+returns partial probabilities.
 
 When the `decision` profile is not configured, AIGateway sends one stateless
 Responses request to the caller's `light` language model, constrained by a

@@ -890,6 +890,7 @@ export namespace Plot {
       marks: Mark.Set
     ) {
       super(param, marks)
+      if (this.type.isDoc && marks.length) throw new Error('Document nodes cannot have marks')
     }
 
     /** @internal */

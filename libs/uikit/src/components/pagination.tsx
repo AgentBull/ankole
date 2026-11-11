@@ -46,12 +46,17 @@ function PaginationLink({ className, isActive, size = 'icon', ...props }: Pagina
 
 function PaginationPrevious({
   className,
+  label,
   text = 'Previous',
   ...props
-}: React.ComponentProps<typeof PaginationLink> & { text?: string }) {
+}: React.ComponentProps<typeof PaginationLink> & { label?: string; text?: string }) {
   return (
-    <PaginationLink aria-label="Go to previous page" size="icon" className={cn(className)} {...props}>
-      <RiArrowLeftSLine data-icon="inline-start" />
+    <PaginationLink
+      aria-label={label ?? (text === 'Previous' ? 'Go to previous page' : text)}
+      size="icon"
+      className={cn(className)}
+      {...props}>
+      <RiArrowLeftSLine aria-hidden="true" data-icon="inline-start" />
       <span className="sr-only">{text}</span>
     </PaginationLink>
   )
@@ -59,29 +64,35 @@ function PaginationPrevious({
 
 function PaginationNext({
   className,
+  label,
   text = 'Next',
   ...props
-}: React.ComponentProps<typeof PaginationLink> & { text?: string }) {
+}: React.ComponentProps<typeof PaginationLink> & { label?: string; text?: string }) {
   return (
-    <PaginationLink aria-label="Go to next page" size="icon" className={cn(className)} {...props}>
+    <PaginationLink
+      aria-label={label ?? (text === 'Next' ? 'Go to next page' : text)}
+      size="icon"
+      className={cn(className)}
+      {...props}>
       <span className="sr-only">{text}</span>
-      <RiArrowRightSLine data-icon="inline-end" />
+      <RiArrowRightSLine aria-hidden="true" data-icon="inline-end" />
     </PaginationLink>
   )
 }
 
-function PaginationEllipsis({ className, ...props }: React.ComponentProps<'span'>) {
+function PaginationEllipsis({ className, label, ...props }: React.ComponentProps<'span'> & { label?: string }) {
+  const hidden = props['aria-hidden'] ?? true
   return (
     <span
-      aria-hidden
+      aria-hidden={hidden}
       data-slot="pagination-ellipsis"
       className={cn(
         "flex size-8 items-center justify-center text-muted-foreground [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}>
-      <RiMoreLine />
-      <span className="sr-only">More pages</span>
+      <RiMoreLine aria-hidden="true" />
+      {!hidden && label ? <span className="sr-only">{label}</span> : null}
     </span>
   )
 }

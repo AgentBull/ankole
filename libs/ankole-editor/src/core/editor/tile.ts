@@ -32,10 +32,11 @@ export enum TileFlag {
   Composition = 0x80,
   Synced = 0x100, // Node has been synced. DOM content matches child list / text content, child array becomes read-only
   Atom = 0x200, // Composite tile whose length isn't determined by child length
-  HasContent = 0x400, // EltTile whose elt has a content hole
-  AfterContent = 0x800, // Tiles that sit after their parent's content position
-  ContentNotLast = 0x1000, // EltTile that has children with AfterContent flag
-  Dirty = 0x2000 // DOM change observed in this node, must not reuse
+  Uneditable = 0x400, // Tile's DOM is uneditable
+  HasContent = 0x800, // EltTile whose elt has a content hole
+  AfterContent = 0x1000, // Tiles that sit after their parent's content position
+  ContentNotLast = 0x2000, // EltTile that has children with AfterContent flag
+  Dirty = 0x4000 // DOM change observed in this node, must not reuse
 }
 
 enum Orientation {
@@ -238,6 +239,12 @@ export class CompositeTile extends Tile {
     } else {
       this.children.push(child)
     }
+    child.parent = this
+  }
+
+  // Does not merge adjacent text. Used for widgets inserted between children.
+  putChild(child: Tile, index: number) {
+    this.children.splice(index, 0, child)
     child.parent = this
   }
 
@@ -778,9 +785,11 @@ function setUneditable(dom: Element | Text) {
     span.appendChild(dom)
     dom = span
   }
-  if ((dom as HTMLElement).contentEditable == 'inherit' && !/^(br|hr|img|input|wbr)$/i.test(dom.nodeName)) {
-    ;(dom as HTMLElement).contentEditable = 'false'
-  }
+  const cur = (dom as HTMLElement).contentEditable
+  if (cur == 'false') return true
+  if (cur != 'inherit' || /^(br|hr|img|input|wbr)$/i.test(dom.nodeName)) return false
+  ;(dom as HTMLElement).contentEditable = 'false'
+  return true
 }
 
 export class WidgetTile extends Tile {
@@ -1011,7 +1020,12 @@ class TilePointer {
   tileAfter() {
     const { tile, index } = this
     if (tile.isAtom) return tile
-    return index < tile.children.length ? tile.children[index] : null
+    for (let i = index; i < tile.children.length; i++) {
+      const next = tile.children[i]!
+      // Skip breaks and block separators injected by the tile builder.
+      if (!(next instanceof WidgetTile && (next.widget == Widget.blockImg || next.widget == Widget.br))) return next
+    }
+    return null
   }
 
   matchingWrapper(elt: DecoElt, spanning: boolean, reused: Map<Tile, Reused>) {
@@ -1134,6 +1148,8 @@ class ContentUpdate {
               const { tag, length, shape, reuse } = this.partialNode
               this.partialNode = null
               this.new.addChild(this.buildNodeShape(tag, length + (to - from), shape, reuse))
+            } else {
+              this.partialNode.length += to - from
             }
           }
         } else if (this.new.lastChild instanceof TextTile && !this.new.lastChild.isComposition) {
@@ -1352,6 +1368,8 @@ class ContentUpdate {
           this.partialNode = null
           this.new.addChild(this.buildNodeShape(tag, node.length, shape, reuse))
           for (let i = 0; i < wrappers; i++) this.up()
+        } else {
+          this.partialNode.length += length
         }
       },
       widget: (widget, side) => {
@@ -1365,8 +1383,9 @@ class ContentUpdate {
               : null
         if (!tile) {
           const dom = widget.render(this.wg)
-          if (!widget.type.editable) setUneditable(dom)
-          tile = new WidgetTile(widget, null, TileFlag.Point | sideFlag, dom)
+          let flags = TileFlag.Point | sideFlag
+          if (!widget.type.editable && setUneditable(dom)) flags |= TileFlag.Uneditable
+          tile = new WidgetTile(widget, null, flags, dom)
           if (widget.type.connect) this.toConnect.push(tile)
         }
         this.new.addChild(tile)
@@ -1419,9 +1438,19 @@ class ContentUpdate {
     afterContent = TileFlag.None
   ) {
     if (shape instanceof Elt) {
+      let flags =
+        (tag
+          ? shape.hasContent
+            ? TileFlag.None
+            : TileFlag.Atom
+          : TileFlag.NodeInner | (shape.hasContent ? TileFlag.None : TileFlag.Point)) | afterContent
       if (inEditable && !shape.hasContent) {
-        if (Attributes.get(shape.attrs, 'contenteditable') == null && !/^(br|hr|img|input|wbr)$/i.test(shape.tagName)) {
+        const contentEd = Attributes.get(shape.attrs, 'contenteditable')
+        if (contentEd == null && !/^(br|hr|img|input|wbr)$/i.test(shape.tagName)) {
           shape = Elt.create(shape.tagName, Attributes.merge(shape.attrs, ['contenteditable', 'false']), shape.children)
+          flags |= TileFlag.Uneditable
+        } else if (contentEd == 'false') {
+          flags |= TileFlag.Uneditable
         }
         inEditable = false
       }
@@ -1438,12 +1467,6 @@ class ContentUpdate {
         if (reusable.flags & TileFlag.Dirty) updateAttributes(dom, takeAttributes(reusable.dom as Element), shape.attrs)
         else if (!strict) updateAttributes(dom, (reusable as EltTile).elt.attrs, shape.attrs)
       }
-      const flags =
-        (tag
-          ? shape.hasContent
-            ? TileFlag.None
-            : TileFlag.Atom
-          : TileFlag.NodeInner | (shape.hasContent ? TileFlag.None : TileFlag.Point)) | afterContent
       const tile = EltTile.of(shape, tag, flags, tag ? length : 0, dom)
       let afterContentInner = TileFlag.None
       for (const ch of shape.children) {
@@ -1473,8 +1496,8 @@ class ContentUpdate {
       } else {
         dom = shape.render(this.wg)
       }
-      if (inEditable && !shape.type.editable) setUneditable(dom)
-      const flags = (tag ? TileFlag.Atom : TileFlag.Point | TileFlag.NodeInner) | afterContent
+      let flags = (tag ? TileFlag.Atom : TileFlag.Point | TileFlag.NodeInner) | afterContent
+      if (inEditable && !shape.type.editable && setUneditable(dom)) flags |= TileFlag.Uneditable
       const tile = new WidgetTile(shape, tag, flags, dom, tag ? length : 0)
       if (shape.type.connect) this.toConnect.push(tile)
       return tile
@@ -1499,33 +1522,35 @@ class ContentUpdate {
     return copy
   }
 
-  ensureHackNode() {
-    let tile = this.new
-    if (!tile.isPlotContent) return
-    while (tile.isNodeInner) tile = tile.parent!
-    const tag = tile.tag
-    if (!tag || !tag.isPlot) return
-    // An empty block that holds a cursor (cursorBarrier "empty") and
-    // can hold a textblock gets a <br> as well, so that the browser
-    // can put the caret, and typed text, in it.
-    if (
-      !(tag.isTextblock || tag.type.isInline) &&
-      (tag.type.spec.cursorBarrier != 'empty' ||
-        this.state.schema.findWrapping(tag.type, Leaf.Text)?.length != 1 ||
-        this.new.children.some(child => !(child instanceof WidgetTile) || child.tag))
-    ) {
-      return
-    }
+  ensureHackNodes() {
+    if (!(this.new.isPlotContent || this.new.isWrapper)) return
+    const tag = this.new.nearestNode().tag
+    if (!tag?.isPlot) return
+    if (this.new.isPlotContent && this.needsTrailingHack(tag)) this.ensureTrailingHackNode(this.new)
+    if (!tag.inlineContent) this.ensureBlockSeparators(this.new)
+  }
 
-    // Textblocks get a trailing <br> if necessary
+  // An empty block that holds a cursor (cursorBarrier "empty") and can hold a
+  // textblock gets a trailing break, so the browser can put the caret in it.
+  needsTrailingHack(tag: Node.Tag) {
+    if (!tag.isPlot) return false
+    if (tag.isTextblock || tag.type.isInline) return true
+    return (
+      tag.type.spec.cursorBarrier == 'empty' &&
+      this.state.schema.findWrapping(tag.type, Leaf.Text)?.length == 1 &&
+      !this.new.children.some(child => !(child instanceof WidgetTile) || child.tag)
+    )
+  }
+
+  ensureTrailingHackNode(target: CompositeTile) {
     let hasHack = -1,
       needsHack = true
-    for (let parent = this.new, i = parent.children.length; ;) {
+    for (let parent = target, i = parent.children.length; ;) {
       if (i > 0) {
         const next = parent.children[--i]!
         if (next.isNodeInner || (next instanceof WidgetTile && !next.widget.type.inFlow)) {
           // Node-inner tiles and widgets outside the text flow do not count.
-        } else if (next instanceof WidgetTile && next.widget == Widget.br && parent == this.new) {
+        } else if (next instanceof WidgetTile && next.widget == Widget.br && parent == target) {
           hasHack = i
         } else if (next.dom.nodeName == 'BR') {
           break
@@ -1536,7 +1561,7 @@ class ContentUpdate {
           needsHack = false
           break
         }
-      } else if (parent == this.new) {
+      } else if (parent == target) {
         break
       } else {
         i = parent.parent!.children.indexOf(parent)
@@ -1545,16 +1570,36 @@ class ContentUpdate {
     }
 
     if (hasHack > -1) {
-      if (!needsHack) this.new.children.splice(hasHack, 1)
+      if (!needsHack) target.children.splice(hasHack, 1)
     } else if (needsHack) {
-      this.new.addChild(
-        new WidgetTile(Widget.br, null, TileFlag.Point | TileFlag.PointAfter, Widget.br.render(this.wg))
-      )
+      target.addChild(new WidgetTile(Widget.br, null, TileFlag.Point | TileFlag.PointAfter, Widget.br.render(this.wg)))
+    }
+  }
+
+  // Chrome and WebKit turn editing off when the cursor lands between two
+  // uneditable block elements. A positioned image keeps a cursor position there.
+  ensureBlockSeparators(target: CompositeTile) {
+    for (let i = 0, prev: Tile | null = null; ; i++) {
+      const next = i == target.children.length ? null : target.children[i]!
+      if (next?.isNodeInner) continue
+      if (!next && !prev) break
+      if (
+        (next || prev) &&
+        (!next || ((next.flags & TileFlag.Uneditable) > 0 && (next.flags & TileFlag.PointBefore) == 0)) &&
+        (!prev || ((prev.flags & TileFlag.Uneditable) > 0 && (prev.flags & TileFlag.PointAfter) == 0))
+      ) {
+        target.putChild(
+          new WidgetTile(Widget.blockImg, null, TileFlag.Point | TileFlag.PointAfter, Widget.blockImg.render(this.wg)),
+          i++
+        )
+      }
+      if (!next) break
+      prev = next
     }
   }
 
   up() {
-    this.ensureHackNode()
+    this.ensureHackNodes()
     this.new = this.new.parent!
   }
 
@@ -1614,8 +1659,9 @@ class ContentUpdate {
         prev = copy
         prev.parent = cur
       }
-      // Move any point tiles after the wrapper into it
-      for (let j = i + 1; j < cur.children.length; j++) prev.addChild(cur.children[j]!)
+      // Move any point tiles after the wrapper into it.
+      const moved = cur.children.splice(i + 1)
+      for (const child of moved) prev.addChild(child)
       return prev
     }
     return null
@@ -1637,7 +1683,7 @@ class ContentUpdate {
 
   finish() {
     while (!(this.new instanceof DocTile)) this.up()
-    this.ensureHackNode()
+    this.ensureHackNodes()
     return this.new
   }
 }

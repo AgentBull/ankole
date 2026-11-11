@@ -216,7 +216,7 @@ test('public host and collaboration APIs keep image metadata, embeds and undo', 
   await expect(panel.locator('.embed[data-host="mounted"] code')).toHaveText('tasks')
   await caret(panel.locator('p'))
   await page.getByRole('button', { name: 'Insert image', exact: true }).click()
-  const image = panel.locator('img')
+  const image = panel.locator('p img')
   await expect(image).toHaveAttribute('src', /^data:image/)
   await expect(image).toHaveAttribute('alt', 'Image description')
   await expect(image).toHaveAttribute('title', 'Image title')

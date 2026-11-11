@@ -16,7 +16,14 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
           {"gpt-image-2", ["image"], [], "image_generate"},
           {"tts-1", ["audio"], [], "other"},
           {"jina-embeddings-v3", ["embeddings"], ["input", "encoding_format"], "embedding"},
-          {"jina-reranker-v2", ["text"], ["query", "documents", "top_n"], "rerank"}
+          {"jina-reranker-v2", ["text"], ["query", "documents", "top_n"], "rerank"},
+          {"gpt-6-luna", ["text"], [], "decision"},
+          {"microsoft/microsoft-decision-1", ["text"], [], "decision"},
+          {"microsoft-decision-1", ["text"], [], "decision"},
+          {"typesafe/jev-1.14", ["text"], [], "decision"},
+          {"jev-latest", ["text"], [], "decision"},
+          {"@cf/cloudflare/clef-flash", ["text"], [], "decision"},
+          {"compatible-jev", ["decision"], [], "decision"}
         ] do
       metadata = %{
         "id" => id,
@@ -355,5 +362,68 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ModelMetadata.list_provider_model_metadata(provider, opts)
 
     refute_receive {:chatgpt_metadata_request, _request}, 50
+  end
+
+  test "TypeSafe metadata accepts both catalog shapes and degrades to an empty catalog" do
+    for {suffix, base_url, allow_images, body, ids, expected_created, expected_inputs} <- [
+          {"native", "https://api.typesafe.ai/v1", true,
+           %{"models" => [%{"name" => "jev-latest", "release_date" => "2026-09-15"}]},
+           ["jev-latest"], DateTime.to_unix(~U[2026-09-15 00:00:00Z]), ["text", "image"]},
+          {"compatible", "https://api.typesafe.ai/v1/systemone", false,
+           %{"data" => [%{"id" => "compatible-decision", "context_length" => 65_536}]},
+           ["compatible-decision"], 0, ["text"]}
+        ] do
+      assert {:ok, provider} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: "typesafe-#{suffix}-metadata",
+                 provider_kind: "typesafe",
+                 base_url: base_url,
+                 connection_options: %{"allow_images" => allow_images},
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "typesafe-key"}]
+                 }
+               })
+
+      http_client = fn request ->
+        send(self(), {:typesafe_metadata_request, request})
+        {:ok, %{"status" => 200, "body" => body}}
+      end
+
+      assert {:ok, [metadata]} =
+               ModelMetadata.list_provider_model_metadata(provider,
+                 http_client: http_client,
+                 force_refresh: true
+               )
+
+      assert [metadata["id"]] == ids
+      assert metadata["created"] == expected_created
+      assert get_in(metadata, ["architecture", "input_modalities"]) == expected_inputs
+      assert ModelMetadata.capability(metadata) == "decision"
+      assert_receive {:typesafe_metadata_request, request}
+      assert request.url == "https://api.typesafe.ai/v1/models"
+      assert {"authorization", "Bearer typesafe-key"} in request.headers
+    end
+
+    for prefixed_id <- [
+          "openai-prod/gpt-6-luna",
+          "azure-prod/microsoft-decision-1",
+          "or-prod/microsoft/microsoft-decision-1",
+          "ts-prod/jev-latest"
+        ] do
+      assert ModelMetadata.capability(%{"id" => prefixed_id}) == "decision"
+    end
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "typesafe-without-catalog",
+               provider_kind: "typesafe",
+               base_url: "http://systemone.test/v1"
+             })
+
+    assert {:ok, []} =
+             ModelMetadata.list_provider_model_metadata(provider,
+               http_client: fn _request -> {:ok, %{"status" => 404, "body" => %{}}} end,
+               force_refresh: true
+             )
   end
 end

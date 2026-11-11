@@ -25,6 +25,7 @@ type DocTile = InstanceType<typeof DocTile>
 const dummyEditor: Wordgard = { connected: false } as any
 
 const uned = ` contenteditable="false"`
+const blockBuf = `<img class="wg-blockBuffer" alt="">`
 
 function render(doc: Plot.Doc, ...config: GardState.Extension[]): DocTile {
   return DocTile.create(GardState.create({ doc, config }), document.createElement('div'), dummyEditor)
@@ -630,7 +631,7 @@ describe('DocTile', () => {
             return Decoration.Point.set([[Decoration.Point.shape(Elt.mk('div', ['?'])), 0]])
           })
         ).dom.innerHTML,
-        `<div${uned}>?</div>`
+        `${blockBuf}<div${uned}>?</div>${blockBuf}`
       )
     })
 
@@ -643,7 +644,7 @@ describe('DocTile', () => {
           })
         )
       })
-      ist(tile.dom.innerHTML, `<div${uned}>?</div>`)
+      ist(tile.dom.innerHTML, `${blockBuf}<div${uned}>?</div>${blockBuf}`)
     })
 
     it('can dynamically redraw an atom plot as a regular plot', () => {
@@ -662,7 +663,7 @@ describe('DocTile', () => {
       let tile = update(render(doc(h1('abcd')), atomH), { changes: { from: 0, to: 1, insert: [Paragraph] } })
       ist(tile.dom.innerHTML, '<p>abcd</p>')
       tile = update(tile, { changes: { from: 0, to: 1, insert: [Heading.of(1)] } })
-      ist(tile.dom.innerHTML, `<h1${uned}>H</h1>`)
+      ist(tile.dom.innerHTML, `${blockBuf}<h1${uned}>H</h1>${blockBuf}`)
     })
 
     it('can add attributes to a specific node', () => {
@@ -749,21 +750,21 @@ describe('DocTile', () => {
       let tile = render(doc(p('abcd')), Decoration.Tag.shape(Paragraph, Elt.mk('para')))
       const para = tile.dom.querySelector('para')
       tile = update(tile, { changes: { from: 1, insert: [Leaf.text('--')] } })
-      ist(tile.dom.innerHTML, `<para${uned}></para>`)
+      ist(tile.dom.innerHTML, `${blockBuf}<para${uned}></para>${blockBuf}`)
       ist(tile.dom.querySelector('para'), para)
     })
 
     it('can handle deletion inside an atomic plot', () => {
       let tile = render(doc(p('abcd')), Decoration.Tag.shape(Paragraph, Elt.mk('para')))
       tile = update(tile, { changes: { from: 2, to: 4 } })
-      ist(tile.dom.innerHTML, `<para${uned}></para>`)
-      ist(tile.children[0]!.length, 4)
+      ist(tile.dom.innerHTML, `${blockBuf}<para${uned}></para>${blockBuf}`)
+      ist(tile.children[1]!.length, 4)
     })
 
     it('can handle changes covering parts of atomic plots', () => {
       let tile = render(doc(p('ab'), p('cd')), Decoration.Tag.shape(Paragraph, Elt.mk('para')))
       tile = update(tile, { changes: { from: 2, to: 6 } })
-      ist(tile.dom.innerHTML, `<para${uned}></para>`)
+      ist(tile.dom.innerHTML, `${blockBuf}<para${uned}></para>${blockBuf}`)
     })
 
     it('can handle changes covering parts of wrapped atomic plots', () => {
@@ -772,13 +773,16 @@ describe('DocTile', () => {
         Decoration.Tag.wrapper(Paragraph, Elt.mk('outer', [0]))
       ])
       tile = update(tile, { changes: { from: 2, to: 6, insert: [Plot.End, Paragraph] } })
-      ist(tile.dom.innerHTML, `<outer${uned}><para></para></outer><outer${uned}><para></para></outer>`)
+      ist(
+        tile.dom.innerHTML,
+        `${blockBuf}<outer${uned}><para></para></outer>${blockBuf}<outer${uned}><para></para></outer>${blockBuf}`
+      )
     })
 
     it('can handle changes covering the start of atomic plots', () => {
       let tile = render(doc(h2('ab'), p('cd')), Decoration.Tag.shape(Paragraph, Elt.mk('para')))
       tile = update(tile, { changes: { from: 2, to: 6, insert: [Plot.End, Paragraph] } })
-      ist(tile.dom.innerHTML, `<h2>a</h2><para${uned}></para>`)
+      ist(tile.dom.innerHTML, `<h2>a</h2><para${uned}></para>${blockBuf}`)
     })
 
     it('redraws an inline plot rendered as an atom', () => {
@@ -868,7 +872,7 @@ describe('DocTile', () => {
           })
         )
       })
-      ist(tile.dom.innerHTML, `<para${uned}></para>`)
+      ist(tile.dom.innerHTML, `${blockBuf}<para${uned}></para>${blockBuf}`)
     })
 
     it('renders shape atoms at the end of a positional shape change', () => {

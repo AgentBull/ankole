@@ -92,13 +92,13 @@ function Slider<Value extends SliderValue = number>({
       )}
       <SliderPrimitive.Control
         data-slot="slider-control"
-        className="relative flex min-h-6 w-full touch-none items-center py-1 data-disabled:cursor-not-allowed">
+        className="relative flex min-h-6 w-full touch-pan-y items-center py-1 data-[orientation=vertical]:touch-pan-x data-disabled:cursor-not-allowed">
         <SliderPrimitive.Track
           data-slot="slider-track"
           className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted">
           <SliderPrimitive.Indicator
             data-slot="slider-indicator"
-            className="h-full rounded-full bg-primary transition-[width,left] duration-75"
+            className="h-full rounded-full bg-primary motion-safe:transition-[width,left] motion-safe:duration-75"
           />
         </SliderPrimitive.Track>
         {thumbs.map((_, index) => (
@@ -108,7 +108,7 @@ function Slider<Value extends SliderValue = number>({
             data-slot="slider-thumb"
             getAriaLabel={getAriaLabel}
             getAriaValueText={getAriaValueText}
-            className="block size-4 shrink-0 cursor-grab rounded-full border-2 border-primary bg-background shadow-xs transition-[transform,box-shadow] focus-within:ring-3 focus-within:ring-ring/50 focus-within:outline-none active:scale-105 active:cursor-grabbing data-disabled:pointer-events-none"
+            className="block size-4 shrink-0 cursor-grab rounded-full border-2 border-primary bg-background shadow-xs transition-[box-shadow] after:absolute after:-inset-1 pointer-coarse:after:-inset-3.5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring active:cursor-grabbing motion-safe:transition-[scale,box-shadow] motion-safe:active:scale-105 data-disabled:pointer-events-none"
           />
         ))}
       </SliderPrimitive.Control>

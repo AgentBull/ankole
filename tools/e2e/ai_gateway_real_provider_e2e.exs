@@ -29,8 +29,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=openrouter --cases=openrouter.image_generation_gemini_generate_and_edit
       MIX_ENV=test mix run ../../tools/e2e/ai_gateway_real_provider_e2e.exs -- --list
 
-  Provider names are `openai`, `openrouter`, `jina`, `google`, `alibaba_cn`,
-  `volcengine_ark`, `xiaomi_mimo`, and `zai_coding_plan`.
+  Provider names are `openai`, `openrouter`, `typesafe`, `azure_foundry`, `jina`,
+  `google`, `alibaba_cn`, `volcengine_ark`, `xiaomi_mimo`, and `zai_coding_plan`.
   Use `--providers=available` to run the groups whose required API keys are
   present in the environment.
 
@@ -45,6 +45,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   @provider_names [
     :openai,
     :openrouter,
+    :typesafe,
+    :azure_foundry,
     :jina,
     :google,
     :alibaba_cn,
@@ -125,7 +127,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     Environment:
       OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY   OpenRouter LLM, embedding, and rerank
-      OPENAI_API_KEY                              OpenAI standalone compaction round trip
+      OPENAI_API_KEY                              OpenAI compaction and Decisions API
+      TYPESAFE_API_KEY                            TypeSafe SystemOne decision model
+      AZURE_FOUNDRY_API_KEY                       Microsoft Foundry SystemOne decision model
+      AZURE_FOUNDRY_BASE_URL                      Microsoft Foundry resource URL (required with AZURE_FOUNDRY_API_KEY)
       OPEN_ROUTER_API_KEY2                        Optional second OpenRouter pool credential
       AIGATEWAY_E2E_IMAGE_PATH                    Optional local PNG, JPEG, or WebP input
       JINA_API_KEY                                Jina embeddings and rerank
@@ -191,6 +196,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp provider_name!("openrouter"), do: :openrouter
   defp provider_name!("openai"), do: :openai
+  defp provider_name!("typesafe"), do: :typesafe
+  defp provider_name!("azure_foundry"), do: :azure_foundry
   defp provider_name!("jina"), do: :jina
   defp provider_name!("google"), do: :google
   defp provider_name!("alibaba_cn"), do: :alibaba_cn
@@ -203,10 +210,15 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp available_providers do
-    Enum.filter(@provider_names, fn provider ->
-      provider
-      |> credential_env_names()
-      |> Enum.any?(&(System.get_env(&1) not in [nil, ""]))
+    Enum.filter(@provider_names, fn
+      :azure_foundry ->
+        System.get_env("AZURE_FOUNDRY_API_KEY") not in [nil, ""] and
+          System.get_env("AZURE_FOUNDRY_BASE_URL") not in [nil, ""]
+
+      provider ->
+        provider
+        |> credential_env_names()
+        |> Enum.any?(&(System.get_env(&1) not in [nil, ""]))
     end)
   end
 
@@ -229,6 +241,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp credential_env_names(:openrouter), do: ["OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"]
   defp credential_env_names(:openai), do: ["OPENAI_API_KEY"]
+  defp credential_env_names(:typesafe), do: ["TYPESAFE_API_KEY"]
+  defp credential_env_names(:azure_foundry), do: ["AZURE_FOUNDRY_API_KEY"]
   defp credential_env_names(:jina), do: ["JINA_API_KEY"]
   defp credential_env_names(:google), do: ["GOOGLE_AI_STUDIO_API_KEY"]
   defp credential_env_names(:alibaba_cn), do: ["DASHSCOPE_API_KEY", "ALIBABA_CN_API_KEY"]
@@ -246,6 +260,12 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
       :openrouter, setup ->
         setup_openrouter(setup, credentials.openrouter, credentials.openrouter_secondary)
+
+      :typesafe, setup ->
+        setup_typesafe(setup, credentials.typesafe)
+
+      :azure_foundry, setup ->
+        setup_azure_foundry(setup, credentials.azure_foundry)
 
       :jina, setup ->
         setup_jina(setup, credentials.jina)
@@ -285,7 +305,9 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       model: @openai_compaction_model
     })
 
-    Map.put(setup, :openai_agent, agent)
+    setup
+    |> Map.put(:openai_agent, agent)
+    |> Map.put(:openai_provider, provider_id)
   end
 
   defp setup_openrouter(%{suffix: suffix} = setup, credential, secondary_credential) do
@@ -329,6 +351,42 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     |> Map.put(:openrouter_gpt_image_model, @openrouter_gpt_image_model)
     |> Map.put(:openrouter_embedding_model, embedding_model)
     |> Map.put(:openrouter_rerank_model, rerank_model)
+  end
+
+  defp setup_typesafe(%{suffix: suffix} = setup, credential) do
+    provider_id = "e2e-typesafe-#{suffix}"
+
+    create_provider!(%{
+      provider_id: provider_id,
+      provider_kind: "typesafe",
+      base_url: "https://api.typesafe.ai/v1",
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
+    })
+
+    agent = create_agent!("e2e-typesafe-agent-#{suffix}", %{})
+
+    setup
+    |> Map.put(:typesafe_provider, provider_id)
+    |> Map.put(:typesafe_agent, agent)
+  end
+
+  defp setup_azure_foundry(%{suffix: suffix} = setup, credential) do
+    provider_id = "e2e-azure-foundry-#{suffix}"
+    base_url = required_env(["AZURE_FOUNDRY_BASE_URL"], :azure_foundry)
+
+    create_provider!(%{
+      provider_id: provider_id,
+      provider_kind: "azure_openai",
+      base_url: base_url,
+      connection_options: %{"deployment" => "microsoft-decision-1"},
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
+    })
+
+    agent = create_agent!("e2e-azure-foundry-agent-#{suffix}", %{})
+
+    setup
+    |> Map.put(:azure_foundry_provider, provider_id)
+    |> Map.put(:azure_foundry_agent, agent)
   end
 
   defp setup_jina(%{suffix: suffix} = setup, credential) do
@@ -470,7 +528,18 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     }
   end
 
-  defp fake_setup(:openai), do: %{openai_agent: %{uid: "fake-openai-agent"}}
+  defp fake_setup(:openai),
+    do: %{openai_agent: %{uid: "fake-openai-agent"}, openai_provider: "fake-openai"}
+
+  defp fake_setup(:typesafe),
+    do: %{typesafe_agent: %{uid: "fake-typesafe-agent"}, typesafe_provider: "fake-typesafe"}
+
+  defp fake_setup(:azure_foundry),
+    do: %{
+      azure_foundry_agent: %{uid: "fake-azure-foundry-agent"},
+      azure_foundry_provider: "fake-azure-foundry"
+    }
+
   defp fake_setup(:jina), do: %{jina_agent: %{uid: "fake-jina-agent"}, jina_provider: "fake-jina"}
   defp fake_setup(:google), do: %{google_agent: %{uid: "fake-google-agent"}}
   defp fake_setup(:alibaba_cn), do: %{alibaba_cn_agent: %{uid: "fake-alibaba-cn-agent"}}
@@ -485,22 +554,26 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp cases(setup, image) do
     []
-    |> add_openai_cases(setup)
+    |> add_openai_cases(setup, image)
     |> add_openrouter_cases(setup, image)
+    |> add_typesafe_cases(setup, image)
+    |> add_azure_foundry_cases(setup)
     |> add_jina_cases(setup)
     |> add_google_cases(setup, image)
     |> add_china_market_cases(setup)
     |> Enum.reverse()
   end
 
-  defp add_openai_cases(cases, %{openai_agent: agent}) do
+  defp add_openai_cases(cases, %{openai_agent: agent, openai_provider: provider}, image) do
     [
-      {"openai.compaction_round_trip", fn -> case_openai_compaction_round_trip(agent) end}
+      {"openai.compaction_round_trip", fn -> case_openai_compaction_round_trip(agent) end},
+      {"openai.decisions_typed_with_image",
+       fn -> case_decision(agent, "#{provider}/gpt-6-luna", image) end}
       | cases
     ]
   end
 
-  defp add_openai_cases(cases, _setup), do: cases
+  defp add_openai_cases(cases, _setup, _image), do: cases
 
   defp add_openrouter_cases(
          cases,
@@ -565,6 +638,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
        fn -> case_embedding_multimodal(agent, "#{provider}/#{embedding_model}", image) end},
       {"openrouter.rerank_text_structured",
        fn -> case_rerank(agent, "#{provider}/#{rerank_model}", true) end},
+      {"openrouter.decision_microsoft",
+       fn -> case_decision(agent, "#{provider}/microsoft/microsoft-decision-1") end},
+      {"openrouter.decision_jev_with_image",
+       fn -> case_decision(agent, "#{provider}/typesafe/jev-latest", image) end},
       {"openrouter.concurrent_multi_agent_mixed",
        fn ->
          case_openrouter_concurrent_multi_agent(
@@ -599,6 +676,29 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp add_openrouter_cases(cases, _setup, _image), do: cases
+
+  defp add_typesafe_cases(cases, %{typesafe_agent: agent, typesafe_provider: provider}, image) do
+    [
+      {"typesafe.decision_jev_with_image",
+       fn -> case_decision(agent, "#{provider}/jev-latest", image) end}
+      | cases
+    ]
+  end
+
+  defp add_typesafe_cases(cases, _setup, _image), do: cases
+
+  defp add_azure_foundry_cases(
+         cases,
+         %{azure_foundry_agent: agent, azure_foundry_provider: provider}
+       ) do
+    [
+      {"azure_foundry.decision_microsoft",
+       fn -> case_decision(agent, "#{provider}/microsoft-decision-1") end}
+      | cases
+    ]
+  end
+
+  defp add_azure_foundry_cases(cases, _setup), do: cases
 
   defp add_jina_cases(cases, %{jina_agent: agent, jina_provider: provider}) do
     embedding_model = "jina-embeddings-v5-text-nano"
@@ -1300,6 +1400,68 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     end
   end
 
+  defp case_decision(agent, model, image \\ nil) do
+    # TypeSafe Jev requires PNG or JPEG images between 280 and 1568 pixels on
+    # each side, so replace both the 16x16 default fixture and WebP inputs.
+    image =
+      if image && String.contains?(model, "jev") &&
+           (image.source == "generated-16x16-png" ||
+              String.starts_with?(image.data_url, "data:image/webp")) do
+        generated_png_data_url(280, 280)
+      else
+        image
+      end
+
+    request = %{
+      "model" => model,
+      "state" => %{
+        "ticket" => %{
+          "message" =>
+            "I was charged twice for my subscription. Please refund the duplicate charge."
+        }
+      },
+      "questions" => %{
+        "urgent" => %{"type" => "noul", "instructions" => "Does this need a reply today?"},
+        "team" => %{
+          "type" => "choice",
+          "instructions" => "Which team owns this ticket?",
+          "criteria" => %{"billing" => "Payments and refunds", "support" => "Product questions"}
+        },
+        "severity" => %{
+          "type" => "score",
+          "instructions" => "How severe is the problem?",
+          "criteria" => ["Cosmetic", "Degraded", "Outage"]
+        }
+      }
+    }
+
+    request = if image, do: Map.put(request, "images", [image.data_url]), else: request
+
+    body =
+      agent.uid
+      |> mint_agent_token!()
+      |> authed_conn()
+      |> post("/api/v1/ai-gateway/decisions", request)
+      |> json_response!(200)
+
+    answers = Map.fetch!(body, "answers")
+    require!(answers["urgent"]["type"] == "noul", "decision noul type mismatch")
+    require!(is_number(answers["urgent"]["noul"]), "decision noul probability missing")
+    require!(answers["team"]["type"] == "choice", "decision choice type mismatch")
+    require!(is_map(answers["team"]["probabilities"]), "decision choice probabilities missing")
+    require!(answers["severity"]["type"] == "score", "decision score type mismatch")
+    require!(is_map(answers["severity"]["legend"]), "decision score legend missing")
+    require!(is_integer(body["usage"]["input_tokens"]), "decision input usage missing")
+
+    %{
+      model: body["model"],
+      urgent: answers["urgent"]["noul"],
+      team: answers["team"]["choice"],
+      severity: answers["severity"]["score"],
+      image: not is_nil(image)
+    }
+  end
+
   defp case_rerank(agent, model, return_documents?) do
     {:ok, response} =
       AIGateway.create_rerank(agent.uid, %{
@@ -1428,10 +1590,13 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         }
       })
 
+    primary_entry =
+      Enum.find(provider.credential_pool["entries"], &(&1["id"] == "primary-real"))
+
     :ok =
       CredentialPool.mark_exhausted(
         provider.id,
-        "primary-real",
+        primary_entry,
         429,
         %{},
         %{"code" => "e2e_cooldown"}
@@ -1823,6 +1988,30 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
           source: "generated-16x16-png"
         }
     end
+  end
+
+  defp generated_png_data_url(width, height) do
+    row = <<0, :binary.copy(<<32, 96, 160>>, width)::binary>>
+    compressed = :zlib.compress(:binary.copy(row, height))
+
+    data =
+      IO.iodata_to_binary([
+        <<137, 80, 78, 71, 13, 10, 26, 10>>,
+        png_chunk("IHDR", <<width::32, height::32, 8, 2, 0, 0, 0>>),
+        png_chunk("IDAT", compressed),
+        png_chunk("IEND", <<>>)
+      ])
+
+    %{
+      bytes: byte_size(data),
+      data_url: "data:image/png;base64,#{Base.encode64(data)}",
+      source: "generated-#{width}x#{height}-png"
+    }
+  end
+
+  defp png_chunk(type, payload) do
+    crc = :erlang.crc32([type, payload])
+    <<byte_size(payload)::32, type::binary-size(4), payload::binary, crc::32>>
   end
 
   defp image_media_type!(path) do

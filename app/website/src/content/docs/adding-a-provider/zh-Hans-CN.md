@@ -104,6 +104,8 @@ end
 
 上述七种能力在运行时分别映射为以下外部名称：`language_model` → `"llm"`、`embedding_model` → `"embedding"`、`rerank_model` → `"rerank"`、`decision_model` → `"decision"`，其余三种网页与图像能力名称保持不变。仅提供大语言模型的 Provider 只需声明 `language_model`；同时提供大语言模型和向量嵌入服务的 Provider 则将两者一并声明。
 
+TypeSafe、Microsoft Foundry 和 OpenRouter 的 SystemOne 端点使用 `:systemone_decision`，OpenAI `/decisions` 使用 `:openai_decision`。解析器负责状态和图像编码、问题转换及答案归一化；Provider 的 `prepare` 函数负责基础 URL、部署或模型名称、鉴权、专有请求头和请求选项。`TypeSafe` 还展示了 Provider 自有的 `/models` 元数据来源，可同时读取 TypeSafe 的 `models` 和 OpenAI 风格的 `data` 目录条目。
+
 声明了 `image_generate` 的 Provider 还需实现可选回调 `image_endpoint/3`。该回调接收模型、`image_generation` 工具选项和参考图数量：模型能够承接请求时返回 `{:ok, endpoint}`，Provider 不提供该模型时返回 `{:error, :unknown_model}`，模型无法满足某个选项时返回 `{:error, {:unsupported_field, field}}` 并指出该选项。OpenRouter 和 AgentBull Cloud 是例外，AIGateway 直接读取它们的图片模型目录。
 
 ## prepare 函数

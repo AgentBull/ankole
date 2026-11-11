@@ -110,6 +110,19 @@ defmodule Ankole.AIGateway.UsageTest do
     assert Usage.total_tokens(counts) == 7
   end
 
+  test "OpenAI Decisions cache writes count as cache creation tokens" do
+    assert Usage.counts(%{
+             "input_tokens" => 42,
+             "input_tokens_details" => %{"cached_tokens" => 4, "cache_write_tokens" => 8}
+           }) == %{
+             input_tokens: 42,
+             output_tokens: nil,
+             cached_input_tokens: 4,
+             cache_creation_input_tokens: 8,
+             reasoning_tokens: nil
+           }
+  end
+
   test "merge canonicalizes legacy token aliases while preserving provider fields and non-token maps" do
     merged =
       Usage.merge(

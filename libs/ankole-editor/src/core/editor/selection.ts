@@ -62,16 +62,16 @@ export function rangeForClick(wg: Wordgard, pos: CoordPos, type: number): GardSe
   }
   if (type == 1) {
     // Single click
-    return GardSelection.near(wg.state, pos.pos, pos.side || -1)
+    return GardSelection.near(wg.state, pos.pos, pos.side)
   } else if (type == 2) {
     // Double click
-    return wg.state.wordAt(pos.pos, pos.side || 1)
+    return wg.state.wordAt(pos.pos, pos.side) || GardSelection.near(wg.state, pos.pos, pos.side)
   } else {
     // Triple click
     const cx = wg.state.doc.resolve(pos.pos),
       block = cx.textblockParent
     if (block) return GardSelection.undirectionalRange(block.start, block.end)
-    else return GardSelection.near(wg.state, pos.pos, pos.side || -1)
+    else return GardSelection.near(wg.state, pos.pos, pos.side)
   }
 }
 

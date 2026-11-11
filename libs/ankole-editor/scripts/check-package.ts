@@ -57,8 +57,8 @@ try {
   for (const name of ['embedded.html', 'embedded.tsx', 'embedded.css']) {
     await cp(resolve(project, 'playground', name), resolve(consumer, 'playground', name))
   }
-  await mkdir(resolve(consumer, 'public'))
-  await cp(resolve(project, 'public', 'resource-preview.html'), resolve(consumer, 'public', 'resource-preview.html'))
+  await cp(resolve(project, 'public'), resolve(consumer, 'public'), { recursive: true })
+  await cp(resolve(project, 'public', 'resource-image.png'), resolve(consumer, 'public', 'favicon.ico'))
   await writeFile(
     resolve(consumer, 'vite.config.ts'),
     `
@@ -68,7 +68,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { dedupe: ['react', 'react-dom'] },
-  build: { target: ['chrome126', 'firefox153', 'safari17'], cssTarget: ['chrome126', 'firefox153', 'safari17'],
+  build: { target: ['chrome132', 'firefox160', 'safari18'], cssTarget: ['chrome132', 'firefox160', 'safari18'],
     rolldownOptions: { input: 'playground/embedded.html' } }
 })
 `

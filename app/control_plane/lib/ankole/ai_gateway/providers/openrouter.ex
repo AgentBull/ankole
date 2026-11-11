@@ -62,6 +62,11 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       timeout_ms(300_000)
       prepare(:prepare_image_generate)
     end
+
+    decision_model do
+      api_resolver(:systemone_decision)
+      prepare(:prepare_decision_model)
+    end
   end
 
   @doc """
@@ -243,6 +248,58 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     |> common_headers(ctx)
     |> UniversalAIRequest.bearer_auth()
   end
+
+  @decision_unsupported_options ~w(user reasoningEffort textVerbosity)
+
+  @doc "Builds an OpenRouter SystemOne decision-model request."
+  def prepare_decision_model(ctx) do
+    with :ok <- validate_decision_options(ctx.provider_options),
+         :ok <- validate_decision_images(ctx) do
+      ctx
+      |> UniversalAIRequest.new("systemone", :systemone_decision)
+      |> common_headers(ctx)
+      |> UniversalAIRequest.put_client_identity_headers(ctx)
+      |> UniversalAIRequest.bearer_auth()
+      |> maybe_put_decision_images_header(ctx.request)
+    end
+  end
+
+  defp validate_decision_options(options) when is_map(options) do
+    case Enum.find(@decision_unsupported_options, &Map.has_key?(options, &1)) do
+      nil -> :ok
+      option -> {:error, {:unsupported_provider_option, option, "decisions"}}
+    end
+  end
+
+  defp validate_decision_options(_options), do: :ok
+
+  defp validate_decision_images(ctx) do
+    images = Map.get(ctx.request, "images", [])
+
+    cond do
+      images != [] and not jev_model?(ctx.model) ->
+        unsupported_decision_images("The configured decision model does not accept images.")
+
+      Enum.any?(images, &String.starts_with?(&1, "data:image/webp;base64,")) ->
+        unsupported_decision_images("SystemOne decision models accept only PNG and JPEG images.")
+
+      true ->
+        :ok
+    end
+  end
+
+  defp jev_model?(model) when is_binary(model), do: String.starts_with?(model, "typesafe/jev")
+  defp jev_model?(_model), do: false
+
+  defp unsupported_decision_images(message) do
+    {:error, OpenAIError.invalid("images", "unsupported_value", message)}
+  end
+
+  defp maybe_put_decision_images_header(request, %{"images" => images})
+       when is_list(images) and images != [],
+       do: UniversalAIRequest.put_header(request, "TypeSafe-Danger-Zone-Images", "true")
+
+  defp maybe_put_decision_images_header(request, _request), do: request
 
   @impl true
   def models_metadata_source(ctx) when is_map(ctx) do

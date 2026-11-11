@@ -243,6 +243,19 @@ defmodule Ankole.AIGateway.ModelMetadata do
     end
   end
 
+  defp list_source_models(%Provider{} = provider, {:typesafe, source}, opts)
+       when is_map(source) do
+    key = source_cache_key(provider, :typesafe, Map.fetch!(source, :cache_key))
+    ttl_ms = Keyword.get(opts, :cache_ttl_ms, @default_cache_ttl_ms)
+
+    case cached_fetch(key, ttl_ms, Keyword.get(opts, :force_refresh, false), fn ->
+           fetch_typesafe_models(source)
+         end) do
+      {:ok, models} -> {:ok, models}
+      {:error, _reason} -> {:ok, []}
+    end
+  end
+
   defp list_source_models(%Provider{} = provider, {:codex, source}, opts)
        when is_map(source) do
     key = source_cache_key(provider, :codex, Map.fetch!(source, :cache_key))
@@ -293,6 +306,15 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp source_model(%Provider{} = provider, {:openrouter, _source} = source, model_id, opts) do
+    with {:ok, models} <- list_source_models(provider, source, opts),
+         %{} = metadata <- Enum.find(models, &(Map.get(&1, "id") == model_id)) do
+      {:ok, metadata}
+    else
+      _reason -> {:error, :model_metadata_not_found}
+    end
+  end
+
+  defp source_model(%Provider{} = provider, {:typesafe, _source} = source, model_id, opts) do
     with {:ok, models} <- list_source_models(provider, source, opts),
          %{} = metadata <- Enum.find(models, &(Map.get(&1, "id") == model_id)) do
       {:ok, metadata}
@@ -360,6 +382,76 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp fetch_openrouter_models(_source), do: {:error, :invalid_provider_model_metadata_source}
+
+  defp fetch_typesafe_models(%{ctx: ctx, path: path, headers: headers} = source)
+       when is_map(ctx) and is_binary(path) and is_list(headers) do
+    allow_images? = Map.get(source, :allow_images, true) != false
+
+    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
+           UniversalAIRequest.raw_get(ctx, path, headers: headers),
+         models when is_list(models) <- typesafe_model_list(body) do
+      {:ok,
+       models
+       |> Enum.filter(&is_map/1)
+       |> Enum.map(&from_typesafe_model(&1, allow_images?))
+       |> Enum.reject(&is_nil/1)}
+    else
+      {:ok, %{"status" => status, "body" => body}} ->
+        {:error, {:provider_model_metadata_failed, status, body}}
+
+      {:error, _reason} = error ->
+        error
+
+      _reason ->
+        {:error, :invalid_provider_model_metadata}
+    end
+  end
+
+  defp fetch_typesafe_models(_source), do: {:error, :invalid_provider_model_metadata_source}
+
+  defp typesafe_model_list(%{"models" => models}) when is_list(models), do: models
+  defp typesafe_model_list(%{"data" => models}) when is_list(models), do: models
+  defp typesafe_model_list(models) when is_list(models), do: models
+  defp typesafe_model_list(_body), do: nil
+
+  defp from_typesafe_model(model, allow_images?) do
+    model = Ankole.Attrs.normalize_external_attrs(model)
+    id = model_string(model["id"] || model["name"]) |> String.trim()
+
+    if id == "" do
+      nil
+    else
+      context_length = first_integer([model["context_length"], model["context_window"]]) || 0
+      created = first_integer([model["created"], unix_date(model["release_date"])]) || 0
+      default_inputs = if(allow_images?, do: ["text", "image"], else: ["text"])
+
+      input_modalities =
+        non_empty_strings(
+          get_in(model, ["architecture", "input_modalities"]) || model["input_modalities"],
+          default_inputs
+        )
+
+      fallback_model_metadata(id, "decision")
+      |> Map.put("canonical_slug", id)
+      |> Map.put("name", model_string(model["display_name"] || model["name"] || id))
+      |> Map.put("description", model["description"] || "SystemOne decision model #{id}.")
+      |> Map.put("created", created)
+      |> Map.put("architecture", %{
+        "input_modalities" => input_modalities,
+        "output_modalities" => ["decision"],
+        "modality" => modality(input_modalities, ["decision"]),
+        "instruct_type" => nil,
+        "tokenizer" => nil
+      })
+      |> Map.put("context_length", context_length)
+      |> Map.put("top_provider", %{
+        "is_moderated" => false,
+        "context_length" => context_length,
+        "max_completion_tokens" => nil
+      })
+      |> ensure_openrouter_defaults()
+    end
+  end
 
   defp fetch_codex_models(%{ctx: ctx, path: path, headers: headers})
        when is_map(ctx) and is_binary(path) and is_list(headers) do
@@ -592,6 +684,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp fallback_supported_parameters("embedding"), do: @embedding_supported_parameters
   defp fallback_supported_parameters("rerank"), do: @rerank_supported_parameters
+  defp fallback_supported_parameters("decision"), do: []
   defp fallback_supported_parameters(_capability), do: @base_supported_parameters
 
   defp maybe_add(values, true, additions), do: values ++ additions
@@ -792,6 +885,16 @@ defmodule Ankole.AIGateway.ModelMetadata do
     }
   end
 
+  defp fallback_architecture("decision") do
+    %{
+      "input_modalities" => ["text", "image"],
+      "output_modalities" => ["decision"],
+      "modality" => "text+image->decision",
+      "instruct_type" => nil,
+      "tokenizer" => nil
+    }
+  end
+
   defp fallback_architecture(_capability) do
     %{
       "input_modalities" => ["text"],
@@ -805,16 +908,33 @@ defmodule Ankole.AIGateway.ModelMetadata do
   @doc "Returns the model capability from its normalized metadata."
   @spec capability(map()) :: String.t()
   def capability(metadata) do
+    id = metadata |> Map.get("id") |> model_string() |> String.downcase()
     outputs = list_of_strings(get_in(metadata, ["architecture", "output_modalities"]))
     parameters = list_of_strings(metadata["supported_parameters"])
 
     cond do
+      decision_model_id?(id) or "decision" in outputs -> "decision"
       "embeddings" in outputs or "encoding_format" in parameters -> "embedding"
       "query" in parameters and "documents" in parameters -> "rerank"
       "image" in outputs -> "image_generate"
       "text" in outputs -> "llm"
       true -> "other"
     end
+  end
+
+  defp decision_model_id?(id) do
+    bare_id =
+      case String.split(id, "/", parts: 2) do
+        [_prefix, rest] -> rest
+        [single] -> single
+      end
+
+    known_decision_model_id?(id) or known_decision_model_id?(bare_id)
+  end
+
+  defp known_decision_model_id?(id) do
+    id in ["gpt-6-luna", "microsoft/microsoft-decision-1", "microsoft-decision-1"] or
+      String.starts_with?(id, ["typesafe/", "jev-", "@cf/cloudflare/clef"])
   end
 
   defp modality(input_modalities, output_modalities) do

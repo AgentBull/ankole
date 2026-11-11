@@ -69,7 +69,13 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            render={<Button variant="ghost" className="absolute top-2 right-2" size="icon" />}>
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-2 right-2 pointer-coarse:after:absolute pointer-coarse:after:-inset-1.5"
+                size="icon"
+              />
+            }>
             <RiCloseLine />
             <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>

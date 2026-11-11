@@ -104,6 +104,8 @@ end
 
 これら 7 種類の capability kind は、実行時に使われる外部名へマッピングされます。具体的には `language_model` が `"llm"`、`embedding_model` が `"embedding"`、`rerank_model` が `"rerank"`、`decision_model` が `"decision"` に対応し、残りの 3 つの Web / 画像系 kind はそのままの名前で使われます。LLM のみを提供する provider は `language_model` だけを宣言し、LLM と embedding の両方を提供する provider はその両方を宣言します。
 
+TypeSafe、Microsoft Foundry、OpenRouter の SystemOne エンドポイントには `:systemone_decision`、OpenAI `/decisions` には `:openai_decision` を使用します。resolver は state と画像のエンコーディング、質問の変換、回答の正規化を担当し、provider の prepare 関数は base URL、デプロイ名またはモデル名、認証、固有ヘッダー、リクエストオプションを担当します。`TypeSafe` には provider 独自の `/models` メタデータソースの実装もあり、TypeSafe の `models` と OpenAI 形式の `data` の両方のカタログを読み取れます。
+
 `image_generate` を宣言する provider は、任意コールバック `image_endpoint/3` も実装します。このコールバックはモデル、`image_generation` ツールのオプション、参照画像の枚数を受け取り、モデルがリクエストを処理できる場合は `{:ok, endpoint}`、provider がそのモデルを提供していない場合は `{:error, :unknown_model}`、モデルが対応できないオプションがある場合はそのオプション名を添えて `{:error, {:unsupported_field, field}}` を返します。OpenRouter と AgentBull Cloud は例外で、AIGateway がそれぞれの画像モデルカタログを直接読み取ります。
 
 ## prepare 関数

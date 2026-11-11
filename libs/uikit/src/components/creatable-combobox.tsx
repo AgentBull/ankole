@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { compact } from '@agentbull/active-support'
+import { composingKey } from '../lib/keyboard'
 import {
   Combobox,
   ComboboxCollection,
@@ -115,9 +116,7 @@ export function CreatableCombobox({
         onBlur={commitInput}
         onKeyDown={event => {
           if (
-            event.key === 'Enter' &&
-            !event.defaultPrevented &&
-            !hasHighlightedComboboxOption(event.currentTarget) &&
+            shouldCommitCreatableComboboxEnter(event) &&
             (canCreate || Boolean(matchedInputOption && matchedInputOption.value !== currentValue))
           ) {
             event.preventDefault()
@@ -193,6 +192,20 @@ export function hasHighlightedComboboxOption(
   }
   const controlsID = input.getAttribute('aria-controls')
   return Boolean(controlsID && doc?.getElementById(controlsID)?.querySelector('[data-highlighted]'))
+}
+
+export function shouldCommitCreatableComboboxEnter(event: {
+  key: string
+  defaultPrevented: boolean
+  nativeEvent: Pick<KeyboardEvent, 'isComposing' | 'keyCode'>
+  currentTarget: Parameters<typeof hasHighlightedComboboxOption>[0]
+}): boolean {
+  return (
+    event.key === 'Enter' &&
+    !event.defaultPrevented &&
+    !composingKey(event.nativeEvent) &&
+    !hasHighlightedComboboxOption(event.currentTarget)
+  )
 }
 
 export function resolveCreatableComboboxBlur({

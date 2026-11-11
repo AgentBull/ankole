@@ -2,7 +2,7 @@ import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { Pos, Plot, Leaf } from '../../src/core/doc'
 import { basicBuilders, tag } from './schema'
-const { doc, p, br, li, ul, $img } = basicBuilders
+const { doc, p, br, li, ul, $img, blockquote } = basicBuilders
 
 function testPos(name: string, doc: Plot.Doc, ...contexts: ([string, number] | [string, number, number])[]) {
   it(name, () => {
@@ -91,5 +91,13 @@ describe('Context', () => {
     ist(pPos.after, 6)
     ist(iPos.before, 4)
     ist(iPos.after, 5)
+  })
+
+  it('returns the parent at a shallower depth', () => {
+    const d = doc(blockquote(p('ab')))
+    const pos = d.resolve(3)
+    ist(pos.parentAt(pos.depth).node.name, 'Paragraph')
+    ist(pos.parentAt(1).node.name, 'Blockquote')
+    ist(pos.parentAt(0).node.isDoc, true)
   })
 })

@@ -737,6 +737,40 @@ class ChangeSetBuilder {
   sections: number[] = []
   data: SectionData[] = []
   pos = 0
+
+  addSection(from: number, to: number, ins: number, value: SectionData) {
+    if (from >= this.pos) {
+      addSection(this.sections, this.data, from - this.pos, -1, null)
+      addSection(this.sections, this.data, to - from, ins, value)
+      this.pos = to
+      return true
+    }
+    if (this.sections.length && this.sections[0]! > to && this.sections[1] == -1) {
+      this.spliceSection(0, from, to, ins, value)
+      return true
+    }
+    for (let pos = this.pos, i = this.sections.length; i > 2 && pos > to;) {
+      const nextIns = this.sections[--i]!
+      const nextLen = this.sections[--i]!
+      const start = pos - nextLen
+      if (nextIns == -1 && start < from) {
+        this.spliceSection(i, from - start, to - start, ins, value)
+        return true
+      }
+      pos = start
+    }
+    return false
+  }
+
+  spliceSection(i: number, from: number, to: number, ins: number, value: SectionData) {
+    const sections: number[] = []
+    const data: SectionData[] = []
+    addSection(sections, data, from, -1, null)
+    addSection(sections, data, to - from, ins, value)
+    addSection(sections, data, this.sections[i]! - to, -1, null)
+    this.sections.splice(i, 2, ...sections)
+    this.data.splice(i >> 1, 1, ...data)
+  }
 }
 
 function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true): ChangeSet {
@@ -755,13 +789,11 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
     accum = accum ? accum.compose(transform(set, accum, doc, false, false).set) : set
   }
   const section = (from: number, to: number, ins: number, value: SectionData) => {
-    if (!cur || from < cur.pos) {
+    if (!cur?.addSection(from, to, ins, value)) {
       flush()
       cur = new ChangeSetBuilder(doc.length)
+      cur.addSection(from, to, ins, value)
     }
-    if (from > cur.pos) addSection(cur.sections, cur.data, from - cur.pos, -1, null)
-    addSection(cur.sections, cur.data, to - from, ins, value)
-    cur.pos = to
   }
 
   const build = (spec: ChangeSet.Spec) => {
@@ -806,17 +838,23 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
         if (remove) {
           const mods: Modification[] = [{ remove }]
           markableSections(doc, from, to, remove.type.spanning, (node, from, to) => {
-            const has = remove.type.isInSet(node.tag.marks)
-            if (!has || !doc.schema.markAllowed(remove.type, node.type)) return false
-            let modsHere = mods
             if (remove.type.set) {
-              const values = (remove.value as any[]).filter(value =>
-                (has.value as any[]).some(present => remove.type.set!(value, present) === 0)
+              const has = remove.type.isInSet(node.tag.marks)
+              if (!has) return false
+              const left = (remove.value as any[]).filter(value =>
+                (has.value as any[]).some(present => remove.type.set!(value, present) == 0)
               )
-              if (!values.length) return false
-              modsHere = [{ remove: remove.type.of(values) }]
-            } else if (!has.eq(remove)) return false
-            section(from, to, -2, modsHere)
+              if (!left.length) return false
+              section(
+                from,
+                to,
+                -2,
+                left.length == (remove.value as any[]).length ? mods : [{ remove: remove.type.of(left) }]
+              )
+            } else {
+              if (!remove.isInSet(node.tag.marks)) return false
+              section(from, to, -2, mods)
+            }
             return true
           })
         }

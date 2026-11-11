@@ -106,9 +106,9 @@ export class Pos {
 
   /** Get the parent plot at the given depth. */
   parentAt(depth: number) {
-    const d = this.depth
+    let d = this.depth
     if (depth > d) throw new RangeError('Asking for parent deeper than position depth')
-    for (let d = this.depth, p = this.parent; ; p = p.parent!) if (d == depth) return p
+    for (let p = this.parent; ; p = p.parent!) if (d-- == depth) return p
   }
 
   /**

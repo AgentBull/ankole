@@ -104,6 +104,8 @@ end
 
 The seven capability kinds map to the external names that the runtime uses: `language_model` → `"llm"`, `embedding_model` → `"embedding"`, `rerank_model` → `"rerank"`, `decision_model` → `"decision"`, while `web_search`, `web_fetch`, and `image_generate` keep the same names. Declare only the capabilities that the upstream service actually offers—for instance, an LLM-only provider declares just `language_model`, whereas a provider serving both chat and embeddings declares `language_model` and `embedding_model`.
 
+Decision providers use `:systemone_decision` for TypeSafe, Microsoft Foundry, and OpenRouter SystemOne endpoints, or `:openai_decision` for OpenAI `/decisions`. The resolvers own state and image encoding, question conversion, and answer normalization; the provider's prepare function owns the base URL, deployment or model name, authentication, provider-specific headers, and request options. `TypeSafe` also demonstrates a provider-owned `/models` metadata source that accepts both TypeSafe `models` and OpenAI-style `data` catalog entries.
+
 A provider that declares `image_generate` also implements the optional `image_endpoint/3` callback, which receives the model, the `image_generation` tool options, and the number of reference images. It returns `{:ok, endpoint}` when the model can serve the request, `{:error, :unknown_model}` for a model that the provider does not offer, or `{:error, {:unsupported_field, field}}` to name the option that the model cannot honor. OpenRouter and AgentBull Cloud are the exceptions: AIGateway reads their image catalogs instead.
 
 ## The prepare function

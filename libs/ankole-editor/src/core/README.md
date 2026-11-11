@@ -1,8 +1,8 @@
 # Core
 
 This directory contains the editing engine, forked from
-[Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit `08804c9`
-(2026-10-30) under the MIT license in [LICENSE](LICENSE).
+[Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit `7008e6a`
+(2026-11-10) under the MIT license in [LICENSE](LICENSE).
 
 The fork lives inside `@ankole/block-editor` and shares the package's TypeScript
 compiler settings, formatter, and test runners. Upstream changes are never
@@ -13,10 +13,12 @@ with a regression test.
 
 Source layout and toolchain:
 
-- Internal imports use relative paths. The `highlight-code` and `placeholder`
-  modules are omitted because `BlockEditor` renders its own empty-page prompt;
-  `decoratePlots` is also omitted, so upstream's repeated-replacement fix for
-  that helper does not apply.
+- Internal imports use relative paths. The `highlight-code`, `placeholder`, and
+  `inputrule` modules are omitted because `BlockEditor` renders its own
+  empty-page prompt and its own typing shortcuts; `decoratePlots` is also
+  omitted, so upstream's repeated-replacement fix for that helper does not
+  apply. Facets, fields, effects, annotations, roles, and groups print with
+  their default string form.
 - Source files compile directly under Vite (Oxc) and Bun:
   - `Transaction.extender` and `Transaction.appender` are static class fields
     rather than mutable namespace exports.
@@ -76,7 +78,10 @@ Clipboard:
   both `copy` and `paste` read any unconsumed DOM selection first.
 - Copied HTML embeds the exact serialized slice as JSON in a `wg-slice`
   attribute (wrapping plain-text copies in a `<span>` so they can carry it), and
-  paste prefers `wg-slice` before falling back to HTML parsing.
+  paste prefers `wg-slice` before falling back to HTML parsing. `readClipboard`
+  takes a `DataTransfer`, so `clipboardDataParser` can see every clipboard
+  type. `Wordgard.paste` builds a transfer from the HTML and plain text it is
+  given.
 - Inside code blocks, pasted content is inserted as literal text with line
   breaks converted to line-break nodes; HTML-only clipboards fall back to
   extracted text.

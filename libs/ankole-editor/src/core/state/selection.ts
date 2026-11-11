@@ -733,9 +733,9 @@ function skipWord(cx: GardSelection.Context, start: number, side: -1 | 1, forwar
   }
 }
 
-export function wordAt(state: GardState, pos: number, bias: -1 | 1) {
+export function wordAt(state: GardState, pos: number, bias: -1 | 1): GardSelection | null {
   const res = state.doc.resolve(pos)
-  if (!res.parent.node.inlineContent) return GardSelection.cursor(pos, bias)
+  if (!res.parent.node.inlineContent) return null
   let start = pos,
     end = pos,
     text = ''
@@ -777,7 +777,5 @@ export function wordAt(state: GardState, pos: number, bias: -1 | 1) {
       best = segment
     }
   }
-  return best
-    ? GardSelection.undirectionalRange(start + best.index, start + best.index + best.segment.length)
-    : GardSelection.cursor(pos, bias)
+  return best ? GardSelection.undirectionalRange(start + best.index, start + best.index + best.segment.length) : null
 }

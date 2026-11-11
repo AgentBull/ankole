@@ -908,6 +908,10 @@
   border-top-color: var(--fg-secondary);
   background: none;
   animation: pod-chat-spin 0.9s linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation-duration: 6s;
+  }
 }
 .pod-chat-status-queued {
   border-color: var(--fg-tertiary);
@@ -1261,10 +1265,14 @@
 }
 .pod-chat-completion-highlight,
 .pod-chat-composer-menu [data-slot='select-highlight'] {
-  transition:
-    translate 190ms cubic-bezier(0.25, 1, 0.3, 1),
-    height 190ms cubic-bezier(0.25, 1, 0.3, 1),
-    opacity 160ms ease-out;
+  transition: opacity 160ms ease-out;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      translate 190ms cubic-bezier(0.25, 1, 0.3, 1),
+      height 190ms cubic-bezier(0.25, 1, 0.3, 1),
+      opacity 160ms ease-out;
+  }
 }
 .pod-chat-completion-highlight[data-visible] {
   opacity: 1;
@@ -1887,7 +1895,10 @@
   vertical-align: 0.14em;
   border-radius: 50%;
   background: var(--foreground);
-  animation: pod-chat-answer-pulse 1s ease-in-out infinite;
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: pod-chat-answer-pulse 1s ease-in-out infinite;
+  }
 }
 @keyframes pod-chat-answer-pulse {
   50% {
@@ -2579,7 +2590,10 @@ details[open] > .pod-chat-tool-body {
   height: 100%;
   border-radius: inherit;
   background: var(--success-foreground);
-  transition: width 220ms ease;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: width 220ms ease;
+  }
 }
 .pod-chat-workflow-bar > span[data-failed] {
   background: var(--destructive-foreground);
