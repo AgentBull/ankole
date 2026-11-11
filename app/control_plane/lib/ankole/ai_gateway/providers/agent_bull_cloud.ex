@@ -102,27 +102,29 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     end
   end
 
-  @doc "Builds an AgentBull Cloud language-model request over Responses (SSE/WS) or Chat Completions.\n\n## Errors\n\nReturns a `%UniversalAIRequest{}` or `{:error, term()}`."
+  @doc "Builds an AgentBull Cloud language-model request over Responses (SSE/WS) or Chat Completions.\n\n## Errors\n\nReturns a `%UniversalAIRequest{}` or the credential error from `resolve_auth_token/1`."
   @spec prepare_language_model(map()) :: UniversalAIRequest.t() | {:error, term()}
   def prepare_language_model(ctx) when is_map(ctx) do
-    case endpoint_kind(ctx) do
-      "chat_completions" ->
-        ctx
-        |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
-        |> apply_common_headers_and_auth(ctx)
-        |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
-        |> OpenAIRequestOptions.put_provider_options(:chat_completions)
+    with {:ok, token} <- resolve_auth_token(ctx) do
+      case endpoint_kind(ctx) do
+        "chat_completions" ->
+          ctx
+          |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
+          |> apply_common_headers_and_auth(ctx, token)
+          |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
+          |> OpenAIRequestOptions.put_provider_options(:chat_completions)
 
-      _responses ->
-        base =
-          if websocket_mode?(ctx),
-            do: websocket_transport(ctx, :openai_responses),
-            else: UniversalAIRequest.new(ctx, "responses", :openai_responses)
+        _responses ->
+          base =
+            if websocket_mode?(ctx),
+              do: websocket_transport(ctx, :openai_responses),
+              else: UniversalAIRequest.new(ctx, "responses", :openai_responses)
 
-        base
-        |> apply_common_headers_and_auth(ctx)
-        |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
-        |> OpenAIRequestOptions.put_provider_options(:responses)
+          base
+          |> apply_common_headers_and_auth(ctx, token)
+          |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
+          |> OpenAIRequestOptions.put_provider_options(:responses)
+      end
     end
   end
 
@@ -136,36 +138,44 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     )
   end
 
-  @doc "Builds an AgentBull Cloud embeddings request.\n\n## Errors\n\nDoes not return error tuples."
-  @spec prepare_embedding_model(map()) :: UniversalAIRequest.t()
+  @doc "Builds an AgentBull Cloud embeddings request.\n\n## Errors\n\nReturns a `%UniversalAIRequest{}` or the credential error from `resolve_auth_token/1`."
+  @spec prepare_embedding_model(map()) :: UniversalAIRequest.t() | {:error, term()}
   def prepare_embedding_model(ctx) when is_map(ctx) do
-    ctx
-    |> UniversalAIRequest.new("embeddings", :openrouter_embeddings)
-    |> apply_common_headers_and_auth(ctx)
+    with {:ok, token} <- resolve_auth_token(ctx) do
+      ctx
+      |> UniversalAIRequest.new("embeddings", :openrouter_embeddings)
+      |> apply_common_headers_and_auth(ctx, token)
+    end
   end
 
-  @doc "Builds an AgentBull Cloud rerank request.\n\n## Errors\n\nDoes not return error tuples."
-  @spec prepare_rerank_model(map()) :: UniversalAIRequest.t()
+  @doc "Builds an AgentBull Cloud rerank request.\n\n## Errors\n\nReturns a `%UniversalAIRequest{}` or the credential error from `resolve_auth_token/1`."
+  @spec prepare_rerank_model(map()) :: UniversalAIRequest.t() | {:error, term()}
   def prepare_rerank_model(ctx) when is_map(ctx) do
-    ctx
-    |> UniversalAIRequest.new("rerank", :openrouter_rerank)
-    |> apply_common_headers_and_auth(ctx)
+    with {:ok, token} <- resolve_auth_token(ctx) do
+      ctx
+      |> UniversalAIRequest.new("rerank", :openrouter_rerank)
+      |> apply_common_headers_and_auth(ctx, token)
+    end
   end
 
-  @doc "Builds an AgentBull Cloud `/images` request for standalone or hosted image generation.\n\n## Errors\n\nDoes not return error tuples."
-  @spec prepare_image_generate(map()) :: UniversalAIRequest.t()
+  @doc "Builds an AgentBull Cloud `/images` request for standalone or hosted image generation.\n\n## Errors\n\nReturns a `%UniversalAIRequest{}` or the credential error from `resolve_auth_token/1`."
+  @spec prepare_image_generate(map()) :: UniversalAIRequest.t() | {:error, term()}
   def prepare_image_generate(ctx) when is_map(ctx) do
-    ctx
-    |> UniversalAIRequest.new("images", :openrouter_images)
-    |> apply_common_headers_and_auth(ctx)
+    with {:ok, token} <- resolve_auth_token(ctx) do
+      ctx
+      |> UniversalAIRequest.new("images", :openrouter_images)
+      |> apply_common_headers_and_auth(ctx, token)
+    end
   end
 
-  @doc "Builds an AgentBull Cloud `web_search` request, preserving FOSS search path and auth.\n\n## Errors\n\nDoes not return error tuples."
-  @spec prepare_web_search(map()) :: UniversalAIRequest.t()
+  @doc "Builds an AgentBull Cloud `web_search` request, preserving FOSS search path and auth.\n\n## Errors\n\nReturns a `%UniversalAIRequest{}` or the credential error from `resolve_auth_token/1`."
+  @spec prepare_web_search(map()) :: UniversalAIRequest.t() | {:error, term()}
   def prepare_web_search(ctx) when is_map(ctx) do
-    ctx
-    |> UniversalAIRequest.new(web_search_url(ctx), :agentbull_web_search, include_model: false)
-    |> UniversalAIRequest.bearer_auth(resolved_token_or_nil(ctx))
+    with {:ok, token} <- resolve_auth_token(ctx) do
+      ctx
+      |> UniversalAIRequest.new(web_search_url(ctx), :agentbull_web_search, include_model: false)
+      |> UniversalAIRequest.bearer_auth(token)
+    end
   end
 
   # Web search lives on the host root, outside the API root that `base_url`
@@ -190,42 +200,59 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     })
   end
 
-  @doc "Resolves static `api_key` or mints a SaaS Pod `agb_rt_*` Hosted Caller Token.\n\n## Errors\n\nReturns `{:error, :missing_credentials}` when neither credential source is present."
+  @doc """
+  Resolves the upstream credential.
+
+  A request that carries a hosted caller token, or the Pod identity needed to
+  mint one, owns its credential path. An explicit static `api_key` is used only
+  when no hosted credential material is present, and a hosted-path failure is
+  returned instead of falling back to that key.
+
+  ## Errors
+
+  Returns `{:error, :missing_credentials}` when neither credential source is
+  present, `{:error, :hosted_token_unavailable}` when the hosted path cannot
+  produce a token, and `{:error, :missing_policy}` when the Pod identity is
+  present but the token claims are incomplete.
+  """
   @spec resolve_auth_token(map()) :: {:ok, String.t()} | {:error, term()}
   def resolve_auth_token(ctx) when is_map(ctx) do
-    case extract_static_api_key(ctx) do
-      key when is_binary(key) -> {:ok, key}
-      nil -> resolve_hosted_caller_token(ctx)
+    cond do
+      hosted_caller_token_requested?(ctx) -> resolve_hosted_caller_token(ctx)
+      key = extract_static_api_key(ctx) -> {:ok, key}
+      true -> {:error, :missing_credentials}
     end
   end
 
   @impl true
-  @doc "Returns the OpenRouter-compatible model metadata catalog source for `:agentbull_cloud`.\n\n## Errors\n\nAlways returns `{:ok, {:openrouter, map()}}`."
-  @spec models_metadata_source(map()) :: {:ok, {:openrouter, map()}}
+  @doc "Returns the OpenRouter-compatible model metadata catalog source for `:agentbull_cloud`.\n\n## Errors\n\nReturns `{:ok, {:openrouter, map()}}` or the credential error from `resolve_auth_token/1`."
+  @spec models_metadata_source(map()) :: {:ok, {:openrouter, map()}} | {:error, term()}
   def models_metadata_source(ctx) when is_map(ctx) do
-    path = "models?output_modalities=all"
-    token = resolved_token_or_nil(ctx)
-    headers = ctx |> UniversalAIRequest.raw_headers() |> UniversalAIRequest.bearer_auth(token)
+    with {:ok, token} <- resolve_auth_token(ctx) do
+      path = "models?output_modalities=all"
+      headers = ctx |> UniversalAIRequest.raw_headers() |> UniversalAIRequest.bearer_auth(token)
 
-    {:ok,
-     {:openrouter,
-      %{ctx: ctx, path: path, headers: headers, cache_key: scoped_cache_key(ctx, token, path)}}}
+      {:ok,
+       {:openrouter,
+        %{ctx: ctx, path: path, headers: headers, cache_key: scoped_cache_key(ctx, token, path)}}}
+    end
   end
 
-  @doc "Returns the definitive image model metadata catalog source for `:agentbull_cloud`.\n\n## Errors\n\nAlways returns `{:ok, map()}`."
-  @spec image_models_metadata_source(map()) :: {:ok, map()}
+  @doc "Returns the definitive image model metadata catalog source for `:agentbull_cloud`.\n\n## Errors\n\nReturns `{:ok, map()}` or the credential error from `resolve_auth_token/1`."
+  @spec image_models_metadata_source(map()) :: {:ok, map()} | {:error, term()}
   def image_models_metadata_source(ctx) when is_map(ctx) do
-    models_path = "images/models"
-    token = resolved_token_or_nil(ctx)
-    headers = ctx |> UniversalAIRequest.raw_headers() |> UniversalAIRequest.bearer_auth(token)
+    with {:ok, token} <- resolve_auth_token(ctx) do
+      models_path = "images/models"
+      headers = ctx |> UniversalAIRequest.raw_headers() |> UniversalAIRequest.bearer_auth(token)
 
-    {:ok,
-     %{
-       ctx: ctx,
-       models_path: models_path,
-       headers: headers,
-       cache_key: scoped_cache_key(ctx, token, models_path)
-     }}
+      {:ok,
+       %{
+         ctx: ctx,
+         models_path: models_path,
+         headers: headers,
+         cache_key: scoped_cache_key(ctx, token, models_path)
+       }}
+    end
   end
 
   @doc "Builds a fallback catalog helper context for `:agentbull_cloud` in SaaS Pod mode.\n\n## Errors\n\nDoes not return error tuples."
@@ -254,17 +281,10 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     }
   end
 
-  defp apply_common_headers_and_auth(request, ctx) do
+  defp apply_common_headers_and_auth(request, ctx, token) do
     request
     |> UniversalAIRequest.put_client_identity_headers(ctx)
-    |> UniversalAIRequest.bearer_auth(resolved_token_or_nil(ctx))
-  end
-
-  defp resolved_token_or_nil(ctx) do
-    case resolve_auth_token(ctx) do
-      {:ok, token} -> token
-      _other -> UniversalAIRequest.setting(ctx, :api_key)
-    end
+    |> UniversalAIRequest.bearer_auth(token)
   end
 
   defp endpoint_kind(ctx) do
@@ -304,10 +324,24 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     end)
   end
 
+  defp hosted_caller_token_requested?(ctx) do
+    non_empty_str?(trusted_field(ctx, :hosted_token)) or pod_identity_present?(ctx)
+  end
+
+  defp pod_identity_present?(ctx) do
+    {scope, principal} = extract_pod_identity(ctx)
+    non_empty_str?(scope) and non_empty_str?(principal)
+  end
+
   defp resolve_hosted_caller_token(ctx) do
     case trusted_field(ctx, :hosted_token) do
-      token when is_binary(token) and token != "" -> {:ok, String.trim(token)}
-      _none -> mint_hosted_token_from_scope(ctx)
+      token when is_binary(token) ->
+        if non_empty_str?(token),
+          do: {:ok, String.trim(token)},
+          else: mint_hosted_token_from_scope(ctx)
+
+      _none ->
+        mint_hosted_token_from_scope(ctx)
     end
   end
 
@@ -318,7 +352,7 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
       sign_with_registered_provider(ctx, claims)
     else
       {:error, _} = err -> err
-      _ -> {:error, :missing_credentials}
+      _ -> {:error, :hosted_token_unavailable}
     end
   end
 
@@ -326,7 +360,15 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     case hosted_token_provider(ctx) do
       mod when is_atom(mod) and not is_nil(mod) ->
         if Code.ensure_loaded?(mod) and function_exported?(mod, :sign, 2) do
-          mod.sign(claims, build_token_opts(ctx))
+          case mod.sign(claims, build_token_opts(ctx)) do
+            {:ok, token} when is_binary(token) ->
+              if non_empty_str?(token),
+                do: {:ok, String.trim(token)},
+                else: {:error, :hosted_token_unavailable}
+
+            _rejected ->
+              {:error, :hosted_token_unavailable}
+          end
         else
           {:error, :hosted_token_unavailable}
         end
