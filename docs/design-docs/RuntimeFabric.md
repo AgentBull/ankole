@@ -748,12 +748,13 @@ In Kubernetes, each control-plane Pod runs as a named Erlang node clustered via
 distribution port (so `NetworkPolicy` restricts Erlang distribution strictly to
 control-plane Pods—Distributed Erlang provides process routing only, never
 single-writer durability). Workers never touch Erlang distribution ports: they
-connect to the `ClusterIP` Service for WebSocket channels and for Drive mounts,
-which every Pod serves, and directly to the issuing Pod IP for HTTP file relays.
-On graceful Pod termination, the Pod leaves the Service endpoints before closing
-its Channels so reconnecting Workers land on surviving Pods, where Drivers
-rebuild from PostgreSQL and adopt in-flight Worker tool calls and Codex
-attempts.
+connect to the `ClusterIP` Service for WebSocket channels and directly to the
+issuing Pod IP for HTTP file relays. They mount Drive, which every Pod serves,
+at the origin of their WebSocket endpoint unless their provider declares
+`endpoints.relayOrigin` (see [Files](Files.md)). On graceful Pod termination,
+the Pod leaves the Service endpoints before closing its Channels so
+reconnecting Workers land on surviving Pods, where Drivers rebuild from
+PostgreSQL and adopt in-flight Worker tool calls and Codex attempts.
 
 Finally, the Elixir release boots ERTS with a `65,536` port cap so high
 container `ulimit -n` settings do not pre-allocate a massive Erlang port table

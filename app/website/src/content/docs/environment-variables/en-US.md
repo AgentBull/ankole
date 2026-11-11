@@ -71,7 +71,7 @@ These startup variables identify the deployment and default Worker image. You co
 | Variable | Meaning |
 |---|---|
 | `ANKOLE_AGENT_COMPUTER_IMAGE` | Target Worker image matching the control-plane release |
-| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | Default RuntimeFabric WebSocket URL. A Worker whose provider sets no `endpoints.relayOrigin` also mounts Drive through `/api/v1/vfs/` on the HTTP origin of this URL, so that origin must reach every control-plane replica |
+| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | Default RuntimeFabric WebSocket URL, used by a Worker whose provider sets no `endpoints.runtimeFabricUrl`. Unless its provider sets `endpoints.relayOrigin`, a Worker also mounts Drive through `/api/v1/vfs/` on the HTTP origin of the RuntimeFabric URL it connects to, so that origin must reach every control-plane replica |
 | `ANKOLE_WORKER_INSTALLATION` | Installation label; defaults to `ankole` |
 | `ANKOLE_WORKER_PROVIDERS_FILE` | Optional provider seed YAML file, imported once at bootstrap alongside existing Agent assignments |
 
