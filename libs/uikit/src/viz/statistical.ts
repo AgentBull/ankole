@@ -168,6 +168,7 @@ function formatRowMetricText(
   return baseText
 }
 
+/** Picks the readable foreground color for a `stat` trend from the resolved palette. */
 function statTrendForeground(trend: StatTrendDirection, palette: VizThemePalette): string {
   if (trend === 'up') return palette.upForeground
   if (trend === 'down') return palette.downForeground

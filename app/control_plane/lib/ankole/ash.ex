@@ -23,6 +23,13 @@ defmodule Ankole.Ash do
   def read_one_authorized(query, %Ankole.AuthZ.Actor{} = actor, opts \\ []),
     do: read_one(query, Keyword.merge(opts, actor: actor, authorize?: true))
 
+  @doc """
+  Runs a generic action for an authenticated actor in the resource's declared scope.
+
+  A tenant resource runs in the process tenant and a site resource runs without
+  one. A tenant supplied through `opts` or carried by `input` must match that
+  scope; the accepted input is normalized to it before execution.
+  """
   def run_action_authorized(
         %Ash.ActionInput{resource: resource} = input,
         %Ankole.AuthZ.Actor{} = actor,
