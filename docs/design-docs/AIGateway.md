@@ -1226,7 +1226,11 @@ Strict resource caps bound internal loops before they can amplify cost:
   programs, 256 nested program calls, 1,024 retained provider-history items, and
   `8 MiB` of retained provider history, alongside isolate caps on code size,
   memo size, pending calls, output bytes, heap, wall time, and concurrency—failing
-  explicitly rather than dropping call/output edges.
+  explicitly rather than dropping call/output edges. The input that the request
+  starts with, including the stored history of a stateful conversation, counts
+  toward both provider-history limits, and
+  [automatic compaction](#shorten-long-history) keeps a stored history below
+  them.
 - If stored history contains duplicate items or contradictory pair IDs with no
   safe cut point, AIGateway rejects the turn rather than guessing or rewriting
   durable rows; operators recover by starting a new conversation or retracting/deleting
@@ -1468,6 +1472,21 @@ summary, retained tail, and next turn); setting `max_threshold_tokens` too close
 to fixed input (or pairing a tiny model context with a large output reservation)
 can trigger compaction on every turn or leave zero retained rows, as AIGateway
 does not suppress back-to-back compactions.
+
+A stored history can also grow large while it is still below the token trigger,
+because Provider ciphertext and inline images take many bytes per token. The
+hosted-tool loop of a Response counts the stored history toward its limits of
+1,024 retained items and `8 MiB` (see
+[Run Tool Search and Program Calls](#run-tool-search-and-program-calls)), and
+every Response on a history that has passed either limit fails. AIGateway therefore also compacts a
+stateful history when its items, encoded the way the loop encodes them, reach
+three quarters of either limit, which leaves the remaining quarter for the
+rounds of the next Response. The response metadata of such a compaction records
+`auto_compaction.trigger = "provider_history"`. The model can still read a
+history that is below the token trigger, so when this checkpoint cannot be
+written (for example, because the summarizer fails), the request runs on the
+full history, and AIGateway neither truncates the history nor reports a context
+overflow.
 
 Under this single protocol, `ai_gateway.compaction.upstream` (a tenant setting
 inheriting the site default) chooses between two backends:
@@ -1969,7 +1988,14 @@ differences cleanly:
 - **Chat `reasoning_details` & Gemini signatures**: Streamed `reasoning_details`
   concatenate into one public `reasoning` item sealed in an AIGateway envelope
   bound to `(provider_type, model_id)` (shared across rows of the same type and
-  model; explicit `reasoning.effort` overrides route `reasoningEffort`). On
+  model; explicit `reasoning.effort` overrides route `reasoningEffort`). A
+  Provider streams one `reasoning.text` detail as many short fragments that
+  repeat the detail's other fields, so the adapter joins consecutive fragments
+  whose fields other than `text` and `signature` are equal into the one detail
+  that a non-streaming response returns. A signature closes its detail, and
+  details of every other type stay as the Provider sent them. Replay joins the
+  fragments of each stored item the same way and keeps the details of separate
+  items apart. On
   replay, valid matching envelopes restore details onto the assistant message
   (dropping standalone reasoning with no assistant text or tool call so Chat
   providers never reject an empty assistant turn), while missing, stale, or

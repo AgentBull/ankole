@@ -1,6 +1,6 @@
 use super::super::*;
 use super::support::reasoning_source_context;
-use crate::common::base64_url_safe_decode;
+use crate::common::{base64_url_safe_decode, base64_url_safe_encode};
 
 #[test]
 fn chat_output_limit_uses_only_the_selected_provider_field() {
@@ -464,6 +464,164 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
     assert_eq!(replay_messages[0]["tool_calls"][0]["id"], "call_weather");
     assert_eq!(replay_messages[1]["role"], "tool");
     assert_eq!(replay_messages[1]["tool_call_id"], "call_weather");
+}
+
+fn decoded_chat_reasoning(item: &Value) -> Value {
+    let payload = item["encrypted_content"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("ankole-aigateway-chat-reasoning:")
+        .unwrap();
+    sonic_rs::from_slice(&base64_url_safe_decode(payload).unwrap()).unwrap()
+}
+
+fn chat_reasoning_stream(details: &[Value]) -> Vec<Value> {
+    let mut resolver = APIResolver::new(APIResolverKind::OpenAIChatCompletions, {
+        let mut context =
+            reasoning_source_context("openrouter", "reasoning-test", json!({"input": "Think."}));
+        context.stream = Some(true);
+        context
+    });
+    for detail in details {
+        resolver
+            .ingest(json!({
+                "choices": [{
+                    "delta": {"reasoning_details": [detail.clone()]},
+                    "finish_reason": null
+                }]
+            }))
+            .unwrap();
+    }
+    resolver
+        .ingest(json!({
+            "choices": [{"delta": {"content": "Done."}, "finish_reason": "stop"}]
+        }))
+        .unwrap();
+
+    let events = resolver.finish().unwrap();
+    events.last().unwrap()["response"]["output"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+fn chat_reasoning_replay(input: Vec<Value>) -> Value {
+    let replay = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        reasoning_source_context("openrouter", "reasoning-test", json!({"input": input})),
+    );
+    Value::Object(replay.build_body().unwrap())["messages"].clone()
+}
+
+// A provider streams one text detail a few characters at a time and repeats
+// the detail's other fields on every fragment.
+#[test]
+fn openai_chat_stream_joins_the_fragments_of_one_reasoning_text_detail() {
+    let fragment = |text: &str| json!({"type": "reasoning.text", "text": text, "format": "unknown", "index": 0});
+    let output = chat_reasoning_stream(&[
+        fragment("Compare "),
+        fragment("the two "),
+        fragment("holdings."),
+    ]);
+
+    let joined = json!([fragment("Compare the two holdings.")]);
+    assert_eq!(output[0]["type"], "reasoning");
+    assert_eq!(
+        decoded_chat_reasoning(&output[0])["reasoning_details"],
+        joined
+    );
+
+    let messages = chat_reasoning_replay(output);
+    assert_eq!(messages[0]["role"], "assistant");
+    assert_eq!(messages[0]["content"], "Done.");
+    assert_eq!(messages[0]["reasoning_details"], joined);
+}
+
+#[test]
+fn openai_chat_stream_keeps_distinct_reasoning_details_apart() {
+    let text = |index: u64, text: &str| {
+        json!({
+            "type": "reasoning.text",
+            "text": text,
+            "signature": null,
+            "id": "reasoning-text-1",
+            "format": "anthropic-claude-v1",
+            "index": index
+        })
+    };
+    let signature = json!({
+        "type": "reasoning.text",
+        "signature": "signature-state",
+        "id": "reasoning-text-1",
+        "format": "anthropic-claude-v1",
+        "index": 0
+    });
+    let encrypted = |data: &str| json!({"type": "reasoning.encrypted", "data": data, "format": "unknown", "index": 2});
+    let output = chat_reasoning_stream(&[
+        text(0, "First "),
+        text(0, "thought."),
+        signature,
+        // The signature closed the detail above, so this text is a new detail.
+        text(0, "Second thought."),
+        text(1, "Third thought."),
+        encrypted("state-a"),
+        encrypted("state-b"),
+    ]);
+
+    assert_eq!(
+        decoded_chat_reasoning(&output[0])["reasoning_details"],
+        json!([
+            {
+                "type": "reasoning.text",
+                "text": "First thought.",
+                "signature": "signature-state",
+                "id": "reasoning-text-1",
+                "format": "anthropic-claude-v1",
+                "index": 0
+            },
+            text(0, "Second thought."),
+            text(1, "Third thought."),
+            encrypted("state-a"),
+            encrypted("state-b")
+        ])
+    );
+}
+
+#[test]
+fn openai_chat_replay_joins_fragments_within_one_stored_reasoning_item() {
+    let fragment = |text: &str| json!({"type": "reasoning.text", "text": text, "format": "unknown", "index": 0});
+    let stored_item = |details: Value| {
+        let envelope = json!({
+            "provider_type": "openrouter",
+            "model_id": "reasoning-test",
+            "reasoning_details": details,
+            "reasoning": ""
+        });
+        json!({
+            "type": "reasoning",
+            "summary": [],
+            "encrypted_content": format!(
+                "ankole-aigateway-chat-reasoning:{}",
+                base64_url_safe_encode(envelope.to_string().as_bytes())
+            )
+        })
+    };
+
+    let messages = chat_reasoning_replay(vec![
+        stored_item(json!([fragment("Read "), fragment("the file.")])),
+        // A second item holds the reasoning of another provider response.
+        stored_item(json!([fragment("Then "), fragment("answer.")])),
+        json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Done."}]
+        }),
+    ]);
+
+    assert_eq!(
+        messages[0]["reasoning_details"],
+        json!([fragment("Read the file."), fragment("Then answer.")])
+    );
 }
 
 #[test]
