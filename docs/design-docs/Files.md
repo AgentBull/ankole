@@ -268,8 +268,16 @@ Each request checks the current Worker generation, incarnation, and access graph
 The root supervisor holds the bearer token. Model processes receive filesystem
 access in their execution's mount namespace.
 
-The VFS URL uses the provider's relay origin or the control plane's internal
-Worker HTTP origin, matching file transfers. The Worker channel batches committed
+A Worker keeps a Drive mount across turns, so the mount outlives the
+control-plane Pod that configured it. Every control-plane Pod serves the VFS
+path and authorizes each request from the bearer token alone, which lets the VFS
+URL use an origin that the deployment balances across Pods: the provider's
+`endpoints.relayOrigin` when the provider declares one, and otherwise the HTTP
+origin of the RuntimeFabric endpoint that the Worker connects to
+(`endpoints.runtimeFabricUrl`, or the site's
+`ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT`). File transfers differ: a relay session
+lives in one Pod's memory, so a relay URL names that Pod (see
+[RuntimeFabric](RuntimeFabric.md)). The Worker channel batches committed
 content updates into targeted invalidations. Tree and access changes invalidate
 all clean entries so cached paths and directory membership follow the committed
 Page hierarchy. Page creation, deletion and restoration use the same committed

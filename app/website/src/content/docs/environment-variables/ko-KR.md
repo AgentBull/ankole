@@ -75,7 +75,7 @@ Helm 차트의 `values.yaml`에서 이에 대응하는 설정 경로는 `secrets
 | 변수 | 의미 |
 |---|---|
 | `ANKOLE_AGENT_COMPUTER_IMAGE` | 컨트롤 플레인 릴리스와 짝을 이루는 Worker 컨테이너 이미지 |
-| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | 기본 RuntimeFabric WebSocket URL |
+| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | 기본 RuntimeFabric WebSocket URL. provider에 `endpoints.relayOrigin`이 없으면 Worker는 이 URL과 같은 HTTP 오리진의 `/api/v1/vfs/`를 통해 드라이브를 마운트하므로, 이 오리진에서 제어 플레인의 모든 복제본에 연결할 수 있어야 합니다 |
 | `ANKOLE_WORKER_INSTALLATION` | 배포 설치 레이블(기본값 `ankole`) |
 | `ANKOLE_WORKER_PROVIDERS_FILE` | 선택적 프로바이더 시드 YAML 경로. 최초 가져오기와 등록된 Agent 할당을 단일 트랜잭션으로 처리합니다 |
 

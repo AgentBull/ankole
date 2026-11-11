@@ -125,6 +125,26 @@ defmodule Ankole.AgentWorkers.Providers do
     end
   end
 
+  @doc """
+  Returns the HTTP origin at which a Worker reaches every control-plane node.
+
+  A provider that declares `endpoints.relayOrigin` names that origin. For the
+  other providers the Worker connects to the RuntimeFabric endpoint, which the
+  deployment balances across control-plane nodes, so a URL built on the origin
+  of that endpoint keeps working after the node that issued it is replaced.
+  """
+  @spec control_plane_origin(map()) :: {:ok, String.t()} | {:error, term()}
+  def control_plane_origin(%{"relayOrigin" => origin}) when is_binary(origin),
+    do: {:ok, String.trim_trailing(origin, "/")}
+
+  def control_plane_origin(endpoints) do
+    with {:ok, runtime} <- Config.fetch() do
+      uri = URI.parse(endpoints["runtimeFabricUrl"] || runtime.runtime_fabric_endpoint)
+      scheme = if uri.scheme == "wss", do: "https", else: "http"
+      {:ok, URI.to_string(%URI{scheme: scheme, host: uri.host, port: uri.port})}
+    end
+  end
+
   def default_status do
     case Ankole.Ash.read_one!(Ash.Query.filter(Provider, is_default == true)) do
       nil -> {:error, :worker_provider_required}
