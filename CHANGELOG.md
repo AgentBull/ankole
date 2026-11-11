@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.112 (2026-11-11)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.111 (2026-11-11)
 
 - Change the response of `POST /api/v1/ai-gateway/web_search`. AIGateway
