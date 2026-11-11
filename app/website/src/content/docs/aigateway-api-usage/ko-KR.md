@@ -65,6 +65,30 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 
 각 엔드포인트의 상세 규격은 [AIGateway](../ai-gateway/) 개념 문서와 관련 User guide 문서에서 확인할 수 있습니다.
 
+## 확률 기반 결정
+
+생성된 문장 대신 확률이 필요하면 `POST /decisions`를 사용합니다. `decision.default` 셀렉터는 Pod/Site의 결정 모델 프로필로 해석되며, `provider_id/model`을 명시해 결정 모델을 직접 선택할 수도 있습니다.
+
+```bash
+curl https://ankole.example.com/api/v1/ai-gateway/decisions \
+  -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "decision.default",
+    "state": {"ticket": "I was charged twice."},
+    "questions": {
+      "urgent": {"type": "noul", "instructions": "Does this need a reply today?"},
+      "team": {
+        "type": "choice",
+        "instructions": "Which team owns this ticket?",
+        "criteria": {"billing": "Payments and refunds", "support": "Product questions"}
+      }
+    }
+  }'
+```
+
+`score` 질문의 `criteria`에는 2~10개의 순서 있는 등급 라벨을 지정합니다. 응답에는 `model`, `answers`, 토큰 `usage`가 포함되며 모든 답변에 확률이 들어 있습니다. TypeSafe, Azure Foundry, OpenRouter, OpenAI, Cloudflare 결정 모델은 같은 공개 요청 형식을 사용하지만 이미지 지원은 다릅니다. SystemOne은 PNG/JPEG를 지원하고 Microsoft-Decision-1은 텍스트만 지원하며 OpenAI는 WebP도 지원합니다. OpenAI가 질문 하나라도 거부하면 부분 답변 없이 `422 upstream_decision_refusal`을 반환합니다. 결정 모델 프로필이 없으면 호출자의 `light` 언어 모델이 보정되지 않은 확률로 답합니다.
+
 ## 이 가이드가 아닌 것
 
 이 문서는 AIGateway 전체 사양서가 아닙니다. 전체 라우트 표, 상태보존(stateful) 응답의 수명 주기, 상세 오류 코드는 [AIGateway](../ai-gateway/)를 참조하세요. 또한 별도의 전용 클라이언트 SDK를 안내하는 문서도 아닙니다. Ankole은 독자적인 클라이언트 SDK를 배포하지 않으므로 표준 HTTP 클라이언트나 OpenResponses 호환 클라이언트로 REST API를 직접 호출하면 됩니다.

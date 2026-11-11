@@ -60,7 +60,8 @@ class SetBuilder<T extends RangeSet.Value> {
     if (from >= to) {
       throw new Error('Ranges cannot be empty')
     }
-    ;(this.lastTo <= from ? this : this.next).addInner(value, from, to)
+    if (this.lastTo <= from) this.addInner(value, from, to)
+    else this.next.addRange(value, from, to)
   }
 
   addInner(value: T, from: number, to: number) {
@@ -169,6 +170,7 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
     for (let i = 0; i < sections.length;) {
       let len = sections[i++]!
       const ins = sections[i++]!
+      const endA = posA + len
       if (ins < 0) {
         while (i < sections.length && sections[i + 1]! < 0) {
           len += sections[i]!
@@ -190,6 +192,7 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
           }
         }
         posB += len
+        posA += len
       } else {
         // Iterate over replacements in this change's range, copy over
         // mapped version of ranges covering its start and end before
@@ -201,11 +204,11 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
           const repl = replace[replI++]!
           if (repl.add) build.add(repl.add)
         }
-        if (len) cursor.goto(posA + len - 1)
-        copyMappedUpto(cursor, posA + len, map, build, replace, replStartI)
+        if (len && cursor.to < endA) cursor.goto(endA - 1)
+        copyMappedUpto(cursor, endA, map, build, replace, replStartI)
         posB = endB
+        posA = endA
       }
-      posA += len
     }
     return build.finish(this.next && this.next.mapInner(sections, map, replace))
   }

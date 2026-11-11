@@ -239,7 +239,10 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 .pod-sidebar-tab-label {
   display: grid;
   grid-template-columns: minmax(0, 0fr);
-  transition: grid-template-columns var(--duration-segment) var(--ease-segment);
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: grid-template-columns var(--duration-segment) var(--ease-segment);
+  }
 }
 
 .pod-sidebar-tab-label > span {
@@ -249,9 +252,12 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   white-space: nowrap;
   opacity: 0;
   filter: blur(2px);
-  transition:
-    opacity 160ms var(--ease-out),
-    filter 160ms var(--ease-out);
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      opacity 160ms var(--ease-out),
+      filter 160ms var(--ease-out);
+  }
 }
 
 .pod-sidebar-tab-label[data-open] {
@@ -261,9 +267,12 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
 .pod-sidebar-tab-label[data-open] > span {
   opacity: 1;
   filter: none;
-  transition:
-    opacity 240ms var(--ease-out) 60ms,
-    filter 240ms var(--ease-out) 60ms;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      opacity 240ms var(--ease-out) 60ms,
+      filter 240ms var(--ease-out) 60ms;
+  }
 }
 
 .pod-navigation {

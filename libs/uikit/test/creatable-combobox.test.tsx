@@ -4,7 +4,8 @@ import {
   CreatableCombobox,
   filterCreatableComboboxOptions,
   hasHighlightedComboboxOption,
-  resolveCreatableComboboxBlur
+  resolveCreatableComboboxBlur,
+  shouldCommitCreatableComboboxEnter
 } from '../src/components/creatable-combobox'
 
 describe('CreatableCombobox', () => {
@@ -102,6 +103,40 @@ describe('CreatableCombobox', () => {
         ownerDocument: { getElementById: () => null }
       })
     ).toBe(false)
+  })
+
+  test('ignores IME-confirming Enter including Safari keyCode 229 ordering', () => {
+    const idleInput = {
+      getAttribute: () => null,
+      ownerDocument: { getElementById: () => null }
+    }
+
+    expect(
+      shouldCommitCreatableComboboxEnter({
+        key: 'Enter',
+        defaultPrevented: false,
+        nativeEvent: { isComposing: true, keyCode: 13 },
+        currentTarget: idleInput
+      })
+    ).toBe(false)
+
+    expect(
+      shouldCommitCreatableComboboxEnter({
+        key: 'Enter',
+        defaultPrevented: false,
+        nativeEvent: { isComposing: false, keyCode: 229 },
+        currentTarget: idleInput
+      })
+    ).toBe(false)
+
+    expect(
+      shouldCommitCreatableComboboxEnter({
+        key: 'Enter',
+        defaultPrevented: false,
+        nativeEvent: { isComposing: false, keyCode: 13 },
+        currentTarget: idleInput
+      })
+    ).toBe(true)
   })
 
   test('syncs cleared input on blur and restores display text cleanly', () => {

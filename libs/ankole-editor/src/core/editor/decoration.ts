@@ -153,6 +153,18 @@ export namespace Widget {
     render() {
       const img = document.createElement('img')
       img.className = 'wg-buffer'
+      img.alt = ''
+      return img
+    },
+    editable: true
+  })
+
+  /** @internal */
+  export const blockImg = Widget.create({
+    render() {
+      const img = document.createElement('img')
+      img.className = 'wg-blockBuffer'
+      img.alt = ''
       return img
     },
     editable: true
@@ -1143,7 +1155,7 @@ export class DecoIterator {
         if (started) this.widgets(node.tag, WidgetPlace.Before, walker)
         else started = true
         const hasPending = pendingPos == pos && !node.isText
-        let shape = hasPending && pendingShape ? pendingShape.shape : this.tagShape(node.tag, iter.active)
+        let shape = this.tagShape(node.tag, iter.active, hasPending ? pendingShape : null)
         if (hasPending) for (const deco of pendingDeco) shape = applyDeco(shape, deco, node.tag)
         if (shape.hasContent) throw new Error("Leaf nodes shapes shouldn't have a content hole")
         walker.node(node, shape, this.nodeWrappers(node.tag, iter.active, true), undefined)
@@ -1152,24 +1164,27 @@ export class DecoIterator {
       enterPlot: (node, pos) => {
         if (started) this.widgets(node.tag, WidgetPlace.Before, walker)
         else started = true
-        let shape = pendingShape && pendingPos == pos ? pendingShape.shape : this.tagShape(node.tag, iter.active)
+        let shape = this.tagShape(node.tag, iter.active, pendingShape && pendingPos == pos ? pendingShape : null)
         if (pendingPos == pos) for (const deco of pendingDeco) shape = applyDeco(shape, deco, node.tag)
         const wrappers = this.nodeWrappers(node.tag, iter.active, !shape.hasContent)
         const atom = !shape.hasContent
-        if (atom) walker.node(node!, shape, wrappers, pos + node.length > to ? to - pos : undefined)
-        else walker.enter(node!, shape as DecoElt, wrappers)
-        this.widgets(node.tag, WidgetPlace.Start, walker)
+        if (atom) {
+          walker.node(node!, shape, wrappers, pos + node.length > to ? to - pos : undefined)
+        } else {
+          walker.enter(node!, shape as DecoElt, wrappers)
+          this.widgets(node.tag, WidgetPlace.Start, walker)
+        }
         return !atom
       },
       leavePlot: tag => {
-        if (started) this.widgets(tag, WidgetPlace.End, walker)
+        if (started && !atomParent) this.widgets(tag, WidgetPlace.End, walker)
         else started = true
         walker.leave()
         this.widgets(tag, WidgetPlace.After, walker)
       }
     }
 
-    if (inclusiveStart) {
+    if (inclusiveStart && !atomParent) {
       const before = pos.nodeBefore
       if (before) this.widgets(before.tag, WidgetPlace.After, walker)
       else this.widgets(pos.parent.node.tag, WidgetPlace.Start, walker)
@@ -1181,8 +1196,10 @@ export class DecoIterator {
           done = atomParent.after <= to
         walker.nodePart(atomParent.node, end - pos.pos, done)
         pos = pos.advance(end - pos.pos)
-        if (done) this.widgets(atomParent.node.tag, WidgetPlace.After, walker)
-        atomParent = undefined
+        if (done) {
+          this.widgets(atomParent.node.tag, WidgetPlace.After, walker)
+          atomParent = undefined
+        }
         while (iter.point && iter.from < end) iter.next()
       } else if (iter.point) {
         const value = iter.point
@@ -1220,9 +1237,8 @@ export class DecoIterator {
     this.pos = pos
   }
 
-  tagShape(tag: Node.Tag, active: Decoration.Range[]) {
-    const override = this.tagShapes.get(tag.type)
-    let shape = override ? override(tag) : baseTagShape(tag)
+  tagShape(tag: Node.Tag, active: Decoration.Range[], fromPoint: ShapeDecoration | null) {
+    let shape = fromPoint ? fromPoint.shape : (this.tagShapes.get(tag.type)?.(tag) ?? baseTagShape(tag))
     if (tag.marks.length) shape = addMarkAttributes(this.markShapes, shape, tag)
     let add: string[] | undefined
     for (const src of this.globalAttrs) {

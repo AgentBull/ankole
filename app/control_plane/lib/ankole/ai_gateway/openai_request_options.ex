@@ -13,8 +13,12 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
   @text_verbosity_values ~w(low medium high)
   # OpenAI Chat Completions rejects these Responses request fields.
   @responses_only_options ~w(reasoningSummary truncation contextManagement)
+  @decisions_unsupported_options ~w(
+    reasoningEffort reasoningSummary serviceTier textVerbosity truncation contextManagement
+    promptCacheRetention
+  )
 
-  @type endpoint :: :responses | :chat_completions
+  @type endpoint :: :responses | :chat_completions | :decisions
 
   @doc "Returns the reasoning summary values accepted by OpenAI Responses."
   @spec reasoning_summary_values() :: [String.t()]
@@ -57,12 +61,26 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
     end
   end
 
-  # Both OpenAI wires accept these fields under their snake_case names.
+  def put_provider_options(%UniversalAIRequest{} = request, :decisions) do
+    options = request.provider_options || %{}
+
+    case Enum.find(@decisions_unsupported_options, &Map.has_key?(options, &1)) do
+      nil ->
+        UniversalAIRequest.put_provider_options(request, rename_common_options(options))
+
+      option ->
+        {:error, {:unsupported_provider_option, option, "decisions"}}
+    end
+  end
+
+  # OpenAI endpoints accept these shared request fields under their snake_case names.
   defp rename_common_options(options) do
     options
     |> rename_option("serviceTier", "service_tier")
     |> rename_option("promptCacheKey", "prompt_cache_key")
+    |> rename_option("promptCacheOptions", "prompt_cache_options")
     |> rename_option("promptCacheRetention", "prompt_cache_retention")
+    |> rename_option("safetyIdentifier", "safety_identifier")
   end
 
   defp put_nested_option(options, public_key, object_key, native_key) do

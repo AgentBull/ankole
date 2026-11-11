@@ -1,6 +1,6 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
-import { Plot, Leaf, Mark, Node, Schema } from '../../src/core/doc'
+import { Plot, Leaf, Mark, Node, Schema, Attributes } from '../../src/core/doc'
 import { Paragraph, CodeBlock, Strong, Image } from '../../src/core/types/schema'
 import { Blockquote } from './types'
 import { basicBuilders, basicSchema, builder } from './schema'
@@ -74,5 +74,9 @@ describe('Schema', () => {
       const odd = builder(Odd)
       ist.throws(() => doc(odd(p())), /not in schema/)
     })
+  })
+
+  it('counts an attribute that sorts before the other set', () => {
+    ist(Attributes.compare(['b', '1'], ['a', '1', 'b', '1']), -1)
   })
 })

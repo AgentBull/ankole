@@ -4,13 +4,39 @@ import { findClusterBreak } from '@marijn/find-cluster-break'
 
 /**
  * If the cursor is in an empty textblock that can be lifted out of a
- * parent, return a transaction that does this.
+ * parent, return a transaction that does this. Unless `splitListItem`
+ * is false, a block that continues a list item is split out of that
+ * item before it is lifted.
  */
-export function liftEmptyBlock(state: GardState): Transaction.Spec | false {
+export function liftEmptyBlock(state: GardState, splitListItem = true): Transaction.Spec | false {
   if (!state.selection.isCursor) return false
   const sel = state.sel,
     block = sel.head.textblockParent
   if (!block || !sel.head.isAtStart(block) || !sel.head.isAtEnd(block)) return false
+  const item = block.parent
+  const list = item?.parent
+  if (splitListItem && list && block.index && list.node.type.hasRole(Node.Role.List)) {
+    return {
+      changes: { from: block.before, insert: [Plot.End, item.node.tag] },
+      scrollIntoView: true,
+      userEvent: 'split.list'
+    }
+  }
+  return liftBlock(state, block)
+}
+
+/**
+ * Lift the textblock that the cursor is at the start of out of its
+ * innermost parent, if possible.
+ */
+export function liftTextblock(state: GardState): Transaction.Spec | false {
+  if (!state.selection.isCursor) return false
+  const { head } = state.sel,
+    block = head.textblockParent
+  return !block || !head.isAtStart(block) ? false : liftBlock(state, block)
+}
+
+function liftBlock(state: GardState, block: Pos.Plot): Transaction.Spec | false {
   let start = block.before
   let end = block.after
   const before: Token[] = []
@@ -27,7 +53,7 @@ export function liftEmptyBlock(state: GardState): Transaction.Spec | false {
           { from: block.after, to: end, insert: after }
         ],
         scrollIntoView: true,
-        userEvent: 'unwrap.empty'
+        userEvent: 'unwrap'
       }
     }
     if (level.node.isInline || level.node.type.isolating) break

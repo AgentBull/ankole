@@ -104,6 +104,8 @@ end
 
 일곱 가지 Capability 종류는 런타임 외부 이름에 다음과 같이 대응합니다. `language_model`은 `"llm"`, `embedding_model`은 `"embedding"`, `rerank_model`은 `"rerank"`, `decision_model`은 `"decision"`으로 매핑되며, 나머지 웹 및 이미지 관련 세 종류는 이름을 그대로 사용합니다. LLM만 제공하는 Provider는 `language_model`만 선언하면 되고, LLM과 임베딩을 함께 제공한다면 두 블록을 모두 선언합니다.
 
+TypeSafe, Microsoft Foundry, OpenRouter의 SystemOne 엔드포인트는 `:systemone_decision`을 사용하고, OpenAI `/decisions`는 `:openai_decision`을 사용합니다. 리졸버는 state와 이미지 인코딩, 질문 변환, 답변 정규화를 담당하고 Provider의 prepare 함수는 base URL, 배포 또는 모델 이름, 인증, 전용 헤더와 요청 옵션을 담당합니다. `TypeSafe`에는 Provider 전용 `/models` 메타데이터 소스도 구현되어 있어 TypeSafe의 `models`와 OpenAI 형식의 `data` 카탈로그 항목을 모두 읽을 수 있습니다.
+
 `image_generate`를 선언하는 Provider는 선택 콜백 `image_endpoint/3`도 구현합니다. 이 콜백은 모델, `image_generation` 도구 옵션, 참조 이미지 수를 받아 모델이 요청을 처리할 수 있으면 `{:ok, endpoint}`, Provider가 해당 모델을 제공하지 않으면 `{:error, :unknown_model}`, 모델이 지원하지 않는 옵션이 있으면 그 옵션을 지목해 `{:error, {:unsupported_field, field}}`를 반환합니다. OpenRouter와 AgentBull Cloud는 예외로, AIGateway가 각자의 이미지 모델 카탈로그를 직접 읽습니다.
 
 ## prepare 함수

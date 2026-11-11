@@ -277,7 +277,7 @@ describe('composition', () => {
         1,
         'a',
         () => {
-          ist(wg.contentDOM.innerHTML, `<p><strong><img class="wg-buffer"></strong></p>`)
+          ist(wg.contentDOM.innerHTML, `<p><strong><img class="wg-buffer" alt=""></strong></p>`)
           const sel = window.getSelection()!
           ist(sel.getRangeAt(0).comparePoint(wg.contentDOM.firstChild!.firstChild!, 1), -1)
           return selEnd(wg.contentDOM.firstChild!.appendChild(document.createTextNode('a')))

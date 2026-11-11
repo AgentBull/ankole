@@ -115,7 +115,7 @@ function SelectTrigger({
       {children}
       <SelectPrimitive.Icon
         render={
-          <RiArrowDownSLine className="pointer-events-none size-3.5 text-muted-foreground transition-transform duration-[240ms] ease-(--ease-segment) group-data-popup-open/select-trigger:rotate-180" />
+          <RiArrowDownSLine className="pointer-events-none size-3.5 text-muted-foreground motion-safe:transition-transform motion-safe:duration-[240ms] motion-safe:ease-(--ease-segment) group-data-popup-open/select-trigger:rotate-180" />
         }
       />
     </SelectPrimitive.Trigger>
@@ -235,7 +235,7 @@ function SelectHighlight() {
       aria-hidden
       hidden
       data-slot="select-highlight"
-      className="pointer-events-none absolute inset-x-0 top-0 -z-10 rounded-control bg-(--layer-hover) transition-[translate,height] duration-[180ms] ease-(--ease-segment)"
+      className="pointer-events-none absolute inset-x-0 top-0 -z-10 rounded-control bg-(--layer-hover) motion-safe:transition-[translate,height] motion-safe:duration-[180ms] motion-safe:ease-(--ease-segment)"
     />
   )
 }

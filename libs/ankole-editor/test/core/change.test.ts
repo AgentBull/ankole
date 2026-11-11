@@ -1,9 +1,8 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { Plot, Mark, Leaf, Node, Slice, ChangeSet, type Token, Schema } from '../../src/core/doc'
-import { CodeBlockLanguage, Emphasis, Strong, ImageAlt } from '../../src/core/types/schema'
-import { TableRow } from './types'
-import { Link, Table, BlockCell } from './types'
+import { CodeBlockLanguage, Emphasis, Strong, ImageAlt, Paragraph } from '../../src/core/types/schema'
+import { TableRow, Doc, Link, Table, BlockCell } from './types'
 import { permute, open, close, slice, rDoc, rChange } from './generate'
 import { basicBuilders, basicSchema, builder, tag, maybeTag, eq } from './schema'
 const { doc, p, h1, blockquote, ol, ul, li, pre, preLang, hr, img, imgAlt, $img, a, em, strong, table, tr, tdB } =
@@ -117,6 +116,28 @@ describe('ChangeSet', () => {
 
     it('only adds marks where appropriate', () => {
       testApply(doc(0, p('one'), 1), [{ add: Strong }], doc(p(strong('one'))))
+    })
+
+    it('can add to and remove from a set mark', () => {
+      const IDs = Mark.Type.define<readonly string[]>('IDs', {
+        set: { compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0) },
+        shape: { attribute: 'data-tags', value: value => value.join(' ') }
+      })
+      const idSchema = Schema.define([Doc, Paragraph, IDs])
+      const ids = builder(IDs)
+      const idDoc = builder(idSchema)
+      Plot.Doc.noValidate(() => {
+        testApply(
+          idDoc(p(0, 'one', ids(['a'], 'two'), 1)),
+          [{ add: IDs.of(['b', 'c']) }],
+          idDoc(p(0, ids(['b', 'c'], 'one'), ids(['a', 'b', 'c'], 'two'), 1))
+        )
+        testApply(
+          idDoc(p(0, ids(['a'], 'one'), ids(['a', 'b'], 'two'), 1)),
+          [{ remove: IDs.of(['a', 'c']) }],
+          idDoc(p(0, 'one', ids(['b'], 'two'), 1))
+        )
+      })
     })
 
     it('can change node marks', () => {

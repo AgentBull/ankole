@@ -363,7 +363,7 @@ export namespace Attributes {
       } else if (iA < a.length && (iB == b.length || a[iA]! < b[iB]!)) {
         score--
         iA += 2
-      } else if (iB < b.length && iA == a.length) {
+      } else if (iB < b.length) {
         score--
         iB += 2
       } else {

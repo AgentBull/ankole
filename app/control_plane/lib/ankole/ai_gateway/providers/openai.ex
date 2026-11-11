@@ -49,7 +49,9 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     )
 
     setting(:promptCacheKey, scope: :request, advanced: true)
+    setting(:promptCacheOptions, type: :map, scope: :request, advanced: true)
     setting(:promptCacheRetention, scope: :request, advanced: true)
+    setting(:safetyIdentifier, scope: :request, advanced: true)
     setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
 
     setting(:textVerbosity,
@@ -67,6 +69,22 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       supports_parallel_tool_calls()
       supports_native_image_generation()
     end
+
+    decision_model do
+      api_resolver(:openai_decision)
+      prepare(:prepare_decision_model)
+    end
+  end
+
+  @doc "Builds an OpenAI Decisions API request."
+  def prepare_decision_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("decisions", :openai_decision)
+    |> openai_headers()
+    |> UniversalAIRequest.put_client_identity_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+    |> UniversalAIRequest.put_provider_options(ctx.provider_options)
+    |> OpenAIRequestOptions.put_provider_options(:decisions)
   end
 
   @doc """

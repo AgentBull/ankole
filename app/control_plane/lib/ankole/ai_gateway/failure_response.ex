@@ -325,6 +325,12 @@ defmodule Ankole.AIGateway.FailureResponse do
   defp row(:invalid_provider_options),
     do: {422, "invalid_provider_options", "invalid_provider_options", nil, nil}
 
+  defp row({:unsupported_provider_option, option, endpoint}),
+    do:
+      {400, "unsupported_provider_option",
+       "#{option} is not supported by the #{endpoint} endpoint.", "provider_options.#{option}",
+       nil}
+
   defp row({:unknown_model_selector, _capability, selector}),
     do: {422, "unknown_model_selector", "Unknown model selector: #{selector}.", "model", nil}
 
@@ -389,6 +395,14 @@ defmodule Ankole.AIGateway.FailureResponse do
     classification = classify(reason)
 
     {502, "invalid_upstream_response", public_message(classification), nil,
+     {:safe_fields, classification}}
+  end
+
+  defp row(%ProviderFailure{kind: :other, code: "upstream_decision_refusal"} = reason) do
+    classification = classify(reason)
+
+    {422, "upstream_decision_refusal",
+     "The upstream decision model refused to answer the request.", nil,
      {:safe_fields, classification}}
   end
 

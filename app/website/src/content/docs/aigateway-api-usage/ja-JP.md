@@ -65,6 +65,30 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 
 各エンドポイントの詳細については、[AIGateway](../ai-gateway/) の概念ページおよび対応するユーザーガイドの各機能ページを参照してください。
 
+## 確率付きの判定
+
+生成文ではなく確率が必要な場合は `POST /decisions` を使用します。`decision.default` セレクターは Pod/Site の判定モデルプロファイルに解決されます。`provider_id/model` を明示して判定モデルを直接選択することもできます。
+
+```bash
+curl https://ankole.example.com/api/v1/ai-gateway/decisions \
+  -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "decision.default",
+    "state": {"ticket": "I was charged twice."},
+    "questions": {
+      "urgent": {"type": "noul", "instructions": "Does this need a reply today?"},
+      "team": {
+        "type": "choice",
+        "instructions": "Which team owns this ticket?",
+        "criteria": {"billing": "Payments and refunds", "support": "Product questions"}
+      }
+    }
+  }'
+```
+
+`score` 質問の `criteria` には 2〜10 個の順序付きレベルラベルを指定します。レスポンスには `model`、`answers`、トークンの `usage` が含まれ、各回答に確率が付きます。TypeSafe、Azure Foundry、OpenRouter、OpenAI、Cloudflare の判定モデルは同じ公開リクエスト形式を使いますが、画像の対応は異なります。SystemOne は PNG/JPEG、Microsoft-Decision-1 はテキストのみ、OpenAI は WebP にも対応します。OpenAI がいずれかの質問を拒否した場合は、部分的な回答を返さず `422 upstream_decision_refusal` を返します。判定モデルプロファイルが未設定の場合は、呼び出し元の `light` 言語モデルが未較正の確率で回答します。
+
 ## このガイドではないもの
 
 このページは AIGateway 全体の仕様書ではありません。全ルートの一覧、WebSocket 上のステートフルなライフサイクル、エラーレスポンスの詳細については [AIGateway](../ai-gateway/) を参照してください。また、Ankole では専用のクライアント SDK を配布していないため、標準の HTTP クライアントや OpenResponses 互換クライアントから直接 REST API を呼び出してください。

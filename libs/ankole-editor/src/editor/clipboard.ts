@@ -797,6 +797,11 @@ function resourceHTML(html: string, state: GardState): string {
   return doc.body.innerHTML
 }
 
+function eventTransfer(event: ClipboardEvent | InputEvent | null): DataTransfer | null {
+  if (event instanceof ClipboardEvent) return event.clipboardData
+  return event?.dataTransfer ?? null
+}
+
 export const clipboard: GardState.Extension = [
   Wordgard.domEventHandler('copy', (_event, editor) => {
     cuts.delete(editor)
@@ -821,7 +826,7 @@ export const clipboard: GardState.Extension = [
   }),
   Wordgard.pasteHandler.of((editor, event) => {
     const cut = cuts.get(editor)
-    const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
+    const data = eventTransfer(event)
     if (!cut || data?.getData(cutMime) !== cut.token || editor.state.readOnly) return false
     cuts.delete(editor)
     const codeBlock = singleCodeBlockTarget(editor.state)
@@ -864,7 +869,7 @@ export const clipboard: GardState.Extension = [
   Wordgard.pasteHandler.of((editor, event, slice) => {
     const block = singleCodeBlockTarget(editor.state)
     if (!block) return false
-    const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
+    const data = eventTransfer(event)
     if (!data || isWholeBlockCopy(data, slice, editor.inputState.shiftKey)) return false
     const codeSlice = readClipboard(
       editor.state,
@@ -887,7 +892,7 @@ export const clipboard: GardState.Extension = [
   }),
   Wordgard.pasteHandler.of((editor, event, slice) => {
     if (editor.inputState.shiftKey || !canAutoLinkCaretPaste(editor.state)) return false
-    const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
+    const data = eventTransfer(event)
     const html = data?.getData('text/html') ?? ''
     if (!html || html.includes('wg-content') || html.includes('wg-slice') || html.includes('data-mention-')) {
       return false
@@ -921,7 +926,7 @@ export const clipboard: GardState.Extension = [
   }),
   Wordgard.pasteHandler.of((editor, event, slice) => {
     if (editor.inputState.shiftKey || !canLinkSelectedText(editor.state)) return false
-    const data = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
+    const data = eventTransfer(event)
     const html = data?.getData('text/html') ?? ''
     if (html.includes('wg-content') || html.includes('wg-slice') || html.includes('data-mention-')) {
       return false

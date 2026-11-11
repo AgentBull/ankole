@@ -3,6 +3,7 @@
 import { RiAddLine, RiSubtractLine } from '@remixicon/react'
 import * as React from 'react'
 
+import { composingKey } from '../lib/keyboard'
 import { cn } from '../lib/utils'
 
 export type NumberInputProps = Omit<
@@ -251,7 +252,7 @@ function NumberInput({
           }
         }}
         onKeyDown={event => {
-          if (event.nativeEvent.isComposing) {
+          if (composingKey(event.nativeEvent)) {
             onKeyDown?.(event)
             return
           }
@@ -282,7 +283,7 @@ function NumberInput({
             aria-label={decrementLabel}
             disabled={disabled || readOnly || atMin}
             onClick={() => applyStep(-1)}
-            className="flex h-full w-7 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40">
+            className="flex h-full w-7 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40">
             <RiSubtractLine aria-hidden="true" className="size-3.5" />
           </button>
           <button
@@ -290,7 +291,7 @@ function NumberInput({
             aria-label={incrementLabel}
             disabled={disabled || readOnly || atMax}
             onClick={() => applyStep(1)}
-            className="flex h-full w-7 cursor-pointer items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40">
+            className="flex h-full w-7 cursor-pointer items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40">
             <RiAddLine aria-hidden="true" className="size-3.5" />
           </button>
         </div>

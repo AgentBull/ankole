@@ -118,7 +118,10 @@ defmodule Ankole.AIGateway.Usage do
           ~w(cached_tokens cachedTokens)
         ),
       cache_creation_input_tokens:
-        integer(Map.get(usage, "input_tokens_details"), ~w(cache_creation_tokens)),
+        integer(
+          Map.get(usage, "input_tokens_details"),
+          ~w(cache_creation_tokens cache_write_tokens)
+        ),
       reasoning_tokens:
         detail(
           usage,

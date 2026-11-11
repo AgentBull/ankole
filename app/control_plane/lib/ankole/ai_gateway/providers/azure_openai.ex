@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.ReasoningEffort
@@ -63,6 +64,11 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
     end
+
+    decision_model do
+      api_resolver(:systemone_decision)
+      prepare(:prepare_decision_model)
+    end
   end
 
   @doc """
@@ -106,6 +112,66 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       |> OpenAIRequestOptions.put_provider_options(
         if(responses?, do: :responses, else: :chat_completions)
       )
+    end
+  end
+
+  @decision_unsupported_options ~w(
+    maxTokensParameter reasoningEffort reasoningSummary serviceTier textVerbosity truncation
+  )
+
+  @doc "Builds a Microsoft Foundry SystemOne decision-model request."
+  def prepare_decision_model(ctx) do
+    with :ok <- validate_decision_options(ctx.provider_options),
+         :ok <- validate_decision_images(ctx.request) do
+      {base_url, path} = foundry_decision_path(ctx.settings[:base_url])
+      deployment = ctx.settings[:deployment] || ctx.model
+      ctx = %{put_in(ctx.settings[:base_url], base_url) | model: deployment}
+
+      ctx
+      |> UniversalAIRequest.new(path, :systemone_decision)
+      |> UniversalAIRequest.put_client_identity_headers(ctx)
+      |> put_auth(ctx)
+    end
+  end
+
+  defp validate_decision_options(options) when is_map(options) do
+    case Enum.find(@decision_unsupported_options, &Map.has_key?(options, &1)) do
+      nil -> :ok
+      option -> {:error, {:unsupported_provider_option, option, "decisions"}}
+    end
+  end
+
+  defp validate_decision_options(_options), do: :ok
+
+  defp validate_decision_images(%{"images" => _images}) do
+    {:error,
+     OpenAIError.invalid(
+       "images",
+       "unsupported_value",
+       "Microsoft-Decision-1 accepts only text and structured state."
+     )}
+  end
+
+  defp validate_decision_images(_request), do: :ok
+
+  defp foundry_decision_path(base_url) do
+    base_url = base_url |> to_string() |> String.trim_trailing("/")
+
+    cond do
+      String.ends_with?(base_url, "/providers/microsoft/v1/systemone") ->
+        {String.replace_suffix(base_url, "/systemone", ""), "systemone"}
+
+      String.ends_with?(base_url, "/providers/microsoft/v1") ->
+        {base_url, "systemone"}
+
+      String.ends_with?(base_url, "/openai/v1") ->
+        {String.replace_suffix(base_url, "/openai/v1", ""), "providers/microsoft/v1/systemone"}
+
+      String.ends_with?(base_url, "/openai") ->
+        {String.replace_suffix(base_url, "/openai", ""), "providers/microsoft/v1/systemone"}
+
+      true ->
+        {base_url, "providers/microsoft/v1/systemone"}
     end
   end
 

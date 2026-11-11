@@ -40,7 +40,7 @@ export const baseStyles = buildTheme(
       border: '1px solid var(--wg-border-color)'
     },
 
-    '&:has(> wg-scroller > wg-content:focus)': {
+    '&.wg-focused': {
       outline: '1px solid var(--wg-highlight-color)',
 
       '& > wg-scroller > wg-cursor-layer': {
@@ -129,6 +129,9 @@ export const baseStyles = buildTheme(
     '.wg-buffer': {
       verticalAlign: 'bottom',
       height: '1em'
+    },
+    '.wg-blockBuffer': {
+      position: 'absolute'
     },
 
     'wg-dropcursor': {

@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { composingKey } from '../lib/keyboard'
 import { cn } from '../lib/utils'
 import { Field, FieldLabel } from './field'
 import { Input } from './input'
@@ -232,7 +233,7 @@ export function CronEditor({
             setNumberDraft({ field: fieldName, text: raw, forValue: value })
           }}
           onKeyDown={event => {
-            if (event.key === 'Enter' && activeDraft !== undefined) {
+            if (event.key === 'Enter' && !composingKey(event.nativeEvent) && activeDraft !== undefined) {
               const clamped = commitCronNumberDraft(activeDraft, fields[fieldName], min, max)
               if (activeDraft !== String(clamped)) event.preventDefault()
               commit()

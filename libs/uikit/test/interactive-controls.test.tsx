@@ -20,7 +20,9 @@ import {
   PrincipalBadge,
   principalInitials,
   Slider,
-  stepEditableNumber
+  stepCalendarDate,
+  stepEditableNumber,
+  visibleMonthViewForDate
 } from '../src'
 
 describe('Slider', () => {
@@ -32,6 +34,11 @@ describe('Slider', () => {
     expect(singleHtml).toContain('Discount rate')
     expect(singleHtml).toContain('15%')
     expect(singleHtml).toContain('type="range"')
+    expect(singleHtml).toContain('touch-pan-y')
+    expect(singleHtml).toContain('data-[orientation=vertical]:touch-pan-x')
+    expect(singleHtml).not.toContain('touch-none')
+    expect(singleHtml).toContain('focus-within:outline-2')
+    expect(singleHtml).toContain('pointer-coarse:after:-inset-3.5')
 
     const rangeHtml = renderToStaticMarkup(
       <Slider aria-label="Target margin band" value={[25, 45]} min={0} max={80} showValue formatValue={v => `${v}%`} />
@@ -134,6 +141,24 @@ describe('DatePicker and DateRangePicker', () => {
     expect(rangeHtml).toContain('2026-11-01 – 2026-11-11')
     expect(rangeHtml).toContain('aria-label="Clear date range"')
   })
+
+  test('steps calendar dates across week, month, leap-year, and min/max boundaries', () => {
+    expect(stepCalendarDate('2026-01-31', 'ArrowRight')).toBe('2026-02-01')
+    expect(stepCalendarDate('2026-03-01', 'ArrowLeft')).toBe('2026-02-28')
+    expect(stepCalendarDate('2026-11-11', 'ArrowUp')).toBe('2026-11-04')
+    expect(stepCalendarDate('2026-11-11', 'ArrowDown')).toBe('2026-11-18')
+    // 2026-11-11 is a Wednesday -> Sunday 2026-11-08 through Saturday 2026-11-14.
+    expect(stepCalendarDate('2026-11-11', 'Home')).toBe('2026-11-08')
+    expect(stepCalendarDate('2026-11-11', 'End')).toBe('2026-11-14')
+    expect(stepCalendarDate('2026-03-31', 'PageUp')).toBe('2026-02-28')
+    expect(stepCalendarDate('2028-02-29', 'PageDown', { shiftKey: true })).toBe('2029-02-28')
+    expect(stepCalendarDate('2026-11-06', 'ArrowUp', { minDate: '2026-11-05' })).toBe('2026-11-05')
+    expect(stepCalendarDate('2026-11-11', 'Tab')).toBeNull()
+
+    expect(visibleMonthViewForDate({ year: 2026, month: 11 }, '2026-10-31', 2)).toEqual({ year: 2026, month: 10 })
+    expect(visibleMonthViewForDate({ year: 2026, month: 11 }, '2026-12-15', 2)).toEqual({ year: 2026, month: 11 })
+    expect(visibleMonthViewForDate({ year: 2026, month: 11 }, '2027-01-01', 2)).toEqual({ year: 2026, month: 12 })
+  })
 })
 
 describe('FileDropzone and PrincipalBadge', () => {
@@ -176,6 +201,15 @@ describe('FileDropzone and PrincipalBadge', () => {
     expect(dropzoneHtml).toContain('CSV up to 5 MB')
     expect(dropzoneHtml).toContain('type="file"')
     expect(dropzoneHtml).toContain('type="button"')
+    expect(dropzoneHtml).toContain('role="status"')
+    expect(dropzoneHtml).toContain('aria-live="polite"')
+
+    const errorDropzoneHtml = renderToStaticMarkup(
+      <FileDropzone label="Upload 3PL statement" errorMessage="Statement exceeds 5 MB." />
+    )
+    expect(errorDropzoneHtml).toContain('Statement exceeds 5 MB.')
+    expect(errorDropzoneHtml).toContain('aria-invalid="true"')
+    expect(errorDropzoneHtml).not.toContain('role="alert"')
   })
 
   test('renders Human and AI Colleague PrincipalBadge states cleanly', () => {

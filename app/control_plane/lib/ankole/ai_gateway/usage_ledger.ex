@@ -71,13 +71,22 @@ defmodule Ankole.AIGateway.UsageLedger do
 
       origin ->
         usage = Map.get(result, "usage") || %{}
-        insert(runtime, result, usage, origin, capability_use(capability, usage, opts))
+
+        insert(
+          runtime,
+          result,
+          usage,
+          origin,
+          capability_use(capability, usage, opts),
+          Keyword.get(opts, :provider_request_model)
+        )
     end
   end
 
   def record_capability(_runtime, _subject_type, _result, _opts), do: :ok
 
-  defp capability_use("decision", _usage, _opts), do: %{capability: :decision}
+  defp capability_use("decision", usage, _opts),
+    do: %{capability: :decision, provider_cost: provider_cost(usage)}
 
   defp capability_use("image_generate", usage, opts) do
     %{
@@ -303,7 +312,14 @@ defmodule Ankole.AIGateway.UsageLedger do
 
   defp counted_round(_round), do: nil
 
-  defp insert(runtime, response, usage, origin, capability_use \\ %{}) do
+  defp insert(
+         runtime,
+         response,
+         usage,
+         origin,
+         capability_use \\ %{},
+         provider_request_model \\ nil
+       ) do
     request_context = Map.get(runtime, "request_context") || %{}
     counts = Usage.counts(usage)
     requested_model = Map.get(runtime, "model")
@@ -313,7 +329,7 @@ defmodule Ankole.AIGateway.UsageLedger do
       subject_uid: Map.get(runtime, "subject_uid"),
       origin: origin,
       model: "#{Map.get(runtime, "provider_id")}/#{requested_model}",
-      provider_model: reported_model(response, requested_model),
+      provider_model: reported_model(response, provider_request_model || requested_model),
       model_profile: Ankole.Attrs.optional_text(model_profile),
       served_profile: Ankole.Attrs.optional_text(served_profile),
       input_tokens: counts.input_tokens,
@@ -339,8 +355,9 @@ defmodule Ankole.AIGateway.UsageLedger do
   defp profiles(_runtime, request_context),
     do: {Map.get(request_context, "model_profile"), Map.get(request_context, "served_profile")}
 
-  # The kernel answers with the requested model when the Provider names none,
-  # so only a different name says which model actually served the round.
+  # The kernel answers with the requested model when the Provider names none.
+  # Capability calls can also name the deployment sent upstream, so a different
+  # response model identifies the model that actually served the round.
   defp reported_model(%{"model" => model}, requested_model)
        when is_binary(model) and model != requested_model,
        do: Ankole.Attrs.optional_text(model)

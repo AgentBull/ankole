@@ -750,6 +750,32 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  kind: :other,
                  code: "other"
                })
+
+      assert %{
+               status: 422,
+               error: %{
+                 "code" => "upstream_decision_refusal",
+                 "message" => "The upstream decision model refused to answer the request.",
+                 "details_json" => %{"provider_status" => 200, "retryable" => false}
+               }
+             } =
+               FailureResponse.project(%Ankole.AIGateway.ProviderFailure{
+                 kind: :other,
+                 code: "upstream_decision_refusal",
+                 provider_status: 200,
+                 provider_error_type: "refusal"
+               })
+
+      assert %{
+               status: 400,
+               error: %{
+                 "code" => "unsupported_provider_option",
+                 "param" => "provider_options.reasoningEffort"
+               }
+             } =
+               FailureResponse.project(
+                 {:unsupported_provider_option, "reasoningEffort", "decisions"}
+               )
     end
 
     test "a Google error array keeps the provider message" do

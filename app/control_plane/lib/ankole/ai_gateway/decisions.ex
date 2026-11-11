@@ -79,7 +79,17 @@ defmodule Ankole.AIGateway.Decisions do
          {:ok, upstream_response} <-
            RequestExecution.execute_prepared_request(runtime, prepared_request, opts) do
       body = Map.fetch!(upstream_response, :body)
-      :ok = UsageLedger.record_capability(runtime, Keyword.get(opts, :subject_type), body, opts)
+      provider_request_model = get_in(prepared_request, [:response_context, :model])
+      ledger_opts = Keyword.put(opts, :provider_request_model, provider_request_model)
+
+      :ok =
+        UsageLedger.record_capability(
+          runtime,
+          Keyword.get(opts, :subject_type),
+          body,
+          ledger_opts
+        )
+
       {:ok, RequestExecution.gateway_response(200, body, runtime)}
     end
   end

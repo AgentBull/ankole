@@ -46,7 +46,8 @@ defmodule Ankole.AIGateway.Providers do
     Ankole.AIGateway.Providers.AgentBullCloud,
     Ankole.AIGateway.Providers.JinaSearch,
     Ankole.AIGateway.Providers.JinaReader,
-    Ankole.AIGateway.Providers.Cloudflare
+    Ankole.AIGateway.Providers.Cloudflare,
+    Ankole.AIGateway.Providers.TypeSafe
   ]
 
   @type definition :: ProviderDefinition.t()

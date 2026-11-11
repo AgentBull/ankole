@@ -105,10 +105,12 @@ function EmbeddedHost() {
         const doc = new DOMParser().parseFromString(await response.text(), 'text/html')
         const description = doc.querySelector('meta[name="description"]')?.getAttribute('content')?.trim() || undefined
         const imageHref = doc.querySelector('meta[property="og:image"]')?.getAttribute('content')?.trim()
+        const iconHref = doc.querySelector('link[rel~="icon"]')?.getAttribute('href')?.trim()
         return {
           title: doc.title.trim() || undefined,
           description,
-          image: imageHref ? new URL(imageHref, parsed.href).href : undefined
+          image: imageHref ? new URL(imageHref, parsed.href).href : undefined,
+          icon: iconHref ? new URL(iconHref, parsed.href).href : undefined
         }
       },
       queryMentions({ query, category }) {

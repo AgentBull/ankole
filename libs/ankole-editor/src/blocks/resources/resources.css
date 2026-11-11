@@ -207,9 +207,13 @@
   height: 3px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--fg-tertiary) 45%, transparent);
-  transition:
-    background-color 120ms ease,
-    width 120ms ease;
+  transition: background-color 120ms ease;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      background-color 120ms ease,
+      width 120ms ease;
+  }
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-resize-handle:is(:hover, :focus-visible),
 :where(.ankole-editor, .ankole-editor-overlay) .resource-frame-wrap[data-resizing='true'] .resource-resize-handle {

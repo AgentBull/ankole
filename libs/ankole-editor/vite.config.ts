@@ -11,8 +11,8 @@ export default defineConfig({
   server: { port: 3046, strictPort: true, watch: { ignored: ['**/output/**'] } },
   build: {
     rolldownOptions: { input: { playground: 'index.html', embedded: 'playground/embedded.html' } },
-    target: ['chrome126', 'firefox153', 'safari17'],
-    cssTarget: ['chrome126', 'firefox153', 'safari17'],
+    target: ['chrome132', 'firefox160', 'safari18'],
+    cssTarget: ['chrome132', 'firefox160', 'safari18'],
     chunkSizeWarningLimit: 1000
   }
 })
