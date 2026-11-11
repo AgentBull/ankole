@@ -1,5 +1,22 @@
 # Changelog
 
+## Version 2.0.0-alpha.120 (2026-11-11)
+
+- Close gaps in OCR for scanned PDF pages. Two Pages that hold the same file
+  no longer both send its scans when their jobs run at the same time: a
+  reconciliation pass enqueues one Page for each object. OCR pages that a run
+  kept after it could not store its extraction now join the file's text on the
+  next pass, at no charge. A file whose search text went missing is extracted
+  again after a rebuild. A result for bytes that were committed again while
+  the run was reading is stored for the new object. Committing unchanged bytes
+  keeps the cache's time, so a scan whose OCR run failed is still retried. A
+  learning run that finds its content version outdated asks for the page's
+  current version, which covers the runs that were executing during the
+  upgrade to 2.0.0-alpha.119. That upgrade's migration replaces the origin
+  check on `ai_gateway_usage_records` first and holds the table's exclusive
+  lock until the migration commits, across the view rebuild and two data
+  updates; on a large database plan the upgrade for a quiet period.
+
 ## Version 2.0.0-alpha.119 (2026-11-11)
 
 - Read scanned PDF pages with OCR. When the Pod or the Site has an OCR model,

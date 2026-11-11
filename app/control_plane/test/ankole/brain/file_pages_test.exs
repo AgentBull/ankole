@@ -162,6 +162,28 @@ defmodule Ankole.Brain.FilePagesTest do
     assert length(learn_jobs(page.id)) == length(learned) + 1
   end
 
+  test "a learning run that finds its version outdated asks for the current one", ctx do
+    page = upload(ctx, "notes.md", "The factory has three lines.", "text/markdown")
+    {:ok, object} = Objects.get_by_slug(page.id)
+    [queued] = learn_jobs(page.id)
+    assert :ok = Oban.cancel_job(queued)
+
+    # An upgrade renames a file's content version, and a run that was already running still holds the old name.
+    assert :ok =
+             Ankole.Brain.Jobs.LearnSource.perform(%Oban.Job{
+               args: %{
+                 "tenant_id" => Repo.tenant_id!(),
+                 "page_id" => page.id,
+                 "content_version" => "#{page.object_id}:v2"
+               }
+             })
+
+    assert Enum.any?(
+             learn_jobs(page.id),
+             &(&1.state == "available" and &1.args["content_version"] == object.content_hash)
+           )
+  end
+
   test "a table file learns one summary, indexed after body chunks that keep their vectors",
        ctx do
     page = upload(ctx, "inventory.csv", @csv, "text/csv")

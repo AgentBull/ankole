@@ -70,6 +70,19 @@ defmodule Ankole.Pod.FileCache do
         )
       )
     )
+
+    # The pages that the metadata lists without text although OCR has read text from them.
+    calculate(
+      :unmerged_ocr_pages,
+      :integer,
+      expr(
+        fragment(
+          "(SELECT count(*) FROM jsonb_array_elements_text(?->'textless_pages') AS kept(page) WHERE COALESCE(?->'pages'->>kept.page, '') <> '')",
+          metadata,
+          ocr
+        )
+      )
+    )
   end
 
   actions do

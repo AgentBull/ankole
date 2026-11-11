@@ -106,6 +106,15 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
              {:ok, %Page{type: :file, purge_started_at: nil, object_id: ^object_id} = locked} ->
                commit_locked_cas(locked, object_id, subtype, format, version, result, ocr)
 
+             # A commit of the same bytes moved the page to a new object while this run
+             # was reading. The result describes those bytes, so it is stored for the
+             # new object and the pages are not bought again.
+             {:ok, %Page{type: :file, purge_started_at: nil, object_id: current} = locked}
+             when is_binary(current) ->
+               if FileExtraction.same_bytes?(object_id, current),
+                 do: commit_locked_cas(locked, current, subtype, format, version, result, ocr),
+                 else: :ok
+
              {:ok, _superseded} ->
                :ok
 

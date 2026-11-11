@@ -98,6 +98,20 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
+  @doc """
+  Enqueues learning for the page's current content version when its facts do
+  not cover it. A learning run that finds its own version outdated calls this,
+  so a page whose version was renamed under the run is still learned.
+  """
+  @spec learn_current(String.t()) :: :ok
+  def learn_current(page_id) do
+    Ankole.Repo.transact_top_level(fn ->
+      with {:ok, knowledge} <- Objects.get_by_slug(page_id), do: learn_in_tx(knowledge)
+    end)
+
+    :ok
+  end
+
   defp reindex_in_tx(id) do
     # Clearing an emptied page removes its timelines, so it precedes the chunks.
     with {:ok, knowledge} <- Objects.get_by_slug(id),

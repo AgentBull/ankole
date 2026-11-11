@@ -129,7 +129,7 @@ defmodule Ankole.Pod.FileExtraction do
                 :ok ->
               :ok
 
-            keep_cache_of_same_bytes_in_tx(page, object, format, version, now) == :ok ->
+            keep_cache_of_same_bytes_in_tx(page, object, format, version) == :ok ->
               :ok
 
             size > max_bytes ->
@@ -277,7 +277,36 @@ defmodule Ankole.Pod.FileExtraction do
 
     cache.format != format or cache.extractor_version < version or unlisted_scan?(cache) or
       map_size(known) > map_size(Map.get(cache.ocr, "pages", %{})) or
+      unmerged_ocr?(cache.metadata, known) or search_text_missing?(cache) or
       (read_scans? and ocr_configured?() and unread_pages(cache.metadata, known) != [])
+  end
+
+  # A run whose extraction could not be stored leaves the pages it read on the
+  # cache row while the metadata still lists them without text.
+  defp unmerged_ocr?(%{"textless_pages" => pages}, known) when is_list(pages),
+    do: Enum.any?(pages, &(Map.get(known, Integer.to_string(&1), "") != ""))
+
+  defp unmerged_ocr?(_metadata, _known), do: false
+
+  # An extraction that succeeded has text. A rebuild of a page whose search
+  # document was missing writes an empty one and keeps the cache row.
+  defp search_text_missing?(%FileCache{extract_status: :ok, page_id: page_id}) do
+    not (PageSearchDocument
+         |> Ash.Query.filter(page_id == ^page_id and body_text != "")
+         |> Ankole.Ash.exists?())
+  end
+
+  defp search_text_missing?(_cache), do: false
+
+  @doc "Whether two objects hold the same bytes, by the SHA-256 that both carry."
+  @spec same_bytes?(String.t(), String.t()) :: boolean()
+  def same_bytes?(object_id, other_object_id) do
+    with {:ok, %{sha256: sha256}} when is_binary(sha256) <- Drive.fetch_object(object_id),
+         {:ok, %{sha256: ^sha256}} <- Drive.fetch_object(other_object_id) do
+      true
+    else
+      _different -> false
+    end
   end
 
   @doc """
@@ -660,7 +689,7 @@ defmodule Ankole.Pod.FileExtraction do
   # even when its bytes did not change, and every commit names a new object.
   # The same bytes extract to the same text, so the page's cache moves to the
   # new object, and nothing is extracted or sent to OCR a second time.
-  defp keep_cache_of_same_bytes_in_tx(page, object, format, version, now) do
+  defp keep_cache_of_same_bytes_in_tx(page, object, format, version) do
     with sha256 when is_binary(sha256) <- Map.get(object, :sha256),
          %FileCache{} = cache <-
            FileCache
@@ -686,7 +715,8 @@ defmodule Ankole.Pod.FileExtraction do
           ocr: cache.ocr,
           plain_text: body_text
         },
-        now
+        # The row keeps its time, which a scan whose OCR run failed waits on.
+        cache.updated_at
       )
     else
       _changed -> :miss
@@ -783,7 +813,8 @@ defmodule Ankole.Pod.FileExtraction do
   end
 
   # A scan cached without its page list is extracted again so that Console can
-  # count its pages; that costs nothing. A scan with unread pages is sent to
+  # count its pages, and so is one whose stored OCR pages have not joined its
+  # text; neither costs anything. A scan with unread pages is sent to
   # OCR, which costs the Pod money, only while `pod.ocr_existing_scans` is on.
   # A scan in the trash waits, and one whose OCR run failed waits longer after
   # each failure: half an hour times its failures, then a day.
@@ -799,6 +830,7 @@ defmodule Ankole.Pod.FileExtraction do
           object_id == parent(object_id) and format == "pdf" and
             ((extract_status == :skipped and extract_error == "empty_text_layer" and
                 fragment("NOT jsonb_exists(?, 'textless_pages')", metadata)) or
+               unmerged_ocr_pages > 0 or
                (^read? and unread_scan_pages > 0 and
                   fragment(
                     "? < clock_timestamp() - make_interval(mins => CASE WHEN COALESCE((?->>'failures')::int, 0) < ? THEN ? * COALESCE((?->>'failures')::int, 0) ELSE ? END)",
@@ -815,6 +847,10 @@ defmodule Ankole.Pod.FileExtraction do
     |> Ash.Query.sort(id: :asc)
     |> Ash.Query.limit(work_budget)
     |> Ankole.Ash.read!()
+    # Jobs run side by side, and two pages that hold one object would each send
+    # its scans. One page reads them, and the others take the stored pages on a
+    # later pass.
+    |> Enum.uniq_by(& &1.object_id)
     |> Enum.reduce_while(:ok, fn page, :ok ->
       case enqueue_sync_in_tx(page.id, page.object_id) do
         :ok -> {:cont, :ok}

@@ -282,18 +282,111 @@ defmodule Ankole.Pod.ScannedPdfTest do
 
     configure_ocr(fn _request -> read_pages([{0, "Stamped receipt"}, {1, "Second page"}]) end)
     assert {:ok, true} = Ankole.AppConfigure.put_tenant_by_key("pod.ocr_existing_scans", true)
-    assert :ok = FileExtraction.reconcile_tenant_batch()
-    assert %{failure: 0} = extract()
 
-    # Both pages were waiting, and the second job takes what the first one read.
+    # Jobs run side by side, so a pass sends one page of the object to OCR.
+    assert :ok = FileExtraction.reconcile_tenant_batch()
+    assert length(waiting_jobs(page) ++ waiting_jobs(%{id: copy.page_id})) == 1
+    assert %{failure: 0} = extract()
     assert_receive {:ocr_request, %{"pages" => [0, 1]}}
+
+    # The next pass reaches the other page, which takes what the first one read.
+    assert :ok = FileExtraction.reconcile_tenant_batch()
+    assert length(waiting_jobs(page) ++ waiting_jobs(%{id: copy.page_id})) == 1
+    assert %{failure: 0} = extract()
     refute_received {:ocr_request, _request}
+
     read = %{"pages" => %{"1" => "Stamped receipt", "2" => "Second page"}}
     assert cache(page).ocr == read
     assert Repo.get_by!(FileCache, page_id: copy.page_id).ocr == read
 
-    assert Repo.get_by!(PageSearchDocument, page_id: copy.page_id).body_text ==
-             "[Page 1]\nStamped receipt\n[Page 2]\nSecond page\n"
+    for page_id <- [page.id, copy.page_id] do
+      assert Repo.get_by!(PageSearchDocument, page_id: page_id).body_text ==
+               "[Page 1]\nStamped receipt\n[Page 2]\nSecond page\n"
+    end
+  end
+
+  test "pages kept after a failed commit join the text without consent or another charge", ctx do
+    page = upload(ctx, "mixed.pdf", pdf(["Cover page with a text layer", ""]))
+    assert %{failure: 0} = extract()
+
+    # A run read the only scan and could not store its extraction.
+    assert :ok =
+             FileExtraction.keep_ocr(page.id, page.object_id, %{
+               "pages" => %{"2" => "Kept page two"}
+             })
+
+    # Nothing is left to read, yet the paid text is not in the file's text. Joining it costs nothing.
+    assert FileExtraction.unread_scans() == %{files: 0, pages: 0, counting: false}
+    assert :ok = FileExtraction.reconcile_tenant_batch()
+    assert [_job] = waiting_jobs(page)
+    assert %{failure: 0} = extract()
+
+    assert body_text(page) == "[Page 1]\nCover page with a text layer\n[Page 2]\nKept page two\n"
+    assert cache(page).metadata["ocr_pages"] == [2]
+    assert :ok = FileExtraction.reconcile_tenant_batch()
+    assert waiting_jobs(page) == []
+  end
+
+  test "a file whose search text is empty although its extraction succeeded is extracted again",
+       ctx do
+    page = upload(ctx, "report.pdf", pdf(["Cover page with a text layer"]))
+    assert %{failure: 0} = extract()
+    {:ok, stored} = Pages.fetch(page.id)
+
+    # A rebuild of a page whose search document was missing leaves this state behind.
+    {:ok, :ok} =
+      Repo.transact_top_level(fn ->
+        {:ok, Ankole.Pod.SearchProjection.upsert_in_tx(stored, body_text: "")}
+      end)
+
+    assert body_text(page) == ""
+    assert :ok = SyncFileCache.perform(job(page, %{}))
+    assert body_text(page) == "[Page 1]\nCover page with a text layer\n"
+  end
+
+  test "a result for bytes that were committed again is stored for the new object", ctx do
+    bytes = pdf(["Cover page with a text layer", ""])
+    page = upload(ctx, "report.pdf", bytes)
+    assert %{failure: 0} = extract()
+    cached = cache(page)
+
+    # The same bytes arrive as a new object while a run for the old one is reading.
+    assert {:ok, _file} =
+             Files.upload(
+               ctx.actor,
+               page.id,
+               "file",
+               page.object_id,
+               "report.pdf",
+               bytes,
+               "application/pdf"
+             )
+
+    assert cache(page).updated_at == cached.updated_at
+    {:ok, current} = Pages.fetch(page.id)
+
+    {:ok, result} =
+      Ankole.Kernel.file_extract_text(bytes, "report.pdf", "application/pdf", [
+        {2, "Read meanwhile"}
+      ])
+
+    ocr = %{"pages" => %{"2" => "Read meanwhile"}}
+
+    assert :ok =
+             SyncFileCache.commit_extraction(
+               page.id,
+               page.object_id,
+               :document,
+               "pdf",
+               Ankole.Kernel.file_extractor_version(),
+               result,
+               ocr
+             )
+
+    # The old run's pages are on the row of the object that the page holds now.
+    assert %FileCache{object_id: object_id, ocr: ^ocr} = cache(page)
+    assert object_id == current.object_id
+    assert body_text(page) =~ "[Page 2]\nRead meanwhile"
   end
 
   test "renaming a file whose cache is outdated keeps what OCR read", ctx do

@@ -31,9 +31,18 @@ defmodule Ankole.Brain.Jobs.LearnSource do
   # the content version of every page such a job can name.
   defp run_active(%Oban.Job{args: %{"page_id" => page_id} = args}) do
     case SourceLearning.learn_page(page_id, args["content_version"] || args["revision"]) do
-      {:ok, _} -> :ok
-      {:error, :stale_run} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, _} ->
+        :ok
+
+      # The page's content version moved under this run. A change of content
+      # enqueues its own run, and a version that was only renamed does not, so
+      # the run asks for the page's current version before it ends.
+      {:error, :stale_run} ->
+        Ankole.Brain.Knowledge.learn_current(page_id)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

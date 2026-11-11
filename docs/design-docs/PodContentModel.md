@@ -2425,7 +2425,11 @@ the new object without extracting or reading anything again, and the file's
 content version in Brain follows the same digest, so Brain does not learn the
 file again either. The comparison is per Page: the same bytes committed on
 another Page, as a connector does when it creates a new File Page for every
-download, are extracted and read once for that Page. Each page with OCR text takes
+download, are extracted and read once for that Page. Two things drop what OCR
+read: renaming a file to a name that Ankole does not extract removes its cache
+row, and a page recorded as read without text stays that way when the same
+file is uploaded to the same Page again. Uploading the file as a new Page
+reads it afresh. Each page with OCR text takes
 it under its own `[Page N]` line, leaves `textless_pages`, and joins
 `metadata.ocr_pages`. When a request fails, the pages read by the requests
 before it stay, and when the extraction cannot be stored, the pages go onto
@@ -2453,14 +2457,19 @@ AppConfigure.
 
 While the setting is on and the Pod has an `ocr` model, each
 `ReconcileSearchIndex` pass sends the PDFs with unread scans through
-`SyncFileCache` again, up to its work budget. A scan whose run failed waits 30
+`SyncFileCache` again, up to its work budget. Jobs run side by side, so a pass
+enqueues one Page for each object, and the other Pages that hold the object
+take the stored pages on a later pass. A scan whose run failed waits 30
 minutes times its failures in a row, and after five failures the pass tries
 it once a day, so an outage or an empty provider account ends without anyone
 uploading the files again. A PDF whose every page is a scan is `skipped` with
 `empty_text_layer` and keeps its page list, so the same pass reaches it, and
 the OCR run replaces it with an `ok` cache. A scan that an earlier release
 cached without a page list is extracted again whether or not the setting is
-on, which costs nothing and lets the Console count its pages.
+on, which costs nothing and lets the Console count its pages. The same holds
+for a file whose cache row keeps OCR pages that its text does not show yet,
+which is what a run leaves when it could not store its extraction, and for a
+file whose extraction succeeded while its search text is empty.
 
 Spreadsheet caches
 carry the same `extractor_version` as every other file, so raising the version
