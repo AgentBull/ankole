@@ -229,60 +229,6 @@ export function validateInfographicSyntax(source: string): InfographicSyntaxVali
   return { ok: true }
 }
 
-export interface InfographicSummaryItem {
-  label: string
-  desc?: string
-  value?: string
-}
-
-export interface InfographicAccessibleSummary {
-  title?: string
-  desc?: string
-  items: InfographicSummaryItem[]
-}
-
-function collectSummaryItems(rawItems: unknown, out: InfographicSummaryItem[]): void {
-  if (!Array.isArray(rawItems)) return
-  for (const raw of rawItems) {
-    if (!raw || typeof raw !== 'object') continue
-    const rec = raw as Record<string, unknown>
-    const label = typeof rec.label === 'string' ? rec.label : typeof rec.id === 'string' ? rec.id : undefined
-    const desc = typeof rec.desc === 'string' ? rec.desc : undefined
-    const value = rec.value !== undefined && rec.value !== null ? String(rec.value) : undefined
-    if (label || desc || value) {
-      out.push({
-        label: label ?? desc ?? value ?? '',
-        ...(desc && label ? { desc } : {}),
-        ...(value ? { value } : {})
-      })
-    }
-    if (Array.isArray(rec.children)) {
-      collectSummaryItems(rec.children, out)
-    }
-  }
-}
-
-/**
- * Extracts structured title, description, and hierarchical item text from Infographic DSL for
- * screen-reader and keyboard fallback views.
- */
-export function extractInfographicSummary(source: string): InfographicAccessibleSummary {
-  if (!source || !source.trim()) return { items: [] }
-  const { options } = parseSyntax(source)
-  const data = (options.data ?? {}) as Record<string, unknown>
-  const items: InfographicSummaryItem[] = []
-  for (const key of ['items', 'lists', 'sequences', 'compares', 'nodes', 'values']) {
-    if (key in data) {
-      collectSummaryItems(data[key], items)
-    }
-  }
-  return {
-    ...(typeof data.title === 'string' ? { title: data.title } : {}),
-    ...(typeof data.desc === 'string' ? { desc: data.desc } : {}),
-    items
-  }
-}
-
 export interface InfographicMountOptions {
   theme?: VizThemeMode
   zoom?: boolean | 'auto'

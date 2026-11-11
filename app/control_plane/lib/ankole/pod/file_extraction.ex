@@ -579,12 +579,13 @@ defmodule Ankole.Pod.FileExtraction do
   # before its first page leaves room in the file's text.
   defp read_scanned_pages(bytes, unread, extracted) do
     document = %{"content_type" => "application/pdf", "base64" => Base.encode64(bytes)}
+    page_count = Map.get(extracted.metadata, "page_count")
 
     unread
     |> Enum.chunk_every(@ocr_pages_per_request)
     |> Enum.reduce_while({%{}, false}, fn [first | _] = batch, {read, _failed?} ->
       if text_before(extracted, first) + text_bytes(read) < @max_text_bytes do
-        case read_batch(document, batch) do
+        case read_batch(document, batch, page_count) do
           {:ok, texts} -> {:cont, {Map.merge(read, texts), false}}
           :failed -> {:halt, {read, true}}
         end
@@ -604,13 +605,20 @@ defmodule Ankole.Pod.FileExtraction do
 
   defp text_bytes(texts), do: Enum.sum_by(texts, fn {_page, text} -> byte_size(text) end)
 
-  defp read_batch(document, batch) do
+  defp read_batch(document, batch, page_count) do
     # The kernel numbers pages from 1, and AIGateway numbers them from 0.
-    request = %{
-      "model" => "ocr.default",
-      "document" => document,
-      "pages" => Enum.map(batch, &(&1 - 1))
-    }
+    # A one-page PDF omits `pages` so synchronous single-page OCR providers
+    # such as Amazon Textract can read it alongside multi-page providers.
+    request =
+      %{
+        "model" => "ocr.default",
+        "document" => document
+      }
+      |> then(fn req ->
+        if page_count == 1 and batch == [1],
+          do: req,
+          else: Map.put(req, "pages", Enum.map(batch, &(&1 - 1)))
+      end)
 
     case AIGateway.create_ocr(@ocr_subject_uid, request, caller: "pod_files") do
       {:ok, %{body: %{"pages" => read}}} ->
@@ -689,7 +697,7 @@ defmodule Ankole.Pod.FileExtraction do
   end
 
   defp reuse_existing_object_cache_in_tx(page, subtype, format, object_id, version, now) do
-    donor =
+    candidates =
       FileCache
       |> Ash.Query.filter(
         object_id == ^object_id and format == ^format and extractor_version >= ^version and
@@ -697,8 +705,11 @@ defmodule Ankole.Pod.FileExtraction do
           (extract_status == :ok or
              (extract_status == :skipped and extract_error == "empty_text_layer"))
       )
-      |> Ash.Query.limit(1)
-      |> Ankole.Ash.read_one!()
+      |> Ash.Query.limit(10)
+      |> Ankole.Ash.read!()
+
+    trashed = pages_in_trash(Enum.map(candidates, & &1.page_id))
+    donor = Enum.find(candidates, &(&1.page_id not in trashed))
 
     with %FileCache{} <- donor,
          %PageSearchDocument{body_text: body_text} <-
@@ -862,6 +873,7 @@ defmodule Ankole.Pod.FileExtraction do
   # hour times its failures, then a day.
   defp reconcile_scans(work_budget) do
     read? = Ankole.Pod.Config.ocr_existing_scans?() and ocr_configured?()
+    paid_object_ids = paid_ocr_object_ids()
 
     Page
     |> Ash.Query.filter(
@@ -873,6 +885,7 @@ defmodule Ankole.Pod.FileExtraction do
             ((extract_status == :skipped and extract_error == "empty_text_layer" and
                 fragment("NOT jsonb_exists(?, 'textless_pages')", metadata)) or
                unmerged_ocr_pages > 0 or
+               (object_id in ^paid_object_ids and unread_scan_pages > 0) or
                (^read? and unread_scan_pages > 0 and
                   fragment(
                     "? < clock_timestamp() - make_interval(mins => CASE WHEN COALESCE((?->>'failures')::int, 0) < ? THEN ? * COALESCE((?->>'failures')::int, 0) ELSE ? END)",
@@ -887,18 +900,70 @@ defmodule Ankole.Pod.FileExtraction do
     )
     |> Ash.Query.select([:id, :object_id])
     |> Ash.Query.sort(id: :asc)
-    |> Ash.Query.limit(work_budget)
+    |> Ash.Query.limit(work_budget * 2)
     |> Ankole.Ash.read!()
+    |> Enum.filter(&scan_reconcile_due?(&1, read?, paid_object_ids))
     # One page of an object is enough: the run that reads its scans enqueues
     # the other pages that hold the same bytes, and a second job of the object
     # would only wait for the first.
     |> Enum.uniq_by(& &1.object_id)
+    |> Enum.take(work_budget)
     |> Enum.reduce_while(:ok, fn page, :ok ->
       case enqueue_sync_in_tx(page.id, page.object_id) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}
       end
     end)
+  end
+
+  defp paid_ocr_object_ids do
+    rows =
+      FileCache
+      |> Ash.Query.filter(
+        format == "pdf" and
+          fragment(
+            "jsonb_typeof(?->'pages') = 'object' AND ?->'pages' <> '{}'::jsonb",
+            ocr,
+            ocr
+          )
+      )
+      |> Ash.Query.select([:page_id, :object_id])
+      |> Ankole.Ash.read!()
+
+    case rows do
+      [] ->
+        []
+
+      _rows ->
+        trashed = pages_in_trash(Enum.map(rows, & &1.page_id))
+
+        rows
+        |> Enum.reject(&(&1.page_id in trashed))
+        |> Enum.map(& &1.object_id)
+        |> Enum.uniq()
+        |> Enum.flat_map(&Drive.same_bytes_object_ids/1)
+        |> Enum.uniq()
+    end
+  end
+
+  defp scan_reconcile_due?(page, read?, paid_object_ids) do
+    if page.object_id in paid_object_ids and not read? do
+      case cache(page.id, page.object_id) do
+        %FileCache{} = row ->
+          pending?(
+            row,
+            "pdf",
+            Kernel.file_extractor_version(),
+            known_ocr(page.id, page.object_id),
+            false
+          )
+
+        nil ->
+          true
+      end
+    else
+      true
+    end
   end
 
   defp scan_stale_file_batch(version, cursor, work_budget, scan_budget) do

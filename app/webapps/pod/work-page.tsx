@@ -263,7 +263,8 @@ function WorkItems({ selected, agents, open }: { selected: string | null; agents
     mutationFn: ({ item, column }: { item: WorkItem; column: WorkStatus }) =>
       updatePodIssue({ path: { id: item.id }, body: { data: { status: stepTo(item, column) } } }),
     // The card moves at once; the server's answer or the next room event confirms it.
-    onMutate: ({ item, column }) => {
+    onMutate: async ({ item, column }) => {
+      await client.cancelQueries({ queryKey: workKeys.all })
       const previous = client.getQueryData<WorkItem[]>(workKeys.items)
       client.setQueryData<WorkItem[]>(workKeys.items, rows =>
         rows?.map(row => (row.id === item.id ? { ...row, status: column } : row))

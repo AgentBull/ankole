@@ -188,16 +188,27 @@ defmodule Ankole.Plugins.DatabaseConnectors.MySQL do
              [max_tables],
              [take: max_tables],
              &rows/1
-           ),
-         {:ok, %{result: columns}} <-
+           ) do
+      catalog_details(exec, tables)
+    end
+  end
+
+  defp catalog_details(_exec, []), do: {:ok, []}
+
+  defp catalog_details(exec, tables) do
+    placeholders = Enum.map_join(tables, ", ", fn _ -> "(?, ?)" end)
+    params = Enum.flat_map(tables, fn [schema, name | _] -> [schema, name] end)
+
+    with {:ok, %{result: columns}} <-
            exec.(
              """
              SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, COLUMN_TYPE,
                     IS_NULLABLE = 'YES', COLUMN_COMMENT, COLUMN_KEY
-             FROM information_schema.COLUMNS WHERE #{@schema_filter}
+             FROM information_schema.COLUMNS
+             WHERE #{@schema_filter} AND (TABLE_SCHEMA, TABLE_NAME) IN (#{placeholders})
              ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
              """,
-             [],
+             params,
              [take: 1_000_000],
              &rows/1
            ),
@@ -206,10 +217,11 @@ defmodule Ankole.Plugins.DatabaseConnectors.MySQL do
              """
              SELECT TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME,
                     REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
-             FROM information_schema.KEY_COLUMN_USAGE WHERE #{@schema_filter}
+             FROM information_schema.KEY_COLUMN_USAGE
+             WHERE #{@schema_filter} AND (TABLE_SCHEMA, TABLE_NAME) IN (#{placeholders})
              ORDER BY TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION
              """,
-             [],
+             params,
              [take: 1_000_000],
              &rows/1
            ) do

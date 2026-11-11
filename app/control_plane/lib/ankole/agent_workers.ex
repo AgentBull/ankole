@@ -118,6 +118,59 @@ defmodule Ankole.AgentWorkers do
   defdelegate handle_worker_heartbeat(worker_heartbeat, auth),
     to: Ankole.AgentWorkers.WorkerAdmission
 
+  defdelegate list_runner_devices(actor),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :list
+
+  defdelegate list_runner_devices_with_colleagues(actor),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :list_with_colleagues
+
+  defdelegate list_runner_devices_for_agent(uid, agent_uid),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :list_for_agent
+
+  defdelegate register_runner_device(actor, name, origin),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :register
+
+  defdelegate bind_runner_device(actor, runner_id, agent_uid, origin),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :bind
+
+  defdelegate revoke_runner_device(actor, runner_id),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :revoke
+
+  defdelegate pair_runner_device(code),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :pair
+
+  defdelegate bootstrap_runner_device(token, origin),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :bootstrap
+
+  defdelegate authenticate_runner_worker(agent_uid, token),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :authenticate
+
+  defdelegate authorize_runner_for_job(owner_or_actor, agent_uid, runner_id),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :authorize_for_job
+
+  defdelegate lock_runner_in_tx(runner_id),
+    to: Ankole.AgentWorkers.RunnerDevices
+
+  defdelegate lock_runner_binding_in_tx(agent_uid, runner_id),
+    to: Ankole.AgentWorkers.RunnerDevices,
+    as: :lock_binding_in_tx
+
+  defdelegate reserve_slot_in_tx(agent_uid, runner_id),
+    to: Ankole.AgentWorkers.RunnerDevices
+
+  defdelegate connected_worker(agent_uid, runner_id),
+    to: Ankole.AgentWorkers.RunnerDevices
+
   # A request keeps the Worker wanted this long. Environment calls renew it;
   # active slots and running Jobs also prevent idle release.
   @connect_states [:starting, :stale, :ready]

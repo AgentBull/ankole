@@ -4,7 +4,7 @@ import type {
   AnkoleGraphEdge,
   AnkoleGraphLayoutMode,
   AnkoleGraphNode
-} from '@ankole/uikit/components/graph'
+} from '@ankole/uikit'
 
 interface BrainOntologyCategory {
   id: string

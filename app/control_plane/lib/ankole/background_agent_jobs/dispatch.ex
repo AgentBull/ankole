@@ -178,11 +178,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                    attrs["agent_uid"],
                    attrs["owner_session_id"]
                  ),
-               :ok <-
-                 Ankole.Issues.ensure_for_task_room_in_tx(
-                   attrs["agent_uid"],
-                   attrs["owner_session_id"]
-                 ),
                {:ok, job_id} <- next_job_id(),
                attrs <- Map.put(attrs, "workspace_owner_job_id", job_id),
                {:ok, attrs} <- pin_owner_conversation(attrs),
@@ -232,11 +227,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                    attrs["agent_uid"],
                    attrs["owner_session_id"]
                  ),
-               :ok <-
-                 Ankole.Issues.ensure_for_task_room_in_tx(
-                   attrs["agent_uid"],
-                   attrs["owner_session_id"]
-                 ),
                attrs <- respawn_job_attrs(attrs, source_job, now),
                {:ok, attrs} <- pin_owner_conversation(attrs),
                {:ok, job} <- Ankole.Ash.create(Job, :create_job, attrs) do
@@ -267,6 +257,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     {:ok, job_sessions(job),
      fn ->
        with {:ok, event} <- append_dispatch_event(job, now),
+            :ok <- Ankole.Issues.ensure_for_task_room_in_tx(job.agent_uid, job.owner_session_id),
             do: {:ok, %{job: job, dispatch_event: event}}
      end}
   end

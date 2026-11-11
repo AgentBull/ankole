@@ -1017,6 +1017,57 @@ async fn a_cloudflare_image_link_to_a_metadata_address_is_not_fetched() {
     assert!(!second_request.recv().unwrap());
 }
 
+#[tokio::test]
+async fn cloudflare_image_result_download_respects_ssrf_filter_and_validates_redirects() {
+    let target_listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let target_addr = target_listener.local_addr().unwrap();
+
+    // Direct loopback download is rejected when `result_download_ssrf_filter` is enabled.
+    let provider_listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let provider_addr = provider_listener.local_addr().unwrap();
+    let _watch = serve_once_and_watch(
+        provider_listener,
+        serde_json::json!({"result": {"image": format!("http://{target_addr}/secret.png")}}),
+    );
+    let mut spec = model_request_spec("cloudflare_images", provider_addr);
+    spec.result_download_ssrf_filter = true;
+    let error = run_model_request_once(spec).await.unwrap_err();
+    assert_eq!(
+        (error.code.as_str(), error.stage, error.provider_status),
+        ("transport_failed", "result_download", None)
+    );
+
+    // Even with `ssrf_filter` off (local mock server), an open redirect to metadata is blocked.
+    let redirect_listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let redirect_addr = redirect_listener.local_addr().unwrap();
+    thread::spawn(move || {
+        let (mut socket, _) = redirect_listener.accept().unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = socket.read(&mut buffer);
+        socket
+            .write_all(
+                b"HTTP/1.1 302 Found\r\nLocation: http://169.254.169.254/latest/meta-data/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+    });
+
+    let provider_listener2 = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let provider_addr2 = provider_listener2.local_addr().unwrap();
+    let _watch2 = serve_once_and_watch(
+        provider_listener2,
+        serde_json::json!({"result": {"image": format!("http://{redirect_addr}/bounce")}}),
+    );
+    let error2 = run_model_request_once(model_request_spec("cloudflare_images", provider_addr2))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (error2.code.as_str(), error2.stage, error2.provider_status),
+        ("transport_failed", "result_download", None)
+    );
+    assert!(error2.message.contains("result link"));
+    drop(target_listener);
+}
+
 fn chunk_event(event_rx: &mpsc::Receiver<StreamEvent>) -> Value {
     match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
         StreamEvent::Chunk { bytes, .. } => sonic_rs::from_slice(&bytes).unwrap(),

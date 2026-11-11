@@ -12,9 +12,12 @@ defmodule Ankole.AIGateway.Audio do
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestExecution
+  alias Ankole.AIGateway.RequestParams
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.UsageLedger
-  alias Ankole.Attrs
+
+  @speech_fields ~w(input voice response_format speed instructions)
+  @transcription_fields ~w(input_audio language response_format vad_filter)
 
   @speech_content_types %{"mp3" => "audio/mpeg", "pcm" => "audio/pcm"}
   @max_audio_bytes 25 * 1024 * 1024
@@ -27,9 +30,8 @@ defmodule Ankole.AIGateway.Audio do
   """
   @spec create_speech(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def create_speech(subject_uid, request, opts) when is_map(request) do
-    request = Attrs.normalize_external_attrs(request)
-
-    with {:ok, request} <- validate_speech(request),
+    with {:ok, request} <- RequestParams.prepare(request, @speech_fields),
+         {:ok, request} <- validate_speech(request),
          {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "speech", request),
          {:ok, prepared_request} <-
            Providers.build_speech_request(runtime, request, max_response_bytes: @max_speech_bytes),
@@ -78,9 +80,8 @@ defmodule Ankole.AIGateway.Audio do
   """
   @spec create_transcription(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def create_transcription(subject_uid, request, opts) when is_map(request) do
-    request = Attrs.normalize_external_attrs(request)
-
-    with :ok <- validate_transcription(request),
+    with {:ok, request} <- RequestParams.prepare(request, @transcription_fields),
+         :ok <- validate_transcription(request),
          {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "transcription", request),
          {:ok, prepared_request} <- Providers.build_transcription_request(runtime, request),
          {:ok, upstream_response} <-

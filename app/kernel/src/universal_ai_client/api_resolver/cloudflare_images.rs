@@ -9,22 +9,30 @@ pub(super) struct CloudflareImages;
 
 impl APIProtocol for CloudflareImages {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "Cloudflare Images")?;
+        let defaults = context.sanitized_provider_options_object();
         let mut input = Map::new();
+        maybe_put_from(&mut input, &defaults, "prompt");
         maybe_put_from(&mut input, &request, "prompt");
 
         // A Workers AI model takes its fields at the top level and has no
         // image input.
         if context.model.starts_with("@cf/") {
+            maybe_put_from(&mut input, &defaults, "steps");
             maybe_put_from(&mut input, &request, "steps");
             return Ok(input);
         }
 
-        if let Some((width, height)) = requested_size(&request) {
+        if let Some((width, height)) =
+            requested_size(&request).or_else(|| requested_size(&defaults))
+        {
             input.insert("width".to_string(), json!(width));
             input.insert("height".to_string(), json!(height));
         }
         for key in ["output_format", "seed", "safety_tolerance"] {
+            maybe_put_from(&mut input, &defaults, key);
             maybe_put_from(&mut input, &request, key);
         }
         let images: Vec<Value> = request

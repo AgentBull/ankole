@@ -649,3 +649,37 @@ fn decision_resolver_wire_names_deserialize_exactly() {
         assert_eq!(kind.as_str(), wire_name);
     }
 }
+
+#[test]
+fn decision_resolvers_pass_provider_options_and_reject_unknown_strict_request_fields() {
+    let with_opts = APIResolver::new(
+        APIResolverKind::OpenAIDecision,
+        ResponseContext {
+            model: "gpt-6-luna".to_string(),
+            request: json!({"state": "hello", "questions": one_noul()}),
+            provider_options: json!({"service_tier": "priority", "store": false}),
+            stream: Some(false),
+            include_model: true,
+            policy: ConversionPolicy::Strict,
+        },
+    );
+    let body = Value::Object(with_opts.build_body().unwrap());
+    assert_eq!(body["service_tier"], json!("priority"));
+    assert_eq!(body["store"], json!(false));
+
+    let unknown_field = APIResolver::new(
+        APIResolverKind::OpenAIDecision,
+        ResponseContext {
+            model: "gpt-6-luna".to_string(),
+            request: json!({"state": "hello", "questions": one_noul(), "unexpected_flag": 1}),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+            policy: ConversionPolicy::Strict,
+        },
+    );
+    assert_eq!(
+        unknown_field.build_body().unwrap_err().code,
+        "unsupported_parameter"
+    );
+}

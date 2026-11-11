@@ -93,7 +93,13 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
   # goes to OCR. The mark ends with the job's first attempt, the only one that
   # reads scans, or when the reader has stopped refreshing it.
   defp reader(%Oban.Job{id: id} = job, object, read_scans?) do
-    bytes = "#{Repo.tenant_id!()}:#{Base.encode16(object.sha256, case: :lower)}"
+    digest =
+      case object.sha256 do
+        sha when is_binary(sha) and sha != "" -> Base.encode16(sha, case: :lower)
+        _missing -> "obj:#{object.id}"
+      end
+
+    bytes = "#{Repo.tenant_id!()}:#{digest}"
     stale = System.os_time(:second) - @reader_stale_seconds
 
     {:ok, reader} =

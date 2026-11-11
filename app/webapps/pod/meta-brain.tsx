@@ -1,4 +1,5 @@
 import {
+  AnkoleGraph,
   Button,
   buttonVariants,
   cn,
@@ -14,15 +15,12 @@ import {
   SelectValue,
   Toggle,
   ToggleGroup,
-  ToggleGroupItem
-} from '@ankole/uikit'
-import {
-  AnkoleGraph,
+  ToggleGroupItem,
   useCanvasThemePalette,
   type AnkoleCanvasThemePalette,
   type AnkoleGraphHandle,
   type AnkoleGraphLayoutMode
-} from '@ankole/uikit/components/graph'
+} from '@ankole/uikit'
 import {
   AddRegular,
   ArrowUpRightRegular,

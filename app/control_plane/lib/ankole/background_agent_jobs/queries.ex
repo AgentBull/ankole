@@ -244,6 +244,16 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     |> Ankole.Ash.read_one!()
   end
 
+  def live_for_runner(runner_id) when is_binary(runner_id) do
+    statuses = Job.live_statuses()
+
+    Job
+    |> Ash.Query.filter(runner_id == ^runner_id and status in ^statuses)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.select([:id, :agent_uid, :owner_session_id, :status])
+    |> Ankole.Ash.read!()
+  end
+
   @doc "Finds the successor Job id continued from `job_id`, if any."
   @spec successor_job_id(pos_integer()) :: pos_integer() | nil
   def successor_job_id(job_id) when Ankole.ModelIntegerID.valid?(job_id) do

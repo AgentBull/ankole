@@ -719,6 +719,29 @@ pub(super) fn strip_non_streaming_flag(
     }
 }
 
+pub(super) fn validate_known_request_fields(
+    request: &Map<String, Value>,
+    allowed: &[&str],
+    strict: bool,
+    protocol: &str,
+) -> Result<(), StreamError> {
+    if !strict {
+        return Ok(());
+    }
+    for key in request.keys() {
+        if key == "model" || key == "stream" || allowed.contains(&key.as_str()) {
+            continue;
+        }
+        return Err(StreamError::new(
+            "unsupported_parameter",
+            "api_resolver",
+            format!("{protocol} does not support parameter `{key}`"),
+        )
+        .provider_status(400));
+    }
+    Ok(())
+}
+
 pub(super) fn encode_protocol_json(value: Value) -> Result<String, StreamError> {
     sonic_rs::to_string(&value).map_err(|reason| {
         StreamError::new(

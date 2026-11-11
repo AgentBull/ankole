@@ -1,5 +1,6 @@
 import { authenticationRef, podID, principalUID } from './browser-context'
 import { deleteAuthSession, deleteBrowserAuthentication } from './api/generated/sdk.gen'
+import { registeredSessionHeaders } from './internal-api-client'
 
 const podDraftPrefixes = ['ankole.pod.comments:', 'ankole.pod.document-draft:'] as const
 
@@ -91,15 +92,21 @@ export function withDataContext(fetch: typeof globalThis.fetch): typeof globalTh
     const request = new Request(input, init)
     const url = new URL(request.url)
     const path = url.pathname
+    const sameOrigin = url.origin === window.location.origin
     const selected = dataTenantID()
     if (
       selected &&
-      url.origin === window.location.origin &&
+      sameOrigin &&
       path.startsWith('/api/v2/') &&
       !path.startsWith('/api/v2/site/') &&
       !request.headers.has('x-ankole-tenant')
     ) {
       request.headers.set('x-ankole-tenant', selected)
+    }
+    if (sameOrigin) {
+      for (const [name, value] of Object.entries(registeredSessionHeaders())) {
+        if (!request.headers.has(name)) request.headers.set(name, value)
+      }
     }
     const response = await fetch(request)
     if (selected && request.headers.get('x-ankole-tenant') === selected && response.status === 404) {

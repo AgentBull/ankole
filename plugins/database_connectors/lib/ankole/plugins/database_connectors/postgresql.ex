@@ -185,18 +185,30 @@ defmodule Ankole.Plugins.DatabaseConnectors.PostgreSQL do
              [max_tables],
              [take: max_tables],
              &rows/1
-           ),
-         {:ok, %{result: columns}} <-
+           ) do
+      catalog_details(exec, tables)
+    end
+  end
+
+  defp catalog_details(_exec, []), do: {:ok, []}
+
+  defp catalog_details(exec, tables) do
+    schemas = Enum.map(tables, &Enum.at(&1, 0))
+    names = Enum.map(tables, &Enum.at(&1, 1))
+
+    with {:ok, %{result: columns}} <-
            exec.(
              """
              SELECT n.nspname, c.relname, a.attname, a.attnum::int, format_type(a.atttypid, a.atttypmod),
                     NOT a.attnotnull, col_description(c.oid, a.attnum)
-             FROM pg_attribute a
-             JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+             FROM unnest($1::text[], $2::text[]) AS selected(nspname, relname)
+             JOIN pg_namespace n ON n.nspname = selected.nspname
+             JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = selected.relname
+             JOIN pg_attribute a ON a.attrelid = c.oid
              WHERE a.attnum > 0 AND NOT a.attisdropped AND #{@schemas_excluded} AND #{@relation_filter}
              ORDER BY 1, 2, 4
              """,
-             [],
+             [schemas, names],
              [take: 1_000_000],
              &rows/1
            ),
@@ -209,13 +221,15 @@ defmodule Ankole.Plugins.DatabaseConnectors.PostgreSQL do
                     fn.nspname, fc.relname,
                     ARRAY(SELECT a.attname::text FROM unnest(con.confkey) WITH ORDINALITY k(attnum, ord)
                           JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum ORDER BY k.ord)
-             FROM pg_constraint con
-             JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+             FROM unnest($1::text[], $2::text[]) AS selected(nspname, relname)
+             JOIN pg_namespace n ON n.nspname = selected.nspname
+             JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = selected.relname
+             JOIN pg_constraint con ON con.conrelid = c.oid
              LEFT JOIN pg_class fc ON fc.oid = con.confrelid
              LEFT JOIN pg_namespace fn ON fn.oid = fc.relnamespace
              WHERE con.contype IN ('p', 'u', 'f') AND #{@schemas_excluded}
              """,
-             [],
+             [schemas, names],
              [take: 1_000_000],
              &rows/1
            ) do

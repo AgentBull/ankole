@@ -273,6 +273,34 @@ defmodule Ankole.AIGateway.GoogleVertexAITest do
       assert {"AIGateway provider configuration is invalid: the " <> _detail, []} =
                ProviderConfigs.rejection(rejected)
     end
+
+    for bad_uri <- [
+          "ftp://oauth2.googleapis.com/token",
+          "https://user:pass@oauth2.googleapis.com/token",
+          "http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"
+        ] do
+      assert {:error, {:credential_options, {:service_account_key, :invalid_token_uri}}} =
+               normalize(key_json(private_key, bad_uri))
+    end
+  end
+
+  test "token exchange blocks private endpoints under ssrf_filter and never follows redirects", %{
+    private_key: private_key
+  } do
+    redirect_uri =
+      start_upstream_server(fn _request ->
+        {:json, 302, [{"location", "http://169.254.169.254/token"}], %{}}
+      end)
+
+    key = key_json(private_key, redirect_uri)
+
+    assert {:error, {:google_token_rejected, "token_uri_" <> _reason}} =
+             GoogleServiceAccount.access_token(key, ssrf_filter: true)
+
+    capture_log(fn ->
+      assert {:error, {:google_token_transient, "302"}} =
+               GoogleServiceAccount.access_token(key, ssrf_filter: false)
+    end)
   end
 
   defp create_single_key_provider!(provider_id, key, connection_options \\ %{}) do

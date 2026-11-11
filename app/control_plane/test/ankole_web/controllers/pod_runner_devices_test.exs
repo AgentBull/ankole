@@ -11,7 +11,7 @@ defmodule AnkoleWeb.PodRunnerDevicesTest do
   }
 
   alias AnkoleWeb.Session, as: WebSession
-  alias Ankole.AgentWorkers.RunnerDevices
+  alias Ankole.AgentWorkers.{RunnerConnection, RunnerDevices}
 
   @moduletag host: :pod
   @devices "/api/v2/pod/runner-devices"
@@ -129,6 +129,188 @@ defmodule AnkoleWeb.PodRunnerDevicesTest do
              |> recycle_json()
              |> post(path, %{data: %{attrs | runnerID: Ash.UUIDv7.generate()}})
              |> json_response(409)
+  end
+
+  test "device list projects owned colleagues and live binding status, re-admits expired draining bindings, and revokes all live runner jobs",
+       %{conn: conn} do
+    {member, uid} = login_member(conn)
+    runner = register(member, "Workstation")
+    session = pair(runner)
+    assistant = Principals.personal_assistant(uid)
+    colleague = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: uid}).principal
+
+    assert %{
+             "colleagues" => colleagues,
+             "devices" => [
+               %{
+                 "id" => runner_id,
+                 "status" => "offline",
+                 "bindings" => [
+                   %{
+                     "agentUID" => assistant_uid,
+                     "agentType" => "personal_assistant",
+                     "status" => "offline"
+                   }
+                 ]
+               }
+             ]
+           } = member |> recycle_json() |> get(@devices) |> json_response(200)
+
+    assert runner_id == runner["id"]
+    assert assistant_uid == assistant.uid
+    assert Enum.map(colleagues, & &1["uid"]) == [assistant.uid, colleague.uid]
+
+    assert %{"bindings" => [_, _]} =
+             member
+             |> recycle_json()
+             |> post(@devices <> "/" <> runner["id"] <> "/bindings", %{
+               data: %{agentUID: colleague.uid}
+             })
+             |> json_response(201)
+
+    assert %{"bindings" => specs} = bindings(session, 200)
+    assistant_spec = Enum.find(specs, &(&1["agent_uid"] == assistant.uid))
+
+    route_a = "runner-route-a-" <> Ash.UUIDv7.generate()
+
+    assert {:ok, %{replaced_route: nil}} =
+             Repo.transact_top_level(fn ->
+               RunnerConnection.admit_in_tx(%{
+                 agent_uid: assistant.uid,
+                 runner_id: runner["id"],
+                 generation: assistant_spec["generation"],
+                 incarnation: "inc-1",
+                 route: route_a,
+                 capacity: %{"available_slots" => 2}
+               })
+             end)
+
+    # Re-admitting on the same transport_route must not return itself as replaced_route.
+    assert {:ok, %{replaced_route: nil}} =
+             Repo.transact_top_level(fn ->
+               RunnerConnection.admit_in_tx(%{
+                 agent_uid: assistant.uid,
+                 runner_id: runner["id"],
+                 generation: assistant_spec["generation"],
+                 incarnation: "inc-1",
+                 route: route_a,
+                 capacity: %{"available_slots" => 2}
+               })
+             end)
+
+    assert %{
+             "devices" => [
+               %{
+                 "status" => "online",
+                 "bindings" => listed_bindings
+               }
+             ]
+           } = member |> recycle_json() |> get(@devices) |> json_response(200)
+
+    assert Enum.find(listed_bindings, &(&1["agentUID"] == assistant.uid))["status"] == "connected"
+    assert Enum.find(listed_bindings, &(&1["agentUID"] == colleague.uid))["status"] == "offline"
+
+    # Simulate a half-open connection stuck in :draining whose heartbeat lease expired.
+    binding = RunnerDevices.get_binding(assistant.uid, runner["id"])
+    stale_at = DateTime.add(DateTime.utc_now(), -120, :second)
+
+    {:ok, _} =
+      Ankole.Ash.update(binding, :connection, %{
+        state: :draining,
+        last_worker_heartbeat_at: stale_at
+      })
+
+    route_b = "runner-route-b-" <> Ash.UUIDv7.generate()
+
+    assert {:ok, %{replaced_route: ^route_a}} =
+             Repo.transact_top_level(fn ->
+               RunnerConnection.admit_in_tx(%{
+                 agent_uid: assistant.uid,
+                 runner_id: runner["id"],
+                 generation: assistant_spec["generation"],
+                 incarnation: "inc-2",
+                 route: route_b,
+                 capacity: %{"available_slots" => 2}
+               })
+             end)
+
+    # Create queued and waiting_on_user jobs across both bound agents and verify revoke fails all of them.
+    fixture = Ankole.AIGatewayCase.background_agent_fixture()
+
+    for agent_uid <- [assistant.uid, colleague.uid] do
+      {:ok, _} =
+        Ankole.AIGateway.ModelProfiles.put_model_profile(agent_uid, "coding", %{
+          provider_id: fixture.provider_id,
+          model: "openai/gpt-5.6-sol"
+        })
+    end
+
+    {:ok, assistant_room} =
+      Ankole.ConversationsFixtures.create(uid, %{
+        conversation_id: Ash.UUIDv7.generate(),
+        message_id: Ash.UUIDv7.generate(),
+        agent_uid: assistant.uid,
+        text: "Coordinate assistant device jobs."
+      })
+
+    {:ok, colleague_room} =
+      Ankole.ConversationsFixtures.create(uid, %{
+        conversation_id: Ash.UUIDv7.generate(),
+        message_id: Ash.UUIDv7.generate(),
+        agent_uid: colleague.uid,
+        text: "Coordinate colleague device jobs."
+      })
+
+    assert %{"jobID" => queued_job_id} =
+             member
+             |> recycle_json()
+             |> post("/api/v2/pod/conversations/#{assistant_room.conversation.id}/runner-jobs", %{
+               data: %{
+                 agentUID: assistant.uid,
+                 runnerID: runner["id"],
+                 requestID: Ash.UUIDv7.generate(),
+                 title: "Queued workstation job",
+                 task: "Run step 1"
+               }
+             })
+             |> json_response(201)
+
+    assert %{"jobID" => waiting_job_id} =
+             member
+             |> recycle_json()
+             |> post("/api/v2/pod/conversations/#{colleague_room.conversation.id}/runner-jobs", %{
+               data: %{
+                 agentUID: colleague.uid,
+                 runnerID: runner["id"],
+                 requestID: Ash.UUIDv7.generate(),
+                 title: "Waiting colleague job",
+                 task: "Run step 2"
+               }
+             })
+             |> json_response(201)
+
+    waiting_seed = BackgroundAgentJobs.get_job(waiting_job_id)
+
+    {:ok, running_seed} =
+      Ankole.Ash.update(waiting_seed, :claim_attempt, %{
+        attempts: 1,
+        started_at: DateTime.utc_now()
+      })
+
+    {:ok, waiting_job} =
+      Ankole.Ash.update(running_seed, :worker_report, %{next_status: :waiting_on_user})
+
+    assert %{"revoked" => true} =
+             member
+             |> recycle_json()
+             |> delete(@devices <> "/" <> runner["id"])
+             |> json_response(200)
+
+    assert %{status: :failed, error: %{"code" => "runner_revoked"}} =
+             BackgroundAgentJobs.get_job(queued_job_id)
+
+    assert %{status: :failed, error: %{"code" => "runner_revoked"}} =
+             BackgroundAgentJobs.get_job(waiting_job.id)
   end
 
   defp login_member(conn) do

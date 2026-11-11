@@ -19,8 +19,16 @@ pub(super) struct CloudflareTranscription;
 
 impl APIProtocol for OpenrouterSpeech {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
-        let mut body = Map::new();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "OpenRouter speech")?;
+        validate_known_request_fields(
+            &request,
+            &["input", "voice", "response_format", "speed", "instructions"],
+            strict,
+            "OpenRouter speech",
+        )?;
+        let mut body = context.sanitized_provider_options_object();
         body.insert("model".to_string(), json!(context.model));
         for key in ["input", "voice", "response_format", "speed", "instructions"] {
             maybe_put_from(&mut body, &request, key);
@@ -40,12 +48,25 @@ impl APIProtocol for OpenrouterSpeech {
 
 impl APIProtocol for CloudflareSpeech {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "Cloudflare speech")?;
+        validate_known_request_fields(
+            &request,
+            &["input", "voice", "response_format"],
+            strict,
+            "Cloudflare speech",
+        )?;
+        let defaults = context.sanitized_provider_options_object();
         let mut body = Map::new();
         if let Some(text) = request.get("input") {
             body.insert("text".to_string(), text.clone());
         }
-        if let Some(voice) = request.get("voice").filter(|voice| useful_value(voice)) {
+        if let Some(voice) = request
+            .get("voice")
+            .filter(|voice| useful_value(voice))
+            .or_else(|| defaults.get("voice").filter(|voice| useful_value(voice)))
+        {
             body.insert("speaker".to_string(), voice.clone());
         }
         Ok(body)
@@ -63,8 +84,16 @@ impl APIProtocol for CloudflareSpeech {
 
 impl APIProtocol for OpenrouterTranscription {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
-        let mut body = Map::new();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "OpenRouter transcription")?;
+        validate_known_request_fields(
+            &request,
+            &["input_audio", "language", "response_format"],
+            strict,
+            "OpenRouter transcription",
+        )?;
+        let mut body = context.sanitized_provider_options_object();
         body.insert("model".to_string(), json!(context.model));
         for key in ["input_audio", "language", "response_format"] {
             maybe_put_from(&mut body, &request, key);
@@ -92,7 +121,16 @@ impl APIProtocol for OpenrouterTranscription {
 
 impl APIProtocol for CloudflareTranscription {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "Cloudflare transcription")?;
+        validate_known_request_fields(
+            &request,
+            &["input_audio", "language", "vad_filter", "response_format"],
+            strict,
+            "Cloudflare transcription",
+        )?;
+        let defaults = context.sanitized_provider_options_object();
         let mut body = Map::new();
         if let Some(audio) = request
             .get("input_audio")
@@ -101,6 +139,7 @@ impl APIProtocol for CloudflareTranscription {
             body.insert("audio".to_string(), audio.clone());
         }
         for key in ["language", "vad_filter"] {
+            maybe_put_from(&mut body, &defaults, key);
             maybe_put_from(&mut body, &request, key);
         }
         Ok(body)

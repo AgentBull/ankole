@@ -6,7 +6,11 @@ pub(super) struct MistralOcr;
 
 impl APIProtocol for MistralOcr {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "Mistral OCR")?;
+        validate_known_request_fields(&request, &["document", "pages"], strict, "Mistral OCR")?;
+
         let document = request
             .get("document")
             .and_then(Value::as_str)
@@ -20,7 +24,7 @@ impl APIProtocol for MistralOcr {
             json!({"type": "image_url", "image_url": document})
         };
 
-        let mut body = Map::new();
+        let mut body = context.sanitized_provider_options_object();
         body.insert("model".to_string(), json!(context.model));
         body.insert("document".to_string(), chunk);
         maybe_put_from(&mut body, &request, "pages");
@@ -79,9 +83,22 @@ fn page_markdown(page: &Value) -> String {
         markdown = markdown.replace(&format!("![{id}]({id})"), "");
     }
     // A placeholder on its own line leaves its two blank lines side by side.
-    while markdown.contains("\n\n\n") {
-        markdown = markdown.replace("\n\n\n", "\n\n");
-    }
+    collapse_blank_lines(&markdown)
+}
 
-    markdown.trim().to_string()
+fn collapse_blank_lines(markdown: &str) -> String {
+    let mut collapsed = String::with_capacity(markdown.len());
+    let mut consecutive_newlines = 0usize;
+    for ch in markdown.chars() {
+        if ch == '\n' {
+            consecutive_newlines += 1;
+            if consecutive_newlines <= 2 {
+                collapsed.push(ch);
+            }
+        } else {
+            consecutive_newlines = 0;
+            collapsed.push(ch);
+        }
+    }
+    collapsed.trim().to_string()
 }

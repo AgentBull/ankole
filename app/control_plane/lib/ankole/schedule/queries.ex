@@ -16,6 +16,50 @@ defmodule Ankole.Schedule.Queries do
     |> read()
   end
 
+  @spec list_room_cron_schedules([String.t()]) :: [CronSchedule.t()]
+  def list_room_cron_schedules([]), do: []
+
+  def list_room_cron_schedules(owner_session_ids) when is_list(owner_session_ids) do
+    CronSchedule
+    |> Ash.Query.filter(
+      status in [:active, :paused] and is_nil(owner_job_id) and
+        owner_session_id in ^owner_session_ids
+    )
+    |> Ash.Query.select([
+      :id,
+      :agent_uid,
+      :human_uid,
+      :owner_session_id,
+      :idempotency_key,
+      :status,
+      :schedule,
+      :timezone,
+      :next_fire_at
+    ])
+    |> read()
+  end
+
+  @spec list_active_agent_cron_schedules() :: [CronSchedule.t()]
+  def list_active_agent_cron_schedules do
+    CronSchedule
+    |> Ash.Query.filter(status in [:active, :paused] and is_nil(owner_job_id))
+    |> Ash.Query.select([
+      :id,
+      :name,
+      :status,
+      :agent_uid,
+      :human_uid,
+      :owner_session_id,
+      :delivery,
+      :schedule,
+      :timezone,
+      :next_fire_at,
+      :last_fire_at
+    ])
+    |> Ash.Query.sort(agent_uid: :asc, owner_session_id: :asc, name: :asc)
+    |> read()
+  end
+
   @spec get_cron_schedule(Ecto.UUID.t()) :: {:ok, CronSchedule.t()} | {:error, :not_found}
   def get_cron_schedule(cron_schedule_id) when is_binary(cron_schedule_id) do
     with {:ok, cron_schedule_id} <- Ecto.UUID.cast(cron_schedule_id),

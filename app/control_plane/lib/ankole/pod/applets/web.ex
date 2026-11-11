@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Applets.Web do
   @moduledoc "Stateless Applet web search and web page extraction through AIGateway."
 
   alias Ankole.AIGateway
-  alias Ankole.Pod.Access
+  alias Ankole.Pod.Applets.Gateway
 
   @default_search_limit 5
   @max_search_limit 100
@@ -14,22 +14,20 @@ defmodule Ankole.Pod.Applets.Web do
   @min_head_tail_budget 24
 
   def search(%Ankole.AuthZ.Actor{} = actor, options) when is_map(options) do
-    with {:ok, principal} <- Access.write(actor.turn_authority, fn -> Access.principal(actor) end) do
-      do_search(principal, options)
-    end
+    Gateway.with_principal(actor, fn principal -> do_search(principal, options) end)
   end
 
-  def search(_actor, _options), do: {:error, search_error(:invalid_request)}
+  def search(_actor, _options), do: {:error, Gateway.error(:web_search, :invalid_request)}
 
   defp do_search(principal, options) do
     with {:ok, query, limit} <- validate_search_options(options),
-         {:ok, %{body: body}} <-
-           AIGateway.create_web_search(
-             principal.uid,
+         {:ok, body} <-
+           Gateway.call(
+             principal,
+             :web_search,
+             &AIGateway.create_web_search/3,
              %{"model" => "web_search.default", "query" => query, "limit" => limit},
-             respect_provider_hosted?: true,
-             caller: "pod_applet",
-             request_context: human_context(principal)
+             respect_provider_hosted?: true
            ) do
       results =
         (body["items"] || [])
@@ -48,27 +46,26 @@ defmodule Ankole.Pod.Applets.Web do
 
       {:ok, %{query: query, results: results}}
     else
-      {:error, reason} -> {:error, search_error(reason)}
+      {:error, %{status: _} = error} -> {:error, error}
+      {:error, reason} -> {:error, Gateway.error(:web_search, reason)}
     end
   end
 
   def fetch(%Ankole.AuthZ.Actor{} = actor, options) when is_map(options) do
-    with {:ok, principal} <- Access.write(actor.turn_authority, fn -> Access.principal(actor) end) do
-      do_fetch(principal, options)
-    end
+    Gateway.with_principal(actor, fn principal -> do_fetch(principal, options) end)
   end
 
-  def fetch(_actor, _options), do: {:error, fetch_error(:invalid_request)}
+  def fetch(_actor, _options), do: {:error, Gateway.error(:web_fetch, :invalid_request)}
 
   defp do_fetch(principal, options) do
     with {:ok, urls, max_chars} <- validate_fetch_options(options),
          unique_urls = Enum.uniq(urls),
-         {:ok, %{body: body}} <-
-           AIGateway.create_web_fetch(
-             principal.uid,
-             %{"model" => "web_fetch.default", "urls" => unique_urls},
-             caller: "pod_applet",
-             request_context: human_context(principal)
+         {:ok, body} <-
+           Gateway.call(
+             principal,
+             :web_fetch,
+             &AIGateway.create_web_fetch/3,
+             %{"model" => "web_fetch.default", "urls" => unique_urls}
            ) do
       by_url = index_fetched_pages(unique_urls, body["results"] || [])
 
@@ -105,7 +102,8 @@ defmodule Ankole.Pod.Applets.Web do
          results: results
        }}
     else
-      {:error, reason} -> {:error, fetch_error(reason)}
+      {:error, %{status: _} = error} -> {:error, error}
+      {:error, reason} -> {:error, Gateway.error(:web_fetch, reason)}
     end
   end
 
@@ -125,9 +123,6 @@ defmodule Ankole.Pod.Applets.Web do
   end
 
   defp index_fetched_pages(_unique_urls, _results), do: %{}
-
-  defp human_context(%{type: :human, uid: uid}), do: %{"human_uid" => uid}
-  defp human_context(_principal), do: %{}
 
   defp validate_search_options(options) do
     unknown = Map.keys(options) -- ["query", "limit"]
@@ -258,107 +253,4 @@ defmodule Ankole.Pod.Applets.Web do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp search_error({:agent_token_quota_exceeded, _}) do
-    %{
-      status: 429,
-      code: "agent_token_quota_exceeded",
-      message: "agent_token_quota_exceeded",
-      details: nil
-    }
-  end
-
-  defp search_error(reason)
-       when reason in [
-              :model_profile_not_configured,
-              :system_principal_missing,
-              :invalid_model_profile
-            ] do
-    %{
-      status: 422,
-      code: "web_search_not_configured",
-      message: "web_search_not_configured",
-      details: nil
-    }
-  end
-
-  defp search_error({name, _})
-       when name in [
-              :unknown_model_selector,
-              :invalid_model_profile,
-              :model_profile_capability_mismatch
-            ] do
-    %{
-      status: 422,
-      code: "web_search_not_configured",
-      message: "web_search_not_configured",
-      details: nil
-    }
-  end
-
-  defp search_error(reason)
-       when reason in [
-              :invalid_request,
-              :invalid_request_body,
-              :missing_query,
-              :invalid_query,
-              :invalid_limit
-            ] do
-    %{status: 400, code: "invalid_request", message: "invalid_request", details: nil}
-  end
-
-  defp search_error(_reason) do
-    %{
-      status: 502,
-      code: "web_search_unavailable",
-      message: "web_search_unavailable",
-      details: nil
-    }
-  end
-
-  defp fetch_error({:agent_token_quota_exceeded, _}) do
-    %{
-      status: 429,
-      code: "agent_token_quota_exceeded",
-      message: "agent_token_quota_exceeded",
-      details: nil
-    }
-  end
-
-  defp fetch_error(reason)
-       when reason in [
-              :model_profile_not_configured,
-              :system_principal_missing,
-              :invalid_model_profile
-            ] do
-    %{
-      status: 422,
-      code: "web_fetch_not_configured",
-      message: "web_fetch_not_configured",
-      details: nil
-    }
-  end
-
-  defp fetch_error({name, _})
-       when name in [
-              :unknown_model_selector,
-              :invalid_model_profile,
-              :model_profile_capability_mismatch
-            ] do
-    %{
-      status: 422,
-      code: "web_fetch_not_configured",
-      message: "web_fetch_not_configured",
-      details: nil
-    }
-  end
-
-  defp fetch_error(reason)
-       when reason in [:invalid_request, :invalid_request_body, :missing_urls, :invalid_urls] do
-    %{status: 400, code: "invalid_request", message: "invalid_request", details: nil}
-  end
-
-  defp fetch_error(_reason) do
-    %{status: 502, code: "web_fetch_unavailable", message: "web_fetch_unavailable", details: nil}
-  end
 end

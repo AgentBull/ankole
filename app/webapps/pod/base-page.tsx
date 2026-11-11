@@ -585,11 +585,11 @@ function TableWorkspace({
             : targetVersion + 1
         latestViewVersions.current.set(payload.viewId, nextVer)
         setChartAutoSaveError(undefined)
+        await client.invalidateQueries({ queryKey: base.key(tableID) })
         const activeViewId = model.viewID.value || schema.data?.views[0]?.id
         if (activeViewId === payload.viewId && !pendingChartSave.current) {
           model.draft.value = undefined
         }
-        await client.invalidateQueries({ queryKey: base.key(tableID) })
       } catch (error) {
         setChartAutoSaveError(error)
         await client.invalidateQueries({ queryKey: [...base.key(tableID), 'schema'] })

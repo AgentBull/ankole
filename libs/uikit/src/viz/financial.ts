@@ -132,6 +132,125 @@ function isOhlcPoint<HorzItem>(point: FinancialMainPoint<HorzItem>): point is Fi
   return 'open' in point && 'high' in point && 'low' in point && 'close' in point
 }
 
+function financialTimeIdentity(time: unknown): string | null {
+  if (typeof time === 'number') {
+    return Number.isFinite(time) ? `n:${time}` : null
+  }
+  if (typeof time === 'string') {
+    const trimmed = time.trim()
+    return trimmed.length > 0 ? `s:${trimmed}` : null
+  }
+  if (time && typeof time === 'object') {
+    const bd = time as { year?: unknown; month?: unknown; day?: unknown }
+    if (typeof bd.year === 'number' && typeof bd.month === 'number' && typeof bd.day === 'number') {
+      if (!Number.isFinite(bd.year) || !Number.isFinite(bd.month) || !Number.isFinite(bd.day)) return null
+      return `b:${bd.year}-${String(bd.month).padStart(2, '0')}-${String(bd.day).padStart(2, '0')}`
+    }
+    return `o:${JSON.stringify(time)}`
+  }
+  return null
+}
+
+function comparableFinancialTime(time: unknown): number | string | null {
+  if (typeof time === 'number') {
+    return Number.isFinite(time) ? time : null
+  }
+  if (typeof time === 'string') {
+    const trimmed = time.trim()
+    if (!trimmed) return null
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const parsed = Date.parse(`${trimmed}T00:00:00Z`)
+      return Number.isFinite(parsed) ? parsed : trimmed
+    }
+    if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+      const num = Number(trimmed)
+      if (Number.isFinite(num)) return num
+    }
+    const parsed = Date.parse(trimmed)
+    return Number.isFinite(parsed) ? parsed : trimmed
+  }
+  if (time && typeof time === 'object') {
+    const bd = time as { year?: unknown; month?: unknown; day?: unknown }
+    if (typeof bd.year === 'number' && typeof bd.month === 'number' && typeof bd.day === 'number') {
+      const utc = Date.UTC(bd.year, bd.month - 1, bd.day)
+      return Number.isFinite(utc) ? utc : null
+    }
+    return JSON.stringify(time)
+  }
+  return null
+}
+
+function sortAndDedupeByTime<HorzItem, P extends { time: HorzItem }>(points: readonly P[]): P[] {
+  const prepared: { point: P; key: string; sortVal: number | string; index: number }[] = []
+  for (let i = 0; i < points.length; i += 1) {
+    const point = points[i]!
+    const key = financialTimeIdentity(point.time)
+    const sortVal = comparableFinancialTime(point.time)
+    if (key === null || sortVal === null) continue
+    prepared.push({ point, key, sortVal, index: i })
+  }
+
+  prepared.sort((a, b) => {
+    if (typeof a.sortVal === 'number' && typeof b.sortVal === 'number') {
+      if (a.sortVal !== b.sortVal) return a.sortVal - b.sortVal
+      return a.index - b.index
+    }
+    const cmp = String(a.sortVal).localeCompare(String(b.sortVal))
+    return cmp !== 0 ? cmp : a.index - b.index
+  })
+
+  const deduped: P[] = []
+  const indexByKey = new Map<string, number>()
+  for (const entry of prepared) {
+    const existingIdx = indexByKey.get(entry.key)
+    if (existingIdx !== undefined) {
+      deduped[existingIdx] = entry.point
+    } else {
+      indexByKey.set(entry.key, deduped.length)
+      deduped.push(entry.point)
+    }
+  }
+  return deduped
+}
+
+/**
+ * Normalizes main financial series data prior to `lightweight-charts` `setData()`:
+ * filters non-finite numbers, clamps inverted OHLC `high`/`low` bounds, sorts ascending by time,
+ * and deduplicates identical timestamps keeping the latest point.
+ */
+export function normalizeFinancialMainData<HorzItem>(
+  points: readonly FinancialMainPoint<HorzItem>[]
+): FinancialMainPoint<HorzItem>[] {
+  const valid: FinancialMainPoint<HorzItem>[] = []
+  for (const pt of points) {
+    if (isOhlcPoint(pt)) {
+      if (
+        !Number.isFinite(pt.open) ||
+        !Number.isFinite(pt.high) ||
+        !Number.isFinite(pt.low) ||
+        !Number.isFinite(pt.close)
+      ) {
+        continue
+      }
+      const high = Math.max(pt.open, pt.high, pt.low, pt.close)
+      const low = Math.min(pt.open, pt.high, pt.low, pt.close)
+      valid.push(high === pt.high && low === pt.low ? pt : { ...pt, high, low })
+    } else if (Number.isFinite(pt.value)) {
+      valid.push(pt)
+    }
+  }
+  return sortAndDedupeByTime(valid)
+}
+
+/**
+ * Normalizes single-value or volume series points (finite values, ascending time, latest wins on duplicate time).
+ */
+export function normalizeFinancialSingleSeries<HorzItem, P extends { time: HorzItem; value: number }>(
+  points: readonly P[]
+): P[] {
+  return sortAndDedupeByTime(points.filter(pt => Number.isFinite(pt.value)))
+}
+
 function hexWithAlpha(hexColor: string, alphaHex: string): string {
   const clean = hexColor.trim()
   if (/^#[0-9a-fA-F]{6}$/.test(clean)) {
@@ -287,10 +406,11 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
     chart.applyOptions(buildChartOptions(spec, palette) as never)
     clearSeries()
 
+    const normalizedMain = normalizeFinancialMainData(spec.data)
     const defaultSeriesType: FinancialMainSeriesType =
       chartMode === 'yield_curve'
         ? 'line'
-        : (spec.seriesType ?? (spec.data[0] && isOhlcPoint(spec.data[0]) ? 'candlestick' : 'line'))
+        : (spec.seriesType ?? (normalizedMain[0] && isOhlcPoint(normalizedMain[0]) ? 'candlestick' : 'line'))
 
     const primaryLineColor = spec.color ?? palette.categoricalStrokes[0]
 
@@ -308,7 +428,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
           },
           0
         )
-        s.setData(spec.data as CandlestickData<HorzItem>[])
+        s.setData(normalizedMain.filter(isOhlcPoint) as CandlestickData<HorzItem>[])
         mainSeries = s
         break
       }
@@ -321,14 +441,15 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
           },
           0
         )
-        s.setData(spec.data as BarData<HorzItem>[])
+        s.setData(normalizedMain.filter(isOhlcPoint) as BarData<HorzItem>[])
         mainSeries = s
         break
       }
       case 'baseline': {
-        const firstPoint = spec.data[0]
-        const inferredBase =
+        const firstPoint = normalizedMain[0]
+        const rawBase =
           spec.basePrice ?? (firstPoint ? (isOhlcPoint(firstPoint) ? firstPoint.close : firstPoint.value) : 0)
+        const inferredBase = Number.isFinite(rawBase) ? rawBase : 0
         const s = chart.addSeries(
           BaselineSeries,
           {
@@ -342,7 +463,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
           },
           0
         )
-        const singleValues: SingleValueData<HorzItem>[] = spec.data.map(pt =>
+        const singleValues: SingleValueData<HorzItem>[] = normalizedMain.map(pt =>
           isOhlcPoint(pt) ? { time: pt.time, value: pt.close } : { time: pt.time, value: pt.value }
         )
         s.setData(singleValues)
@@ -360,7 +481,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
           },
           0
         )
-        const singleValues: SingleValueData<HorzItem>[] = spec.data.map(pt =>
+        const singleValues: SingleValueData<HorzItem>[] = normalizedMain.map(pt =>
           isOhlcPoint(pt) ? { time: pt.time, value: pt.close } : { time: pt.time, value: pt.value }
         )
         s.setData(singleValues)
@@ -377,7 +498,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
           },
           0
         )
-        const singleValues: SingleValueData<HorzItem>[] = spec.data.map(pt =>
+        const singleValues: SingleValueData<HorzItem>[] = normalizedMain.map(pt =>
           isOhlcPoint(pt) ? { time: pt.time, value: pt.close } : { time: pt.time, value: pt.value }
         )
         s.setData(singleValues)
@@ -386,7 +507,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
       }
     }
 
-    const lastPt = spec.data[spec.data.length - 1]
+    const lastPt = normalizedMain[normalizedMain.length - 1]
     if (lastPt) {
       if (isOhlcPoint(lastPt)) {
         lastMainDirection = lastPt.close >= lastPt.open ? 'up' : 'down'
@@ -398,7 +519,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
 
     // Attach markers on main series if provided (not applicable on numeric yield curves without markers).
     if (mainSeries && spec.markers && spec.markers.length > 0) {
-      markersPlugin = createSeriesMarkers(mainSeries, [...spec.markers])
+      markersPlugin = createSeriesMarkers(mainSeries, sortAndDedupeByTime(spec.markers))
     }
 
     // Pane 0 overlays (e.g. MA5, MA20, BOLL).
@@ -413,6 +534,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
         const key = ov.id ?? ov.title ?? `overlay-${idx}`
         const resolvedColor =
           ov.color ?? overlayColors.get(key) ?? palette.categoricalStrokes[idx % palette.categoricalStrokes.length]!
+        const overlayData = normalizeFinancialSingleSeries(ov.data)
         if (ov.type === 'area') {
           const s = chart.addSeries(
             AreaSeries,
@@ -426,7 +548,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
             },
             0
           )
-          s.setData([...ov.data])
+          s.setData(overlayData)
           extraSeries.push(s)
         } else {
           const s = chart.addSeries(
@@ -439,7 +561,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
             },
             0
           )
-          s.setData([...ov.data])
+          s.setData(overlayData)
           extraSeries.push(s)
         }
       })
@@ -449,20 +571,23 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
 
     // Convenience volume sub-pane at paneIndex = 1.
     if (spec.volume && spec.volume.length > 0) {
-      const volPaneIdx = nextAutoPaneIndex++
-      const s = chart.addSeries(
-        HistogramSeries,
-        {
-          priceFormat: { type: 'volume' },
-          priceLineVisible: false
-        },
-        volPaneIdx
-      )
-      s.setData(colorizeVolumePoints(spec.volume, spec.data, palette))
-      volumeSeries = s
-      const panes = chart.panes()
-      if (panes[volPaneIdx]) {
-        panes[volPaneIdx]!.setHeight(Math.max(64, Math.round(currentHeight * 0.22)))
+      const normalizedVolume = normalizeFinancialSingleSeries(spec.volume)
+      if (normalizedVolume.length > 0) {
+        const volPaneIdx = nextAutoPaneIndex++
+        const s = chart.addSeries(
+          HistogramSeries,
+          {
+            priceFormat: { type: 'volume' },
+            priceLineVisible: false
+          },
+          volPaneIdx
+        )
+        s.setData(colorizeVolumePoints(normalizedVolume, normalizedMain, palette))
+        volumeSeries = s
+        const panes = chart.panes()
+        if (panes[volPaneIdx]) {
+          panes[volPaneIdx]!.setHeight(Math.max(64, Math.round(currentHeight * 0.22)))
+        }
       }
     }
 
@@ -483,6 +608,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
           const key = item.id ?? item.title ?? `sub-${paneIdx}-${idx}`
           const resolvedColor =
             item.color ?? subColors.get(key) ?? palette.categoricalStrokes[idx % palette.categoricalStrokes.length]!
+          const normalizedItemData = normalizeFinancialSingleSeries(item.data)
 
           if (item.type === 'histogram') {
             const s = chart.addSeries(
@@ -495,8 +621,8 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
               paneIdx
             )
             const histData: HistogramData<HorzItem>[] = item.colorByMainDirection
-              ? colorizeVolumePoints(item.data, spec.data, palette)
-              : item.data.map(pt => ({
+              ? colorizeVolumePoints(normalizedItemData, normalizedMain, palette)
+              : normalizedItemData.map(pt => ({
                   time: pt.time,
                   value: pt.value,
                   color: pt.color ?? (pt.value >= 0 ? palette.up : palette.down)
@@ -520,7 +646,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
               },
               paneIdx
             )
-            s.setData(item.data.map(pt => ({ time: pt.time, value: pt.value })))
+            s.setData(normalizedItemData.map(pt => ({ time: pt.time, value: pt.value })))
             extraSeries.push(s)
           } else {
             const s = chart.addSeries(
@@ -533,7 +659,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
               },
               paneIdx
             )
-            s.setData(item.data.map(pt => ({ time: pt.time, value: pt.value })))
+            s.setData(normalizedItemData.map(pt => ({ time: pt.time, value: pt.value })))
             extraSeries.push(s)
           }
         })
@@ -560,16 +686,31 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
     appendPoint(point) {
       if (destroyed || !mainSeries) return
       if (isOhlcPoint(point)) {
-        lastMainDirection = point.close >= point.open ? 'up' : 'down'
-        lastMainValue = point.close
+        if (
+          !Number.isFinite(point.open) ||
+          !Number.isFinite(point.high) ||
+          !Number.isFinite(point.low) ||
+          !Number.isFinite(point.close)
+        ) {
+          return
+        }
+        const normalized: FinancialOhlcPoint<HorzItem> = {
+          ...point,
+          high: Math.max(point.open, point.high, point.low, point.close),
+          low: Math.min(point.open, point.high, point.low, point.close)
+        }
+        lastMainDirection = normalized.close >= normalized.open ? 'up' : 'down'
+        lastMainValue = normalized.close
+        mainSeries.update(normalized as never)
       } else {
+        if (!Number.isFinite(point.value)) return
         lastMainDirection = lastMainValue === null || point.value >= lastMainValue ? 'up' : 'down'
         lastMainValue = point.value
+        mainSeries.update(point as never)
       }
-      mainSeries.update(point as never)
     },
     appendVolumePoint(point, direction) {
-      if (destroyed || !volumeSeries) return
+      if (destroyed || !volumeSeries || !Number.isFinite(point.value)) return
       const dir = direction ?? lastMainDirection
       volumeSeries.update({
         time: point.time,

@@ -6922,7 +6922,10 @@ export type BindPodRunnerDeviceResponses = {
    */
   201: {
     bindings: Array<{
+      agentType?: string | null
       agentUID: string
+      displayName?: string | null
+      status: string
     }>
     id: string
     name: string
@@ -12828,9 +12831,17 @@ export type ListPodRunnerDevicesResponses = {
    * Success
    */
   200: {
+    colleagues: Array<{
+      agentType: string
+      displayName: string
+      uid: string
+    }>
     devices: Array<{
       bindings: Array<{
+        agentType?: string | null
         agentUID: string
+        displayName?: string | null
+        status: string
       }>
       id: string
       name: string

@@ -13,9 +13,11 @@ defmodule Ankole.AIGateway.OCR do
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestExecution
+  alias Ankole.AIGateway.RequestParams
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.UsageLedger
-  alias Ankole.Attrs
+
+  @ocr_fields ~w(document pages)
 
   @image_types ~w(image/png image/jpeg image/webp)
   @pdf_type "application/pdf"
@@ -43,9 +45,8 @@ defmodule Ankole.AIGateway.OCR do
         ) :: {:ok, map()} | {:error, term()}
   def create_ocr(subject_uid, request, opts, create_response_fun)
       when is_map(request) and is_function(create_response_fun, 3) do
-    request = Attrs.normalize_external_attrs(request)
-
-    with {:ok, {type, data_url}} <- document(request["document"]),
+    with {:ok, request} <- RequestParams.prepare(request, @ocr_fields),
+         {:ok, {type, data_url}} <- document(request["document"]),
          :ok <- validate_pages(type, request["pages"]) do
       request = Map.put(request, "document", data_url)
 

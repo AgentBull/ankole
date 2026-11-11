@@ -439,7 +439,8 @@ The function worker supplies Node built-ins, public `fetch`, an in-memory
 `ai.generateSpeech`, `ai.transcribe`, `ai.ocr`, `ai.decide`; `web.search`,
 `web.fetch`; `mcp.call`; and `signals.call/emit/run`
 (mirrored on `AnkoleRuntime.admin`). Read their exact types in
-`/repo/libs/applet-sdk/src/server.ts`. Declare publication environment defaults and required keys in
+`/repo/libs/applet-sdk/src/server.ts`, and type connector `mcp.call` inputs and outputs per platform with
+`import type { Inputs, Outputs } from '@ankole/applet-sdk/toolkits/<toolkit>'` (or `@ankole/applet-sdk/toolkits` across multiple toolkits). Declare publication environment defaults and required keys in
 `applet.env.json` (up to 64 KiB): each entry maps a POSIX key to either a string default or `{ default?, required?, secret?, description? }`. Runtime values merge `Site -> Space -> applet.env.json defaults -> Applet` and appear on `process.env.<KEY>` in the backend worker only. Never hardcode API keys in `applet.env.json`; declare `{ "required": true, "secret": true, "description": "..." }` so a human editor or administrator configures the secret in **Applet settings -> Variables** on the Page top bar or in Space Settings. Only editors can read
 source, backend files, and environment metadata, and decrypting stored Applet secrets requires page manage permission; viewers and contributors can
 read published frontend assets.

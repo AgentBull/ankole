@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { extractInfographicSummary, validateInfographicSyntax } from '@ankole/uikit/viz/infographic'
+import { validateInfographicSyntax } from '@ankole/uikit/viz/infographic'
 import { Leaf, type Plot } from '../src/core/doc'
 import { undoDepth } from '../src/core/history'
 import { undo } from '../src/editor/commands'
@@ -120,9 +120,8 @@ describe('Infographic document, editor, templates, and conversions', () => {
     for (const template of infographicTemplates) {
       const validation = validateInfographicSyntax(template.source)
       expect(validation).toEqual({ ok: true })
-      const summary = extractInfographicSummary(template.source)
-      expect(summary.title).toBeDefined()
-      expect(summary.items.length).toBeGreaterThan(0)
+      expect(template.source).toMatch(/^\s*title\s+\S+/m)
+      expect(template.source).toMatch(/^\s*-\s+label\s+\S+/m)
     }
 
     const editor = open('')

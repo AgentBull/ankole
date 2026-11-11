@@ -9,8 +9,8 @@ defmodule Ankole.Pod.Pages.LinkPreview do
   one-shot Mint connections stop streaming once `</head>` or the byte ceiling is reached.
   """
 
-  alias Ankole.{AuthZ, EgressProxy, Repo}
-  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.{AuthZ, Repo}
+  alias Ankole.Files.HTTP
   alias Ankole.Pod.Access
   alias Ankole.Security.SSRFFilter
 
@@ -82,10 +82,9 @@ defmodule Ankole.Pod.Pages.LinkPreview do
   def fetch_metadata(raw_url, opts \\ []) when is_binary(raw_url) do
     Repo.assert_outside_transaction!()
     ssrf_filter? = Keyword.get(opts, :ssrf_filter, false)
-    deadline = System.monotonic_time(:millisecond) + @connect_timeout_ms + @receive_timeout_ms
 
     with {:ok, url} <- normalize_http_url(raw_url),
-         {:ok, fetched} <- do_fetch(url, ssrf_filter?, deadline, @max_redirects) do
+         {:ok, fetched} <- fetch_html_head(url, ssrf_filter?) do
       {:ok, parse_html_metadata(fetched.body, fetched.final_url)}
     end
   end
@@ -160,102 +159,8 @@ defmodule Ankole.Pod.Pages.LinkPreview do
     %{url: url, title: nil, description: nil, image: nil, icon: nil}
   end
 
-  defp do_fetch(_url, _ssrf_filter?, _deadline, redirects_left) when redirects_left < 0,
-    do: {:error, :too_many_redirects}
-
-  defp do_fetch(url, ssrf_filter?, deadline, redirects_left) do
-    with {:ok, response} <- fetch_single_hop(url, ssrf_filter?, deadline) do
-      handle_hop_response(url, response, ssrf_filter?, deadline, redirects_left)
-    end
-  end
-
-  defp handle_hop_response(url, response, ssrf_filter?, deadline, redirects_left) do
-    cond do
-      response.status in [301, 302, 303, 307, 308] ->
-        with location when is_binary(location) <- response_header(response.headers, "location"),
-             {:ok, next_url} <- resolve_redirect_url(url, location) do
-          do_fetch(next_url, ssrf_filter?, deadline, redirects_left - 1)
-        else
-          _ -> {:error, :invalid_redirect}
-        end
-
-      response.non_html? ->
-        {:error, :unsupported_content_type}
-
-      response.status in 200..299 ->
-        if html_content_type?(response_header(response.headers, "content-type")) do
-          {:ok, %{body: response.body, final_url: url}}
-        else
-          {:error, :unsupported_content_type}
-        end
-
-      true ->
-        {:error, {:http_status, response.status}}
-    end
-  end
-
-  defp fetch_single_hop(url, ssrf_filter?, deadline) do
-    with :ok <- validate_url(url, ssrf_filter?),
-         uri = URI.parse(url),
-         {:ok, target, connect_opts} <- resolve_connect_target(uri, url, ssrf_filter?, deadline),
-         scheme = if(uri.scheme == "https", do: :https, else: :http),
-         port = uri.port || URI.default_port(uri.scheme),
-         {:ok, conn} <- Mint.HTTP.connect(scheme, target, port, connect_opts) do
-      try do
-        send_and_collect(conn, uri, deadline)
-      after
-        Mint.HTTP.close(conn)
-      end
-    end
-  end
-
-  defp resolve_connect_target(uri, url, ssrf_filter?, deadline) do
-    timeout = min(@connect_timeout_ms, max(deadline - System.monotonic_time(:millisecond), 0))
-
-    if timeout <= 0 do
-      {:error, :timeout}
-    else
-      proxy_opts = Keyword.get(EgressProxy.req_options(url), :connect_options, [])
-      build_connect_target(uri, proxy_opts, ssrf_filter?, timeout)
-    end
-  end
-
-  defp build_connect_target(uri, [], ssrf_filter?, timeout) do
-    with {:ok, addresses} <- resolve_addresses(uri.host),
-         :ok <- validate_addresses(addresses, ssrf_filter?) do
-      address = hd(addresses)
-
-      opts = [
-        mode: :passive,
-        protocols: [:http1],
-        hostname: uri.host,
-        transport_opts: [timeout: timeout, inet6: tuple_size(address) == 8]
-      ]
-
-      {:ok, address, opts}
-    end
-  end
-
-  defp build_connect_target(uri, proxy_opts, _ssrf_filter?, timeout) do
-    opts =
-      Keyword.merge(
-        [
-          mode: :passive,
-          protocols: [:http1],
-          hostname: uri.host,
-          transport_opts: [timeout: timeout]
-        ],
-        proxy_opts
-      )
-
-    {:ok, uri.host, opts}
-  end
-
-  defp send_and_collect(conn, uri, deadline) do
-    path = (uri.path || "/") <> if(uri.query, do: "?" <> uri.query, else: "")
-
+  defp fetch_html_head(url, ssrf_filter?) do
     headers = [
-      {"host", format_host_header(uri)},
       {"accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"},
       {"accept-encoding", "identity"},
       {"accept-language", "zh-CN,zh;q=0.9,en;q=0.8"},
@@ -263,129 +168,42 @@ defmodule Ankole.Pod.Pages.LinkPreview do
       {"connection", "close"}
     ]
 
-    case Mint.HTTP.request(conn, "GET", path, headers, nil) do
-      {:ok, conn, ref} ->
-        state = %{
-          conn: conn,
-          ref: ref,
-          status: nil,
-          headers: [],
-          chunks: [],
-          bytes: 0,
-          tail: "",
-          non_html?: false,
-          done?: false,
-          zstream: nil
-        }
+    opts = [
+      ssrf_filter: ssrf_filter?,
+      connect_timeout: @connect_timeout_ms,
+      receive_timeout: @receive_timeout_ms,
+      timeout: @connect_timeout_ms + @receive_timeout_ms,
+      max_redirects: @max_redirects,
+      resolve_redirect: &resolve_redirect_url/2,
+      decompress: true,
+      max_bytes: @max_body_bytes
+    ]
 
-        receive_head_loop(state, deadline)
+    HTTP.with_stream("GET", url, headers, nil, opts, fn response, chunks ->
+      cond do
+        response.status not in 200..299 ->
+          {:error, {:http_status, response.status}}
 
-      {:error, _conn, reason} ->
-        {:error, reason}
-    end
-  end
+        not html_content_type?(response_header(response.headers, "content-type")) ->
+          {:error, :unsupported_content_type}
 
-  defp receive_head_loop(state, deadline) do
-    try do
-      do_receive_head_loop(state, deadline)
-    after
-      close_zstream(state.zstream)
-    end
-  end
+        true ->
+          state =
+            Enum.reduce_while(chunks, %{chunks: [], bytes: 0, tail: ""}, fn chunk, acc ->
+              next = append_body_chunk(acc, chunk)
+              if next.done?, do: {:halt, next}, else: {:cont, next}
+            end)
 
-  defp do_receive_head_loop(%{done?: true} = state, _deadline) do
-    close_zstream(state.zstream)
-    body = state.chunks |> Enum.reverse() |> IO.iodata_to_binary()
-    {:ok, %{status: state.status, headers: state.headers, body: body, non_html?: state.non_html?}}
-  end
-
-  defp do_receive_head_loop(state, deadline) do
-    remaining_ms = min(@receive_timeout_ms, deadline - System.monotonic_time(:millisecond))
-
-    if remaining_ms <= 0 do
-      close_zstream(state.zstream)
-      {:error, :timeout}
-    else
-      case Mint.HTTP.recv(state.conn, 0, remaining_ms) do
-        {:ok, conn, responses} ->
-          case apply_mint_responses(responses, %{state | conn: conn}) do
-            {:ok, next_state} ->
-              if next_state.zstream != state.zstream and state.zstream != nil,
-                do: close_zstream(state.zstream)
-
-              do_receive_head_loop(next_state, deadline)
-
-            {:error, _} = error ->
-              close_zstream(state.zstream)
-              error
-          end
-
-        {:error, _conn, :closed, responses} when responses != [] ->
-          case apply_mint_responses(responses, state) do
-            {:ok, next_state} -> do_receive_head_loop(%{next_state | done?: true}, deadline)
-            {:error, _} = error -> error
-          end
-
-        {:error, _conn, reason, _responses} ->
-          close_zstream(state.zstream)
-          {:error, reason}
-      end
-    end
-  end
-
-  defp apply_mint_responses(responses, initial) do
-    Enum.reduce_while(responses, {:ok, initial}, fn message, {:ok, state} ->
-      case apply_mint_message(message, state) do
-        {:ok, %{done?: true} = halted} ->
-          {:halt, {:ok, halted}}
-
-        {:ok, next} ->
-          {:cont, {:ok, next}}
-
-        {:error, _} = error ->
-          close_zstream(state.zstream)
-          {:halt, error}
+          body = state.chunks |> Enum.reverse() |> IO.iodata_to_binary()
+          {:ok, %{body: body, final_url: response.url}}
       end
     end)
+  rescue
+    error in HTTP.Error ->
+      {:error, translate_http_error(error.reason)}
   end
 
-  defp apply_mint_message({:status, ref, status}, %{ref: ref} = state),
-    do: {:ok, %{state | status: status}}
-
-  defp apply_mint_message({:headers, ref, headers}, %{ref: ref} = state) do
-    merged = state.headers ++ headers
-
-    cond do
-      state.status in [301, 302, 303, 307, 308] ->
-        {:ok, %{state | headers: merged, done?: true}}
-
-      state.status in 200..299 and not html_content_type?(response_header(merged, "content-type")) ->
-        {:ok, %{state | headers: merged, non_html?: true, done?: true}}
-
-      true ->
-        zstream = maybe_open_zstream(state.zstream, response_header(merged, "content-encoding"))
-        {:ok, %{state | headers: merged, zstream: zstream}}
-    end
-  end
-
-  defp apply_mint_message({:data, ref, chunk}, %{ref: ref} = state) when is_binary(chunk) do
-    remaining = max(@max_body_bytes - state.bytes, 0)
-
-    if remaining == 0 do
-      {:ok, %{state | done?: true}}
-    else
-      with {:ok, decoded} <- decode_chunk(state.zstream, chunk, remaining) do
-        append_body_chunk(state, decoded)
-      end
-    end
-  end
-
-  defp apply_mint_message({:done, ref}, %{ref: ref} = state),
-    do: {:ok, %{state | done?: true}}
-
-  defp apply_mint_message(_other, state), do: {:ok, state}
-
-  defp append_body_chunk(state, ""), do: {:ok, state}
+  defp append_body_chunk(state, ""), do: Map.put(state, :done?, false)
 
   defp append_body_chunk(state, chunk) do
     remaining = max(@max_body_bytes - state.bytes, 0)
@@ -403,115 +221,20 @@ defmodule Ankole.Pod.Pages.LinkPreview do
         |> strip_head_noise()
         |> contains_head_close?()
 
-    done? = bytes >= @max_body_bytes or head_closed?
-
-    {:ok,
-     %{
-       state
-       | bytes: bytes,
-         tail: tail_bytes(window, 6),
-         chunks: next_chunks,
-         done?: done?
-     }}
+    %{
+      chunks: next_chunks,
+      bytes: bytes,
+      tail: tail_bytes(window, 6),
+      done?: bytes >= @max_body_bytes or head_closed?
+    }
   end
 
-  defp maybe_open_zstream(nil, encoding) when is_binary(encoding) do
-    case encoding |> String.trim() |> String.downcase() do
-      enc when enc in ["gzip", "x-gzip", "deflate"] ->
-        z = :zlib.open()
-        :ok = :zlib.inflateInit(z, 47)
-        z
-
-      _ ->
-        nil
-    end
-  end
-
-  defp maybe_open_zstream(existing, _encoding), do: existing
-
-  defp decode_chunk(nil, chunk, _limit), do: {:ok, chunk}
-
-  defp decode_chunk(zstream, chunk, limit) do
-    inflate_bounded(zstream, chunk, [], 0, limit)
-  rescue
-    ErlangError -> {:error, :invalid_compressed_body}
-  end
-
-  defp inflate_bounded(zstream, data, parts, size, limit) do
-    case :zlib.safeInflate(zstream, data) do
-      {:continue, output} ->
-        next_size = size + IO.iodata_length(output)
-        next_parts = [parts, output]
-
-        if next_size >= limit,
-          do: {:ok, IO.iodata_to_binary(next_parts)},
-          else: inflate_bounded(zstream, [], next_parts, next_size, limit)
-
-      {:finished, output} ->
-        {:ok, IO.iodata_to_binary([parts, output])}
-
-      {:need_dictionary, _adler, _output} ->
-        {:error, :invalid_compressed_body}
-    end
-  end
-
-  defp close_zstream(nil), do: :ok
-
-  defp close_zstream(zstream) do
-    :zlib.close(zstream)
-  rescue
-    ArgumentError -> :ok
-  end
-
-  defp format_host_header(%URI{host: host, port: port, scheme: scheme}) do
-    bracketed =
-      if String.contains?(host, ":") and not String.starts_with?(host, "["),
-        do: "[#{host}]",
-        else: host
-
-    if port in [nil, URI.default_port(scheme)], do: bracketed, else: "#{bracketed}:#{port}"
-  end
-
-  defp resolve_addresses(host) when is_binary(host) do
-    trimmed = host |> String.trim_leading("[") |> String.trim_trailing("]")
-
-    case :inet.parse_address(to_charlist(trimmed)) do
-      {:ok, ip} ->
-        {:ok, [ip]}
-
-      {:error, _} ->
-        addresses =
-          for family <- [:inet, :inet6],
-              {:ok, resolved} <- [:inet.getaddrs(to_charlist(trimmed), family)],
-              address <- resolved,
-              do: address
-
-        case Enum.uniq(addresses) do
-          [] -> {:error, :dns_resolution_failed}
-          list -> {:ok, list}
-        end
-    end
-  end
-
-  defp validate_url(url, ssrf_filter?) do
-    case NativeKernel.validate_web_url(url, ["http", "https"], ssrf_filter?) do
-      :ok -> :ok
-      {:error, :metadata} -> {:error, :metadata_url_blocked}
-      {:error, :private} -> {:error, :private_url_blocked}
-      {:error, :invalid} -> {:error, :invalid_url}
-    end
-  end
-
-  defp validate_addresses(addresses, ssrf_filter?) do
-    ip_strings = Enum.map(addresses, &to_string(:inet.ntoa(&1)))
-
-    case NativeKernel.validate_ip_addresses(ip_strings, ssrf_filter?) do
-      :ok -> :ok
-      {:error, :metadata} -> {:error, :metadata_url_blocked}
-      {:error, :private} -> {:error, :private_url_blocked}
-      {:error, :invalid} -> {:error, :invalid_url}
-    end
-  end
+  defp translate_http_error(:metadata), do: :metadata_url_blocked
+  defp translate_http_error(:private), do: :private_url_blocked
+  defp translate_http_error(:invalid), do: :invalid_url
+  defp translate_http_error(:nxdomain), do: :dns_resolution_failed
+  defp translate_http_error(:invalid_compressed_response), do: :invalid_compressed_body
+  defp translate_http_error(reason), do: reason
 
   defp tail_bytes(binary, max_bytes) when byte_size(binary) <= max_bytes, do: binary
 

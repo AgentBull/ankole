@@ -14,10 +14,11 @@ run a background Job for an Agent they own.
 
 ## Connect a device
 
-Pair a device with the code from Pod Worker settings. Run the launcher on the
-device that will execute the work. It needs a local Docker Engine that runs
-Linux containers, plus network access to the site and its approved Worker
-image registry. The device Worker exchanges Drive files through
+Pair a device with the code from **Account → My devices** in Pod (where the
+owner can also bind owned AI colleagues and inspect live binding health). Run
+the launcher on the device that will execute the work. It needs a local Docker
+Engine that runs Linux containers, plus network access to the site and its
+approved Worker image registry. The device Worker exchanges Drive files through
 `ankole-files`.
 
 ```sh

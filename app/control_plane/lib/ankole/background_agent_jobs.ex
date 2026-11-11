@@ -201,7 +201,10 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Returns the running Job placed on a device while the caller holds its runner lock."
   defdelegate running_for_runner(runner_id), to: Queries
 
-  @doc "Fails the running Job after revoking its device in the same transaction."
+  @doc "Fails every live Job placed on a device after revoking it in the same transaction."
+  defdelegate fail_revoked_runner_jobs_in_tx(runner_id, now), to: Lifecycle
+
+  @doc false
   defdelegate fail_revoked_runner_job_in_tx(runner_id, now), to: Lifecycle
 
   @doc false

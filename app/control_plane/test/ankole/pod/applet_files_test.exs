@@ -104,6 +104,41 @@ defmodule Ankole.Pod.AppletFilesTest do
     end
   end
 
+  test "Applet file.write uploads assets onto knowledge pages using the shared upload_role contract" do
+    owner = human_fixture().principal
+    actor = actor_fixture(owner)
+    category = Ankole.BrainFixtures.category_fixture(owner.uid)
+    {:ok, applet} = Pages.create(actor, %{type: "applet", private_owner_uid: owner.uid})
+
+    {:ok, knowledge} =
+      Pages.create(actor, %{
+        type: :knowledge,
+        parent_id: category.id,
+        title: "Architecture Runbook",
+        xml: "<page><p>Notes</p></page>"
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, knowledge.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: owner.uid, role: "manage"}]
+      })
+
+    ctx = %{"applet" => %{"pageId" => applet.id, "revision" => 1}, "method" => "POST"}
+
+    assert {:ok, %{"pageId" => page_id, "name" => "diagram.png", "mime" => "image/png"}} =
+             Ankole.Pod.Applets.Capabilities.call(ctx, actor, "file.write", [
+               knowledge.id,
+               %{
+                 "name" => "diagram.png",
+                 "contentType" => "image/png",
+                 "bytes" => %{"__ankole_bytes" => Base.encode64("png-bytes")}
+               }
+             ])
+
+    assert page_id == knowledge.id
+  end
+
   test "publication source paths retain the executing Agent's conditional authentication context" do
     owner = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: owner.uid}).principal

@@ -1,8 +1,7 @@
 defmodule Ankole.Pod.RunnerJobs do
   @moduledoc "Starts a device-backed Job from the user's private native conversation."
 
-  alias Ankole.{ActorRef, AuthZ, BackgroundAgentJobs, Conversations}
-  alias Ankole.AgentWorkers.RunnerDevices
+  alias Ankole.{ActorRef, AgentWorkers, AuthZ, BackgroundAgentJobs, Conversations}
   alias Ankole.AuthZ.Actor
   alias Ankole.Sessions.Key
 
@@ -18,7 +17,7 @@ defmodule Ankole.Pod.RunnerJobs do
              [%{resource: "agent:#{args.agentUID}", action: "chat"}],
              Actor.request_context(actor)
            ),
-         :ok <- RunnerDevices.authorize_for_job(actor, args.agentUID, args.runnerID),
+         :ok <- AgentWorkers.authorize_runner_for_job(actor, args.agentUID, args.runnerID),
          {:ok, %{job: job}} <-
            BackgroundAgentJobs.create_with_dispatch(%{
              "agent_uid" => args.agentUID,

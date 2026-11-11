@@ -270,8 +270,8 @@ defmodule Ankole.Sessions.Tools.Jobs do
 
   def activity(tool, args, _phase, _result), do: {tool.activity, Map.take(args, ["name"])}
 
+  alias Ankole.AgentWorkers
   alias Ankole.BackgroundAgentJobs, as: Jobs
-  alias Ankole.AgentWorkers.RunnerDevices
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals.WorkAccess
   alias Ankole.Sessions.Run
@@ -295,7 +295,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
     devices =
       case authorization do
         %{"authorization_kind" => "human", "human_uid" => uid} ->
-          RunnerDevices.list_for_agent(uid, run.agent_uid)
+          AgentWorkers.list_runner_devices_for_agent(uid, run.agent_uid)
           |> Enum.map(&%{"runner_id" => &1.id, "name" => &1.name, "status" => &1.status})
 
         _other ->

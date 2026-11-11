@@ -309,4 +309,90 @@ defmodule Ankole.Files.HTTPBridgeTest do
       refute_receive {:rpc, _, _}
     end
   end
+
+  test "Files.HTTP.safe_redirect_headers strips credentials on cross-origin or HTTPS downgrade redirects" do
+    headers = [
+      {"Authorization", "Bearer secret-token"},
+      {"Cookie", "sid=123"},
+      {"X-Api-Key", "k-secret"},
+      {"Accept", "text/html"}
+    ]
+
+    assert Ankole.Files.HTTP.safe_redirect_headers(
+             "https://api.example.com/v1/a",
+             "https://api.example.com:443/v1/b",
+             headers
+           ) == headers
+
+    assert Ankole.Files.HTTP.safe_redirect_headers(
+             "https://api.example.com/v1/a",
+             "http://api.example.com/v1/b",
+             headers
+           ) == [{"Accept", "text/html"}]
+
+    assert Ankole.Files.HTTP.safe_redirect_headers(
+             "https://api.example.com/v1/a",
+             "https://cdn.example.com/v1/b",
+             headers
+           ) == [{"Accept", "text/html"}]
+
+    assert Ankole.Files.HTTP.safe_redirect_headers(
+             "https://api.example.com:8443/v1/a",
+             "https://api.example.com:443/v1/b",
+             headers
+           ) == [{"Accept", "text/html"}]
+  end
+
+  test "Files.HTTP.with_stream bounds streamed bytes and LinkPreview resolves titles over safe streaming" do
+    Ankole.AppConfigure.put_tenant_by_key("security.ssrf_filter.enabled", false)
+
+    {:ok, preview_server} =
+      Bandit.start_link(
+        plug: fn conn, _opts ->
+          case conn.request_path do
+            "/bounce" ->
+              conn
+              |> Plug.Conn.put_resp_header("location", "http://localhost:#{conn.port}/article")
+              |> Plug.Conn.send_resp(302, "")
+
+            "/article" ->
+              assert Plug.Conn.get_req_header(conn, "authorization") == []
+
+              Plug.Conn.send_resp(
+                conn,
+                200,
+                "<html><head><title>First Principles Title</title></head><body>" <>
+                  String.duplicate("x", 128_000) <> "</body></html>"
+              )
+          end
+        end,
+        ip: {127, 0, 0, 1},
+        port: 0,
+        startup_log: false
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(preview_server)
+    base = "http://127.0.0.1:#{port}"
+
+    collected =
+      Ankole.Files.HTTP.with_stream(
+        "GET",
+        "#{base}/bounce",
+        [{"Authorization", "Bearer should-not-leak"}],
+        nil,
+        [max_bytes: 1024],
+        fn %{status: 200}, stream ->
+          Enum.reduce_while(stream, <<>>, fn chunk, acc ->
+            next = acc <> chunk
+            if byte_size(next) >= 256, do: {:halt, binary_part(next, 0, 256)}, else: {:cont, next}
+          end)
+        end
+      )
+
+    assert byte_size(collected) == 256
+    assert collected =~ "First Principles Title"
+
+    assert {:ok, %{title: "First Principles Title"}} =
+             Ankole.Pod.Pages.LinkPreview.fetch_metadata("#{base}/article", ssrf_filter: false)
+  end
 end

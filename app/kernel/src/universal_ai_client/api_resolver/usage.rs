@@ -29,8 +29,9 @@ pub(crate) fn normalize_response_usage(usage: &Value) -> Value {
     // OpenRouter and Kimi name the cache write `cache_write_tokens`, and
     // DashScope names it `cache_creation_input_tokens`.
     for alias in ["cache_write_tokens", "cache_creation_input_tokens"] {
-        if let Some(cache_write_tokens) =
-            input_details.remove(alias).and_then(|v| integer_value(&v))
+        if let Some(cache_write_tokens) = input_details
+            .remove(alias)
+            .and_then(|v| non_negative_integer(&v))
         {
             input_details
                 .entry("cache_creation_tokens")
@@ -90,8 +91,12 @@ pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
         .get("cache_creation")
         .and_then(Value::as_object)
         .and_then(|cc| {
-            let m5 = cc.get("ephemeral_5m_input_tokens").and_then(integer_value);
-            let h1 = cc.get("ephemeral_1h_input_tokens").and_then(integer_value);
+            let m5 = cc
+                .get("ephemeral_5m_input_tokens")
+                .and_then(non_negative_integer);
+            let h1 = cc
+                .get("ephemeral_1h_input_tokens")
+                .and_then(non_negative_integer);
             if m5.is_some() || h1.is_some() {
                 Some(m5.unwrap_or(0).saturating_add(h1.unwrap_or(0)))
             } else {
@@ -131,11 +136,11 @@ pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
         usage_count(usage, &["thinking_tokens", "reasoning_tokens"]).or_else(|| {
             output_details
                 .get("thinking_tokens")
-                .and_then(integer_value)
+                .and_then(non_negative_integer)
                 .or_else(|| {
                     output_details
                         .get("reasoning_tokens")
-                        .and_then(integer_value)
+                        .and_then(non_negative_integer)
                 })
         })
     {
@@ -176,10 +181,14 @@ pub(super) fn normalize_bedrock_usage(usage: &Value) -> Value {
     }))
 }
 
-// `keys` lists the canonical name first; the first key carrying a numeric count wins.
+// `keys` lists the canonical name first; the first key carrying a non-negative count wins.
 fn usage_count(usage: &Value, keys: &[&str]) -> Option<i64> {
     keys.iter()
-        .find_map(|key| usage.get(*key).and_then(integer_value))
+        .find_map(|key| usage.get(*key).and_then(non_negative_integer))
+}
+
+fn non_negative_integer(value: &Value) -> Option<i64> {
+    integer_value(value).filter(|&count| count >= 0)
 }
 
 fn usage_details(usage: &Value, key: &str, legacy_key: &str) -> Map<String, Value> {
@@ -369,6 +378,45 @@ mod tests {
         assert_eq!(
             anthropic["input_tokens_details"]["cached_tokens"],
             Value::Null
+        );
+    }
+
+    #[test]
+    fn negative_provider_usage_counts_are_ignored() {
+        let response = normalize_response_usage(&json!({
+            "input_tokens": -10,
+            "output_tokens": 5,
+            "cached_tokens": -3,
+            "cache_write_tokens": -2
+        }));
+        assert_eq!(response["input_tokens"], Value::Null);
+        assert_eq!(response["output_tokens"], json!(5));
+        assert_eq!(response["total_tokens"], Value::Null);
+        assert_eq!(
+            response["input_tokens_details"]["cached_tokens"],
+            Value::Null
+        );
+        assert_eq!(
+            response["input_tokens_details"].get("cache_creation_tokens"),
+            None
+        );
+
+        let anthropic = normalize_anthropic_usage(&json!({
+            "input_tokens": 10,
+            "cache_read_input_tokens": -4,
+            "cache_creation": {"ephemeral_5m_input_tokens": -8},
+            "output_tokens": -1,
+            "thinking_tokens": -5
+        }));
+        assert_eq!(anthropic["input_tokens"], json!(10));
+        assert_eq!(anthropic["output_tokens"], Value::Null);
+        assert_eq!(
+            anthropic["input_tokens_details"]["cached_tokens"],
+            Value::Null
+        );
+        assert_eq!(
+            anthropic["output_tokens_details"].get("thinking_tokens"),
+            None
         );
     }
 }

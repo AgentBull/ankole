@@ -15,6 +15,13 @@ defmodule Ankole.Pod.Files do
   require Ash.Query
   alias Ankole.Repo
 
+  @doc "Maps a Pod page type to its file upload role."
+  def upload_role(:file), do: {:ok, "file"}
+  def upload_role(:doc), do: {:ok, "asset"}
+  def upload_role(:knowledge), do: {:ok, "asset"}
+  def upload_role(:base), do: {:ok, "attachment"}
+  def upload_role(_), do: {:error, :invalid_file_role}
+
   @doc "Lists one page's current file manifest. Paths are relative to the page directory."
   def manifest(%Ankole.AuthZ.Actor{} = actor, page_id) do
     with :ok <- OfficeFiles.flush_if_dirty(page_id),

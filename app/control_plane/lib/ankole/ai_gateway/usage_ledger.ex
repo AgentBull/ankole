@@ -105,21 +105,27 @@ defmodule Ankole.AIGateway.UsageLedger do
     do: %{capability: :decision, provider_cost: provider_cost(usage)}
 
   defp capability_use("image_generate", usage, opts) do
-    %{
-      capability: :image_generate,
-      unit: :image,
-      quantity: Keyword.get(opts, :quantity, 1),
-      provider_cost: provider_cost(usage)
-    }
+    use = %{capability: :image_generate, provider_cost: provider_cost(usage)}
+
+    case Keyword.get(opts, :quantity, 1) do
+      quantity when is_integer(quantity) and quantity >= 0 ->
+        Map.merge(use, %{unit: :image, quantity: quantity})
+
+      _invalid ->
+        use
+    end
   end
 
   defp capability_use("speech", usage, opts) do
-    %{
-      capability: :speech,
-      unit: :character,
-      quantity: Keyword.fetch!(opts, :quantity),
-      provider_cost: provider_cost(usage)
-    }
+    use = %{capability: :speech, provider_cost: provider_cost(usage)}
+
+    case Keyword.get(opts, :quantity) do
+      quantity when is_integer(quantity) and quantity >= 0 ->
+        Map.merge(use, %{unit: :character, quantity: quantity})
+
+      _invalid ->
+        use
+    end
   end
 
   # A started second counts as a whole one.
@@ -136,8 +142,9 @@ defmodule Ankole.AIGateway.UsageLedger do
   defp capability_use("transcription", usage, _opts),
     do: %{capability: :transcription, provider_cost: provider_cost(usage)}
 
-  defp capability_use("ocr", %{"pages" => pages}, _opts) when is_integer(pages),
-    do: %{capability: :ocr, unit: :page, quantity: pages}
+  defp capability_use("ocr", %{"pages" => pages}, _opts)
+       when is_integer(pages) and pages >= 0,
+       do: %{capability: :ocr, unit: :page, quantity: pages}
 
   defp capability_use("ocr", _usage, _opts), do: %{capability: :ocr}
 
@@ -147,8 +154,11 @@ defmodule Ankole.AIGateway.UsageLedger do
     use = %{capability: String.to_existing_atom(capability), provider_cost: provider_cost(usage)}
 
     case Keyword.get(opts, :quantity) do
-      seconds when is_integer(seconds) -> Map.merge(use, %{unit: :second, quantity: seconds})
-      _unnamed -> use
+      seconds when is_integer(seconds) and seconds >= 0 ->
+        Map.merge(use, %{unit: :second, quantity: seconds})
+
+      _unnamed ->
+        use
     end
   end
 

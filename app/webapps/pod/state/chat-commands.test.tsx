@@ -749,3 +749,76 @@ test('submitEdit accepts unchanged text for branch re-runs and invokes onInlineE
     client.clear()
   }
 })
+
+test('group Issue room derives default issueAgentUID without mutating targetAgentUID and preserves explicit listeners selection', async () => {
+  const original = podClient.getConfig()
+  const sentTargets: Array<string | null | undefined> = []
+  const data = detail([])
+  data.issueAgentUID = 'agent-a'
+  const model = new ChatModel()
+  model.draft.value = 'First message to default Issue Agent'
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+  let current!: ReturnType<typeof useChatCommands>
+
+  podClient.setConfig({
+    baseUrl: 'https://ankole.test',
+    fetch: (async (input: RequestInfo | URL) => {
+      const request = input as Request
+      const body = request.body ? await request.json() : undefined
+      sentTargets.push(body?.data?.targetAgentUID)
+      return Response.json(data)
+    }) as typeof fetch
+  })
+
+  function Subject() {
+    current = useChatCommands({
+      model,
+      drafts: new ChatDrafts(),
+      conversationID: data.conversation.id,
+      data,
+      agentUID: 'agent-a',
+      personalAssistant: false,
+      agentsError: false,
+      callableAgentUIDs: ['agent-a', 'agent-b'],
+      refresh: async () => data
+    })
+    return null
+  }
+
+  const renderSubject = () =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <Subject />
+      </QueryClientProvider>
+    )
+
+  const submitAndWait = () =>
+    new Promise<void>(resolve => {
+      const unsubscribe = client.getMutationCache().subscribe(event => {
+        if (event.type === 'updated' && ['success', 'error'].includes(event.mutation.state.status)) {
+          unsubscribe()
+          resolve()
+        }
+      })
+      current.submit()
+    })
+
+  try {
+    renderSubject()
+    // Signal stays null (no side-effect copy), while default submission addresses issueAgentUID ('agent-a').
+    expect(model.targetAgentUID.value).toBeNull()
+    await submitAndWait()
+    expect(sentTargets[0]).toBe('agent-a')
+
+    // Explicit __listeners__ ('') survives re-renders/remounts and broadcasts without targetAgentUID.
+    model.targetAgentUID.value = ''
+    model.draft.value = 'Broadcast to all room listeners'
+    renderSubject()
+    expect(model.targetAgentUID.value).toBe('')
+    await submitAndWait()
+    expect(sentTargets[1]).toBeUndefined()
+  } finally {
+    podClient.setConfig(original)
+    client.clear()
+  }
+})

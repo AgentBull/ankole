@@ -160,7 +160,7 @@ claims the completion code through its authenticated Pod session. Claiming
 checks the original actor, tenant, live Human work access, and expiry before
 storing the connection. A reconnect leaves the current connection available
 until the new grant is claimed successfully. Progressive authorization requests
-include the selected personal or team account's previously granted scopes together
+include the selected personal or team account's existing granted scopes together
 with the newly required scopes, so connecting another Toolkit preserves the
 earlier grant. Reauthorization also preserves these scopes when the account has
 expired.
@@ -239,7 +239,7 @@ also satisfies this requirement.
 Creating or retrying a subscription checks the account's current grants and
 returns its owner's consent link before attempting an upstream subscription.
 Team OAuth subscriptions request any missing permissions through the team's
-authorization flow while preserving the account's previously granted scopes.
+authorization flow while preserving the account's existing granted scopes.
 An identity provider can merge these grants into sign-in; that opt-in path uses
 the same v2 authorization-code and refresh protocol as personal connections.
 Linear application authorization uses `actor=app`, while member authorization

@@ -305,7 +305,42 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     end
   end
 
-  defp native_spec(spec), do: Map.drop(spec, @native_private_keys)
+  defp native_spec(spec) do
+    spec
+    |> Map.drop(@native_private_keys)
+    |> maybe_put_result_download_ssrf_filter()
+  end
+
+  defp maybe_put_result_download_ssrf_filter(%{api_resolver: resolver} = spec)
+       when resolver in [
+              :cloudflare_images,
+              "cloudflare_images",
+              :cloudflare_music,
+              "cloudflare_music"
+            ] do
+    put_result_download_ssrf_filter(spec, :result_download_ssrf_filter)
+  end
+
+  defp maybe_put_result_download_ssrf_filter(%{"api_resolver" => resolver} = spec)
+       when resolver in [
+              :cloudflare_images,
+              "cloudflare_images",
+              :cloudflare_music,
+              "cloudflare_music"
+            ] do
+    put_result_download_ssrf_filter(spec, "result_download_ssrf_filter")
+  end
+
+  defp maybe_put_result_download_ssrf_filter(spec), do: spec
+
+  defp put_result_download_ssrf_filter(spec, key) do
+    if Ankole.Repo.tenant_id() != nil and not Ankole.Repo.in_transaction?() do
+      {:ok, ssrf_filter} = Ankole.Security.SSRFFilter.enabled?()
+      Map.put_new(spec, key, ssrf_filter)
+    else
+      spec
+    end
+  end
 
   defp recover(context, spec, reason, opts) do
     failure = classify(reason)

@@ -4,10 +4,10 @@ defmodule Ankole.Pod.Applets.AI do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Artifacts.Image
-  alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.Pod.Access
+  alias Ankole.Pod.Applets.Gateway
   alias Ankole.Pod.{Files, Pages}
 
   @profiles ~w(primary light heavy coding vision_fallback)
@@ -28,21 +28,20 @@ defmodule Ankole.Pod.Applets.AI do
 
   def generate_speech(%{id: applet_page_id}, %Ankole.AuthZ.Actor{} = actor, options, opts)
       when is_map(options) and is_list(opts) do
-    with {:ok, principal} <-
-           Access.write(actor.turn_authority, fn ->
-             Access.principal(actor)
-           end),
-         :ok <- known_options(options, @speech_option_keys),
-         true <- valid_save_to?(options["saveTo"]) or invalid_request(),
-         {:ok, destination} <- authorize_destination(actor, applet_page_id, options["saveTo"]),
-         {:ok, body} <-
-           gateway_call(principal, &AIGateway.create_speech/3, speech_request(options)),
-         {:ok, committed} <-
-           commit_generated_file(actor, destination, body["audio"], body["content_type"]) do
-      {:ok, generated_file(committed, body["content_type"], opts)}
-    else
+    Gateway.with_principal(actor, fn principal ->
+      with :ok <- known_options(options, @speech_option_keys),
+           true <- valid_save_to?(options["saveTo"]) or invalid_request(),
+           {:ok, destination} <- authorize_destination(actor, applet_page_id, options["saveTo"]),
+           {:ok, body} <-
+             Gateway.call(principal, :ai, &AIGateway.create_speech/3, speech_request(options)),
+           {:ok, committed} <-
+             commit_generated_file(actor, destination, body["audio"], body["content_type"]) do
+        {:ok, generated_file(committed, body["content_type"], opts)}
+      end
+    end)
+    |> case do
       {:error, {:file_too_large, _, _}} -> {:error, :file_too_large}
-      {:error, _reason} = error -> error
+      result -> result
     end
   end
 
@@ -61,26 +60,25 @@ defmodule Ankole.Pod.Applets.AI do
   The file name's extension names the audio format.
   """
   def transcribe(%Ankole.AuthZ.Actor{} = actor, options) do
-    with {:ok, principal} <-
-           Access.write(actor.turn_authority, fn ->
-             Access.principal(actor)
-           end),
-         :ok <- known_options(options, ~w(audio language vadFilter verbose)),
-         {:ok, input_audio} <- pod_audio(actor, options["audio"]),
-         {:ok, body} <-
-           gateway_call(
-             principal,
-             &AIGateway.create_transcription/3,
-             %{"model" => "transcription.default", "input_audio" => input_audio}
-             |> maybe_put_gateway("language", options["language"])
-             |> maybe_put_gateway("vad_filter", options["vadFilter"])
-             |> maybe_put_gateway(
-               "response_format",
-               if(options["verbose"] == true, do: "verbose_json")
-             )
-           ) do
-      {:ok, Map.take(body, ~w(model text language duration segments usage))}
-    end
+    Gateway.with_principal(actor, fn principal ->
+      with :ok <- known_options(options, ~w(audio language vadFilter verbose)),
+           {:ok, input_audio} <- pod_audio(actor, options["audio"]),
+           {:ok, body} <-
+             Gateway.call(
+               principal,
+               :ai,
+               &AIGateway.create_transcription/3,
+               %{"model" => "transcription.default", "input_audio" => input_audio}
+               |> maybe_put_gateway("language", options["language"])
+               |> maybe_put_gateway("vad_filter", options["vadFilter"])
+               |> maybe_put_gateway(
+                 "response_format",
+                 if(options["verbose"] == true, do: "verbose_json")
+               )
+             ) do
+        {:ok, Map.take(body, ~w(model text language duration segments usage))}
+      end
+    end)
   end
 
   defp pod_audio(actor, path) when is_binary(path) do
@@ -102,29 +100,27 @@ defmodule Ankole.Pod.Applets.AI do
   the image.
   """
   def ocr(%Ankole.AuthZ.Actor{} = actor, options) do
-    with {:ok, principal} <-
-           Access.write(actor.turn_authority, fn ->
-             Access.principal(actor)
-           end),
-         :ok <- known_options(options, ~w(image)),
-         true <- is_binary(options["image"]) or invalid_request(),
-         {:ok, document} <- resolve_pod_image_data_url(actor, options["image"]),
-         {:ok, body} <-
-           gateway_call(principal, &AIGateway.create_ocr/3, %{
-             "model" => "ocr.default",
-             "document" => document
-           }) do
-      {:ok,
-       %{
-         model: body["model"],
-         pages: body["pages"],
-         usage: %{
-           pages: body["usage"]["pages"],
-           inputTokens: body["usage"]["input_tokens"] || 0,
-           outputTokens: body["usage"]["output_tokens"] || 0
-         }
-       }}
-    end
+    Gateway.with_principal(actor, fn principal ->
+      with :ok <- known_options(options, ~w(image)),
+           true <- is_binary(options["image"]) or invalid_request(),
+           {:ok, document} <- resolve_pod_image_data_url(actor, options["image"]),
+           {:ok, body} <-
+             Gateway.call(principal, :ai, &AIGateway.create_ocr/3, %{
+               "model" => "ocr.default",
+               "document" => document
+             }) do
+        {:ok,
+         %{
+           model: body["model"],
+           pages: body["pages"],
+           usage: %{
+             pages: body["usage"]["pages"],
+             inputTokens: body["usage"]["input_tokens"] || 0,
+             outputTokens: body["usage"]["output_tokens"] || 0
+           }
+         }}
+      end
+    end)
   end
 
   defp known_options(options, keys) do
@@ -132,25 +128,7 @@ defmodule Ankole.Pod.Applets.AI do
   end
 
   defp invalid_request do
-    {:error, %{status: 400, code: "invalid_request", message: "invalid_request", details: nil}}
-  end
-
-  # A rejected request names the field at fault, so the Applet author can fix it.
-  defp gateway_call(principal, create, request) do
-    case create.(principal.uid, request,
-           caller: "pod_applet",
-           request_context: human_context(principal)
-         ) do
-      {:ok, %{body: body}} ->
-        {:ok, body}
-
-      {:error, %OpenAIError{status: 400, message: message}} ->
-        {:error, %{status: 400, code: "invalid_request", message: message, details: nil}}
-
-      {:error, reason} ->
-        {:error,
-         %{status: status(reason), code: code(reason), message: code(reason), details: nil}}
-    end
+    {:error, Gateway.error(:ai, :invalid_request)}
   end
 
   @doc """
@@ -158,19 +136,17 @@ defmodule Ankole.Pod.Applets.AI do
   through the `light` profile when no decision model is configured.
   """
   def decide(%Ankole.AuthZ.Actor{} = actor, options) do
-    with {:ok, principal} <-
-           Access.write(actor.turn_authority, fn ->
-             Access.principal(actor)
-           end) do
+    Gateway.with_principal(actor, fn principal ->
       do_decide(principal, options)
-    end
+    end)
   end
 
   defp do_decide(principal, options) do
     with :ok <- known_options(options, ~w(state questions images)),
          {:ok, body} <-
-           gateway_call(
+           Gateway.call(
              principal,
+             :ai,
              &AIGateway.create_decision/3,
              Map.put(options, "model", "decision.default")
            ) do
@@ -187,23 +163,17 @@ defmodule Ankole.Pod.Applets.AI do
   end
 
   def generate_text(%Ankole.AuthZ.Actor{} = actor, options) do
-    with {:ok, principal} <-
-           Access.write(actor.turn_authority, fn ->
-             Access.principal(actor)
-           end) do
+    Gateway.with_principal(actor, fn principal ->
       do_generate_text(principal, options)
-    end
+    end)
   end
 
   defp do_generate_text(principal, options) do
     with :ok <- profile(options["model"]),
          :ok <- prompt(options),
          {:ok, _effort} <- ReasoningEffort.normalize(options["effort"]),
-         {:ok, %{body: body}} <-
-           AIGateway.create_response(principal.uid, request(options),
-             caller: "pod_applet",
-             request_context: human_context(principal)
-           ),
+         {:ok, body} <-
+           Gateway.call(principal, :ai, &AIGateway.create_response/3, request(options)),
          {:ok, reason} <- finish_reason(body) do
       usage = body["usage"] || %{}
 
@@ -217,9 +187,8 @@ defmodule Ankole.Pod.Applets.AI do
          }
        }}
     else
-      {:error, reason} ->
-        {:error,
-         %{status: status(reason), code: code(reason), message: code(reason), details: nil}}
+      {:error, %{status: _} = error} -> {:error, error}
+      {:error, reason} -> {:error, Gateway.error(:ai, reason)}
     end
   end
 
@@ -227,53 +196,49 @@ defmodule Ankole.Pod.Applets.AI do
 
   def generate_image(%{id: applet_page_id}, %Ankole.AuthZ.Actor{} = actor, options, opts)
       when is_map(options) and is_list(opts) do
-    with {:ok, principal} <-
-           Access.write(actor.turn_authority, fn ->
-             Access.principal(actor)
-           end),
-         {:ok, validated} <- validate_image_options(options),
-         {:ok, destination} <-
-           authorize_destination(actor, applet_page_id, validated.save_to),
-         {:ok, image_urls} <- resolve_pod_image_paths(actor, validated.images),
-         {:ok, mask_url} <- resolve_optional_pod_image_path(actor, validated.mask),
-         gateway_req = build_gateway_image_request(validated, image_urls, mask_url),
-         {:ok, body} <- create_gateway_image(principal, gateway_req),
-         {:ok, committed} <-
-           commit_generated_file(
-             actor,
-             destination,
-             body["bytes"],
-             body["mime_type"]
-           ) do
-      usage = body["usage"] || %{}
+    Gateway.with_principal(actor, fn principal ->
+      with {:ok, validated} <- validate_image_options(options),
+           {:ok, destination} <-
+             authorize_destination(actor, applet_page_id, validated.save_to),
+           {:ok, image_urls} <- resolve_pod_image_paths(actor, validated.images),
+           {:ok, mask_url} <- resolve_optional_pod_image_path(actor, validated.mask),
+           gateway_req = build_gateway_image_request(validated, image_urls, mask_url),
+           {:ok, body} <-
+             Gateway.call(principal, :ai_image, &AIGateway.create_image/3, gateway_req,
+               respect_provider_hosted?: true
+             ),
+           {:ok, committed} <-
+             commit_generated_file(
+               actor,
+               destination,
+               body["bytes"],
+               body["mime_type"]
+             ) do
+        usage = body["usage"] || %{}
 
-      result =
-        committed
-        |> generated_file(body["mime_type"], opts)
-        |> Map.put(:usage, %{
-          inputTokens: usage["input_tokens"] || 0,
-          outputTokens: usage["output_tokens"] || 0,
-          totalTokens:
-            usage["total_tokens"] ||
-              (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
-        })
+        result =
+          committed
+          |> generated_file(body["mime_type"], opts)
+          |> Map.put(:usage, %{
+            inputTokens: usage["input_tokens"] || 0,
+            outputTokens: usage["output_tokens"] || 0,
+            totalTokens:
+              usage["total_tokens"] ||
+                (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
+          })
 
-      result =
-        if is_binary(body["revised_prompt"]) and body["revised_prompt"] != "",
-          do: Map.put(result, :revisedPrompt, body["revised_prompt"]),
-          else: result
+        result =
+          if is_binary(body["revised_prompt"]) and body["revised_prompt"] != "",
+            do: Map.put(result, :revisedPrompt, body["revised_prompt"]),
+            else: result
 
-      {:ok, result}
-    else
-      {:error, :invalid_request} ->
-        {:error,
-         %{status: 400, code: "invalid_request", message: "invalid_request", details: nil}}
-
-      {:error, {:file_too_large, _, _}} ->
-        {:error, :file_too_large}
-
-      {:error, _reason} = error ->
-        error
+        {:ok, result}
+      end
+    end)
+    |> case do
+      {:error, :invalid_request} -> {:error, Gateway.error(:ai_image, :invalid_request)}
+      {:error, {:file_too_large, _, _}} -> {:error, :file_too_large}
+      result -> result
     end
   end
 
@@ -296,28 +261,6 @@ defmodule Ankole.Pod.Applets.AI do
       }
     }
   end
-
-  defp create_gateway_image(principal, gateway_req) do
-    case AIGateway.create_image(principal.uid, gateway_req,
-           respect_provider_hosted?: true,
-           caller: "pod_applet",
-           request_context: human_context(principal)
-         ) do
-      {:ok, %{body: body}} ->
-        {:ok, body}
-
-      {:error, %OpenAIError{} = error} ->
-        {:error, map_openai_image_error(error)}
-
-      {:error, reason} ->
-        {:error,
-         %{status: status(reason), code: code(reason), message: code(reason), details: nil}}
-    end
-  end
-
-  # The usage ledger attributes an Applet call of a Human to that Human.
-  defp human_context(%{type: :human, uid: uid}), do: %{"human_uid" => uid}
-  defp human_context(_principal), do: %{}
 
   defp profile(model) when model in @profiles, do: :ok
   defp profile(_), do: {:error, :invalid_model}
@@ -363,44 +306,6 @@ defmodule Ankole.Pod.Applets.AI do
   end
 
   defp output_text(_), do: ""
-
-  defp code(reason) when reason in [:ai_not_configured, :invalid_model, :invalid_request],
-    do: Atom.to_string(reason)
-
-  defp code({:reasoning_effort, _}), do: "invalid_effort"
-  defp code({:agent_token_quota_exceeded, _}), do: "agent_token_quota_exceeded"
-
-  defp code(%Ankole.AIGateway.ProviderFailure{
-         provider_status: status,
-         provider_body: %{"error" => %{"param" => param}}
-       })
-       when status in [400, 422] and
-              param in ["reasoning.effort", "reasoning_effort", "reasoningEffort"],
-       do: "invalid_effort"
-
-  defp code(reason) when reason in [:model_profile_not_configured, :system_principal_missing],
-    do: "ai_not_configured"
-
-  defp code({name, _})
-       when name in [
-              :unknown_model_selector,
-              :invalid_model_profile,
-              :model_profile_capability_mismatch
-            ],
-       do: "invalid_model"
-
-  defp code(:invalid_model_profile), do: "invalid_model"
-
-  defp code(_), do: "ai_unavailable"
-
-  defp status({:agent_token_quota_exceeded, _}), do: 429
-
-  defp status(reason),
-    do:
-      if(code(reason) == "ai_unavailable",
-        do: 502,
-        else: if(code(reason) == "invalid_request", do: 400, else: 422)
-      )
 
   defp validate_image_options(options) do
     unknown = Map.keys(options) -- @image_option_keys
@@ -473,19 +378,13 @@ defmodule Ankole.Pod.Applets.AI do
           end
 
         type ->
-          with {:ok, role} <- upload_role(type),
+          with {:ok, role} <- Files.upload_role(type),
                {:ok, _} <- Files.authorize_upload(actor, target_id, role) do
             {:ok, {:upload, target_id, role, Map.get(save_to, "name")}}
           end
       end
     end
   end
-
-  defp upload_role(:file), do: {:ok, "file"}
-  defp upload_role(:doc), do: {:ok, "asset"}
-  defp upload_role(:knowledge), do: {:ok, "asset"}
-  defp upload_role(:base), do: {:ok, "attachment"}
-  defp upload_role(_), do: {:error, :invalid_file_role}
 
   defp resolve_pod_image_paths(_actor, []), do: {:ok, []}
 
@@ -629,26 +528,5 @@ defmodule Ankole.Pod.Applets.AI do
     else
       base
     end
-  end
-
-  defp map_openai_image_error(%OpenAIError{code: "request_too_large", message: message}) do
-    %{status: 413, code: "file_too_large", message: message, details: nil}
-  end
-
-  defp map_openai_image_error(%OpenAIError{type: "image_generation_user_error"} = error) do
-    %{status: 422, code: error.code, message: error.message, details: nil}
-  end
-
-  defp map_openai_image_error(%OpenAIError{status: status, code: code, message: message})
-       when status in [400, 422] do
-    if code == "unsupported_value" do
-      %{status: 422, code: "unsupported_value", message: message, details: nil}
-    else
-      %{status: 400, code: "invalid_request", message: message, details: nil}
-    end
-  end
-
-  defp map_openai_image_error(%OpenAIError{message: message}) do
-    %{status: 502, code: "ai_unavailable", message: message, details: nil}
   end
 end

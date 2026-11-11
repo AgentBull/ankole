@@ -319,24 +319,23 @@ defmodule Ankole.Pod.Pages.Search.Query do
       ids =
         shared
         |> Ankole.Pod.shared_root_node_ids(reachable)
-        |> Enum.flat_map(&Ankole.Pod.descendant_node_ids/1)
-        |> Enum.uniq()
+        |> Ankole.Pod.descendant_node_ids()
         |> Enum.reject(&MapSet.member?(own_private, &1))
 
       {:ok, ids}
     end
   end
 
-  defp resolve_scope_ids("conversation", _actor, _reachable, _context) do
-    ids =
+  defp resolve_scope_ids("conversation", _actor, reachable, _context) do
+    root_ids =
       Page
       |> Ash.Query.filter(is_root and not is_nil(conversation_id))
       |> Ash.Query.select([:id])
       |> Ankole.Ash.read!()
-      |> Enum.flat_map(&Ankole.Pod.descendant_node_ids(&1.id))
-      |> Enum.uniq()
+      |> Enum.map(& &1.id)
 
-    {:ok, ids}
+    visible_roots = Ankole.Pod.visible_node_ids(reachable, root_ids)
+    {:ok, Ankole.Pod.descendant_node_ids(visible_roots)}
   end
 
   defp intersect_optional_id_sets(nil, nil), do: {false, []}

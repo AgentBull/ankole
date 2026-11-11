@@ -70,6 +70,7 @@ defmodule Ankole.Principals.Rename.References do
   ]
   @actor_ref_arrays [{"page_contents", "contributors"}]
   @json_uids [
+    {"ai_gateway_media_jobs", "request_context", ["human_uid"]},
     {"conversations", "metadata", ["dm_peer_principal_uid"]},
     {"identity_mapping_requests", "metadata", ["agent_uid"]},
     {"external_message_refs", "author", ["principal_uid"]},

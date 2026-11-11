@@ -104,3 +104,27 @@ fn a_textract_response_without_blocks_is_an_invalid_upstream_response() {
 
     assert_eq!(error.code, "invalid_upstream_response");
 }
+
+#[test]
+fn textract_sparse_blocks_ignore_inflated_document_metadata_page_count() {
+    let body = resolver(
+        APIResolverKind::AmazonTextractOcr,
+        "detect-document-text",
+        json!({}),
+    )
+    .normalize_body(
+        200,
+        json!({
+            "DocumentMetadata": {"Pages": 1_000_000_000_u64},
+            "Blocks": [
+                {"BlockType": "LINE", "Page": 3, "Text": "Sparse page"}
+            ]
+        }),
+    )
+    .unwrap();
+
+    assert_eq!(
+        body["pages"],
+        json!([{"index": 2, "markdown": "Sparse page"}])
+    );
+}

@@ -29,8 +29,17 @@ defmodule Ankole.Workflow.ToolAdmission do
         "reply_route" => Route.snapshot(source)
       })
 
-    with {:ok, value} <- Lifecycle.create_with_dispatch_in_tx(attrs) do
-      {:ok, source_sessions(source), fn -> {:ok, value} end}
+    with {:ok, value} <- Lifecycle.create_with_dispatch_in_tx(attrs, track_issue?: false) do
+      {:ok, source_sessions(source),
+       fn ->
+         with :ok <-
+                Ankole.Issues.ensure_for_task_room_in_tx(
+                  value.run.agent_uid,
+                  value.run.owner_session_id
+                ) do
+           {:ok, value}
+         end
+       end}
     end
   end
 

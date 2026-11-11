@@ -97,14 +97,17 @@ export function AnkoleFinancialChart({
   const mountedRef = useRef<MountedFinancialChart | null>(null)
   const latestSpecRef = useRef(spec)
   latestSpecRef.current = spec
+  const resolvedHeight = spec.height ?? height
+  const resolvedHeightRef = useRef(resolvedHeight)
+  resolvedHeightRef.current = resolvedHeight
 
   const tableId = useId()
   const [isVisible, setIsVisible] = useState<boolean>(() => eager || typeof IntersectionObserver === 'undefined')
   const [tableOpen, setTableOpen] = useState<boolean>(defaultTableOpen)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [themeRevision, setThemeRevision] = useState(0)
 
   const summaryTable = useMemo(() => buildOhlcSummaryTable(spec), [spec])
-  const resolvedHeight = spec.height ?? height
   const isEmpty = spec.data.length === 0
 
   useImperativeHandle(
@@ -165,7 +168,10 @@ export function AnkoleFinancialChart({
   }, [])
 
   useEffect(() => {
-    if (!isVisible || isEmpty) return
+    if (!isVisible || isEmpty) {
+      setErrorMessage(null)
+      return
+    }
     const host = hostRef.current
     if (!host) return
 
@@ -176,7 +182,7 @@ export function AnkoleFinancialChart({
     const mountOrResize = async () => {
       const rect = host.getBoundingClientRect()
       const w = latestSpecRef.current.width ?? Math.round(rect.width)
-      const h = latestSpecRef.current.height ?? Math.round(rect.height || resolvedHeight)
+      const h = latestSpecRef.current.height ?? Math.round(rect.height || resolvedHeightRef.current)
       if (w <= 0 || h <= 0) return
       if (mountedRef.current) {
         mountedRef.current.resize(w, h)
@@ -184,6 +190,13 @@ export function AnkoleFinancialChart({
       }
       if (mountPromise) {
         await mountPromise
+        const mounted = mountedRef.current as MountedFinancialChart | null
+        if (!cancelled && mounted) {
+          const latestRect = host.getBoundingClientRect()
+          const nextW = latestSpecRef.current.width ?? Math.round(latestRect.width)
+          const nextH = latestSpecRef.current.height ?? Math.round(latestRect.height || resolvedHeightRef.current)
+          if (nextW > 0 && nextH > 0) mounted.resize(nextW, nextH)
+        }
         return
       }
       mountPromise = (async () => {
@@ -199,6 +212,13 @@ export function AnkoleFinancialChart({
           })
           if (latestSpecRef.current !== initialSnapshot) {
             mountedRef.current.update(latestSpecRef.current)
+          }
+          if (!cancelled) setErrorMessage(null)
+        } catch (err) {
+          mountedRef.current?.destroy()
+          mountedRef.current = null
+          if (!cancelled) {
+            setErrorMessage(err instanceof Error ? err.message : 'Unable to render financial chart.')
           }
         } finally {
           mountPromise = null
@@ -222,11 +242,28 @@ export function AnkoleFinancialChart({
       mountedRef.current?.destroy()
       mountedRef.current = null
     }
-  }, [isEmpty, isVisible, resolvedHeight, spec.mode])
+  }, [isEmpty, isVisible, spec.mode])
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || !mountedRef.current) return
+    const rect = host.getBoundingClientRect()
+    const w = spec.width ?? Math.round(rect.width)
+    const h = resolvedHeight
+    if (w > 0 && h > 0) {
+      mountedRef.current.resize(w, h)
+    }
+  }, [resolvedHeight, spec.width])
 
   useEffect(() => {
     void themeRevision
-    mountedRef.current?.update(spec)
+    if (!mountedRef.current) return
+    try {
+      mountedRef.current.update(spec)
+      setErrorMessage(null)
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Unable to update financial chart.')
+    }
   }, [spec, themeRevision])
 
   return (
@@ -238,12 +275,22 @@ export function AnkoleFinancialChart({
         </div>
       )}
 
+      {errorMessage ? (
+        <div
+          role="alert"
+          data-slot="financial-chart-error"
+          className="rounded-mini border border-border bg-layer-01 p-4 text-xs text-fg-secondary">
+          <div className="font-semibold text-foreground">Financial chart unavailable</div>
+          <div className="mt-1 font-mono">{errorMessage}</div>
+        </div>
+      ) : null}
+
       <div
         ref={hostRef}
         role="img"
         aria-label={ariaLabel}
         style={isEmpty ? { minHeight: `${resolvedHeight}px` } : { height: `${resolvedHeight}px` }}
-        className="relative w-full overflow-hidden">
+        className={cn('relative w-full overflow-hidden', errorMessage && 'hidden')}>
         {isEmpty && emptyState ? (
           <div className="flex h-full min-h-[inherit] items-center justify-center p-6 text-sm text-fg-tertiary">
             {emptyState}
@@ -298,11 +345,9 @@ export function AnkoleFinancialChart({
 }
 
 export function AnkoleYieldCurveChart(props: AnkoleFinancialChartProps) {
-  return (
-    <AnkoleFinancialChart
-      ariaLabel="Yield curve chart"
-      {...props}
-      spec={{ ...props.spec, mode: 'yield_curve', seriesType: props.spec.seriesType ?? 'line' }}
-    />
+  const yieldSpec = useMemo<FinancialChartSpec>(
+    () => ({ ...props.spec, mode: 'yield_curve', seriesType: props.spec.seriesType ?? 'line' }),
+    [props.spec]
   )
+  return <AnkoleFinancialChart ariaLabel="Yield curve chart" {...props} spec={yieldSpec} />
 }

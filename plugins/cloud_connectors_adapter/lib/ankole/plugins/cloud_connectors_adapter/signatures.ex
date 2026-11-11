@@ -47,11 +47,16 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.Signatures do
   def verify("zendesk", secret, body, headers, _config) do
     timestamp = header(headers, "x-zendesk-webhook-signature-timestamp") || ""
 
-    verified(
-      mac(:sha256, secret, timestamp <> body, :base64),
-      header(headers, "x-zendesk-webhook-signature"),
-      body
-    )
+    with {:ok, seconds} <- zendesk_timestamp_seconds(timestamp),
+         true <- abs(System.system_time(:second) - seconds) <= 300 do
+      verified(
+        mac(:sha256, secret, timestamp <> body, :base64),
+        header(headers, "x-zendesk-webhook-signature"),
+        body
+      )
+    else
+      _ -> {:error, :invalid_webhook_signature}
+    end
   end
 
   def verify("sentry", secret, body, headers, _config),
@@ -65,6 +70,21 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.Signatures do
       _ -> {:error, :invalid_webhook_signature}
     end
   end
+
+  defp zendesk_timestamp_seconds(timestamp) when is_binary(timestamp) and timestamp != "" do
+    case Integer.parse(timestamp) do
+      {seconds, ""} ->
+        {:ok, seconds}
+
+      _ ->
+        case DateTime.from_iso8601(timestamp) do
+          {:ok, dt, _offset} -> {:ok, DateTime.to_unix(dt, :second)}
+          _ -> :error
+        end
+    end
+  end
+
+  defp zendesk_timestamp_seconds(_), do: :error
 
   defp verified(expected, actual, body) do
     if same?(expected, actual),

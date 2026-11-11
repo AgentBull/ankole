@@ -73,8 +73,7 @@ defmodule AnkoleWeb.AIGatewayMediaJobsTest do
       post(ctx.conn, ~p"/api/v1/ai-gateway/videos", %{
         "model" => "video.default",
         "prompt" => "A red kite over a beach",
-        "duration" => 8,
-        "job_id" => "not-a-request-field"
+        "duration" => 8
       })
 
     assert %{"id" => id, "status" => "pending", "model" => "openrouter-main/google/veo-3.1"} =
@@ -292,5 +291,66 @@ defmodule AnkoleWeb.AIGatewayMediaJobsTest do
     assert MediaJobs.cleanup_expired() == 0
     assert MediaJobs.cleanup_expired(DateTime.add(DateTime.utc_now(), 8, :day)) == 1
     assert Ankole.Repo.all(MediaJob) == []
+  end
+
+  test "download_headers only forwards credentials to exact same HTTPS host and port" do
+    prepared = %{
+      upstream: %{
+        url: "https://api.provider.example/v1/videos",
+        headers: [{"authorization", "Bearer secret"}]
+      }
+    }
+
+    assert MediaJobs.download_headers("https://api.provider.example:443/files/out.mp4", prepared) ==
+             [{"authorization", "Bearer secret"}]
+
+    assert MediaJobs.download_headers("http://api.provider.example/files/out.mp4", prepared) == []
+
+    assert MediaJobs.download_headers("https://api.provider.example:8443/files/out.mp4", prepared) ==
+             []
+
+    assert MediaJobs.download_headers("https://cdn.provider.example/files/out.mp4", prepared) ==
+             []
+  end
+
+  test "non-streaming capability endpoints reject unknown top-level parameters and stream: true",
+       ctx do
+    profile("video", "openrouter-main", "google/veo-3.1")
+    profile("music", "cloudflare-main", "minimax/music-2.6")
+
+    for {path, payload} <- [
+          {~p"/api/v1/ai-gateway/videos",
+           %{"model" => "default", "prompt" => "A kite", "unknown_knob" => 1}},
+          {~p"/api/v1/ai-gateway/videos",
+           %{"model" => "default", "prompt" => "A kite", "stream" => true}},
+          {~p"/api/v1/ai-gateway/audio/music",
+           %{"model" => "music.default", "prompt" => "Slow piano", "extra" => "x"}},
+          {~p"/api/v1/ai-gateway/audio/speech",
+           %{"model" => "speech.default", "input" => "Hello", "extra" => "x"}},
+          {~p"/api/v1/ai-gateway/audio/speech",
+           %{"model" => "speech.default", "input" => "Hello", "stream" => true}},
+          {~p"/api/v1/ai-gateway/audio/transcriptions",
+           %{
+             "model" => "transcription.default",
+             "input_audio" => %{"data" => Base.encode64("abc"), "format" => "wav"},
+             "extra" => "x"
+           }},
+          {~p"/api/v1/ai-gateway/ocr",
+           %{
+             "model" => "ocr.default",
+             "document" => "data:image/png;base64," <> Base.encode64("png"),
+             "extra" => "x"
+           }},
+          {~p"/api/v1/ai-gateway/decisions",
+           %{
+             "model" => "decision.default",
+             "state" => nil,
+             "questions" => %{"q1" => %{"type" => "noul", "instructions" => "Is it safe?"}},
+             "extra" => "x"
+           }}
+        ] do
+      assert %{"error" => %{"code" => "unsupported_parameter"}} =
+               ctx.conn |> post(path, payload) |> json_response(400)
+    end
   end
 end

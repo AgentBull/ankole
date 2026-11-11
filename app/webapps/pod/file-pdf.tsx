@@ -14,7 +14,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { isImeComposingKey } from './find-bar'
-import { openPdf } from './pdfjs'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import './file-pdf.css'
 
@@ -53,6 +52,7 @@ export default function PdfPreview({
     setMatches({ current: 0, total: 0 })
     void (async () => {
       // The viewer component reads pdf.js from `globalThis.pdfjsLib`, so it loads after `./pdfjs` has run.
+      const { openPdf } = await import('./pdfjs')
       const { EventBus, LinkTarget, PDFFindController, PDFLinkService, PDFViewer } =
         await import('pdfjs-dist/legacy/web/pdf_viewer.mjs')
       if (closed || !container.current) return

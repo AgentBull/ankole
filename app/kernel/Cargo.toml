@@ -89,7 +89,7 @@ universal_ai_client = [
 # Custom root CA certificate field on `TransportSpec` for local TLS test fixtures.
 test-ca = []
 model_image = ["dep:image", "dep:webp"]
-sql_inspect = ["dep:sqlparser"]
+sql_inspect = ["dep:sqlparser", "dep:stacker"]
 
 [dependencies]
 ankole_presentation = { path = "presentation", optional = true }

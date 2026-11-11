@@ -1,5 +1,31 @@
 # Changelog
 
+## Version 2.0.0-alpha.135 (2026-11-12)
+
+- Let a Pod member bind owned AI colleagues to paired devices and see each
+  binding's live connection status (`connected`, `draining`, or `offline`) in
+  **Account → My devices**. Reconnecting on the same route or after an expired
+  drain re-admits the binding cleanly, and disconnecting a device fails its
+  queued and waiting Jobs alongside running ones.
+- Harden Work, Issues, and principal renames: enforce monotonic `Ankole.LockOrder`
+  across Issue updates, scheduled triggers, and background dispatch, update
+  `issues.squad_uids` and `ai_gateway_media_jobs.request_context["human_uid"]`
+  when renaming a Principal, validate cron rules before creating rooms, pass
+  Squad colleagues to repeating Issue runs, index active `cron_schedules` by
+  owner session, and keep explicit group-listener selections and optimistic Work
+  board status updates deterministic.
+- Isolate `AIGateway.MediaJobs` onto its own Oban queue with atomic single-charge
+  claim transitions and an `(tenant_id, expires_at)` cleanup index, unify Applet
+  AI/Web calls through `Ankole.Pod.Applets.Gateway` (preserving `400`, `413`,
+  and `422` errors and `:knowledge` Page attachments), enforce `Strict` request
+  validation and `provider_options` separation across `universal_ai_client`, and
+  bound outbound HTTP redirects, SQL AST stack depth, `.ods`/`.pdf` decompression,
+  and OCR response normalization. Run `mix ecto.migrate`.
+- Split `@ankole/applet-sdk/toolkits/<toolkit>` into per-platform pure TypeScript
+  declarations, consolidate Pele SVG materialization and financial chart time-series
+  normalization in `@ankole/uikit/viz`, and restore lazy chunk boundaries for G6
+  and PDF.js in `@ankole/webapps`.
+
 ## Version 2.0.0-alpha.134 (2026-11-12)
 
 - Realign the shared design tokens with the Ankole Base Styles library. The hue

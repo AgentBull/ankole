@@ -6,9 +6,22 @@ defmodule Ankole.Pod.RunnerBrowser do
     domain: Ankole.Pod,
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
 
-  alias Ankole.AgentWorkers.RunnerDevices
+  alias Ankole.AgentWorkers
   alias Ankole.Ash.Types.{PrincipalKey, UUIDv7}
   alias Ankole.Pod.APIError
+
+  @binding [
+    agentUID: [type: PrincipalKey, allow_nil?: false],
+    displayName: [type: :string, allow_nil?: true],
+    agentType: [type: :string, allow_nil?: true],
+    status: [type: :string, allow_nil?: false]
+  ]
+
+  @colleague [
+    uid: [type: PrincipalKey, allow_nil?: false],
+    displayName: [type: :string, allow_nil?: false],
+    agentType: [type: :string, allow_nil?: false]
+  ]
 
   @device [
     id: [type: UUIDv7, allow_nil?: false],
@@ -17,7 +30,7 @@ defmodule Ankole.Pod.RunnerBrowser do
     bindings: [
       type: {:array, :map},
       allow_nil?: false,
-      constraints: [items: [fields: [agentUID: [type: PrincipalKey, allow_nil?: false]]]]
+      constraints: [items: [fields: @binding]]
     ]
   ]
 
@@ -46,12 +59,18 @@ defmodule Ankole.Pod.RunnerBrowser do
             type: {:array, :map},
             allow_nil?: false,
             constraints: [items: [fields: @device]]
+          ],
+          colleagues: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @colleague]]
           ]
         ]
       )
 
       run(fn _input, context ->
-        RunnerDevices.list(context.actor) |> APIError.result(&%{devices: &1})
+        AgentWorkers.list_runner_devices_with_colleagues(context.actor)
+        |> APIError.result(&Function.identity/1)
       end)
     end
 
@@ -68,7 +87,7 @@ defmodule Ankole.Pod.RunnerBrowser do
       )
 
       run(fn input, context ->
-        RunnerDevices.register(
+        AgentWorkers.register_runner_device(
           context.actor,
           input.arguments.name,
           AnkoleWeb.PodURL.site_origin(input.context.conn)
@@ -84,7 +103,7 @@ defmodule Ankole.Pod.RunnerBrowser do
       constraints(fields: @device)
 
       run(fn input, context ->
-        RunnerDevices.bind(
+        AgentWorkers.bind_runner_device(
           context.actor,
           input.arguments.id,
           input.arguments.agentUID,
@@ -120,7 +139,7 @@ defmodule Ankole.Pod.RunnerBrowser do
       constraints(fields: [revoked: [type: :boolean, allow_nil?: false]])
 
       run(fn input, context ->
-        RunnerDevices.revoke(context.actor, input.arguments.id)
+        AgentWorkers.revoke_runner_device(context.actor, input.arguments.id)
         |> APIError.result(fn _ -> %{revoked: true} end)
       end)
     end

@@ -7,8 +7,12 @@ import {
   AnkoleInfographic,
   AnkoleSparkline,
   AnkoleStatCard,
+  AnkoleYieldCurveChart,
   assignSeriesColors,
+  buildPeleCssVarsString,
   isPrintSafeSvg,
+  materializePeleSvg,
+  parseSvgDimensions,
   pickReadableDataLabelInk,
   resolveSelectOptionColor,
   resolveSelectOptionStrokeColor,
@@ -16,7 +20,12 @@ import {
   sanitizeExportedSvg,
   type DonutCenterLabel
 } from '../src/index'
-import { colorizeVolumePoints, mapPriceScaleMode } from '../src/viz/financial'
+import {
+  colorizeVolumePoints,
+  mapPriceScaleMode,
+  normalizeFinancialMainData,
+  normalizeFinancialSingleSeries
+} from '../src/viz/financial'
 import {
   BUILTIN_INFOGRAPHIC_TEMPLATES,
   buildOfflineIconSymbolSvg,
@@ -611,5 +620,56 @@ describe('Thin lazy React visualization wrappers', () => {
       <AnkoleGraph ariaLabel="Entity Graph" nodes={[{ id: 'n1', label: 'Node 1' }]} edges={[]} />
     )
     expect(graphHtml).toBeDefined()
+
+    const yieldHtml = renderToStaticMarkup(
+      <AnkoleYieldCurveChart
+        title="UST Curve"
+        spec={{
+          data: [
+            { time: 1, value: 4.15 },
+            { time: 10, value: 4.35 }
+          ]
+        }}
+      />
+    )
+    expect(yieldHtml).toContain('Yield curve chart')
+  })
+
+  test('materializes Pele CSS variables, rx styles, and dimensions into print-safe standalone SVG', () => {
+    const palette = resolveVizTheme(null, { theme: 'dark' })
+    const rawSvg =
+      '<svg viewBox="0 0 200 100" style="--_bg:var(--pele-bg);--_fg:var(--pele-fg);color:var(--_fg)"><rect x="4" y="4" width="120" height="40" style="rx:6px" fill="var(--_bg)" stroke="var(--pele-accent)"/></svg>'
+    const materialized = materializePeleSvg(rawSvg, palette)
+    expect(isPrintSafeSvg(materialized.svg)).toBe(true)
+    expect(materialized.svg).toContain('rx="6"')
+    expect(materialized.svg).not.toContain('var(--')
+    expect(materialized.width).toBe(216)
+    expect(materialized.height).toBe(116)
+    expect(parseSvgDimensions(materialized.svg)).toEqual({ width: 216, height: 116 })
+    expect(buildPeleCssVarsString(palette)).toContain(`--pele-bg:${palette.background}`)
+  })
+
+  test('normalizes financial series points by sorting ascending, deduplicating timestamps, clamping OHLC, and dropping NaN', () => {
+    const normalizedOhlc = normalizeFinancialMainData([
+      { time: '2026-01-03', open: 102, high: 99, low: 105, close: 101 },
+      { time: '2026-01-02', open: 100, high: 103, low: 98, close: 102 },
+      { time: '2026-01-02', open: 100, high: 106, low: 97, close: 104 },
+      { time: '2026-01-04', open: Number.NaN, high: 110, low: 95, close: 100 }
+    ])
+    expect(normalizedOhlc).toEqual([
+      { time: '2026-01-02', open: 100, high: 106, low: 97, close: 104 },
+      { time: '2026-01-03', open: 102, high: 105, low: 99, close: 101 }
+    ])
+
+    const normalizedSingle = normalizeFinancialSingleSeries([
+      { time: 30, value: 4.5 },
+      { time: 2, value: 4.0 },
+      { time: 2, value: 4.12 },
+      { time: 5, value: Number.POSITIVE_INFINITY }
+    ])
+    expect(normalizedSingle).toEqual([
+      { time: 2, value: 4.12 },
+      { time: 30, value: 4.5 }
+    ])
   })
 })

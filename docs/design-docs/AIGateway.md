@@ -115,8 +115,11 @@ rerank slot; Agent and Human rerank calls use the Pod slot. The `default` and
 `speech.default` for the `speech` slot, `transcription.default` for the
 `transcription` slot, `ocr.default` for the `ocr` slot, `video.default` for
 the `video` slot, and `music.default` for the `music` slot. Pod Applets execute
-as `system`, accept only built-in LLM slots, and do not consult a creator Agent
-or its quota. OIDC-bound external requests use their explicit model binding.
+under their selected ordinary caller or `admin` owner Principal via
+`Ankole.Pod.Applets.Gateway` (`caller: "pod_applet"`), resolving that
+Principal's effective configuration across built-in LLM slots and non-LLM
+capabilities without spending interactive Agent token quota. OIDC-bound external
+requests use their explicit model binding.
 
 Provider-hosted switches inherit from Pod and Site for system Principals;
 system overrides accept only the fifteen fixed slots, with no custom aliases.
@@ -826,12 +829,12 @@ Applet backend calls to `AnkoleRuntime.ai.generateText`,
 `AnkoleRuntime.ai.generateImage`, `AnkoleRuntime.ai.decide`,
 `AnkoleRuntime.ai.generateSpeech`, `AnkoleRuntime.ai.transcribe`,
 `AnkoleRuntime.ai.ocr`,
-`AnkoleRuntime.web.search`, and `AnkoleRuntime.web.fetch` run in-process under
-the selected ordinary or `admin` execution Principal (`caller: "pod_applet"`). Human Principals resolve the
-tenant's `system` model profiles, whereas Agent Principals resolve that Agent's
-model profiles; both attribute usage to the executing Principal (`origin:
-"applet"`) in `ai_gateway_usage_records` without spending interactive Agent
-token quota. `generateText` resolves only built-in LLM slots (rejecting
+`AnkoleRuntime.web.search`, and `AnkoleRuntime.web.fetch` run in-process through
+`Ankole.Pod.Applets.Gateway` under the selected ordinary or `admin` execution
+Principal (`caller: "pod_applet"`). Human Principals resolve the Pod's effective
+model profiles, whereas Agent Principals resolve that Agent's model profiles;
+both attribute usage to the executing Principal (`origin: "applet"`) in
+`ai_gateway_usage_records` without spending interactive Agent token quota. `generateText` resolves only built-in LLM slots (rejecting
 raw `provider/model` selectors and falling back from a missing `light` profile to
 `primary`), validates reasoning effort against the resolved model, and returns
 generated text, `stop`/`length` finish reason, and input/output token counts.
@@ -847,9 +850,11 @@ call (`tool_choice: %{"type" => "image_generation"}`), returning
 non-streaming request to the image provider without invoking the `primary` LLM. `create_web_search/3`
 with `respect_provider_hosted?: true` likewise routes through `primary`'s native
 `web_search` tool when `provider_hosted.web_search` is `true` and through the
-standalone `web_search` profile when `false`. Upstream provider errors map to
-`ai_unavailable` (`web_search_unavailable` / `web_fetch_unavailable` for web
-calls) without exposing credentials to the Applet isolate, and native
+standalone `web_search` profile when `false`. Deterministic client and
+capability rejections (`400`, `413`, and `422` `%OpenAIError{}` responses) keep
+their HTTP status, error code, and message, whereas upstream provider failures
+map to `502 ai_unavailable` (`web_search_unavailable` / `web_fetch_unavailable`
+for web calls) without exposing credentials to the Applet isolate, and native
 non-streaming requests monitor their BEAM owner process so active upstream I/O
 drops immediately if the capability process exits.
 

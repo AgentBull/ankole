@@ -12,8 +12,26 @@ pub(super) struct CloudflareMusic;
 
 impl APIProtocol for OpenrouterVideo {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
-        let mut body = Map::new();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "OpenRouter video")?;
+        validate_known_request_fields(
+            &request,
+            &[
+                "prompt",
+                "duration",
+                "resolution",
+                "aspect_ratio",
+                "size",
+                "generate_audio",
+                "seed",
+                "first_frame",
+                "last_frame",
+            ],
+            strict,
+            "OpenRouter video",
+        )?;
+        let mut body = context.sanitized_provider_options_object();
         body.insert("model".to_string(), json!(context.model));
         for key in [
             "prompt",
@@ -95,10 +113,23 @@ impl APIProtocol for OpenrouterVideo {
 
 impl APIProtocol for CloudflareMusic {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
-        let instrumental = request.get("instrumental").and_then(Value::as_bool);
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "Cloudflare music")?;
+        validate_known_request_fields(
+            &request,
+            &["prompt", "lyrics", "instrumental", "duration"],
+            strict,
+            "Cloudflare music",
+        )?;
+        let defaults = context.sanitized_provider_options_object();
+        let instrumental = request
+            .get("instrumental")
+            .and_then(Value::as_bool)
+            .or_else(|| defaults.get("instrumental").and_then(Value::as_bool));
         let mut input = Map::new();
         for key in ["prompt", "lyrics"] {
+            maybe_put_from(&mut input, &defaults, key);
             maybe_put_from(&mut input, &request, key);
         }
 
@@ -115,11 +146,16 @@ impl APIProtocol for CloudflareMusic {
             if let Some(instrumental) = instrumental {
                 input.insert("force_instrumental".to_string(), json!(instrumental));
             }
-            if let Some(seconds) = request.get("duration").and_then(Value::as_u64) {
+            if let Some(seconds) = request
+                .get("duration")
+                .and_then(Value::as_u64)
+                .or_else(|| defaults.get("duration").and_then(Value::as_u64))
+            {
                 input.insert("music_length_ms".to_string(), json!(seconds * 1000));
             }
         } else {
             for key in ["instrumental", "duration"] {
+                maybe_put_from(&mut input, &defaults, key);
                 maybe_put_from(&mut input, &request, key);
             }
         }

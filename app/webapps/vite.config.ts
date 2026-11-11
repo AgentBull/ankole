@@ -149,7 +149,16 @@ function manualChunks(moduleID: string): string | undefined {
     return 'vendor-setup-ui'
   }
 
-  return 'vendor-utilities'
+  if (
+    packageName === '@agentbull/active-support' ||
+    packageName === 'class-variance-authority' ||
+    packageName === 'clsx' ||
+    packageName === 'tailwind-merge'
+  ) {
+    return 'vendor-utilities'
+  }
+
+  return undefined
 }
 
 function phoenixShellPlugin(): Plugin {
@@ -328,6 +337,17 @@ export default defineConfig(({ command }): UserConfig => ({
               for (const cssFile of chunk.css ?? []) appletUikitCss.add(cssFile)
               for (const child of chunk.imports ?? []) {
                 if (!seenApplet.has(child)) appletQueue.push(child)
+              }
+            }
+          }
+          for (const [chunkKey, chunkMeta] of Object.entries(manifest)) {
+            if (!chunkKey.endsWith('pod/meta-brain.tsx')) continue
+            for (const depKey of chunkMeta.imports ?? []) {
+              const dep = manifest[depKey]
+              if (dep?.name === 'vendor-graph') {
+                throw new Error(
+                  `Chunk "${chunkKey}" statically imports "${dep.name}" (${dep.file ?? depKey}). Keep AnkoleGraph behind AnkoleLazyGraph.`
+                )
               }
             }
           }

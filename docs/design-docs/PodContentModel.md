@@ -2582,10 +2582,9 @@ refusal included, stands against it. When an administrator saves the Pod or
 Site `ocr` profile and the value in effect at that scope is not on, the
 Console counts the unread scans and their pages (`GET /api/v2/unread-scans`
 for the Pod, `GET /api/v2/site/unread-scans` for the Pods that follow the Site
-value), names the charge, and asks. The count also says whether it is still
-`counting`: right after an upgrade some PDFs have no current cache or no page
-list yet, and the Console then asks even when the count is zero and marks the
-numbers as incomplete. Accepting stores `true` at that scope,
+value), names the charge, and asks. The count also says whether it is still `counting`: when some PDFs lack a
+current cache or a page list, the Console asks even when the count is zero and
+marks the numbers as incomplete. Accepting stores `true` at that scope,
 declining stores `false`, and closing the dialog stores nothing; when no scan
 is waiting, the Console does not ask. The answer can change later in
 AppConfigure.
@@ -2599,9 +2598,9 @@ minutes times its failures in a row, and after five failures the pass tries
 it once a day, so an outage or an empty provider account ends without anyone
 uploading the files again. A PDF whose every page is a scan is `skipped` with
 `empty_text_layer` and keeps its page list, so the same pass reaches it, and
-the OCR run replaces it with an `ok` cache. A scan that an earlier release
-cached without a page list is extracted again whether or not the setting is
-on, which costs nothing and lets the Console count its pages. The same holds
+the OCR run replaces it with an `ok` cache. A scan cached without a page list
+is extracted again whether or not the setting is on, which costs nothing and
+lets the Console count its pages. The same holds
 for a file whose cache row keeps OCR pages that its text does not show yet,
 which is what a run leaves when it could not store its extraction, and for a
 file whose extraction succeeded while its search text is empty.
@@ -3090,9 +3089,10 @@ business write:
   trigger generation and render `result.url` directly), or to an explicit
   `saveTo: {pageId, name?}` destination authorized under standard Pod file rules
   (`node_contribute` on a Base Page for record attachments, `node_edit` on a
-  Document or Applet Page). An unconfigured model profile returns `422
-  ai_not_configured`, invalid parameters return `422`, and upstream provider
-  failures return `502`.
+  Document, Knowledge, or Applet Page). Through `Ankole.Pod.Applets.Gateway`, an
+  unconfigured model profile returns `422 ai_not_configured`, deterministic
+  request/size rejections return `400`, `413`, or `422` with AIGateway's code
+  and message, and upstream provider failures return `502`.
 - **`web.search` and `web.fetch`**: Route through `AIGateway` under the selected
   ordinary or `admin` execution Principal (mirrored on
   `AnkoleRuntime.admin.web`). `web.search` accepts a non-empty `query` (up to 1,024
@@ -3103,9 +3103,14 @@ business write:
   across returned pages, preserving head and tail slices on line boundaries when
   truncating oversized pages (`truncated: true`).
 - **MCP and files**: `mcp.call` selects a Connector Toolkit or an HTTP server
-  from enabled Skills. The Function Runtime host calls the control-plane gateway
-  through MCPorter using the selected execution Principal. Tool annotations govern GET access and safe
-  retries; the shared File/HTTP bridge streams large uploads and downloads.
+  from enabled Skills. `@ankole/applet-sdk/toolkits/<toolkit>` (and the
+  `@ankole/applet-sdk/toolkits` barrel) provides generated pure-TypeScript
+  `import type` declarations for each Connector Toolkit's tool names, inputs,
+  and outputs (`mix ankole.toolkits`) so `server/main.ts` type-checks without
+  bundling runtime schemas. The Function Runtime host calls the control-plane
+  gateway through MCPorter using the selected execution Principal. Tool
+  annotations govern GET access and safe retries; the shared File/HTTP bridge
+  streams large uploads and downloads.
   [MCP-backed Skills](MCPBackedSkills.md#applet-tools-and-streaming-files) defines
   protocol negotiation, JSON limits and unknown upstream outcomes.
 

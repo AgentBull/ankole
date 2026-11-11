@@ -427,6 +427,47 @@ impl ResponseContext {
         }
         request
     }
+
+    pub fn canonical_request_object(&self) -> Map<String, Value> {
+        let mut request = self.request.as_object().cloned().unwrap_or_default();
+        strip_internal_envelope_keys(&mut request);
+
+        if !request.contains_key("stream")
+            && let Some(stream) = self.stream
+        {
+            request.insert("stream".to_string(), json!(stream));
+        }
+
+        if self.include_model {
+            request.insert("model".to_string(), json!(self.model));
+        } else {
+            request.remove("model");
+        }
+
+        request
+    }
+
+    pub fn sanitized_provider_options_object(&self) -> Map<String, Value> {
+        let mut options = self
+            .provider_options
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        strip_internal_envelope_keys(&mut options);
+        options.remove("stream");
+        if !self.include_model {
+            options.remove("model");
+        }
+        options
+    }
+}
+
+fn strip_internal_envelope_keys(map: &mut Map<String, Value>) {
+    map.remove("previous_response_id");
+    map.remove("provider_options");
+    map.remove("metadata");
+    map.remove("account_id");
+    map.retain(|key, _| !key.starts_with("__ankole_"));
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -761,6 +802,8 @@ pub(crate) struct ModelRequestSpec {
     pub(crate) limits: RequestLimits,
     #[serde(default)]
     pub(crate) hosted_tools: Option<HostedToolsSpec>,
+    #[serde(default)]
+    pub(crate) result_download_ssrf_filter: bool,
 }
 
 impl ModelRequestSpec {

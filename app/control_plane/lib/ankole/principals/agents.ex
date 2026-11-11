@@ -240,6 +240,7 @@ defmodule Ankole.Principals.Agents do
     Agent
     |> Ash.Query.filter(principal.type == :agent)
     |> filter_agent_status(Keyword.get(opts, :status))
+    |> filter_agent_owner(Keyword.get(opts, :owner_principal_uid))
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.Query.load(:principal)
     |> Ankole.Ash.read!()
@@ -252,6 +253,11 @@ defmodule Ankole.Principals.Agents do
     do: Ash.Query.filter(query, principal.status == :active)
 
   defp filter_agent_status(query, nil), do: query
+
+  defp filter_agent_owner(query, owner_uid) when is_binary(owner_uid),
+    do: Ash.Query.filter(query, owner_principal_uid == ^owner_uid)
+
+  defp filter_agent_owner(query, nil), do: query
 
   def update_agent(uid, attrs) when is_map(attrs) do
     Repo.transact_top_level(fn -> update_agent_in_tx(uid, attrs) end)
