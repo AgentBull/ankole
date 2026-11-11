@@ -2853,6 +2853,26 @@ open_chat = "Open in Chat"
 scheduled = "Scheduled"
 paused = "Paused"
 next_run = "Next: {$time}"
+labels = "Labels"
+labels_placeholder = "Separate labels with commas"
+label_filter = "Filter by label"
+all_labels = "All"
+add_label = "Add label"
+remove_label = "Remove the label {$label}"
+repeat_label = "Repeat"
+repeat_hint = "Each run reports in the issue's conversation and waits for your review."
+repeats = "Repeats"
+squad = "Squad"
+squad_hint = "Your assistant shares the work among these colleagues."
+parent_label = "Part of “{$title}”"
+new_sub_issue = "New sub-issue"
+sub_issues = "Sub-issues {$done}/{$total}"
+sub_issue_accepted = "Sub-issue “{$title}” is done."
+pause = "Pause"
+resume = "Resume"
+run_now = "Run now"
+remove_schedule = "Remove"
+attention = "{$count} issues need you"
 
 [pod.work.status]
 todo = "To do"
@@ -2864,6 +2884,10 @@ done = "Done"
 [pod.work.schedule_kind]
 cron = "Recurring"
 checkback = "Check back"
+
+[pod.work.repeat]
+none = "Does not repeat"
+on = "Repeat on a schedule"
 
 [pod.chat]
 personal_assistant = "Personal assistant"

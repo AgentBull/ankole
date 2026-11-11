@@ -38,6 +38,10 @@ defmodule Ankole.Sessions.Events do
   defp publish_rooms_changed("conversation:" <> _id),
     do: Ankole.Conversations.Events.publish_rooms_changed()
 
+  # A cron rule's run shows on the Work item of the room that owns the rule.
+  defp publish_rooms_changed("cron:" <> _id),
+    do: Ankole.Conversations.Events.publish_rooms_changed()
+
   defp publish_rooms_changed(_session), do: :ok
 
   @doc "Publishes a transient Driver snapshot. This event does not establish a durable fact."

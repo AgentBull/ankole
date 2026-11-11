@@ -9,8 +9,8 @@ import { ContentError, ContentSkeleton } from './content-primitives'
 import { workItemsQuery, type WorkItem, type WorkStatus } from './work-api'
 import './chat.css'
 
-// Work that needs the viewer comes first; accepted work stays on the board.
-const sections: WorkStatus[] = ['waiting', 'working', 'todo', 'review']
+// The viewer's inbox comes first: an answer the Agent needs, then results to review. Accepted work stays on the board.
+const sections: WorkStatus[] = ['waiting', 'review', 'working', 'todo']
 
 // The marks a conversation row uses in Chat, so the same state looks the same in both tabs.
 const marks: Partial<Record<WorkStatus, 'waiting_choice' | 'running_background'>> = {

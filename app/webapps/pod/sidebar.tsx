@@ -41,6 +41,7 @@ import type { PodSidebarNavigationState } from './state/navigation'
 import { POD_SIDEBAR_MAX_WIDTH, POD_SIDEBAR_MIN_WIDTH, SidebarLayoutModel } from './state/sidebar-layout'
 
 import { agentsQuery, conversationAttentionQuery } from './api'
+import { workItemsQuery } from './work-api'
 import { browserSession } from '../common/api/generated/sdk.gen'
 
 export type PodSidebarTab = 'home' | 'chat' | 'work'
@@ -83,6 +84,10 @@ export function PodSidebar({
     ).length ?? 0
   const commentAttention = useQuery(commentAttentionQuery)
   const homeAttention = commentAttention.data?.length ?? 0
+  // Work's inbox: the Issues that wait for an answer or for review.
+  const work = useQuery(workItemsQuery)
+  const workAttention = work.data?.filter(item => item.status === 'waiting' || item.status === 'review').length ?? 0
+  const attention = { home: homeAttention, chat: chatAttention, work: workAttention }
   const navigate = useNavigate()
   const pathname = useLocation({ select: location => location.pathname })
   const routeTab = useLocation({
@@ -166,7 +171,9 @@ export function PodSidebar({
                               ? t('pod.superagent.attention', { count: chatAttention })
                               : value === 'home' && homeAttention > 0
                                 ? t('pod.document.unread_comments')
-                                : undefined
+                                : value === 'work' && workAttention > 0
+                                  ? t('pod.work.attention', { count: workAttention })
+                                  : undefined
                           }
                         />
                       }>
@@ -175,10 +182,10 @@ export function PodSidebar({
                       <span className="pod-sidebar-tab-label" data-open={tab === value ? '' : undefined} aria-hidden>
                         <span>{label}</span>
                       </span>
-                      {/* Both tabs announce work that waits for the viewer with the same badge. */}
-                      {value !== 'work' && (value === 'chat' ? chatAttention : homeAttention) > 0 && (
+                      {/* Every tab announces what waits for the viewer with the same badge. */}
+                      {attention[value] > 0 && (
                         <Badge variant="info" size="sm" aria-hidden>
-                          {value === 'chat' ? chatAttention : homeAttention}
+                          {attention[value]}
                         </Badge>
                       )}
                     </TooltipTrigger>

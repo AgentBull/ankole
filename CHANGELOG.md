@@ -1,5 +1,22 @@
 # Changelog
 
+## Version 2.0.0-alpha.123 (2026-11-11)
+
+- Extend Work. An Issue can repeat on a cron schedule: each run sends its
+  request to the Agent, reports in the Issue's conversation, and returns the
+  Issue to In review, and the person who made it repeat can pause, resume, run,
+  or remove the schedule from the Issue's panel or from Scheduled. Issues carry
+  labels, and the board filters by one label. A person can break an Issue into
+  sub-issues; accepting a sub-issue posts its result in the parent's
+  conversation, where the parent's Agent continues. An Issue for a personal
+  assistant can name a Squad of AI colleagues among whom the assistant shares
+  the work. A direct conversation with an AI colleague or a group now enters
+  Work when its first Background Agent Job or Workflow starts, as a
+  conversation with a personal assistant already did, and stays there until
+  someone accepts it. The Work tab shows a badge for the Issues that need an
+  answer or wait for review, and lists them first. Run `mix ecto.migrate`: the
+  migration adds labels, the parent link, and the Squad to Issues.
+
 ## Version 2.0.0-alpha.122 (2026-11-11)
 
 - Add video and music generation to AIGateway as media jobs. `POST /videos`

@@ -233,9 +233,10 @@ steer-seeded successors to resolve their conversation without a live calling
 turn. The owner Session also links the Job to an [Issue](Issues.md): a Job
 whose owner is an Issue's room is one of that Issue's runs. Creating a Job from
 an Agent's turn, or continuing a finished Job, reopens the room's accepted
-Issue in the same transaction and gives a personal assistant's task room its
-Issue when the room has none. A successor that a steer message seeds leaves the
-Issue as it is.
+Issue in the same transaction and gives a room of the Chat list its Issue when
+the room has none. A Job whose owner is a cron rule's execution Session belongs
+to the Issue of the rule's owner room. A successor that a steer message seeds
+leaves the Issue as it is.
 
 When the originating Conversation is a Pod room, the control plane derives the
 source Page ID and Pod delivery instructions from the Conversation owner and

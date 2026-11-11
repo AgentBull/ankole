@@ -15,6 +15,9 @@ async function createIssue(page: Page, title: string, start: '立即开始' | '�
   expect((await created).ok()).toBe(true)
 }
 
+// A translated string isolates each interpolated value with bidi marks, so a match allows them around the value.
+const named = (prefix: string, value: string, suffix: string) => new RegExp(`${prefix}\u2068?${value}\u2069?${suffix}`)
+
 const moved = (page: Page) =>
   page.waitForResponse(
     response => response.request().method() === 'PATCH' && /\/issues\/[^/]+$/.test(new URL(response.url()).pathname)
@@ -110,6 +113,115 @@ test("an Issue shared with a teammate still addresses the Issue's Agent by defau
     await recipient.click()
     await page.getByRole('option', { name: '允许主动回应的 Agent', exact: true }).click()
     await expect(recipient).toHaveText('允许主动回应的 Agent')
+  } finally {
+    await context.close()
+  }
+})
+
+test('a repeating Issue with labels shows its next run, and its creator pauses its schedule', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1680, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto('/work')
+    const title = `Weekly digest ${Date.now().toString(36)}`
+    await page.getByRole('button', { name: '新建 Issue', exact: true }).click()
+    await page.getByRole('textbox', { name: '标题', exact: true }).fill(title)
+    await page.getByRole('textbox', { name: '标签', exact: true }).fill('增长, Q4')
+    await page.getByRole('combobox', { name: '开始方式', exact: true }).click()
+    await page.getByRole('option', { name: '稍后开始', exact: true }).click()
+    await page.getByRole('combobox', { name: '重复', exact: true }).click()
+    await page.getByRole('option', { name: '按计划重复', exact: true }).click()
+    await expect(page.getByRole('dialog')).toContainText('每次运行的结果都会发在这个 Issue 的对话里')
+    const created = page.waitForResponse(
+      response => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/issues')
+    )
+    await page.getByRole('button', { name: '创建 Issue', exact: true }).click()
+    expect((await created).ok()).toBe(true)
+
+    const board = page.getByRole('main')
+    const card = board.getByRole('region', { name: '待开始', exact: true }).locator('article', { hasText: title })
+    await expect(card).toContainText('增长')
+    await expect(card).toContainText('Q4')
+    await expect(card).toContainText('下次：')
+
+    // A label narrows the board to its Issues.
+    const filter = board.getByRole('group', { name: '按标签筛选', exact: true })
+    await filter.getByRole('button', { name: '增长', exact: true }).click()
+    await expect(card).toBeVisible()
+    await expect(board.locator('article', { hasNotText: '增长' })).toHaveCount(0)
+    await filter.getByRole('button', { name: '全部', exact: true }).click()
+
+    const changed = page.waitForResponse(
+      response =>
+        response.request().method() === 'PATCH' && new URL(response.url()).pathname.includes('/issues/scheduled/')
+    )
+    await board
+      .getByRole('region', { name: '定时', exact: true })
+      .getByRole('button', { name: `暂停 ${title}`, exact: true })
+      .click()
+    expect((await changed).ok()).toBe(true)
+    await expect(card).toContainText('已暂停')
+  } finally {
+    await context.close()
+  }
+})
+
+test('a sub-Issue names its parent, and the parent counts it', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1680, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto('/work')
+    const parent = `Launch plan ${Date.now().toString(36)}`
+    await request(page, '/issues', 'POST', { title: parent, agentUID: state.agent_uid, start: false })
+
+    await page.getByRole('navigation', { name: 'Work', exact: true }).getByRole('link', { name: parent }).click()
+    const panel = page.getByRole('complementary', { name: 'Issue', exact: true })
+    await panel.getByRole('button', { name: '新建子 Issue', exact: true }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText(named('属于「', parent, '」'))
+    const child = `Competitor pricing ${Date.now().toString(36)}`
+    await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(child)
+    await dialog.getByRole('combobox', { name: '开始方式', exact: true }).click()
+    await page.getByRole('option', { name: '稍后开始', exact: true }).click()
+    await dialog.getByRole('button', { name: '创建 Issue', exact: true }).click()
+
+    const column = page.getByRole('main').getByRole('region', { name: '待开始', exact: true })
+    await expect(column.locator('article', { hasText: child })).toContainText(named('属于「', parent, '」'))
+    await expect(column.locator('article', { hasText: parent }).filter({ hasNotText: child }).first()).toContainText(
+      named('子 Issue ', '0', '/\u2068?1')
+    )
+  } finally {
+    await context.close()
+  }
+})
+
+test("a personal assistant's Issue shows the Squad that shares its work", async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1680, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto('/work')
+    const title = `Quarterly deck ${Date.now().toString(36)}`
+    await page.getByRole('button', { name: '新建 Issue', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title)
+    await dialog.getByRole('combobox', { name: '开始方式', exact: true }).click()
+    await page.getByRole('option', { name: '稍后开始', exact: true }).click()
+    const squad = dialog.getByRole('group', { name: 'Squad', exact: true })
+    await expect(squad).toContainText('你的助理会把工作分给这些同事')
+    await squad.getByRole('checkbox').first().check()
+    const created = page.waitForResponse(
+      response => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/issues')
+    )
+    await dialog.getByRole('button', { name: '创建 Issue', exact: true }).click()
+    const item = (await (await created).json()) as { squad: { name: string }[] }
+    expect(item.squad).toHaveLength(1)
+
+    const card = page.getByRole('main').locator('article', { hasText: title })
+    await expect(card.getByLabel('Squad', { exact: true })).toBeVisible()
   } finally {
     await context.close()
   }

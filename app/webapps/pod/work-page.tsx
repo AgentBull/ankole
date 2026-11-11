@@ -1,11 +1,19 @@
-import { Button, Tabs, TabsList, TabsTrigger, useSidebar } from '@ankole/uikit'
-import { RiAddLine, RiStopCircleLine } from '@remixicon/react'
+import { Badge, Button, Tabs, TabsList, TabsTrigger, useSidebar } from '@ankole/uikit'
+import {
+  RiAddLine,
+  RiDeleteBinLine,
+  RiFlashlightLine,
+  RiPauseLine,
+  RiPlayLine,
+  RiRepeatLine,
+  RiStopCircleLine
+} from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatDateTime, formatRelativeTime } from '../common/date-time'
 import { useSearchParams } from '../common/router'
-import { stopConversationExecution, updatePodIssue } from './api/generated/sdk.gen'
+import { changePodScheduledWork, stopConversationExecution, updatePodIssue } from './api/generated/sdk.gen'
 import { ChatAvatar } from './chat/chat-avatar'
 import { ExecutionStatusMark, RunningElapsed, executionStatusLabelKey } from './chat/execution-status'
 import { executionProgressLabel } from './chat/linked-execution-card'
@@ -37,7 +45,9 @@ export function WorkRoute() {
   const [search, setSearch] = useSearchParams()
   const layout = search.get('layout') === 'list' ? 'list' : 'board'
   const selected = search.get('issue')
-  const [creating, setCreating] = useState(false)
+  const label = search.get('label')
+  // The dialog opens empty, or for a sub-Issue of the open Issue.
+  const [creating, setCreating] = useState<false | { parent?: { id: string; title: string } }>(false)
   const returnFocus = useRef<HTMLElement | null>(null)
   const open = (id: string | null, trigger?: HTMLElement | null) => {
     if (trigger) returnFocus.current = trigger
@@ -67,26 +77,61 @@ export function WorkRoute() {
                 <TabsTrigger value="list">{t('pod.work.list')}</TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button size="sm" onClick={() => setCreating(true)}>
+            <Button size="sm" onClick={() => setCreating({})}>
               <RiAddLine aria-hidden />
               {t('pod.work.new_issue')}
             </Button>
           </div>
         </div>
         <div className="min-h-0 flex-1 space-y-8 overflow-auto pb-6">
-          <WorkItems layout={layout} selected={selected} open={open} />
+          <WorkItems
+            layout={layout}
+            selected={selected}
+            open={open}
+            label={label}
+            filter={next =>
+              setSearch(current => {
+                if (next) current.set('label', next)
+                else current.delete('label')
+                return current
+              })
+            }
+          />
           <ScheduledWork open={open} />
         </div>
       </section>
       <Suspense fallback={null}>
-        <IssuePanel id={selected} mobile={mobile} close={() => open(null)} returnFocus={returnFocus} />
+        <IssuePanel
+          id={selected}
+          mobile={mobile}
+          close={() => open(null)}
+          returnFocus={returnFocus}
+          newSubIssue={item => setCreating({ parent: { id: item.id, title: item.title } })}
+        />
       </Suspense>
-      <IssueCreateDialog open={creating} onOpenChange={setCreating} onCreated={item => open(item.id)} />
+      <IssueCreateDialog
+        open={!!creating}
+        onOpenChange={next => !next && setCreating(false)}
+        parent={creating ? creating.parent : undefined}
+        onCreated={item => open(item.id)}
+      />
     </div>
   )
 }
 
-function WorkItems({ layout, selected, open }: { layout: 'board' | 'list'; selected: string | null; open: Open }) {
+function WorkItems({
+  layout,
+  selected,
+  open,
+  label,
+  filter
+}: {
+  layout: 'board' | 'list'
+  selected: string | null
+  open: Open
+  label: string | null
+  filter(label: string | null): void
+}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const items = useQuery(workItemsQuery)
@@ -108,11 +153,27 @@ function WorkItems({ layout, selected, open }: { layout: 'board' | 'list'; selec
   })
   if (items.isPending) return <ContentSkeleton variant="list" rows={6} />
   if (items.error && !items.data) return <ContentError error={items.error} retry={() => void items.refetch()} />
-  const rows = items.data ?? []
-  if (!rows.length) return <p className="py-10 text-center text-sm text-fg-tertiary">{t('pod.work.empty')}</p>
+  const all = items.data ?? []
+  if (!all.length) return <p className="py-10 text-center text-sm text-fg-tertiary">{t('pod.work.empty')}</p>
+  const labels = [...new Set(all.flatMap(item => item.labels))].sort((a, b) => a.localeCompare(b))
+  const rows = label ? all.filter(item => item.labels.includes(label)) : all
   return (
     <>
       <ContentError error={move.error || items.error} />
+      {labels.length > 0 && (
+        <div role="group" aria-label={t('pod.work.label_filter')} className="flex flex-wrap gap-1.5">
+          {[null, ...labels].map(value => (
+            <Button
+              key={value ?? ''}
+              size="xs"
+              variant={label === value ? 'default' : 'outline'}
+              aria-pressed={label === value}
+              onClick={() => filter(value)}>
+              {value ?? t('pod.work.all_labels')}
+            </Button>
+          ))}
+        </div>
+      )}
       {layout === 'list' ? (
         <WorkList items={rows} selected={selected} open={open} />
       ) : (
@@ -203,7 +264,7 @@ function WorkCard({
   open: Open
   onDrag(dragging: boolean): void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const title = useRef<HTMLButtonElement>(null)
   const stoppable = item.runs.find(run => run.stoppable)
   const client = useQueryClient()
@@ -228,6 +289,11 @@ function WorkCard({
         onDrag(true)
       }}
       onDragEnd={() => onDrag(false)}>
+      {item.parent && (
+        <p className="mb-0.5 truncate text-xs text-fg-tertiary">
+          {t('pod.work.parent_label', { title: item.parent.title || t('pod.content.untitled') })}
+        </p>
+      )}
       <button
         ref={title}
         type="button"
@@ -235,6 +301,29 @@ function WorkCard({
         onClick={event => open(item.id, event.currentTarget)}>
         {item.title || t('pod.content.untitled')}
       </button>
+      {item.labels.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {item.labels.map(label => (
+            <Badge key={label} size="sm">
+              {label}
+            </Badge>
+          ))}
+        </div>
+      )}
+      {(item.children || item.repeat) && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-fg-secondary tabular-nums">
+          {item.children && t('pod.work.sub_issues', item.children)}
+          {item.repeat && (
+            <span className="inline-flex items-center gap-1" title={t('pod.work.repeats')}>
+              <RiRepeatLine aria-label={t('pod.work.repeats')} className="size-3.5" />
+              {item.repeat.status === 'paused'
+                ? t('pod.work.paused')
+                : item.repeat.dueAt &&
+                  t('pod.work.next_run', { time: formatDateTime(item.repeat.dueAt, i18n.language) })}
+            </span>
+          )}
+        </p>
+      )}
       {item.runs.map(run => {
         const status = executionStatusLabelKey(run.status)
         return (
@@ -267,6 +356,15 @@ function WorkCard({
               <ChatAvatar name={item.agent.name} agent className="size-5" />
               <span className="min-w-0 flex-1 truncate">{item.agent.name}</span>
             </>
+          )}
+          {item.squad.length > 0 && (
+            <span className="flex shrink-0 -space-x-1" aria-label={t('pod.work.squad')}>
+              {item.squad.map(member => (
+                <span key={member.uid} title={member.name}>
+                  <ChatAvatar name={member.name} agent className="size-5 ring-2 ring-background" />
+                </span>
+              ))}
+            </span>
           )}
           {stoppable && (
             <Button
@@ -311,10 +409,19 @@ function WorkList({ items, selected, open }: { items: WorkItem[]; selected: stri
   )
 }
 
-/** The recurring rules and pending checkbacks of the viewer's rooms. Each row opens the room that owns it. */
+/**
+ * The recurring rules and pending checkbacks of the viewer's rooms. Each row opens the room that owns it, and a
+ * rule that runs on the viewer's authority can be paused, resumed, run now, or removed here.
+ */
 function ScheduledWork({ open }: { open: Open }) {
   const { t, i18n } = useTranslation()
+  const client = useQueryClient()
   const schedules = useQuery(scheduledWorkQuery)
+  const change = useMutation({
+    mutationFn: ({ id, change }: { id: string; change: 'pause' | 'resume' | 'run' | 'remove' }) =>
+      changePodScheduledWork({ path: { id }, body: { data: { change } } }),
+    onSettled: () => void client.invalidateQueries({ queryKey: workKeys.all })
+  })
   if (schedules.error && !schedules.data) {
     return <ContentError error={schedules.error} retry={() => void schedules.refetch()} />
   }
@@ -325,28 +432,66 @@ function ScheduledWork({ open }: { open: Open }) {
         {t('pod.work.scheduled')}
         <span className="text-fg-tertiary tabular-nums">{schedules.data.length}</span>
       </h2>
+      <ContentError error={change.error} />
       <ul className="grid gap-0.5">
-        {schedules.data.map(row => (
-          <li key={`${row.kind}:${row.id}`}>
-            <button
-              type="button"
-              className="flex min-h-9 w-full items-center gap-3 rounded-control px-3 py-1 text-left text-[13px] leading-5 hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-              onClick={event => open(row.conversationID, event.currentTarget)}>
-              <span className="w-24 shrink-0 text-xs text-fg-tertiary">{t(`pod.work.schedule_kind.${row.kind}`)}</span>
-              <span className="min-w-0 flex-1 truncate">
-                {row.title || row.conversationTitle || t('pod.content.untitled')}
-              </span>
-              <span className="hidden w-40 shrink-0 truncate text-xs text-fg-secondary md:block">{row.agentName}</span>
-              <span className="w-44 shrink-0 text-xs text-fg-secondary">
-                {row.status === 'paused'
-                  ? t('pod.work.paused')
-                  : row.dueAt
-                    ? t('pod.work.next_run', { time: formatDateTime(row.dueAt, i18n.language) })
-                    : ''}
-              </span>
-            </button>
-          </li>
-        ))}
+        {schedules.data.map(row => {
+          const name = row.title || row.conversationTitle || t('pod.content.untitled')
+          const busy = change.isPending && change.variables.id === row.id
+          return (
+            <li key={`${row.kind}:${row.id}`} className="flex items-center gap-1">
+              <button
+                type="button"
+                className="flex min-h-9 min-w-0 flex-1 items-center gap-3 rounded-control px-3 py-1 text-left text-[13px] leading-5 hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                onClick={event => open(row.conversationID, event.currentTarget)}>
+                <span className="w-24 shrink-0 text-xs text-fg-tertiary">
+                  {t(`pod.work.schedule_kind.${row.kind}`)}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+                <span className="hidden w-40 shrink-0 truncate text-xs text-fg-secondary md:block">
+                  {row.agentName}
+                </span>
+                <span className="w-44 shrink-0 text-xs text-fg-secondary">
+                  {row.status === 'paused'
+                    ? t('pod.work.paused')
+                    : row.dueAt
+                      ? t('pod.work.next_run', { time: formatDateTime(row.dueAt, i18n.language) })
+                      : ''}
+                </span>
+              </button>
+              {row.kind === 'cron' && row.manageable && (
+                <span className="flex shrink-0 items-center">
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`${t(row.status === 'paused' ? 'pod.work.resume' : 'pod.work.pause')} ${name}`}
+                    title={t(row.status === 'paused' ? 'pod.work.resume' : 'pod.work.pause')}
+                    onClick={() => change.mutate({ id: row.id, change: row.status === 'paused' ? 'resume' : 'pause' })}>
+                    {row.status === 'paused' ? <RiPlayLine aria-hidden /> : <RiPauseLine aria-hidden />}
+                  </Button>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`${t('pod.work.run_now')} ${name}`}
+                    title={t('pod.work.run_now')}
+                    onClick={() => change.mutate({ id: row.id, change: 'run' })}>
+                    <RiFlashlightLine aria-hidden />
+                  </Button>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`${t('pod.work.remove_schedule')} ${name}`}
+                    title={t('pod.work.remove_schedule')}
+                    onClick={() => change.mutate({ id: row.id, change: 'remove' })}>
+                    <RiDeleteBinLine aria-hidden />
+                  </Button>
+                </span>
+              )}
+            </li>
+          )
+        })}
       </ul>
     </section>
   )

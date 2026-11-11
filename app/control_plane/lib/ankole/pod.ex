@@ -313,6 +313,12 @@ defmodule Ankole.Pod do
         route(:get, "/", :list, name: "podIssues", wrap_in_result?: false)
         route(:post, "/", :create, name: "createPodIssue", wrap_in_result?: false)
         route(:get, "/scheduled", :scheduled, name: "podScheduledWork", wrap_in_result?: false)
+
+        route(:patch, "/scheduled/:id", :change_schedule,
+          name: "changePodScheduledWork",
+          wrap_in_result?: false
+        )
+
         route(:get, "/:id", :show, name: "podIssue", wrap_in_result?: false)
         route(:patch, "/:id", :update, name: "updatePodIssue", wrap_in_result?: false)
       end

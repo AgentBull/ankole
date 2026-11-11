@@ -2782,6 +2782,26 @@ open_chat = "在对话中打开"
 scheduled = "定时"
 paused = "已暂停"
 next_run = "下次：{$time}"
+labels = "标签"
+labels_placeholder = "多个标签用逗号分隔"
+label_filter = "按标签筛选"
+all_labels = "全部"
+add_label = "添加标签"
+remove_label = "移除标签“{$label}”"
+repeat_label = "重复"
+repeat_hint = "每次运行的结果都会发在这个 Issue 的对话里，等你验收。"
+repeats = "重复执行"
+squad = "Squad"
+squad_hint = "你的助理会把工作分给这些同事。"
+parent_label = "属于「{$title}」"
+new_sub_issue = "新建子 Issue"
+sub_issues = "子 Issue {$done}/{$total}"
+sub_issue_accepted = "子 Issue「{$title}」已完成。"
+pause = "暂停"
+resume = "恢复"
+run_now = "立即运行"
+remove_schedule = "删除"
+attention = "{$count} 个 Issue 要你处理"
 
 [pod.work.status]
 todo = "待开始"
@@ -2793,6 +2813,10 @@ done = "已完成"
 [pod.work.schedule_kind]
 cron = "周期任务"
 checkback = "稍后回访"
+
+[pod.work.repeat]
+none = "不重复"
+on = "按计划重复"
 
 [pod.chat]
 personal_assistant = "个人助理"

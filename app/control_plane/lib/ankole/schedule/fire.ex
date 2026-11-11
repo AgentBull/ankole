@@ -151,6 +151,7 @@ defmodule Ankole.Schedule.Fire do
                ),
              {:ok, delivery} <- deliver_scheduled_event(event, now, plan),
              {:ok, event} <- mark_event_fired(event, delivery, now),
+             :ok <- Ankole.Issues.track_fire_in_tx(schedule),
              {:ok, _schedule} <-
                Cron.advance_after_fire(schedule, event.cron_fire_slot_at, now) do
           {:ok, fire_result(event, delivery)}
@@ -351,7 +352,8 @@ defmodule Ankole.Schedule.Fire do
          true <- Ankole.AutomationJobs.JobSources.live?(schedule),
          :ok <- Cron.validate_fire_schedule(schedule),
          {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch]),
-         {:ok, event} <- mark_event_fired(event, delivery, now) do
+         {:ok, event} <- mark_event_fired(event, delivery, now),
+         :ok <- Ankole.Issues.track_fire_in_tx(schedule) do
       {:ok, fire_result(event, delivery)}
     else
       false -> mark_event_cancelled(event, now, :page_trashed)

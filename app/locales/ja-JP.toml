@@ -2781,6 +2781,26 @@ open_chat = "チャットで開く"
 scheduled = "スケジュール"
 paused = "一時停止中"
 next_run = "次回：{$time}"
+labels = "ラベル"
+labels_placeholder = "複数のラベルはカンマで区切ります"
+label_filter = "ラベルで絞り込む"
+all_labels = "すべて"
+add_label = "ラベルを追加"
+remove_label = "ラベル「{$label}」を外す"
+repeat_label = "繰り返し"
+repeat_hint = "実行するたびに結果が Issue の会話に届き、あなたの確認を待ちます。"
+repeats = "繰り返し実行"
+squad = "Squad"
+squad_hint = "アシスタントがこれらの同僚と作業を分担します。"
+parent_label = "親 Issue：{$title}"
+new_sub_issue = "サブ Issue を作成"
+sub_issues = "サブ Issue {$done}/{$total}"
+sub_issue_accepted = "サブ Issue「{$title}」が完了しました。"
+pause = "一時停止"
+resume = "再開"
+run_now = "今すぐ実行"
+remove_schedule = "削除"
+attention = "対応が必要な Issue：{$count} 件"
 
 [pod.work.status]
 todo = "未着手"
@@ -2792,6 +2812,10 @@ done = "完了"
 [pod.work.schedule_kind]
 cron = "定期実行"
 checkback = "後で確認"
+
+[pod.work.repeat]
+none = "繰り返さない"
+on = "スケジュールで繰り返す"
 
 [pod.chat]
 personal_assistant = "パーソナルアシスタント"

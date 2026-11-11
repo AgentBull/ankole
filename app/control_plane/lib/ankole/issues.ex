@@ -30,4 +30,6 @@ defmodule Ankole.Issues do
   defdelegate get(actor, id), to: Ankole.Issues.Queries
   defdelegate list(actor), to: Ankole.Issues.Queries
   defdelegate scheduled(actor), to: Ankole.Issues.Activity
+  defdelegate change_schedule(actor, id, change), to: Ankole.Issues.Activity
+  defdelegate track_fire_in_tx(rule), to: Ankole.Issues.Operations
 end

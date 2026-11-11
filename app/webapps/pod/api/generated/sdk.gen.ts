@@ -15,6 +15,9 @@ import type {
   ChangePodMembershipData,
   ChangePodMembershipErrors,
   ChangePodMembershipResponses,
+  ChangePodScheduledWorkData,
+  ChangePodScheduledWorkErrors,
+  ChangePodScheduledWorkResponses,
   ChoosePodNextStepData,
   ChoosePodNextStepErrors,
   ChoosePodNextStepResponses,
@@ -3354,6 +3357,25 @@ export const metaImportSkill = <ThrowOnError extends boolean = true>(
       ...options.headers
     }
   })
+
+/**
+ * changePodScheduledWork operation on issue_operation resource
+ */
+export const changePodScheduledWork = <ThrowOnError extends boolean = true>(
+  options: Options<ChangePodScheduledWorkData, ThrowOnError>
+): RequestResult<ChangePodScheduledWorkResponses, ChangePodScheduledWorkErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<ChangePodScheduledWorkResponses, ChangePodScheduledWorkErrors, ThrowOnError, 'data'>(
+    {
+      responseStyle: 'data',
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/pod/issues/scheduled/{id}',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
 
 /**
  * podPageCommentsRead operation on pod_document_comment_operation resource

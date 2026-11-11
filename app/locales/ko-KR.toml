@@ -2782,6 +2782,26 @@ open_chat = "채팅에서 열기"
 scheduled = "예약됨"
 paused = "일시 중지됨"
 next_run = "다음: {$time}"
+labels = "레이블"
+labels_placeholder = "레이블이 여러 개이면 쉼표로 구분하세요"
+label_filter = "레이블로 필터"
+all_labels = "전체"
+add_label = "레이블 추가"
+remove_label = "레이블 ‘{$label}’ 제거"
+repeat_label = "반복"
+repeat_hint = "실행할 때마다 결과가 Issue 대화에 올라와 검토를 기다립니다."
+repeats = "반복 실행"
+squad = "Squad"
+squad_hint = "비서가 이 동료들과 작업을 나눕니다."
+parent_label = "상위 Issue: {$title}"
+new_sub_issue = "새 하위 Issue"
+sub_issues = "하위 Issue {$done}/{$total}"
+sub_issue_accepted = "하위 Issue ‘{$title}’ 작업이 완료되었습니다."
+pause = "일시 중지"
+resume = "다시 시작"
+run_now = "지금 실행"
+remove_schedule = "삭제"
+attention = "확인이 필요한 Issue {$count}개"
 
 [pod.work.status]
 todo = "시작 전"
@@ -2793,6 +2813,10 @@ done = "완료"
 [pod.work.schedule_kind]
 cron = "반복 실행"
 checkback = "나중에 확인"
+
+[pod.work.repeat]
+none = "반복 안 함"
+on = "일정에 따라 반복"
 
 [pod.chat]
 personal_assistant = "개인 비서"

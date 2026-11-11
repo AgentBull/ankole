@@ -35,8 +35,8 @@ multiplexing subcommands through an `action` parameter.
 
 A run records the calling Session as its owner. When that Session is the room
 of an [Issue](Issues.md), the run is one of the Issue's runs. Creating a run
-reopens the room's accepted Issue in the same transaction and gives a personal
-assistant's task room its Issue when the room has none.
+reopens the room's accepted Issue in the same transaction and gives a room of
+the Chat list its Issue when the room has none.
 
 Deployment-wide Workflow settings cap `concurrency` and `max_agent_calls` if the
 caller requests higher numbers. `workflow` returns the decimal `run_id` and the

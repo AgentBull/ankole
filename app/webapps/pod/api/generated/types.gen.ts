@@ -1556,9 +1556,26 @@ export type PodIssuesResponses = {
         name: string
         uid: string
       } | null
+      children?: {
+        done: number
+        total: number
+      } | null
       description?: string | null
       id: string
+      labels: Array<string>
       lastActivityAt: string
+      parent?: {
+        id: string
+        title: string
+      } | null
+      repeat?: {
+        dueAt?: string | null
+        expression?: string | null
+        id: string
+        manageable: boolean
+        status: 'active' | 'paused'
+        timezone: string
+      } | null
       runs: Array<{
         agentUID: string
         completedAt?: string | null
@@ -1583,6 +1600,10 @@ export type PodIssuesResponses = {
         title: string
         updatedAt: string
       }>
+      squad: Array<{
+        name: string
+        uid: string
+      }>
       status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
       title: string
       tracked: boolean
@@ -1600,6 +1621,13 @@ export type CreatePodIssueData = {
     data: {
       agentUID: string
       description?: string | null
+      labels?: Array<string> | null
+      parentID?: string | null
+      repeat?: {
+        expression: string
+        timezone: string
+      } | null
+      squadUIDs?: Array<string> | null
       start?: boolean | null
       title: string
     }
@@ -1627,9 +1655,26 @@ export type CreatePodIssueResponses = {
       name: string
       uid: string
     } | null
+    children?: {
+      done: number
+      total: number
+    } | null
     description?: string | null
     id: string
+    labels: Array<string>
     lastActivityAt: string
+    parent?: {
+      id: string
+      title: string
+    } | null
+    repeat?: {
+      dueAt?: string | null
+      expression?: string | null
+      id: string
+      manageable: boolean
+      status: 'active' | 'paused'
+      timezone: string
+    } | null
     runs: Array<{
       agentUID: string
       completedAt?: string | null
@@ -1653,6 +1698,10 @@ export type CreatePodIssueResponses = {
       } | null
       title: string
       updatedAt: string
+    }>
+    squad: Array<{
+      name: string
+      uid: string
     }>
     status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
     title: string
@@ -7570,6 +7619,7 @@ export type PodScheduledWorkResponses = {
       id: string
       kind: string
       lastFiredAt?: string | null
+      manageable: boolean
       schedule?: {
         [key: string]: unknown
       } | null
@@ -11100,6 +11150,42 @@ export type MetaImportSkillResponses = {
 
 export type MetaImportSkillResponse = MetaImportSkillResponses[keyof MetaImportSkillResponses]
 
+export type ChangePodScheduledWorkData = {
+  /**
+   * Request body for the changePodScheduledWork operation on issue_operation resource
+   */
+  body: {
+    data: {
+      change: 'pause' | 'resume' | 'run' | 'remove'
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/issues/scheduled/{id}'
+}
+
+export type ChangePodScheduledWorkErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ChangePodScheduledWorkError = ChangePodScheduledWorkErrors[keyof ChangePodScheduledWorkErrors]
+
+export type ChangePodScheduledWorkResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+  }
+}
+
+export type ChangePodScheduledWorkResponse = ChangePodScheduledWorkResponses[keyof ChangePodScheduledWorkResponses]
+
 export type PodPageCommentsReadData = {
   /**
    * Request body for the podPageCommentsRead operation on pod_document_comment_operation resource
@@ -11286,9 +11372,26 @@ export type PodIssueResponses = {
       name: string
       uid: string
     } | null
+    children?: {
+      done: number
+      total: number
+    } | null
     description?: string | null
     id: string
+    labels: Array<string>
     lastActivityAt: string
+    parent?: {
+      id: string
+      title: string
+    } | null
+    repeat?: {
+      dueAt?: string | null
+      expression?: string | null
+      id: string
+      manageable: boolean
+      status: 'active' | 'paused'
+      timezone: string
+    } | null
     runs: Array<{
       agentUID: string
       completedAt?: string | null
@@ -11313,6 +11416,10 @@ export type PodIssueResponses = {
       title: string
       updatedAt: string
     }>
+    squad: Array<{
+      name: string
+      uid: string
+    }>
     status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
     title: string
     tracked: boolean
@@ -11328,6 +11435,7 @@ export type UpdatePodIssueData = {
   body?: {
     data: {
       description?: string | null
+      labels?: Array<string> | null
       status?: 'started' | 'done' | null
     }
   }
@@ -11356,9 +11464,26 @@ export type UpdatePodIssueResponses = {
       name: string
       uid: string
     } | null
+    children?: {
+      done: number
+      total: number
+    } | null
     description?: string | null
     id: string
+    labels: Array<string>
     lastActivityAt: string
+    parent?: {
+      id: string
+      title: string
+    } | null
+    repeat?: {
+      dueAt?: string | null
+      expression?: string | null
+      id: string
+      manageable: boolean
+      status: 'active' | 'paused'
+      timezone: string
+    } | null
     runs: Array<{
       agentUID: string
       completedAt?: string | null
@@ -11382,6 +11507,10 @@ export type UpdatePodIssueResponses = {
       } | null
       title: string
       updatedAt: string
+    }>
+    squad: Array<{
+      name: string
+      uid: string
     }>
     status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
     title: string

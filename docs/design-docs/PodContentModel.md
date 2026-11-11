@@ -614,9 +614,10 @@ the sidebar retains up to three attention items in decision, relevant unread
 comment, then running-work order. Attention queries include older unfinished
 work outside the ordinary recent page. Chat combines pinned rooms, a collapsed
 Assistant section with active/unread tasks, and existing IM rooms plus callable
-colleagues. Work lists the open work items by status and links to the Work
-page at `/work` (see [Issues](Issues.md)). Every tab offers New Chat for formal
-members.
+colleagues. Work lists the open work items by status, starting with those that
+need an answer or wait for review, which its badge counts, and links to the
+Work page at `/work` (see [Issues](Issues.md)). Every tab offers New Chat for
+formal members.
 Opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
 the user's navigation context stays stable, and New Chat keeps whichever tab
 is open. `Favorites` renders inline above the
