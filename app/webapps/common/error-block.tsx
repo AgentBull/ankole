@@ -1,5 +1,5 @@
 import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit'
-import { RiErrorWarningLine } from '@remixicon/react'
+import { ErrorCircleRegular } from '@ankole/uikit/icons'
 import type { ReactNode } from 'react'
 import i18n from './i18n'
 import { requestErrorMessage } from './request-errors'
@@ -9,7 +9,7 @@ export function ErrorBlock({ action, error, title }: { action?: ReactNode; error
   if (!error) return null
   return (
     <Alert className="min-w-0 overflow-hidden" variant="destructive">
-      <RiErrorWarningLine aria-hidden />
+      <ErrorCircleRegular aria-hidden />
       <AlertTitle>{title ?? i18n.t('common.error')}</AlertTitle>
       <AlertDescription className="min-w-0 break-words whitespace-pre-wrap">
         {requestErrorMessage(error)}

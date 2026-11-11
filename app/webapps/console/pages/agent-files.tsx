@@ -21,16 +21,16 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiDeleteBin6Line,
-  RiCheckLine,
-  RiCloseLine,
-  RiDownloadLine,
-  RiFileLine,
-  RiFolder3Line,
-  RiMore2Fill,
-  RiPencilLine,
-  RiUploadCloud2Line
-} from '@remixicon/react'
+  ArrowDownloadRegular,
+  CheckmarkRegular,
+  CloudArrowUpRegular,
+  DeleteRegular,
+  DismissRegular,
+  DocumentRegular,
+  EditRegular,
+  FolderRegular,
+  MoreVerticalRegular
+} from '@ankole/uikit/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useRef, useState, type InputHTMLAttributes } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -174,7 +174,7 @@ export function AgentFilesPage() {
       count={nodes.length}
       emptyTitle={t('console.agent_files.empty_title')}
       emptyDescription={t('console.agent_files.empty_description')}
-      emptyIcon={<RiFolder3Line aria-hidden />}
+      emptyIcon={<FolderRegular aria-hidden />}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
       error={listing.error}
@@ -318,9 +318,9 @@ function NodeRow({
       <TableCell>
         <div className="flex min-w-0 items-center gap-2">
           {isFile ? (
-            <RiFileLine className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <DocumentRegular className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           ) : (
-            <RiFolder3Line className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <FolderRegular className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           )}
           {rename !== undefined ? (
             <form
@@ -343,7 +343,7 @@ function NodeRow({
                 }}
               />
               <Button type="submit" size="icon-sm" variant="ghost" aria-label={t('common.save')} disabled={pending}>
-                <RiCheckLine />
+                <CheckmarkRegular />
               </Button>
               <Button
                 type="button"
@@ -351,7 +351,7 @@ function NodeRow({
                 variant="ghost"
                 aria-label={t('common.cancel')}
                 onClick={() => setRename(undefined)}>
-                <RiCloseLine />
+                <DismissRegular />
               </Button>
             </form>
           ) : (
@@ -382,25 +382,25 @@ function NodeRow({
                     aria-label={t('common.more_actions')}
                   />
                 }>
-                <RiMore2Fill />
+                <MoreVerticalRegular />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {isFile ? (
                   <DropdownMenuItem onClick={() => void download()}>
-                    <RiDownloadLine />
+                    <ArrowDownloadRegular />
                     {t('console.agent_files.download')}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem onClick={() => setRename(sanitizeRenameValue(node.name))}>
-                  <RiPencilLine />
+                  <EditRegular />
                   {t('console.agent_files.rename')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setMoving(true)}>
-                  <RiFolder3Line />
+                  <FolderRegular />
                   {t('console.agent_files.move')}
                 </DropdownMenuItem>
                 <DropdownMenuItem variant="destructive" onClick={() => setDeleting(true)}>
-                  <RiDeleteBin6Line />
+                  <DeleteRegular />
                   {t('common.delete')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -477,7 +477,7 @@ function MoveDialog({
             .filter(child => child.kind !== 'file' && child.id !== node.id)
             .map(child => (
               <Button key={child.id} variant="ghost" className="justify-start" onClick={() => navigate(child.id)}>
-                <RiFolder3Line />
+                <FolderRegular />
                 {child.private_owner_uid ?? child.conversation_id ?? <BdiLabel value={child.name} />}
               </Button>
             ))}
@@ -527,7 +527,7 @@ function UploadMenu({ disabled, onUpload }: { disabled: boolean; onUpload: (file
       />
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button variant="outline" size="sm" disabled={disabled} aria-busy={disabled} />}>
-          <RiUploadCloud2Line />
+          <CloudArrowUpRegular />
           {t(disabled ? 'console.agent_files.uploading' : 'console.agent_files.upload')}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

@@ -3,7 +3,7 @@ import { TEXT_PREVIEW_BYTES } from '../common/file-preview'
 import { readPrefix } from '../common/browser-files'
 import { useTranslation } from 'react-i18next'
 import { Badge, Button, buttonVariants, cn, toast } from '@ankole/uikit'
-import { RiChatQuoteLine, RiFileCopyLine, RiCheckLine } from '@remixicon/react'
+import { CheckmarkRegular, CopyRegular, TextQuoteRegular } from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react'
 import { createClientConfig } from '../common/internal-api-client'
@@ -50,7 +50,7 @@ export function FileSelectionToolbar({
       </span>
       <span className="inline-flex items-center gap-1.5">
         <Button size="xs" variant="default" onClick={() => onComment(selection)}>
-          <RiChatQuoteLine aria-hidden />
+          <TextQuoteRegular aria-hidden />
           {t('pod.document.comment_selection', { defaultValue: 'Comment on selection' })}
         </Button>
         <Button size="xs" variant="ghost" onClick={onClear}>
@@ -164,7 +164,7 @@ export function MediaFilePreview({
               mediaRef.current?.pause()
               onRequestComment(buildSelection(mediaRef.current?.currentTime ?? currentTime))
             }}>
-            <RiChatQuoteLine aria-hidden />
+            <TextQuoteRegular aria-hidden />
             {t('pod.document.comment_at_timestamp', {
               defaultValue: 'Comment at {$time}',
               time: formatMediaTimestamp(currentTime)
@@ -680,7 +680,7 @@ export function TextFilePreview({
                 toast.error(t('pod.chat.copy_failed'))
               }
             }}>
-            {copied ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
+            {copied ? <CheckmarkRegular aria-hidden /> : <CopyRegular aria-hidden />}
             {t(copied ? 'pod.chat_timeline.copied' : 'pod.chat.copy_code')}
           </Button>
         </div>

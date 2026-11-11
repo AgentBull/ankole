@@ -10,14 +10,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 16px 0;
+  margin: var(--spacing-content-gap) 0;
   padding: 12px 16px;
   border: 1px solid var(--editor-embed-border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--editor-embed-bg);
   color: var(--editor-embed-fg);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-65);
+  line-height: var(--text-65--line-height);
 }
 /* The embed icon (Remix Icon database-2-line). */
 :where(.ankole-editor, .ankole-editor-overlay) .embed::before {

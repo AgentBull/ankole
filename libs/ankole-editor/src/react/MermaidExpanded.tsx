@@ -1,5 +1,5 @@
 import { resolveVizTheme, sanitizeExportedSvg } from '@ankole/uikit'
-import { RiCloseLine, RiDownloadLine } from '@remixicon/react'
+import { ArrowDownloadRegular, DismissRegular } from '@ankole/uikit/icons'
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { Plot } from '../core/doc'
@@ -177,7 +177,7 @@ export function MermaidExpanded() {
             className="mermaid-expanded-export"
             aria-label={label('mermaid_download_svg')}
             onClick={downloadSvg}>
-            <RiDownloadLine aria-hidden="true" className="size-3.5" />
+            <ArrowDownloadRegular aria-hidden="true" className="size-3.5" />
             <span>SVG</span>
           </button>
           <button
@@ -185,7 +185,7 @@ export function MermaidExpanded() {
             className="mermaid-expanded-export"
             aria-label={label('mermaid_download_png')}
             onClick={() => void downloadPng()}>
-            <RiDownloadLine aria-hidden="true" className="size-3.5" />
+            <ArrowDownloadRegular aria-hidden="true" className="size-3.5" />
             <span>PNG</span>
           </button>
           <button
@@ -194,7 +194,7 @@ export function MermaidExpanded() {
             className="mermaid-expanded-close"
             aria-label={label('mermaid_close')}
             onClick={close}>
-            <RiCloseLine />
+            <DismissRegular />
           </button>
         </div>
       </div>

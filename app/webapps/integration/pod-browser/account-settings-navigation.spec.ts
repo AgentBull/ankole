@@ -76,7 +76,8 @@ test('account and Pod settings keep this tab identity after another tab signs in
     expect((await identity(owner)).principalUID).toBe(state.owner.uid)
     expect((await request<{ displayName: string }>(owner, '/me')).displayName).toBe('Browser owner')
 
-    await owner.getByRole('link', { name: '空间设置', exact: true }).click()
+    await owner.getByRole('button', { name: /^账户菜单/ }).click()
+    await owner.getByRole('menuitem', { name: '空间设置', exact: true }).click()
     await expect(owner).toHaveURL(new URL('/settings', state.base_url).href)
     await expect(owner.getByRole('heading', { name: '空间设置', exact: true })).toBeVisible()
     const settings = await request<{ displayName: string }>(owner, '/admin/settings')

@@ -1,5 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage, Button, cn, toast } from '@ankole/uikit'
-import { RiCameraLine } from '@remixicon/react'
+import { CameraRegular } from '@ankole/uikit/icons'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ContentError } from './content-primitives'
@@ -83,22 +83,9 @@ export function ProfileAvatarUpload({
   return (
     <div className="grid gap-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <Avatar
-          className={cn(
-            'size-20 bg-muted ring-1 ring-border',
-            square ? 'rounded-2xl after:rounded-2xl' : 'rounded-full',
-            pending && 'opacity-70'
-          )}>
-          {source && (
-            <AvatarImage
-              src={source}
-              alt={t('pod.settings.avatar_alt', { name })}
-              className={cn(square ? 'rounded-2xl' : 'rounded-full')}
-            />
-          )}
-          <AvatarFallback className={cn('text-xl font-medium', square ? 'rounded-2xl' : 'rounded-full')}>
-            {avatarInitials(name)}
-          </AvatarFallback>
+        <Avatar className={cn('size-20 bg-muted ring-1 ring-border', square && 'rounded-2xl', pending && 'opacity-70')}>
+          {source && <AvatarImage src={source} alt={t('pod.settings.avatar_alt', { name })} />}
+          <AvatarFallback className="text-xl font-medium">{avatarInitials(name)}</AvatarFallback>
         </Avatar>
         <div className="grid min-w-0 gap-2">
           <div className="grid gap-1">
@@ -115,7 +102,7 @@ export function ProfileAvatarUpload({
               disabled={pending}
               aria-describedby={`${kind}-avatar-hint`}
               onClick={() => input.current?.click()}>
-              <RiCameraLine aria-hidden data-icon="inline-start" />
+              <CameraRegular aria-hidden data-icon="inline-start" />
               {pending ? t('pod.settings.avatar_uploading') : t('pod.settings.avatar_change')}
             </Button>
           </div>

@@ -1,5 +1,5 @@
 import { Button, Drawer, DrawerContent, DrawerFooter, DrawerHeader, DrawerTitle, Input, Textarea } from '@ankole/uikit'
-import { RiAddLine, RiCodeLine, RiDeleteBinLine } from '@remixicon/react'
+import { AddRegular, CodeRegular, DeleteRegular } from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -31,7 +31,7 @@ export function KnowledgeProperties({
             setError(null)
             setYAML(stringify(current))
           }}>
-          <RiCodeLine aria-hidden className="size-4" /> YAML
+          <CodeRegular aria-hidden className="size-4" /> YAML
         </Button>
       </div>
       {editing ? (
@@ -56,12 +56,12 @@ export function KnowledgeProperties({
                 variant="ghost"
                 aria-label={t('pod.knowledge.remove_property', { name: entry.key })}
                 onClick={() => draft!.remove(index)}>
-                <RiDeleteBinLine aria-hidden className="size-4" />
+                <DeleteRegular aria-hidden className="size-4" />
               </Button>
             </div>
           ))}
           <Button size="sm" variant="ghost" onClick={() => draft!.add()}>
-            <RiAddLine aria-hidden className="size-4" />
+            <AddRegular aria-hidden className="size-4" />
             {t('pod.knowledge.add_property')}
           </Button>
           {draft!.parsed.value.error && (

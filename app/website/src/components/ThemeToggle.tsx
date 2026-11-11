@@ -1,4 +1,4 @@
-import { RiMoonLine, RiSunLine } from '@remixicon/react'
+import { WeatherMoonRegular, WeatherSunnyRegular } from '@ankole/uikit/icons'
 import { useEffect, useState } from 'react'
 
 type Theme = 'light' | 'dark'
@@ -50,7 +50,7 @@ export default function ThemeToggle({ labelLight, labelDark }: ThemeToggleProps)
   }
 
   const label = resolved === 'dark' ? labelLight : labelDark
-  const Icon = resolved === 'dark' ? RiSunLine : RiMoonLine
+  const Icon = resolved === 'dark' ? WeatherSunnyRegular : WeatherMoonRegular
 
   return (
     <button

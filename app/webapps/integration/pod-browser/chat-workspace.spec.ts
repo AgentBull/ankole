@@ -56,7 +56,7 @@ for (const width of [1440, 390]) {
       const title = (await greeting.boundingBox())!
       expect(before.y).toBeGreaterThan(title.y)
       expect(before.y - title.y - title.height).toBeLessThan(160)
-      expect(before.width).toBeLessThanOrEqual(Math.min(820, width))
+      expect(before.width).toBeLessThanOrEqual(Math.min(892, width))
       expect(before.y).toBeLessThan(960 * 0.7)
       await home.getByRole('button', { name: '调研并整理空间文档', exact: true }).click()
       await expect(input).toHaveValue('调研并整理空间文档')
@@ -118,8 +118,9 @@ test('room navigation persists pinning, text search, one inline rename and an in
     await expect(header.locator('.pod-chat-header-title')).toHaveText('Workspace UX review')
     await expect.poll(async () => (await detail(page)).conversation.title).toBe('Workspace UX review')
     expect(renames).toBe(1)
+    // The room's people lead the top bar's end, before its search button and the room's own actions.
     await page
-      .locator('.pod-room-actions')
+      .locator('[data-slot="top-bar-actions"]')
       .getByRole('button', { name: /^聊天成员：/ })
       .click()
     const members = page.getByRole('dialog', { name: '当前会话成员', exact: true })
@@ -195,7 +196,9 @@ test('a recorded turn restores its rich answer and complete work after refresh, 
     await message.getByText('Queried Tasks (18 rows)', { exact: true }).click()
     await expect(message.locator('.pod-chat-tool-detail pre').last()).toContainText('"row_count": 18')
     await expect(message.locator('table')).toContainText('Tasks')
+    await expect(message.locator('.katex')).toHaveCount(1)
     await expect(message.locator('.katex')).toBeVisible()
+    await expect(message.getByText('at a cost of $300.')).toBeVisible()
     await expect(message.locator('.shiki')).toBeVisible()
     await message.getByRole('button', { name: '自动换行', exact: true }).click()
     await expect(message.getByRole('button', { name: '自动换行', exact: true })).toHaveAttribute('aria-pressed', 'true')

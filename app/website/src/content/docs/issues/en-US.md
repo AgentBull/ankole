@@ -1,17 +1,17 @@
 ---
 title: Issues
-description: Hand background work to an Agent, follow it on the Work board, and accept the result.
+description: Follow the background work that Agents do for you on one board, and accept the result.
 section: User guide
 order: 16
 ---
 
 An Issue is a piece of background work that you hand to an Agent. It has a title, a description, and one Agent that does the work. Every Issue has its own conversation: the Agent's replies, its questions, and the Background Agent Jobs and Workflows that it starts appear there, as they do in Chat.
 
-## Open Work
+## Open the board
 
-Select **Work** in the Pod sidebar. The tab lists your open Issues by where they stand, and **Board** opens the Work page. The page shows your Issues as a board or a list, with the scheduled tasks below them.
+While any item is in **To do** or **In progress**, the **Home** tab of the Pod sidebar shows **Background Agent tasks** directly above **Shared with me**. Select it to open the board, with the scheduled tasks below it.
 
-Work covers the conversations in your Chat list. A comment thread on a Page and a conversation in a chat application stay out of Work, so you follow their runs and schedules in those conversations.
+The board covers the conversations in your Chat list. A comment thread on a Page and a conversation in a chat application stay off the board, so you follow their runs and schedules in those conversations.
 
 The board has five columns:
 
@@ -21,20 +21,11 @@ The board has five columns:
 - **In review**: the Agent has stopped, and the result waits for you.
 - **Done**: you accepted the result.
 
-**In progress** and **Needs you** follow what the Agent is really doing, so a card moves between them by itself. A card shows the Agent's live runs with their steps and running time, and **Stop** stops a run.
-
-## Create an Issue
-
-1. Select **New issue**.
-2. Enter a title and describe what should be done.
-3. Choose the Agent: your personal assistant or an AI colleague.
-4. Choose **Start now** or **Start later**, then select **Create issue**.
-
-With **Start now**, the Agent receives the title and the description as your first message in the Issue's conversation and starts working. With **Start later**, the Issue waits in **To do**. You can still edit its description, and it starts when you select **Start** or drag its card to **In progress**.
+**In progress** and **Needs you** follow what the Agent is really doing, so a card moves between them by itself. A card shows, on its first row, how far its latest live run has come and how that run stands; then the title; then the Agent and when the work last moved. A **+** in the first row counts the card's other live runs. Point at a card to show its **Stop** button. The header above the board names the Agents that are working now, and **Filter** shows only the cards of the Agents that you choose.
 
 ## Follow and accept the work
 
-Select a card to open it beside the board. A card in **To do** opens the Issue's title, its Agent, and the request, which you can still edit. Any other card opens the Issue's conversation, where you add detail, answer a question, steer a run, or stop it.
+Select a card to open it beside the board. A card in **To do** opens the Issue's title, its Agent, and the request, which you can still edit. When you select **Start** or drag the card to **In progress**, the Agent receives the title and the description as your first message in the Issue's conversation. Any other card opens the details of its background run, as a conversation shows them: the plan, the steps, and the result. There you answer the run's question, steer it, or stop it, and **Open in Chat** opens the Issue's conversation.
 
 When the Agent has stopped, the Issue moves to **In review**. Select **Mark done**, or drag the card to **Done**, to accept the result. **Reopen** returns an accepted Issue to **In review**, and an Issue that you closed before it started returns to **To do** with its request. When the Agent starts new background work in the conversation of an accepted Issue, the Issue reopens by itself.
 

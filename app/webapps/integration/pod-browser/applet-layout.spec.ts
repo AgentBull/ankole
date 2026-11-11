@@ -169,7 +169,7 @@ test('the Applet Page menu shows the running Applet on the whole screen and retu
         const rect = element.getBoundingClientRect()
         return {
           fullScreen: !!document.fullscreenElement?.contains(element),
-          headerOnScreen: !!document.fullscreenElement?.querySelector('.pod-page-header'),
+          headerOnScreen: !!document.fullscreenElement?.querySelector('.pod-page-path'),
           width: rect.width,
           height: rect.height,
           panel: document.querySelector('.pod-page-scroll')!.clientHeight,
@@ -224,7 +224,7 @@ test('an Applet Page renames its title in the header and links the conversation 
     id = created.id
     await publishApplet(id, created.revision, state.publish_v1_files)
     await page.goto(state.base_url + pageRoute(id))
-    const header = page.locator('.pod-page-header')
+    const header = page.locator('.pod-page-path')
     const appletTitle = page.frameLocator('iframe').locator('.applet-page-title')
     await expect(appletTitle).toHaveText('Applet from a conversation')
     await expect(appletTitle).toHaveAttribute('data-embedded', 'false')

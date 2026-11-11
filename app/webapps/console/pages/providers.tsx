@@ -15,7 +15,7 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiArrowDownSLine, RiPauseCircleLine, RiPlayCircleLine, RiSparkling2Line } from '@remixicon/react'
+import { ChevronDownRegular, PauseCircleRegular, PlayCircleRegular, SparkleRegular } from '@ankole/uikit/icons'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -119,7 +119,7 @@ export function ProvidersListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.providers.empty_title')}
-      emptyIcon={<RiSparkling2Line aria-hidden />}
+      emptyIcon={<SparkleRegular aria-hidden />}
       emptyDescription={t('console.providers.empty_description')}
       error={providers.error ?? providerKinds.error}
       isFiltered={Boolean(query.trim())}
@@ -179,7 +179,7 @@ export function ProvidersListPage() {
                 provider.disabled_at
                   ? [
                       {
-                        icon: <RiPlayCircleLine />,
+                        icon: <PlayCircleRegular />,
                         label: t('common.enable'),
                         pending: enableProvider.isPending,
                         onAction: () => enableProvider.mutate({ path: { provider_id: provider.provider_id } })
@@ -197,7 +197,7 @@ export function ProvidersListPage() {
                   { id: provider.provider_id }
                 ),
                 confirmLabel: t(provider.disabled_at ? 'common.delete' : 'common.disable'),
-                icon: provider.disabled_at ? undefined : <RiPauseCircleLine />
+                icon: provider.disabled_at ? undefined : <PauseCircleRegular />
               }}
               onDelete={() => removeProvider.mutate({ path: { provider_id: provider.provider_id } })}
             />
@@ -449,7 +449,7 @@ export function ProviderEditorPage() {
             <span>{t('common.advanced_settings')}</span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
               {advancedFieldCount}
-              <RiArrowDownSLine
+              <ChevronDownRegular
                 className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
                 aria-hidden
               />

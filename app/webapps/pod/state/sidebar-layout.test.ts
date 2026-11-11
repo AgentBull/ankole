@@ -15,7 +15,7 @@ function storage(initial?: string | null) {
 }
 
 test('sidebar width defaults to its minimum and normalizes persisted values', () => {
-  expect(POD_SIDEBAR_MIN_WIDTH).toBe(236)
+  expect(POD_SIDEBAR_MIN_WIDTH).toBe(258)
   for (const [raw, expected] of [
     [null, POD_SIDEBAR_MIN_WIDTH],
     ['invalid', POD_SIDEBAR_MIN_WIDTH],

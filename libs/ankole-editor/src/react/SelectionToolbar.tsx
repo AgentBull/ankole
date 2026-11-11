@@ -2,17 +2,17 @@ import { composingKey } from '@ankole/uikit/lib/keyboard'
 import { Button } from '@ankole/uikit/components/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@ankole/uikit/components/dropdown-menu'
 import {
-  RiArrowDownSLine,
-  RiBold,
-  RiChat1Line,
-  RiCodeLine,
-  RiItalic,
-  RiLink,
-  RiMarkPenLine,
-  RiRobot2Line,
-  RiStrikethrough,
-  RiUnderline
-} from '@remixicon/react'
+  BotRegular,
+  ChevronDownRegular,
+  CodeRegular,
+  CommentRegular,
+  HighlightRegular,
+  LinkRegular,
+  TextBoldRegular,
+  TextItalicRegular,
+  TextStrikethroughRegular,
+  TextUnderlineRegular
+} from '@ankole/uikit/icons'
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Command } from '../core/command'
@@ -61,13 +61,13 @@ import {
 
 // How the text looks. Highlight is a look of the text like the others, so it closes this group.
 const buttons = [
-  { format: 'strong', label: editorPhrases.ref('bold'), Icon: RiBold },
-  { format: 'em', label: editorPhrases.ref('italic'), Icon: RiItalic },
-  { format: 'u', label: editorPhrases.ref('underline'), Icon: RiUnderline },
-  { format: 's', label: editorPhrases.ref('strikethrough'), Icon: RiStrikethrough },
-  { format: 'code', label: editorPhrases.ref('inline_code'), Icon: RiCodeLine },
-  { format: 'mark', label: editorPhrases.ref('highlight'), Icon: RiMarkPenLine }
-] satisfies { format: FormatName; label: PhraseSet.Ref; Icon: typeof RiBold }[]
+  { format: 'strong', label: editorPhrases.ref('bold'), Icon: TextBoldRegular },
+  { format: 'em', label: editorPhrases.ref('italic'), Icon: TextItalicRegular },
+  { format: 'u', label: editorPhrases.ref('underline'), Icon: TextUnderlineRegular },
+  { format: 's', label: editorPhrases.ref('strikethrough'), Icon: TextStrikethroughRegular },
+  { format: 'code', label: editorPhrases.ref('inline_code'), Icon: CodeRegular },
+  { format: 'mark', label: editorPhrases.ref('highlight'), Icon: HighlightRegular }
+] satisfies { format: FormatName; label: PhraseSet.Ref; Icon: typeof TextBoldRegular }[]
 
 /** Whether every block the selection touches can turn into another type. */
 function canTurnSelection(state: GardState) {
@@ -860,7 +860,7 @@ function SelectionActions({
             title={label('ask_agent')}
             onMouseDown={event => event.preventDefault()}
             onClick={() => handOff(askAgent)}>
-            <RiRobot2Line aria-hidden="true" />
+            <BotRegular aria-hidden="true" />
             <span className="selection-ask-label">{label('ask_agent')}</span>
           </Button>
         </div>
@@ -882,7 +882,7 @@ function SelectionActions({
               <span className="selection-block-type-label">
                 {type ? blockOptions.find(option => option.type === type)?.title(state) : label('turn_into')}
               </span>
-              <RiArrowDownSLine aria-hidden="true" />
+              <ChevronDownRegular aria-hidden="true" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               ref={typeMenu}
@@ -934,7 +934,7 @@ function SelectionActions({
               aria-pressed={info.link}
               onMouseDown={event => event.preventDefault()}
               onClick={openLink}>
-              <RiLink aria-hidden="true" />
+              <LinkRegular aria-hidden="true" />
             </Button>
           )}
           {requestComment && (
@@ -945,7 +945,7 @@ function SelectionActions({
               title={label('comment')}
               onMouseDown={event => event.preventDefault()}
               onClick={() => handOff(requestComment)}>
-              <RiChat1Line aria-hidden="true" />
+              <CommentRegular aria-hidden="true" />
             </Button>
           )}
         </div>

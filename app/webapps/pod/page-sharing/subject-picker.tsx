@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Badge, Button, cn, Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@ankole/uikit'
-import { RiAddLine } from '@remixicon/react'
+import { AddRegular } from '@ankole/uikit/icons'
 import type { PageRole, PageType } from '../content-api'
 import { sortCandidateSubjects, subjectKey, type SharingGrant, type SharingSubject } from '../state/page-sharing'
 import { sharingRoleLabel, SubjectAvatar, SubjectKindBadges } from './sharing-primitives'
@@ -86,7 +86,7 @@ export function SubjectPicker({
             aria-expanded={showCandidates}
             disabled={disabled}
             onClick={() => collapsible.onOpenChange(!collapsible.open)}>
-            <RiAddLine aria-hidden className="size-4" />
+            <AddRegular aria-hidden className="size-4" />
           </Button>
         )}
       </div>

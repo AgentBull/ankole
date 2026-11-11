@@ -1,16 +1,14 @@
 import { cn } from '@ankole/uikit'
-import { RiFileTextLine, RiReplyLine } from '@remixicon/react'
-import { Link } from '@tanstack/react-router'
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ConversationDetail, ConversationMessage } from '../api'
 import type { ChatCommands } from '../chat-commands'
-import { MessageArtifacts } from '../message-artifacts'
+import { MessageArtifacts, PageReferenceCard } from '../message-artifacts'
 import type { PanelInputEvent } from '../panel-motion'
 import { ChatModel } from '../state/chat'
-import { usePageHref, usePagesMetadata } from '../use-page-metadata'
+import { usePagesMetadata } from '../use-page-metadata'
 import { ActionCardView } from './action-card-view'
-import { avatarInitials, ChatAvatar } from './chat-avatar'
+import { ChatAvatar } from './chat-avatar'
 import { ChatMarkdown } from './chat-markdown'
 import { ChoiceCard, type ClarifyAnswer } from './choice-card'
 import { activitySteps, CollapsedWorkView, useActivityLabel } from './collapsed-work-view'
@@ -26,9 +24,17 @@ import {
   messageTime,
   timelineEventLabel
 } from './timeline-projections'
-import type { ExecutionSummary, InspectorTarget, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+import type {
+  ExecutionSummary,
+  InspectorTarget,
+  LinkedExecution,
+  PlacedDelegation,
+  TimelineLiveStream,
+  TimelineMessage
+} from './types'
 
 const NO_SAVED_PAGES: TimelineMessage['savedPages'] = []
+const NO_DELEGATIONS: PlacedDelegation[] = []
 
 export type InlineEditControls = {
   canSubmit: boolean
@@ -42,35 +48,27 @@ export type InlineEditControls = {
 }
 
 /**
- * Who wrote a message. Your own messages and a message that continues the same author's last one keep the
- * name only for assistive technology, so the line shows only the time, on hover.
+ * Who wrote a message: a 32px round avatar, which Agents and people share, and the name. Your own messages and a
+ * message that continues the same author's last one keep the name only for assistive technology. The message
+ * states its time in its action row, not on this line.
  */
 export function MessageIdentity({
   name,
-  human = false,
   archived = false,
-  time,
   avatarURL,
   quiet = false
 }: {
   name: string
-  human?: boolean
   archived?: boolean
-  time?: string
   avatarURL?: string | null
   quiet?: boolean
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   return (
     <header className="pod-chat-message-identity" data-quiet={quiet || undefined}>
-      {!quiet && <ChatAvatar name={name} src={avatarURL} agent={!human} className="pod-chat-message-avatar" />}
+      {!quiet && <ChatAvatar name={name} src={avatarURL} size="default" className="pod-chat-message-avatar" />}
       <strong className={quiet ? 'sr-only' : undefined}>{name}</strong>
       {archived && <span className="pod-chat-archived">{t('pod.chat_timeline.archived')}</span>}
-      {time && (
-        <time dateTime={time} title={new Date(time).toLocaleString(i18n.language)}>
-          {messageTime(time, i18n.language)}
-        </time>
-      )}
     </header>
   )
 }
@@ -99,6 +97,7 @@ export const MessageView = memo(function MessageView({
   onReply,
   onSelectMessageID,
   linkedRuns,
+  delegations = NO_DELEGATIONS,
   showAgentOnRuns = false,
   activeInspector,
   onOpenInspector,
@@ -134,6 +133,8 @@ export const MessageView = memo(function MessageView({
   onReply?: (text: string) => void
   onSelectMessageID?: (messageID: string) => void
   linkedRuns: LinkedExecution[]
+  /** The delegations this reply's turn sent, shown under its text. */
+  delegations?: PlacedDelegation[]
   showAgentOnRuns?: boolean
   activeInspector?: InspectorTarget | null
   onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
@@ -152,7 +153,6 @@ export const MessageView = memo(function MessageView({
 }) {
   const { t, i18n } = useTranslation()
   const label = useActivityLabel()
-  const pageHref = usePageHref()
   const savedPages = usePagesMetadata(message?.savedPages ?? NO_SAVED_PAGES)
   const rich = message?.richContent
   const human = message?.authorType === 'human'
@@ -166,9 +166,7 @@ export const MessageView = memo(function MessageView({
     const label = timelineEventLabel(message, t, i18n.language)
     return (
       <div className="pod-chat-timeline-event">
-        <span className="pod-chat-event-avatar" aria-hidden>
-          {avatarInitials(name)}
-        </span>
+        <ChatAvatar name={name} src={avatarURL} size="xs" className="pod-chat-notice-avatar" />
         <p title={label}>{label}</p>
         <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString(i18n.language)}>
           {messageTime(message.createdAt, i18n.language)}
@@ -223,14 +221,11 @@ export const MessageView = memo(function MessageView({
         'pod-chat-timeline-message',
         human ? 'pod-chat-human-message' : 'pod-chat-agent-message',
         own && 'pod-chat-own-message',
-        continued && 'pod-chat-continued-message',
         backtrackActive && !editingInline && 'pod-chat-backtrack-active'
       )}>
       <MessageIdentity
         name={name}
-        human={human}
         archived={message?.authorArchived}
-        time={message?.createdAt}
         avatarURL={avatarURL}
         quiet={!!message && (own || continued || !!rich?.peer_agent_uid)}
       />
@@ -242,7 +237,6 @@ export const MessageView = memo(function MessageView({
           {queued && <span className="pod-chat-queued-badge">{t('pod.chat_timeline.queued')}</span>}
           {replySource && (
             <button type="button" className="pod-chat-reply-source" onClick={() => onJumpToSource(replySource.id)}>
-              <RiReplyLine aria-hidden />
               <span>
                 {t('pod.chat_timeline.reply_source', {
                   name: replySource.authorDisplayName,
@@ -294,6 +288,23 @@ export const MessageView = memo(function MessageView({
             )
           )}
           {message && <MessageArtifacts conversationID={conversationID} message={message} />}
+          {delegations.map(({ request, reply, live: followsColleague }) => {
+            const peer = request.richContent?.agent_peer_outbound
+            return (
+              peer && (
+                <PeerExchangeCard
+                  key={request.id}
+                  conversationID={conversationID}
+                  peer={peer}
+                  request={request}
+                  reply={reply}
+                  live={followsColleague}
+                  isActive={isPeerActive(activeInspector, peer.exchange_id)}
+                  onOpenInspector={onOpenInspector ? (target, trigger) => onOpenInspector(target, trigger) : undefined}
+                />
+              )
+            )
+          })}
           {linkedRuns.map(run => (
             <LinkedExecutionCard
               key={`${run.kind}:${run.id}`}
@@ -307,6 +318,8 @@ export const MessageView = memo(function MessageView({
           {message && (
             <MessageActions
               text={message.text}
+              time={message.createdAt}
+              timeFirst={own}
               onQuote={onQuote}
               onSelectMessage={onSelectMessage}
               onEdit={onEdit}
@@ -317,12 +330,13 @@ export const MessageView = memo(function MessageView({
           )}
         </>
       )}
-      {savedPages.map(page => (
-        <Link key={page.id} className="pod-chat-page-pill pod-chat-saved-page" to={pageHref(page.id, page.title)}>
-          <RiFileTextLine aria-hidden />
-          {page.title || t('pod.content.untitled')}
-        </Link>
-      ))}
+      {savedPages.length > 0 && (
+        <div className="pod-chat-saved-pages">
+          {savedPages.map(page => (
+            <PageReferenceCard key={page.id} id={page.id} title={page.title || t('pod.content.untitled')} />
+          ))}
+        </div>
+      )}
     </article>
   )
 })

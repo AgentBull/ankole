@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@ankole/uikit'
 import { Choice, ContentError } from './content-primitives'
 import { FieldValue } from './base-fields'
-import { RiArrowDownSLine, RiBarChartLine } from '@remixicon/react'
+import { ChevronDownRegular, DataBarVerticalRegular } from '@ankole/uikit/icons'
 
 export function BaseSummary({ tableID, fields, filter }: { tableID: string; fields: BaseField[]; filter?: Filter }) {
   const { t } = useTranslation()
@@ -18,9 +18,9 @@ export function BaseSummary({ tableID, fields, filter }: { tableID: string; fiel
   return (
     <div className="pod-base-summary space-y-3">
       <Button size="xs" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <RiBarChartLine aria-hidden="true" />
+        <DataBarVerticalRegular aria-hidden="true" />
         {t('pod.content.grouped_statistics')}
-        <RiArrowDownSLine aria-hidden="true" className={open ? 'rotate-180' : undefined} />
+        <ChevronDownRegular aria-hidden="true" className={open ? 'rotate-180' : undefined} />
       </Button>
       {open && (
         <Summary

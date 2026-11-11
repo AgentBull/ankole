@@ -11,7 +11,13 @@ import {
   SelectTrigger,
   SelectValue
 } from '@ankole/uikit'
-import { RiArrowRightSLine, RiBuildingLine, RiLink, RiLockLine, RiSettings3Line } from '@remixicon/react'
+import {
+  BuildingRegular,
+  ChevronRightRegular,
+  LinkRegular,
+  LockClosedRegular,
+  SettingsRegular
+} from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import type { PageRole, PageSharingDetail, PageType } from '../content-api'
 import { ContentError } from '../content-primitives'
@@ -68,7 +74,7 @@ export function MainSharingView({
         <PopoverTitle>{shareTitle(pageType)}</PopoverTitle>
         {canManage && (
           <Button variant="ghost" size="xs" disabled={mutations.pending} onClick={onOpenSettings}>
-            <RiSettings3Line aria-hidden className="size-3.5" />
+            <SettingsRegular aria-hidden className="size-3.5" />
             {t('pod.sharing.permission_settings')}
             {advancedCount > 0 && (
               <Badge variant="secondary" className="ml-0.5 tabular-nums">
@@ -100,7 +106,7 @@ export function MainSharingView({
                     <AvatarGroupCount className="text-[11px] tabular-nums">{`+${preview.overflow}`}</AvatarGroupCount>
                   )}
                 </AvatarGroup>
-                <RiArrowRightSLine
+                <ChevronRightRegular
                   aria-hidden
                   className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5"
                 />
@@ -155,7 +161,7 @@ export function MainSharingView({
 
       <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
         <Button variant="outline" size="sm" onClick={() => void copyLink()}>
-          <RiLink aria-hidden className="size-4" />
+          <LinkRegular aria-hidden className="size-4" />
           {t('pod.content.copy_link')}
         </Button>
       </div>
@@ -194,7 +200,7 @@ function AccessScopeSection({
         <span className="text-[13px] font-medium text-foreground">{t('pod.sharing.access_scope')}</span>
         <div className="flex items-start gap-2.5 rounded-control bg-muted/45 px-3 py-2.5">
           <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <RiLockLine aria-hidden className="size-4" />
+            <LockClosedRegular aria-hidden className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-foreground">{t('pod.sharing.scope_private_root')}</div>
@@ -208,7 +214,7 @@ function AccessScopeSection({
   const activeMode = sharing.inherit_permissions ? 'inherit' : 'invited'
   const activeTitle = activeMode === 'inherit' ? inheritTitle : t('pod.sharing.scope_invited_only')
   const activeDescription = activeMode === 'inherit' ? inheritDescription : t('pod.sharing.scope_invited_only_desc')
-  const ActiveIcon = activeMode === 'inherit' && !isPrivate ? RiBuildingLine : RiLockLine
+  const ActiveIcon = activeMode === 'inherit' && !isPrivate ? BuildingRegular : LockClosedRegular
 
   return (
     <section className="grid gap-1.5">

@@ -13,7 +13,7 @@ import {
   cn,
   toast
 } from '@ankole/uikit'
-import { RiPauseCircleLine, RiPlayCircleLine, RiRobot2Line } from '@remixicon/react'
+import { BotRegular, PauseCircleRegular, PlayCircleRegular } from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQuery as useBaseQuery } from '@tanstack/react-query'
@@ -114,7 +114,7 @@ export function AgentsListPage() {
       count={rows.length}
       emptyTitle={t('console.agents.empty_title')}
       emptyDescription={t('console.agents.empty_description')}
-      emptyIcon={<RiRobot2Line aria-hidden />}
+      emptyIcon={<BotRegular aria-hidden />}
       error={agents.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
@@ -153,7 +153,7 @@ export function AgentsListPage() {
                 disabled
                   ? [
                       {
-                        icon: <RiPlayCircleLine />,
+                        icon: <PlayCircleRegular />,
                         label: t('common.enable'),
                         pending: enableAgent.isPending,
                         onAction: () => enableAgent.mutate({ path: { uid: agent.uid } })
@@ -173,7 +173,7 @@ export function AgentsListPage() {
                       title: t('console.agents.disable_title'),
                       description: t('console.agents.disable_description', { id: agent.uid }),
                       confirmLabel: t('common.disable'),
-                      icon: <RiPauseCircleLine />
+                      icon: <PauseCircleRegular />
                     }
               }
               onDelete={() =>

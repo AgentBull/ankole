@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Button } from '@ankole/uikit/components/button'
 import { Input } from '@ankole/uikit/components/input'
 import { composingKey } from '@ankole/uikit/lib/keyboard'
-import { RiExternalLinkLine, RiRefreshLine } from '@remixicon/react'
+import { ArrowClockwiseRegular, OpenRegular } from '@ankole/uikit/icons'
 import { closeResourceEditor, resourceEditorField } from '../blocks/resources'
 import type { ResourceView } from '../document/resources'
 import { BlockSelection } from '../editor/block-selection'
@@ -461,7 +461,7 @@ export function ResourceFloatingToolbar({
             title={label('resource_refresh')}
             onMouseDown={event => event.preventDefault()}
             onClick={onReload}>
-            <RiRefreshLine aria-hidden="true" />
+            <ArrowClockwiseRegular aria-hidden="true" />
           </Button>
           {src && (
             <a
@@ -471,7 +471,7 @@ export function ResourceFloatingToolbar({
               rel="noopener noreferrer"
               aria-label={label('resource_open')}
               title={label('resource_open')}>
-              <RiExternalLinkLine size={16} aria-hidden="true" />
+              <OpenRegular width={16} height={16} aria-hidden="true" />
             </a>
           )}
           {!readOnly && <span className="toolbar-divider" aria-hidden="true" />}
@@ -510,7 +510,7 @@ export function ResourceFloatingToolbar({
               rel="noopener noreferrer"
               aria-label={label('resource_open')}
               title={label('resource_open')}>
-              <RiExternalLinkLine size={16} aria-hidden="true" />
+              <OpenRegular width={16} height={16} aria-hidden="true" />
             </a>
           )}
         </>

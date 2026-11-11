@@ -221,13 +221,13 @@ test('a page opened without a Sidebar section marks the tree that holds it', () 
   expect(isSidebarSectionActive(undefined, 'favorites')).toBe(false)
 })
 
-test('routeSidebarTab maps Meta Ankole routes to Home and preserves explicit keepSidebarTab', () => {
+test('routeSidebarTab maps Meta Ankole and Work routes to Home and preserves explicit keepSidebarTab', () => {
   expect(routeSidebarTab('/conversations/abc')).toBe('chat')
   expect(routeSidebarTab('/conversations/abc', { keepSidebarTab: 'home' })).toBe('home')
   expect(routeSidebarTab('/pages/abc')).toBe('home')
   expect(routeSidebarTab('/meta')).toBe('home')
   expect(routeSidebarTab('/meta/brain')).toBe('home')
-  expect(routeSidebarTab('/work')).toBe('work')
+  expect(routeSidebarTab('/work')).toBe('home')
   expect(routeSidebarTab('/meta/skills/ops-guide')).toBe('home')
   expect(routeSidebarTab('/meta/brain/123', { keepSidebarTab: 'chat' })).toBe('chat')
 })

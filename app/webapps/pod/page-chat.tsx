@@ -10,7 +10,7 @@ import {
   SheetContent,
   SheetTitle
 } from '@ankole/uikit'
-import { RiAddLine, RiCloseLine, RiExternalLinkLine, RiHistoryLine } from '@remixicon/react'
+import { AddRegular, DismissRegular, HistoryRegular, OpenRegular } from '@ankole/uikit/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useRef, type CSSProperties, type RefObject } from 'react'
@@ -91,7 +91,7 @@ export function PageChat({
           title={t('pod.chat.new_conversation')}
           disabled={accessDenied}
           onClick={() => selectTarget('new', true)}>
-          <RiAddLine aria-hidden />
+          <AddRegular aria-hidden />
         </Button>
         <Select
           value={conversationID ?? 'new'}
@@ -103,7 +103,7 @@ export function PageChat({
             className="pod-page-chat-switcher"
             variant="ghost"
             size="sm">
-            <RiHistoryLine aria-hidden />
+            <HistoryRegular aria-hidden />
             <SelectValue className="sr-only" />
           </SelectTrigger>
           <SelectContent align="end" className="pod-page-chat-history-menu">
@@ -122,7 +122,7 @@ export function PageChat({
             data-slot="button"
             className={buttonVariants({ variant: 'ghost', size: 'icon-xs' })}
             aria-label={t('pod.page_chat.open_chat')}>
-            <RiExternalLinkLine aria-hidden />
+            <OpenRegular aria-hidden />
           </Link>
         )}
         <Button
@@ -130,7 +130,7 @@ export function PageChat({
           variant="ghost"
           aria-label={t('pod.page_chat.close')}
           onClick={event => selectTarget(null, true, event)}>
-          <RiCloseLine aria-hidden />
+          <DismissRegular aria-hidden />
         </Button>
       </div>
       {chats.data && chats.error && !accessDenied && (
@@ -208,8 +208,7 @@ export function PageChat({
         <PodPanelSurface
           key="page-chat"
           aria-label={t('pod.page_chat.title')}
-          data-sheet
-          className="pod-page-chat paper-sheet"
+          className="pod-page-chat border-s border-border"
           style={{ '--pod-page-chat-width': `${width}px` } as CSSProperties}>
           <div
             role="separator"

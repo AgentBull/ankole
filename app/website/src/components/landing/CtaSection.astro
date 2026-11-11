@@ -1,7 +1,7 @@
 ---
 import { buttonVariants } from '@ankole/uikit/components/button'
 import { cn } from '@ankole/uikit/lib/utils'
-import { RiArrowRightLine, RiGithubFill } from '@remixicon/react'
+import { ArrowRightRegular, BranchForkRegular } from '@ankole/uikit/icons'
 import { GITHUB_URL } from '../../consts'
 import type { Locale } from '../../i18n/config'
 import { localePath, t } from '../../i18n/utils'
@@ -41,7 +41,7 @@ const { lang } = Astro.props
 				<div class="mt-12 flex flex-wrap items-center gap-3">
 					<a href={localePath(lang, 'docs/quickstart')} class={cn(buttonVariants())}>
 						{t(lang, 'cta.primary')}
-						<RiArrowRightLine data-icon="inline-end" />
+						<ArrowRightRegular data-icon="inline-end" />
 					</a>
 					<a
 						href={GITHUB_URL}
@@ -49,7 +49,7 @@ const { lang } = Astro.props
 						rel="noreferrer"
 						class={cn(buttonVariants({ variant: 'outline' }))}
 					>
-						<RiGithubFill data-icon="inline-start" />
+						<BranchForkRegular data-icon="inline-start" />
 						{t(lang, 'cta.secondary')}
 					</a>
 				</div>

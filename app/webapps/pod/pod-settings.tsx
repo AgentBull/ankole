@@ -27,18 +27,18 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiArrowRightLine,
-  RiCheckLine,
-  RiFileCopyLine,
-  RiLinksLine,
-  RiMailSendLine,
-  RiPuzzleLine,
-  RiRobot2Line,
-  RiSettings3Line,
-  RiShieldKeyholeLine,
-  RiTeamLine,
-  RiTerminalBoxLine
-} from '@remixicon/react'
+  ArrowRightRegular,
+  BotRegular,
+  CheckmarkRegular,
+  CopyRegular,
+  LinkMultipleRegular,
+  PeopleTeamRegular,
+  PuzzlePieceRegular,
+  SendRegular,
+  SettingsRegular,
+  ShieldKeyholeRegular,
+  WindowConsoleRegular
+} from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -88,13 +88,13 @@ const keys = {
 }
 
 const navigationIcons: Record<string, ReactNode> = {
-  general: <RiSettings3Line aria-hidden />,
-  members: <RiTeamLine aria-hidden />,
-  agents: <RiRobot2Line aria-hidden />,
-  invitations: <RiMailSendLine aria-hidden />,
-  providers: <RiShieldKeyholeLine aria-hidden />,
-  environment: <RiTerminalBoxLine aria-hidden />,
-  connectors: <RiLinksLine aria-hidden />
+  general: <SettingsRegular aria-hidden />,
+  members: <PeopleTeamRegular aria-hidden />,
+  agents: <BotRegular aria-hidden />,
+  invitations: <SendRegular aria-hidden />,
+  providers: <ShieldKeyholeRegular aria-hidden />,
+  environment: <WindowConsoleRegular aria-hidden />,
+  connectors: <LinkMultipleRegular aria-hidden />
 }
 
 export function PodSettings() {
@@ -162,7 +162,7 @@ export function PodSettings() {
         <SettingsSection title={t('pod.connectors.title')} description={t('pod.settings.connectors_description')}>
           <Link to="/connectors" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
             {t('pod.settings.manage_connectors')}
-            <RiArrowRightLine aria-hidden data-icon="inline-end" />
+            <ArrowRightRegular aria-hidden data-icon="inline-end" />
           </Link>
         </SettingsSection>
       </SettingsPanel>
@@ -342,7 +342,7 @@ function ExtensionNavigationTrigger({ slot }: { slot: PodSettingsTabSlot }) {
           <TabsTrigger
             value={slot.id}
             className="min-h-9 shrink-0 justify-start gap-2.5 rounded-lg px-3 py-2 text-sm md:h-9 md:py-1.5">
-            <RiPuzzleLine aria-hidden />
+            <PuzzlePieceRegular aria-hidden />
             <span>{t(slot.labelKey)}</span>
           </TabsTrigger>
         )
@@ -1059,9 +1059,9 @@ function Invitations({ model }: { model: Model }) {
                 }}>
                 {t('pod.settings.copy_invitation')}
                 {copiedURL === create.data.url ? (
-                  <RiCheckLine aria-hidden data-icon="inline-end" />
+                  <CheckmarkRegular aria-hidden data-icon="inline-end" />
                 ) : (
-                  <RiFileCopyLine aria-hidden data-icon="inline-end" />
+                  <CopyRegular aria-hidden data-icon="inline-end" />
                 )}
               </Button>
             </div>
@@ -1285,9 +1285,9 @@ function Providers({ model }: { model: Model }) {
                   <Button type="button" size="sm" variant="outline" onClick={copyCallbackURL}>
                     {callbackCopied ? t('setup.oidc_callback_url_copied') : t('setup.oidc_callback_url_copy')}
                     {callbackCopied ? (
-                      <RiCheckLine aria-hidden data-icon="inline-end" />
+                      <CheckmarkRegular aria-hidden data-icon="inline-end" />
                     ) : (
-                      <RiFileCopyLine aria-hidden data-icon="inline-end" />
+                      <CopyRegular aria-hidden data-icon="inline-end" />
                     )}
                   </Button>
                 </div>

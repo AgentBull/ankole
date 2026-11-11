@@ -14,11 +14,18 @@ export type TimelineActions = {
 type PendingQuestion = ConversationDetail['pendingInteractions'][number] & { state: 'pending' }
 
 // A conversation can span days, so a message from before today names its day as well as its time.
+const DAY_MS = 24 * 60 * 60_000
+
+/**
+ * The time a message shows. A message from the last 24 hours shows only its hour and minute: inside that window
+ * a clock time names one moment, so the day adds nothing. An older message adds its day, and its year when that
+ * is not the current one.
+ */
 export function messageTime(value: string, locale: string, now = new Date()) {
   const date = new Date(value)
-  const today = date.toDateString() === now.toDateString()
+  const recent = now.getTime() - date.getTime() < DAY_MS
   return new Intl.DateTimeFormat(locale, {
-    ...(today
+    ...(recent
       ? {}
       : { month: 'short', day: 'numeric', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) }),
     hour: '2-digit',
@@ -231,6 +238,48 @@ export function placeLinkedExecutions(
     const destination = stream ? placement.streams : placement.messages
     destination.set(owner, [...(destination.get(owner) ?? []), run])
   }
+  return placement
+}
+
+/**
+ * Places each delegation on the reply of the turn that sent it. Ankole commits a delegation when the assistant's
+ * tool call runs, which is before the reply that reports it, and both carry the turn's signal. The reply shows its
+ * work and its text first and the delegation under them, where a linked run stands, so the timeline reads in the
+ * order things happened. A delegation whose turn still streams stands in the live reply, and one whose reply is
+ * not loaded keeps its own row.
+ */
+export function placeDelegations(
+  messages: Pick<TimelineMessage, 'id' | 'kind' | 'authorType' | 'authorUID' | 'signalID' | 'richContent'>[],
+  streams: Pick<TimelineLiveStream, 'agentUID' | 'signalIDs'>[]
+) {
+  const placement = {
+    messages: new Map<string, string[]>(),
+    streams: new Map<string, string[]>(),
+    placed: new Set<string>()
+  }
+  messages.forEach((message, index) => {
+    const signalID = message.signalID
+    if (!message.richContent?.agent_peer_outbound || !signalID) return
+    const reply = messages
+      .slice(index + 1)
+      .find(
+        later =>
+          later.signalID === signalID &&
+          later.authorType === 'agent' &&
+          later.authorUID === message.authorUID &&
+          (later.kind === 'message' || !!later.richContent?.execution) &&
+          !later.richContent?.agent_peer_outbound &&
+          !later.richContent?.agent_peer_inbound
+      )
+    const stream = reply
+      ? undefined
+      : streams.find(stream => stream.agentUID === message.authorUID && stream.signalIDs.includes(signalID))
+    const owner = reply?.id ?? stream?.agentUID
+    if (!owner) return
+    const destination = reply ? placement.messages : placement.streams
+    destination.set(owner, [...(destination.get(owner) ?? []), message.id])
+    placement.placed.add(message.id)
+  })
   return placement
 }
 

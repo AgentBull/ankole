@@ -1,5 +1,5 @@
 ---
-import { RiArrowLeftLine, RiArrowRightLine } from '@remixicon/react'
+import { ArrowLeftRegular, ArrowRightRegular } from '@ankole/uikit/icons'
 import type { Locale } from '../../i18n/config'
 import { localePath, t } from '../../i18n/utils'
 import type { DocNavItem } from '../../lib/docs-model'
@@ -22,7 +22,7 @@ const { lang, prev, next } = Astro.props
 					class="group border border-border p-4 no-underline transition-colors hover:bg-background-secondary"
 				>
 					<span class="flex items-center gap-1 text-xs uppercase tracking-widest text-muted-foreground">
-						<RiArrowLeftLine className="size-3.5" />
+						<ArrowLeftRegular className="size-3.5" />
 						{t(lang, 'docs.pager.previous')}
 					</span>
 					<span class="mt-2 block text-sm font-medium text-foreground">{prev.title}</span>
@@ -37,7 +37,7 @@ const { lang, prev, next } = Astro.props
 				>
 					<span class="flex items-center justify-end gap-1 text-xs uppercase tracking-widest text-muted-foreground">
 						{t(lang, 'docs.pager.next')}
-						<RiArrowRightLine className="size-3.5" />
+						<ArrowRightRegular className="size-3.5" />
 					</span>
 					<span class="mt-2 block text-sm font-medium text-foreground">{next.title}</span>
 				</a>

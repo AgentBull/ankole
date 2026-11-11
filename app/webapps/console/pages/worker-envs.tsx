@@ -22,7 +22,7 @@ import {
   TableCell,
   toast
 } from '@ankole/uikit'
-import { RiTerminalBoxLine } from '@remixicon/react'
+import { WindowConsoleRegular } from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQuery as useBaseQuery } from '@tanstack/react-query'
@@ -175,7 +175,7 @@ export function WorkerEnvsListPage() {
       isEmpty={items.length === 0}
       count={items.length}
       emptyTitle={t('console.worker_envs.empty_title')}
-      emptyIcon={<RiTerminalBoxLine aria-hidden />}
+      emptyIcon={<WindowConsoleRegular aria-hidden />}
       error={globalList.error ?? tenantList.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}

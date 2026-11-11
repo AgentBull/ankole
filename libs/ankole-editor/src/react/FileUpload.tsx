@@ -1,4 +1,4 @@
-import { RiUpload2Line } from '@remixicon/react'
+import { ArrowUploadRegular } from '@ankole/uikit/icons'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { closeFileUpload, fileUploadField } from '../editor/file-upload'
@@ -109,7 +109,7 @@ export function FileUpload() {
           setDragging(false)
           void accept(Array.from(event.dataTransfer.files))
         }}>
-        <RiUpload2Line aria-hidden />
+        <ArrowUploadRegular aria-hidden />
         <span>{label(busy ? 'resource_uploading' : 'file_upload_choose')}</span>
       </button>
       <p className="file-upload-hint">{label('file_upload_hint')}</p>

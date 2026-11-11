@@ -115,13 +115,15 @@ test('imported H4 to H6 retain visible heading emphasis', async ({ page }) => {
     .evaluateAll(elements =>
       elements.map(element => {
         const style = getComputedStyle(element)
-        return { tag: element.tagName, weight: Number(style.fontWeight), margin: parseFloat(style.marginTop) }
+        return { tag: element.tagName, weight: Number(style.fontWeight), size: parseFloat(style.fontSize) }
       })
     )
   expect(styles.map(style => style.tag)).toEqual(['H4', 'H5', 'H6', 'P'])
+  // H4 takes the next type step above body text; H5 and H6 share the body size and stand out by weight alone.
+  expect(styles[0]!.size).toBeGreaterThan(styles[3]!.size)
   for (const heading of styles.slice(0, 3)) {
     expect(heading.weight).toBeGreaterThan(styles[3]!.weight)
-    expect(heading.margin).toBeGreaterThan(styles[3]!.margin)
+    expect(heading.size).toBeGreaterThanOrEqual(styles[3]!.size)
   }
 })
 

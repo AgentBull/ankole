@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button, Checkbox, Input, Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@ankole/uikit'
 import type { BaseField, MetricOperation, TimeBucket } from '@ankole/applet-sdk/types'
-import { RiAlertLine, RiEqualizerLine } from '@remixicon/react'
+import { OptionsRegular, WarningRegular } from '@ankole/uikit/icons'
 import { Choice } from './content-primitives'
 import { AggregateChartBody, ScatterChartBody, type ChartViewProps } from './base-chart-body'
 import {
@@ -385,7 +385,7 @@ export function ChartView(props: ChartViewProps) {
           role="alert"
           data-slot="chart-missing-fields"
           className="flex items-start gap-2 rounded-control border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-foreground">
-          <RiAlertLine aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
+          <WarningRegular aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
           <div className="space-y-1">
             <p className="font-medium">
               {t('pod.content.chart_missing_field_title', {
@@ -562,7 +562,7 @@ function ChartDisplayOptionsPopover({
   return (
     <Popover>
       <PopoverTrigger render={<Button size="sm" variant="outline" disabled={disabled} />}>
-        <RiEqualizerLine aria-hidden="true" />
+        <OptionsRegular aria-hidden="true" />
         <span>{t('pod.content.chart_options', { defaultValue: 'Options' })}</span>
       </PopoverTrigger>
       <PopoverContent

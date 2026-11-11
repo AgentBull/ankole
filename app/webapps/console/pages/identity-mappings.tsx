@@ -16,7 +16,7 @@ import {
   TableCell,
   toast
 } from '@ankole/uikit'
-import { RiUserReceivedLine } from '@remixicon/react'
+import { PersonArrowLeftRegular } from '@ankole/uikit/icons'
 
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -131,7 +131,7 @@ export function IdentityMappingsPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.identity_mappings.empty_title')}
-      emptyIcon={<RiUserReceivedLine aria-hidden />}
+      emptyIcon={<PersonArrowLeftRegular aria-hidden />}
       emptyDescription={t('console.identity_mappings.empty_description')}
       error={requests.error}
       isFiltered={Boolean(query.trim())}

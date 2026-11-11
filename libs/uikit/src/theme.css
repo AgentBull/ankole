@@ -2,15 +2,13 @@
   --color-white: #ffffff;
   --color-black: #000000;
 
-  /* The neutral and brand ramps follow the Ankole colour schema, which names its colours by these steps
-     (gray_70, brandLight_60). Step 10 is the lightest and step 100 the darkest in both ramps.
-     The neutral ramp is pure grey: one ramp serves both themes, and the dark theme reads it from the dark end.
-     The schema names a separate brandDark ramp that mirrors steps 10–80 of this one (brandDark_n is
-     brand-(110 − n)), so the dark theme takes brandDark_50 from brand-60 and brandDark_40 from brand-70. Every
-     neutral and brand step equals the Palettes variable of the same name in the Ankole-Base Styles library.
-     The hue ramps below keep one Okhsl lightness ladder (10 96.2, 20 89.3, 30 80.5, 40 69.4, 50 59.0, 60 48.6,
-     70 36.1, 80 25.2, 90 16.6, 100 9.9), so a step reads equally light in every hue; charts, syntax colours,
-     and solid destructive fills read them. */
+  /* Every colour step equals the Palettes variable of the same name in the Ankole-Base Styles library, which
+     names its colours by these steps (gray_70, brandLight_60, blueLight_70). Step 10 is the lightest and step 100
+     the darkest in every ramp. The neutral ramp is pure grey: one ramp serves both themes, and the dark theme
+     reads it from the dark end. The library names a dark ramp for each hue that mirrors the light one
+     (blueDark_n is blue-(110 − n)), so the dark theme takes brandDark_50 from brand-60 and blueDark_40 from
+     blue-70. A step number orders a hue from light to dark and promises no contrast: yellow-60 is far lighter
+     than blue-60. Text and marks therefore pick the step whose measured contrast fits their surface. */
   --color-gray-10: #fbfbfb;
   --color-gray-20: #f8f8f8;
   --color-gray-30: #f4f4f4;
@@ -38,116 +36,287 @@
   --color-brand-hover: #d93c59;
   --color-brand-pressed: #cc3854;
 
-  --color-blue-10: #edf5ff;
-  --color-blue-20: #cfe2ff;
-  --color-blue-30: #a8caff;
-  --color-blue-40: #77a9ff;
-  --color-blue-50: #4a88ff;
-  --color-blue-60: #1561ff;
-  --color-blue-70: #0140cc;
-  --color-blue-80: #002b92;
-  --color-blue-90: #001c64;
-  --color-blue-100: #00103e;
+  --color-red-10: #fff1f2;
+  --color-red-20: #ffd9db;
+  --color-red-30: #ffa1a6;
+  --color-red-40: #ff6a72;
+  --color-red-50: #f53e29;
+  --color-red-60: #e6222d;
+  --color-red-70: #c1141e;
+  --color-red-80: #a0141c;
+  --color-red-90: #84181e;
+  --color-red-100: #48070b;
 
-  --color-cyan-10: #e7f7ff;
-  --color-cyan-20: #c0e7ff;
-  --color-cyan-30: #8dd1ff;
-  --color-cyan-40: #45b3ff;
-  --color-cyan-50: #1294eb;
-  --color-cyan-60: #0077c8;
-  --color-cyan-70: #005698;
-  --color-cyan-80: #003b6d;
-  --color-cyan-90: #012749;
-  --color-cyan-100: #03172b;
+  --color-orange-10: #fef3e6;
+  --color-orange-20: #ffd8c9;
+  --color-orange-30: #ffbea3;
+  --color-orange-40: #ffa17b;
+  --color-orange-50: #ff814a;
+  --color-orange-60: #f7630c;
+  --color-orange-70: #cc4f00;
+  --color-orange-80: #933600;
+  --color-orange-90: #7b2913;
+  --color-orange-100: #5c1707;
 
-  --color-teal-10: #ddfbfc;
-  --color-teal-20: #a3f1f0;
-  --color-teal-30: #44e2df;
-  --color-teal-40: #08c2be;
-  --color-teal-50: #00a3a0;
-  --color-teal-60: #008583;
-  --color-teal-70: #006162;
-  --color-teal-80: #004346;
-  --color-teal-90: #022c30;
-  --color-teal-100: #041a1d;
+  --color-yellow-10: #fffeca;
+  --color-yellow-20: #fffca4;
+  --color-yellow-30: #fffa7d;
+  --color-yellow-40: #fff74b;
+  --color-yellow-50: #fff200;
+  --color-yellow-60: #ffe500;
+  --color-yellow-70: #d1aa00;
+  --color-yellow-80: #a67a02;
+  --color-yellow-90: #895f0a;
+  --color-yellow-100: #623506;
 
-  --color-green-10: #e3fce9;
-  --color-green-20: #b3f3c3;
-  --color-green-30: #76e494;
-  --color-green-40: #43c76b;
-  --color-green-50: #24a94f;
-  --color-green-60: #1a8a3c;
-  --color-green-70: #126629;
-  --color-green-80: #0a4719;
-  --color-green-90: #052f0e;
-  --color-green-100: #051b08;
+  --color-green-10: #d7fce6;
+  --color-green-20: #9ef6c8;
+  --color-green-30: #6ae8ab;
+  --color-green-40: #53d397;
+  --color-green-50: #3abe84;
+  --color-green-60: #2cc469;
+  --color-green-70: #058b5b;
+  --color-green-80: #067651;
+  --color-green-90: #075e41;
+  --color-green-100: #013928;
 
-  --color-yellow-10: #fcf5d7;
-  --color-yellow-20: #fedf7e;
-  --color-yellow-30: #f3c11c;
-  --color-yellow-40: #d2a206;
-  --color-yellow-50: #b28700;
-  --color-yellow-60: #916d00;
-  --color-yellow-70: #6b5000;
-  --color-yellow-80: #4a3700;
-  --color-yellow-90: #302500;
-  --color-yellow-100: #1c1500;
+  --color-teal-10: #d0faf1;
+  --color-teal-20: #adf7e7;
+  --color-teal-30: #8eedd9;
+  --color-teal-40: #5ce5c8;
+  --color-teal-50: #20d6be;
+  --color-teal-60: #19bfa1;
+  --color-teal-70: #15ad95;
+  --color-teal-80: #117465;
+  --color-teal-90: #135c53;
+  --color-teal-100: #10453e;
 
-  --color-red-10: #fff1ec;
-  --color-red-20: #ffd6ca;
-  --color-red-30: #ffb29e;
-  --color-red-40: #ff7e63;
-  --color-red-50: #f14d32;
-  --color-red-60: #d1270e;
-  --color-red-70: #9c1908;
-  --color-red-80: #6e1105;
-  --color-red-90: #4b0a03;
-  --color-red-100: #2d0703;
+  --color-cyan-10: #eaf8ff;
+  --color-cyan-20: #cceeff;
+  --color-cyan-30: #ace4ff;
+  --color-cyan-40: #89d9ff;
+  --color-cyan-50: #60ceff;
+  --color-cyan-60: #25c3fd;
+  --color-cyan-70: #009ed0;
+  --color-cyan-80: #006f93;
+  --color-cyan-90: #045f88;
+  --color-cyan-100: #01354e;
 
-  --color-magenta-10: #ffeff7;
-  --color-magenta-20: #ffd2e6;
-  --color-magenta-30: #ffabcd;
-  --color-magenta-40: #ff72ad;
-  --color-magenta-50: #ea468d;
-  --color-magenta-60: #c9256f;
-  --color-magenta-70: #97144f;
-  --color-magenta-80: #6c0a36;
-  --color-magenta-90: #4a0524;
-  --color-magenta-100: #2d0415;
+  --color-blue-10: #eaeff8;
+  --color-blue-20: #c8dcff;
+  --color-blue-30: #9fc2ff;
+  --color-blue-40: #76a6ff;
+  --color-blue-50: #0f87ff;
+  --color-blue-60: #2e6eeb;
+  --color-blue-70: #0d54da;
+  --color-blue-80: #1f44ae;
+  --color-blue-90: #1e3d8a;
+  --color-blue-100: #122859;
 
-  --color-purple-10: #f6f1ff;
-  --color-purple-20: #e6d9ff;
-  --color-purple-30: #d1baff;
-  --color-purple-40: #b791ff;
-  --color-purple-50: #a066ff;
-  --color-purple-60: #8838f2;
-  --color-purple-70: #6524b8;
-  --color-purple-80: #451a81;
-  --color-purple-90: #2e1157;
-  --color-purple-100: #1a0b32;
+  --color-purple-10: #eae8f6;
+  --color-purple-20: #dfd9ff;
+  --color-purple-30: #bdafff;
+  --color-purple-40: #a389ff;
+  --color-purple-50: #8c62f9;
+  --color-purple-60: #753de4;
+  --color-purple-70: #6a30d1;
+  --color-purple-80: #5828af;
+  --color-purple-90: #49238f;
+  --color-purple-100: #140d1c;
 
-  --color-orange-10: #fff1e6;
-  --color-orange-20: #ffd8bd;
-  --color-orange-30: #ffb588;
-  --color-orange-40: #ff8233;
-  --color-orange-50: #e26300;
-  --color-orange-60: #b94f00;
-  --color-orange-70: #883a00;
-  --color-orange-80: #5e2900;
-  --color-orange-90: #3e1b00;
-  --color-orange-100: #251000;
+  --color-magenta-10: #fbecf5;
+  --color-magenta-20: #fee5f0;
+  --color-magenta-30: #ffcae4;
+  --color-magenta-40: #ff9fcb;
+  --color-magenta-50: #ff63a7;
+  --color-magenta-60: #ff4890;
+  --color-magenta-70: #f0125f;
+  --color-magenta-80: #d10545;
+  --color-magenta-90: #ad0739;
+  --color-magenta-100: #7c082c;
+
+  --color-deeppurple-10: #f6f3ff;
+  --color-deeppurple-20: #e1dfeb;
+  --color-deeppurple-30: #cfccd7;
+  --color-deeppurple-40: #bab8c1;
+  --color-deeppurple-50: #9a97a3;
+  --color-deeppurple-60: #757282;
+  --color-deeppurple-70: #605d6c;
+  --color-deeppurple-80: #4f4c58;
+  --color-deeppurple-90: #44414b;
+  --color-deeppurple-100: #3d3b46;
+
+  --color-rose-10: #fff1f3;
+  --color-rose-20: #ffdfe3;
+  --color-rose-30: #ffc5cc;
+  --color-rose-40: #ff9da9;
+  --color-rose-50: #ff697a;
+  --color-rose-60: #ff3b52;
+  --color-rose-70: #f8233c;
+  --color-rose-80: #c9162b;
+  --color-rose-90: #a50f21;
+  --color-rose-100: #860616;
+
+  --color-amber-10: #fffdeb;
+  --color-amber-20: #fff3cf;
+  --color-amber-30: #ffefc2;
+  --color-amber-40: #ffd86b;
+  --color-amber-50: #ffc53d;
+  --color-amber-60: #fcb321;
+  --color-amber-70: #ff9e36;
+  --color-amber-80: #f77911;
+  --color-amber-90: #e66801;
+  --color-amber-100: #c45900;
+
+  --color-orchid-10: #f2e0f7;
+  --color-orchid-20: #f7d9ff;
+  --color-orchid-30: #edc8f7;
+  --color-orchid-40: #dd9cf7;
+  --color-orchid-50: #d86ef6;
+  --color-orchid-60: #c355d9;
+  --color-orchid-70: #af36c7;
+  --color-orchid-80: #762d85;
+  --color-orchid-90: #562e5e;
+  --color-orchid-100: #3f1946;
+
+  --color-royalblue-10: #f6f9fc;
+  --color-royalblue-20: #eaf2fb;
+  --color-royalblue-30: #d0dcf8;
+  --color-royalblue-40: #b3c1f5;
+  --color-royalblue-50: #9db2ff;
+  --color-royalblue-60: #8099f7;
+  --color-royalblue-70: #6866e2;
+  --color-royalblue-80: #4546ec;
+  --color-royalblue-90: #3c3896;
+  --color-royalblue-100: #242589;
+
+  --color-manatee-10: #f6f9fc;
+  --color-manatee-20: #ebf3f7;
+  --color-manatee-30: #dde4e7;
+  --color-manatee-40: #c6d0d8;
+  --color-manatee-50: #9eaec0;
+  --color-manatee-60: #7787a6;
+  --color-manatee-70: #5d6589;
+  --color-manatee-80: #4d4e6f;
+  --color-manatee-90: #403e58;
+  --color-manatee-100: #343346;
+
+  --color-navy-10: #f6f7f9;
+  --color-navy-20: #eceef2;
+  --color-navy-30: #dce4e9;
+  --color-navy-40: #afbbca;
+  --color-navy-50: #707991;
+  --color-navy-60: #464f69;
+  --color-navy-70: #323b54;
+  --color-navy-80: #262f4a;
+  --color-navy-90: #202a43;
+  --color-navy-100: #0f0e10;
+
+  --color-lime-10: #d4fdce;
+  --color-lime-20: #bcffb2;
+  --color-lime-30: #9de693;
+  --color-lime-40: #8de386;
+  --color-lime-50: #75d569;
+  --color-lime-60: #60ca69;
+  --color-lime-70: #5ac463;
+  --color-lime-80: #599c4e;
+  --color-lime-90: #376c2a;
+  --color-lime-100: #2b4c25;
+
+  --color-pampas-10: #fefaf6;
+  --color-pampas-20: #f5f1eb;
+  --color-pampas-30: #e2d6c6;
+  --color-pampas-40: #cfbaa2;
+  --color-pampas-50: #bb9a7c;
+  --color-pampas-60: #ad8362;
+  --color-pampas-70: #a07156;
+  --color-pampas-80: #855c49;
+  --color-pampas-90: #6d4c3f;
+  --color-pampas-100: #593f35;
+
+  /* The type scale of the library. A step is the `font_size_*` token of the same number, and its line height is
+     the one the `en-US/size_*` text styles pair with it, so `text-65` sets 13px on a 22px line. Text is set in
+     Light (300), Regular (400), Medium (500), and SemiBold (600) with no letter spacing. */
+  --text-25: 0.625rem;
+  --text-25--line-height: 1rem;
+  --text-50: 0.75rem;
+  --text-50--line-height: 1.25rem;
+  --text-65: 0.8125rem;
+  --text-65--line-height: 1.375rem;
+  --text-75: 0.875rem;
+  --text-75--line-height: 1.625rem;
+  --text-85: 0.9375rem;
+  --text-85--line-height: 1.5rem;
+  --text-100: 1rem;
+  --text-100--line-height: 1.5rem;
+  --text-200: 1.125rem;
+  --text-200--line-height: 1.75rem;
+  --text-300: 1.25rem;
+  --text-300--line-height: 1.875rem;
+  --text-400: 1.5rem;
+  --text-400--line-height: 2rem;
+  --text-500: 1.875rem;
+  --text-500--line-height: 2.875rem;
+  --text-600: 2.25rem;
+  --text-600--line-height: 3.375rem;
+  --text-700: 3rem;
+  --text-700--line-height: 4.5rem;
+  --text-800: 4rem;
+  --text-800--line-height: 5.5rem;
+
+  /* Figures set in the monospace face follow the `number-ibm/size_*` text styles: the same steps on tighter
+     lines at 12px and 14px, and 22px at step 300. They are set in Regular (400), Medium (500), and Bold (700). */
+  --text-num-25: 0.625rem;
+  --text-num-25--line-height: 1rem;
+  --text-num-50: 0.75rem;
+  --text-num-50--line-height: 1.125rem;
+  --text-num-75: 0.875rem;
+  --text-num-75--line-height: 1.375rem;
+  --text-num-100: 1rem;
+  --text-num-100--line-height: 1.5rem;
+  --text-num-200: 1.125rem;
+  --text-num-200--line-height: 1.75rem;
+  --text-num-300: 1.375rem;
+  --text-num-300--line-height: 1.875rem;
+  --text-num-400: 1.5rem;
+  --text-num-400--line-height: 2rem;
+  --text-num-500: 1.875rem;
+  --text-num-500--line-height: 2.875rem;
+  --text-num-600: 2.25rem;
+  --text-num-600--line-height: 3.375rem;
+  --text-num-700: 3rem;
+  --text-num-700--line-height: 4.5rem;
+  --text-num-800: 4rem;
+  --text-num-800--line-height: 5.5rem;
 
   --tracking-wide: 0;
   --tracking-wider: 0;
   --tracking-widest: 0;
 
-  /* One radius for every control, a smaller one for keys and the options inside a control. A sheet of
-     paper on the ground (the page, and a side panel beside it) is an object of its own, so it takes a soft
-     radius that reads as a card rather than a frame; panels on the paper stay square; ceramic has its own
-     radius. */
+  /* One radius for every control, a smaller one for keys and the options inside a control, and the smallest
+     for the box that a toolbar button tints around its icon. A sheet of paper on the ground (the page, and a
+     side panel beside it) is an object of its own, so it takes a soft radius that reads as a card rather than
+     a frame; panels on the paper stay square. A surface of the shell takes 8px: the content card, the
+     composer, a menu, and the send button. */
   --radius-control: 4px;
   --radius-mini: 3px;
+  --radius-micro: 2px;
   --radius-panel: 16px;
+  --radius-surface: 8px;
+
+  /* The shell: the top bar spans the window at 44px, and the sidebar column beside the content card is 258px
+     wide. */
+  --spacing-top-bar: 44px;
+  --spacing-sidebar: 258px;
+
+  /* Content, whether a document or the messages of a conversation, is one 892px column whose blocks sit 12px
+     apart. Its text is the 16px step on a 24px line; the page title is the 36px step in SemiBold, and headings
+     one to four are the 30px step in Bold, then the 24px, 20px, and 18px steps in SemiBold. */
+  --spacing-content: 892px;
+  --spacing-content-gap: 12px;
+
+  /* The composer blurs the page beneath it strongly enough that the text behind it reads as texture. */
+  --blur-composer: 60px;
 
   --shadow-sm: 0 1px 2px rgb(35 37 38 / 0.12);
   --shadow-md: 0 2px 6px rgb(35 37 38 / 0.18);
@@ -175,12 +344,23 @@
   --color-layer-01: var(--layer-01);
   --color-layer-02: var(--layer-02);
   --color-layer-03: var(--layer-03);
+  --color-layer-hover: var(--layer-hover);
   --color-layer-current: var(--layer-current);
   --color-layer-current-edge: var(--layer-current-edge);
   --color-layer-pressed: var(--layer-pressed);
+  --color-layer-drag: var(--layer-drag);
+  --color-layer-tertiary-hover: var(--layer-tertiary-hover);
+  --color-layer-tertiary-pressed: var(--layer-tertiary-pressed);
   --color-divider: var(--divider);
+  --color-divider-strong: var(--divider-strong);
+  --color-divider-brand: var(--divider-brand);
   --color-divider-overlay: var(--divider-overlay);
+  --color-divider-overlay-brand: var(--divider-overlay-brand);
+  --color-divider-overlay-strong: var(--divider-overlay-strong);
+  --color-border-overlay-strong: var(--border-overlay-strong);
   --color-skeleton: var(--skeleton);
+  --color-skeleton-base: var(--skeleton-base);
+  --color-icon-disabled: var(--icon-disabled);
   --color-primary-disabled: var(--primary-disabled);
   --color-primary-disabled-foreground: var(--primary-disabled-foreground);
   --color-badge-red-hover: var(--badge-red-hover);
@@ -211,7 +391,10 @@
   --color-warning-subtle: var(--warning-subtle);
   --color-background-secondary: var(--background-secondary);
   --color-background-tertiary: var(--background-tertiary);
-  --color-background-quaternary: var(--background-quaternary);
+  --color-background-overlay: var(--background-overlay);
+  --color-background-overlay-secondary: var(--background-overlay-secondary);
+  --color-background-overlay-tertiary: var(--background-overlay-tertiary);
+  --color-background-overlay-inverse: var(--background-overlay-inverse);
   --color-fg-primary: var(--fg-primary);
   --color-fg-secondary: var(--fg-secondary);
   --color-fg-tertiary: var(--fg-tertiary);
@@ -221,6 +404,7 @@
   --color-ring: var(--ring);
   --color-selection: var(--selection);
   --color-scrim: var(--scrim);
+  --color-scrim-secondary: var(--scrim-secondary);
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
@@ -263,20 +447,18 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --color-ground: var(--ground);
+  /* The ground is an image in both themes, so `bg-ground` paints it as the element's background image. */
+  --background-image-ground: var(--ground);
 }
 
 :root {
   color-scheme: light;
 
-  --font-ibm-plex-sans: 'IBMPlexSansCN', 'Helvetica Neue', Arial, sans-serif;
-  --font-ibm-plex-mono: 'IBMPlexMonoCN', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  --font-ibm-plex-serif: Georgia, 'Times New Roman', serif;
-  --font-ibm-plex-sans-cn: 'IBMPlexSansCN';
-  --font-ibm-plex-mono-cn: 'IBMPlexMonoCN';
-  --font-family-sans: var(--font-ibm-plex-sans);
-  --font-family-mono: var(--font-ibm-plex-mono);
-  --font-family-serif: var(--font-ibm-plex-serif);
+  /* The kit bundles both AgentBull faces (`styles.css`): AgentBullSansGB sets Chinese and Latin text, and
+     AgentBullMono sets code. */
+  --font-family-sans: 'AgentBullSansGB', 'Helvetica Neue', Arial, sans-serif;
+  --font-family-mono: 'AgentBullMono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --font-family-serif: Georgia, 'Times New Roman', serif;
 
   /* Type and icons share one ladder. Input text and the active state keep AAA contrast, and the inactive
      state keeps AA: primary 10:1, secondary 6.5:1, tertiary 3.1:1 on white. Placeholder and disabled text
@@ -287,20 +469,31 @@
   --text-placeholder: var(--color-gray-60);
   --text-disabled: var(--color-gray-50);
   --text-on-color: var(--color-white);
+  /* Icons share the type ladder down to the placeholder step. A disabled icon is gray-40, one step lighter than
+     disabled text. */
+  --icon-disabled: var(--color-gray-40);
 
-  /* Backgrounds. The page is white, the ground and recessed layers are gray-20, and the tertiary layer is
-     gray-40. */
+  /* Backgrounds. The page is white (primary), the recessed layers are gray-20 (secondary), and the tertiary layer
+     is gray-40. */
   --layer-01: var(--color-gray-20);
   --layer-02: var(--color-white);
   --layer-03: var(--color-gray-40);
-  /* Rows and ghost controls take the secondary interaction fills: hover is a half-strength brand-10 wash,
-     pressed lays 5% black over the hover, and every selected item (the current place, the chosen tab, a
-     selected row, a pressed toggle) is solid brand-10 inside a 0.2px edge of blue-600 at 26%. The hover and
-     pressed fills are translucent, so a row on paper and a row on ceramic change the same way. */
-  --layer-hover: rgb(255 234 237 / 0.5);
-  --layer-pressed: rgb(231 212 214 / 0.525);
-  --layer-current: var(--color-brand-10);
-  --layer-current-edge: rgb(13 84 218 / 0.26);
+  /* A card that stands on the page without an edge, such as a Page reference, takes the lightest gray. */
+  --layer-card: var(--layer-01);
+  /* Rows and ghost controls take the secondary interaction fills: hover is a half-strength deeppurple-20 wash,
+     pressed lays 5% black over the hover, and every selected item (the current place, the chosen tab, a selected
+     row, a pressed toggle) is solid deeppurple-20 with no edge. A row that a person drags takes a half-strength
+     brand-10 wash under 12% black. The hover, pressed, and drag fills are translucent, so a row on paper and a row
+     on ceramic change the same way. */
+  --layer-hover: rgb(225 223 235 / 0.5);
+  --layer-pressed: rgb(204 202 213 / 0.525);
+  --layer-drag: rgb(200 184 186 / 0.56);
+  --layer-current: var(--color-deeppurple-20);
+  --layer-current-edge: transparent;
+  /* The tertiary interaction fills change a surface without tinting it: hover lays 50% white over it and
+     pressed lays 12% black. */
+  --layer-tertiary-hover: rgb(255 255 255 / 0.5);
+  --layer-tertiary-pressed: rgb(0 0 0 / 0.12);
   /* Two control surfaces. A slot holds content (a field, a select, the track of a choice): a gray fill with
      a 3:1 baseline. An object is pressed or chosen (a button, the chosen option, a key): white with an
      edge whose bottom is one step darker. A pressed object sinks into a slot. */
@@ -319,21 +512,42 @@
   --control-shadow: 0 1px 1px rgb(0 0 0 / 0.06);
   /* The page floats on the ground: a hairline ring and a soft lift, shared by every sheet of paper. */
   --paper-shadow: 0 0 0 1px var(--border), 0 1px 3px rgb(0 0 0 / 0.04), 0 4px 12px rgb(0 0 0 / 0.02);
-  /* Borders: primary groups content, secondary outlines objects, tertiary carries the 3:1 edge of a slot,
-     and brand-50 marks a brand edge. */
+  /* The composer floats over the bottom of the page: a soft drop of 12% black and a faint blue-60 lift. Its
+     edge runs through the colour stops of the quaternary border. */
+  --composer-shadow: 0 8px 16px rgb(0 0 0 / 0.12), 0 4px 8px rgb(46 110 235 / 0.02);
+  --composer-edge-stops: var(--border-quaternary-stops);
+  /* Borders: primary (gray-50) groups content, secondary (gray-60, the control edge) outlines objects, and
+     tertiary (gray-70) carries the 3:1 edge of a slot. The quaternary border is an image, not a colour: a
+     gradient that runs from blue at the start of an edge through a softer blue to brand-60 at its end, and the
+     composer takes it as its edge. Over a translucent surface, the faint overlay border is the ceramic hairline
+     and the strong one is deeppurple-60 at 80%. */
   --border-subtle: var(--color-gray-50);
   --border-strong: var(--color-gray-70);
-  /* Dividers separate content on paper; the overlay divider separates groups inside ceramic. */
+  --border-quaternary-stops: #6ecbf9 0%, #7bb3ed 43%, var(--color-brand-60) 100%;
+  --border-quaternary: linear-gradient(90deg, var(--border-quaternary-stops));
+  --border-overlay-strong: rgb(117 114 130 / 0.8);
+  /* Dividers separate content on paper: gray-50, a stronger gray-60, and brand-50. The overlay dividers separate
+     groups inside ceramic: 3% black, brand-50 at 30%, and deeppurple-60 at 80%. */
   --divider: var(--color-gray-50);
+  --divider-strong: var(--color-gray-60);
+  --divider-brand: var(--color-brand-50);
   --divider-overlay: rgb(0 0 0 / 0.03);
+  --divider-overlay-brand: rgb(255 84 104 / 0.3);
+  --divider-overlay-strong: rgb(117 114 130 / 0.8);
 
   /* The ground is the frame of the app: the header and the navigation sit on it, and the page is a white
-     sheet on top. */
-  --ground: var(--color-gray-20);
+     sheet on top. It is the quaternary background, a wash down the window from a cool gray, which holds for
+     its first 63%, to a warm white at the bottom. */
+  --ground: linear-gradient(180deg, #f2f4f5 0%, #f3f4f5 63%, #fef8f1 100%);
   --background: var(--color-white);
   --background-secondary: var(--layer-01);
-  --background-tertiary: var(--layer-02);
-  --background-quaternary: var(--layer-03);
+  --background-tertiary: var(--layer-03);
+  /* Translucent backgrounds that sit over content: 80% white, 5% black, gray-20 at 50%, and the inverse
+     gray-80 at 90%. */
+  --background-overlay: rgb(255 255 255 / 0.8);
+  --background-overlay-secondary: rgb(0 0 0 / 0.05);
+  --background-overlay-tertiary: rgb(248 248 248 / 0.5);
+  --background-overlay-inverse: rgb(94 94 94 / 0.9);
   --foreground: var(--text-primary);
   /* A card is paper, like the page: borders and whitespace group it. A field keeps its gray slot fill on it. */
   --card: var(--background);
@@ -361,10 +575,12 @@
   --ring: var(--color-brand-60);
   /* Content that a person selects takes brand-30 at 30%, denser than the hover wash. */
   --selection: rgb(255 154 165 / 0.3);
-  /* Skeleton blocks pulse in gray-30 at 80%. */
+  /* Skeleton blocks pulse in gray-30 at 80%; the area that holds them is gray-20 at 50%. */
   --skeleton: rgb(244 244 244 / 0.8);
+  --skeleton-base: rgb(248 248 248 / 0.5);
 
-  /* The navigation sidebar shares the page's fill and ends in the overlay divider. */
+  /* A navigation column that draws its own fill, such as a floating sidebar or the mobile sheet, shares the
+     page's fill and ends in the overlay divider. The inset sidebar draws none, so the ground shows through it. */
   --sidebar: var(--background);
   --sidebar-foreground: var(--text-primary);
   --sidebar-accent: var(--layer-hover);
@@ -380,28 +596,27 @@
 
   /* Status colors. Every status has the same three roles:
      --{status} is the mark: icons, dots, bars, borders, rings, and stripes. It takes the schema's state
-     colour: error #f53e29 (3.8:1 on white), info #0d54da (6.4:1), success #2cc469 (2.3:1), and warning #895f0a
-     (5.7:1). A success mark therefore pairs with a label or an icon shape rather than standing alone.
+     colour: error red-50 (3.8:1 on white), info blue-70 (6.4:1), success green-60 (2.3:1), and warning
+     yellow-90 (5.7:1). A success mark therefore pairs with a label or an icon shape rather than standing alone.
      --{status}-foreground is status text on paper and keeps 4.5:1 or more. Info and warning text use the mark
-     itself, error text takes the library's states-error-500 (#e6222d), and success text darkens the mark on
-     the same hue until it reaches 4.5:1.
-     --{status}-subtle is the schema's state background, the fill of a status container or badge. Text on it
-     stays --foreground.
-     A solid destructive button is red-70 with white text in both themes, darker than the brand primary; a
+     itself, error text takes red-60, and success text takes green-80.
+     --{status}-subtle is the schema's state background, step 20 of the status hue: the fill of a status
+     container or badge. Text on it stays --foreground.
+     A solid destructive button is red-80 with white text in both themes, darker than the brand primary; a
      focused destructive menu item uses a translucent destructive wash (bg-destructive/10 in light mode and
      dark:bg-destructive/20 in dark mode) with destructive-foreground text over ceramic. */
-  --destructive: #f53e29;
-  --destructive-foreground: #e6222d;
-  --destructive-subtle: #ffd9db;
-  --warning: #895f0a;
-  --warning-foreground: #895f0a;
-  --warning-subtle: #fffca4;
-  --success: #2cc469;
-  --success-foreground: #1e8749;
-  --success-subtle: #9ef6c8;
-  --info: #0d54da;
-  --info-foreground: #0d54da;
-  --info-subtle: #c8dcff;
+  --destructive: var(--color-red-50);
+  --destructive-foreground: var(--color-red-60);
+  --destructive-subtle: var(--color-red-20);
+  --warning: var(--color-yellow-90);
+  --warning-foreground: var(--color-yellow-90);
+  --warning-subtle: var(--color-yellow-20);
+  --success: var(--color-green-60);
+  --success-foreground: var(--color-green-80);
+  --success-subtle: var(--color-green-20);
+  --info: var(--color-blue-70);
+  --info-foreground: var(--color-blue-70);
+  --info-subtle: var(--color-blue-20);
   /* A status badge fills with its status background and darkens toward its mark on hover. */
   --badge-red: var(--destructive-subtle);
   --badge-yellow: var(--warning-subtle);
@@ -435,11 +650,14 @@
   /* Ceramic surfaces diffuse the colours beneath them. Each tier in the library stacks two translucent fills;
      the body and opacity below are that stack flattened into one fill. Dialogs, sheets, drawers, and toasts
      take the secondary tier (gray-10 at 94% under gray-10 at 38%); transient menus take the more translucent
-     primary tier (white at 90% under gray-10 at 38%). */
+     primary tier (white at 90% under gray-10 at 38%); the tertiary tier is gray-20 at 90% under gray-10 at
+     38%. */
   --ceramic-body: 251 251 251;
   --ceramic-opacity: 0.963;
   --ceramic-primary-body: 253 253 253;
   --ceramic-primary-opacity: 0.938;
+  --ceramic-tertiary-body: 249 249 249;
+  --ceramic-tertiary-opacity: 0.938;
   --ceramic-glaze: rgb(255 255 255 / 0.24);
   --ceramic-glaze-attention: rgb(255 226 160 / 0.24);
   --ceramic-blur: 24px;
@@ -458,27 +676,23 @@
   --slash-icon-halo-opacity: 14%;
   --slash-icon-edge: rgb(255 255 255 / 0.75);
   --slash-icon-shadow: rgb(80 76 91 / 0.1);
-  --menu-icon-blue: #2e6eeb;
+  --menu-icon-blue: var(--color-blue-60);
   --menu-icon-neutral: #676472;
-  --menu-icon-purple: #753de4;
+  --menu-icon-purple: var(--color-purple-60);
   --menu-icon-cyan: #39b3e8;
   /* Ceramic rows are 4px with a 4px inset, so the shell is 8px and stays concentric with them. A
      tooltip has no rows and takes the control radius. */
-  --ceramic-radius: 8px;
+  --ceramic-radius: var(--radius-surface);
   --ceramic-radius-tip: var(--radius-control);
-  /* A modal overlay dims the page with 20% black. */
+  /* A modal overlay dims the page with 20% black. The secondary overlay veils it with gray-60 at 60%. */
   --scrim: rgb(0 0 0 / 0.2);
+  --scrim-secondary: rgb(182 182 182 / 0.6);
 
   /* The environment that shows what the ceramic transmits: a cool, a rose, a sage, and a warm light. */
   --fog-cool: rgb(196 224 238 / 0.78);
   --fog-rose: rgb(255 210 220 / 0.64);
   --fog-sage: rgb(218 228 214 / 0.7);
   --fog-warm: rgb(255 228 200 / 0.62);
-}
-
-:where(:lang(zh), [lang|='zh']) {
-  --font-family-sans: var(--font-ibm-plex-sans-cn), var(--font-ibm-plex-sans);
-  --font-family-mono: var(--font-ibm-plex-mono-cn), var(--font-ibm-plex-mono);
 }
 
 [data-theme='dark'] {
@@ -490,18 +704,26 @@
   --text-placeholder: var(--color-gray-80);
   --text-disabled: var(--color-gray-90);
   --text-on-color: var(--color-white);
+  --icon-disabled: var(--color-gray-90);
 
   /* The page is gray-80 at 12% over black (#0b0b0b), the ground and recessed layers are black, and the
      tertiary layer is gray-90. */
   --layer-01: var(--color-black);
   --layer-02: #0b0b0b;
   --layer-03: var(--color-gray-90);
-  /* Hover is gray-90 at 50%, pressed lays 10% white over the hover, and a selected item is solid gray-90 inside
-     a 0.2px edge of brand-80 at 26%. */
+  /* The recessed black would vanish into the dark page under an edgeless card, so the card lifts instead: gray-90
+     at 30%, lighter than the page and quieter than the hover wash. */
+  --layer-card: rgb(66 66 66 / 0.3);
+  /* Hover is gray-90 at 50%, pressed lays 10% white over the hover, a dragged row lays 20% white over it, and a
+     selected item is solid gray-90 inside a 0.2px edge of brand-80 at 26%. The tertiary fills are 50% black on
+     hover and 12% white when pressed. */
   --layer-hover: rgb(66 66 66 / 0.5);
   --layer-pressed: rgb(100 100 100 / 0.55);
+  --layer-drag: rgb(129 129 129 / 0.6);
   --layer-current: var(--color-gray-90);
   --layer-current-edge: rgb(160 20 28 / 0.26);
+  --layer-tertiary-hover: rgb(0 0 0 / 0.5);
+  --layer-tertiary-pressed: rgb(255 255 255 / 0.12);
   --field: var(--color-black);
   --field-hover: #121212;
   --field-edge: rgb(255 255 255 / 0.06);
@@ -515,16 +737,34 @@
   --control-base: var(--color-gray-90);
   --control-shadow: 0 1px 0 rgb(0 0 0 / 0.45);
   --paper-shadow: 0 0 0 1px var(--border), 0 2px 8px rgb(0 0 0 / 0.32);
+  /* The dark page is near black, so the composer's drop deepens to keep its edge, and the blue lift gives way
+     to a second black one. The dark composer's edge is the overlay hairline, drawn as a one-colour gradient. */
+  --composer-shadow: 0 8px 16px rgb(0 0 0 / 0.4), 0 4px 8px rgb(0 0 0 / 0.2);
+  --composer-edge-stops: var(--ceramic-hairline), var(--ceramic-hairline);
+  /* The quaternary border is solid brand-50, drawn as a one-colour image like the light gradient. The strong
+     overlay border and divider are gray-60 at 60%; the brand overlay divider is brand-80 at 26%. */
   --border-subtle: var(--color-gray-100);
   --border-strong: var(--color-gray-70);
+  --border-quaternary-stops: var(--color-brand-50), var(--color-brand-50);
+  --border-quaternary: linear-gradient(90deg, var(--border-quaternary-stops));
+  --border-overlay-strong: rgb(182 182 182 / 0.6);
   --divider: var(--color-black);
+  --divider-strong: var(--color-gray-80);
+  --divider-brand: var(--color-brand-50);
   --divider-overlay: rgb(94 94 94 / 0.14);
+  --divider-overlay-brand: rgb(160 20 28 / 0.26);
+  --divider-overlay-strong: rgb(182 182 182 / 0.6);
 
-  --ground: var(--color-black);
+  /* The dark ground is flat black, drawn as a one-colour image like the light wash. */
+  --ground: linear-gradient(var(--color-black), var(--color-black));
   --background: #0b0b0b;
   --background-secondary: var(--layer-01);
-  --background-tertiary: var(--layer-02);
-  --background-quaternary: var(--layer-03);
+  --background-tertiary: var(--layer-03);
+  /* The overlay backgrounds are 80% black, 3% white, gray-80 at 14%, and the inverse gray-20 at 90%. */
+  --background-overlay: rgb(0 0 0 / 0.8);
+  --background-overlay-secondary: rgb(255 255 255 / 0.03);
+  --background-overlay-tertiary: rgb(94 94 94 / 0.14);
+  --background-overlay-inverse: rgb(248 248 248 / 0.9);
   --foreground: var(--text-primary);
   --card: var(--background);
   --card-foreground: var(--text-primary);
@@ -549,7 +789,9 @@
   --ring: var(--color-brand-70);
   /* Selection is brand-80 (the library's brandDark_30) at 26%. */
   --selection: rgb(160 20 28 / 0.26);
+  /* Skeleton blocks are gray-60 at 60% on a gray-90 base. */
   --skeleton: rgb(182 182 182 / 0.6);
+  --skeleton-base: var(--color-gray-90);
 
   --sidebar: var(--background);
   --sidebar-foreground: var(--text-primary);
@@ -564,20 +806,22 @@
   --fg-placeholder: var(--text-placeholder);
   --fg-disabled: var(--text-disabled);
 
-  /* Dark status marks keep 3:1 or more on the dark page. Info text lightens the #0d54da mark on the same
-     hue until it reaches 4.5:1; the other marks already carry text. */
-  --destructive: #f53e29;
-  --destructive-foreground: #f53e29;
-  --destructive-subtle: #a0141c;
-  --warning: #fff200;
-  --warning-foreground: #fff200;
-  --warning-subtle: #623506;
-  --success: #2cc469;
-  --success-foreground: #2cc469;
-  --success-subtle: #075e41;
-  --info: #0d54da;
-  --info-foreground: #3173f2;
-  --info-subtle: #1e3d8a;
+  /* Dark status marks keep 3:1 or more on the dark page. The warning mark is yellow-50, and the status
+     backgrounds are the dark steps of each hue: red-80, yellow-100, green-90, and blue-90. Info text takes
+     blue-50, the first step of its hue that reaches 4.5:1 on the dark page; the other marks already carry
+     text. */
+  --destructive: var(--color-red-50);
+  --destructive-foreground: var(--color-red-50);
+  --destructive-subtle: var(--color-red-80);
+  --warning: var(--color-yellow-50);
+  --warning-foreground: var(--color-yellow-50);
+  --warning-subtle: var(--color-yellow-100);
+  --success: var(--color-green-60);
+  --success-foreground: var(--color-green-60);
+  --success-subtle: var(--color-green-90);
+  --info: var(--color-blue-70);
+  --info-foreground: var(--color-blue-50);
+  --info-subtle: var(--color-blue-90);
   --badge-red: var(--destructive-subtle);
   --badge-yellow: var(--warning-subtle);
   --badge-green: var(--success-subtle);
@@ -602,12 +846,14 @@
   --chart-empty: #434648;
   --chart-total: #7d94ad;
 
-  /* Dialogs, sheets, drawers, and toasts take gray-100 at 94% under deep purple 900 at 60%; menus take black
-     at 90% under a violet at 10%. */
-  --ceramic-body: 26 26 23;
+  /* Every dark tier lies under deeppurple-100 at 60%. Dialogs, sheets, drawers, and toasts take gray-100 at
+     94% under it; menus and the tertiary tier take black at 90%. */
+  --ceramic-body: 48 47 55;
   --ceramic-opacity: 0.976;
-  --ceramic-primary-body: 10 4 19;
-  --ceramic-primary-opacity: 0.91;
+  --ceramic-primary-body: 38 37 44;
+  --ceramic-primary-opacity: 0.96;
+  --ceramic-tertiary-body: 38 37 44;
+  --ceramic-tertiary-opacity: 0.96;
   --ceramic-glaze: rgb(255 255 255 / 0.045);
   --ceramic-glaze-attention: rgb(210 161 6 / 0.14);
   --ceramic-rim: rgb(255 255 255 / 0.035);
@@ -624,12 +870,13 @@
   --slash-icon-halo-opacity: 20%;
   --slash-icon-edge: rgb(255 255 255 / 0.1);
   --slash-icon-shadow: rgb(0 0 0 / 0.18);
-  --menu-icon-blue: #76a6ff;
+  --menu-icon-blue: var(--color-blue-40);
   --menu-icon-neutral: #aaa6b7;
   --menu-icon-purple: #b18cf5;
   --menu-icon-cyan: #67cce9;
-  /* A modal overlay dims the page with 80% black under deep purple 900 at 80%, flattened into one fill. */
-  --scrim: rgb(20 21 15 / 0.96);
+  /* A modal overlay covers the page with 70% black under deeppurple-90 at 80%, flattened into one fill. */
+  --scrim: rgb(58 55 64 / 0.94);
+  --scrim-secondary: rgb(182 182 182 / 0.6);
 
   --fog-cool: rgb(30 96 122 / 0.55);
   --fog-rose: rgb(140 28 54 / 0.36);

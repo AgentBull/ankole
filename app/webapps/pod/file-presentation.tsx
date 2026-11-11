@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Button } from '@ankole/uikit'
-import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react'
+import { ChevronLeftRegular, ChevronRightRegular } from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { getSlides, loadPresentation } from '@office-kit/pptx'
@@ -48,7 +48,7 @@ export default function PresentationPreview({ url, initialPage }: { url: string;
             title={t('pod.content.previous_page')}
             disabled={selectedIndex <= 0}
             onClick={() => setSelected(Math.max(0, selectedIndex - 1))}>
-            <RiArrowLeftSLine aria-hidden className="size-4" />
+            <ChevronLeftRegular aria-hidden className="size-4" />
           </Button>
         )}
         <nav
@@ -78,7 +78,7 @@ export default function PresentationPreview({ url, initialPage }: { url: string;
               title={t('pod.content.next_page')}
               disabled={selectedIndex >= total - 1}
               onClick={() => setSelected(Math.min(total - 1, selectedIndex + 1))}>
-              <RiArrowRightSLine aria-hidden className="size-4" />
+              <ChevronRightRegular aria-hidden className="size-4" />
             </Button>
             <span className="shrink-0 text-xs tabular-nums text-fg-tertiary">
               {selectedIndex + 1} / {total}

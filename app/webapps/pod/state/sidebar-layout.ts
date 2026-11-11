@@ -1,6 +1,7 @@
 import { createModel, signal } from '@preact/signals-react'
 
-export const POD_SIDEBAR_MIN_WIDTH = 236
+/** The sidebar opens at the design's 258px column, the narrowest width that a resize keeps. */
+export const POD_SIDEBAR_MIN_WIDTH = 258
 export const POD_SIDEBAR_MAX_WIDTH = 480
 const POD_SIDEBAR_WIDTH_STORAGE_KEY = 'ankole.pod.sidebar-width'
 

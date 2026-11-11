@@ -1,11 +1,11 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, cn, toast } from '@ankole/uikit'
-import { RiCheckLine, RiFileCopyLine } from '@remixicon/react'
+import { CheckmarkRegular, CopyRegular } from '@ankole/uikit/icons'
 import { useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { EXTERNAL_TRANSLATION_GUARD_ATTRS, withExternalTranslationGuardClass } from './external-translation-guard'
+import { MARKDOWN_SYNTAX_PLUGINS } from './markdown-syntax'
 
 /**
  * The react-markdown pipeline behind `MarkdownBody`. It lives in its own
@@ -17,7 +17,9 @@ import { EXTERNAL_TRANSLATION_GUARD_ATTRS, withExternalTranslationGuardClass } f
  */
 export default function MarkdownRenderer({ text, copyCode = false }: { text: string; copyCode?: boolean }) {
   return (
-    <Markdown remarkPlugins={[remarkGfm]} components={copyCode ? { ...COMPONENTS, pre: CodeBlock } : COMPONENTS}>
+    <Markdown
+      remarkPlugins={MARKDOWN_SYNTAX_PLUGINS}
+      components={copyCode ? { ...COMPONENTS, pre: CodeBlock } : COMPONENTS}>
       {text}
     </Markdown>
   )
@@ -44,7 +46,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
               toast.error(t('pod.chat.copy_failed'))
             }
           }}>
-          {copied ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
+          {copied ? <CheckmarkRegular aria-hidden /> : <CopyRegular aria-hidden />}
           {t(copied ? 'pod.chat.code_copied' : 'pod.chat.copy_code')}
         </Button>
       </div>

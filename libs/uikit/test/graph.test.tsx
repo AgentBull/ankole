@@ -46,7 +46,7 @@ describe('AnkoleGraph', () => {
   test('resolves light and dark fallback palettes and renders accessible object links without turning hubs into links', () => {
     const palette = resolveCanvasThemePalette(null)
     expect(palette.isDark).toBe(false)
-    expect(palette.ramps.blue.fill).toBe('#1561ff')
+    expect(palette.ramps.blue.fill).toBe('#2e6eeb')
 
     const html = renderToStaticMarkup(
       <AnkoleGraph

@@ -1,5 +1,5 @@
 import { Badge, Button } from '@ankole/uikit'
-import { RiResetLeftLine } from '@remixicon/react'
+import { ArrowResetRegular } from '@ankole/uikit/icons'
 import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AppConfigurationItem } from '../api/configuration-types'
@@ -39,7 +39,7 @@ export function SettingGroupField({
         </div>
         {item?.overridden ? (
           <Button disabled={saving} size="sm" type="button" variant="ghost" onClick={() => onRestore(item)}>
-            <RiResetLeftLine />
+            <ArrowResetRegular />
             {t('console.settings.restore_default')}
           </Button>
         ) : null}

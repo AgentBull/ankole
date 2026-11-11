@@ -3,7 +3,13 @@ import { copyText } from '../../lib/copy-text'
 import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit/components/alert'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit/components/collapsible'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
-import { RiArrowDownSLine, RiArrowRightLine, RiCheckLine, RiErrorWarningLine, RiFileCopyLine } from '@remixicon/react'
+import {
+  ArrowRightRegular,
+  CheckmarkRegular,
+  ChevronDownRegular,
+  CopyRegular,
+  ErrorCircleRegular
+} from '@ankole/uikit/icons'
 import { useEffect, useState } from 'react'
 
 export interface QuickstartCode {
@@ -152,7 +158,7 @@ export function QuickstartTabs({ ariaLabel, defaultValue, labels, queryParam, ta
               <p className="m-0 max-w-3xl text-[15px] leading-7 text-foreground">{tab.summary}</p>
               {tab.alert ? (
                 <Alert variant="warning" className="mt-6 max-w-3xl">
-                  <RiErrorWarningLine aria-hidden="true" />
+                  <ErrorCircleRegular aria-hidden="true" />
                   <AlertTitle>{tab.alert.title}</AlertTitle>
                   <AlertDescription>
                     {tab.alert.body.map(paragraph => (
@@ -237,7 +243,7 @@ function AdvancedSection({
         </span>
         <span className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] font-normal text-muted-foreground">
           {open ? labels.hideAdvanced : labels.showAdvanced}
-          <RiArrowDownSLine
+          <ChevronDownRegular
             aria-hidden="true"
             className={`size-4 transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
           />
@@ -325,7 +331,7 @@ function SectionContent({
                       rel={isExternalLink(link.href) ? 'noopener noreferrer' : undefined}
                       className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-60 underline-offset-4 hover:underline dark:text-brand-40">
                       {link.label}
-                      <RiArrowRightLine aria-hidden="true" className="size-4" />
+                      <ArrowRightRegular aria-hidden="true" className="size-4" />
                     </a>
                   ))}
                 </div>
@@ -435,9 +441,9 @@ function CopyButton({
           : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground focus-visible:ring-ring/50'
       }`}>
       {copied ? (
-        <RiCheckLine aria-hidden="true" className="size-3.5" />
+        <CheckmarkRegular aria-hidden="true" className="size-3.5" />
       ) : (
-        <RiFileCopyLine aria-hidden="true" className="size-3.5" />
+        <CopyRegular aria-hidden="true" className="size-3.5" />
       )}
       <span aria-live="polite">{actionLabel}</span>
     </button>

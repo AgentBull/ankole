@@ -92,7 +92,7 @@ test.describe('Pod laboratory performance measurement', () => {
         await context.addCookies(state.owner.cookies)
         const page = await context.newPage()
         if (scenario === 'without-cn-font') {
-          await page.route('**/assets/fonts/IBMPlexSansCN*.woff2', route => route.abort('failed'))
+          await page.route('**/assets/fonts/AgentBullSansGB*.woff2', route => route.abort('failed'))
         }
         const errors: string[] = []
         page.on('pageerror', error => errors.push(error.message))

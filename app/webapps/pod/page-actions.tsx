@@ -13,17 +13,17 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiArrowDownLine,
-  RiArrowUpLine,
-  RiDeleteBinLine,
-  RiExternalLinkLine,
-  RiFileCopyLine,
-  RiFolderTransferLine,
-  RiPencilLine,
-  RiSearchLine,
-  RiStarFill,
-  RiStarLine
-} from '@remixicon/react'
+  ArrowDownRegular,
+  ArrowUpRegular,
+  CopyRegular,
+  DeleteRegular,
+  EditRegular,
+  FolderArrowRightRegular,
+  OpenRegular,
+  SearchRegular,
+  StarFilled,
+  StarRegular
+} from '@ankole/uikit/icons'
 import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import type { PageMove as PodPageMove } from './content-api'
@@ -211,20 +211,20 @@ export function PageMenuItems({
   return (
     <>
       <DropdownMenuItem onClick={() => window.open(pageHref(page.id, page.title), '_blank', 'noopener')}>
-        <RiExternalLinkLine aria-hidden />
+        <OpenRegular aria-hidden />
         {t('pod.sidebar.open_in_new_tab')}
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => void copyLink()}>
-        <RiFileCopyLine aria-hidden />
+        <CopyRegular aria-hidden />
         {t('pod.content.copy_link')}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void navigate(linkTarget(podLocation('/content/search', { ancestor_id: page.id })))}>
-        <RiSearchLine aria-hidden />
+        <SearchRegular aria-hidden />
         {t('pod.content.search_in_this_page')}
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => favorite(page, !favorited)}>
-        {favorited ? <RiStarFill aria-hidden /> : <RiStarLine aria-hidden />}
+        {favorited ? <StarFilled aria-hidden /> : <StarRegular aria-hidden />}
         {favorited ? t('pod.sidebar.remove_favorite') : t('pod.sidebar.add_favorite')}
       </DropdownMenuItem>
       {canCreateChild(page) && (
@@ -238,25 +238,25 @@ export function PageMenuItems({
           <DropdownMenuSeparator />
           {canRename && (
             <DropdownMenuItem onClick={onRename}>
-              <RiPencilLine aria-hidden />
+              <EditRegular aria-hidden />
               {t('pod.sidebar.rename')}
             </DropdownMenuItem>
           )}
           {up && (
             <DropdownMenuItem onClick={() => move(page, up)}>
-              <RiArrowUpLine aria-hidden />
+              <ArrowUpRegular aria-hidden />
               {t('pod.sidebar.move_up')}
             </DropdownMenuItem>
           )}
           {down && (
             <DropdownMenuItem onClick={() => move(page, down)}>
-              <RiArrowDownLine aria-hidden />
+              <ArrowDownRegular aria-hidden />
               {t('pod.sidebar.move_down')}
             </DropdownMenuItem>
           )}
           {canMove && (
             <DropdownMenuItem onClick={onMoveTo}>
-              <RiFolderTransferLine aria-hidden />
+              <FolderArrowRightRegular aria-hidden />
               {t('pod.sidebar.move_to')}
             </DropdownMenuItem>
           )}
@@ -266,7 +266,7 @@ export function PageMenuItems({
         <>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => trash(page)}>
-            <RiDeleteBinLine aria-hidden />
+            <DeleteRegular aria-hidden />
             {t('pod.content.move_to_trash')}
           </DropdownMenuItem>
         </>

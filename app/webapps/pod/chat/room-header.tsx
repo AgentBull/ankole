@@ -13,17 +13,17 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiInformationLine,
-  RiSearchLine,
-  RiPencilLine,
-  RiMoreLine,
-  RiShareLine,
-  RiDownloadLine,
-  RiPushpinLine,
-  RiDeleteBinLine,
-  RiLogoutBoxLine,
-  RiUserAddLine
-} from '@remixicon/react'
+  ArrowDownloadRegular,
+  DeleteRegular,
+  EditRegular,
+  InfoRegular,
+  MoreHorizontalRegular,
+  PersonAddRegular,
+  PinRegular,
+  SearchRegular,
+  ShareRegular,
+  SignOutRegular
+} from '@ankole/uikit/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef, type RefObject } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
@@ -38,7 +38,7 @@ import { useRoomActions } from './room-api'
 import { exportConversation } from './room-export'
 import type { PanelInputEvent } from '../panel-motion'
 import { isApplePlatform } from '../../common/platform'
-import { PodSidebarToggle, PodTopBarActions } from '../top-bar'
+import { PodTopBarActions, PodTopBarPeople } from '../top-bar'
 
 export function RoomHeader({
   detail,
@@ -125,7 +125,6 @@ export function RoomHeader({
   return (
     <>
       <header className="pod-chat-header pod-room-header">
-        <PodSidebarToggle />
         {colleague ? (
           <h1 className="m-0 min-w-0 truncate text-sm leading-none" title={agentLabel(colleague)}>
             <AgentName agent={colleague} />
@@ -192,7 +191,7 @@ export function RoomHeader({
                 title={t('pod.chat_room.more')}
               />
             }>
-            <RiMoreLine aria-hidden />
+            <MoreHorizontalRegular aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" finalFocus={menuFinalFocus}>
             <DropdownMenuItem
@@ -203,7 +202,7 @@ export function RoomHeader({
                 moreTrigger.current?.focus()
                 onFind()
               }}>
-              <RiSearchLine aria-hidden />
+              <SearchRegular aria-hidden />
               {t('pod.chat_room.find')}
               <DropdownMenuShortcut>{isApplePlatform() ? '⌘F' : 'Ctrl+F'}</DropdownMenuShortcut>
             </DropdownMenuItem>
@@ -216,21 +215,21 @@ export function RoomHeader({
                   setTitle(room.title)
                   onEditingChange(true)
                 }}>
-                <RiPencilLine aria-hidden />
+                <EditRegular aria-hidden />
                 {t('pod.chat_room.rename')}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={() => actions.update.mutate({ pinned: !room.viewer.pinned })}>
-              <RiPushpinLine aria-hidden />
+              <PinRegular aria-hidden />
               {t(room.viewer.pinned ? 'pod.chat_room.unpin' : 'pod.chat_room.pin')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => void exportConversation(detail)}>
-              <RiDownloadLine aria-hidden />
+              <ArrowDownloadRegular aria-hidden />
               {t('pod.chat_room.export')}
             </DropdownMenuItem>
             {room.canDelete && (
               <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                <RiDeleteBinLine aria-hidden />
+                <DeleteRegular aria-hidden />
                 {t('pod.chat_room.delete')}
               </DropdownMenuItem>
             )}
@@ -239,17 +238,19 @@ export function RoomHeader({
                 variant="destructive"
                 disabled={actions.participants.isPending}
                 onClick={() => setLeaving(true)}>
-                <RiLogoutBoxLine aria-hidden />
+                <SignOutRegular aria-hidden />
                 {t('pod.chat_room.leave')}
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {/* The room's people and sharing actions sit at the end of the shell's top bar; the room header keeps its
-            title, find, and more actions. */}
+        {/* The room's people lead the end of the shell's top bar, before its search button, and the room's sharing
+            actions follow that button; the room header keeps its title, find, and more actions. */}
+        <PodTopBarPeople>
+          <ParticipantsPopover room={room} />
+        </PodTopBarPeople>
         <PodTopBarActions>
           <div className="pod-room-actions flex shrink-0 items-center gap-2">
-            <ParticipantsPopover room={room} />
             <Button
               size="sm"
               variant="ghost"
@@ -257,11 +258,11 @@ export function RoomHeader({
               title={inviteLabel}
               onClick={onInvite}
               disabled={!canParticipate}>
-              <RiUserAddLine aria-hidden />
+              <PersonAddRegular aria-hidden />
               <span className="pod-chat-invite-label">{inviteLabel}</span>
             </Button>
             <Button
-              size="icon-sm"
+              size="icon-lg"
               variant="ghost"
               aria-label={t('pod.chat_room.copy_link')}
               title={t('pod.chat_room.copy_link')}
@@ -271,11 +272,11 @@ export function RoomHeader({
                   () => toast.error(t('pod.chat_room.copy_failed'))
                 )
               }}>
-              <RiShareLine aria-hidden />
+              <ShareRegular aria-hidden />
             </Button>
             <Button
               ref={summaryTrigger}
-              size="icon-sm"
+              size="icon-lg"
               variant="ghost"
               aria-label={t('pod.chat_room.summary')}
               title={t('pod.chat_room.summary')}
@@ -284,7 +285,7 @@ export function RoomHeader({
               // The open summary panel is the button's feedback, so the button keeps its resting look while it is open.
               className="aria-expanded:bg-transparent aria-expanded:text-muted-foreground hover:aria-expanded:bg-accent hover:aria-expanded:text-foreground"
               onClick={onSummary}>
-              <RiInformationLine aria-hidden />
+              <InfoRegular aria-hidden />
             </Button>
           </div>
         </PodTopBarActions>

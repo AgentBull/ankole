@@ -1,16 +1,16 @@
 import { formatDateTime } from '../common/date-time'
 import {
-  RiAttachmentLine,
-  RiCalendarLine,
-  RiCheckboxLine,
-  RiFormula,
-  RiHashtag,
-  RiLink,
-  RiListCheck,
-  RiText,
-  RiTimeLine,
-  RiUserLine
-} from '@remixicon/react'
+  AttachRegular,
+  CalendarRegular,
+  CheckboxCheckedRegular,
+  ClockRegular,
+  LinkRegular,
+  MathFormulaRegular,
+  NumberSymbolRegular,
+  PersonRegular,
+  TextBulletListLtrRegular,
+  TextTRegular
+} from '@ankole/uikit/icons'
 import { t } from 'i18next'
 import type { BaseField, FieldType, Value, ViewType } from '@ankole/applet-sdk/types'
 
@@ -93,20 +93,20 @@ export function displayValue(field: BaseField, value: Value) {
 }
 
 export const fieldIcons = {
-  text: RiText,
-  number: RiHashtag,
-  auto_number: RiHashtag,
-  select: RiListCheck,
-  datetime: RiCalendarLine,
-  checkbox: RiCheckboxLine,
-  user: RiUserLine,
-  attachment: RiAttachmentLine,
-  link: RiLink,
-  formula: RiFormula,
-  created_at: RiTimeLine,
-  updated_at: RiTimeLine,
-  created_by: RiUserLine,
-  updated_by: RiUserLine
+  text: TextTRegular,
+  number: NumberSymbolRegular,
+  auto_number: NumberSymbolRegular,
+  select: TextBulletListLtrRegular,
+  datetime: CalendarRegular,
+  checkbox: CheckboxCheckedRegular,
+  user: PersonRegular,
+  attachment: AttachRegular,
+  link: LinkRegular,
+  formula: MathFormulaRegular,
+  created_at: ClockRegular,
+  updated_at: ClockRegular,
+  created_by: PersonRegular,
+  updated_by: PersonRegular
 }
 
 export function effectiveFieldType(field: BaseField) {

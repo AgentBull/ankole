@@ -42,14 +42,6 @@
   white-space: nowrap;
 }
 
-.pod-chat-send-tools {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-}
-
 .pod-chat-queue {
   min-width: 0;
   border-bottom: 1px solid var(--border);
@@ -64,11 +56,13 @@
   gap: 8px;
 }
 
+/* The queue lists its messages as rows of the 14px step under a header of the 12px step. The row being edited takes
+   the reference card's fill, so it reads as the message the composer holds. */
 .pod-chat-queue-header {
   justify-content: space-between;
   color: var(--fg-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 
 .pod-chat-queue-items {
@@ -77,14 +71,15 @@
 
 .pod-chat-queue-item {
   position: relative;
-  padding: 6px 0;
+  min-height: 32px;
+  padding: 3px 0;
 }
 
 .pod-chat-queue-item[data-editing='true'] {
-  background: var(--accent);
-  border-radius: var(--radius-control);
-  padding-inline: 6px;
-  margin-inline: -6px;
+  background: var(--layer-card);
+  border-radius: var(--radius-surface);
+  padding-inline: 8px;
+  margin-inline: -8px;
 }
 
 .pod-chat-queue-text {
@@ -93,8 +88,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
 
 .pod-chat-queue-actions {
@@ -106,7 +101,7 @@
 .pod-chat-message-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   opacity: 0;
 }
 
@@ -132,7 +127,7 @@
   min-height: 0;
 }
 
-/* Every sheet header shares one edge rule with the page header: text starts 18px in, controls end 12px in. */
+/* Every sheet header shares one edge rule: text starts 18px in, and controls end 12px in. */
 .pod-page-chat-header {
   flex-shrink: 0;
 }
@@ -152,50 +147,28 @@
   width: min(300px, calc(100vw - 24px));
 }
 
-/* The composer shares the 760px message column, so its edges line up with the messages above it. */
+/* The composer shares the content column of the messages, so its sides line up with the messages above it, and its
+   bottom edge ends 17px above the bottom of the card. */
 .pod-chat-composer-dock {
   flex-shrink: 0;
   width: 100%;
-  max-width: 820px;
+  max-width: calc(var(--spacing-content) + 60px);
   margin: 0 auto;
-  padding: 12px 30px 20px;
+  padding: 12px 30px 17px;
 }
 
 .pod-chat-composer-dock > :not(:last-child) {
   margin-bottom: 10px;
 }
 
-/* The tools stay on one row beside the send button; a narrow column truncates the selects instead of wrapping. */
+/* The tools of the message editor share one row with its Cancel and Save buttons along its bottom edge. */
 .pod-chat-composer-tools[data-slot='input-group-addon'] {
   justify-content: space-between;
   align-items: flex-end;
   gap: 6px;
+  height: auto;
   min-height: 28px;
   padding: 0;
-}
-
-.pod-chat-recipient-tools {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
-  gap: 3px;
-}
-
-.pod-chat-recipient-tools > * {
-  min-width: 0;
-}
-
-/* Toolbar selects use the 13px type of the toolbar buttons and a tighter inset, so a 400px page chat fits one row. */
-.pod-chat-recipient-tools [data-slot='select-trigger'] {
-  gap: 4px;
-  padding-inline: 8px;
-  font-size: 13px;
-}
-
-/* The values are plain text here, so a block box lets their truncation show an ellipsis. */
-.pod-chat-recipient-tools [data-slot='select-value'] {
-  display: block;
 }
 
 .pod-chat-history {
@@ -204,8 +177,11 @@
   min-height: 0;
 }
 
+/* The timeline scrolls up and down only. A block wider than the column, such as code or a wide table, scrolls
+   inside itself, and everything else wraps or truncates to the column. */
 .pod-chat-history-scroll {
   height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -215,8 +191,8 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  width: min(100%, 820px);
-  max-width: 820px;
+  width: 100%;
+  max-width: calc(var(--spacing-content) + 60px);
   margin: 0 auto;
   padding: 24px 30px 36px;
 }
@@ -225,8 +201,24 @@
   min-width: 0;
 }
 
+/* The blocks of a reply stack 12px apart, the gap of content, and none adds room after itself, so the action row
+   sits directly under the reply's last block. The first block follows the identity row 2px below it, as a line of
+   text follows a name, and the work summary 6px below it. Under a quiet identity, which takes no room, the first
+   block starts at the top of the message. */
 .pod-chat-agent-message > :not(:first-child) {
-  margin-top: 8px;
+  margin-top: var(--spacing-content-gap);
+}
+.pod-chat-agent-message > :not(.pod-chat-message-identity) {
+  margin-bottom: 0;
+}
+.pod-chat-agent-message > .pod-chat-message-identity + * {
+  margin-top: 2px;
+}
+.pod-chat-agent-message > .pod-chat-message-identity + .pod-chat-work {
+  margin-top: 6px;
+}
+.pod-chat-agent-message > .pod-chat-message-identity[data-quiet] + * {
+  margin-top: 0;
 }
 
 .pod-chat-human-message {
@@ -241,8 +233,8 @@
   padding: 8px 14px;
   border-radius: 16px;
   background: var(--chat-bubble);
-  font-size: 15px;
-  line-height: 24px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   overflow-wrap: anywhere;
 }
 
@@ -262,12 +254,13 @@
 }
 
 .pod-chat-embedded .pod-chat-history-content {
-  gap: 20px;
   padding: 20px;
 }
 
+/* In the 296px Page assistant panel the composer keeps 8px beside it, so its toolbar holds the tools and, while a
+   reply runs, the stop, send, and send-mode controls on one row. */
 .pod-chat-embedded .pod-chat-composer-dock {
-  padding: 10px 14px 14px;
+  padding: 10px 8px 14px;
 }
 
 .pod-page-chat-sheet[data-slot='sheet-content'][data-side='right'] {
@@ -292,7 +285,7 @@
 }
 
 .pod-chat-home {
-  width: min(100%, 820px);
+  width: min(100%, calc(var(--spacing-content) + 56px));
   margin-inline: auto;
   padding: 24px 28px 48px;
   overflow: auto;
@@ -376,8 +369,8 @@
 .pod-chat-summary h3 {
   margin-bottom: 8px;
   color: var(--fg-tertiary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-starters {
   display: flex;
@@ -409,23 +402,25 @@
 .pod-chat-next-steps ol {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 8px;
+  gap: var(--spacing-content-gap);
 }
+/* A next step is an outline card that takes the hover wash: its title in the 14px step over its outcome and its
+   cost in the 12px step. */
 .pod-chat-next-steps li > button {
+  @apply surface-outline;
   display: flex;
   width: 100%;
   height: 100%;
   flex-direction: column;
-  gap: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  padding: 8px 12px;
   text-align: left;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-next-step-title {
+  margin-bottom: 2px;
   color: var(--foreground);
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   font-weight: 500;
 }
 /* The badge follows the title's last word, so a long title wraps as ordinary text. */
@@ -438,13 +433,11 @@
 }
 .pod-chat-next-step-meta {
   color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 18px;
 }
 .pod-chat-starters button:hover,
 .pod-chat-next-steps li > button:hover,
 .pod-chat-recent-row:hover {
-  background: var(--accent);
+  background: var(--layer-hover);
 }
 .pod-chat-recent-row {
   display: flex;
@@ -483,14 +476,10 @@
   border: 1px solid var(--background);
 }
 .pod-chat-avatar [data-slot='avatar-fallback'] {
-  border-radius: inherit;
   font: inherit;
   color: inherit;
   background: inherit;
   white-space: nowrap;
-}
-.pod-chat-avatar [data-slot='avatar-image'] {
-  border-radius: inherit;
 }
 .pod-chat-avatar-overflow {
   font-size: 9px;
@@ -576,32 +565,32 @@
 /* The 300px chat column beside a sidebar uses the page chat's tighter insets. */
 @container (max-width: 480px) {
   .pod-chat-room-body:has(> .pod-chat-side-panel) > .pod-chat-room-main .pod-chat-history-content {
-    gap: 20px;
     padding: 20px 16px;
   }
   .pod-chat-room-body:has(> .pod-chat-side-panel) > .pod-chat-room-main .pod-chat-composer-dock {
-    padding: 10px 14px 14px;
+    padding: 10px 8px 14px;
   }
 }
 /* The summary stays a narrow drawer, so the chat keeps its full column beside it. */
 .pod-chat-room-body > .pod-chat-summary {
   width: 296px;
 }
-.pod-chat-summary {
-  overflow-y: auto;
-  padding: 12px 16px;
-}
+.pod-chat-summary,
 .pod-chat-file-panel {
   display: flex;
   flex-direction: column;
 }
+/* The summary's sections scroll under its header; their text starts 18px in, on the title's edge. */
+.pod-chat-summary-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 18px 24px;
+}
+/* A file's preview takes the header of the inspector and the summary (see `.pod-chat-panel-header`). */
 .pod-chat-file-panel-header {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 12px;
-  height: 44px;
-  padding: 0 8px 0 18px;
+  @apply sheet-header;
+  gap: 8px;
   border-bottom: 1px solid var(--border);
 }
 .pod-chat-file-panel-title {
@@ -609,10 +598,17 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 600;
+  padding-inline-start: 6px;
+  color: var(--foreground);
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pod-chat-file-panel-header > div {
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
 .pod-chat-file-panel-body {
   flex: 1;
@@ -623,12 +619,20 @@
 .pod-chat-file-panel-body > .pod-attachment-pdf {
   height: 100%;
 }
-.pod-chat-summary header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 18px;
-  font-size: 13px;
+/* The members of the summary are rows of the 14px step, a 24px avatar beside the name, and their state in the 12px
+   step. */
+.pod-chat-summary .pod-chat-member {
+  margin-block: 4px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
+}
+.pod-chat-summary .pod-chat-subtle {
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+}
+.pod-chat-summary .pod-chat-avatar {
+  font-size: var(--text-25);
+  line-height: var(--text-25--line-height);
 }
 .pod-chat-summary section + section {
   border-top: 1px solid var(--border);
@@ -659,14 +663,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The summary lists each Page as its reference card and each file as its file card, 12px apart. */
 .pod-chat-summary-page {
-  display: block;
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  padding: 6px 8px;
-  font-size: 12px;
-  margin-block: 5px;
-  overflow-wrap: anywhere;
+  display: flex;
+  min-width: 0;
+}
+.pod-chat-summary
+  :is(.pod-chat-summary-page, [data-slot='file-card-list'])
+  + :is(.pod-chat-summary-page, [data-slot='file-card-list']) {
+  margin-top: var(--spacing-content-gap);
 }
 .pod-chat-share {
   width: min(420px, calc(100vw - 24px));
@@ -744,45 +749,31 @@
   height: 28px;
   padding-block: 4px;
   padding-inline: 8px;
-  font-size: 13px;
+  font-size: var(--text-65);
+  line-height: var(--text-65--line-height);
 }
+/* In the phone's sidebar sheet the filter grows to the sheet's 40px touch height. */
+@media (max-width: 767px) {
+  .pod-chat-filter {
+    height: 40px;
+  }
+}
+/* The one column takes the sidebar's width and never a row's, so a long title truncates inside its row and the
+   row's actions stay in view. */
 .pod-chat-sidebar {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-content: start;
-}
-.pod-chat-section-label {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  align-self: stretch;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.pod-chat-section-label:hover {
-  color: var(--foreground);
-}
-.pod-chat-section-count {
-  padding-right: 8px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
 }
 .pod-chat-section-more {
   width: 100%;
   color: var(--fg-tertiary);
   font-size: 12px;
 }
-/* Sidebar conversation rows. A task row is one 28px line; a DM, group, or colleague row is two lines (name and
+/* Sidebar conversation rows. A task row is one 32px line; a DM, group, or colleague row is two lines (name and
    time, then preview and state) at 44px. The trailing slot keeps time and state aligned in one column, and the
-   row actions button takes its place on hover. */
-.pod-chat-row {
-  position: relative;
-}
-.pod-chat-row > [data-slot='sidebar-menu-button'] {
-  padding-right: 4px;
-}
+   row's actions button shows after it while the row is hovered or focused. */
 .pod-chat-row[data-lines='2'] > [data-slot='sidebar-menu-button'] {
   height: 44px;
   align-items: center;
@@ -821,7 +812,7 @@
   justify-content: flex-end;
   gap: 4px;
   color: var(--fg-tertiary);
-  font-size: 11px;
+  font-size: var(--text-50);
   font-variant-numeric: tabular-nums;
 }
 .pod-chat-row-editing {
@@ -833,26 +824,6 @@
   gap: 8px;
   padding: 0 4px 0 8px;
   font-size: 13px;
-}
-.pod-chat-row-menu {
-  position: absolute;
-  top: 50%;
-  right: 2px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: translateY(-50%);
-}
-.pod-chat-row:hover .pod-chat-row-menu,
-.pod-chat-row:focus-within .pod-chat-row-menu,
-.pod-chat-row:has([data-popup-open]) .pod-chat-row-menu {
-  opacity: 1;
-}
-.pod-chat-row:hover .pod-chat-row-trailing,
-.pod-chat-row:focus-within .pod-chat-row-trailing,
-.pod-chat-row:has([data-popup-open]) .pod-chat-row-trailing {
-  visibility: hidden;
 }
 /* The conversation mark keeps one width in every list, so titles start on the same edge as page titles. */
 .pod-conversation-glyph {
@@ -884,6 +855,18 @@
   width: 24px;
   height: 24px;
   font-size: 11px;
+}
+/* In a sidebar row the mark fills the row's 20px icon slot, as a page icon does, and a colleague's avatar fills it
+   without the ring that separates avatars in a cluster. */
+[data-sidebar='menu-button'] .pod-conversation-glyph,
+[data-sidebar='menu-button'] .pod-conversation-glyph > svg,
+[data-sidebar='menu-button'] .pod-conversation-glyph .pod-chat-avatar {
+  width: --spacing(5);
+  height: --spacing(5);
+}
+[data-sidebar='menu-button'] .pod-conversation-glyph .pod-chat-avatar {
+  border: 0;
+  font-size: var(--text-25);
 }
 .pod-chat-status-dot {
   display: block;
@@ -925,9 +908,11 @@
 .pod-chat-composer-shell {
   position: relative;
   width: 100%;
-  max-width: 760px;
+  max-width: var(--spacing-content);
   margin-inline: auto;
 }
+/* The editor of a sent message lies on the composer's surface, the composer's 8px glass, and its text area sits
+   inside a 12px inset. */
 .pod-chat-composer-field {
   display: flex;
   flex-direction: column;
@@ -935,9 +920,7 @@
   width: 100%;
   padding: 10px 12px 8px;
 }
-.pod-chat-composer-hero .pod-chat-composer-field {
-  padding: 14px 16px 10px;
-}
+/* The text area of the composer and of the message editor, with the reply suggestion laid over it. */
 .pod-chat-composer-editor {
   position: relative;
   display: flex;
@@ -947,15 +930,10 @@
 .pod-chat-composer-input {
   min-height: 48px;
   max-height: 240px;
-  font-size: 15px;
-  line-height: 24px;
+  font-size: var(--text-100);
+  line-height: var(--text-100--line-height);
   resize: none;
   padding: 4px 4px 8px;
-}
-.pod-chat-composer-hero .pod-chat-composer-input {
-  min-height: 72px;
-  font-size: 16px;
-  line-height: 26px;
 }
 
 @keyframes pod-attachment-enter {
@@ -1010,6 +988,8 @@
   }
 }
 
+/* The suggestion takes the place and type of the composer's first line of text: 16px from the top and 22px from
+   the sides, 16px on a 24px line. */
 .pod-chat-composer-suggestion {
   position: absolute;
   inset-block-start: 0;
@@ -1019,16 +999,12 @@
   align-items: baseline;
   gap: 8px;
   max-width: 100%;
-  padding: 4px 4px 8px;
-  font-size: 15px;
-  line-height: 24px;
+  padding: 16px 22px 8px;
+  font-size: var(--text-100);
+  line-height: var(--text-100--line-height);
   pointer-events: none;
   user-select: none;
   animation: pod-chat-suggestion-fade var(--duration-feedback, 140ms) ease-out;
-}
-.pod-chat-composer-hero .pod-chat-composer-suggestion {
-  font-size: 16px;
-  line-height: 26px;
 }
 .pod-chat-composer-suggestion-text {
   min-width: 0;
@@ -1036,9 +1012,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg-placeholder);
-}
-.pod-chat-composer-hero .pod-chat-composer-suggestion-text {
-  color: color-mix(in srgb, var(--fg-placeholder) 80%, transparent);
 }
 .pod-chat-composer-suggestion-accept {
   display: inline-flex;
@@ -1105,9 +1078,6 @@
     opacity: 1;
   }
 }
-.pod-chat-agent-picker {
-  max-width: 200px;
-}
 .pod-chat-agent-banner {
   display: flex;
   align-items: center;
@@ -1121,16 +1091,15 @@
   line-height: 18px;
   margin-bottom: 8px;
 }
+/* Completions open 8px above the composer, across its full width, on the kit's `composer-menu` surface. */
 .pod-chat-composer-picker {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
   z-index: 40;
-  width: min(420px, 100%);
+  width: 100%;
   max-height: min(360px, 45dvh);
   overflow: hidden;
-  padding: 4px;
-  @apply ceramic ceramic-primary;
 }
 .pod-chat-composer-menu {
   animation: none;
@@ -1144,19 +1113,19 @@
   .pod-chat-composer-picker {
     --composer-clip-x: max(0px, calc(100% - var(--anchor-width, 28px)));
     --composer-clip-y: max(0px, calc(100% - var(--anchor-height, 28px)));
-    --composer-menu-fold: inset(var(--composer-clip-y) var(--composer-clip-x) 0 0 round 6px);
+    --composer-menu-fold: inset(var(--composer-clip-y) var(--composer-clip-x) 0 0 round var(--radius-surface));
   }
   .pod-chat-composer-menu[data-side='top'][data-align='end'] {
-    --composer-menu-fold: inset(var(--composer-clip-y) 0 0 var(--composer-clip-x) round 6px);
+    --composer-menu-fold: inset(var(--composer-clip-y) 0 0 var(--composer-clip-x) round var(--radius-surface));
   }
   .pod-chat-composer-menu[data-side='bottom'] {
-    --composer-menu-fold: inset(0 var(--composer-clip-x) var(--composer-clip-y) 0 round 6px);
+    --composer-menu-fold: inset(0 var(--composer-clip-x) var(--composer-clip-y) 0 round var(--radius-surface));
   }
   .pod-chat-composer-menu[data-side='bottom'][data-align='end'] {
-    --composer-menu-fold: inset(0 0 var(--composer-clip-y) var(--composer-clip-x) round 6px);
+    --composer-menu-fold: inset(0 0 var(--composer-clip-y) var(--composer-clip-x) round var(--radius-surface));
   }
   .pod-chat-composer-menu {
-    clip-path: inset(-40px round var(--ceramic-radius));
+    clip-path: inset(-40px round var(--radius-surface));
     transition: clip-path 380ms cubic-bezier(0.32, 0.72, 0, 1);
   }
   .pod-chat-composer-menu:is([data-starting-style], [data-ending-style]) {
@@ -1184,15 +1153,20 @@
     animation: pod-chat-composer-menu-in 380ms cubic-bezier(0.32, 0.72, 0, 1);
   }
   .pod-chat-inline-editor[data-picker-placement='below'] .pod-chat-composer-picker {
-    --composer-menu-fold: inset(0 var(--composer-clip-x) var(--composer-clip-y) 0 round 6px);
+    --composer-menu-fold: inset(0 var(--composer-clip-x) var(--composer-clip-y) 0 round var(--radius-surface));
   }
   .pod-chat-composer-picker > * {
     animation:
       pod-chat-composer-menu-content-in 220ms ease-out 100ms both,
       pod-chat-composer-menu-content-move 360ms cubic-bezier(0.22, 1, 0.36, 1) 60ms both;
   }
+  /* The label moves as one box, so it ends in its own ellipsis when the toolbar runs out of room. */
   .pod-chat-composer-menu-label {
     display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: top;
     animation: pod-chat-composer-label-in 460ms cubic-bezier(0.25, 1, 0.5, 1);
   }
 }
@@ -1201,7 +1175,7 @@
     clip-path: var(--composer-menu-fold);
   }
   to {
-    clip-path: inset(-40px round var(--ceramic-radius));
+    clip-path: inset(-40px round var(--radius-surface));
   }
 }
 @keyframes pod-chat-composer-menu-content-in {
@@ -1232,36 +1206,19 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.pod-chat-completion-option {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: var(--radius-control);
-  font-size: 13px;
-  text-align: left;
-}
-.pod-chat-completion-option[aria-selected='true'] {
-  background: var(--layer-hover);
-}
 :is(.pod-chat-composer-picker [role='listbox'], .pod-chat-composer-menu):has(
     > .pod-chat-completion-highlight[data-visible]
   )
-  :is(.pod-chat-completion-option[aria-selected='true'], [role^='menuitem'][data-highlighted]) {
+  :is([role='option'][aria-selected='true'], [role^='menuitem'][data-highlighted]) {
   background: transparent;
 }
 .pod-chat-completion-highlight {
   position: absolute;
   inset: 0 0 auto;
   z-index: -1;
-  border-radius: var(--radius-control);
   background: var(--layer-hover);
   opacity: 0;
   pointer-events: none;
-}
-.pod-chat-composer-menu > .pod-chat-completion-highlight {
-  inset-inline: 4px;
 }
 .pod-chat-completion-highlight,
 .pod-chat-composer-menu [data-slot='select-highlight'] {
@@ -1277,41 +1234,26 @@
 .pod-chat-completion-highlight[data-visible] {
   opacity: 1;
 }
-.pod-chat-completion-group,
-.pod-chat-completion-empty {
-  padding: 6px 10px;
-  color: var(--fg-tertiary);
-  font-size: 12px;
-}
-.pod-chat-completion-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 2px 6px;
-  border-top: 1px solid var(--border);
-  color: var(--fg-tertiary);
-  font-size: 12px;
-}
+/* A quoted passage in the composer takes the document's Quote in the 14px step, cut after three lines. */
 .pod-chat-quoted {
   display: flex;
   gap: 8px;
   padding: 4px 0 10px;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   color: var(--fg-secondary);
 }
 .pod-chat-quoted blockquote {
+  @apply content-quote;
   flex: 1;
   min-width: 0;
-  max-height: 60px;
+  max-height: calc(3 * var(--text-75--line-height));
   overflow: hidden;
-  border-left: 2px solid var(--border);
-  padding-left: 8px;
   white-space: pre-wrap;
 }
 .pod-chat-queued-strip {
   width: 100%;
-  max-width: 760px;
+  max-width: var(--spacing-content);
   margin-inline: auto;
   max-height: min(176px, 25dvh);
   overflow-y: auto;
@@ -1320,19 +1262,29 @@
 .pod-chat-queue-hint {
   padding-bottom: 4px;
   color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
-.pod-chat-queue-position,
-.pod-chat-queue-files {
+.pod-chat-queue-position {
   flex-shrink: 0;
   color: var(--fg-tertiary);
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-variant-numeric: tabular-nums;
 }
 .pod-chat-drag-handle {
+  display: inline-flex;
+  flex-shrink: 0;
   cursor: grab;
   color: var(--fg-tertiary);
+}
+.pod-chat-drag-handle > svg {
+  width: 20px;
+  height: 20px;
+}
+.pod-chat-queue-header > [data-slot='spinner'] {
+  width: 16px;
+  height: 16px;
 }
 .pod-chat-invite-notice {
   display: flex;
@@ -1409,17 +1361,6 @@
     width: auto;
   }
 }
-@media (hover: none) {
-  .pod-chat-row-menu {
-    opacity: 1;
-  }
-  .pod-chat-row > [data-slot='sidebar-menu-button'] {
-    padding-right: 30px;
-  }
-  .pod-chat-row .pod-chat-row-trailing {
-    visibility: visible;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .pod-chat-status-streaming,
   .pod-chat-status-running_background,
@@ -1450,27 +1391,31 @@
   position: relative;
   min-height: 0;
 }
+/* A message reserves 44px under its content for its action row: the 32px row directly under its last block, and
+   12px to the next message. The row reads as part of the message it acts on, and it keeps its place whether or not
+   it shows. */
 .pod-chat-timeline-message {
   position: relative;
   min-width: 0;
-  padding: 0 0 32px;
+  padding: 0 0 44px;
 }
-/* Chat type scale: messages 15/24, names 13/20 medium, every secondary line 13/20 tertiary, the smallest
-   label 12/16. */
+/* Chat type scale: messages take the content step (16/24), names and quotes 14/26, and every secondary line, such
+   as a work summary, a time, or a state, 12/20 in tertiary ink. The identity row is a 32px avatar and the name,
+   12px apart. */
 .pod-chat-message-identity {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 24px;
-  margin-bottom: 6px;
-  font-size: 13px;
-  line-height: 20px;
+  gap: 12px;
+  min-height: 32px;
+  margin: 0;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
 .pod-chat-message-identity strong {
-  font-weight: 500;
+  font-weight: 400;
 }
-/* A quiet identity takes no room: its time floats in the gap above the message on hover, on the side the
-   message sits on. */
+/* A quiet identity takes no room. It names the author for assistive technology, and the mark of an archived
+   author floats in the gap above the message, on the side the message sits on. */
 .pod-chat-message-identity[data-quiet] {
   position: absolute;
   top: -22px;
@@ -1480,29 +1425,17 @@
 .pod-chat-own-message > .pod-chat-message-identity[data-quiet] {
   right: 0;
 }
-/* A continued message drops its identity row and moves up into the previous message's 32px bottom gap, leaving the
-   28px that the previous message's action bar takes there, so that bar never covers this message's first line. */
-.pod-chat-timeline-message.pod-chat-continued-message {
-  margin-top: -4px;
-}
+/* The reply source names the question a reply answers, as a one-line quote of it that jumps to it. */
 .pod-chat-reply-source {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  @apply content-quote;
+  display: block;
   max-width: 100%;
-  margin-bottom: 6px;
-  border-radius: var(--radius-control);
-  color: var(--fg-secondary);
-  font-size: 13px;
-  line-height: 20px;
-  text-align: left;
-}
-.pod-chat-reply-source > svg {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
+  text-align: start;
 }
 .pod-chat-reply-source > span {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1515,45 +1448,31 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* Agents and people share one avatar beside a message: 32px and round, with initials in the 12px step. */
 .pod-chat-message-avatar {
   display: inline-flex;
-  flex: 0 0 24px;
+  flex: 0 0 32px;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--muted);
   color: var(--fg-secondary);
-  font-size: 11px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-weight: 600;
-}
-.pod-chat-message-identity time {
-  color: var(--fg-tertiary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  opacity: 0;
-}
-.pod-chat-timeline-message:focus-within .pod-chat-message-identity time {
-  opacity: 1;
-}
-/* A tap also counts as hover on a touch screen, so only a real pointer reveals the time on hover. */
-@media (hover: hover) {
-  .pod-chat-timeline-message:hover .pod-chat-message-identity time {
-    opacity: 1;
-  }
-}
-.pod-chat-archived {
-  color: var(--fg-tertiary);
-  font-size: 12px;
 }
 .pod-chat-archived {
   border: 1px solid var(--border);
   border-radius: var(--radius-mini);
   padding: 0 4px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-timeline .pod-chat-agent-message {
-  max-width: 760px;
+  max-width: var(--spacing-content);
   width: 100%;
 }
 .pod-chat-timeline .pod-chat-human-message {
@@ -1561,6 +1480,25 @@
   align-items: stretch;
   margin: 0;
   gap: 0;
+}
+/* A person's message stacks its blocks 12px apart as a reply does: the passages it quotes, its text, its files, a
+   linked run, and the Pages saved from it. Another person's name sits 6px above the bubble. */
+.pod-chat-human-message > :is(.pod-chat-quoted-message, .pod-chat-attachments, .pod-chat-linked-run) {
+  margin-block: 0;
+}
+.pod-chat-human-message
+  > :is(.pod-chat-quoted-message, .pod-chat-human-text, .pod-chat-attachments, .pod-chat-linked-run)
+  ~ :is(
+    .pod-chat-quoted-message,
+    .pod-chat-human-text,
+    .pod-chat-attachments,
+    .pod-chat-linked-run,
+    .pod-chat-saved-pages
+  ) {
+  margin-top: var(--spacing-content-gap);
+}
+.pod-chat-human-message > .pod-chat-message-identity:not([data-quiet]) {
+  margin-bottom: 6px;
 }
 /* A person's message is a soft ink-tinted bubble; an Agent's reply is plain text on the paper. */
 .pod-chat-timeline .pod-chat-human-text {
@@ -1575,17 +1513,14 @@
   max-width: 88%;
   align-self: flex-end;
 }
-.pod-chat-human-message .pod-chat-message-identity time {
-  margin-left: 6px;
-}
 .pod-chat-queued-badge {
   align-self: flex-end;
   border: 1px solid var(--border);
   border-radius: var(--radius-mini);
   padding: 0 6px;
   color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-own-message > .pod-chat-quoted-message {
   max-width: 88%;
@@ -1619,9 +1554,6 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-.pod-chat-inline-editor-field {
-  box-shadow: var(--shadow-sm, 0 1px 2px 0 rgb(0 0 0 / 0.05));
-}
 .pod-chat-human-message:not(.pod-chat-own-message) > .pod-chat-human-text {
   max-width: 85%;
   border-top-left-radius: 6px;
@@ -1634,8 +1566,9 @@
   align-items: center;
   gap: 6px;
   margin: 4px 0;
-  font-size: 12px;
   color: var(--fg-tertiary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-timeline-message:hover > .pod-chat-message-actions,
 .pod-chat-timeline-event:hover > .pod-chat-message-actions,
@@ -1647,19 +1580,28 @@
   opacity: 1;
 }
 .pod-chat-timeline .pod-chat-message-actions {
-  min-height: 26px;
-  margin-top: 7px;
+  min-height: 32px;
+  margin: 0;
 }
+/* The row's 32px buttons line up with the edge of the message they act on, at its start under an Agent's reply
+   or another person's bubble and at its end under the reader's own message. */
 .pod-chat-timeline-message > .pod-chat-message-actions {
   position: absolute;
-  bottom: 4px;
+  bottom: 12px;
   left: 0;
-  min-height: 24px;
-  margin: 0;
 }
 .pod-chat-own-message > .pod-chat-message-actions {
   right: 0;
   left: auto;
+}
+/* A message states its time on the inner side of its actions, 6px from them, in the smallest step of the type
+   scale: after them under a message on the left, and before them under the reader's own message on the right. */
+.pod-chat-message-time {
+  color: var(--fg-tertiary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 /* The next message's quiet identity floats over this bar, so the bar the reader is using rises above it. */
 .pod-chat-timeline-message:hover > .pod-chat-message-actions,
@@ -1667,14 +1609,15 @@
 .pod-chat-message-actions[data-visible] {
   z-index: 1;
 }
+/* An event notice is one 12/20 tertiary line with its author's 20px avatar, 12px above the next message. */
 .pod-chat-timeline-event {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 2px 0 22px;
+  margin: 0 0 12px;
   color: var(--fg-tertiary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-timeline-event p {
   flex: 1;
@@ -1684,12 +1627,19 @@
   white-space: nowrap;
 }
 .pod-chat-timeline-event time {
-  font-size: 12px;
   font-variant-numeric: tabular-nums;
   opacity: 0;
 }
 .pod-chat-timeline-event:hover time {
   opacity: 1;
+}
+.pod-chat-notice-avatar.pod-chat-avatar {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  font-size: var(--text-25);
+  line-height: var(--text-25--line-height);
+  font-weight: 500;
 }
 .pod-chat-event-avatar {
   display: inline-flex;
@@ -1701,43 +1651,59 @@
   background: var(--muted);
   font-size: 8px;
 }
+/* Chat prose is 14px primary text on a 26px line in the regular weight, with blocks 12px apart, as in a document,
+   and no room before the first or after the last. The message, a list item, and a quote each stack their own blocks
+   that way, and list items sit 2px apart. A bold phrase takes the Medium weight, which is enough to stand out at
+   this size. Headings step down from the document's roles with the text, one step each, and the first three add
+   12px above themselves. */
 .pod-chat-markdown {
   min-width: 0;
-  color: var(--foreground);
-  font-size: 15px;
-  line-height: 24px;
+  color: var(--text-primary);
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   overflow-wrap: anywhere;
 }
-.pod-chat-markdown > :first-child {
-  margin-top: 0;
+.pod-chat-markdown > *,
+.pod-chat-markdown :is(li, blockquote):not(.pod-chat-ui-block *) > * {
+  margin-block: 0;
 }
-.pod-chat-markdown > :last-child {
-  margin-bottom: 0;
+.pod-chat-markdown > * + *,
+.pod-chat-markdown :is(li, blockquote):not(.pod-chat-ui-block *) > * + * {
+  margin-top: var(--spacing-content-gap);
 }
-.pod-chat-markdown p {
-  margin: 8px 0;
+.pod-chat-markdown > * + :is(h1, h2, h3),
+.pod-chat-markdown :is(li, blockquote):not(.pod-chat-ui-block *) > * + :is(h1, h2, h3) {
+  margin-top: calc(var(--spacing-content-gap) * 2);
 }
 .pod-chat-markdown strong {
-  font-weight: 600;
+  font-weight: 500;
 }
-.pod-chat-markdown h1,
-.pod-chat-markdown h2,
-.pod-chat-markdown h3,
-.pod-chat-markdown h4 {
-  margin: 20px 0 8px;
-  font-size: 1.08em;
+.pod-chat-markdown :is(h2, h3, h4, h5, h6) {
   font-weight: 600;
-  line-height: 1.5;
 }
 .pod-chat-markdown h1 {
-  font-size: 1.35em;
+  font-size: var(--text-400);
+  line-height: var(--text-400--line-height);
+  font-weight: 700;
 }
 .pod-chat-markdown h2 {
-  font-size: 1.2em;
+  font-size: var(--text-300);
+  line-height: var(--text-300--line-height);
+}
+.pod-chat-markdown h3 {
+  font-size: var(--text-200);
+  line-height: var(--text-200--line-height);
+}
+.pod-chat-markdown h4 {
+  font-size: var(--text-100);
+  line-height: var(--text-100--line-height);
+}
+.pod-chat-markdown :is(h5, h6) {
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
 .pod-chat-markdown ul,
 .pod-chat-markdown ol {
-  margin: 8px 0;
   padding-left: 22px;
 }
 .pod-chat-markdown ul {
@@ -1746,20 +1712,18 @@
 .pod-chat-markdown ol {
   list-style-type: decimal;
 }
-.pod-chat-markdown li {
-  margin: 2px 0;
+.pod-chat-markdown li + li {
+  margin-top: --spacing(0.5);
 }
 .pod-chat-markdown blockquote {
-  margin: 12px 0;
-  border-left: 2px solid var(--border);
-  padding-left: 12px;
-  color: var(--fg-secondary);
+  border-left: 2px solid var(--layer-03);
+  padding: --spacing(2) 0 --spacing(2) --spacing(4);
+  color: var(--text-secondary);
 }
 .pod-chat-markdown :not(pre) > code {
   @apply code-inline;
 }
 .pod-chat-markdown hr {
-  margin: 18px 0;
   border-color: var(--border);
 }
 /* A `ui` block lays out its own elements, so the prose rhythm of the message stops at its edge. */
@@ -1771,11 +1735,66 @@
   font-weight: inherit;
   line-height: inherit;
 }
+/* KaTeX gives display math its own margins; the prose rhythm replaces them. */
 .pod-chat-markdown .katex-display {
   max-width: 100%;
+  margin-block: 0;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 8px 0;
+}
+.pod-chat-markdown * + .katex-display {
+  margin-top: var(--spacing-content-gap);
+}
+/* A table stands in the document's block card, whose edge takes the place of the grid's outer lines. Its cells
+   keep their form: the header row on the card's gray and the body on the paper. */
+.pod-chat-table td {
+  background: var(--background);
+}
+/* A header cell takes the Medium weight of a bold phrase in the message's text. */
+.pod-chat-table th {
+  font-weight: 500;
+}
+/* A column keeps room for four characters inside its 8px insets and its hairline, so a narrow chat column wraps
+   a cell's text by phrases instead of one character to a line; a table with more columns than the chat column
+   holds scrolls inside its card. */
+.pod-chat-table :is(th, td) {
+  min-width: calc(4em + 18px);
+}
+/* The table's copy control is a 24px button inside the table's top corner, 6px from its edges and so in the
+   middle of the header row, on the header's gray so that it covers the end of a long header instead of mixing
+   with it. It shows while the pointer is over
+   the table, while the focus is on it, and while it confirms a copy; a touch screen has no hover, so it always
+   shows there. */
+.pod-chat-table-frame {
+  position: relative;
+}
+.pod-chat-table-copy {
+  position: absolute;
+  top: 6px;
+  inset-inline-end: 6px;
+  background-color: var(--layer-01);
+  color: var(--fg-secondary);
+  opacity: 0;
+  transition: opacity var(--duration-feedback) ease;
+}
+.pod-chat-table-copy > svg {
+  width: 16px;
+  height: 16px;
+}
+.pod-chat-table-copy:hover {
+  background-image: linear-gradient(var(--layer-hover), var(--layer-hover));
+  color: var(--foreground);
+}
+.pod-chat-table-frame:hover > .pod-chat-table-copy,
+.pod-chat-table-copy:focus-visible,
+.pod-chat-table-copy[data-copied] {
+  opacity: 1;
+}
+@media (hover: none) {
+  .pod-chat-table-copy {
+    opacity: 1;
+  }
 }
 .pod-chat-code-body {
   max-height: 480px;
@@ -1843,38 +1862,88 @@
   height: auto;
   margin: auto;
 }
-.pod-chat-page-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+/* The Pages saved from a message follow it as reference cards 12px apart, on the side the message sits on. The
+   files and the Page links a message carries stack the same way. */
+.pod-chat-saved-pages,
+.pod-chat-page-references {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-content-gap);
+  min-width: 0;
+}
+.pod-chat-page-references > li {
+  display: flex;
+  min-width: 0;
   max-width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-mini);
-  background: var(--chat-bubble);
-  padding: 0 6px;
-  font-size: 13px;
-  line-height: 22px;
-  vertical-align: baseline;
-  text-decoration: none;
 }
-.pod-chat-page-pill svg {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
+.pod-chat-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-content-gap);
+  min-width: 0;
 }
-.pod-chat-saved-page {
-  margin-top: 4px;
+.pod-chat-own-message > .pod-chat-attachments {
+  align-items: flex-end;
 }
+.pod-chat-own-message > .pod-chat-saved-pages,
+.pod-chat-own-message > .pod-chat-attachments,
+.pod-chat-own-message > .pod-chat-attachments > * {
+  justify-content: flex-end;
+  max-width: 100%;
+}
+/* A Page reference in prose stands on the text line, 4px from the words beside it, and the line grows to hold it.
+   A reference that opens or closes its block keeps no room on that side. */
+.pod-chat-markdown .pod-chat-inline-reference {
+  max-width: calc(100% - 8px);
+  margin-inline: 4px;
+}
+.pod-chat-markdown .pod-chat-inline-reference:is([data-leading], [data-trailing]) {
+  max-width: calc(100% - 4px);
+}
+.pod-chat-markdown .pod-chat-inline-reference[data-leading] {
+  margin-inline-start: 0;
+}
+.pod-chat-markdown .pod-chat-inline-reference[data-trailing] {
+  margin-inline-end: 0;
+}
+.pod-chat-markdown .pod-chat-inline-reference[data-leading][data-trailing] {
+  max-width: 100%;
+}
+/* A Page's own icon fills the reference chip's 20px mark; an emoji takes the size a 20px icon draws its glyph at. */
+.pod-page-icon.pod-page-mark {
+  width: 20px;
+  height: 20px;
+  font-size: 16px;
+}
+img.pod-page-icon.pod-page-mark {
+  padding: 1px;
+}
+/* The work summary is one 12/20 tertiary line under the identity row: a 24px caret that turns a quarter while the
+   summary is open, 4px, and the label. The caret sits 4px in from the message's edge, under the middle of the
+   avatar, so the label starts 32px in. */
 .pod-chat-work {
   margin: 0 0 8px;
   color: var(--fg-tertiary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+}
+.pod-chat-work > summary,
+.pod-chat-thinking > summary {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
 }
 .pod-chat-work > summary {
-  width: fit-content;
-  cursor: pointer;
-  user-select: none;
+  padding-inline-start: 4px;
+}
+.pod-chat-work > summary::-webkit-details-marker,
+.pod-chat-thinking > summary::-webkit-details-marker {
+  display: none;
 }
 .pod-chat-work[data-outcome='failed'] > summary {
   color: var(--destructive-foreground);
@@ -1916,10 +1985,17 @@
     filter: blur(3px);
   }
 }
+/* While an Agent has not started a step yet, its spinner stands in the caret's 24px place. */
 .pod-chat-work-status {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding-inline-start: 4px;
+}
+.pod-chat-work-status > .pod-chat-working-spinner {
+  width: 14px;
+  height: 14px;
+  margin-inline: 5px;
 }
 @media (prefers-reduced-motion: no-preference) {
   [data-working-phase]::after {
@@ -1965,9 +2041,6 @@
 .pod-chat-thinking {
   margin-bottom: 7px;
 }
-.pod-chat-thinking > summary {
-  cursor: pointer;
-}
 .pod-chat-thinking > div,
 .pod-chat-thinking-text {
   margin: 4px 0;
@@ -1975,9 +2048,11 @@
   white-space: pre-wrap;
 }
 .pod-chat-work > summary .pod-chat-working-spinner {
-  margin: 0 6px 0 3px;
-  vertical-align: -2px;
+  margin: 0;
 }
+/* A step of an Agent's work is a row of the 14px step: a 20px tool icon, the step's title, its duration in the 12px
+   step, and a 20px status mark. A row that opens, a step with output or a group of steps, takes the hover wash; a
+   group also shows the work summary's caret, which turns a quarter while the group is open. */
 .pod-chat-tool-run {
   list-style: none;
   padding: 0;
@@ -1986,29 +2061,45 @@
 .pod-chat-tool-line,
 .pod-chat-tool-group > summary {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
+  min-height: 32px;
+  margin-inline: -6px;
+  border-radius: var(--radius-control);
+  padding: 3px 6px;
+  color: var(--fg-secondary);
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   cursor: pointer;
   list-style: none;
+}
+details > .pod-chat-tool-line:hover,
+.pod-chat-tool-group > summary:hover {
+  background: var(--layer-hover);
+}
+/* A row's focus ring sits inside the row, because the body around a group's rows clips what reaches past it. */
+:is(.pod-chat-tool-line, .pod-chat-tool-group > summary, summary.pod-chat-block-card-header):focus-visible {
+  outline-offset: -2px;
 }
 .pod-chat-tool-step summary::-webkit-details-marker,
 .pod-chat-tool-group > summary::-webkit-details-marker {
   display: none;
 }
-.pod-chat-tool-line > svg,
-.pod-chat-tool-group > summary > svg {
-  width: 14px;
-  height: 14px;
+.pod-chat-tool-line > svg {
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
+  color: var(--fg-tertiary);
 }
 .pod-chat-tool-step:not(details) > .pod-chat-tool-line {
   cursor: default;
 }
+/* The steps of a group hang from a rail under the group's caret. */
 .pod-chat-tool-group > .pod-chat-tool-body > div > .pod-chat-tool-run {
-  margin: 4px 0 0 6px;
+  margin: 0 0 0 9px;
   border-left: 1px solid var(--border);
-  padding-left: 10px;
+  padding-left: 13px;
 }
 @media (prefers-reduced-motion: no-preference) {
   .pod-chat-tool-run[data-live] > li {
@@ -2022,7 +2113,7 @@
     & > li::before {
       content: '';
       position: absolute;
-      inset: 0 auto 0 -11px;
+      inset: 0 auto 0 -14px;
       width: 1px;
       background: var(--border);
       transform-origin: top;
@@ -2032,13 +2123,6 @@
   .pod-chat-tool-title[data-working-phase] {
     position: relative;
     --pod-chat-phase-sweep-duration: 1.6s;
-  }
-  .pod-chat-tool-run[data-live]
-    > li
-    > [data-status='running']
-    > :is(summary, .pod-chat-tool-line)
-    > .pod-chat-tool-state {
-    animation: pod-chat-live-step-pulse 1s ease-in-out infinite;
   }
 }
 @keyframes pod-chat-live-step-in {
@@ -2053,27 +2137,20 @@
     transform: scaleY(0);
   }
 }
-@keyframes pod-chat-live-step-pulse {
-  50% {
-    opacity: 0.45;
-    transform: scale(0.7);
-  }
-}
-.pod-chat-tool-group > summary::after {
-  content: '›';
-  font-size: 17px;
-  transform: rotate(0deg);
-}
-.pod-chat-tool-group > summary > .pod-chat-tool-title {
-  flex: 0 1 auto;
-}
-.pod-chat-tool-group[open] > summary::after {
-  transform: rotate(90deg);
+/* A disclosure's caret takes the lead icon's place, centred where the 20px icons of the rows around it sit. */
+.pod-chat-tool-group > summary > .pod-chat-disclosure-caret,
+.pod-chat-block-card-header > .pod-chat-disclosure-caret {
+  margin-inline: -2px;
 }
 .pod-chat-tool-body {
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
+}
+/* The body clips while it opens, so it reaches 6px past each side to keep the hover wash of the rows in it whole. */
+.pod-chat-tool-body > div {
+  margin-inline: -6px;
+  padding-inline: 6px;
 }
 details:not([open]) > .pod-chat-tool-body {
   interactivity: inert;
@@ -2082,9 +2159,19 @@ details[open] > .pod-chat-tool-body {
   grid-template-rows: 1fr;
   opacity: 1;
 }
+/* Every disclosure of the chat shows the same 24px filled caret, which turns a quarter while its disclosure is open. */
+.pod-chat-disclosure-caret {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--fg-tertiary);
+}
+details[open] > summary > .pod-chat-disclosure-caret {
+  rotate: 90deg;
+}
 @media (prefers-reduced-motion: no-preference) {
-  .pod-chat-tool-group > summary::after {
-    transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  .pod-chat-disclosure-caret {
+    transition: rotate 360ms cubic-bezier(0.22, 1, 0.36, 1);
   }
   @supports (interactivity: inert) and selector(::details-content) {
     :is(.pod-chat-tool-step, .pod-chat-tool-group)::details-content {
@@ -2112,8 +2199,7 @@ details[open] > .pod-chat-tool-body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pod-chat-tool-body,
-  .pod-chat-tool-group > summary::after {
+  .pod-chat-tool-body {
     transition-property: none;
   }
 }
@@ -2134,14 +2220,6 @@ details[open] > .pod-chat-tool-body {
     filter: blur(2px);
   }
 }
-@keyframes pod-chat-tool-check {
-  from {
-    stroke-dashoffset: 1;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
 .pod-chat-tool-title {
   flex: 1;
   min-width: 0;
@@ -2149,57 +2227,120 @@ details[open] > .pod-chat-tool-body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pod-chat-tool-state svg {
-  width: 12px;
-  height: 12px;
+.pod-chat-tool-duration {
+  flex-shrink: 0;
+  color: var(--fg-tertiary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.pod-chat-tool-step[data-status='failed'] .pod-chat-tool-state,
-.pod-chat-tool-step[data-status='failed'] .pod-chat-tool-title,
-.pod-chat-tool-group[data-status='failed'] > summary > .pod-chat-tool-state {
+/* The status mark of a row, the same mark that a run card and the inspector show, sits in a 20px slot. */
+.pod-chat-tool-state {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.pod-chat-tool-state > svg {
+  width: 20px;
+  height: 20px;
+}
+/* The spinner draws its ring to the edge of its box, so it takes 16px in a 20px slot, as an icon draws its glyph
+   inside its box. */
+:is(
+    .pod-chat-tool-state,
+    .pod-chat-inspector-title-row,
+    .pod-chat-inspector-empty,
+    .pod-peer-exchange-head,
+    .pod-peer-log-status
+  )
+  > [data-slot='spinner'] {
+  --spinner-thickness: 1.75;
+  width: 16px;
+  height: 16px;
+  margin: 2px;
+}
+.pod-chat-tool-step[data-status='failed'] .pod-chat-tool-title {
   color: var(--destructive-foreground);
+}
+/* A tool's output, a command's terminal, a diff, and a draft that an approval carries are block cards: the lightest
+   gray inside a hairline at the control radius, labels of the 12px step, and 12px monospace source on a 26px line.
+   Each part sits 10px inside the card's edge and a hairline divides the parts. */
+.pod-chat-block-card {
+  @apply surface-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
 }
 .pod-chat-tool-detail,
 .pod-chat-command-terminal {
-  @apply content-object;
-  margin: 4px 0 9px;
-  overflow: hidden;
+  margin: 4px 0 8px;
 }
-.pod-chat-tool-detail > div,
-.pod-chat-command-terminal > div {
-  padding: 7px 10px;
+.pod-chat-block-card-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  color: var(--fg-secondary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
+.pod-chat-block-card-header > svg:not(.pod-chat-disclosure-caret) {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+summary.pod-chat-block-card-header {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+summary.pod-chat-block-card-header::-webkit-details-marker {
+  display: none;
+}
+summary.pod-chat-block-card-header:hover {
+  background: var(--layer-hover);
+}
+.pod-chat-block-card-header ~ *,
 .pod-chat-tool-detail > div + div,
 .pod-chat-command-terminal > div + div {
   border-top: 1px solid var(--border);
 }
+.pod-chat-block-card-source,
+.pod-chat-tool-detail pre,
+.pod-chat-command-terminal pre {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-50);
+  line-height: 26px;
+}
+.pod-chat-block-card-source {
+  padding: 6px 10px;
+}
+.pod-chat-tool-detail > div,
+.pod-chat-command-terminal > div {
+  padding: 6px 10px;
+}
 .pod-chat-tool-detail span,
 .pod-chat-command-terminal span {
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+}
+.pod-chat-tool-detail > div > span:first-child {
+  display: block;
+  color: var(--fg-secondary);
+}
+.pod-chat-tool-detail > [data-tone='failed'],
+.pod-chat-tool-detail > [data-tone='failed'] > span:first-child {
+  color: var(--destructive-foreground);
 }
 .pod-chat-tool-detail pre,
 .pod-chat-command-terminal pre {
   max-height: 280px;
-  overflow: auto;
-  margin: 3px 0 0;
-  white-space: pre-wrap;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 18px;
-}
-.pod-chat-command-terminal {
-  background: var(--background-secondary);
-  color: var(--foreground);
-}
-.pod-chat-command-terminal > header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-bottom: 1px solid var(--border);
-  padding: 5px 10px;
-}
-.pod-chat-command-terminal > header > svg {
-  width: 13px;
-  height: 13px;
 }
 .pod-chat-command-exit {
   margin-left: auto;
@@ -2212,18 +2353,21 @@ details[open] > .pod-chat-tool-body {
   color: var(--fg-secondary);
 }
 .pod-chat-command-workdir {
-  margin: 0 0 5px;
+  margin: 0;
   color: var(--fg-tertiary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
+/* The divider before the first unread message labels it in the 12/20 tertiary step between two blue hairlines. */
 .pod-chat-unread-divider {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 12px 0;
-  color: var(--info-foreground);
-  font-size: 12px;
+  margin: 0 0 12px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-unread-divider::before,
 .pod-chat-unread-divider::after {
@@ -2232,7 +2376,9 @@ details[open] > .pod-chat-tool-body {
   border-top: 1px solid var(--info);
 }
 .pod-chat-patch-counts {
-  font-size: 12px;
+  flex-shrink: 0;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-variant-numeric: tabular-nums;
 }
 .pod-chat-patch-counts > [aria-hidden] {
@@ -2265,10 +2411,14 @@ details[open] > .pod-chat-tool-body {
 .pod-chat-patch header > .pod-chat-patch-counts {
   margin-left: auto;
 }
+.pod-chat-patch header + pre {
+  margin-top: 4px;
+}
 .pod-chat-patch pre > span {
   display: block;
-  min-height: 18px;
+  min-height: 26px;
   padding: 0 4px;
+  line-height: 26px;
 }
 .pod-chat-patch pre > [data-marker='+'] {
   background: var(--success-subtle);
@@ -2282,58 +2432,93 @@ details[open] > .pod-chat-tool-body {
 .pod-chat-patch-truncated {
   margin: 6px 0 0;
   color: var(--fg-tertiary);
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-command-terminal .pod-chat-command-text > span {
   color: var(--fg-secondary);
   font-size: inherit;
   text-transform: none;
 }
+/* A decision card, the Clarify question or the Action Card, is an outline card at most 540px wide that shrinks with
+   its column. Its header is a 20px lead icon beside a 12px status line. The question under it takes the 14px
+   step of the message text, in the Medium weight of every card title. While a decision waits, the card's edge
+   keeps the warning tone; a decided card returns to the plain hairline. */
 .pod-chat-choice-card {
-  @apply content-object;
-  max-width: 560px;
-  margin: 8px 0;
+  @apply surface-outline;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  max-width: 540px;
+  margin: 0;
   overflow: hidden;
-  background: var(--card);
 }
 .pod-chat-choice-card[data-state='pending'] {
   border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
 }
 .pod-chat-choice-header {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 6px;
-  padding: 12px 14px 4px;
-  color: var(--fg-secondary);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
+  color: var(--fg-tertiary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-choice-card[data-state='pending'] .pod-chat-choice-header {
   color: var(--warning-foreground);
 }
-.pod-chat-choice-header svg {
-  width: 16px;
-  height: 16px;
+.pod-chat-choice-header > svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.pod-chat-choice-header > span {
+  min-width: 0;
+}
+.pod-chat-choice-header > [data-slot='badge'] {
+  margin-inline-start: auto;
 }
 .pod-chat-choice-question {
   margin: 0;
-  padding: 0 14px 12px;
-  font-size: 15px;
-  line-height: 24px;
+  color: var(--foreground);
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
+.pod-chat-choice-header + .pod-chat-choice-question {
+  margin-top: -4px;
+}
+/* The body of a card, such as what an approval changes, reads as the message's own text. */
+.pod-chat-choice-details {
+  display: grid;
+  gap: 4px;
+  color: var(--fg-secondary);
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
+  overflow-wrap: anywhere;
+}
+/* The options are rows of the 14px step. A row takes the hover wash under the pointer, and its text lines up with
+   the question above it. */
 .pod-chat-choices {
   display: grid;
-  gap: 6px;
-  padding: 0 12px 12px;
+  gap: 2px;
+  margin-inline: -6px;
 }
 .pod-chat-choice {
   display: flex;
   width: 100%;
   height: auto;
-  min-height: 40px;
+  min-height: 32px;
   justify-content: space-between;
-  padding: 8px 12px;
+  gap: 12px;
+  border-width: 0;
+  padding: 3px 6px;
+  color: var(--foreground);
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
+  font-weight: 400;
   text-align: left;
   white-space: normal;
 }
@@ -2342,20 +2527,22 @@ details[open] > .pod-chat-tool-body {
 }
 .pod-chat-choice strong {
   display: block;
-  font-size: 14px;
-  line-height: 20px;
   font-weight: 500;
 }
 .pod-chat-choice small {
   display: block;
   color: var(--fg-tertiary);
-  font-size: 13px;
-  line-height: 18px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-weight: 400;
 }
 .pod-chat-choice[aria-pressed='true'] {
-  border-color: var(--border-strong);
-  background: var(--layer-current);
+  @apply selected-surface;
+}
+/* An option that cannot be chosen now, because the viewer may not answer or an answer is on its way, drops to the
+   tertiary ink. An answered card keeps its options readable and the chosen one in full ink. */
+.pod-chat-choice:disabled {
+  color: var(--fg-tertiary);
 }
 .pod-chat-choice-card[data-state='answered'] .pod-chat-choice:disabled {
   opacity: 1;
@@ -2366,64 +2553,83 @@ details[open] > .pod-chat-tool-body {
 }
 .pod-chat-choice kbd {
   flex-shrink: 0;
-  margin-left: 12px;
   color: var(--fg-tertiary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-choice-custom {
   display: flex;
   align-items: center;
   gap: 8px;
   border-top: 1px solid var(--border);
-  padding: 6px 12px 6px 14px;
+  padding-top: 4px;
 }
 .pod-chat-choice-custom input {
   flex: 1;
   min-width: 0;
   background: transparent;
-  padding: 4px 0;
-  font-size: 14px;
-  line-height: 20px;
+  padding: 3px 0;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   outline: none;
 }
 .pod-chat-choice-custom input:focus {
   box-shadow: 0 1px var(--ring);
 }
+/* What became of a decision is the card's status line: 12px secondary text after a 20px mark. */
 .pod-chat-choice-outcome {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  font-size: 13px;
-  line-height: 20px;
+  margin: 0;
   color: var(--fg-secondary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+}
+.pod-chat-choice-outcome[data-tone='warning'] {
+  color: var(--warning-foreground);
+}
+/* The person who answered appears as a 20px avatar, whose initial takes the 10px step on its 16px line. */
+.pod-chat-choice-outcome > .pod-chat-event-avatar {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  font-size: var(--text-25);
+  line-height: var(--text-25--line-height);
+}
+/* An outcome that is decided while its card is on screen arrives out of a soft blur. A card that was decided
+   before it was shown renders its outcome still. */
+@media (prefers-reduced-motion: no-preference) {
+  .pod-chat-choice-outcome[data-fresh] {
+    animation: pod-chat-tool-status-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
 }
 .pod-chat-choice-compose {
-  padding: 0 12px 8px;
+  margin-inline-start: -8px;
 }
 .pod-chat-choice-form {
   display: grid;
-  gap: 14px;
-  padding: 0 14px 12px;
+  gap: 12px;
 }
 .pod-chat-choice-form-options {
   display: grid;
-  gap: 6px;
+  gap: 2px;
 }
 .pod-chat-choice-form-options label {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
 .pod-chat-choice-form-number {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--fg-secondary);
-  font-size: 13px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
 .pod-chat-choice-form > button[type='submit'] {
   justify-self: start;
@@ -2450,8 +2656,9 @@ details[open] > .pod-chat-tool-body {
   overflow-wrap: anywhere;
 }
 .pod-chat-choice-outcome svg {
-  width: 14px;
-  height: 14px;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 .pod-chat-choice-superseded {
   opacity: 0.55;
@@ -2480,42 +2687,43 @@ details[open] > .pod-chat-tool-body {
 .pod-chat-exec-elapsed {
   flex-shrink: 0;
   color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-variant-numeric: tabular-nums;
 }
+/* A run card is a card of the content's card family, at most 540px wide, that shrinks with its column: a 20px
+   status icon, 8px, and a column of the title in the 14px Medium step with the elapsed time and a 16px chevron at
+   its end, the status line, and a two-line summary in the 12px step. A run that waits or failed keeps a tinted
+   edge, and the run the inspector shows takes the selected fill. */
 .pod-chat-linked-run {
+  @apply surface-outline;
   display: flex;
   align-items: flex-start;
   width: 100%;
-  max-width: 520px;
-  @apply content-object;
-  background: var(--card);
+  max-width: 540px;
   gap: 8px;
   margin: 8px 0;
-  padding: 10px 12px;
   text-align: left;
   transition:
-    background-color 140ms ease,
-    border-color 140ms ease;
+    background-color var(--duration-feedback) ease,
+    border-color var(--duration-feedback) ease;
 }
 .pod-chat-linked-run[data-compact] {
   max-width: 100%;
-  padding: 8px 10px;
 }
 .pod-chat-linked-run:hover {
-  background: color-mix(in srgb, var(--muted) 65%, var(--card));
+  background: var(--layer-hover);
 }
 .pod-chat-linked-run[data-active] {
   border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--accent) 70%, var(--card));
+  background: var(--layer-current);
 }
 .pod-chat-linked-run-main {
   display: flex;
   flex: 1;
   min-width: 0;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   text-align: left;
   cursor: pointer;
 }
@@ -2524,36 +2732,58 @@ details[open] > .pod-chat-tool-body {
   outline-offset: 2px;
   border-radius: var(--radius-mini);
 }
+/* The title and the elapsed time are two type steps on one baseline; the icons stand in the middle of the row. */
 .pod-chat-linked-run-head {
   display: flex;
   width: 100%;
   min-width: 0;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+}
+.pod-chat-linked-run-head > svg {
+  align-self: center;
+}
+.pod-chat-linked-run-head > :is(.pod-chat-exec-status-icon, .pod-chat-working-spinner) {
+  width: 20px;
+  height: 20px;
+  margin-inline-end: 8px;
+}
+/* The spinner draws its ring to the edge of its box, so it takes 16px in the 20px place, as an icon draws its glyph. */
+.pod-chat-linked-run-head > .pod-chat-working-spinner {
+  --spinner-thickness: 1.6;
+  width: 16px;
+  height: 16px;
+  margin: 2px 10px 2px 2px;
 }
 .pod-chat-linked-run-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   font-weight: 500;
   color: var(--foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pod-chat-linked-run-head > .pod-chat-exec-elapsed {
+  margin-inline-start: 12px;
+}
 .pod-chat-linked-run-chevron {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
+  margin-inline-start: 4px;
   color: var(--fg-tertiary);
   flex-shrink: 0;
 }
+.pod-chat-linked-run-meta,
+.pod-chat-linked-run-preview {
+  padding-left: 28px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+}
 .pod-chat-linked-run-meta {
   display: block;
-  padding-left: 23px;
   color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 18px;
   font-variant-numeric: tabular-nums;
 }
 .pod-chat-linked-run-preview {
@@ -2561,11 +2791,7 @@ details[open] > .pod-chat-tool-body {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  padding-left: 23px;
-  margin-top: 2px;
   color: var(--fg-secondary);
-  font-size: 13px;
-  line-height: 19px;
   overflow-wrap: anywhere;
 }
 .pod-chat-linked-run-stop {
@@ -2581,8 +2807,8 @@ details[open] > .pod-chat-tool-body {
   overflow: hidden;
 }
 .pod-chat-linked-run-main > .pod-chat-workflow-bar {
-  width: calc(100% - 23px);
-  margin-left: 23px;
+  width: calc(100% - 28px);
+  margin-left: 28px;
   margin-top: 4px;
 }
 .pod-chat-workflow-bar > span {
@@ -2598,104 +2824,170 @@ details[open] > .pod-chat-tool-body {
 .pod-chat-workflow-bar > span[data-failed] {
   background: var(--destructive-foreground);
 }
-.pod-chat-execution-drawer {
-  width: min(480px, calc(100vw - 24px));
-  max-width: calc(100vw - 24px);
-  gap: 16px;
-  padding: 20px;
-}
-.pod-chat-execution-drawer [data-slot='sheet-title'] {
-  padding-right: 24px;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
-}
-/* A delegation reads as one quiet line under the assistant's turn: who has the work, the task, and its state.
-   A finished delegation adds the start of the colleague's answer beneath the line. */
+/* A delegation is an outline card with the run card's anatomy, at most 540px wide: a 20px state mark, 8px, who has
+   the work in the 14px Medium step with the task after it, and at the end the state in the 12px step and a 16px
+   chevron. A finished delegation adds the start of the colleague's answer in the 12px step on two lines, and the
+   Pages the answer delivers, on the title's edge. The card takes the hover wash and opens the exchange's details;
+   a delegation that waits for an answer keeps a tinted edge, and the one the inspector shows takes the selected
+   fill. */
 .pod-peer-exchange {
+  @apply surface-outline;
   display: grid;
-  gap: 6px;
-  margin: 4px 0 12px;
-  padding: 6px 8px 6px 10px;
-  border-left: 2px solid var(--border);
-  font-size: 13px;
-  line-height: 20px;
+  /* The one column may shrink below its content, so a long title, answer or Page chip truncates inside the card
+     instead of widening it. */
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  max-width: 540px;
+  gap: 2px;
+  margin: 8px 0 20px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
+  transition:
+    background-color var(--duration-feedback) ease,
+    border-color var(--duration-feedback) ease;
+}
+/* Under its turn's reply the card keeps the run card's 8px; a colleague's answer in a row of its own keeps 20px
+   before the message that follows it. */
+.pod-chat-timeline-message > .pod-peer-exchange {
+  margin-bottom: 8px;
+}
+.pod-peer-exchange[data-opens] {
+  cursor: pointer;
+}
+.pod-peer-exchange[data-opens]:hover {
+  background: var(--layer-hover);
+}
+.pod-peer-exchange[data-active] {
+  border-color: var(--border-strong);
+  background: var(--layer-current);
 }
 .pod-peer-exchange[data-state='waiting'] {
-  border-left-color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
 }
-.pod-peer-exchange[data-state='working'] {
-  border-left-color: var(--fg-tertiary);
-}
+/* The title and the state are two type steps on one baseline; the mark and the buttons stand in the middle of
+   the row. */
 .pod-peer-exchange-head {
   display: flex;
   min-width: 0;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 0 8px;
+}
+.pod-peer-exchange-head > :is(svg, button) {
+  align-self: center;
 }
 .pod-peer-exchange-head > svg {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   flex: none;
-  color: var(--fg-tertiary);
 }
-.pod-peer-exchange[data-state='done'] .pod-peer-exchange-head > svg {
-  color: var(--success-foreground);
+.pod-peer-exchange-head > svg:not([data-slot='spinner'], [data-tone]),
+.pod-peer-log-status > svg:not([data-slot='spinner'], [data-tone]) {
+  color: var(--fg-tertiary);
 }
 .pod-peer-exchange-summary {
   min-width: 0;
   flex: 1;
   margin: 0;
   overflow: hidden;
-  color: var(--fg-secondary);
+  color: var(--foreground);
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pod-peer-exchange-task {
+  color: var(--fg-tertiary);
+  font-weight: 400;
 }
 .pod-peer-exchange-state {
   flex: none;
   color: var(--fg-tertiary);
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+  font-variant-numeric: tabular-nums;
 }
 .pod-peer-exchange[data-state='waiting'] .pod-peer-exchange-state {
   color: var(--warning-foreground);
 }
-.pod-peer-exchange-reply {
-  max-height: 72px;
-  overflow: hidden;
-  padding-left: 22px;
-  color: var(--fg-secondary);
+/* The chevron keeps the 16px size of a run card's chevron inside its 24px button, 4px after the state. */
+.pod-peer-exchange-open {
+  margin-inline: -4px;
+  color: var(--fg-tertiary);
 }
-.pod-peer-exchange-reply[data-clipped] {
-  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+.pod-peer-exchange-open > svg {
+  width: 16px;
+  height: 16px;
+}
+/* In a narrow chat, such as the Page assistant or the column beside the inspector, Stop keeps its icon and its
+   accessible name and drops its label, and the state moves under the title as the card's meta line, as a run
+   card states its status, so the title keeps the row to itself. */
+@container (max-width: 480px) {
+  .pod-peer-exchange-stop-label {
+    display: none;
+  }
+  .pod-peer-exchange-head {
+    flex-wrap: wrap;
+  }
+  .pod-peer-exchange-state {
+    order: 1;
+    flex-basis: 100%;
+    padding-left: 28px;
+  }
+}
+/* The answer's first two lines as source text, on the title's edge after the mark. */
+.pod-peer-exchange-reply {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin: 0;
+  overflow: hidden;
+  padding-left: 28px;
+  color: var(--fg-secondary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+  overflow-wrap: anywhere;
 }
 .pod-peer-exchange-pages {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding: 0 0 0 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 4px 0 0;
+  padding: 0 0 0 28px;
   list-style: none;
 }
+.pod-peer-exchange-pages > li {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+/* The log of an exchange, in the inspector, opens with the same state row and then each message of the exchange. */
 .pod-peer-log {
   display: grid;
   align-content: start;
-  gap: 16px;
+  gap: var(--spacing-content-gap);
 }
 .pod-peer-log-status {
   display: flex;
+  min-height: 32px;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   color: var(--fg-secondary);
-  font-size: 13px;
+}
+.pod-peer-log-status > svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.pod-peer-log-status > [role='status'] {
+  flex: 1;
+  min-width: 0;
 }
 .pod-peer-log-note {
   margin: 0;
   color: var(--warning-foreground);
-  font-size: 13px;
 }
 .pod-peer-log-message {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
@@ -2705,24 +2997,19 @@ details[open] > .pod-chat-tool-body {
 .pod-peer-log-author {
   margin: 0;
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-weight: 500;
+}
+.pod-peer-log .pod-chat-markdown {
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
 .pod-chat-execution-detail {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 24px;
-}
-.pod-chat-execution-detail dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px 12px;
-  margin: 8px 0 20px;
-  font-size: 12px;
-}
-.pod-chat-execution-detail dt {
-  color: var(--fg-tertiary);
 }
 .pod-chat-turn-rail {
   position: absolute;
@@ -2813,33 +3100,23 @@ details[open] > .pod-chat-tool-body {
   .pod-chat-timeline .pod-chat-history-content {
     padding: 18px 22px 28px 16px;
   }
-  /* A continued message floats its time over the previous message's actions, so it keeps it for hover. */
-  .pod-chat-message-identity:not([data-quiet]) time {
-    opacity: 0.8;
-  }
   .pod-chat-turn-rail {
     right: 2px;
   }
 }
 @media (hover: none) {
-  .pod-chat-timeline .pod-chat-message-actions,
-  .pod-chat-message-identity:not([data-quiet]) time {
+  .pod-chat-timeline .pod-chat-message-actions {
     opacity: 1;
-  }
-  /* The actions stay visible here, so a continued message's floating time never covers them. */
-  .pod-chat-timeline-message .pod-chat-message-identity[data-quiet] time {
-    opacity: 0;
   }
 }
 
+/* A passage a message quotes takes the document's Quote in the 14px step, above the message's text. */
 .pod-chat-quoted-message {
+  @apply content-quote;
   max-width: 100%;
-  margin: 7px 0 10px;
-  border-left: 2px solid var(--border-strong);
-  padding: 5px 10px;
-  color: var(--fg-secondary);
-  font-size: 12px;
-  line-height: 1.65;
+  margin: 0;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -2849,11 +3126,6 @@ details[open] > .pod-chat-tool-body {
 }
 .pod-chat-linked-run[data-status='failed'] {
   border-color: color-mix(in srgb, var(--destructive) 40%, var(--border));
-}
-.pod-peer-exchange[data-active] {
-  border-left-color: var(--foreground);
-  background: color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
 }
 
 .pod-chat-inspector-panel {
@@ -2874,9 +3146,10 @@ details[open] > .pod-chat-tool-body {
     box-shadow: -8px 0 24px rgb(0 0 0 / 0.08);
   }
 }
+/* The sheet keeps the kit sheet's 8px inset on both sides, so it never runs off a phone's screen. */
 .pod-chat-inspector-sheet[data-slot='sheet-content'] {
-  width: min(480px, 100vw);
-  max-width: 100vw;
+  width: min(480px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
   padding: 0;
   gap: 0;
 }
@@ -2888,39 +3161,69 @@ details[open] > .pod-chat-tool-body {
   flex-direction: column;
   height: 100%;
 }
+/* The inspector, the summary, and a file's preview share one header: a 44px band whose controls end 12px from the
+   edge and whose title, 14px medium on the 26px line, starts 18px in. The inspector's status, its chain of
+   jobs, and its threads follow under the band, on the title's left edge. */
 .pod-chat-inspector-header {
   display: flex;
   flex-shrink: 0;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 14px 10px;
   border-bottom: 1px solid var(--border);
 }
-.pod-chat-inspector-title-row {
-  display: flex;
+.pod-chat-inspector-header > :not(.pod-chat-inspector-title-row) {
+  margin-inline: 18px;
+}
+.pod-chat-inspector-header > :last-child:not(.pod-chat-inspector-title-row) {
+  margin-bottom: 10px;
+}
+.pod-chat-inspector-title-row,
+.pod-chat-panel-header {
+  @apply sheet-header;
   min-width: 0;
-  align-items: center;
   gap: 8px;
 }
-.pod-chat-inspector-title {
+.pod-chat-inspector-title-row > :first-child:not(button) {
+  margin-inline-start: 6px;
+}
+.pod-chat-inspector-title-row > [data-slot='spinner']:first-child {
+  margin-inline-start: 8px;
+}
+.pod-chat-inspector-title-row > svg {
+  width: 20px;
+  height: 20px;
+}
+.pod-chat-panel-header {
+  border-bottom: 1px solid var(--border);
+}
+.pod-chat-inspector-title,
+.pod-chat-panel-title {
   flex: 1;
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 600;
+  color: var(--foreground);
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pod-chat-panel-header > .pod-chat-panel-title:first-child {
+  padding-inline-start: 6px;
 }
 .pod-chat-inspector-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  margin-top: -10px;
   color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-variant-numeric: tabular-nums;
+}
+.pod-chat-inspector-meta .pod-chat-exec-elapsed {
+  line-height: inherit;
 }
 .pod-chat-inspector-meta > * + *::before {
   content: ' · ';
@@ -2935,23 +3238,26 @@ details[open] > .pod-chat-tool-body {
 .pod-chat-inspector-chain {
   display: grid;
   gap: 4px;
-  margin-top: 2px;
 }
+/* A note about the job before or after this one takes the reference card's fill; the follow-up keeps a hairline
+   instead, because it asks to be opened. */
 .pod-chat-inspector-chain-row {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  border: 1px solid transparent;
   border-radius: var(--radius-control);
-  background: var(--muted);
-  padding: 4px 8px;
+  background: var(--layer-01);
+  padding: 2px 4px 2px 8px;
   color: var(--fg-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-inspector-chain-row[data-followup] {
-  border: 1px solid var(--border);
-  background: var(--card);
+  border-color: var(--border);
+  background: transparent;
 }
 .pod-chat-inspector-threads {
   display: flex;
@@ -2959,34 +3265,38 @@ details[open] > .pod-chat-tool-body {
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
-  padding-top: 2px;
 }
 .pod-chat-inspector-thread-pill {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 12px;
-  line-height: 18px;
+  padding: 1px 10px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   color: var(--fg-secondary);
   background: transparent;
   cursor: pointer;
 }
 .pod-chat-inspector-thread-pill:hover {
-  background: var(--muted);
+  background: var(--layer-hover);
 }
 .pod-chat-inspector-thread-pill[aria-selected='true'] {
+  @apply selected-surface;
   border-color: var(--border-strong);
-  background: var(--accent);
   color: var(--foreground);
   font-weight: 500;
 }
 .pod-chat-inspector-thread-pill > svg {
+  width: 16px;
+  height: 16px;
+}
+.pod-chat-inspector-thread-pill > [data-slot='spinner'] {
   width: 13px;
   height: 13px;
+  margin: 1.5px;
 }
 .pod-chat-inspector-scroll {
   position: relative;
@@ -2996,33 +3306,40 @@ details[open] > .pod-chat-tool-body {
   overscroll-behavior: contain;
   scrollbar-width: thin;
 }
+/* The inspector is a narrow panel, so its text takes the 14px step on its 26px line, and its labels take the 12px
+   step. Its text starts 18px in, on the title's edge. */
 .pod-chat-inspector-content {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 14px 16px 24px;
+  gap: var(--spacing-content-gap);
+  padding: 12px 18px 24px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
-.pod-chat-inspector-brief {
-  @apply content-object;
-  background: color-mix(in srgb, var(--muted) 55%, var(--background));
-  padding: 9px 12px;
-  font-size: 13px;
-  line-height: 19px;
+/* The task's brief, its plan, and its result are block cards: material that belongs to the run. */
+.pod-chat-inspector-brief,
+.pod-chat-inspector-plan,
+.pod-chat-inspector-outcome {
+  @apply surface-block;
+  min-width: 0;
+  padding: 10px;
 }
-.pod-chat-inspector-brief > header {
+.pod-chat-inspector-brief > header,
+.pod-chat-inspector-plan > header,
+.pod-chat-inspector-outcome > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 4px;
   color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-weight: 500;
 }
 .pod-chat-inspector-brief-toggle {
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-weight: 400;
   cursor: pointer;
 }
 .pod-chat-inspector-brief-toggle:hover {
@@ -3040,44 +3357,27 @@ details[open] > .pod-chat-tool-body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.pod-chat-inspector-plan {
-  @apply content-object;
-  background: var(--card);
-  padding: 10px 12px;
-  font-size: 13px;
-  line-height: 19px;
-}
-.pod-chat-inspector-plan > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-  color: var(--fg-tertiary);
-  font-size: 12px;
-  font-weight: 500;
-}
 .pod-chat-inspector-plan-note {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-inspector-plan > ol {
   display: grid;
-  gap: 5px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
+/* A step of the plan is a row with the run's status mark: done, in progress, or a ring while it waits its turn. */
 .pod-chat-inspector-plan > ol > li {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   color: var(--fg-secondary);
 }
-.pod-chat-inspector-plan > ol > li > svg,
-.pod-chat-inspector-plan > ol > li > .pod-chat-working-spinner {
-  margin-top: 2px;
+.pod-chat-inspector-plan > ol > li > .pod-chat-tool-state {
+  margin-block: 3px;
 }
 .pod-chat-inspector-plan > ol > li[data-status='completed'] {
   color: var(--fg-tertiary);
@@ -3086,34 +3386,28 @@ details[open] > .pod-chat-tool-body {
   color: var(--foreground);
   font-weight: 500;
 }
-.pod-chat-inspector-plan-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  flex-shrink: 0;
-  margin: 6px 4px 0;
-  border-radius: 50%;
-  border: 1.5px solid var(--fg-tertiary);
+.pod-chat-inspector-plan-pending {
+  color: var(--fg-tertiary);
 }
 .pod-chat-inspector-stream {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--spacing-content-gap);
 }
 .pod-chat-inspector-work-group {
   margin: 0;
 }
-.pod-chat-inspector-prose .pod-chat-markdown {
-  font-size: 14px;
-  line-height: 22px;
+:is(.pod-chat-inspector-prose, .pod-chat-inspector-outcome, .pod-chat-inspector-steer) .pod-chat-markdown {
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
 }
 .pod-chat-inspector-steer {
   display: flex;
   justify-content: flex-end;
 }
 .pod-chat-inspector-steer .pod-chat-human-text {
-  font-size: 14px;
-  line-height: 21px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   border-top-right-radius: 6px;
 }
 .pod-chat-inspector-subthread-links {
@@ -3122,20 +3416,11 @@ details[open] > .pod-chat-tool-body {
   gap: 6px;
   margin-top: 6px;
 }
-.pod-chat-inspector-outcome {
-  @apply content-object;
-  background: var(--card);
-  padding: 10px 12px;
-}
-.pod-chat-inspector-outcome > header {
-  margin-bottom: 6px;
-  color: var(--fg-tertiary);
-  font-size: 12px;
-  font-weight: 500;
-}
-.pod-chat-inspector-outcome .pod-chat-markdown {
-  font-size: 14px;
-  line-height: 22px;
+/* The inspector sets prose at 14px, so each of its headings takes the 16px step rather than a document role. */
+:is(.pod-chat-inspector-prose, .pod-chat-inspector-outcome) .pod-chat-markdown :is(h1, h2, h3, h4, h5, h6) {
+  font-size: var(--text-100);
+  line-height: var(--text-100--line-height);
+  font-weight: 600;
 }
 .pod-chat-inspector-error {
   display: flex;
@@ -3144,16 +3429,14 @@ details[open] > .pod-chat-tool-body {
   border: 1px solid color-mix(in srgb, var(--destructive) 45%, var(--border));
   border-radius: var(--radius-control);
   background: var(--destructive-subtle);
-  padding: 10px 12px;
+  padding: 10px;
   color: var(--destructive-foreground);
-  font-size: 13px;
-  line-height: 19px;
 }
 .pod-chat-inspector-error > svg {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 .pod-chat-inspector-error > p {
   margin: 0;
@@ -3164,22 +3447,25 @@ details[open] > .pod-chat-tool-body {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 4px 0;
+  margin: 0;
   color: var(--fg-tertiary);
-  font-size: 13px;
 }
 .pod-chat-inspector-more {
   display: flex;
   justify-content: center;
 }
+.pod-chat-inspector-question {
+  display: grid;
+  gap: 8px;
+}
 .pod-chat-inspector-question + .pod-chat-inspector-question {
   border-top: 1px solid var(--border);
-  padding-top: 10px;
+  padding-top: 8px;
 }
 .pod-chat-inspector-workflow {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--spacing-content-gap);
 }
 .pod-chat-inspector-workflow-summary {
   display: grid;
@@ -3190,27 +3476,32 @@ details[open] > .pod-chat-tool-body {
   flex-wrap: wrap;
   gap: 8px;
   color: var(--fg-tertiary);
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   font-variant-numeric: tabular-nums;
+}
+.pod-chat-inspector-workflow-pills > [data-tone='failed'] {
+  color: var(--destructive-foreground);
 }
 .pod-chat-workflow-seq,
 .pod-chat-workflow-attempts {
   flex-shrink: 0;
   color: var(--fg-tertiary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-inspector-composer {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
-  padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+  padding: 10px 12px max(12px, env(safe-area-inset-bottom));
   background: var(--background);
 }
 .pod-chat-inspector-composer-error {
   margin: 0 0 6px;
-  color: var(--destructive);
-  font-size: 12px;
-  line-height: 18px;
+  color: var(--destructive-foreground);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 .pod-chat-inspector-composer-box {
   display: flex;
@@ -3219,7 +3510,7 @@ details[open] > .pod-chat-tool-body {
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--card);
-  padding: 6px 8px 6px 10px;
+  padding: 2px 4px 2px 6px;
 }
 .pod-chat-inspector-composer-box:focus-within {
   border-color: var(--ring);
@@ -3231,8 +3522,11 @@ details[open] > .pod-chat-tool-body {
   max-height: 140px;
   resize: none;
   background: transparent;
-  padding: 2px 0;
-  font-size: 13px;
-  line-height: 20px;
+  padding: 1px 0;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   outline: none;
+}
+.pod-chat-inspector-composer-box > button {
+  margin-block: 2px;
 }

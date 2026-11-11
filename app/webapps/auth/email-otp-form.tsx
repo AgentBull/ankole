@@ -1,5 +1,5 @@
 import { recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
-import { Button, Field, FieldLabel, Input } from '@ankole/uikit'
+import { Button, Field, FieldLabel, Input, StepTransition } from '@ankole/uikit'
 import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -113,6 +113,16 @@ function EmailOtpFields({
   }, [model, resendUntil])
   const emailID = useId()
   const codeID = useId()
+  // An accepted code starts a navigation. The form holds its accepted state until the browser leaves, and returns
+  // to rest when the browser restores this page from its back-forward cache.
+  const [redirecting, setRedirecting] = useState(false)
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) setRedirecting(false)
+    }
+    window.addEventListener('pageshow', restore)
+    return () => window.removeEventListener('pageshow', restore)
+  }, [])
   const challengeEnabled = slot !== undefined
   const [attempt, setAttempt] = useState({ enabled: challengeEnabled, number: 0 })
   if (attempt.enabled !== challengeEnabled) {
@@ -176,12 +186,26 @@ function EmailOtpFields({
       }),
     onSuccess: result => {
       if (persistChallenge) saveChallenge(scope)
+      setRedirecting(true)
       window.location.assign(result.returnTo)
     },
-    onError: error => model.reportLoginError(error)
+    onError: error => {
+      model.reportLoginError(error)
+      // A rejected code cannot be edited into the right one, so the field empties for the next attempt. The
+      // error stays until the person types.
+      if (classifyLoginError(error)?.kind === 'invalid_code') model.code.value = ''
+    }
   })
+  const rejected = model.formError.value?.kind === 'invalid_code'
   const waiting = model.formError.value?.kind === 'locked'
-  const pending = request.isPending || verify.isPending
+  const pending = request.isPending || verify.isPending || redirecting
+  // The code field is disabled while a request runs, so it cannot take focus when it mounts or when a code is
+  // rejected. It takes focus as soon as the form can be typed in again: after a code is sent or sent again, and
+  // after a wrong code.
+  const codeReady = Boolean(challengeID) && !pending && !waiting
+  useEffect(() => {
+    if (codeReady) document.getElementById(codeID)?.focus()
+  }, [codeID, codeReady, rejected])
   const error = verify.error ?? request.error
   const classified = error ? classifyLoginError(error) : undefined
   const formError = model.formError.value
@@ -204,43 +228,49 @@ function EmailOtpFields({
         challengeID ? verify.mutate() : request.mutate()
       }}>
       <ErrorBlock error={classified ? undefined : error} />
-      {(!challengeID || !compactVerification) && (
-        <Field>
-          <FieldLabel htmlFor={emailID}>{t('auth.email')}</FieldLabel>
-          <Input
-            id={emailID}
-            type="email"
-            name="email"
-            autoComplete="email"
-            required
-            disabled={pending || Boolean(challengeID)}
-            value={model.email.value}
-            onChange={event => {
-              model.email.value = event.target.value
-              model.changeAccount()
-              resetAttempt()
-            }}
-          />
-        </Field>
-      )}
-      {challengeID && (
-        <>
-          <CodeSentStatus email={model.email.value} />
-          <Field>
-            <FieldLabel htmlFor={codeID}>{t('auth.email_code')}</FieldLabel>
-            <EmailOtpInput
-              id={codeID}
-              name="code"
-              disabled={pending || waiting}
-              value={model.code.value}
-              onChange={value => {
-                model.code.value = value
-                model.clearFormError()
-              }}
-            />
-          </Field>
-        </>
-      )}
+      <StepTransition step={challengeID ? 'code' : 'email'} direction={challengeID ? 'forward' : 'back'}>
+        <div className="grid min-w-0 gap-5">
+          {(!challengeID || !compactVerification) && (
+            <Field>
+              <FieldLabel htmlFor={emailID}>{t('auth.email')}</FieldLabel>
+              <Input
+                id={emailID}
+                type="email"
+                name="email"
+                autoComplete="email"
+                required
+                disabled={pending || Boolean(challengeID)}
+                value={model.email.value}
+                onChange={event => {
+                  model.email.value = event.target.value
+                  model.changeAccount()
+                  resetAttempt()
+                }}
+              />
+            </Field>
+          )}
+          {challengeID && (
+            <>
+              <CodeSentStatus email={model.email.value} />
+              <Field>
+                <FieldLabel htmlFor={codeID}>{t('auth.email_code')}</FieldLabel>
+                <EmailOtpInput
+                  id={codeID}
+                  name="code"
+                  disabled={pending || waiting}
+                  invalid={rejected}
+                  status={redirecting ? 'success' : verify.isPending ? 'verifying' : undefined}
+                  value={model.code.value}
+                  onChange={value => {
+                    model.code.value = value
+                    model.clearFormError()
+                  }}
+                />
+              </Field>
+            </>
+          )}
+        </div>
+      </StepTransition>
       {slot && (
         <SlotBoundary>
           <slot.Component key={attemptKey} attemptKey={attemptKey} onChallengeStateChange={onChallengeStateChange} />

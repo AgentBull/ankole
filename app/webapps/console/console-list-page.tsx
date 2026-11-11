@@ -31,13 +31,13 @@ import {
   cn
 } from '@ankole/uikit'
 import {
-  RiArrowRightLine,
-  RiCloseLine,
-  RiDeleteBin6Line,
-  RiMore2Fill,
-  RiPencilLine,
-  RiSearchLine
-} from '@remixicon/react'
+  ArrowRightRegular,
+  DeleteRegular,
+  DismissRegular,
+  EditRegular,
+  MoreVerticalRegular,
+  SearchRegular
+} from '@ankole/uikit/icons'
 
 import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -347,6 +347,7 @@ function EmptyActions({ create, extra }: { create: ReactNode; extra: ReactNode }
 type LoadMoreQuery = {
   hasNextPage: boolean
   isFetching: boolean
+  isFetchingNextPage?: boolean
   isPlaceholderData: boolean
   isFetchNextPageError: boolean
   error: unknown
@@ -361,7 +362,8 @@ export function LoadMore({ query }: { query: LoadMoreQuery }) {
     <Button
       type="button"
       variant="outline"
-      disabled={query.isFetching || query.isPlaceholderData}
+      loading={query.isFetchingNextPage ?? false}
+      disabled={(query.isFetching && !query.isFetchingNextPage) || query.isPlaceholderData}
       onClick={() => void query.fetchNextPage()}>
       {t(query.isFetchNextPageError ? 'common.retry' : 'console.pagination.next_page')}
     </Button>
@@ -496,7 +498,7 @@ export function SearchField({
 
   return (
     <div className={cn('relative min-w-0', className)}>
-      <RiSearchLine
+      <SearchRegular
         className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
         aria-hidden
       />
@@ -523,7 +525,7 @@ export function SearchField({
           className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:-outline-offset-2"
           type="button"
           onClick={() => onChange('')}>
-          <RiCloseLine />
+          <DismissRegular />
         </button>
       ) : null}
     </div>
@@ -642,7 +644,7 @@ export function RowViewAction(
           className={cn(buttonVariants({ size: 'icon-sm', variant: 'ghost' }))}
           title={props.label}
           {...linkTarget(props.to)}>
-          <RiArrowRightLine aria-hidden />
+          <ArrowRightRegular aria-hidden />
         </Link>
       ) : (
         <Button
@@ -652,7 +654,7 @@ export function RowViewAction(
           type="button"
           variant="ghost"
           onClick={props.onOpen}>
-          <RiArrowRightLine aria-hidden />
+          <ArrowRightRegular aria-hidden />
         </Button>
       )}
     </TableCell>
@@ -693,7 +695,7 @@ export function RowActions({
           title={editLabel}
           {...linkTarget(editTo)}
           className={cn(buttonVariants({ size: 'icon-sm', variant: 'ghost' }))}>
-          <RiPencilLine />
+          <EditRegular />
         </Link>
       </TableCell>
     )
@@ -714,11 +716,11 @@ export function RowActions({
               variant="ghost"
             />
           }>
-          <RiMore2Fill />
+          <MoreVerticalRegular />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuItem render={<Link {...linkTarget(editTo)} />}>
-            <RiPencilLine />
+            <EditRegular />
             {editLabel}
           </DropdownMenuItem>
           {actions.map(action => (
@@ -729,7 +731,7 @@ export function RowActions({
           ))}
           {onDelete && deleteConfirm ? (
             <DropdownMenuItem variant="destructive" disabled={deletePending} onClick={() => setConfirmOpen(true)}>
-              {deleteConfirm.icon ?? <RiDeleteBin6Line />}
+              {deleteConfirm.icon ?? <DeleteRegular />}
               {deleteConfirm.confirmLabel}
             </DropdownMenuItem>
           ) : null}

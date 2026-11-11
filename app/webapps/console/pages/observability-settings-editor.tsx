@@ -9,7 +9,7 @@ import {
   SelectValue,
   Switch
 } from '@ankole/uikit'
-import { RiAddLine, RiDeleteBin6Line, RiEyeLine } from '@remixicon/react'
+import { AddRegular, DeleteRegular, EyeRegular } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import type { AppConfigurationItem } from '../api/configuration-types'
 import { EncryptedValueInput } from '../encrypted-value-input'
@@ -166,7 +166,7 @@ export function ObservabilitySettingsEditor({
                   type="button"
                   variant="ghost"
                   onClick={() => onHeaderRowsChange(headerRows.filter(current => current.id !== row.id))}>
-                  <RiDeleteBin6Line />
+                  <DeleteRegular />
                 </Button>
               </div>
             ))}
@@ -176,7 +176,7 @@ export function ObservabilitySettingsEditor({
               type="button"
               variant="outline"
               onClick={() => onHeaderRowsChange([...headerRows, newHeaderRow()])}>
-              <RiAddLine />
+              <AddRegular />
               {t('console.settings.observability_add_header')}
             </Button>
           </div>
@@ -187,7 +187,7 @@ export function ObservabilitySettingsEditor({
               {t('console.settings.observability_headers_masked')}
             </span>
             <Button disabled={headerRevealing} size="sm" type="button" variant="outline" onClick={onRevealHeaders}>
-              <RiEyeLine />
+              <EyeRegular />
               {t('console.settings.observability_reveal_headers')}
             </Button>
             <Button disabled={headerRevealing} size="sm" type="button" variant="ghost" onClick={onReplaceHeaders}>

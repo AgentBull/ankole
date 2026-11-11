@@ -1,7 +1,7 @@
 import { t as translate } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Button, Popover, PopoverContent, PopoverTitle, PopoverTrigger, toast } from '@ankole/uikit'
-import { RiBuildingLine, RiLink, RiLockLine } from '@remixicon/react'
+import { BuildingRegular, LinkRegular, LockClosedRegular } from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useState } from 'react'
@@ -22,7 +22,7 @@ export function PageSharingButton({ pageID, page }: { pageID: string; page?: Pag
   const [open, setOpen] = useState(false)
   const model = useModel(PageSharingModel)
   const session = usePageSharing(pageID, { open, initialPage: page })
-  const ScopeIcon = session.restricted ? RiLockLine : RiBuildingLine
+  const ScopeIcon = session.restricted ? LockClosedRegular : BuildingRegular
 
   return (
     <Popover
@@ -35,10 +35,9 @@ export function PageSharingButton({ pageID, page }: { pageID: string; page?: Pag
       }}>
       <PopoverTrigger
         render={
-          <Button variant="outline" size="sm" aria-label={t('pod.content.share')} title={t('pod.content.share')} />
+          <Button variant="ghost" size="icon-lg" aria-label={t('pod.content.share')} title={t('pod.content.share')} />
         }>
-        <ScopeIcon aria-hidden className="size-4 text-muted-foreground" />
-        <span className="@max-[640px]:sr-only">{t('pod.content.share')}</span>
+        <ScopeIcon aria-hidden />
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -74,7 +73,7 @@ function SharingPopoverBody({
         {!session.sharingError && <InlineLoading label={t('pod.content.loading_sharing_settings')} />}
         <div className="flex items-center justify-between border-t border-border pt-3">
           <Button variant="outline" size="sm" onClick={() => void copyLink()}>
-            <RiLink aria-hidden className="size-4" />
+            <LinkRegular aria-hidden className="size-4" />
             {t('pod.content.copy_link')}
           </Button>
         </div>

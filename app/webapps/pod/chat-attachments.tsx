@@ -1,5 +1,12 @@
-import { Button, cn } from '@ankole/uikit'
-import { RiAttachment2, RiCheckLine, RiCloseLine, RiFileLine, RiRefreshLine, RiUpload2Line } from '@remixicon/react'
+import { Button, cn, FileCardList, InputGroupButton } from '@ankole/uikit'
+import {
+  ArrowClockwiseRegular,
+  ArrowUploadRegular,
+  AttachRegular,
+  CheckmarkRegular,
+  DismissRegular,
+  DocumentRegular
+} from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
   useRef,
@@ -17,6 +24,7 @@ import { InternalAPIError } from '../common/internal-api-client'
 import { conversationAttachmentURL } from './native-transfers'
 import type { ChatAttachments } from './state/chat-attachments'
 import { AttachmentPreview } from './attachment-preview'
+import { fileExtensionBadge } from './state/page-subpages'
 
 /** Files that share a long prefix differ at the end, so a long name gives way in the middle and keeps its extension. */
 function AttachmentName({ name }: { name: string }) {
@@ -40,7 +48,7 @@ function AttachmentName({ name }: { name: string }) {
           title={t('common.bidi_warning_label', {
             defaultValue: 'Bidirectional override characters were stripped from this name'
           })}
-          className="inline-flex shrink-0 items-center rounded-mini bg-warning/15 px-1 py-0.5 text-[10px] font-medium leading-3 text-warning">
+          className="inline-flex shrink-0 items-center rounded-mini bg-warning/15 px-1 text-50 font-normal text-warning">
           Bidi
         </span>
       )}
@@ -48,7 +56,15 @@ function AttachmentName({ name }: { name: string }) {
   )
 }
 
-export function ChatAttachmentButton({ model, disabled }: { model: ChatAttachments; disabled?: boolean }) {
+export function ChatAttachmentButton({
+  model,
+  disabled,
+  className
+}: {
+  model: ChatAttachments
+  disabled?: boolean
+  className?: string
+}) {
   const { t } = useTranslation()
   const input = useRef<HTMLInputElement>(null)
   return (
@@ -64,16 +80,15 @@ export function ChatAttachmentButton({ model, disabled }: { model: ChatAttachmen
           event.currentTarget.value = ''
         }}
       />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
+      <InputGroupButton
+        size="icon-lg"
+        className={className}
         disabled={disabled}
         aria-label={t('pod.chat_attachments.choose')}
         title={t('pod.chat_attachments.choose')}
         onClick={() => input.current?.click()}>
-        <RiAttachment2 aria-hidden />
-      </Button>
+        <AttachRegular />
+      </InputGroupButton>
     </>
   )
 }
@@ -81,97 +96,100 @@ export function ChatAttachmentButton({ model, disabled }: { model: ChatAttachmen
 export function ChatAttachmentDrafts({
   model,
   disabled,
-  recovery = false
+  recovery = false,
+  className
 }: {
   model: ChatAttachments
   disabled?: boolean
   recovery?: boolean
+  className?: string
 }) {
   useSignals()
   const { t } = useTranslation()
   if (!model.files.value.length) return null
   return (
-    <ul aria-label={t('pod.chat_attachments.files')} className="flex flex-wrap gap-2 px-3 py-2">
-      {model.files.value.map((file, index) => (
-        <li
-          key={file.id}
-          data-upload-state={recovery ? undefined : file.state}
-          style={recovery ? undefined : { animationDelay: `${Math.min(index, 3) * 50}ms` }}
-          className={cn(
-            'group/upload grid max-w-full grid-rows-[1fr]',
-            !recovery && 'motion-safe:animate-[pod-attachment-enter_420ms_cubic-bezier(.22,1,.36,1)_both]'
-          )}>
-          <div className="flex min-h-0 max-w-full items-center gap-1 rounded-control border border-border pr-1 motion-safe:group-data-[upload-state=failed]/upload:animate-[pod-attachment-shake_380ms_both]">
-            <AttachmentPreview name={file.file.name} type={file.file.type} size={file.file.size} url={file.url} local>
-              <span className="grid min-w-0 text-xs">
-                <span className="flex max-w-48 items-center gap-1">
+    <FileCardList aria-label={t('pod.chat_attachments.files')} className={cn('px-3 py-2', className)}>
+      {model.files.value.map((file, index) => {
+        const failed = !recovery && file.state === 'failed'
+        const typeLabel = fileExtensionBadge(stripBidi(file.file.name), file.file.type)
+        return (
+          <li
+            key={file.id}
+            data-upload-state={recovery ? undefined : file.state}
+            style={recovery ? undefined : { animationDelay: `${Math.min(index, 3) * 50}ms` }}
+            className={cn(
+              'group/upload grid grid-cols-[minmax(0,1fr)] grid-rows-[1fr]',
+              !recovery && 'motion-safe:animate-[pod-attachment-enter_420ms_cubic-bezier(.22,1,.36,1)_both]'
+            )}>
+            <AttachmentPreview
+              className="min-h-0 motion-safe:group-data-[upload-state=failed]/upload:animate-[pod-attachment-shake_380ms_both]"
+              name={file.file.name}
+              type={file.file.type}
+              size={file.file.size}
+              url={file.url}
+              local
+              label={
+                <>
                   <AttachmentName name={file.file.name} />
                   {!recovery && file.state === 'ready' && (
-                    <RiCheckLine
+                    <CheckmarkRegular
                       aria-hidden
-                      className="size-3.5 shrink-0 text-success motion-safe:animate-[pod-attachment-ready_260ms_cubic-bezier(.22,1,.36,1)_both]"
+                      className="size-4 shrink-0 text-success motion-safe:animate-[pod-attachment-ready_260ms_cubic-bezier(.22,1,.36,1)_both]"
                     />
                   )}
-                </span>
-                {!recovery &&
-                  (file.state === 'failed' ? (
-                    <span role="alert" className="text-destructive">
-                      {t(
-                        `pod.chat_attachments.${file.error instanceof InternalAPIError && file.error.status === 413 ? 'too_large' : 'failed'}`
-                      )}
-                    </span>
-                  ) : (
-                    <span className="tabular-nums text-fg-tertiary">
-                      {file.state === 'uploading' && `${formatFileBytes((file.progress ?? 0) * file.file.size)} / `}
-                      {formatFileBytes(file.file.size)}
-                      <span role="status" className="sr-only">
-                        {t(`pod.chat_attachments.${file.state}`)}
-                      </span>
-                    </span>
-                  ))}
-                {!recovery && file.state !== 'ready' && (
-                  <span
-                    aria-hidden
-                    className="mt-0.5 block h-0.5 w-full min-w-12 overflow-hidden rounded-full bg-muted">
-                    <span
-                      className={cn(
-                        'block h-full origin-left rounded-full motion-safe:[transition:scale_200ms_cubic-bezier(.22,1,.36,1)]',
-                        file.state === 'failed' ? 'bg-destructive' : 'bg-info'
-                      )}
-                      style={{ scale: `${file.progress ?? 0} 1` }}
-                    />
+                </>
+              }
+              description={
+                recovery ? undefined : failed ? (
+                  <span role="alert">
+                    {t(
+                      `pod.chat_attachments.${file.error instanceof InternalAPIError && file.error.status === 413 ? 'too_large' : 'failed'}`
+                    )}
                   </span>
-                )}
-              </span>
-            </AttachmentPreview>
-            {!recovery && (
-              <>
-                {file.state === 'failed' && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={disabled}
-                    aria-label={t('pod.chat_attachments.retry', { name: file.file.name })}
-                    onClick={() => model.retry(file.id)}>
-                    <RiRefreshLine aria-hidden />
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={disabled}
-                  aria-label={t('pod.chat_attachments.remove', { name: file.file.name })}
-                  onClick={() => model.remove(file.id)}>
-                  <RiCloseLine aria-hidden />
-                </Button>
-              </>
-            )}
-          </div>
-        </li>
-      ))}
-    </ul>
+                ) : (
+                  <>
+                    {typeLabel} ·{' '}
+                    {file.state === 'uploading' && `${formatFileBytes((file.progress ?? 0) * file.file.size)} / `}
+                    {formatFileBytes(file.file.size)}
+                    <span role="status" className="sr-only">
+                      {t(`pod.chat_attachments.${file.state}`)}
+                    </span>
+                  </>
+                )
+              }
+              invalid={failed}
+              progress={!recovery && file.state !== 'ready' ? (file.progress ?? 0) : undefined}
+              action={
+                recovery ? undefined : (
+                  <>
+                    {failed && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        disabled={disabled}
+                        aria-label={t('pod.chat_attachments.retry', { name: file.file.name })}
+                        onClick={() => model.retry(file.id)}>
+                        <ArrowClockwiseRegular aria-hidden className="size-4" />
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      disabled={disabled}
+                      aria-label={t('pod.chat_attachments.remove', { name: file.file.name })}
+                      onClick={() => model.remove(file.id)}>
+                      <DismissRegular aria-hidden className="size-4" />
+                    </Button>
+                  </>
+                )
+              }
+            />
+          </li>
+        )
+      })}
+    </FileCardList>
   )
 }
 
@@ -247,17 +265,17 @@ export function ChatAttachmentDropzone({
         aria-hidden
         data-slot="attachment-drop-feedback"
         data-active={active || undefined}
-        className="group/drop pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1 rounded-control border border-dashed border-transparent bg-background/95 opacity-0 motion-safe:[transition:opacity_160ms,border-color_160ms] motion-reduce:transition-none data-active:border-info data-active:opacity-100">
-        <div className="absolute inset-0 rounded-control bg-info-subtle opacity-0 motion-safe:transition-opacity motion-safe:duration-160 group-data-active/drop:opacity-80" />
+        className="group/drop pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1 rounded-surface border border-dashed border-transparent bg-background/95 opacity-0 motion-safe:[transition:opacity_160ms,border-color_160ms] motion-reduce:transition-none data-active:border-info data-active:opacity-100">
+        <div className="absolute inset-0 rounded-surface bg-info-subtle opacity-0 motion-safe:transition-opacity motion-safe:duration-160 group-data-active/drop:opacity-80" />
         <div className="relative h-9 w-16 text-info">
           <div className="absolute inset-y-1 left-1/2 grid w-5 -translate-x-1/2 place-items-center rounded-mini border border-current bg-background [transform:translate(-12px,2px)_rotate(-10deg)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateX(-28px)_rotate(-16deg)]">
-            <RiFileLine className="size-3.5" />
+            <DocumentRegular className="size-3.5" />
           </div>
           <div className="absolute inset-y-1 left-1/2 grid w-5 -translate-x-1/2 place-items-center rounded-mini border border-current bg-background [transform:translate(12px,2px)_rotate(10deg)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateX(28px)_rotate(16deg)]">
-            <RiFileLine className="size-3.5" />
+            <DocumentRegular className="size-3.5" />
           </div>
           <div className="absolute inset-y-0 left-1/2 grid w-6 -translate-x-1/2 place-items-center rounded-mini border border-current bg-background [transform:translateY(-2px)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateY(-8px)_scale(1.05)]">
-            <RiUpload2Line className="size-4 motion-safe:group-data-active/drop:animate-[pod-attachment-bob_900ms_ease-in-out_infinite]" />
+            <ArrowUploadRegular className="size-4 motion-safe:group-data-active/drop:animate-[pod-attachment-bob_900ms_ease-in-out_infinite]" />
           </div>
         </div>
         {active && (
@@ -284,28 +302,21 @@ export function MessageAttachments({
   const { t } = useTranslation()
   if (!attachments.length) return null
   return (
-    <ul aria-label={t('pod.chat_attachments.files')} className="flex flex-wrap gap-2">
+    <FileCardList aria-label={t('pod.chat_attachments.files')}>
       {attachments.map(attachment => (
-        <li
-          key={attachment.attachment_id ?? attachment.path}
-          className="flex max-w-full items-center gap-1 rounded-control border border-border pr-1">
+        <li key={attachment.attachment_id ?? attachment.path}>
           <AttachmentPreview
             name={attachment.name}
             type={attachment.content_type ?? attachment.mime_type ?? undefined}
             size={attachment.size}
             url={conversationAttachmentURL(conversationID, messageID, attachment.position)}
             downloadURL={conversationAttachmentURL(conversationID, messageID, attachment.position, true)}
-            conversationID={conversationID}>
-            <span className="grid min-w-0 text-xs">
-              <span className="flex max-w-64">
-                <AttachmentName name={attachment.name} />
-              </span>
-              <span className="tabular-nums text-fg-tertiary">{formatFileBytes(attachment.size)}</span>
-            </span>
-          </AttachmentPreview>
-          {renderAction?.(attachment)}
+            conversationID={conversationID}
+            label={<AttachmentName name={attachment.name} />}
+            action={renderAction?.(attachment)}
+          />
         </li>
       ))}
-    </ul>
+    </FileCardList>
   )
 }

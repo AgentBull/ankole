@@ -1,5 +1,5 @@
 import { Button, Dialog, DialogContent, DialogTitle } from '@ankole/uikit'
-import { RiRestartLine, RiZoomInLine, RiZoomOutLine } from '@remixicon/react'
+import { ArrowCounterclockwiseRegular, ZoomInRegular, ZoomOutRegular } from '@ankole/uikit/icons'
 import {
   useCallback,
   useEffect,
@@ -366,7 +366,7 @@ export function ImageZoomView({ src, alt, onError }: { src: string; alt: string;
           disabled={zoom <= MIN_ZOOM}
           aria-label={t('pod.chat_timeline.zoom_out')}
           onClick={() => setZoom(v => clampZoom(v - ZOOM_STEP))}>
-          <RiZoomOutLine aria-hidden />
+          <ZoomOutRegular aria-hidden />
         </Button>
         <span>{Math.round(zoom * 100)}%</span>
         <Button
@@ -375,7 +375,7 @@ export function ImageZoomView({ src, alt, onError }: { src: string; alt: string;
           disabled={zoom >= MAX_ZOOM}
           aria-label={t('pod.chat_timeline.zoom_in')}
           onClick={() => setZoom(v => clampZoom(v + ZOOM_STEP))}>
-          <RiZoomInLine aria-hidden />
+          <ZoomInRegular aria-hidden />
         </Button>
         {(zoom !== 1 || pan.x !== 0 || pan.y !== 0) && (
           <Button
@@ -383,7 +383,7 @@ export function ImageZoomView({ src, alt, onError }: { src: string; alt: string;
             size="icon-sm"
             aria-label={t('pod.chat_timeline.reset_zoom', { defaultValue: 'Reset zoom' })}
             onClick={resetView}>
-            <RiRestartLine aria-hidden />
+            <ArrowCounterclockwiseRegular aria-hidden />
           </Button>
         )}
       </div>
@@ -463,7 +463,7 @@ export function MermaidSandboxZoomView({
           disabled={zoom <= MIN_ZOOM}
           aria-label={t('pod.chat_timeline.zoom_out')}
           onClick={() => setZoom(v => clampZoom(v - ZOOM_STEP))}>
-          <RiZoomOutLine aria-hidden />
+          <ZoomOutRegular aria-hidden />
         </Button>
         <span data-testid="mermaid-zoom-percent">{Math.round(zoom * 100)}%</span>
         <Button
@@ -472,7 +472,7 @@ export function MermaidSandboxZoomView({
           disabled={zoom >= MAX_ZOOM}
           aria-label={t('pod.chat_timeline.zoom_in')}
           onClick={() => setZoom(v => clampZoom(v + ZOOM_STEP))}>
-          <RiZoomInLine aria-hidden />
+          <ZoomInRegular aria-hidden />
         </Button>
         {(zoom !== 1 || pan.x !== 0 || pan.y !== 0) && (
           <Button
@@ -480,7 +480,7 @@ export function MermaidSandboxZoomView({
             size="icon-sm"
             aria-label={t('pod.chat_timeline.reset_zoom', { defaultValue: 'Reset zoom' })}
             onClick={resetView}>
-            <RiRestartLine aria-hidden />
+            <ArrowCounterclockwiseRegular aria-hidden />
           </Button>
         )}
       </div>

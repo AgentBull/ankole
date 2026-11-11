@@ -14,12 +14,12 @@ import {
   cn
 } from '@ankole/uikit'
 import {
-  RiArrowRightSLine,
-  RiCheckboxBlankCircleLine,
-  RiCheckboxCircleLine,
-  RiErrorWarningLine,
-  RiListCheck3
-} from '@remixicon/react'
+  CheckmarkCircleRegular,
+  ChevronRightRegular,
+  CircleRegular,
+  ErrorCircleRegular,
+  TaskListLtrRegular
+} from '@ankole/uikit/icons'
 
 import type { TFunction } from 'i18next'
 import i18n from '../common/i18n'
@@ -65,7 +65,11 @@ export function ConsoleReadiness() {
     <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger
         render={<Button aria-label={triggerLabel} size="sm" type="button" variant="ghost" className="px-2 sm:px-3" />}>
-        {query.isError ? <RiErrorWarningLine className="text-destructive" aria-hidden /> : <RiListCheck3 aria-hidden />}
+        {query.isError ? (
+          <ErrorCircleRegular className="text-destructive" aria-hidden />
+        ) : (
+          <TaskListLtrRegular aria-hidden />
+        )}
         <span className="hidden normal-case sm:inline">{t('console.readiness.trigger_short')}</span>
         {query.isError ? (
           <span aria-hidden>—</span>
@@ -118,7 +122,7 @@ export function ConsoleReadiness() {
             </div>
           ) : query.isError || !readiness ? (
             <div className="flex gap-3 p-4 text-sm text-destructive-foreground" role="alert">
-              <RiErrorWarningLine className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <ErrorCircleRegular className="mt-0.5 size-4 shrink-0" aria-hidden />
               <p>{t('console.readiness.unavailable')}</p>
             </div>
           ) : (
@@ -230,7 +234,7 @@ function ReadinessRow({
   to: string
 }) {
   const { t } = useTranslation()
-  const StatusIcon = complete ? RiCheckboxCircleLine : RiCheckboxBlankCircleLine
+  const StatusIcon = complete ? CheckmarkCircleRegular : CircleRegular
 
   return (
     <li>
@@ -254,7 +258,7 @@ function ReadinessRow({
             {complete ? t('console.readiness.complete') : t('console.readiness.incomplete')}
           </span>
         </span>
-        <RiArrowRightSLine
+        <ChevronRightRegular
           className={cn('size-4 shrink-0 text-muted-foreground', complete ? null : 'mt-0.5')}
           aria-hidden
         />

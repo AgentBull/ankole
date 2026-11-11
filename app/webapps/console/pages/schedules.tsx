@@ -22,12 +22,12 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiCalendarScheduleLine,
-  RiCloseCircleLine,
-  RiPauseCircleLine,
-  RiPlayCircleLine,
-  RiTimerLine
-} from '@remixicon/react'
+  CalendarClockRegular,
+  DismissCircleRegular,
+  PauseCircleRegular,
+  PlayCircleRegular,
+  TimerRegular
+} from '@ankole/uikit/icons'
 import type { TFunction } from 'i18next'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -196,7 +196,7 @@ export function SchedulesListPage() {
         hasActiveAgents ? (scope.agentUID ? `new?agent=${encodeURIComponent(scope.agentUID)}` : 'new') : undefined
       }
       createLabel={t('console.schedules.new')}
-      emptyIcon={<RiCalendarScheduleLine aria-hidden />}
+      emptyIcon={<CalendarClockRegular aria-hidden />}
       emptyTitle={t('console.schedules.empty_title')}
       emptyDescription={
         hasActiveAgents ? t('console.schedules.empty_description') : t('console.schedules.empty_no_agents_description')
@@ -265,7 +265,7 @@ export function SchedulesListPage() {
                 ...(toggleable
                   ? [
                       {
-                        icon: <RiPlayCircleLine />,
+                        icon: <PlayCircleRegular />,
                         label: t('console.schedules.run_now'),
                         pending: runCron.isPending,
                         onAction: () =>
@@ -279,7 +279,7 @@ export function SchedulesListPage() {
                 ...(toggleable
                   ? [
                       {
-                        icon: row.status === 'paused' ? <RiPlayCircleLine /> : <RiPauseCircleLine />,
+                        icon: row.status === 'paused' ? <PlayCircleRegular /> : <PauseCircleRegular />,
                         label: row.status === 'paused' ? t('console.schedules.resume') : t('console.schedules.pause'),
                         pending: pauseCron.isPending || resumeCron.isPending,
                         onAction: () => {
@@ -358,7 +358,7 @@ export function ScheduleCheckbacksPage() {
         t('console.schedules.state')
       ]}
       count={rows.length}
-      emptyIcon={<RiTimerLine aria-hidden />}
+      emptyIcon={<TimerRegular aria-hidden />}
       emptyTitle={t('console.schedules.checkbacks_empty')}
       error={checkbacks.error}
       isEmpty={rows.length === 0}
@@ -413,7 +413,7 @@ export function ScheduleCheckbacksPage() {
                   description: t('console.schedules.cancel_description'),
                   confirmLabel: t('console.schedules.cancel')
                 }}
-                icon={<RiCloseCircleLine />}
+                icon={<DismissCircleRegular />}
                 pending={cancelCheckback.isPending}
                 onConfirm={() => cancelCheckback.mutate({ path: { agent_uid: row.agent_uid!, id: Number(row.id) } })}
               />
@@ -747,7 +747,7 @@ export function ScheduleCronEditorPage() {
                     path: { agent_uid: agentUID, id: existingRow.id }
                   })
                 }>
-                <RiPlayCircleLine data-icon="inline-start" />
+                <PlayCircleRegular data-icon="inline-start" />
                 {t('console.schedules.run_now')}
               </Button>
             ) : null}
@@ -763,9 +763,9 @@ export function ScheduleCronEditorPage() {
                   else pauseCron.mutate({ path })
                 }}>
                 {existingRow.status === 'paused' ? (
-                  <RiPlayCircleLine data-icon="inline-start" />
+                  <PlayCircleRegular data-icon="inline-start" />
                 ) : (
-                  <RiPauseCircleLine data-icon="inline-start" />
+                  <PauseCircleRegular data-icon="inline-start" />
                 )}
                 {existingRow.status === 'paused' ? t('console.schedules.resume') : t('console.schedules.pause')}
               </Button>

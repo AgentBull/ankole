@@ -1,4 +1,7 @@
 import {
+  Avatar,
+  AvatarFallback,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -8,29 +11,32 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  SidebarFooterButton,
+  SidebarFooterLabel,
   Skeleton,
   toast,
   useTheme
 } from '@ankole/uikit'
 import {
-  RiAddLine,
-  RiCheckLine,
-  RiExpandUpDownLine,
-  RiExternalLinkLine,
-  RiLogoutBoxRLine,
-  RiLogoutCircleRLine,
-  RiMoonLine,
-  RiSunLine,
-  RiUser3Line
-} from '@remixicon/react'
+  AddRegular,
+  CheckmarkRegular,
+  ChevronUpDownRegular,
+  DeleteRegular,
+  OpenRegular,
+  PersonRegular,
+  SettingsRegular,
+  SignOutRegular,
+  WeatherMoonRegular,
+  WeatherSunnyRegular
+} from '@ankole/uikit/icons'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState, type ReactNode } from 'react'
+import { useState, type ComponentProps, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useLocation, useNavigate } from '@tanstack/react-router'
+import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { activateBrowserAccount, browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 type BrowserAccount = BrowserSessionResponse['accounts'][number] | BrowserSessionResponse['pendingAccounts'][number]
-import { authenticationRef, podID } from '../common/browser-context'
+import { authenticationRef, podID, podLocation } from '../common/browser-context'
 import { endAccountSession, endBrowserSession } from '../common/browser-session'
 import { signInMethodLabel } from '../common/sign-in-method'
 import { requestErrorMessage } from '../common/request-errors'
@@ -39,26 +45,38 @@ import { currentProfileAvatarContext, profileAvatarURL, type ProfileAvatarContex
 
 const initial = avatarInitials
 
-/** The Pod's mark: its uploaded avatar, or the initials of its name. */
+/**
+ * The Pod's mark: its uploaded avatar, or the initials of its name, as an `Avatar` of the given size. The sidebar's
+ * footer row sizes the mark it holds.
+ */
 export function SpaceMark({
   name,
   avatarURL,
-  context
+  context,
+  size,
+  className
 }: {
   name: string
   avatarURL?: string | null
   context: ProfileAvatarContext
+  size?: ComponentProps<typeof Avatar>['size']
+  className?: string
 }) {
   const [failedSource, setFailedSource] = useState<string>()
   const source = profileAvatarURL(avatarURL, context)
   return (
-    <span aria-hidden className="pod-account-mark overflow-hidden">
+    <Avatar aria-hidden size={size} className={cn('font-semibold', className)}>
       {source && failedSource !== source ? (
-        <img src={source} alt="" className="size-full object-cover" onError={() => setFailedSource(source)} />
+        <img
+          src={source}
+          alt=""
+          className="size-full rounded-full object-cover"
+          onError={() => setFailedSource(source)}
+        />
       ) : (
-        initial(name)
+        <AvatarFallback className="text-foreground">{initial(name)}</AvatarFallback>
       )}
-    </span>
+    </Avatar>
   )
 }
 
@@ -73,7 +91,8 @@ export function sessionAvatarContext(data: BrowserSessionResponse | undefined): 
 }
 
 /**
- * The person and organization of this document, other accounts that this browser has proved,
+ * The sidebar's account row: the Pod's mark and name with the signed-in person's name. Its menu holds the
+ * organizations that this browser has proved, the person's settings, the Pod's settings and its Trash, the theme,
  * and the way out. `extra` adds build-specific items, such as a SaaS account center.
  */
 export function AccountMenu({ extra }: { extra?: ReactNode }) {
@@ -115,6 +134,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
   return (
     <DropdownMenu onOpenChange={open => open && void session.refetch()}>
       <DropdownMenuTrigger
+        render={<SidebarFooterButton />}
         className="pod-account-trigger"
         aria-label={
           tenantName
@@ -123,23 +143,27 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
         }>
         {session.isPending ? (
           <>
-            <Skeleton aria-hidden className="pod-account-mark" />
-            <span className="pod-account-text">
+            <Skeleton aria-hidden className="size-6.5 shrink-0 rounded-full" />
+            <SidebarFooterLabel className="pod-account-text">
               <Skeleton aria-hidden className="h-4 w-24" />
-            </span>
+            </SidebarFooterLabel>
           </>
         ) : (
           <>
             <SpaceMark name={tenantName || name} avatarURL={data?.tenant?.avatarURL} context={currentAvatarContext} />
-            <span className="pod-account-text">
-              <span className="truncate">{tenantName || name}</span>
-              {tenantName && <small className="truncate">{name}</small>}
-            </span>
+            <SidebarFooterLabel className="pod-account-text">
+              <span>{tenantName || name}</span>
+              {tenantName && <small>{name}</small>}
+            </SidebarFooterLabel>
           </>
         )}
-        <RiExpandUpDownLine aria-hidden className="pod-account-chevron" />
+        <ChevronUpDownRegular aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" sideOffset={6} className="pod-account-menu">
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="pod-account-menu w-[max(var(--anchor-width),240px)]">
         {session.error && <DropdownMenuLabel role="alert">{requestErrorMessage(session.error)}</DropdownMenuLabel>}
         {data?.accounts?.length ? (
           <DropdownMenuGroup>
@@ -149,7 +173,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
               return (
                 <DropdownMenuItem
                   key={`${account.authenticationRef}:${account.tenant.id}`}
-                  className="pod-account-option"
+                  className="pod-account-option min-h-10"
                   disabled={activate.isPending}
                   aria-current={selected ? 'true' : undefined}
                   onClick={() => (selected ? undefined : activate.mutate(account))}>
@@ -157,19 +181,21 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
                     name={account.tenant.displayName}
                     avatarURL={account.tenant.avatarURL}
                     context={{ podURL: account.podURL, authenticationRef: account.authenticationRef }}
+                    size="xs"
                   />
-                  <span className="pod-account-text">
+                  {/* Three compact 16px lines: the organization's name, then its handle and the sign-in method. */}
+                  <span className="flex min-w-0 flex-1 flex-col text-65 leading-4 font-medium">
                     <span className="truncate">{account.tenant.displayName}</span>
-                    <small className="truncate">
+                    <small className="truncate text-50 font-normal text-fg-tertiary">
                       {account.tenant.slug} · {account.displayName}
                     </small>
-                    <small className="truncate">
+                    <small className="truncate text-50 font-normal text-fg-tertiary">
                       {t('auth.sign_in_with', {
                         provider: signInMethodLabel(account, i18n.language, t('auth.email_login'))
                       })}
                     </small>
                   </span>
-                  {selected && <RiCheckLine aria-hidden className="ml-auto" />}
+                  {selected && <CheckmarkRegular aria-hidden className="ml-auto" />}
                 </DropdownMenuItem>
               )
             })}
@@ -185,16 +211,26 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
           </DropdownMenuItem>
         ))}
         <DropdownMenuItem onClick={() => void navigate({ to: '/me' })}>
-          <RiUser3Line aria-hidden />
+          <PersonRegular aria-hidden />
           {t('pod.account.title')}
         </DropdownMenuItem>
+        {data?.canManagePod && (
+          <DropdownMenuItem render={<Link to={podLocation('/settings').pathname} />}>
+            <SettingsRegular aria-hidden />
+            {t('pod.settings.title')}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem render={<Link to={podLocation('/content/trash').pathname} />}>
+          <DeleteRegular aria-hidden />
+          {t('pod.content.trash')}
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => window.location.assign(`/sessions/new?switch=1&return_to=${returnTo}`)}>
-          <RiAddLine aria-hidden />
+          <AddRegular aria-hidden />
           {t('pod.sidebar.add_account')}
         </DropdownMenuItem>
         {data?.consoleURL && (
           <DropdownMenuItem onClick={() => window.open(data.consoleURL!, '_blank', 'noopener')}>
-            <RiExternalLinkLine aria-hidden />
+            <OpenRegular aria-hidden />
             {t('pod.sidebar.site_console')}
           </DropdownMenuItem>
         )}
@@ -204,23 +240,23 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
           <DropdownMenuLabel>{t('pod.sidebar.theme')}</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={resolvedTheme ?? 'light'} onValueChange={value => setTheme(String(value))}>
             <DropdownMenuRadioItem value="light">
-              <RiSunLine aria-hidden />
+              <WeatherSunnyRegular aria-hidden />
               {t('pod.sidebar.theme_light')}
             </DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="dark">
-              <RiMoonLine aria-hidden />
+              <WeatherMoonRegular aria-hidden />
               {t('pod.sidebar.theme_dark')}
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
-          <RiLogoutBoxRLine aria-hidden />
+          <SignOutRegular aria-hidden />
           {tenantName ? t('pod.sidebar.sign_out_name', { name: tenantName }) : t('pod.sidebar.sign_out')}
         </DropdownMenuItem>
         {(data?.accounts.length ?? 0) > 1 && (
           <DropdownMenuItem disabled={signOutAll.isPending} onClick={() => signOutAll.mutate()}>
-            <RiLogoutCircleRLine aria-hidden />
+            <SignOutRegular aria-hidden />
             {t('auth.sign_out_all')}
           </DropdownMenuItem>
         )}

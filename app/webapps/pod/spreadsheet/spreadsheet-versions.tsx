@@ -9,7 +9,7 @@ import {
   DrawerTrigger,
   toast
 } from '@ankole/uikit'
-import { RiHistoryLine } from '@remixicon/react'
+import { HistoryRegular } from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -50,7 +50,7 @@ export function SpreadsheetVersions({ pageID }: { pageID: string }) {
             title={t('pod.spreadsheet.version_history')}
           />
         }>
-        <RiHistoryLine />
+        <HistoryRegular />
       </DrawerTrigger>
       <DrawerContent aria-label={t('pod.spreadsheet.version_history')}>
         <DrawerHeader className="border-b border-border p-5">

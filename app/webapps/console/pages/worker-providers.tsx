@@ -16,7 +16,7 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiServerLine } from '@remixicon/react'
+import { ServerRegular } from '@ankole/uikit/icons'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -75,7 +75,7 @@ export function WorkerProvidersListPage() {
       count={rows.length}
       emptyTitle={t('console.worker_providers.empty')}
       emptyDescription={t('console.worker_providers.description')}
-      emptyIcon={<RiServerLine aria-hidden />}
+      emptyIcon={<ServerRegular aria-hidden />}
       error={providers.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}

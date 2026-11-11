@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Spinner } from '@ankole/uikit'
+import { CaretRightFilled } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import type { PodActivity, PodActivityItem } from '../api'
 import type { ExecutionStep, ExecutionSummary } from './types'
 import { RunningElapsed } from './execution-status'
 import { ToolRunView, localizedStepTitle, humanizeToolName } from './tool-run-view'
-import { UsageDetails, UsageSummary } from './execution-usage'
 
 export function WorkingLabel({ text }: { text: string }) {
   const [phase, setPhase] = useState({ text, leaving: '', sequence: 0 })
@@ -53,7 +53,6 @@ export function CollapsedWorkView({
   const { t } = useTranslation()
   const steps = execution.steps ?? []
   const thinking = execution.thinking_summary
-  const usage = active ? undefined : execution.usage
   const runningSteps = steps.filter(
     step =>
       !['completed', 'complete', 'success', 'succeeded', 'settled', 'stopped', 'cancelled', 'failed', 'error'].includes(
@@ -85,7 +84,7 @@ export function CollapsedWorkView({
       <RunningElapsed createdAt={startedAt} status="running" />
     </span>
   )
-  if (!steps.length && !thinking && !usage) {
+  if (!steps.length && !thinking) {
     if (!active) return null
     return (
       <div className="pod-chat-work pod-chat-work-status" role="status">
@@ -99,9 +98,7 @@ export function CollapsedWorkView({
     ? t(`pod.chat_timeline.${outcome}`)
     : steps.length > 0
       ? t('pod.chat_timeline.steps')
-      : thinking
-        ? t('pod.chat_timeline.thinking')
-        : t('pod.chat_timeline.usage_title')
+      : t('pod.chat_timeline.thinking')
   return (
     <details
       className={`pod-chat-work${thinkingDisclosure ? ' pod-chat-thinking' : ''}`}
@@ -114,6 +111,7 @@ export function CollapsedWorkView({
         }
       }}>
       <summary title={execution.model ?? undefined}>
+        <CaretRightFilled aria-hidden className="pod-chat-disclosure-caret" />
         {active && <Spinner aria-hidden className="pod-chat-working-spinner" />}
         {active ? (
           <WorkingLabel
@@ -130,7 +128,6 @@ export function CollapsedWorkView({
         {!active && !outcome && errors > 0 && (
           <span className="pod-chat-work-errors">· {t('pod.chat_timeline.error_count', { count: errors })}</span>
         )}
-        {usage && <UsageSummary usage={usage} />}
       </summary>
       {expanded && (
         <div className="pod-chat-work-content">
@@ -139,13 +136,15 @@ export function CollapsedWorkView({
           ) : (
             thinking && (
               <details className="pod-chat-thinking">
-                <summary>{t('pod.chat_timeline.thinking')}</summary>
+                <summary>
+                  <CaretRightFilled aria-hidden className="pod-chat-disclosure-caret" />
+                  {t('pod.chat_timeline.thinking')}
+                </summary>
                 <div className="whitespace-pre-wrap">{thinking}</div>
               </details>
             )
           )}
           <ToolRunView steps={steps} compact={active} />
-          {usage && <UsageDetails usage={usage} />}
         </div>
       )}
     </details>

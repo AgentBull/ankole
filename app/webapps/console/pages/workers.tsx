@@ -1,7 +1,7 @@
 import { TableRow, useQuery, Link } from '../tenant-context'
 import { SETTLED_WORKERS_REFRESH_MS, WAITING_REFRESH_MS } from '../refresh-intervals'
 import { TableCell } from '@ankole/uikit'
-import { RiServerLine } from '@remixicon/react'
+import { ServerRegular } from '@ankole/uikit/icons'
 
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -63,7 +63,7 @@ export function WorkersListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.workers.empty_title')}
-      emptyIcon={<RiServerLine aria-hidden />}
+      emptyIcon={<ServerRegular aria-hidden />}
       emptyDescription={t('console.workers.empty_description')}
       error={workers.error}
       isFiltered={Boolean(query.trim())}

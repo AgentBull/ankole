@@ -7,8 +7,8 @@
 @source "../../../app/webapps";
 
 @font-face {
-  font-family: 'IBMPlexSansCN';
-  src: url('./assets/fonts/IBMPlexSansCN.variable.woff2') format('woff2');
+  font-family: 'AgentBullSansGB';
+  src: url('./assets/fonts/AgentBullSansGB.variable.woff2') format('woff2');
   /* Glyphs extend 223 of 1000 units below the baseline; the font declares only 120. Raising the ascent by the
      same 103 units keeps the font's own vertical center, so text centered in a button or row lines up with the
      icons and avatars beside it. */
@@ -37,8 +37,8 @@
 }
 
 @font-face {
-  font-family: 'IBMPlexMonoCN';
-  src: url('./assets/fonts/IBMPlexMonoCN.variable.woff2') format('woff2');
+  font-family: 'AgentBullMono';
+  src: url('./assets/fonts/AgentBullMono.variable.woff2') format('woff2');
   font-weight: 100 800;
   font-style: normal;
   font-display: swap;
@@ -125,8 +125,146 @@
   --ceramic-tier-opacity: var(--ceramic-primary-opacity);
 }
 
+/* The tertiary tier is the library's third body: gray-20 under the glaze in the light theme, and the menu body in
+   the dark theme. */
+@utility ceramic-tertiary {
+  --ceramic-tier-body: var(--ceramic-tertiary-body);
+  --ceramic-tier-opacity: var(--ceramic-tertiary-opacity);
+}
+
+/* A list whose rows run from edge to edge, such as the slash menu, has no inset to keep its rows concentric with the
+   8px shell, so it takes the control radius instead. */
+@utility ceramic-tight {
+  --ceramic-radius: var(--radius-control);
+}
+
+/* The composer's glass: 80% of the page's fill over a strong blur, with the surface radius and the composer's own
+   drop. The composer and every list that opens from it lie on it, so the two read as one object. */
+@utility composer-glass {
+  border-radius: var(--radius-surface);
+  background-color: var(--background-overlay);
+  -webkit-backdrop-filter: blur(var(--blur-composer));
+  backdrop-filter: blur(var(--blur-composer));
+  box-shadow: var(--composer-shadow);
+}
+
+/* The angle of the composer's edge gradient. It is a registered angle so that an animation can turn it. */
+@property --composer-edge-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 90deg;
+}
+
+@keyframes composer-edge-turn {
+  to {
+    --composer-edge-angle: 450deg;
+  }
+}
+
+/* The composer floats over the bottom of the page on the composer's glass, inside a 1px edge that runs through
+   `--composer-edge-stops`. The light edge is a gradient, which a border colour cannot draw, so the edge is a ring
+   that the composer lays over its own transparent border. The ring paints the gradient as its background, and a
+   mask cuts the ring's inside away, so the ring keeps the rounded corners and leaves the translucent fill
+   untouched. The composer is a positioned box, so the ring covers its border exactly.
+   The gradient starts at 90deg, from the start of the edge to its end. While the composer's text field holds focus,
+   the gradient turns slowly, once every 8 seconds, and it rests at the angle it reached when focus leaves, so the
+   edge never jumps. A person who asks for less motion keeps the edge still. */
+@utility composer-surface {
+  @apply composer-glass;
+  border: 1px solid transparent;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(var(--composer-edge-angle), var(--composer-edge-stops));
+    mask:
+      linear-gradient(#000 0 0) content-box exclude,
+      linear-gradient(#000 0 0);
+    pointer-events: none;
+    animation: composer-edge-turn 8s linear infinite paused;
+  }
+
+  &:has(:is(textarea, input):focus)::before {
+    animation-play-state: running;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::before {
+      animation: none;
+    }
+  }
+}
+
+/* A list that opens from the composer, such as its completions or the list of one of its selectors, lies on the
+   composer's glass inside the overlay hairline, with 10px above and below its rows. Its 40px rows run from edge to
+   edge, so the fill of the active row spans the surface. */
+@utility composer-menu {
+  @apply composer-glass;
+  border: 1px solid var(--ceramic-hairline);
+  padding: --spacing(2.5) 0;
+
+  & :is([role='option'], [role^='menuitem'], [data-slot='select-highlight']) {
+    border-radius: 0;
+  }
+}
+
+/* The title of a group of rows in any menu or list: a 32px row of 12px medium secondary text, inset like the rows
+   below it. Like the rows, a title does not take part in a text selection. */
+@utility menu-group-label {
+  display: flex;
+  min-height: --spacing(8);
+  align-items: center;
+  padding: --spacing(1.5) --spacing(2.5);
+  color: var(--fg-secondary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+  font-weight: 500;
+  user-select: none;
+}
+
+/* A menu that scrolls, such as the slash menu, shows a 4px thumb of disabled-text grey, fully rounded, 2px from its
+   edge, on a clear track that stops 8px short of the surface's ends. Blink and WebKit draw that thumb through the
+   scrollbar pseudo-elements, which Chrome ignores once the standard scrollbar properties are set, so only an engine
+   without those pseudo-elements takes the standard thin scrollbar in the same grey. A person who asks for more
+   contrast gets a tertiary thumb. */
+@utility menu-scrollbar {
+  --menu-scrollbar-thumb: var(--text-disabled);
+
+  &::-webkit-scrollbar {
+    width: --spacing(2);
+    height: --spacing(2);
+  }
+
+  &::-webkit-scrollbar-track,
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-track {
+    margin-block: --spacing(2);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border: --spacing(0.5) solid transparent;
+    border-radius: 9999px;
+    background: var(--menu-scrollbar-thumb) padding-box;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--menu-scrollbar-thumb) transparent;
+  }
+
+  @media (prefers-contrast: more) {
+    --menu-scrollbar-thumb: var(--fg-tertiary);
+  }
+}
+
 .ceramic-menu [data-disabled] > svg:first-child {
-  color: var(--fg-disabled);
+  color: var(--icon-disabled);
 }
 
 .ceramic-menu [data-variant='destructive'] > svg:first-child {
@@ -145,22 +283,22 @@
    title is semibold. Page and document content uses its own semibold scale. */
 @utility title-page {
   font-family: var(--font-heading);
-  font-size: 24px;
-  line-height: 32px;
+  font-size: var(--text-400);
+  line-height: var(--text-400--line-height);
   font-weight: 400;
 }
 
 @utility title-overlay {
   font-family: var(--font-heading);
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--text-300);
+  line-height: var(--text-300--line-height);
   font-weight: 400;
 }
 
 @utility title-section {
   font-family: var(--font-heading);
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--text-100);
+  line-height: var(--text-100--line-height);
   font-weight: 400;
 }
 
@@ -194,23 +332,31 @@
 }
 
 /* Every selected item, such as the current place, the chosen tab, a selected row, or a pressed toggle, takes the
-   selected fill inside its hairline edge. */
+   selected fill, which sits inside a hairline edge in the dark theme. */
 @utility selected-surface {
   background-color: var(--layer-current);
   box-shadow: inset 0 0 0 0.2px var(--layer-current-edge);
 }
 
-/* A link is ink text with an underline. The underline, not a color, marks it as a link. */
+/* A link is ink text with a gray-60 underline. The underline, not a color, marks it as a link. */
 @utility link {
   color: var(--foreground);
   text-decoration-line: underline;
-  text-decoration-color: var(--border-strong);
+  text-decoration-color: var(--divider-strong);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 
   &:hover {
     text-decoration-color: currentColor;
   }
+}
+
+/* A passage quoted from elsewhere takes the document's Quote: a 2px gray-40 bar with the text 16px beside it in
+   secondary ink. The caller sets the type step, so the same quote serves the body text and a smaller line. */
+@utility content-quote {
+  border-inline-start: 2px solid var(--layer-03);
+  padding-inline-start: --spacing(4);
+  color: var(--fg-secondary);
 }
 
 /* An object that sits in content on paper, such as a tool's output or a run card, is drawn with one hairline at
@@ -220,8 +366,27 @@
   border-radius: var(--radius-control);
 }
 
+/* Content draws two surfaces and no others. An outline card is an object that a person opens or takes away, such
+   as a file, a run, a colleague's answer or a Page reference: an 8px radius, one hairline, no fill, and its content
+   8px from the edge above and below and 12px at the sides, the hairline included. Every outline card speaks in the
+   same steps: a 20px mark in the secondary colour, a title in the 14px Medium step, and meta in the 12px tertiary
+   step. A block card holds material that belongs to the text, such as code, a diagram, or a tool's output: the
+   control radius, the lightest gray, and the hairline. */
+@utility surface-outline {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  padding: calc(var(--spacing) * 2 - 1px) calc(var(--spacing) * 3 - 1px);
+}
+
+@utility surface-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--layer-01);
+}
+
 /* Code shares one form wherever it appears, in a document or in a chat reply, because a reply can be saved as a
-   page: a light fill under a 32px toolbar, and 13px monospace source. */
+   page: a gray-20 fill inside a gray-50 hairline, a 48px header of secondary 12px labels over a faint divider,
+   and 12px monospace source on a 26px line, inset 16px at the sides and 24px at the bottom. */
 @utility code-surface {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -233,20 +398,22 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 32px;
-  padding: 0 6px 0 10px;
-  border-bottom: 1px solid var(--border);
-  color: var(--fg-tertiary);
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--divider-overlay);
+  color: var(--fg-secondary);
   font-family: var(--font-family-sans);
-  font-size: 12px;
-  line-height: 1;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
   user-select: none;
 }
 
 @utility code-text {
   margin: 0;
-  padding: 14px 16px;
-  font: 13px/1.65 var(--font-family-mono);
+  padding: 16px 16px 24px;
+  font-family: var(--font-family-mono);
+  font-size: var(--text-50);
+  line-height: 26px;
   tab-size: 2;
 }
 
@@ -257,13 +424,14 @@
   font: 0.85em var(--font-family-mono);
 }
 
-/* Table cells share one form in documents and chat replies: a hairline grid at 14px, with a light header row.
-   A cell wraps only between words, so an amount or a short header stays whole and a wide table scrolls instead. */
+/* Table cells share one form in documents and chat replies: a hairline grid of the 14px step on its 26px line,
+   with a light header row. A cell wraps only between words, so an amount or a short header stays whole and a
+   wide table scrolls instead. */
 @utility content-cell {
   border: 1px solid var(--border);
-  padding: 6px 8px;
-  font-size: 14px;
-  line-height: 1.5;
+  padding: 4px 8px;
+  font-size: var(--text-75);
+  line-height: var(--text-75--line-height);
   overflow-wrap: break-word;
 }
 
@@ -319,14 +487,14 @@
   }
 }
 
-/* A navigation row names a place. Its states are the secondary interaction fills, never a change of material:
-   hover is a light wash under the pointer, pressing lays a little black over it, and the current place takes the
-   solid selected fill and stays put under the pointer. The weight of the text does not change, so the row keeps
-   its width. Icons read `--nav-icon`. When the system forces its own colours, the fill disappears, so the
-   current place takes an outline instead. */
+/* A navigation row names a place. Its label is primary text in every state, and its states are the secondary
+   interaction fills, never a change of material: hover is a light wash under the pointer, pressing lays 5% black
+   over it, and the current place takes the solid selected fill and stays put under the pointer. The weight of the
+   text does not change, so the row keeps its width. Icons read `--nav-icon`. When the system forces its own
+   colours, the fill disappears, so the current place takes an outline instead. */
 @utility nav-row {
-  --nav-icon: var(--fg-tertiary);
-  color: var(--fg-secondary);
+  --nav-icon: var(--fg-secondary);
+  color: var(--foreground);
   transition:
     background-color var(--duration-feedback) var(--ease-productive),
     color var(--duration-feedback) var(--ease-productive);
@@ -376,18 +544,20 @@
 }
 
 /* The baseline of a hovered slot. It sits outside the cascade layers so it overrides the slot's border utility;
-   focus, invalid, and disabled slots keep their own baseline. */
+   focus, invalid, and disabled slots keep their own baseline. A ghost select is not a slot, so it shows only its
+   wash on hover. */
 :is([data-slot='input'], [data-slot='textarea'], [data-slot='select-trigger'], [data-slot='combobox-chips']):hover:not(
     :focus-visible,
     :focus-within,
     :disabled,
     [data-disabled],
+    [data-variant='ghost'],
     [aria-invalid='true'],
     [data-invalid],
     :user-invalid,
     :has([aria-invalid='true'])
   ),
-[data-slot='input-group']:hover:not(
+[data-slot='input-group']:not([data-variant='composer']):hover:not(
     :has(:is(input, textarea):focus-visible),
     :has(:is(input, textarea):disabled),
     :has([data-slot][aria-invalid='true']),
@@ -418,6 +588,21 @@
 
   * {
     @apply border-border outline-ring/50;
+  }
+
+  /* A Fluent icon draws at the size of the text around it (`width="1em"`). An icon that nothing sizes takes a 24px
+     box here, so a bare icon keeps one size wherever it stands. The selector carries no specificity, so a size
+     class on the icon or a size that a control gives its icons always wins, and it leaves alone an icon that
+     states its size in `width` and `height`. */
+  :where(svg[data-fui-icon][width='1em']) {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  @media (forced-colors: active) {
+    svg[data-fui-icon] {
+      forced-color-adjust: auto;
+    }
   }
 
   body {
@@ -492,6 +677,68 @@
     }
   }
 
+  /* A skeleton is a still block with one band of light crossing it. The band is sized and placed against the
+     viewport, so every skeleton on the page shares one sweep. When motion is reduced, the global rule ends the
+     sweep at once and the band rests outside the viewport, which leaves a still block. */
+  [data-slot='skeleton'] {
+    background-image: linear-gradient(
+      100deg,
+      transparent 42%,
+      color-mix(in srgb, var(--background) 62%, transparent) 50%,
+      transparent 58%
+    );
+    background-size: 200vw 100%;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    animation: ankole-skeleton-sweep 2.2s linear infinite;
+  }
+
+  /* The copy mark holds the copy icon and a check in one cell. A copy fades the icon out as the check fades in
+     and draws its stroke. */
+  [data-slot='copy-icon'] > * {
+    grid-area: 1 / 1;
+    width: 100%;
+    height: 100%;
+    transition:
+      opacity 200ms ease,
+      scale 300ms var(--ease-segment),
+      filter 200ms ease;
+  }
+
+  [data-slot='copy-icon'] > [data-part='check'],
+  [data-slot='copy-icon'][data-copied] > [data-part='copy'] {
+    opacity: 0;
+    scale: 0.6;
+    filter: blur(2px);
+  }
+
+  [data-slot='copy-icon'][data-copied] > [data-part='check'] {
+    opacity: 1;
+    scale: 1;
+    filter: none;
+  }
+
+  [data-slot='copy-icon'] > [data-part='check'] path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+
+  [data-slot='copy-icon'][data-copied] > [data-part='check'] path {
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 340ms var(--ease-segment) 60ms;
+  }
+
+  /* While a code is checked, a band of light crosses its slots from the first to the last. */
+  .cn-input-otp:has(input[data-status='verifying']) [data-slot='input-otp-slot']::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 30%, var(--layer-hover) 50%, transparent 70%);
+    translate: -120% 0;
+    animation: ankole-otp-verifying 1.3s ease-in-out infinite;
+    animation-delay: calc(var(--otp-index, 0) * 70ms);
+  }
+
   /* The leading edge travels faster so the selected mark stretches toward the next tab before it settles. */
   [data-slot='tabs-indicator'] {
     --segment-start-time: 380ms;
@@ -523,7 +770,7 @@
     --segment-end-time: var(--duration-segment);
   }
 
-  [data-variant='object'] > [data-slot='tabs-indicator'] {
+  :is([data-variant='object'], [data-variant='chip']) > [data-slot='tabs-indicator'] {
     top: var(--segment-top);
     bottom: calc(100% - var(--segment-top) - var(--segment-height));
     left: var(--segment-left);
@@ -545,7 +792,7 @@
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    [data-slot='tabs-list'][data-variant='object']:has(> [role='tab'][data-active]:active)
+    [data-slot='tabs-list']:is([data-variant='object'], [data-variant='chip']):has(> [role='tab'][data-active]:active)
       > [data-slot='tabs-indicator'] {
       scale: 0.97;
     }
@@ -580,6 +827,131 @@
       stroke-dasharray: 1;
       animation: ankole-check-draw 280ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
     }
+  }
+
+  /* A sidebar row is its menu button. An arrow before the button and actions after it sit over the row as the
+     button's siblings, and child rows live in a later sibling list, so a nested row never takes a parent row's
+     states. While the pointer rests on the arrow or on an action, the row keeps its hover fill. */
+  @media (hover: hover) and (pointer: fine) {
+    :is(
+      [data-sidebar='menu-toggle']:hover + :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button']),
+      :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button']):has(
+        ~ :is([data-sidebar='menu-action'], [data-sidebar='menu-actions']):hover
+      )
+    ):not([data-active], [aria-current='page']) {
+      --nav-icon: var(--foreground);
+      background-color: var(--layer-hover);
+    }
+  }
+
+  /* A parent row's arrow stands over the row's icon slot and takes the icon's place while it shows. A screen without
+     hover and the phone sheet always show the arrow. With a fine pointer the row rests on its icon, and the arrow
+     shows while the row is hovered, while the arrow, the row, or one of its actions holds keyboard focus, and while
+     the arrow is busy loading the child rows. The two swap at once, so no frame shows both. */
+  [data-sidebar='menu-row']
+    > [data-sidebar='menu-toggle']
+    + :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button'])
+    > [data-sidebar='menu-icon'] {
+    opacity: 0;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    [data-sidebar='menu-row']:not(
+        :hover,
+        :has(> :focus-visible, > [data-sidebar='menu-actions'] :focus-visible),
+        [data-mobile='true'] *
+      )
+      > [data-sidebar='menu-toggle']:not([aria-busy='true']) {
+      opacity: 0;
+    }
+
+    [data-sidebar='menu-row']:not(
+        :hover,
+        :has(> :focus-visible, > [data-sidebar='menu-actions'] :focus-visible),
+        [data-mobile='true'] *
+      )
+      > [data-sidebar='menu-toggle']:not([aria-busy='true'])
+      + :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button'])
+      > [data-sidebar='menu-icon'] {
+      opacity: 1;
+    }
+  }
+
+  /* An action that waits for its row, and every group of actions, shows while the row or its arrow is hovered, while
+     the row or the action has keyboard focus, while the action holds an open menu, and on the current row, so a touch
+     screen keeps the current row's actions in reach. A hidden action takes no pointer events, so a tap on the end of
+     a row opens the row. */
+  :is([data-sidebar='menu-action'][data-reveal='hover'], [data-sidebar='menu-actions']) {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  :is(
+      [data-sidebar='menu-toggle']:hover,
+      :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button']):is(
+        :hover,
+        :focus-visible,
+        [data-active],
+        [aria-current='page']
+      )
+    )
+    ~ :is([data-sidebar='menu-action'][data-reveal='hover'], [data-sidebar='menu-actions']),
+  :is([data-sidebar='menu-action'][data-reveal='hover'], [data-sidebar='menu-actions']):is(
+    :hover,
+    :focus-within,
+    [data-popup-open],
+    [aria-expanded='true'],
+    :has([data-popup-open], [aria-expanded='true'])
+  ) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* While its actions show, the row's label gives up their room: one 24px action, or two for a group. A resting label
+     uses the full width of the row, and an action that never hides keeps its room. */
+  :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button']):has(
+    ~ [data-sidebar='menu-action']:not([data-reveal])
+  ),
+  :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button']):has(
+      ~ [data-sidebar='menu-action'][data-reveal='hover']
+    ):is(
+      :hover,
+      :focus-visible,
+      [data-active],
+      [aria-current='page'],
+      [data-sidebar='menu-toggle']:hover + *,
+      :has(~ [data-sidebar='menu-action']:is(:hover, :focus-visible, [data-popup-open], [aria-expanded='true']))
+    ) {
+    --sidebar-menu-trail: --spacing(6);
+  }
+
+  :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button']):has(~ [data-sidebar='menu-actions']):is(
+      :hover,
+      :focus-visible,
+      [data-active],
+      [aria-current='page'],
+      [data-sidebar='menu-toggle']:hover + *,
+      :has(~ [data-sidebar='menu-actions']:is(:hover, :focus-within)),
+      :has(~ [data-sidebar='menu-actions'] :is([data-popup-open], [aria-expanded='true']))
+    ) {
+    --sidebar-menu-trail: --spacing(12);
+  }
+
+  /* The phone sheet has no hover, so every row shows its actions and its label keeps their room: one 32px action,
+     or two for a group. These rules come after the hover rules and match them in weight, so they win in the sheet. */
+  [data-mobile='true'] :is([data-sidebar='menu-action'][data-reveal='hover'], [data-sidebar='menu-actions']) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  [data-mobile='true'][data-sidebar='sidebar'][data-slot='sidebar']
+    :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button']):has(~ [data-sidebar='menu-action']) {
+    --sidebar-menu-trail: --spacing(8);
+  }
+
+  [data-mobile='true'][data-sidebar='sidebar']
+    :is([data-sidebar='menu-button'], [data-sidebar='menu-sub-button']):has(~ [data-sidebar='menu-actions']) {
+    --sidebar-menu-trail: --spacing(16);
   }
 
   /* A drop place is ink and has a shape: a line between rows, or a ring around the new parent. */
@@ -644,9 +1016,9 @@
     --jer-select-focus: var(--ring);
     --jer-select-arrow: var(--muted-foreground);
     --ankole-json-key: var(--color-blue-70);
-    --ankole-json-string: var(--color-teal-70);
+    --ankole-json-string: var(--color-teal-80);
     --ankole-json-number: var(--color-purple-70);
-    --ankole-json-boolean: var(--color-green-70);
+    --ankole-json-boolean: var(--color-green-80);
     --ankole-json-null: var(--color-red-70);
     --ankole-json-punctuation: var(--color-gray-80);
   }
@@ -804,9 +1176,66 @@
   }
 }
 
+/* Content that replaces other content in place arrives out of a soft blur: a label that changed, a digit that
+   rolled, the next step of a flow, the dot of a chosen radio. Each one moves a few pixels at most, so the
+   reader's eye stays where it was. */
+@theme {
+  --animate-label-swap: ankole-label-swap 260ms var(--ease-segment) both;
+  --animate-number-roll: ankole-number-roll 420ms var(--ease-segment) both;
+  --animate-step-in: ankole-step-in 360ms var(--ease-segment) both;
+  --animate-radio-dot: ankole-radio-dot 220ms var(--ease-segment) both;
+
+  @keyframes ankole-label-swap {
+    from {
+      opacity: 0;
+      translate: 0 3px;
+      filter: blur(2px);
+    }
+  }
+
+  @keyframes ankole-number-roll {
+    from {
+      opacity: 0;
+      translate: 0 var(--number-roll-from, 60%);
+      filter: blur(2px);
+    }
+  }
+
+  @keyframes ankole-step-in {
+    from {
+      opacity: 0;
+      translate: var(--step-from, 8px) 0;
+      filter: blur(3px);
+    }
+  }
+
+  @keyframes ankole-radio-dot {
+    from {
+      opacity: 0;
+      scale: 0.4;
+    }
+  }
+}
+
 @keyframes ankole-spinner-turn {
   to {
     rotate: 1turn;
+  }
+}
+
+@keyframes ankole-skeleton-sweep {
+  from {
+    background-position: 100vw 0;
+  }
+  to {
+    background-position: -200vw 0;
+  }
+}
+
+@keyframes ankole-otp-verifying {
+  55%,
+  to {
+    translate: 120% 0;
   }
 }
 

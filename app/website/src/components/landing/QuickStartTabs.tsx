@@ -1,7 +1,7 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { copyText } from '../../lib/copy-text'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
-import { RiArrowRightLine, RiCheckLine, RiFileCopyLine } from '@remixicon/react'
+import { ArrowRightRegular, CheckmarkRegular, CopyRegular } from '@ankole/uikit/icons'
 
 const SOURCE_COMMANDS = `git clone https://github.com/AgentBull/ankole.git
 cd ankole
@@ -43,9 +43,9 @@ function CopyButton({ text, label, copiedLabel }: CopyButtonProps) {
       aria-label={currentLabel}
       className="inline-flex h-7 cursor-pointer items-center gap-1.5 border border-gray-90 px-2 font-mono text-xs text-gray-50 transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-gray-90 hover:text-white">
       {copied ? (
-        <RiCheckLine aria-hidden="true" className="size-3.5" />
+        <CheckmarkRegular aria-hidden="true" className="size-3.5" />
       ) : (
-        <RiFileCopyLine aria-hidden="true" className="size-3.5" />
+        <CopyRegular aria-hidden="true" className="size-3.5" />
       )}
       <span aria-live="polite">{currentLabel}</span>
     </button>
@@ -131,7 +131,7 @@ export default function QuickStartTabs({ ariaLabel = 'Quick start', labels, depl
             href={deploymentHref}
             className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand-60 no-underline hover:underline dark:text-brand-40">
             {labels.k8sLink}
-            <RiArrowRightLine className="size-4" />
+            <ArrowRightRegular className="size-4" />
           </a>
         </TabsContent>
         <TabsContent value="source" className="pt-4">

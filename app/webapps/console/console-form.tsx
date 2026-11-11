@@ -15,19 +15,18 @@ import {
   FieldError,
   FieldLabel,
   Textarea,
-  cn,
-  Spinner
+  cn
 } from '@ankole/uikit'
 import {
-  RiBracesLine,
-  RiAlertLine,
-  RiCheckboxCircleLine,
-  RiCloseCircleLine,
-  RiDeleteBin6Line,
-  RiInformationLine,
-  RiQuestionLine,
-  RiSave3Line
-} from '@remixicon/react'
+  BracesRegular,
+  CheckmarkCircleRegular,
+  DeleteRegular,
+  DismissCircleRegular,
+  InfoRegular,
+  QuestionCircleRegular,
+  SaveRegular,
+  WarningRegular
+} from '@ankole/uikit/icons'
 import {
   Children,
   cloneElement,
@@ -372,13 +371,14 @@ export function SaveButton({
   const showIcon = size !== 'xs'
 
   return (
+    // A saving button stays focusable and ignores clicks, so keyboard focus stays on Save while the write runs.
     <Button
       className={cn(disabled && !loading && 'disabled:bg-muted disabled:text-muted-foreground', className)}
-      disabled={loading || disabled}
+      disabled={disabled}
+      loading={loading}
       size={size}
       {...props}>
-      {loading ? <Spinner aria-hidden data-icon="inline-start" /> : null}
-      {!loading && showIcon ? <RiSave3Line data-icon="inline-start" /> : null}
+      {showIcon ? <SaveRegular data-icon="inline-start" /> : null}
       {children ?? t('common.save')}
     </Button>
   )
@@ -568,12 +568,12 @@ export type StatusTone = 'danger' | 'info' | 'neutral' | 'positive' | 'waiting' 
  * alike to people with red-green color blindness. Berry is never a status: next to red it reads as an error.
  */
 const STATUS_TONES = {
-  danger: { Icon: RiCloseCircleLine, variant: 'destructive' },
-  warning: { Icon: RiAlertLine, variant: 'warning' },
-  waiting: { Icon: RiQuestionLine, variant: 'warning' },
-  positive: { Icon: RiCheckboxCircleLine, variant: 'success' },
-  info: { Icon: RiInformationLine, variant: 'info' },
-  neutral: { Icon: RiInformationLine, variant: 'secondary' }
+  danger: { Icon: DismissCircleRegular, variant: 'destructive' },
+  warning: { Icon: WarningRegular, variant: 'warning' },
+  waiting: { Icon: QuestionCircleRegular, variant: 'warning' },
+  positive: { Icon: CheckmarkCircleRegular, variant: 'success' },
+  info: { Icon: InfoRegular, variant: 'info' },
+  neutral: { Icon: InfoRegular, variant: 'secondary' }
 } as const satisfies Record<StatusTone, unknown>
 
 export function StatusIndicator({ children, tone = 'neutral' }: { children: ReactNode; tone?: StatusTone }) {
@@ -624,7 +624,7 @@ export function JSONField({
           type="button"
           variant="outline"
           onClick={() => formatted !== undefined && onChange(formatted)}>
-          <RiBracesLine data-icon="inline-start" />
+          <BracesRegular data-icon="inline-start" />
           {t('console.settings.format_json')}
         </Button>
       </div>
@@ -675,7 +675,7 @@ export function ConfirmDeleteButton({
           event.stopPropagation()
           setOpen(true)
         }}>
-        {label ?? icon ?? <RiDeleteBin6Line />}
+        {label ?? icon ?? <DeleteRegular />}
       </Button>
       <DialogContent closeLabel={t('common.close')} onClick={event => event.stopPropagation()}>
         <DialogHeader>

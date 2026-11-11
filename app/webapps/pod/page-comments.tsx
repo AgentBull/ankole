@@ -11,7 +11,7 @@ import {
   SheetContent,
   SheetTitle
 } from '@ankole/uikit'
-import { RiCloseLine } from '@remixicon/react'
+import { DismissRegular } from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQueries, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useSyncExternalStore, useRef, useState, type RefObject } from 'react'
@@ -191,7 +191,7 @@ export function PageComments({
           </SelectContent>
         </Select>
         <Button size="icon-xs" variant="ghost" aria-label={t('common.close')} onClick={close}>
-          <RiCloseLine aria-hidden />
+          <DismissRegular aria-hidden />
         </Button>
       </header>
       <ErrorBoundary variant="panel" className="m-4" resetKeys={[detail.page.id, focused, effectiveStatus]}>
@@ -332,8 +332,7 @@ export function PageComments({
   }
   return (
     <PodPanelSurface
-      data-sheet
-      className="pod-comments flex min-h-0 w-[296px] shrink-0 flex-col paper-sheet"
+      className="pod-comments flex min-h-0 w-[296px] shrink-0 flex-col border-s border-border"
       aria-label={t('pod.document.comments')}
       onKeyDown={event => {
         if (event.key === 'Escape') {

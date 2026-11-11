@@ -1,6 +1,6 @@
 import { Button, InputGroup, InputGroupAddon, InputGroupTextarea, toast } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiAtLine, RiCloseLine, RiLoader4Line } from '@remixicon/react'
+import { DismissRegular, MentionRegular, SpinnerIosRegular } from '@ankole/uikit/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -207,11 +207,9 @@ export function InlineMessageEditor({
       <label htmlFor={inputID} className="sr-only">
         {t('pod.chat.edit_message_label')}
       </label>
-      <InputGroup variant="paper" className="pod-chat-composer-field pod-chat-inline-editor-field">
+      <InputGroup variant="composer" className="pod-chat-composer-field">
         {editConflict && (
-          <div
-            role="alert"
-            className="space-y-2 border-b border-border px-3 py-2 text-[13px] leading-5 text-fg-secondary">
+          <div role="alert" className="space-y-2 border-b border-border px-1 py-2 text-75 text-fg-secondary">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>{t(savedChanged ? 'pod.chat.saved_message_changed' : 'pod.chat.errors.queue_changed')}</span>
               <div className="flex items-center gap-1.5">
@@ -243,7 +241,7 @@ export function InlineMessageEditor({
           </div>
         )}
         {inlineFailure != null && (
-          <div role="alert" className="border-b border-border px-3 py-2 text-[13px] leading-5 text-destructive">
+          <div role="alert" className="border-b border-border px-1 py-2 text-75 text-destructive-foreground">
             {requestErrorMessage(chatError(inlineFailure))}
           </div>
         )}
@@ -257,7 +255,7 @@ export function InlineMessageEditor({
               disabled={submitting}
               aria-label={t('common.close')}
               onClick={() => model.removeEditQuote()}>
-              <RiCloseLine aria-hidden />
+              <DismissRegular aria-hidden />
             </Button>
           </div>
         )}
@@ -284,7 +282,7 @@ export function InlineMessageEditor({
           </div>
         )}
         {hint && (
-          <p id={hintID} className="px-3 pt-2 text-xs leading-4 text-fg-tertiary">
+          <p id={hintID} className="px-1 pt-1 text-50 text-fg-tertiary">
             {hint}
           </p>
         )}
@@ -365,7 +363,7 @@ export function InlineMessageEditor({
               disabled={submitting}
               aria-label={t('pod.chat_room.mention')}
               onClick={openPagePicker}>
-              <RiAtLine aria-hidden />
+              <MentionRegular aria-hidden />
             </Button>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -373,7 +371,7 @@ export function InlineMessageEditor({
               {t('pod.chat.edit_cancel')}
             </Button>
             <Button type="submit" size="sm" variant="default" disabled={!canSubmit || submitting}>
-              {submitting && <RiLoader4Line className="size-3.5 animate-spin" aria-hidden />}
+              {submitting && <SpinnerIosRegular className="size-3.5 animate-spin" aria-hidden />}
               {t('pod.chat.edit_send')}
             </Button>
           </div>

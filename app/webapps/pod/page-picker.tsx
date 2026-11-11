@@ -1,6 +1,6 @@
 import { usePagesMetadata } from './use-page-metadata'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@ankole/uikit'
-import { RiFolderLine, RiLockLine } from '@remixicon/react'
+import { FolderRegular, LockClosedRegular } from '@ankole/uikit/icons'
 import { useState } from 'react'
 import { useDebouncedValue } from '../common/use-debounced-value'
 import { useTranslation } from 'react-i18next'
@@ -85,7 +85,7 @@ export function PagePicker({
         {visibleRoots.length > 0 && (
           <CommandGroup>
             {visibleRoots.map(root => {
-              const Icon = root.private ? RiLockLine : RiFolderLine
+              const Icon = root.private ? LockClosedRegular : FolderRegular
               return (
                 <CommandItem
                   key={root.id}

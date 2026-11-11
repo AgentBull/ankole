@@ -342,10 +342,20 @@ with incremental `pages.update_sharing`, then resends.
 The exchange's messages and Signals form a durable mailbox. A successful send
 returns immediately. The origin records an outbound entry, and a colleague's
 committed reply records an inbound entry and one input to the original
-assistant Session. Pod shows each delegation as one row: the colleague's name,
-the task, and its current state. Pod attaches the reply to the nearest earlier
-delegation of the same exchange, where the row shows the beginning of the
-answer, its linked Pages, and the time the colleague took. Only the latest
+assistant Session. Pod shows each delegation as one outline card with the run
+card's anatomy: a 20 px state mark, the colleague's name in 14 px Medium text
+with the task after it, and the current state and a chevron at the end. Ankole
+commits a delegation when the assistant's tool call runs, which is before the
+reply that reports it, and both carry the turn's signal; Pod therefore shows
+the card under that reply's work summary and text, where a linked run stands,
+and in the live reply while the turn still streams. In a chat column narrower
+than 480 px the state stands under the title as the card's meta line, and the
+title, the answer, and the Page chips truncate inside the card. The
+card takes the hover wash, and clicking it opens the details drawer, as its
+chevron does. Pod attaches the reply to the nearest earlier delegation of the
+same exchange, where the card shows the beginning of the answer as its source
+text on two 12 px lines, its linked Pages, and the time the colleague took; the
+details drawer renders the answer. Only the latest
 delegation of an exchange follows the colleague's live state and offers Stop.
 A details drawer shows the whole exchange, its state, and Stop.
 Sessions can consume already queued replies to the same Human request together
@@ -551,7 +561,9 @@ member started New Chat, including after the first message opens the task.
 While the composer is empty, the chat home shows the personal assistant's
 next-step menu in place of the fixed starter prompts. A menu offers 4 to 7
 concrete steps, recommended step first, each with its expected outcome, effort
-and reason to start now; at most one step is an ambitious 10x step.
+and reason to start now; at most one step is an ambitious 10x step. Each step
+is an outline card that takes the hover wash, with its title in 14 px text over
+its outcome, effort, and reason in 12 px text.
 `Conversations.NextSteps` writes the menu with the personal assistant's `light`
 model profile (or `primary` when `light` is unset) from what the Human can
 already see: attention rooms, recent rooms, recently updated pages and recent
@@ -578,12 +590,12 @@ list containing existing IM rooms and available colleagues. Until the room list
 and the IM room list both arrive, Chat shows only a loading placeholder, so no
 row moves when the full list lands. Pod then keeps the unfiltered lists for the
 rest of the page session, and a return to Chat from Home shows them at once
-while they refresh in place. The Assistant
-section starts collapsed and exposes only pending questions, active work and
-unread tasks. A click anywhere on a section heading expands or collapses that
-section, and keyboard users toggle it with its chevron. Expanding the Assistant
-section shows the five latest tasks; Show all lists the rest of the history,
-and the filter above the list searches it. Task rows are one line;
+while they refresh in place. Each time Chat opens, the Assistant section opens
+on the five latest tasks; Show all lists the rest of the history, and the
+filter above the list searches it. While the section is collapsed, it exposes
+only pending questions, active work and unread tasks. A click anywhere on a
+section heading expands or collapses that section, and keyboard users toggle it
+with its chevron. Task rows are one line;
 IM rooms and colleagues use two lines, with the name and time above the latest
 message or the colleague's role. Every list names an Agent by its display name
 followed by its `@uid`, marks a DM with the colleague's avatar, a group with a
@@ -624,8 +636,10 @@ Room controls offer participant management, share-link copy, and Markdown export
 while keyboard shortcuts toggle in-room search and the summary drawer.
 A room has one right sidebar, which shows the summary, a linked execution or
 colleague exchange, or an attachment preview; opening one replaces the other.
-The summary is a 296 px drawer beside the full chat. On desktop an execution or
-a file takes everything right of a 300 px chat column instead: the sidebar
+All three open under the same header: a 44 px band whose title, 14 px medium
+text on a 26 px line, starts 18 px from the edge, and whose controls end 12 px
+from the edge. The summary is a 296 px drawer beside the full chat. On desktop
+an execution or a file takes everything right of a 300 px chat column instead: the sidebar
 slides in from the room's right edge while the chat narrows into that column
 over the same motion, and it slides back out while the chat widens again. A room
 narrower than 760 px lays the sidebar over the chat instead, and phones and the
@@ -637,6 +651,8 @@ dialog:
   their Agent) and Humans (using Principal avatars with initials fallbacks),
   plus room-wide referenced/saved Pages, attachment previews/downloads, and
   background executions regardless of how far back the timeline has scrolled.
+  Its members are rows of 14 px names beside 24 px avatars, whose initials are
+  10 px on a 16 px line, with each member's state in 12 px text.
   `Escape` closes only the topmost layer: while an attachment preview or another
   popup is open, the drawer and the inspector pane leave the key to that popup,
   even before focus has moved into it.
@@ -646,59 +662,137 @@ dialog:
   message DOM nodes (updating highlights when a user expands collapsed tool
   output).
 
-All surfaces, code blocks, selections, status pills, and composer focus rings
-use semantic tokens from the shared Ankole UI kit across light and dark themes.
-A reply's code blocks, inline code, and tables share the document type scale:
-13 px source under a 32 px toolbar on a light fill, and 14 px table cells on a
-hairline grid. Pickers, the
-find bar, turn previews, and the jump to the latest message float over the
-conversation as ceramic, and renaming a conversation edits its title where it
-stands.
-Messages and the composer share one 760 px column. Message text is 15 px on a
-24 px line; names, work summaries, tool rows, and reply sources are 13 px. A
-Human's message is a neutral ink-tinted bubble, aligned right for the viewer
-and left for other Humans, and an Agent's reply is plain text on the page. The
+All surfaces, code blocks, selections, and status pills use semantic tokens
+from the shared Ankole UI kit across light and dark themes.
+A reply's code blocks, inline code, and tables take the forms that documents
+use (`code-surface`, `code-inline`, and `content-cell` in the UI kit), so a
+reply saved as a Page keeps its look. The find bar, turn previews, and the jump
+to the latest message float over the conversation as ceramic. The completion
+list of mentions and commands and the recipient, model, and send-mode menus
+open on the composer's own surface, and the completion list spans the
+composer's width. Renaming a conversation edits its title where it stands.
+Messages and the composer share the 892 px content column of a document
+(`--spacing-content`). Message text is 14 px on a 26 px line in primary ink and
+the regular weight, a bold phrase takes the Medium weight, and the blocks of a
+message sit 12 px apart, as in a document
+(`--spacing-content-gap`): paragraphs, lists, quotes, tables, code, cards,
+files, and linked runs, with no space before the first block or after the last.
+Headings step down from the document's heading roles with the text, one step
+each: 24 px bold, then 20, 18, and 16 px semibold, and 14 px semibold for the
+fifth and sixth levels; the first three
+levels add 12 px above themselves. List items sit 2 px apart. A quote is a 2 px
+bar with its text 16 px beside it, 8 px from the top and the bottom of the bar,
+in secondary ink. Names, reply sources, and the passages a message quotes share
+the text's 14 px step, and work summaries, times, event notices, the New messages divider,
+and a sending message's state are 12 px on a 20 px line in tertiary ink. A
+reply source and a quoted passage, like the composer's quote, take the
+document's quote form in the 14 px step (`content-quote` in the UI kit). A
+message names its author beside a 32 px round avatar, which Agents and people
+share, 12 px from the name. The message's first line sits 2 px under that row,
+and its work summary 6 px under it: a 24 px filled caret that turns a quarter
+while the summary is open, 4 px from its label. An event notice shows its
+author's 20 px avatar.
+The objects inside a message are one family of outline cards (`surface-outline`
+in the UI kit): an 8 px radius and one hairline without a fill, a 20 px mark in
+the secondary colour, a title in 14 px Medium text, and meta in 12 px tertiary
+text on the title's baseline, so that no card outweighs the text around it. A reference to a Page
+is the family's chip wherever it stands (`ReferenceCard`): 28 px tall and at
+most 318 px wide, holding the Page's mark (its own icon, or else its type's
+mark) 8 px from its edge, its title on one line, and a chevron. In prose the
+chip stands on the line of the text that names it, 4 px from the words beside
+it, and the line grows to hold it. A file is the UI kit's file card (`FileCard`): one 40 px row
+at most 290 px wide with the mark of its type, or an image's thumbnail, the
+name, and its type and size after the name. File cards wrap 8 px apart, so the
+content column holds three in a row. A reply's table stands in a block card (`surface-block` in
+the UI kit), whose edge replaces the grid's outer lines. The table's copy
+control is an icon button inside its top corner that shows while the pointer is
+over the table or the focus is on the control, and always on a touch screen.
+A column keeps room for four characters, so a narrow chat column wraps a cell
+by phrases, and a table with more columns than the column holds scrolls inside
+its card. The timeline itself scrolls only up and down. A Human's message is a neutral
+ink-tinted bubble, aligned right for the viewer and left for other Humans, and
+an Agent's reply is plain text on the page. The
 viewer's own messages carry no name or avatar, and a message from the same
 author within five minutes of the previous one continues it without repeating
 them; in both cases the time appears on hover and the name stays available to
 assistive technology. A finished turn's model appears in the tooltip of its
-work summary. The composer is a paper writing surface whose edge darkens while
-it has focus.
+work summary. The composer is a translucent panel over a strong blur, with an
+8 px radius and a soft drop shadow. In the light theme its 1 px edge runs from
+blue at the start to the brand colour at the end, and in the dark theme the edge
+is a hairline. Its text is 16 px on a
+24 px line with a brand-coloured caret, above a 36 px toolbar that holds the
+attach, mention, and command buttons, the recipient and model selectors, and a
+52 × 20 px send pill that turns brand-coloured once the draft can be sent. A
+recipient that the conversation fixes shows as a label, which a composer
+narrower than 20 rem leaves out.
 
 Each state of a turn has its own mark, so the person can tell at a glance
 whether an Agent is working, needs them, or has stopped. In the sidebar, an
 unread room shows a blue dot, a room that waits on a decision shows an amber
 "Needs you" badge, and a room where an Agent is working or a background run is
-active shows a turning neutral ring. A question that a delegated colleague asks
+active shows a turning neutral ring. Inside a conversation, a tool step, a
+workflow call, a plan item, a delegation, and the inspector's header share one
+set of 20 px status marks: the spinner in the progress colour while the work
+runs, a green check once it completes, an amber question mark while it waits
+for a person, a blue clock while it sleeps, a red dismiss circle when it fails,
+and a stop mark when it stops; a delegation without a reported state shows the
+hand-off arrow. Each Stop control there is a quiet button with the stop icon
+and its label. A question that a delegated colleague asks
 in the original conversation carries the colleague's name in its heading. While
 an Agent works, its live work summary renders an indeterminate loading spinner
 alongside the active phase or tool step; while it writes, a caret follows its
-last words, and the composer offers a labelled Stop button next to Send. Once
-settled, the collapsed work summary shows "Work steps" (or "Thinking" or "Model
-usage" when no tools ran) together with the reported model and token usage,
+last words, and the composer shows a Stop pill before Send. To make room for
+it, the recipient and the model selector truncate, and a composer narrower than
+21.75 rem leaves the model selector out until the work ends. While the person
+edits a queued message in a composer that narrow, the Cancel button joins the
+pills and the attach button, which the edit disables anyway, steps aside. A stop takes
+effect when the Agent reaches its next checkpoint, so a pressed Stop pill shows
+a spinner and ignores further clicks until the work ends. If the work goes on
+for eight seconds, the pill returns to rest and the person can ask again. Once
+settled, the collapsed work summary shows "Work steps" (or "Thinking" when no
+tools ran), and a reply that used no tool and summarized no thinking has no
+work summary,
 while a failed turn reads "Failed" in the destructive colour with the failing
 step marked, a stopped turn reads "Stopped", and a retryable turn offers a
 labelled Retry reply action. Because an Agent often recovers from a failed step
 and still completes its turn, Pod judges the turn by `execution.status` alone:
 a completed turn with failed steps shows the number of failed steps in the
 warning colour, such as "Work steps · 1 error", and stays collapsed so people
-can still find and report the error. A pending decision card has an amber edge
-and heading, and its question and choices use the message type scale. Queued
+can still find and report the error. A decision card, the Clarify card or the
+Action Card, is an outline card at most 540 px wide that narrows with its
+column. A 20 px icon and a 12 px status line head it, its question takes the
+message text's 14 px step in the Medium weight, and its choices are rows of 14 px text that take the
+hover wash. While the decision waits, the card's edge and status line take the
+warning colour; once it is decided, the card returns to the plain hairline and
+states the outcome on a 12 px line. Queued
 messages offer a labelled Steer action, and a background run card counts its
-time in minutes and hours once it runs past a minute.
+time in minutes and hours once it runs past a minute. A run card is an outline
+card at most 540 px wide that narrows with its column: a 20 px status icon, the
+run's title in 14 px Medium text with its elapsed time and a chevron at the end,
+a 12 px status line, and a summary of up to two 12 px lines. It takes the hover
+wash under the pointer, and a run that waits on a person or has failed keeps a
+tinted edge.
 
 In the timeline, compact event notices sit alongside attributed messages:
 
 - Live turn previews track their triggering `sourceMessageID`, and interleaved
   replies link back to the question they answer and restore scroll focus there.
 - Markdown rendering supports syntax-highlighted code, tables, math formulas,
-  Page chips, image lightboxes, and sandboxed Mermaid diagrams. For
+  Page references, image lightboxes, and sandboxed Mermaid diagrams. Math
+  takes double dollar signs, inline as `$$x^2$$` or as its own block, as it
+  does in a document; a single dollar sign stays text, so a price such as
+  `$300` reads as prose. Every renderer parses GitHub Flavored Markdown with
+  the CJK-friendly rules for emphasis and strikethrough
+  (`common/markdown-syntax.ts`): CommonMark closes `**` after punctuation only
+  before a space or more punctuation, which leaves `**验收：**选择` literal, so
+  the rules also accept a mark that touches a CJK character, and they leave
+  text in other scripts as CommonMark reads it. For
   Agent-authored messages only, a unified remark AST pass (paired with
   `Ankole.Kernel.repair_generated_markdown/1` on outbound IM delivery) repairs
   escaped structural newlines, trailing whitespace inside bold delimiters, and
   accidental single-tilde strikethrough in ordinary text. It preserves code,
-  HTML, inline and reference links, images, reference definitions, and `$` / `$$`
-  math. Human-authored messages use standard Markdown rendering. During streaming,
+  HTML, inline and reference links, images, reference definitions, and math.
+  Human-authored messages use standard Markdown rendering. During streaming,
   Pod renders the entire available message as one Markdown document, preserving
   nested block boundaries and references defined elsewhere in the message. New prose
   words fade in as they arrive, and a pulsing dot follows the end of a paragraph or list.
@@ -748,7 +842,15 @@ In the timeline, compact event notices sit alongside attributed messages:
   and reasoning. The work header shows elapsed time when the turn has a recorded
   start. In the expanded live list, new step rows fade up as Pod receives them
   and the connector grows to each row. The active row shimmers until the step
-  settles. With reduced motion enabled, the list updates in place. When the
+  settles. A finished step states how long it took once that reaches a second,
+  so a time on a row marks the step that was slow. Each step is a row of 14 px
+  text on a 26 px line: a 20 px tool icon, the title, the duration in 12 px
+  tertiary text, and a 20 px status mark. A run of read, search, or list steps
+  folds into a group that opens from the work summary's 24 px caret, and a row
+  that opens takes the hover wash. A step's output, a command's terminal, and a
+  diff are block cards: the lightest gray inside a hairline, 12 px labels, and
+  12 px monospace source on a 26 px line. With reduced motion enabled,
+  the list updates in place. When the
   person expands or collapses the live work summary,
   Pod keeps that choice for the rest of the turn while new steps and model
   Responses arrive, and opens the summary again only when the turn newly needs
@@ -772,13 +874,29 @@ In the timeline, compact event notices sit alongside attributed messages:
   back to a slide-over sheet on phones and in the Page assistant panel)
   with narrative progress, collapsible tool groups, subthread filters, inline
   Stop controls, and a composer for steering, answering pending questions, or
-  continuing a finished Background Job.
+  continuing a finished Background Job. The inspector is a narrow panel, so its
+  text is 14 px on a 26 px line and its labels and status are 12 px, all 18 px
+  from the panel's edge; the task's brief, its plan, and its result are block
+  cards.
 - Message actions support copying, quoting, eligible edits, Agent retries, and
-  multi-message selection. A successful clipboard write briefly draws a check
-  over the copy icon. Pressing Retry rotates its arrow as Pod starts the retry.
-  File attachments offer **Save file to Pod** and
-  messages display Pages created from that turn as links beneath the source
-  message. Selecting messages opens a sticky toolbar to copy or download a
+  multi-message selection. The actions form a 32 px row directly under the last
+  block of the message they act on, 12 px above the next message: select,
+  quote, and copy, then edit and retry when they apply, as 32 px buttons 6 px
+  apart whose hover wash tints the 20 px icon. The row also states when the
+  message was sent, 6 px from the actions. The time sits on the inner side of the
+  row: after the actions under a message on the left, and before them under
+  the reader's own message on the right. A message from the last 24 hours
+  shows only its hour and minute; an older message adds its day, and its year
+  when that differs from the current one. The latest reply always shows the
+  row. An earlier message shows it while the pointer or keyboard focus is on
+  that message; the row keeps its place when it is hidden, so showing it
+  never moves the timeline. A successful clipboard write briefly draws a check
+  over the copy icon of a message or a code block. Pressing Retry rotates its
+  arrow as Pod starts the retry.
+  File attachments offer **Save file to Pod** from the download mark at the end
+  of their card, and messages display Pages created from that turn as reference
+  cards 12 px apart beneath the source message, on the side the message sits
+  on. Selecting messages opens a sticky toolbar to copy or download a
   Markdown excerpt that preserves code-block whitespace, or render a shareable
   PNG card from an offscreen CSS-inlined DOM clone with deterministic DPR
   scaling (`3x` -> `2x` -> `1x`) under the same browser canvas pixel budgets
@@ -807,9 +925,10 @@ overrides:
 - **File attachments:** Users can choose files, paste them, or drag them into
   the composer. When files enter the composer, it highlights the drop area and
   fans out a stack of file icons. Each selected file uploads as soon as it is
-  added and appears as a card with a thumbnail, its name, and its size. Images
-  show a thumbnail, and other files show their extension. The card shows the
-  bytes sent against the total and fills a progress bar as the upload advances.
+  added and appears as the file card of a sent attachment, with a remove button
+  in place of the download mark. Images show a thumbnail, and other files show
+  their type's mark. The card's type line shows the bytes sent against the
+  total, and a bar along its bottom edge fills as the upload advances.
   A check marks an uploaded file. A failed upload shakes its card, keeps the
   file, and offers a retry. With reduced motion, the cards and drop area update
   immediately. Removing a file cancels its upload. Sending waits until every
@@ -850,7 +969,9 @@ overrides:
   timeline; in multi-Human rooms, queued items appear in the timeline
   immediately so teammates can see them. The attachment count opens the queued
   files for preview and download without taking the message back into the
-  composer.
+  composer. The tray lists its items as rows of 14 px text under headers and
+  hints in 12 px text, and the item being edited takes the light gray fill of a
+  reference card.
 - **Reply suggestion:** After an Agent reply in a room whose only human
   participant is the viewer, Pod shows one suggested next message as inline
   ghost text with a trailing `⇥ Tab` keycap inside the empty composer once the
@@ -870,7 +991,9 @@ overrides:
   loads that item into the composer, whereas editing a committed timeline
   message (`action: "edit_last"`) opens an inline editor directly inside that
   message bubble so the bottom composer preserves its unsent draft, Page
-  references, mentions, attachments, and Clarify answer target untouched. Any of
+  references, mentions, attachments, and Clarify answer target untouched. The
+  inline editor lies on the composer's surface, with its 8 px radius, and its
+  text is 16 px on a 24 px line, as in the composer. Any of
   the viewer's non-withdrawn, single-Agent timeline messages without a later
   message from another Human participant can be edited inline—including while
   the target Agent is actively streaming or holds queued follow-ups—and opening
@@ -1078,6 +1201,13 @@ these elements. The actions of an interaction spec call the endpoints of this
 section, so the control plane owns the answer, its validation, and the
 approval, and an external channel renders the same interaction from its
 `ReplyPresentation`.
+
+A card shows a decision at each moment of its life. While an Action Card
+decision is in flight, the button that the person pressed shows a spinner, the
+other button is disabled, and the card announces that it is applying the
+decision. An outcome that is decided while its card is on screen fades in; a
+card that was decided before it was shown renders its outcome still. With
+reduced motion enabled, the outcome appears at once.
 
 A Clarify can carry a form instead of choices. `Delivery.ClarifyForm` owns the
 field contract: one to five fields, each with a snake_case `id`, a `label`,
@@ -1296,14 +1426,9 @@ round reported that count. A turn without ledger rows has no `usage`.
 API, so the generated Pod client derives the record's steps and usage types
 from that declaration.
 
-Pod shows that usage in the work header of everyone who can see the reply: a
-quiet line at the right end names the main model and the reported input and
-output tokens, such as `gpt-5.5 · 12.4K tokens`. When some rounds did not
-report, the line reads `≥12.4K tokens (2 rounds not reported)`; when no round
-reported, it reads `Usage not reported`. A reply without tool steps still shows
-the header so that its usage stays visible. Expanding the header lists each
-model's rounds and its input, output, cached, and reasoning tokens, and a
-profile fallback such as `light → primary`.
+The usage is data on the execution record for clients of the Pod API. Pod's
+timeline keeps a reply's work summary to the turn's thinking and steps; the
+Console's model usage pages report what models served and what they consumed.
 
 Linked Background Agent Jobs and Workflows carry `sourceMessageID` from the
 triggering Signal (attaching directly to that Human message on silent turns) and

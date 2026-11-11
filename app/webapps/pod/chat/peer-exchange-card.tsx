@@ -1,5 +1,5 @@
 import { Button } from '@ankole/uikit'
-import { RiArrowRightUpLine, RiCheckLine, RiStopCircleLine } from '@remixicon/react'
+import { ArrowUpRightRegular, ChevronRightRegular, RecordStopRegular } from '@ankole/uikit/icons'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
@@ -11,6 +11,7 @@ import { MessagePageReference } from '../message-artifacts'
 import { ChatMarkdown } from './chat-markdown'
 import { CollapsedWorkView, ActivityView } from './collapsed-work-view'
 import { formatElapsed } from './elapsed'
+import { ExecutionStatusMark } from './execution-status'
 import type { ExecutionSummary, InspectorTarget, TimelineMessage } from './types'
 
 type Peer = { exchange_id: string; agent_uid: string }
@@ -37,6 +38,17 @@ export function peerExchangeStateLabel(
   }
   if (isPending) return t('pod.superagent.delegation_sent')
   return t('pod.superagent.delegation_ended')
+}
+
+/**
+ * The 20px mark of a delegation's state: the run's status marks while the colleague works, waits for an answer, or
+ * has answered, and the hand-off arrow otherwise.
+ */
+function PeerStateMark({ working, waiting, done }: { working: boolean; waiting: boolean; done: boolean }) {
+  if (working || waiting || done) {
+    return <ExecutionStatusMark status={working ? 'running' : waiting ? 'waiting_on_user' : 'completed'} />
+  }
+  return <ArrowUpRightRegular aria-hidden />
 }
 
 /**
@@ -68,9 +80,10 @@ export function pairPeerExchanges(messages: Pick<TimelineMessage, 'id' | 'richCo
 }
 
 /**
- * One delegation from the assistant to a colleague. The row states who has the work and where it stands, and
- * once the colleague answers, it shows the start of the answer, so the user does not have to open anything to
- * learn the result. The details drawer holds the whole exchange.
+ * One delegation from the assistant to a colleague, as an outline card with the run card's anatomy. Its head
+ * states who has the work and where it stands, and once the colleague answers, the card shows the start of the
+ * answer as its source text on two lines and the Pages the answer delivers, so the user does not have to open
+ * anything to learn the result. The whole card opens the exchange's details, which hold the rendered exchange.
  */
 export function PeerExchangeCard({
   conversationID,
@@ -122,25 +135,31 @@ export function PeerExchangeCard({
     elapsed
   })
   const pages = (reply ?? request)?.links.filter(link => link.kind === 'page') ?? []
+  // The card shows the answer's source text; the details render it.
+  const excerpt = reply?.text.replace(/\s+/g, ' ').trim()
+  const details = t('pod.superagent.details')
+  const openDetails = () =>
+    onOpenInspector?.({ type: 'peer', exchangeID: peer.exchange_id, agentUID: peer.agent_uid }, trigger.current)
   return (
+    // The card opens the exchange's details under the pointer, as its chevron does from the keyboard.
     <div
       className="pod-peer-exchange"
       data-peer-exchange={peer.exchange_id}
       data-active={isActive || undefined}
-      data-state={waiting ? 'waiting' : working ? 'working' : reply ? 'done' : 'ended'}>
+      data-state={waiting ? 'waiting' : working ? 'working' : reply ? 'done' : 'ended'}
+      data-opens={onOpenInspector ? '' : undefined}
+      onClick={event => {
+        if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
+        if (window.getSelection()?.toString()) return
+        openDetails()
+      }}>
       <div className="pod-peer-exchange-head">
-        {working ? (
-          <span className="pod-chat-status-dot pod-chat-status-streaming" aria-hidden />
-        ) : reply ? (
-          <RiCheckLine aria-hidden />
-        ) : (
-          <RiArrowRightUpLine aria-hidden />
-        )}
+        <PeerStateMark working={working} waiting={waiting} done={Boolean(reply)} />
         <p className="pod-peer-exchange-summary" title={task}>
           {request ? (
             <>
               {t('pod.superagent.delegated_to', { name })}
-              {task && <span className="text-fg-tertiary"> · {task}</span>}
+              {task && <span className="pod-peer-exchange-task"> · {task}</span>}
             </>
           ) : (
             t('pod.superagent.reply_from', { name })
@@ -149,23 +168,6 @@ export function PeerExchangeCard({
         <span role="status" className="pod-peer-exchange-state">
           {state}
         </span>
-        <Button
-          ref={trigger}
-          size="xs"
-          variant="ghost"
-          aria-expanded={isActive || undefined}
-          onClick={() =>
-            onOpenInspector?.(
-              {
-                type: 'peer',
-                exchangeID: peer.exchange_id,
-                agentUID: peer.agent_uid
-              },
-              trigger.current
-            )
-          }>
-          {t('pod.superagent.details')}
-        </Button>
         {stoppable && (
           <Button
             size="xs"
@@ -173,11 +175,23 @@ export function PeerExchangeCard({
             disabled={stop.isPending}
             aria-label={t('pod.superagent.stop_delegation', { name })}
             onClick={() => stop.mutate()}>
-            {t('pod.superagent.stop')}
+            <RecordStopRegular aria-hidden />
+            <span className="pod-peer-exchange-stop-label">{t('pod.superagent.stop')}</span>
           </Button>
         )}
+        <Button
+          ref={trigger}
+          size="icon-xs"
+          variant="ghost"
+          className="pod-peer-exchange-open"
+          aria-label={details}
+          title={details}
+          aria-expanded={isActive || undefined}
+          onClick={openDetails}>
+          <ChevronRightRegular aria-hidden />
+        </Button>
       </div>
-      {reply?.text && <ReplyExcerpt text={reply.text} />}
+      {excerpt && <p className="pod-peer-exchange-reply">{excerpt}</p>}
       {!!pages.length && (
         <ul className="pod-peer-exchange-pages">
           {pages.map(link => (
@@ -192,26 +206,6 @@ export function PeerExchangeCard({
   )
 }
 
-/** The start of the colleague's answer; the full answer stays one click away in the details drawer. */
-function ReplyExcerpt({ text }: { text: string }) {
-  const body = useRef<HTMLDivElement>(null)
-  const [clipped, setClipped] = useState(false)
-  useEffect(() => {
-    const element = body.current
-    if (!element) return
-    const measure = () => setClipped(element.scrollHeight > element.clientHeight + 1)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [text])
-  return (
-    <div ref={body} className="pod-peer-exchange-reply" data-clipped={clipped || undefined}>
-      <ChatMarkdown text={text} generated />
-    </div>
-  )
-}
-
 function PeerLog({
   conversationID,
   peer,
@@ -219,7 +213,9 @@ function PeerLog({
   stoppable,
   stopping,
   onStop,
-  waiting
+  working,
+  waiting,
+  done
 }: {
   conversationID: string
   peer: Peer
@@ -227,7 +223,9 @@ function PeerLog({
   stoppable: boolean
   stopping: boolean
   onStop(): void
+  working: boolean
   waiting: boolean
+  done: boolean
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -296,10 +294,11 @@ function PeerLog({
   return (
     <div className="pod-chat-execution-detail pod-peer-log">
       <div className="pod-peer-log-status">
+        <PeerStateMark working={working} waiting={waiting} done={done} />
         <span role="status">{state}</span>
         {stoppable && (
-          <Button size="xs" variant="outline" disabled={stopping} onClick={onStop}>
-            <RiStopCircleLine aria-hidden />
+          <Button size="xs" variant="ghost" disabled={stopping} onClick={onStop}>
+            <RecordStopRegular aria-hidden />
             {t('pod.superagent.stop_delegation', { name: names.get(peer.agent_uid) ?? `@${peer.agent_uid}` })}
           </Button>
         )}
@@ -370,7 +369,9 @@ export function PeerExchangeInspectorBody({
       stoppable={stoppable}
       stopping={stop.isPending}
       onStop={() => stop.mutate()}
+      working={working}
       waiting={waiting}
+      done={hasReply || status === 'completed' || status === 'succeeded'}
     />
   )
 }

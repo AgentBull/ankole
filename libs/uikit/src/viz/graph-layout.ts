@@ -83,20 +83,37 @@ const ALL_RAMPS: readonly AnkoleGraphColorRamp[] = [
   'gray'
 ]
 
-const FALLBACK_RAMP_STEPS: Record<
-  AnkoleGraphColorRamp,
-  { 10: string; 30: string; 50: string; 60: string; 70: string; 90: string }
-> = {
-  blue: { 10: '#edf5ff', 30: '#a8caff', 50: '#4a88ff', 60: '#1561ff', 70: '#0140cc', 90: '#001c64' },
-  teal: { 10: '#ddfbfc', 30: '#44e2df', 50: '#00a3a0', 60: '#008583', 70: '#006162', 90: '#022c30' },
-  purple: { 10: '#f6f1ff', 30: '#d1baff', 50: '#a066ff', 60: '#8838f2', 70: '#6524b8', 90: '#2e1157' },
-  brand: { 10: '#ffeaed', 30: '#ff9aa5', 50: '#ff5468', 60: '#ff4669', 70: '#e72b41', 90: '#a6183a' },
-  green: { 10: '#e3fce9', 30: '#76e494', 50: '#24a94f', 60: '#1a8a3c', 70: '#126629', 90: '#052f0e' },
-  orange: { 10: '#fff1e6', 30: '#ffb588', 50: '#e26300', 60: '#b94f00', 70: '#883a00', 90: '#3e1b00' },
-  cyan: { 10: '#e7f7ff', 30: '#8dd1ff', 50: '#1294eb', 60: '#0077c8', 70: '#005698', 90: '#012749' },
-  magenta: { 10: '#ffeff7', 30: '#ffabcd', 50: '#ea468d', 60: '#c9256f', 70: '#97144f', 90: '#4a0524' },
-  yellow: { 10: '#fcf5d7', 30: '#f3c11c', 50: '#b28700', 60: '#916d00', 70: '#6b5000', 90: '#302500' },
-  gray: { 10: '#fbfbfb', 30: '#f4f4f4', 50: '#d3d3d3', 60: '#b6b6b6', 70: '#929292', 90: '#424242' }
+type RampStep = 10 | 30 | 50 | 60 | 70 | 80 | 90
+
+const FALLBACK_RAMP_STEPS: Record<AnkoleGraphColorRamp, Record<RampStep, string>> = {
+  blue: { 10: '#eaeff8', 30: '#9fc2ff', 50: '#0f87ff', 60: '#2e6eeb', 70: '#0d54da', 80: '#1f44ae', 90: '#1e3d8a' },
+  teal: { 10: '#d0faf1', 30: '#8eedd9', 50: '#20d6be', 60: '#19bfa1', 70: '#15ad95', 80: '#117465', 90: '#135c53' },
+  purple: { 10: '#eae8f6', 30: '#bdafff', 50: '#8c62f9', 60: '#753de4', 70: '#6a30d1', 80: '#5828af', 90: '#49238f' },
+  brand: { 10: '#ffeaed', 30: '#ff9aa5', 50: '#ff5468', 60: '#ff4669', 70: '#e72b41', 80: '#a0141c', 90: '#a6183a' },
+  green: { 10: '#d7fce6', 30: '#6ae8ab', 50: '#3abe84', 60: '#2cc469', 70: '#058b5b', 80: '#067651', 90: '#075e41' },
+  orange: { 10: '#fef3e6', 30: '#ffbea3', 50: '#ff814a', 60: '#f7630c', 70: '#cc4f00', 80: '#933600', 90: '#7b2913' },
+  cyan: { 10: '#eaf8ff', 30: '#ace4ff', 50: '#60ceff', 60: '#25c3fd', 70: '#009ed0', 80: '#006f93', 90: '#045f88' },
+  magenta: { 10: '#fbecf5', 30: '#ffcae4', 50: '#ff63a7', 60: '#ff4890', 70: '#f0125f', 80: '#d10545', 90: '#ad0739' },
+  yellow: { 10: '#fffeca', 30: '#fffa7d', 50: '#fff200', 60: '#ffe500', 70: '#d1aa00', 80: '#a67a02', 90: '#895f0a' },
+  gray: { 10: '#fbfbfb', 30: '#f4f4f4', 50: '#d3d3d3', 60: '#b6b6b6', 70: '#929292', 80: '#5e5e5e', 90: '#424242' }
+}
+
+/**
+ * The step a ramp's marks take on a light surface. The hues do not share one lightness ladder, so each ramp
+ * names the lightest of its steps 60–80 that keeps 3:1 on white; the neutral ramp stays at 60 because gray
+ * marks recede on purpose. The stroke is one step darker than the fill.
+ */
+const LIGHT_MARK_STEP: Record<AnkoleGraphColorRamp, 60 | 70 | 80> = {
+  blue: 60,
+  teal: 80,
+  purple: 60,
+  brand: 60,
+  green: 70,
+  orange: 60,
+  cyan: 70,
+  magenta: 60,
+  yellow: 80,
+  gray: 60
 }
 
 function readToken(styles: CSSStyleDeclaration | null, name: string, fallback: string): string {
@@ -123,15 +140,11 @@ export function resolveCanvasThemePalette(
   const ramps = {} as Record<AnkoleGraphColorRamp, AnkoleGraphRampColors>
   for (const ramp of ALL_RAMPS) {
     const fallback = FALLBACK_RAMP_STEPS[ramp]
-    const step10 = readToken(styles, `--color-${ramp}-10`, fallback[10])
-    const step30 = readToken(styles, `--color-${ramp}-30`, fallback[30])
-    const step50 = readToken(styles, `--color-${ramp}-50`, fallback[50])
-    const step60 = readToken(styles, `--color-${ramp}-60`, fallback[60])
-    const step70 = readToken(styles, `--color-${ramp}-70`, fallback[70])
-    const step90 = readToken(styles, `--color-${ramp}-90`, fallback[90])
+    const step = (value: RampStep) => readToken(styles, `--color-${ramp}-${value}`, fallback[value])
+    const mark = LIGHT_MARK_STEP[ramp]
     ramps[ramp] = isDark
-      ? { fill: step50, stroke: step30, subtle: step90, text: step30 }
-      : { fill: step60, stroke: step70, subtle: step10, text: step70 }
+      ? { fill: step(50), stroke: step(30), subtle: step(90), text: step(30) }
+      : { fill: step(mark), stroke: step((mark + 10) as RampStep), subtle: step(10), text: step(90) }
   }
 
   return {
@@ -146,8 +159,8 @@ export function resolveCanvasThemePalette(
     borderStrong: readToken(styles, '--border-strong', '#929292'),
     ring: readToken(styles, '--ring', isDark ? '#e72b41' : '#ff4669'),
     selection: readToken(styles, '--selection', isDark ? 'rgb(160 20 28 / 0.26)' : 'rgb(255 154 165 / 0.3)'),
-    fontSans: readToken(styles, '--font-family-sans', "'IBMPlexSansCN', 'Helvetica Neue', Arial, sans-serif"),
-    fontMono: readToken(styles, '--font-family-mono', "'IBMPlexMonoCN', monospace"),
+    fontSans: readToken(styles, '--font-family-sans', "'AgentBullSansGB', 'Helvetica Neue', Arial, sans-serif"),
+    fontMono: readToken(styles, '--font-family-mono', "'AgentBullMono', monospace"),
     ramps
   }
 }

@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow
 } from '@ankole/uikit'
-import { RiArrowDownSLine, RiEyeLine, RiEyeOffLine, RiFileList3Line } from '@remixicon/react'
+import { ChevronDownRegular, DocumentBulletListRegular, EyeOffRegular, EyeRegular } from '@ankole/uikit/icons'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -294,9 +294,9 @@ export function EnvVarsEditor({
                   {revealingName === item.name ? (
                     <Spinner className="size-3.5" />
                   ) : isRowRevealed ? (
-                    <RiEyeOffLine aria-hidden className="size-3.5" />
+                    <EyeOffRegular aria-hidden className="size-3.5" />
                   ) : (
-                    <RiEyeLine aria-hidden className="size-3.5" />
+                    <EyeRegular aria-hidden className="size-3.5" />
                   )}
                 </button>
               ) : null}
@@ -390,7 +390,7 @@ export function EnvVarsEditor({
             <span className="text-xs font-medium text-muted-foreground">
               {t('pod.env_vars.inherited_section', { count: inheritedItems.length })}
             </span>
-            <RiArrowDownSLine
+            <ChevronDownRegular
               aria-hidden
               className="size-4 text-muted-foreground transition-transform group-data-[panel-open]:rotate-180"
             />
@@ -441,7 +441,7 @@ export function EnvVarsEditor({
                 setImportOpen(current => !current)
                 setFormError(null)
               }}>
-              <RiFileList3Line aria-hidden className="size-3.5" />
+              <DocumentBulletListRegular aria-hidden className="size-3.5" />
               {importOpen ? t('pod.env_vars.single_entry') : t('pod.env_vars.import_dotenv')}
             </Button>
           ) : null}

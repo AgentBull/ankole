@@ -1,6 +1,6 @@
 import { truncate } from './text'
 import { Button, buttonVariants, cn } from '@ankole/uikit'
-import { RiCheckLine, RiErrorWarningLine, RiFileCopyLine, RiRefreshLine } from '@remixicon/react'
+import { ArrowClockwiseRegular, CheckmarkRegular, CopyRegular, ErrorCircleRegular } from '@ankole/uikit/icons'
 import { QueryErrorResetBoundary } from '@tanstack/react-query'
 import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { RootOptions } from 'react-dom/client'
@@ -56,7 +56,7 @@ export function ErrorFallback({
           className
         )}>
         <span className="flex min-w-0 items-center gap-2">
-          <RiErrorWarningLine aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />
+          <ErrorCircleRegular aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />
           <span className="min-w-0 break-words">
             {label ? t('common.render_error_inline', { name: label }) : t('common.render_error_inline_generic')}
           </span>
@@ -89,7 +89,7 @@ export function ErrorFallback({
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {actions}
             <Button type="button" size="sm" onClick={reset}>
-              <RiRefreshLine aria-hidden />
+              <ArrowClockwiseRegular aria-hidden />
               {t('common.retry')}
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => window.location.reload()}>
@@ -110,7 +110,7 @@ export function ErrorFallback({
       data-error-boundary="panel"
       className={cn('grid min-w-0 gap-3 border border-border bg-card p-5 text-sm text-foreground', className)}>
       <div className="flex min-w-0 items-start gap-2.5">
-        <RiErrorWarningLine aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-secondary" />
+        <ErrorCircleRegular aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-secondary" />
         <div className="grid min-w-0 gap-1">
           <p className="font-semibold leading-5">
             {label ? t('common.render_error_inline', { name: label }) : t('common.render_error_title')}
@@ -122,7 +122,7 @@ export function ErrorFallback({
       <div className="flex flex-wrap items-center gap-2">
         {actions}
         <Button type="button" size="sm" variant="outline" onClick={reset}>
-          <RiRefreshLine aria-hidden />
+          <ArrowClockwiseRegular aria-hidden />
           {t('common.reload_section')}
         </Button>
       </div>
@@ -168,7 +168,11 @@ function CopyDiagnosticButton({ copyText }: { copyText: string }) {
       aria-label={copied ? t('common.copied') : t('common.copy_diagnostic')}
       title={copied ? t('common.copied') : t('common.copy_diagnostic')}
       onClick={copy}>
-      {copied ? <RiCheckLine aria-hidden className="size-3.5" /> : <RiFileCopyLine aria-hidden className="size-3.5" />}
+      {copied ? (
+        <CheckmarkRegular aria-hidden className="size-3.5" />
+      ) : (
+        <CopyRegular aria-hidden className="size-3.5" />
+      )}
     </Button>
   )
 }

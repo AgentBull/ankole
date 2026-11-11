@@ -1,5 +1,5 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
-import { RiArrowRightSLine, RiCheckLine } from '@remixicon/react'
+import { CheckmarkRegular, ChevronRightRegular } from '../icons'
 import type * as React from 'react'
 import { cn } from '../lib/utils'
 
@@ -21,17 +21,27 @@ function DropdownMenuTrigger({ className, ...props }: MenuPrimitive.Trigger.Prop
   )
 }
 
-const menuContentClassName =
-  'ceramic ceramic-primary ceramic-menu z-50 max-h-(--available-height) w-auto min-w-[max(var(--anchor-width),10rem)] origin-(--transform-origin) overflow-x-hidden overflow-y-auto p-1 text-popover-foreground outline-none transition-none data-closed:overflow-hidden data-starting-style:opacity-0 data-ending-style:opacity-0'
+const menuPopupClassName =
+  'ceramic-menu z-50 max-h-(--available-height) w-auto min-w-[max(var(--anchor-width),10rem)] origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground outline-none transition-none data-closed:overflow-hidden data-starting-style:opacity-0 data-ending-style:opacity-0'
 
+const menuContentClassName = cn('ceramic ceramic-primary p-1', menuPopupClassName)
+
+/**
+ * The popup of a menu. It is ceramic, like every menu. A menu that opens from the composer's toolbar takes the
+ * `composer` surface instead, so the menu and the composer read as one object.
+ */
 function DropdownMenuContent({
   align = 'start',
   alignOffset = 0,
   side = 'bottom',
   sideOffset = 4,
+  surface = 'ceramic',
   className,
   ...props
-}: MenuPrimitive.Popup.Props & Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>) {
+}: MenuPrimitive.Popup.Props &
+  Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'> & {
+    surface?: 'ceramic' | 'composer'
+  }) {
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -42,7 +52,10 @@ function DropdownMenuContent({
         sideOffset={sideOffset}>
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
-          className={cn(menuContentClassName, className)}
+          className={cn(
+            surface === 'composer' ? cn('composer-menu', menuPopupClassName) : menuContentClassName,
+            className
+          )}
           {...props}
         />
       </MenuPrimitive.Positioner>
@@ -65,10 +78,7 @@ function DropdownMenuLabel({
     <div
       data-slot="dropdown-menu-label"
       data-inset={inset}
-      className={cn(
-        'flex min-h-8 items-center px-2.5 py-1.5 text-xs leading-4 font-medium text-muted-foreground data-inset:pl-9',
-        className
-      )}
+      className={cn('menu-group-label data-inset:pl-9', className)}
       {...props}
     />
   )
@@ -119,7 +129,7 @@ function DropdownMenuSubTrigger({
       )}
       {...props}>
       {children}
-      <RiArrowRightSLine aria-hidden className="ml-auto -mr-1 size-4" />
+      <ChevronRightRegular aria-hidden className="ml-auto -mr-1 size-4" />
     </MenuPrimitive.SubmenuTrigger>
   )
 }
@@ -169,7 +179,7 @@ function DropdownMenuCheckboxItem({
         className="pointer-events-none ml-auto flex size-4 shrink-0 items-center justify-center group-has-data-[slot=dropdown-menu-shortcut]/dropdown-menu-item:order-1"
         data-slot="dropdown-menu-checkbox-item-indicator">
         <MenuPrimitive.CheckboxItemIndicator>
-          <RiCheckLine aria-hidden />
+          <CheckmarkRegular aria-hidden />
         </MenuPrimitive.CheckboxItemIndicator>
       </span>
     </MenuPrimitive.CheckboxItem>
@@ -202,7 +212,7 @@ function DropdownMenuRadioItem({
         className="pointer-events-none ml-auto flex size-4 shrink-0 items-center justify-center group-has-data-[slot=dropdown-menu-shortcut]/dropdown-menu-item:order-1"
         data-slot="dropdown-menu-radio-item-indicator">
         <MenuPrimitive.RadioItemIndicator>
-          <RiCheckLine aria-hidden />
+          <CheckmarkRegular aria-hidden />
         </MenuPrimitive.RadioItemIndicator>
       </span>
     </MenuPrimitive.RadioItem>

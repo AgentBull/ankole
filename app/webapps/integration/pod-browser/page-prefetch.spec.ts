@@ -160,7 +160,8 @@ test('page data loads in parallel and cached navigation does not wait for revali
     record('page chat closed without duplicate page GET')
     expect(pageRequests).toBe(1)
 
-    await page.getByRole('link', { name: '回收站', exact: true }).click()
+    await page.getByRole('button', { name: /^账户菜单/ }).click()
+    await page.getByRole('menuitem', { name: '回收站', exact: true }).click()
     await expect(page.getByRole('heading', { name: '回收站', exact: true })).toBeVisible()
     let heldPageReads = 0
     await page.route(`**/api/v2/pod/pages/${pageID}`, async route => {

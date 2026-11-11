@@ -24,20 +24,20 @@ import {
   type AnkoleGraphLayoutMode
 } from '@ankole/uikit/components/graph'
 import {
-  RiAddLine,
-  RiArrowRightUpLine,
-  RiBubbleChartLine,
-  RiCloseLine,
-  RiCompass3Line,
-  RiFocus3Line,
-  RiFullscreenLine,
-  RiMindMap,
-  RiNodeTree,
-  RiPriceTag3Line,
-  RiStackLine,
-  RiZoomInLine,
-  RiZoomOutLine
-} from '@remixicon/react'
+  AddRegular,
+  ArrowUpRightRegular,
+  CompassNorthwestRegular,
+  DataScatterRegular,
+  DismissRegular,
+  FullScreenMaximizeRegular,
+  OrganizationHorizontalRegular,
+  StackRegular,
+  TagRegular,
+  TargetRegular,
+  TextBulletListTreeRegular,
+  ZoomInRegular,
+  ZoomOutRegular
+} from '@ankole/uikit/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMemo, useRef, useState } from 'react'
@@ -62,12 +62,12 @@ import { usePagesMetadata } from './use-page-metadata'
 const LAYOUT_OPTIONS: readonly {
   mode: AnkoleGraphLayoutMode
   labelKey: 'layout_force' | 'layout_hierarchy' | 'layout_combo' | 'layout_radial'
-  Icon: typeof RiMindMap
+  Icon: typeof OrganizationHorizontalRegular
 }[] = [
-  { mode: 'force', labelKey: 'layout_force', Icon: RiMindMap },
-  { mode: 'hierarchy', labelKey: 'layout_hierarchy', Icon: RiNodeTree },
-  { mode: 'combo', labelKey: 'layout_combo', Icon: RiBubbleChartLine },
-  { mode: 'radial', labelKey: 'layout_radial', Icon: RiCompass3Line }
+  { mode: 'force', labelKey: 'layout_force', Icon: OrganizationHorizontalRegular },
+  { mode: 'hierarchy', labelKey: 'layout_hierarchy', Icon: TextBulletListTreeRegular },
+  { mode: 'combo', labelKey: 'layout_combo', Icon: DataScatterRegular },
+  { mode: 'radial', labelKey: 'layout_radial', Icon: CompassNorthwestRegular }
 ]
 
 function parseLayoutMode(raw: string | null): AnkoleGraphLayoutMode {
@@ -120,7 +120,7 @@ function BrainLayersCard({
             aria-label={t('common.close')}
             onClick={onClose}
             className="rounded p-0.5 text-fg-tertiary hover:bg-bg-secondary hover:text-fg-primary">
-            <RiCloseLine className="size-3.5" />
+            <DismissRegular className="size-3.5" />
           </button>
         </div>
       </div>
@@ -230,7 +230,7 @@ function BrainInspectorCard({
             aria-label={t('common.close')}
             onClick={onClose}
             className="rounded p-0.5 text-fg-tertiary hover:bg-bg-secondary hover:text-fg-primary">
-            <RiCloseLine className="size-4" />
+            <DismissRegular className="size-4" />
           </button>
         </div>
 
@@ -240,7 +240,7 @@ function BrainInspectorCard({
             variant="outline"
             className="w-full justify-center gap-1.5"
             onClick={() => onCreateInCategory(selection.category.name)}>
-            <RiAddLine className="size-3.5" />
+            <AddRegular className="size-3.5" />
             {t('pod.meta.new_object')}
           </Button>
         )}
@@ -267,7 +267,7 @@ function BrainInspectorCard({
                     onFocusNode(member.id)
                   }}
                   className="shrink-0 rounded p-0.5 text-fg-tertiary hover:bg-bg-secondary hover:text-fg-primary">
-                  <RiFocus3Line className="size-3.5" />
+                  <TargetRegular className="size-3.5" />
                 </button>
               </li>
             ))}
@@ -305,7 +305,7 @@ function BrainInspectorCard({
           aria-label={t('common.close')}
           onClick={onClose}
           className="rounded p-0.5 text-fg-tertiary hover:bg-bg-secondary hover:text-fg-primary">
-          <RiCloseLine className="size-4" />
+          <DismissRegular className="size-4" />
         </button>
       </div>
 
@@ -314,14 +314,14 @@ function BrainInspectorCard({
           to={`/meta/brain/${object.id}`}
           className={cn(buttonVariants({ size: 'sm' }), 'flex-1 justify-center gap-1')}>
           <span>{t('pod.meta.open_object')}</span>
-          <RiArrowRightUpLine className="size-3.5" />
+          <ArrowUpRightRegular className="size-3.5" />
         </Link>
         <Button
           size="sm"
           variant="outline"
           aria-label={t('pod.meta.focus_node')}
           onClick={() => onFocusNode(object.id)}>
-          <RiFocus3Line className="size-3.5" />
+          <TargetRegular className="size-3.5" />
         </Button>
       </div>
 
@@ -378,7 +378,7 @@ function BrainInspectorCard({
                     onFocusNode(child.id)
                   }}
                   className="shrink-0 rounded p-0.5 text-fg-tertiary hover:text-fg-primary">
-                  <RiFocus3Line className="size-3.5" />
+                  <TargetRegular className="size-3.5" />
                 </button>
               </li>
             ))}
@@ -594,7 +594,7 @@ export function MetaBrain() {
             aria-label={t('pod.meta.toggle_layers')}
             pressed={layersOpen}
             onPressedChange={setLayersOpen}>
-            <RiStackLine className="size-3.5" />
+            <StackRegular className="size-3.5" />
             <span className="hidden md:inline">{t('pod.meta.toggle_layers')}</span>
           </Toggle>
           {layoutMode !== 'combo' && (
@@ -603,7 +603,7 @@ export function MetaBrain() {
               aria-label={t('pod.meta.category_hubs')}
               pressed={includeCategoryHubs}
               onPressedChange={setIncludeCategoryHubs}>
-              <RiNodeTree className="size-3.5" />
+              <TextBulletListTreeRegular className="size-3.5" />
               <span className="hidden lg:inline">{t('pod.meta.category_hubs')}</span>
             </Toggle>
           )}
@@ -612,7 +612,7 @@ export function MetaBrain() {
             aria-label={t('pod.meta.edge_labels')}
             pressed={showEdgeLabels}
             onPressedChange={setShowEdgeLabels}>
-            <RiPriceTag3Line className="size-3.5" />
+            <TagRegular className="size-3.5" />
             <span className="hidden lg:inline">{t('pod.meta.edge_labels')}</span>
           </Toggle>
         </div>
@@ -623,21 +623,21 @@ export function MetaBrain() {
             size="icon"
             onClick={() => graphRef.current?.zoomOut()}
             aria-label={t('pod.meta.zoom_out')}>
-            <RiZoomOutLine className="size-4" />
+            <ZoomOutRegular className="size-4" />
           </Button>
           <Button
             variant="outline"
             size="icon"
             onClick={() => graphRef.current?.fitView()}
             aria-label={t('pod.meta.fit_view')}>
-            <RiFullscreenLine className="size-4" />
+            <FullScreenMaximizeRegular className="size-4" />
           </Button>
           <Button
             variant="outline"
             size="icon"
             onClick={() => graphRef.current?.zoomIn()}
             aria-label={t('pod.meta.zoom_in')}>
-            <RiZoomInLine className="size-4" />
+            <ZoomInRegular className="size-4" />
           </Button>
         </div>
       </div>
@@ -753,7 +753,7 @@ export function MetaBrain() {
                       graphRef.current?.focusNode(node.id)
                     }}
                     className="rounded p-1 text-fg-tertiary hover:bg-bg-secondary hover:text-fg-primary">
-                    <RiFocus3Line className="size-3.5" />
+                    <TargetRegular className="size-3.5" />
                   </button>
                 </div>
               </li>

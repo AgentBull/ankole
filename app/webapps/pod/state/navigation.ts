@@ -9,7 +9,7 @@ export type CollapsibleSection = NavigationScope | 'recent' | 'favorites' | 'met
  * person followed stays the only marked one even when another section lists the page.
  */
 export type PodSidebarNavigationState = {
-  keepSidebarTab?: 'home' | 'chat' | 'work'
+  keepSidebarTab?: 'home' | 'chat'
   sidebarSection?: CollapsibleSection
 }
 

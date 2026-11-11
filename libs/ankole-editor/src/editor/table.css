@@ -36,11 +36,13 @@
   margin: 0;
 }
 
-/* Table chrome lives outside the editable DOM; the table itself keeps native semantics. */
+/* Table chrome lives outside the editable DOM; the table itself keeps native semantics. A table keeps twice the
+   block gap above and below it, which holds its 20px column handles and its add-row button clear of the
+   neighbouring blocks. */
 .ankole-editor .table-block {
   position: relative;
   width: min(100%, var(--table-width, 100%));
-  margin-block: 24px 40px;
+  margin-block: calc(var(--spacing-content-gap) * 2);
   max-width: 100%;
 }
 .ankole-editor .table-scroll {

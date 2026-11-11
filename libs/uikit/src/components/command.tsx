@@ -6,7 +6,7 @@ import { Command as CommandPrimitive } from 'cmdk'
 import { cn } from '../lib/utils'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog'
 import { InputGroup, InputGroupAddon } from './input-group'
-import { RiSearchLine, RiCheckLine } from '@remixicon/react'
+import { CheckmarkRegular, SearchRegular } from '../icons'
 
 export { defaultFilter as commandFilter } from 'cmdk'
 
@@ -103,7 +103,7 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
           {...props}
         />
         <InputGroupAddon>
-          <RiSearchLine className="size-3.5 shrink-0 opacity-50" />
+          <SearchRegular className="size-3.5 shrink-0 opacity-50" />
         </InputGroupAddon>
       </InputGroup>
     </div>
@@ -134,10 +134,7 @@ function CommandGroup({ className, ...props }: React.ComponentProps<typeof Comma
   return (
     <CommandPrimitive.Group
       data-slot="command-group"
-      className={cn(
-        'overflow-hidden p-1 text-foreground **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:text-muted-foreground',
-        className
-      )}
+      className={cn('overflow-hidden p-1 text-foreground **:[[cmdk-group-heading]]:menu-group-label', className)}
       {...props}
     />
   )
@@ -163,7 +160,7 @@ function CommandItem({ className, children, ...props }: React.ComponentProps<typ
       )}
       {...props}>
       {children}
-      <RiCheckLine className="ml-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
+      <CheckmarkRegular className="ml-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
     </CommandPrimitive.Item>
   )
 }

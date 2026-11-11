@@ -33,24 +33,24 @@ import {
   Spinner
 } from '@ankole/uikit'
 import {
-  RiAddLine,
-  RiArrowDownLine,
-  RiArrowDownSLine,
-  RiArrowGoBackLine,
-  RiArrowRightSLine,
-  RiArrowUpDownLine,
-  RiArrowUpLine,
-  RiArrowUpSLine,
-  RiDraggable,
-  RiEqualizerLine,
-  RiEyeLine,
-  RiEyeOffLine,
-  RiLayoutGridLine,
-  RiListUnordered,
-  RiLockLine,
-  RiMoreFill,
-  RiUpload2Line
-} from '@remixicon/react'
+  AddRegular,
+  ArrowDownRegular,
+  ArrowSortRegular,
+  ArrowUndoRegular,
+  ArrowUpRegular,
+  ArrowUploadRegular,
+  ChevronDownRegular,
+  ChevronRightRegular,
+  ChevronUpRegular,
+  EyeOffRegular,
+  EyeRegular,
+  GridRegular,
+  LockClosedRegular,
+  MoreHorizontalRegular,
+  OptionsRegular,
+  ReOrderDotsVerticalRegular,
+  TextBulletListLtrRegular
+} from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -212,7 +212,7 @@ export function DocumentSubpages({
           aria-expanded={false}
           onClick={() => model.toggleCollapsed(canEdit, persist)}
           className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-control px-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
-          <RiArrowRightSLine aria-hidden className="size-4 text-fg-secondary" />
+          <ChevronRightRegular aria-hidden className="size-4 text-fg-secondary" />
           <span>{t('pod.subpages.title')}</span>
           <Badge
             variant="secondary"
@@ -237,7 +237,7 @@ export function DocumentSubpages({
             aria-expanded={true}
             onClick={() => model.toggleCollapsed(canEdit, persist)}
             className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-control px-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
-            <RiArrowDownSLine aria-hidden className="size-4 text-fg-secondary" />
+            <ChevronDownRegular aria-hidden className="size-4 text-fg-secondary" />
             <span>{t('pod.subpages.title')}</span>
           </button>
 
@@ -249,9 +249,9 @@ export function DocumentSubpages({
                 <Button variant="ghost" size="sm" aria-label={t('pod.subpages.switch_view')} className="gap-1.5 px-2" />
               }>
               {view === 'list' ? (
-                <RiListUnordered aria-hidden className="size-4 text-fg-secondary" />
+                <TextBulletListLtrRegular aria-hidden className="size-4 text-fg-secondary" />
               ) : (
-                <RiLayoutGridLine aria-hidden className="size-4 text-fg-secondary" />
+                <GridRegular aria-hidden className="size-4 text-fg-secondary" />
               )}
               <span>
                 {view === 'table'
@@ -260,18 +260,18 @@ export function DocumentSubpages({
                     ? t('pod.subpages.view_list')
                     : t('pod.subpages.view_grid')}
               </span>
-              <RiArrowDownSLine aria-hidden className="size-3.5 text-fg-tertiary" />
+              <ChevronDownRegular aria-hidden className="size-3.5 text-fg-tertiary" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-36">
               <DropdownMenuRadioGroup
                 value={view}
                 onValueChange={next => model.setView(next as SubpageViewMode, canEdit, persist)}>
                 <DropdownMenuRadioItem value="list">
-                  <RiListUnordered aria-hidden />
+                  <TextBulletListLtrRegular aria-hidden />
                   {t('pod.subpages.view_list')}
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="grid">
-                  <RiLayoutGridLine aria-hidden />
+                  <GridRegular aria-hidden />
                   {t('pod.subpages.view_grid')}
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="table">{t('pod.knowledge.properties_table')}</DropdownMenuRadioItem>
@@ -285,7 +285,7 @@ export function DocumentSubpages({
               size="sm"
               className="gap-1 px-2 text-xs text-fg-secondary"
               onClick={() => model.resetSort()}>
-              <RiArrowGoBackLine aria-hidden className="size-3.5" />
+              <ArrowUndoRegular aria-hidden className="size-3.5" />
               {t('pod.subpages.reset_order')}
             </Button>
           )}
@@ -302,7 +302,7 @@ export function DocumentSubpages({
                   className="gap-1.5 px-2 text-fg-secondary"
                 />
               }>
-              <RiEqualizerLine aria-hidden className="size-4" />
+              <OptionsRegular aria-hidden className="size-4" />
               <span>{t('pod.subpages.display_settings')}</span>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-64 gap-2 p-3">
@@ -314,13 +314,13 @@ export function DocumentSubpages({
               <div className="flex flex-col gap-0.5">
                 <div className="flex h-8 items-center justify-between rounded-control px-2 text-sm text-fg-secondary">
                   <span className="inline-flex items-center gap-2">
-                    <RiLockLine
+                    <LockClosedRegular
                       aria-label={t('pod.subpages.always_visible')}
                       className="size-3.5 shrink-0 text-fg-tertiary"
                     />
                     <span>{t('pod.subpages.field_name')}</span>
                   </span>
-                  <RiEyeLine aria-hidden className="size-4 text-fg-disabled" />
+                  <EyeRegular aria-hidden className="size-4 text-fg-disabled" />
                 </div>
 
                 {fieldOrder.map((field, index) => {
@@ -359,7 +359,10 @@ export function DocumentSubpages({
                         !isVisible && 'text-fg-secondary'
                       )}>
                       <span className="inline-flex min-w-0 items-center gap-1.5">
-                        <RiDraggable aria-hidden className="size-3.5 shrink-0 cursor-grab text-fg-tertiary" />
+                        <ReOrderDotsVerticalRegular
+                          aria-hidden
+                          className="size-3.5 shrink-0 cursor-grab text-fg-tertiary"
+                        />
                         <span className="truncate">{label}</span>
                       </span>
                       <span className="inline-flex shrink-0 items-center gap-0.5">
@@ -371,7 +374,7 @@ export function DocumentSubpages({
                           title={t('pod.subpages.move_field_up', { field: label })}
                           className="size-6 opacity-0 group-focus-within/field-row:opacity-100 group-hover/field-row:opacity-100 disabled:opacity-0"
                           onClick={() => model.stepField(field, -1, canEdit, persist)}>
-                          <RiArrowUpSLine aria-hidden className="size-3.5" />
+                          <ChevronUpRegular aria-hidden className="size-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -381,7 +384,7 @@ export function DocumentSubpages({
                           title={t('pod.subpages.move_field_down', { field: label })}
                           className="size-6 opacity-0 group-focus-within/field-row:opacity-100 group-hover/field-row:opacity-100 disabled:opacity-0"
                           onClick={() => model.stepField(field, 1, canEdit, persist)}>
-                          <RiArrowDownSLine aria-hidden className="size-3.5" />
+                          <ChevronDownRegular aria-hidden className="size-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -396,9 +399,9 @@ export function DocumentSubpages({
                           className="size-6"
                           onClick={() => model.toggleField(field, canEdit, persist)}>
                           {isVisible ? (
-                            <RiEyeLine aria-hidden className="size-4 text-foreground" />
+                            <EyeRegular aria-hidden className="size-4 text-foreground" />
                           ) : (
-                            <RiEyeOffLine aria-hidden className="size-4 text-fg-tertiary" />
+                            <EyeOffRegular aria-hidden className="size-4 text-fg-tertiary" />
                           )}
                         </Button>
                       </span>
@@ -432,7 +435,7 @@ export function DocumentSubpages({
                 {uploading ? (
                   <Spinner aria-hidden className="size-4" />
                 ) : (
-                  <RiUpload2Line aria-hidden className="size-4" />
+                  <ArrowUploadRegular aria-hidden className="size-4" />
                 )}
                 <span>{uploading ? t('pod.subpages.uploading') : t('pod.subpages.upload')}</span>
               </Button>
@@ -450,7 +453,7 @@ export function DocumentSubpages({
                   {createChild.isPending ? (
                     <Spinner aria-hidden className="size-4" />
                   ) : (
-                    <RiAddLine aria-hidden className="size-4" />
+                    <AddRegular aria-hidden className="size-4" />
                   )}
                   <span>{t('pod.subpages.new_subpage')}</span>
                 </DropdownMenuTrigger>
@@ -576,11 +579,11 @@ function SortableTableHead({
         className="group/sort -mx-1.5 inline-flex cursor-pointer items-center gap-1 rounded-control px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
         <span>{label}</span>
         {active === 'asc' ? (
-          <RiArrowUpLine aria-hidden className="size-3.5 text-foreground" />
+          <ArrowUpRegular aria-hidden className="size-3.5 text-foreground" />
         ) : active === 'desc' ? (
-          <RiArrowDownLine aria-hidden className="size-3.5 text-foreground" />
+          <ArrowDownRegular aria-hidden className="size-3.5 text-foreground" />
         ) : (
-          <RiArrowUpDownLine
+          <ArrowSortRegular
             aria-hidden
             className="size-3.5 opacity-0 transition-opacity group-hover/sort:opacity-70 group-focus-visible/sort:opacity-70"
           />
@@ -682,7 +685,7 @@ function SubpageListRow({
                       className="opacity-0 transition-opacity group-focus-within/subpage-row:opacity-100 group-hover/subpage-row:opacity-100 aria-expanded:opacity-100"
                     />
                   }>
-                  <RiMoreFill aria-hidden className="size-4" />
+                  <MoreHorizontalRegular aria-hidden className="size-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56" finalFocus={menuFinalFocus}>
                   {menu}
@@ -775,7 +778,7 @@ function SubpageGridCard({
                       className="relative z-10 shrink-0 opacity-0 transition-opacity group-focus-within/subpage-card:opacity-100 group-hover/subpage-card:opacity-100 aria-expanded:opacity-100"
                     />
                   }>
-                  <RiMoreFill aria-hidden className="size-4" />
+                  <MoreHorizontalRegular aria-hidden className="size-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56" finalFocus={menuFinalFocus}>
                   {menu}

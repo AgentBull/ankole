@@ -1,7 +1,7 @@
 import type { Nodes, Parent, Root } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
-import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import { MARKDOWN_SYNTAX_PLUGINS } from '../../common/markdown-syntax'
 
 type Range = [start: number, end: number]
 type TextEdit = [start: number, end: number, replacement: string]
@@ -19,14 +19,21 @@ const PROTECTED_NODE_TYPES = new Set([
   'definition'
 ])
 
+/**
+ * Chat Markdown takes math only between double dollar signs, as a document does, so a single dollar sign stays text
+ * and a price such as `$300` reads as prose.
+ */
+export const MATH_OPTIONS = { singleDollarTextMath: false }
+
+// The repair parses a message with the syntax the renderer parses it with, so both read the same tree.
 const PARSE_OPTIONS = (() => {
   const data: {
     micromarkExtensions?: NonNullable<Parameters<typeof fromMarkdown>[1]>['extensions']
     fromMarkdownExtensions?: NonNullable<Parameters<typeof fromMarkdown>[1]>['mdastExtensions']
   } = {}
   const processor = { data: () => data }
-  remarkGfm.call(processor as never)
-  remarkMath.call(processor as never)
+  for (const plugin of MARKDOWN_SYNTAX_PLUGINS) (plugin as () => void).call(processor)
+  remarkMath.call(processor as never, MATH_OPTIONS)
   return {
     extensions: data.micromarkExtensions ?? [],
     mdastExtensions: data.fromMarkdownExtensions ?? []

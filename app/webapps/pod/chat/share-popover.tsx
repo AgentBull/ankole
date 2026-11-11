@@ -14,7 +14,7 @@ import {
   Switch,
   toast
 } from '@ankole/uikit'
-import { RiCloseLine, RiLink } from '@remixicon/react'
+import { DismissRegular, LinkRegular } from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useDebouncedValue } from '../../common/use-debounced-value'
@@ -99,7 +99,7 @@ export function SharePopover({
                     () => toast.error(t('pod.chat_room.copy_failed'))
                   )
               }}>
-              <RiLink aria-hidden />
+              <LinkRegular aria-hidden />
               {t('pod.chat_room.copy_link')}
             </Button>
           </div>
@@ -143,7 +143,7 @@ export function SharePopover({
                       className="text-fg-tertiary hover:text-foreground"
                       aria-label={t('pod.chat_room.remove_member', { name: item.displayName })}
                       onClick={() => setSelected(current => current.filter(entry => entry.uid !== item.uid))}>
-                      <RiCloseLine aria-hidden className="size-3.5" />
+                      <DismissRegular aria-hidden className="size-3.5" />
                     </button>
                   </span>
                 ))}
@@ -191,7 +191,7 @@ export function SharePopover({
                           actions.participants.mutate({ removeUIDs: [member.uid] })
                         }
                       }}>
-                      <RiCloseLine aria-hidden />
+                      <DismissRegular aria-hidden />
                     </Button>
                   )}
                 </div>

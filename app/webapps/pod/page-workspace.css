@@ -14,14 +14,14 @@
   padding: 0;
 }
 
-/* The document column is 832px wide with at least 68px on either side, and its first line sits 68px below the
-   page's top edge, counting the 44px sheet header. */
+/* The Page body is the 892px content column (`--spacing-content`) with at least 68px on either side, and its first
+   line sits 68px below the content card's top edge. */
 .pod-page-content {
   --pod-page-gutter-start: 68px;
   --pod-page-gutter-end: 68px;
-  width: min(100%, 968px);
+  width: min(100%, calc(var(--spacing-content) + var(--pod-page-gutter-start) + var(--pod-page-gutter-end)));
   margin-inline: auto;
-  padding-block: 24px 120px;
+  padding-block: 68px 120px;
   padding-inline: var(--pod-page-gutter-start) var(--pod-page-gutter-end);
 }
 
@@ -72,8 +72,7 @@
   min-width: 0;
 }
 
-/* The icon sits in the title's first line: a 48px box matches the 38px title's
-   47.5px line, so the glyph centers on the text without pushing the title down. */
+/* The title icon is a 48px box holding a 40px glyph. */
 .pod-page-title-icon {
   display: flex;
   flex: none;
@@ -83,7 +82,7 @@
   height: 48px;
   padding: 0;
   margin: 0;
-  font-size: 42px;
+  font-size: 40px;
   line-height: 1;
 }
 
@@ -98,8 +97,8 @@
    sizing of `.pod-page-icon` must not win over the title icon. */
 .pod-page-title-icon img.pod-page-icon,
 img.pod-page-title-icon.pod-page-icon {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   object-fit: contain;
 }
@@ -156,24 +155,20 @@ img.pod-page-title-icon.pod-page-icon {
   line-height: 42px;
 }
 
-.pod-page[data-page-type='doc'] .pod-page-heading {
-  margin-bottom: 20px;
+/* A document stacks its icon over its title, 12px apart, and its body starts 12px below the title. The title is
+   the 36px step in SemiBold on its 54px line. A version preview shows the document the same way. */
+:is(.pod-page[data-page-type='doc'], .pod-document-history-preview) .pod-page-heading {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-content-gap);
+  margin-bottom: var(--spacing-content-gap);
 }
 
-@media (min-width: 761px) {
-  .pod-page[data-page-type='doc'] .pod-page-content {
-    --pod-page-gutter-start: 64px;
-    --pod-page-gutter-end: 64px;
-  }
-}
-
-/* Notion sets the title at 40px bold, which PingFang draws as semibold. IBM Plex is semibold at 600 and
-   runs larger in Latin text, so 38px at 600 carries the same weight in both scripts. */
-.pod-page[data-page-type='doc'] .pod-page-title {
-  min-height: 48px;
-  font-size: 38px;
+:is(.pod-page[data-page-type='doc'], .pod-document-history-preview) .pod-page-title {
+  min-height: var(--text-600--line-height);
+  font-size: var(--text-600);
   font-weight: 600;
-  line-height: 1.25;
+  line-height: var(--text-600--line-height);
   overflow-wrap: anywhere;
 }
 
@@ -199,10 +194,10 @@ textarea.pod-page-title:focus-visible {
 
 .pod-page-save-state,
 .pod-page-origin {
-  margin: 8px 0 14px;
+  margin: 0 0 var(--spacing-content-gap);
   color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 20px;
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
 }
 
 .pod-page-origin a {
@@ -232,7 +227,7 @@ textarea.pod-page-title:focus-visible {
   display: block;
   width: 100%;
   padding: 0;
-  margin: 8px 0;
+  margin: var(--spacing-content-gap) 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -243,17 +238,18 @@ textarea.pod-page-title:focus-visible {
   display: none;
 }
 
+/* A Page mention reads as a link in the surrounding text: a 20px icon, 4px of space, and the title in the text's
+   own weight over a gray-60 underline. */
 .pod-mention-page {
   display: inline;
   padding-block: 1px;
   padding-inline: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   color: var(--foreground);
-  font-weight: 500;
   text-decoration: underline;
-  text-decoration-color: var(--border-strong);
+  text-decoration-color: var(--divider-strong);
   text-underline-offset: 3px;
   cursor: pointer;
 }
@@ -263,15 +259,17 @@ textarea.pod-page-title:focus-visible {
   text-decoration-color: var(--foreground);
 }
 
-.pod-mention-page-icon {
+/* The icon centres on the first line of the mention whatever that line's height. */
+.pod-mention-page .pod-mention-page-icon {
   display: inline-flex;
-  width: 1em;
-  height: 1em;
-  margin-inline-end: 0.22em;
+  width: 20px;
+  height: 20px;
+  margin-block: calc((1lh - 20px) / 2);
+  margin-inline-end: 4px;
   padding: 0;
-  vertical-align: -0.15em;
-  font-size: 1em;
-  line-height: 1;
+  vertical-align: top;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .pod-mention-page.pod-mention-trashed {
@@ -380,21 +378,11 @@ textarea.pod-page-title:focus-visible {
     min-height: 42px;
   }
 
-  .pod-page[data-page-type='doc'] .pod-page-title {
-    min-height: 40px;
-    font-size: 30px;
-  }
-
-  .pod-page-title-icon {
-    width: 40px;
-    height: 40px;
-    font-size: 34px;
-  }
-
-  .pod-page-title-icon img.pod-page-icon,
-  img.pod-page-title-icon.pod-page-icon {
-    width: 34px;
-    height: 34px;
+  /* On a phone the document title steps down to the 30px step, so a long title keeps to fewer lines. */
+  :is(.pod-page[data-page-type='doc'], .pod-document-history-preview) .pod-page-title {
+    min-height: var(--text-500--line-height);
+    font-size: var(--text-500);
+    line-height: var(--text-500--line-height);
   }
 
   .pod-document .drag-handle {

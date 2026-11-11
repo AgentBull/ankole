@@ -14,9 +14,12 @@ export interface RenderedMermaidDiagram {
 const MAX_CACHE_ENTRIES = 48
 const diagramCache = new Map<string, RenderedMermaidDiagram>()
 
+// A downloaded diagram names the Pod's faces first. When the Worker rasterises an exported SVG, it maps the aliases
+// `IBMPlexSansCN` and `IBMPlexMonoCN` to its installed fonts, so each list names that alias next.
 export const DIAGRAM_HOST_FONT_SANS =
-  "'IBMPlexSansCN','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
-export const DIAGRAM_HOST_FONT_MONO = "'IBMPlexMonoCN',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace"
+  "'AgentBullSansGB','IBMPlexSansCN','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+export const DIAGRAM_HOST_FONT_MONO =
+  "'AgentBullMono','IBMPlexMonoCN',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace"
 
 export const MERMAID_PALETTES: Record<
   MermaidThemeMode,

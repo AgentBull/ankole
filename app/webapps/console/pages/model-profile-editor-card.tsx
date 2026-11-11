@@ -14,7 +14,7 @@ import {
   SelectValue,
   SwitchRow
 } from '@ankole/uikit'
-import { RiArrowDownSLine } from '@remixicon/react'
+import { ChevronDownRegular } from '@ankole/uikit/icons'
 import type { TFunction } from 'i18next'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -172,7 +172,7 @@ export function ModelProfileEditorCard({
             <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.required')}</span>
           ) : null}
           {dirty ? <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.unsaved')}</span> : null}
-          <RiArrowDownSLine
+          <ChevronDownRegular
             className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
             aria-hidden
           />
@@ -340,7 +340,7 @@ export function ModelProfileEditorCard({
                       <span>{t('common.advanced_settings')}</span>
                       <span className="flex items-center gap-2 text-xs text-muted-foreground">
                         {advancedOptionSettings.length}
-                        <RiArrowDownSLine
+                        <ChevronDownRegular
                           className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
                           aria-hidden
                         />

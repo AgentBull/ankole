@@ -1,12 +1,12 @@
 import {
-  RiAddLine,
-  RiArrowRightSLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiDeleteBinLine,
-  RiEditLine,
-  RiFileCopyLine
-} from '@remixicon/react'
+  AddRegular,
+  CheckmarkRegular,
+  ChevronRightRegular,
+  CopyRegular,
+  DeleteRegular,
+  DismissRegular,
+  EditRegular
+} from '@ankole/uikit/icons'
 import { JsonEditor, type LocalisedStrings, type Theme } from 'json-edit-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -93,13 +93,22 @@ const DANGER_ICON_CLASS =
 const THEME: Theme = {
   displayName: 'Ankole',
   icons: {
-    add: { content: <RiAddLine x={4} y={4} size={16} />, svgProps: { className: ICON_CLASS } },
-    edit: { content: <RiEditLine x={4} y={4} size={16} />, svgProps: { className: ICON_CLASS } },
-    delete: { content: <RiDeleteBinLine x={4} y={4} size={16} />, svgProps: { className: DANGER_ICON_CLASS } },
-    copy: { content: <RiFileCopyLine x={4} y={4} size={16} />, svgProps: { className: ICON_CLASS } },
-    ok: { content: <RiCheckLine x={4} y={4} size={16} />, svgProps: { className: ICON_CLASS } },
-    cancel: { content: <RiCloseLine x={4} y={4} size={16} />, svgProps: { className: DANGER_ICON_CLASS } },
-    collection: { content: <RiArrowRightSLine size={16} />, svgProps: { className: 'size-4 text-muted-foreground' } }
+    add: { content: <AddRegular x={4} y={4} width={16} height={16} />, svgProps: { className: ICON_CLASS } },
+    edit: { content: <EditRegular x={4} y={4} width={16} height={16} />, svgProps: { className: ICON_CLASS } },
+    delete: {
+      content: <DeleteRegular x={4} y={4} width={16} height={16} />,
+      svgProps: { className: DANGER_ICON_CLASS }
+    },
+    copy: { content: <CopyRegular x={4} y={4} width={16} height={16} />, svgProps: { className: ICON_CLASS } },
+    ok: { content: <CheckmarkRegular x={4} y={4} width={16} height={16} />, svgProps: { className: ICON_CLASS } },
+    cancel: {
+      content: <DismissRegular x={4} y={4} width={16} height={16} />,
+      svgProps: { className: DANGER_ICON_CLASS }
+    },
+    collection: {
+      content: <ChevronRightRegular width={16} height={16} />,
+      svgProps: { className: 'size-4 text-muted-foreground' }
+    }
   },
   styles: {
     container: {

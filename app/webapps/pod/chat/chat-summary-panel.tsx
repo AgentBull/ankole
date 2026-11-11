@@ -1,5 +1,5 @@
 import { Button, SwitchRow } from '@ankole/uikit'
-import { RiCloseLine } from '@remixicon/react'
+import { DismissRegular } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import type { ConversationDetail } from '../api'
 import { MessagePageReference } from '../message-artifacts'
@@ -46,100 +46,105 @@ export function ChatSummaryPanel({
           onClose()
         }
       }}>
-      <header>
-        <h2>{t('pod.chat_room.summary')}</h2>
+      <header className="pod-chat-panel-header">
+        <h2 className="pod-chat-panel-title">{t('pod.chat_room.summary')}</h2>
         <Button size="icon-sm" variant="ghost" aria-label={t('common.close')} onClick={onClose}>
-          <RiCloseLine aria-hidden />
+          <DismissRegular aria-hidden />
         </Button>
       </header>
-      <section>
-        <h3>{t('pod.chat_room.agents')}</h3>
-        {room.agents.map(agent => (
-          <div key={agent.uid} className="pod-chat-summary-agent">
-            <div className="pod-chat-member">
-              <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
-              <span>{agent.displayName}</span>
-              <span className="pod-chat-subtle">
-                {t(agent.active ? 'pod.chat_room.active' : 'pod.chat_room.unavailable')}
-              </span>
-            </div>
-            {agent.active && callableAgentUIDs.includes(agent.uid) && (
-              <ModelControls
-                agentUID={agent.uid}
-                conversationID={room.id}
-                draftProfile={null}
-                onDraftProfileChange={() => {}}
-              />
-            )}
-            {room.roomMode === 'group' && (
-              <SwitchRow
-                rowClassName="pod-chat-member pod-chat-subtle"
-                label={t('pod.chat_room.intervene')}
-                checked={agent.mayIntervene}
-                aria-label={t('pod.chat_room.intervene_agent', { name: agent.displayName })}
-                disabled={actions.participants.isPending}
-                onCheckedChange={checked => actions.participants.mutate({ agentUID: agent.uid, mayIntervene: checked })}
-              />
-            )}
-          </div>
-        ))}
-      </section>
-      <section>
-        <h3>{t('pod.chat_room.people')}</h3>
-        {room.participants
-          .filter(member => member.type === 'human')
-          .map(member => (
-            <div className="pod-chat-member" key={member.uid}>
-              <ChatAvatar name={member.displayName} src={member.avatarURL} />
-              <span>{member.displayName}</span>
-              <span className="pod-chat-subtle">{t(`pod.chat_room.role_${member.role || 'member'}`)}</span>
+      <div className="pod-chat-summary-body">
+        <section>
+          <h3>{t('pod.chat_room.agents')}</h3>
+          {room.agents.map(agent => (
+            <div key={agent.uid} className="pod-chat-summary-agent">
+              <div className="pod-chat-member">
+                <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
+                <span>{agent.displayName}</span>
+                <span className="pod-chat-subtle">
+                  {t(agent.active ? 'pod.chat_room.active' : 'pod.chat_room.unavailable')}
+                </span>
+              </div>
+              {agent.active && callableAgentUIDs.includes(agent.uid) && (
+                <ModelControls
+                  agentUID={agent.uid}
+                  conversationID={room.id}
+                  draftProfile={null}
+                  onDraftProfileChange={() => {}}
+                />
+              )}
+              {room.roomMode === 'group' && (
+                <SwitchRow
+                  rowClassName="pod-chat-member pod-chat-subtle"
+                  label={t('pod.chat_room.intervene')}
+                  checked={agent.mayIntervene}
+                  aria-label={t('pod.chat_room.intervene_agent', { name: agent.displayName })}
+                  disabled={actions.participants.isPending}
+                  onCheckedChange={checked =>
+                    actions.participants.mutate({ agentUID: agent.uid, mayIntervene: checked })
+                  }
+                />
+              )}
             </div>
           ))}
-      </section>
-      <section>
-        <h3>{t('pod.chat_room.pages_artifacts')}</h3>
-        {pageIDs.map(id => (
-          <div key={id} className="pod-chat-summary-page">
-            <MessagePageReference id={id} />
-          </div>
-        ))}
-        {attachments.map(message => (
-          <MessageAttachments
-            key={message.messageID}
-            conversationID={room.id}
-            messageID={message.messageID}
-            attachments={message.attachments}
-          />
-        ))}
-        {!pageIDs.length && !attachments.length && <p className="pod-chat-subtle">{t('pod.chat_room.no_pages')}</p>}
-      </section>
-      <section>
-        <h3>{t('pod.chat_room.background')}</h3>
-        {collapseExecutionChains(
-          detail.linkedRuns.map(run => ({
-            ...run,
-            agentName:
-              room.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
-              detail.messages.findLast(message => message.authorType === 'agent' && message.authorUID === run.agentUID)
-                ?.authorDisplayName
-          }))
-        ).map(run => (
-          <LinkedExecutionCard
-            key={`${run.kind}:${run.id}`}
-            conversationID={room.id}
-            run={run}
-            showAgentName
-            compact
-            isActive={isExecutionActive(activeInspector, run)}
-            onOpenInspector={
-              onOpenInspector
-                ? (target, trigger, event) => onOpenInspector({ ...target, fromSummary: true }, trigger, event)
-                : undefined
-            }
-          />
-        ))}
-        {!detail.linkedRuns.length && <p className="pod-chat-subtle">{t('pod.chat_room.no_background')}</p>}
-      </section>
+        </section>
+        <section>
+          <h3>{t('pod.chat_room.people')}</h3>
+          {room.participants
+            .filter(member => member.type === 'human')
+            .map(member => (
+              <div className="pod-chat-member" key={member.uid}>
+                <ChatAvatar name={member.displayName} src={member.avatarURL} />
+                <span>{member.displayName}</span>
+                <span className="pod-chat-subtle">{t(`pod.chat_room.role_${member.role || 'member'}`)}</span>
+              </div>
+            ))}
+        </section>
+        <section>
+          <h3>{t('pod.chat_room.pages_artifacts')}</h3>
+          {pageIDs.map(id => (
+            <div key={id} className="pod-chat-summary-page">
+              <MessagePageReference id={id} />
+            </div>
+          ))}
+          {attachments.map(message => (
+            <MessageAttachments
+              key={message.messageID}
+              conversationID={room.id}
+              messageID={message.messageID}
+              attachments={message.attachments}
+            />
+          ))}
+          {!pageIDs.length && !attachments.length && <p className="pod-chat-subtle">{t('pod.chat_room.no_pages')}</p>}
+        </section>
+        <section>
+          <h3>{t('pod.chat_room.background')}</h3>
+          {collapseExecutionChains(
+            detail.linkedRuns.map(run => ({
+              ...run,
+              agentName:
+                room.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
+                detail.messages.findLast(
+                  message => message.authorType === 'agent' && message.authorUID === run.agentUID
+                )?.authorDisplayName
+            }))
+          ).map(run => (
+            <LinkedExecutionCard
+              key={`${run.kind}:${run.id}`}
+              conversationID={room.id}
+              run={run}
+              showAgentName
+              compact
+              isActive={isExecutionActive(activeInspector, run)}
+              onOpenInspector={
+                onOpenInspector
+                  ? (target, trigger, event) => onOpenInspector({ ...target, fromSummary: true }, trigger, event)
+                  : undefined
+              }
+            />
+          ))}
+          {!detail.linkedRuns.length && <p className="pod-chat-subtle">{t('pod.chat_room.no_background')}</p>}
+        </section>
+      </div>
     </PodPanelSurface>
   )
 }

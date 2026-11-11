@@ -24,15 +24,15 @@ import {
   useSidebar
 } from '@ankole/uikit'
 import {
-  RiAddLine,
-  RiArrowDownSLine,
-  RiArrowRightUpLine,
-  RiCloseLine,
-  RiHistoryLine,
-  RiSearchLine,
-  RiSettings3Line,
-  RiUser3Line
-} from '@remixicon/react'
+  AddRegular,
+  ArrowUpRightRegular,
+  ChevronDownRegular,
+  DismissRegular,
+  HistoryRegular,
+  PersonRegular,
+  SearchRegular,
+  SettingsRegular
+} from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from '@tanstack/react-router'
@@ -297,7 +297,7 @@ export function PodCommandMenu({
         keywords: [text],
         href: '/',
         state: { focusComposer: true },
-        icon: RiAddLine
+        icon: AddRegular
       })
     }
     rawNav.push({
@@ -305,7 +305,7 @@ export function PodCommandMenu({
       label: t('pod.content.search_pages'),
       keywords: [t('pod.content.search_pages')],
       href: '/content/search',
-      icon: RiSearchLine
+      icon: SearchRegular
     })
     for (const scope of ['space', 'private', 'shared', 'recent', 'favorites', 'trash'] as const) {
       if (scope === 'private' && pages.data?.can_create_private === false) continue
@@ -322,7 +322,7 @@ export function PodCommandMenu({
       label: t('pod.account.title'),
       keywords: [t('pod.account.title')],
       href: '/me',
-      icon: RiUser3Line
+      icon: PersonRegular
     })
     if (session.data?.canManagePod) {
       rawNav.push({
@@ -330,7 +330,7 @@ export function PodCommandMenu({
         label: t('pod.settings.title'),
         keywords: [t('pod.settings.title')],
         href: '/settings',
-        icon: RiSettings3Line
+        icon: SettingsRegular
       })
     }
 
@@ -608,14 +608,14 @@ export function PodCommandMenu({
               autoFocus
             />
 
-            <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-(--menu-field-edge) px-1.5 py-1">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-divider-overlay px-1.5 py-1">
               <div className="flex flex-wrap items-center gap-1">
                 <Button
                   type="button"
                   size="sm"
                   variant={titleOnly ? 'outline' : 'ghost'}
                   aria-pressed={titleOnly}
-                  className="h-7 px-2 text-xs"
+                  className="px-2 text-xs"
                   onClick={() => setTitleOnly(prev => !prev)}>
                   {t('pod.command.title_only')}
                 </Button>
@@ -625,7 +625,7 @@ export function PodCommandMenu({
                     size="sm"
                     variant={inCurrentPage ? 'outline' : 'ghost'}
                     aria-pressed={inCurrentPage}
-                    className="h-7 max-w-48 truncate px-2 text-xs"
+                    className="max-w-48 truncate px-2 text-xs"
                     onClick={() => setInCurrentPage(prev => !prev)}>
                     {currentPageTitle
                       ? t('pod.command.in_page_chip', { title: currentPageTitle })
@@ -641,7 +641,7 @@ export function PodCommandMenu({
                       size="sm"
                       variant="ghost"
                       aria-label={t('pod.command.sort_label')}
-                      className="h-7 gap-1 px-2 text-xs"
+                      className="gap-1 px-2 text-xs"
                     />
                   }>
                   <span>
@@ -655,9 +655,9 @@ export function PodCommandMenu({
                             ? t('pod.command.sort_created_asc')
                             : t('pod.command.sort_best')}
                   </span>
-                  <RiArrowDownSLine aria-hidden className="size-3.5 text-fg-tertiary" />
+                  <ChevronDownRegular aria-hidden className="size-3.5 text-fg-tertiary" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuContent align="end">
                   <DropdownMenuRadioGroup value={sort} onValueChange={next => setSort(next as PageSearchSort)}>
                     <DropdownMenuRadioItem value="best">{t('pod.command.sort_best')}</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="updated_desc">
@@ -689,18 +689,20 @@ export function PodCommandMenu({
                         <CommandGroup
                           key="recent-search"
                           heading={
-                            <span className="flex items-center justify-between gap-2">
+                            // The group title is a flex row, so its content stretches to put the action at the end.
+                            <span className="flex flex-1 items-center justify-between gap-2">
                               <span>{t('pod.command.recent_searches')}</span>
-                              <button
+                              <Button
                                 type="button"
-                                className="inline-flex min-h-6 cursor-pointer items-center rounded-mini px-2 text-[11px] text-fg-tertiary hover:bg-accent hover:text-foreground"
+                                variant="ghost"
+                                size="xs"
                                 onClick={event => {
                                   event.preventDefault()
                                   event.stopPropagation()
                                   clearRecents.mutate()
                                 }}>
                                 {t('pod.command.clear_recent_searches')}
-                              </button>
+                              </Button>
                             </span>
                           }>
                           {group.entries.map(({ value, keywords, entry }) => (
@@ -712,19 +714,22 @@ export function PodCommandMenu({
                                 setQuery(entry.query)
                                 setActiveValue('')
                               }}>
-                              <RiHistoryLine aria-hidden className="text-fg-tertiary" />
+                              <HistoryRegular aria-hidden className="text-fg-tertiary" />
                               <span className="min-w-0 flex-1 truncate">{entry.query}</span>
-                              <button
+                              <Button
                                 type="button"
+                                variant="ghost"
+                                size="icon-xs"
                                 aria-label={t('pod.command.remove_recent_search', { query: entry.query })}
-                                className="inline-flex size-6 min-h-6 min-w-6 shrink-0 cursor-pointer items-center justify-center rounded-mini text-fg-tertiary hover:bg-accent hover:text-foreground"
                                 onClick={event => {
                                   event.preventDefault()
                                   event.stopPropagation()
                                   deleteRecent.mutate(entry.id)
                                 }}>
-                                <RiCloseLine aria-hidden className="size-3.5" />
-                              </button>
+                                {/* The row gives 16px to every icon without a size class, so this icon names the
+                                    button's 14px size. */}
+                                <DismissRegular aria-hidden className="size-3.5" />
+                              </Button>
                             </CommandItem>
                           ))}
                         </CommandGroup>
@@ -866,7 +871,7 @@ export function PodCommandMenu({
               />
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-(--menu-field-edge) px-2 pt-1.5 text-[11px] text-fg-tertiary">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-overlay px-2 pt-1.5 text-[11px] text-fg-tertiary">
               <div className="flex items-center gap-3">
                 <span>{t('pod.command.hint_navigate')}</span>
                 <span className="hidden md:inline">
@@ -876,13 +881,14 @@ export function PodCommandMenu({
                 <span className="hidden sm:inline">{t('pod.command.hint_new_tab')}</span>
               </div>
               {trimmedQuery && (
-                <button
+                <Button
                   type="button"
-                  className="inline-flex min-h-6 cursor-pointer items-center gap-1 rounded-mini px-2 text-xs text-fg-secondary hover:bg-accent hover:text-foreground"
+                  variant="ghost"
+                  size="xs"
                   onClick={() => void choose(openFullSearchHref, undefined, trimmedQuery)}>
                   {t('pod.command.view_all_results')}
-                  <RiArrowRightUpLine aria-hidden className="size-3.5" />
-                </button>
+                  <ArrowUpRightRegular aria-hidden data-icon="inline-end" />
+                </Button>
               )}
             </div>
           </Command>

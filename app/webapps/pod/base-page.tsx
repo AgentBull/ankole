@@ -42,15 +42,15 @@ import { isUnconfiguredChartSpec, parseViewConfig, type ViewConfig, type Configu
 import { deriveDefaultChartSpec, serializeResolvedToViewConfig } from './state/chart-view'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
-  RiAddLine,
-  RiBarChartBoxLine,
-  RiCloseLine,
-  RiEqualizerLine,
-  RiFileCopyLine,
-  RiGalleryLine,
-  RiLayoutColumnLine,
-  RiTableLine
-} from '@remixicon/react'
+  AddRegular,
+  CopyRegular,
+  DataHistogramRegular,
+  DismissRegular,
+  ImageMultipleRegular,
+  LayoutColumnTwoRegular,
+  OptionsRegular,
+  TableRegular
+} from '@ankole/uikit/icons'
 import { podLocation } from '../common/pod-url'
 import { contentKeys, limitPageTitle, podFileURL, podRequest, type PageDetail } from './content-api'
 import { ErrorBoundary } from '../common/error-boundary'
@@ -84,11 +84,11 @@ export const viewLabels: Record<ViewType, string> = {
   }
 }
 
-const viewIcons: Record<ViewType, typeof RiTableLine> = {
-  grid: RiTableLine,
-  kanban: RiLayoutColumnLine,
-  gallery: RiGalleryLine,
-  chart: RiBarChartBoxLine
+const viewIcons: Record<ViewType, typeof TableRegular> = {
+  grid: TableRegular,
+  kanban: LayoutColumnTwoRegular,
+  gallery: ImageMultipleRegular,
+  chart: DataHistogramRegular
 }
 
 type EmbedBridge = {
@@ -362,7 +362,7 @@ function BaseWorkspace({
                   create.mutate()
                 }
               }}>
-              <RiAddLine aria-hidden="true" />
+              <AddRegular aria-hidden="true" />
               {t('pod.content.new_table')}
             </Button>
           )}
@@ -994,7 +994,7 @@ function TableWorkspace({
                 aria-expanded={embedControlsOpen}
                 aria-controls={chartControlsId}
                 onClick={() => setEmbedControlsOpen(prev => !prev)}>
-                <RiEqualizerLine aria-hidden="true" />
+                <OptionsRegular aria-hidden="true" />
                 {t('pod.content.configure_chart', { defaultValue: 'Configure' })}
               </Button>
             )}
@@ -1066,7 +1066,7 @@ function TableWorkspace({
             )}
             {editable && !quietSingleChartEmbed && (
               <Button variant="default" size="sm" className="pod-base-new" onClick={() => setNewRecord(true)}>
-                <RiAddLine aria-hidden="true" />
+                <AddRegular aria-hidden="true" />
                 {t('pod.content.new_record')}
               </Button>
             )}
@@ -1096,7 +1096,7 @@ function TableWorkspace({
             aria-label={t('common.close')}
             title={t('common.close')}
             onClick={() => setCopiedPageID(undefined)}>
-            <RiCloseLine aria-hidden="true" />
+            <DismissRegular aria-hidden="true" />
           </Button>
         </div>
       )}
@@ -1439,7 +1439,7 @@ function CreateViewButton({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button size="sm" variant="ghost" disabled={create.isPending} />}>
-        <RiAddLine aria-hidden="true" />
+        <AddRegular aria-hidden="true" />
         {t('pod.content.new_view')}
       </DropdownMenuTrigger>
       <DropdownMenuContent>
@@ -1540,7 +1540,7 @@ function CopyTableButton({
         else setOpen(false)
       }}>
       <Button size="icon-sm" variant="ghost" title={t('pod.content.copy_current_results')} onClick={openDialog}>
-        <RiFileCopyLine aria-hidden="true" />
+        <CopyRegular aria-hidden="true" />
         <span className="sr-only">{t('pod.content.copy_current_results')}</span>
       </Button>
       <DialogContent

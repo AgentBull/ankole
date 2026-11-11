@@ -9,7 +9,7 @@ import {
   Switch,
   toast
 } from '@ankole/uikit'
-import { RiBrainFill, RiBrainLine } from '@remixicon/react'
+import { BrainFilled, BrainRegular } from '@ankole/uikit/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useId, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -91,17 +91,13 @@ export function PageLearningButton({ detail }: { detail: PageDetail }) {
       <PopoverTrigger
         render={
           <Button
-            size="sm"
+            size="icon-lg"
             variant="ghost"
             aria-label={t(learning ? 'pod.knowledge.learning' : 'pod.knowledge.learn_page')}
             title={t('pod.knowledge.learn_page')}
           />
         }>
-        {learning ? <RiBrainFill aria-hidden className="size-4" /> : <RiBrainLine aria-hidden className="size-4" />}
-        {/* The short label is part of the full accessible name, like the other header buttons' labels. */}
-        <span className="@max-[640px]:sr-only">
-          {t(learning ? 'pod.knowledge.learning' : 'pod.knowledge.learn_short')}
-        </span>
+        {learning ? <BrainFilled aria-hidden /> : <BrainRegular aria-hidden />}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))]">
         <div className="flex items-start justify-between gap-4">

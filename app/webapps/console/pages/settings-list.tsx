@@ -4,7 +4,7 @@ import { useDeferredValue, useState } from 'react'
 import { useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useRouter } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { RiSettings3Line } from '@remixicon/react'
+import { SettingsRegular } from '@ankole/uikit/icons'
 import { recordValue } from '@agentbull/active-support'
 import { dataTenantID } from '../../common/browser-session'
 import { linkTarget } from '../../common/router'
@@ -309,7 +309,7 @@ export function SettingsList() {
       isLoading={global.isLoading || tenant.isLoading}
       isEmpty={count === 0}
       emptyTitle={t('console.settings.empty_title')}
-      emptyIcon={<RiSettings3Line aria-hidden />}
+      emptyIcon={<SettingsRegular aria-hidden />}
       emptyDescription={t('console.no_settings')}
       error={global.error ?? tenant.error}
       isFiltered={Boolean(query.trim())}

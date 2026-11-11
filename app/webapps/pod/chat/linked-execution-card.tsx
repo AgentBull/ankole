@@ -1,5 +1,5 @@
 import { Button } from '@ankole/uikit'
-import { RiArrowRightSLine, RiStopCircleLine } from '@remixicon/react'
+import { ChevronRightRegular, RecordStopRegular } from '@ankole/uikit/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { useRef } from 'react'
@@ -125,7 +125,7 @@ export function LinkedExecutionCard({
             updatedAt={run.updatedAt}
             status={run.status}
           />
-          <RiArrowRightSLine className="pod-chat-linked-run-chevron" aria-hidden />
+          <ChevronRightRegular className="pod-chat-linked-run-chevron" aria-hidden />
         </span>
         {metaParts.length > 0 && <small className="pod-chat-linked-run-meta">{metaParts.join(' · ')}</small>}
         {preview && <span className="pod-chat-linked-run-preview">{preview}</span>}
@@ -143,7 +143,7 @@ export function LinkedExecutionCard({
           disabled={stopMutation.isPending}
           aria-label={`${t('pod.chat_timeline.execution_stop_action')} ${run.title}`}
           onClick={() => stopMutation.mutate()}>
-          <RiStopCircleLine aria-hidden />
+          <RecordStopRegular aria-hidden />
           <span>
             {t(
               stopMutation.isPending

@@ -25,13 +25,13 @@ test('backward selection retains its range through repeated formatting and Markd
   for (const format of ['strong', 'u', 'mark']) {
     await expect(page.locator(`.editor-content ${format}`)).toHaveText('selected')
   }
-  await expect(page.locator('.editor-content mark')).toHaveCSS('background-color', 'rgb(248, 245, 232)')
+  await expect(page.locator('.editor-content mark')).toHaveCSS('background-color', 'rgb(255, 252, 164)')
   expect(await page.evaluate(() => window.getSelection()!.toString())).toBe('selected')
   await reopen(page)
   for (const format of ['strong', 'u', 'mark']) {
     await expect(page.locator(`.editor-content ${format}`)).toHaveText('selected')
   }
-  await expect(page.locator('.editor-content mark')).toHaveCSS('background-color', 'rgb(248, 245, 232)')
+  await expect(page.locator('.editor-content mark')).toHaveCSS('background-color', 'rgb(255, 252, 164)')
 })
 
 test('cross-paragraph formatting keeps unselected prefixes and suffixes', async ({ page }) => {
@@ -286,7 +286,9 @@ test('slash menu filters heading levels and supports keyboard select and Escape'
   await expect(page.locator('.editor-content > p').last()).toHaveText('/no-match')
 })
 
-test('slash and plus share block choices and menu dimensions while only slash uses raised tiles', async ({ page }) => {
+test('slash and plus share block choices and menu width while only slash uses rich rows with raised tiles', async ({
+  page
+}) => {
   await openDocument(page, '')
   const paragraph = page.locator('.editor-content > p')
   await paragraph.hover()
@@ -295,8 +297,8 @@ test('slash and plus share block choices and menu dimensions while only slash us
   const choices = insert.getByRole('menuitem')
   await expect(choices.first()).toBeVisible()
   const titles = await choices.allTextContents()
-  await expect(insert).toHaveCSS('width', '272px')
-  await expect(choices.first()).toHaveCSS('height', '36px')
+  await expect(insert).toHaveCSS('width', '264px')
+  await expect(choices.first()).toHaveCSS('height', '40px')
   const plainIcon = choices.first().locator('.block-type-icon')
   await expect(plainIcon).toHaveCSS('width', '16px')
   await expect(plainIcon).toHaveCSS('background-image', 'none')
@@ -306,10 +308,17 @@ test('slash and plus share block choices and menu dimensions while only slash us
   const slash = page.getByRole('listbox', { name: '插入 Block', exact: true })
   const options = slash.getByRole('option')
   await expect(options).toHaveText(titles.map(title => title.trim()))
-  await expect(slash).toHaveCSS('width', '272px')
-  await expect(options.first()).toHaveCSS('height', '36px')
+  await expect(slash).toHaveCSS('width', '264px')
+  await expect(slash).toHaveCSS('border-top-left-radius', '4px')
+  await expect(slash).toHaveCSS('padding-top', '8px')
+  await expect(slash.getByRole('presentation').first()).toHaveCSS('height', '32px')
+  await expect(options.first()).toHaveCSS('height', '60px')
+  // The highlighted option takes the hover wash; the others stay clear while the pointer is away.
+  await page.mouse.move(0, 0)
+  await expect(options.first()).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(options.nth(1)).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   const tile = options.first().locator('.block-type-icon')
-  await expect(tile).toHaveCSS('width', '22px')
+  await expect(tile).toHaveCSS('width', '44px')
   await expect(tile).not.toHaveCSS('background-image', 'none')
   await expect(tile).not.toHaveCSS('box-shadow', 'none')
   await page.keyboard.type('h2')

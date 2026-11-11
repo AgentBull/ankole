@@ -1,7 +1,7 @@
 import { TableRow, useQuery, useSearchParams } from '../tenant-context'
 import { ACTIVITY_REFRESH_MS } from '../refresh-intervals'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, Skeleton, TableCell } from '@ankole/uikit'
-import { RiCodeSSlashLine } from '@remixicon/react'
+import { CodeRegular } from '@ankole/uikit/icons'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -115,7 +115,7 @@ export function AutomationJobsPage() {
         ]}
         count={rows.length}
         emptyTitle={t('console.automation_jobs.empty_title')}
-        emptyIcon={<RiCodeSSlashLine aria-hidden />}
+        emptyIcon={<CodeRegular aria-hidden />}
         emptyDescription={t('console.automation_jobs.empty_description')}
         error={jobs.error}
         isEmpty={rows.length === 0}

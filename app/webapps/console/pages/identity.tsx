@@ -17,7 +17,7 @@ import {
 import { recordValue } from '@agentbull/active-support'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiRefreshLine, RiShieldKeyholeLine } from '@remixicon/react'
+import { ArrowClockwiseRegular, ShieldKeyholeRegular } from '@ankole/uikit/icons'
 
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -107,7 +107,7 @@ export function IdentityProvidersListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.identity.empty_title')}
-      emptyIcon={<RiShieldKeyholeLine aria-hidden />}
+      emptyIcon={<ShieldKeyholeRegular aria-hidden />}
       emptyDescription={t('console.identity.empty_description')}
       error={providers.error}
       isFiltered={Boolean(query.trim())}
@@ -304,7 +304,7 @@ export function IdentityProviderEditorPage() {
             type="button"
             variant="outline"
             onClick={() => selected && runSync.mutate({ path: { provider_id: selected.provider_id } })}>
-            <RiRefreshLine data-icon="inline-start" />
+            <ArrowClockwiseRegular data-icon="inline-start" />
             {t('console.identity.run_full_sync')}
           </Button>
         ) : null

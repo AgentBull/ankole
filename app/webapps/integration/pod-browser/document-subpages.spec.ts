@@ -174,7 +174,7 @@ test('a leaf Doc hides subpages UI, while a Hub Doc appends a Feishu-style colla
     await subpages.getByRole('button', { name: '新建', exact: true }).click()
     await page.getByRole('menuitem', { name: '文档', exact: true }).click()
     await expect(page).not.toHaveURL(state.base_url + pageRoute(hubID, undefined, hubTitle))
-    await expect(page.locator('.pod-page-header').getByRole('link', { name: hubTitle, exact: true })).toBeVisible()
+    await expect(page.locator('.pod-page-path').getByRole('link', { name: hubTitle, exact: true })).toBeVisible()
   } finally {
     await ownerContext.close()
     await viewerContext.close()

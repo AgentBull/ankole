@@ -1,14 +1,5 @@
 ---
-import {
-	RiBrainLine,
-	RiCompassDiscoverLine,
-	RiGlobeLine,
-	RiGroup2Line,
-	RiShieldKeyholeLine,
-	RiSparkling2Line,
-	RiTimerFlashLine,
-	RiUserVoiceLine
-} from '@remixicon/react'
+import { BrainRegular, CompassNorthwestRegular, GlobeRegular, PeopleRegular, PersonVoiceRegular, ShieldKeyholeRegular, SparkleRegular, TimerRegular } from '@ankole/uikit/icons'
 import type { Locale } from '../../i18n/config'
 import { t } from '../../i18n/utils'
 import Reveal from '../Reveal.astro'
@@ -32,17 +23,17 @@ const read = (key: string) => ({
  * answer and reads as a spec sheet.
  */
 const lead = [
-	{ icon: RiTimerFlashLine, ...read('async') },
-	{ icon: RiUserVoiceLine, ...read('tacit') }
+	{ icon: TimerRegular, ...read('async') },
+	{ icon: PersonVoiceRegular, ...read('tacit') }
 ]
 
 const rest = [
-	{ icon: RiBrainLine, ...read('brain') },
-	{ icon: RiCompassDiscoverLine, ...read('research') },
-	{ icon: RiGlobeLine, ...read('browser') },
-	{ icon: RiSparkling2Line, ...read('skills') },
-	{ icon: RiGroup2Line, ...read('multi') },
-	{ icon: RiShieldKeyholeLine, ...read('enterprise') }
+	{ icon: BrainRegular, ...read('brain') },
+	{ icon: CompassNorthwestRegular, ...read('research') },
+	{ icon: GlobeRegular, ...read('browser') },
+	{ icon: SparkleRegular, ...read('skills') },
+	{ icon: PeopleRegular, ...read('multi') },
+	{ icon: ShieldKeyholeRegular, ...read('enterprise') }
 ]
 ---
 

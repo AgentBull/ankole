@@ -1,19 +1,19 @@
 import { Badge } from '@ankole/uikit/components/badge'
 import { Button } from '@ankole/uikit/components/button'
 import {
-  RiArrowRightLine,
-  RiArrowRightSLine,
-  RiBracesLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiCodeSSlashLine,
-  RiDownloadLine,
-  RiFileTextLine,
-  RiFlaskLine,
-  RiLayoutLeftLine,
-  RiRefreshLine,
-  RiUploadLine
-} from '@remixicon/react'
+  ArrowClockwiseRegular,
+  ArrowDownloadRegular,
+  ArrowRightRegular,
+  ArrowUploadRegular,
+  BeakerRegular,
+  BracesRegular,
+  CheckmarkRegular,
+  ChevronRightRegular,
+  CodeRegular,
+  DismissRegular,
+  DocumentTextRegular,
+  PanelLeftRegular
+} from '@ankole/uikit/icons'
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { BlockEditor } from '@ankole/block-editor'
 import { PageSession, type Editor, type EditorHost } from '@ankole/block-editor/editor'
@@ -186,7 +186,7 @@ export function App() {
           </span>
         </div>
         <div className="workspace-label">
-          <RiFlaskLine size={16} />
+          <BeakerRegular width={16} height={16} />
           <span>Block Lab</span>
           <Badge variant="outline">DEMO</Badge>
         </div>
@@ -194,7 +194,7 @@ export function App() {
         <button
           className="sidebar-page"
           onClick={() => document.querySelector('.editor-content h1')?.scrollIntoView({ behavior: 'smooth' })}>
-          <RiFileTextLine size={17} />
+          <DocumentTextRegular width={17} height={17} />
           写作与数据<span>⌘</span>
         </button>
         <div className="sidebar-label explore-label">在这份文档里</div>
@@ -218,12 +218,12 @@ export function App() {
         </button>
         <div className="sidebar-spacer" />
         <div className="lab-note">
-          <RiBracesLine size={20} />
+          <BracesRegular width={20} height={20} />
           <strong>内容可读，也可带走。</strong>
           <p>正文和 Block 保存在同一个 Markdown 文件，也可以读写为 XML。</p>
           <button disabled={draft !== null} onClick={roundTrip}>
             验证往返
-            <RiArrowRightLine size={14} />
+            <ArrowRightRegular width={14} height={14} />
           </button>
         </div>
         <div className="sidebar-footer">
@@ -235,7 +235,7 @@ export function App() {
             aria-label="恢复示例"
             title="恢复示例"
             onClick={() => setResetOpen(!resetOpen)}>
-            <RiRefreshLine />
+            <ArrowClockwiseRegular />
           </Button>
         </div>
         {resetOpen && (
@@ -262,14 +262,14 @@ export function App() {
       <main className="main-area">
         <header className="topbar">
           <div className="breadcrumb">
-            <RiLayoutLeftLine size={16} />
+            <PanelLeftRegular width={16} height={16} />
             <span>Block Lab</span>
-            <RiArrowRightSLine size={15} />
+            <ChevronRightRegular width={15} height={15} />
             <strong>写作与数据</strong>
           </div>
           <div className="topbar-actions">
             <span className="save-state">
-              <RiCheckLine size={13} />
+              <CheckmarkRegular width={13} height={13} />
               {saveState}
             </span>
             <Button
@@ -280,21 +280,21 @@ export function App() {
                 refreshSource()
                 if (!composingRef.current) setSourceOpen(draft !== null || !sourceOpen)
               }}>
-              <RiCodeSSlashLine />
+              <CodeRegular />
               Markdown
             </Button>
             <Button variant="outline" size="sm" disabled={composing} onClick={download}>
-              <RiDownloadLine />
+              <ArrowDownloadRegular />
               导出
             </Button>
           </div>
         </header>
         {notice && (
           <div className="notice" role="status">
-            <RiCheckLine size={15} />
+            <CheckmarkRegular width={15} height={15} />
             <span>{notice}</span>
             <button aria-label="关闭通知" onClick={() => setNotice('')}>
-              <RiCloseLine size={16} />
+              <DismissRegular width={16} height={16} />
             </button>
           </div>
         )}
@@ -326,7 +326,7 @@ export function App() {
           {sourceOpen && (
             <aside className="source-pane">
               <div className="source-heading">
-                <RiCodeSSlashLine size={18} />
+                <CodeRegular width={18} height={18} />
                 <div className="source-formats" role="group" aria-label="源码格式">
                   {(['markdown', 'xml'] as const).map(value => (
                     <Button
@@ -346,7 +346,7 @@ export function App() {
                   aria-label={`关闭 ${formatName}`}
                   disabled={draft !== null || composing}
                   onClick={() => setSourceOpen(false)}>
-                  <RiCloseLine size={17} />
+                  <DismissRegular width={17} height={17} />
                 </button>
               </div>
               <div className="source-caption">
@@ -381,7 +381,7 @@ export function App() {
               </div>
               <div className="source-actions">
                 <Button size="sm" variant="outline" disabled={composing} onClick={() => fileRef.current?.click()}>
-                  <RiUploadLine />
+                  <ArrowUploadRegular />
                   打开文件
                 </Button>
                 <span />
@@ -405,7 +405,7 @@ export function App() {
                   </>
                 ) : (
                   <Button size="sm" onClick={roundTrip}>
-                    <RiRefreshLine />
+                    <ArrowClockwiseRegular />
                     往返验证
                   </Button>
                 )}

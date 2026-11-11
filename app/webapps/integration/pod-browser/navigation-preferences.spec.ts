@@ -41,7 +41,8 @@ test('hidden Home pauses directory reads and resumes its expanded branches with 
     await page.waitForLoadState('networkidle')
     expect(navigationReads).toBe(0)
     expect(directories).toHaveLength(0)
-    await page.getByRole('link', { name: '回收站', exact: true }).click()
+    await page.getByRole('button', { name: /^账户菜单/ }).click()
+    await page.getByRole('menuitem', { name: '回收站', exact: true }).click()
     const branch = space(page).getByRole('button', { name: title, exact: true })
     await branch.click()
     await expect(space(page).getByRole('link', { name: `${title} first`, exact: true })).toBeVisible()
@@ -321,7 +322,7 @@ test('leaves keep child creation without an expansion request and become branche
     const row = space(page).locator('.pod-tree-row', { has: page.getByRole('link', { name: title, exact: true }) })
     await expect(row).toBeVisible()
     await expect(row.locator('.pod-tree-toggle')).toHaveCount(0)
-    await expect(row.locator('.pod-tree-icon')).toHaveCount(1)
+    await expect(row.locator('[data-sidebar="menu-icon"]')).toHaveCount(1)
     expect(childRequests).toEqual([])
 
     await row.hover()

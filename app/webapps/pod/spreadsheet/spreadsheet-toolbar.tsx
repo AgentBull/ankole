@@ -26,33 +26,33 @@ import {
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
-  RiAlignCenter,
-  RiAlignLeft,
-  RiAlignRight,
-  RiArrowGoBackLine,
-  RiArrowGoForwardLine,
-  RiBold,
-  RiBrushLine,
-  RiFilter3Line,
-  RiFontColor,
-  RiFormatClear,
-  RiFunctions,
-  RiGridLine,
-  RiImageAddLine,
-  RiItalic,
-  RiLayoutTop2Line,
-  RiMergeCellsHorizontal,
-  RiNumbersLine,
-  RiPaintFill,
-  RiSortAsc,
-  RiSortDesc,
-  RiSplitCellsHorizontal,
-  RiStickyNoteLine,
-  RiStrikethrough,
-  RiTableLine,
-  RiTextWrap,
-  RiUnderline
-} from '@remixicon/react'
+  ArrowRedoRegular,
+  ArrowUndoRegular,
+  AutosumRegular,
+  FilterRegular,
+  GridRegular,
+  ImageAddRegular,
+  NoteRegular,
+  NumberRowRegular,
+  PaintBrushRegular,
+  PaintBucketRegular,
+  TableCellsMergeRegular,
+  TableCellsSplitRegular,
+  TableFreezeRowRegular,
+  TableRegular,
+  TextAlignCenterRegular,
+  TextAlignLeftRegular,
+  TextAlignRightRegular,
+  TextBoldRegular,
+  TextClearFormattingRegular,
+  TextColorRegular,
+  TextItalicRegular,
+  TextSortAscendingRegular,
+  TextSortDescendingRegular,
+  TextStrikethroughRegular,
+  TextUnderlineRegular,
+  TextWrapRegular
+} from '@ankole/uikit/icons'
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { acceptsReference, isFormula } from '../state/spreadsheet-formula'
 import {
@@ -94,13 +94,13 @@ const TEXT_COLORS = [
   '--color-gray-100',
   '--color-gray-80',
   '--color-red-60',
-  '--color-orange-50',
-  '--color-yellow-50',
-  '--color-green-60',
-  '--color-teal-60',
+  '--color-orange-70',
+  '--color-yellow-80',
+  '--color-green-70',
+  '--color-teal-80',
   '--color-blue-60',
   '--color-purple-60',
-  '--color-magenta-60'
+  '--color-magenta-70'
 ]
 const FILL_COLORS = [
   '--color-gray-40',
@@ -111,8 +111,8 @@ const FILL_COLORS = [
   '--color-teal-20',
   '--color-blue-20',
   '--color-purple-20',
-  '--color-magenta-20',
-  '--color-yellow-30'
+  '--color-magenta-30',
+  '--color-yellow-50'
 ]
 const THIN = { style: 'thin' }
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -367,13 +367,13 @@ export function SpreadsheetToolbar({
               label={t('pod.spreadsheet.undo')}
               disabled={!editable || !model.canUndo.value}
               onClick={() => void model.undo()}>
-              <RiArrowGoBackLine />
+              <ArrowUndoRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.spreadsheet.redo')}
               disabled={!editable || !model.canRedo.value}
               onClick={() => void model.redo()}>
-              <RiArrowGoForwardLine />
+              <ArrowRedoRegular />
             </ToolButton>
             {/* One click paints once; a double click keeps painting until Escape. */}
             <Toggle
@@ -388,13 +388,13 @@ export function SpreadsheetToolbar({
                 else void model.pickFormats(false)
                 gridInput.current?.focus({ preventScroll: true })
               }}>
-              <RiBrushLine />
+              <PaintBrushRegular />
             </Toggle>
             <ToolButton
               label={t('pod.spreadsheet.clear_formats')}
               disabled={!editable}
               onClick={() => undoable(model.clear('formats'))}>
-              <RiFormatClear />
+              <TextClearFormattingRegular />
             </ToolButton>
             <Separator orientation="vertical" className="mx-1 h-5" />
             <Toggle
@@ -404,7 +404,7 @@ export function SpreadsheetToolbar({
               disabled={!editable}
               pressed={Boolean(style?.bold)}
               onPressedChange={pressed => format({ bold: pressed })}>
-              <RiBold />
+              <TextBoldRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -413,7 +413,7 @@ export function SpreadsheetToolbar({
               disabled={!editable}
               pressed={Boolean(style?.italic)}
               onPressedChange={pressed => format({ italic: pressed })}>
-              <RiItalic />
+              <TextItalicRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -422,7 +422,7 @@ export function SpreadsheetToolbar({
               disabled={!editable}
               pressed={Boolean(style?.underline)}
               onPressedChange={pressed => format({ underline: pressed })}>
-              <RiUnderline />
+              <TextUnderlineRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -431,7 +431,7 @@ export function SpreadsheetToolbar({
               disabled={!editable}
               pressed={Boolean(style?.strike)}
               onPressedChange={pressed => format({ strike: pressed })}>
-              <RiStrikethrough />
+              <TextStrikethroughRegular />
             </Toggle>
             <Select
               value={String(style?.font_size ?? 11)}
@@ -457,14 +457,14 @@ export function SpreadsheetToolbar({
               disabled={!editable}
               tokens={TEXT_COLORS}
               onPick={color => format({ font_color: color })}>
-              <RiFontColor />
+              <TextColorRegular />
             </ColorPicker>
             <ColorPicker
               label={t('pod.spreadsheet.fill_color')}
               disabled={!editable}
               tokens={FILL_COLORS}
               onPick={color => format({ fill_color: color })}>
-              <RiPaintFill />
+              <PaintBucketRegular />
             </ColorPicker>
             <ToggleGroup
               size="sm"
@@ -480,19 +480,19 @@ export function SpreadsheetToolbar({
                 value="left"
                 aria-label={t('pod.spreadsheet.align_left')}
                 title={t('pod.spreadsheet.align_left')}>
-                <RiAlignLeft />
+                <TextAlignLeftRegular />
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="center"
                 aria-label={t('pod.spreadsheet.align_center')}
                 title={t('pod.spreadsheet.align_center')}>
-                <RiAlignCenter />
+                <TextAlignCenterRegular />
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="right"
                 aria-label={t('pod.spreadsheet.align_right')}
                 title={t('pod.spreadsheet.align_right')}>
-                <RiAlignRight />
+                <TextAlignRightRegular />
               </ToggleGroupItem>
             </ToggleGroup>
             <Toggle
@@ -502,16 +502,16 @@ export function SpreadsheetToolbar({
               disabled={!editable}
               pressed={Boolean(style?.wrap)}
               onPressedChange={pressed => format({ wrap: pressed })}>
-              <RiTextWrap />
+              <TextWrapRegular />
             </Toggle>
-            <ToolMenu label={t('pod.spreadsheet.number_format')} disabled={!editable} icon={<RiNumbersLine />}>
+            <ToolMenu label={t('pod.spreadsheet.number_format')} disabled={!editable} icon={<NumberRowRegular />}>
               {(Object.keys(NUMBER_FORMATS) as (keyof typeof NUMBER_FORMATS)[]).map(kind => (
                 <DropdownMenuItem key={kind} onClick={() => format({ num_fmt: NUMBER_FORMATS[kind] })}>
                   {t(`pod.spreadsheet.number_formats.${kind}`)}
                 </DropdownMenuItem>
               ))}
             </ToolMenu>
-            <ToolMenu label={t('pod.spreadsheet.borders')} disabled={!editable} icon={<RiGridLine />}>
+            <ToolMenu label={t('pod.spreadsheet.borders')} disabled={!editable} icon={<GridRegular />}>
               <DropdownMenuItem onClick={() => borders('all')}>{t('pod.spreadsheet.all_borders')}</DropdownMenuItem>
               <DropdownMenuItem onClick={() => borders('outside')}>
                 {t('pod.spreadsheet.outside_borders')}
@@ -523,18 +523,18 @@ export function SpreadsheetToolbar({
                 label={t('pod.spreadsheet.unmerge_cells')}
                 disabled={!editable}
                 onClick={() => undoable(model.unmerge(rect))}>
-                <RiSplitCellsHorizontal />
+                <TableCellsSplitRegular />
               </ToolButton>
             ) : (
               <ToolButton
                 label={t('pod.spreadsheet.merge_cells')}
                 disabled={!editable || (rect.r0 === rect.r1 && rect.c0 === rect.c1)}
                 onClick={() => undoable(model.merge(rect))}>
-                <RiMergeCellsHorizontal />
+                <TableCellsMergeRegular />
               </ToolButton>
             )}
             <Separator orientation="vertical" className="mx-1 h-5" />
-            <ToolMenu label={t('pod.spreadsheet.rows_and_columns')} disabled={!editable} icon={<RiTableLine />}>
+            <ToolMenu label={t('pod.spreadsheet.rows_and_columns')} disabled={!editable} icon={<TableRegular />}>
               <DropdownMenuItem onClick={() => insert('rows', false)}>
                 {t('pod.spreadsheet.insert_row_above')}
               </DropdownMenuItem>
@@ -555,7 +555,7 @@ export function SpreadsheetToolbar({
                 {t('pod.spreadsheet.delete_columns')}
               </DropdownMenuItem>
             </ToolMenu>
-            <ToolMenu label={t('pod.spreadsheet.freeze')} disabled={!editable} icon={<RiLayoutTop2Line />}>
+            <ToolMenu label={t('pod.spreadsheet.freeze')} disabled={!editable} icon={<TableFreezeRowRegular />}>
               <DropdownMenuItem onClick={() => freeze(1, frozenCols)}>
                 {t('pod.spreadsheet.freeze_first_row')}
               </DropdownMenuItem>
@@ -577,7 +577,7 @@ export function SpreadsheetToolbar({
                 {t('pod.spreadsheet.unfreeze')}
               </DropdownMenuItem>
             </ToolMenu>
-            <ToolMenu label={t('pod.spreadsheet.formulas')} disabled={!editable} icon={<RiFunctions />}>
+            <ToolMenu label={t('pod.spreadsheet.formulas')} disabled={!editable} icon={<AutosumRegular />}>
               {QUICK_FUNCTIONS.map(fn => (
                 <DropdownMenuItem key={fn} onClick={() => void autoSum(fn)}>
                   {t(`pod.spreadsheet.quick_functions.${fn}`)}
@@ -589,7 +589,7 @@ export function SpreadsheetToolbar({
                 {t('pod.spreadsheet.all_functions')}
               </DropdownMenuItem>
             </ToolMenu>
-            <ToolMenu label={t('pod.spreadsheet.data')} disabled={!editable} icon={<RiFilter3Line />}>
+            <ToolMenu label={t('pod.spreadsheet.data')} disabled={!editable} icon={<FilterRegular />}>
               <DropdownMenuItem onClick={() => void toggleFilter()}>
                 {current.filter ? t('pod.spreadsheet.remove_filter') : t('pod.spreadsheet.create_filter')}
               </DropdownMenuItem>
@@ -619,7 +619,7 @@ export function SpreadsheetToolbar({
                 <span className="ml-auto font-mono text-xs text-fg-tertiary">{isMac ? '⌘H' : 'Ctrl+H'}</span>
               </DropdownMenuItem>
             </ToolMenu>
-            <ToolMenu label={t('pod.spreadsheet.insert_picture')} disabled={!editable} icon={<RiImageAddLine />}>
+            <ToolMenu label={t('pod.spreadsheet.insert_picture')} disabled={!editable} icon={<ImageAddRegular />}>
               <DropdownMenuItem onClick={() => void insertImage('floating')}>
                 {t('pod.spreadsheet.floating_picture')}
               </DropdownMenuItem>
@@ -631,13 +631,13 @@ export function SpreadsheetToolbar({
               label={t('pod.spreadsheet.sort_ascending')}
               disabled={!editable || !multiRow}
               onClick={() => sort(false)}>
-              <RiSortAsc />
+              <TextSortAscendingRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.spreadsheet.sort_descending')}
               disabled={!editable || !multiRow}
               onClick={() => sort(true)}>
-              <RiSortDesc />
+              <TextSortDescendingRegular />
             </ToolButton>
             <Popover onOpenChange={open => open && setNote(current.note)}>
               <PopoverTrigger
@@ -650,7 +650,7 @@ export function SpreadsheetToolbar({
                     disabled={!editable}
                   />
                 }>
-                <RiStickyNoteLine />
+                <NoteRegular />
               </PopoverTrigger>
               <PopoverContent align="start" className="w-72 gap-3">
                 <PopoverTitle>{t('pod.spreadsheet.note_for', { cell: cellName(active) })}</PopoverTitle>

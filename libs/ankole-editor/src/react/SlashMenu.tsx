@@ -142,11 +142,12 @@ export function SlashMenu() {
   }, [menu])
 
   if (!menu) return null
+  // The list's rows run from edge to edge, so it takes the tight ceramic radius and keeps 8px above and below them.
   return createPortal(
     <div
       ref={list}
       id={`${editor.contentDOM.id}-slash`}
-      className="block-menu slash-menu ankole-editor-overlay ceramic ceramic-primary"
+      className="block-menu slash-menu ankole-editor-overlay ceramic ceramic-primary ceramic-tight menu-scrollbar fixed z-30 py-2"
       role="listbox"
       aria-label={label('slash_menu')}
       style={position ?? { visibility: 'hidden' }}>

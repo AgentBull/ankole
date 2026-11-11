@@ -1,8 +1,9 @@
+import { Button } from '@ankole/uikit'
 import { useMemo } from 'react'
 import { InlineLoading } from './content-primitives'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { RemixiconComponentType } from '@remixicon/react'
+import type { IconComponent } from '@ankole/uikit/icons'
 import { useDebouncedValue } from '../common/use-debounced-value'
 import type { PodAgent } from './api'
 import { pageQuery, type Page, type PageSearchMatch, type RecentSearchEntry } from './content-api'
@@ -42,7 +43,7 @@ export type CommandNavigationEntry = {
   href: string
   url: string
   state?: PodCommandNavigationState
-  icon: RemixiconComponentType
+  icon: IconComponent
 }
 
 export type CommandColleagueEntry = {
@@ -122,7 +123,7 @@ export function CommandMenuPreview({
   return (
     <aside
       data-testid="command-preview-pane"
-      className="pod-command-preview hidden min-w-0 flex-col gap-3 overflow-y-auto border-l border-(--menu-field-edge) p-3 md:flex">
+      className="pod-command-preview hidden min-w-0 flex-col gap-3 overflow-y-auto border-l border-divider-overlay p-3 md:flex">
       {activeEntry?.kind === 'chat' ? (
         <div className="space-y-3">
           <div className="flex items-center gap-2.5">
@@ -192,14 +193,17 @@ export function CommandMenuPreview({
           </div>
 
           {xmlPreview.headings.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-[11px] font-medium text-fg-tertiary uppercase">{t('pod.command.sections')}</p>
+            <div>
+              {/* The title starts where the first level of sections does, 8px in. */}
+              <p className="menu-group-label px-2">{t('pod.command.sections')}</p>
               <div className="flex flex-col gap-0.5">
                 {xmlPreview.headings.slice(0, 10).map((sec, idx) => (
-                  <button
+                  <Button
                     key={`${sec.level}-${sec.text}-${idx}`}
                     type="button"
-                    className="inline-flex min-h-6 cursor-pointer items-center truncate rounded-mini px-2 py-1 text-left text-xs text-fg-secondary hover:bg-accent hover:text-foreground"
+                    variant="ghost"
+                    size="xs"
+                    className="w-full justify-start font-normal"
                     style={{ paddingInlineStart: `${Math.min(sec.level - 1, 3) * 8 + 8}px` }}
                     onClick={() =>
                       void onChoose(
@@ -212,10 +216,10 @@ export function CommandMenuPreview({
                         trimmedQuery
                       )
                     }>
-                    <span className="truncate">
+                    <span className="min-w-0 truncate">
                       § <HighlightedText text={sec.text} query={trimmedQuery} />
                     </span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>

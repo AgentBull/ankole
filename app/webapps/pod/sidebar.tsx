@@ -1,24 +1,31 @@
 import { isApplePlatform } from '../common/platform'
 import { commentAttentionQuery } from './content-api'
 import { useChatDrafts } from './chat-drafts'
-import { authenticationRef, podID, podLocation } from '../common/browser-context'
+import { podLocation } from '../common/browser-context'
 import {
   Badge,
-  buttonVariants,
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarHeaderRow,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuIcon,
+  SidebarMenuItem,
+  SidebarSeparator,
+  SidebarTrigger,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   useSidebar,
   Tabs,
   TabsContent,
+  TabsLabel,
   TabsList,
   TabsTrigger
 } from '@ankole/uikit'
-import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSettings3Line, RiTaskLine } from '@remixicon/react'
+import { AddRegular, ChatRegular, HomeRegular } from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -31,24 +38,22 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSignals } from '@preact/signals-react/runtime'
-import { Link, useLocation, useNavigate } from '@tanstack/react-router'
+import { useLocation, useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '../common/error-boundary'
 import { ChatSidebar } from './chat/chat-sidebar'
 import { AccountMenu } from './account-menu'
-import { ContentNavigation } from './page-navigation'
-import { WorkNavigation } from './work-navigation'
+import { ContentNavigation, SidebarLink } from './page-navigation'
 import type { PodSidebarNavigationState } from './state/navigation'
 import { POD_SIDEBAR_MAX_WIDTH, POD_SIDEBAR_MIN_WIDTH, SidebarLayoutModel } from './state/sidebar-layout'
 
 import { agentsQuery, conversationAttentionQuery } from './api'
-import { browserSession } from '../common/api/generated/sdk.gen'
 
-export type PodSidebarTab = 'home' | 'chat' | 'work'
+export type PodSidebarTab = 'home' | 'chat'
 
 export function routeSidebarTab(pathname: string, state?: PodSidebarNavigationState | null): PodSidebarTab | undefined {
   if (state?.keepSidebarTab) return state.keepSidebarTab
-  if (pathname === '/work') return 'work'
   if (
+    pathname === '/work' ||
     pathname === '/meta' ||
     pathname.startsWith('/meta/') ||
     pathname.startsWith('/pages/') ||
@@ -69,10 +74,6 @@ export function PodSidebar({
 }) {
   const { t } = useTranslation()
   const drafts = useChatDrafts()
-  const account = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
-    queryFn: () => browserSession()
-  })
   const agents = useQuery(agentsQuery)
   const rooms = useQuery(conversationAttentionQuery)
   const chatAttention =
@@ -104,11 +105,27 @@ export function PodSidebar({
     return () => window.removeEventListener('keydown', newChat)
   }, [agents.data?.personalAssistantAvailable, navigate, drafts, tab])
   const [previewOpen, setPreviewOpen] = useState(false)
-  const settingsActive = pathname === '/settings' || pathname.startsWith('/settings/')
-  const trashPath = podLocation('/content/trash').pathname
-  const trashActive = pathname === trashPath
   const mac = isApplePlatform()
   const preview = previewOpen && state === 'collapsed' && !isMobile
+  // The preview's panel outlives the preview by one motion: it fades out where it stands when the pointer leaves, and
+  // it keeps its surface above the card while the card makes room for the docked column.
+  const [panel, setPanel] = useState<'preview' | 'leaving' | 'docking' | null>(null)
+  if (preview && panel !== 'preview') setPanel('preview')
+  else if (!preview && panel === 'preview') setPanel(isMobile ? null : state === 'expanded' ? 'docking' : 'leaving')
+  else if (
+    (panel === 'leaving' && (state === 'expanded' || isMobile)) ||
+    (panel === 'docking' && (state === 'collapsed' || isMobile))
+  ) {
+    setPanel(null)
+  }
+  useEffect(() => {
+    if (panel !== 'leaving' && panel !== 'docking') return
+    const timer = setTimeout(
+      () => setPanel(null),
+      motionDuration(panel === 'leaving' ? '--duration-feedback' : '--duration-drawer')
+    )
+    return () => clearTimeout(timer)
+  }, [panel])
   const closeMobile = () => {
     if (isMobile) setOpenMobile(false)
   }
@@ -130,10 +147,13 @@ export function PodSidebar({
   return (
     <>
       <Sidebar
-        className={preview ? 'pod-sidebar pod-sidebar-preview ceramic' : 'pod-sidebar'}
+        className={panel ? 'pod-sidebar pod-sidebar-preview ceramic' : 'pod-sidebar'}
+        data-preview={panel === 'leaving' || panel === 'docking' ? panel : undefined}
         variant="inset"
         collapsible="offcanvas"
         mobileTitle={t('pod.sidebar.title')}
+        // A collapsed sidebar stays out of the tab order, except while the pointer previews it.
+        inert={preview ? false : undefined}
         data-pod-sidebar-hover
         onPointerEnter={() => {
           if (state === 'collapsed') setPreviewOpen(true)
@@ -141,17 +161,16 @@ export function PodSidebar({
         onPointerLeave={leavePreview}>
         <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
           <SidebarHeader className="pod-sidebar-header">
-            <div className="pod-sidebar-top">
+            <SidebarHeaderRow className="pod-sidebar-top">
               <TabsList
                 className="pod-sidebar-tabs"
                 activateOnFocus
-                variant="object"
+                variant="chip"
                 aria-label={t('pod.sidebar.tabs_label')}>
                 {(
                   [
-                    ['home', RiHome5Line, t('pod.sidebar.tabs.home')],
-                    ['chat', RiChat3Line, t('pod.sidebar.tabs.chat')],
-                    ['work', RiTaskLine, t('pod.sidebar.tabs.work')]
+                    ['home', HomeRegular, t('pod.sidebar.tabs.home')],
+                    ['chat', ChatRegular, t('pod.sidebar.tabs.chat')]
                   ] as const
                 ).map(([value, Icon, label]) => (
                   // Only the open tab shows its label, so a closed tab names itself in a tooltip.
@@ -172,11 +191,9 @@ export function PodSidebar({
                       }>
                       <Icon aria-hidden />
                       {/* The label opens and closes with the selection; the tab's accessible name comes from aria-label. */}
-                      <span className="pod-sidebar-tab-label" data-open={tab === value ? '' : undefined} aria-hidden>
-                        <span>{label}</span>
-                      </span>
+                      <TabsLabel aria-hidden>{label}</TabsLabel>
                       {/* Both tabs announce work that waits for the viewer with the same badge. */}
-                      {value !== 'work' && (value === 'chat' ? chatAttention : homeAttention) > 0 && (
+                      {(value === 'chat' ? chatAttention : homeAttention) > 0 && (
                         <Badge variant="info" size="sm" aria-hidden>
                           {value === 'chat' ? chatAttention : homeAttention}
                         </Badge>
@@ -186,83 +203,62 @@ export function PodSidebar({
                   </Tooltip>
                 ))}
               </TabsList>
-            </div>
+              {/* On a phone the sidebar is a sheet, and the toggle closes it; a hover preview pins the sidebar open. */}
+              <SidebarTrigger
+                label={state === 'expanded' || isMobile ? t('pod.sidebar.collapse') : t('pod.sidebar.expand')}
+              />
+            </SidebarHeaderRow>
+            <SidebarSeparator />
             {agents.data?.personalAssistantAvailable && (
-              <Link
-                to={podLocation('/').pathname}
-                state={{ keepSidebarTab: tab } as never}
-                onClick={() => {
-                  drafts.startNew()
-                  closeMobile()
-                }}
-                className="nav-row pod-nav-link pod-new-chat"
-                aria-keyshortcuts="Meta+Shift+O Control+Shift+O">
-                <RiAddLine aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{t('pod.chat.new_conversation')}</span>
-                <span className="pod-new-chat-shortcut" aria-hidden>
-                  {mac ? '⌘⇧O' : 'Ctrl+Shift+O'}
-                </span>
-              </Link>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  {/* Starting a conversation is an action, so the row never takes the current mark of the chat home. */}
+                  <SidebarMenuButton
+                    render={
+                      <SidebarLink
+                        to={podLocation('/').pathname}
+                        state={{ keepSidebarTab: tab } as never}
+                        current={false}
+                        activeProps={{}}
+                        onClick={() => {
+                          drafts.startNew()
+                          closeMobile()
+                        }}
+                        aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
+                      />
+                    }
+                    className="pod-nav-link">
+                    <SidebarMenuIcon tone="secondary">
+                      <AddRegular />
+                    </SidebarMenuIcon>
+                    <span className="min-w-0 flex-1 truncate">{t('pod.chat.new_conversation')}</span>
+                    <span
+                      aria-hidden
+                      className="shrink-0 text-50 text-fg-tertiary opacity-0 transition-opacity duration-(--duration-feedback) group-hover/menu-button:opacity-100 group-focus-visible/menu-button:opacity-100 [@media(hover:none)]:hidden">
+                      {mac ? '⌘⇧O' : 'Ctrl+Shift+O'}
+                    </span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
             )}
           </SidebarHeader>
           <SidebarContent>
-            <TabsContent value="home" keepMounted className="px-2 pb-3 text-[13px] leading-5">
+            <TabsContent value="home" keepMounted className="pb-3">
               <Activity mode={tab === 'home' ? 'visible' : 'hidden'}>
                 <ErrorBoundary variant="inline" resetKeys={[pathname]}>
                   <ContentNavigation onNavigate={closeMobile} />
                 </ErrorBoundary>
               </Activity>
             </TabsContent>
-            <TabsContent value="chat" className="pod-conversations px-2 pb-3 text-[13px] leading-5">
+            <TabsContent value="chat" className="px-2 pt-2 pb-3">
               <ErrorBoundary variant="inline" resetKeys={[pathname]}>
                 <ConversationMenu />
               </ErrorBoundary>
             </TabsContent>
-            <TabsContent value="work" className="px-2 pb-3 text-[13px] leading-5">
-              <ErrorBoundary variant="inline" resetKeys={[pathname]}>
-                <WorkNavigation onNavigate={closeMobile} />
-              </ErrorBoundary>
-            </TabsContent>
           </SidebarContent>
         </Tabs>
-        <SidebarFooter className="pod-sidebar-footer">
-          <div className="min-w-0 flex-1">
-            <AccountMenu extra={accountNavigation} />
-          </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Link
-                    to={trashPath}
-                    aria-current={trashActive ? 'page' : undefined}
-                    onClick={closeMobile}
-                    className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'pod-footer-action' })}
-                    aria-label={t('pod.content.trash')}
-                  />
-                }>
-                <RiDeleteBinLine aria-hidden />
-              </TooltipTrigger>
-              <TooltipContent>{t('pod.content.trash')}</TooltipContent>
-            </Tooltip>
-            {account.data?.canManagePod && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Link
-                      to={podLocation('/settings').pathname}
-                      aria-current={settingsActive ? 'page' : undefined}
-                      onClick={closeMobile}
-                      className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: 'pod-footer-action' })}
-                      aria-label={t('pod.settings.title')}
-                    />
-                  }>
-                  <RiSettings3Line aria-hidden />
-                </TooltipTrigger>
-                <TooltipContent>{t('pod.settings.title')}</TooltipContent>
-              </Tooltip>
-            )}
-          </div>
+        <SidebarFooter>
+          <AccountMenu extra={accountNavigation} />
         </SidebarFooter>
       </Sidebar>
       <SidebarResizeHandle layout={layout} />
@@ -359,4 +355,10 @@ function SidebarResizeHandle({ layout }: { layout: InstanceType<typeof SidebarLa
 
 function ConversationMenu() {
   return <ChatSidebar />
+}
+
+/** The length of a motion token in milliseconds, or 0 while the screen asks for reduced motion. */
+function motionDuration(token: string) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 0
+  return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(token)) || 0
 }

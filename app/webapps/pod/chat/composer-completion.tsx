@@ -1,5 +1,5 @@
 import { composingKey } from '@ankole/uikit/lib/keyboard'
-import { Button } from '@ankole/uikit'
+import { Button, MenuFooter } from '@ankole/uikit'
 import {
   useEffect,
   useImperativeHandle,
@@ -185,18 +185,18 @@ export function ComposerCompletionList({
     }
   }))
   return (
-    <div className="pod-chat-composer-picker">
+    <div className="pod-chat-composer-picker composer-menu">
       <div ref={list} id={id} role="listbox" aria-label={t('pod.chat_room.completion_results')}>
         <ComposerMenuHighlight />
         {!options.length && (
-          <p className="pod-chat-completion-empty" role="status">
+          <p className="px-4 py-3 text-sm text-muted-foreground" role="status">
             {t(loading ? 'common.loading' : 'pod.chat_room.no_matches')}
           </p>
         )}
         {options.map((option, position) => (
           <div key={option.id}>
             {option.group && option.group !== options[position - 1]?.group && (
-              <div className="pod-chat-completion-group">{option.group}</div>
+              <div className="menu-group-label">{option.group}</div>
             )}
             <button
               type="button"
@@ -204,7 +204,7 @@ export function ComposerCompletionList({
               role="option"
               aria-selected={position === index}
               tabIndex={-1}
-              className="pod-chat-completion-option"
+              className="flex min-h-10 w-full items-center gap-2.5 px-2.5 py-2 text-start text-sm leading-5 aria-selected:bg-layer-hover"
               onPointerDown={event => event.preventDefault()}
               onPointerMove={() => setSelection({ query, index: position, armed: false })}
               onClick={option.choose}>
@@ -214,12 +214,12 @@ export function ComposerCompletionList({
         ))}
       </div>
       {children}
-      <div className="pod-chat-completion-footer">
+      <MenuFooter>
         <span>{t('pod.chat_room.completion_hint')}</span>
         <Button size="xs" variant="ghost" onPointerDown={event => event.preventDefault()} onClick={onClose}>
           {t('common.close')}
         </Button>
-      </div>
+      </MenuFooter>
     </div>
   )
 }

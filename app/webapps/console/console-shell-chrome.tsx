@@ -17,29 +17,28 @@ import {
   cn
 } from '@ankole/uikit'
 import {
-  RiBarChartBoxLine,
-  RiBrainLine,
-  RiBroadcastLine,
-  RiChat3Line,
-  RiCloseLine,
-  RiCodeSSlashLine,
-  RiDashboardLine,
-  RiFolder3Line,
-  RiGitBranchLine,
-  RiKey2Line,
-  RiLogoutBoxRLine,
-  RiLogoutCircleRLine,
-  RiMenuLine,
-  RiPuzzle2Line,
-  RiRobot2Line,
-  RiServerLine,
-  RiSettings3Line,
-  RiShieldKeyholeLine,
-  RiSparkling2Line,
-  RiTerminalBoxLine,
-  RiTimeLine,
-  RiWebhookLine
-} from '@remixicon/react'
+  ArrowRoutingRegular,
+  BoardRegular,
+  BotRegular,
+  BrainRegular,
+  BranchRegular,
+  ChatRegular,
+  ClockRegular,
+  CodeRegular,
+  DataHistogramRegular,
+  DismissRegular,
+  FolderRegular,
+  KeyRegular,
+  LiveRegular,
+  NavigationRegular,
+  PuzzlePieceRegular,
+  ServerRegular,
+  SettingsRegular,
+  ShieldKeyholeRegular,
+  SignOutRegular,
+  SparkleRegular,
+  WindowConsoleRegular
+} from '@ankole/uikit/icons'
 
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useLayoutEffect, useRef, type ComponentType } from 'react'
@@ -82,46 +81,46 @@ type NavSection = {
 // what they can do, what they connect to, and how the deployment instance runs. A
 // search becomes a scan of four headings.
 const NAV_SECTIONS: NavSection[] = [
-  { items: [{ to: '/', label: 'console.nav.home', icon: RiDashboardLine }] },
+  { items: [{ to: '/', label: 'console.nav.home', icon: BoardRegular }] },
   {
     label: 'console.nav.group_work',
     items: [
-      { to: '/agents', label: 'console.nav.agents', icon: RiRobot2Line },
-      { to: '/drive', label: 'console.drive.title', icon: RiFolder3Line },
-      { to: '/conversations', label: 'console.nav.conversations', icon: RiChat3Line },
-      { to: '/background-agent-jobs', label: 'console.nav.background_agent_jobs', icon: RiGitBranchLine },
-      { to: '/automation-jobs', label: 'console.nav.automation_jobs', icon: RiCodeSSlashLine },
-      { to: '/schedules', label: 'console.nav.schedules', icon: RiTimeLine },
-      { to: '/webhooks', label: 'console.nav.webhooks', icon: RiWebhookLine }
+      { to: '/agents', label: 'console.nav.agents', icon: BotRegular },
+      { to: '/drive', label: 'console.drive.title', icon: FolderRegular },
+      { to: '/conversations', label: 'console.nav.conversations', icon: ChatRegular },
+      { to: '/background-agent-jobs', label: 'console.nav.background_agent_jobs', icon: BranchRegular },
+      { to: '/automation-jobs', label: 'console.nav.automation_jobs', icon: CodeRegular },
+      { to: '/schedules', label: 'console.nav.schedules', icon: ClockRegular },
+      { to: '/webhooks', label: 'console.nav.webhooks', icon: ArrowRoutingRegular }
     ]
   },
   {
     label: 'console.nav.group_capabilities',
     items: [
-      { to: '/agent-library', label: 'console.nav.agent_library', icon: RiPuzzle2Line },
-      { to: '/brain/objects', match: '/brain', label: 'console.nav.brain', icon: RiBrainLine },
-      { to: '/worker-envs', label: 'console.nav.worker_envs', icon: RiTerminalBoxLine }
+      { to: '/agent-library', label: 'console.nav.agent_library', icon: PuzzlePieceRegular },
+      { to: '/brain/objects', match: '/brain', label: 'console.nav.brain', icon: BrainRegular },
+      { to: '/worker-envs', label: 'console.nav.worker_envs', icon: WindowConsoleRegular }
     ]
   },
   {
     label: 'console.nav.group_connections',
     items: [
-      { to: '/model-profiles', label: 'console.nav.model_profiles', icon: RiSettings3Line },
-      { to: '/ai-usage', label: 'console.nav.ai_usage', icon: RiBarChartBoxLine },
-      { to: '/providers', label: 'console.nav.providers', icon: RiSparkling2Line },
-      { to: '/worker-providers', label: 'console.worker_providers.title', icon: RiServerLine },
-      { to: '/signals', label: 'console.nav.signals', icon: RiBroadcastLine },
-      { to: '/identity', label: 'console.nav.identity', icon: RiShieldKeyholeLine },
-      { to: '/oidc-clients', label: 'console.nav.oidc_clients', icon: RiKey2Line }
+      { to: '/model-profiles', label: 'console.nav.model_profiles', icon: SettingsRegular },
+      { to: '/ai-usage', label: 'console.nav.ai_usage', icon: DataHistogramRegular },
+      { to: '/providers', label: 'console.nav.providers', icon: SparkleRegular },
+      { to: '/worker-providers', label: 'console.worker_providers.title', icon: ServerRegular },
+      { to: '/signals', label: 'console.nav.signals', icon: LiveRegular },
+      { to: '/identity', label: 'console.nav.identity', icon: ShieldKeyholeRegular },
+      { to: '/oidc-clients', label: 'console.nav.oidc_clients', icon: KeyRegular }
     ]
   },
   {
     label: 'console.nav.group_platform',
     items: [
-      { to: '/workers', label: 'console.nav.workers', icon: RiServerLine },
-      { to: '/tenants', label: 'console.tenants.title', icon: RiShieldKeyholeLine },
-      { to: '/access/groups', match: '/access', label: 'console.nav.access', icon: RiKey2Line },
-      { to: '/settings', label: 'console.nav.settings', icon: RiSettings3Line }
+      { to: '/workers', label: 'console.nav.workers', icon: ServerRegular },
+      { to: '/tenants', label: 'console.tenants.title', icon: ShieldKeyholeRegular },
+      { to: '/access/groups', match: '/access', label: 'console.nav.access', icon: KeyRegular },
+      { to: '/settings', label: 'console.nav.settings', icon: SettingsRegular }
     ]
   }
 ]
@@ -231,15 +230,15 @@ function ConsoleFrame() {
                   />
                 }
                 className="hover:bg-accent hover:text-accent-foreground">
-                <RiLogoutBoxRLine />
+                <SignOutRegular />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={6}>
                 <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
-                  <RiLogoutBoxRLine aria-hidden />
+                  <SignOutRegular aria-hidden />
                   {signOutLabel}
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={signOutAll.isPending} onClick={() => signOutAll.mutate()}>
-                  <RiLogoutCircleRLine aria-hidden />
+                  <SignOutRegular aria-hidden />
                   {t('auth.sign_out_all')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -253,7 +252,7 @@ function ConsoleFrame() {
               type="button"
               variant="ghost"
               className="hover:bg-accent hover:text-accent-foreground">
-              <RiLogoutBoxRLine />
+              <SignOutRegular />
             </Button>
           )}
         </div>
@@ -302,7 +301,7 @@ function ConsoleFrame() {
                   />
                 }
                 className="hover:bg-accent hover:text-accent-foreground lg:hidden">
-                <RiMenuLine />
+                <NavigationRegular />
               </SheetTrigger>
               <SheetContent
                 side="left"
@@ -318,7 +317,7 @@ function ConsoleFrame() {
                   <SheetClose
                     render={<Button aria-label={t('common.close')} size="icon-sm" type="button" variant="ghost" />}
                     className="hover:bg-accent hover:text-accent-foreground">
-                    <RiCloseLine />
+                    <DismissRegular />
                   </SheetClose>
                 </SheetHeader>
                 <ErrorBoundary variant="inline" className="m-2">

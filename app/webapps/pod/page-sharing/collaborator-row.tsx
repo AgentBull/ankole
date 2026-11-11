@@ -11,7 +11,7 @@ import {
   TooltipContent,
   TooltipTrigger
 } from '@ankole/uikit'
-import { RiInformationLine } from '@remixicon/react'
+import { InfoRegular } from '@ankole/uikit/icons'
 import type { PageRole } from '../content-api'
 import type { InheritedCollaborator } from '../state/page-sharing'
 import { inheritedOriginDescription, sharingRoleLabel, SubjectAvatar, SubjectKindBadges } from './sharing-primitives'
@@ -71,7 +71,7 @@ export function CollaboratorRow({
                       type="button"
                       aria-label={originTip}
                       className="inline-flex size-4 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-offset-1">
-                      <RiInformationLine aria-hidden className="size-3.5" />
+                      <InfoRegular aria-hidden className="size-3.5" />
                     </button>
                   }
                 />

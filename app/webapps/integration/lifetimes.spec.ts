@@ -162,10 +162,10 @@ async function pod(page: Page) {
 
 async function openChat(page: Page, path = '/') {
   await page.goto(path)
-  await page
-    .getByRole('tabpanel', { name: 'Chat' })
-    .getByRole('button', { name: 'Personal assistant', exact: true })
-    .click()
+  // The Chat tab opens with its assistant group open, so the group's recent tasks are in view.
+  await expect(
+    page.getByRole('tabpanel', { name: 'Chat' }).getByRole('button', { name: 'Personal assistant', exact: true })
+  ).toHaveAttribute('aria-expanded', 'true')
 }
 
 test('a completed create updates the actual sidebar without replacing the conversation the user opened', async ({

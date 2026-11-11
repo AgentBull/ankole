@@ -2,14 +2,14 @@ import { Badge, Button, cn } from '@ankole/uikit'
 import type { ActionBinding, Spec, StateStore } from '@json-render/core'
 import { JSONUIProvider, Renderer, useBoundProp, type ComponentRenderProps } from '@json-render/react'
 import {
-  RiArrowRightSLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiErrorWarningLine,
-  RiFileTextLine,
-  RiQuestionLine,
-  RiShieldKeyholeLine
-} from '@remixicon/react'
+  CaretRightFilled,
+  CheckmarkRegular,
+  DismissRegular,
+  DocumentTextRegular,
+  ErrorCircleRegular,
+  QuestionCircleRegular,
+  ShieldKeyholeRegular
+} from '@ankole/uikit/icons'
 import { Link } from '@tanstack/react-router'
 import { createContext, useContext, type ReactNode, type Ref } from 'react'
 import { BdiLabel } from '../../common/bidi-file-name'
@@ -48,8 +48,18 @@ export type InteractionElements = {
     /** Submits the enclosing Form instead of emitting `press`. */
     submit?: boolean
     disabled: boolean
+    /** The decision this button stands for is in flight, so the button itself shows the wait. */
+    busy?: boolean
   }
-  Outcome: { text: string; icon?: 'check' | 'close' | 'warning'; avatar?: string; live?: boolean; warning?: boolean }
+  Outcome: {
+    text: string
+    icon?: 'check' | 'close' | 'warning'
+    avatar?: string
+    live?: boolean
+    warning?: boolean
+    /** The outcome was decided while the card was on screen, so it arrives instead of being there. */
+    fresh?: boolean
+  }
   Group: { kind: keyof typeof GROUPS }
   PageLink: { pageID: string; label: string }
   Line: { text: string }
@@ -58,13 +68,12 @@ export type InteractionElements = {
 
 type Rendered<K extends keyof InteractionElements> = ComponentRenderProps<InteractionElements[K]>
 
-const ICONS = { check: RiCheckLine, close: RiCloseLine, warning: RiErrorWarningLine }
+const ICONS = { check: CheckmarkRegular, close: DismissRegular, warning: ErrorCircleRegular }
 const GROUPS = {
   compose: 'pod-chat-choice-compose',
-  actions: 'flex flex-wrap items-center gap-2 px-3.5 pb-3',
-  details:
-    'mx-3.5 mb-3 space-y-1.5 rounded-control border border-border bg-muted/35 px-3 py-2 text-xs text-fg-secondary',
-  drafts: 'mx-3.5 mb-3 min-w-0 space-y-2'
+  actions: 'flex flex-wrap items-center gap-2',
+  details: 'pod-chat-choice-details',
+  drafts: 'grid min-w-0 gap-2'
 }
 
 /** Lets the card's owner reach the card element, to move focus inside it and to tell whether it is on screen. */
@@ -72,7 +81,7 @@ const CardRef = createContext<Ref<HTMLDivElement> | undefined>(undefined)
 
 function InteractionCard({ element: { props }, children }: Rendered<'InteractionCard'>) {
   const ref = useContext(CardRef)
-  const Icon = props.kind === 'approval' ? RiShieldKeyholeLine : RiQuestionLine
+  const Icon = props.kind === 'approval' ? ShieldKeyholeRegular : QuestionCircleRegular
   return (
     <div
       ref={ref}
@@ -80,20 +89,11 @@ function InteractionCard({ element: { props }, children }: Rendered<'Interaction
       data-testid={props.testid}
       data-action-kind={props.actionKind}
       data-state={props.state}>
-      {props.badge ? (
-        <div className="pod-chat-choice-header justify-between">
-          <span className="inline-flex items-center gap-1.5">
-            <Icon aria-hidden />
-            <span>{props.title}</span>
-          </span>
-          <Badge variant={props.badge.variant}>{props.badge.text}</Badge>
-        </div>
-      ) : (
-        <div className="pod-chat-choice-header">
-          <Icon aria-hidden />
-          <span>{props.title}</span>
-        </div>
-      )}
+      <div className="pod-chat-choice-header">
+        <Icon aria-hidden />
+        <span>{props.title}</span>
+        {props.badge && <Badge variant={props.badge.variant}>{props.badge.text}</Badge>}
+      </div>
       {children}
     </div>
   )
@@ -102,7 +102,7 @@ function InteractionCard({ element: { props }, children }: Rendered<'Interaction
 function Choice({ element: { props }, emit }: Rendered<'Choice'>) {
   return (
     <Button
-      variant="outline"
+      variant="ghost"
       className="pod-chat-choice"
       disabled={props.disabled}
       aria-keyshortcuts={props.shortcut}
@@ -148,7 +148,8 @@ function ActionButton({ element: { props }, emit }: Rendered<'ActionButton'>) {
       type={props.submit ? 'submit' : 'button'}
       size={props.size}
       variant={props.variant}
-      disabled={props.disabled}
+      disabled={props.disabled && !props.busy}
+      loading={props.busy}
       onClick={props.submit ? undefined : () => emit('press')}>
       {Icon && <Icon aria-hidden />}
       {props.label}
@@ -161,7 +162,9 @@ function Outcome({ element: { props } }: Rendered<'Outcome'>) {
   return (
     <p
       role={props.live ? 'status' : undefined}
-      className={cn('pod-chat-choice-outcome', props.warning && 'text-warning-foreground')}>
+      data-fresh={props.fresh || undefined}
+      data-tone={props.warning ? 'warning' : undefined}
+      className="pod-chat-choice-outcome">
       {Icon && <Icon aria-hidden />}
       {props.avatar && (
         <span className="pod-chat-event-avatar" aria-hidden>
@@ -176,29 +179,24 @@ function Outcome({ element: { props } }: Rendered<'Outcome'>) {
 function PageLink({ element: { props } }: Rendered<'PageLink'>) {
   const pageHref = usePageHref()
   return (
-    <div className="flex items-center gap-1.5">
-      <RiFileTextLine className="size-3.5 shrink-0 text-fg-tertiary" aria-hidden />
-      <Link className="truncate font-medium text-foreground hover:underline" to={pageHref(props.pageID)}>
+    <div className="flex min-w-0 items-center gap-1">
+      <DocumentTextRegular className="size-5 shrink-0 text-fg-tertiary" aria-hidden />
+      <Link className="link truncate" to={pageHref(props.pageID)}>
         {props.label}
       </Link>
     </div>
   )
 }
 
+/** A draft that the card carries, such as a diff or a complete document: a block card that opens like a step list. */
 function Disclosure({ element: { props } }: Rendered<'Disclosure'>) {
   return (
-    <details open={props.open} className="code-surface group">
-      <summary className="code-toolbar cursor-pointer px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
-        <RiArrowRightSLine className="size-3.5 shrink-0 group-open:rotate-90" aria-hidden />
-        {props.title}
+    <details open={props.open} className="pod-chat-block-card">
+      <summary className="pod-chat-block-card-header">
+        <CaretRightFilled className="pod-chat-disclosure-caret" aria-hidden />
+        <span>{props.title}</span>
       </summary>
-      <pre
-        className={cn(
-          'code-text overflow-auto whitespace-pre-wrap break-words px-3 py-2 text-xs',
-          props.tall ? 'max-h-96' : 'max-h-72'
-        )}>
-        {props.text}
-      </pre>
+      <pre className={cn('pod-chat-block-card-source', props.tall ? 'max-h-96' : 'max-h-72')}>{props.text}</pre>
     </details>
   )
 }

@@ -12,7 +12,7 @@ import {
   toast,
   Spinner
 } from '@ankole/uikit'
-import { RiExternalLinkLine } from '@remixicon/react'
+import { OpenRegular } from '@ankole/uikit/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -230,7 +230,7 @@ export function ChatGPTLoginDialog({
                   target="_blank"
                   rel="noreferrer">
                   {textValue(login?.verification_url)}
-                  <RiExternalLinkLine className="size-4" aria-hidden />
+                  <OpenRegular className="size-4" aria-hidden />
                 </a>
                 <ReadOnlyValue mono>{textValue(login?.user_code)}</ReadOnlyValue>
                 <p className="text-xs text-muted-foreground">
@@ -250,7 +250,7 @@ export function ChatGPTLoginDialog({
                   target="_blank"
                   rel="noreferrer">
                   {t('console.providers.open_authorization')}
-                  <RiExternalLinkLine className="size-4" aria-hidden />
+                  <OpenRegular className="size-4" aria-hidden />
                 </a>
                 <LabeledField label={t('console.providers.callback_url')} required>
                   <Textarea

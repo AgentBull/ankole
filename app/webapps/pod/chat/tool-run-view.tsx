@@ -1,40 +1,40 @@
 import {
-  RiCloseLine,
-  RiDatabase2Line,
-  RiFileEditLine,
-  RiFileTextLine,
-  RiNodeTree,
-  RiSearchLine,
-  RiSparklingLine,
-  RiStopFill,
-  RiTerminalBoxLine,
-  RiToolsLine
-} from '@remixicon/react'
+  CaretRightFilled,
+  DatabaseRegular,
+  DocumentEditRegular,
+  DocumentTextRegular,
+  SearchRegular,
+  SparkleRegular,
+  TextBulletListTreeRegular,
+  WindowConsoleRegular,
+  WrenchScrewdriverRegular
+} from '@ankole/uikit/icons'
 import type { TFunction } from 'i18next'
-import { Spinner } from '@ankole/uikit'
 import type { ReactNode, SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isRecord, safeJsonParse } from '@agentbull/active-support'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
+import { formatElapsed } from './elapsed'
+import { ExecutionStatusMark } from './execution-status'
 import type { ExecutionStep } from './types'
 
 function ToolIcon({ tool, toolKind }: { tool: string; toolKind?: string }) {
   const Icon =
     toolKind === 'skill' || tool === 'skill_view'
-      ? RiSparklingLine
+      ? SparkleRegular
       : toolKind === 'patch' || tool === 'apply_patch' || /edit_file|write_file/.test(tool)
-        ? RiFileEditLine
+        ? DocumentEditRegular
         : toolKind === 'collab' || /spawnAgent|sendInput|resumeAgent|closeAgent|background_job|workflow/.test(tool)
-          ? RiNodeTree
+          ? TextBulletListTreeRegular
           : /bash|terminal|command|shell/.test(tool)
-            ? RiTerminalBoxLine
+            ? WindowConsoleRegular
             : /base|db\.|query/.test(tool)
-              ? RiDatabase2Line
+              ? DatabaseRegular
               : toolKind === 'search' || /brain|search|memory|^grep$|^find$/.test(tool)
-                ? RiSearchLine
+                ? SearchRegular
                 : /page|file|read|^ls$/.test(tool)
-                  ? RiFileTextLine
-                  : RiToolsLine
+                  ? DocumentTextRegular
+                  : WrenchScrewdriverRegular
   return <Icon aria-hidden />
 }
 
@@ -378,13 +378,12 @@ export function ToolRunView({
   if (!steps.length) return null
   // Live work keeps one folded list however many steps run at once, so the list never collapses under the reader.
   if (compact) {
-    const latest = steps[steps.length - 1]!
     return (
       <details
         className="pod-chat-tool-group"
         open={steps.some(step => ['failed', 'stopped'].includes(stepStatus(step.status))) || undefined}>
         <summary>
-          <ToolIcon tool={latest.tool} toolKind={latest.toolKind} />
+          <CaretRightFilled className="pod-chat-disclosure-caret" aria-hidden />
           <span className="pod-chat-tool-title">{t('pod.chat_timeline.steps')}</span>
         </summary>
         <ToolDisclosureBody>
@@ -478,14 +477,14 @@ function ExplorationGroup({ steps, live }: { steps: ExecutionStep[]; live: boole
   return (
     <details className="pod-chat-tool-group" data-status={status}>
       <summary>
-        <RiSearchLine aria-hidden />
+        <CaretRightFilled className="pod-chat-disclosure-caret" aria-hidden />
         <span
           className="pod-chat-tool-title"
           title={title}
           data-working-phase={live && status === 'running' ? title : undefined}>
           {title}
         </span>
-        <StepState status={status} className="order-1 ml-auto" />
+        <StepState status={status} />
       </summary>
       <ToolDisclosureBody>
         <ol className="pod-chat-tool-run" data-live={live || undefined} aria-label={title}>
@@ -507,43 +506,28 @@ function stepStatus(status: string): StepStatus {
   return 'running'
 }
 
-function StepState({ status, className = '' }: { status: StepStatus; className?: string }) {
+/** A step's state takes the status mark of every run in the chat, in the row's 20px status slot. */
+function StepState({ status }: { status: StepStatus }) {
   const { t } = useTranslation()
   return (
     <span
       key={status}
-      className={`pod-chat-tool-state motion-safe:animate-[pod-chat-tool-status-in_360ms_cubic-bezier(.22,1,.36,1)_both] ${className}`.trim()}
+      className="pod-chat-tool-state motion-safe:animate-[pod-chat-tool-status-in_360ms_cubic-bezier(.22,1,.36,1)_both]"
       aria-label={t(`pod.chat_timeline.${status}`)}>
-      {status === 'stopped' ? (
-        <RiStopFill aria-hidden />
-      ) : status === 'failed' ? (
-        <RiCloseLine aria-hidden />
-      ) : status === 'completed' ? (
-        <svg
-          aria-hidden
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.7"
-          strokeLinecap="round"
-          strokeLinejoin="round">
-          <path
-            d="M5 12l4 4L19 6"
-            pathLength={1}
-            strokeDasharray={1}
-            className="motion-safe:animate-[pod-chat-tool-check_360ms_cubic-bezier(.22,1,.36,1)_80ms_both]"
-          />
-        </svg>
-      ) : (
-        <Spinner aria-hidden />
-      )}
+      <ExecutionStatusMark status={status} />
     </span>
   )
 }
 
 function ToolStep({ step, live }: { step: ExecutionStep; live: boolean }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const status = stepStatus(step.status)
+  // A finished step states how long it took once that reaches a second. Most steps finish faster, so a time on
+  // a row marks the step that was slow.
+  const duration =
+    status !== 'running' && typeof step.duration_ms === 'number' && step.duration_ms >= 1000
+      ? formatElapsed(step.duration_ms, i18n.language)
+      : undefined
   const failed = status === 'failed'
   const isSkill = skillStepName(step) !== undefined
   const terminal = isSkill ? undefined : commandDetails(step)
@@ -569,14 +553,15 @@ function ToolStep({ step, live }: { step: ExecutionStep; live: boolean }) {
             {labelText}
           </span>
           {patch && <PatchCounts added={patch.added} removed={patch.removed} />}
+          {duration && <span className="pod-chat-tool-duration">{duration}</span>}
           <StepState status={status} />
         </Label>
         {expandable && (
           <ToolDisclosureBody>
             {terminal ? (
-              <div className="pod-chat-command-terminal">
-                <header>
-                  <RiTerminalBoxLine aria-hidden />
+              <div className="pod-chat-block-card pod-chat-command-terminal">
+                <header className="pod-chat-block-card-header">
+                  <WindowConsoleRegular aria-hidden />
                   <span>{t('pod.chat_timeline.command')}</span>
                   {terminal.exitCode != null && (
                     <span className="pod-chat-command-exit" data-failed={failed || undefined}>
@@ -599,7 +584,7 @@ function ToolStep({ step, live }: { step: ExecutionStep; live: boolean }) {
                 </div>
               </div>
             ) : patch ? (
-              <div className="pod-chat-tool-detail">
+              <div className="pod-chat-block-card pod-chat-tool-detail">
                 <PatchView patch={patch} />
                 {output && (
                   <div>
@@ -610,7 +595,7 @@ function ToolStep({ step, live }: { step: ExecutionStep; live: boolean }) {
               </div>
             ) : (
               (input || output) && (
-                <div className="pod-chat-tool-detail">
+                <div className="pod-chat-block-card pod-chat-tool-detail">
                   {input && (
                     <div>
                       <span>{t('pod.chat_timeline.input')}</span>

@@ -1,5 +1,5 @@
 import { Accordion as AccordionPrimitive } from '@base-ui/react/accordion'
-import { RiArrowDownSLine, RiArrowUpSLine } from '@remixicon/react'
+import { ChevronDownRegular, ChevronUpRegular } from '../icons'
 import { cn } from '../lib/utils'
 
 function Accordion({ className, ...props }: AccordionPrimitive.Root.Props) {
@@ -23,11 +23,11 @@ function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.
         )}
         {...props}>
         {children}
-        <RiArrowDownSLine
+        <ChevronDownRegular
           data-slot="accordion-trigger-icon"
           className="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
         />
-        <RiArrowUpSLine
+        <ChevronUpRegular
           data-slot="accordion-trigger-icon"
           className="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline"
         />

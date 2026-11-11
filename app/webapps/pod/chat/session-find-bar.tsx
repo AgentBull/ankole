@@ -1,5 +1,5 @@
 import { Button, Input } from '@ankole/uikit'
-import { RiArrowUpSLine, RiArrowDownSLine, RiCloseLine } from '@remixicon/react'
+import { ChevronDownRegular, ChevronUpRegular, DismissRegular } from '@ankole/uikit/icons'
 import { useEffect, useRef, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ContentError } from '../content-primitives'
@@ -133,7 +133,7 @@ export function SessionFindBar({
         disabled={!count}
         aria-label={t('pod.chat_room.previous_match')}
         onClick={() => search(-1)}>
-        <RiArrowUpSLine aria-hidden />
+        <ChevronUpRegular aria-hidden />
       </Button>
       <Button
         size="icon-xs"
@@ -141,10 +141,10 @@ export function SessionFindBar({
         disabled={!count}
         aria-label={t('pod.chat_room.next_match')}
         onClick={() => search(1)}>
-        <RiArrowDownSLine aria-hidden />
+        <ChevronDownRegular aria-hidden />
       </Button>
       <Button size="icon-xs" variant="ghost" aria-label={t('common.close')} onClick={onClose}>
-        <RiCloseLine aria-hidden />
+        <DismissRegular aria-hidden />
       </Button>
     </div>
   )

@@ -1,4 +1,4 @@
-import { RiArrowLeftSLine, RiArrowRightSLine, RiMoreLine } from '@remixicon/react'
+import { ChevronLeftRegular, ChevronRightRegular, MoreHorizontalRegular } from '../icons'
 import type * as React from 'react'
 import { Button } from './button'
 import { cn } from '../lib/utils'
@@ -56,7 +56,7 @@ function PaginationPrevious({
       size="icon"
       className={cn(className)}
       {...props}>
-      <RiArrowLeftSLine aria-hidden="true" data-icon="inline-start" />
+      <ChevronLeftRegular aria-hidden="true" data-icon="inline-start" />
       <span className="sr-only">{text}</span>
     </PaginationLink>
   )
@@ -75,7 +75,7 @@ function PaginationNext({
       className={cn(className)}
       {...props}>
       <span className="sr-only">{text}</span>
-      <RiArrowRightSLine aria-hidden="true" data-icon="inline-end" />
+      <ChevronRightRegular aria-hidden="true" data-icon="inline-end" />
     </PaginationLink>
   )
 }
@@ -91,7 +91,7 @@ function PaginationEllipsis({ className, label, ...props }: React.ComponentProps
         className
       )}
       {...props}>
-      <RiMoreLine aria-hidden="true" />
+      <MoreHorizontalRegular aria-hidden="true" />
       {!hidden && label ? <span className="sr-only">{label}</span> : null}
     </span>
   )

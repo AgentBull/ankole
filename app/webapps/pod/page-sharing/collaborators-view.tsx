@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger, TooltipProvider } from '@ankole/uikit'
-import { RiLink, RiUserAddLine } from '@remixicon/react'
+import { LinkRegular, PersonAddRegular } from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import type { PageRole, PageSharingDetail } from '../content-api'
 import { ContentError } from '../content-primitives'
@@ -125,12 +125,12 @@ export function CollaboratorsView({
               size="sm"
               disabled={mutations.pending}
               onClick={() => onOpenInvite(model.scopeTab.value)}>
-              <RiUserAddLine aria-hidden className="size-4" />
+              <PersonAddRegular aria-hidden className="size-4" />
               {t('pod.sharing.add_collaborators')}
             </Button>
           ) : (
             <Button variant="outline" size="sm" onClick={() => void copyLink()}>
-              <RiLink aria-hidden className="size-4" />
+              <LinkRegular aria-hidden className="size-4" />
               {t('pod.content.copy_link')}
             </Button>
           )}

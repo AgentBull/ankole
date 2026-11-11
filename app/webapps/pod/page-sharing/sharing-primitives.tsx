@@ -1,7 +1,7 @@
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Avatar, AvatarFallback, AvatarImage, Badge, Button, PopoverTitle } from '@ankole/uikit'
-import { RiArrowLeftSLine, RiGroupLine, RiOrganizationChart, RiRobot2Line } from '@remixicon/react'
+import { BotRegular, ChevronLeftRegular, OrganizationRegular, PeopleRegular } from '@ankole/uikit/icons'
 import { avatarInitials } from '../avatar-initials'
 import type { PageRole, PageType } from '../content-api'
 import type { InheritedCollaborator } from '../state/page-sharing'
@@ -18,7 +18,7 @@ export function SubviewHeader({ title, disabled, onBack }: { title: string; disa
         title={translate('pod.sharing.back')}
         disabled={disabled}
         onClick={onBack}>
-        <RiArrowLeftSLine aria-hidden className="size-4" />
+        <ChevronLeftRegular aria-hidden className="size-4" />
       </Button>
       <PopoverTitle>{title}</PopoverTitle>
     </div>
@@ -43,12 +43,12 @@ export function SubjectAvatar({
       {subject.avatar_url ? <AvatarImage src={subject.avatar_url} alt="" /> : null}
       <AvatarFallback>
         {subject.kind === 'agent' ? (
-          <RiRobot2Line aria-hidden className={size === 'sm' ? 'size-3.5' : 'size-4'} />
+          <BotRegular aria-hidden className={size === 'sm' ? 'size-3.5' : 'size-4'} />
         ) : subject.kind === 'group' ? (
           subject.group_domain === 'directory' ? (
-            <RiOrganizationChart aria-hidden className={size === 'sm' ? 'size-3.5' : 'size-4'} />
+            <OrganizationRegular aria-hidden className={size === 'sm' ? 'size-3.5' : 'size-4'} />
           ) : (
-            <RiGroupLine aria-hidden className={size === 'sm' ? 'size-3.5' : 'size-4'} />
+            <PeopleRegular aria-hidden className={size === 'sm' ? 'size-3.5' : 'size-4'} />
           )
         ) : (
           initial

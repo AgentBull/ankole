@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@ankole/uikit": "workspace:*",
-    "@remixicon/react": "4.9.0",
     "@tailwindcss/typography": "^0.5.20",
     "astro": "^7.4.2",
     "intl-messageformat": "^12.1.4",

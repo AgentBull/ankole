@@ -14,7 +14,7 @@ import {
   TableCell,
   cn
 } from '@ankole/uikit'
-import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
+import { ChatRegular, MailInboxRegular, MathFormulaRegular } from '@ankole/uikit/icons'
 import { match, recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
 
 import { useEffect, useRef } from 'react'
@@ -141,7 +141,7 @@ export function ConversationsListPage() {
       isFiltered={isFiltered}
       onClearFilters={clearFilters}
       emptyTitle={t('console.conversations.empty_title')}
-      emptyIcon={<RiChat3Line aria-hidden />}
+      emptyIcon={<ChatRegular aria-hidden />}
       emptyDescription={
         isFiltered || showAll
           ? t('console.conversations.empty_description')
@@ -451,7 +451,7 @@ export function ConversationDetailPage() {
           <Skeleton className="h-64 w-full" />
         ) : thread.length === 0 ? (
           <div className="flex items-center gap-3 border border-border bg-card p-8 text-sm text-muted-foreground">
-            <RiInboxLine className="size-5" />
+            <MailInboxRegular className="size-5" />
             {t('console.conversations.no_messages')}
           </div>
         ) : (
@@ -529,7 +529,7 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
           <AccordionItem value="items">
             <AccordionTrigger className="items-center gap-3 px-4 py-2.5 text-xs font-normal hover:no-underline">
               <span className="flex min-w-0 flex-1 items-center gap-2">
-                <RiFunctionLine className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <MathFormulaRegular className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                 <ToolSummary content={message.content} />
                 <span className="ml-auto flex flex-wrap items-center justify-end gap-2 text-muted-foreground">
                   <MessageModel message={message} />

@@ -1,16 +1,24 @@
 'use client'
 
-import { RiSubtractLine } from '@remixicon/react'
+import { SubtractRegular } from '../icons'
 import { OTPInput, OTPInputContext } from 'input-otp'
 import * as React from 'react'
 import { cn } from '../lib/utils'
 
+/**
+ * A one-time code field.
+ *
+ * The field shows the state of the code as a whole. `aria-invalid` marks a rejected code: the slots take the
+ * error baseline and the group nudges once. `data-status="verifying"` passes a band of light over the slots while
+ * the code is checked, and `data-status="success"` turns the baselines to the success mark.
+ */
 function InputOTP({
   className,
   containerClassName,
   ...props
 }: React.ComponentProps<typeof OTPInput> & {
   containerClassName?: string
+  'data-status'?: 'verifying' | 'success'
 }) {
   return (
     <OTPInput
@@ -70,7 +78,10 @@ function InputOTPGroup({ className, children, ...props }: React.ComponentProps<'
   return (
     <div
       data-slot="input-otp-group"
-      className={cn('group/otp-slots relative flex items-center gap-1', className)}
+      className={cn(
+        'group/otp-slots relative flex items-center gap-1 group-has-[input[aria-invalid=true]]/input-otp:motion-safe:animate-field-nudge',
+        className
+      )}
       {...props}>
       {children}
       <span
@@ -100,8 +111,9 @@ function InputOTPSlot({
     <div
       data-slot="input-otp-slot"
       data-active={isActive}
+      style={{ '--otp-index': index } as React.CSSProperties}
       className={cn(
-        'relative flex size-8 items-center justify-center rounded-control border border-field-edge border-b-input bg-field text-sm transition-[color,border-color,background-color] outline-none aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-[active=true]:z-10 data-[active=true]:border-control-edge data-[active=true]:border-b-ring data-[active=true]:bg-background data-[active=true]:shadow-[inset_0_-1px_0_var(--color-ring)] group-has-[input:disabled]/input-otp:border-b-transparent group-has-[input:disabled]/input-otp:text-fg-disabled',
+        'relative flex size-8 items-center justify-center overflow-hidden rounded-control border border-field-edge border-b-input bg-field text-sm transition-[color,border-color,background-color,box-shadow] outline-none aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] group-has-[input[aria-invalid=true]]/input-otp:border-b-destructive group-has-[input[aria-invalid=true]]/input-otp:shadow-[inset_0_-1px_0_var(--color-destructive)] group-has-[input[data-status=success]]/input-otp:border-b-success group-has-[input[data-status=success]]/input-otp:shadow-[inset_0_-1px_0_var(--color-success)] data-[active=true]:z-10 data-[active=true]:border-control-edge data-[active=true]:border-b-ring data-[active=true]:bg-background data-[active=true]:shadow-[inset_0_-1px_0_var(--color-ring)] group-has-[input:disabled]/input-otp:border-b-transparent group-has-[input:disabled]/input-otp:text-fg-disabled',
         'group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:border-b-input group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:shadow-none',
         className
       )}
@@ -126,7 +138,7 @@ function InputOTPSeparator({ ...props }: React.ComponentProps<'div'>) {
       data-slot="input-otp-separator"
       className="flex items-center [&_svg:not([class*='size-'])]:size-3.5"
       {...props}>
-      <RiSubtractLine />
+      <SubtractRegular />
     </div>
   )
 }

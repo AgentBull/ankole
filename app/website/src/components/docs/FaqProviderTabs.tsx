@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
-import { RiArrowRightLine } from '@remixicon/react'
+import { ArrowRightRegular } from '@ankole/uikit/icons'
 
 export interface FaqLink {
   href: string
@@ -127,7 +127,7 @@ function IssueList({ issues, labels }: FaqIssueListProps) {
                     rel={isExternalLink(link.href) ? 'noopener noreferrer' : undefined}
                     className="inline-flex items-center gap-1 text-[13px] font-medium text-link underline decoration-link/35 underline-offset-4 hover:decoration-link">
                     {link.label}
-                    <RiArrowRightLine aria-hidden="true" className="size-3.5" />
+                    <ArrowRightRegular aria-hidden="true" className="size-3.5" />
                   </a>
                 ))}
               </div>

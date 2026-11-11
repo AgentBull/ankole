@@ -3,7 +3,7 @@ import useEmblaCarousel, { type UseEmblaCarouselType } from 'embla-carousel-reac
 
 import { cn } from '@ankole/uikit/lib/utils'
 import { Button } from '@ankole/uikit/components/button'
-import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react'
+import { ChevronLeftRegular, ChevronRightRegular } from '../icons'
 
 type CarouselAPI = UseEmblaCarouselType[1]
 type UseCarouselParameters = Parameters<typeof useEmblaCarousel>
@@ -171,7 +171,7 @@ function CarouselPrevious({
       disabled={!canScrollPrev}
       onClick={scrollPrev}
       {...props}>
-      <RiArrowLeftSLine />
+      <ChevronLeftRegular />
       <span className="sr-only">Previous slide</span>
     </Button>
   )
@@ -198,7 +198,7 @@ function CarouselNext({
       disabled={!canScrollNext}
       onClick={scrollNext}
       {...props}>
-      <RiArrowRightSLine />
+      <ChevronRightRegular />
       <span className="sr-only">Next slide</span>
     </Button>
   )

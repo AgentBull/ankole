@@ -1,5 +1,5 @@
 import { Button } from '@ankole/uikit/components/button'
-import { RiArrowGoBackLine, RiArrowGoForwardLine } from '@remixicon/react'
+import { ArrowRedoRegular, ArrowUndoRegular } from '@ankole/uikit/icons'
 import { redoDepth, undoDepth } from '../core/history'
 import { redo, undo } from '../editor/commands'
 import { BlockMenu, InsertMenu } from './BlockMenus'
@@ -29,7 +29,7 @@ export function EditorToolbar() {
         title={label('undo')}
         disabled={locked || !canUndo}
         onClick={() => undo(editor)}>
-        <RiArrowGoBackLine />
+        <ArrowUndoRegular />
       </Button>
       <Button
         variant="ghost"
@@ -38,7 +38,7 @@ export function EditorToolbar() {
         title={label('redo')}
         disabled={locked || !canRedo}
         onClick={() => redo(editor)}>
-        <RiArrowGoForwardLine />
+        <ArrowRedoRegular />
       </Button>
     </div>
   )

@@ -143,24 +143,40 @@ The Pod JSON:API serves work items to the current Human under
   carries the rule's name, timing, and Agent. An Applet's Job schedules stay
   with their Applet.
 
-The Pod sidebar has a Work tab beside Home and Chat. The tab lists the open
-work items by status with the marks that a conversation row uses in Chat. The
-Work page shows the work items as a board with the columns To do, In progress,
-Needs you, In review, and Done, or as a list, and shows the schedules below
-them. A card shows the room's title, each live run with the mark, status,
-progress, and running time that its card shows in the conversation, the Agent,
-and a Stop action for a run that can be stopped. Only the moves that a person
+The Home tab of the Pod sidebar links to the Work page with a row titled
+Background Agent tasks, directly above Shared with me. The row shows while
+at least one work item is in To do or In progress, and while the Work page is
+open. The Work page shows the work items as a board with the columns To do, In
+progress, Needs you, In review, and Done, and shows the schedules below it.
+The columns share the page's width and wrap onto another row when all five do
+not fit, so the board never scrolls sideways. Issues reach the board from the
+personal assistant's task rooms and from callers of `POST /issues`. The
+board is built from the UIKit `Board` components. Each column is a quiet
+surface headed by the status's icon in its hue, the status, and the card
+count. A card has three rows: what its latest live run has done (the plan or
+Workflow progress, else the step count, else the run's kind, with the number
+of other live runs) and how that run stands, then the title, then the Agent
+and when the work last moved. A card's Stop action shows while the card is
+hovered or holds focus. The page header names the Agents whose runs are
+running, and its Filter menu limits the cards to the chosen Agents, which the
+`agent` search parameters keep. Only the moves that a person
 decides are available by dragging: a `todo` card to In progress starts the
 Issue, a `todo` or `review` card to Done accepts it, and a `done` card to In
 review or To do reopens it.
 
-Selecting a work item opens its room beside the board, as the Page Assistant
-opens a conversation beside a Page. The panel's header names the status and
-offers the one step that applies: Start, Mark done, or Reopen. For an Issue in
-`todo`, the panel shows the title, the Agent, and the request for editing in
-place of the room, because the room has received nothing yet. The Work queries
-refresh on the Pod's `conversations_changed` event, which follows every
-committed message, run status, and Issue change.
+Selecting a work item opens it beside the board in the room layout of Chat:
+the board keeps a 300 px column, and the panel takes the rest of the page with
+the open and close motion of a conversation's side panel. The panel is the
+execution inspector that a conversation opens for a run. It shows the card's
+latest live run, else the room's latest run from the conversation detail, and
+the `issue` and `run` search parameters name the open item and run, including
+a predecessor or successor Job that the person opens from the inspector. The inspector's header adds the one
+Issue step that applies (Start, Mark done, or Reopen) and a link to the room.
+For an Issue in `todo`, the panel shows the title, the Agent, and the request
+for editing, because the room has received nothing yet. A schedule row opens
+the room that manages the schedule. The Work queries refresh on the Pod's
+`conversations_changed` event, which follows every committed message, run
+status, and Issue change.
 
 ## Tests required for changes
 

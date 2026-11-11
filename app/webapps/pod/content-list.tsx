@@ -3,7 +3,7 @@ import { formatRelativeTime } from '../common/date-time'
 import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, toast } from '@ankole/uikit'
 import { pageCreated } from './state/navigation-cache'
-import { RiCloseLine, RiDeleteBinLine, RiLockLine } from '@remixicon/react'
+import { DeleteRegular, DismissRegular, LockClosedRegular } from '@ankole/uikit/icons'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import type { TFunction } from 'i18next'
@@ -365,7 +365,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
                 aria-label={t('pod.command.clear_in_page')}
                 className="inline-flex size-6 min-h-6 min-w-6 cursor-pointer items-center justify-center rounded-mini text-fg-tertiary hover:text-foreground"
                 onClick={() => updateFilterParam('ancestor_id', undefined)}>
-                <RiCloseLine aria-hidden className="size-3.5" />
+                <DismissRegular aria-hidden className="size-3.5" />
               </button>
             </span>
           )}
@@ -449,7 +449,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
                       variant="ghost"
                       disabled={!!page.purge_started_at || purge.isPending}
                       onClick={() => setPurging(page)}>
-                      <RiDeleteBinLine aria-hidden className="size-4" />
+                      <DeleteRegular aria-hidden className="size-4" />
                     </Button>
                   </>
                 )
@@ -659,7 +659,7 @@ function PageListItem({
       )}
       {showPrivateBadge && (
         <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
-          <RiLockLine aria-hidden className="size-3" />
+          <LockClosedRegular aria-hidden className="size-3" />
           {t('pod.content.private')}
         </span>
       )}

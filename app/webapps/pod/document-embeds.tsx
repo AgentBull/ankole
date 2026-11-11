@@ -13,14 +13,14 @@ import {
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
-  RiArrowDownSLine,
-  RiAtLine,
-  RiBarChartBoxLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiExternalLinkLine,
-  RiWindowLine
-} from '@remixicon/react'
+  CheckmarkRegular,
+  ChevronDownRegular,
+  DataHistogramRegular,
+  DismissRegular,
+  MentionRegular,
+  OpenRegular,
+  WindowRegular
+} from '@ankole/uikit/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -125,7 +125,7 @@ export function ChartEmbedPickerDialog({
                           })
                         }>
                         <span className="inline-flex items-center gap-1.5 truncate">
-                          <RiBarChartBoxLine aria-hidden="true" className="size-4 shrink-0" />
+                          <DataHistogramRegular aria-hidden="true" className="size-4 shrink-0" />
                           <span className="truncate">{view.name}</span>
                         </span>
                         {choiceState.tables.length > 1 && (
@@ -155,7 +155,7 @@ export function ChartEmbedPickerDialog({
                           view: JSON.stringify({ type: 'chart' })
                         })
                       }>
-                      <RiBarChartBoxLine aria-hidden="true" className="size-4 shrink-0 text-fg-secondary" />
+                      <DataHistogramRegular aria-hidden="true" className="size-4 shrink-0 text-fg-secondary" />
                       <span className="truncate">{table.name}</span>
                     </Button>
                   ))}
@@ -261,7 +261,7 @@ export function PageEmbed({
           aria-label={t('pod.content.remove')}
           title={t('pod.content.remove')}
           onClick={remove}>
-          <RiCloseLine aria-hidden className="size-4" />
+          <DismissRegular aria-hidden className="size-4" />
         </Button>
       )}
     </div>
@@ -294,7 +294,7 @@ export function PageEmbed({
           onClick={() => openPage(query.data!.page.id)}>
           <PageIcon page={page} />
           <span className="truncate">{page.title || t('pod.content.untitled')}</span>
-          <RiExternalLinkLine aria-hidden className="shrink-0" />
+          <OpenRegular aria-hidden className="shrink-0" />
         </Button>
         {canConfigureEmbed && collapseToMention && (
           <DropdownMenu modal={false}>
@@ -307,19 +307,19 @@ export function PageEmbed({
                   aria-label={t('pod.editor.resource_view')}
                 />
               }>
-              <RiWindowLine aria-hidden />
+              <WindowRegular aria-hidden />
               <span>{t('pod.editor.mention_view_embed')}</span>
-              <RiArrowDownSLine aria-hidden />
+              <ChevronDownRegular aria-hidden />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" aria-label={t('pod.editor.resource_view')}>
               <DropdownMenuItem onClick={collapseToMention}>
-                <RiAtLine aria-hidden />
+                <MentionRegular aria-hidden />
                 <span>{t('pod.editor.mention_view_inline')}</span>
               </DropdownMenuItem>
               <DropdownMenuItem data-active="true">
-                <RiWindowLine aria-hidden />
+                <WindowRegular aria-hidden />
                 <span>{t('pod.editor.mention_view_embed')}</span>
-                <RiCheckLine aria-hidden className="ml-auto text-foreground" />
+                <CheckmarkRegular aria-hidden className="ml-auto text-foreground" />
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

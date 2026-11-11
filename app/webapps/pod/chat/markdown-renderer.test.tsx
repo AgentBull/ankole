@@ -1,6 +1,9 @@
 import { beforeAll, expect, test } from 'bun:test'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../../common/i18n'
+import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import MarkdownRenderer from './markdown-renderer'
 
 beforeAll(async () => {
@@ -65,5 +68,66 @@ test('streamed prefixes render the same markup as a settled document', () => {
         expect(markup(text, generated, true)).toBe(markup(text, generated, false))
       }
     }
+  }
+})
+
+test('a single dollar sign stays text and math takes double dollar signs', () => {
+  for (const generated of [false, true]) {
+    const prices = markup('单价 $300、采购 $120，合计 $420。', generated, false)
+    expect(prices).not.toContain('katex')
+    expect(prices).toContain('单价 $300、采购 $120，合计 $420。')
+    expect(markup('面积 $$x^2$$ 平方米', generated, false)).toMatch(/class="katex[\s"]/)
+    expect(markup('$$\nx^2\n$$', generated, false)).toMatch(/class="katex-display[\s"]/)
+  }
+})
+
+test('emphasis that touches CJK punctuation parses, for people and Agents alike, and other scripts keep CommonMark', () => {
+  for (const generated of [false, true]) {
+    // A closing mark that follows CJK punctuation and meets a CJK character.
+    expect(markup('**验收：**选择 M2-40V', generated)).toBe('<p dir="auto"><strong>验收：</strong>选择 M2-40V</p>')
+    expect(markup('**核验建议：沪电暂时持有。**依据截至 **2026年11月11日**的行情', generated)).toBe(
+      '<p dir="auto"><strong>核验建议：沪电暂时持有。</strong>依据截至 <strong>2026年11月11日</strong>的行情</p>'
+    )
+    // An opening mark that follows a CJK character and meets punctuation, in bold, italic and strikethrough.
+    expect(markup('结论是**“先减仓”**这一条', generated)).toBe(
+      '<p dir="auto">结论是<strong>“先减仓”</strong>这一条</p>'
+    )
+    expect(markup('这是*“强调”*的写法', generated)).toBe('<p dir="auto">这是<em>“强调”</em>的写法</p>')
+    expect(markup('~~旧结论。~~新结论', generated)).toBe('<p dir="auto"><del>旧结论。</del>新结论</p>')
+    // Text in other scripts reads as CommonMark reads it.
+    expect(markup('**Done.**Next step', generated)).toBe('<p dir="auto">**Done.**Next step</p>')
+    expect(markup('snake_case_name', generated)).toBe('<p dir="auto">snake_case_name</p>')
+  }
+})
+
+test('a Page reference stands in its text as the reference card, without room against the edge of its block', async () => {
+  const page = '0f8fad5b-d9cb-469f-a165-70867728950e'
+  const text = `已发布：[Q4 路线图](ankole:page/${page})，请查看。\n\n[只有引用](ankole:page/${page})\n\n无效：[旧页面](ankole:page/not-an-id)`
+  const client = new QueryClient()
+  const root = createRootRoute({ component: () => <MarkdownRenderer text={text} generated /> })
+  const router = createRouter({
+    routeTree: root,
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+    parseSearch: parseRouterSearch,
+    stringifySearch: stringifyRouterSearch
+  })
+  await router.load()
+  try {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+    const cards = [...html.matchAll(/<a\b[^>]*pod-chat-inline-reference[^>]*>/g)].map(([tag]) => tag)
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).not.toContain('data-leading')
+    expect(cards[0]).not.toContain('data-trailing')
+    expect(cards[1]).toContain('data-leading=""')
+    expect(cards[1]).toContain('data-trailing=""')
+    expect(cards.every(card => card.includes('surface-outline') && card.includes('translate="no"'))).toBe(true)
+    expect(html).toMatch(/data-slot="reference-card-title"[^>]*>Q4 路线图<\/span>/)
+    expect(html).toContain('<span>旧页面</span>')
+  } finally {
+    client.clear()
   }
 })

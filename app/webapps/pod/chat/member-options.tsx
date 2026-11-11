@@ -1,5 +1,5 @@
 import { CommandGroup, CommandItem } from '@ankole/uikit'
-import { RiCheckLine } from '@remixicon/react'
+import { CheckmarkRegular } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import { ChatAvatar } from './chat-avatar'
 import { agentLabel } from './conversation-row'
@@ -37,7 +37,7 @@ export function MemberOptions({
               }>
               <ChatAvatar name={person.displayName} src={person.avatarURL} />
               <span>{person.displayName}</span>
-              {selected?.has(person.uid) && <RiCheckLine aria-hidden className="ml-auto size-4" />}
+              {selected?.has(person.uid) && <CheckmarkRegular aria-hidden className="ml-auto size-4" />}
             </CommandItem>
           ))}
         </CommandGroup>
@@ -53,7 +53,7 @@ export function MemberOptions({
               }>
               <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
               <span>{agentLabel(agent)}</span>
-              {selected?.has(agent.uid) && <RiCheckLine aria-hidden className="ml-auto size-4" />}
+              {selected?.has(agent.uid) && <CheckmarkRegular aria-hidden className="ml-auto size-4" />}
             </CommandItem>
           ))}
         </CommandGroup>

@@ -11,7 +11,7 @@ import {
   TableHeader,
   toast
 } from '@ankole/uikit'
-import { RiEyeLine, RiEyeOffLine } from '@remixicon/react'
+import { EyeOffRegular, EyeRegular } from '@ankole/uikit/icons'
 
 import { useEffect, useRef, useState, type SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -382,9 +382,9 @@ export function WorkerEnvAgentSection({
                                   : hideRevealed(item.name)
                               }>
                               {revealed[item.name] === undefined ? (
-                                <RiEyeLine className="size-4" />
+                                <EyeRegular className="size-4" />
                               ) : (
-                                <RiEyeOffLine className="size-4" />
+                                <EyeOffRegular className="size-4" />
                               )}
                             </button>
                           ) : null}

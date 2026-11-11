@@ -17,7 +17,7 @@ import {
   TableHeader,
   Spinner
 } from '@ankole/uikit'
-import { RiCloseLine, RiSearchEyeLine } from '@remixicon/react'
+import { DismissRegular, SearchVisualRegular } from '@ankole/uikit/icons'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -146,7 +146,7 @@ export function BrainSearchPreviewPage() {
                           className="ml-1 inline-flex"
                           type="button"
                           onClick={() => setPresentUIDs(current => current.filter(item => item !== uid))}>
-                          <RiCloseLine className="size-3" />
+                          <DismissRegular className="size-3" />
                         </button>
                       </Badge>
                     )
@@ -166,7 +166,7 @@ export function BrainSearchPreviewPage() {
             {preview.isPending ? (
               <Spinner aria-hidden data-icon="inline-start" />
             ) : (
-              <RiSearchEyeLine data-icon="inline-start" />
+              <SearchVisualRegular data-icon="inline-start" />
             )}
             {t('console.brain.run_recall')}
           </Button>

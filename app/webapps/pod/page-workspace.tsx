@@ -34,6 +34,7 @@ import {
   AlertAction,
   AlertDescription,
   Button,
+  buttonVariants,
   Dialog,
   DialogContent,
   DialogFooter,
@@ -48,20 +49,20 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiLink,
-  RiArrowGoBackLine,
-  RiChat3Line,
-  RiChatQuoteLine,
-  RiDeleteBinLine,
-  RiErrorWarningLine,
-  RiFileCopyLine,
-  RiFolderTransferLine,
-  RiFullscreenLine,
-  RiMoreFill,
-  RiPencilLine,
-  RiStarFill,
-  RiStarLine
-} from '@remixicon/react'
+  ArrowUndoRegular,
+  ChatRegular,
+  CommentRegular,
+  CopyRegular,
+  DeleteRegular,
+  EditRegular,
+  ErrorCircleRegular,
+  FolderArrowRightRegular,
+  FullScreenMaximizeRegular,
+  LinkRegular,
+  MoreHorizontalRegular,
+  StarFilled,
+  StarRegular
+} from '@ankole/uikit/icons'
 import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
 import { createModel, effect, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -110,7 +111,7 @@ import { canMovePage } from './state/page-move'
 import { PageFindBar, readSingleLineSelectionInContainer, shouldHandlePageFindShortcut } from './find-bar'
 import { normalizeSearchQuery, parseSearchTarget } from './search-targets'
 import { isSpreadsheetFileName } from './state/spreadsheet-grid'
-import { PodSidebarToggle, PodTopBarActions } from './top-bar'
+import { PodTopBarActions, PodTopBarPeople, PodTopBarTitle } from './top-bar'
 import './page-workspace.css'
 
 const AppletSettingsControl = lazy(() =>
@@ -606,204 +607,220 @@ function PageWorkspace({
         }}
       />
     ) : null
-  return (
-    <section className="pod-page flex h-full min-h-0 overflow-hidden md:overflow-visible" data-page-type={page.type}>
-      <div
-        ref={pageColumn}
-        data-sheet
-        className="pod-page-main relative flex min-w-0 flex-1 flex-col bg-background md:paper-sheet md:overflow-hidden">
-        <header className="pod-page-header sheet-header @container gap-2 border-b border-border max-md:gap-1 max-md:px-2">
-          <PodSidebarToggle />
-          <div className="flex min-w-0 flex-1 items-center gap-0.5">
-            <ErrorBoundary variant="inline" resetKeys={[page.id]}>
-              <PageBreadcrumbs
-                ancestors={detail.ancestors}
-                title={titleDraft.value.value}
-                compact={isMobile}
-                current={
-                  renamingTitle && canRename ? (
-                    <PageRenameField
-                      page={{ ...page, actions }}
-                      className="-ml-1 w-60 max-w-[45vw]"
-                      onDone={() => setRenamingTitle(false)}
-                    />
-                  ) : undefined
-                }
+  const favoriteBlocked = favorite.isPending || favorites.isPending || !!favorites.error
+  const path = (
+    <div className="pod-page-path flex min-w-0 items-center gap-1">
+      <ErrorBoundary variant="inline" resetKeys={[page.id]}>
+        <PageBreadcrumbs
+          ancestors={detail.ancestors}
+          title={titleDraft.value.value}
+          compact={isMobile}
+          current={
+            renamingTitle && canRename ? (
+              <PageRenameField
+                page={{ ...page, actions }}
+                className="-ml-1 w-60 max-w-[45vw]"
+                onDone={() => setRenamingTitle(false)}
               />
-            </ErrorBoundary>
-            {!trashed && (
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                className="aria-pressed:text-foreground"
-                aria-label={favorited ? t('pod.content.favorited') : t('pod.content.add_to_favorites')}
-                title={favorited ? t('pod.content.favorited') : t('pod.content.add_to_favorites')}
-                aria-pressed={favorited}
-                disabled={favorite.isPending || favorites.isPending || !!favorites.error}
-                onClick={() => favorite.mutate()}>
-                {favorited ? <RiStarFill aria-hidden /> : <RiStarLine aria-hidden />}
+            ) : undefined
+          }
+        />
+      </ErrorBoundary>
+      {/* On a phone the Page's more-actions menu holds the favorite, so the path keeps its row to itself. */}
+      {!trashed && !isMobile && (
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          className="aria-pressed:text-foreground"
+          aria-label={favorited ? t('pod.content.favorited') : t('pod.content.add_to_favorites')}
+          title={favorited ? t('pod.content.favorited') : t('pod.content.add_to_favorites')}
+          aria-pressed={favorited}
+          disabled={favoriteBlocked}
+          onClick={() => favorite.mutate()}>
+          {favorited ? <StarFilled aria-hidden /> : <StarRegular aria-hidden />}
+        </Button>
+      )}
+      {page.type === 'applet' && detail.source_conversation && !detail.source_conversation.deleted && (
+        // An Applet's title lives in this path, so the conversation that produced it sits beside the title.
+        <Link
+          className={buttonVariants({
+            variant: 'ghost',
+            size: 'xs',
+            className: 'max-w-60 min-w-0 shrink-[8] font-normal no-underline'
+          })}
+          to={podLocation(`/conversations/${detail.source_conversation.id}`).pathname}
+          title={stripBidi(
+            t('pod.content.source_conversation') +
+              (detail.source_conversation.title || t('pod.content.view_conversation'))
+          )}>
+          <ChatRegular aria-hidden />
+          <span className="truncate @max-[640px]:sr-only">
+            {t('pod.content.source_conversation')}
+            {detail.source_conversation.title || t('pod.content.view_conversation')}
+          </span>
+        </Link>
+      )}
+    </div>
+  )
+  return (
+    <section className="pod-page flex h-full min-h-0 overflow-hidden" data-page-type={page.type}>
+      <div ref={pageColumn} className="pod-page-main relative flex min-w-0 flex-1 flex-col">
+        {/* The Page's people and actions sit in the shell's top bar above the Page, and so does its path on a wider
+            screen. On a phone the bar keeps its room for the actions, and the path takes its own row at the top of
+            the Page. */}
+        {isMobile ? (
+          <div className="pod-page-path-row @container sheet-header">{path}</div>
+        ) : (
+          <PodTopBarTitle>{path}</PodTopBarTitle>
+        )}
+        {page.type === 'doc' && (
+          <PodTopBarPeople>
+            <div ref={setPresenceContainer} className="contents" />
+          </PodTopBarPeople>
+        )}
+        <PodTopBarActions>
+          <div className="pod-page-actions flex shrink-0 items-center">
+            {!accessDenied && !trashed && page.type !== 'doc' && page.type !== 'file' && (
+              <PageChildrenMenu
+                pageID={page.id}
+                types={page.type === 'knowledge' ? ['knowledge', 'file'] : undefined}
+                canCreate={canCreateChild({ ...page, actions })}
+                scope={page.private_owner_uid ? 'private' : 'space'}
+                privateOwner={page.private_owner_uid ?? undefined}
+              />
+            )}
+            {!accessDenied && !trashed && assistantAvailable && (
+              <Toggle
+                size="icon-lg"
+                aria-label={t('pod.page_chat.title')}
+                title={t('pod.page_chat.title')}
+                pressed={!!chat}
+                aria-expanded={!!chat}
+                ref={chatTrigger}
+                onPressedChange={(_, details) => selectChat(chat ? null : 'latest', true, details.event)}>
+                <ChatRegular aria-hidden />
+              </Toggle>
+            )}
+            {!accessDenied && !trashed && commentsAvailable && (
+              <Toggle
+                size="icon-lg"
+                className="w-auto"
+                aria-label={t('pod.document.comments')}
+                title={t('pod.document.comments')}
+                pressed={comments}
+                aria-expanded={comments}
+                ref={commentsTrigger}
+                onPressedChange={(_, details) =>
+                  comments ? closeComments(details.event) : openComments(focusedComment, [], details.event)
+                }>
+                <CommentRegular aria-hidden />
+                {!!commentSummary.data?.unread_count && (
+                  <span role="status" className="tabular-nums" aria-label={t('pod.document.unread_comments')}>
+                    {commentSummary.data.unread_count}
+                  </span>
+                )}
+              </Toggle>
+            )}
+            {!accessDenied && !trashed && <PageLearningButton detail={contentDetail} />}
+            {!accessDenied && !trashed && page.type === 'applet' && (
+              <Suspense fallback={null}>
+                <AppletSettingsControl key={page.id} detail={contentDetail} />
+              </Suspense>
+            )}
+            {commentsAvailable && isMobile && !comments && focusedComment && (
+              <Button variant="ghost" size="xs" onClick={() => openComments(focusedComment)}>
+                {t('pod.document.return_to_comment')}
               </Button>
             )}
-            {page.type === 'applet' && detail.source_conversation && !detail.source_conversation.deleted && (
-              // An Applet's title lives in this path, so the conversation that produced it sits beside the title.
-              <Link
-                className="ml-1 inline-flex h-7 max-w-60 min-w-0 shrink-[8] items-center gap-1 rounded-control px-1.5 text-xs text-fg-tertiary no-underline hover:bg-accent hover:text-foreground"
-                to={podLocation(`/conversations/${detail.source_conversation.id}`).pathname}
-                title={stripBidi(
-                  t('pod.content.source_conversation') +
-                    (detail.source_conversation.title || t('pod.content.view_conversation'))
-                )}>
-                <RiChat3Line aria-hidden className="size-3.5 shrink-0" />
-                <span className="truncate @max-[640px]:sr-only">
-                  {t('pod.content.source_conversation')}
-                  {detail.source_conversation.title || t('pod.content.view_conversation')}
-                </span>
-              </Link>
+            {!accessDenied && !trashed ? (
+              <ErrorBoundary variant="inline" resetKeys={[page.id]}>
+                <PageSharingButton pageID={page.id} page={page} />
+              </ErrorBoundary>
+            ) : (
+              <Button
+                size="icon-lg"
+                variant="ghost"
+                aria-label={t('pod.content.copy_link')}
+                title={t('pod.content.copy_link')}
+                onClick={() => void copyLink()}>
+                <LinkRegular aria-hidden />
+              </Button>
             )}
-          </div>
-          {/* The page's actions sit at the end of the shell's top bar; the sheet header keeps the page's path. */}
-          <PodTopBarActions>
-            <div className="pod-page-actions flex shrink-0 items-center gap-1">
-              {page.type === 'doc' && <div ref={setPresenceContainer} />}
-              {!accessDenied && !trashed && page.type !== 'doc' && page.type !== 'file' && (
-                <PageChildrenMenu
-                  pageID={page.id}
-                  types={page.type === 'knowledge' ? ['knowledge', 'file'] : undefined}
-                  canCreate={canCreateChild({ ...page, actions })}
-                  scope={page.private_owner_uid ? 'private' : 'space'}
-                  privateOwner={page.private_owner_uid ?? undefined}
-                />
-              )}
-              {!accessDenied && !trashed && assistantAvailable && (
-                <Toggle
-                  size="sm"
-                  aria-label={t('pod.page_chat.title')}
-                  title={t('pod.page_chat.title')}
-                  pressed={!!chat}
-                  aria-expanded={!!chat}
-                  ref={chatTrigger}
-                  onPressedChange={(_, details) => selectChat(chat ? null : 'latest', true, details.event)}>
-                  <RiChat3Line aria-hidden />
-                  <span className="@max-[640px]:sr-only">{t('pod.page_chat.title')}</span>
-                </Toggle>
-              )}
-              {!accessDenied && !trashed && commentsAvailable && (
-                <Toggle
-                  size="sm"
-                  aria-label={t('pod.document.comments')}
-                  title={t('pod.document.comments')}
-                  pressed={comments}
-                  aria-expanded={comments}
-                  ref={commentsTrigger}
-                  onPressedChange={(_, details) =>
-                    comments ? closeComments(details.event) : openComments(focusedComment, [], details.event)
-                  }>
-                  <RiChatQuoteLine aria-hidden />
-                  <span className="@max-[640px]:sr-only">{t('pod.document.comments')}</span>
-                  {!!commentSummary.data?.unread_count && (
-                    <span role="status" className="tabular-nums" aria-label={t('pod.document.unread_comments')}>
-                      {commentSummary.data.unread_count}
-                    </span>
-                  )}
-                </Toggle>
-              )}
-              {!accessDenied && !trashed && <PageLearningButton detail={contentDetail} />}
-              {!accessDenied && !trashed && page.type === 'applet' && (
-                <Suspense fallback={null}>
-                  <AppletSettingsControl key={page.id} detail={contentDetail} />
-                </Suspense>
-              )}
-              {commentsAvailable && isMobile && !comments && focusedComment && (
-                <Button variant="ghost" size="xs" onClick={() => openComments(focusedComment)}>
-                  {t('pod.document.return_to_comment')}
-                </Button>
-              )}
-              {!accessDenied && !trashed ? (
-                <ErrorBoundary variant="inline" resetKeys={[page.id]}>
-                  <PageSharingButton pageID={page.id} page={page} />
-                </ErrorBoundary>
-              ) : (
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={t('pod.content.copy_link')}
-                  title={t('pod.content.copy_link')}
-                  onClick={() => void copyLink()}>
-                  <RiLink aria-hidden className="size-4" />
-                </Button>
-              )}
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={t('common.more_actions')}
-                      title={t('common.more_actions')}
-                      ref={actionsTrigger}
-                    />
-                  }>
-                  <RiMoreFill aria-hidden className="size-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-60" finalFocus={menuFinalFocus}>
-                  {!accessDenied && !trashed && page.type === 'applet' && document.fullscreenEnabled && (
-                    <DropdownMenuItem
-                      onClick={() =>
-                        void pageColumn.current?.querySelector('[data-applet-stage]')?.requestFullscreen()
-                      }>
-                      <RiFullscreenLine aria-hidden />
-                      {t('pod.content.applet_full_screen')}
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onClick={() => void copyLink()}>
-                    <RiFileCopyLine aria-hidden />
-                    {t('pod.content.copy_link')}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label={t('common.more_actions')}
+                    title={t('common.more_actions')}
+                    ref={actionsTrigger}
+                  />
+                }>
+                <MoreHorizontalRegular aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-60" finalFocus={menuFinalFocus}>
+                {!accessDenied && !trashed && page.type === 'applet' && document.fullscreenEnabled && (
+                  <DropdownMenuItem
+                    onClick={() => void pageColumn.current?.querySelector('[data-applet-stage]')?.requestFullscreen()}>
+                    <FullScreenMaximizeRegular aria-hidden />
+                    {t('pod.content.applet_full_screen')}
                   </DropdownMenuItem>
-                  {page.type === 'applet' && canRename && !trashed && (
+                )}
+                <DropdownMenuItem onClick={() => void copyLink()}>
+                  <CopyRegular aria-hidden />
+                  {t('pod.content.copy_link')}
+                </DropdownMenuItem>
+                {isMobile && !trashed && (
+                  <DropdownMenuItem disabled={favoriteBlocked} onClick={() => favorite.mutate()}>
+                    {favorited ? <StarFilled aria-hidden /> : <StarRegular aria-hidden />}
+                    {favorited ? t('pod.sidebar.remove_favorite') : t('pod.sidebar.add_favorite')}
+                  </DropdownMenuItem>
+                )}
+                {page.type === 'applet' && canRename && !trashed && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      keepFocusInTitle.current = true
+                      setRenamingTitle(true)
+                    }}>
+                    <EditRegular aria-hidden />
+                    {t('pod.sidebar.rename')}
+                  </DropdownMenuItem>
+                )}
+                {canMove && (
+                  <DropdownMenuItem disabled={remove.isPending} onClick={() => setMoving(true)}>
+                    <FolderArrowRightRegular aria-hidden />
+                    {t('pod.content.move')}
+                  </DropdownMenuItem>
+                )}
+                {toolsAvailable && (
+                  <DocumentMenuItems
+                    detail={detail}
+                    draft={model!}
+                    title={titleDraft.value}
+                    model={documentTools!}
+                    mobile={isMobile}
+                    openInsights={() => setInsights(true)}
+                    openComments={() => openComments()}
+                    openHistory={edit ? () => setHistory(true) : undefined}
+                  />
+                )}
+                {canTrash && (
+                  <>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      onClick={() => {
-                        keepFocusInTitle.current = true
-                        setRenamingTitle(true)
-                      }}>
-                      <RiPencilLine aria-hidden />
-                      {t('pod.sidebar.rename')}
+                      variant="destructive"
+                      disabled={remove.isPending}
+                      onClick={() => remove.mutate(page)}>
+                      <DeleteRegular aria-hidden />
+                      {t('pod.content.move_to_trash')}
                     </DropdownMenuItem>
-                  )}
-                  {canMove && (
-                    <DropdownMenuItem disabled={remove.isPending} onClick={() => setMoving(true)}>
-                      <RiFolderTransferLine aria-hidden />
-                      {t('pod.content.move')}
-                    </DropdownMenuItem>
-                  )}
-                  {toolsAvailable && (
-                    <DocumentMenuItems
-                      detail={detail}
-                      draft={model!}
-                      title={titleDraft.value}
-                      model={documentTools!}
-                      mobile={isMobile}
-                      openInsights={() => setInsights(true)}
-                      openComments={() => openComments()}
-                      openHistory={edit ? () => setHistory(true) : undefined}
-                    />
-                  )}
-                  {canTrash && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        disabled={remove.isPending}
-                        onClick={() => remove.mutate(page)}>
-                        <RiDeleteBinLine aria-hidden />
-                        {t('pod.content.move_to_trash')}
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </PodTopBarActions>
-        </header>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </PodTopBarActions>
         {insights && toolsAvailable && (
           <DocumentInsights detail={detail} close={() => setInsights(false)} returnFocus={actionsTrigger} />
         )}
@@ -882,7 +899,7 @@ function PageWorkspace({
             )}
             {trashed && (
               <Alert variant="warning" className="mb-6 shrink-0" role="note">
-                <RiErrorWarningLine aria-hidden />
+                <ErrorCircleRegular aria-hidden />
                 <AlertDescription>
                   {page.purge_started_at
                     ? t('pod.content.purge_in_progress_notice')
@@ -895,7 +912,7 @@ function PageWorkspace({
                       variant="outline"
                       disabled={!!page.purge_started_at || restore.isPending || purge.isPending}
                       onClick={() => restore.mutate()}>
-                      <RiArrowGoBackLine aria-hidden />
+                      <ArrowUndoRegular aria-hidden />
                       {restore.isPending ? t('pod.content.restoring') : t('pod.content.restore_page')}
                     </Button>
                     <Button
@@ -904,7 +921,7 @@ function PageWorkspace({
                       className="text-destructive-foreground"
                       disabled={!!page.purge_started_at || restore.isPending || purge.isPending}
                       onClick={() => setPurging(true)}>
-                      <RiDeleteBinLine aria-hidden />
+                      <DeleteRegular aria-hidden />
                       {t('pod.content.permanently_delete')}
                     </Button>
                   </AlertAction>

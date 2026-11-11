@@ -1,13 +1,13 @@
 import { usePageMetadata } from './use-page-metadata'
 import {
-  RiApps2Line,
-  RiAttachment2,
-  RiBookOpenLine,
-  RiDatabase2Line,
-  RiEmotionLine,
-  RiFileExcel2Line,
-  RiFileTextLine
-} from '@remixicon/react'
+  AppsRegular,
+  BookOpenRegular,
+  DatabaseRegular,
+  DocumentRegular,
+  DocumentTableRegular,
+  DocumentTextRegular,
+  EmojiRegular
+} from '@ankole/uikit/icons'
 import {
   Button,
   IconPicker,
@@ -31,11 +31,11 @@ import { updatePageMetadata } from './state/navigation-cache'
 import { isSpreadsheetFileName } from './state/spreadsheet-grid'
 
 const icons = {
-  doc: RiFileTextLine,
-  knowledge: RiBookOpenLine,
-  base: RiDatabase2Line,
-  applet: RiApps2Line,
-  file: RiAttachment2
+  doc: DocumentTextRegular,
+  knowledge: BookOpenRegular,
+  base: DatabaseRegular,
+  applet: AppsRegular,
+  file: DocumentRegular
 }
 
 /**
@@ -75,7 +75,7 @@ export function PageIcon({
     )
   }
   const Icon =
-    page.type === 'file' && page.title && isSpreadsheetFileName(page.title) ? RiFileExcel2Line : icons[page.type]
+    page.type === 'file' && page.title && isSpreadsheetFileName(page.title) ? DocumentTableRegular : icons[page.type]
   return <Icon aria-hidden className={classes} />
 }
 
@@ -230,7 +230,7 @@ export function PageIconPicker({ page: sourcePage, editable }: { page: Page; edi
               <PageIcon page={page} />
             ) : (
               <>
-                <RiEmotionLine aria-hidden />
+                <EmojiRegular />
                 {t('pod.content.add_icon')}
               </>
             )}

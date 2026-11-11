@@ -2,6 +2,7 @@ import { TableRow, useMutation, useQuery } from '../tenant-context'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
+  CopyButton,
   Dialog,
   DialogClose,
   DialogContent,
@@ -13,9 +14,9 @@ import {
   TableCell,
   toast
 } from '@ankole/uikit'
-import { RiCheckLine, RiCloseCircleLine, RiFileCopyLine, RiWebhookLine } from '@remixicon/react'
+import { ArrowRoutingRegular, DismissCircleRegular } from '@ankole/uikit/icons'
 
-import { useDeferredValue, useEffect, useRef, useState } from 'react'
+import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
 import { fromDocument } from '../api/json-api'
@@ -88,14 +89,6 @@ export function WebhooksPage() {
   const [expiresAt, setExpiresAt] = useState('')
   const [labelError, setLabelError] = useState<string>()
   const [expiresAtError, setExpiresAtError] = useState<string>()
-  const [copied, setCopied] = useState(false)
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(
-    () => () => {
-      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current)
-    },
-    []
-  )
 
   const create = useMutation({
     ...createWebhookEndpointMutation(),
@@ -110,11 +103,6 @@ export function WebhooksPage() {
     setExpiresAt('')
     setLabelError(undefined)
     setExpiresAtError(undefined)
-    setCopied(false)
-    if (copyTimerRef.current !== null) {
-      clearTimeout(copyTimerRef.current)
-      copyTimerRef.current = null
-    }
     create.reset()
   }
 
@@ -187,7 +175,7 @@ export function WebhooksPage() {
         ]}
         count={rows.length}
         emptyTitle={t('console.webhooks.empty_title')}
-        emptyIcon={<RiWebhookLine aria-hidden />}
+        emptyIcon={<ArrowRoutingRegular aria-hidden />}
         emptyDescription={t('console.webhooks.empty_description')}
         error={endpoints.error}
         isEmpty={rows.length === 0}
@@ -245,26 +233,16 @@ export function WebhooksPage() {
               <LabeledField label={t('console.webhooks.created_url')}>
                 <Input readOnly value={url} />
               </LabeledField>
-              <Button
-                type="button"
+              <CopyButton
                 variant="outline"
-                onClick={() =>
-                  navigator.clipboard
-                    .writeText(url)
-                    .then(() => {
-                      setCopied(true)
-                      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current)
-                      copyTimerRef.current = setTimeout(() => {
-                        setCopied(false)
-                        copyTimerRef.current = null
-                      }, 2000)
-                      toast.success(t('console.webhooks.url_copied', { defaultValue: 'Capability URL copied.' }))
-                    })
-                    .catch(error => toast.error(requestErrorMessage(error)))
-                }>
-                {copied ? <RiCheckLine data-icon="inline-start" /> : <RiFileCopyLine data-icon="inline-start" />}
-                {copied ? t('common.copied', { defaultValue: 'Copied' }) : t('common.copy', { defaultValue: 'Copy' })}
-              </Button>
+                size="default"
+                value={url}
+                label={t('common.copy')}
+                copiedLabel={t('console.webhooks.url_copied')}
+                copiedChildren={t('common.copied')}
+                onCopyError={error => toast.error(requestErrorMessage(error))}>
+                {t('common.copy')}
+              </CopyButton>
               <DialogFooter>
                 <DialogClose render={<Button />}>{t('common.close')}</DialogClose>
               </DialogFooter>
@@ -376,7 +354,7 @@ function WebhookEndpointRow({
       <TableCell className="text-right">
         {live(endpoint) ? (
           <ConfirmDeleteButton
-            icon={<RiCloseCircleLine />}
+            icon={<DismissCircleRegular />}
             pending={cancelling}
             confirm={{
               title: t('console.webhooks.cancel_title'),

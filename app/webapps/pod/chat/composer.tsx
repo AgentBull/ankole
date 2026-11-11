@@ -3,7 +3,6 @@ import { isApplePlatform } from '../../common/platform'
 import { usePageMetadata } from '../use-page-metadata'
 import {
   Button,
-  ButtonGroup,
   cn,
   DropdownMenu,
   DropdownMenuContent,
@@ -16,30 +15,33 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
   InputGroup,
+  InputGroupActions,
   InputGroupAddon,
   InputGroupButton,
+  InputGroupSend,
+  InputGroupStop,
+  InputGroupText,
   InputGroupTextarea,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  toast,
-  Spinner
+  toast
 } from '@ankole/uikit'
-import { useSignals } from '@preact/signals-react/runtime'
 import {
-  RiArrowDownSLine,
-  RiArrowRightUpLine,
-  RiArrowUpLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiCornerUpRightLine,
-  RiListOrdered2,
-  RiStopFill,
-  RiAtLine,
-  RiCommandLine
-} from '@remixicon/react'
+  ArrowTurnRightRegular,
+  ArrowUpRightRegular,
+  CaretDownFilled,
+  CheckmarkRegular,
+  DismissRegular,
+  MentionRegular,
+  SendRegular,
+  SlashForwardRegular,
+  StopFilled,
+  TextNumberListLtrRegular
+} from '@ankole/uikit/icons'
+import { useSignals } from '@preact/signals-react/runtime'
 import { useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -82,7 +84,6 @@ export function Composer({
   agentUID,
   detail,
   commands,
-  variant = 'compact',
   onInvite,
   onRename,
   onSummary,
@@ -101,7 +102,6 @@ export function Composer({
   agentUID: string
   detail?: ConversationDetail
   commands: ChatCommands
-  variant?: 'hero' | 'compact'
   onInvite(): void
   onRename(): void
   onSummary(): void
@@ -141,6 +141,20 @@ export function Composer({
     return () => document.removeEventListener('pointerdown', outside)
   }, [picker])
   const { disabled, sending, submit, working, stop, canSubmit } = commands
+  // A stop takes effect when the Agent reaches its next checkpoint. Until then the Stop button shows that the
+  // request is on its way. It returns to rest when the work ends, or after a while if the work goes on, so the
+  // person can ask again.
+  const [stopping, setStopping] = useState(false)
+  if (stopping && !working) setStopping(false)
+  useEffect(() => {
+    if (!stopping) return
+    const timer = setTimeout(() => setStopping(false), 8000)
+    return () => clearTimeout(timer)
+  }, [stopping])
+  const requestStop = () => {
+    setStopping(true)
+    stop()
+  }
   const conversationID = detail?.conversation.id
   const queueEditing = model.editing.value?.kind === 'queue' ? model.editing.value : undefined
   const attachmentsDisabled = sending || answering || (disabled && (!!conversationID || !agentsPending))
@@ -267,7 +281,7 @@ export function Composer({
     else if (command === 'model') {
       if (modelAgentUID) setModelOpen(true)
       else onSummary()
-    } else if (command === 'stop') stop()
+    } else if (command === 'stop') requestStop()
   }
   const send = (modeOverride?: FollowUpBehavior) => {
     if (sending || answering || !canSubmit || (answerID && !answerAvailable)) return
@@ -312,6 +326,16 @@ export function Composer({
     !answerID &&
     ((commands.targetWorking && commands.canSteerTarget) || (!commands.targetWorking && commands.targetPaused))
   const submitActive = canSubmit && !answering && (!answerID || answerAvailable)
+  const fixedRecipient =
+    personalAssistant || directColleague || detail?.conversation.conversationKind === 'colleague_dm'
+  // While a reply runs, the stop pill joins the end of the toolbar, and the recipient and the model control truncate
+  // to make room. A composer whose content is narrower than 21.75rem cannot keep both at their minimums, a 40px
+  // recipient label or a 32px recipient selector beside a 32px model control, so it leaves the model control out
+  // until the reply ends. Editing a queued message adds a cancel button to that end, so the same composer also
+  // leaves out the attach button, which stays disabled for as long as the edit lasts.
+  const stopShown = working && commands.canStop
+  const modelFit = stopShown ? '@max-[21.75rem]/composer:hidden' : undefined
+  const attachFit = queueEditing ? modelFit : undefined
   const submitPending = sending || answering || commands.pendingQueueAction?.action === 'edit'
   const unavailable = detail?.conversation.agents.filter(agent => !agent.active) ?? []
   const quoted = model.quoted.value
@@ -349,8 +373,9 @@ export function Composer({
       .find(queue => queue.agentUID === queueEditing.agentUID)
       ?.inputs.find(input => input.messageID === queueEditing.messageID)?.attachments ??
       detail?.messages.find(message => message.id === queueEditing.messageID)?.attachments)
+  const pageLinks = model.links.value.filter(link => link.kind === 'page' && link.quote == null)
   return (
-    <div ref={shell} className={`pod-chat-composer-shell pod-chat-composer-${variant}`}>
+    <div ref={shell} className="pod-chat-composer-shell">
       {!answerID && (!!unavailable.length || restricted || selectedTargetUnavailable) && (
         <div className="pod-chat-agent-banner" role="status">
           {selectedTargetUnavailable
@@ -412,7 +437,7 @@ export function Composer({
       {personalAssistant && model.mentions.value.some(mention => mention.type === 'agent') && (
         // A colleague mention in an assistant task is a delegation, not an invitation, so the composer says so.
         <p className="pod-chat-delegation-hint" role="note">
-          <RiArrowRightUpLine aria-hidden />
+          <ArrowUpRightRegular aria-hidden />
           {t('pod.superagent.mention_hint', {
             colleagues: new Intl.ListFormat(i18n.language, { type: 'conjunction' }).format(
               model.mentions.value
@@ -441,75 +466,79 @@ export function Composer({
           send()
         }}>
         <InputGroup
-          variant="paper"
-          className="pod-chat-composer-field"
+          variant="composer"
+          className="@container/composer"
           onClick={event => {
             const target = event.target
             if (
               target === event.currentTarget ||
               (target instanceof HTMLElement &&
                 target.matches(
-                  '.pod-chat-composer-editor, .pod-chat-composer-tools, .pod-chat-recipient-tools, .pod-chat-send-tools'
+                  '.pod-chat-composer-editor, [data-slot="input-group-addon"], [data-slot="input-group-addon"] > div'
                 ))
             ) {
               if (window.getSelection()?.isCollapsed !== false) textarea.current?.focus({ preventScroll: true })
             }
           }}>
-          {answerID && (
-            <div className="pod-chat-answer-context" role="status">
-              <div>
-                <strong>
-                  {t(
-                    answerAvailable
-                      ? 'pod.chat_timeline.answer_context'
-                      : answerQuestion
-                        ? 'pod.chat_timeline.answer_unavailable_context'
-                        : 'pod.chat_timeline.answer_closed'
-                  )}
-                </strong>
-                {answerQuestion && <p>{answerQuestion.question}</p>}
+          {/* What the draft carries besides its text sits above the text, on the 16px edge of the text area. Each
+              piece keeps its own space below it, so the block gives back 8px of the text area's top inset. */}
+          <div className="-mb-2 px-4 pt-3 empty:hidden">
+            {answerID && (
+              <div className="pod-chat-answer-context" role="status">
+                <div>
+                  <strong>
+                    {t(
+                      answerAvailable
+                        ? 'pod.chat_timeline.answer_context'
+                        : answerQuestion
+                          ? 'pod.chat_timeline.answer_unavailable_context'
+                          : 'pod.chat_timeline.answer_closed'
+                    )}
+                  </strong>
+                  {answerQuestion && <p>{answerQuestion.question}</p>}
+                </div>
+                <Button size="xs" variant="ghost" onClick={leaveAnswer} disabled={answering}>
+                  {t('pod.chat_timeline.leave_answer')}
+                </Button>
               </div>
-              <Button size="xs" variant="ghost" onClick={leaveAnswer} disabled={answering}>
-                {t('pod.chat_timeline.leave_answer')}
-              </Button>
-            </div>
-          )}
-          {quoted && (
-            <div className="pod-chat-quoted">
-              <blockquote>{quoted.quote}</blockquote>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label={t('common.close')}
-                onClick={() => {
-                  model.links.value = model.links.value.filter(link => link !== quoted)
-                }}>
-                <RiCloseLine aria-hidden />
-              </Button>
-            </div>
-          )}
-          {queueEditing && conversationID ? (
-            <MessageAttachments
-              conversationID={conversationID}
-              messageID={queueEditing.messageID}
-              attachments={editedAttachments ?? []}
-            />
-          ) : (
-            <ChatAttachmentDrafts model={model.attachments} disabled={attachmentsDisabled} />
-          )}
-          <div className="pod-chat-draft-pages">
-            {model.links.value
-              .filter(link => link.kind === 'page' && link.quote == null)
-              .map(link => (
-                <DraftPageChip
-                  key={link.id}
-                  id={link.id}
-                  onRemove={name => {
-                    model.links.value = model.links.value.filter(item => item !== link)
-                    if (name) model.draft.value = removePageMention(model.draft.value, name)
-                  }}
-                />
-              ))}
+            )}
+            {quoted && (
+              <div className="pod-chat-quoted">
+                <blockquote>{quoted.quote}</blockquote>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={t('common.close')}
+                  onClick={() => {
+                    model.links.value = model.links.value.filter(link => link !== quoted)
+                  }}>
+                  <DismissRegular aria-hidden />
+                </Button>
+              </div>
+            )}
+            {queueEditing && conversationID ? (
+              <MessageAttachments
+                conversationID={conversationID}
+                messageID={queueEditing.messageID}
+                attachments={editedAttachments ?? []}
+              />
+            ) : (
+              <ChatAttachmentDrafts model={model.attachments} disabled={attachmentsDisabled} className="px-0" />
+            )}
+            {pageLinks.length > 0 && (
+              <div className="pod-chat-draft-pages">
+                {pageLinks.map(link => (
+                  <DraftPageChip
+                    key={link.id}
+                    id={link.id}
+                    onRemove={name => {
+                      model.links.value = model.links.value.filter(item => item !== link)
+                      if (name) model.draft.value = removePageMention(model.draft.value, name)
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
           <div className="pod-chat-composer-editor">
             <InputGroupTextarea
@@ -526,7 +555,6 @@ export function Composer({
               aria-autocomplete="list"
               aria-haspopup="listbox"
               aria-controls={picker ? completionID : undefined}
-              className="pod-chat-composer-input"
               placeholder={
                 replySuggestion
                   ? ''
@@ -546,7 +574,7 @@ export function Composer({
                         ? t('pod.chat_room.composer_paused_hint', { shortcut })
                         : t('pod.chat_room.composer_hint')
               }
-              rows={variant === 'hero' ? 3 : 1}
+              rows={1}
               value={draft}
               onChange={event => {
                 backtrackChord.reset()
@@ -677,235 +705,213 @@ export function Composer({
             />
             <ReplySuggestionGhost suggestion={replySuggestion} />
           </div>
-          <InputGroupAddon align="block-end" className="pod-chat-composer-tools">
-            <div className="pod-chat-recipient-tools">
-              <ChatAttachmentButton model={model.attachments} disabled={attachmentsDisabled || !!queueEditing} />
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                aria-label={t('pod.chat_room.mention')}
-                onClick={() => open('mention')}>
-                <RiAtLine aria-hidden />
-              </Button>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                aria-label={t('pod.chat_room.commands')}
-                onClick={() => open('slash')}>
-                <RiCommandLine aria-hidden />
-              </Button>
-              {personalAssistant || directColleague || detail?.conversation.conversationKind === 'colleague_dm' ? (
-                <span className="max-w-40 shrink-0 truncate px-2 text-[13px] text-fg-secondary">
+          <InputGroupAddon align="block-end">
+            <ChatAttachmentButton
+              model={model.attachments}
+              disabled={attachmentsDisabled || !!queueEditing}
+              className={attachFit}
+            />
+            <InputGroupButton size="icon-lg" aria-label={t('pod.chat_room.mention')} onClick={() => open('mention')}>
+              <MentionRegular />
+            </InputGroupButton>
+            <InputGroupButton size="icon-lg" aria-label={t('pod.chat_room.commands')} onClick={() => open('slash')}>
+              <SlashForwardRegular />
+            </InputGroupButton>
+            {fixedRecipient ? (
+              // The recipient that a conversation cannot change keeps its full name until a running reply's stop
+              // pill needs the room, and then it truncates with the model selector down to its first character. A
+              // composer narrower than 20rem, such as the one in a Page's side panel, leaves it out.
+              <InputGroupText
+                className={cn(
+                  '@max-xs/composer:hidden',
+                  stopShown ? 'group-data-[variant=composer]/input-group:min-w-10' : 'shrink-0'
+                )}>
+                <span className="max-w-40 truncate">
                   {personalAssistant ? t('pod.chat.personal_assistant') : recipientNames.get(agentUID)}
                 </span>
-              ) : (
-                <Select
-                  key={roomAgents.map(agent => agent.uid).join(':')}
-                  value={recipientUID}
-                  onValueChange={value => {
-                    if (value == null) return
-                    if (conversationID) model.targetAgentUID.value = value === '__listeners__' ? '' : value
-                    else {
-                      model.selectedAgentUID.value = value
-                      model.modelProfile.value = null
-                    }
-                  }}
-                  disabled={!agentsLoaded || sending || answering || !!answerID || !!queueEditing}>
-                  <SelectTrigger
-                    ref={recipientControl}
-                    size="sm"
-                    variant="ghost"
-                    className="pod-chat-agent-picker"
-                    aria-label={t('pod.chat.choose_agent')}>
-                    <SelectValue placeholder={t('pod.chat.choose_agent')} />
-                  </SelectTrigger>
-                  <SelectContent side="top" align="start" className="pod-chat-composer-menu">
-                    {conversationID && (group || humanOnly) && (
-                      <SelectItem value="__listeners__">
-                        {t(roomAgents.length ? 'pod.chat_room.listeners' : 'pod.chat_room.people_only')}
-                      </SelectItem>
-                    )}
-                    {recipientAgentUIDs.map(uid => {
-                      const available = roomAgents.some(agent => agent.uid === uid)
-                      const name = recipientNames.get(uid)
-                      return (
-                        <SelectItem key={uid} value={uid} disabled={!available}>
-                          {available
-                            ? name
-                            : name
-                              ? `${name} (${t('pod.chat_room.unavailable')})`
-                              : t('pod.chat_room.unavailable')}
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
-              )}
-              {modelAgentUID ? (
-                <ModelControls
-                  inline
-                  agentUID={modelAgentUID}
-                  open={modelOpen}
-                  onOpenChange={setModelOpen}
-                  conversationID={conversationID}
-                  draftProfile={model.modelProfile.value}
-                  onDraftProfileChange={profile => {
-                    model.modelProfile.value = profile
-                  }}
-                  activeSignalID={
-                    model.activities.value[modelAgentUID]?.signalID ??
-                    (detail?.pendingQueues.find(queue => queue.agentUID === modelAgentUID)?.workStatus.state ===
-                    'running'
-                      ? 'running'
-                      : null)
+              </InputGroupText>
+            ) : (
+              <Select
+                key={roomAgents.map(agent => agent.uid).join(':')}
+                value={recipientUID}
+                onValueChange={value => {
+                  if (value == null) return
+                  if (conversationID) model.targetAgentUID.value = value === '__listeners__' ? '' : value
+                  else {
+                    model.selectedAgentUID.value = value
+                    model.modelProfile.value = null
                   }
-                  disabled={sending || answering || !!answerID || !!queueEditing}
-                />
-              ) : (
-                detail &&
-                detail.conversation.agents.length > 0 && (
-                  <Button type="button" variant="ghost" size="sm" onClick={onSummary}>
-                    {t('pod.chat_room.models')}
-                  </Button>
-                )
-              )}
-            </div>
-            <div className="pod-chat-send-tools">
+                }}
+                disabled={!agentsLoaded || sending || answering || !!answerID || !!queueEditing}>
+                <SelectTrigger
+                  ref={recipientControl}
+                  size="toolbar"
+                  variant="ghost"
+                  className="max-w-50"
+                  aria-label={t('pod.chat.choose_agent')}>
+                  <SelectValue placeholder={t('pod.chat.choose_agent')} />
+                </SelectTrigger>
+                <SelectContent surface="composer" side="top" align="start" className="pod-chat-composer-menu">
+                  {conversationID && (group || humanOnly) && (
+                    <SelectItem value="__listeners__">
+                      {t(roomAgents.length ? 'pod.chat_room.listeners' : 'pod.chat_room.people_only')}
+                    </SelectItem>
+                  )}
+                  {recipientAgentUIDs.map(uid => {
+                    const available = roomAgents.some(agent => agent.uid === uid)
+                    const name = recipientNames.get(uid)
+                    return (
+                      <SelectItem key={uid} value={uid} disabled={!available}>
+                        {available
+                          ? name
+                          : name
+                            ? `${name} (${t('pod.chat_room.unavailable')})`
+                            : t('pod.chat_room.unavailable')}
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+            )}
+            {modelAgentUID ? (
+              <ModelControls
+                inline
+                className={modelFit}
+                agentUID={modelAgentUID}
+                open={modelOpen}
+                onOpenChange={setModelOpen}
+                conversationID={conversationID}
+                draftProfile={model.modelProfile.value}
+                onDraftProfileChange={profile => {
+                  model.modelProfile.value = profile
+                }}
+                activeSignalID={
+                  model.activities.value[modelAgentUID]?.signalID ??
+                  (detail?.pendingQueues.find(queue => queue.agentUID === modelAgentUID)?.workStatus.state === 'running'
+                    ? 'running'
+                    : null)
+                }
+                disabled={sending || answering || !!answerID || !!queueEditing}
+              />
+            ) : (
+              detail &&
+              detail.conversation.agents.length > 0 && (
+                <InputGroupButton size="toolbar" className={cn('min-w-8! shrink', modelFit)} onClick={onSummary}>
+                  <span className="truncate">{t('pod.chat_room.models')}</span>
+                </InputGroupButton>
+              )
+            )}
+            <InputGroupActions>
               {queueEditing && (
-                <Button type="button" size="xs" variant="ghost" onClick={() => commands.cancelEdit()}>
+                <InputGroupButton size="toolbar" onClick={() => commands.cancelEdit()}>
                   {t('pod.chat.cancel_pending')}
-                </Button>
+                </InputGroupButton>
               )}
-              {working && commands.canStop && (
-                <InputGroupButton
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1 px-2 [&>svg]:size-3.5"
+              {stopShown && (
+                <InputGroupStop
                   aria-label={t('pod.chat.stop')}
                   title={t(hasQueuedInputs ? 'pod.chat.stop_hint' : 'pod.chat.stop')}
                   disabled={disabled}
-                  onClick={stop}>
-                  <RiStopFill aria-hidden />
-                  {t('pod.chat.stop_short')}
-                </InputGroupButton>
+                  loading={stopping}
+                  onClick={requestStop}>
+                  <StopFilled aria-hidden />
+                </InputGroupStop>
               )}
-              {(() => {
-                const submitButton = (
-                  <InputGroupButton
-                    type="submit"
-                    size="icon-sm"
-                    variant="default"
-                    className={cn(showSendModeMenu && submitActive && 'border-r-primary-foreground/25')}
-                    aria-label={t(
-                      queueEditing ? 'pod.chat.save_pending' : answerID ? 'pod.chat_timeline.answer' : 'pod.chat.send'
-                    )}
-                    title={
-                      !queueEditing && !answerID && commands.targetWorking
-                        ? t(
-                            commands.deliveryModes.primary === 'queue'
-                              ? 'pod.chat.follow_up_queue'
-                              : 'pod.chat.follow_up_steer'
-                          )
-                        : !queueEditing && !answerID && !commands.targetWorking && commands.targetPaused
-                          ? t('pod.chat.send_immediately')
-                          : undefined
-                    }
-                    aria-busy={submitPending || undefined}
-                    disabled={!submitActive}>
-                    {submitPending ? (
-                      <Spinner aria-hidden />
-                    ) : queueEditing ? (
-                      <RiCheckLine aria-hidden />
-                    ) : !answerID && commands.targetWorking && commands.deliveryModes.primary === 'queue' ? (
-                      <RiListOrdered2 aria-hidden />
-                    ) : (
-                      <RiArrowUpLine aria-hidden />
-                    )}
-                  </InputGroupButton>
-                )
-                if (!showSendModeMenu) return submitButton
-                return (
-                  <ButtonGroup>
-                    {submitButton}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <InputGroupButton
-                            type="button"
-                            size="icon-sm"
-                            variant={submitActive ? 'default' : 'outline'}
-                            className={cn(
-                              'size-auto min-h-7 min-w-6 px-1',
-                              submitActive && 'aria-expanded:border-primary-active aria-expanded:bg-primary-active'
-                            )}
-                            aria-label={t('pod.chat.send_mode')}
-                            title={t('pod.chat.send_mode')}
-                            disabled={disabled || answering}
-                          />
-                        }>
-                        <RiArrowDownSLine aria-hidden />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent side="top" align="end" className="pod-chat-composer-menu w-60">
-                        <ComposerMenuHighlight />
-                        {commands.targetWorking ? (
+              <InputGroupSend
+                ready={submitActive}
+                aria-label={t(
+                  queueEditing ? 'pod.chat.save_pending' : answerID ? 'pod.chat_timeline.answer' : 'pod.chat.send'
+                )}
+                title={
+                  !queueEditing && !answerID && commands.targetWorking
+                    ? t(
+                        commands.deliveryModes.primary === 'queue'
+                          ? 'pod.chat.follow_up_queue'
+                          : 'pod.chat.follow_up_steer'
+                      )
+                    : !queueEditing && !answerID && !commands.targetWorking && commands.targetPaused
+                      ? t('pod.chat.send_immediately')
+                      : undefined
+                }
+                aria-busy={submitPending || undefined}
+                disabled={!submitActive}>
+                {queueEditing ? (
+                  <CheckmarkRegular aria-hidden />
+                ) : !answerID && commands.targetWorking && commands.deliveryModes.primary === 'queue' ? (
+                  <TextNumberListLtrRegular aria-hidden />
+                ) : (
+                  <SendRegular aria-hidden />
+                )}
+              </InputGroupSend>
+              {showSendModeMenu && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <InputGroupButton
+                        size="toolbar"
+                        aria-label={t('pod.chat.send_mode')}
+                        title={t('pod.chat.send_mode')}
+                        disabled={disabled || answering}
+                      />
+                    }>
+                    <CaretDownFilled />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    surface="composer"
+                    side="top"
+                    align="end"
+                    className="pod-chat-composer-menu w-60">
+                    <ComposerMenuHighlight />
+                    {commands.targetWorking ? (
+                      <>
+                        {commands.deliveryModes.alternate && (
                           <>
-                            {commands.deliveryModes.alternate && (
-                              <>
-                                <DropdownMenuItem
-                                  disabled={!canSubmit || answering}
-                                  onClick={() => send(commands.deliveryModes.alternate)}>
-                                  {commands.deliveryModes.alternate === 'steer' ? (
-                                    <RiCornerUpRightLine aria-hidden />
-                                  ) : (
-                                    <RiListOrdered2 aria-hidden />
-                                  )}
-                                  {t(
-                                    commands.deliveryModes.alternate === 'steer'
-                                      ? 'pod.chat.follow_up_steer'
-                                      : 'pod.chat.follow_up_queue'
-                                  )}
-                                  {!coarsePointer && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                              </>
-                            )}
-                            <DropdownMenuGroup>
-                              <DropdownMenuLabel>{t('pod.chat.follow_up_mode')}</DropdownMenuLabel>
-                              <DropdownMenuRadioGroup
-                                value={model.followUpBehavior.value}
-                                onValueChange={value => model.setFollowUpBehavior(value as FollowUpBehavior)}>
-                                <DropdownMenuRadioItem value="steer">
-                                  {t('pod.chat.follow_up_steer')}
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem value="queue">
-                                  {t('pod.chat.follow_up_queue')}
-                                </DropdownMenuRadioItem>
-                              </DropdownMenuRadioGroup>
-                            </DropdownMenuGroup>
-                          </>
-                        ) : (
-                          <>
-                            <DropdownMenuItem disabled={!canSubmit || answering} onClick={() => send('steer')}>
-                              <RiArrowUpLine aria-hidden />
-                              {t('pod.chat.send_immediately')}
-                              {!coarsePointer && <DropdownMenuShortcut>↵</DropdownMenuShortcut>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem disabled={!canSubmit || answering} onClick={() => send('queue')}>
-                              <RiListOrdered2 aria-hidden />
-                              {t('pod.chat.follow_up_queue')}
+                            <DropdownMenuItem
+                              disabled={!canSubmit || answering}
+                              onClick={() => send(commands.deliveryModes.alternate)}>
+                              {commands.deliveryModes.alternate === 'steer' ? (
+                                <ArrowTurnRightRegular aria-hidden />
+                              ) : (
+                                <TextNumberListLtrRegular aria-hidden />
+                              )}
+                              {t(
+                                commands.deliveryModes.alternate === 'steer'
+                                  ? 'pod.chat.follow_up_steer'
+                                  : 'pod.chat.follow_up_queue'
+                              )}
                               {!coarsePointer && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
                             </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                           </>
                         )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </ButtonGroup>
-                )
-              })()}
-            </div>
+                        <DropdownMenuGroup>
+                          <DropdownMenuLabel>{t('pod.chat.follow_up_mode')}</DropdownMenuLabel>
+                          <DropdownMenuRadioGroup
+                            value={model.followUpBehavior.value}
+                            onValueChange={value => model.setFollowUpBehavior(value as FollowUpBehavior)}>
+                            <DropdownMenuRadioItem value="steer">{t('pod.chat.follow_up_steer')}</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="queue">{t('pod.chat.follow_up_queue')}</DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuGroup>
+                      </>
+                    ) : (
+                      <>
+                        <DropdownMenuItem disabled={!canSubmit || answering} onClick={() => send('steer')}>
+                          <SendRegular aria-hidden />
+                          {t('pod.chat.send_immediately')}
+                          {!coarsePointer && <DropdownMenuShortcut>↵</DropdownMenuShortcut>}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canSubmit || answering} onClick={() => send('queue')}>
+                          <TextNumberListLtrRegular aria-hidden />
+                          {t('pod.chat.follow_up_queue')}
+                          {!coarsePointer && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </InputGroupActions>
           </InputGroupAddon>
         </InputGroup>
       </ChatAttachmentDropzone>
@@ -931,7 +937,7 @@ export function DraftPageChip({ id, onRemove }: { id: string; onRemove(name?: st
         variant="ghost"
         aria-label={t('common.close')}
         onClick={() => onRemove(page?.title)}>
-        <RiCloseLine aria-hidden />
+        <DismissRegular aria-hidden />
       </Button>
     </span>
   )

@@ -31,7 +31,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiInformationLine, RiRestartLine } from '@remixicon/react'
+import { ArrowCounterclockwiseRegular, InfoRegular } from '@ankole/uikit/icons'
 import { useMutation as useBaseMutation, useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -308,7 +308,7 @@ export function AgentPluginDetailPage() {
       {data.loading ? <LoadingCards /> : null}
       {!data.loading && !plugin ? (
         <Alert variant="destructive">
-          <RiInformationLine aria-hidden />
+          <InfoRegular aria-hidden />
           <AlertTitle>{t('console.agent_library_capabilities.plugin_not_found')}</AlertTitle>
           <AlertDescription>{pluginID}</AlertDescription>
         </Alert>
@@ -747,7 +747,7 @@ function ControlPlanePluginCard({
         </Badge>
         {plugin.restart_required ? (
           <Badge variant="warning">
-            <RiRestartLine className="size-3" aria-hidden />
+            <ArrowCounterclockwiseRegular className="size-3" aria-hidden />
             {t('console.agent_library_capabilities.restart_required')}
           </Badge>
         ) : null}

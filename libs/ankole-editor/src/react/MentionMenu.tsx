@@ -1,5 +1,5 @@
 import { composingKey } from '@ankole/uikit/lib/keyboard'
-import { RiAtLine, RiFileTextLine, RiUser3Line } from '@remixicon/react'
+import { DocumentTextRegular, MentionRegular, PersonRegular } from '@ankole/uikit/icons'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Wordgard } from '../core/editor'
@@ -328,10 +328,13 @@ export function MentionMenu() {
             return (
               <Fragment key={optionKey(item)}>
                 {showSection && (
+                  // The title starts where the text of the options below it does, 8px inside the list's inset.
                   <div
                     role="presentation"
                     className={
-                      item.sectionCategory ? 'mention-group-label mention-group-clickable' : 'mention-group-label'
+                      item.sectionCategory
+                        ? 'mention-group-label mention-group-clickable menu-group-label px-2'
+                        : 'mention-group-label menu-group-label px-2'
                     }
                     onMouseDown={item.sectionCategory ? event => event.preventDefault() : undefined}
                     onClick={
@@ -361,7 +364,7 @@ export function MentionMenu() {
                   }}
                   onClick={() => commitMention(editor, item.target)}>
                   <span className="mention-option-icon" aria-hidden="true">
-                    {item.icon ?? ('page' in item.target ? <RiFileTextLine /> : <RiUser3Line />)}
+                    {item.icon ?? ('page' in item.target ? <DocumentTextRegular /> : <PersonRegular />)}
                   </span>
                   <span className="mention-option-body">
                     <span className="mention-option-title-row">
@@ -376,7 +379,7 @@ export function MentionMenu() {
           })
         ) : (
           <div className="mention-empty" role="status">
-            <RiAtLine aria-hidden="true" />
+            <MentionRegular aria-hidden="true" />
             <span>{label(loading ? 'mention_loading' : 'mention_empty')}</span>
           </div>
         )}

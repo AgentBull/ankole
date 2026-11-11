@@ -1,7 +1,7 @@
 import { recordValue } from '@agentbull/active-support'
 import type { Spec } from '@json-render/react'
 import { useMutationState } from '@tanstack/react-query'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { InteractionSurface, interactionSpec } from './interaction-surface'
 import type { ActionCardDecision } from './room-api'
@@ -16,7 +16,7 @@ const KNOWLEDGE_ACTION_KINDS = new Set(['pod.knowledge.save', 'brain.object.crea
  */
 function actionCardSpec(
   card: ActionCardState,
-  view: { enabled: boolean; submitting: boolean },
+  view: { enabled: boolean; submitting: boolean; decision?: ActionCardDecision; fresh: boolean },
   t: ReturnType<typeof useTranslation>['t']
 ): Spec {
   const { add, spec } = interactionSpec()
@@ -76,7 +76,8 @@ function actionCardSpec(
                 variant: DESTRUCTIVE_ACTION_KINDS.has(card.action_kind) ? 'destructive' : 'default',
                 size: 'sm',
                 icon: 'check',
-                disabled: !view.enabled
+                disabled: !view.enabled,
+                busy: view.submitting && view.decision === 'confirm'
               },
               [],
               { press: { action: 'resolve', params: { decision: 'confirm' } } }
@@ -89,7 +90,8 @@ function actionCardSpec(
                 variant: 'outline',
                 size: 'sm',
                 icon: 'close',
-                disabled: !view.enabled
+                disabled: !view.enabled,
+                busy: view.submitting && view.decision === 'cancel'
               },
               [],
               { press: { action: 'resolve', params: { decision: 'cancel' } } }
@@ -98,6 +100,7 @@ function actionCardSpec(
         status === 'executed' &&
           add('executed', 'Outcome', {
             icon: 'check',
+            fresh: view.fresh,
             text: [
               t('pod.chat_action_card.executed_by', {
                 defaultValue: 'Confirmed and executed by {$name}',
@@ -111,6 +114,7 @@ function actionCardSpec(
         status === 'cancelled' &&
           add('cancelled', 'Outcome', {
             icon: 'close',
+            fresh: view.fresh,
             text: t('pod.chat_action_card.cancelled_by', { defaultValue: 'Cancelled by {$name}', name: resolvedBy })
           }),
         status === 'stale' &&
@@ -149,7 +153,10 @@ export function ActionCardView({
     select: mutation => mutation.state
   }).at(-1)
   const pending = mutationState?.status === 'pending'
+  const decision = (mutationState?.variables as { decision?: ActionCardDecision } | undefined)?.decision
   const enabled = (card.status ?? 'prepared') === 'prepared' && !!onResolve && !pending
+  // A card that was already decided when it was first shown renders its outcome still.
+  const [firstStatus] = useState(card.status ?? 'prepared')
 
   const decide = (decision: ActionCardDecision) => {
     if (!enabled || submitting.current) return
@@ -163,7 +170,11 @@ export function ActionCardView({
 
   return (
     <InteractionSurface
-      spec={actionCardSpec(card, { enabled, submitting: pending }, t)}
+      spec={actionCardSpec(
+        card,
+        { enabled, submitting: pending, decision, fresh: (card.status ?? 'prepared') !== firstStatus },
+        t
+      )}
       handlers={{ resolve: params => decide(params.decision === 'confirm' ? 'confirm' : 'cancel') }}
     />
   )

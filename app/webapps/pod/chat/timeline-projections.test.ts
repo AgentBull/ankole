@@ -8,6 +8,7 @@ import {
   interleavedReplySources,
   isExecutionActive,
   isPeerActive,
+  placeDelegations,
   placeLinkedExecutions,
   resolveCommittedMessageEditState,
   timelineTurns,
@@ -226,5 +227,45 @@ describe('timeline-projections', () => {
       [job1, job2]
     )
     expect(placement.messages.get('a1')?.map(run => run.id)).toEqual(['job-2'])
+  })
+
+  test('placeDelegations puts a delegation on the reply of its turn, or on the live reply while the turn streams', () => {
+    const outbound = (id: string, signalID: string) => ({
+      ...makeMessage({ id, authorType: 'agent', authorUID: 'assistant', signalID }),
+      richContent: { agent_peer_outbound: { exchange_id: 'ex-1', agent_uid: 'legal' } }
+    })
+    const reply = (id: string, signalID: string, authorUID = 'assistant') =>
+      makeMessage({ id, authorType: 'agent', authorUID, signalID })
+    const inbound = {
+      ...makeMessage({ id: 'in-1', authorType: 'agent', authorUID: 'legal', signalID: 'sig-9' }),
+      richContent: { agent_peer_inbound: { exchange_id: 'ex-1', agent_uid: 'legal' } }
+    }
+
+    // The delegations are committed before the reply that reports them; the reply carries them in their order.
+    const settled = placeDelegations(
+      [
+        makeMessage({ id: 'h1' }),
+        outbound('out-1', 'sig-1'),
+        outbound('out-2', 'sig-1'),
+        reply('a1', 'sig-1'),
+        inbound
+      ],
+      []
+    )
+    expect(settled.messages.get('a1')).toEqual(['out-1', 'out-2'])
+    expect([...settled.placed]).toEqual(['out-1', 'out-2'])
+    expect(settled.streams.size).toBe(0)
+
+    const streaming = placeDelegations([outbound('out-3', 'sig-2')], [{ agentUID: 'assistant', signalIDs: ['sig-2'] }])
+    expect(streaming.streams.get('assistant')).toEqual(['out-3'])
+    expect(streaming.placed.has('out-3')).toBe(true)
+
+    // An earlier reply, another Agent's reply or stream on the same signal, and a turn without a reply leave the
+    // delegation in a row of its own.
+    const alone = placeDelegations(
+      [reply('a0', 'sig-3'), outbound('out-4', 'sig-3'), reply('b1', 'sig-3', 'other'), outbound('out-5', 'sig-4')],
+      [{ agentUID: 'other', signalIDs: ['sig-3'] }]
+    )
+    expect(alone.placed.size).toBe(0)
   })
 })

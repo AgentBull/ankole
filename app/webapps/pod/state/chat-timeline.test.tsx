@@ -69,6 +69,42 @@ const execution: ExecutionSummary = {
   ]
 }
 
+test('a work summary shows the turn’s thinking and steps, and never its model usage', () => {
+  const usage = {
+    rounds: 2,
+    reported_rounds: 2,
+    input_tokens: 94_900,
+    output_tokens: 699,
+    cached_input_tokens: 94_208,
+    cache_creation_input_tokens: null,
+    reasoning_tokens: 0,
+    models: [
+      {
+        model: 'openai/gpt-6-astra',
+        provider_model: 'gpt-6-astra',
+        model_profile: 'primary',
+        served_profile: 'primary',
+        rounds: 2,
+        reported_rounds: 2,
+        input_tokens: 94_900,
+        output_tokens: 699,
+        cached_input_tokens: 94_208,
+        cache_creation_input_tokens: null,
+        reasoning_tokens: 0
+      }
+    ]
+  }
+  // A reply that used no tool and summarized no thinking has no work summary, whatever usage its record carries.
+  expect(render(<CollapsedWorkView execution={{ duration_ms: 2_000, steps: [], usage }} attention />)).toBe('')
+  // A reply with steps lists them and nothing about the model or its tokens.
+  const html = render(<CollapsedWorkView execution={{ ...execution, usage }} attention />)
+  expect(html).toContain('Work steps</span>')
+  expect(html).toContain('Read page Q4 Roadmap')
+  expect(html).not.toContain('gpt-6-astra')
+  expect(html).not.toContain('94,900')
+  expect(html).not.toContain('token')
+})
+
 test('a persisted execution restores all tool details inside a collapsed completed turn', () => {
   const html = render(<CollapsedWorkView execution={JSON.parse(JSON.stringify(execution))} />)
   expect(html).toContain('<details class="pod-chat-work">')
@@ -508,7 +544,7 @@ test('a pending decision explains why a viewer cannot invoke its Agent and offer
 test('chat Markdown renders GFM and math while code stays escaped before highlighting', () => {
   const html = renderToStaticMarkup(
     <MarkdownRenderer
-      text={'| Name | Count |\n| --- | --- |\n| Tasks | 18 |\n\n$x^2$\n\n```html\n<script>alert(1)</script>\n```'}
+      text={'| Name | Count |\n| --- | --- |\n| Tasks | 18 |\n\n$$x^2$$\n\n```html\n<script>alert(1)</script>\n```'}
     />
   )
   expect(html).toContain('<table')
@@ -604,6 +640,34 @@ test('editing a prior request keeps the artifact warning in its tooltip', () => 
   expect(html).toContain('Edit and regenerate · Regenerating keeps changes already made to pages, bases, and applets.')
   expect(render(<MessageActions text="Latest answer" alwaysVisible />)).toContain('data-visible="true"')
   expect(render(<MessageActions text="Retryable request" onRetry={() => {}} />)).toContain('data-visible="true"')
+})
+
+test('a reply’s action row offers select, quote, and copy as 32px buttons, then the time; an own message states the time first', () => {
+  const props = {
+    text: 'Answer',
+    time: '2026-11-10T09:00:00Z',
+    onQuote() {},
+    onSelectMessage() {},
+    onEdit() {}
+  }
+  const order = (html: string) =>
+    [...html.matchAll(/<(button|time)\b[^>]*>/g)].map(([tag, name]) =>
+      name === 'time' ? 'time' : /aria-label="([^"]+)"/.exec(tag)?.[1]
+    )
+  const reply = render(<MessageActions {...props} />)
+  expect(order(reply)).toEqual(['Select messages', 'Quote reply', 'Copy message', 'Edit and regenerate', 'time'])
+  expect(reply.match(/data-slot="button"/g)).toHaveLength(4)
+  expect(reply).not.toContain('size-6')
+  expect(reply).toContain('size-8')
+  expect(order(render(<MessageActions {...props} timeFirst />))[0]).toBe('time')
+})
+
+test('the work summary replaces the native disclosure triangle with a 24px caret that turns while open', () => {
+  const html = render(<CollapsedWorkView execution={execution} />)
+  expect(html).toMatch(/<summary[^>]*><svg[^>]*class="[^"]*pod-chat-disclosure-caret/)
+  expect(render(<CollapsedWorkView execution={{ ...execution, status: 'failed' }} />)).toMatch(
+    /<details class="pod-chat-work"[^>]* open=""><summary[^>]*><svg[^>]*pod-chat-disclosure-caret/
+  )
 })
 
 test('tool steps omit empty disclosures and humanize raw tool identifiers', () => {
@@ -900,9 +964,12 @@ test('an unresolved question stays actionable outside a 500-message history wind
   expect(unloadedPendingQuestions(interactions, [{ id: question.messageID }, ...messages])).toEqual([])
 })
 
-test('a message from before today names its day as well as its time', () => {
+test('a message older than 24 hours names its day as well as its time', () => {
   const now = new Date(2026, 9, 29, 15, 0)
   expect(messageTime(new Date(2026, 9, 29, 9, 41).toISOString(), 'en-US', now)).toBe('09:41 AM')
+  // Yesterday evening is still inside the last 24 hours, so it shows only its time.
+  expect(messageTime(new Date(2026, 9, 28, 18, 32).toISOString(), 'en-US', now)).toBe('06:32 PM')
+  expect(messageTime(new Date(2026, 9, 28, 15, 0).toISOString(), 'en-US', now)).toMatch(/^Oct 28(?:,| at) 03:00 PM$/)
   expect(messageTime(new Date(2026, 9, 27, 9, 41).toISOString(), 'en-US', now)).toMatch(/^Oct 27(?:,| at) 09:41 AM$/)
   expect(messageTime(new Date(2025, 11, 31, 23, 5).toISOString(), 'en-US', now)).toMatch(
     /^Dec 31, 2025(?:,| at) 11:05 PM$/
@@ -1013,8 +1080,10 @@ test('a live reply and the committed message that replaces it render the same tr
     const before = html.slice(0, html.search(/<div[^>]*class="[^"]*pod-chat-markdown/))
     const open: string[] = []
     for (const [, closing, name] of before.matchAll(/<(\/?)([a-z0-9]+)[^>]*>/g)) {
+      // An icon's path closes itself in some markup and with a tag in other markup, so it never counts.
+      if (['br', 'img', 'input', 'meta', 'path'].includes(name!)) continue
       if (closing) open.pop()
-      else if (!['br', 'img', 'input', 'meta', 'path'].includes(name!)) open.push(name!)
+      else open.push(name!)
     }
     return open.join('>')
   }
