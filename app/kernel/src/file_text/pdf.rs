@@ -7,6 +7,14 @@ use super::{
     PageTextSpan, sanitize_nfkc, truncate_utf8,
 };
 
+/// A page whose text is shorter than this many characters counts as having no text layer, which
+/// is how a scanned page reads.
+const TEXTLESS_PAGE_CHARS: usize = 10;
+
+/// Extracts the text layer page by page. Each page with text starts with a `[Page N]` line, and
+/// its entry in `pages` spans that line and the text. `extracted_pages` counts the pages read
+/// before a limit stopped the extraction, and `textless_pages` lists the ones among them that
+/// have no text layer to speak of.
 pub(super) fn extract_pdf(bytes: &[u8]) -> FileTextResult {
     if bytes.len() > MAX_DOCUMENT_INPUT_BYTES {
         return FileTextResult::skipped(FileSubtype::Document, "pdf", "file_too_large");
@@ -47,15 +55,23 @@ pub(super) fn extract_pdf(bytes: &[u8]) -> FileTextResult {
     let mut spans = Vec::with_capacity(total_pages.min(MAX_PDF_PAGES));
     let mut any_page_ok = false;
     let mut first_err: Option<String> = None;
+    let mut extracted_pages = 0usize;
+    let mut textless_pages = Vec::new();
+    let mut cut = false;
 
     for &page_num in page_map.keys().take(MAX_PDF_PAGES) {
         if out.len() >= PLAIN_TEXT_LIMIT {
             break;
         }
-        match doc.extract_text(&[page_num]) {
-            Ok(raw_page) => {
+        extracted_pages += 1;
+        let page = doc.extract_text(&[page_num]);
+        let cleaned = page.as_deref().map(clean_page).unwrap_or_default();
+        if cleaned.chars().count() < TEXTLESS_PAGE_CHARS {
+            textless_pages.push(page_num);
+        }
+        match page {
+            Ok(_) => {
                 any_page_ok = true;
-                let cleaned = sanitize_nfkc(raw_page.trim());
                 if cleaned.is_empty() {
                     continue;
                 }
@@ -63,10 +79,10 @@ pub(super) fn extract_pdf(bytes: &[u8]) -> FileTextResult {
                     out.push('\n');
                 }
                 let start_byte = out.len();
-                out.push_str(&cleaned);
-                out.push('\n');
+                out.push_str(&format!("[Page {page_num}]\n{cleaned}\n"));
                 if out.len() > PLAIN_TEXT_LIMIT {
                     out = truncate_utf8(out, PLAIN_TEXT_LIMIT);
+                    cut = true;
                 }
                 let end_byte = out.len();
                 if end_byte > start_byte {
@@ -106,6 +122,25 @@ pub(super) fn extract_pdf(bytes: &[u8]) -> FileTextResult {
         json!({
             "page_count": total_pages,
             "pages": spans,
+            "truncated": cut || extracted_pages < total_pages,
+            "extracted_pages": extracted_pages,
+            "textless_pages": textless_pages,
         }),
     )
+}
+
+/// The text of one page: normalized, without the invisible characters PDF producers scatter
+/// through a text layer (soft hyphens, zero-width and directional marks, byte-order marks, and
+/// the U+FFFE and U+FFFF noncharacters), and trimmed.
+pub(super) fn clean_page(raw: &str) -> String {
+    let visible: String = sanitize_nfkc(raw)
+        .chars()
+        .filter(|ch| {
+            !matches!(
+                *ch,
+                '\u{00AD}' | '\u{200B}'..='\u{200F}' | '\u{FEFF}' | '\u{FFFE}' | '\u{FFFF}'
+            )
+        })
+        .collect();
+    visible.trim().to_owned()
 }

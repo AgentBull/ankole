@@ -3,6 +3,16 @@
 //! Callers run this module on dirty CPU schedulers and persist the resulting status, metadata,
 //! and bounded NFKC-normalized search text in PostgreSQL. Every input limit is enforced before or
 //! during streaming decompression so malformed or adversarial archives cannot exhaust memory.
+//!
+//! The text carries its own structure, so a reader can split it without byte offsets. A marker
+//! line stands alone before each part of a document: `[Page N]` before a PDF page, `[Slide N]`
+//! before a PPTX slide, `[Sheet: <name>]` before an ODS sheet, and `[Section: <headings>]` in
+//! place of a DOCX or ODT heading, where `<headings>` joins the heading and the ones above it
+//! with ` > `. A table row (ODS, CSV, TSV) is
+//! one line, `R<row>\t<cell>\t<cell>...`: `<row>` counts from 1, the cells run from the first
+//! column, a blank cell is an empty string between two tabs, and the blank cells after the last
+//! filled one are dropped. Every format reports in `metadata.truncated` whether a limit cut its
+//! text short.
 
 mod odf;
 mod ooxml;
@@ -18,7 +28,7 @@ use unicode_normalization::UnicodeNormalization;
 use zip::ZipArchive;
 
 /// Bump when extraction rules or metadata layout change so background self-healing refreshes caches.
-pub const EXTRACTOR_VERSION: u32 = 1;
+pub const EXTRACTOR_VERSION: u32 = 2;
 
 /// Maximum UTF-8 search text retained per file, matching `ankole_spreadsheet::PLAIN_TEXT_LIMIT`.
 pub const PLAIN_TEXT_LIMIT: usize = 512 * 1024;
@@ -279,12 +289,13 @@ fn extract_utf8_text(bytes: &[u8], format: &str) -> FileTextResult {
     } else {
         raw.split('\n').count()
     };
-    let clean = truncate_utf8(sanitize_nfkc(raw), PLAIN_TEXT_LIMIT);
+    let clean = sanitize_nfkc(raw);
+    let truncated = clean.len() > PLAIN_TEXT_LIMIT;
     FileTextResult::ok(
         FileSubtype::Text,
         format,
-        clean,
-        json!({ "line_count": line_count }),
+        truncate_utf8(clean, PLAIN_TEXT_LIMIT),
+        json!({ "line_count": line_count, "truncated": truncated }),
     )
 }
 
@@ -303,24 +314,22 @@ fn extract_delimited(bytes: &[u8], format: &str, delimiter: u8) -> FileTextResul
     let mut out = String::new();
     let mut record = csv::StringRecord::new();
     let mut record_count = 0usize;
+    let mut truncated = false;
 
     loop {
         match reader.read_record(&mut record) {
             Ok(true) => {
                 record_count += 1;
                 if out.len() < PLAIN_TEXT_LIMIT {
-                    let mut first = true;
-                    for field in &record {
-                        if !first {
-                            out.push('\t');
-                        }
-                        first = false;
-                        // Flatten embedded newlines within a single CSV cell so line N of `plain_text`
-                        // maps 1:1 to record N (line 1 = header, line k+1 = data row k).
-                        let flattened = field.replace(['\r', '\n', '\t'], " ");
-                        out.push_str(&flattened);
+                    // Every record takes exactly one line, a blank record included, so line N of
+                    // `plain_text` is record N (line 1 = header, line k+1 = data row k).
+                    let mut cells: Vec<String> = record.iter().map(table_cell).collect();
+                    while cells.last().is_some_and(String::is_empty) {
+                        cells.pop();
                     }
-                    out.push('\n');
+                    out.push_str(&format!("R{record_count}\t{}\n", cells.join("\t")));
+                } else {
+                    truncated = true;
                 }
             }
             Ok(false) => break,
@@ -332,17 +341,50 @@ fn extract_delimited(bytes: &[u8], format: &str, delimiter: u8) -> FileTextResul
     }
 
     let data_rows = record_count.saturating_sub(1);
-    let clean = truncate_utf8(sanitize_nfkc(&out), PLAIN_TEXT_LIMIT);
+    let clean = sanitize_nfkc(&out);
+    let truncated = truncated || clean.len() > PLAIN_TEXT_LIMIT;
     let delim_str = if delimiter == b'\t' { "\t" } else { "," };
     FileTextResult::ok(
         FileSubtype::Text,
         format,
-        clean,
+        truncate_utf8(clean, PLAIN_TEXT_LIMIT),
         json!({
             "row_count": data_rows,
             "delimiter": delim_str,
+            "truncated": truncated,
         }),
     )
+}
+
+/// One table cell on one line: a tab or line break inside it becomes a space.
+pub(super) fn table_cell(text: &str) -> String {
+    text.replace(['\t', '\n', '\r'], " ").trim().to_owned()
+}
+
+/// A styled heading longer than this many characters is body text with a heading style, so it
+/// stays as it is.
+const MAX_HEADING_CHARS: usize = 200;
+
+/// The headings above the current position of a text document, outermost first.
+#[derive(Default)]
+pub(super) struct Outline(Vec<(u8, String)>);
+
+impl Outline {
+    /// Turns the heading that `out` ends with, from byte `start`, into a `[Section: a > b]` line
+    /// that names the headings it sits under, and leaves `out` at the start of a new line.
+    pub(super) fn mark(&mut self, out: &mut String, start: usize, level: u8) {
+        let title = table_cell(&out[start..]);
+        if title.is_empty() || title.chars().count() > MAX_HEADING_CHARS {
+            push_newline_once(out);
+            return;
+        }
+        self.0.retain(|(above, _)| *above < level);
+        self.0.push((level, title));
+        let path: Vec<&str> = self.0.iter().map(|(_, title)| title.as_str()).collect();
+        out.truncate(start);
+        push_newline_once(out);
+        out.push_str(&format!("[Section: {}]\n", path.join(" > ")));
+    }
 }
 
 pub(super) struct BoundedZip<'a> {

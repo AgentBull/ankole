@@ -10,20 +10,29 @@ defmodule Ankole.Kernel.SpreadsheetTest do
 
   test "a blank workbook crosses the boundary as bytes, search text, and metadata" do
     assert {:ok,
-            %{doc_ref: doc, xlsx_bytes: "PK" <> _, plain_text: "Sheet1\n", metadata: metadata}} =
+            %{
+              doc_ref: doc,
+              xlsx_bytes: "PK" <> _,
+              plain_text: "[Sheet: Sheet1]\n",
+              metadata: metadata
+            }} =
              Kernel.spreadsheet_create_blank("预算")
 
     assert %{
              "sheets" => [%{"sheet_id" => 1, "name" => "Sheet1", "rows" => 0, "cols" => 0}],
-             "has_unsupported_objects" => false
+             "has_unsupported_objects" => false,
+             "truncated" => false
            } = metadata
 
     assert {:ok, %{doc_ref: edited, committed_op: committed, structural_edit: nil}} =
              Kernel.spreadsheet_apply(doc, set(1, "A1", "季度预算"), [])
 
     assert committed == set(1, "A1", "季度预算")
-    assert {:ok, %{plain_text: "Sheet1\n季度预算\n"}} = Kernel.spreadsheet_export_xlsx(edited)
-    assert {:ok, %{plain_text: "Sheet1\n"}} = Kernel.spreadsheet_export_xlsx(doc)
+
+    assert {:ok, %{plain_text: "[Sheet: Sheet1]\nR1\t季度预算\n"}} =
+             Kernel.spreadsheet_export_xlsx(edited)
+
+    assert {:ok, %{plain_text: "[Sheet: Sheet1]\n"}} = Kernel.spreadsheet_export_xlsx(doc)
   end
 
   test "opening replays committed tail operations and keeps the file's sheet ids" do

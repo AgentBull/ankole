@@ -634,7 +634,7 @@ defmodule Ankole.Pod.Spreadsheets do
   defp put_cache_in_tx(page, _object_id, :not_spreadsheet, _now) do
     with {:ok, _purged} <-
            FileCache |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.destroy_where(:purge),
-         do: Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: "")
+         do: put_search_text_in_tx(page, "")
   end
 
   defp put_cache_in_tx(page, object_id, %{status: :ok} = derived, now) do
@@ -646,13 +646,13 @@ defmodule Ankole.Pod.Spreadsheets do
              subtype: :spreadsheet,
              format: format,
              object_id: object_id,
-             extractor_version: 1,
+             extractor_version: Ankole.Kernel.file_extractor_version(),
              extract_status: :ok,
              extract_error: nil,
              metadata: derived.metadata,
              updated_at: now
            }),
-         do: Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: derived.plain_text)
+         do: put_search_text_in_tx(page, derived.plain_text)
   end
 
   defp put_cache_in_tx(page, object_id, %{status: status, error: reason}, now)
@@ -665,13 +665,19 @@ defmodule Ankole.Pod.Spreadsheets do
              subtype: :spreadsheet,
              format: format,
              object_id: object_id,
-             extractor_version: 1,
+             extractor_version: Ankole.Kernel.file_extractor_version(),
              extract_status: status,
              extract_error: reason,
              metadata: %{},
              updated_at: now
            }),
-         do: Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: "")
+         do: put_search_text_in_tx(page, "")
+  end
+
+  # Brain chunks and learns the same text that search holds.
+  defp put_search_text_in_tx(page, text) do
+    with :ok <- Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: text),
+         do: Ankole.Brain.Knowledge.file_cache_changed_in_tx(page)
   end
 
   defp spreadsheet_format(name) when is_binary(name) do

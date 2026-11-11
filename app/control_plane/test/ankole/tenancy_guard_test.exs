@@ -608,7 +608,7 @@ defmodule Ankole.TenancyGuardTest do
         assert schema.__tenancy__() == :tenant
         assert schema.__schema__(:type, :tenant_id) == Ankole.Ecto.UUIDv7
 
-        assert [["page_contents"], ["pages"]] ==
+        assert [["page_contents"], ["page_search_documents"], ["pages"], ["pod_file_caches"]] ==
                  SQL.query!(
                    Repo,
                    """

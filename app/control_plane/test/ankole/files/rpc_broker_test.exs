@@ -204,9 +204,10 @@ defmodule Ankole.Files.RPCBrokerTest do
     worker = WorkerFilesFake.start!(route)
     actor = actor_fixture(uid)
 
-    for {selector, cell, value} <- [
-          {%{node_id: file.id}, "B2", "12500"},
-          {%{path: file.path}, "C2", "=B2*1.2"}
+    for {selector, cell, value, text} <- [
+          {%{node_id: file.id}, "B2", "12500", "[Sheet: Sheet1]\nR1\tForecast\nR2\t\t12500\n"},
+          {%{path: file.path}, "C2", "=B2*1.2",
+           "[Sheet: Sheet1]\nR1\tForecast\nR2\t\t12500\t15000\n"}
         ] do
       {:ok, %{revision: revision}} = Ankole.Pod.Spreadsheets.bootstrap(actor, file.id)
 
@@ -228,8 +229,7 @@ defmodule Ankole.Files.RPCBrokerTest do
       bytes = WorkerFilesFake.files(worker)["forecast.xlsx"]
       assert downloaded.sha256 == Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 
-      assert {:ok, %{plain_text: "Sheet1\nForecast\n"}} =
-               Ankole.Kernel.spreadsheet_open(bytes, [])
+      assert {:ok, %{plain_text: ^text}} = Ankole.Kernel.spreadsheet_open(bytes, [])
 
       {:ok, entries} = :zip.extract(bytes, [:memory])
       {_, sheet} = List.keyfind(entries, ~c"xl/worksheets/sheet1.xml", 0)

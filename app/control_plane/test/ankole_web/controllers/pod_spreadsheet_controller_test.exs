@@ -49,7 +49,7 @@ defmodule AnkoleWeb.PodSpreadsheetControllerTest do
       |> recycle_api()
       |> get("/api/v2/pod/pages/#{id}/files/content", %{path: "Budget.xlsx", sha256: created_sha})
 
-    assert {:ok, %{plain_text: "Sheet1\n"}} =
+    assert {:ok, %{plain_text: "[Sheet: Sheet1]\n"}} =
              Ankole.Kernel.spreadsheet_open(response(pinned, 200), [])
 
     download =

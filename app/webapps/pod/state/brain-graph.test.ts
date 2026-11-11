@@ -50,6 +50,8 @@ describe('buildBrainOntologyGraph', () => {
     expect(resolveBrainColorRamp('company', 'entity')).toBe('blue')
     expect(resolveBrainColorRamp('analysis', 'concept')).toBe('purple')
     expect(resolveBrainColorRamp('custom_record', 'temporal')).toBe('orange')
+    // A learned File Page sits outside every category and reads as a source document.
+    expect(resolveBrainColorRamp('file')).toBe('green')
   })
 
   test('projects category hubs, multi-level parent-child hierarchy, and typed directed relations', () => {

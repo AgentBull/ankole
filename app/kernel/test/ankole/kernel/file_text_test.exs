@@ -14,8 +14,8 @@ defmodule Ankole.Kernel.FileTextTest do
               status: :ok,
               subtype: :text,
               format: "csv",
-              plain_text: "name\tamount\nAlpha\t42\n",
-              metadata: %{"row_count" => 1, "delimiter" => ","},
+              plain_text: "R1\tname\tamount\nR2\tAlpha\t42\n",
+              metadata: %{"row_count" => 1, "delimiter" => ",", "truncated" => false},
               error: nil
             }} = Kernel.file_extract_text("name,amount\nAlpha,42\n", "metrics.csv", "text/csv")
 

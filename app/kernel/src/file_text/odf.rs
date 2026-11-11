@@ -1,13 +1,21 @@
 use quick_xml::Reader;
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use serde::Serialize;
 use serde_json::json;
 
 use super::{
-    BoundedZip, FileSubtype, FileTextResult, PLAIN_TEXT_LIMIT, ZipOpenError, append_xml_entity,
-    attr_value_by_local, local_name, push_newline_once, push_tab_once, sanitize_nfkc,
-    truncate_utf8, zip_error_to_result,
+    BoundedZip, FileSubtype, FileTextResult, Outline, PLAIN_TEXT_LIMIT, ZipOpenError,
+    append_xml_entity, attr_value_by_local, local_name, push_newline_once, push_tab_once,
+    sanitize_nfkc, table_cell, truncate_utf8, zip_error_to_result,
 };
+
+/// The widest sheet LibreOffice and Excel open. Cells beyond this column are left out, so a
+/// repeat count in the file cannot ask for a wider row than a real sheet has.
+const MAX_SHEET_COLUMNS: usize = 16_384;
+
+/// The most lines written for one `table:number-rows-repeated` row that has text. The rows after
+/// it keep their real numbers.
+const MAX_REPEATED_ROW_LINES: usize = 1_000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 struct SheetTextSpan {
@@ -45,12 +53,19 @@ pub(super) fn extract_odt(bytes: &[u8]) -> FileTextResult {
 
     let mut out = String::new();
     let mut sheets = Vec::new();
-    if let Err(reason) = parse_odf_xml(&content_xml, false, &mut out, &mut sheets) {
-        return FileTextResult::failed(FileSubtype::Document, "odt", reason);
-    }
+    let stopped = match parse_odf_xml(&content_xml, false, &mut out, &mut sheets) {
+        Ok(stopped) => stopped,
+        Err(reason) => return FileTextResult::failed(FileSubtype::Document, "odt", reason),
+    };
 
-    let clean = truncate_utf8(sanitize_nfkc(&out), PLAIN_TEXT_LIMIT);
-    FileTextResult::ok(FileSubtype::Document, "odt", clean, json!({}))
+    let clean = sanitize_nfkc(&out);
+    let truncated = stopped || clean.len() > PLAIN_TEXT_LIMIT;
+    FileTextResult::ok(
+        FileSubtype::Document,
+        "odt",
+        truncate_utf8(clean, PLAIN_TEXT_LIMIT),
+        json!({ "truncated": truncated }),
+    )
 }
 
 pub(super) fn extract_ods(bytes: &[u8]) -> FileTextResult {
@@ -75,9 +90,10 @@ pub(super) fn extract_ods(bytes: &[u8]) -> FileTextResult {
 
     let mut leading = String::new();
     let mut raw_sheets: Vec<(String, String)> = Vec::new();
-    if let Err(reason) = parse_odf_xml(&content_xml, true, &mut leading, &mut raw_sheets) {
-        return FileTextResult::failed(FileSubtype::Document, "ods", reason);
-    }
+    let mut truncated = match parse_odf_xml(&content_xml, true, &mut leading, &mut raw_sheets) {
+        Ok(stopped) => stopped,
+        Err(reason) => return FileTextResult::failed(FileSubtype::Document, "ods", reason),
+    };
 
     let mut out = sanitize_nfkc(&leading);
     let mut sheets = Vec::with_capacity(raw_sheets.len());
@@ -85,18 +101,19 @@ pub(super) fn extract_ods(bytes: &[u8]) -> FileTextResult {
 
     for (raw_name, raw_body) in raw_sheets {
         if out.len() >= PLAIN_TEXT_LIMIT {
+            truncated = true;
             sheets.push(raw_name);
             continue;
         }
         let trimmed_name = raw_name.trim().to_owned();
-        let clean_header = sanitize_nfkc(&trimmed_name);
+        let marker = sanitize_nfkc(&format!("[Sheet: {}]", table_cell(&trimmed_name)));
         let clean_body = sanitize_nfkc(raw_body.trim_end_matches('\n'));
 
         if !out.is_empty() && !out.ends_with('\n') {
             out.push('\n');
         }
         let start_byte = out.len();
-        out.push_str(&clean_header);
+        out.push_str(&marker);
         out.push('\n');
         if !clean_body.is_empty() {
             out.push_str(&clean_body);
@@ -104,6 +121,7 @@ pub(super) fn extract_ods(bytes: &[u8]) -> FileTextResult {
         }
         if out.len() > PLAIN_TEXT_LIMIT {
             out = truncate_utf8(out, PLAIN_TEXT_LIMIT);
+            truncated = true;
         }
         let end_byte = out.len();
         if end_byte > start_byte {
@@ -116,30 +134,55 @@ pub(super) fn extract_ods(bytes: &[u8]) -> FileTextResult {
         sheets.push(raw_name);
     }
 
-    let clean = truncate_utf8(out, PLAIN_TEXT_LIMIT);
+    truncated |= out.len() > PLAIN_TEXT_LIMIT;
     FileTextResult::ok(
         FileSubtype::Document,
         "ods",
-        clean,
+        truncate_utf8(out, PLAIN_TEXT_LIMIT),
         json!({
             "sheets": sheets,
             "sheet_spans": sheet_spans,
+            "truncated": truncated,
         }),
     )
 }
 
+/// Reads the text of `content.xml` into `leading` and, per named table of a spreadsheet, into
+/// `sheets`. Returns whether the text budget stopped the read before the end of the document.
+///
+/// In spreadsheet mode every row with text becomes one `R<row>\t<cell>\t<cell>...` line. A
+/// `table:number-columns-repeated` cell and a `table:number-rows-repeated` row take up as many
+/// columns and row numbers as they stand for; blank ones only move the position on.
 fn parse_odf_xml(
     xml: &str,
     spreadsheet_mode: bool,
     leading: &mut String,
     sheets: &mut Vec<(String, String)>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
+    const BUDGET: usize = PLAIN_TEXT_LIMIT + 4096;
     let mut reader = Reader::from_str(xml);
     let mut text_depth = 0usize;
     let mut ignored_depth = 0usize;
     let mut cell_buf = String::new();
     let mut in_cell = false;
     let mut total_bytes = 0usize;
+    // The row being read: its 1-based number, how many rows it stands for, the column of its
+    // next cell, how many columns the open cell stands for, and its cells up to the last one
+    // with text.
+    let mut row_number = 1usize;
+    let mut row_repeat = 1usize;
+    let mut column = 0usize;
+    let mut cell_repeat = 1usize;
+    let mut row_cells: Vec<String> = Vec::new();
+    // The open heading of a text document: where its text starts and its outline level.
+    let mut heading: Option<(usize, u8)> = None;
+    let mut outline = Outline::default();
+
+    fn repeat(start: &BytesStart<'_>, attr: &str) -> usize {
+        attr_value_by_local(start, attr)
+            .and_then(|count| count.parse::<u32>().ok())
+            .map_or(1, |count| count.max(1) as usize)
+    }
 
     fn active_out<'a>(
         leading: &'a mut String,
@@ -169,12 +212,25 @@ fn parse_odf_xml(
                         {
                             sheets.push((name, String::new()));
                         }
+                        row_number = 1;
                     }
-                    "table-cell" if spreadsheet_mode => {
+                    "table-row" if spreadsheet_mode => {
+                        row_repeat = repeat(&e, "number-rows-repeated");
+                        column = 0;
+                        row_cells.clear();
+                    }
+                    "table-cell" | "covered-table-cell" if spreadsheet_mode => {
                         in_cell = true;
                         cell_buf.clear();
+                        cell_repeat = repeat(&e, "number-columns-repeated");
                     }
-                    "p" | "h" => {
+                    name @ ("p" | "h") => {
+                        if name == "h" && !spreadsheet_mode && text_depth == 0 {
+                            let level = attr_value_by_local(&e, "outline-level")
+                                .and_then(|level| level.parse::<u8>().ok())
+                                .unwrap_or(1);
+                            heading = Some((leading.len(), level));
+                        }
                         text_depth += 1;
                     }
                     "tab" => {
@@ -213,6 +269,13 @@ fn parse_odf_xml(
             Ok(Event::Empty(e)) => {
                 if ignored_depth == 0 {
                     match local_name(e.name().as_ref()) {
+                        "table-row" if spreadsheet_mode => {
+                            row_number =
+                                row_number.saturating_add(repeat(&e, "number-rows-repeated"));
+                        }
+                        "table-cell" | "covered-table-cell" if spreadsheet_mode => {
+                            column = column.saturating_add(repeat(&e, "number-columns-repeated"));
+                        }
                         "tab" => {
                             if in_cell {
                                 cell_buf.push(' ');
@@ -260,21 +323,39 @@ fn parse_odf_xml(
                                 cell_buf.push(' ');
                             }
                         } else if text_depth == 0 {
-                            push_newline_once(active_out(leading, sheets));
+                            match heading.take() {
+                                Some((start, level)) => outline.mark(leading, start, level),
+                                None => push_newline_once(active_out(leading, sheets)),
+                            }
                         }
                     }
-                    "table-cell" if spreadsheet_mode => {
+                    "table-cell" | "covered-table-cell" if spreadsheet_mode => {
                         in_cell = false;
-                        let trimmed = cell_buf.trim();
-                        if !trimmed.is_empty() {
-                            let out = active_out(leading, sheets);
-                            if !out.is_empty() && !out.ends_with(['\n', '\t']) {
-                                out.push('\t');
-                            }
-                            out.push_str(trimmed);
-                            total_bytes += trimmed.len() + 1;
+                        let text = table_cell(&cell_buf);
+                        if !text.is_empty() && column < MAX_SHEET_COLUMNS {
+                            row_cells.resize(column, String::new());
+                            let copies = cell_repeat.min(MAX_SHEET_COLUMNS - column);
+                            row_cells.extend(std::iter::repeat_n(text, copies));
                         }
+                        column = column.saturating_add(cell_repeat);
                         cell_buf.clear();
+                    }
+                    "table-row" if spreadsheet_mode => {
+                        if !row_cells.is_empty() {
+                            let cells = row_cells.join("\t");
+                            let out = active_out(leading, sheets);
+                            for copy in 0..row_repeat.min(MAX_REPEATED_ROW_LINES) {
+                                if total_bytes >= BUDGET {
+                                    break;
+                                }
+                                let line =
+                                    format!("R{}\t{cells}\n", row_number.saturating_add(copy));
+                                total_bytes += line.len();
+                                out.push_str(&line);
+                            }
+                            row_cells.clear();
+                        }
+                        row_number = row_number.saturating_add(row_repeat);
                     }
                     "table-row" => push_newline_once(active_out(leading, sheets)),
                     "table-cell" => push_tab_once(active_out(leading, sheets)),
@@ -312,13 +393,12 @@ fn parse_odf_xml(
                     }
                 }
             }
-            Ok(Event::Eof) => break,
+            Ok(Event::Eof) => return Ok(false),
             Err(err) => return Err(format!("odf_xml_error: {err}")),
             _ => {}
         }
-        if total_bytes >= PLAIN_TEXT_LIMIT + 4096 {
-            break;
+        if total_bytes >= BUDGET {
+            return Ok(true);
         }
     }
-    Ok(())
 }

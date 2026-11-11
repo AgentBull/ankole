@@ -141,9 +141,14 @@ defmodule Ankole.Brain.Browser.Actions do
             _ -> []
           end
 
+      # A file joins the graph once source learning has covered it, as the
+      # evidence source of the facts extracted from it.
       raw_nodes =
         Page
-        |> Ash.Query.filter(id not in ^excluded and is_nil(deleted_at) and kind == :knowledge)
+        |> Ash.Query.filter(
+          id not in ^excluded and is_nil(deleted_at) and
+            (kind == :knowledge or (kind == :file and learned?))
+        )
         |> Access.filter_objects(access)
         |> Ash.Query.sort(title: :asc)
         |> Ash.Query.select([:id, :title, :slug, :type, :subtype, :parent_id])

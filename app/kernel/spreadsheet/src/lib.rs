@@ -195,8 +195,8 @@ pub fn export_xlsx(doc: &SpreadsheetDoc) -> Result<Exported, Error> {
     })
 }
 
-/// The document's search text: sheet names, constant text cells, and notes, at most
-/// [`PLAIN_TEXT_LIMIT`] bytes.
+/// The document's search text: per sheet a `[Sheet: <name>]` line, the rows as the grid shows them
+/// (`R<row>\t<cell>\t<cell>...`), and the notes, at most [`PLAIN_TEXT_LIMIT`] bytes.
 #[must_use]
 pub fn plain_text(doc: &SpreadsheetDoc) -> String {
     index::plain_text(doc.workbook())

@@ -136,7 +136,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
     assert %FileCache{subtype: :spreadsheet, object_id: ^object, extract_status: :ok} =
              Repo.get_by!(FileCache, page_id: page.id)
 
-    assert Repo.get_by!(PageSearchDocument, page_id: page.id).body_text == "Sheet1\n"
+    assert Repo.get_by!(PageSearchDocument, page_id: page.id).body_text == "[Sheet: Sheet1]\n"
 
     assert {:ok,
             %{

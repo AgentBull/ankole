@@ -14,7 +14,7 @@ defmodule Ankole.Brain.LearningEntities do
 
     Page
     |> Ash.Query.filter(
-      is_nil(deleted_at) and
+      is_nil(deleted_at) and kind != :file and
         (id in ^aliases or
            (title != "" and fragment("strpos(?, lower(?)) > 0", ^normalized, title)))
     )

@@ -129,6 +129,8 @@ defmodule Ankole.Repo.Migrations.RestorePageOwnership do
       WHERE worker='Ankole.Files.Jobs.PurgeNode'
     """)
 
+    # This migration reads the view through `Ankole.Brain.Schemas.Page` below,
+    # which selects `file`. The column is empty here; 20261110100000 fills it.
     execute("""
     CREATE VIEW brain_page_nodes AS
     WITH RECURSIVE paths AS (
@@ -145,7 +147,7 @@ defmodule Ankole.Repo.Migrations.RestorePageOwnership do
         AND pg_input_is_valid(p.metadata->>'effective_date','date')
         THEN (p.metadata->>'effective_date')::date END AS effective_date,
       p.revision::text AS content_hash,(p.upstream_state->>'source_id')::uuid AS managed_by_source_id,
-      p.deleted_at,p.created_at,p.updated_at
+      p.deleted_at,p.created_at,p.updated_at,NULL::jsonb AS file
     FROM pages p JOIN paths ON paths.tenant_id=p.tenant_id AND paths.id=p.id
       LEFT JOIN page_contents c ON c.tenant_id=p.tenant_id AND c.page_id=p.id
     WHERE p.parent_id IS NOT NULL AND p.type IN ('knowledge','doc','base','applet')

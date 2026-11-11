@@ -686,13 +686,14 @@ fn blank_workbooks_export_search_text_and_metadata() {
     assert!(exported.xlsx.len() < 16 * 1024);
     let doc = apply(&doc, set(1, "A1", "季度预算")).doc;
     let exported = ankole_spreadsheet::export_xlsx(&doc).expect("export");
-    assert_eq!(exported.plain_text, "Sheet1\n季度预算\n");
+    assert_eq!(exported.plain_text, "[Sheet: Sheet1]\nR1\t季度预算\n");
     assert_eq!(
         serde_json::to_value(&exported.metadata).ok(),
         Some(json!({
             "sheets": [{"sheet_id": 1, "name": "Sheet1", "rows": 1, "cols": 1, "hidden": false}],
             "warnings": [],
-            "has_unsupported_objects": false
+            "has_unsupported_objects": false,
+            "truncated": false
         }))
     );
 }

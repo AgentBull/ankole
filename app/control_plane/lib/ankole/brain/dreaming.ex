@@ -252,23 +252,30 @@ defmodule Ankole.Brain.Dreaming do
         %{status: :skipped, reason: :dreaming_model_not_configured}
 
       model ->
+        # A file page qualifies once source learning has covered it, which
+        # keeps the scan to files inside the extraction paths. Bodies load one
+        # page at a time because a file's text can reach 512 KiB.
         objects =
           Object
           |> Ash.Query.filter(
-            is_nil(deleted_at) and kind == :knowledge and
+            is_nil(deleted_at) and
+              (kind == :knowledge or (kind == :file and learned?)) and
               fragment(
-                "?->>'timeline_revision' IS DISTINCT FROM ?::text",
+                "?->>'timeline_version' IS DISTINCT FROM ?",
                 upstream_state,
-                revision
+                content_hash
               )
           )
           |> Ash.Query.sort(updated_at: :asc, id: :asc)
+          |> Ash.Query.select([:id, :meta, :deleted_at])
           |> Ankole.Ash.read!()
           |> Stream.filter(&Ankole.Brain.Knowledge.extractable?/1)
           |> Enum.take(200)
 
         timelines =
-          Enum.reduce(objects, 0, fn object, count ->
+          Enum.reduce(objects, 0, fn %{id: id}, count ->
+            object = Ankole.Ash.read_one!(Ash.Query.filter(Object, id == ^id))
+
             case extract_object_timelines(model, object) do
               {:ok, written} -> count + written
               _ -> count
@@ -280,20 +287,10 @@ defmodule Ankole.Brain.Dreaming do
   end
 
   defp extract_object_timelines(model, object) do
-    prompt = """
-    Extract dated events from this knowledge page. Only events with an explicit calendar date
-    qualify. Do not infer dates. Return JSON:
-    {"items":[{"date":"YYYY-MM-DD","summary":"one line","detail":"optional expansion"}]}
-    Return {"items":[]} when there are none.
-    Page: #{object.title}
-    #{object.body}
-    """
-
-    with {:ok, output} <-
-           ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.timelines") do
+    with {:ok, items} <- timeline_items(model, object) do
       Repo.transact_top_level(fn ->
         with {:ok, current} <- Objects.lock_object_in_tx(object.id),
-             true <- is_nil(current.deleted_at) and current.revision == object.revision do
+             true <- is_nil(current.deleted_at) and current.content_hash == object.content_hash do
           author = Config.execution_author!()
 
           {:ok, _} =
@@ -303,10 +300,10 @@ defmodule Ankole.Brain.Dreaming do
             )
             |> Ankole.Ash.destroy_where(:remove)
 
-          with {:ok, count} <- write_extracted_timelines(output["items"], object, author),
+          with {:ok, count} <- write_extracted_timelines(items, object, author),
                {:ok, _} <-
                  Ankole.Pod.Knowledge.sync_upstream_in_tx(object.id, %{
-                   "timeline_revision" => object.revision
+                   "timeline_version" => object.content_hash
                  }) do
             {:ok, count}
           end
@@ -316,6 +313,40 @@ defmodule Ankole.Brain.Dreaming do
         end
       end)
     end
+  end
+
+  # A knowledge page fits one prompt. A file is read window by window, and a
+  # table file carries records instead of narrated events, so it yields none.
+  defp timeline_items(model, %{kind: :file} = object) do
+    windows =
+      if Ankole.Brain.FileText.table?(object),
+        do: [],
+        else: Ankole.Brain.SourceLearning.file_windows(object.body)
+
+    Enum.reduce_while(windows, {:ok, []}, fn window, {:ok, items} ->
+      case timeline_window(model, object.title, window) do
+        {:ok, found} when is_list(found) -> {:cont, {:ok, items ++ found}}
+        {:ok, _invalid} -> {:halt, {:error, :invalid_timeline_output}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp timeline_items(model, object), do: timeline_window(model, object.title, object.body)
+
+  defp timeline_window(model, title, text) do
+    prompt = """
+    Extract dated events from this knowledge page. Only events with an explicit calendar date
+    qualify. Do not infer dates. Return JSON:
+    {"items":[{"date":"YYYY-MM-DD","summary":"one line","detail":"optional expansion"}]}
+    Return {"items":[]} when there are none.
+    Page: #{title}
+    #{text}
+    """
+
+    with {:ok, output} <-
+           ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.timelines"),
+         do: {:ok, output["items"]}
   end
 
   defp write_extracted_timelines(items, object, author) when is_list(items) do
@@ -330,7 +361,7 @@ defmodule Ankole.Brain.Dreaming do
                  date: date,
                  summary: summary,
                  detail: item["detail"] || "",
-                 provenance: "page:" <> object.id <> ":" <> to_string(object.revision)
+                 provenance: "page:" <> object.id <> ":" <> object.content_hash
                },
                :system,
                author: author

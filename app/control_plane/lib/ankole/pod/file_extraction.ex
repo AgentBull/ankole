@@ -8,6 +8,9 @@ defmodule Ankole.Pod.FileExtraction do
   extracted cache commit synchronously inside the caller's transaction; larger
   text files and rich documents enqueue `Ankole.Pod.Jobs.SyncFileCache` so PDF
   and Office parsing runs on `DirtyCpu` outside page/tree locks.
+
+  Every cache write or purge tells `Ankole.Brain.Knowledge` in the same
+  transaction, so Brain's chunks and facts follow the text that search holds.
   """
 
   require Ash.Query
@@ -301,7 +304,8 @@ defmodule Ankole.Pod.FileExtraction do
              metadata: attrs.metadata,
              updated_at: now
            }),
-         do: SearchProjection.upsert_in_tx(page, body_text: attrs.plain_text)
+         :ok <- SearchProjection.upsert_in_tx(page, body_text: attrs.plain_text),
+         do: Ankole.Brain.Knowledge.file_cache_changed_in_tx(page)
   end
 
   defp purge_and_clear_in_tx(page) do
@@ -309,7 +313,8 @@ defmodule Ankole.Pod.FileExtraction do
            FileCache
            |> Ash.Query.filter(page_id == ^page.id)
            |> Ankole.Ash.destroy_where(:purge),
-         do: SearchProjection.upsert_in_tx(page, body_text: "")
+         :ok <- SearchProjection.upsert_in_tx(page, body_text: ""),
+         do: Ankole.Brain.Knowledge.file_cache_changed_in_tx(page)
   end
 
   defp backfill_missing_projections(limit) do
@@ -382,8 +387,7 @@ defmodule Ankole.Pod.FileExtraction do
           (not exists(search_document, true) or
              not exists(
                file_cache,
-               object_id == parent(object_id) and
-                 (subtype == :spreadsheet or extractor_version >= ^version)
+               object_id == parent(object_id) and extractor_version >= ^version
              ))
       )
       |> then(fn q ->
@@ -446,7 +450,8 @@ defmodule Ankole.Pod.FileExtraction do
 
   defp stale_file_page?(page, cache, version) do
     if Spreadsheets.spreadsheet?(page.name) do
-      cache == nil or cache.object_id != page.object_id or cache.subtype != :spreadsheet
+      cache == nil or cache.object_id != page.object_id or cache.subtype != :spreadsheet or
+        cache.extractor_version < version
     else
       case Kernel.file_classify_format(clean_filename(page.name), page.content_type) do
         {:ok, %{format: format}} ->

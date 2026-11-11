@@ -22,7 +22,7 @@ Knowledge enters Brain through these paths:
 | Conversation learning | Useful facts, judgments, and commitments are extracted from eligible direct-message and group conversations |
 | A registered file or URL Source | Source content becomes a Pod knowledge page and can produce extracted claims |
 
-Public Pod business content participates in search and can opt into fact extraction with `extract_facts`. Skill packages and Agent instruction contracts have their own storage and management in Meta Ankole, separate from Brain search and fact extraction.
+Public Pod business content participates in search and can opt into fact extraction with `extract_facts`. That content includes files whose text Ankole can read: PDF, Office and OpenDocument files, spreadsheets, CSV, and plain text. Brain searches a file's text by page, slide, sheet, or section, and a file in the Brain tree, or one whose own page or an ancestor enables `extract_facts`, also yields facts and timeline events that cite the file. A spreadsheet contributes a summary of its sheets and columns instead of one fact per row, and scanned PDF pages without a text layer are not searchable. Skill packages and Agent instruction contracts have their own storage and management in Meta Ankole, separate from Brain search and fact extraction.
 
 ## Facts, judgments, and evidence
 

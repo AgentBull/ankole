@@ -34,6 +34,24 @@
   capabilities, so a speech, transcription, or decision profile on a Cloudflare
   provider shows neither the search engine nor the image options, and a speech
   or transcription profile on OpenRouter shows no language-model options.
+- Bring File Pages into Brain. `recall` searches a public file whose text
+  Ankole can extract (PDF, Office and OpenDocument files, spreadsheets,
+  CSV/TSV, and text) by page, slide, sheet, or section. A file in the Brain
+  tree, or one whose own page or an ancestor enables `extract_facts`, also
+  yields facts and timeline events that cite it, and the Brain graph shows it
+  as their evidence source; a File Page has its own Learn business facts
+  control for that. A spreadsheet contributes one summary of its sheets and
+  columns instead of row-level facts. Replacing a file relearns it, and a file
+  replaced by a format that Ankole cannot read drops its passages, facts, and
+  timelines. The `brain` tool reads a file's extracted text with a note of
+  what the extraction covered. Extracted search text now carries the numbers,
+  dates, and formula results of spreadsheet cells, marks each page, slide, and
+  sheet (`[Page N]`, `[Slide N]`, `[Sheet: name]`), turns Word and
+  OpenDocument headings into `[Section: outer > heading]` lines, and labels
+  table rows `R<row>`; after the upgrade, Ankole re-extracts existing files in
+  the background. The migration adds File Pages to `brain_page_nodes` and
+  renames `upstream_state.facts_revision` and `timeline_revision` to
+  `facts_version` and `timeline_version`.
 
 ## Version 2.0.0-alpha.117 (2026-11-11)
 

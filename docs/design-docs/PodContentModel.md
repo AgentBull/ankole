@@ -1250,6 +1250,8 @@ relationship refreshes.
 
 Public business Pages offer their managers (`node_manage`) a **Learn business
 facts** control in the Page header, so the title flows straight into the body.
+A File Page offers it as well, where it opts in the text extracted from that
+file.
 The control reads **Learn** while learning is off and **Learning** once the
 Page or an ancestor enables it; like the other header buttons, a header narrower
 than 640 px keeps only its icon, and its accessible name stays the full **Learn
@@ -2371,6 +2373,30 @@ bounded batches to backfill missing projections (rebuilding File Pages from
 their immutable `object_id`) and stale extractor versions while leaving
 `skipped` and `failed` objects untouched at the current
 `(object_id, format, extractor_version)`.
+
+One copy of the extracted text serves both Pod search and Brain (see
+[Retrieval and progressive reads](BrainV3.md#retrieval-and-progressive-reads)),
+so the kernel marks a file's structure in the text itself. A line `[Page N]`
+opens each PDF page that has text, `[Slide N]` opens each slide, and
+`[Sheet: name]` opens each sheet of a workbook or `.ods` file. A `.docx` or
+`.odt` heading becomes a line `[Section: outer > heading]` that names the
+headings above it; a `.docx` paragraph is a heading when its style is named
+`heading N`, sets an outline level, or is based on such a style, or when the
+paragraph sets an outline level itself, and headings inside tables stay plain
+text. A row of a
+workbook, an `.ods` sheet, or a delimited file is one line: `R<row>`, then the
+row's cells separated by tabs in column order from column A, with a blank cell
+kept as an empty field and trailing blank cells dropped. A workbook cell reads
+as the grid displays it, so numbers, dates, percentages and formula results
+appear formatted, a cell that holds a picture reads blank, and a vertically
+merged cell repeats on each later row of its range that has other content. The text of one file stops at 512 KiB, and a PDF
+at 500 pages; `metadata.truncated` records that either limit cut the text. PDF
+metadata also carries `extracted_pages` and `textless_pages`, the pages with
+fewer than ten characters of text, such as scanned pages. Spreadsheet caches
+carry the same `extractor_version` as every other file, so raising the version
+re-derives workbooks too. Every cache write or purge calls
+`Ankole.Brain.Knowledge.file_cache_changed_in_tx/1` in the same transaction,
+which keeps Brain's chunks and facts on the text that search holds.
 
 Native Conversation messages carry Page links and verified attachments:
 

@@ -119,6 +119,7 @@ const ENTITY_TYPE_RAMPS: Readonly<Record<string, AnkoleGraphColorRamp>> = {
   documents: 'green',
   source: 'green',
   sources: 'green',
+  file: 'green',
   concept: 'magenta',
   concepts: 'magenta',
   topic: 'magenta',
