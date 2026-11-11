@@ -24,7 +24,7 @@ Hosted 경로를 설정하는 절차는 다음과 같습니다.
 4. 이미지용 Provider와 모델을 선택한 뒤 프로필을 저장합니다.
 5. 채팅으로 돌아가 구체적인 이미지 생성 요청을 보냅니다.
 
-`image_generate` 프로필에 연결할 수 있는 Provider는 세 종류입니다. **OpenRouter**와 **AgentBull Cloud**는 각자의 카탈로그에 있는 이미지 모델을 제공합니다. **Cloudflare**는 FLUX.1 [schnell](`@cf/black-forest-labs/flux-1-schnell`)과 `black-forest-labs/flux-2-pro-preview` 같은 Black Forest Labs 모델을 제공합니다. 전자는 프롬프트만으로 이미지를 생성하고, 후자는 크기, 출력 형식, 최대 8장의 참조 이미지도 지정할 수 있습니다. Cloudflare를 사용할 때는 모델 필드에 모델 ID를 직접 입력하세요.
+`image_generate` 프로필에 연결할 수 있는 Provider는 세 종류입니다. **OpenRouter**와 **AgentBull Cloud**는 각자의 카탈로그에 있는 이미지 모델을 제공합니다. **Cloudflare**는 FLUX.1 [schnell] (`@cf/black-forest-labs/flux-1-schnell`)과 `black-forest-labs/flux-2-pro-preview` 같은 Black Forest Labs 모델을 제공합니다. 전자는 프롬프트만으로 이미지를 생성하고, 후자는 크기, 출력 형식, 최대 8장의 참조 이미지도 지정할 수 있습니다. Cloudflare를 사용할 때는 모델 필드에 모델 ID를 직접 입력하세요.
 
 일반 모델 토큰 사용량은 메인 Provider 자격 증명에 기록되며, 이미지 토큰 사용량은 풀 순환(pool rotation)이 일어난 뒤에도 실제로 이미지를 생성한 자격 증명에 귀속됩니다.
 
