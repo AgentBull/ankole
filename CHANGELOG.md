@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 2.0.0-alpha.132 (2026-11-12)
+
+- Cut repeated access checks on live conversation streams, and let shutdown
+  finish its cleanup.
+  - A conversation's live event stream reuses a successful access check for
+    5 seconds instead of querying the database before every 40 ms text flush.
+    A Page-permission change still rechecks at once. Ankole detects a sign-out
+    or a disabled Human on the first frame or 15-second heartbeat after that
+    5-second window.
+  - Supervisor shutdown now runs the cleanup that AI Gateway response streams
+    already define, cancelling open upstream streams and program tasks.
+  - The Docker Compose control plane waits up to 60 seconds for a graceful
+    stop, matching the Helm chart, instead of Docker's 10-second default. For
+    the first upgrade to this release, run `docker compose stop --timeout 60`,
+    because the running container still carries the old 10-second timeout.
+  - When a channel reply preview exits or times out while a new turn takes it
+    over, the turn continues without the preview instead of failing.
+  - One Applet invocation runs at most 64 capability calls at a time; further
+    calls wait and start as earlier ones finish. Feishu, Slack, and DingTalk
+    connections dispatch at most 64 events at a time and leave further events
+    unacknowledged, so the platform redelivers them.
+
 ## Version 2.0.0-alpha.131 (2026-11-11)
 
 - Internal changes only.

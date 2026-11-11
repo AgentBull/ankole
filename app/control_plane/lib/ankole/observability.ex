@@ -383,14 +383,6 @@ defmodule Ankole.Observability do
     {:reply, status, state}
   end
 
-  @impl true
-  def terminate(_reason, %{enabled?: true}) do
-    _ = :otel_tracer_provider.force_flush()
-    :ok
-  end
-
-  def terminate(_reason, _state), do: :ok
-
   defp start_turn_span(%Signal{} = signal, turn_start_spec) do
     provider = provider()
     request_context = map_value(turn_start_spec, "request_context") || %{}

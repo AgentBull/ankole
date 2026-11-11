@@ -288,6 +288,8 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   @impl true
   def init(opts) do
+    # Lets supervisor shutdown run terminate/2, which cancels upstream work and ends the trace.
+    Process.flag(:trap_exit, true)
     Ankole.Repo.put_tenant_id(Keyword.fetch!(opts, :tenant_id))
     receiver = Keyword.fetch!(opts, :receiver)
     owner_monitor = Process.monitor(receiver)

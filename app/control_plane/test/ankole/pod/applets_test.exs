@@ -687,6 +687,27 @@ defmodule Ankole.Pod.AppletsTest do
     end
   end
 
+  test "a handler fanning out beyond the concurrent call limit gets every result", ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner)
+    {:ok, base} = Pages.create(actor, %{type: "base", private_owner_uid: ctx.owner})
+    {:ok, table} = Bases.create_table(actor, base.id, %{name: "Orders"})
+    page = create(ctx.owner)
+
+    source = """
+    export default {
+      'GET /fan': async () => {
+        const all = await Promise.all(
+          Array.from({length: 100}, () => AnkoleRuntime.base.schema('#{table.id}'))
+        )
+        return all.filter(Boolean).length
+      }
+    }
+    """
+
+    {:ok, _} = publish(ctx.owner, page, 0, source)
+    assert {:ok, %{"status" => 200, "body" => 100}} = call(ctx.owner, page.id, "GET", "/fan")
+  end
+
   test "overload returns 503 applet_busy for route invocations and publication inspection", ctx do
     page = create(ctx.owner)
     {:ok, _} = publish(ctx.owner, page, 0, "export default {'GET /ok':()=>true}")

@@ -17,7 +17,11 @@ defmodule Ankole.Connectors.RemoteMCP do
   def handle_info(:expire, state) do
     now = System.monotonic_time(:millisecond)
 
-    for {key, connection, expires} <- :ets.tab2list(__MODULE__), expires < now do
+    # Copies only expired rows out of the table, not every live connection and tool schema.
+    expired =
+      :ets.select(__MODULE__, [{{:"$1", :"$2", :"$3"}, [{:<, :"$3", now}], [{{:"$1", :"$2"}}]}])
+
+    for {key, connection} <- expired do
       :ets.delete(__MODULE__, key)
 
       if connection.session do

@@ -119,8 +119,14 @@ defmodule AnkoleWeb.AIGatewayController do
     ]
 
     case AIGateway.create_image(subject_uid, request, opts) do
-      {:ok, %{body: body}} -> json(conn, ImageRequests.public_body(body))
-      {:error, reason} -> error(conn, reason)
+      # Generated images arrive as base64, so the encode runs on a dirty scheduler.
+      {:ok, %{body: body}} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Ankole.JSON.encode!(ImageRequests.public_body(body), dirty: true))
+
+      {:error, reason} ->
+        error(conn, reason)
     end
   end
 

@@ -132,7 +132,7 @@ printf 'RELEASE_COOKIE=%s\n' "$(openssl rand -hex 32)" >> .env
 
 ```sh
 docker compose pull
-docker compose stop
+docker compose stop --timeout 60
 docker compose up -d postgresql
 docker compose exec postgresql psql -U ankole -d ankole -v ON_ERROR_STOP=1 \
   -c "ALTER EXTENSION pg_search UPDATE TO '0.26.4'" \
@@ -142,7 +142,7 @@ docker compose up -d --force-recreate
 docker compose ps
 ```
 
-`docker compose stop` 会在执行迁移前停掉旧版控制面，同时保留 Docker 网络使在途 Worker 不断网；待两个迁移服务全部成功后，新版控制面才会启动。升级完成后，各 Agent 的 Worker 会自动重连，镜像变更的旧 Worker 则会在空闲后自动替换。单机升级期间会有短暂服务中断。回退旧版镜像不会反向撤销已执行的数据库迁移；若旧版应用依赖旧表结构，请使用升级前的数据库备份进行恢复。扩展与动态库版本核验方法详见[数据库镜像说明](../../devkit/postgres-for-ankole/README.md)。
+`docker compose stop --timeout 60` 会在执行迁移前停掉旧版控制面，同时保留 Docker 网络使在途 Worker 不断网。控制面最多有 60 秒用来排空请求、收尾后台任务，超时后 Docker 才会强制停止，因此这一步最长可能需要一分钟。之所以要显式指定超时，是因为运行中的容器沿用创建时的停止超时；用旧版 Compose 文件创建的容器，这个值是 Docker 默认的 10 秒。待两个迁移服务全部成功后，新版控制面才会启动。升级完成后，各 Agent 的 Worker 会自动重连，镜像变更的旧 Worker 则会在空闲后自动替换。单机升级期间会有短暂服务中断。回退旧版镜像不会反向撤销已执行的数据库迁移；若旧版应用依赖旧表结构，请使用升级前的数据库备份进行恢复。扩展与动态库版本核验方法详见[数据库镜像说明](../../devkit/postgres-for-ankole/README.md)。
 
 从早期共享池化 Worker 版本升级时，`migrate-agent-homes` 服务会等待数据库迁移成功，再停止所有挂载旧卷 `ankole_agents_data` 的容器。随后，它会将每个现存 Agent 的主目录复制到包含租户身份的独享卷，写入租户归属标签，将属主统一改为 `uid 1000`，并在旧卷内写入完成标记。已删除 Agent 遗留的目录会被跳过，旧卷本身予以保留。执行前请确保宿主机剩余磁盘空间不少于 `ankole_agents_data` 的已用容量。若任一目录复制失败，迁移服务会报错退出并阻止控制面启动；修复后再次运行 `docker compose up` 会仅重试未完成的目录，不会覆盖已迁移完成的数据。
 
