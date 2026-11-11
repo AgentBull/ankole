@@ -50,6 +50,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/bases_records.ex:rename_principal_in_tx" => 2,
     "raw_sql:lib/ankole/credential_upgrade.ex:tenant_column" => 1,
     "across_tenants:lib/ankole/agent_workers.ex:authenticate" => 1,
+    "across_tenants:lib/ankole/agent_workers/runner_devices.ex:by_credential" => 1,
     "across_tenants:lib/ankole/principals/rename/references.ex:rewrite_in_tx" => 1,
     "raw_sql:lib/ankole/principals/rename/references.ex:rewrite_json_actor" => 1,
     "raw_sql:lib/ankole/principals/rename/references.ex:rewrite_actor" => 1,
@@ -272,6 +273,12 @@ defmodule Ankole.TenancyGuardTest do
       "Application UUIDv7 identifies one committed Base batch; reads bind tenant_id",
     "agent_workers_token_digest_index" =>
       "A random Worker credential identifies its tenant and Worker before UID validation.",
+    "runner_devices_pairing_digest_index" =>
+      "A random pairing code identifies its tenant and device before the device is paired.",
+    "runner_devices_token_digest_index" =>
+      "A random device credential identifies its tenant and device before owner validation.",
+    "runner_bindings_token_digest_index" =>
+      "A random Worker credential identifies its tenant and binding before UID validation.",
     "principal_site_credentials_pkey" =>
       "The application generates each credential's globally unique UUIDv7.",
     "pod_invitations_pkey" =>
@@ -305,6 +312,8 @@ defmodule Ankole.TenancyGuardTest do
     "agent_skill_lessons_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "agent_workers_transport_route_index" =>
+      "RuntimeFabric transport routes are unique across the site.",
+    "runner_bindings_transport_route_index" =>
       "RuntimeFabric transport routes are unique across the site.",
     "ai_gateway_artifacts_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",

@@ -703,6 +703,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       title: "Source title",
       runtime_thread_id: "thread-source",
       workspace_owner_job_id: 1400,
+      runner_id: "019a7d15-6b54-7ed9-ae76-78f7fd91e4d5",
       workspace_template_id: "deep-research",
       model_profile: "coding",
       metadata: %{"owner_conversation_id" => "conv-source"}
@@ -721,6 +722,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              "title" => "Source title",
              "runtime_thread_id" => "thread-source",
              "workspace_owner_job_id" => 1400,
+             "runner_id" => "019a7d15-6b54-7ed9-ae76-78f7fd91e4d5",
              "workspace_template_id" => "deep-research",
              "model_profile" => "coding",
              "continued_from_job_id" => 1500,
