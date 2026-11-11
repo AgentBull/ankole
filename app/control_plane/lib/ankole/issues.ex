@@ -26,6 +26,7 @@ defmodule Ankole.Issues do
   defdelegate ensure_for_task_room_in_tx(agent_uid, owner_session_id),
     to: Ankole.Issues.Operations
 
+  defdelegate agent_uid(conversation_id), to: Ankole.Issues.Queries
   defdelegate get(actor, id), to: Ankole.Issues.Queries
   defdelegate list(actor), to: Ankole.Issues.Queries
   defdelegate scheduled(actor), to: Ankole.Issues.Activity

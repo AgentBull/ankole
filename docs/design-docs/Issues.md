@@ -49,8 +49,12 @@ the Agent, as starting a conversation with that Agent does.
 Access to an Issue is access to its room. The people who take part in the room
 see the Issue, and inviting a person to the room shares the Issue with that
 person. The invitation turns an AI colleague's room into a `group`, where a
-message addresses the Agent when it names the Agent. A personal assistant's
-room stays private to its owner.
+message names its Agents. The room's detail therefore carries the Issue's Agent
+as `issueAgentUID`, and the composer of a group room selects that Agent as the
+recipient until the person picks another one. A message in a shared Issue thus
+still addresses the Issue's Agent by default, and a person who picks the Agents
+allowed to join in writes to the teammates and leaves the answer to the Agent's
+judgment. A personal assistant's room stays private to its owner.
 
 ## Start, accept, and reopen
 
@@ -165,12 +169,13 @@ committed message, run status, and Issue change.
 ## Tests required for changes
 
 `test/ankole/issues_test.exs` covers the request message that starts an Issue,
-a later message in the room, an Issue that waits, an Issue closed before it
-started, a run in the room of an Issue that waits, review and acceptance, the
-events that follow a change, the status that follows a Background Agent Job,
-the reopening of an accepted Issue by a Job, a continued Job, and a Workflow,
-the personal assistant's task room, a room without an Issue, and the scheduled
-list with a room that a person can no longer open. A change to room creation,
-to the start of an Issue, or to the owner-Session link must keep those cases
-passing against the real Conversations, Signals, and Sessions owners.
+a later message in the room, the default recipient of an Issue shared with a
+teammate, an Issue that waits, an Issue closed before it started, a run in the
+room of an Issue that waits, review and acceptance, the events that follow a
+change, the status that follows a Background Agent Job, the reopening of an
+accepted Issue by a Job, a continued Job, and a Workflow, the personal
+assistant's task room, a room without an Issue, and the scheduled list with a
+room that a person can no longer open. A change to room creation, to the start
+of an Issue, or to the owner-Session link must keep those cases passing against
+the real Conversations, Signals, and Sessions owners.
 `integration/pod-browser/work.spec.ts` covers the board in the browser.

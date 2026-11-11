@@ -57,6 +57,9 @@
   the background. The migration adds File Pages to `brain_page_nodes` and
   renames `upstream_state.facts_revision` and `timeline_revision` to
   `facts_version` and `timeline_version`.
+- Keep addressing an Issue's Agent after a teammate joins the Issue's
+  conversation. The conversation becomes a group, and its composer selects the
+  Issue's Agent as the recipient until the member picks another one.
 
 ## Version 2.0.0-alpha.117 (2026-11-11)
 

@@ -363,7 +363,7 @@ defmodule Ankole.Pod.Chat.Browser do
           muted: attrs[:muted],
           last_read_seq: attrs[:lastReadSeq]
         })
-        |> APIError.result(&Presentation.detail/1)
+        |> APIError.result(&room_detail/1)
       end)
     end
 
@@ -408,7 +408,7 @@ defmodule Ankole.Pod.Chat.Browser do
           mentions: mentions(attrs),
           links: links(attrs)
         })
-        |> APIError.result(&Presentation.detail/1)
+        |> APIError.result(&room_detail/1)
       end)
     end
 
@@ -430,7 +430,7 @@ defmodule Ankole.Pod.Chat.Browser do
           attrs.card_id,
           attrs.decision
         )
-        |> APIError.result(&Presentation.detail/1)
+        |> APIError.result(&room_detail/1)
       end)
     end
 
@@ -500,7 +500,7 @@ defmodule Ankole.Pod.Chat.Browser do
           before_seq: input.arguments[:beforeSeq],
           loaded_first_seq: input.arguments[:loadedFirstSeq]
         )
-        |> APIError.result(&Presentation.detail/1)
+        |> APIError.result(&room_detail/1)
       end)
     end
 
@@ -609,7 +609,7 @@ defmodule Ankole.Pod.Chat.Browser do
 
       run(fn input, context ->
         Conversations.create(context.actor, creation(input.arguments))
-        |> APIError.result(&Presentation.detail/1)
+        |> APIError.result(&room_detail/1)
       end)
     end
 
@@ -627,7 +627,7 @@ defmodule Ankole.Pod.Chat.Browser do
 
       run(fn input, context ->
         Conversations.post(context.actor, input.arguments.id, message(input.arguments))
-        |> APIError.result(&Presentation.detail/1)
+        |> APIError.result(&room_detail/1)
       end)
     end
 
@@ -665,7 +665,7 @@ defmodule Ankole.Pod.Chat.Browser do
 
       run(fn input, context ->
         Conversations.update_queue(context.actor, input.arguments.id, queue(input.arguments))
-        |> APIError.result(&Presentation.detail/1)
+        |> APIError.result(&room_detail/1)
       end)
     end
 
@@ -721,6 +721,14 @@ defmodule Ankole.Pod.Chat.Browser do
         |> APIError.result(&selection/1)
       end)
     end
+  end
+
+  # The composer of an Issue's room addresses the Issue's Agent unless the person picks another recipient.
+  # `Presentation.detail/1` runs no query, so the Issue is read here.
+  defp room_detail(detail) do
+    detail
+    |> Presentation.detail()
+    |> Map.put(:issueAgentUID, Ankole.Issues.agent_uid(detail.conversation.id))
   end
 
   defp selection(value),

@@ -1908,6 +1908,7 @@ export type UpdateConversationQueueResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -4037,6 +4038,7 @@ export type ConversationDetailResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -4333,6 +4335,7 @@ export type UpdateConversationResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -4722,6 +4725,7 @@ export type AnswerConversationInteractionResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -5414,6 +5418,7 @@ export type ResolveConversationActionCardResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -7737,6 +7742,7 @@ export type PostConversationMessageResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -10895,6 +10901,7 @@ export type CreateConversationResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null

@@ -2,7 +2,7 @@ import { uuidV4 } from '@agentbull/active-support'
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '@ankole/uikit'
 import { t } from 'i18next'
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
 import {
@@ -27,6 +27,7 @@ import {
   chatRecipientAvailable,
   draftLinks,
   draftMentions,
+  issueRecipientUID,
   queuedInputs,
   resolveFollowUpDeliveryModes,
   type ChatEditSnapshot,
@@ -200,6 +201,10 @@ export function useChatCommands({
     }
   })
   const callableSet = new Set(callableAgentUIDs)
+  const issueAgentUID = issueRecipientUID(data, callableAgentUIDs)
+  useEffect(() => {
+    if (issueAgentUID && !model.targetAgentUID.peek()) model.targetAgentUID.value = issueAgentUID
+  }, [model, issueAgentUID])
   const sending = (send.isPending && send.variables.owner === model) || model.pending.value?.state === 'sending'
   const working =
     !!data &&

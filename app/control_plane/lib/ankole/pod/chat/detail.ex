@@ -107,6 +107,7 @@ defmodule Ankole.Pod.Chat.Detail do
           ]
         ],
         conversation: [type: Ankole.Pod.Chat.Conversation, allow_nil?: false],
+        issueAgentUID: [type: Ankole.Ash.Types.PrincipalKey],
         artifacts: [
           type: :map,
           allow_nil?: false,

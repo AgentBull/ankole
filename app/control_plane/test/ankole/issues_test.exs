@@ -60,6 +60,13 @@ defmodule Ankole.IssuesTest do
     Repo.one!(from(job in Job, where: job.title == ^title, select: job.id))
   end
 
+  # Reads a room as the browser does.
+  defp show(actor, room_id) do
+    Ankole.Pod.Chat.Browser
+    |> Ash.ActionInput.for_action(:show, %{id: room_id}, tenant: Repo.tenant_id!())
+    |> Ankole.Ash.run_action_authorized(actor)
+  end
+
   defp chat_room(owner, agent_uid) do
     room_id = Ankole.Ecto.UUIDv7.autogenerate()
 
@@ -129,6 +136,25 @@ defmodule Ankole.IssuesTest do
     assert follow_up.agent_uid == ctx.agent.uid
     assert follow_up.data["text"] == "Add last month's numbers."
     refute follow_up.data["optional_reply"]
+  end
+
+  test "an Issue shared with a teammate names its Agent as the room's default recipient", ctx do
+    teammate = human_fixture(%{display_name: "Bob"}).principal
+
+    assert {:ok, item} =
+             Issues.create(ctx.owner, %{title: "Churn report", agent_uid: ctx.agent.uid})
+
+    # The invitation makes the room a group, where a message names no Agent unless its sender picks one.
+    assert {:ok, shared} =
+             Conversations.manage_participants(ctx.owner, item.id, %{add_uids: [teammate.uid]})
+
+    assert shared.conversation.room_mode == :group
+    assert {:ok, [%{id: id}]} = Issues.list(actor_fixture(teammate))
+    assert id == item.id
+
+    assert {:ok, %{issueAgentUID: uid}} = show(ctx.owner, item.id)
+    assert uid == ctx.agent.uid
+    assert {:ok, %{issueAgentUID: nil}} = show(ctx.owner, chat_room(ctx.owner, ctx.agent.uid))
   end
 
   test "an Issue that waits keeps its request until a person starts it", ctx do

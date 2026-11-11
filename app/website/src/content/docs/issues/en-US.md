@@ -42,7 +42,7 @@ When the Agent has stopped, the Issue moves to **In review**. Select **Mark done
 
 The people in the Issue's conversation see it. Invite a teammate to the conversation to share the Issue. An Issue for your personal assistant is private to you.
 
-While you are the only person in the conversation, the Agent answers every message that you write there. After a teammate joins, the conversation works as a group chat, so mention the Agent in a message that needs its answer.
+While you are the only person in the conversation, the Agent answers every message that you write there. After a teammate joins, your messages still go to the Issue's Agent unless you choose otherwise. To write to your teammates and leave it to the Agent whether to answer, change the recipient below the message box to **Agents allowed to join in**.
 
 ## Background work from Chat
 

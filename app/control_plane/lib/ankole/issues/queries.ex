@@ -24,6 +24,14 @@ defmodule Ankole.Issues.Queries do
   @doc "Finds the Issue of a room."
   def fetch(id), do: read(id, & &1)
 
+  @doc "Names the Agent of a room's Issue, or gives `nil` for a room without one."
+  def agent_uid(id) do
+    case fetch(id) do
+      {:ok, issue} -> issue.agent_uid
+      {:error, :issue_not_found} -> nil
+    end
+  end
+
   @doc "Finds the Issue of a room and locks its row in the caller's transaction."
   def lock(id), do: read(id, &Ash.Query.lock(&1, :for_update))
 

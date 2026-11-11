@@ -162,8 +162,10 @@ An [Issue](Issues.md) has one native room with `participants` access, which
 its Agent without an opening message. The room is a `dm` that carries no
 colleague-DM identity, so an AI colleague's Issue room stays apart from the
 colleague's direct-message room, and it becomes a `group` when its creator
-invites another person. Starting the Issue posts its request to the room as an
-ordinary Human message.
+invites another person. The room detail names the Issue's Agent in
+`issueAgentUID`, which the composer selects as the default recipient of that
+group. Starting the Issue posts its request to the room as an ordinary Human
+message.
 
 Room members, the room creator, Pod administrators, and managers of an anchor
 Page can rename the room or invite participants, though changing an Agent's
