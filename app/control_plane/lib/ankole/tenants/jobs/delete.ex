@@ -38,7 +38,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     principal_group_external_bindings principal_group_memberships deliveries
     conversation_inbound_batches conversation_input_tombstones
     connector_db_catalog_columns connector_db_catalog_tables
-    connector_triggers connector_oauth_sessions connector_connected_accounts connector_auth_configs
+    connector_auth_waits connector_triggers connector_oauth_sessions connector_connected_accounts connector_auth_configs
     workflow_agent_calls delivery_previews signals ai_gateway_messages
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
     workflow_runs ai_gateway_conversations background_agent_jobs

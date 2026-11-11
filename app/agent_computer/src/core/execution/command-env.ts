@@ -1,3 +1,5 @@
+import { PERCEPTUAL_SHIM_DIR } from '../../tools/computer/perceptual-shaping'
+
 export type CommandEnvOptions = {
   /** Agent Home of the execution. The command gets it as HOME and ANKOLE_AGENT_HOME. */
   agentHome: string
@@ -43,8 +45,8 @@ export function commandEnv(
 }
 
 // Image-provided wrappers must win over entries inherited from the Worker process.
-function commandPath(path: string | undefined): string {
-  const required = ['/usr/local/bin', '/usr/bin', '/bin']
+export function commandPath(path: string | undefined): string {
+  const required = [PERCEPTUAL_SHIM_DIR, '/usr/local/bin', '/usr/bin', '/bin']
   const current = path?.split(':').filter(Boolean) ?? []
   return [...required, ...current.filter(entry => !required.includes(entry))].join(':')
 }

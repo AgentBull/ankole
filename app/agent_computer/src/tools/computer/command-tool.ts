@@ -9,6 +9,7 @@ import type { ComputerToolContext } from './context'
 import type { CommandOutputCapture } from './commands'
 import { AGENT_RUNTIME_DIRNAME } from './fff-search'
 import { truncateOutputDetailed } from './format'
+import { planShellCommandShaping, shapeCommandOutput, type PerceptualShapingMetrics } from './perceptual-shaping'
 
 const ForegroundCommandDefaultTimeoutSeconds = 180
 const CommandLogRetention = 20
@@ -37,6 +38,7 @@ interface CommandDetails {
   exitCode?: number
   outputLogPath?: string
   outputCapture?: CommandOutputCapture
+  perceptualShaping?: PerceptualShapingMetrics
 }
 
 /** Each call runs through isolated `runCommand`, so cwd, env, and aliases do not leak into the next call. */
@@ -60,11 +62,24 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
       // execution budget in seconds, passed as ms; the worker ends the command's process group
       // when it elapses.
       const timeoutSeconds = params.timeout ?? ForegroundCommandDefaultTimeoutSeconds
+      const shapingPlan = planShellCommandShaping(params.command, params.env)
+      const disableContainerShim =
+        !shapingPlan.plan.bypassed ||
+        (shapingPlan.plan.bypassReason !== 'unshaped_subcommand' &&
+          shapingPlan.plan.bypassReason !== 'unsupported_command')
+      const mergedEnv =
+        Object.keys(shapingPlan.envPatch).length > 0 || disableContainerShim || params.env !== undefined
+          ? {
+              ...shapingPlan.envPatch,
+              ...(disableContainerShim ? { ANKOLE_SHIM_ACTIVE: '1' } : {}),
+              ...params.env
+            }
+          : undefined
       const runInput = {
         cmd: 'bash',
-        args: ['-lc', params.command],
+        args: ['-lc', shapingPlan.command],
         cwd: params.workdir,
-        env: params.env,
+        env: mergedEnv,
         timeoutMs: timeoutSeconds * 1000,
         signal
       }
@@ -72,9 +87,18 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
       const result = await computer.runCommand(runInput)
       const durationMs = Date.now() - startedAt
       const raw = await result.output('both', { signal })
-      const truncation = truncateOutputDetailed(raw)
+      const shaped = shapeCommandOutput(shapingPlan.plan, { exitCode: result.exitCode, output: raw })
+      const truncation = truncateOutputDetailed(shaped.output)
+      const shapingDroppedData =
+        shaped.metrics.applied &&
+        shaped.metrics.family !== 'shell_cat' &&
+        (shaped.metrics.family === 'curl_json' ||
+          shaped.metrics.rawChars - shaped.metrics.shapedChars >= 512 ||
+          truncateOutputDetailed(raw).omittedChars > 0)
       const outputLogPath =
-        truncation.omittedChars > 0 ? await persistCommandLog(context.agentHome, toolCallId, raw) : undefined
+        truncation.omittedChars > 0 || shapingDroppedData
+          ? await persistCommandLog(context.agentHome, toolCallId, raw)
+          : undefined
       const text = formatForegroundCommandResult({
         command: params.command,
         durationMs,
@@ -89,6 +113,7 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
         details: {
           durationMs,
           exitCode: result.exitCode,
+          perceptualShaping: shaped.metrics,
           ...(outputLogPath ? { outputLogPath } : {}),
           ...(result.outputCapture ? { outputCapture: result.outputCapture } : {})
         }

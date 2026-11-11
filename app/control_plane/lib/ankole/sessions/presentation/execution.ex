@@ -3,7 +3,9 @@ defmodule Ankole.Sessions.Presentation.Execution do
   alias Ankole.Sessions.{Presentation, Tools}
   alias Ankole.AIGateway.ResponseItems
 
-  def from_chain(chain, round_states \\ %{}, status \\ "completed") do
+  def from_chain(chain, round_states \\ %{}, status \\ "completed", opts \\ []) do
+    blocked_toolkits = opts |> Keyword.get(:blocked_toolkits, []) |> MapSet.new()
+    blocked_page_ids = opts |> Keyword.get(:blocked_page_ids, []) |> MapSet.new()
     rows = Enum.reverse(chain)
 
     entries =
@@ -35,7 +37,7 @@ defmodule Ankole.Sessions.Presentation.Execution do
             do: {key, {item, results[item["call_id"]] || %{}}}
       )
 
-    steps = Enum.map(calls, &step(&1, outputs, status))
+    steps = Enum.map(calls, &step(&1, outputs, status, blocked_toolkits, blocked_page_ids))
 
     thinking =
       for {%{"type" => "reasoning"} = item, _results, _key} <- entries,
@@ -62,7 +64,7 @@ defmodule Ankole.Sessions.Presentation.Execution do
   defp items(%{content: content, metadata: metadata}),
     do: Enum.drop(content, metadata["request_item_count"] || 0)
 
-  defp step({call, _results, key}, outputs, status) do
+  defp step({call, _results, key}, outputs, status, blocked_toolkits, blocked_page_ids) do
     id = call[ResponseItems.pair_identity_field(call)] || call["id"] || inspect(key)
     {output, result} = Map.get(outputs, key, {%{}, %{}})
     input = call["arguments"] || call["input"] || call["code"] || call["action"]
@@ -70,7 +72,15 @@ defmodule Ankole.Sessions.Presentation.Execution do
     decoded = decode(output_text)
     args = decode(input)
     name = call["name"] || call["operation"] || call["type"]
-    step_state = step_status(call, output, result, status)
+    raw_state = step_status(call, output, result, status)
+
+    step_state =
+      if (raw_state == "failed" or command_failed_output?(output_text)) and
+           (connector_blocked_step?(args, output_text, blocked_toolkits) or
+              page_blocked_step?(args, output_text, blocked_page_ids)),
+         do: "blocked",
+         else: raw_state
+
     skill_name = skill_name_for_step(name, args, output_text, step_state)
 
     base =
@@ -112,6 +122,43 @@ defmodule Ankole.Sessions.Presentation.Execution do
   end
 
   defp sanitize_step_input(_name, input, _args), do: input
+
+  defp connector_blocked_step?(args, output_text, blocked_toolkits) do
+    MapSet.size(blocked_toolkits) > 0 and
+      ((is_binary(output_text) and String.contains?(output_text, "oauth_consent_required")) or
+         mcporter_toolkit_blocked?(args, blocked_toolkits))
+  end
+
+  defp command_failed_output?("exit_code=0\n" <> _), do: false
+  defp command_failed_output?("exit_code=" <> _), do: true
+
+  defp command_failed_output?(text) when is_binary(text),
+    do: String.contains?(text, "oauth_consent_required")
+
+  defp command_failed_output?(_), do: false
+
+  defp mcporter_toolkit_blocked?(%{"command" => cmd}, blocked_toolkits) when is_binary(cmd) do
+    unwrapped = unwrap_shell_command(cmd)
+
+    String.contains?(unwrapped, "mcporter") and
+      Enum.any?(blocked_toolkits, &String.contains?(unwrapped, &1))
+  end
+
+  defp mcporter_toolkit_blocked?(_, _), do: false
+
+  defp page_blocked_step?(%{"command" => cmd}, output_text, blocked_page_ids)
+       when is_binary(cmd) do
+    unwrapped = unwrap_shell_command(cmd)
+
+    MapSet.size(blocked_page_ids) > 0 and
+      String.contains?(unwrapped, "ankole-pod") and
+      (Enum.any?(blocked_page_ids, &String.contains?(unwrapped, &1)) or
+         (is_binary(output_text) and
+            (String.contains?(output_text, "\"not_found\"") or
+               String.contains?(output_text, "\"forbidden\""))))
+  end
+
+  defp page_blocked_step?(_, _, _), do: false
 
   defp step_status(call, output, result, status) do
     cond do
@@ -157,7 +204,15 @@ defmodule Ankole.Sessions.Presentation.Execution do
     command = unwrap_shell_command(args["command"] || "")
 
     case Regex.run(~r/^\s*ankole-pod\s+([a-z.]+)(?:\s|$)/, command) do
-      [_, operation] when operation in ["pages.read", "base.query", "base.schema"] ->
+      [_, operation]
+      when operation in [
+             "pages.read",
+             "pages.list",
+             "pages.search",
+             "base.tables",
+             "base.query",
+             "base.schema"
+           ] ->
         pod_title(operation, result["result"] || %{})
 
       _ ->
@@ -373,6 +428,15 @@ defmodule Ankole.Sessions.Presentation.Execution do
 
   defp pod_title("pages.read", result),
     do: target("Read page", get_in(result, ["page", "title"]))
+
+  defp pod_title("pages.list", result),
+    do: "List pages" <> count(result, "pages", "pages")
+
+  defp pod_title("pages.search", result),
+    do: "Search pages" <> count(result, "results", "pages")
+
+  defp pod_title("base.tables", result),
+    do: "List tables" <> count(result, "tables", "tables")
 
   defp pod_title("base.query", result), do: "Query table" <> count(result, "records", "rows")
 

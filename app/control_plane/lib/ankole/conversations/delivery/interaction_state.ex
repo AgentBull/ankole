@@ -315,6 +315,10 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
       when is_binary(value) and is_map(values) ->
         answer
 
+      %{"kind" => kind, "value" => value}
+      when kind in ["connector_connected", "access_granted"] and is_binary(value) and value != "" ->
+        answer
+
       _stale ->
         nil
     end

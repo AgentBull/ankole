@@ -76,6 +76,8 @@ defmodule Ankole.Principals.Rename.References do
     {"principal_groups", "metadata", ["signals", "agent_uid"]},
     {"conversation_messages", "rich_content", ["target_agent_uid"]},
     {"conversation_messages", "rich_content", ["event", "actor_uid"]},
+    {"conversation_action_cards", "payload", ["agent_uid"]},
+    {"conversation_action_cards", "payload", ["bind_agent_uid"]},
     {"signals", "data", ["author_uid"]},
     {"signals", "data", ["session", "agent_uid"]},
     {"signals", "data", ["entry", "author", "principal_uid"]},

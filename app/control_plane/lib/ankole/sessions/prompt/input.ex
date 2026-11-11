@@ -199,10 +199,154 @@ defmodule Ankole.Sessions.Prompt.Input do
   defp input_text(run, %{type: "command.steer", id: id} = event, payload)
        when id != run.signal_id do
     "Runtime note:\nThe user sent /steer while this turn was running. Do not continue the previous tool plan by inertia.\n\nSteering instruction:\n" <>
-      text(payload, event.type)
+      slash_augmented_text(run, event, payload)
   end
 
-  defp input_text(_run, event, payload), do: text(payload, event.type)
+  defp input_text(run, event, payload), do: slash_augmented_text(run, event, payload)
+
+  defp slash_augmented_text(run, event, payload) do
+    rendered = text(payload, event.type)
+
+    if event.type in ["conversation.message.addressed", "command.steer", "input.revised"] and
+         not match?(%{"kind" => "form"}, get_in(payload, ["data", "interaction_answer"])) do
+      raw =
+        string(payload, ["data", "entry", "text"]) ||
+          string(payload, ["data", "command", "argsText"]) ||
+          string(payload, ["data", "text"]) ||
+          ""
+
+      trimmed = String.trim_leading(raw)
+
+      cond do
+        match?([_ | _], Regex.run(~r/\A\/learn(?:\s+[\s\S]*)?\z/, trimmed)) and
+            is_binary(event.conversation_id) ->
+          focus =
+            case Regex.run(~r/\A\/learn(?:\s+([\s\S]*))?\z/, trimmed) do
+              [_, rest] -> rest
+              _ -> ""
+            end
+
+          {editable, colleague?} = learn_context(run, event)
+
+          prompt =
+            Ankole.AIAgent.Library.LearnPrompt.build(focus,
+              editable_skills: editable,
+              colleague?: colleague?
+            )
+
+          rendered <> "\n\n" <> prompt
+
+        true ->
+          case Regex.run(~r/\A\/([a-z0-9][a-z0-9._-]{0,95})(?:\s+[\s\S]*)?\z/, trimmed) do
+            [_, slug] ->
+              case find_enabled_skill(run, slug) do
+                %{} = matched ->
+                  invoked_skill_block(run.agent_uid, slug, matched) <> "\n\n" <> rendered
+
+                nil ->
+                  rendered
+              end
+
+            _ ->
+              rendered
+          end
+      end
+    else
+      rendered
+    end
+  end
+
+  defp find_enabled_skill(run, slug) do
+    skills =
+      case Map.get(run, :context) do
+        %{skills: list} when is_list(list) -> list
+        _ -> []
+      end
+
+    Enum.find(skills, &(&1["skill_name"] == slug))
+  end
+
+  defp invoked_skill_block(agent_uid, slug, matched) do
+    if get_in(matched, ["metadata", "ankole-runtime"]) == "background_job" do
+      """
+      <invoked_skill name="#{slug}" runtime="background_job">
+      The user explicitly invoked Skill `/#{slug}` (#{matched["description"]}).
+      This Skill runs in a BackgroundAgentJob: delegate the request with `create_background_job` naming `#{slug}` in the task instructions instead of executing it inline.
+      </invoked_skill>
+      """
+      |> String.trim()
+    else
+      loaded =
+        if is_binary(agent_uid) and Ankole.Repo.tenant_id() != nil do
+          Ankole.AIAgent.Library.skill_view(agent_uid, slug, nil, sync: false)
+        else
+          {:error, :unavailable}
+        end
+
+      case loaded do
+        {:ok, %{"content" => content, "skill_uri" => uri}} ->
+          body = quoted_text(content) || content
+
+          """
+          <invoked_skill name="#{slug}" uri="#{uri}">
+          The user explicitly attached Skill `/#{slug}` for this turn. Follow its instructions below and resolve relative package paths under `/drive/Skills/#{slug}/`:
+
+          #{body}
+          </invoked_skill>
+          """
+          |> String.trim()
+
+        _ ->
+          """
+          <invoked_skill name="#{slug}">
+          The user explicitly attached Skill `/#{slug}` (#{matched["description"]}) for this turn. Call `skill_view("#{slug}")` first and follow its loaded instructions.
+          </invoked_skill>
+          """
+          |> String.trim()
+      end
+    end
+  end
+
+  defp learn_context(run, event) do
+    if is_binary(run.agent_uid) and Ankole.Repo.tenant_id() != nil do
+      colleague? =
+        match?(
+          {:ok, %{agent: %{type: :ai_colleague}}},
+          Ankole.Principals.get_agent(run.agent_uid)
+        )
+
+      requester_uid = Ankole.Principals.served_human_uid(run.agent_uid, event.human_uid)
+
+      editable =
+        case requester_uid && Ankole.Principals.get_principal(requester_uid) do
+          {:ok, %{type: :human, status: :active, membership: :member} = human} ->
+            actor = Ankole.AuthZ.Actor.new(human)
+
+            Ankole.AIAgent.Library.Skills.list()
+            |> Enum.filter(fn skill ->
+              skill.source_kind == :custom and
+                Ankole.AIAgent.Library.Skills.visible_to?(actor, skill) and
+                Ankole.AIAgent.Library.Management.skill(actor, skill, "update") == :ok
+            end)
+            |> Enum.map(fn skill ->
+              %{
+                slug: skill.slug,
+                name: skill.name,
+                description: skill.description,
+                revision: skill.revision,
+                personal: is_binary(skill.agent_uid)
+              }
+            end)
+
+          _ ->
+            []
+        end
+
+      {editable, colleague?}
+    else
+      {[], false}
+    end
+  end
 
   def text(payload, type) do
     data = object(payload, ["data"])
@@ -563,6 +707,12 @@ defmodule Ankole.Sessions.Prompt.Input do
 
       {"form", value} when is_binary(value) ->
         form_answer(answer)
+
+      {"connector_connected", value} when is_binary(value) ->
+        "The user connected and authorized the required connector (#{value}). Continue the interrupted request now using the connected account. Do not repeat already-committed side effects."
+
+      {"access_granted", value} when is_binary(value) ->
+        "The user granted you access to the blocked Pod resource (#{value}). Continue the interrupted request now. Do not repeat already-committed side effects."
 
       _ ->
         "This structured card action uses an old or invalid data shape and is stale. Do not infer a user answer from it."

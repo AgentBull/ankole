@@ -37,6 +37,7 @@ defmodule Ankole.Conversations.Delivery.PreviewAdapter do
   @checkpoint_schema_version 2
   @adapter_state_key "adapter_state"
   @host_checkpoint_keys ~w(
+    blocked_page_access
     cleanup_at
     closed_at
     continued_to_signal_id

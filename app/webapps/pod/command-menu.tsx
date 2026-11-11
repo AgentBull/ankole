@@ -27,8 +27,12 @@ import {
   RiAddLine,
   RiArrowDownSLine,
   RiArrowRightUpLine,
+  RiBrainLine,
   RiCloseLine,
   RiHistoryLine,
+  RiPlugLine,
+  RiPuzzle2Line,
+  RiRobot2Line,
   RiSearchLine,
   RiSettings3Line,
   RiUser3Line
@@ -43,6 +47,7 @@ import { isApplePlatform } from '../common/platform'
 import { linkTarget } from '../common/router'
 import { ErrorBoundary } from '../common/error-boundary'
 import { agentsQuery, conversationSearchQuery } from './api'
+import { metaSkillsQuery } from './meta-api'
 import {
   cachedPageMap,
   cachedPages,
@@ -72,7 +77,8 @@ import {
   type CommandEntry,
   type CommandNavigationEntry,
   type CommandPageEntry,
-  type CommandRecentSearchEntry
+  type CommandRecentSearchEntry,
+  type CommandSkillEntry
 } from './command-menu-preview'
 
 export const PodCommandContext = createContext<(() => void) | null>(null)
@@ -87,6 +93,7 @@ type CommandEntryGroup =
   | { kind: 'page'; heading: string; entries: CommandPageEntry[] }
   | { kind: 'nav'; heading: string; entries: CommandNavigationEntry[] }
   | { kind: 'colleague'; heading: string; entries: CommandColleagueEntry[] }
+  | { kind: 'skill'; heading: string; entries: CommandSkillEntry[] }
   | { kind: 'chat'; heading: string; entries: CommandChatEntry[] }
 
 const shortcutCommands = ['new-chat', 'scope:search', 'scope:space', 'scope:private', 'scope:shared']
@@ -237,11 +244,18 @@ export function PodCommandMenu({
 
   const conversations = useQuery({ ...conversationSearchQuery(settledQuery), enabled: open })
   const agents = useQuery({ ...agentsQuery, enabled: open })
+  const skills = useQuery({ ...metaSkillsQuery(), enabled: open && Boolean(trimmedQuery) })
   const colleagueSearch = normalizeSearchQuery(trimmedQuery.replace(/^@/, ''))
   const colleagueResults = colleagueSearch
     ? (agents.data?.agents ?? []).filter(agent =>
         normalizeSearchQuery(`${agent.uid} ${agent.displayName} ${agent.role ?? ''}`).includes(colleagueSearch)
       )
+    : []
+  const skillSearch = normalizeSearchQuery(trimmedQuery.replace(/^\//, ''))
+  const skillResults = skillSearch
+    ? (skills.data?.skills ?? [])
+        .filter(skill => normalizeSearchQuery(`${skill.name} ${skill.slug} ${skill.description}`).includes(skillSearch))
+        .slice(0, 8)
     : []
   const conversationResults =
     trimmedQuery === settledQuery.trim()
@@ -317,13 +331,50 @@ export function PodCommandMenu({
         icon: scopeIcons[scope]
       })
     }
-    rawNav.push({
-      value: 'nav:account-settings',
-      label: t('pod.account.title'),
-      keywords: [t('pod.account.title')],
-      href: '/me',
-      icon: RiUser3Line
-    })
+    rawNav.push(
+      {
+        value: 'nav:meta-agents',
+        label: t('pod.meta.agents'),
+        keywords: [t('pod.meta.agents'), t('pod.meta.colleagues'), 'agents', 'ai'],
+        href: '/meta/agents',
+        icon: RiRobot2Line
+      },
+      {
+        value: 'nav:meta-skills',
+        label: t('pod.meta.skills'),
+        keywords: [t('pod.meta.skills'), 'skills'],
+        href: '/meta/skills',
+        icon: RiPuzzle2Line
+      },
+      {
+        value: 'nav:meta-brain',
+        label: t('pod.meta.brain'),
+        keywords: [t('pod.meta.brain'), t('pod.meta.graph'), 'brain'],
+        href: '/meta/brain',
+        icon: RiBrainLine
+      },
+      {
+        value: 'nav:meta-brain-mine',
+        label: t('pod.meta.my_memories'),
+        keywords: [t('pod.meta.my_memories'), t('pod.meta.brain'), 'memories', 'context'],
+        href: '/meta/brain?lens=mine',
+        icon: RiBrainLine
+      },
+      {
+        value: 'nav:connectors',
+        label: t('pod.connectors.title'),
+        keywords: [t('pod.connectors.title'), 'connectors', 'oauth', 'mcp'],
+        href: '/connectors',
+        icon: RiPlugLine
+      },
+      {
+        value: 'nav:account-settings',
+        label: t('pod.account.title'),
+        keywords: [t('pod.account.title')],
+        href: '/me',
+        icon: RiUser3Line
+      }
+    )
     if (session.data?.canManagePod) {
       rawNav.push({
         value: 'nav:pod-settings',
@@ -383,6 +434,18 @@ export function PodCommandMenu({
         value: `colleague:${agent.uid}`,
         keywords: [agent.uid, agent.displayName, agent.role ?? ''],
         agent,
+        href,
+        url: resolvePodTarget(href).url
+      }
+    })
+
+    const skillEntries: CommandSkillEntry[] = skillResults.map(skill => {
+      const href = `/meta/skills/${encodeURIComponent(skill.slug)}`
+      return {
+        kind: 'skill',
+        value: `skill:${skill.slug}`,
+        keywords: [skill.name, skill.slug, skill.description],
+        skill,
         href,
         url: resolvePodTarget(href).url
       }
@@ -451,6 +514,15 @@ export function PodCommandMenu({
         })
       }
     }
+    const pushSkills = () => {
+      if (skillEntries.length > 0) {
+        orderedGroups.push({
+          kind: 'skill',
+          heading: t('pod.meta.skills'),
+          entries: skillEntries
+        })
+      }
+    }
     const pushChats = () => {
       if (chatEntries.length > 0) {
         orderedGroups.push({
@@ -470,10 +542,12 @@ export function PodCommandMenu({
       pushNav()
       pushPages()
       pushColleagues()
+      pushSkills()
       pushChats()
     } else {
       pushPages()
       pushColleagues()
+      pushSkills()
       pushChats()
       pushNav()
     }
@@ -496,6 +570,7 @@ export function PodCommandMenu({
     recentSearches.data?.queries,
     session.data?.canManagePod,
     settledQuery,
+    skillResults,
     t,
     trimmedQuery
   ])
@@ -817,6 +892,36 @@ export function PodCommandMenu({
                                 </span>
                                 {item.agent.role && (
                                   <span className="block truncate text-xs text-fg-tertiary">{item.agent.role}</span>
+                                )}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )
+
+                    case 'skill':
+                      return (
+                        <CommandGroup key="skill" heading={group.heading}>
+                          {group.entries.map(item => (
+                            <CommandItem
+                              key={item.skill.id}
+                              value={item.value}
+                              keywords={item.keywords}
+                              onSelect={() => void choose(item.href)}>
+                              <RiPuzzle2Line aria-hidden className="text-fg-tertiary" />
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="truncate font-medium">
+                                    <HighlightedText text={item.skill.name} query={trimmedQuery} />
+                                  </span>
+                                  <code className="shrink-0 rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+                                    /{item.skill.slug}
+                                  </code>
+                                </span>
+                                {item.skill.description && (
+                                  <span className="block truncate text-xs text-fg-tertiary">
+                                    <HighlightedText text={item.skill.description} query={trimmedQuery} />
+                                  </span>
                                 )}
                               </span>
                             </CommandItem>

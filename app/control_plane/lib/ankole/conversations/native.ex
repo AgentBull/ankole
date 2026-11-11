@@ -659,7 +659,7 @@ defmodule Ankole.Conversations.Native do
 
     with {:ok, card} <- ActionCards.commit_prepared_in_tx(event, target.conversation_id, prompt),
          {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
-         card_json = ActionCards.client_card_state(card),
+         card_json = ActionCards.client_card_state(card, nil),
          {:ok, message} <-
            Native.post_native_in_tx(target.conversation_id, event, prompt["body"], :message, [],
              delivery_key: prompt["interaction_id"],
@@ -696,21 +696,107 @@ defmodule Ankole.Conversations.Native do
 
     with {:ok, attachments} <-
            Ankole.Conversations.Delivery.Attachment.normalize_attachments(attachments) do
-      if text in [nil, ""] and attachments == [] do
-        {:ok, %Ankole.Conversations.PostResult{}}
-      else
-        with {:ok, message} <-
-               post_native_in_tx(
-                 target.conversation_id,
-                 statement.signal,
-                 text,
-                 kind,
-                 attachments,
-                 rich_content:
-                   Map.take(statement.completion || %{}, [:execution])
-                   |> Map.new(fn {k, v} -> {to_string(k), v} end)
-               ),
-             do: {:ok, %Ankole.Conversations.PostResult{messages: [message]}}
+      wait =
+        if is_nil(statement.notice) and is_struct(statement.signal, Ankole.Signals.Signal),
+          do: Ankole.Connectors.AuthWaits.active_wait_for_signal(statement.signal.id),
+          else: nil
+
+      blocked_page_wait =
+        if is_nil(wait) and is_nil(statement.notice) and
+             is_struct(statement.signal, Ankole.Signals.Signal),
+           do: Ankole.Pod.Access.BlockedWaits.ungranted_wait_for_signal(statement.signal.id),
+           else: nil
+
+      cond do
+        not is_nil(wait) ->
+          alias Ankole.Connectors.AuthWaits
+          alias Ankole.Conversations.Delivery.Interactions
+          event = statement.signal
+          now = statement.now || DateTime.utc_now(:microsecond)
+          local_id = AuthWaits.interaction_local_id(wait)
+          connector_auth = AuthWaits.client_payload(wait, event.id)
+
+          visible_text =
+            if text in [nil, ""],
+              do: "Connect #{connector_auth["display_name"]} to continue.",
+              else: text
+
+          rich =
+            Map.take(statement.completion || %{}, [:execution])
+            |> Map.new(fn {k, v} -> {to_string(k), v} end)
+            |> Map.put("connector_auth", connector_auth)
+
+          presentation = AuthWaits.build_presentation(wait, event.id, visible_text)
+
+          with :ok <-
+                 Ankole.Sessions.Queue.lock_session_in_tx(event.agent_uid, event.session_id),
+               {:ok, message} <-
+                 post_native_in_tx(
+                   target.conversation_id,
+                   event,
+                   visible_text,
+                   kind,
+                   attachments,
+                   delivery_key: local_id,
+                   rich_content: rich
+                 ),
+               {:ok, _event} <- Interactions.open_in_tx(event, presentation, now),
+               {:ok, woken_signals} <-
+                 AuthWaits.activate_or_complete_in_tx(wait, event, local_id, now) do
+            {:ok, %Ankole.Conversations.PostResult{messages: [message], signals: woken_signals}}
+          end
+
+        not is_nil(blocked_page_wait) ->
+          alias Ankole.Conversations.Delivery.Interactions
+          alias Ankole.Pod.Access.BlockedWaits
+          event = statement.signal
+          now = statement.now || DateTime.utc_now(:microsecond)
+          local_id = BlockedWaits.interaction_local_id(blocked_page_wait)
+          access_blocked = BlockedWaits.client_payload(blocked_page_wait, event.id)
+
+          visible_text =
+            if text in [nil, ""],
+              do: "Grant page view access to continue.",
+              else: text
+
+          rich =
+            Map.take(statement.completion || %{}, [:execution])
+            |> Map.new(fn {k, v} -> {to_string(k), v} end)
+            |> Map.put("access_blocked", access_blocked)
+
+          presentation =
+            BlockedWaits.build_presentation(blocked_page_wait, event.id, visible_text)
+
+          with {:ok, message} <-
+                 post_native_in_tx(
+                   target.conversation_id,
+                   event,
+                   visible_text,
+                   kind,
+                   attachments,
+                   delivery_key: local_id,
+                   rich_content: rich
+                 ),
+               {:ok, _event} <- Interactions.open_in_tx(event, presentation, now) do
+            {:ok, %Ankole.Conversations.PostResult{messages: [message]}}
+          end
+
+        text in [nil, ""] and attachments == [] ->
+          {:ok, %Ankole.Conversations.PostResult{}}
+
+        true ->
+          with {:ok, message} <-
+                 post_native_in_tx(
+                   target.conversation_id,
+                   statement.signal,
+                   text,
+                   kind,
+                   attachments,
+                   rich_content:
+                     Map.take(statement.completion || %{}, [:execution])
+                     |> Map.new(fn {k, v} -> {to_string(k), v} end)
+                 ),
+               do: {:ok, %Ankole.Conversations.PostResult{messages: [message]}}
       end
     end
   end
@@ -1188,17 +1274,40 @@ defmodule Ankole.Conversations.Native do
 
     cards =
       Enum.flat_map(details, &Map.get(&1, :messages, []))
-      |> Enum.filter(&is_map(&1.rich_content["clarify"]))
+      |> Enum.filter(fn msg ->
+        is_map(msg.rich_content["clarify"]) or
+          is_map(msg.rich_content["connector_auth"]) or
+          is_map(msg.rich_content["access_blocked"])
+      end)
 
     interactions =
       Ankole.Conversations.Delivery.Interactions.native_interactions(questions ++ cards)
 
-    action_card_messages =
-      Enum.flat_map(details, &Map.get(&1, :messages, []))
-      |> Enum.filter(&is_map(&1.rich_content["action_card"]))
+    action_card_states_by_room =
+      Map.new(details, fn detail ->
+        action_card_messages =
+          detail
+          |> Map.get(:messages, [])
+          |> Enum.filter(&is_map(&1.rich_content["action_card"]))
 
-    action_card_states =
-      Ankole.Conversations.ActionCards.native_cards(action_card_messages)
+        {detail.conversation.id,
+         Ankole.Conversations.ActionCards.native_cards(action_card_messages, detail[:actor])}
+      end)
+
+    access_blocked_states_by_room =
+      if opts[:history] do
+        Map.new(details, fn detail ->
+          blocked_msgs =
+            detail
+            |> Map.get(:messages, [])
+            |> Enum.filter(&is_map(&1.rich_content["access_blocked"]))
+
+          {detail.conversation.id,
+           Ankole.Pod.Access.BlockedWaits.native_states(blocked_msgs, detail[:actor])}
+        end)
+      else
+        %{}
+      end
 
     prepared_action_card_conversations =
       Ankole.Conversations.ActionCards.prepared_conversation_ids(ids)
@@ -1317,7 +1426,9 @@ defmodule Ankole.Conversations.Native do
         statuses: Map.new(detail.agents, &{&1.uid, statuses[{&1.uid, session}]}),
         pending_questions: Map.get(grouped_questions, detail.conversation.id, []),
         interaction_states: interactions,
-        action_card_states: action_card_states,
+        action_card_states: Map.get(action_card_states_by_room, detail.conversation.id, %{}),
+        access_blocked_states:
+          Map.get(access_blocked_states_by_room, detail.conversation.id, %{}),
         has_prepared_action_card?:
           MapSet.member?(prepared_action_card_conversations, detail.conversation.id),
         linked_jobs: Map.get(grouped_jobs, session, []),

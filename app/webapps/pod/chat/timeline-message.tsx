@@ -14,9 +14,11 @@ import { avatarInitials, ChatAvatar } from './chat-avatar'
 import { ChatMarkdown } from './chat-markdown'
 import { ChoiceCard, type ClarifyAnswer } from './choice-card'
 import { activitySteps, CollapsedWorkView, useActivityLabel } from './collapsed-work-view'
+import { ConnectorAuthCardView } from './connector-auth-card-view'
 import { InlineMessageEditor } from './inline-message-editor'
 import { LinkedExecutionCard } from './linked-execution-card'
 import { MessageActions } from './message-actions'
+import { PageAccessCardView } from './page-access-card-view'
 import { PeerExchangeCard } from './peer-exchange-card'
 import type { ActionCardDecision } from './room-api'
 import {
@@ -96,6 +98,7 @@ export const MessageView = memo(function MessageView({
   onEditMessage,
   onRegenerateMessage,
   onQuoteMessage,
+  onSaveAsSkill,
   onReply,
   onSelectMessageID,
   linkedRuns,
@@ -131,6 +134,7 @@ export const MessageView = memo(function MessageView({
   onEditMessage?: (message: ConversationMessage) => void
   onRegenerateMessage?: (message: ConversationMessage) => void
   onQuoteMessage?: (text: string, message: ConversationMessage) => void
+  onSaveAsSkill?: () => void
   onReply?: (text: string) => void
   onSelectMessageID?: (messageID: string) => void
   linkedRuns: LinkedExecution[]
@@ -203,6 +207,8 @@ export const MessageView = memo(function MessageView({
     )
   }
   const prompt = rich?.clarify
+  const connectorAuth = rich?.connector_auth
+  const accessBlocked = rich?.access_blocked
   const actionCard = rich?.action_card
   const activity = live?.activity?.state === 'active' ? live.activity : undefined
   const execution: ExecutionSummary | undefined = live
@@ -265,7 +271,10 @@ export const MessageView = memo(function MessageView({
               startedAt={live?.startedAt}
               phaseLabel={live && !live.thinkingSummary && activity?.phase ? label(activity.phase) : undefined}
               attention={
-                prompt?.state === 'pending' || (!!actionCard && (actionCard.status ?? 'prepared') === 'prepared')
+                prompt?.state === 'pending' ||
+                connectorAuth?.state === 'pending' ||
+                accessBlocked?.state === 'pending' ||
+                (!!actionCard && (actionCard.status ?? 'prepared') === 'prepared')
               }
             />
           )}
@@ -282,16 +291,20 @@ export const MessageView = memo(function MessageView({
               readOnlyReason={readOnlyReason}
             />
           ) : (
-            text && (
-              <div className={human ? 'pod-chat-human-text' : undefined}>
-                <ChatMarkdown
-                  text={text}
-                  generated={!!live || message?.authorType === 'agent'}
-                  streaming={!!live}
-                  onReply={onReply}
-                />
-              </div>
-            )
+            <>
+              {text && (!connectorAuth || text !== `Connect ${connectorAuth.display_name} to continue.`) && (
+                <div className={human ? 'pod-chat-human-text' : undefined}>
+                  <ChatMarkdown
+                    text={text}
+                    generated={!!live || message?.authorType === 'agent'}
+                    streaming={!!live}
+                    onReply={onReply}
+                  />
+                </div>
+              )}
+              {connectorAuth && <ConnectorAuthCardView prompt={connectorAuth} />}
+              {accessBlocked && <PageAccessCardView conversationID={conversationID} prompt={accessBlocked} />}
+            </>
           )}
           {message && <MessageArtifacts conversationID={conversationID} message={message} />}
           {linkedRuns.map(run => (
@@ -308,6 +321,11 @@ export const MessageView = memo(function MessageView({
             <MessageActions
               text={message.text}
               onQuote={onQuote}
+              onSaveAsSkill={
+                !human && message.kind === 'message' && !actionCard && !prompt && !connectorAuth && !accessBlocked
+                  ? onSaveAsSkill
+                  : undefined
+              }
               onSelectMessage={onSelectMessage}
               onEdit={onEdit}
               editDisabledReason={editDisabledReason}

@@ -16,6 +16,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.CompactionHistory
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.Usage
@@ -929,17 +930,32 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp provider_replay_item(%{} = item, supports_image?)
        when is_map_key(item, "id") do
     cond do
-      ResponseItems.provider_replay_id_required?(item) -> item
-      supports_image? -> Map.delete(item, "id")
-      true -> item |> Map.delete("id") |> replace_image_parts_for_text_model()
+      ResponseItems.provider_replay_id_required?(item) ->
+        CompactionHistory.strip_transient_replay_options(item)
+
+      supports_image? ->
+        item
+        |> Map.delete("id")
+        |> CompactionHistory.strip_transient_replay_options()
+
+      true ->
+        item
+        |> Map.delete("id")
+        |> CompactionHistory.strip_transient_replay_options()
+        |> replace_image_parts_for_text_model()
     end
   end
 
-  defp provider_replay_item(%{} = item, true), do: Map.delete(item, "id")
+  defp provider_replay_item(%{} = item, true) do
+    item
+    |> Map.delete("id")
+    |> CompactionHistory.strip_transient_replay_options()
+  end
 
   defp provider_replay_item(%{} = item, false) do
     item
     |> Map.delete("id")
+    |> CompactionHistory.strip_transient_replay_options()
     |> replace_image_parts_for_text_model()
   end
 

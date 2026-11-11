@@ -1514,4 +1514,76 @@ defmodule Ankole.AIGateway.StatefulLifecycleTest do
     refute Map.has_key?(public_error, "reason")
     refute Map.has_key?(public_error, "status")
   end
+
+  test "stateful history replay strips transient cache_control and store residue from prior turns" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-replay-hygiene",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-replay-hygiene",
+               model: "anthropic/claude-sonnet-4.5"
+             })
+
+    assert {:ok, conversation} =
+             Ankole.AIGatewayCase.ensure_conversation(agent.uid, "openrouter-replay-hygiene")
+
+    prior_user_with_cache = %{
+      "type" => "message",
+      "role" => "user",
+      "store" => true,
+      "cache_control" => %{"type" => "ephemeral"},
+      "content" => [
+        %{
+          "type" => "input_text",
+          "text" => "earlier prompt",
+          "cache_control" => %{"type" => "ephemeral"},
+          "store" => true
+        }
+      ]
+    }
+
+    assert {:ok, previous} =
+             start_stateful_message(agent.uid, conversation, "replay-hygiene-anchor", [
+               prior_user_with_cache
+             ])
+
+    assert {:ok, previous} =
+             ResponseCommit.commit_complete(previous, [
+               %{
+                 "type" => "message",
+                 "role" => "assistant",
+                 "cache_control" => %{"type" => "ephemeral"},
+                 "content" => [
+                   %{
+                     "type" => "output_text",
+                     "text" => "ack",
+                     "cache_control" => %{"type" => "ephemeral"}
+                   }
+                 ]
+               }
+             ])
+
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "next turn")],
+               "store" => true,
+               "previous_response_id" => "resp_#{previous.id}"
+             })
+
+    replayed_items = Enum.drop(request.response_context.request["input"], -1)
+    assert length(replayed_items) == 2
+
+    refute Ankole.JSON.encode!(replayed_items) =~ "cache_control"
+    refute Enum.any?(replayed_items, &Map.has_key?(&1, "store"))
+  end
 end

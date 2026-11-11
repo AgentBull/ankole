@@ -338,7 +338,20 @@ to `strict: false` unless the tool explicitly sets `strict`, because the
 Responses API treats an omitted `strict` flag as strict mode—which forces the
 model to populate every declared property—and Session tools declare optional
 parameters that the model must be allowed to omit. Custom (freeform) tools have
-no `strict` field and pass through unchanged. Public caller metadata remains
+no `strict` field and pass through unchanged. When the run's tool catalog
+contains deferred declarations (`defer_loading: true` on low-frequency setup
+tools such as `list_background_job_devices` and `set_channel_standing_orders`),
+`Sessions.Model` appends `{"type": "tool_search", "execution": "server"}` so
+AIGateway loads their full schemas on demand without inflating the initial
+prompt prefix. Likewise, when the catalog exposes read-only tools with
+`allowed_callers: ["direct", "programmatic"]` (`pod_get_page`, `pod_list_pages`,
+`web_search`, `web_fetch`, `read_channel_history`, `recall_related_context`,
+`skill_view`, `list_background_jobs`, `show_background_job_details`,
+`show_workflow`, `list_workflows`, `read_file`, `find`, `grep`, and `ls`),
+`Sessions.Model` appends `{"type": "programmatic_tool_calling"}` so the model
+can batch, filter, and aggregate multi-step reads inside a single `program`
+call while keeping user interaction, approval cards, state mutations,
+delegation, scheduling, and outbound messaging on direct tool calls. Public caller metadata remains
 opaque to the model platform, so a `signal_id` supplied on an OIDC request
 cannot borrow another execution's authorization or memory scope. Codex Jobs
 carry their runtime binding at the authenticated execution edge.
@@ -419,7 +432,19 @@ optional parameter that it means to leave out, such as a background job's
 `workspace_template_id`. When the parameter's schema rejects that empty value,
 `Sessions.ToolArguments` drops the parameter and validates the call without
 it. A required parameter and any other invalid value still return the tool
-error.
+error. Before argument validation, `Sessions.Tools.prepare/2` verifies that the
+call's `caller` scope (`direct` at the top level or `programmatic` when nested
+inside a `program` call) belongs to the tool's declared `allowed_callers`,
+returning a `forbidden` tool error if a `program` attempts to invoke a
+direct-only tool. When `Sessions.Run.output/2` formats completed tool outputs
+for `ToolResultJournal` and subsequent rounds, it preserves `call["caller"]` so
+AIGateway pairs nested `program` calls with their answers and keeps intermediate
+payloads out of upstream model history. Windowed read tools (`web_fetch`,
+`show_background_job_details`, and `show_workflow`) size each slice by caller
+scope: direct model calls fit within `8,000` UTF-8 bytes to protect foreground
+context, whereas `programmatic` calls receive up to `64,000` UTF-8 bytes per
+call so the JavaScript isolate can scan and filter wide pages in memory before
+emitting a concise summary.
 
 Tool results are persisted before the model continues, and recovery reuses any
 committed result rather than re-running the tool. If a tool call was already

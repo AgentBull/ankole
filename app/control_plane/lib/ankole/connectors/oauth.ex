@@ -233,7 +233,12 @@ defmodule Ankole.Connectors.OAuth do
         |> Ankole.Ash.read_one!()
 
       if session && session.actor_uid == actor.uid do
-        Repo.transact_top_level(fn -> claim_in_tx(actor, session) end)
+        Ankole.Connectors.AuthWaits.with_flush(fn ->
+          Repo.transact_top_level(
+            fn -> claim_in_tx(actor, session) end,
+            after_commit: fn _ -> Ankole.Connectors.AuthWaits.publish_flushed() end
+          )
+        end)
       else
         {:error, :invalid_oauth_completion}
       end

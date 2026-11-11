@@ -13,6 +13,8 @@ import {
 import { Link } from '@tanstack/react-router'
 import { createContext, useContext, type ReactNode, type Ref } from 'react'
 import { BdiLabel } from '../../common/bidi-file-name'
+import type { PageSharingExplain } from '../content-api'
+import { AccessWaterfallView } from '../page-sharing/access-waterfall-view'
 import { usePageHref } from '../use-page-metadata'
 import { ClarifyFieldControl, type ClarifyFieldProps } from './clarify-form'
 import { useLatestHandlers, type ActionHandlers } from './ui-block/use-latest-handlers'
@@ -54,6 +56,7 @@ export type InteractionElements = {
   PageLink: { pageID: string; label: string }
   Line: { text: string }
   Disclosure: { title: string; text: string; open?: boolean; tall?: boolean }
+  WaterfallDisclosure: { title: string; explain: PageSharingExplain; open?: boolean }
 }
 
 type Rendered<K extends keyof InteractionElements> = ComponentRenderProps<InteractionElements[K]>
@@ -203,6 +206,20 @@ function Disclosure({ element: { props } }: Rendered<'Disclosure'>) {
   )
 }
 
+function WaterfallDisclosure({ element: { props } }: Rendered<'WaterfallDisclosure'>) {
+  return (
+    <details open={props.open} className="code-surface group">
+      <summary className="code-toolbar cursor-pointer px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+        <RiArrowRightSLine className="size-3.5 shrink-0 group-open:rotate-90" aria-hidden />
+        {props.title}
+      </summary>
+      <div className="p-3">
+        <AccessWaterfallView explain={props.explain} compact />
+      </div>
+    </details>
+  )
+}
+
 const registry: { [K in keyof InteractionElements]: (props: Rendered<K>) => ReactNode } = {
   InteractionCard,
   Question: ({ element: { props } }) => (
@@ -230,7 +247,8 @@ const registry: { [K in keyof InteractionElements]: (props: Rendered<K>) => Reac
   Group: ({ element: { props }, children }) => <div className={GROUPS[props.kind]}>{children}</div>,
   PageLink,
   Line: ({ element: { props } }) => <div className="break-words">{props.text}</div>,
-  Disclosure
+  Disclosure,
+  WaterfallDisclosure
 }
 
 type Children = (string | false | null | undefined)[]

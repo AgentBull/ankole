@@ -13,6 +13,8 @@ import type {
   PodRecentSearchesResponse,
   PodPageChildrenResponse,
   PodPageSharingResponse,
+  PodPageSharingExplainData,
+  PodPageSharingExplainResponse,
   PodPageSharingUpdateData,
   PodPageSharingWriteData,
   PodPageCreateData,
@@ -64,6 +66,7 @@ import {
   podPagePurge,
   podPageUserState,
   podPageSharing,
+  podPageSharingExplain,
   podPageSharingUpdate,
   podPageSharingWrite,
   podMentionCandidates,
@@ -90,6 +93,8 @@ export type PageSearchFilterScope = NonNullable<PageSearchOptions['scope']>
 export type RecentSearchEntry = PodRecentSearchesResponse['queries'][number]
 export type PageDetail = PodPageReadResponse
 export type PageSharingDetail = PodPageSharingResponse
+export type PageSharingExplain = PodPageSharingExplainResponse
+export type PageSharingExplainAction = NonNullable<PodPageSharingExplainData['query']['action']>
 export type PageSharing = PodPageSharingWriteData['body']['data']
 export type PageSharingUpdate = NonNullable<PodPageSharingUpdateData['body']>['data']
 export type PageDomain = NonNullable<NonNullable<PodPageListData['query']>['domain']>
@@ -146,6 +151,8 @@ export const contentKeys = {
   commentSummary: (id: string) => [...contentKeys.comments(id), 'summary'] as const,
   customEmojis: () => [...contentKeys.all, 'custom-emojis'] as const,
   sharing: (id: string) => [...contentKeys.all, 'sharing', id] as const,
+  sharingExplain: (id: string, subjectUid: string, action: PageSharingExplainAction) =>
+    [...contentKeys.all, 'sharing', id, 'explain', subjectUid, action] as const,
   mentions: () => [...contentKeys.all, 'mentions'] as const,
   mentionCandidates: (category: MentionCategoryParam, query: string, currentPageID?: string) =>
     [...contentKeys.all, 'mentions', 'candidates', category, query.trim(), currentPageID ?? null] as const
@@ -285,6 +292,12 @@ export const pageAPI = {
   state: (id: string, body: NonNullable<PodPageUserStateData['body']>['data']) =>
     podPageUserState({ path: { id }, body: { data: body } }),
   sharing: (id: string, signal?: AbortSignal) => podPageSharing({ path: { id }, signal }),
+  explainSharing: (
+    id: string,
+    subject_uid: string,
+    action: PageSharingExplainAction = 'node_view',
+    signal?: AbortSignal
+  ) => podPageSharingExplain({ path: { id }, query: { subject_uid, action }, signal }),
   updateSharing: (id: string, body: PageSharingUpdate) => podPageSharingUpdate({ path: { id }, body: { data: body } }),
   share: (id: string, body: PageSharing) => podPageSharingWrite({ path: { id }, body: { data: body } }),
   mentionCandidates: (

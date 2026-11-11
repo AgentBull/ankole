@@ -485,7 +485,7 @@ defmodule Ankole.Conversations.Delivery.PreviewStates do
 
   defp preserve_reply_preview_owner_fence(existing, incoming) do
     Enum.reduce(
-      ["stream_signal_id", "presentation_owner", "owner_generation"],
+      ["stream_signal_id", "presentation_owner", "owner_generation", "blocked_page_access"],
       incoming,
       fn key, checkpoint ->
         if Map.has_key?(checkpoint, key) or not Map.has_key?(existing, key) do

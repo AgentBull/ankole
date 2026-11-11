@@ -1,5 +1,6 @@
 import type { ConversationDetail, ConversationMessage, PodActivity, PodExecution } from '../api'
 import type { ConversationExecutionResponses } from '../api/generated/types.gen'
+import type { PageSharingExplain } from '../content-api'
 
 export type ExecutionStep = Omit<
   NonNullable<PodExecution['steps']>[number],
@@ -80,6 +81,37 @@ export type ChatInteraction = {
   answered_by_uid?: string | null
 }
 
+export type ConnectorAuthPrompt = {
+  wait_id: string
+  interaction_id: string
+  connection_slug: string
+  display_name: string
+  plugin_id?: string | null
+  toolkit: string
+  tool_name?: string | null
+  subject_kind: 'human' | 'app'
+  human_uid?: string | null
+  auth_scheme?: string | null
+  required_scopes?: string[]
+  authorization_url: string
+} & ChatInteraction
+
+export type AccessBlockedPrompt = {
+  interaction_id: string
+  page_id: string
+  agent_uid: string
+  grant_target_uid?: string | null
+  operation?: string | null
+  required_action?: string | null
+  page_title?: string | null
+  page_type?: string | null
+  agent_name?: string | null
+  target_name?: string | null
+  can_grant?: boolean
+  already_granted?: boolean
+  explain?: PageSharingExplain | null
+} & ChatInteraction
+
 export type ActionCardState = {
   card_id: string
   interaction_id?: string
@@ -109,6 +141,8 @@ export type TimelineMessage = Omit<ConversationMessage, 'richContent'> & {
     peer_agent_uid?: string
     execution?: ExecutionSummary
     clarify?: ClarifyPrompt
+    connector_auth?: ConnectorAuthPrompt
+    access_blocked?: AccessBlockedPrompt
     action_card?: ActionCardState
     event?: {
       type: string

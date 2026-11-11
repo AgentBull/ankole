@@ -11,20 +11,26 @@ defmodule Ankole.AIAgent.Library.Browser.Actions do
   defp action(:list, _, actor) do
     with {:ok, skills} <- Skills.list(actor),
          summaries = Skills.binding_summaries(actor, skills),
-         # Permissions depend only on the source kind, so the list checks each kind once.
+         # Permissions depend on (source_kind, agent_uid), so the list checks each bucket once.
          permissions =
            skills
-           |> Enum.uniq_by(& &1.source_kind)
-           |> Map.new(&{&1.source_kind, permissions(&1, actor)}),
+           |> Enum.uniq_by(&{&1.source_kind, &1.agent_uid})
+           |> Map.new(&{{&1.source_kind, &1.agent_uid}, permissions(&1, actor)}),
          do:
            {:ok,
             %{
               skills:
                 Enum.map(
                   skills,
-                  &skill(&1, Map.fetch!(summaries, &1.id), permissions[&1.source_kind])
+                  &skill(
+                    &1,
+                    Map.fetch!(summaries, &1.id),
+                    permissions[{&1.source_kind, &1.agent_uid}]
+                  )
                 ),
-              can_create: Management.authorize(actor, "tenant_console:custom_skills") == :ok
+              can_create: Management.member(actor) == :ok,
+              can_create_workspace:
+                Management.authorize(actor, "tenant_console:custom_skills") == :ok
             }}
   end
 
@@ -39,6 +45,9 @@ defmodule Ankole.AIAgent.Library.Browser.Actions do
     attrs = if args[:new_slug], do: Map.put(args, :slug, args.new_slug), else: args
     Skills.save(actor, args.slug, attrs) |> project(actor)
   end
+
+  defp action(:publish, args, actor),
+    do: Skills.publish_to_workspace(actor, args.slug, args.base_revision) |> project(actor)
 
   defp action(:delete, args, actor) do
     with {:ok, _} <- Skills.delete(actor, args.slug, args.base_revision), do: {:ok, true}
@@ -64,15 +73,20 @@ defmodule Ankole.AIAgent.Library.Browser.Actions do
     with :ok <- Management.member(actor) do
       Ankole.Repo.transact_repeatable_read_only(fn ->
         with {:ok, skill} <- Skills.get(args.slug),
+             true <- Skills.visible_to?(actor, skill),
              {:ok, bytes} <- Skills.read(skill, args.path),
-             do: {:ok, %{content_base64: Base.encode64(bytes), revision: skill.revision}}
+             do: {:ok, %{content_base64: Base.encode64(bytes), revision: skill.revision}},
+             else: (
+               false -> {:error, :not_found}
+               error -> error
+             )
       end)
     end
   end
 
   defp action(:import, args, actor) do
     with {:ok, bytes} <- decode(args.content_base64),
-         do: Skills.import(actor, args.slug, bytes) |> project(actor)
+         do: Skills.import(actor, args.slug, bytes, args) |> project(actor)
   end
 
   defp action(:contracts, args, actor), do: contracts(actor, args.uid)
@@ -132,11 +146,19 @@ defmodule Ankole.AIAgent.Library.Browser.Actions do
   defp skill(value, summary, permissions),
     do: value |> Map.from_struct() |> Map.merge(summary) |> Map.merge(permissions)
 
-  defp permissions(value, actor),
-    do: %{
-      can_edit: Management.skill(actor, value, "update") == :ok,
+  defp permissions(value, actor) do
+    can_edit = Management.skill(actor, value, "update") == :ok
+
+    %{
+      can_edit: can_edit,
       can_delete:
         value.source_kind == :custom and Management.skill(actor, value, "delete") == :ok,
-      can_bind_all: Management.authorize(actor, "tenant_console:skill_bindings") == :ok
+      can_bind_all:
+        is_nil(value.agent_uid) and
+          Management.authorize(actor, "tenant_console:skill_bindings") == :ok,
+      can_publish:
+        is_binary(value.agent_uid) and can_edit and
+          Management.authorize(actor, "tenant_console:custom_skills") == :ok
     }
+  end
 end

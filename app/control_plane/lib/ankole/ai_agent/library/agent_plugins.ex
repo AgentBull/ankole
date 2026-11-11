@@ -183,6 +183,45 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     end
   end
 
+  @doc """
+  Returns `{global_defaults_map, by_agent_map}` for checking parent Agent Plugin
+  runtime enablement across multiple Agents in one batch read.
+  """
+  def plugin_enablement(agent_uids, opts \\ []) when is_list(agent_uids) do
+    with {:ok, agent_plugins} <- sources(opts),
+         {:ok, defaults} <- defaults(opts) do
+      global = Map.new(agent_plugins, &{&1.id, global_plugin_default(&1, defaults)})
+
+      overrides_by_agent =
+        if agent_uids == [] do
+          %{}
+        else
+          AgentPluginOverride
+          |> Ash.Query.filter(agent_uid in ^agent_uids)
+          |> Ankole.Ash.read!()
+          |> Enum.group_by(& &1.agent_uid)
+          |> Map.new(fn {uid, rows} ->
+            {uid, Map.new(rows, &{&1.agent_plugin_id, &1.enabled})}
+          end)
+        end
+
+      by_agent =
+        Map.new(agent_uids, fn uid ->
+          overrides = Map.get(overrides_by_agent, uid, %{})
+
+          {uid,
+           Map.new(agent_plugins, fn plugin ->
+             {plugin.id,
+              effective_plugin_enabled(plugin, Map.get(overrides, plugin.id), defaults)}
+           end)}
+        end)
+
+      {global, by_agent}
+    else
+      _ -> {%{}, %{}}
+    end
+  end
+
   @spec stable_skill_id(String.t(), String.t()) :: String.t()
   def stable_skill_id(agent_plugin_id, skill_name), do: "#{agent_plugin_id}:#{skill_name}"
 

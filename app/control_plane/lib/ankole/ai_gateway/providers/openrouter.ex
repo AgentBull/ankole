@@ -219,10 +219,12 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
   defp put_anthropic_cache_control({:error, _reason} = error, _ctx), do: error
 
   defp put_anthropic_cache_control(%UniversalAIRequest{} = request, ctx) do
-    if anthropic_model?(ctx.model) do
+    provider_options = request.provider_options || %{}
+
+    if anthropic_model?(ctx.model) and not Map.has_key?(provider_options, "cache_control") do
       UniversalAIRequest.put_provider_options(
         request,
-        Map.put(request.provider_options, "cache_control", %{"type" => "ephemeral"})
+        Map.put(provider_options, "cache_control", %{"type" => "ephemeral"})
       )
     else
       request

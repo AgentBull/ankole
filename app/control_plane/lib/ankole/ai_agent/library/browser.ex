@@ -15,6 +15,7 @@ defmodule Ankole.AIAgent.Library.Browser do
           :detail,
           :create,
           :save,
+          :publish,
           :delete,
           :set_all,
           :set_binding,
@@ -52,12 +53,17 @@ defmodule Ankole.AIAgent.Library.Browser do
     revision: [type: :integer, allow_nil?: false],
     source_kind: [type: :string, allow_nil?: false],
     agent_plugin_id: [type: :string],
+    agent_uid: [type: :string],
     colleague_count: [type: :integer, allow_nil?: false],
     assistant_enabled: [type: :boolean, allow_nil?: false],
+    agent_uids: [type: {:array, :string}, allow_nil?: false],
+    runtime_assistant_enabled: [type: :boolean, allow_nil?: false],
+    runtime_agent_uids: [type: {:array, :string}, allow_nil?: false],
     enabled_for_all: [type: :boolean, allow_nil?: false],
     can_edit: [type: :boolean, allow_nil?: false],
     can_delete: [type: :boolean, allow_nil?: false],
-    can_bind_all: [type: :boolean, allow_nil?: false]
+    can_bind_all: [type: :boolean, allow_nil?: false],
+    can_publish: [type: :boolean, allow_nil?: false]
   ]
   @contract [
     slot: [type: :string, allow_nil?: false],
@@ -79,7 +85,8 @@ defmodule Ankole.AIAgent.Library.Browser do
             constraints: [items: [fields: @skill]],
             allow_nil?: false
           ],
-          can_create: [type: :boolean, allow_nil?: false]
+          can_create: [type: :boolean, allow_nil?: false],
+          can_create_workspace: [type: :boolean, allow_nil?: false]
         ]
       )
 
@@ -108,7 +115,19 @@ defmodule Ankole.AIAgent.Library.Browser do
     for name <- [:create, :save] do
       action name, :map do
         transaction?(false)
-        argument(:slug, :string, allow_nil?: false)
+
+        if name == :create do
+          argument(:slug, :string,
+            default: "",
+            allow_nil?: false,
+            constraints: [allow_empty?: true]
+          )
+
+          argument(:personal, :boolean, default: false, allow_nil?: false)
+          argument(:agent_uid, :string)
+        else
+          argument(:slug, :string, allow_nil?: false)
+        end
 
         argument(:manifest_xml, :string,
           allow_nil?: false,
@@ -125,6 +144,14 @@ defmodule Ankole.AIAgent.Library.Browser do
         constraints(fields: @skill)
         run(__MODULE__.Actions)
       end
+    end
+
+    action :publish, :map do
+      transaction?(false)
+      argument(:slug, :string, allow_nil?: false)
+      argument(:base_revision, :integer, allow_nil?: false)
+      constraints(fields: @skill)
+      run(__MODULE__.Actions)
     end
 
     action :delete, :boolean do
@@ -190,8 +217,16 @@ defmodule Ankole.AIAgent.Library.Browser do
 
     action :import, :map do
       transaction?(false)
-      argument(:slug, :string, allow_nil?: false)
+
+      argument(:slug, :string,
+        default: "",
+        allow_nil?: false,
+        constraints: [allow_empty?: true]
+      )
+
       argument(:content_base64, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:personal, :boolean, default: false, allow_nil?: false)
+      argument(:agent_uid, :string)
       constraints(fields: @skill)
       run(__MODULE__.Actions)
     end

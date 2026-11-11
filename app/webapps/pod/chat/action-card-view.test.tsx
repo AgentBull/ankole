@@ -103,3 +103,33 @@ test('an empty knowledge draft remains inspectable as an intentional empty docum
   expect(html).toContain('(Empty document)')
   expect(html).toContain('- Old rule')
 })
+
+test('sharing approval renders deterministic current-access preview when explain_summaries are present', () => {
+  const html = render({
+    card_id: 'sharing-explain-card',
+    action_kind: 'pod.page.set_sharing',
+    summary: 'Grant Research Colleague view access',
+    payload: {
+      grants: [{ principal_uid: 'research', role: 'view', target_scope: 'container' }],
+      explain_summaries: [
+        {
+          subject_uid: 'research',
+          subject_name: 'Research Colleague',
+          current_allowed: false,
+          current_role: null,
+          decision_reason: 'No matching grant on this restricted page.'
+        },
+        {
+          subject_uid: 'alice',
+          subject_name: 'Alice Smith',
+          current_allowed: true,
+          current_role: 'manage',
+          decision_reason: 'Space administrator retains management access.'
+        }
+      ]
+    }
+  })
+  expect(html).toContain('Current access before this change')
+  expect(html).toContain('Research Colleague (@research): Denied — No matching grant on this restricted page.')
+  expect(html).toContain('Alice Smith (@alice): Allowed (manage) — Space administrator retains management access.')
+})

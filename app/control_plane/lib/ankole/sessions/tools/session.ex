@@ -234,6 +234,7 @@ defmodule Ankole.Sessions.Tools.Session do
                     "additionalProperties": false
                   },
                   "execution_mode": "sequential",
+                  "defer_loading": true,
                   "read_only": false,
                   "destructive": false
                 },
@@ -268,6 +269,7 @@ defmodule Ankole.Sessions.Tools.Session do
                     "additionalProperties": false
                   },
                   "execution_mode": "parallel",
+                  "allowed_callers": ["direct", "programmatic"],
                   "read_only": true,
                   "destructive": false
                 },
@@ -277,7 +279,7 @@ defmodule Ankole.Sessions.Tools.Session do
                   "activity": "action_card_prepare",
                   "receipt": "none",
                   "visible_delivery": true,
-                  "description": "Draft a privilege-escalated Action Card when you lack permission to perform a sensitive workspace operation directly (such as creating Brain objects (brain.object.create) or saving shared knowledge (pod.knowledge.save), both in native Pod rooms only, updating page/file sharing, moving a page/file to trash, restoring from trash, deleting a Base table, or adding participants to a Pod native room).\nThe card snapshots current CAS preconditions and renders Confirm & Execute / Cancel controls so an authorized human can execute it with their own permissions.\nOn success it records the prepared card and ends the current turn; when an authorized human confirms it, you receive an [Action Card Executed] wakeup.",
+                  "description": "Draft a privilege-escalated Action Card when you need human confirmation to execute a workspace or library operation (creating Brain objects via brain.object.create or saving shared knowledge via pod.knowledge.save in native Pod rooms, saving or updating a personal/workspace Skill via library.skill.save, updating page/file sharing, moving a page/file to trash, restoring from trash, deleting a Base table, or adding participants to a Pod native room).\nThe card snapshots current CAS preconditions and renders Confirm & Execute / Cancel controls so an authorized human can execute it with their own permissions.\nOn success it records the prepared card and ends the current turn; when an authorized human confirms it, you receive an [Action Card Executed] wakeup.",
                   "parameters": {
                     "type": "object",
                     "properties": {
@@ -290,14 +292,24 @@ defmodule Ankole.Sessions.Tools.Session do
                           "pod.page.delete",
                           "pod.page.restore",
                           "pod.base.delete_table",
-                          "conversation.add_participants"
+                          "conversation.add_participants",
+                          "library.skill.save"
                         ],
                         "description": "Closed action kind to propose."
                       },
+                      "slug": {
+                        "type": "string",
+                        "description": "Skill slug (`[a-z0-9][a-z0-9._-]{0,95}`) for library.skill.save. Omit or pass an existing editable skill slug to update in place."
+                      },
+                      "target": {
+                        "type": "string",
+                        "enum": ["personal", "workspace"],
+                        "description": "Target scope for library.skill.save. Defaults to \"personal\" (owned by the requester's personal assistant); pass \"workspace\" only when saving a shared team/colleague skill."
+                      },
                       "category": {"type": "string", "description": "Installed Brain ontology category for brain.object.create."},
                       "title": {"type": "string", "description": "Title for a new Brain object."},
-                      "base_revision": {"type": "integer", "minimum": 0, "description": "Revision read before drafting pod.knowledge.save."},
-                      "markdown": {"type": "string", "description": "Complete proposed OKF Markdown and frontmatter for pod.knowledge.save or brain.object.create."},
+                      "base_revision": {"type": "integer", "minimum": 0, "description": "Revision read before drafting pod.knowledge.save or updating an existing skill with library.skill.save."},
+                      "markdown": {"type": "string", "description": "Complete proposed Markdown with YAML frontmatter for pod.knowledge.save, brain.object.create, or library.skill.save (SKILL.md)."},
                       "summary": {
                         "type": "string",
                         "minLength": 1,
@@ -530,14 +542,30 @@ defmodule Ankole.Sessions.Tools.Session do
   def execute(run, %{"name" => "propose_action_card"} = call, args) do
     with {:ok, draft} <- Ankole.Conversations.ActionCards.prepare_draft(run, call, args),
          {:ok, prompt} <-
-           Ankole.Conversations.Delivery.ActionCardPrompt.from_output(draft, Run.call_id(call)),
-         do:
-           {:ok,
-            Tools.result(draft,
-              terminate: true,
-              interaction: %{"kind" => "action_card", "prompt" => prompt}
-            )}
+           Ankole.Conversations.Delivery.ActionCardPrompt.from_output(draft, Run.call_id(call)) do
+      model_draft = sanitize_action_card_draft_for_agent(run.agent_uid, draft)
+
+      {:ok,
+       Tools.result(model_draft,
+         terminate: true,
+         interaction: %{"kind" => "action_card", "prompt" => prompt}
+       )}
+    end
   end
+
+  defp sanitize_action_card_draft_for_agent(
+         agent_uid,
+         %{
+           "action_kind" => "library.skill.save",
+           "payload" => %{"agent_uid" => owner_uid} = payload
+         } =
+           draft
+       )
+       when is_binary(owner_uid) and owner_uid != agent_uid do
+    Map.put(draft, "payload", Map.delete(payload, "diff"))
+  end
+
+  defp sanitize_action_card_draft_for_agent(_agent_uid, draft), do: draft
 
   @impl true
   def prepare_in_tx(run, call, args),

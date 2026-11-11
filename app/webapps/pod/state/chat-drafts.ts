@@ -160,6 +160,7 @@ export class ChatDrafts {
 export function hasUnsentChatWork(model: Model): boolean {
   return (
     model.draft.peek().trim() !== '' ||
+    model.attachedSkill.peek() !== null ||
     model.attachments.hasFiles.peek() ||
     !!model.pending.peek() ||
     !!model.editing.peek()?.previousDraft.trim() ||

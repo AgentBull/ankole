@@ -154,4 +154,29 @@ describe('buildBrainOntologyGraph', () => {
       expect(acmeInfo.relations.map(r => r.linkType).sort()).toEqual(['advises', 'references'])
     }
   })
+
+  test('highlights 1-hop neighborhood around focusSlugs and dims distant nodes and edges to gray', () => {
+    const graph = buildBrainOntologyGraph({
+      categories: CATEGORIES,
+      nodes: NODES,
+      links: LINKS,
+      focusSlugs: new Set(['people/boris', 'agents/boris_assistant'])
+    })
+
+    expect(graph.primaryFocusNodeId).toBe('p-boris')
+    expect(graph.focusedNodeIds).not.toBeNull()
+    expect(graph.focusedNodeIds?.has('p-boris')).toBe(true)
+    expect(graph.focusedNodeIds?.has('a-boris-pa')).toBe(true)
+    expect(graph.focusedNodeIds?.has('c-acme')).toBe(true)
+    expect(graph.focusedNodeIds?.has('c-acme-cloud')).toBe(false)
+    expect(graph.focusedNodeIds?.has('an-q3')).toBe(false)
+
+    expect(graph.nodes.find(node => node.id === 'p-boris')?.ramp).toBe('teal')
+    expect(graph.nodes.find(node => node.id === 'c-acme')?.ramp).toBe('blue')
+    expect(graph.nodes.find(node => node.id === 'c-acme-cloud')?.ramp).toBe('gray')
+    expect(graph.nodes.find(node => node.id === 'an-q3')?.ramp).toBe('gray')
+
+    expect(graph.edges.find(edge => edge.label === 'advises')?.ramp).not.toBe('gray')
+    expect(graph.edges.find(edge => edge.label === 'evidences')?.ramp).toBe('gray')
+  })
 })

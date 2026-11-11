@@ -229,6 +229,47 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     end
   end
 
+  test "workflow wake turns preserve static system instructions and move continuation guidance to input" do
+    %{principal: agent} = agent_fixture()
+    %{run: workflow, calls: [task], events: [dispatch]} = workflow_fixture(agent.uid)
+
+    assert {:ok, %Run{} = dispatch_run} = admit(dispatch)
+    assert {:ok, {_state, prepared_dispatch}} = Model.prepare(dispatch_run)
+    dispatch_instructions = Ankole.Sessions.WorkflowTask.instructions(prepared_dispatch)
+    dispatch_input = Ankole.Sessions.WorkflowTask.input(prepared_dispatch)
+
+    refute dispatch_instructions =~ "This turn continues your earlier work"
+    refute Ankole.JSON.encode!(dispatch_input) =~ "This turn continues your earlier work"
+
+    assert {:ok, %{call: _sleeping}} =
+             Repo.transact(fn ->
+               Workflow.TaskLifecycle.sleep_task_in_tx(task.id, agent.uid, dispatch.session_id, %{
+                 wake_after_ms: 60_000,
+                 note: "Wait for follow-up",
+                 attention: false
+               })
+             end)
+
+    assert {:ok, _} = Run.finalize(dispatch_run, :sleeping)
+
+    assert {:ok, %{event: message_event}} =
+             Workflow.send_task_message(
+               workflow.id,
+               task.call_seq,
+               agent.uid,
+               "Proceed with step 2.",
+               "wake-prefix-stability-message"
+             )
+
+    assert {:ok, %Run{} = wake_run} = admit(message_event)
+    assert {:ok, {_state, prepared_wake}} = Model.prepare(wake_run)
+    wake_instructions = Ankole.Sessions.WorkflowTask.instructions(prepared_wake)
+    wake_input = Ankole.Sessions.WorkflowTask.input(prepared_wake)
+
+    assert wake_instructions == dispatch_instructions
+    assert Ankole.JSON.encode!(wake_input) =~ "This turn continues your earlier work"
+  end
+
   test "tasks use their profile precedence and independent conversation without a Worker" do
     %{principal: agent} = agent_fixture()
     worker = Repo.get_by!(AgentWorker, agent_uid: agent.uid)

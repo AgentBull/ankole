@@ -21,6 +21,9 @@ defmodule Ankole.AIAgent.Library.Management do
     end
   end
 
+  def skill(actor, %{agent_uid: uid}, action) when is_binary(uid),
+    do: agent(actor, uid, action)
+
   def skill(actor, %{source_kind: :custom}, action),
     do: authorize(actor, "tenant_console:custom_skills", action)
 

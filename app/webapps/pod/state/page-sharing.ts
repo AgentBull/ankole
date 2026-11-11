@@ -2,7 +2,7 @@ import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { PodPageSharingResponse } from '../api/generated/types.gen'
 import type { PageRole, PageSharingUpdate } from '../content-api'
 
-type SharingView = 'main' | 'invite' | 'collaborators' | 'settings'
+type SharingView = 'main' | 'invite' | 'collaborators' | 'settings' | 'explain'
 export type SharingScopeTab = 'container' | 'self'
 export type SharingSubject = PodPageSharingResponse['subjects'][number]
 export type SharingGrant = PodPageSharingResponse['grants'][number]
@@ -214,6 +214,13 @@ export const PageSharingModel = createModel(() => {
         query.value = ''
         browseOpen.value = false
         view.value = 'settings'
+      })
+    },
+    openExplain() {
+      batch(() => {
+        query.value = ''
+        browseOpen.value = false
+        view.value = 'explain'
       })
     },
     buildInvitePatch(): PageSharingUpdate | undefined {

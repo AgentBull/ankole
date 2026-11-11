@@ -132,7 +132,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       |> UniversalAIRequest.put_client_identity_headers(ctx)
       |> UniversalAIRequest.bearer_auth()
       |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
-      |> OpenAIRequestOptions.put_provider_options(:chat_completions)
+      |> OpenAIRequestOptions.put_provider_options(:chat_completions, ctx.request)
     end
   end
 

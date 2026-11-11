@@ -271,7 +271,15 @@ each value to the native field name: OpenAI-family providers send
 `prompt_cache_options`, `prompt_cache_retention`, `safety_identifier`, and
 `context_management`,
 OpenRouter sends `textVerbosity` as `verbosity`, and Claude sends `inferenceGeo`
-as `inference_geo`. OpenAI Chat Completions rejects the Responses-only options
+as `inference_geo`. For prompt-cache continuity, OpenAI Responses requests on
+stateful conversations derive a deterministic `prompt_cache_key` from the
+conversation identity whenever the caller omits one, Claude Messages requests
+attach top-level `cache_control: {"type": "ephemeral"}` when the caller omits
+explicit cache breakpoints, OpenRouter injects top-level ephemeral
+`cache_control` automatically for Anthropic Claude targets when none is set, and
+`StatefulLifecycle` strips transient `store` and `cache_control` fields from
+replayed history items before assembling the next upstream request. OpenAI Chat
+Completions rejects the Responses-only options
 `reasoningSummary`, `truncation`, and `contextManagement` with
 `unsupported_provider_option`. Claude accepts the `reasoningEffort` values
 `low`, `medium`, `high`, and `xhigh`, and sends `xhigh` as `max`.
@@ -1273,14 +1281,25 @@ WebSocket, and synchronous Responses uniformly):
   a call only when its frozen descriptor permits `programmatic` callers—turning
   direct-only or malformed calls into explicit tool errors before they cross the
   execution boundary.
-- In the synthesized program tool prompt, bindings that also have direct tool
-  declarations list only their JavaScript global names (since their schemas are
-  already in the provider `tools` array), whereas programmatic-only bindings
-  embed their full schemas. Global names follow Codex code-mode rules: root
-  tools and the default `functions` namespace use `name`; other namespaces use
-  `namespace__name` (omitting the extra `__` if `namespace` already ends with
-  `_` or `name` starts with `_`) with non-identifier characters replaced by `_`
-  (two tools colliding on the same global name invalidate the request).
+- In the synthesized program tool prompt, AIGateway states explicit orchestration
+  selection rules—directing the model to use `program` when a task needs three or
+  more tool calls, loops, parallel batch fan-out with `Promise.all`, in-memory
+  filtering or aggregation, or conditional branching on structured results, while
+  forbidding single-call wrappers and keeping user interaction, approval,
+  delegation, and outbound messaging on direct tool calls. Bindings that also
+  have direct tool declarations list only their JavaScript global names (since
+  their schemas are already in the provider `tools` array), whereas
+  programmatic-only bindings embed their full schemas; tools without an
+  `output_schema` resolve to raw strings inside the isolate so scripts check for
+  `"Error:"` prefixes before calling `JSON.parse`. Global names follow Codex
+  code-mode rules: root tools and the default `functions` namespace use `name`;
+  other namespaces use `namespace__name` (omitting the extra `__` if `namespace`
+  already ends with `_` or `name` starts with `_`) with non-identifier
+  characters replaced by `_` (two tools colliding on the same global name
+  invalidate the request). When a `program` step completes without an execution
+  error, AIGateway caps the model-facing `text()` payload at `32 KiB` (`32,768`
+  UTF-8 bytes, preserving valid JSON across multi-part outputs) so intermediate
+  data remains confined to isolate memory.
 - Persisted program fingerprints carry the `ankole_ptc_v2.` prefix and freeze
   `namespace`, `name`, and the JavaScript global name for every binding (other
   fingerprint versions are rejected). Settled `program`/`program_output` pairs
@@ -1574,13 +1593,24 @@ token usage automatically against `ai_gateway.compaction` in AppConfigure:
 
 `CompactionPolicy` enforces no server-side ceiling on the integer fields, while
 the Console caps integer inputs at `9007199254740991` (`Number.MAX_SAFE_INTEGER`)
-to avoid JSON precision loss. Because provider usage includes fixed instructions
-and tool schemas—which compaction cannot shrink—operators should keep the
-effective trigger comfortably above fixed input size (leaving room for the
-summary, retained tail, and next turn); setting `max_threshold_tokens` too close
-to fixed input (or pairing a tiny model context with a large output reservation)
-can trigger compaction on every turn or leave zero retained rows, as AIGateway
-does not suppress back-to-back compactions.
+to avoid JSON precision loss. To fire compaction proactively before unmeasured
+trailing items overflow the window while avoiding consecutive low-yield
+checkpoints, AIGateway projects preflight context tokens from the latest
+provider usage anchor: it calibrates a `wire_ratio` (clamped to `[0.75, 2.50]`)
+between the anchor round's reported provider usage and its local item/prompt
+estimate, scales trailing journaled tool results, `current_input`, and newly
+mounted tools or instructions by that ratio, and compares the projected total
+against the effective trigger. Unless projected usage exceeds `97%` of
+`effective_context_length`, AIGateway applies two anti-thrash guards: when a
+prior automatic summarizer checkpoint reduced usage by less than `8%` and the
+first post-checkpoint response still exceeded the trigger, AIGateway suppresses
+automatic compaction until new growth reaches `max(5% of trigger, min(4,000,
+trigger / 2))` tokens; and on triggers of `64,000` tokens or more, AIGateway
+skips local summarization when the compressible prefix ahead of `tail_rows`
+yields fewer than `min(5% of trigger, 4,000)` estimated tokens. Because provider
+usage includes fixed instructions and tool schemas—which compaction cannot
+shrink—operators should keep `max_threshold_tokens` comfortably above fixed
+input size so normal turns retain room for the summary, tail, and next turn.
 
 A stored history can also grow large while it is still below the token trigger,
 because Provider ciphertext and inline images take many bytes per token. A
@@ -1590,7 +1620,8 @@ loop's limits of 1,024 retained items and `8 MiB` (see
 it ends incomplete once that history, the new input, and the loop's own items
 pass either limit. AIGateway therefore also plans a checkpoint for a stateful
 history when its items, encoded the way the loop encodes them, reach three
-quarters of either limit. The remaining quarter is headroom for the new input
+quarters of either limit—even when token-yield cooldown is currently suppressing
+token-triggered compaction. The remaining quarter is headroom for the new input
 and the rounds of the next Response, not a reservation: an input larger than
 that headroom still passes a limit. The response metadata of such a compaction
 records `auto_compaction.trigger = "provider_history"`. The model can still

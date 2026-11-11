@@ -337,6 +337,32 @@ defmodule Ankole.Pod do
 
       base_route "/meta/brain", Ankole.Brain.Browser do
         route(:get, "/", :graph, name: "metaBrain", wrap_in_result?: false)
+
+        route(:get, "/nodes/:page_id/claims", :node_claims,
+          name: "metaBrainNodeClaims",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/my-context", :my_context,
+          name: "metaBrainMyContext",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/my-context/facts", :add_my_fact,
+          name: "metaBrainAddFact",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/claims/:claim_id/supersede", :supersede_my_claim,
+          name: "metaBrainSupersedeClaim",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/claims/:claim_id", :forget_my_claim,
+          name: "metaBrainForgetClaim",
+          query_params: [:reason],
+          wrap_in_result?: false
+        )
       end
 
       base_route "/meta", Ankole.AIAgent.Library.Browser do
@@ -345,6 +371,11 @@ defmodule Ankole.Pod do
         route(:post, "/skills/import", :import, name: "metaImportSkill", wrap_in_result?: false)
         route(:get, "/skills/:slug", :detail, name: "metaSkill", wrap_in_result?: false)
         route(:put, "/skills/:slug", :save, name: "metaSaveSkill", wrap_in_result?: false)
+
+        route(:post, "/skills/:slug/publish", :publish,
+          name: "metaPublishSkill",
+          wrap_in_result?: false
+        )
 
         route(:delete, "/skills/:slug", :delete,
           name: "metaDeleteSkill",
@@ -537,6 +568,13 @@ defmodule Ankole.Pod do
           "/conversations/:id/interactions/:interaction_id/answer",
           :answer_interaction,
           name: "answerConversationInteraction"
+        )
+
+        route(
+          :post,
+          "/conversations/:id/interactions/:interaction_id/grant-page-access",
+          :grant_blocked_page_access,
+          name: "grantConversationPageAccess"
         )
 
         route(
@@ -741,6 +779,11 @@ defmodule Ankole.Pod do
         route :get, "/pages/:id/sharing", :sharing do
           name("podPageSharing")
         end
+
+        route(:get, "/pages/:id/sharing/explain", :explain_sharing,
+          name: "podPageSharingExplain",
+          query_params: [:subject_uid, :action]
+        )
 
         route :put, "/pages/:id/sharing", :set_sharing do
           name("podPageSharingWrite")

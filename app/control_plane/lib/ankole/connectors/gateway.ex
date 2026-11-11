@@ -1,6 +1,6 @@
 defmodule Ankole.Connectors.Gateway do
   @moduledoc "Serves the same stateless MCP contract to Workers and Function Runtime."
-  alias Ankole.Connectors.{Credentials, OAuth, Registry, RemoteMCP, ToolSpec}
+  alias Ankole.Connectors.{AuthWaits, Credentials, OAuth, Registry, RemoteMCP, ToolSpec}
 
   def request(target, %{"method" => method} = request, context, options) do
     params = request["params"] || %{}
@@ -78,7 +78,7 @@ defmodule Ankole.Connectors.Gateway do
          {:ok, result} <- validate_output(spec, result) do
       {:ok, result_content(int64_strings(result, spec.output_schema, spec.output_schema))}
     end
-    |> consent_return(context)
+    |> consent_return(context, id, name)
   end
 
   defp call({:skill, skill, server} = target, name, args, context, _options)
@@ -120,21 +120,23 @@ defmodule Ankole.Connectors.Gateway do
 
   defp call(_, _, _, _, _), do: {:error, :invalid_request}
 
-  defp consent_return({:error, %{code: "oauth_consent_required"} = error}, context) do
-    case return_path(context) do
-      nil ->
-        {:error, error}
+  defp consent_return({:error, %{code: "oauth_consent_required"} = error}, context, toolkit, name) do
+    resolved_error =
+      case return_path(context) do
+        nil ->
+          error
 
-      path ->
-        url = URI.parse(error.authorization_url)
-        params = URI.decode_query(url.query || "") |> Map.put("intent", path)
+        path ->
+          url = URI.parse(error.authorization_url)
+          params = URI.decode_query(url.query || "") |> Map.put("intent", path)
+          %{error | authorization_url: URI.to_string(%{url | query: URI.encode_query(params)})}
+      end
 
-        {:error,
-         %{error | authorization_url: URI.to_string(%{url | query: URI.encode_query(params)})}}
-    end
+    AuthWaits.record_blocked_turn(resolved_error, context, toolkit, name)
+    {:error, resolved_error}
   end
 
-  defp consent_return(result, _context), do: result
+  defp consent_return(result, _context, _toolkit, _name), do: result
 
   defp return_path(%{return_to: path}) when is_binary(path), do: path
 

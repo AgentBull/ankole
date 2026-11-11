@@ -17,6 +17,7 @@ defmodule Ankole.Conversations.ActionCard do
     pod.page.restore
     pod.base.delete_table
     conversation.add_participants
+    library.skill.save
   )
 
   @statuses [:prepared, :executed, :stale, :cancelled]

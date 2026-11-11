@@ -10,6 +10,7 @@ defmodule Ankole.Sessions.ToolCatalog do
                )
   @external_resource @worker_path
   @worker_tools @worker_path |> File.read!() |> Ankole.JSON.decode!()
+  @programmatic_worker_tools ~w(read_file find grep ls)
 
   def for_run(run) do
     client =
@@ -40,7 +41,12 @@ defmodule Ankole.Sessions.ToolCatalog do
         end
       )
 
-    worker = Enum.map(@worker_tools, &Map.put(&1, "executor", :worker))
+    worker =
+      Enum.map(@worker_tools, fn declaration ->
+        declaration
+        |> maybe_allow_programmatic_worker_tool()
+        |> Map.put("executor", :worker)
+      end)
 
     {tools, hosted} =
       Ankole.Sessions.Run.type(run).tools(
@@ -51,6 +57,13 @@ defmodule Ankole.Sessions.ToolCatalog do
 
     {Enum.map(tools, &Tool.new(Map.delete(&1, "executor"), &1["executor"])), hosted}
   end
+
+  defp maybe_allow_programmatic_worker_tool(%{"name" => name} = declaration)
+       when name in @programmatic_worker_tools do
+    Map.put_new(declaration, "allowed_callers", ["direct", "programmatic"])
+  end
+
+  defp maybe_allow_programmatic_worker_tool(declaration), do: declaration
 
   def wire(tools), do: Enum.map(tools, & &1.schema)
 

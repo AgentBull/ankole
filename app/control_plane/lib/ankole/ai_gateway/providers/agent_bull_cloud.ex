@@ -112,7 +112,8 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
           |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
           |> apply_common_headers_and_auth(ctx, token)
           |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
-          |> OpenAIRequestOptions.put_provider_options(:chat_completions)
+          |> OpenAIRequestOptions.put_provider_options(:chat_completions, ctx.request)
+          |> put_anthropic_cache_control(ctx)
 
         _responses ->
           base =
@@ -286,6 +287,30 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     |> UniversalAIRequest.put_client_identity_headers(ctx)
     |> UniversalAIRequest.bearer_auth(token)
   end
+
+  defp put_anthropic_cache_control({:error, _reason} = error, _ctx), do: error
+
+  defp put_anthropic_cache_control(%UniversalAIRequest{} = request, ctx) do
+    provider_options = request.provider_options || %{}
+
+    if anthropic_model?(Map.get(ctx, :model)) and
+         not Map.has_key?(provider_options, "cache_control") do
+      UniversalAIRequest.put_provider_options(
+        request,
+        Map.put(provider_options, "cache_control", %{"type" => "ephemeral"})
+      )
+    else
+      request
+    end
+  end
+
+  defp anthropic_model?(model) when is_binary(model) do
+    model
+    |> String.trim_leading("~")
+    |> String.starts_with?("anthropic/")
+  end
+
+  defp anthropic_model?(_model), do: false
 
   defp endpoint_kind(ctx) do
     to_string(

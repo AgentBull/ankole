@@ -40,6 +40,35 @@ defmodule Ankole.Sessions.ModelRequestTest do
     refute Map.has_key?(Model.request(%{run() | kind: :main}), "text")
   end
 
+  test "appends server tool_search and programmatic_tool_calling when catalog declares deferred and programmatic tools" do
+    read_tool =
+      Tool.new(
+        %{
+          "type" => "function",
+          "name" => "pod_list_pages",
+          "allowed_callers" => ["direct", "programmatic"],
+          "parameters" => %{"type" => "object"}
+        },
+        Ankole.Sessions.Tools.Pod
+      )
+
+    deferred_tool =
+      Tool.new(
+        %{
+          "type" => "function",
+          "name" => "set_channel_standing_orders",
+          "defer_loading" => true,
+          "parameters" => %{"type" => "object"}
+        },
+        Ankole.Sessions.Tools.Session
+      )
+
+    request = Model.request(%{run() | kind: :main, tools: [read_tool, deferred_tool]})
+
+    assert %{"type" => "tool_search", "execution" => "server"} in request["tools"]
+    assert %{"type" => "programmatic_tool_calling"} in request["tools"]
+  end
+
   defp run do
     %Run{
       agent_uid: "test-agent",

@@ -62,14 +62,30 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp handle(request, ctx, allowed) do
     with true <- request.operation in allowed,
-         {:ok, params} when is_map(params) <- Torque.decode(request.params_json),
-         :ok <- disclosure_target(request.operation, ctx.actor, params),
-         {:ok, result} <- dispatch(request.operation, ctx.actor, params, ctx) do
-      {:ok, %{"result" => json_value(result)}}
+         {:ok, params} when is_map(params) <- Torque.decode(request.params_json) do
+      case run_authorized_operation(request.operation, ctx, params) do
+        {:ok, result} ->
+          {:ok, %{"result" => json_value(result)}}
+
+        {:error, reason} ->
+          Ankole.Pod.Access.BlockedWaits.maybe_record_blocked_turn(
+            ctx,
+            request.operation,
+            params,
+            reason
+          )
+
+          error(ctx, reason)
+      end
     else
       false -> error(ctx, :invalid_pod_operation)
-      {:error, reason} -> error(ctx, reason)
       _ -> error(ctx, :invalid_pod_payload)
+    end
+  end
+
+  defp run_authorized_operation(operation, ctx, params) do
+    with :ok <- disclosure_target(operation, ctx.actor, params) do
+      dispatch(operation, ctx.actor, params, ctx)
     end
   end
 

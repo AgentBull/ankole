@@ -27,6 +27,7 @@ defmodule Ankole.Sessions.Tools.Skill do
                     "additionalProperties": false
                   },
                   "execution_mode": "parallel",
+                  "allowed_callers": ["direct", "programmatic"],
                   "read_only": true,
                   "destructive": false
                 }

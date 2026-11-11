@@ -57,6 +57,18 @@ defmodule Ankole.Sessions.Tool do
   def receipt?(tool, args),
     do: tool.receipt == "durable" and args["action"] not in tool.receipt_read_actions
 
+  @spec allowed_callers(t()) :: [String.t()]
+  def allowed_callers(%__MODULE__{schema: schema}),
+    do: Map.get(schema, "allowed_callers", ["direct"])
+
+  @spec programmatic?(t()) :: boolean()
+  def programmatic?(%__MODULE__{} = tool),
+    do: "programmatic" in allowed_callers(tool)
+
+  @spec deferred?(t()) :: boolean()
+  def deferred?(%__MODULE__{schema: schema}),
+    do: Map.get(schema, "defer_loading") == true
+
   def with_profiles(tool, profiles, default) do
     description =
       if profiles == [] do

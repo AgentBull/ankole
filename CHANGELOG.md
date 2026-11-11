@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.128 (2026-11-11)
+## Version 2.0.0-alpha.129 (2026-11-12)
 
 - Cut repeated access checks on live conversation streams, and let shutdown
   finish its cleanup.
@@ -19,6 +19,46 @@
     calls wait and start as earlier ones finish. Feishu, Slack, and DingTalk
     connections dispatch at most 64 events at a time and leave further events
     unacknowledged, so the platform redelivers them.
+
+## Version 2.0.0-alpha.128 (2026-11-12)
+
+- Add Personal Skills, `/learn` workflow extraction, and `/<slug>` Skill
+  invocation in Pod. Any workspace member can create, edit, import, and delete
+  Personal Skills attached exclusively to their own Personal Assistant
+  (`skills.agent_uid`), and members with `tenant_console:custom_skills` can
+  promote a Personal Skill to a Workspace Skill. Leading `/learn` turns (and the
+  message-level `Save as Skill (/learn)` action) draft `library.skill.save`
+  Action Cards validated by `SkillLinter` with revision preconditions and
+  personal-draft redaction for other group-room viewers, while leading `/<slug>`
+  turns and the `/` command picker invoke runtime-enabled Skills directly.
+- Add live Connector Auth Cards, Page Access Cards, and a 4-stage Page access
+  diagnostic waterfall. When a native room turn stops on `consent_required` or
+  `access_denied` (`node_view`), Pod renders an inline `ConnectorAuthCardView`
+  or `PageAccessCardView`, groups pending conversations under `Needs your input`
+  (alongside inline Clarify controls on `waiting_on_user` Background Agent Jobs
+  and Workflows), and automatically resumes the blocked Agent once the owner
+  completes authorization in the popup window or a Page manager clicks `Grant
+  view & continue` (preserving any higher existing role). The Page Share
+  popover gains a `Check access` view (`GET /api/v2/pod/pages/:id/sharing/explain`)
+  showing the 4-stage authorization waterfall, and `pod.page.set_sharing` Action
+  Cards summarize affected principals' current access.
+- Add the `My Memories & Context` lens (`?lens=mine`), `Focus on me` graph
+  highlight, and object claims inspector in `/meta/brain`. Viewers can inspect
+  active Facts and Takes on any selected Brain object, filter the graph to the
+  1-hop neighborhood around themselves and their Personal Assistant, and add,
+  edit (`supersede`), or retract (`forget`) personal memories and workspace
+  claims from `/meta/brain?lens=mine` (including private memories captured in
+  Personal Assistant DM conversations).
+- Enable `programmatic_tool_calling` (`program`) across read-only Session tools
+  and `tool_search` (`defer_loading`) for setup tools, preserve prompt-cache
+  prefixes across OpenAI Responses, Claude, OpenRouter Claude, and Workflow wake
+  turns, project preflight context growth with unproductive-compaction
+  hysteresis (while keeping `8 MiB / 1,024-item` provider-history checkpoints
+  active), and shape repetitive test, build, package-manager, `git log`, JSON,
+  and `cat` CLI outputs in Agent Computer (retaining full raw bytes in
+  `outputLogPath` and bypassing downstream pipes and redirections). Run
+  `mix ecto.migrate`: the migrations create `connector_auth_waits`, add
+  `skills.agent_uid`, and add `library.skill.save` to `action_cards`.
 
 ## Version 2.0.0-alpha.127 (2026-11-11)
 

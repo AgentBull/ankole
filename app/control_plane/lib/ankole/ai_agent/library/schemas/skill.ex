@@ -9,7 +9,12 @@ defmodule Ankole.AIAgent.Library.Schemas.Skill do
     table("skills")
     repo(Ankole.Repo)
     migrate?(false)
+    foreign_key_names([{:agent_uid, "skills_agent_uid_fkey"}])
     identity_index_names(slug: "skills_tenant_id_slug_key")
+
+    check_constraints do
+      check_constraint(:agent_uid, "skills_private_shape")
+    end
   end
 
   attributes do
@@ -46,6 +51,7 @@ defmodule Ankole.AIAgent.Library.Schemas.Skill do
     )
 
     attribute(:agent_plugin_id, :string)
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey)
     attribute(:revision, :integer, allow_nil?: false, default: 1)
     attribute(:upstream_state, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
     attribute(:created_by, Ankole.Ash.Types.PrincipalKey)
@@ -74,6 +80,7 @@ defmodule Ankole.AIAgent.Library.Schemas.Skill do
         :enabled_for_all,
         :source_kind,
         :agent_plugin_id,
+        :agent_uid,
         :upstream_state,
         :created_by
       ])
@@ -92,6 +99,7 @@ defmodule Ankole.AIAgent.Library.Schemas.Skill do
         :manifest_markdown,
         :metadata,
         :enabled_for_all,
+        :agent_uid,
         :upstream_state
       ])
 
