@@ -126,7 +126,7 @@ https://ankole.agentbull.com/ja-JP/docs/quickstart/index.md を使って、Ankol
 | コネクターと MCP ツールキット | アプリ認証・個人 PKCE OAuth 統合保管庫（`Ankole.Connectors`）、Lark/Feishu（IM・承認・タスク・カレンダー）・GitHub・Linear・リモート HTTP MCP サーバー向け Control Plane ステートレス MCP ゲートウェイ、Turn 単位の Git 認証ヘルパー |
 | 外部チャットとメール | Slack、Microsoft Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、メール |
 | サインインとディレクトリ同期 | パスワードレスメール OTP（SMTP）、Lark/Feishu、Slack、Microsoft Entra ID、Google Workspace、DingTalk、WeCom（OIDC/OAuth SSO と組織ディレクトリ同期） |
-| モデル | OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、AgentBull Cloud、ChatGPT サブスクリプション、OpenAI API 互換の任意のエンドポイント（自社ホストモデルを含む）。中国市場向けプラグインで Volcengine Ark、Alibaba Cloud DashScope CN、Z.AI Coding Plan、Xiaomi MiMo にも対応。 |
+| モデル | OpenAI、Azure OpenAI、Claude、Google AI Studio、Google Vertex AI、OpenRouter、AgentBull Cloud、ChatGPT サブスクリプション、OpenAI API 互換の任意のエンドポイント（自社ホストモデルを含む）。中国市場向けプラグインで Volcengine Ark、Alibaba Cloud DashScope CN、Z.AI Coding Plan、Xiaomi MiMo にも対応。 |
 | Web 検索とページ読み取り | AgentBull Cloud、Parallel（`parallel.ai`）、Jina、Bright Data SERP、およびローカル Chromium レンダリング取得（`ankole-browser`） |
 | Agent コンピューター | Docker、Kubernetes、Cloudflare Containers、Vercel、AWS Lambda MicroVMs、Alibaba Cloud Function Compute |
 | デプロイ形態 | 1 台のホストでの Docker Compose、Kubernetes の Helm チャート、またはソースビルド（機能制限のない Apache 2.0 オープンソースコア。オプションで AgentBull Cloud の集約 API キーから各種モデルと Web 検索を一括利用可能） |

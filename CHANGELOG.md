@@ -1,5 +1,19 @@
 # Changelog
 
+## Version 2.0.0-alpha.114 (2026-11-11)
+
+- Add the `google_vertex_ai` provider kind for Gemini and partner models on
+  Google Vertex AI. Each credential is the JSON key file of a Google Cloud
+  service account; AIGateway exchanges it for access tokens and renews them
+  without operator action. The row selects a location (`global` by default),
+  can override the project, and can set one safety filter threshold. Model
+  profiles name models as Google does, for example `gemini-2.5-pro`.
+- Fail an AgentBull Cloud request when its hosted token cannot be minted or is
+  rejected. The provider fell back to the row's static `api_key`, so a revoked
+  hosted token kept working. It now uses the static key only when no hosted
+  credential is present, and a row without any credential fails instead of
+  sending an unauthenticated request.
+
 ## Version 2.0.0-alpha.113 (2026-11-11)
 
 - Keep an Agent computer's Drive working when a control-plane Pod is replaced.

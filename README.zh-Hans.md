@@ -126,7 +126,7 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./ankole-loca
 | 连接器与 MCP 工具网关 | 统一应用凭据与个人 PKCE OAuth 保险箱（`Ankole.Connectors`）、控制面无状态 MCP 网关（飞书 / Lark 消息、审批、任务、日历，GitHub，Linear，远程 HTTP MCP 服务）及单回合 Git 凭据代理 |
 | 外部聊天与邮件 | 飞书 / Lark、Slack、Microsoft Teams、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp、电子邮件 |
 | 登录与组织架构同步 | 免密邮箱验证码（SMTP）、飞书 / Lark、Slack、Microsoft Entra ID、Google Workspace、钉钉、企业微信（OIDC/OAuth SSO 与组织目录同步） |
-| 模型 | OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、AgentBull Cloud、ChatGPT 订阅，以及任意兼容 OpenAI API 的端点（含自托管模型）。中国市场插件另支持火山引擎 Ark、阿里云百炼中国区、Z.AI Coding Plan 与小米 MiMo。 |
+| 模型 | OpenAI、Azure OpenAI、Claude、Google AI Studio、Google Vertex AI、OpenRouter、AgentBull Cloud、ChatGPT 订阅，以及任意兼容 OpenAI API 的端点（含自托管模型）。中国市场插件另支持火山引擎 Ark、阿里云百炼中国区、Z.AI Coding Plan 与小米 MiMo。 |
 | 联网搜索与网页读取 | AgentBull Cloud、Parallel（`parallel.ai`）、Jina、Bright Data SERP，以及本地 Chromium 渲染抓取（`ankole-browser`） |
 | Agent 电脑（Worker） | Docker、Kubernetes、Cloudflare Containers、Vercel、AWS Lambda MicroVMs、阿里云函数计算 |
 | 部署形态 | 单机 Docker Compose、Kubernetes Helm Chart 或源码运行（100% 功能完整的 Apache 2.0 开源内核；私有化部署亦可选配一把 AgentBull Cloud 聚合密钥接入全球模型与联网搜索） |

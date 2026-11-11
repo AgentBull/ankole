@@ -524,6 +524,7 @@ defmodule Ankole.AIGateway.Observability do
       "chatgpt_subscription" -> "openai"
       "claude" -> "anthropic"
       "google_ai_studio_openai" -> "gcp.gemini"
+      "google_vertex_ai" -> "gcp.vertex_ai"
       provider when is_binary(provider) and provider != "" -> provider
       _provider -> nil
     end

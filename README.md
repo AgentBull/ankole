@@ -126,7 +126,7 @@ Each organization or team works in an isolated **Pod** organized around `Home`, 
 | Connectors and MCP toolkits | Unified credential and PKCE OAuth vault (`Ankole.Connectors`), stateless control-plane MCP gateway for Lark/Feishu (IM, Approvals, Tasks, Calendar), GitHub, Linear, and remote HTTP MCP servers, plus Turn-scoped Git credentials |
 | External chat and email | Slack, Microsoft Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, email |
 | Sign-in and directory sync | Passwordless Email OTP (SMTP), Lark/Feishu, Slack, Microsoft Entra ID, Google Workspace, DingTalk, WeCom (OIDC/OAuth SSO and directory sync) |
-| Models | OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, AgentBull Cloud, ChatGPT subscriptions, and any OpenAI-compatible endpoint (including self-hosted models). The China-market plugin adds Volcengine Ark, Alibaba Cloud DashScope CN, Z.AI Coding Plan, and Xiaomi MiMo. |
+| Models | OpenAI, Azure OpenAI, Claude, Google AI Studio, Google Vertex AI, OpenRouter, AgentBull Cloud, ChatGPT subscriptions, and any OpenAI-compatible endpoint (including self-hosted models). The China-market plugin adds Volcengine Ark, Alibaba Cloud DashScope CN, Z.AI Coding Plan, and Xiaomi MiMo. |
 | Web search and page reading | AgentBull Cloud, Parallel (`parallel.ai`), Jina, Bright Data SERP, and local Chromium rendering (`ankole-browser`) |
 | Agent computers | Docker, Kubernetes, Cloudflare Containers, Vercel, AWS Lambda MicroVMs, Alibaba Cloud Function Compute |
 | Deployment | Docker Compose on one host, Helm chart on Kubernetes, or source build (complete Apache-2.0 FOSS core; optional AgentBull Cloud key for aggregated models and web tools) |

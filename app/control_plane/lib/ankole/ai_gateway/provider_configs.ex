@@ -27,6 +27,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   alias Ankole.AIGateway.ChatGPTAuth
   alias Ankole.AIGateway.CredentialPool
+  alias Ankole.AIGateway.GoogleServiceAccount
   alias Ankole.AIGateway.ProviderConfigs.Credentials
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.Providers
@@ -286,6 +287,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   failure handling never has to guess which entry failed. A permanent refresh
   failure or HTTP 429 updates that entry's health and selects the next usable
   entry. Other refresh endpoint failures leave credential health unchanged.
+  A Vertex AI service-account key that Google's token endpoint rejects cools
+  down like a credential that an upstream answers with HTTP 401.
   """
   @spec resolve_credential(Provider.t(), map() | keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -318,9 +321,23 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         "available_count" => selection.available_count
       }
 
-      case ChatGPTAuth.ensure_fresh(provider, selected) do
+      case ensure_fresh(provider, selected) do
         {:ok, selected} ->
           {:ok, selected}
+
+        # A rejection can also come from this node's clock, so the entry cools
+        # down like any other credential that an upstream answers with 401.
+        {:error, {:google_token_rejected, code}} ->
+          :ok =
+            CredentialPool.mark_exhausted(provider.id, selection.entry, 401, %{}, %{
+              "code" => code,
+              "reason" => "google_token_exchange_failed"
+            })
+
+          resolve_credential(provider, %{
+            affinity_key: affinity_key,
+            exclude: [selection.credential_id | excluded]
+          })
 
         {:error, {:chatgpt_refresh_permanent, _reason}} ->
           resolve_credential(provider, %{
@@ -342,6 +359,36 @@ defmodule Ankole.AIGateway.ProviderConfigs do
       end
     end
   end
+
+  # A Vertex AI credential is a service-account key. Requests carry the access
+  # token that Google issues for it, which never enters the stored credential.
+  # A caller inside a database transaction only checks that the row can serve
+  # the model, so it gets the credential without a token: the exchange is a
+  # network call, and recording its failure opens a transaction of its own.
+  defp ensure_fresh(
+         %Provider{provider_kind: "google_vertex_ai"} = provider,
+         %{"credential" => credential} = selected
+       ) do
+    if Repo.in_transaction?() do
+      {:ok, selected}
+    else
+      with {:ok, access_token} <-
+             GoogleServiceAccount.access_token(
+               Map.get(credential, "service_account_key", ""),
+               proxy_url: row_proxy(provider)
+             ) do
+        {:ok, put_in(selected, ["credential", "access_token"], access_token)}
+      end
+    end
+  end
+
+  defp ensure_fresh(provider, selected), do: ChatGPTAuth.ensure_fresh(provider, selected)
+
+  defp row_proxy(%Provider{connection_options: %{"transport" => %{"proxy" => proxy}}})
+       when is_binary(proxy),
+       do: proxy
+
+  defp row_proxy(_provider), do: nil
 
   @doc "Persists a cooldown only for the attributed credential revision."
   def put_credential_cooldown(row_id, credential, %DateTime{} = until, reason) do
@@ -744,6 +791,14 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     missing_base_url: "the provider has no base URL"
   }
 
+  @service_account_key_labels %{
+    invalid_json: "the service account key is not JSON; paste the whole key file",
+    not_a_service_account_key: "the pasted JSON is not a service account key",
+    missing_client_email: "the service account key has no client_email",
+    missing_project_id: "the service account key has no project_id",
+    invalid_private_key: "the service account key has no readable private key"
+  }
+
   @doc """
   Gives the operator text of a provider rejection: one sentence and the
   details, or `nil` for a reason without text. A missing provider gives
@@ -776,6 +831,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   def rejection({:credential_entry_unknown_keys, keys}),
     do: config_rejection("a credential entry carries unknown keys: #{Enum.join(keys, ", ")}")
+
+  def rejection({:credential_options, {:service_account_key, reason}})
+      when is_map_key(@service_account_key_labels, reason),
+      do: config_rejection(Map.fetch!(@service_account_key_labels, reason))
 
   def rejection(reason) when is_map_key(@config_reason_labels, reason),
     do: config_rejection(Map.fetch!(@config_reason_labels, reason))

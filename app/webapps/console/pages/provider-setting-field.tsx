@@ -80,7 +80,7 @@ export function ProviderSettingField({
       ? t('console.providers.secret_readonly_hint')
       : secretPresent
         ? t('console.providers.secret_value_hint')
-        : t('console.providers.secret_hint')
+        : (description ?? t('console.providers.secret_hint'))
     return (
       <LabeledField
         label={label}
@@ -89,7 +89,7 @@ export function ProviderSettingField({
         <EncryptedValueInput
           disabled={disabled}
           hideLabel={t('console.providers.hide_field', { field: label })}
-          placeholder="sk-..."
+          placeholder={t(`console.providers.setting_${setting.key}_placeholder`, { defaultValue: 'sk-...' })}
           readOnly={readOnly}
           revealLabel={t('console.providers.reveal_field', { field: label })}
           revealed={decrypt?.revealed}

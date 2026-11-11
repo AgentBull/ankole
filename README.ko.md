@@ -126,7 +126,7 @@ ID 제공자, 모델 제공자, 채팅 플랫폼별 상세 절차는 전체 [빠
 | 커넥터 및 MCP 툴킷 | 앱 자격 증명 및 개인 PKCE OAuth 통합 보관함(`Ankole.Connectors`), Lark/Feishu(메신저·결재·작업·캘린더)·GitHub·Linear·원격 HTTP MCP 서버용 Control Plane 무상태 MCP 게이트웨이, Turn 범위 Git 자격 증명 도우미 |
 | 외부 채팅 및 이메일 | Slack, Microsoft Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, 이메일 |
 | 로그인 및 디렉터리 동기화 | 패스워드리스 이메일 OTP(SMTP), Lark/Feishu, Slack, Microsoft Entra ID, Google Workspace, DingTalk, WeCom(OIDC/OAuth SSO 및 조직 디렉터리 동기화) |
-| 모델 | OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, AgentBull Cloud, ChatGPT 구독, OpenAI API 호환 모든 엔드포인트(자체 호스팅 모델 포함). 중국 시장 플러그인으로 Volcengine Ark, Alibaba Cloud DashScope CN, Z.AI Coding Plan, Xiaomi MiMo 추가 지원. |
+| 모델 | OpenAI, Azure OpenAI, Claude, Google AI Studio, Google Vertex AI, OpenRouter, AgentBull Cloud, ChatGPT 구독, OpenAI API 호환 모든 엔드포인트(자체 호스팅 모델 포함). 중국 시장 플러그인으로 Volcengine Ark, Alibaba Cloud DashScope CN, Z.AI Coding Plan, Xiaomi MiMo 추가 지원. |
 | 웹 검색 및 페이지 읽기 | AgentBull Cloud, Parallel(`parallel.ai`), Jina, Bright Data SERP, 로컬 Chromium 렌더링 수집(`ankole-browser`) |
 | Agent 컴퓨터 | Docker, Kubernetes, Cloudflare Containers, Vercel, AWS Lambda MicroVMs, Alibaba Cloud Function Compute |
 | 배포 형태 | 단일 호스트 Docker Compose, Kubernetes Helm 차트, 또는 소스 빌드(기능 제한 없는 100% Apache 2.0 오픈 소스 코어, 선택 사항으로 AgentBull Cloud 통합 API 키 하나로 모델과 웹 검색 일괄 연동 가능) |

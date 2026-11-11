@@ -627,6 +627,71 @@ and Programmatic Tool Calling native, while the main Agent uses AIGateway's
 local compatibility loop—both exposing the exact same public item and lifecycle
 contracts.
 
+## Use a Google Vertex AI Provider
+
+`google_vertex_ai` serves Gemini and the partner models of Vertex AI through
+the OpenAI-compatible Chat Completions endpoint of one Google Cloud project
+and location, so it shares the `openai_chat_completions` resolver with Google
+AI Studio, including the round trip of Gemini thought signatures on tool
+calls. Google Cloud accepts only OAuth access tokens on this endpoint, so each
+pool credential is the JSON key file of a service account rather than an API
+key.
+
+The operator pastes the whole key file into the `service_account_key`
+credential field. AIGateway accepts the credential only when it is a
+`service_account` key that names a `client_email` and a `project_id` and
+carries a readable RSA private key, so a wrong file is rejected when the
+operator saves it. The row itself has three connection settings:
+
+- `vertex_location` selects the location and defaults to `global`. AIGateway
+  calls `aiplatform.googleapis.com` for `global` and
+  `{location}-aiplatform.googleapis.com` for a region. An operator-supplied
+  base URL, such as a private endpoint, replaces that host for every location.
+- `project_id` names the project that serves the requests. When it is blank,
+  each request uses the project of the selected key, so one pool can hold keys
+  of several projects.
+- `safety_threshold` applies one Gemini `HarmBlockThreshold` to the hate
+  speech, dangerous content, sexually explicit, and harassment categories.
+  AIGateway sends it as the top-level `google.safety_settings` member, because
+  Vertex AI rejects `extra_body.google` on a request that also carries
+  `reasoning_effort`. When the setting is unset, the request carries no safety
+  settings and Google applies its defaults.
+
+A model profile names a model the way Google's model pages do. AIGateway sends
+a bare name such as `gemini-2.5-pro` as `google/gemini-2.5-pro`, and it sends a
+name that already contains a publisher, such as `meta/llama-4`, unchanged.
+`reasoningEffort` accepts `low`, `medium`, and `high` and reaches the endpoint
+as `reasoning_effort`. Model metadata comes from the `google_vertex` provider
+of the packaged `llm_db` snapshot.
+
+When `ProviderConfigs` selects a credential, `GoogleServiceAccount` signs a
+JWT with the key, exchanges it at the key's `token_uri` for an access token
+with the `cloud-platform` scope, and adds the token to the request's
+credential. The token never enters the stored credential. Each control-plane
+node keeps it in a local ETS cache and exchanges the key again five minutes
+before the token expires, so a restart or a second node costs one extra
+exchange. The exchange goes through the row's `transport.proxy` when the row
+sets one, as the row's model requests do. A caller that resolves the
+credential inside a database transaction, such as Background Agent Job
+creation, only checks that the row can serve the model, so it receives the
+credential without a token and causes no exchange.
+
+Google answers the exchange with HTTP `400` or `401` when the key was deleted
+or its service account disabled, and also when the node's clock is far enough
+off that Google refuses the assertion's timestamps. AIGateway therefore cools
+that pool entry down for five minutes, as it does for any credential that an
+upstream answers with `401`, and selects the next usable entry. Any other
+exchange failure fails the request and leaves the entry's health unchanged.
+Every failed exchange writes an
+`ai_gateway.google_service_account.exchange_failed` warning with the token
+host, the HTTP status, and Google's error code.
+
+One Response uses the token that was current when the Response started. When
+a later model round of a long Response runs after that token expired, Vertex
+AI answers `401`, and AIGateway cools the entry down for five minutes under
+the same rule; a row with a single key answers `credential_pool_exhausted`
+until the cooldown ends.
+
 ## Runtime API
 
 All runtime endpoints mount under `/api/v1/ai-gateway`:
