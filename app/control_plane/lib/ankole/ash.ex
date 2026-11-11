@@ -27,16 +27,15 @@ defmodule Ankole.Ash do
         %Ash.ActionInput{resource: resource} = input,
         %Ankole.AuthZ.Actor{} = actor,
         opts \\ []
-      ),
-      do:
-        Ash.run_action(
-          input,
-          Keyword.merge(opts,
-            actor: actor,
-            authorize?: true,
-            tenant: action_tenant(resource)
-          )
-        )
+      ) do
+    tenant = action_tenant(resource)
+    assert_tenant!(Keyword.get(opts, :tenant, tenant), tenant)
+    assert_tenant!(input.tenant || tenant, tenant)
+
+    input
+    |> Ash.ActionInput.set_tenant(tenant)
+    |> Ash.run_action(Keyword.merge(opts, actor: actor, authorize?: true, tenant: tenant))
+  end
 
   def for_create(resource, action, attrs, opts \\ []),
     do: Ash.Changeset.for_create(resource, action, attrs, options(resource, opts))
@@ -170,8 +169,7 @@ defmodule Ankole.Ash do
   def run_action(resource, action, args, opts \\ []) do
     tenant = action_tenant(resource)
 
-    if Keyword.get(opts, :tenant, tenant) != tenant,
-      do: raise(ArgumentError, "action tenant does not match the selected resource scope")
+    assert_tenant!(Keyword.get(opts, :tenant, tenant), tenant)
 
     options = Keyword.merge([tenant: tenant, authorize?: false], opts)
 
@@ -189,6 +187,13 @@ defmodule Ankole.Ash do
        do: nil,
        else: Ankole.Repo.tenant_id()
   end
+
+  # A caller-supplied tenant must match the declared scope; site operations
+  # never inherit a tenant from their input or from the process.
+  defp assert_tenant!(tenant, tenant), do: :ok
+
+  defp assert_tenant!(_supplied, _declared),
+    do: raise(ArgumentError, "action tenant does not match the selected resource scope")
 
   def bulk_create(inputs, resource, action, opts \\ []),
     do: Ash.bulk_create(inputs, resource, action, bulk_options(resource, opts))
@@ -395,8 +400,7 @@ defmodule Ankole.Ash do
         :site -> nil
       end
 
-    if Keyword.get(opts, :tenant, tenant) != tenant,
-      do: raise(ArgumentError, "action tenant does not match the selected resource scope")
+    assert_tenant!(Keyword.get(opts, :tenant, tenant), tenant)
 
     Keyword.merge([tenant: tenant, authorize?: false], opts)
   end

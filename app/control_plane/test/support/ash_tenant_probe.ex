@@ -280,7 +280,14 @@ defmodule TenantIsolationFixture.SiteOperationProbe do
 
   actions do
     action :site_probe, :map do
-      run(fn _input, _context -> {:ok, %{tenant: Ankole.Repo.tenant_id()}} end)
+      run(fn input, context ->
+        {:ok,
+         %{
+           tenant: Ankole.Repo.tenant_id(),
+           input_tenant: input.tenant,
+           context_tenant: Map.get(context, :tenant)
+         }}
+      end)
     end
   end
 end
@@ -299,7 +306,14 @@ defmodule TenantIsolationFixture.TenantOperationProbe do
 
   actions do
     action :tenant_probe, :map do
-      run(fn _input, _context -> {:ok, %{tenant: Ankole.Repo.tenant_id()}} end)
+      run(fn input, context ->
+        {:ok,
+         %{
+           tenant: Ankole.Repo.tenant_id(),
+           input_tenant: input.tenant,
+           context_tenant: Map.get(context, :tenant)
+         }}
+      end)
     end
   end
 end
