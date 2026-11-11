@@ -1296,8 +1296,8 @@ Strict resource caps bound internal loops before they can amplify cost:
   explicitly rather than dropping call/output edges. The input that the request
   starts with, including the stored history of a stateful conversation, counts
   toward both provider-history limits, and
-  [automatic compaction](#shorten-long-history) keeps a stored history below
-  them.
+  [automatic compaction](#shorten-long-history) plans a checkpoint when a
+  stored history nears them.
 - If stored history contains duplicate items or contradictory pair IDs with no
   safe cut point, AIGateway rejects the turn rather than guessing or rewriting
   durable rows; operators recover by starting a new conversation or retracting/deleting
@@ -1541,17 +1541,19 @@ can trigger compaction on every turn or leave zero retained rows, as AIGateway
 does not suppress back-to-back compactions.
 
 A stored history can also grow large while it is still below the token trigger,
-because Provider ciphertext and inline images take many bytes per token. The
-hosted-tool loop of a Response counts the stored history toward its limits of
-1,024 retained items and `8 MiB` (see
+because Provider ciphertext and inline images take many bytes per token. A
+Response that runs the hosted-tool loop counts its stored history toward the
+loop's limits of 1,024 retained items and `8 MiB` (see
 [Run Tool Search and Program Calls](#run-tool-search-and-program-calls)), and
-every Response on a history that has passed either limit fails. AIGateway therefore also compacts a
-stateful history when its items, encoded the way the loop encodes them, reach
-three quarters of either limit, which leaves the remaining quarter for the
-rounds of the next Response. The response metadata of such a compaction records
-`auto_compaction.trigger = "provider_history"`. The model can still read a
-history that is below the token trigger, so when this checkpoint cannot be
-written (for example, because the summarizer fails), the request runs on the
+it ends incomplete once that history, the new input, and the loop's own items
+pass either limit. AIGateway therefore also plans a checkpoint for a stateful
+history when its items, encoded the way the loop encodes them, reach three
+quarters of either limit. The remaining quarter is headroom for the new input
+and the rounds of the next Response, not a reservation: an input larger than
+that headroom still passes a limit. The response metadata of such a compaction
+records `auto_compaction.trigger = "provider_history"`. The model can still
+read a history that is below the token trigger, so when this checkpoint cannot
+be written (for example, because the summarizer fails), the request runs on the
 full history, and AIGateway neither truncates the history nor reports a context
 overflow.
 

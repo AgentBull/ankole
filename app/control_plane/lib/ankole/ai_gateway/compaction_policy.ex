@@ -33,12 +33,13 @@ defmodule Ankole.AIGateway.CompactionPolicy do
   # history back — which calls repeated work, where the tokens went, what a
   # thread forgot — and that reading stops at the first opaque capsule.
   @default_upstream false
-  # The hosted-tool loop of a Response fails once its provider history passes
-  # an item limit or a byte limit, and the stored history counts toward both.
-  # Provider ciphertext and inline images take many bytes per token, so a
-  # history can come near those limits long before the token trigger. Every
-  # later Response on a history that has passed them fails, so a checkpoint is
-  # due while a quarter of each limit is still free for the loop's own rounds.
+  # A Response that runs the hosted-tool loop ends incomplete once its provider
+  # history passes an item limit or a byte limit, and the stored history counts
+  # toward both. Provider ciphertext and inline images take many bytes per
+  # token, so a history can come near those limits long before the token
+  # trigger, and every later Response that runs the loop on it ends the same
+  # way. A checkpoint is therefore due while a quarter of each limit is still
+  # free for the next input and the loop's own rounds.
   @provider_history_trigger_share 0.75
   @default_config %{
     "threshold" => @default_threshold_percent,
