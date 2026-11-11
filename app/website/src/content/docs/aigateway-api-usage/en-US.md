@@ -62,6 +62,9 @@ Calls over stateless HTTP or SSE cannot include the stateful fields `previous_re
 | `POST /web_fetch` | Fetch web pages |
 | `POST /decisions` | Answer typed questions with probabilities |
 | `POST /images` | Generate or edit an image |
+| `POST /audio/speech` | Turn text into spoken audio |
+| `POST /audio/transcriptions` | Turn audio into text |
+| `POST /ocr` | Read a PDF or a document image as Markdown |
 
 Each endpoint is documented in detail on the [AIGateway](../ai-gateway/) page and the corresponding User-guide feature page.
 

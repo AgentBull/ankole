@@ -906,6 +906,60 @@ fn serve_once_and_watch(listener: StdTCPListener, body: Value) -> mpsc::Receiver
     second_rx
 }
 
+// Answers one request with the given media type and bytes.
+fn serve_bytes_once(listener: StdTCPListener, content_type: &'static str, body: &'static [u8]) {
+    thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut buffer = [0_u8; 4096];
+        let mut request = Vec::new();
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = socket.read(&mut buffer).unwrap();
+            request.extend_from_slice(&buffer[..read]);
+        }
+        write!(
+            socket,
+            "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        )
+        .unwrap();
+        socket.write_all(body).unwrap();
+    });
+}
+
+#[tokio::test]
+async fn a_speech_response_hands_over_the_audio_bytes_and_their_media_type() {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    // The bytes are not valid UTF-8, as real audio is not.
+    serve_bytes_once(
+        listener,
+        "audio/mpeg; charset=binary",
+        &[0xFF, 0xFB, 0x90, 0x00],
+    );
+
+    let response = run_model_request_once(model_request_spec("cloudflare_speech", address))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response["body"],
+        serde_json::json!({"audio": "//uQAA==", "content_type": "audio/mpeg", "usage": {}})
+    );
+}
+
+#[tokio::test]
+async fn a_speech_response_that_is_not_audio_fails_with_the_provider_body() {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    serve_bytes_once(listener, "application/json", br#"{"success":false}"#);
+
+    let error = run_model_request_once(model_request_spec("openrouter_speech", address))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code, "invalid_upstream_response");
+}
+
 fn model_request_spec(api_resolver: &str, address: std::net::SocketAddr) -> ModelRequestSpec {
     let spec = serde_json::json!({
         "api_resolver": api_resolver,

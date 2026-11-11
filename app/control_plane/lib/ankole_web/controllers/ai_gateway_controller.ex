@@ -124,6 +124,47 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
+  def speech(conn, _params) do
+    case AIGateway.create_speech(subject_uid(conn), conn.body_params || %{}, call_opts(conn)) do
+      {:ok, %{body: %{"audio" => audio, "content_type" => content_type}}} ->
+        conn
+        |> put_resp_content_type(content_type, nil)
+        |> send_resp(200, audio)
+
+      {:error, reason} ->
+        error(conn, reason)
+    end
+  end
+
+  def transcriptions(conn, _params) do
+    case AIGateway.create_transcription(
+           subject_uid(conn),
+           conn.body_params || %{},
+           call_opts(conn)
+         ) do
+      {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  # Without an OCR profile, OCR runs on the caller's language model, so it
+  # carries the same caller facts as a Responses request.
+  def ocr(conn, _params) do
+    case AIGateway.create_ocr(subject_uid(conn), conn.body_params || %{}, call_opts(conn)) do
+      {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  defp subject_uid(conn), do: conn.assigns.current_ai_gateway_subject_uid
+
+  defp call_opts(conn) do
+    [
+      subject_type: conn.assigns.current_ai_gateway_subject_type,
+      request_context: RequestContext.from_headers(conn.req_headers, "http")
+    ]
+  end
+
   def web_fetch(conn, _params) do
     request = conn.body_params || %{}
     subject_uid = conn.assigns.current_ai_gateway_subject_uid

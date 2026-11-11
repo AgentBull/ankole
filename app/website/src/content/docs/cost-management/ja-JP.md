@@ -11,7 +11,7 @@ Ankole の運用コストの大半はモデルのトークン消費によるも�
 
 ## レバー 1: model profile の階層
 
-モデルプロファイル（Model Profile）は **Console → Model Profiles** の 3 層疎継承チェーン（`Site -> Pod -> Agent/System`）に従って解決されます。各 Agent は 8 つの標準スロット（5 つの言語モデルスロットと `web_search`、`web_fetch`、`image_generate`）を持ち、Site・Pod および組み込みの `system` Principal（`ankole_brain`、`system`）はさらに `rerank` と `decision` の 2 つのスロットを持ちます。未指定のスロットは Pod と Site の既定値を継承し、さらに `coding -> heavy -> primary` と `light -> primary` のスロット間フォールバックが適用されます。
+モデルプロファイル（Model Profile）は **Console → Model Profiles** の 3 層疎継承チェーン（`Site -> Pod -> Agent/System`）に従って解決されます。各 Agent は 8 つの標準スロット（5 つの言語モデルスロットと `web_search`、`web_fetch`、`image_generate`）を持ち、Site・Pod および組み込みの `system` Principal（`ankole_brain`、`system`）はさらに `rerank`、`decision`、`speech`、`transcription`、`ocr` の 5 つのスロットを持ちます。未指定のスロットは Pod と Site の既定値を継承し、さらに `coding -> heavy -> primary` と `light -> primary` のスロット間フォールバックが適用されます。
 
 | スロット | 使われる場面 | コスト上の位置づけ |
 |---|---|---|
@@ -24,6 +24,9 @@ Ankole の運用コストの大半はモデルのトークン消費によるも�
 | `image_generate` | 画像生成ツール | 1 回あたりの単価が高いため、必要な Agent にだけ設定する |
 | `rerank`（Site / Pod / `system`） | Brain の想起再ランク付けと `/rerank` 既定経路 | 低コストで高速な rerank モデルを割り当てる枠 |
 | `decision`（Site / Pod / `system`） | `/decisions` の確率付き回答 | 判定モデルを割り当てる枠。未設定時は `light` モデルが回答 |
+| `speech`（Site / Pod / `system`） | `/audio/speech` の音声合成 | 音声合成モデルを割り当てる枠。未設定時は音声合成リクエストが失敗 |
+| `transcription`（Site / Pod / `system`） | `/audio/transcriptions` の文字起こし | 文字起こしモデルを割り当てる枠。未設定時は文字起こしリクエストが失敗 |
+| `ocr`（Site / Pod / `system`） | `/ocr` の PDF・画像の Markdown 読み取り | PDF の読み取りに必要な OCR モデルを割り当てる枠。未設定時は言語モデルが画像だけを読み取る |
 
 control plane 内部サブシステムのモデル呼び出しは組み込みの `system` Principal のもとで実行されるため、バックグラウンド保守や Applet がフォアグラウンド Agent のトークンクォータを消費することはありません。
 

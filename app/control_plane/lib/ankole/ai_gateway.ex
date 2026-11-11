@@ -14,12 +14,14 @@ defmodule Ankole.AIGateway do
 
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CompactionRequests
+  alias Ankole.AIGateway.Audio
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.Decisions
   alias Ankole.AIGateway.ImageRequests
   alias Ankole.AIGateway.Models
+  alias Ankole.AIGateway.OCR
   alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestExecution
@@ -665,6 +667,32 @@ defmodule Ankole.AIGateway do
           {:ok, gateway_response()} | {:error, term()}
   def create_decision(subject_uid, request, opts \\ []) do
     Decisions.create_decision(subject_uid, request, opts, &create_response/3)
+  end
+
+  @doc """
+  Turns text into audio through the `speech` profile. The response body holds
+  the audio bytes under `"audio"` and their media type under `"content_type"`.
+  """
+  @spec create_speech(String.t(), map(), keyword()) ::
+          {:ok, gateway_response()} | {:error, term()}
+  def create_speech(subject_uid, request, opts \\ []),
+    do: Audio.create_speech(subject_uid, request, opts)
+
+  @doc "Turns audio into text through the `transcription` profile."
+  @spec create_transcription(String.t(), map(), keyword()) ::
+          {:ok, gateway_response()} | {:error, term()}
+  def create_transcription(subject_uid, request, opts \\ []),
+    do: Audio.create_transcription(subject_uid, request, opts)
+
+  @doc """
+  Reads the text of a PDF or a document image as Markdown, through the `ocr`
+  profile or, when it is not configured, a language model that accepts
+  images.
+  """
+  @spec create_ocr(String.t(), map(), keyword()) ::
+          {:ok, gateway_response()} | {:error, term()}
+  def create_ocr(subject_uid, request, opts \\ []) do
+    OCR.create_ocr(subject_uid, request, opts, &create_response/3)
   end
 
   @doc """

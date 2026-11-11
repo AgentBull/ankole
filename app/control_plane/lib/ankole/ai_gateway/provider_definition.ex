@@ -14,7 +14,10 @@ defmodule Ankole.AIGateway.ProviderDefinition do
     Credential-scoped settings are encrypted together in each provider pool
     entry. Provider code still reads the selected plaintext value from the same
     settings map. `advanced?` is presentation metadata for operator forms and
-    does not change validation or runtime behavior.
+    does not change validation or runtime behavior. `capabilities` names the
+    capabilities whose requests read a request-scoped setting, so an operator
+    form offers the setting only on those model profiles; `nil` means every
+    capability of the provider.
     """
 
     @enforce_keys [:key]
@@ -26,7 +29,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
       required?: false,
       encrypted?: false,
       advanced?: false,
-      scope: :connection
+      scope: :connection,
+      capabilities: nil
     ]
 
     @typedoc """
@@ -40,7 +44,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             required?: boolean(),
             encrypted?: boolean(),
             advanced?: boolean(),
-            scope: :connection | :credential | :request
+            scope: :connection | :credential | :request,
+            capabilities: [atom()] | nil
           }
   end
 
@@ -73,6 +78,9 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             | :web_fetch
             | :image_generate
             | :decision_model
+            | :speech_model
+            | :transcription_model
+            | :ocr_model
 
     @typedoc """
     Capability metadata used to route a public model capability to provider
@@ -138,4 +146,7 @@ defmodule Ankole.AIGateway.ProviderDefinition do
   def capability_name(:web_fetch), do: "web_fetch"
   def capability_name(:image_generate), do: "image_generate"
   def capability_name(:decision_model), do: "decision"
+  def capability_name(:speech_model), do: "speech"
+  def capability_name(:transcription_model), do: "transcription"
+  def capability_name(:ocr_model), do: "ocr"
 end

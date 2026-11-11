@@ -38,6 +38,11 @@ pub enum APIResolverKind {
     #[serde(rename = "openai_decision")]
     OpenAIDecision,
     CloudflareImages,
+    OpenrouterSpeech,
+    CloudflareSpeech,
+    OpenrouterTranscription,
+    CloudflareTranscription,
+    MistralOcr,
 }
 
 impl APIResolverKind {
@@ -68,7 +73,17 @@ impl APIResolverKind {
             Self::SystemoneDecision => "systemone_decision",
             Self::OpenAIDecision => "openai_decision",
             Self::CloudflareImages => "cloudflare_images",
+            Self::OpenrouterSpeech => "openrouter_speech",
+            Self::CloudflareSpeech => "cloudflare_speech",
+            Self::OpenrouterTranscription => "openrouter_transcription",
+            Self::CloudflareTranscription => "cloudflare_transcription",
+            Self::MistralOcr => "mistral_ocr",
         }
+    }
+
+    /// A speech provider answers with the audio itself rather than with JSON.
+    pub fn answers_with_audio(self) -> bool {
+        matches!(self, Self::OpenrouterSpeech | Self::CloudflareSpeech)
     }
 }
 

@@ -748,6 +748,23 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
 
     assert %{"encrypted" => true, "scope" => "credential", "default" => nil} =
              Enum.find(openrouter["settings"], &(&1["key"] == "api_key"))
+
+    # A request setting names the capabilities whose profiles offer it, so a
+    # speech profile shows no search engine and no image steps.
+    cloudflare = Enum.find(kinds, &(&1["provider_kind"] == "cloudflare"))
+    capabilities = Map.new(cloudflare["settings"], &{&1["key"], &1["capabilities"]})
+
+    assert Map.take(capabilities, ~w(engine steps seed safety_tolerance account_id)) == %{
+             "engine" => ["web_search"],
+             "steps" => ["image_generate"],
+             "seed" => ["image_generate"],
+             "safety_tolerance" => ["image_generate"],
+             "account_id" => nil
+           }
+
+    reasoning = Enum.find(openrouter["settings"], &(&1["key"] == "reasoningEffort"))
+    assert "llm" in reasoning["capabilities"]
+    refute "speech" in reasoning["capabilities"]
   end
 
   test "browser-paste login rejects another attempt and stores only a completed credential", %{

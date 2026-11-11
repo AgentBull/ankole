@@ -26,6 +26,7 @@ import type { ProfileDraft } from '../state/model-profiles-model'
 import {
   modelOptionsForProfile,
   modelProfileRequestFields,
+  profileCapability,
   profileUsesConfigurableModel,
   providersForProfile
 } from './model-profile-options'
@@ -112,7 +113,7 @@ export function ModelProfileEditorCard({
     ...profileProviders.map(provider => provider.provider_id),
     ...(providerID && !profileProviders.some(provider => provider.provider_id === providerID) ? [providerID] : [])
   ]
-  const optionSettings = requestSettings(selectedKind)
+  const optionSettings = requestSettings(selectedKind, profileCapability(profile))
   const basicOptionSettings = optionSettings.filter(setting => !setting.advanced)
   const advancedOptionSettings = optionSettings.filter(setting => setting.advanced)
   const configurableModel = profileUsesConfigurableModel(profile)
@@ -410,7 +411,7 @@ export function buildModelProfileWriteRequest({
   }
 
   const builtOptions = buildSettingOptions(
-    requestSettings(selectedKind),
+    requestSettings(selectedKind, profileCapability(profile)),
     draft.providerOptions,
     settingValidationMessage,
     key => providerSettingLabel(t, key)

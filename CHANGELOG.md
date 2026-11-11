@@ -1,5 +1,40 @@
 # Changelog
 
+## Version 2.0.0-alpha.118 (2026-11-11)
+
+- Add `POST /audio/speech` and `POST /audio/transcriptions` to AIGateway, with
+  Pod and Site `speech` and `transcription` model slots in Console. OpenRouter
+  serves its text-to-speech and speech-to-text models, and Cloudflare serves
+  the Deepgram Aura models and the Workers AI models that take base64 audio,
+  such as Whisper large v3 turbo. A speech response is the audio itself, as
+  `mp3` or `pcm`, and a client can ask for it with `Accept: audio/*`; a
+  transcription returns the text, plus the language, the duration, and timed
+  segments with `verbose_json`. Both requests fail with
+  `model_profile_not_configured` until an operator binds the slot. Run
+  `mix ecto.migrate`: the migration lets the usage ledger record a speech call
+  by its characters and a transcription call by its seconds of audio. It
+  rechecks every usage row under a table lock, so gateway calls wait while it
+  runs on a large ledger.
+- Add `POST /ocr` to AIGateway. It returns the text of one PNG, JPEG, or WebP
+  document image as Markdown, read by the caller's `vision_fallback` language
+  model, or by `primary` when that profile is not configured.
+- Add `AnkoleRuntime.ai.generateSpeech`, `ai.transcribe`, and `ai.ocr` to
+  Applets. `generateSpeech` saves the audio as a Pod file the way
+  `generateImage` saves an image, and `transcribe` and `ocr` read a Pod file.
+- Let `POST /ocr` read PDFs through a dedicated OCR model. Add the `mistral`
+  provider kind and the Pod and Site `ocr` model slot in Console. With the slot
+  bound, `/ocr` accepts a PDF of up to 50 MiB and an optional `pages` list of
+  up to 100 page indexes, starting at 0, and returns Markdown per page. Without
+  the slot, a language model that accepts images still reads one image, and a
+  PDF fails with `unsupported_value`. Run `mix ecto.migrate`: the migration
+  lets the usage ledger record an OCR call by its pages, and it rechecks every
+  usage row under a table lock as well.
+- Show a provider's request options in Console only on the model profiles that
+  use them. A provider kind can limit a request setting to some of its
+  capabilities, so a speech, transcription, or decision profile on a Cloudflare
+  provider shows neither the search engine nor the image options, and a speech
+  or transcription profile on OpenRouter shows no language-model options.
+
 ## Version 2.0.0-alpha.117 (2026-11-11)
 
 - Internal changes only.

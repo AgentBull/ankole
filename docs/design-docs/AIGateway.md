@@ -51,7 +51,7 @@ end of an Agent turn.
 
 ## Select a Model for Each Kind of Work
 
-AIGateway exposes seven capability kinds:
+AIGateway exposes ten capability kinds:
 
 - `llm`
 - `embedding`
@@ -60,14 +60,18 @@ AIGateway exposes seven capability kinds:
 - `web_fetch`
 - `image_generate`
 - `decision`
+- `speech`
+- `transcription`
+- `ocr`
 
 `Ankole.AIGateway.ModelProfiles` owns model and capability configuration at
 three layers: Site defaults, Pod overrides, and sparse subject overrides. Agents
 store overrides in `agents.options`; registered system Principals store them in
 AppConfigure under `system:<uid>`. Site, Pod, and system Principals expose
 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`,
-`web_fetch`, `image_generate`, `rerank`, and `decision`; Agents expose the same
-slots except `rerank` and `decision`. Pod and Site rows live in AppConfigure under
+`web_fetch`, `image_generate`, `rerank`, `decision`, `speech`,
+`transcription`, and `ocr`; Agents expose the same slots except `rerank`,
+`decision`, `speech`, `transcription`, and `ocr`. Pod and Site rows live in AppConfigure under
 `ai_gateway.model_profiles.<slot>` and `ai_gateway.provider_hosted.<capability>`.
 Deleting a row restores inheritance; storing `nil` is invalid because only a
 missing row may advance fallback to the next layer.
@@ -104,24 +108,26 @@ control-plane compaction can run without an Agent binding. Brain executes as
 slots. This includes reranking during Agent-initiated recall. The `default` and
 `rerank.default` capability selectors resolve a system Principal's effective
 rerank slot; Agent and Human rerank calls use the Pod slot. The `default` and
-`decision.default` selectors resolve the `decision` slot by the same rule. Pod Applets execute
+`decision.default` selectors resolve the `decision` slot by the same rule, as do
+`speech.default` for the `speech` slot, `transcription.default` for the
+`transcription` slot, and `ocr.default` for the `ocr` slot. Pod Applets execute
 as `system`, accept only built-in LLM slots, and do not consult a creator Agent
 or its quota. OIDC-bound external requests use their explicit model binding.
 
 Provider-hosted switches inherit from Pod and Site for system Principals;
-system overrides accept only the ten fixed slots, with no custom aliases.
+system overrides accept only the thirteen fixed slots, with no custom aliases.
 Without subject overrides, every effective slot matches the Pod configuration.
 
 Alongside fixed profiles, an Agent can store custom LLM profiles in
 `agents.options["ai_agent"]["models"]`. Each custom name matches
 `[a-z][a-z0-9_-]{0,63}`, avoids the eight Agent fixed slots, is immutable, and
-has a non-empty description. The names `rerank` and `decision` are valid custom
-LLM aliases; they do not collide with the Pod/Site rerank and decision
-capabilities, whose default selectors are `default`, `rerank.default`, and
-`decision.default`. OIDC Clients use the same custom-alias
+has a non-empty description. The names `rerank`, `decision`, `speech`,
+`transcription`, and `ocr` are valid custom LLM aliases; they do not collide with the
+Pod/Site capabilities of the same names, whose default selectors are `default`
+and `<capability>.default`, such as `rerank.default`. OIDC Clients use the same custom-alias
 contract and still resolve external Human requests through the Client's model
 binding. Custom aliases never configure embedding, rerank, web search, web
-fetch, image generation, or decisions.
+fetch, image generation, decisions, speech, transcription, or OCR.
 
 The Console's `/model-profiles` page edits Pod and Site defaults through
 `/api/v2/model-profiles`, including rerank and Provider-hosted switches. Agent
@@ -324,6 +330,16 @@ kind as a whole, the provider row itself declares that capability:
   OpenAI Responses tool contract—passing custom tools through verbatim and
   allowing upstream compaction pass-through. First-party OpenAI kinds always
   enable this behavior, and non-Responses provider kinds always disable it.
+
+A provider kind declares its request-scoped settings once, and a kind that
+serves several capabilities can limit a setting to the capabilities whose
+requests read it. The provider-kinds catalog reports that list with each
+setting, and Console offers the setting only on the model profiles of those
+capabilities, so a speech profile on a `cloudflare` row shows neither the
+search engine nor the image options. A setting without the list serves every
+capability of its kind. The list shapes the form only: AIGateway accepts every
+declared request option on any profile of the kind, and a request sends the
+options that its capability reads.
 
 Trusted Plugins can register additional provider kinds via
 `ai_gateway.provider`, without replacing AIGateway's storage, authorization,
@@ -713,6 +729,9 @@ All runtime endpoints mount under `/api/v1/ai-gateway`:
 - `POST /web_fetch`
 - `POST /decisions`
 - `POST /images`
+- `POST /audio/speech`
+- `POST /audio/transcriptions`
+- `POST /ocr`
 
 ## Identify Every Caller
 
@@ -772,14 +791,21 @@ Every row names its `capability`. Besides language-model rounds, the ledger
 records the images that an `image_generate` provider generated, for a direct
 image request or for a hosted Response, as one row with `unit` `image` and the
 number of images in `quantity`, and it records each call of a decision model
-with the token counts that the model reported. `provider_cost` holds the cost
-of such a round when the Provider reports one. An image that the
+with the token counts that the model reported. A speech call is one row with
+`unit` `character` and the length of its `input` in `quantity`. A
+transcription call is one row with `unit` `second` and the seconds of audio
+that the Provider reports, rounded up; the row carries no unit when the
+Provider reports no duration. A call of an OCR model is one row with `unit`
+`page` and the number of pages that the Provider processed. `provider_cost` holds the cost of such a round
+when the Provider reports one. An image that the
 language-model provider generates natively stays inside that provider's
 language-model round. Token quota windows, the usage of one Signal, and the
 Console Model usage page read language-model rows only.
 
 Applet backend calls to `AnkoleRuntime.ai.generateText`,
 `AnkoleRuntime.ai.generateImage`, `AnkoleRuntime.ai.decide`,
+`AnkoleRuntime.ai.generateSpeech`, `AnkoleRuntime.ai.transcribe`,
+`AnkoleRuntime.ai.ocr`,
 `AnkoleRuntime.web.search`, and `AnkoleRuntime.web.fetch` run in-process under
 the selected ordinary or `admin` execution Principal (`caller: "pod_applet"`). Human Principals resolve the
 tenant's `system` model profiles, whereas Agent Principals resolve that Agent's
@@ -1788,6 +1814,96 @@ Agent's token quota. A reply that does not satisfy the schema fails with
 level, and providers cap the size of a schema, so a request that a language
 model answers can carry at most 500 options and levels in total; AIGateway
 rejects a larger one with `400 invalid_value`.
+
+## Turn Text into Speech and Audio into Text
+
+`Ankole.AIGateway.Audio` owns two request contracts. Both resolve a Pod or
+Site profile through `default`, the capability's `.default` selector, or an
+explicit `provider_id/model` selector, and neither has a language-model
+fallback: a request whose profile is not configured fails with
+`model_profile_not_configured`.
+
+`POST /audio/speech` turns text into audio through the `speech` profile:
+
+- `input` is required and holds the text to speak.
+- `voice` optionally names a voice of the model.
+- `response_format` is `mp3`, the default, or `pcm`.
+- `speed` optionally sets a playback speed multiplier, and `instructions`
+  optionally describes the delivery, such as tone or pacing.
+
+The response body is the audio itself. Its content type is the audio type
+that the Provider names; when the Provider names none, it is `audio/mpeg` for
+`mp3` and `audio/pcm` for `pcm`. A caller can send `Accept: audio/*`. The
+kernel hands the Provider's bytes to the control plane as base64, reads up to
+128 MiB of audio, and fails the request when a Provider answers a speech
+request with anything but audio. The `openrouter` provider kind sends
+the request to `/audio/speech` unchanged under the provider model. The
+`cloudflare` provider kind serves the Deepgram Aura models on Workers AI,
+which take the text and the voice, answer with MP3, and keep their own rate
+and delivery; a request that asks such a model for `pcm`, `speed`, or
+`instructions` fails with `400 unsupported_value`.
+
+`POST /audio/transcriptions` turns audio into text through the
+`transcription` profile:
+
+- `input_audio` is required and holds `data`, base64 audio that decodes to at
+  most 25 MiB, and `format`, such as `mp3` or `wav`.
+- `language` optionally names the spoken language.
+- `response_format` is `json`, the default, or `verbose_json`.
+- `vad_filter` optionally asks the model to skip the parts without speech. A
+  model that has no such filter ignores it.
+
+The response carries `model`, `text`, and `usage` with the `seconds` of audio
+when the Provider reports them. With `verbose_json` it also carries the
+`language`, the `duration` in seconds, and `segments`, each with `start`,
+`end`, and `text`, as far as the Provider reports them. The `openrouter`
+provider kind sends the request to `/audio/transcriptions`. The `cloudflare`
+provider kind serves the Workers AI models that take base64 audio, such as
+`@cf/openai/whisper-large-v3-turbo`.
+
+## Read a Document as Markdown
+
+`POST /ocr` returns the text of a PDF or a document image as Markdown, page
+by page. `Ankole.AIGateway.OCR` owns the request contract:
+
+- `document` is required and holds a PDF or one PNG, JPEG, or WebP image, as
+  a base64 data URL or as an object with `content_type` and `base64`.
+  AIGateway accepts a PDF of at most 50 MiB and an image of at most 20 MiB,
+  both measured in decoded bytes. An OCR model can accept less, such as a
+  smaller document or fewer image formats, and AIGateway passes its rejection
+  on to the caller.
+- `pages` optionally lists 1 to 100 distinct page indexes of a PDF, starting
+  at 0. When the request omits it, AIGateway sends no `pages` to the OCR
+  model. A caller that needs more than 100 selected pages sends them in
+  several requests. An image is one page and takes no `pages`.
+- `model` is required.
+
+The response carries `model`, `pages`, and `usage`. `pages` lists the pages
+that the Provider reports, each with its `index` and its `markdown`.
+AIGateway passes the Provider's `index` through unchanged and sorts the pages
+by it. A page without text has an empty `markdown`. `usage` holds the number
+of `pages` that the Provider processed.
+
+The `default` and `ocr.default` selectors resolve the Pod or Site `ocr`
+profile, and an explicit `provider_id/model` selector names an OCR model
+directly. The `mistral` provider kind serves the capability: it sends a PDF
+to Mistral's `/ocr` endpoint as a document link and an image as an image
+link, each as a base64 data URL, together with the selected `pages`.
+AIGateway returns the text only, so it removes the placeholder that the
+Provider's Markdown holds for each picture of a page.
+
+When the `ocr` profile is not configured, a language model that accepts
+images reads the document, so the request can carry an image only, and a PDF
+fails with `400 unsupported_value`. AIGateway sends one stateless Responses
+request to the caller's `vision_fallback` profile, or to the `primary`
+profile when `vision_fallback` is not configured, and reports that model in
+`model`. The instructions ask for the text in reading order, with headings,
+lists, and tables as Markdown, and they tell the model to treat the image as
+data and to name an image without text, which becomes a page with an empty
+`markdown`. A reply without any text fails with `invalid_ocr_output`. Such a
+request counts as an ordinary language-model request for usage records and
+for an Agent's token quota, and its `usage` also holds `input_tokens` and
+`output_tokens`.
 
 ## Store Vision Files and Generated Images
 

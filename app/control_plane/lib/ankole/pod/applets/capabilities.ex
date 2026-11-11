@@ -20,6 +20,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
         "state.delete",
         "signals.emit",
         "ai.generateImage",
+        "ai.generateSpeech",
         "notifications.post",
         "approvals.request",
         "approvals.decide",
@@ -142,6 +143,13 @@ defmodule Ankole.Pod.Applets.Capabilities do
            authentication_ref: context["authentication_ref"]
          )
 
+  defp dispatch_context(context, page, actor, _caller, "ai.generateSpeech", [options])
+       when is_map(options),
+       do:
+         AI.generate_speech(page, actor, options,
+           authentication_ref: context["authentication_ref"]
+         )
+
   defp dispatch_context(_context, page, actor, _caller, operation, args),
     do: dispatch(page, actor, operation, args)
 
@@ -238,6 +246,12 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   defp dispatch(_page, actor, "ai.decide", [options]) when is_map(options),
     do: AI.decide(actor, options)
+
+  defp dispatch(_page, actor, "ai.transcribe", [options]) when is_map(options),
+    do: AI.transcribe(actor, options)
+
+  defp dispatch(_page, actor, "ai.ocr", [options]) when is_map(options),
+    do: AI.ocr(actor, options)
 
   defp dispatch(_page, actor, "web.search", [options]) when is_map(options),
     do: Web.search(actor, options)

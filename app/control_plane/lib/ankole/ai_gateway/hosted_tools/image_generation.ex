@@ -395,16 +395,10 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   end
 
   defp build_bounded_provider_request(selected_runtime, image_req, stream?) do
-    with {:ok, prepared_request} <-
-           Providers.build_image_generate_request(selected_runtime, image_req, stream?: stream?) do
-      {:ok,
-       Map.update(
-         prepared_request,
-         :limits,
-         %{max_response_bytes: @max_response_bytes},
-         &Map.put(&1, :max_response_bytes, @max_response_bytes)
-       )}
-    end
+    Providers.build_image_generate_request(selected_runtime, image_req,
+      stream?: stream?,
+      max_response_bytes: @max_response_bytes
+    )
   end
 
   defp hosted_image_usage(%{body: %{} = body}), do: hosted_image_usage(body)

@@ -18,7 +18,10 @@ defmodule Ankole.AIGateway.ProviderDSL do
     :web_search,
     :web_fetch,
     :image_generate,
-    :decision_model
+    :decision_model,
+    :speech_model,
+    :transcription_model,
+    :ocr_model
   ]
 
   @doc false
@@ -77,8 +80,11 @@ defmodule Ankole.AIGateway.ProviderDSL do
   Set `advanced: true` for operator fields that Console should collapse by
   default. Select fields declare their accepted string values with `options`.
   String fields can use `options` as editable suggestions without rejecting
-  other values. Settings do not define request transformation logic; provider
-  prepare functions remain ordinary Elixir code.
+  other values. A `scope: :request` setting can list the `capabilities` whose
+  requests read it, such as `capabilities: [:image_generate]`, so Console
+  offers it only on the model profiles of those capabilities. Settings do not
+  define request transformation logic; provider prepare functions remain
+  ordinary Elixir code.
   """
   defmacro setting(key, opts \\ []) do
     quote bind_quoted: [key: key, opts: opts] do
@@ -106,6 +112,15 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   @doc "Declares the provider's decision-model capability."
   defmacro decision_model(do: block), do: capability(:decision_model, block)
+
+  @doc "Declares the provider's text-to-speech capability."
+  defmacro speech_model(do: block), do: capability(:speech_model, block)
+
+  @doc "Declares the provider's speech-to-text capability."
+  defmacro transcription_model(do: block), do: capability(:transcription_model, block)
+
+  @doc "Declares the provider's OCR capability."
+  defmacro ocr_model(do: block), do: capability(:ocr_model, block)
 
   @doc """
   Declares the Rust API protocol resolver used for this capability.
@@ -202,6 +217,16 @@ defmodule Ankole.AIGateway.ProviderDSL do
             "encrypted setting #{inspect(key)} in #{inspect(module)} must use scope: :credential"
     end
 
+    capabilities = Keyword.get(opts, :capabilities)
+
+    # Only a model profile belongs to one capability, so only a request
+    # setting can be limited to some of them.
+    if capabilities != nil and (scope != :request or capabilities -- @capability_kinds != []) do
+      raise ArgumentError,
+            "setting #{inspect(key)} in #{inspect(module)} can name capabilities only with " <>
+              "scope: :request, out of #{inspect(@capability_kinds)}"
+    end
+
     setting = %Setting{
       key: normalize_setting_key(key),
       type: Keyword.get(opts, :type),
@@ -210,7 +235,8 @@ defmodule Ankole.AIGateway.ProviderDSL do
       required?: Keyword.get(opts, :required, false),
       encrypted?: encrypted?,
       advanced?: Keyword.get(opts, :advanced, false),
-      scope: scope
+      scope: scope,
+      capabilities: capabilities
     }
 
     Module.put_attribute(module, :ai_provider_settings, setting)

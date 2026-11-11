@@ -2957,7 +2957,7 @@ HTTP fragments. Ankole accepts fragmented bodies within that limit and returns
 HTTP 413 for overflow.
 
 `GET` marks the complete call chain read-only, including nested `signals.call`.
-The host rejects record/file writes, `ai.generateImage`, state changes, event emission, slice
+The host rejects record/file writes, `ai.generateImage`, `ai.generateSpeech`, state changes, event emission, slice
 continuation and MCP tools without a server-declared `readOnlyHint: true`.
 `signals.call` stays on the same Page and consumes the caller's remaining budget.
 An `admin.signals.call` uses the Owner to authorize that call while the child
@@ -3127,6 +3127,30 @@ business write:
   `outputTokens`. A request that AIGateway rejects returns `400
   invalid_request` with AIGateway's message, which names the field at fault.
   `GET` and `read_only` routes can call it.
+- **`ai.generateSpeech`, `ai.transcribe`, and `ai.ocr`**: Each call rejects an
+  unknown option with `400 invalid_request` and runs under the selected
+  ordinary or `admin` execution Principal (mirrored on
+  `AnkoleRuntime.admin.ai`). `ai.generateSpeech` accepts `input`, `voice`,
+  `format` (`mp3` or `pcm`), `speed`, `instructions`, and `saveTo`, resolves
+  AIGateway's `speech.default` selector, and stores the audio the way
+  `ai.generateImage` stores an image: in `assets/<sha256>/<name>` on the
+  Applet Page, or on the `saveTo` Page. It returns `url`, `mimeType`, and
+  `file`, and `GET` and `read_only` routes reject it with
+  `500 read_only_route`. `ai.transcribe` accepts `audio`, a Pod
+  `pages/<id>/...` reference of at most 25 MiB whose file extension names the
+  audio format, together with `language`, `vadFilter`, and `verbose`; it
+  resolves `transcription.default` and returns `model`, `text`, and `usage`
+  with `seconds`, plus `language`, `duration`, and `segments` when `verbose`
+  is `true`. `ai.ocr` accepts `image`, a Pod reference to a PNG, JPEG, or WebP
+  file, which the `ocr` profile's model reads, or a language model that
+  accepts images when that profile is not configured; it returns `model`,
+  `pages` with `index` and `markdown`, and `usage` with `pages`,
+  `inputTokens`, and `outputTokens`. The token counts are 0 when an OCR
+  model, which counts pages only, read the image. The execution Principal must be able
+  to read the referenced file. `GET` and `read_only` routes can call
+  `ai.transcribe` and `ai.ocr`. See
+  [AIGateway](AIGateway.md#turn-text-into-speech-and-audio-into-text) for the
+  models that serve each call.
 - **`ai.generateText` and `ai.generateImage`**: Configuration, authorization, and
   usage attribution follow the selected ordinary or `admin` execution Principal
   (mirrored on `AnkoleRuntime.admin.ai`). `ai.generateText` accepts a built-in

@@ -48,17 +48,22 @@ defmodule Ankole.AIGateway.UsageLedger do
   def record(_runtime, _subject_type, _round, _opts), do: :ok
 
   @doc """
-  Records one completed call of an image or decision provider.
+  Records one completed call of an image, decision, speech, transcription, or
+  OCR provider.
 
   `result` carries the Provider's `usage`. An image call records `quantity`
-  generated images, one by default. `request_context` attributes the call to
+  generated images, one by default. A speech call records the `quantity` of
+  characters that it turned into audio, a transcription call records the
+  seconds of audio that the Provider reports, and an OCR call records the
+  pages that the Provider processed. `request_context` attributes the call to
   the work that made it when the runtime does not carry that context itself.
   """
   @spec record_capability(map() | nil, String.t() | nil, map(), keyword()) :: :ok
   def record_capability(runtime, subject_type, result, opts \\ [])
 
   def record_capability(%{"capability" => capability} = runtime, subject_type, result, opts)
-      when capability in ["image_generate", "decision"] and is_map(result) do
+      when capability in ["image_generate", "decision", "speech", "transcription", "ocr"] and
+             is_map(result) do
     runtime =
       case Keyword.get(opts, :request_context) do
         %{} = request_context -> Map.put(runtime, "request_context", request_context)
@@ -96,6 +101,34 @@ defmodule Ankole.AIGateway.UsageLedger do
       provider_cost: provider_cost(usage)
     }
   end
+
+  defp capability_use("speech", usage, opts) do
+    %{
+      capability: :speech,
+      unit: :character,
+      quantity: Keyword.fetch!(opts, :quantity),
+      provider_cost: provider_cost(usage)
+    }
+  end
+
+  # A started second counts as a whole one.
+  defp capability_use("transcription", %{"seconds" => seconds} = usage, _opts)
+       when is_number(seconds) and seconds >= 0 do
+    %{
+      capability: :transcription,
+      unit: :second,
+      quantity: ceil(seconds),
+      provider_cost: provider_cost(usage)
+    }
+  end
+
+  defp capability_use("transcription", usage, _opts),
+    do: %{capability: :transcription, provider_cost: provider_cost(usage)}
+
+  defp capability_use("ocr", %{"pages" => pages}, _opts) when is_integer(pages),
+    do: %{capability: :ocr, unit: :page, quantity: pages}
+
+  defp capability_use("ocr", _usage, _opts), do: %{capability: :ocr}
 
   defp provider_cost(%{"cost" => cost}) when is_number(cost) and cost >= 0,
     do: Decimal.new("#{cost}")

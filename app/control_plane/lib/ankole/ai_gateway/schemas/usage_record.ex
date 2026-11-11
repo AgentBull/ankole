@@ -8,8 +8,9 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
   whose `capability` is `image_generate`.
 
   A round that is not a language-model round records what it produced in
-  `unit` and `quantity`, such as one image, and the cost in `provider_cost`
-  when the Provider reports one.
+  `unit` and `quantity`, such as one image, the characters of a speech request,
+  the seconds of transcribed audio, or the pages that an OCR model read, and
+  the cost in `provider_cost` when the Provider reports one.
 
   A token count is `nil` when the Provider did not report it, and 0 only when
   the Provider reported zero. `model` is the requested `provider_id/model`;
@@ -78,10 +79,10 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
     attribute(:capability, :atom,
       allow_nil?: false,
       default: :llm,
-      constraints: [one_of: [:llm, :image_generate, :decision]]
+      constraints: [one_of: [:llm, :image_generate, :decision, :speech, :transcription, :ocr]]
     )
 
-    attribute(:unit, :atom, constraints: [one_of: [:image]])
+    attribute(:unit, :atom, constraints: [one_of: [:image, :character, :second, :page]])
     attribute(:quantity, :integer, constraints: [min: 0])
     attribute(:provider_cost, :decimal, constraints: [min: 0])
     create_timestamp(:inserted_at, type: :utc_datetime_usec)

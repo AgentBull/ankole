@@ -166,6 +166,8 @@ defmodule AnkoleWeb.Router do
     pipe_through :ai_gateway_api
 
     get "/files/:file_id/content", AIGatewayFilesController, :content
+    # The response is audio, so a client can ask for `audio/*`.
+    post "/audio/speech", AIGatewayController, :speech
   end
 
   scope "/api/v1/ai-gateway", AnkoleWeb do
@@ -186,6 +188,8 @@ defmodule AnkoleWeb.Router do
     post "/web_fetch", AIGatewayController, :web_fetch
     post "/decisions", AIGatewayController, :decisions
     post "/images", AIGatewayController, :images
+    post "/audio/transcriptions", AIGatewayController, :transcriptions
+    post "/ocr", AIGatewayController, :ocr
   end
 
   # Capability URL ingress for external task receipts. The token in the path is

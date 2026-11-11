@@ -171,6 +171,12 @@ defmodule Ankole.AIGateway.ModelProfilesTest do
     assert ModelProfiles.custom_profile_name?("rerank")
     assert ModelProfiles.profile_capability("rerank") == {:ok, "llm"}
 
+    # The other Pod/Site capability slots leave their names to custom aliases too.
+    for name <- ~w(decision speech transcription ocr) do
+      assert ModelProfiles.custom_profile_name?(name)
+      assert ModelProfiles.profile_capability(name) == {:ok, "llm"}
+    end
+
     assert {:ok, agent_runtime} =
              Resolver.resolve_request_model(agent.uid, "llm", %{"model" => "rerank"})
 

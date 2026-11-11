@@ -18,9 +18,9 @@ defmodule Ankole.AIGateway.Resolver do
   Resolves the request `model` field for one Principal subject and capability.
 
   LLM aliases use named profiles such as `primary`. Embedding accepts only
-  explicit `provider_id/model` selectors; other capabilities, including rerank and
-  decision, accept `default` or their explicit default bindings such as
-  `web_search.default`.
+  explicit `provider_id/model` selectors; other capabilities, including rerank,
+  decision, speech, transcription, and OCR, accept `default` or their explicit
+  default bindings such as `web_search.default`.
   """
   @spec resolve_request_model(String.t(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -57,7 +57,16 @@ defmodule Ankole.AIGateway.Resolver do
   end
 
   defp resolve_model(subject_uid, capability, selector, request)
-       when capability in ["web_search", "web_fetch", "image_generate", "rerank", "decision"] do
+       when capability in [
+              "web_search",
+              "web_fetch",
+              "image_generate",
+              "rerank",
+              "decision",
+              "speech",
+              "transcription",
+              "ocr"
+            ] do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
         resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)
@@ -86,9 +95,10 @@ defmodule Ankole.AIGateway.Resolver do
   # Profile resolution keeps encrypted provider options in the control plane.
   # Workers get only AIGateway API keys and never receive upstream provider
   # secrets.
-  # Rerank and decision are Pod/Site slots, which an Agent cannot override.
+  # Rerank, decision, speech, transcription, and OCR are Pod/Site slots, which
+  # an Agent cannot override.
   defp resolve_profile_model(subject_uid, capability, selector, capability, request)
-       when capability in ["rerank", "decision"] do
+       when capability in ["rerank", "decision", "speech", "transcription", "ocr"] do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, principal} <- Principals.get_principal(subject_uid),
          {:ok, profile} <- pod_slot_profile(principal, capability) do

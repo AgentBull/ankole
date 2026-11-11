@@ -394,6 +394,7 @@ export type ListAiGatewayProviderKindsResponses = {
       provider_kind: string
       settings: Array<{
         advanced: boolean
+        capabilities?: Array<string> | null
         default?: unknown | null
         encrypted: boolean
         key: string

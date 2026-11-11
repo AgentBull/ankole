@@ -86,6 +86,50 @@ export type DecideResult = {
   answers: Record<string, DecisionAnswer>
   usage: { inputTokens: number; outputTokens: number }
 }
+export type GenerateSpeechOptions = {
+  input: string
+  voice?: string
+  format?: 'mp3' | 'pcm'
+  speed?: number
+  instructions?: string
+  saveTo?: { pageId: string; name?: string }
+}
+export type GenerateSpeechResult = {
+  url: string
+  /** `audio/mpeg` for mp3 and `audio/pcm` for pcm, unless the speech model names another audio type. */
+  mimeType: string
+  file: FileEntry & {
+    name: string
+    mime: string
+    pageId: string
+  }
+}
+export type TranscribeOptions = {
+  /** A Pod file path such as `pages/<pageId>/call.mp3`; the extension names the audio format. */
+  audio: string
+  language?: string
+  vadFilter?: boolean
+  /** Also returns the language, the duration, and the segments that the model reports. */
+  verbose?: boolean
+}
+export type TranscribeResult = {
+  model: string
+  text: string
+  language?: string
+  duration?: number
+  segments?: { start: number; end: number; text: string }[]
+  usage: { seconds?: number }
+}
+export type OCROptions = {
+  /** A Pod file path of a PNG, JPEG, or WebP image. */
+  image: string
+}
+export type OCRResult = {
+  model: string
+  pages: { index: number; markdown: string }[]
+  /** The tokens are 0 when an OCR model, which counts pages only, read the image. */
+  usage: { pages: number; inputTokens: number; outputTokens: number }
+}
 export type WebSearchOptions = {
   query: string
   limit?: number
@@ -274,6 +318,9 @@ export type RuntimeCapabilities = {
     generateText(options: GenerateTextOptions): Promise<GenerateTextResult>
     generateImage(options: GenerateImageOptions): Promise<GenerateImageResult>
     decide(options: DecideOptions): Promise<DecideResult>
+    generateSpeech(options: GenerateSpeechOptions): Promise<GenerateSpeechResult>
+    transcribe(options: TranscribeOptions): Promise<TranscribeResult>
+    ocr(options: OCROptions): Promise<OCRResult>
   }
   web: {
     search(options: WebSearchOptions): Promise<WebSearchResult>

@@ -199,6 +199,11 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::SystemoneDecision => Box::new(SystemOneDecision),
         APIResolverKind::OpenAIDecision => Box::new(OpenAIDecision),
         APIResolverKind::CloudflareImages => Box::new(CloudflareImages),
+        APIResolverKind::OpenrouterSpeech => Box::new(OpenrouterSpeech),
+        APIResolverKind::CloudflareSpeech => Box::new(CloudflareSpeech),
+        APIResolverKind::OpenrouterTranscription => Box::new(OpenrouterTranscription),
+        APIResolverKind::CloudflareTranscription => Box::new(CloudflareTranscription),
+        APIResolverKind::MistralOcr => Box::new(MistralOcr),
     }
 }
 

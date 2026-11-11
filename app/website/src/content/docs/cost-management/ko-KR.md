@@ -11,7 +11,7 @@ Ankole에서 발생하는 지출의 대부분은 모델 토큰 비용이며, 통
 
 ## 레버 1: model-profile 계층
 
-모델 프로필(Model Profile)은 **Console → Model Profiles**의 3계층 희소 상속 체인(`Site -> Pod -> Agent/System`)을 따라 해석됩니다. 각 Agent는 8개의 기본 슬롯(언어 모델 5개와 `web_search`, `web_fetch`, `image_generate`)을 제공하며, Site·Pod 및 내장 `system` Principal(`ankole_brain`, `system`)은 `rerank`와 `decision` 슬롯을 추가로 제공합니다. 비워 둔 슬롯은 Pod와 Site 기본값을 상속하며 `coding -> heavy -> primary` 및 `light -> primary` 슬롯 간 폴백이 적용됩니다.
+모델 프로필(Model Profile)은 **Console → Model Profiles**의 3계층 희소 상속 체인(`Site -> Pod -> Agent/System`)을 따라 해석됩니다. 각 Agent는 8개의 기본 슬롯(언어 모델 5개와 `web_search`, `web_fetch`, `image_generate`)을 제공하며, Site·Pod 및 내장 `system` Principal(`ankole_brain`, `system`)은 `rerank`, `decision`, `speech`, `transcription`, `ocr` 슬롯을 추가로 제공합니다. 비워 둔 슬롯은 Pod와 Site 기본값을 상속하며 `coding -> heavy -> primary` 및 `light -> primary` 슬롯 간 폴백이 적용됩니다.
 
 | 슬롯 | 실행 시점 | 비용 레버 |
 |---|---|---|
@@ -24,6 +24,9 @@ Ankole에서 발생하는 지출의 대부분은 모델 토큰 비용이며, 통
 | `image_generate` | 이미지 생성 | 호출당 단가가 높음. 실제로 사용할 때만 바인딩 |
 | `rerank`(Site / Pod / `system`) | Brain 회상 재순위화 및 `/rerank` 기본 경로 | 빠르고 저렴한 전용 리랭커 모델 연결 권장 |
 | `decision`(Site / Pod / `system`) | `/decisions`의 확률 포함 답변 | 결정 모델 연결 권장. 비워 두면 `light` 모델이 답변 |
+| `speech`(Site / Pod / `system`) | `/audio/speech`의 음성 합성 | 음성 합성 모델 연결 필요. 비워 두면 음성 합성 요청이 실패 |
+| `transcription`(Site / Pod / `system`) | `/audio/transcriptions`의 음성 인식 | 음성 인식 모델 연결 필요. 비워 두면 음성 인식 요청이 실패 |
+| `ocr`(Site / Pod / `system`) | `/ocr`의 PDF·이미지 Markdown 읽기 | PDF를 읽으려면 OCR 모델 연결 필요. 비워 두면 언어 모델이 이미지만 읽음 |
 
 컨트롤 플레인 서브시스템의 모델 호출은 내장 `system` Principal 명의로 실행되므로 백그라운드 유지보수나 Applet이 포그라운드 Agent의 토큰 할당량을 소모하지 않습니다.
 

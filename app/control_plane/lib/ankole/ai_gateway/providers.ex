@@ -27,7 +27,10 @@ defmodule Ankole.AIGateway.Providers do
     :web_search,
     :web_fetch,
     :image_generate,
-    :decision_model
+    :decision_model,
+    :speech_model,
+    :transcription_model,
+    :ocr_model
   ]
   @cache_key {__MODULE__, :registry}
 
@@ -47,7 +50,8 @@ defmodule Ankole.AIGateway.Providers do
     Ankole.AIGateway.Providers.JinaSearch,
     Ankole.AIGateway.Providers.JinaReader,
     Ankole.AIGateway.Providers.Cloudflare,
-    Ankole.AIGateway.Providers.TypeSafe
+    Ankole.AIGateway.Providers.TypeSafe,
+    Ankole.AIGateway.Providers.Mistral
   ]
 
   @type definition :: ProviderDefinition.t()
@@ -445,6 +449,27 @@ defmodule Ankole.AIGateway.Providers do
     do: build_prepared_request(runtime, :decision_model, request, [])
 
   @doc """
+  Builds a prepared text-to-speech request for UniversalAIClient.
+  """
+  @spec build_speech_request(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def build_speech_request(runtime, request, opts \\ []),
+    do: build_prepared_request(runtime, :speech_model, request, opts)
+
+  @doc """
+  Builds a prepared speech-to-text request for UniversalAIClient.
+  """
+  @spec build_transcription_request(map(), map()) :: {:ok, map()} | {:error, term()}
+  def build_transcription_request(runtime, request),
+    do: build_prepared_request(runtime, :transcription_model, request, [])
+
+  @doc """
+  Builds a prepared OCR request for UniversalAIClient.
+  """
+  @spec build_ocr_request(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def build_ocr_request(runtime, request, opts \\ []),
+    do: build_prepared_request(runtime, :ocr_model, request, opts)
+
+  @doc """
   Builds a prepared image-generation request for the provider that serves the
   `image_generate` capability.
 
@@ -516,6 +541,8 @@ defmodule Ankole.AIGateway.Providers do
          {:ok, ctx} <- PrepareContext.build(provider, capability_kind, runtime, request, opts),
          ctx = apply_provider_request_policies(ctx),
          {:ok, prepared} <- call_prepare(provider.module, capability, ctx) do
+      prepared = put_response_limit(prepared, Keyword.get(opts, :max_response_bytes))
+
       rebuild = fn next_runtime, request_override ->
         build_prepared_request(
           next_runtime,
@@ -527,6 +554,20 @@ defmodule Ankole.AIGateway.Providers do
 
       {:ok, CredentialAttempts.attach(prepared, runtime, rebuild, request)}
     end
+  end
+
+  # A capability whose responses outgrow the kernel's default limit names its
+  # own in `opts`. The request that is rebuilt for the next credential comes
+  # through here with the same `opts`, so it keeps the limit.
+  defp put_response_limit(prepared, nil), do: prepared
+
+  defp put_response_limit(prepared, max_bytes) do
+    Map.update(
+      prepared,
+      :limits,
+      %{max_response_bytes: max_bytes},
+      &Map.put(&1, :max_response_bytes, max_bytes)
+    )
   end
 
   defp apply_provider_request_policies(%PrepareContext{} = ctx) do
@@ -755,7 +796,10 @@ defmodule Ankole.AIGateway.Providers do
       "advanced" => setting.advanced?,
       "scope" => Atom.to_string(setting.scope),
       "default" => setting.default,
-      "options" => setting.options
+      "options" => setting.options,
+      "capabilities" =>
+        setting.capabilities &&
+          Enum.map(setting.capabilities, &ProviderDefinition.capability_name/1)
     }
   end
 

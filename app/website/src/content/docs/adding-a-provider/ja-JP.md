@@ -74,6 +74,7 @@ setting(:reasoningEffort, type: :select, default: "high",
 | `encrypted?` | 認証情報を保存時に暗号化するためのストレージ用メタデータ |
 | `advanced?` | Console フォームの表示制御用メタデータ。バリデーションや実行時の挙動には影響しない |
 | `scope` | `:credential`（pool メンバー単位）、`:connection`（provider レコード単位）、または `:request`（model profile 単位） |
+| `capabilities` | `:request` の設定でのみ指定可能。この設定を読み取る capability kind を `[:image_generate]` のように列挙する。Console はその capability の model profile にだけ設定を表示し、省略した場合はすべての profile に表示する |
 
 すべての provider レコードは、メンバーが 1 つだけの場合も含めて credential pool を持ちます。resolver は prepare 関数を呼び出す前に正常なメンバーを 1 つ選び、その `:credential` 設定を復号します。一方、エンドポイントやカスタムヘッダーなどの `:connection` 設定は provider レコード全体で共有され、`:request` 設定は model profile から渡されます。prepare 関数は解決済みの settings マップからこれら 3 つのスコープの値をまとめて読み取るだけでよく、pool メンバーの選択ロジックを実装する必要はありません。
 
@@ -94,7 +95,7 @@ end
 
 | フィールド | 意味 |
 |---|---|
-| `kind` | `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate`、`:decision_model` のいずれか |
+| `kind` | `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate`、`:decision_model`、`:speech_model`、`:transcription_model`、`:ocr_model` のいずれか |
 | `upstream` | 通信フォーマット。`kind` から自動的に決まり、`:language_model` は `:sse`、それ以外はすべて `:json` になる |
 | `api_resolver` | エンコーディングと transport を担う Rust 側の resolver atom（例: `:openai_responses`） |
 | `prepare` | 送信用のリクエストを組み立てる Elixir 関数 |
@@ -102,7 +103,7 @@ end
 | `supports_parallel_tool_calls?` | provider が並列ツール呼び出しを受け付けるかどうか |
 | `supports_native_image_generation?` | hosted の `image_generate` プロファイルなしで、LLM が公開画像ツールを実行できるかどうか |
 
-これら 7 種類の capability kind は、実行時に使われる外部名へマッピングされます。具体的には `language_model` が `"llm"`、`embedding_model` が `"embedding"`、`rerank_model` が `"rerank"`、`decision_model` が `"decision"` に対応し、残りの 3 つの Web / 画像系 kind はそのままの名前で使われます。LLM のみを提供する provider は `language_model` だけを宣言し、LLM と embedding の両方を提供する provider はその両方を宣言します。
+これら 10 種類の capability kind は、実行時に使われる外部名へマッピングされます。具体的には `language_model` が `"llm"`、`embedding_model` が `"embedding"`、`rerank_model` が `"rerank"`、`decision_model` が `"decision"`、`speech_model` が `"speech"`、`transcription_model` が `"transcription"`、`ocr_model` が `"ocr"` に対応し、残りの 3 つの Web / 画像系 kind はそのままの名前で使われます。LLM のみを提供する provider は `language_model` だけを宣言し、LLM と embedding の両方を提供する provider はその両方を宣言します。
 
 TypeSafe、Microsoft Foundry、OpenRouter の SystemOne エンドポイントには `:systemone_decision`、OpenAI `/decisions` には `:openai_decision` を使用します。resolver は state と画像のエンコーディング、質問の変換、回答の正規化を担当し、provider の prepare 関数は base URL、デプロイ名またはモデル名、認証、固有ヘッダー、リクエストオプションを担当します。`TypeSafe` には provider 独自の `/models` メタデータソースの実装もあり、TypeSafe の `models` と OpenAI 形式の `data` の両方のカタログを読み取れます。
 
