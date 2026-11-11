@@ -2778,6 +2778,44 @@ undo = "Undo"
 [pod.sidebar.tabs]
 home = "Home"
 chat = "Chat"
+work = "Work"
+
+[pod.work]
+layout = "Layout"
+board = "Board"
+list = "List"
+new_issue = "New issue"
+new_issue_hint = "The Agent starts working at once. Choose Start later to keep the issue waiting."
+create_issue = "Create issue"
+empty = "No issues yet. Create one to hand work to an Agent."
+issue = "Issue"
+close_issue = "Close the issue panel"
+title_label = "Title"
+agent_label = "Agent"
+no_agent = "No Agent is available to you."
+description = "Description"
+description_placeholder = "What should be done, and how will you know it is done?"
+start_label = "Start"
+start_now = "Start now"
+start_later = "Start later"
+start = "Start"
+accept = "Mark done"
+reopen = "Reopen"
+open_chat = "Open in Chat"
+scheduled = "Scheduled"
+paused = "Paused"
+next_run = "Next: {$time}"
+
+[pod.work.status]
+todo = "To do"
+working = "In progress"
+waiting = "Needs you"
+review = "In review"
+done = "Done"
+
+[pod.work.schedule_kind]
+cron = "Recurring"
+checkback = "Check back"
 
 [pod.chat]
 personal_assistant = "Personal assistant"

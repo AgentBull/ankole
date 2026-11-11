@@ -2706,6 +2706,44 @@ undo = "元に戻す"
 [pod.sidebar.tabs]
 home = "ホーム"
 chat = "チャット"
+work = "Work"
+
+[pod.work]
+layout = "レイアウト"
+board = "ボード"
+list = "リスト"
+new_issue = "Issue を作成"
+new_issue_hint = "Agent はすぐに作業を始めます。待たせたいときは「あとで開始」を選んでください。"
+create_issue = "Issue を作成"
+empty = "まだ Issue がありません。作成して Agent に作業を任せましょう。"
+issue = "Issue"
+close_issue = "Issue パネルを閉じる"
+title_label = "タイトル"
+agent_label = "Agent"
+no_agent = "利用できる Agent がありません。"
+description = "説明"
+description_placeholder = "何をするのか、どうなれば完了なのかを書いてください。"
+start_label = "開始"
+start_now = "すぐに開始"
+start_later = "あとで開始"
+start = "開始"
+accept = "完了にする"
+reopen = "再開"
+open_chat = "チャットで開く"
+scheduled = "スケジュール"
+paused = "一時停止中"
+next_run = "次回：{$time}"
+
+[pod.work.status]
+todo = "未着手"
+working = "進行中"
+waiting = "対応待ち"
+review = "確認待ち"
+done = "完了"
+
+[pod.work.schedule_kind]
+cron = "定期実行"
+checkback = "後で確認"
 
 [pod.chat]
 personal_assistant = "パーソナルアシスタント"

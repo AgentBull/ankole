@@ -178,6 +178,11 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                    attrs["agent_uid"],
                    attrs["owner_session_id"]
                  ),
+               :ok <-
+                 Ankole.Issues.ensure_for_task_room_in_tx(
+                   attrs["agent_uid"],
+                   attrs["owner_session_id"]
+                 ),
                {:ok, job_id} <- next_job_id(),
                attrs <- Map.put(attrs, "workspace_owner_job_id", job_id),
                {:ok, attrs} <- pin_owner_conversation(attrs),
@@ -224,6 +229,11 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                :ok <- ensure_no_successor(source_job),
                :ok <-
                  Workflow.TaskLifecycle.authorize_delegated_job_owner_in_tx(
+                   attrs["agent_uid"],
+                   attrs["owner_session_id"]
+                 ),
+               :ok <-
+                 Ankole.Issues.ensure_for_task_room_in_tx(
                    attrs["agent_uid"],
                    attrs["owner_session_id"]
                  ),

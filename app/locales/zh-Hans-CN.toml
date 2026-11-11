@@ -2707,6 +2707,44 @@ undo = "撤销"
 [pod.sidebar.tabs]
 home = "主页"
 chat = "对话"
+work = "Work"
+
+[pod.work]
+layout = "布局"
+board = "看板"
+list = "列表"
+new_issue = "新建 Issue"
+new_issue_hint = "Agent 会立刻开始工作。想先放着，就选“稍后开始”。"
+create_issue = "创建 Issue"
+empty = "还没有 Issue。新建一个，把工作交给 Agent。"
+issue = "Issue"
+close_issue = "关闭 Issue 面板"
+title_label = "标题"
+agent_label = "Agent"
+no_agent = "没有你可以使用的 Agent。"
+description = "描述"
+description_placeholder = "要做什么？做到什么程度算完成？"
+start_label = "开始方式"
+start_now = "立即开始"
+start_later = "稍后开始"
+start = "开始"
+accept = "完成"
+reopen = "重新打开"
+open_chat = "在对话中打开"
+scheduled = "定时"
+paused = "已暂停"
+next_run = "下次：{$time}"
+
+[pod.work.status]
+todo = "待开始"
+working = "进行中"
+waiting = "等你处理"
+review = "待验收"
+done = "已完成"
+
+[pod.work.schedule_kind]
+cron = "周期任务"
+checkback = "稍后回访"
 
 [pod.chat]
 personal_assistant = "个人助理"

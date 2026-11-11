@@ -398,6 +398,26 @@ export type PodBaseOperation = {
 }
 
 /**
+ * A "Resource object" representing a issue_operation
+ */
+export type IssueOperation = {
+  /**
+   * An attributes object for a issue_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a issue_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a applet_env_operation
  */
 export type AppletEnvOperation = {
@@ -1264,6 +1284,15 @@ export type ConnectorOperationFilter = {
 }
 
 /**
+ * Filters the query to results matching the given filter object
+ */
+export type IssueOperationFilter = {
+  and?: Array<IssueOperationFilter>
+  not?: IssueOperationFilter
+  or?: Array<IssueOperationFilter>
+}
+
+/**
  * A "Resource object" representing a meta_library
  */
 export type MetaLibrary = {
@@ -1500,6 +1529,138 @@ export type UpdateConversationParticipantsResponses = {
 
 export type UpdateConversationParticipantsResponse =
   UpdateConversationParticipantsResponses[keyof UpdateConversationParticipantsResponses]
+
+export type PodIssuesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/issues'
+}
+
+export type PodIssuesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodIssuesError = PodIssuesErrors[keyof PodIssuesErrors]
+
+export type PodIssuesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    issues: Array<{
+      agent?: {
+        name: string
+        uid: string
+      } | null
+      description?: string | null
+      id: string
+      lastActivityAt: string
+      runs: Array<{
+        agentUID: string
+        completedAt?: string | null
+        createdAt: string
+        id: string
+        kind: 'background_agent_job' | 'workflow'
+        planCompleted?: number | null
+        planTotal?: number | null
+        startedAt?: string | null
+        status: string
+        stepCount?: number | null
+        stoppable?: boolean | null
+        summary?: string | null
+        taskCounts?: {
+          completed: number
+          failed: number
+          queued: number
+          running: number
+          sleeping: number
+          total: number
+        } | null
+        title: string
+        updatedAt: string
+      }>
+      status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
+      title: string
+      tracked: boolean
+    }>
+  }
+}
+
+export type PodIssuesResponse = PodIssuesResponses[keyof PodIssuesResponses]
+
+export type CreatePodIssueData = {
+  /**
+   * Request body for the createPodIssue operation on issue_operation resource
+   */
+  body: {
+    data: {
+      agentUID: string
+      description?: string | null
+      start?: boolean | null
+      title: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/issues'
+}
+
+export type CreatePodIssueErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePodIssueError = CreatePodIssueErrors[keyof CreatePodIssueErrors]
+
+export type CreatePodIssueResponses = {
+  /**
+   * Success
+   */
+  201: {
+    agent?: {
+      name: string
+      uid: string
+    } | null
+    description?: string | null
+    id: string
+    lastActivityAt: string
+    runs: Array<{
+      agentUID: string
+      completedAt?: string | null
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
+      startedAt?: string | null
+      status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
+      title: string
+      updatedAt: string
+    }>
+    status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
+    title: string
+    tracked: boolean
+  }
+}
+
+export type CreatePodIssueResponse = CreatePodIssueResponses[keyof CreatePodIssueResponses]
 
 export type CreatePodRunnerJobData = {
   /**
@@ -7374,6 +7535,48 @@ export type PodConnectorAccountsConnectTeamResponses = {
 export type PodConnectorAccountsConnectTeamResponse =
   PodConnectorAccountsConnectTeamResponses[keyof PodConnectorAccountsConnectTeamResponses]
 
+export type PodScheduledWorkData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/issues/scheduled'
+}
+
+export type PodScheduledWorkErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodScheduledWorkError = PodScheduledWorkErrors[keyof PodScheduledWorkErrors]
+
+export type PodScheduledWorkResponses = {
+  /**
+   * Success
+   */
+  200: {
+    schedules: Array<{
+      agentName: string
+      agentUID: string
+      conversationID: string
+      conversationTitle: string
+      dueAt?: string | null
+      id: string
+      kind: string
+      lastFiredAt?: string | null
+      schedule?: {
+        [key: string]: unknown
+      } | null
+      status: string
+      timezone?: string | null
+      title: string
+    }>
+  }
+}
+
+export type PodScheduledWorkResponse = PodScheduledWorkResponses[keyof PodScheduledWorkResponses]
+
 export type PostConversationMessageData = {
   /**
    * Request body for the postConversationMessage operation on pod_chat_operation resource
@@ -11048,6 +11251,138 @@ export type MetaCreateAgentResponses = {
 }
 
 export type MetaCreateAgentResponse = MetaCreateAgentResponses[keyof MetaCreateAgentResponses]
+
+export type PodIssueData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/issues/{id}'
+}
+
+export type PodIssueErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodIssueError = PodIssueErrors[keyof PodIssueErrors]
+
+export type PodIssueResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent?: {
+      name: string
+      uid: string
+    } | null
+    description?: string | null
+    id: string
+    lastActivityAt: string
+    runs: Array<{
+      agentUID: string
+      completedAt?: string | null
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
+      startedAt?: string | null
+      status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
+      title: string
+      updatedAt: string
+    }>
+    status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
+    title: string
+    tracked: boolean
+  }
+}
+
+export type PodIssueResponse = PodIssueResponses[keyof PodIssueResponses]
+
+export type UpdatePodIssueData = {
+  /**
+   * Request body for the updatePodIssue operation on issue_operation resource
+   */
+  body?: {
+    data: {
+      description?: string | null
+      status?: 'started' | 'done' | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/issues/{id}'
+}
+
+export type UpdatePodIssueErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePodIssueError = UpdatePodIssueErrors[keyof UpdatePodIssueErrors]
+
+export type UpdatePodIssueResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent?: {
+      name: string
+      uid: string
+    } | null
+    description?: string | null
+    id: string
+    lastActivityAt: string
+    runs: Array<{
+      agentUID: string
+      completedAt?: string | null
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
+      startedAt?: string | null
+      status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
+      title: string
+      updatedAt: string
+    }>
+    status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
+    title: string
+    tracked: boolean
+  }
+}
+
+export type UpdatePodIssueResponse = UpdatePodIssueResponses[keyof UpdatePodIssueResponses]
 
 export type PodPageInsightsData = {
   body?: never

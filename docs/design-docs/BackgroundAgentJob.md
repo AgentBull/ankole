@@ -230,7 +230,12 @@ Session's active AIGateway conversation and writes its ID to
 `metadata.owner_conversation_id`. The Job runtime resolves conversation context
 from that metadata field, allowing control-plane-created Jobs and automatic
 steer-seeded successors to resolve their conversation without a live calling
-turn.
+turn. The owner Session also links the Job to an [Issue](Issues.md): a Job
+whose owner is an Issue's room is one of that Issue's runs. Creating a Job from
+an Agent's turn, or continuing a finished Job, reopens the room's accepted
+Issue in the same transaction and gives a personal assistant's task room its
+Issue when the room has none. A successor that a steer message seeds leaves the
+Issue as it is.
 
 When the originating Conversation is a Pod room, the control plane derives the
 source Page ID and Pod delivery instructions from the Conversation owner and

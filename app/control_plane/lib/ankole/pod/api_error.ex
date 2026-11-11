@@ -34,6 +34,8 @@ defmodule Ankole.Pod.APIError do
     anchor_page_required: {422, "Select an anchor page to share this discussion"},
     forbidden_room_operation: {403, "Only the room owner or space administrator can do this"},
     conversation_not_found: {404, "Conversation not found"},
+    issue_not_found: {404, "Issue not found"},
+    invalid_issue: {422, "The Issue's title, status, or Agent is invalid"},
     execution_not_found: {404, "Execution not found in this conversation"},
     execution_already_continued:
       {409, "This background job already continued in a follow-up run"},

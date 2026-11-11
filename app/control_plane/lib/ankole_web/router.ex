@@ -243,6 +243,7 @@ defmodule AnkoleWeb.Router do
     get "/site-admin-console/*path", SpaController, :console
     get "/settings", SpaController, :pod
     get "/connectors", SpaController, :pod
+    get "/work", SpaController, :pod
     get "/me", SpaController, :pod
     get "/pod", SpaController, :pod
     get "/pod/*path", SpaController, :pod

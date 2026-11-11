@@ -227,6 +227,7 @@ test('routeSidebarTab maps Meta Ankole routes to Home and preserves explicit kee
   expect(routeSidebarTab('/pages/abc')).toBe('home')
   expect(routeSidebarTab('/meta')).toBe('home')
   expect(routeSidebarTab('/meta/brain')).toBe('home')
+  expect(routeSidebarTab('/work')).toBe('work')
   expect(routeSidebarTab('/meta/skills/ops-guide')).toBe('home')
   expect(routeSidebarTab('/meta/brain/123', { keepSidebarTab: 'chat' })).toBe('chat')
 })

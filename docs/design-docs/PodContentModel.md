@@ -562,7 +562,7 @@ quiet, borderless field up to 240 px wide that names `Search or jump` and its
 button. The route's actions are
 a Page's actions on a Page, and the participants, invite, copy-link (a share
 icon), and summary buttons in a Conversation. Below the top bar, the sidebar
-(`Home` and `Chat` tabs at its top, while the `Space` and `Private` section
+(`Home`, `Chat`, and `Work` tabs at its top, while the `Space` and `Private` section
 headings carry the create buttons) sits beside the page (`main`), which fills
 the rest of the window edge to edge with small rounded top corners. On a Page,
 the document column is 832 px wide with at least 68 px on either side, and its
@@ -614,7 +614,9 @@ the sidebar retains up to three attention items in decision, relevant unread
 comment, then running-work order. Attention queries include older unfinished
 work outside the ordinary recent page. Chat combines pinned rooms, a collapsed
 Assistant section with active/unread tasks, and existing IM rooms plus callable
-colleagues. Both tabs offer New Chat for formal members.
+colleagues. Work lists the open work items by status and links to the Work
+page at `/work` (see [Issues](Issues.md)). Every tab offers New Chat for formal
+members.
 Opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
 the user's navigation context stays stable, and New Chat keeps whichever tab
 is open. `Favorites` renders inline above the
@@ -643,7 +645,7 @@ Every Pod on the same origin restores that device preference. When the desktop
 sidebar is collapsed, hovering the left screen edge opens it as a temporary
 ceramic overlay without changing the collapse preference or moving the page.
 Leaving the overlay closes it, while `Show sidebar` expands it persistently.
-The open sidebar tab shows its icon and label; the other tab shows only its
+The open sidebar tab shows its icon and label; each other tab shows only its
 icon and names itself in a tooltip. Switching tabs slides the selected fill to
 the new tab. The leading edge arrives first, so the fill briefly stretches
 while the old label closes and blurs away and the new label opens and comes

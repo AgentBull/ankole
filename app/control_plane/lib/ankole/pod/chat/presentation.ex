@@ -324,6 +324,18 @@ defmodule Ankole.Pod.Chat.Presentation do
     end)
   end
 
+  @doc """
+  Summarizes Background Agent Jobs and Workflows outside a room read, in the
+  shape of a room's linked runs: the Jobs first, then the Workflows, each in the
+  given order.
+  """
+  def run_summaries(jobs, workflows) do
+    metrics = Executions.room_metrics(jobs, workflows)
+
+    Enum.map(jobs, &job_run_summary(&1, nil, Map.get(metrics.jobs, &1.id, %{}), false)) ++
+      Enum.map(workflows, &workflow_run_summary(&1, nil, Map.get(metrics.workflows, &1.id)))
+  end
+
   defp linked_runs(detail) do
     id = detail.conversation.id
     metrics = Map.get(detail, :execution_metrics, %{jobs: %{}, workflows: %{}})

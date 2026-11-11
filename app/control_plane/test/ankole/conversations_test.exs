@@ -938,6 +938,59 @@ defmodule Ankole.ConversationsTest do
              end)
   end
 
+  test "purging the anchor Page leaves its room to the people who joined it", %{
+    human: human,
+    agent: agent
+  } do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(human.uid)
+    {:ok, page} = Ankole.Pod.Pages.create(actor, %{title: "Shared report"})
+    request = Map.merge(attrs(agent), %{page_id: page.id, access_scope: :anchor_page})
+
+    assert {:ok, detail} =
+             in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
+
+    assert {:ok, _} = Ankole.Pod.Pages.Tree.trash(actor, page.id)
+    assert {:ok, _} = Ankole.Pod.Pages.Tree.purge(actor, page.id)
+    assert :ok = Ankole.Pod.Jobs.PurgeTree.run(%Oban.Job{args: %{"node_id" => page.id}})
+
+    assert {:ok, %{conversation: %{native_access_scope: :participants, page_id: nil}}} =
+             Conversations.get(actor, detail.conversation.id)
+  end
+
+  test "deleting a private root leaves the rooms anchored to its Pages to their participants", %{
+    human: human,
+    agent: agent
+  } do
+    %{principal: owner} = human_fixture()
+    owner_actor = Ankole.PrincipalsFixtures.actor_fixture(owner.uid)
+    human_actor = Ankole.PrincipalsFixtures.actor_fixture(human.uid)
+
+    {:ok, page} =
+      Ankole.Pod.Pages.create(owner_actor, %{
+        title: "Private report",
+        private_owner_uid: owner.uid
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        grants: [%{principal_uid: human.uid, role: "view"}]
+      })
+
+    request = Map.merge(attrs(agent), %{page_id: page.id, access_scope: :anchor_page})
+
+    assert {:ok, detail} =
+             in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
+
+    assert {:ok, :deleted} =
+             in_tx(fn ->
+               with :ok <- Ankole.Pod.Pages.Tree.delete_private_root_in_tx(owner.uid),
+                    do: {:ok, :deleted}
+             end)
+
+    assert {:ok, %{conversation: %{native_access_scope: :participants, page_id: nil}}} =
+             Conversations.get(human_actor, detail.conversation.id)
+  end
+
   defp attrs(agent) do
     %{
       conversation_id: Ecto.UUID.generate(),
