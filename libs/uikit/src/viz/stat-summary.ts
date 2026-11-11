@@ -69,7 +69,7 @@ export function statChartParts(spec: StatisticalChartSpec): StatChartParts {
       typeof formattedValue === 'string' && formattedValue !== ''
         ? formattedValue
         : formatFallbackNumeric(row[valueField]),
-    unit: spec.unit?.trim() || undefined,
+    unit: typeof spec.unit === 'string' ? spec.unit.trim() || undefined : undefined,
     comparisonText: formatStatComparison(comparison),
     trend: resolveStatTrend(spec.trendField ? row[spec.trendField] : undefined, comparison)
   }
@@ -83,9 +83,8 @@ export function statChartParts(spec: StatisticalChartSpec): StatChartParts {
 export function describeStatChart(spec: StatisticalChartSpec): string {
   const { valueText, unit, comparisonText, trend } = statChartParts(spec)
   const value = unit ? `${valueText} ${unit}` : valueText
-  const comparison = comparisonText
-    ? `${statTrendGlyph(trend)} ${comparisonText}${spec.subtitle ? ` (${spec.subtitle})` : ''}`
-    : ''
-  const metric = comparison ? `${value}, ${comparison}` : value
+  const comparison = comparisonText ? `${statTrendGlyph(trend)} ${comparisonText}` : ''
+  const details = [comparison, spec.subtitle ? `(${spec.subtitle})` : ''].filter(Boolean).join(' ')
+  const metric = details ? `${value}${comparison ? ', ' : ' '}${details}` : value
   return spec.title ? `${spec.title}: ${metric}` : metric
 }

@@ -68,6 +68,7 @@ const StatisticalSpecEnvelopeSchema = z
     stackMode: z.enum(['grouped', 'stacked', 'percent']).optional(),
     title: z.string().optional(),
     subtitle: z.string().optional(),
+    unit: z.string().optional(),
     showLegend: z.boolean().optional(),
     width: z.number().positive().optional(),
     height: z.number().positive().optional()

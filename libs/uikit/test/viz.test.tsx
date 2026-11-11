@@ -560,6 +560,14 @@ describe('Statistical & financial pure spec builders', () => {
       })
     ).toBe('Median latency: 182 ms, ▲ +12.4% (vs. previous period)')
     expect(describeStatChart({ type: 'stat', data: { value: 7 } })).toBe('7')
+    expect(
+      describeStatChart({
+        type: 'stat',
+        title: 'Requests',
+        subtitle: 'Last 24 hours',
+        data: { value: 7 }
+      })
+    ).toBe('Requests: 7 (Last 24 hours)')
 
     const band = prepareStatisticalChartSpec(
       {
