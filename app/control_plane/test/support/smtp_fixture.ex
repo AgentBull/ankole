@@ -19,7 +19,8 @@ defmodule Ankole.Authn.SMTPFixture do
       })
 
     name = :"authn_smtp_#{System.unique_integer([:positive])}"
-    ca_path = Path.join(System.tmp_dir!(), "#{name}.pem")
+    # unique_integer repeats across BEAMs, so the OS pid keeps concurrent fixtures apart.
+    ca_path = Path.join(System.tmp_dir!(), "#{name}_#{System.pid()}.pem")
     ca = Enum.map(certificates[:client_config][:cacerts], &{:Certificate, &1, :not_encrypted})
     File.write!(ca_path, :public_key.pem_encode(ca))
 
