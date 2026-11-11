@@ -4,6 +4,7 @@ defmodule Ankole.Files.RPCBroker do
   alias Ankole.AuthZ.Actor
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers.RPCWire
+  alias Ankole.AgentWorkers.WorkerRoute
 
   @list_limit 1000
 
@@ -167,9 +168,7 @@ defmodule Ankole.Files.RPCBroker do
     remaining = if deadline > 0, do: deadline - System.system_time(:millisecond), else: 120_000
 
     if remaining > 0,
-      do:
-        {:ok,
-         [worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}, timeout_ms: remaining]},
+      do: {:ok, [worker: WorkerRoute.caller(ctx), timeout_ms: remaining]},
       else: {:error, :rpc_deadline_exceeded}
   end
 

@@ -8,7 +8,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
                   "name": "create_background_job",
                   "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
                   "activity": "background_job_create",
-                  "description": "Delegate a durable job to a background agent. title is only a management label and is not sent to Codex. task is the work handed off to the background agent to complete. State in task what the finished deliverable is and what it must satisfy; the background agent verifies against that before finishing. The background agent cannot create background jobs or load a Skill that has runtime=\"main\". Create each job that the work needs with this tool. Do the steps of a runtime=\"main\" Skill yourself, and give a job only the task that the Skill defines.",
+                  "description": "Delegate a durable job to a background agent. Omit runner_id for the default cloud computer. If the user requests a specific device, use list_background_job_devices to resolve its runner_id. The job waits for that device and uses its local workspace. title is only a management label and is not sent to Codex. task is the work handed off to the background agent to complete. State in task what the finished deliverable is and what it must satisfy; the background agent verifies against that before finishing. The background agent cannot create background jobs or load a Skill that has runtime=\"main\". Create each job that the work needs with this tool. Do the steps of a runtime=\"main\" Skill yourself, and give a job only the task that the Skill defines.",
                   "parameters": {
                     "type": "object",
                     "properties": {
@@ -24,6 +24,10 @@ defmodule Ankole.Sessions.Tools.Jobs do
                       "workspace_template_id": {
                         "type": "string",
                         "minLength": 1
+                      },
+                      "runner_id": {
+                        "type": "string",
+                        "format": "uuid"
                       }
                     },
                     "required": [
@@ -34,6 +38,22 @@ defmodule Ankole.Sessions.Tools.Jobs do
                   },
                   "execution_mode": "sequential",
                   "read_only": false,
+                  "destructive": false
+                },
+                {
+                  "type": "function",
+                  "name": "list_background_job_devices",
+                  "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
+                  "activity": "background_job_list",
+                  "description": "List the current user's devices available for this Agent's background jobs. Use the returned runner_id when the user requests a specific device.",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "execution_mode": "parallel",
+                  "read_only": true,
                   "destructive": false
                 },
                 {
@@ -69,7 +89,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
                   "name": "show_background_job_details",
                   "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
                   "activity": "background_job_show",
-                  "description": "Show job status, progress, tool execution mechanisms, usage, attempt history, and the latest trajectory page. For an exact persisted result from a succeeded job, set result_offset to 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null. Each result chunk also carries the real Job Workspace (project_path, owned by workspace_owner_job_id) and absolute artifact paths; use those paths to read or copy the files instead of guessing a directory from the job id or a relative path in the text. Result offsets are stable and can be resumed in a later turn.",
+                  "description": "Show job status, progress, tool execution mechanisms, usage, attempt history, and the latest trajectory page. For an exact persisted result from a succeeded job, set result_offset to 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null. A cloud job also returns its workspace and artifact paths. For a device job, open shared deliverables in Pod Drive and treat local paths mentioned in the result as locations on the selected device. Result offsets are stable and can be resumed in a later turn.",
                   "parameters": {
                     "type": "object",
                     "properties": {
@@ -248,7 +268,9 @@ defmodule Ankole.Sessions.Tools.Jobs do
   def activity(tool, args, _phase, _result), do: {tool.activity, Map.take(args, ["name"])}
 
   alias Ankole.BackgroundAgentJobs, as: Jobs
+  alias Ankole.AgentWorkers.RunnerDevices
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.Principals.WorkAccess
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools
   alias Ankole.Conversations.Route
@@ -263,6 +285,23 @@ defmodule Ankole.Sessions.Tools.Jobs do
   def normalize(_name, args), do: args
 
   @impl true
+  def execute(run, %{"name" => "list_background_job_devices"}, _args) do
+    authorization =
+      WorkAccess.inherit(%{"source_signal_id" => Route.current_input_signal_id(run)})
+
+    devices =
+      case authorization do
+        %{"authorization_kind" => "human", "human_uid" => uid} ->
+          RunnerDevices.list_for_agent(uid, run.agent_uid)
+          |> Enum.map(&%{"runner_id" => &1.id, "name" => &1.name, "status" => &1.status})
+
+        _other ->
+          []
+      end
+
+    {:ok, Tools.result(%{"devices" => devices})}
+  end
+
   def execute(run, %{"name" => "list_background_jobs"}, args) do
     with {:ok, cursor} <- Tools.cursor(run, "background agent job", args["page"]),
          {:ok, value} <-
@@ -293,20 +332,19 @@ defmodule Ankole.Sessions.Tools.Jobs do
         result_paths: paths
       }
       when is_binary(text) and is_integer(total) ->
-        paths = bounded_paths(paths)
+        paths = if is_nil(job.runner_id), do: bounded_paths(paths), else: %{}
 
         Tools.window(Ankole.Text.utf8_prefix(text, byte_size(text)), offset, total, fn text,
                                                                                        next ->
-          Map.merge(
-            %{
-              "title" => job.title,
-              "status" => Atom.to_string(job.status),
-              "result_ref" => %{"type" => "background_agent_job", "job_id" => job.id},
-              "workspace_owner_job_id" => job.workspace_owner_job_id,
-              "result" => %{"offset" => offset, "output_text" => text, "next_offset" => next}
-            },
-            paths
-          )
+          %{
+            "title" => job.title,
+            "status" => Atom.to_string(job.status),
+            "result_ref" => %{"type" => "background_agent_job", "job_id" => job.id},
+            "workspace_owner_job_id" => job.workspace_owner_job_id,
+            "result" => %{"offset" => offset, "output_text" => text, "next_offset" => next}
+          }
+          |> put_runner_id(job)
+          |> Map.merge(paths)
         end)
 
       nil ->
@@ -346,14 +384,14 @@ defmodule Ankole.Sessions.Tools.Jobs do
         "recent_trajectory" => visible_trajectory(e["trajectory_page"])
       }
 
-      {:ok, Tools.result(details)}
+      {:ok, Tools.result(put_runner_id(details, job))}
     end
   end
 
   @impl true
   def prepare_in_tx(run, %{"name" => "create_background_job"} = call, args) do
     attrs =
-      Map.take(args, ~w(title task model_profile workspace_template_id))
+      Map.take(args, ~w(title task model_profile workspace_template_id runner_id))
       |> Map.put("title", String.trim(args["title"]))
       |> Map.merge(origin(run, call))
 
@@ -421,9 +459,16 @@ defmodule Ankole.Sessions.Tools.Jobs do
   end
 
   defp job_result(value) do
-    {:ok, Tools.result(%{"job_id" => value.job.id, "status" => Atom.to_string(value.job.status)}),
+    details =
+      %{"job_id" => value.job.id, "status" => Atom.to_string(value.job.status)}
+      |> put_runner_id(value.job)
+
+    {:ok, Tools.result(details),
      [fn -> Ankole.BackgroundAgentJobs.Lifecycle.publish_status_commit(value) end]}
   end
+
+  defp put_runner_id(details, %Job{runner_id: nil}), do: details
+  defp put_runner_id(details, %Job{runner_id: id}), do: Map.put(details, "runner_id", id)
 
   defp project_prepared({:ok, sessions, commit}, project) do
     {:ok, sessions, fn -> with {:ok, value} <- commit.(), do: project.(value) end}

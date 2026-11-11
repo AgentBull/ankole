@@ -5,13 +5,36 @@ defmodule Ankole.E2E.FakeOpenAIJobScenarios do
     native? = "exec" in tool_names(request)
 
     cond do
-      native? and String.contains?(prompt, "CHAOS_JOB_FINISH") -> :job_finish
-      native? and String.contains?(prompt, "CHAOS_JOB_WORK_RECONNECT") -> :job_reconnect
-      native? and String.contains?(prompt, "CHAOS_JOB_WORK") -> :job_work
-      String.contains?(prompt, "CHAOS_JOB_REPLY") -> :job_reply
-      String.contains?(prompt, "CHAOS_JOB_CREATE") -> :job_create
-      String.contains?(prompt, "CHAOS_JOB_WORK") -> :job_notice
-      true -> nil
+      native? and String.contains?(prompt, "CHAOS_RUNNER_BACKTEST") ->
+        :runner_backtest
+
+      not native? and
+          String.contains?(Ankole.JSON.encode!(request), "CHAOS_RUNNER_BACKTEST_COMPLETE ") ->
+        :runner_backtest_notice
+
+      String.contains?(prompt, "CHAOS_RUNNER_OPEN") ->
+        :runner_backtest_open
+
+      native? and String.contains?(prompt, "CHAOS_JOB_FINISH") ->
+        :job_finish
+
+      native? and String.contains?(prompt, "CHAOS_JOB_WORK_RECONNECT") ->
+        :job_reconnect
+
+      native? and String.contains?(prompt, "CHAOS_JOB_WORK") ->
+        :job_work
+
+      String.contains?(prompt, "CHAOS_JOB_REPLY") ->
+        :job_reply
+
+      String.contains?(prompt, "CHAOS_JOB_CREATE") ->
+        :job_create
+
+      String.contains?(prompt, "CHAOS_JOB_WORK") ->
+        :job_notice
+
+      true ->
+        nil
     end
   end
 
@@ -86,6 +109,48 @@ defmodule Ankole.E2E.FakeOpenAIJobScenarios do
 
   def action_for(:job_finish, _count, _request),
     do: {:completion, "CHAOS_JOB_FINISHED", []}
+
+  def action_for(:runner_backtest, 1, request) do
+    [_, directory] =
+      Regex.run(
+        ~r/CHAOS_RUNNER_BACKTEST (ankole-backtest-[0-9a-f]{12})/,
+        Ankole.JSON.encode!(request)
+      )
+
+    project = "/workspace/" <> directory
+
+    exec(
+      "runner_backtest",
+      "(cd #{project} && SSL_CERT_FILE=#{project}/clickhouse.crt uv run --no-sync runner-backtest.py) && " <>
+        "cp #{project}/backtest-result.json . && printf backtest-ready > worker-checkpoint && " <>
+        "while [ ! -f worker-resumed ]; do sleep 0.1; done && " <>
+        "test \"$(cat worker-checkpoint)\" = backtest-ready && " <>
+        "node=$(ankole-files put backtest-result.json backtest-result.json | jq -er '.files[0].node_id') && " <>
+        "printf 'RUNNER_REPORT_NODE %s\\n' \"$node\""
+    )
+  end
+
+  def action_for(:runner_backtest, _count, request) do
+    [_, node] = Regex.run(~r/RUNNER_REPORT_NODE ([0-9a-f-]{36})/, Ankole.JSON.encode!(request))
+    {:completion, "CHAOS_RUNNER_BACKTEST_COMPLETE #{node}", []}
+  end
+
+  def action_for(:runner_backtest_notice, 1, request) do
+    [_, node] =
+      Regex.run(~r/CHAOS_RUNNER_BACKTEST_COMPLETE ([0-9a-f-]{36})/, Ankole.JSON.encode!(request))
+
+    call("runner_attachment", "reply_attachment", %{
+      "node_id" => node,
+      "name" => "backtest-result.json",
+      "mimeType" => "application/json"
+    })
+  end
+
+  def action_for(:runner_backtest_notice, _count, _request),
+    do: {:completion, "CHAOS_RUNNER_BACKTEST_DELIVERED", []}
+
+  def action_for(:runner_backtest_open, _count, _request),
+    do: {:completion, "Ready to run your backtest.", []}
 
   def action_for(kind, _count, _request) when kind in [:job_create, :job_reply, :job_notice],
     do: {:completion, "CHAOS_JOB_ACKNOWLEDGED", []}

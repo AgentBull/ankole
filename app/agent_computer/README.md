@@ -7,10 +7,64 @@ Jobs, routes browser sessions, and serves the Worker side of
 RuntimeFabric lanes. Meanwhile, the Elixir control plane runs the main Agent
 loop and tracks its progress.
 
-This package is not a standalone local CLI. The Worker image bundles Chromium,
-Python, Jupyter, document tooling, and the Worker supervisor. After an Agent is
-created, the control plane provisions a dedicated Worker in the background
-(`docs/design-docs/AgentWorkers.md`) to serve as that Agent's own computer.
+The Worker image bundles Chromium, Python, Jupyter, document tooling, and the
+Worker supervisor. When a managed Agent is created, the control plane
+provisions its Worker in the background. A user can also connect a device to
+run a background Job for an Agent they own.
+
+## Connect a device
+
+Pair a device with the code from Pod Worker settings. Run the launcher on the
+device that will execute the work. It needs a local Docker Engine that runs
+Linux containers, plus network access to the site and its approved Worker
+image registry. The device Worker exchanges Drive files through
+`ankole-files`.
+
+```sh
+bun run agent-computer device pair --url https://ankole.example.com --code '<pairing-code>'
+bun run agent-computer device run
+```
+
+From the repository root, `bun run agent-computer build:device` builds the
+standalone launcher at `app/agent_computer/dist/ankole-worker` for the current
+platform. It accepts the same `pair` and `run` commands. Use a single `run`
+process per pairing. Keep it running under the local service manager if the
+device should reconnect after a reboot. Use `--state <path>` on both commands
+for a separate device profile. The default profile is
+`${XDG_CONFIG_HOME:-$HOME/.config}/ankole-worker/device.json`.
+
+The launcher pulls the site's approved image and starts a separate Agent
+Computer container and named Home volume for each assigned Agent. A launcher
+restart reuses those volumes, including after the control plane rotates the
+Worker generation. Stopping the launcher stops its containers. Revoking a
+device removes its containers when the launcher next contacts the site. Its
+local Home volumes remain available to the device owner.
+
+For a disposable acceptance device, `tools/e2e/runner-backtest <container>
+<bull_detective-mono-checkout>` runs the sibling project's real backtest engine
+and ClickHouse adapter in the Worker container. The test uses synthetic bars,
+a throwaway TLS ClickHouse instance, and the sibling project's locked
+dependencies. It installs those dependencies in a temporary project inside
+the container, verifies both fills and final equity, and prints the resulting
+JSON. It leaves the sibling checkout unchanged.
+
+To also verify site pairing, pinned Job placement, reconnect in the same
+workspace, and the report attachment in the original conversation, prepare
+the complete Worker image from this checkout and run the dedicated FOSS test:
+
+```sh
+bun tools/devkit/src/local-worker-image.ts --scope complete --output tmp/runner-worker-image
+export ANKOLE_E2E_WORKER_IMAGE="$(cat tmp/runner-worker-image)"
+export ANKOLE_E2E_BACKTEST_MONO=/path/to/bull_detective/mono
+cd app/control_plane
+ANKOLE_EDITION=foss MIX_TEST_PARTITION=runner_backtest \
+  mix test ../../tools/e2e/suites/runner_backtest_e2e_test.exs
+```
+
+The test uses the real Codex runtime with a deterministic model upstream. The
+control plane starts its test HTTP listener on an available port, and the
+Worker reaches it at Docker's host gateway. The fixture needs the local test
+database and network access for the first locked Python dependency install.
 
 ## Ownership
 

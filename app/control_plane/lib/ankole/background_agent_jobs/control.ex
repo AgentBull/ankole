@@ -5,6 +5,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   alias Ankole.Signals.Signal
   alias Ankole.Principals
+  alias Ankole.Principals.WorkAccess
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Dispatch
@@ -12,6 +13,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Turns
+  alias Ankole.BackgroundAgentJobs.Worker
   alias Ankole.BackgroundAgentJobs.WorkerWait
   alias Ankole.Sessions.JobTurnRef
 
@@ -92,7 +94,8 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
          {:ok, summary} <- require_result_summary(attrs),
-         _worker = Ankole.AgentWorkers.lock_in_tx(agent_uid),
+         %Job{} = snapshot <- Queries.get_for_agent(job_id, agent_uid),
+         _worker = Worker.lock_in_tx(snapshot),
          :ok <- Lifecycle.lock_agent_slots(agent_uid) do
       case Queries.lock_for_agent_in_tx(job_id, agent_uid) do
         nil ->
@@ -131,6 +134,9 @@ defmodule Ankole.BackgroundAgentJobs.Control do
             {:ok, %{job: job, turn: turn, wakeup_event: wakeup_event}}
           end
       end
+    else
+      nil -> {:error, :job_not_found}
+      {:error, _} = error -> error
     end
   end
 
@@ -235,6 +241,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
          {:ok, message} <- require_message(Map.get(attrs, "message")),
          :ok <- Lifecycle.lock_agent_slots(agent_uid),
          %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid),
+         :ok <- authorize_steer_runner(job, attrs),
          :ok <- ensure_messageable(job) do
       {:ok, job_sessions(job),
        fn ->
@@ -285,6 +292,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
       ) do
     with {:ok, message} <- require_message(message),
          :ok <- ensure_ambient_handoff_target(job, source_event),
+         :ok <- Worker.authorize_for_work(source_event.human_uid, job.agent_uid, job.runner_id),
          :ok <- ensure_messageable(job),
          {:ok, job} <- Ankole.Ash.update_atomic(job, :touch, %{at: now}),
          {:ok, command_event} <-
@@ -301,6 +309,14 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     else
       {:error, _reason} = error -> error
     end
+  end
+
+  defp authorize_steer_runner(%Job{runner_id: nil}, _attrs), do: :ok
+
+  defp authorize_steer_runner(job, attrs) do
+    WorkAccess.inherit(attrs)
+    |> Map.get("human_uid")
+    |> Worker.authorize_for_work(job.agent_uid, job.runner_id)
   end
 
   defp ensure_ambient_handoff_target(%Job{} = job, %Signal{} = event) do

@@ -361,6 +361,10 @@ export type BackgroundAgentJob = {
     result: {
       [key: string]: unknown
     }
+    /**
+     * Field included by default.
+     */
+    runner_id?: string | null
     runtime_projection?: {
       [key: string]: unknown
     } | null
@@ -1254,6 +1258,10 @@ export type BackgroundAgentJobType = {
   result: {
     [key: string]: unknown
   }
+  /**
+   * Field included by default.
+   */
+  runner_id?: string | null
   /**
    * Field included by default.
    */
@@ -3775,6 +3783,7 @@ export type ListBackgroundAgentJobsResponses = {
         result: {
           [key: string]: unknown
         }
+        runner_id?: string | null
         runtime_projection?: {
           [key: string]: unknown
         } | null

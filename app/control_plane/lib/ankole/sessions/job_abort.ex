@@ -13,7 +13,7 @@ defmodule Ankole.Sessions.JobAbort do
       "details_json" => Common.decode_json_bytes(request.details_json) || %{}
     }
 
-    case CodexJob.abort(ref, ctx.worker_id, reason) do
+    case CodexJob.abort(ref, ctx[:worker] || ctx.worker_id, reason) do
       {:ok, event} ->
         {:ok,
          %Proto.ActorTurnAbortResponse{

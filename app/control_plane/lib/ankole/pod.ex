@@ -125,6 +125,7 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.Files.Browser)
     resource(Ankole.Pod.Spreadsheets.Browser)
     resource(Ankole.Pod.Chat.Browser)
+    resource(Ankole.Pod.RunnerBrowser)
 
     resource Ankole.Pod.Page do
       define(:list_page_records, action: :read)
@@ -158,6 +159,23 @@ defmodule Ankole.Pod do
     show_raised_errors?(false)
 
     routes do
+      route(Ankole.Pod.RunnerBrowser, :post, "/conversations/:id/runner-jobs", :create_job,
+        name: "create_pod_runner_job",
+        wrap_in_result?: false
+      )
+
+      base_route "/runner-devices", Ankole.Pod.RunnerBrowser do
+        route(:get, "/", :list, name: "list_pod_runner_devices", wrap_in_result?: false)
+        route(:post, "/", :register, name: "register_pod_runner_device", wrap_in_result?: false)
+
+        route(:post, "/:id/bindings", :bind,
+          name: "bind_pod_runner_device",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/:id", :revoke, name: "revoke_pod_runner_device", wrap_in_result?: false)
+      end
+
       base_route "/pages/:page_id", Ankole.AutomationJobs.Browser do
         route(:get, "/job-actions", :actions,
           name: "podAppletJobActions",

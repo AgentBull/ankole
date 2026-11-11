@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Run the Bull Backtesting engine in a disposable device Worker with real ClickHouse.
+set -euo pipefail
+
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo 'usage: tools/e2e/runner-backtest <device-worker-container> <bull_detective mono checkout> [stage-file]' >&2
+  exit 64
+fi
+
+worker=$1
+mono=$2
+fixtures=$(cd "$(dirname "$0")/fixtures" && pwd)
+label=$(docker inspect --format '{{index .Config.Labels "ankole.runner-device"}}' "$worker")
+if [[ -z "$label" ]]; then
+  echo 'Use a disposable Worker started by ankole-worker run.' >&2
+  exit 64
+fi
+
+temp=$(mktemp -d)
+case_id="ankole-backtest-$(openssl rand -hex 6)"
+project="/workspace/$case_id"
+server="$case_id-db"
+password=$(openssl rand -hex 16)
+cleanup() {
+  docker exec --user 0 "$worker" rm -rf -- "$project" >/dev/null 2>&1 || true
+  docker network disconnect "$case_id" "$worker" >/dev/null 2>&1 || true
+  docker rm -f "$server" >/dev/null 2>&1 || true
+  docker network rm "$case_id" >/dev/null 2>&1 || true
+  rm -rf "$temp"
+}
+trap cleanup EXIT
+
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj /CN=backtest-clickhouse -addext subjectAltName=DNS:backtest-clickhouse \
+  -keyout "$temp/clickhouse.key" -out "$temp/clickhouse.crt" >/dev/null 2>&1
+chmod 0644 "$temp/clickhouse.key"
+cat >"$temp/clickhouse.xml" <<'XML'
+<clickhouse>
+    <http_port remove="1"/>
+    <https_port>8123</https_port>
+    <openSSL>
+        <server>
+            <certificateFile>/var/backtest-cert/clickhouse.crt</certificateFile>
+            <privateKeyFile>/var/backtest-cert/clickhouse.key</privateKeyFile>
+        </server>
+    </openSSL>
+</clickhouse>
+XML
+
+docker network create "$case_id" >/dev/null
+docker network connect "$case_id" "$worker"
+docker run -d --name "$server" --network "$case_id" --network-alias backtest-clickhouse \
+  -e CLICKHOUSE_USER=bytehouse -e "CLICKHOUSE_PASSWORD=$password" \
+  -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 \
+  --mount "type=bind,source=$temp/clickhouse.xml,target=/etc/clickhouse-server/config.d/runner-backtest.xml,readonly" \
+  --mount "type=bind,source=$temp/clickhouse.crt,target=/var/backtest-cert/clickhouse.crt,readonly" \
+  --mount "type=bind,source=$temp/clickhouse.key,target=/var/backtest-cert/clickhouse.key,readonly" \
+  clickhouse/clickhouse-server:25.8-alpine >/dev/null
+
+ready=false
+for _ in {1..30}; do
+  if docker exec "$server" clickhouse-client --user bytehouse --password "$password" --query 'SELECT 1' >/dev/null 2>&1; then
+    ready=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$ready" != true ]]; then
+  docker logs --tail 30 "$server" >&2
+  exit 1
+fi
+docker exec -i "$server" clickhouse-client --user bytehouse --password "$password" --multiquery \
+  <"$fixtures/runner-backtest.sql"
+
+# Stage tracked source only. A developer's .env.local and private data stay on the host.
+git -C "$mono" archive HEAD apps/bull_backtesting | tar -xf - -C "$temp"
+cp "$fixtures/runner-backtest.py" "$temp/apps/bull_backtesting/"
+cp "$temp/clickhouse.crt" "$temp/apps/bull_backtesting/"
+printf 'BYTEHOUSE_HOST=backtest-clickhouse\nBYTEHOUSE_API_KEY=%s\n' "$password" >"$temp/apps/bull_backtesting/.env.local"
+docker cp "$temp/apps/bull_backtesting" "$worker:$project"
+docker exec --user 0 "$worker" chown -R 1000:1000 "$project"
+docker exec --user 1000 --workdir "$project" "$worker" uv sync --locked --no-dev
+if [[ $# -eq 3 ]]; then
+  # Hold the fixture until the caller has read the Job output and releases it.
+  printf '%s\n' "$case_id" >"$3"
+  for _ in {1..240}; do
+    [[ ! -e "$3.release" ]] || exit 0
+    sleep 1
+  done
+  echo 'Timed out waiting for the backtest fixture release.' >&2
+  exit 1
+fi
+docker exec --user 1000 --workdir "$project" \
+  -e "SSL_CERT_FILE=$project/clickhouse.crt" \
+  "$worker" uv run --no-sync runner-backtest.py
+docker exec --user 1000 --workdir "$project" "$worker" cat backtest-result.json

@@ -233,18 +233,13 @@ defmodule AnkoleWeb.AIGatewayController do
   defp done_sse_chunk, do: "data: [DONE]\n\n"
 
   defp bind_codex_request(conn, request, request_context) do
-    case get_req_header(conn, CodexModelBinding.header_name()) do
-      [] ->
-        {:ok, request, request_context}
+    headers = get_req_header(conn, CodexModelBinding.header_name())
+    claims = conn.assigns[:ai_gateway_token_claims]
 
-      [encoded] ->
-        with {:ok, binding} <- CodexModelBinding.decode(encoded) do
-          {:ok, CodexModelBinding.apply(request, binding, request_context),
-           CodexModelBinding.request_context(binding, request_context)}
-        end
-
-      _values ->
-        {:error, :invalid_codex_model_binding}
+    with {:ok, binding} <- CodexModelBinding.from_headers(headers, claims),
+         {:ok, request} <-
+           CodexModelBinding.prepare_request(request, binding, request_context, claims) do
+      {:ok, request, CodexModelBinding.request_context(binding, request_context)}
     end
   end
 

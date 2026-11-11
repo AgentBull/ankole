@@ -9,6 +9,7 @@ defmodule Ankole.Sessions.TurnControl do
   alias Ankole.Sessions.TurnEnvelope
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.AgentWorkers.WorkerAdmission
+  alias Ankole.BackgroundAgentJobs
 
   @type verb :: :stop | :retry | :skill_disabled
 
@@ -24,20 +25,20 @@ defmodule Ankole.Sessions.TurnControl do
   def dispatch(controls) when is_list(controls), do: Enum.each(controls, &send_control/1)
 
   defp send_control(%{turn_ref: %JobTurnRef{} = turn_ref, verb: verb} = control) do
-    case AgentWorkers.connected_worker(turn_ref.agent_uid) do
-      {:ok, worker} ->
-        target = AgentWorkers.target(worker)
+    with %{runner_id: runner_id} <-
+           BackgroundAgentJobs.get_job_for_agent(turn_ref.job_id, turn_ref.agent_uid),
+         {:ok, worker} <- BackgroundAgentJobs.connected_worker(turn_ref.agent_uid, runner_id) do
+      target = AgentWorkers.target(worker)
 
-        envelope =
-          TurnEnvelope.turn_control(turn_ref, Atom.to_string(verb), wire_payload(control))
+      envelope =
+        TurnEnvelope.turn_control(turn_ref, Atom.to_string(verb), wire_payload(control))
 
-        case WorkerRoute.send_mandatory(target, envelope) do
-          {:ok, :sent_or_queued} -> :ok
-          {:error, reason} -> WorkerAdmission.mark_route_unusable(target.transport_route, reason)
-        end
-
-      {:error, _reason} ->
-        :ok
+      case WorkerRoute.send_mandatory(target, envelope) do
+        {:ok, :sent_or_queued} -> :ok
+        {:error, reason} -> WorkerAdmission.mark_route_unusable(target.transport_route, reason)
+      end
+    else
+      _unavailable -> :ok
     end
   end
 

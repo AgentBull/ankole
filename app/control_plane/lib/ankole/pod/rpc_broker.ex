@@ -247,7 +247,7 @@ defmodule Ankole.Pod.RPCBroker do
         params["id"],
         params["base_revision"],
         params["files"],
-        %{worker_id: ctx.worker_id, transport_route: ctx.route},
+        Ankole.AgentWorkers.WorkerRoute.caller(ctx),
         ctx.write_authority
       )
 
@@ -588,7 +588,7 @@ defmodule Ankole.Pod.RPCBroker do
                  :ok <- File.write(local, markdown),
                  {:ok, _} <-
                    WorkerFiles.put(target, {:file, local},
-                     worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}
+                     worker: Ankole.AgentWorkers.WorkerRoute.caller(ctx)
                    ) do
               references =
                 Pages.resolve_xml_references(actor, detail.content.content, detail.page.id)
@@ -617,7 +617,7 @@ defmodule Ankole.Pod.RPCBroker do
            {:ok, object} <- Ankole.Files.fetch_object(Ankole.Attrs.get(metadata, :object_id)),
            {:ok, _} <-
              WorkerFiles.put(target, {:file, local},
-               worker: %{worker_id: ctx.worker_id, transport_route: ctx.route},
+               worker: Ankole.AgentWorkers.WorkerRoute.caller(ctx),
                max_bytes: max(object.size, 1)
              ) do
         {:ok, metadata}
@@ -742,7 +742,7 @@ defmodule Ankole.Pod.RPCBroker do
     with {:ok, source} <- Ankole.Files.normalize_path(source) do
       WorkerFiles.with_received_file(
         source,
-        [worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}],
+        [worker: Ankole.AgentWorkers.WorkerRoute.caller(ctx)],
         fn local ->
           with {:ok, markdown} <- File.read(local), do: fun.(markdown)
         end
@@ -758,7 +758,7 @@ defmodule Ankole.Pod.RPCBroker do
          {:ok, source} <- Ankole.Files.normalize_path(source),
          {:ok, %{"body" => body}} <-
            WorkerFiles.stream(source,
-             worker: %{worker_id: ctx.worker_id, transport_route: ctx.route},
+             worker: Ankole.AgentWorkers.WorkerRoute.caller(ctx),
              max_bytes: maximum
            ) do
       Files.upload(

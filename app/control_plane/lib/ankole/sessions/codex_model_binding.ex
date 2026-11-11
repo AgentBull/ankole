@@ -3,10 +3,111 @@ defmodule Ankole.Sessions.CodexModelBinding do
 
   @header_name "x-ankole-aigateway-model-binding"
   require Ankole.ModelIntegerID
-  alias Ankole.AIGateway.ChatGPTProtocol
+  alias Ankole.AgentWorkers.WorkerRouteAuth
+  alias Ankole.AIGateway.{ChatGPTProtocol, Tokens}
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.Sessions.JobTurnRef
 
   @spec header_name() :: String.t()
   def header_name, do: @header_name
+
+  def from_headers(headers, claims) do
+    case headers do
+      [] -> authorize(nil, claims)
+      [encoded] -> with {:ok, binding} <- decode(encoded), do: authorize(binding, claims)
+      _values -> {:error, :invalid_codex_model_binding}
+    end
+  end
+
+  @doc """
+  Treats the Runner's binding header as a Job locator and resolves model settings
+  from the admitted Job. A user-controlled Worker can edit the header.
+  """
+  def authorize(
+        %{"job" => %{"id" => id, "attempt" => attempt, "signal_id" => signal_id}},
+        %{"sub" => uid, "runner_worker" => runner} = claims
+      )
+      when is_map(runner) do
+    worker = %{
+      worker_id: uid,
+      runner_id: runner["id"],
+      generation: runner["generation"],
+      incarnation_id: runner["incarnation"]
+    }
+
+    ref = %JobTurnRef{
+      agent_uid: uid,
+      session_id: BackgroundAgentJobs.job_session_id(id),
+      signal_id: signal_id,
+      job_id: id,
+      attempt: attempt
+    }
+
+    with :ok <- Tokens.authorize_worker_claims(claims),
+         :ok <- WorkerRouteAuth.authorize_turn(ref, worker, :read),
+         %Job{
+           status: :running,
+           attempts: ^attempt,
+           human_uid: human_uid,
+           runtime_projection: %{"model_ref" => model_ref}
+         } <- BackgroundAgentJobs.get_job_for_agent(id, uid),
+         {:ok, binding} <- frozen_target(model_ref) do
+      {:ok,
+       binding
+       |> Map.put(
+         "supports_parallel_tool_calls",
+         model_ref["supports_parallel_tool_calls"] == true
+       )
+       |> Ankole.Attrs.maybe_put("vision_fallback", frozen_vision_fallback(model_ref))
+       |> Map.put(
+         "job",
+         Ankole.Attrs.maybe_put(
+           %{"id" => id, "attempt" => attempt, "signal_id" => signal_id},
+           "human_uid",
+           human_uid
+         )
+       )}
+    else
+      _invalid -> {:error, :invalid_codex_model_binding}
+    end
+  end
+
+  def authorize(_binding, %{"runner_worker" => _}), do: {:error, :invalid_codex_model_binding}
+  def authorize(binding, _claims), do: {:ok, binding}
+
+  defp frozen_target(%{"provider_id" => provider, "model" => model} = ref)
+       when is_binary(provider) and provider != "" and is_binary(model) and model != "" do
+    selector = if provider == "ai_gateway", do: model, else: provider <> "/" <> model
+
+    {:ok,
+     %{
+       "selector" => selector,
+       "provider_options" => Map.get(ref, "provider_options", %{}),
+       "input_modalities" => Enum.uniq(["text" | Map.get(ref, "input_modalities", [])])
+     }}
+  end
+
+  defp frozen_target(_ref), do: {:error, :invalid_codex_model_binding}
+
+  defp frozen_vision_fallback(ref) do
+    with {:ok, %{"input_modalities" => modalities} = fallback} <-
+           frozen_target(ref["vision_fallback_model_ref"]),
+         true <- "image" in modalities,
+         do: fallback,
+         else: (_invalid -> nil)
+  end
+
+  def prepare_request(request, binding, request_context, %{"runner_worker" => _}) do
+    if request["store"] == true or Map.has_key?(request, "conversation") do
+      {:error, :invalid_codex_model_binding}
+    else
+      {:ok, __MODULE__.apply(Map.delete(request, "provider_options"), binding, request_context)}
+    end
+  end
+
+  def prepare_request(request, binding, request_context, _claims),
+    do: {:ok, __MODULE__.apply(request, binding, request_context)}
 
   @spec decode(String.t()) :: {:ok, map()} | {:error, :invalid_codex_model_binding}
   def decode(encoded) when is_binary(encoded) do

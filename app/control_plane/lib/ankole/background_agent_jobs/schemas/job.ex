@@ -81,6 +81,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :source_tool_call_id,
       :continued_from_job_id,
       :workspace_owner_job_id,
+      :runner_id,
       :runtime_thread_id,
       :title,
       :task,
@@ -158,6 +159,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     attribute(:source_tool_call_id, :string, public?: true)
     attribute(:continued_from_job_id, :integer, public?: true)
     attribute(:workspace_owner_job_id, :integer, allow_nil?: false, public?: true)
+    attribute(:runner_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:runtime_thread_id, :string, public?: true)
     attribute(:title, :string, public?: true)
     attribute(:task, :string, public?: true, constraints: [trim?: false])
@@ -248,6 +250,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     :source_tool_call_id,
     :continued_from_job_id,
     :workspace_owner_job_id,
+    :runner_id,
     :runtime_thread_id,
     :title,
     :task,
@@ -575,6 +578,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     :title,
     :runtime_thread_id,
     :workspace_owner_job_id,
+    :runner_id,
     :workspace_template_id,
     :model_profile
   ]

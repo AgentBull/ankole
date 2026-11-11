@@ -130,7 +130,7 @@ defmodule Ankole.Sessions.RPCLane do
           {:ok, FabricProto.Envelope.t()} | {:error, term()}
   def handle_request(
         %FabricProto.RPCRequest{} = request,
-        %{transport_route: route, worker_id: worker_id}
+        %{transport_route: route, worker_id: worker_id} = worker
       )
       when is_binary(route) and is_binary(worker_id) do
     request_id = Ankole.Attrs.optional_text(request.request_id) || "rpc-#{Ecto.UUID.generate()}"
@@ -138,6 +138,7 @@ defmodule Ankole.Sessions.RPCLane do
     ctx = %{
       route: route,
       worker_id: worker_id,
+      worker: worker,
       request_id: request_id,
       deadline_unix_ms: request.deadline_unix_ms
     }
@@ -231,7 +232,8 @@ defmodule Ankole.Sessions.RPCLane do
       # The Agent of a `worker_agent` RPC is the Agent of the calling Worker:
       # its connection proved the credential of that Agent's generation.
       {:ok, {module, function, :worker_agent, request_mod, _response_mod}} ->
-        with {:ok, ctx} <- optional_turn_context(request, ctx),
+        with :ok <- authorize_worker_scope(request, ctx),
+             {:ok, ctx} <- optional_turn_context(request, ctx),
              {:ok, payload} <- decode_payload(request_mod, request.payload, ctx) do
           apply(module, function, [ctx.worker_id, payload, ctx])
         end
@@ -275,6 +277,28 @@ defmodule Ankole.Sessions.RPCLane do
   defp require_broker_ref(BackgroundAgentJobBroker, ref, ctx), do: require_job_ref(ref, ctx)
   defp require_broker_ref(_broker, _ref, _ctx), do: :ok
 
+  defp authorize_worker_scope(request, %{worker: %{runner_id: runner_id} = worker} = ctx)
+       when is_binary(runner_id) do
+    cond do
+      not Ankole.AgentWorkers.RunnerConnection.current?(worker) ->
+        {:error, auth_error_payload(ctx, :stale_transport_route)}
+
+      request.method in [
+        "ai_gateway.api_key_for.create_or_find_by_agent",
+        "observability.spans.export"
+      ] ->
+        :ok
+
+      is_struct(request.job_turn, FabricProto.JobTurnRef) ->
+        :ok
+
+      true ->
+        {:error, auth_error_payload(ctx, :worker_not_assigned_to_turn)}
+    end
+  end
+
+  defp authorize_worker_scope(_request, _ctx), do: :ok
+
   defp optional_turn_context(request, ctx, effect \\ :read) do
     if request.run || request.job_turn do
       with {:ok, ref} <- request_turn_ref(request, ctx),
@@ -297,20 +321,21 @@ defmodule Ankole.Sessions.RPCLane do
       end
 
     case result do
+      {:ok, %JobTurnRef{} = turn_ref} -> {:ok, JobTurnRef.with_worker(turn_ref, ctx.worker)}
       {:ok, turn_ref} -> {:ok, turn_ref}
       {:error, reason} -> {:error, auth_error_payload(ctx, reason)}
     end
   end
 
   defp authorize_turn(turn_ref, ctx, effect) do
-    case WorkerRouteAuth.authorize_turn(turn_ref, ctx.worker_id, effect) do
+    case WorkerRouteAuth.authorize_turn(turn_ref, ctx.worker, effect) do
       :ok -> :ok
       {:error, reason} -> {:error, auth_error_payload(ctx, reason)}
     end
   end
 
   defp authorize_turn_completion(turn_ref, ctx) do
-    case WorkerRouteAuth.authorize_turn(turn_ref, ctx.worker_id, :terminal) do
+    case WorkerRouteAuth.authorize_turn(turn_ref, ctx.worker, :terminal) do
       :ok -> :ok
       {:error, reason} -> {:error, auth_error_payload(ctx, reason)}
     end

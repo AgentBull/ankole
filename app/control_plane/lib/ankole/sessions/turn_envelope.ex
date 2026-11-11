@@ -20,7 +20,7 @@ defmodule Ankole.Sessions.TurnEnvelope do
         context
       ) do
     message_id = "job-start-" <> Ecto.UUID.generate()
-    {:ok, drive_vfs} = Ankole.Files.Vfs.Auth.runtime_config(turn_ref.agent_uid, signal.id)
+    {:ok, drive_vfs} = job_drive_vfs(turn_ref, signal.id)
 
     %FabricProto.Envelope{
       message_id: message_id,
@@ -41,6 +41,12 @@ defmodule Ankole.Sessions.TurnEnvelope do
          }}
     }
   end
+
+  defp job_drive_vfs(%JobTurnRef{worker: %{runner_id: id}}, _signal_id) when is_binary(id),
+    do: {:ok, nil}
+
+  defp job_drive_vfs(ref, signal_id),
+    do: Ankole.Files.Vfs.Auth.runtime_config(ref.agent_uid, signal_id)
 
   @doc """
   Builds the mailbox-update envelope used for active steer commands.

@@ -9,7 +9,7 @@ and cloud directory names use the complete identity. Generation checks fence
 each instance independently. When a tenant is deleted, Ankole runs the same
 Agent cleanup path to release every Worker instance, persistent Home, and cache.
 
-Each Agent gets its own dedicated Worker and persistent Home mounted at
+Each Agent gets its own dedicated managed Worker and persistent Home mounted at
 `/workspace`. Even if the control plane deletes an instance, upgrades its image,
 or resumes a paused instance, the Agent's Home survives intact. By contrast,
 `/var/cache/ankole` holds rebuildable cache data that can be lost without losing
@@ -27,6 +27,47 @@ Reconciliation drains an existing running or paused instance with the `rename`
 reason and removes it through the normal destroy operation. The rename then
 registers a fresh Worker row and schedules deletion of old-name storage; enabling
 the Agent provisions its Worker under the new tenant-qualified name.
+
+## User devices
+
+A Pod member connects a machine from **Account → My devices**. Ankole creates
+a device under the member's current tenant and issues a single-use pairing
+code that expires after ten minutes. The local `ankole-worker` launcher
+exchanges the code at the site origin for a device credential. It uses that
+credential to fetch its approved Agent Computer image and each active
+binding's launch contract. The Agent Computer receives the binding credential;
+the device credential stays with the launcher.
+
+The `runner_devices` row belongs to the Human. A `runner_bindings` row connects
+a device to an Agent in the same tenant. A member can connect multiple devices
+to their assistant and bind their other owned Agents to the same devices.
+Each binding has its own generation, connection, and Docker volume. Devices
+have one active Background Agent Job slot shared by their bindings. The
+managed Worker continues to own ordinary Session environments and Jobs
+created without a device selection.
+
+The selected Runner becomes part of a Background Agent Job's workspace
+identity. When its device is unavailable, Ankole waits for that device within
+the Job's normal readiness budget. Same-process reconnects keep the original
+workspace and running process. After a container restart, the launcher mounts
+the same persistent Home, so Codex can recover from the workspace and thread
+files. Job results intended for another Worker or the Pod are published through
+the control plane rather than addressed by a device-local path.
+
+A device owner can inspect the device's environment. Ankole projects only
+permitted variables to a device Job and checks the active binding when
+authorizing runtime writes and device model credentials. Revoking a device
+invalidates its enrollment and bindings, closes their live routes, and fails
+its running Job so the Agent can admit other work. Ankole sends that failure to
+the Job's original session. The launcher stops the corresponding containers
+while their local volumes stay on the user's machine.
+
+The launcher uses a local Docker engine and pulls the site's approved image.
+The device must reach the site's WSS endpoint, AI Gateway and HTTP file relay.
+For a loopback HTTP development site, Ankole uses the configured Docker host
+origin for these endpoints so the container can reach the host.
+The public relay requires a single reachable control-plane replica because
+the transfer session belongs to the process that created it.
 
 ## Providers
 

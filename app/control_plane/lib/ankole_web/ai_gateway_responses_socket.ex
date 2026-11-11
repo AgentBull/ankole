@@ -69,9 +69,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
          %{"type" => "response.create", "generate" => false} = event,
          state
        ) do
-    request = prepare_request(event)
-
-    with {:ok, _authorization} <- authorize_grant(state, request) do
+    with {:ok, request} <- bind_codex_request(event, state, :prewarm),
+         {:ok, _authorization} <- authorize_grant(state, request) do
       complete_socket_prewarm(request, state)
     end
   end
@@ -80,20 +79,32 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # request kind is known. Every later owner then reads the history the caller
   # named, and none of them interprets `previous_response_id` again.
   defp handle_socket_event(%{"type" => "response.create"} = event, state) do
-    request =
-      event
-      |> prepare_request()
-      |> CodexModelBinding.apply(
-        Map.get(state, :codex_model_binding),
-        Map.get(state, :request_context, %{})
-      )
-
-    with {:ok, authorization} <- authorize_grant(state, request),
+    with {:ok, request} <- bind_codex_request(event, state, :generate),
+         {:ok, authorization} <- authorize_grant(state, request),
          {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
       if CompactionRequests.compaction_trigger?(request) do
         serve_compaction_trigger(state, request, authorization)
       else
         open_response_create_stream(state, request, socket_context, authorization)
+      end
+    end
+  end
+
+  defp bind_codex_request(event, state, mode) do
+    request = prepare_request(event)
+    claims = Map.get(state, :runner_claims)
+
+    if mode == :prewarm and is_nil(claims) do
+      {:ok, request}
+    else
+      with {:ok, binding} <-
+             CodexModelBinding.authorize(Map.get(state, :codex_model_binding), claims) do
+        CodexModelBinding.prepare_request(
+          request,
+          binding,
+          Map.get(state, :request_context, %{}),
+          claims
+        )
       end
     end
   end

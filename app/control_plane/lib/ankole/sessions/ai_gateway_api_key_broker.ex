@@ -22,8 +22,9 @@ defmodule Ankole.Sessions.AIGatewayAPIKeyBroker do
     result =
       with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
-           {:ok, endpoints} <- Providers.connection_endpoints(agent_uid),
-           {:ok, token} <- Tokens.mint_for_agent(principal.uid) do
+           worker = ctx[:worker] || %{worker_id: agent_uid},
+           {:ok, endpoints} <- Providers.connection_endpoints(worker),
+           {:ok, token} <- Tokens.mint_for_worker(principal.uid, worker) do
         {:ok, response(token, endpoints)}
       end
 

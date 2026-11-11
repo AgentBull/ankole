@@ -83,12 +83,18 @@ defmodule Ankole.Sessions.Context do
 
       {:ok,
        %{context | skills: skills}
+       |> maybe_clear_mounted_drive(job)
        |> Map.put(:skills_prompt, Prompt.skills_catalog(skills, :background_job))}
     else
       {:error, _} = error -> error
       _invalid -> {:error, :background_agent_job_runtime_projection_invalid}
     end
   end
+
+  defp maybe_clear_mounted_drive(context, %Job{runner_id: nil}), do: context
+
+  defp maybe_clear_mounted_drive(context, %Job{}),
+    do: Map.put(context, :drive_instructions, "")
 
   defp resolve_conversation(agent_uid, session_id) do
     case BackgroundAgentJobs.parse_job_session_id(session_id) do

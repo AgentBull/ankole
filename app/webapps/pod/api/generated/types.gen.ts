@@ -305,6 +305,26 @@ export type Links = {
   [key: string]: Link
 }
 
+/**
+ * A "Resource object" representing a pod_runner_operation
+ */
+export type PodRunnerOperation = {
+  /**
+   * An attributes object for a pod_runner_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_runner_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -1480,6 +1500,46 @@ export type UpdateConversationParticipantsResponses = {
 
 export type UpdateConversationParticipantsResponse =
   UpdateConversationParticipantsResponses[keyof UpdateConversationParticipantsResponses]
+
+export type CreatePodRunnerJobData = {
+  /**
+   * Request body for the create_pod_runner_job operation on pod_runner_operation resource
+   */
+  body: {
+    data: {
+      agentUID: string
+      requestID: string
+      runnerID: string
+      task: string
+      title: string
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/runner-jobs'
+}
+
+export type CreatePodRunnerJobErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePodRunnerJobError = CreatePodRunnerJobErrors[keyof CreatePodRunnerJobErrors]
+
+export type CreatePodRunnerJobResponses = {
+  /**
+   * Success
+   */
+  201: {
+    jobID: number
+  }
+}
+
+export type CreatePodRunnerJobResponse = CreatePodRunnerJobResponses[keyof CreatePodRunnerJobResponses]
 
 export type StopConversationExecutionData = {
   body?: never
@@ -6437,6 +6497,47 @@ export type DisablePodMemberResponses = {
 }
 
 export type DisablePodMemberResponse = DisablePodMemberResponses[keyof DisablePodMemberResponses]
+
+export type BindPodRunnerDeviceData = {
+  /**
+   * Request body for the bind_pod_runner_device operation on pod_runner_operation resource
+   */
+  body: {
+    data: {
+      agentUID: string
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/runner-devices/{id}/bindings'
+}
+
+export type BindPodRunnerDeviceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type BindPodRunnerDeviceError = BindPodRunnerDeviceErrors[keyof BindPodRunnerDeviceErrors]
+
+export type BindPodRunnerDeviceResponses = {
+  /**
+   * Success
+   */
+  201: {
+    bindings: Array<{
+      agentUID: string
+    }>
+    id: string
+    name: string
+    status: string
+  }
+}
+
+export type BindPodRunnerDeviceResponse = BindPodRunnerDeviceResponses[keyof BindPodRunnerDeviceResponses]
 
 export type PodJobWebhooksDeleteData = {
   body?: never
@@ -11453,6 +11554,76 @@ export type UpdatePodProfileResponses = {
 
 export type UpdatePodProfileResponse = UpdatePodProfileResponses[keyof UpdatePodProfileResponses]
 
+export type ListPodRunnerDevicesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/runner-devices'
+}
+
+export type ListPodRunnerDevicesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPodRunnerDevicesError = ListPodRunnerDevicesErrors[keyof ListPodRunnerDevicesErrors]
+
+export type ListPodRunnerDevicesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    devices: Array<{
+      bindings: Array<{
+        agentUID: string
+      }>
+      id: string
+      name: string
+      status: string
+    }>
+  }
+}
+
+export type ListPodRunnerDevicesResponse = ListPodRunnerDevicesResponses[keyof ListPodRunnerDevicesResponses]
+
+export type RegisterPodRunnerDeviceData = {
+  /**
+   * Request body for the register_pod_runner_device operation on pod_runner_operation resource
+   */
+  body: {
+    data: {
+      name: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/runner-devices'
+}
+
+export type RegisterPodRunnerDeviceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RegisterPodRunnerDeviceError = RegisterPodRunnerDeviceErrors[keyof RegisterPodRunnerDeviceErrors]
+
+export type RegisterPodRunnerDeviceResponses = {
+  /**
+   * Success
+   */
+  201: {
+    code: string
+    id: string
+    url: string
+  }
+}
+
+export type RegisterPodRunnerDeviceResponse = RegisterPodRunnerDeviceResponses[keyof RegisterPodRunnerDeviceResponses]
+
 export type MetaSaveAgentContractData = {
   /**
    * Request body for the metaSaveAgentContract operation on meta_library resource
@@ -12002,6 +12173,35 @@ export type MetaSkillSetBindingResponses = {
 }
 
 export type MetaSkillSetBindingResponse = MetaSkillSetBindingResponses[keyof MetaSkillSetBindingResponses]
+
+export type RevokePodRunnerDeviceData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/runner-devices/{id}'
+}
+
+export type RevokePodRunnerDeviceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RevokePodRunnerDeviceError = RevokePodRunnerDeviceErrors[keyof RevokePodRunnerDeviceErrors]
+
+export type RevokePodRunnerDeviceResponses = {
+  /**
+   * Success
+   */
+  200: {
+    revoked: boolean
+  }
+}
+
+export type RevokePodRunnerDeviceResponse = RevokePodRunnerDeviceResponses[keyof RevokePodRunnerDeviceResponses]
 
 export type PodSpaceAgentWriteData = {
   /**

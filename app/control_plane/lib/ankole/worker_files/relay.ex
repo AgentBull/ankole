@@ -54,7 +54,7 @@ defmodule Ankole.WorkerFiles.Relay do
           | {:error, term()}
   def open(%{direction: direction, worker: worker} = attrs)
       when direction in [:pull, :push] do
-    with {:ok, endpoints} <- Providers.connection_endpoints(worker.worker_id) do
+    with {:ok, endpoints} <- Providers.connection_endpoints(worker) do
       open_session(attrs, endpoints["relayOrigin"] || origin())
     end
   end

@@ -42,6 +42,9 @@ defmodule Ankole.Pod.APIError do
        "This background job ended before starting a workspace session and cannot be continued"},
     invalid_execution_cursor: {422, "The execution log cursor is invalid. Reload the log"},
     agent_unavailable: {409, "Agent is unavailable"},
+    runner_unavailable: {409, "This device is unavailable for the selected Agent."},
+    worker_runtime_not_configured:
+      {503, "This Ankole site has not configured the Worker runtime."},
     page_unavailable: {403, "The page is unavailable or you no longer have access to it"},
     conversation_conflict: {409, "Conversation facts conflict"},
     conversation_busy:

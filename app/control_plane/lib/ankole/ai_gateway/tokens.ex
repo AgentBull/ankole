@@ -7,11 +7,13 @@ defmodule Ankole.AIGateway.Tokens do
   """
 
   alias Ankole.OIDC.Config
+  alias Ankole.AgentWorkers.RunnerConnection
 
   @audience "ankole.ai_gateway"
   @scope "ai_gateway"
   @token_use "access"
   @ttl_seconds 30 * 24 * 60 * 60
+  @runner_ttl_seconds 3600
 
   @type token_set :: %{
           api_key: String.t(),
@@ -26,24 +28,47 @@ defmodule Ankole.AIGateway.Tokens do
   Mints one agent-scoped AIGateway API key.
   """
   @spec mint_for_agent(String.t()) :: {:ok, token_set()} | {:error, term()}
-  def mint_for_agent(agent_uid) when is_binary(agent_uid) do
+  def mint_for_agent(agent_uid) when is_binary(agent_uid), do: mint(agent_uid, @ttl_seconds, %{})
+  def mint_for_agent(_agent_uid), do: {:error, :invalid_agent_uid}
+
+  def mint_for_worker(agent_uid, %{runner_id: runner_id} = worker) when is_binary(runner_id) do
+    if RunnerConnection.current?(worker) do
+      mint(agent_uid, @runner_ttl_seconds, %{
+        "runner_worker" => %{
+          "id" => runner_id,
+          "generation" => worker.generation,
+          "incarnation" => worker.incarnation_id
+        }
+      })
+    else
+      {:error, :stale_transport_route}
+    end
+  end
+
+  def mint_for_worker(agent_uid, _worker), do: mint_for_agent(agent_uid)
+
+  defp mint(agent_uid, ttl_seconds, extra_claims) do
     now = now_seconds()
-    expires_at = now + @ttl_seconds
+    expires_at = now + ttl_seconds
 
     principal = %{
       kind: "agent",
       sub: agent_uid,
       scopes: [@scope],
-      claims: %{"token_use" => @token_use, "tenant_id" => Ankole.Repo.tenant_id!()}
+      claims:
+        Map.merge(
+          %{"token_use" => @token_use, "tenant_id" => Ankole.Repo.tenant_id!()},
+          extra_claims
+        )
     }
 
     with {:ok, result} <-
-           Attesto.Token.mint(Config.get(@audience, @ttl_seconds), principal, now: now) do
+           Attesto.Token.mint(Config.get(@audience, ttl_seconds), principal, now: now) do
       {:ok,
        %{
          api_key: result.access_token,
          token_type: "Bearer",
-         expires_in: @ttl_seconds,
+         expires_in: ttl_seconds,
          expires_at: expires_at,
          scope: @scope,
          agent_uid: agent_uid
@@ -53,7 +78,31 @@ defmodule Ankole.AIGateway.Tokens do
     end
   end
 
-  def mint_for_agent(_agent_uid), do: {:error, :invalid_agent_uid}
+  def authorize_worker_claims(%{
+        "exp" => expires_at,
+        "sub" => agent_uid,
+        "runner_worker" => %{
+          "id" => runner_id,
+          "generation" => generation,
+          "incarnation" => incarnation
+        }
+      })
+      when is_integer(expires_at) and is_binary(agent_uid) and is_binary(runner_id) and
+             is_binary(generation) and
+             is_binary(incarnation) do
+    if expires_at > now_seconds() and
+         RunnerConnection.current?(%{
+           worker_id: agent_uid,
+           runner_id: runner_id,
+           generation: generation,
+           incarnation_id: incarnation
+         }),
+       do: :ok,
+       else: {:error, :invalid_token}
+  end
+
+  def authorize_worker_claims(%{"runner_worker" => _}), do: {:error, :invalid_token}
+  def authorize_worker_claims(_claims), do: :ok
 
   @doc """
   Validates Agent API key claims after `Attesto.Token` verifies the token.

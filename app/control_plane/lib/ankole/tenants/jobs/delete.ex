@@ -20,7 +20,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     conversation_action_cards external_message_refs conversation_messages conversation_participants
     next_step_suggestions
     session_ambient_judgments scheduled_events cron_schedules
-    sessions agent_computer_worker_envs
+    sessions agent_computer_worker_envs runner_bindings runner_devices
     agent_plugin_overrides agent_skill_lessons agent_skills agent_contracts skill_files skills
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
     app_configurations base_change_outbox automation_job_states signal_binding_receipts
