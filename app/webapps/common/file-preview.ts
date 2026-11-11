@@ -55,14 +55,53 @@ export function isDelimitedTextTable(name: string, mime?: string) {
   return /\.(csv|tsv)$/i.test(name) || mime === 'text/csv' || mime === 'text/tab-separated-values'
 }
 
-/** Workbook formats that SheetJS reads into a read-only table preview. */
-export function isWorkbookFile(name: string, mime?: string) {
+const DUPLICATE_SUFFIX = /(?: \(\d+\))?$/
+
+function stripDuplicateSuffix(name: string) {
+  return name.replace(DUPLICATE_SUFFIX, '')
+}
+
+/** OOXML workbook formats (`.xlsx`, `.xlsm`) rendered and edited by `ankole_spreadsheet_wasm`. */
+export function isOfficeSpreadsheetFile(name: string, mime?: string) {
+  const base = stripDuplicateSuffix(name)
   return (
-    /\.(xlsx|xlsm|xls|xlsb|ods)$/i.test(name) ||
+    /\.(xlsx|xlsm)$/i.test(base) ||
+    mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    mime === 'application/vnd.ms-excel.sheet.macroenabled.12'
+  )
+}
+
+/** Legacy or OpenDocument workbooks (`.xls`, `.xlsb`, `.ods`) read into a SheetJS table preview. */
+export function isLegacyWorkbookFile(name: string, mime?: string) {
+  if (isOfficeSpreadsheetFile(name, mime)) return false
+  const base = stripDuplicateSuffix(name)
+  return (
+    /\.(xls|xlsb|ods)$/i.test(base) ||
     Boolean(mime?.includes('spreadsheet') || mime?.startsWith('application/vnd.ms-excel'))
   )
 }
 
+/** Any spreadsheet workbook format supported by either WASM or SheetJS preview. */
+export function isWorkbookFile(name: string, mime?: string) {
+  return isOfficeSpreadsheetFile(name, mime) || isLegacyWorkbookFile(name, mime)
+}
+
+/** OOXML Word document formats (`.docx`, `.docm`) rendered and edited by `ankole_word_wasm`. */
+export function isWordFile(name: string, mime?: string) {
+  const base = stripDuplicateSuffix(name)
+  return (
+    /\.(docx|docm)$/i.test(base) ||
+    mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    mime === 'application/vnd.ms-word.document.macroenabled.12'
+  )
+}
+
+/** OOXML presentation format (`.pptx`) rendered and edited by `ankole_presentation_wasm`. */
 export function isPresentationFile(name: string, mime?: string) {
-  return /\.pptx$/i.test(name) || Boolean(mime?.includes('presentationml'))
+  const base = stripDuplicateSuffix(name)
+  return (
+    /\.pptx$/i.test(base) ||
+    mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+    Boolean(mime?.includes('presentationml.presentation'))
+  )
 }

@@ -2,7 +2,7 @@
 name = "ankole_kernel"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.95"
 description = "Shared native kernel helpers for Ankole"
 license = "Apache-2.0"
 
@@ -13,10 +13,18 @@ path = "src/lib.rs"
 [lints]
 workspace = true
 
-# The spreadsheet crate is host-neutral so that the NIF and the browser build
-# share it; the root package's own dependencies do not build for wasm32.
+# The Office crates are host-neutral so that the NIF and the browser builds
+# share them; the root package's own dependencies do not build for wasm32.
 [workspace]
-members = ["spreadsheet", "spreadsheet-wasm"]
+members = [
+  "presentation",
+  "presentation-wasm",
+  "spreadsheet",
+  "spreadsheet-wasm",
+  "vendor/deckcraft-fonts",
+  "word",
+  "word-wasm",
+]
 
 # `bun run lint` runs clippy with `-D warnings`, so each lint in these tables
 # fails the gate for every workspace member. The lints below hold on the
@@ -41,7 +49,9 @@ print_stderr = "warn"
 [features]
 default = []
 nif = [
+  "dep:ankole_presentation",
   "dep:ankole_spreadsheet",
+  "dep:ankole_word",
   "dep:rustler",
   "dep:stacker",
   "universal_ai_client",
@@ -82,7 +92,9 @@ model_image = ["dep:image", "dep:webp"]
 sql_inspect = ["dep:sqlparser"]
 
 [dependencies]
+ankole_presentation = { path = "presentation", optional = true }
 ankole_spreadsheet = { path = "spreadsheet", optional = true }
+ankole_word = { path = "word", optional = true }
 any_ascii = "0.3.3"
 base64-simd = "0.8.0"
 blake3 = "1.8.7"
@@ -99,7 +111,9 @@ hex = "0.4.3"
 hmac = "0.13.0"
 jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
 lopdf = { version = "0.47.0", default-features = false, optional = true }
-mimalloc = "0.1.52"
+# BEAM loads the NIF at runtime with dlopen, so mimalloc must use local-dynamic
+# TLS instead of initial-exec static TLS on Unix.
+mimalloc = { version = "0.1.52", features = ["local_dynamic_tls"] }
 napi = { version = "3.16.1", optional = true }
 napi-derive = { version = "3.7.0", optional = true }
 no-proxy = { version = "0.3.7", default-features = false, optional = true }
@@ -163,3 +177,12 @@ inherits = "release"
 opt-level = "z"
 lto = true
 codegen-units = 1
+
+# Required by craft-pdf and deckcraft-fonts in WordCraft and DeckCraft; both
+# engines share one craft-libs revision across the workspace.
+[patch.crates-io]
+krilla = { git = "https://github.com/storytold/craft-libs", rev = "1b34eba41e62138fc2438d2734523b302840b45d" }
+epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+
+[patch."https://github.com/storytold/deckcraft"]
+deckcraft-fonts = { path = "vendor/deckcraft-fonts" }

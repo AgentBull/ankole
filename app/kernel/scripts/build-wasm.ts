@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib'
 import { kernelRoot, runCargo } from './cargo'
 
 // The CLI and the `wasm-bindgen` crate share one ABI, so this version must equal the one that
-// `spreadsheet-wasm/Cargo.toml` pins.
+// `spreadsheet-wasm`, `presentation-wasm`, and `word-wasm` pin in their `Cargo.toml` manifests.
 const WASM_BINDGEN_VERSION = '0.2.130'
 // The WebAssembly features Rust enables by default for wasm32-unknown-unknown.
 const WASM_FEATURES = [
@@ -18,13 +18,64 @@ const WASM_FEATURES = [
   '--enable-multivalue'
 ]
 
+type WasmTarget = {
+  crateName: string
+  dirName: string
+  smokeCheck: (module: Record<string, any>) => void
+}
+
+const TARGETS: WasmTarget[] = [
+  {
+    crateName: 'ankole_spreadsheet_wasm',
+    dirName: 'spreadsheet-wasm',
+    smokeCheck: module => {
+      const sheet = module.Spreadsheet.create_blank('Smoke')
+      sheet.apply(JSON.stringify({ type: 'cell.set', sheet_id: 1, cell: 'A1', input: '=1+2' }))
+      const viewport = JSON.parse(sheet.viewport(1, 0, 0, 0, 0))
+      if (viewport.cells[0]?.text !== '3') {
+        throw new Error(`spreadsheet WebAssembly smoke check read ${JSON.stringify(viewport)}`)
+      }
+      const reopened = module.Spreadsheet.open(sheet.export_xlsx(), '[]')
+      if (reopened.cell_input(1, 'A1') !== '=1+2') {
+        throw new Error('spreadsheet WebAssembly smoke check lost the formula on export')
+      }
+    }
+  },
+  {
+    crateName: 'ankole_presentation_wasm',
+    dirName: 'presentation-wasm',
+    smokeCheck: module => {
+      const editor = module.PresentationEditor.create_blank('Smoke')
+      const slides = JSON.parse(editor.slides_info())
+      if (!Array.isArray(slides) || slides.length < 1) {
+        throw new Error(`presentation WebAssembly smoke check read ${JSON.stringify(slides)}`)
+      }
+      const reopened = module.PresentationEditor.open(editor.export_pptx(), '[]')
+      if (JSON.parse(reopened.slides_info()).length !== slides.length) {
+        throw new Error('presentation WebAssembly smoke check lost slides on export')
+      }
+    }
+  },
+  {
+    crateName: 'ankole_word_wasm',
+    dirName: 'word-wasm',
+    smokeCheck: module => {
+      const editor = module.WordEditor.create_blank('Smoke')
+      editor.insert_text('Smoke paragraph')
+      const opJson = editor.commit_local_step()
+      if (typeof opJson !== 'string' || !opJson.includes('blocks.splice')) {
+        throw new Error(`word WebAssembly smoke check derived ${String(opJson)}`)
+      }
+      const reopened = module.WordEditor.open(editor.export_docx(), '[]')
+      const matches = JSON.parse(reopened.find('Smoke', true))
+      if (!Array.isArray(matches) || matches.length !== 1) {
+        throw new Error(`word WebAssembly smoke check find returned ${JSON.stringify(matches)}`)
+      }
+    }
+  }
+]
+
 const toolsRoot = join(kernelRoot, 'target/wasm-tools')
-const outDir = join(kernelRoot, 'dist/spreadsheet-wasm')
-const built = join(kernelRoot, 'target/wasm32-unknown-unknown/wasm-release/ankole_spreadsheet_wasm.wasm')
-const bindgenWasm = join(outDir, 'ankole_spreadsheet_wasm_bg.wasm')
-// The declarations live in git as well, so that type checks of the webapps pass on machines
-// without a Rust toolchain. Every build refreshes them.
-const declarations = 'ankole_spreadsheet_wasm.d.ts'
 
 function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, { cwd: kernelRoot, stdio: 'inherit' })
@@ -46,32 +97,45 @@ function wasmBindgen(): string {
   return binary
 }
 
-/** Loads the generated module and runs one edit, so a broken artifact fails the build. */
-async function smokeCheck(): Promise<void> {
-  const module = await import(join(outDir, 'ankole_spreadsheet_wasm.js'))
-  module.initSync({ module: readFileSync(bindgenWasm) })
-  const sheet = module.Spreadsheet.create_blank('Smoke')
-  sheet.apply(JSON.stringify({ type: 'cell.set', sheet_id: 1, cell: 'A1', input: '=1+2' }))
-  const viewport = JSON.parse(sheet.viewport(1, 0, 0, 0, 0))
-  if (viewport.cells[0]?.text !== '3') throw new Error(`the WebAssembly smoke check read ${JSON.stringify(viewport)}`)
-  const reopened = module.Spreadsheet.open(sheet.export_xlsx(), '[]')
-  if (reopened.cell_input(1, 'A1') !== '=1+2') throw new Error('the WebAssembly smoke check lost the formula on export')
-}
+runCargo([
+  'build',
+  ...TARGETS.flatMap(target => ['-p', target.crateName]),
+  '--target',
+  'wasm32-unknown-unknown',
+  '--profile',
+  'wasm-release'
+])
 
-runCargo(['build', '-p', 'ankole_spreadsheet_wasm', '--target', 'wasm32-unknown-unknown', '--profile', 'wasm-release'])
-rmSync(outDir, { recursive: true, force: true })
-run(wasmBindgen(), [built, '--target', 'web', '--out-dir', outDir])
+const bindgen = wasmBindgen()
 const wasmOpt = Bun.which('wasm-opt')
-if (wasmOpt) {
-  run(wasmOpt, ['-Oz', ...WASM_FEATURES, bindgenWasm, '-o', bindgenWasm])
-} else {
+if (!wasmOpt) {
   console.warn(
-    'WARN: wasm-opt is not on PATH; the module is not post-optimized. Install binaryen to shrink it further.'
+    'WARN: wasm-opt is not on PATH; modules are not post-optimized. Install binaryen to shrink them further.'
   )
 }
-await smokeCheck()
-copyFileSync(join(outDir, declarations), join(kernelRoot, 'spreadsheet-wasm', declarations))
 
-const bytes = readFileSync(bindgenWasm)
 const kib = (n: number) => `${(n / 1024).toFixed(1)} KiB`
-process.stdout.write(`${bindgenWasm}: ${kib(bytes.length)} raw, ${kib(gzipSync(bytes, { level: 9 }).length)} gzip\n`)
+
+for (const target of TARGETS) {
+  const outDir = join(kernelRoot, 'dist', target.dirName)
+  const built = join(kernelRoot, 'target/wasm32-unknown-unknown/wasm-release', `${target.crateName}.wasm`)
+  const bindgenWasm = join(outDir, `${target.crateName}_bg.wasm`)
+  const declarations = `${target.crateName}.d.ts`
+
+  rmSync(outDir, { recursive: true, force: true })
+  run(bindgen, [built, '--target', 'web', '--out-dir', outDir])
+  if (wasmOpt) {
+    run(wasmOpt, ['-Oz', ...WASM_FEATURES, bindgenWasm, '-o', bindgenWasm])
+  }
+
+  const module = (await import(join(outDir, `${target.crateName}.js`))) as Record<string, any>
+  module.initSync({ module: readFileSync(bindgenWasm) })
+  target.smokeCheck(module)
+
+  // The declarations live in git as well, so that type checks of the webapps pass on machines
+  // without a Rust toolchain. Every build refreshes them.
+  copyFileSync(join(outDir, declarations), join(kernelRoot, target.dirName, declarations))
+
+  const bytes = readFileSync(bindgenWasm)
+  process.stdout.write(`${bindgenWasm}: ${kib(bytes.length)} raw, ${kib(gzipSync(bytes, { level: 9 }).length)} gzip\n`)
+}

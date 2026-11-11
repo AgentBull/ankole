@@ -1,5 +1,32 @@
 # Changelog
 
+## Version 2.0.0-alpha.133 (2026-11-12)
+
+- Read and edit Word documents (`.docx`, `.docm`) and presentations (`.pptx`)
+  directly in Pod alongside spreadsheets (`.xlsx`, `.xlsm`). Create blank
+  Office files from the Page creation menu or upload existing files; edits save
+  automatically into the Office file with version history, PDF export for Word
+  and Presentation Pages, full-screen slide show playback, and Presence soft
+  locks on active top-level blocks and slides so collaborators can work on
+  different sections or slides concurrently.
+- Preview `.docx`, `.docm`, `.pptx`, `.xlsx`, and `.xlsm` Chat attachments and
+  read-only file Pages with the same WebAssembly engines, including text
+  selection, clipboard copy, and in-file search.
+- Convert any Word Page into a native Pod document Page in one click
+  (`POST /api/v2/pod/pages/:id/convert-to-document`), preserving headings,
+  formatted runs, nested lists, merged and shaded tables, extracted media
+  assets, equations, and footnotes while keeping the original Word file intact.
+- Add `ankole-pod office` (`inspect`, `render --to`, `commands`, `apply`, and
+  `to-document`) so Agents can inspect, visually render, edit, and convert Pod
+  Office Pages through the shared operation log without resetting human
+  collaborators, while keeping `OfficeCLI` for local `/workspace` files.
+- Generalize Pod's spreadsheet configuration and HTTP/channel endpoints to
+  Office Pages (`pod.office.limits`, `POST /api/v2/pod/office-pages`, and
+  `/api/v2/pod/pages/:id/office*`), migrating existing `pod.spreadsheet.limits`
+  tenant settings automatically. Run `mix ecto.migrate`: the migration renames
+  `pod_spreadsheet_ops` to `pod_office_ops` and creates
+  `pod_office_checkpoints`.
+
 ## Version 2.0.0-alpha.132 (2026-11-12)
 
 - Cut repeated access checks on live conversation streams, and let shutdown

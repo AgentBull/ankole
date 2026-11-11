@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { createClientConfig, InternalAPIError } from '../../common/internal-api-client'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
-import { podSpreadsheet } from '../api/generated/sdk.gen'
+import { podOffice } from '../api/generated/sdk.gen'
 import { contentKeys, fileURL, type PageDetail } from '../content-api'
 import { useContent } from '../content-context'
 import { contentError } from '../content-errors'
@@ -36,9 +36,9 @@ function errorCode(error: unknown): string | undefined {
 /** Loads the file by the digest that the bootstrap pairs with its uncompacted operations. */
 async function loadSpreadsheet(pageID: string): Promise<SpreadsheetSource> {
   for (let attempt = 1; ; attempt++) {
-    let bootstrap: Awaited<ReturnType<typeof podSpreadsheet>>
+    let bootstrap: Awaited<ReturnType<typeof podOffice>>
     try {
-      bootstrap = await podSpreadsheet({ path: { id: pageID } })
+      bootstrap = await podOffice({ path: { id: pageID } })
     } catch (error) {
       if (errorCode(error) === 'file_too_large') return { kind: 'too_large' }
       throw error
@@ -75,7 +75,7 @@ function announce(notice: SpreadsheetNotice) {
       return
     }
     case 'rejected':
-      if (notice.reason === 'spreadsheet_full') {
+      if (notice.reason === 'office_full') {
         toast.error(t('pod.spreadsheet.workbook_full'))
         return
       }

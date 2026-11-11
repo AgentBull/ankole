@@ -8,7 +8,7 @@ defmodule Ankole.Brain.FilePagesTest do
 
   alias Ankole.Brain.{Chunks, Config, Dreaming, GetPage, Objects, SourceLearning, Timelines}
   alias Ankole.Brain.Schemas.{Chunk, Claim, Timeline}
-  alias Ankole.Pod.{FileCache, Files, Pages, Spreadsheets}
+  alias Ankole.Pod.{FileCache, Files, OfficeFiles, Pages}
   alias Ankole.Pod.Jobs.SyncFileCache
   alias Ankole.Repo
 
@@ -420,7 +420,9 @@ defmodule Ankole.Brain.FilePagesTest do
   end
 
   test "a spreadsheet's cache carries the extractor version that self-healing compares", ctx do
-    {:ok, page} = Spreadsheets.create_blank(ctx.actor, %{parent_id: ctx.folder.id})
+    {:ok, page} =
+      OfficeFiles.create_blank(ctx.actor, %{format: :spreadsheet, parent_id: ctx.folder.id})
+
     version = Ankole.Kernel.file_extractor_version()
 
     assert %FileCache{subtype: :spreadsheet, extractor_version: ^version} =

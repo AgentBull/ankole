@@ -2,7 +2,7 @@ defmodule AnkoleWeb.PodPageChannel do
   @moduledoc false
   use AnkoleWeb, :channel
   import AnkoleWeb.PodChannel, only: [allowed?: 1, recheck: 1, revoke: 1, with_tenant: 2]
-  alias Ankole.Pod.{Documents, Pages, Spreadsheets}
+  alias Ankole.Pod.{Documents, OfficeFiles, Pages}
   alias Ankole.Pod.Serialization, as: JSON
 
   @selection_bytes 4096
@@ -23,15 +23,15 @@ defmodule AnkoleWeb.PodPageChannel do
         session = Ankole.Ecto.UUIDv7.autogenerate()
         author = Ankole.ActorRef.from_actor(socket.assigns.actor)
         profile = JSON.author_profiles([author])[author]
-        spreadsheet? = Spreadsheets.spreadsheet?(detail.page)
-        if detail.page.type == :doc or spreadsheet?, do: send(self(), :track_presence)
+        office_kind = OfficeFiles.kind(detail.page)
+        if detail.page.type == :doc or not is_nil(office_kind), do: send(self(), :track_presence)
 
         {:ok, Map.put(JSON.detail_json(detail), :presence_session, session),
          assign(socket, %{
            page_id: id,
            page_type: detail.page.type,
            revision: detail.page.revision,
-           spreadsheet?: spreadsheet?,
+           office_kind: office_kind,
            presence_meta:
              Map.merge(profile, %{session_id: session, selection: nil, mode: "viewing"})
          })}
@@ -62,30 +62,38 @@ defmodule AnkoleWeb.PodPageChannel do
     end
   end
 
-  def handle_in("sheet:apply", attrs, %{assigns: %{spreadsheet?: true}} = socket),
-    do:
-      reply_with(socket, fn ->
-        Spreadsheets.apply_op(socket.assigns.actor, socket.assigns.page_id, attrs)
-      end)
-
-  def handle_in(
-        "sheet:sync",
-        %{"revision" => revision},
-        %{assigns: %{spreadsheet?: true}} = socket
-      ),
+  def handle_in("office:apply", attrs, %{assigns: %{office_kind: kind}} = socket)
+      when not is_nil(kind),
       do:
         reply_with(socket, fn ->
-          Spreadsheets.since(socket.assigns.actor, socket.assigns.page_id, revision)
+          OfficeFiles.apply_op(socket.assigns.actor, socket.assigns.page_id, attrs)
         end)
 
   def handle_in(
-        "sheet:presence",
-        %{"selection" => selection},
-        %{assigns: %{spreadsheet?: true}} = socket
+        "office:sync",
+        %{"revision" => revision},
+        %{assigns: %{office_kind: kind}} = socket
       )
-      when is_map(selection) or is_nil(selection) do
-    if byte_size(Torque.encode!(selection)) <= @selection_bytes do
-      with_tenant(socket, fn -> update_sheet_presence(socket, selection) end)
+      when not is_nil(kind),
+      do:
+        reply_with(socket, fn ->
+          OfficeFiles.since(socket.assigns.actor, socket.assigns.page_id, revision)
+        end)
+
+  def handle_in(
+        "office:presence",
+        %{"selection" => selection} = params,
+        %{assigns: %{office_kind: kind}} = socket
+      )
+      when not is_nil(kind) and (is_map(selection) or is_nil(selection)) do
+    normalized =
+      if is_map(selection) and Map.has_key?(params, "editing") and
+           not Map.has_key?(selection, "editing"),
+         do: Map.put(selection, "editing", params["editing"] == true),
+         else: selection
+
+    if byte_size(Torque.encode!(normalized)) <= @selection_bytes do
+      with_tenant(socket, fn -> update_office_presence(socket, normalized) end)
     else
       {:reply, {:error, %{reason: "invalid_request"}}, socket}
     end
@@ -155,28 +163,29 @@ defmodule AnkoleWeb.PodPageChannel do
     end
   end
 
-  # The last editor to leave a spreadsheet wakes compaction, so the file
+  # The last editor to leave an Office page wakes compaction, so the file
   # catches up with the log soon after everyone closes the page. Presence
   # still lists this channel's own entry while it terminates.
   @impl true
-  def terminate(_reason, %{assigns: %{spreadsheet?: true}} = socket) do
+  def terminate(_reason, %{assigns: %{office_kind: kind}} = socket) when not is_nil(kind) do
     present =
       for {_uid, %{metas: metas}} <- AnkoleWeb.PodPresence.list(socket), meta <- metas, do: meta
 
     if length(present) <= 1,
-      do: with_tenant(socket, fn -> Spreadsheets.compact_now(socket.assigns.page_id) end)
+      do: with_tenant(socket, fn -> OfficeFiles.compact_now(socket.assigns.page_id) end)
 
     :ok
   end
 
   def terminate(_reason, _socket), do: :ok
 
-  # A spreadsheet selection names cells, not a document revision, so it never goes stale.
-  defp update_sheet_presence(socket, selection) do
+  # An Office selection names cells, blocks, or slides rather than a document
+  # revision, so it stays active across revisions until the editor updates it.
+  defp update_office_presence(socket, selection) do
     with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
          {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view") do
       editing =
-        not is_nil(selection) and
+        office_selection_editing?(selection) and
           match?({:ok, _}, Pages.authorize(socket.assigns.actor, page.id, "node_edit"))
 
       meta = %{
@@ -191,6 +200,11 @@ defmodule AnkoleWeb.PodPageChannel do
       _ -> revoke(socket)
     end
   end
+
+  defp office_selection_editing?(nil), do: false
+
+  defp office_selection_editing?(selection) when is_map(selection),
+    do: Map.get(selection, "editing", false) == true
 
   defp update_presence(socket, selection) do
     with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
@@ -216,12 +230,20 @@ defmodule AnkoleWeb.PodPageChannel do
     end
   end
 
-  defp refresh_presence_access(%{assigns: %{page_type: :doc}} = socket) do
+  defp refresh_presence_access(
+         %{assigns: %{page_type: page_type, office_kind: office_kind}} = socket
+       )
+       when page_type == :doc or not is_nil(office_kind) do
     if allowed?(socket) do
       meta = socket.assigns.presence_meta
 
+      wants_editing? =
+        if page_type == :doc,
+          do: not is_nil(meta.selection),
+          else: office_selection_editing?(meta.selection)
+
       editing =
-        not is_nil(meta.selection) and
+        wants_editing? and
           with_tenant(socket, fn ->
             match?(
               {:ok, _},
@@ -275,13 +297,13 @@ defmodule AnkoleWeb.PodPageChannel do
     end)
   end
 
-  defp json_result(%{assigns: %{spreadsheet?: true}}, result),
+  defp json_result(%{assigns: %{office_kind: kind}}, result) when not is_nil(kind),
     do:
       Map.update(
         result,
         :changes,
         [],
-        &Enum.map(&1, fn entry -> JSON.spreadsheet_op_json(entry) end)
+        &Enum.map(&1, fn entry -> JSON.office_op_json(entry) end)
       )
 
   defp json_result(_socket, result),
@@ -295,11 +317,12 @@ defmodule AnkoleWeb.PodPageChannel do
 
   defp latest(socket) do
     with {:ok, page} <- Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "node_view") do
-      was_spreadsheet? = socket.assigns.spreadsheet?
-      socket = refresh_spreadsheet(socket, Spreadsheets.spreadsheet?(page))
+      previous_kind = socket.assigns.office_kind
+      next_kind = OfficeFiles.kind(page)
+      socket = refresh_office_kind(socket, next_kind)
 
-      if socket.assigns.spreadsheet? do
-        if not was_spreadsheet?,
+      if not is_nil(next_kind) do
+        if previous_kind != next_kind,
           do:
             push(socket, "changes", %{
               revision: page.revision,
@@ -308,9 +331,9 @@ defmodule AnkoleWeb.PodPageChannel do
             })
 
         # A replacement that commits between the page read and the log read
-        # ends spreadsheet editing, so the channel reads the page again.
-        case Spreadsheets.since(socket.assigns.actor, page.id, socket.assigns.revision) do
-          {:ok, result} -> {:ok, "sheet:changes", result, socket}
+        # ends Office editing, so the channel reads the page again.
+        case OfficeFiles.since(socket.assigns.actor, page.id, socket.assigns.revision) do
+          {:ok, result} -> {:ok, "office:changes", result, socket}
           {:error, :invalid_page_type} -> latest(socket)
           error -> error
         end
@@ -321,17 +344,26 @@ defmodule AnkoleWeb.PodPageChannel do
     end
   end
 
-  defp refresh_spreadsheet(%{assigns: %{spreadsheet?: current}} = socket, current), do: socket
+  defp refresh_office_kind(%{assigns: %{office_kind: current}} = socket, current), do: socket
 
-  defp refresh_spreadsheet(socket, spreadsheet?) do
+  defp refresh_office_kind(socket, next_kind) do
+    was_tracked? = not is_nil(socket.assigns.office_kind)
     meta = %{socket.assigns.presence_meta | selection: nil, mode: "viewing"}
-    socket = assign(socket, spreadsheet?: spreadsheet?, presence_meta: meta)
+    socket = assign(socket, office_kind: next_kind, presence_meta: meta)
 
-    if spreadsheet? do
-      {:ok, _} = AnkoleWeb.PodPresence.track(socket, socket.assigns.uid, meta)
-      push(socket, "presence_state", AnkoleWeb.PodPresence.list(socket))
-    else
-      :ok = AnkoleWeb.PodPresence.untrack(socket, socket.assigns.uid)
+    cond do
+      not was_tracked? and not is_nil(next_kind) ->
+        {:ok, _} = AnkoleWeb.PodPresence.track(socket, socket.assigns.uid, meta)
+        push(socket, "presence_state", AnkoleWeb.PodPresence.list(socket))
+
+      was_tracked? and not is_nil(next_kind) ->
+        {:ok, _} = AnkoleWeb.PodPresence.update(socket, socket.assigns.uid, meta)
+
+      was_tracked? ->
+        :ok = AnkoleWeb.PodPresence.untrack(socket, socket.assigns.uid)
+
+      true ->
+        :ok
     end
 
     socket

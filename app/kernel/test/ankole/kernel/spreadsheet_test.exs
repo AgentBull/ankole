@@ -12,11 +12,11 @@ defmodule Ankole.Kernel.SpreadsheetTest do
     assert {:ok,
             %{
               doc_ref: doc,
-              xlsx_bytes: "PK" <> _,
+              bytes: "PK" <> _,
               plain_text: "[Sheet: Sheet1]\n",
               metadata: metadata
             }} =
-             Kernel.spreadsheet_create_blank("预算")
+             Kernel.office_create_blank(:spreadsheet, "预算")
 
     assert %{
              "sheets" => [%{"sheet_id" => 1, "name" => "Sheet1", "rows" => 0, "cols" => 0}],
@@ -25,14 +25,14 @@ defmodule Ankole.Kernel.SpreadsheetTest do
            } = metadata
 
     assert {:ok, %{doc_ref: edited, committed_op: committed, structural_edit: nil}} =
-             Kernel.spreadsheet_apply(doc, set(1, "A1", "季度预算"), [])
+             Kernel.office_apply(doc, set(1, "A1", "季度预算"), [], nil)
 
     assert committed == set(1, "A1", "季度预算")
 
     assert {:ok, %{plain_text: "[Sheet: Sheet1]\nR1\t季度预算\n"}} =
-             Kernel.spreadsheet_export_xlsx(edited)
+             Kernel.office_export(edited)
 
-    assert {:ok, %{plain_text: "[Sheet: Sheet1]\n"}} = Kernel.spreadsheet_export_xlsx(doc)
+    assert {:ok, %{plain_text: "[Sheet: Sheet1]\n"}} = Kernel.office_export(doc)
   end
 
   test "opening replays committed tail operations and keeps the file's sheet ids" do
@@ -40,7 +40,7 @@ defmodule Ankole.Kernel.SpreadsheetTest do
     tail = [%{"type" => "sheet.insert", "sheet_id" => 3, "name" => "附表", "index" => 1}]
 
     assert {:ok, %{doc_ref: doc, plain_text: plain_text, metadata: metadata}} =
-             Kernel.spreadsheet_open(bytes, tail)
+             Kernel.office_open(:spreadsheet, bytes, tail)
 
     assert plain_text =~ "结算台账"
 
@@ -50,14 +50,14 @@ defmodule Ankole.Kernel.SpreadsheetTest do
              %{"sheet_id" => 2, "name" => "汇率假设"}
            ] = metadata["sheets"]
 
-    assert {:ok, %{xlsx_bytes: xlsx}} = Kernel.spreadsheet_export_xlsx(doc)
+    assert {:ok, %{bytes: xlsx}} = Kernel.office_export(doc)
 
     assert {:ok, %{metadata: %{"sheets" => [_, %{"sheet_id" => 3}, %{"sheet_id" => 2}]}}} =
-             Kernel.spreadsheet_open(xlsx, [])
+             Kernel.office_open(:spreadsheet, xlsx, [])
   end
 
   test "structural edits rebase in-flight operations or reject them as conflicts" do
-    {:ok, %{doc_ref: doc}} = Kernel.spreadsheet_create_blank("Rebase")
+    {:ok, %{doc_ref: doc}} = Kernel.office_create_blank(:spreadsheet, "Rebase")
 
     insert = %{
       "type" => "line.insert",
@@ -68,7 +68,7 @@ defmodule Ankole.Kernel.SpreadsheetTest do
     }
 
     assert {:ok, %{doc_ref: doc, committed_op: insert, structural_edit: edit}} =
-             Kernel.spreadsheet_apply(doc, insert, [])
+             Kernel.office_apply(doc, insert, [], nil)
 
     assert edit == %{
              "kind" => "insert_lines",
@@ -79,7 +79,7 @@ defmodule Ankole.Kernel.SpreadsheetTest do
            }
 
     assert {:ok, %{committed_op: %{"cell" => "C8", "input" => "=SUM(B1:B8)"}}} =
-             Kernel.spreadsheet_apply(doc, set(1, "C5", "=SUM(B1:B5)"), [insert])
+             Kernel.office_apply(doc, set(1, "C5", "=SUM(B1:B5)"), [insert], nil)
 
     delete = %{
       "type" => "line.delete",
@@ -89,19 +89,19 @@ defmodule Ankole.Kernel.SpreadsheetTest do
       "count" => 4
     }
 
-    {:ok, %{doc_ref: doc, committed_op: delete}} = Kernel.spreadsheet_apply(doc, delete, [])
+    {:ok, %{doc_ref: doc, committed_op: delete}} = Kernel.office_apply(doc, delete, [], nil)
 
     assert {:conflict, :target_deleted} =
-             Kernel.spreadsheet_apply(doc, set(1, "A2", "x"), [delete])
+             Kernel.office_apply(doc, set(1, "A2", "x"), [delete], nil)
   end
 
   test "invalid input is an error, not a crash" do
-    {:ok, %{doc_ref: doc}} = Kernel.spreadsheet_create_blank("Errors")
-    assert {:error, reason} = Kernel.spreadsheet_apply(doc, %{"type" => "cell.select"}, [])
+    {:ok, %{doc_ref: doc}} = Kernel.office_create_blank(:spreadsheet, "Errors")
+    assert {:error, reason} = Kernel.office_apply(doc, %{"type" => "cell.select"}, [], nil)
     assert reason =~ "invalid operation"
-    assert {:error, reason} = Kernel.spreadsheet_apply(doc, set(9, "A1", "1"), [])
+    assert {:error, reason} = Kernel.office_apply(doc, set(9, "A1", "1"), [], nil)
     assert reason =~ "sheet_id 9"
-    assert {:error, reason} = Kernel.spreadsheet_open("not a zip", [])
+    assert {:error, reason} = Kernel.office_open(:spreadsheet, "not a zip", [])
     assert reason =~ "could not be read"
   end
 end

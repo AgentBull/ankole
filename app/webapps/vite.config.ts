@@ -107,7 +107,7 @@ function manualChunks(moduleID: string): string | undefined {
   if (moduleID.includes('/any-ascii/')) return 'vendor-transliteration'
   if (moduleID.includes('/json-edit-react/')) return 'vendor-json-editor'
   if (moduleID.includes('/xlsx/')) return 'vendor-spreadsheet'
-  if (moduleID.includes('/@office-kit/') || moduleID.includes('/fflate/')) return 'vendor-presentation'
+  if (moduleID.includes('/fflate/')) return 'vendor-zip'
   if (packageName === 'lightweight-charts' || packageName === 'fancy-canvas') return 'vendor-charts'
   if (packageName === '@antv/infographic') return 'vendor-infographic'
   if (packageName === '@antv/g6' || packageName === 'bubblesets-js' || packageName === 'is-any-array') {

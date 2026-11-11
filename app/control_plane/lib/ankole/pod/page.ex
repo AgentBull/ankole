@@ -350,7 +350,8 @@ defmodule Ankole.Pod.Page do
       transaction?(false)
       require_atomic?(true)
       accept([:updated_at, :vfs_md_size, :vfs_md_blake3, :vfs_content_empty])
-      change(atomic_update(:revision, expr(revision + 1)))
+      argument(:delta, :integer, default: 1, allow_nil?: false, constraints: [min: 1])
+      change(atomic_update(:revision, expr(revision + ^arg(:delta))))
     end
 
     update :cache_vfs_projection do

@@ -58,28 +58,40 @@ The current modules are:
   UTF-16 document diffs. The full round-trip chain from XML to the editor
   document and back shares its test corpus with the block editor.
 
-Two workspace crates sit beside the root crate, because the root crate's own
+Six workspace crates sit beside the root crate, because the root crate's own
 dependencies do not build for WebAssembly:
 
 - `spreadsheet/` (`ankole_spreadsheet`) - host-neutral spreadsheet documents
   over GridCraft, pinned to one Git revision for every GridCraft crate. It opens
-  `.xlsx` bytes with stable sheet ids, executes and rebases the canonical
-  operations, derives search text and sheet metadata, and serves the editor's
-  viewport views. The NIF and the browser load the same crate. Its tests include
-  the business-workbook corpus in `test/fixtures/spreadsheet/corpus`, which
-  every GridCraft upgrade must keep green.
-- `spreadsheet-wasm/` (`ankole_spreadsheet_wasm`) - the wasm-bindgen wrapper
-  that runs `ankole_spreadsheet` in the Pod spreadsheet editor's Web Worker,
-  which keeps a confirmed and a local document (`fork`) and rebases pending
-  operations onto the confirmed one (`apply_rebased`).
+  `.xlsx` and `.xlsm` bytes with stable sheet ids, executes and rebases the
+  canonical operations, derives search text and sheet metadata, and serves the
+  editor's viewport views. The NIF and the browser load the same crate. Its
+  tests include the business-workbook corpus in
+  `test/fixtures/spreadsheet/corpus`, which every GridCraft upgrade must keep
+  green.
+- `word/` (`ankole_word`) - host-neutral Word documents over WordCraft, pinned
+  to one Git revision. It opens `.docx` and `.docm` archives, derives and
+  rebases top-level block `ChangeSet` operations with inline marker validation,
+  runs headless Agent commands, renders page PNGs, and converts Word documents
+  directly into validated `page_document` XML with extracted media assets.
+- `presentation/` (`ankole_presentation`) - host-neutral presentations over
+  DeckCraft, pinned to one Git revision and aligned with `ankole_word` on one
+  shared `storytold/craft-libs` revision (with `vendor/deckcraft-fonts` keeping
+  the font loader deterministic across hosts). It opens `.pptx` archives,
+  derives and rebases whole-slide `ChangeSet` operations with base64 media
+  wrappers, runs headless Agent commands, and renders slide PNGs.
+- `spreadsheet-wasm/` (`ankole_spreadsheet_wasm`), `word-wasm/`
+  (`ankole_word_wasm`), and `presentation-wasm/` (`ankole_presentation_wasm`) -
+  the wasm-bindgen wrappers that run the three Office engines inside Pod's Web
+  Workers for collaborative editing, read-only previews, and PDF export.
   `bun run --filter @ankole/kernel build:wasm` (also the package `build`
-  script, so Turbo builds it before the webapps) writes the module to
-  `dist/spreadsheet-wasm/`. `@ankole/kernel/spreadsheet-wasm` exports that
-  module with the declarations in `spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts`,
-  generated output that the script refreshes on every build and that stays in
-  git so that type checks need no Rust toolchain, and
-  `@ankole/kernel/spreadsheet-wasm/*` exposes the other build files, such as
-  the `.wasm` binary that the worker loads by URL.
+  script, so Turbo builds all three before the webapps) writes the modules to
+  `dist/spreadsheet-wasm/`, `dist/word-wasm/`, and `dist/presentation-wasm/`
+  with `CRAFT_I18N_DIR=""` and `CRAFT_FONTS_DIR=""`. `@ankole/kernel/<kind>-wasm`
+  exports each module with its generated declarations in
+  `<kind>-wasm/ankole_<kind>_wasm.d.ts` (tracked in git so type checks need no
+  Rust toolchain), and `@ankole/kernel/<kind>-wasm/*` exposes the `.wasm`
+  binaries that the Workers load by URL.
 
 ## Identifier Generation
 

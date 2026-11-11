@@ -22,7 +22,7 @@ export const SETTING_DURATIONS: Record<string, { seconds: number; min: number; m
   'connectors.database.limits.lock_timeout_ms': { seconds: 0.001, min: 1 },
   'pod.base.limits.statement_timeout_ms': { seconds: 0.001, min: 1 },
   'pod.applet.limits.timeout_ms': { seconds: 0.001, min: 1 },
-  'pod.spreadsheet.limits.compaction_idle_seconds': { seconds: 1, min: 1 },
+  'pod.office.limits.compaction_idle_seconds': { seconds: 1, min: 1 },
   'authn.email.code_ttl_seconds': { seconds: 1, min: 1, max: 86400 },
   'principals.identity_providers.directory_full_sync_interval_minutes': { seconds: 60, min: 1 }
 }
@@ -73,7 +73,7 @@ const SPECIFIC_SETTING_EDITORS = new Map<string, SettingEditorKind>([
     'connectors.database.limits',
     'pod.base.limits',
     'pod.applet.limits',
-    'pod.spreadsheet.limits',
+    'pod.office.limits',
     'authn.email.send_limits',
     'authn.email.failure_limits'
   ].map(key => [key, 'limits'] as [string, SettingEditorKind])

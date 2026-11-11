@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test'
+import { officeFileFormat } from '../office/office-files'
 import {
   cellName,
   columnName,
   decodeTSV,
   encodeTSV,
   filterColumnsWith,
-  isSpreadsheetFileName,
   LineAxis,
   MAX_COLS,
   MAX_ROWS,
@@ -86,7 +86,7 @@ test('the clipboard codec quotes tabs, quotes, and line breaks the way spreadshe
 test('spreadsheet pages are files named .xlsx or .xlsm, including Drive duplicate names', () => {
   expect(
     ['Budget.XLSX', 'macro.xlsm', 'Budget.xlsx (2)', 'old.xls', 'data.csv', 'book.xlsb', 'Budget.xlsx.pdf'].map(
-      isSpreadsheetFileName
+      name => officeFileFormat(name) === 'spreadsheet'
     )
   ).toEqual([true, true, true, false, false, false, false])
 })

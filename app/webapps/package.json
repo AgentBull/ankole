@@ -24,8 +24,6 @@
     "@ankole/uikit": "workspace:*",
     "@json-render/core": "0.22.0",
     "@json-render/react": "0.22.0",
-    "@office-kit/pptx": "0.28.0",
-    "@office-kit/pptx-preview": "0.21.0",
     "@openfeature/react-sdk": "1.4.1",
     "@openfeature/web-sdk": "1.10.0",
     "@preact/signals-react": "3.12.0",

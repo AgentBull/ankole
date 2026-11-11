@@ -273,26 +273,6 @@ export type MetaAgent = {
 }
 
 /**
- * A "Resource object" representing a pod_spreadsheet_operation
- */
-export type PodSpreadsheetOperation = {
-  /**
-   * An attributes object for a pod_spreadsheet_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_spreadsheet_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
  * Filters the query to results matching the given filter object
  */
 export type MetaBrainFilter = {
@@ -1074,6 +1054,26 @@ export type EventBindingOperationFilter = {
   and?: Array<EventBindingOperationFilter>
   not?: EventBindingOperationFilter
   or?: Array<EventBindingOperationFilter>
+}
+
+/**
+ * A "Resource object" representing a pod_office_operation
+ */
+export type PodOfficeOperation = {
+  /**
+   * An attributes object for a pod_office_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_office_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 /**
@@ -2675,6 +2675,45 @@ export type PodJobSchedulesPutResponses = {
 }
 
 export type PodJobSchedulesPutResponse = PodJobSchedulesPutResponses[keyof PodJobSchedulesPutResponses]
+
+export type PodOfficeRestoreData = {
+  body?: never
+  path: {
+    version_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/office/versions/{version_id}/restore'
+}
+
+export type PodOfficeRestoreErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodOfficeRestoreError = PodOfficeRestoreErrors[keyof PodOfficeRestoreErrors]
+
+export type PodOfficeRestoreResponses = {
+  /**
+   * Success
+   */
+  201: {
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    format: 'spreadsheet' | 'word' | 'presentation'
+    page_id: string
+    revision: number
+  }
+}
+
+export type PodOfficeRestoreResponse = PodOfficeRestoreResponses[keyof PodOfficeRestoreResponses]
 
 export type PodJobWebhooksResumeData = {
   body?: never
@@ -6666,44 +6705,6 @@ export type ConversationExecutionResponses = {
 
 export type ConversationExecutionResponse = ConversationExecutionResponses[keyof ConversationExecutionResponses]
 
-export type PodSpreadsheetRestoreData = {
-  body?: never
-  path: {
-    version_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore'
-}
-
-export type PodSpreadsheetRestoreErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetRestoreError = PodSpreadsheetRestoreErrors[keyof PodSpreadsheetRestoreErrors]
-
-export type PodSpreadsheetRestoreResponses = {
-  /**
-   * Success
-   */
-  201: {
-    file: {
-      content_type?: string | null
-      object_id: string
-      path: string
-      sha256: string
-      size: number
-    }
-    page_id: string
-    revision: number
-  }
-}
-
-export type PodSpreadsheetRestoreResponse = PodSpreadsheetRestoreResponses[keyof PodSpreadsheetRestoreResponses]
-
 export type PodBaseAggregateData = {
   /**
    * Request body for the podBaseAggregate operation on pod_base_operation resource
@@ -8131,54 +8132,6 @@ export type PostConversationMessageResponses = {
 }
 
 export type PostConversationMessageResponse = PostConversationMessageResponses[keyof PostConversationMessageResponses]
-
-export type PodSpreadsheetData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet'
-}
-
-export type PodSpreadsheetErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetError = PodSpreadsheetErrors[keyof PodSpreadsheetErrors]
-
-export type PodSpreadsheetResponses = {
-  /**
-   * Success
-   */
-  200: {
-    file: {
-      content_type?: string | null
-      object_id: string
-      path: string
-      sha256: string
-      size: number
-    }
-    metadata?: {
-      [key: string]: unknown
-    } | null
-    ops: Array<{
-      client_id: string
-      client_seq: number
-      op: {
-        [key: string]: unknown
-      }
-      revision: number
-    }>
-    page_id: string
-    revision: number
-  }
-}
-
-export type PodSpreadsheetResponse = PodSpreadsheetResponses[keyof PodSpreadsheetResponses]
 
 export type PodBaseTableCreateData = {
   /**
@@ -10890,50 +10843,6 @@ export type PodPageHistoryResponses = {
 
 export type PodPageHistoryResponse = PodPageHistoryResponses[keyof PodPageHistoryResponses]
 
-export type PodSpreadsheetVersionsData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet/versions'
-}
-
-export type PodSpreadsheetVersionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetVersionsError = PodSpreadsheetVersionsErrors[keyof PodSpreadsheetVersionsErrors]
-
-export type PodSpreadsheetVersionsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    versions: Array<{
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      created_at: string
-      file_name: string
-      id: string
-      reason: 'created' | 'uploaded' | 'checkpoint' | 'before_restore' | 'restored'
-      revision: number
-      sha256: string
-      size: number
-    }>
-  }
-}
-
-export type PodSpreadsheetVersionsResponse = PodSpreadsheetVersionsResponses[keyof PodSpreadsheetVersionsResponses]
-
 export type PodBaseViewDeleteData = {
   body?: never
   path: {
@@ -11387,6 +11296,50 @@ export type PodPageSharingWriteResponses = {
 }
 
 export type PodPageSharingWriteResponse = PodPageSharingWriteResponses[keyof PodPageSharingWriteResponses]
+
+export type PodOfficeVersionsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/office/versions'
+}
+
+export type PodOfficeVersionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodOfficeVersionsError = PodOfficeVersionsErrors[keyof PodOfficeVersionsErrors]
+
+export type PodOfficeVersionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    versions: Array<{
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      created_at: string
+      file_name: string
+      id: string
+      reason: 'created' | 'uploaded' | 'checkpoint' | 'before_restore' | 'restored'
+      revision: number
+      sha256: string
+      size: number
+    }>
+  }
+}
+
+export type PodOfficeVersionsResponse = PodOfficeVersionsResponses[keyof PodOfficeVersionsResponses]
 
 export type PodConversationsData = {
   body?: never
@@ -11864,6 +11817,56 @@ export type MetaImportSkillResponses = {
 }
 
 export type MetaImportSkillResponse = MetaImportSkillResponses[keyof MetaImportSkillResponses]
+
+export type PodOfficeData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/office'
+}
+
+export type PodOfficeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodOfficeError = PodOfficeErrors[keyof PodOfficeErrors]
+
+export type PodOfficeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    checkpoint?: string | null
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    format: 'spreadsheet' | 'word' | 'presentation'
+    metadata?: {
+      [key: string]: unknown
+    } | null
+    ops: Array<{
+      client_id: string
+      client_seq: number
+      op: {
+        [key: string]: unknown
+      }
+      revision: number
+    }>
+    page_id: string
+    revision: number
+  }
+}
+
+export type PodOfficeResponse = PodOfficeResponses[keyof PodOfficeResponses]
 
 export type ChangePodScheduledWorkData = {
   /**
@@ -12593,6 +12596,51 @@ export type MetaBrainSupersedeClaimResponses = {
 
 export type MetaBrainSupersedeClaimResponse = MetaBrainSupersedeClaimResponses[keyof MetaBrainSupersedeClaimResponses]
 
+export type PodWordConvertToDocumentData = {
+  /**
+   * Request body for the podWordConvertToDocument operation on pod_office_operation resource
+   */
+  body?: {
+    data: {
+      parent_id?: string | null
+      private_owner_uid?: string | null
+      title?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/convert-to-document'
+}
+
+export type PodWordConvertToDocumentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodWordConvertToDocumentError = PodWordConvertToDocumentErrors[keyof PodWordConvertToDocumentErrors]
+
+export type PodWordConvertToDocumentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    downgraded: {
+      [key: string]: unknown
+    }
+    omitted: {
+      [key: string]: unknown
+    }
+    page: PodPageType
+  }
+}
+
+export type PodWordConvertToDocumentResponse =
+  PodWordConvertToDocumentResponses[keyof PodWordConvertToDocumentResponses]
+
 export type PodMentionCandidatesData = {
   body?: never
   path?: never
@@ -12687,42 +12735,6 @@ export type RenamePodMemberResponses = {
 }
 
 export type RenamePodMemberResponse = RenamePodMemberResponses[keyof RenamePodMemberResponses]
-
-export type PodSpreadsheetCreateData = {
-  /**
-   * Request body for the podSpreadsheetCreate operation on pod_spreadsheet_operation resource
-   */
-  body?: {
-    data: {
-      parent_id?: string | null
-      private_owner_uid?: string | null
-      title?: string | null
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/spreadsheet-pages'
-}
-
-export type PodSpreadsheetCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetCreateError = PodSpreadsheetCreateErrors[keyof PodSpreadsheetCreateErrors]
-
-export type PodSpreadsheetCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    page: PodPageType
-  }
-}
-
-export type PodSpreadsheetCreateResponse = PodSpreadsheetCreateResponses[keyof PodSpreadsheetCreateResponses]
 
 export type PodMeData = {
   body?: never
@@ -12969,6 +12981,43 @@ export type PodCommentAttentionResponses = {
 }
 
 export type PodCommentAttentionResponse = PodCommentAttentionResponses[keyof PodCommentAttentionResponses]
+
+export type PodOfficeCreateData = {
+  /**
+   * Request body for the podOfficeCreate operation on pod_office_operation resource
+   */
+  body: {
+    data: {
+      format: 'spreadsheet' | 'word' | 'presentation'
+      parent_id?: string | null
+      private_owner_uid?: string | null
+      title?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/office-pages'
+}
+
+export type PodOfficeCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodOfficeCreateError = PodOfficeCreateErrors[keyof PodOfficeCreateErrors]
+
+export type PodOfficeCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    page: PodPageType
+  }
+}
+
+export type PodOfficeCreateResponse = PodOfficeCreateResponses[keyof PodOfficeCreateResponses]
 
 export type PodPageSearchData = {
   body?: never

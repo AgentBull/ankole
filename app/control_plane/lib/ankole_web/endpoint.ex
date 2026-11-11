@@ -68,6 +68,13 @@ defmodule AnkoleWeb.Endpoint do
       if(code_reloading?, do: "public, no-cache", else: "public, max-age=31536000, immutable")
 
   plug Plug.Static,
+    at: "/fonts/office",
+    from: {AnkoleWeb.OfficeFonts, :directory, []},
+    gzip: false,
+    cache_control_for_etags:
+      if(code_reloading?, do: "public, no-cache", else: "public, max-age=3600")
+
+  plug Plug.Static,
     at: "/",
     from: :ankole,
     gzip: not code_reloading?,

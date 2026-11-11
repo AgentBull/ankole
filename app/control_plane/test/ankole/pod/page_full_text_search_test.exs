@@ -607,22 +607,23 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
   end
 
   test "workbook body matches resolve the sheet whose marker line precedes them", ctx do
-    {:ok, %{doc_ref: doc}} = Ankole.Kernel.spreadsheet_create_blank("Ledger")
+    {:ok, %{doc_ref: doc}} = Ankole.Kernel.office_create_blank(:spreadsheet, "Ledger")
 
     {:ok, %{doc_ref: doc}} =
-      Ankole.Kernel.spreadsheet_apply(doc, %{"type" => "sheet.insert", "name" => "Second"}, [])
+      Ankole.Kernel.office_apply(doc, %{"type" => "sheet.insert", "name" => "Second"}, [], nil)
 
-    {:ok, %{metadata: %{"sheets" => sheets}}} = Ankole.Kernel.spreadsheet_export_xlsx(doc)
+    {:ok, %{metadata: %{"sheets" => sheets}}} = Ankole.Kernel.office_export(doc)
     %{"sheet_id" => second} = Enum.find(sheets, &(&1["name"] == "Second"))
 
     {:ok, %{doc_ref: doc}} =
-      Ankole.Kernel.spreadsheet_apply(
+      Ankole.Kernel.office_apply(
         doc,
         %{"type" => "cell.set", "sheet_id" => second, "cell" => "A1", "input" => "Quasarledger"},
-        []
+        [],
+        nil
       )
 
-    {:ok, %{xlsx_bytes: bytes}} = Ankole.Kernel.spreadsheet_export_xlsx(doc)
+    {:ok, %{bytes: bytes}} = Ankole.Kernel.office_export(doc)
 
     {:ok, page} =
       Files.create_from_upload(

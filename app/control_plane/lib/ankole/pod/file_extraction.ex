@@ -30,11 +30,11 @@ defmodule Ankole.Pod.FileExtraction do
 
   alias Ankole.Pod.{
     FileCache,
+    OfficeFiles,
     Page,
     PageSearchDocument,
     Pages,
-    SearchProjection,
-    Spreadsheets
+    SearchProjection
   }
 
   alias Ankole.Pod.FileExtraction.ScanCursor
@@ -93,7 +93,7 @@ defmodule Ankole.Pod.FileExtraction do
   Updates `FileCache` and `PageSearchDocument` (or enqueues `SyncFileCache`)
   when an immutable `object` is committed on a `type: :file` page inside a
   transaction. Spreadsheet files (`.xlsx` / `.xlsm`) are owned by
-  `Ankole.Pod.Spreadsheets`.
+  `Ankole.Pod.OfficeFiles`.
 
   A commit is an upload unless `read_scans?: false` says that the file was
   already there. Only the job of an upload may send the file's scanned pages to
@@ -106,7 +106,7 @@ defmodule Ankole.Pod.FileExtraction do
       when is_binary(object_id) do
     Repo.require_transaction!({__MODULE__, :object_committed_in_tx})
 
-    if Spreadsheets.spreadsheet?(page.name) do
+    if OfficeFiles.spreadsheet?(page.name) do
       :ok
     else
       clean_name = clean_filename(page.name)
@@ -658,8 +658,8 @@ defmodule Ankole.Pod.FileExtraction do
 
   defp rebuild_file_from_object_in_tx(%Page{type: :file, object_id: object_id} = page)
        when is_binary(object_id) do
-    if Spreadsheets.spreadsheet?(page.name) do
-      Spreadsheets.reconcile_file_in_tx(page)
+    if OfficeFiles.spreadsheet?(page.name) do
+      OfficeFiles.reconcile_file_in_tx(page)
     else
       case Drive.fetch_object(object_id) do
         {:ok, object} -> object_committed_in_tx(page, object, read_scans?: false)
@@ -973,7 +973,7 @@ defmodule Ankole.Pod.FileExtraction do
   end
 
   defp stale_file_page?(page, cache, version) do
-    if Spreadsheets.spreadsheet?(page.name) do
+    if OfficeFiles.spreadsheet?(page.name) do
       cache == nil or cache.object_id != page.object_id or cache.subtype != :spreadsheet or
         cache.extractor_version < version
     else
@@ -989,11 +989,11 @@ defmodule Ankole.Pod.FileExtraction do
   end
 
   defp reconcile_single_file(page) do
-    if Spreadsheets.spreadsheet?(page.name) do
+    if OfficeFiles.spreadsheet?(page.name) do
       unwrap_tx_result(
         Repo.transact_top_level(fn ->
           case Pages.lock(page.id) do
-            {:ok, locked} -> Spreadsheets.reconcile_file_in_tx(locked)
+            {:ok, locked} -> OfficeFiles.reconcile_file_in_tx(locked)
             {:error, :not_found} -> :ok
           end
         end)

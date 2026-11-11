@@ -823,9 +823,10 @@ test('Base and Spreadsheet Page titles move focus into the workspace on Enter an
         }
       })
     }
-    if (url.pathname === `/api/v2/pod/pages/${sheetID}/spreadsheet`) {
+    if (url.pathname === `/api/v2/pod/pages/${sheetID}/office`) {
       return route.fulfill({
         json: {
+          format: 'spreadsheet',
           revision: 1,
           file: { path: 'Forecast.xlsx', sha256 },
           ops: [],

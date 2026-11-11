@@ -12,6 +12,7 @@ import { emitFirstUseGuidance, installStdoutEpipeGuard, markHelpSeen } from '../
 const POD_FIRST_USE_GUIDANCE = [
   'ankole-pod writes pure JSON to stdout; run `ankole-pod --help` for full operations and schemas.',
   '- Read/search pages: `ankole-pod pages.search \'{"query":"..."}\'` (or `ankole-pod pages.search "<query>" [--title-only] [--type doc|knowledge|base|applet|file]`), `ankole-pod pages.read \'{"id":"<node-id>","markdown_path":"page.md"}\'`',
+  '- Office Pages (.xlsx/.xlsm/.docx/.docm/.pptx in Pod): `ankole-pod office inspect|render|commands|apply|to-document ...` (use `OfficeCLI` only for scratch files in `/workspace`, never to overwrite active Pod Office Pages)',
   '- Comments on pages & files: `ankole-pod comments list|show|reply|resolve <node-id> ...`',
   '- Base tables: `ankole-pod base.tables|base.schema|base.query|base.write \'{"id":"..."}\'`',
   '- If a write or sharing change is forbidden, draft an Action Card via `propose_action_card` for human confirmation.'
@@ -28,6 +29,11 @@ or add your Agent to the space.
   ankole-pod comments show <page-id|--page id> <comment-id|--comment id>
   ankole-pod comments reply <page-id|--page id> <root-comment-id|--root id> <body|--body text>
   ankole-pod comments resolve <page-id|--page id> <comment-id|--comment id> --version <n> [--reopen]
+  ankole-pod office inspect <page-id> ['<JSON>'] [--sheet <name>] [--range <A1:Z50>] [--story <story>] [--from <n>] [--to <n>]
+  ankole-pod office render <page-id> (--page <n> | --slide <n>) [--scale <n>] --to <worker-path>
+  ankole-pod office commands <page-id> [<query>]
+  ankole-pod office apply [<page-id>] '<JSON>' | --input <JSON file>
+  ankole-pod office to-document <page-id> [--parent <parent-id>]
   ankole-pod pages.search [<query>] [--domain all|pages|brain] [--type <types>] [--scope all|private|space|shared|conversation] [--ancestor <id>] [--title-only] [--sort best|updated_desc|updated_asc|created_desc|created_asc] [--limit <n>]
   ankole-pod <operation> '<JSON parameters>'
   ankole-pod <operation> --input <JSON file>
@@ -48,6 +54,9 @@ Read operations:
   comments.show    {id, comment_id} — returns a comment thread with quote, anchor, and replies
   files.manifest   {id}
   files.download   {id, path, local_path, sha256?}
+  office.inspect   {id, sheet_id?, sheet?, range?, story?, from_block?, to_block?, from_slide?, to_slide?, slide_id?} — reads logical structure and text of a Spreadsheet, Word, or Presentation Page
+  office.render    {id, page | slide, scale?} --to <worker-path> — renders a 1-based Word page or Presentation slide to PNG at <worker-path>
+  office.commands  {id, query?} — lists engine commands and parameter schemas for a Word or Presentation Page
   base.tables  {id: base_page_id}
   base.schema  {id: table_id}
   base.query   {id, search?, filter?, sort?, page_size?, page_token?, ids?, group?}
@@ -78,6 +87,8 @@ Write operations:
   files.upload     {id, local_path, role: file|asset|attachment, base_object_id?}
     For role=file, pass the current files.manifest entry's object_id as
     base_object_id; omit it only when the file is empty. Stale replacements fail.
+  office.apply     {id, expected_revision?, commands?: [{command, params?}], ops?: [op]} — edits an Office Page through its live operation log without resetting human editors
+  office.to_document {id, parent_id?} — converts a Word Page into a native Document Page and returns the new page and conversion report
   base.create_table {id: base_page_id, name, description?}
   base.configure_table {id: table_id, description?, unique_field_ids?, emit_changes?}
   base.delete_table {id: table_id} — requires manage access
@@ -534,6 +545,12 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
   if (args[0] === 'comments') {
     return parseCommentsCommand(args.slice(1), cwd)
   }
+  if (args[0] === 'office') {
+    return parseOfficeCommand(args.slice(1), cwd)
+  }
+  if (args[0] === 'office.render') {
+    return parseOfficeRenderOperation(args.slice(1), cwd)
+  }
   if (args[0] === 'page' && args[1] === 'update-sharing') {
     if (!args[2] || !args[3]) throw new Error('Use page update-sharing <page-id> <JSON body>')
     return { operation: 'pages.update_sharing', params: { ...parseParams(args[3]), id: args[2] }, cwd }
@@ -805,6 +822,238 @@ function parseCommentsCommand(rest: string[], cwd: string) {
     return { operation: 'comments.resolve', params: { id, comment_id: commentId, version, resolved }, cwd }
   }
   throw new Error('Use comments list|show|reply|resolve ...')
+}
+
+async function parseOfficeRenderOperation(rest: string[], cwd: string) {
+  let params: Record<string, unknown> = {}
+  let destination: string | undefined
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index]!
+    if (arg === '--input') {
+      const path = rest[++index]
+      if (!path) throw new Error('--input requires a JSON file')
+      params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+    } else if (arg === '--to') {
+      destination = rest[++index]
+      if (!destination) throw new Error('--to requires a destination path')
+    } else if (arg.trimStart().startsWith('{')) {
+      params = { ...params, ...parseParams(arg) }
+    } else {
+      throw new Error(`Unknown office.render argument: ${arg}`)
+    }
+  }
+  const localPath = destination ?? (typeof params.local_path === 'string' ? params.local_path : undefined)
+  if (!localPath || typeof params.id !== 'string') {
+    throw new Error('Use office.render <JSON parameters> --to <worker-path>')
+  }
+  return { operation: 'office.render', params: { ...params, local_path: localPath }, cwd }
+}
+
+async function parseOfficeCommand(rest: string[], cwd: string) {
+  const [subcommand, ...tail] = rest
+  if (subcommand === 'inspect') {
+    let params: Record<string, unknown> = {}
+    let positionalId: string | undefined
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--input') {
+        const path = tail[++index]
+        if (!path) throw new Error('--input requires a JSON file')
+        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+      } else if (arg === '--id' || arg === '--page-id') {
+        const value = tail[++index]
+        if (!value) throw new Error(`${arg} requires a page id`)
+        params.id = value
+      } else if (arg === '--sheet') {
+        const value = tail[++index]
+        if (!value) throw new Error('--sheet requires a sheet name')
+        params.sheet = value
+      } else if (arg === '--sheet-id') {
+        params.sheet_id = decimalPositiveInteger(tail[++index], '--sheet-id')
+      } else if (arg === '--range') {
+        const value = tail[++index]
+        if (!value) throw new Error('--range requires an A1 range')
+        params.range = value
+      } else if (arg === '--story') {
+        const value = tail[++index]
+        if (!value) throw new Error('--story requires a story identifier')
+        params.story = value.trimStart().startsWith('{') ? JSON.parse(value) : value
+      } else if (arg === '--from') {
+        params.from_block = decimalNonNegativeInteger(tail[++index], '--from')
+      } else if (arg === '--to') {
+        params.to_block = decimalNonNegativeInteger(tail[++index], '--to')
+      } else if (arg === '--from-slide') {
+        params.from_slide = decimalNonNegativeInteger(tail[++index], '--from-slide')
+      } else if (arg === '--to-slide') {
+        params.to_slide = decimalNonNegativeInteger(tail[++index], '--to-slide')
+      } else if (arg === '--slide-id') {
+        params.slide_id = decimalPositiveInteger(tail[++index], '--slide-id')
+      } else if (arg.trimStart().startsWith('{')) {
+        params = { ...params, ...parseParams(arg) }
+      } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
+        positionalId = arg
+      } else {
+        throw new Error(`Unknown office inspect argument: ${arg}`)
+      }
+    }
+    if (params.id === undefined && positionalId) params.id = positionalId
+    if (typeof params.id !== 'string' || !params.id) {
+      throw new Error('Use office inspect <page-id> [flags or JSON]')
+    }
+    return { operation: 'office.inspect', params, cwd }
+  }
+  if (subcommand === 'render') {
+    let params: Record<string, unknown> = {}
+    let positionalId: string | undefined
+    let destination: string | undefined
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--input') {
+        const path = tail[++index]
+        if (!path) throw new Error('--input requires a JSON file')
+        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+      } else if (arg === '--id' || arg === '--page-id') {
+        const value = tail[++index]
+        if (!value) throw new Error(`${arg} requires a page id`)
+        params.id = value
+      } else if (arg === '--page') {
+        params.page = decimalPositiveInteger(tail[++index], '--page')
+      } else if (arg === '--slide') {
+        params.slide = decimalPositiveInteger(tail[++index], '--slide')
+      } else if (arg === '--scale') {
+        const raw = tail[++index]
+        const scale = Number(raw)
+        if (!raw || !Number.isFinite(scale) || scale <= 0 || scale > 4) {
+          throw new Error('--scale requires a number in (0, 4]')
+        }
+        params.scale = scale
+      } else if (arg === '--to') {
+        destination = tail[++index]
+        if (!destination) throw new Error('--to requires a destination path')
+      } else if (arg.trimStart().startsWith('{')) {
+        params = { ...params, ...parseParams(arg) }
+      } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
+        positionalId = arg
+      } else {
+        throw new Error(`Unknown office render argument: ${arg}`)
+      }
+    }
+    if (params.id === undefined && positionalId) params.id = positionalId
+    const localPath = destination ?? (typeof params.local_path === 'string' ? params.local_path : undefined)
+    if (
+      typeof params.id !== 'string' ||
+      !params.id ||
+      !localPath ||
+      (params.page === undefined && params.slide === undefined)
+    ) {
+      throw new Error('Use office render <page-id> (--page <n> | --slide <n>) [--scale <n>] --to <worker-path>')
+    }
+    return { operation: 'office.render', params: { ...params, local_path: localPath }, cwd }
+  }
+  if (subcommand === 'commands') {
+    let params: Record<string, unknown> = {}
+    let positionalId: string | undefined
+    let positionalQuery: string | undefined
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--id' || arg === '--page-id') {
+        const value = tail[++index]
+        if (!value) throw new Error(`${arg} requires a page id`)
+        params.id = value
+      } else if (arg === '--query' || arg === '-q') {
+        const value = tail[++index]
+        if (value === undefined) throw new Error(`${arg} requires a value`)
+        params.query = value
+      } else if (arg.trimStart().startsWith('{')) {
+        params = { ...params, ...parseParams(arg) }
+      } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
+        positionalId = arg
+      } else if (!arg.startsWith('-') && positionalQuery === undefined && params.query === undefined) {
+        positionalQuery = arg
+      } else {
+        throw new Error(`Unknown office commands argument: ${arg}`)
+      }
+    }
+    if (params.id === undefined && positionalId) params.id = positionalId
+    if (params.query === undefined && positionalQuery !== undefined) params.query = positionalQuery
+    if (typeof params.id !== 'string' || !params.id) {
+      throw new Error('Use office commands <page-id> [<query>]')
+    }
+    return { operation: 'office.commands', params, cwd }
+  }
+  if (subcommand === 'apply') {
+    let params: Record<string, unknown> = {}
+    let positionalId: string | undefined
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--input') {
+        const path = tail[++index]
+        if (!path) throw new Error('--input requires a JSON file')
+        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+      } else if (arg === '--id' || arg === '--page-id') {
+        const value = tail[++index]
+        if (!value) throw new Error(`${arg} requires a page id`)
+        params.id = value
+      } else if (arg === '--expected-revision') {
+        params.expected_revision = decimalNonNegativeInteger(tail[++index], '--expected-revision')
+      } else if (arg.trimStart().startsWith('{')) {
+        params = { ...params, ...parseParams(arg) }
+      } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
+        positionalId = arg
+      } else {
+        throw new Error(`Unknown office apply argument: ${arg}`)
+      }
+    }
+    if (params.id === undefined && positionalId) params.id = positionalId
+    if (
+      typeof params.id !== 'string' ||
+      !params.id ||
+      (!Array.isArray(params.commands) && !Array.isArray(params.ops))
+    ) {
+      throw new Error('Use office apply [<page-id>] \'<{"commands":[...]} or {"ops":[...]}>\'')
+    }
+    return { operation: 'office.apply', params, cwd }
+  }
+  if (subcommand === 'to-document' || subcommand === 'to_document') {
+    let params: Record<string, unknown> = {}
+    let positionalId: string | undefined
+    for (let index = 0; index < tail.length; index++) {
+      const arg = tail[index]!
+      if (arg === '--input') {
+        const path = tail[++index]
+        if (!path) throw new Error('--input requires a JSON file')
+        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+      } else if (arg === '--id' || arg === '--page-id') {
+        const value = tail[++index]
+        if (!value) throw new Error(`${arg} requires a page id`)
+        params.id = value
+      } else if (arg === '--parent' || arg === '--parent-id') {
+        const value = tail[++index]
+        if (!value) throw new Error(`${arg} requires a parent page id`)
+        params.parent_id = value
+      } else if (arg.trimStart().startsWith('{')) {
+        params = { ...params, ...parseParams(arg) }
+      } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
+        positionalId = arg
+      } else {
+        throw new Error(`Unknown office to-document argument: ${arg}`)
+      }
+    }
+    if (params.id === undefined && positionalId) params.id = positionalId
+    if (typeof params.id !== 'string' || !params.id) {
+      throw new Error('Use office to-document <page-id> [--parent <parent-id>]')
+    }
+    return { operation: 'office.to_document', params, cwd }
+  }
+  throw new Error('Use office inspect|render|commands|apply|to-document ...')
+}
+
+function decimalNonNegativeInteger(value: string | undefined, name: string): number {
+  const parsed = Number(value)
+  if (!value || !/^\d+$/.test(value) || !Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} requires a non-negative integer`)
+  }
+  return parsed
 }
 
 function decimalPositiveInteger(value: string | undefined, name: string): number {

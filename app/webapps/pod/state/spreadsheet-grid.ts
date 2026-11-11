@@ -174,14 +174,6 @@ const STRUCTURAL = new Set([
   'sheet.delete'
 ])
 
-/**
- * A spreadsheet page is a file page whose file name ends in `.xlsx` or `.xlsm`, ignoring case and
- * the ` (n)` that Drive appends to a duplicate name.
- */
-export function isSpreadsheetFileName(name: string): boolean {
-  return /\.xls[xm](?: \(\d+\))?$/i.test(name)
-}
-
 export function isStructural(op: SpreadsheetOp): boolean {
   return STRUCTURAL.has(op.type)
 }

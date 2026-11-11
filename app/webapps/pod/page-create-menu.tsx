@@ -12,13 +12,13 @@ import {
   toast,
   Spinner
 } from '@ankole/uikit'
-import { RiAddLine, RiFileAddLine, RiFileExcel2Line } from '@remixicon/react'
+import { RiAddLine, RiFileAddLine, RiFileExcel2Line, RiFilePpt2Line, RiFileWord2Line } from '@remixicon/react'
 import { useRef } from 'react'
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { podPagePath } from '../common/pod-url'
 import { requestErrorMessage } from '../common/request-errors'
-import { podSpreadsheetCreate } from './api/generated/sdk.gen'
+import { podOfficeCreate } from './api/generated/sdk.gen'
 import { pageAPI, type Page } from './content-api'
 import { contentError } from './content-errors'
 import { typeLabels } from './content-primitives'
@@ -33,7 +33,7 @@ export type CreatePageOptions = {
   onCreated?: (page: Page) => void
 }
 
-type PageType = 'doc' | 'knowledge' | 'base' | 'spreadsheet' | 'file'
+type PageType = 'doc' | 'word' | 'spreadsheet' | 'presentation' | 'knowledge' | 'base' | 'file'
 type Destination = { parent_id?: string; private_owner_uid?: string }
 
 export type PageCreation = {
@@ -41,9 +41,11 @@ export type PageCreation = {
   submit: (type: PageType) => Promise<void>
 }
 
-/** Creates a Page of a type that needs no local file; a spreadsheet starts as a blank workbook. */
+/** Creates a Page of a type that needs no local file; Office Pages start as blank packages. */
 function createPage(input: Exclude<PageType, 'file'>, destination: Destination) {
-  if (input === 'spreadsheet') return podSpreadsheetCreate({ body: { data: destination } })
+  if (input === 'spreadsheet' || input === 'word' || input === 'presentation') {
+    return podOfficeCreate({ body: { data: { format: input, ...destination } } })
+  }
   return pageAPI.create({ type: input, title: '', ...destination })
 }
 
@@ -142,18 +144,28 @@ export function useSubpageCreation() {
   return forParent
 }
 
-const pageTypes = ['doc', 'base', 'spreadsheet', 'file'] as const
+const pageTypes = ['doc', 'word', 'spreadsheet', 'presentation', 'base', 'file'] as const
 
 function PageTypeItems({ create, types = pageTypes }: { create: PageCreation; types?: readonly PageType[] }) {
   useTranslation()
   return types.map(type => (
     <DropdownMenuItem key={type} disabled={create.isPending} onClick={() => void create.submit(type)}>
-      {type === 'spreadsheet' ? (
+      {type === 'word' ? (
+        <RiFileWord2Line aria-hidden className="pod-page-icon" />
+      ) : type === 'spreadsheet' ? (
         <RiFileExcel2Line aria-hidden className="pod-page-icon" />
+      ) : type === 'presentation' ? (
+        <RiFilePpt2Line aria-hidden className="pod-page-icon" />
       ) : (
         <PageIcon page={{ type, icon: null }} />
       )}
-      {type === 'spreadsheet' ? t('pod.spreadsheet.spreadsheet') : typeLabels[type]}
+      {type === 'word'
+        ? t('pod.word.word_document')
+        : type === 'spreadsheet'
+          ? t('pod.spreadsheet.spreadsheet')
+          : type === 'presentation'
+            ? t('pod.presentation.presentation')
+            : typeLabels[type]}
     </DropdownMenuItem>
   ))
 }

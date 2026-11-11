@@ -3,8 +3,8 @@ defmodule Ankole.Pod.Documents.History do
   Owns durable page checkpoints and their retention under the page row lock.
 
   A document snapshot keeps the document XML, and this module also restores
-  it. A spreadsheet snapshot names the file object that held the workbook;
-  `Ankole.Pod.Spreadsheets` lists and restores those. Both kinds share one
+  it. An Office file snapshot names the file object that held the document;
+  `Ankole.Pod.OfficeFiles` lists and restores those. Both kinds share one
   checkpoint interval, retention period, and per-page limit.
   """
   require Ash.Query

@@ -107,6 +107,11 @@ For replication, analyze the reference images to estimate element positions, fon
 
 ## OfficeCLI Runtime
 
+Choose the tool by where the file lives:
+
+- **Pod Office Pages (`.pptx` Pages with a Pod `page_id`):** Use `ankole-pod office` (`office inspect`, `office render --slide <n> --to <worker-path>`, `office commands`, and `office apply`) so edits commit through the Page's operation log, merge at slide granularity with open browser collaborators, and preserve version history. Only overwrite a Pod file Page through Drive when delivering a brand-new generated presentation from scratch.
+- **Local scratch files in `/workspace`:** Use `OfficeCLI` as documented below.
+
 The Worker image build installs OfficeCLI and checks its version. Run `officecli --version` and `officecli help pptx`. If both commands succeed, continue with the installed CLI. Version numbers in upstream references and known-issue notes are not runtime requirements. If either command fails, report the command and error as the runtime blocker. Worker image maintenance happens outside the Job.
 
 ### Gotchas

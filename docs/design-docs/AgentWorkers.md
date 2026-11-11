@@ -253,7 +253,11 @@ of each binary.
 The `officecli` launcher disables background self-updates by default in every
 command environment. Ankole updates OfficeCLI through the Worker image recipe,
 so rendering uses the release verified with that image. Callers can explicitly
-enable upstream update behavior with `OFFICECLI_SKIP_UPDATE=0`.
+enable upstream update behavior with `OFFICECLI_SKIP_UPDATE=0`. Agents use
+`OfficeCLI` for local Office files in `/workspace`, whereas Pod Office Pages
+(`.xlsx`, `.xlsm`, `.docx`, `.docm`, and `.pptx` nodes in Pod) go through
+`ankole-pod office.*` on `Ankole.Pod.RPCBroker`; see
+[Office Files](OfficeFiles.md#agents).
 
 Ankole refuses to delete a provider while any Worker row still references it.
 At most one provider can be marked as the default; if no default exists and the

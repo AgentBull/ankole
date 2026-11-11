@@ -122,8 +122,14 @@ export type SpreadsheetOptions = {
 }
 
 export type SpreadsheetStatus = 'loading' | 'ready' | 'read_only' | 'too_large' | 'error'
-export type PresenceSelection = { sheet_id: number; range: string }
-export type SpreadsheetMember = { uid: string; name: string; color: string; selections: PresenceSelection[] }
+export type PresenceSelection = { sheet_id: number; range: string; editing?: boolean }
+export type SpreadsheetMember = {
+  uid: string
+  name: string
+  color: string
+  mode?: string
+  selections: PresenceSelection[]
+}
 /** The text being typed into one cell, shared by the cell editor and the formula bar. */
 /**
  * The cell being edited and its text. `caret`, when set, asks the editors to put the caret there
@@ -135,8 +141,8 @@ export type PictureData = { mime: 'image/png' | 'image/jpeg'; data: string; alt?
 export type ImageAnchor = { cell: string; dx: number; dy: number; width: number; height: number }
 /** The range this tab copied or cut, which the grid outlines until Escape or a paste of the cut. */
 export type CopiedRange = { sheetID: number; rect: Rect; cut?: string }
-/** The format painter holds the formats of a copied block until it paints them once, or until Escape. */
-export type FormatPainter = { block: ClipboardBlock; sticky: boolean }
+/** An armed format painter holds the source snapshot request until it paints once or is cleared. */
+type FormatPainter = { block: Promise<ClipboardBlock | undefined>; sticky: boolean }
 export type Direction = 'up' | 'down' | 'left' | 'right'
 
 /** One undo step: the operations it applied, and the operations that put their target back. */
@@ -164,7 +170,7 @@ const REGION_COLS = 50
 
 const cellKey = ({ row, col }: CellAddress) => row * MAX_COLS + col
 type Entry = { op: SpreadsheetOp; undo?: UndoRecord; request?: SheetRequest; busy: number }
-type PresenceMeta = { name?: string | null; selection?: PresenceSelection | null }
+type PresenceMeta = { name?: string | null; mode?: string | null; selection?: PresenceSelection | null }
 
 const SEND_DELAY_MS = 30
 const BUSY_DELAY_MS = 200
@@ -177,7 +183,7 @@ const RELOAD_REASONS = new Set([
   'forbidden',
   'not_found',
   'invalid_page_type',
-  'invalid_spreadsheet',
+  'invalid_office_file',
   'file_too_large'
 ])
 
@@ -380,6 +386,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     localEdits.clear()
     inFlight = undefined
     queue = []
+    painter.value = null
     clearTimeout(timer)
     clearHistory()
     publishCounts()
@@ -457,7 +464,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
         syncAgain = false
         await channel.ready
         if (disposed || !loaded()) break
-        const reply = await channel.push<SheetChanges>('sheet:sync', { revision: revision.peek() })
+        const reply = await channel.push<SheetChanges>('office:sync', { revision: revision.peek() })
         await serial(() => receive(reply))
       } while (syncAgain && !disposed)
     } catch (failure) {
@@ -484,7 +491,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     try {
       sent = await serial(take)
       if (!sent) return
-      const reply = await channel.push<SheetChanges>('sheet:apply', sent.request!)
+      const reply = await channel.push<SheetChanges>('office:apply', sent.request!)
       await serial(() => receive(reply, sent))
       error.value = undefined
     } catch (failure) {
@@ -498,18 +505,18 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   /** Decides what a failed request means and returns the delay before the next send. */
   const failed = async (sent: Entry, failure: unknown): Promise<number | undefined> => {
     const reason = failureReason(failure)
-    if (reason === 'spreadsheet_busy') {
+    if (reason === 'office_busy') {
       sent.busy++
       if (sent.busy <= BUSY_RETRIES) return BUSY_DELAY_MS
       error.value = failure
       return RETRY_DELAY_MS
     }
-    if (reason === 'spreadsheet_conflict') {
+    if (reason === 'office_conflict') {
       const details = (failure as { payload: { details: { reason: string; changes: SheetEntry[] } } }).payload.details
       await serial(() => drop(sent, details.changes, { kind: 'conflict', op: sent.op, reason: details.reason }))
       return SEND_DELAY_MS
     }
-    if (reason === 'invalid_operation' || reason === 'invalid_request' || reason === 'spreadsheet_full') {
+    if (reason === 'invalid_operation' || reason === 'invalid_request' || reason === 'office_full') {
       await serial(() => drop(sent, [], { kind: 'rejected', op: sent.op, message: failureMessage(failure), reason }))
       return SEND_DELAY_MS
     }
@@ -731,7 +738,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   const sendPresence = () => {
     presenceTimer = undefined
     presenceSentAt = Date.now()
-    void channel?.push('sheet:presence', { selection: presenceNext }).catch(() => undefined)
+    void channel?.push('office:presence', { selection: presenceNext }).catch(() => undefined)
   }
 
   const announce = (next: PresenceSelection | null) => {
@@ -748,10 +755,12 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   const publishMembers = () => {
     const listed = (channel?.presence() ?? []).map(({ id: uid, metas }) => {
       const entries = metas as PresenceMeta[]
+      const editing = entries.some(meta => meta.mode === 'editing')
       return {
         uid,
         name: entries.at(-1)?.name || uid,
         color: memberColor(uid),
+        ...(editing ? { mode: 'editing' } : {}),
         selections: entries.flatMap(meta => (meta.selection ? [meta.selection] : []))
       }
     })
@@ -778,7 +787,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
         return
       }
       channel = connected
-      connected.on('sheet:changes', payload => void serial(() => receive(payload as SheetChanges)))
+      connected.on('office:changes', payload => void serial(() => receive(payload as SheetChanges)))
       connected.on('presence', publishMembers)
       connected.on('access_revoked', revoke)
       void connected.ready.catch(failure => {
@@ -803,7 +812,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     clearTimeout(timer)
     clearTimeout(presenceTimer)
     if (channel) {
-      void channel.push('sheet:presence', { selection: null }).catch(() => undefined)
+      void channel.push('office:presence', { selection: null }).catch(() => undefined)
       channel.close()
     }
     engine?.dispose()
@@ -1045,27 +1054,43 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     async pickFormats(sticky: boolean) {
       const { sheetID, rect } = target()
       if (!engine || status.peek() !== 'ready') return
-      painter.value = { block: await engine.copyBlock(sheetID, rangeName(rect)), sticky }
+      const current = painter.peek()
+      if (sticky && current) {
+        painter.value = { block: current.block, sticky: true }
+        await current.block
+        return
+      }
+      const block: Promise<ClipboardBlock | undefined> = serial(async () => {
+        if (disposed || !engine || status.peek() !== 'ready') return undefined
+        return engine.copyBlock(sheetID, rangeName(rect))
+      }).catch(failure => {
+        if (!disposed) options.notify({ kind: 'failed', error: failure })
+        return undefined
+      })
+      painter.value = { block, sticky }
+      if (!(await block) && painter.peek()?.block === block) painter.value = null
     },
     /** Paints the held formats over `rect`, repeating the block to cover it. */
     async paintFormats(rect: Rect) {
       const held = painter.peek()
       if (!held || !engine || status.peek() !== 'ready') return undefined
       if (!held.sticky) painter.value = null
-      const height = held.block.rows.length
-      const width = held.block.rows[0]?.length ?? 0
-      if (!height || !width) return undefined
-      const single = rect.r0 === rect.r1 && rect.c0 === rect.c1
-      const rows = single ? height : rect.r1 - rect.r0 + 1
-      const cols = single ? width : rect.c1 - rect.c0 + 1
-      const block = {
-        origin: held.block.origin,
-        rows: Array.from({ length: rows }, (_, row) =>
-          Array.from({ length: cols }, (_, col) => held.block.rows[row % height]![col % width]!)
-        )
-      }
       const sheetID = activeSheetID.peek()
       return planned(async () => {
+        const source = await held.block
+        if (!source) return undefined
+        const height = source.rows.length
+        const width = source.rows[0]?.length ?? 0
+        if (!height || !width) return undefined
+        const single = rect.r0 === rect.r1 && rect.c0 === rect.c1
+        const rows = single ? height : rect.r1 - rect.r0 + 1
+        const cols = single ? width : rect.c1 - rect.c0 + 1
+        const block = {
+          origin: source.origin,
+          rows: Array.from({ length: rows }, (_, row) =>
+            Array.from({ length: cols }, (_, col) => source.rows[row % height]![col % width]!)
+          )
+        }
         const op = await engine!.pasteOp(block, sheetID, cellName({ row: rect.r0, col: rect.c0 }), 'formats')
         return { ops: [op], sheetID, rect: parseRange(String(op.range)), capture: 'formats' }
       })
@@ -1313,14 +1338,20 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     },
     /** Opens the cell editor on `cell` with `text`; the formula bar shows the same draft. */
     edit(cell: CellAddress, text: string, caret?: number) {
-      draft.value = { sheetID: activeSheetID.peek(), cell, text, caret }
+      const sheetID = activeSheetID.peek()
+      draft.value = { sheetID, cell, text, caret }
+      if (loaded()) announce({ sheet_id: sheetID, range: cellName(cell), editing: true })
     },
     type(text: string, caret?: number) {
       const current = draft.peek()
       if (current) draft.value = { ...current, text, caret }
     },
     cancelEdit() {
+      const hadDraft = Boolean(draft.peek())
       draft.value = null
+      if (hadDraft && loaded()) {
+        announce({ sheet_id: activeSheetID.peek(), range: rangeName(selectionRect(selection.peek())) })
+      }
     },
     /**
      * Commits the draft with `cell.set` and moves the selection like Enter or Tab. The selection
@@ -1340,6 +1371,8 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       if (move) {
         const [rows, cols] = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[move]
         select(cellSelection(clampCell({ row: current.cell.row + rows!, col: current.cell.col + cols! })))
+      } else if (loaded()) {
+        announce({ sheet_id: activeSheetID.peek(), range: rangeName(selectionRect(selection.peek())) })
       }
       if (!sheets.peek().some(sheet => sheet.sheet_id === current.sheetID)) return Promise.resolve(undefined)
       return setCell(current.cell, current.text, current.sheetID)
