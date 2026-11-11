@@ -157,6 +157,34 @@ defmodule Ankole.Pod.ScannedPdfTest do
     assert waiting_jobs(page) == []
   end
 
+  test "a scan in a trashed folder is not counted or read until the folder is restored", ctx do
+    page = upload(ctx, "scan.pdf", pdf(["", ""]))
+    assert %{failure: 0} = extract()
+    configure_ocr(fn _request -> read_pages([{0, "Stamped receipt 2026-03-01"}, {1, ""}]) end)
+    assert {:ok, true} = Ankole.AppConfigure.put_tenant_by_key("pod.ocr_existing_scans", true)
+
+    # Trashing the folder marks the folder alone: the file inside has no `deleted_at`.
+    assert {:ok, _folder} = Pages.delete(ctx.actor, ctx.folder.id)
+    assert {:ok, %{deleted_at: nil}} = Pages.fetch(page.id)
+
+    assert FileExtraction.unread_scans() == %{files: 0, pages: 0, counting: false}
+    assert :ok = FileExtraction.reconcile_tenant_batch()
+    assert waiting_jobs(page) == []
+
+    # A job that was already waiting when the folder went to the trash reads nothing.
+    outdate(page)
+    assert :ok = SyncFileCache.perform(job(page, %{"read_scans" => true}))
+    refute_received {:ocr_request, _request}
+    assert cache(page).extractor_version == Ankole.Kernel.file_extractor_version()
+
+    assert {:ok, _folder} = Pages.restore(ctx.actor, ctx.folder.id)
+    assert FileExtraction.unread_scans() == %{files: 1, pages: 2, counting: false}
+    assert :ok = FileExtraction.reconcile_tenant_batch()
+    assert %{failure: 0} = extract()
+    assert_receive {:ocr_request, _request}
+    assert body_text(page) == "[Page 1]\nStamped receipt 2026-03-01\n"
+  end
+
   test "a failed OCR call keeps the text the PDF has and leaves the scan unread", ctx do
     configure_ocr(fn _request -> {:json, 400, %{"message" => "document is not readable"}} end)
     page = upload(ctx, "mixed.pdf", pdf(["Cover page with a text layer", ""]))

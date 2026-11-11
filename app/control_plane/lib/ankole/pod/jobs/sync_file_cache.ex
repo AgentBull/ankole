@@ -64,13 +64,12 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
   # reads scans: a later attempt may already have paid for them. The job of an
   # upload reads the uploaded file, and any other job reads scans only while an
   # administrator has `pod.ocr_existing_scans` on. A file in the trash is not
-  # read.
-  defp read_scans?(%Page{deleted_at: nil}, args, attempt) do
+  # read, and neither is a file in a trashed folder.
+  defp read_scans?(page, args, attempt) do
     attempt <= 1 and
-      (args["read_scans"] == true or Ankole.Pod.Config.ocr_existing_scans?())
+      (args["read_scans"] == true or Ankole.Pod.Config.ocr_existing_scans?()) and
+      not Ankole.Ash.load!(page, :in_trash).in_trash
   end
-
-  defp read_scans?(_page, _args, _attempt), do: false
 
   defp extract(page, clean_name, object, {subtype, format, version}, ocr, read_scans?) do
     extracted =

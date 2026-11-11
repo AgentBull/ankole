@@ -55,7 +55,7 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `drive.trash_retention_days` | Tenant | Days Ankole retains deleted Drive nodes before automatic purge; default `30`, `0` keeps them indefinitely until changed |
 | `drive.vfs_max_upload_bytes` | Site | Maximum bytes per Worker `/drive` VFS upload; default `0` uses the object-store upload limit |
 | `pod.ot_replay_window` | Tenant | Number of recent document change batches retained for OT replay; default `1000` |
-| `pod.ocr_existing_scans` | Tenant | Send the scanned PDF pages that no OCR model read at upload to the OCR model; the OCR provider charges for every page; default `false` |
+| `pod.ocr_existing_scans` | Tenant | Send the scanned PDF pages that no OCR model read at upload to the OCR model; the OCR provider charges for every page; PDFs in the trash or inside a trashed folder are left out; default `false` |
 
 ### Workflows
 

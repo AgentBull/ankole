@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.124 (2026-11-11)
+
+- Fix OCR for scanned PDFs in a trashed folder. Pod marks only the folder
+  when someone moves it to the trash, so the scans inside were still counted
+  when Console asked about the scans uploaded earlier, and they were still
+  sent to the OCR provider once an administrator accepted the charges. Pod
+  now leaves every file under a trashed folder out of the count and sends
+  none of its pages; restoring the folder brings its scans back.
+
 ## Version 2.0.0-alpha.123 (2026-11-11)
 
 - Extend Work. An Issue can repeat on a cron schedule: each run sends its

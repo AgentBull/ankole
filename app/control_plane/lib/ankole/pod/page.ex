@@ -154,6 +154,21 @@ defmodule Ankole.Pod.Page do
     )
 
     calculate(:visited_at, Ankole.Ash.Types.Timestamptz, expr(nil), public?: true)
+
+    # Trashing a folder marks the folder alone, so a page is in the trash when
+    # it or a folder above it has `deleted_at`.
+    calculate(
+      :in_trash,
+      :boolean,
+      expr(
+        fragment(
+          "EXISTS (WITH RECURSIVE above AS (SELECT ? AS deleted_at, ? AS parent_id UNION SELECT folder.deleted_at, folder.parent_id FROM pages folder JOIN above ON folder.id = above.parent_id WHERE folder.tenant_id = ?) SELECT 1 FROM above WHERE deleted_at IS NOT NULL)",
+          deleted_at,
+          parent_id,
+          tenant_id
+        )
+      )
+    )
   end
 
   relationships do

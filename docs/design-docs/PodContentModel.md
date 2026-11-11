@@ -2406,8 +2406,12 @@ because an administrator who binds an `ocr` model is told that new uploads are
 read. The first run of any other job (an extraction of an outdated cache, a
 rebuild) reads scans only while the tenant setting `pod.ocr_existing_scans` is
 on, and a later attempt of a job never reads them, because the attempt before
-it may have paid already. A file that is itself in the trash is not read; a
-file inside a folder in the trash still is.
+it may have paid already. `SyncFileCache` reads no file in the trash, and the
+Console's count of unread scans leaves such a file out. Pod trashes a folder
+by marking the folder alone, so the `in_trash` calculation of `Page` follows
+`parent_id` upward: a file is in the trash when the file or a folder above it
+has `deleted_at`. Restoring the folder returns its scans to the count and to
+the reconciliation.
 
 A run sends the unread pages as the tenant's `system` Principal, at most 100
 pages of the PDF per request. It sends a request only while the text that

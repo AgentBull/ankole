@@ -55,7 +55,7 @@ AppConfigure 将产品参数保存在 PostgreSQL，多数修改影响后续任�
 | `drive.trash_retention_days` | 租户 | Ankole 在自动彻底删除前保留已删除 Drive 节点的天数；默认 `30`，设为 `0` 时在修改此配置前无限期保留 |
 | `drive.vfs_max_upload_bytes` | 站点 | Worker `/drive` VFS 单文件最大上传字节数；默认 `0` 表示沿用底层对象存储上传上限 |
 | `pod.ot_replay_window` | 租户 | 为协同文档 OT 重放保留的最近变更批次数；默认 `1000` |
-| `pod.ocr_existing_scans` | 租户 | 把上传时没有经过 OCR 识别的扫描版 PDF 页面送去识别；OCR 服务商按页收费；默认 `false` |
+| `pod.ocr_existing_scans` | 租户 | 把上传时没有经过 OCR 识别的扫描版 PDF 页面送去识别；OCR 服务商按页收费；回收站中的 PDF（包括回收站文件夹里的）不送去识别；默认 `false` |
 
 ### Workflow
 

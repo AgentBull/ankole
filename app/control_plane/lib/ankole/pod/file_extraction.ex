@@ -361,7 +361,7 @@ defmodule Ankole.Pod.FileExtraction do
     pages =
       Page
       |> Ash.Query.filter(
-        type == :file and is_nil(deleted_at) and is_nil(purge_started_at) and
+        type == :file and not in_trash and is_nil(purge_started_at) and
           exists(
             file_cache,
             object_id == parent(object_id) and format == "pdf" and unread_scan_pages > 0
@@ -377,7 +377,7 @@ defmodule Ankole.Pod.FileExtraction do
     counting =
       Page
       |> Ash.Query.filter(
-        type == :file and not is_nil(object_id) and is_nil(deleted_at) and
+        type == :file and not is_nil(object_id) and not in_trash and
           is_nil(purge_started_at) and
           ((content_type == "application/pdf" and
               not exists(file_cache, object_id == parent(object_id))) or
@@ -816,14 +816,15 @@ defmodule Ankole.Pod.FileExtraction do
   # count its pages, and so is one whose stored OCR pages have not joined its
   # text; neither costs anything. A scan with unread pages is sent to
   # OCR, which costs the Pod money, only while `pod.ocr_existing_scans` is on.
-  # A scan in the trash waits, and one whose OCR run failed waits longer after
-  # each failure: half an hour times its failures, then a day.
+  # A scan in the trash waits, whether Pod trashed the file or a folder above
+  # it, and one whose OCR run failed waits longer after each failure: half an
+  # hour times its failures, then a day.
   defp reconcile_scans(work_budget) do
     read? = Ankole.Pod.Config.ocr_existing_scans?() and ocr_configured?()
 
     Page
     |> Ash.Query.filter(
-      type == :file and not is_nil(object_id) and is_nil(deleted_at) and
+      type == :file and not is_nil(object_id) and not in_trash and
         is_nil(purge_started_at) and
         exists(
           file_cache,
