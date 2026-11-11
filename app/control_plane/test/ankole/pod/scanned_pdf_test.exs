@@ -317,8 +317,7 @@ defmodule Ankole.Pod.ScannedPdfTest do
     assert %{failure: 0} = extract()
     assert_receive {:ocr_request, %{"pages" => [0, 1]}}
 
-    # The next pass reaches the other page, which takes what the first one read.
-    assert :ok = FileExtraction.reconcile_tenant_batch()
+    # The run that read the scans enqueues the other page, which takes what it read.
     assert length(waiting_jobs(page) ++ waiting_jobs(%{id: copy.page_id})) == 1
     assert %{failure: 0} = extract()
     refute_received {:ocr_request, _request}
@@ -350,6 +349,31 @@ defmodule Ankole.Pod.ScannedPdfTest do
              "[Page 1]\nCover page with a text layer\n[Page 2]\nScanned appendix\n"
 
     assert cache(copy).ocr == cache(page).ocr
+    assert [_usage] = Repo.all(UsageRecord)
+  end
+
+  test "a scan that was already there takes what OCR reads from a new upload of the same bytes",
+       ctx do
+    bytes = pdf(["", ""])
+    earlier = upload(ctx, "scan.pdf", bytes)
+    assert %{failure: 0} = extract()
+
+    # An administrator binds an OCR model and does not agree to pay for the earlier scans.
+    configure_ocr(fn _request -> read_pages([{0, "Stamped receipt"}, {1, ""}]) end)
+    assert FileExtraction.unread_scans() == %{files: 1, pages: 2, counting: false}
+
+    upload = upload(ctx, "scan again.pdf", bytes)
+    assert %{failure: 0} = extract()
+    assert_receive {:ocr_request, _request}
+    assert body_text(upload) == "[Page 1]\nStamped receipt\n"
+
+    # The Pod has paid for these bytes, so the earlier page takes the text without consent.
+    assert [_job] = waiting_jobs(earlier)
+    assert %{failure: 0} = extract()
+    refute_received {:ocr_request, _request}
+    assert body_text(earlier) == body_text(upload)
+    assert cache(earlier).ocr == cache(upload).ocr
+    assert FileExtraction.unread_scans() == %{files: 0, pages: 0, counting: false}
     assert [_usage] = Repo.all(UsageRecord)
   end
 

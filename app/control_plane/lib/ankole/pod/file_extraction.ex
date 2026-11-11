@@ -267,6 +267,25 @@ defmodule Ankole.Pod.FileExtraction do
   end
 
   @doc """
+  Enqueues an extraction of every other page whose cache holds the bytes of
+  `object_id` and lists scans that it has not taken in. `known_ocr/2` gives
+  those jobs the pages that OCR has just read on `page_id`, so each page takes
+  the text without a charge and without `pod.ocr_existing_scans`.
+  """
+  @spec enqueue_copies(String.t(), String.t()) :: :ok
+  def enqueue_copies(page_id, object_id) do
+    object_ids = Drive.same_bytes_object_ids(object_id)
+
+    FileCache
+    |> Ash.Query.filter(
+      object_id in ^object_ids and page_id != ^page_id and unread_scan_pages > 0
+    )
+    |> Ash.Query.select([:page_id, :object_id])
+    |> Ankole.Ash.read!()
+    |> Enum.each(&enqueue_sync_in_tx(&1.page_id, &1.object_id))
+  end
+
+  @doc """
   Whether `cache` needs an extraction run for `format` at `version`: it is
   missing or outdated, it is a scan cached without its page list, `ocr` (from
   `known_ocr/2`) holds pages the cache has not taken in, or `read_scans?`
@@ -855,9 +874,9 @@ defmodule Ankole.Pod.FileExtraction do
     |> Ash.Query.sort(id: :asc)
     |> Ash.Query.limit(work_budget)
     |> Ankole.Ash.read!()
-    # Jobs run side by side, and two pages that hold one object would each send
-    # its scans. One page reads them, and the others take the stored pages on a
-    # later pass.
+    # One page of an object is enough: the run that reads its scans enqueues
+    # the other pages that hold the same bytes, and a second job of the object
+    # would only wait for the first.
     |> Enum.uniq_by(& &1.object_id)
     |> Enum.reduce_while(:ok, fn page, :ok ->
       case enqueue_sync_in_tx(page.id, page.object_id) do

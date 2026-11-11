@@ -2434,7 +2434,13 @@ content version in Brain follows the same digest, so Brain does not learn the
 file again either. The same bytes committed on another Page, as a connector
 does when it creates a new File Page for every download, are extracted again
 for that Page, and the extraction takes its scanned pages from the stored
-text. Renaming a file to a name that Ankole does not extract removes its
+text. The reuse also runs the other way: when a run has read pages, it
+enqueues an extraction of every other Page whose cache holds the same bytes
+and still lists unread scans. Those jobs find the new pages through
+`known_ocr/2`, so a scan that was uploaded before the `ocr` model existed
+takes the text that OCR reads from a later upload of the same file, without
+`pod.ocr_existing_scans` and without a charge, and leaves the count of unread
+scans. Renaming a file to a name that Ankole does not extract removes its
 cache row and, with it, what OCR read on that Page. A page recorded as read
 without text stays that way for every copy of the file in the tenant: an
 upload of the same bytes, to the same Page or to a new one, takes the stored
@@ -2483,8 +2489,8 @@ AppConfigure.
 While the setting is on and the Pod has an `ocr` model, each
 `ReconcileSearchIndex` pass sends the PDFs with unread scans through
 `SyncFileCache` again, up to its work budget. Jobs run side by side, so a pass
-enqueues one Page for each object, and the other Pages that hold the object
-take the stored pages on a later pass. A scan whose run failed waits 30
+enqueues one Page for each object, and the run that reads its scans enqueues
+the other Pages that hold the same bytes. A scan whose run failed waits 30
 minutes times its failures in a row, and after five failures the pass tries
 it once a day, so an outage or an empty provider account ends without anyone
 uploading the files again. A PDF whose every page is a scan is `skipped` with

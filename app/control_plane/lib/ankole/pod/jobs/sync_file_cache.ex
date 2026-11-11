@@ -135,12 +135,11 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
 
     case extracted do
       {:ok, result, read} ->
-        with {:error, reason} <-
-               commit_extraction(page.id, page.object_id, subtype, format, version, result, read) do
-          # The Pod has paid for the pages this run read, so they outlive the failed commit.
-          if read != ocr, do: FileExtraction.keep_ocr(page.id, page.object_id, read)
-          {:error, reason}
-        end
+        committed =
+          commit_extraction(page.id, page.object_id, subtype, format, version, result, read)
+
+        if read != ocr, do: keep_or_share(committed, page, read, read["pages"] != ocr["pages"])
+        committed
 
       {:error, :not_found} ->
         :ok
@@ -149,6 +148,17 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
         {:error, reason}
     end
   end
+
+  # The Pod has paid for the pages this run read. After a failed commit they
+  # stay on the cache row, and after a commit every other page that holds the
+  # same bytes takes them.
+  defp keep_or_share({:error, _reason}, page, read, _new_pages?),
+    do: FileExtraction.keep_ocr(page.id, page.object_id, read)
+
+  defp keep_or_share(:ok, page, _read, true),
+    do: FileExtraction.enqueue_copies(page.id, page.object_id)
+
+  defp keep_or_share(:ok, _page, _read, false), do: :ok
 
   @doc false
   def commit_extraction(page_id, object_id, subtype, format, version, result, ocr \\ %{}) do

@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.126 (2026-11-11)
+
+- Give every copy of a scanned PDF its text as soon as OCR has read one of
+  them. A copy that was uploaded before the OCR model existed now takes the
+  pages that OCR reads from a later upload of the same file. It no longer
+  waits for an administrator to accept the charges for earlier scans, because
+  taking those pages costs nothing, and Console no longer counts it among the
+  unread scans.
+
 ## Version 2.0.0-alpha.125 (2026-11-11)
 
 - Send the same scanned PDF to OCR once in a Pod. A file uploaded to another
