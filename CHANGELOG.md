@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.131 (2026-11-12)
+## Version 2.0.0-alpha.132 (2026-11-12)
 
 - Cut repeated access checks on live conversation streams, and let shutdown
   finish its cleanup.
@@ -21,6 +21,10 @@
     calls wait and start as earlier ones finish. Feishu, Slack, and DingTalk
     connections dispatch at most 64 events at a time and leave further events
     unacknowledged, so the platform redelivers them.
+
+## Version 2.0.0-alpha.131 (2026-11-11)
+
+- Internal changes only.
 
 ## Version 2.0.0-alpha.130 (2026-11-11)
 
