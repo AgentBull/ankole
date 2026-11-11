@@ -1757,6 +1757,15 @@
   margin: 18px 0;
   border-color: var(--border);
 }
+/* A `ui` block lays out its own elements, so the prose rhythm of the message stops at its edge. */
+.pod-chat-markdown .pod-chat-ui-block :is(p, h1, h2, h3, h4, ul, ol, li) {
+  margin: 0;
+}
+.pod-chat-markdown .pod-chat-ui-block :is(h1, h2, h3, h4) {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
 .pod-chat-markdown .katex-display {
   max-width: 100%;
   overflow-x: auto;

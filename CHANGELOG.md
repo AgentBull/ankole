@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.108 (2026-11-11)
+
+- Let an Agent show a small interactive UI inside a reply in Pod Chat. A fenced
+  `ui` block renders as tabs, collapsible sections, sortable tables, inline
+  charts, headline numbers, and segmented switches, and a button in the block
+  leaves a follow-up question in the composer for the member to send. The
+  visualization Skill teaches Agents the block. Only native Pod rooms offer it,
+  and external chat channels receive replies as before.
+
 ## Version 2.0.0-alpha.107 (2026-11-11)
 
 - Give shared controls immediate visual feedback. Switch thumbs stretch on

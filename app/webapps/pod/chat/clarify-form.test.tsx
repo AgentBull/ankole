@@ -3,8 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
 import i18n, { loadLocale } from '../../common/i18n'
+import { InternalAPIError } from '../../common/internal-api-client'
+import { requestErrorCode } from '../../common/request-errors'
 import { ChoiceCard } from './choice-card'
-import { ClarifyForm, collect } from './clarify-form'
+import { collect } from './clarify-form'
 import type { ChatInteraction, ClarifyField, ClarifyPrompt } from './types'
 
 beforeAll(() => loadLocale('en-US'))
@@ -134,21 +136,36 @@ test('a submission converts typed values and flags empty required fields before 
   })
 })
 
-test('server field errors render inline as alerts tied to their fields, with selection limits as hints', () => {
-  const html = renderToStaticMarkup(
-    <I18nextProvider i18n={i18n}>
-      <ClarifyForm
-        fields={prompt.fields as ClarifyField[]}
-        disabled={false}
-        errors={{ quantity: 'not_an_integer', warehouses: 'too_many' }}
-        onSubmit={() => undefined}
-      />
-    </I18nextProvider>
-  ).replace(/[\u2066-\u2069]/g, '')
-  expect(html).toContain(i18n.t('pod.chat_form.errors.not_an_integer'))
-  expect(html).toContain(i18n.t('pod.chat_form.errors.too_many'))
-  expect(html.match(/role="alert"/g)?.length).toBe(2)
-  expect(html.match(/aria-invalid="true"/g)?.length).toBeGreaterThanOrEqual(2)
-  expect(html).toContain(i18n.t('pod.chat_form.items_max', { max: 2 }))
-  expect(html).toMatch(/aria-describedby="[^"]*-quantity-error"/)
+test('a submission that the control plane rejects shows each error on its field, with selection limits as hints', async () => {
+  const client = new QueryClient()
+  const rejection = new InternalAPIError(422, 'Unprocessable Content', {
+    errors: [
+      {
+        code: 'invalid_form_answer',
+        meta: { details: { fields: { quantity: 'not_an_integer', warehouses: 'too_many' } } }
+      }
+    ]
+  })
+  expect(requestErrorCode(rejection)).toBe('invalid_form_answer')
+  // The room's answer mutation carries the interaction it answers; the card finds its rejection by that ID.
+  const answer = client.getMutationCache().build(client, { mutationFn: () => Promise.reject(rejection), retry: false })
+  await answer.execute({ interactionID: prompt.interaction_id, answer: { values: {} } }).catch(() => undefined)
+  try {
+    const html = renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <QueryClientProvider client={client}>
+          <ChoiceCard prompt={prompt} interaction={prompt} onAnswer={async () => undefined} />
+        </QueryClientProvider>
+      </I18nextProvider>
+    ).replace(/[\u2066-\u2069]/g, '')
+    expect(html).toContain('data-state="pending"')
+    expect(html).toContain(i18n.t('pod.chat_form.errors.not_an_integer'))
+    expect(html).toContain(i18n.t('pod.chat_form.errors.too_many'))
+    expect(html.match(/role="alert"/g)?.length).toBe(2)
+    expect(html.match(/aria-invalid="true"/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(html).toContain(i18n.t('pod.chat_form.items_max', { max: 2 }))
+    expect(html).toMatch(/aria-describedby="[^"]*-quantity-error"/)
+  } finally {
+    client.clear()
+  }
 })

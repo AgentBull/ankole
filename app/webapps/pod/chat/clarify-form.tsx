@@ -1,5 +1,4 @@
 import {
-  Button,
   Checkbox,
   Field,
   FieldDescription,
@@ -13,114 +12,77 @@ import {
   SelectValue,
   Textarea
 } from '@ankole/uikit'
-import { useContext, useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useBoundProp, type ComponentRenderProps } from '@json-render/react'
+import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RevealInTimeline } from './timeline-scroll'
 import type { ClarifyField } from './types'
 
 type Draft = Record<string, unknown>
 
-/** Renders a structured clarify form; the control plane validates the submission again and owns the result. */
-export function ClarifyForm({
-  fields,
-  disabled,
-  errors,
-  onSubmit
-}: {
-  fields: ClarifyField[]
+/** The spec props of one field of a structured clarify form; `value`, `error` and `edited` are bound to its draft. */
+export type ClarifyFieldProps = {
+  field: ClarifyField
+  value: unknown
+  /** The error code that the card's own check left for this field. */
+  error: unknown
+  /** The error code that the control plane returned for this field, and the submission that it rejected. */
+  rejected?: string
+  rejection?: number
+  /** The rejected submission that was current when the field was last edited. */
+  edited: unknown
   disabled: boolean
-  /** Field error codes from the last rejected submission. */
-  errors?: Record<string, string>
-  onSubmit(values: Record<string, unknown>): void
-}) {
+}
+
+/**
+ * Renders one field of a structured clarify form in the interaction surface. The control plane validates the
+ * submission again and owns the result.
+ */
+export function ClarifyFieldControl({ element, bindings }: ComponentRenderProps<ClarifyFieldProps>) {
+  const { field, disabled } = element.props
   const { t } = useTranslation()
-  const formID = useId()
-  const form = useRef<HTMLFormElement>(null)
-  const [draft, setDraft] = useState<Draft>(() => Object.fromEntries(fields.map(field => [field.id, initial(field)])))
-  const [localErrors, setLocalErrors] = useState<Record<string, string>>({})
-  const [touched, setTouched] = useState<Set<string>>(new Set())
-  const shown = (id: string) => (touched.has(id) ? localErrors[id] : (localErrors[id] ?? errors?.[id]))
-  const reveal = useContext(RevealInTimeline)
-  // The field moves to the middle of the view once the error messages have rendered.
-  const focusField = (id: string) =>
-    requestAnimationFrame(() => {
-      const field = form.current?.querySelector<HTMLElement>(`[data-field="${id}"]`)
-      if (!field) return
-      reveal(field)
-      field.focus({ preventScroll: true })
-    })
-
-  // Each rejected submission brings a new `errors` object; focus moves to the
-  // first field the server flagged, and FieldError announces it as an alert.
-  useEffect(() => {
-    const first = fields.find(field => errors?.[field.id])
-    if (first) {
-      setTouched(new Set())
-      focusField(first.id)
-    }
-  }, [errors])
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault()
-    if (disabled) return
-    const { values, errors: found } = collect(fields, draft)
-    setLocalErrors(found)
-    setTouched(new Set())
-    const first = fields.find(field => found[field.id])
-    if (first) {
-      focusField(first.id)
-      return
-    }
-    onSubmit(values)
+  const controlID = `${useId()}-${field.id}`
+  const [value, setValue] = useBoundProp<unknown>(element.props.value, bindings?.value)
+  const { rejected, rejection } = element.props
+  const [code, setCode] = useBoundProp<unknown>(element.props.error, bindings?.error)
+  const [edited, setEdited] = useBoundProp<unknown>(element.props.edited, bindings?.edited)
+  const checked = typeof code === 'string' ? code : undefined
+  // An edited field drops the error it had; the next submission checks it again.
+  const error = checked ?? (edited === rejection ? undefined : rejected)
+  const hint = field.type === 'multi_select' ? itemsHint(field, t) : undefined
+  const describedBy =
+    [field.help && `${controlID}-help`, hint && `${controlID}-hint`, error && `${controlID}-error`]
+      .filter(Boolean)
+      .join(' ') || undefined
+  const common = {
+    id: controlID,
+    'data-field': field.id,
+    disabled,
+    'aria-describedby': describedBy,
+    'aria-invalid': error ? true : undefined,
+    'aria-required': field.required || undefined
   }
-
-  const change = (id: string, value: unknown) => {
-    setDraft(current => ({ ...current, [id]: value }))
-    setTouched(current => new Set(current).add(id))
-    setLocalErrors(({ [id]: _cleared, ...rest }) => rest)
+  const change = (next: unknown) => {
+    setValue(next)
+    if (checked) setCode(undefined)
+    if (edited !== rejection) setEdited(rejection)
   }
-
   return (
-    <form ref={form} className="pod-chat-choice-form" noValidate onSubmit={submit}>
-      {fields.map(field => {
-        const controlID = `${formID}-${field.id}`
-        const error = shown(field.id)
-        const hint = field.type === 'multi_select' ? itemsHint(field, t) : undefined
-        const describedBy =
-          [field.help && `${controlID}-help`, hint && `${controlID}-hint`, error && `${controlID}-error`]
-            .filter(Boolean)
-            .join(' ') || undefined
-        const common = {
-          id: controlID,
-          'data-field': field.id,
-          disabled,
-          'aria-describedby': describedBy,
-          'aria-invalid': error ? true : undefined,
-          'aria-required': field.required || undefined
-        }
-        return (
-          <Field key={field.id} data-disabled={disabled || undefined}>
-            <FieldLabel htmlFor={field.type === 'multi_select' ? undefined : controlID} id={`${controlID}-label`}>
-              {field.label}
-              {!field.required && (
-                <span className="ml-1 font-normal text-muted-foreground">{t('pod.chat_form.optional')}</span>
-              )}
-            </FieldLabel>
-            {control(field, draft[field.id], value => change(field.id, value), common, t)}
-            {field.help && <FieldDescription id={`${controlID}-help`}>{field.help}</FieldDescription>}
-            {hint && <FieldDescription id={`${controlID}-hint`}>{hint}</FieldDescription>}
-            {error && (
-              <FieldError id={`${controlID}-error`}>
-                {t(`pod.chat_form.errors.${error}`, { defaultValue: t('pod.chat_form.errors.invalid') })}
-              </FieldError>
-            )}
-          </Field>
-        )
-      })}
-      <Button type="submit" size="sm" disabled={disabled}>
-        {t('pod.chat_form.submit')}
-      </Button>
-    </form>
+    <Field data-disabled={disabled || undefined}>
+      <FieldLabel htmlFor={field.type === 'multi_select' ? undefined : controlID} id={`${controlID}-label`}>
+        {field.label}
+        {!field.required && (
+          <span className="ml-1 font-normal text-muted-foreground">{t('pod.chat_form.optional')}</span>
+        )}
+      </FieldLabel>
+      {control(field, value, change, common, t)}
+      {field.help && <FieldDescription id={`${controlID}-help`}>{field.help}</FieldDescription>}
+      {hint && <FieldDescription id={`${controlID}-hint`}>{hint}</FieldDescription>}
+      {error && (
+        <FieldError id={`${controlID}-error`}>
+          {t(`pod.chat_form.errors.${error}`, { defaultValue: t('pod.chat_form.errors.invalid') })}
+        </FieldError>
+      )}
+    </Field>
   )
 }
 
@@ -256,12 +218,16 @@ function itemsHint(
   return undefined
 }
 
-function initial(field: ClarifyField): unknown {
-  if (field.default !== undefined && field.default !== null) {
-    return field.type === 'number' || field.type === 'boolean' ? String(field.default) : field.default
-  }
-  if (field.type === 'multi_select') return []
-  return ''
+/** The draft that a form starts from: each field's default, or an empty answer. */
+export function initialDraft(fields: ClarifyField[]): Draft {
+  return Object.fromEntries(
+    fields.map(field => {
+      if (field.default !== undefined && field.default !== null) {
+        return [field.id, field.type === 'number' || field.type === 'boolean' ? String(field.default) : field.default]
+      }
+      return [field.id, field.type === 'multi_select' ? [] : '']
+    })
+  )
 }
 
 /** Converts the draft into typed values and flags only what the browser can decide; the server checks the rest. */

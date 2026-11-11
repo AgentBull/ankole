@@ -658,6 +658,10 @@ export function ChatPage({
                   model.quote({ kind: 'message', id: message.id, quote })
                   composerInput.current?.focus()
                 }}
+                // A `ui` block's reply button leaves its text in the composer for the Human to send.
+                onReply={text => {
+                  if (model.suggestReply(text)) composerInput.current?.focus()
+                }}
               />
             </ErrorBoundary>
             <div className="pod-chat-composer-dock">

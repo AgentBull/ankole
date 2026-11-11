@@ -707,6 +707,29 @@ In the timeline, compact event notices sit alongside attributed messages:
   150 ms of quiet; a highlighted result appears only for the exact text and
   language that produced it. Plain-text blocks use the native code presentation
   without loading the highlighter.
+  A fenced `ui` block renders as a small interactive UI inside the message.
+  Each line of the block is one RFC 6902 JSON Patch operation, and together the
+  lines build a flat json-render spec that Pod renders with `@ankole/uikit`
+  components. `pod/chat/ui-block/catalog.ts` owns the vocabulary: layout, tabs,
+  collapsible sections, text, badges, headline numbers, sortable tables, inline
+  charts, progress bars, alerts, buttons, and segmented choices. The catalog
+  also generates `references/chat-ui-block.md` in the visualization Skill, so
+  an Agent reads the same component list that Pod renders. Pod renders a block
+  only in an Agent's message; a fenced `ui` block that a Human writes stays
+  code. A block holds view state only: its `setState` action changes what the
+  block shows, and its `reply` action leaves a follow-up text in the composer
+  for the Human to send. Prop values may read that state through json-render's
+  expressions. Before Pod renders a block, `pod/chat/ui-block/compile.ts`
+  checks it against the catalog: every element reachable from the root names a
+  catalog component and has valid props, the tree is acyclic and expands to at
+  most 500 elements, each event binds `setState` or `reply` with its parameters
+  only, and no element uses `repeat`, `watch`, or named slots. A settled block
+  that fails this check shows its source as code. While a reply streams, Pod
+  renders the lines that have arrived and checks the props once the block
+  settles. The turn context of a
+  native room carries `ui_blocks: interactive`. The turn context of an external
+  IM conversation carries `ui_blocks: code_only`, and delivery leaves a `ui`
+  block of such a reply as a fenced code block, as it does for Mermaid.
 - While a turn runs, the active step stays visible above collapsed prior steps
   and reasoning. The work header shows elapsed time when the turn has a recorded
   start. In the expanded live list, new step rows fade up as Pod receives them
@@ -1023,6 +1046,17 @@ input on an external channel's card accepts at most 1,000 characters. If
 an unanswered question sits above the loaded 500-message window, the UI surfaces
 it in the timeline's attention banner and smoothly restores it to its inline
 position once the user scrolls back to that message.
+
+Pod renders the Clarify card and the Action Card with the json-render renderer
+that also renders `ui` blocks. For each card, Pod builds an interaction spec
+from the message's `rich_content` and the state of its checkpoint or card row.
+`pod/chat/interaction-surface.tsx` owns the elements of those specs: the card
+shell, choices, form fields, approval details, decision buttons, and outcome
+lines. A model-written `ui` block renders from its own catalog and cannot use
+these elements. The actions of an interaction spec call the endpoints of this
+section, so the control plane owns the answer, its validation, and the
+approval, and an external channel renders the same interaction from its
+`ReplyPresentation`.
 
 A Clarify can carry a form instead of choices. `Delivery.ClarifyForm` owns the
 field contract: one to five fields, each with a snake_case `id`, a `label`,

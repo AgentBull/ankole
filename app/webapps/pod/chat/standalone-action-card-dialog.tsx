@@ -1,6 +1,7 @@
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, toast } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
+import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
@@ -10,9 +11,11 @@ import { contentKeys } from '../content-api'
 import { contentError } from '../content-errors'
 import { ContentError, ContentSkeleton } from '../content-primitives'
 import { refreshConversationQueries } from '../query-cache'
-import { ActionCardView } from './action-card-view'
 import type { ActionCardDecision } from './room-api'
 import type { ActionCardState } from './types'
+
+// The card renders through json-render, which stays out of the Pod shell until a dialog or the chat page needs it.
+const ActionCardView = lazy(() => import('./action-card-view').then(module => ({ default: module.ActionCardView })))
 
 export function StandaloneActionCardDialog({ cardID, onClose }: { cardID: string; onClose: () => void }) {
   const { t } = useTranslation()
@@ -55,10 +58,12 @@ export function StandaloneActionCardDialog({ cardID, onClose }: { cardID: string
           ) : query.isError ? (
             <ContentError error={query.error} retry={() => void query.refetch()} />
           ) : card ? (
-            <ActionCardView
-              card={toActionCardState(card)}
-              onResolve={(id, decision) => resolveMutation.mutateAsync({ cardID: id, decision })}
-            />
+            <Suspense fallback={<ContentSkeleton variant="list" rows={3} />}>
+              <ActionCardView
+                card={toActionCardState(card)}
+                onResolve={(id, decision) => resolveMutation.mutateAsync({ cardID: id, decision })}
+              />
+            </Suspense>
           ) : null}
         </div>
         <DialogFooter>

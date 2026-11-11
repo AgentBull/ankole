@@ -881,7 +881,8 @@ defmodule Ankole.Sessions.Prompt.Input do
         if(conversation.kind == :native or conversation.external_kind == :im_group,
           do: line("speaker", speaker)
         ),
-        diagram_rendering_hint(run, conversation)
+        diagram_rendering_hint(run, conversation),
+        ui_blocks_hint(conversation)
       ],
       &is_nil/1
     )
@@ -907,6 +908,18 @@ defmodule Ankole.Sessions.Prompt.Input do
   end
 
   def diagram_rendering_hint(_run, _conversation), do: nil
+
+  # Only Pod renders a `ui` block. An external IM client receives the block as a fenced code block.
+  @doc false
+  def ui_blocks_hint(%{kind: :native}) do
+    "ui_blocks: interactive (```ui blocks render as interactive UI inside the message; follow references/chat-ui-block.md of the visualization Skill, and write none when that Skill is unavailable)"
+  end
+
+  def ui_blocks_hint(%{external_kind: kind}) when kind in [:im_dm, :im_group] do
+    "ui_blocks: code_only (external IM clients display ```ui blocks as raw code; write Markdown tables or structured lists instead)"
+  end
+
+  def ui_blocks_hint(_conversation), do: nil
 
   defp turn_environment(%{kind: :scheduled} = run) do
     context = run.spec.request_context

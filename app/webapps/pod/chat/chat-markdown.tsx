@@ -8,12 +8,15 @@ export function ChatMarkdown({
   text,
   generated = false,
   streaming = false,
-  className
+  className,
+  onReply
 }: {
   text: string
   generated?: boolean
   streaming?: boolean
   className?: string
+  /** Receives the follow-up text of a `ui` block's reply button; without it the button does nothing. */
+  onReply?: (text: string) => void
 }) {
   const plain = <div className="whitespace-pre-wrap break-words">{text}</div>
   return (
@@ -22,7 +25,13 @@ export function ChatMarkdown({
       aria-busy={streaming || undefined}>
       <ErrorBoundary resetKeys={[text, generated, streaming]} fallback={plain}>
         <Suspense fallback={plain}>
-          <MarkdownRenderer text={text} generated={generated} streaming={streaming} reveal={generated && streaming} />
+          <MarkdownRenderer
+            text={text}
+            generated={generated}
+            streaming={streaming}
+            reveal={generated && streaming}
+            onReply={onReply}
+          />
         </Suspense>
       </ErrorBoundary>
     </div>

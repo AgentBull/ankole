@@ -18,6 +18,7 @@ Read `/drive/DESIGN.md` (or the workspace design contract) first when styling st
 - `references/infographic-dsl.md` — structured narrative diagrams, SWOT, timelines, roadmaps, and comparison trees (`<infographic>`, `AnkoleInfographic`, `ankole-viz infographic`)
 - `references/graph-g6.md` — entity-relationship networks, hierarchies, radial neighborhoods, and combo clusters (`AnkoleGraph`, `ankole-viz graph`)
 - `references/mermaid.md` — procedural flowcharts, sequence diagrams, state machines, and ER diagrams (`<mermaid>`, `ankole-viz mermaid`)
+- `references/chat-ui-block.md` — interactive `ui` blocks inside a native chat reply: tabs, sortable tables, headline numbers, inline charts, segmented switches, and follow-up buttons (Chat ` ```ui `)
 
 ## Choose the right grammar and surface
 
@@ -31,6 +32,7 @@ Match the cognitive question to one grammar first, then pick the delivery surfac
 | Multi-hop topology, clusters, hierarchy | Network graph (AntV G6 v5) | Applet `AnkoleGraph` | `ankole-viz graph --spec ... --data ... -o graph.svg` |
 | Stages, SWOT, pros/cons, executive takeaways | Narrative infographic (`@antv/infographic`) | Doc `<infographic>` (` ```infographic `), Chat ` ```infographic `, Applet `AnkoleInfographic` | `ankole-viz infographic --input ... -o info.svg` |
 | Branching control flow, RPC sequence, state transitions, schema ER | Procedural diagram (Mermaid via Pele) | Doc `<mermaid>`, Knowledge ` ```mermaid `, Chat ` ```mermaid ` | `ankole-viz mermaid --input ... -o flow.svg` |
+| A few views of one answer that the reader switches, sorts, or compares | Interactive `ui` block | Chat ` ```ui ` when the turn context says `ui_blocks: interactive` | Markdown table or `ankole-viz chart` |
 
 Never convert an explicit flow, sequence, state machine, or ER diagram into ASCII box art (`+---+`, `|-->|`), and never fabricate raw SVG coordinates by hand when one of these grammars expresses the structure directly.
 

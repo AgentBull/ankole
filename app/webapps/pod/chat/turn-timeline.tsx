@@ -73,6 +73,7 @@ export function TurnTimeline({
   chatContainerRef,
   onReturnFocusToComposer,
   onQuote,
+  onReply,
   liveStreams,
   linkedRuns,
   pendingInteractions,
@@ -108,6 +109,8 @@ export function TurnTimeline({
   chatContainerRef?: RefObject<HTMLElement | null>
   onReturnFocusToComposer?: () => void
   onQuote?: (text: string, message: ConversationMessage) => void
+  /** Receives the follow-up text of a `ui` block's reply button. */
+  onReply?: (text: string) => void
   liveStreams: TimelineLiveStream[]
   linkedRuns: LinkedExecution[]
   pendingInteractions: ConversationDetail['pendingInteractions']
@@ -248,6 +251,7 @@ export function TurnTimeline({
   const stableEditMessage = useStableCallback((message: ConversationMessage) => actions?.edit?.(message))
   const stableRegenerateMessage = useStableCallback((message: ConversationMessage) => actions?.regenerate?.(message))
   const stableQuoteMessage = useStableCallback((text: string, message: ConversationMessage) => onQuote?.(text, message))
+  const stableReply = useStableCallback((text: string) => onReply?.(text))
   const stableSelectMessageID = useCallback((id: string) => model.startSelectingMessages(id), [model])
   const stableOpenInspector = useStableCallback(
     (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) =>
@@ -360,6 +364,7 @@ export function TurnTimeline({
                                   retryable && actions?.regenerate ? stableRegenerateMessage : undefined
                                 }
                                 onQuoteMessage={onQuote ? stableQuoteMessage : undefined}
+                                onReply={onReply ? stableReply : undefined}
                                 onSelectMessageID={selectable ? stableSelectMessageID : undefined}
                                 linkedRuns={executions.messages.get(item.message.id) ?? EMPTY_LINKED_RUNS}
                                 showAgentOnRuns={showAgentOnRuns}
@@ -414,6 +419,7 @@ export function TurnTimeline({
                   showAgentOnRuns={showAgentOnRuns}
                   activeInspector={activeInspector}
                   onOpenInspector={onOpenInspector}
+                  onReply={onReply ? stableReply : undefined}
                   avatarURL={members.find(member => member.uid === stream.agentUID)?.avatarURL}
                 />
               </ErrorBoundary>
