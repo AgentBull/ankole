@@ -24,7 +24,7 @@ Ankole models two Agent subtypes under `Ankole.Principals`:
 
 The role provides a short summary of the Agent's work—such as “Research Analyst” or “Customer Support”—while two composable contracts in **Meta Ankole → Agents** (`AGENTS.md` and `DESIGN.md`) govern its behavior, responsibilities, and visual design system.
 
-The `WorkerProvider` assigns the Agent to a [WorkerProvider](../worker-providers/) target. If an API request omits the provider, Ankole uses the site default—or rejects creation when no site default exists—and once saved, the `WorkerProvider` binding cannot be changed. Even when multiple Agents share a provider, each Agent gets a separate Worker instance, `/drive` FUSE workspace mounts, and its own persistent `/workspace` Home directory. Saving a new Agent does not start an instance right away; the control plane boots the Worker on demand when a turn requires computer work.
+The `WorkerProvider` assigns the Agent to a [WorkerProvider](../worker-providers/) target. If an API request omits the provider, Ankole uses the site default—or rejects creation when no site default exists—and once saved, the `WorkerProvider` binding cannot be changed. Even when multiple Agents share a provider, each Agent gets a separate Worker instance, `/drive` FUSE workspace mounts, and its own persistent `/workspace` Home directory. Saving a new Agent queues its initial Worker start in the background. After that first start completes and the idle Worker is released, the control plane starts it again when a turn requires computer work.
 
 ## Set ownership and group disclosure
 

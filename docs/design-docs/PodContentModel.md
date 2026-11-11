@@ -595,7 +595,7 @@ top, while the `Space` and `Private` section headings carry the create buttons)
 lets the ground show through beside the content card (`main`): a white card with
 8 px top corners and no edge that keeps 20 px of ground at its end and runs to
 the bottom of the window. While the sidebar is hidden, the card keeps 20 px of
-ground at its start as well. On a Page, the document column is 832 px wide with
+ground at its start as well. On a Page, the document column is 892 px wide with
 at least 68 px on either side, and its first line sits 68 px below the card's
 top edge. A Conversation opens with its own 44 px header, whose title shows no
 hover wash and takes only the width of its text: a long title truncates with an

@@ -24,7 +24,7 @@ order: 13
 
 「角色」字段用于简要概括 Agent 承担的岗位职责（例如「研究分析师」或「客户支持」），而具体的行为准则、职责边界与视觉设计体系则由 **Meta Ankole → Agents** 中的两份可组合契约文档（`AGENTS.md` 与 `DESIGN.md`）管理。
 
-`WorkerProvider` 决定该 Agent 归属的 [WorkerProvider](../worker-providers/) 计算提供方：创建请求未显式指定时自动采用站点默认提供方；若站点未配置默认提供方，创建将直接失败，且保存后不可更改。即使多个 Agent 共用同一提供方，每个 Agent 仍拥有独立的 Worker 实例、`/drive` FUSE 工作区挂载以及持久化的 `/workspace` Home 目录。保存新建 Agent 时不会立即拉起实例，等到回合实际需要执行电脑环境任务时才由控制面按需启动。
+`WorkerProvider` 决定该 Agent 归属的 [WorkerProvider](../worker-providers/) 计算提供方：创建请求未显式指定时自动采用站点默认提供方；若站点未配置默认提供方，创建将直接失败，且保存后不可更改。即使多个 Agent 共用同一提供方，每个 Agent 仍拥有独立的 Worker 实例、`/drive` FUSE 工作区挂载以及持久化的 `/workspace` Home 目录。保存新建 Agent 后，控制面会在后台安排 Worker 首次启动。首次启动完成、空闲 Worker 被释放后，控制面再按回合执行电脑环境任务的实际需求启动它。
 
 ## 设置负责人和群聊披露模式
 

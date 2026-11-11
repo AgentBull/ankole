@@ -26,7 +26,7 @@ Agent は、Ankole Agent Harness 内で継続的に稼働する作業主体で�
 
 ロールには「Research Analyst」や「Customer Support」など、担当業務の短い要約を入力します。具体的な行動規範・責務とビジュアルデザイン規則は、**Meta Ankole → Agents** にある 2 つの規約ドキュメント（`AGENTS.md` と `DESIGN.md`）で定義します。
 
-`WorkerProvider` では、Agent が使用する [WorkerProvider](../worker-providers/) を指定します。指定を省略した場合はサイトの既定 provider が使われますが、既定 provider が存在しない場合は作成に失敗します（保存後の変更はできません）。同じ provider を共有する Agent 同士であっても、それぞれ専用の Worker インスタンス、`/drive` FUSE マウント、永続 `/workspace` Home が割り当てられます。Agent を保存した時点ではインスタンスは起動せず、コンピュータ上での作業が実際に必要になった段階で control plane がオンデマンドで起動します。
+`WorkerProvider` では、Agent が使用する [WorkerProvider](../worker-providers/) を指定します。指定を省略した場合はサイトの既定 provider が使われますが、既定 provider が存在しない場合は作成に失敗します（保存後の変更はできません）。同じ provider を共有する Agent 同士であっても、それぞれ専用の Worker インスタンス、`/drive` FUSE マウント、永続 `/workspace` Home が割り当てられます。Agent を保存すると、初回の Worker 起動がバックグラウンドでキューに入ります。初回起動が完了し、アイドル状態の Worker が解放された後は、コンピュータ上の作業が必要なときに control plane が再び起動します。
 
 ## 所有者と group memory の開示を設定する
 

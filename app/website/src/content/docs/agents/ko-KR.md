@@ -24,7 +24,7 @@ Agent는 Ankole Agent Harness 안에서 지속적으로 업무를 수행하는 �
 
 역할(role)은 "Research Analyst"나 "Customer Support"처럼 담당 업무를 한눈에 알아볼 수 있게 요약한 설명입니다. 실제 행동 원칙·책임 범위와 시각 디자인 규칙은 **Meta Ankole → Agents**의 두 가지 조합형 규약 문서(`AGENTS.md`, `DESIGN.md`)로 관리합니다.
 
-`WorkerProvider` 설정은 이 Agent가 사용할 [WorkerProvider](../worker-providers/) 대상을 결정합니다. 생성 요청에서 생략하면 사이트 기본 provider가 할당되며, 기본 provider가 지정되어 있지 않으면 생성이 거부됩니다(저장 후에는 변경할 수 없습니다). 여러 Agent가 같은 provider를 공유하더라도 각자 독립된 전용 Worker 인스턴스, `/drive` FUSE 마운트, 영구 `/workspace` Home을 할당받으며, Agent를 저장한 직후에는 인스턴스를 띄우지 않고 실제로 컴퓨터 작업이 필요해질 때 control plane이 온디맨드로 시작합니다.
+`WorkerProvider` 설정은 이 Agent가 사용할 [WorkerProvider](../worker-providers/) 대상을 결정합니다. 생성 요청에서 생략하면 사이트 기본 provider가 할당되며, 기본 provider가 지정되어 있지 않으면 생성이 거부됩니다(저장 후에는 변경할 수 없습니다). 여러 Agent가 같은 provider를 공유하더라도 각자 독립된 전용 Worker 인스턴스, `/drive` FUSE 마운트, 영구 `/workspace` Home을 할당받으며, Agent를 저장하면 최초 Worker 기동이 백그라운드 대기열에 들어갑니다. 최초 기동이 완료되고 유휴 Worker가 해제된 뒤에는 컴퓨터 작업이 필요할 때 control plane이 다시 기동합니다.
 
 ## 소유자와 group memory 공개 설정
 
