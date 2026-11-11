@@ -3,10 +3,6 @@ name: Repository checks
 on:
   pull_request:
   workflow_call:
-    inputs:
-      ankole_sha:
-        description: Reviewed Ankole commit for the private infra caller
-        type: string
   workflow_dispatch:
 
 permissions:
@@ -59,9 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.ankole_sha && 'AgentBull/ankole' || github.repository }}
-          ref: ${{ inputs.ankole_sha }}
-          persist-credentials: ${{ !inputs.ankole_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
+          persist-credentials: ${{ github.repository == job.workflow_repository }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
@@ -79,9 +75,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.ankole_sha && 'AgentBull/ankole' || github.repository }}
-          ref: ${{ inputs.ankole_sha }}
-          persist-credentials: ${{ !inputs.ankole_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
+          persist-credentials: ${{ github.repository == job.workflow_repository }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
@@ -107,7 +103,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' }}
     # GitHub assigns reusable workflow jobs using the caller's runner access.
-    runs-on: ${{ github.repository == 'AgentBull/infra' && inputs.ankole_sha && 'eks-ankole-amd64' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository == 'AgentBull/infra' && 'eks-ankole-amd64' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     env:
       MIX_ENV: test
@@ -116,9 +112,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.ankole_sha && 'AgentBull/ankole' || github.repository }}
-          ref: ${{ inputs.ankole_sha }}
-          persist-credentials: ${{ !inputs.ankole_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
+          persist-credentials: ${{ github.repository == job.workflow_repository }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
@@ -180,9 +176,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.ankole_sha && 'AgentBull/ankole' || github.repository }}
-          ref: ${{ inputs.ankole_sha }}
-          persist-credentials: ${{ !inputs.ankole_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
+          persist-credentials: ${{ github.repository == job.workflow_repository }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
