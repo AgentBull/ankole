@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.127 (2026-11-11)
+
+- Let a scanned PDF be read again, and recover sooner when an OCR run dies.
+  A file in the trash no longer lends what OCR read from it, so moving every
+  copy of a file to the trash and uploading it again sends it to OCR afresh.
+  The job that reads a file's scans now refreshes its claim every 20 seconds.
+  When its node dies, another job of the same file takes over after about a
+  minute instead of 30 minutes.
+
 ## Version 2.0.0-alpha.126 (2026-11-11)
 
 - Give every copy of a scanned PDF its text as soon as OCR has read one of

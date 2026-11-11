@@ -413,6 +413,68 @@ defmodule Ankole.Pod.ScannedPdfTest do
     assert [%{quantity: 1}] = Repo.all(UsageRecord)
   end
 
+  test "a reader that stopped refreshing its mark does not hold other jobs back", ctx do
+    test_pid = self()
+
+    configure_ocr(fn _request ->
+      send(test_pid, {:reading, self()})
+
+      receive do
+        :answer -> read_pages([{0, "Stamped receipt"}])
+      after
+        10_000 -> read_pages([])
+      end
+    end)
+
+    bytes = pdf([""])
+    upload(ctx, "scan.pdf", bytes)
+    reader = Task.async(fn -> extract() end)
+    assert_receive {:reading, first_provider}, 5_000
+
+    assert [running] =
+             Repo.all(
+               from j in Oban.Job,
+                 where: j.worker == "Ankole.Pod.Jobs.SyncFileCache" and j.state == "executing"
+             )
+
+    # The reader's node dies: nothing refreshes the mark, and a minute later it is stale.
+    assert %{"reads" => _bytes, "reads_at" => read_at} = running.meta
+
+    assert {:ok, _job} =
+             Oban.update_job(running, %{meta: %{running.meta | "reads_at" => read_at - 61}})
+
+    copy = upload(ctx, "copy.pdf", bytes)
+    second = Task.async(fn -> extract() end)
+    assert_receive {:reading, second_provider}, 5_000
+    send(second_provider, :answer)
+    assert %{snoozed: 0, failure: 0} = Task.await(second, 30_000)
+    assert body_text(copy) == "[Page 1]\nStamped receipt\n"
+
+    send(first_provider, :answer)
+    assert %{failure: 0} = Task.await(reader, 30_000)
+  end
+
+  test "a file that someone trashes and uploads again is read afresh", ctx do
+    configure_ocr(fn _request -> read_pages([{0, ""}]) end)
+    bytes = pdf([""])
+    page = upload(ctx, "scan.pdf", bytes)
+    assert %{failure: 0} = extract()
+    assert_receive {:ocr_request, _request}
+
+    # OCR found no text, and another upload of the same bytes takes that answer.
+    copy = upload(ctx, "copy.pdf", bytes)
+    assert %{failure: 0} = extract()
+    refute_received {:ocr_request, _request}
+
+    # A page in the trash lends nothing, so the next upload goes to OCR again.
+    for trashed <- [page, copy], do: assert({:ok, _page} = Pages.delete(ctx.actor, trashed.id))
+    again = upload(ctx, "scan.pdf", bytes)
+    assert %{failure: 0} = extract()
+    assert_receive {:ocr_request, _request}
+    assert cache(again).ocr == %{"pages" => %{"1" => ""}}
+    assert length(Repo.all(UsageRecord)) == 2
+  end
+
   test "pages kept after a failed commit join the text without consent or another charge", ctx do
     page = upload(ctx, "mixed.pdf", pdf(["Cover page with a text layer", ""]))
     assert %{failure: 0} = extract()

@@ -241,7 +241,9 @@ defmodule Ankole.Pod.FileExtraction do
   The `ocr` map to extract `object_id` on `page_id` with: the page's own, plus
   the pages that OCR has read from the same bytes on any other page of the
   tenant, whether that page holds this object or another object with the same
-  SHA-256. A file that is in several places is paid for once.
+  SHA-256. A file that is in several places is paid for once. A page in the
+  trash lends nothing: someone who trashes every copy of a file and uploads it
+  again has it read afresh.
   """
   @spec known_ocr(String.t(), String.t()) :: map()
   def known_ocr(page_id, object_id) do
@@ -252,6 +254,9 @@ defmodule Ankole.Pod.FileExtraction do
       |> Ash.Query.filter(object_id in ^object_ids)
       |> Ash.Query.select([:page_id, :ocr])
       |> Ankole.Ash.read!()
+
+    trashed = pages_in_trash(for cache <- caches, cache.page_id != page_id, do: cache.page_id)
+    caches = Enum.reject(caches, &(&1.page_id in trashed))
 
     own = Enum.find_value(caches, %{}, &(&1.page_id == page_id && &1.ocr))
 
@@ -264,6 +269,16 @@ defmodule Ankole.Pod.FileExtraction do
       end)
 
     if pages == %{}, do: own, else: Map.put(own, "pages", pages)
+  end
+
+  defp pages_in_trash([]), do: []
+
+  defp pages_in_trash(page_ids) do
+    Page
+    |> Ash.Query.filter(id in ^page_ids and in_trash)
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.id)
   end
 
   @doc """

@@ -2442,10 +2442,13 @@ takes the text that OCR reads from a later upload of the same file, without
 `pod.ocr_existing_scans` and without a charge, and leaves the count of unread
 scans. Renaming a file to a name that Ankole does not extract removes its
 cache row and, with it, what OCR read on that Page. A page recorded as read
-without text stays that way for every copy of the file in the tenant: an
+without text stays that way for every copy of the file outside the trash: an
 upload of the same bytes, to the same Page or to a new one, takes the stored
-result, and OCR reads the file afresh only after the last cache row of those
-bytes is gone. Each page with OCR text takes
+result. A Page in the trash lends nothing, because `known_ocr/2` leaves out
+the cache rows of trashed Pages other than the Page being extracted. A person
+who wants a file read afresh therefore moves every copy of it to the trash
+and uploads it again, and that upload is read like any new file. Each page
+with OCR text takes
 it under its own `[Page N]` line, leaves `textless_pages`, and joins
 `metadata.ocr_pages`. When a request fails, the pages read by the requests
 before it stay, and when the extraction cannot be stored, the pages go onto
@@ -2466,9 +2469,12 @@ ends there, so the job holds no lock while OCR works. When another job
 carries the mark, the job snoozes for ten seconds without extracting
 anything, and the run that follows the reader finds the reader's pages
 through `known_ocr/2`. The mark counts only while its job is `executing` in
-its first attempt, the only attempt that reads scans; the job of a node that
-died keeps the mark until Oban's Lifeline plugin returns the job to the queue
-after 30 minutes.
+its first attempt, the only attempt that reads scans, and while it is fresh.
+The mark carries the time of its last refresh in `meta.reads_at`, and a
+process beside the reader refreshes it every 20 seconds, because one OCR
+request can outlast any fixed limit. A mark that nobody refreshed for 60
+seconds belongs to a job whose node has died, so another job takes over
+within about a minute of the failure.
 
 `pod.ocr_existing_scans` is the administrator's consent to pay for the scans
 that were not read at upload. The setting is off by default and resolves
