@@ -196,9 +196,14 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
   end
 
   defp source(%{"provider_kind" => "agentbull_cloud"} = runtime, opts) do
-    runtime
-    |> AgentBullCloud.build_catalog_context(opts)
-    |> AgentBullCloud.image_models_metadata_source()
+    with {:ok, source} <-
+           runtime
+           |> AgentBullCloud.build_catalog_context(opts)
+           |> AgentBullCloud.image_models_metadata_source() do
+      {:ok, source}
+    else
+      _reason -> catalog_fetch_error(:upstream, opts)
+    end
   end
 
   defp source(_runtime, opts), do: catalog_unavailable(opts)
