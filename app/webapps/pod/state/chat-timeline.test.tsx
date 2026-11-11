@@ -709,7 +709,10 @@ test('attachments without a recorded media type preview by extension with the Po
   expect(attachmentPreviewKind('研报.md', 'text/markdown')).toBe('markdown')
   expect(attachmentPreviewKind('notes.markdown')).toBe('markdown')
   expect(attachmentPreviewKind('page.html', 'text/html')).toBe('text')
-  expect(attachmentPreviewKind('proposal.docx')).toBeUndefined()
+  expect(attachmentPreviewKind('proposal.docx')).toBe('word')
+  expect(attachmentPreviewKind('template.docm')).toBe('word')
+  expect(attachmentPreviewKind('deck.pptx')).toBe('presentation')
+  expect(attachmentPreviewKind('legacy.doc')).toBeUndefined()
 })
 
 test('a committed clarification replaces its stream without hiding another Agent', () => {

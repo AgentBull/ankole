@@ -1,6 +1,31 @@
+import { readFileSync } from 'node:fs'
 import { state, request } from './fixtures'
 import { expect, test } from '@playwright/test'
+import { initSync as initPresentationWasm, PresentationEditor } from '@ankole/kernel/presentation-wasm'
 import { pageRoute } from './routes'
+
+const presentationWasm = new URL(
+  '../../../kernel/dist/presentation-wasm/ankole_presentation_wasm_bg.wasm',
+  import.meta.url
+)
+
+function buildPptxBuffer(slides: Array<{ title: string; subtitle?: string }>): Buffer {
+  initPresentationWasm({ module: readFileSync(presentationWasm) })
+  const editor = PresentationEditor.create_blank('Results')
+  try {
+    slides.forEach((slide, idx) => {
+      if (idx > 0) editor.execute_command('slide.new', '{}')
+      const info = JSON.parse(editor.execute_command('slide.inspect', '{}')) as { shapes: Array<{ id: number }> }
+      editor.execute_command('text.set', JSON.stringify({ id: info.shapes[0].id, text: slide.title }))
+      if (slide.subtitle && info.shapes[1]) {
+        editor.execute_command('text.set', JSON.stringify({ id: info.shapes[1].id, text: slide.subtitle }))
+      }
+    })
+    return Buffer.from(editor.export_pptx())
+  } finally {
+    editor.free()
+  }
+}
 
 test('replacing a Markdown file clears the old section selection and anchors new comments to the new object', async ({
   browser
@@ -182,49 +207,49 @@ test('presentation pages expose their selection while keeping file actions above
       await request<{ page: { id: string } }>(page, '/pages', 'POST', { type: 'file', title: 'Presentation toolbar' })
     ).page.id
     await page.goto(pageRoute(id))
-    const PPTX = await import('@office-kit/pptx')
-    const presentation = PPTX.createPresentation()
-    PPTX.addTitleSlide(presentation, 'Quarterly results')
-    PPTX.addContentSlide(presentation, { title: 'Next quarter', body: 'Launch the research service' })
     const original = {
       name: 'Results.pptx',
       mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      buffer: Buffer.from(await PPTX.savePresentation(presentation))
+      buffer: buildPptxBuffer([
+        { title: 'Quarterly results' },
+        { title: 'Next quarter', subtitle: 'Launch the research service' }
+      ])
     }
     await page.getByLabel('选择上传文件', { exact: true }).setInputFiles(original)
-    const slides = page.getByRole('navigation', { name: '幻灯片', exact: true })
-    await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    const slides = page.getByRole('list', { name: '幻灯片列表', exact: true })
+    await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-current', 'step')
     await slides.getByRole('button', { name: '第 2 页', exact: true }).click()
-    await expect(slides.getByRole('button', { name: '第 2 页', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-pressed', 'false')
-    const preview = page.frameLocator('iframe[title="幻灯片 2"]')
-    await expect(preview.getByText('Launch the research service', { exact: true })).toBeVisible()
-    await expect(page.getByRole('link', { name: '下载原文件', exact: true })).toBeInViewport({ ratio: 1 })
+    await expect(slides.getByRole('button', { name: '第 2 页', exact: true })).toHaveAttribute('aria-current', 'step')
+    await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).not.toHaveAttribute('aria-current')
+    await expect(page.getByText('Next quarter', { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: '下载', exact: true })).toBeInViewport({ ratio: 1 })
     await expect(page.getByRole('button', { name: '选择替换文件', exact: true })).toBeInViewport({ ratio: 1 })
-    const replacement = PPTX.createPresentation()
-    PPTX.addTitleSlide(replacement, 'Updated results')
-    const bytes = Buffer.from(await PPTX.savePresentation(replacement))
+    const bytes = buildPptxBuffer([{ title: 'Updated results' }])
     await page.getByLabel('选择替换文件', { exact: true }).setInputFiles({
       name: original.name,
       mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       buffer: bytes
     })
-    await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-current', 'step')
     await expect(slides.getByRole('button', { name: '第 2 页', exact: true })).toHaveCount(0)
-    await expect(
-      page.frameLocator('iframe[title="幻灯片 1"]').getByText('Updated results', { exact: true })
-    ).toBeVisible()
+    await expect(page.getByText('Updated results', { exact: true })).toBeVisible()
     const response = await page.request.get(
-      (await page.getByRole('link', { name: '下载原文件', exact: true }).getAttribute('href'))!
+      (await page.getByRole('link', { name: '下载', exact: true }).getAttribute('href'))!
     )
     expect(response.ok()).toBe(true)
-    expect(await response.body()).toEqual(bytes)
+    initPresentationWasm({ module: readFileSync(presentationWasm) })
+    const downloaded = PresentationEditor.open(new Uint8Array(await response.body()), '[]')
+    try {
+      const downloadedSlides = JSON.parse(downloaded.slides_info()) as Array<{ title: string }>
+      expect(downloadedSlides).toHaveLength(1)
+      expect(downloadedSlides[0].title).toBe('Updated results')
+    } finally {
+      downloaded.free()
+    }
     await page.getByLabel('选择替换文件', { exact: true }).setInputFiles(original)
-    await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    await expect(slides.getByRole('button', { name: '第 2 页', exact: true })).toHaveAttribute('aria-pressed', 'false')
-    await expect(
-      page.frameLocator('iframe[title="幻灯片 1"]').getByText('Quarterly results', { exact: true })
-    ).toBeVisible()
+    await expect(slides.getByRole('button', { name: '第 1 页', exact: true })).toHaveAttribute('aria-current', 'step')
+    await expect(slides.getByRole('button', { name: '第 2 页', exact: true })).not.toHaveAttribute('aria-current')
+    await expect(page.getByText('Quarterly results', { exact: true })).toBeVisible()
   } finally {
     if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()

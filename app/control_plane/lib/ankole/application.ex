@@ -52,7 +52,7 @@ defmodule Ankole.Application do
       [
         Ankole.Repo,
         Ankole.Pod.BaseCluster,
-        Ankole.Pod.Spreadsheets.NodeCache,
+        Ankole.Pod.OfficeFiles.NodeCache,
         Ankole.Pod.FileExtraction.ScanCursor,
         {Phoenix.PubSub, name: Ankole.PubSub},
         {DNSCluster, query: Application.get_env(:ankole, :dns_cluster_query) || :ignore},

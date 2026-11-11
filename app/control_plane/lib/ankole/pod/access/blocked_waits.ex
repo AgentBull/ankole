@@ -31,6 +31,11 @@ defmodule Ankole.Pod.Access.BlockedWaits do
     files.manifest
     files.download
     files.upload
+    office.inspect
+    office.render
+    office.commands
+    office.apply
+    office.to_document
     applets.publish
     applets.call
     base.tables

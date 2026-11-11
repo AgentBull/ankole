@@ -25,8 +25,13 @@ WORKDIR /repo
 COPY app/kernel/Cargo.toml app/kernel/Cargo.lock app/kernel/build.rs ./app/kernel/
 COPY app/kernel/src ./app/kernel/src
 COPY app/kernel/scripts ./app/kernel/scripts
+COPY app/kernel/presentation ./app/kernel/presentation
+COPY app/kernel/presentation-wasm ./app/kernel/presentation-wasm
 COPY app/kernel/spreadsheet ./app/kernel/spreadsheet
 COPY app/kernel/spreadsheet-wasm ./app/kernel/spreadsheet-wasm
+COPY app/kernel/vendor ./app/kernel/vendor
+COPY app/kernel/word ./app/kernel/word
+COPY app/kernel/word-wasm ./app/kernel/word-wasm
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \

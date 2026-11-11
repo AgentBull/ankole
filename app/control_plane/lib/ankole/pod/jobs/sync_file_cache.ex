@@ -23,7 +23,7 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
 
   alias Ankole.Files, as: Drive
   alias Ankole.Kernel
-  alias Ankole.Pod.{FileExtraction, Page, Pages, Spreadsheets}
+  alias Ankole.Pod.{FileExtraction, OfficeFiles, Page, Pages}
   alias Ankole.Repo
 
   # A job waits this many seconds before it looks again while another job has
@@ -45,7 +45,7 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
       when is_binary(page_id) and is_binary(object_id) do
     with {:ok, %Page{type: :file, purge_started_at: nil, object_id: ^object_id} = page} <-
            Pages.fetch(page_id),
-         false <- Spreadsheets.spreadsheet?(page.name),
+         false <- OfficeFiles.spreadsheet?(page.name),
          clean_name = FileExtraction.clean_filename(page.name),
          {:ok, %{subtype: subtype, format: format}} <-
            Kernel.file_classify_format(clean_name, page.content_type),
@@ -232,7 +232,7 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
   end
 
   defp commit_locked_cas(locked, object_id, subtype, format, version, result, ocr) do
-    if Spreadsheets.spreadsheet?(locked.name) do
+    if OfficeFiles.spreadsheet?(locked.name) do
       :ok
     else
       clean_name = FileExtraction.clean_filename(locked.name)

@@ -1,8 +1,10 @@
 import {
   isDelimitedTextTable,
   isMarkdownFile,
+  isOfficeSpreadsheetFile,
   isPresentationFile,
   isTextFile,
+  isWordFile,
   isWorkbookFile,
   previewMediaType,
   TEXT_PREVIEW_BYTES
@@ -38,8 +40,10 @@ import { ImageZoomView } from './chat/zoomable-image'
 import { DelimitedTablePreview } from './page-file-previews'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from './panel-motion'
 
-const SpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
-const PresentationPreview = lazy(() => import('./file-presentation'))
+const SpreadsheetWasmPreview = lazy(() => import('./spreadsheet/spreadsheet-preview'))
+const LegacySpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
+const WordPreview = lazy(() => import('./word/word-preview'))
+const PresentationPreview = lazy(() => import('./presentation/presentation-preview'))
 const PdfPreview = lazy(() => import('./file-pdf'))
 
 /**
@@ -52,6 +56,7 @@ export function attachmentPreviewKind(name: string, type?: string) {
   if (mime === 'application/pdf') return 'pdf'
   if (isDelimitedTextTable(name, mime)) return 'table'
   if (isWorkbookFile(name, mime)) return 'spreadsheet'
+  if (isWordFile(name, mime)) return 'word'
   if (isPresentationFile(name, mime)) return 'presentation'
   if (isMarkdownFile(name, mime)) return 'markdown'
   // A `.ts` source file often arrives as `video/mp2t`, so text detection runs before media.
@@ -319,9 +324,15 @@ function AttachmentPreviewBody({ file }: { file: AttachmentPreviewFile }) {
           canComment={false}
         />
       ) : kind === 'spreadsheet' ? (
-        <SpreadsheetPreview url={url} />
+        isOfficeSpreadsheetFile(name, previewMediaType(name, type)) ? (
+          <SpreadsheetWasmPreview url={url} local={local} />
+        ) : (
+          <LegacySpreadsheetPreview url={url} />
+        )
+      ) : kind === 'word' ? (
+        <WordPreview url={url} local={local} />
       ) : kind === 'presentation' ? (
-        <PresentationPreview url={url} />
+        <PresentationPreview url={url} local={local} />
       ) : kind ? (
         <PreviewContent
           url={url}

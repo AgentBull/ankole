@@ -2,8 +2,8 @@ defmodule Ankole.Pod.PageSnapshot do
   @moduledoc """
   An immutable page checkpoint subject to page history retention.
 
-  A document snapshot carries its XML `content`; a spreadsheet snapshot names
-  the file object that held the workbook, and that reference keeps the object
+  A document snapshot carries its XML `content`; an Office file snapshot names
+  the file object that held the file, and that reference keeps the object
   alive.
   """
   use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod

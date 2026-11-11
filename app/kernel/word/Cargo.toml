@@ -1,0 +1,31 @@
+[package]
+name = "ankole_word"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Host-neutral Word documents, unit change sets, and block conflict rules over WordCraft"
+license = "Apache-2.0"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+base64-simd = "0.8.0"
+hex = "0.4.3"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+serde = { version = "1.0.229", features = ["derive", "rc"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+thiserror = "2"
+unicode-normalization = "0.1.26"
+unicode-segmentation = "1.13.3"
+wordcraft-doc = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
+wordcraft-docx = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
+wordcraft-engine = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
+wordcraft-fonts = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c", features = ["test-support"] }
+wordcraft-geom = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
+wordcraft-layout = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
+wordcraft-pdf = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
+wordcraft-render = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
+zip = { version = "9.4.2", default-features = false, features = ["deflate"] }

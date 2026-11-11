@@ -27,7 +27,7 @@ Base API and `@ankole/uikit` visualization primitives.
 ### Page creation, editing, and navigation
 
 Creating a collaboration Page opens a non-modal menu offering document, Base,
-spreadsheet, and file options. Within Brain, creation offers knowledge objects and file attachments:
+spreadsheet, Word document, presentation, and file options. Within Brain, creation offers knowledge objects and file attachments:
 
 - **Documents and Bases** open immediately at the chosen Space root, Private
   root, or parent Page. Inserting a child document from inside a document body
@@ -35,9 +35,10 @@ spreadsheet, and file options. Within Brain, creation offers knowledge objects a
   child document once saved; inserting a child Base inserts an interactive
   `<embed ref="…" />` block, and Agents create and publish Applets
   through their conversation workflow.
-- **Spreadsheets** call `POST /api/v2/pod/spreadsheet-pages` with the same
-  destination and open the new blank workbook; see
-  [Spreadsheet Pages](#spreadsheet-pages).
+- **Office Pages** call `POST /api/v2/pod/office-pages` with `format`
+  (`spreadsheet`, `word`, or `presentation`) and the same destination, opening
+  the new blank workbook, Word document, or presentation; see
+  [Office Files](OfficeFiles.md).
 - **Knowledge pages** open in read mode. Edit starts a draft; Save submits the body and business properties together at the captured revision.
 - **Subpages** belong to their parent Page, including when the parent has its
   own content. Creating a child requires `node_edit` on its parent and the child
@@ -49,8 +50,8 @@ spreadsheet, and file options. Within Brain, creation offers knowledge objects a
   selected filename). If creation fails, the UI keeps the form entry open for
   retry. Replacing a file Page's bytes gives the Page the uploaded file's name,
   and the title follows that name. Editing the title keeps the stored file's
-  extension unless the new title already ends with it, so a renamed workbook
-  still opens as a spreadsheet and downloads with its type.
+  extension unless the new title already ends with it, so a renamed Office file
+  still opens in its editor and downloads with its type.
 
 Users edit Page titles at the top of the canvas. An Applet Page gives its whole
 canvas to the Applet instead: the Page header path shows the title, and the
@@ -81,9 +82,9 @@ blocks dismissal. Document titles auto-save after 500 ms of idle typing and on
 blur (deferring auto-save until any active IME composition finishes). Pressing
 Enter or Tab in a document title, or pressing Down on its last visual line,
 moves the caret to the start of the body, and pressing Up at the start of the
-body moves it back to the end of the title. On Spreadsheet and Base Pages,
+body moves it back to the end of the title. On Office and Base Pages,
 pressing Enter in the Page title or pressing Down on its last visual line moves
-focus into the active cell editor or the Base grid's first interactive control,
+focus into the active Office editor or the Base grid's first interactive control,
 while Tab follows the toolbar controls in DOM order. Assistive technology receives normal
 save-status announcements, save failures expose an explicit retry control, and
 the block controls occupy the left gutter outside sequential Tab navigation.
@@ -1054,7 +1055,7 @@ help.
 
 `Ankole.Pod` is the root Ash domain, owning the durable `Page`, `PageContent`,
 `PageSearchDocument`, `SearchQuery`, `PageChange`, `PageUserState`,
-`PageSnapshot`, `SpreadsheetOp`, `FileCache`, `BaseTable`, `BaseField`, and
+`PageSnapshot`, `OfficeOp`, `FileCache`, `BaseTable`, `BaseField`, and
 `BaseView` resources alongside stateless `*.Browser` resources serving
 `/api/v2/pod` JSON:API routes (where browser actions validate query operators as
 closed enums before serializing them to the JSON strings expected by the shared
@@ -1070,7 +1071,7 @@ document sizes.
 
 Every Pod write—or read requiring a row lock—opens `Repo.transact_top_level/2`
 in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`, `Documents`, `Files`,
-`Knowledge`, `Spreadsheets`, `Applets` or `Bases`). Topology and sharing writes acquire
+`Knowledge`, `OfficeFiles`, `Applets` or `Bases`). Topology and sharing writes acquire
 the tenant Page tree lock first and then lock the Agent's turn, whereas document
 content and Base record writes skip the tree lock. Intra-domain callers compose
 `*_in_tx` helpers inside an existing transaction (for example, Base copy calling
@@ -1107,7 +1108,7 @@ Within the domain:
   `Ankole.Kernel.page_sections/1`) exclusively for the post-`LIMIT` result
   slice. Page lifecycle mutations, document saves (including external `<embed>`
   and `<media>` attributes), Knowledge metadata updates, Base table/view/field
-  schema edits, spreadsheet commits, and inline text-file commits update
+  schema edits, Office Page compactions, and inline text-file commits update
   `page_search_documents` atomically in the owning transaction whenever
   projected text changes.
 - `Ankole.Pod.Pages.LinkPreview` serves `POST /api/v2/pod/links/unfurl`
@@ -1172,9 +1173,10 @@ Within the domain:
   edits expand to full role bitmasks, payloads supplying both a role and an
   action set must match, and `AuthZ` persists the underlying `permission_grants`
   rows and triggers anchor maintenance.
-- `Ankole.Pod.Spreadsheets` owns spreadsheet Pages: the operation log, its
-  compaction into the file, and the file search cache; see
-  [Spreadsheet Pages](#spreadsheet-pages).
+- `Ankole.Pod.OfficeFiles` owns Office Pages (spreadsheets, Word documents, and
+  presentations): the operation log (`pod_office_ops`), compaction into the
+  file, version history, Agent operations, and Word-to-document conversion; see
+  [Office Files](OfficeFiles.md).
 
 Read isolation matches each operation's locking needs:
 
@@ -1199,7 +1201,7 @@ checks the setting again each day so a later positive value applies to Pages
 already in Trash). When
 purge begins, it stamps a purge-started marker in the same transaction that
 rechecks eligibility—blocking any subsequent restore—cleans Base tables via the
-Base cleanup contract, and deletes page content, spreadsheet operation logs and
+Base cleanup contract, and deletes page content, Office operation logs and
 search caches, file references, grants, and child Pages in bounded batches while
 keeping the root Page row last so an interrupted job can safely resume.
 
@@ -1598,9 +1600,9 @@ independent of title changes.
 ### Version history
 
 `Ankole.Pod.Documents.History` owns immutable `PageSnapshot` checkpoints. This
-section describes document checkpoints; spreadsheet Pages keep their versions
-in the same history, with a file object in place of body XML (see
-[Spreadsheet Pages](#spreadsheet-pages)).
+section describes document checkpoints; Office Pages keep their versions in the
+same history, referencing a file object in place of body XML (see
+[Office Files](OfficeFiles.md)).
 Readers need `node_edit` to list, preview, export, or restore them: sharing the
 current document with a viewer or contributor does not expose deleted historical
 content. Each snapshot stores canonical body XML without comment marks, title,
@@ -2366,15 +2368,16 @@ delivery attachment can continue referencing the previous object; see
 [Files](Files.md).
 
 File Pages render in-browser previews for PDFs, images, audio, video, workbooks,
-and presentations. Workbook, presentation, and PDF viewers lazy-load their
-rendering libraries and stream bytes from the authorized Pod file URL without
+Word documents, and presentations. Office, workbook, and PDF viewers lazy-load
+their rendering Workers and stream bytes from the authorized Pod file URL without
 sending files to any external service—supporting sheet switching for workbooks,
-slide switching for presentations, the [PDF viewer](#pdf-viewer) for PDFs, and
-original-file downloads (preview fidelity follows supported format features and
-installed fonts). `.xlsx` and `.xlsm`
-files open in the collaborative spreadsheet editor (see
-[Spreadsheet Pages](#spreadsheet-pages)); `.xls`, `.xlsb`, and `.ods` workbooks
-and presentations keep the read-only preview. `Ankole.Pod.FileExtraction`
+paginated layout for Word documents, slide switching for presentations, the
+[PDF viewer](#pdf-viewer) for PDFs, and original-file downloads (preview
+fidelity follows supported format features and installed fonts). `.xlsx`,
+`.xlsm`, `.docx`, `.docm`, and `.pptx` files open in the collaborative Office
+editors and read-only WebAssembly Workers (see [Office Files](OfficeFiles.md)),
+whereas `.xls`, `.xlsb`, and `.ods` workbooks use the read-only SheetJS table
+preview. `Ankole.Pod.FileExtraction`
 indexes File Pages into `page_search_documents` and records extraction state in
 `pod_file_caches` keyed by `(object_id, format, extractor_version)` with
 `extract_status` in `ok`, `skipped`, or `failed`: small UTF-8 text, Markdown,
@@ -2587,341 +2590,20 @@ card thumbnail reads the first page through the same pdf.js setup and worker. Pr
 which the attachment preview's open-in-new-tab link and the original-file
 download reach.
 
-### Spreadsheet Pages
+### Office Pages
 
-A spreadsheet Page is a file Page whose name ends in `.xlsx` or `.xlsm`,
-ignoring case and the ` (n)` that Drive appends to a duplicate name;
-`Ankole.Pod.Spreadsheets.spreadsheet?/1` owns that rule, so the Page type stays
-`file`. `POST /api/v2/pod/spreadsheet-pages` creates one with a blank workbook
-named after the optional title (`Untitled.xlsx` by default), and uploading or
-saving a workbook to a file Page makes it one too. The file node's current
-object holds the authoritative `.xlsx` bytes, and the logical workbook is that
-object plus the operations in `pod_spreadsheet_ops` that are not yet
-`compacted`. The log and the search cache (`pod_file_caches`) reference the
-Page row, whose `revision` keys every log entry.
-
-Editors work at cell-commit granularity. An editor loads
-`GET /api/v2/pod/pages/:id/spreadsheet`, which returns the Page `revision`, the
-current file (`path`, `object_id`, `sha256`, `size`), the uncompacted
-operations in revision order, and the cached workbook metadata; it downloads
-the file pinned to that `sha256` and replays the operations in the browser's
-copy of the same kernel. It then sends one canonical operation at a time on the
-page channel. Each operation names its sheet by the stable `sheet_id` and its
-cells by absolute A1 references, and carries `base_revision`, `client_id`, and
-`client_seq`. Under the Page row lock the control plane rebases the operation
-over the operations committed after `base_revision`: row and column inserts or
-deletes move its target cells and rewrite its formula references, and sheet
-renames rewrite cross-sheet references. When rebasing would have to guess—the
-target cells or sheet were deleted, structural edits overlap, or a concurrent
-sort or merge intersects the edit—the operation is rejected with
-`spreadsheet_conflict`, whose details carry the kernel `reason`, the current
-`revision`, and the missed `changes`, so the editor replays them and asks its
-author to confirm the edit again. A committed operation advances the Page
-revision and is stored as the kernel committed it. The server writes the author
-of a note itself. Retrying a `(client_id, client_seq)` pair acknowledges the
-earlier commit, and a different operation under the same pair is a
-`client_sequence_conflict`.
-
-A row whose height its author did not set takes its height from its content
-after every operation that changes the content or format of its cells: the
-largest font in the row, and wrapped text by its line count, estimated from
-average glyph widths the way GridCraft estimates them, so the server and every
-browser compute the same heights. Merged cells do not count, and a height set
-with `line.resize` stays until `size_px` is `auto` again.
-
-Operations cover typed values, formats, merges, lines, cell shifts, moves,
-sheets, notes, sorting, filters, validation, and tables, plus three editing
-tools. `range.fill` fills a range from the cells at its start, as the fill
-handle does: in `series` mode a run of numbers follows its linear trend, a lone
-number or numbered text counts up, and weekday, month, and quarter names
-continue their list, while `copy` repeats the source, `values` continues it and
-keeps the filled cells' formats, and `formats` copies only formats. A formula
-moves its relative references with each repetition. `range.paste` writes a
-copied block: each cell carries typed input, with formulas already moved to the
-destination, and its full format, so pasting everything, values, formulas, or
-formats is one operation that rebases like typed input. `range.restore_formats`
-gives a range the formats of a snapshot whose cell and line offsets count from
-the range's start, so it rebases like a format: the listed cells and, for whole
-rows or columns, the listed lines take their format, the other cells and lines
-of the range lose theirs, and blank cells that only held a format disappear.
-Pictures are PNG or JPEG
-files of at most 2 MiB that travel base64 in the operation. `image.insert`,
-`image.update`, and `image.delete` place, move or resize, and remove a floating
-picture that moves with the cell under its top-left corner; `cell.picture` puts
-a picture into a cell in place of its value or formula, and typing into the
-cell removes it; `image.to_cell` and `image.from_cell` convert one kind into the
-other. The editor names a new floating picture with an `image_id` that no
-object of the workbook uses, so later operations can address the picture
-before its commit returns. A picture that would take the file, the uncompacted
-log, and the picture together past `max_file_bytes` is rejected with
-`spreadsheet_full`, so inserting it cannot make the workbook uneditable.
-
-Compaction writes the log into the file. Every commit moves the Page's single
-`Ankole.Pod.Jobs.CompactSpreadsheet` wakeup to `compaction_idle_seconds` after
-the commit; reaching `compaction_op_threshold` uncompacted operations, or
-`compaction_structural_threshold` uncompacted row, column, or cell-shift
-operations, moves it to now, and so do a committed picture, which leaves its
-bytes in the log only until the file holds them, and the last editor leaving the
-page channel. Compaction exports the workbook outside any transaction and stores it
-as a new object. Under the Page row lock it then names that object at the file
-node, marks the exported operations `compacted`, refreshes the search cache,
-records a history checkpoint when one is due, and prunes compacted operations
-older than `pod.ot_replay_window` revisions. Compaction does not advance the
-Page revision, and operations committed during the export wait for the next
-compaction. Volatile functions such as `NOW()` change the exported bytes on each
-compaction.
-
-Every Pod reader of the bytes sees the latest edits: a file manifest, any Pod
-file read or download without a pinned `sha256`, and the Agent `files.get` RPC
-run `Spreadsheets.flush_if_dirty/1` first, which costs one index probe when
-nothing is pending. A Worker Drive mount reads the object of the last
-compaction; each compaction commits like any other content write, so mounts
-refresh after it, at most `compaction_idle_seconds` after the last edit. A read that pins a `sha256` returns
-exactly those bytes while the node still names them, because the pinning editor
-pairs them with the operations it loaded; once compaction or a replacement
-names another object, the read fails with `manifest_changed` and the editor
-bootstraps again.
-
-Any other write that names a new object at the node—a Pod upload, an Agent
-Drive write, or a restore—reaches `Spreadsheets.object_committed_in_tx/3`
-through `Ankole.Pod.Files.Content.commit_in_tx/4`. In the writer's transaction it marks every
-earlier operation `compacted`, advances the revision, and appends a `reset`
-entry, so an editor that catches up past it bootstraps again. Pod uploads and
-restores compact pending operations into the current object first; other Drive
-writes replace the object as it stands, so the replaced version lacks edits
-that compaction had not written yet. When the new file is not a spreadsheet,
-`FileExtraction` transitions its `pod_file_caches` row and search projection to
-the new file's format while its history remains. A workbook that the kernel
-cannot read, or that exceeds `max_file_bytes`, records `failed` or `skipped` in
-`pod_file_caches` with empty `metadata` (`Spreadsheets.bootstrap/2` consumes
-cached workbook metadata only when `subtype == :spreadsheet` and
-`extract_status == :ok`), and editing it fails with `invalid_spreadsheet` or
-`file_too_large`.
-
-Versions live in the Page history ([Version history](#version-history)). A
-spreadsheet snapshot names a file object instead of body XML, so a version never
-copies bytes, and it shares the five-minute checkpoint interval, 30-day
-retention, and 200-snapshot limit of document checkpoints. The first object of
-a spreadsheet records `created`, and a replacement records `uploaded`; a
-replaced object that no retained snapshot names yet stays as a `checkpoint`.
-Compaction records a `checkpoint` of its new object when the newest snapshot is
-at least five minutes old and holds different bytes, and a workbook that reached
-its Page without a history records its original object as `created` before the
-first compaction replaces it. `GET /api/v2/pod/pages/:id/spreadsheet/versions`
-lists the retained versions newest first with each author's profile, and
-`POST /api/v2/pod/pages/:id/spreadsheet/versions/:version_id/restore` records
-the current object as `before_restore`, names the version's object and file name
-at the node, and records it as `restored`. Both require `node_edit`, as document
-history does. File collection keeps every object that a snapshot names; see
-[Files](Files.md#spreadsheet-pages).
-
-On the page channel, a spreadsheet Page joins Presence with the same profile,
-session, `selection`, and `mode` metadata as a document, and `sheet:presence`
-replaces the sender's `selection` with a JSON object of at most 4 KiB or `null`.
-When a file's content changes, the channel checks its current spreadsheet
-status. Uploading a workbook to an open file Page enables spreadsheet events
-and Presence on that connection, and notifies the file view to load the editor.
-Replacing it with another file type removes spreadsheet Presence and returns
-the connection to ordinary file notifications.
-`sheet:apply` commits an operation and replies with `revision`, `changes`,
-`reset_required`, and `acknowledged_revision`; `sheet:sync` replays the entries
-after a revision; and every committed change pushes `sheet:changes` with the
-entries after the channel's last revision. Each entry carries `revision`, `kind`
-(`op` or `reset`), `client_id`, `client_seq`, `op`, and `created_at`. A replay
-that exceeds the 32 MiB message budget or reaches past pruned entries sets
-`reset_required`.
-
-The browser editor runs the kernel's WebAssembly build in a Web Worker, which
-the Pod bundle loads only when a spreadsheet Page opens. When the worker entry
-comes from another origin, as it does with a separate Vite development server,
-the editor starts a same-origin Blob module that imports that entry under the
-browser's CORS rules. The editor releases the Blob URL when it stops the worker.
-The worker holds two documents: the confirmed document, which equals the server's state at the
-editor's revision, and the local document, which adds this tab's pending
-operations on top and serves every read. Bootstrap downloads the file with the
-pinned `sha256` from the bootstrap response and replays its operations; when
-compaction replaced the file in between, the download fails with
-`manifest_changed`, and the editor bootstraps again, up to three times before
-it shows the error with a retry. The grid paints the local document on a
-high-DPI canvas from viewports that the worker returns for the visible area
-plus a margin, while a native textarea over the active cell keeps keyboard
-focus, opens on the first typed character or IME composition, and never commits
-during a composition. The formula bar edits the same draft as the cell editor.
-
-Besides the cells that hold content, a viewport carries what the grid paints
-around them: the sheet's filter with the criteria of its columns, the tables
-and the validation ranges that intersect the area, each cell's note, and the
-look a table style or a conditional format gives a cell. The kernel computes
-that look with GridCraft's engine, so the server and the browser agree on it:
-a cell keeps its own style for the toolbar and gets a second, painted style
-when a table band, a header, or a matching rule changes its fill, font,
-borders, or number format, and a data bar or an icon set adds its bar or icon.
-Blank cells inside a table or a rule's range are reported for that reason. The
-grid marks a cell with a note by a corner and shows the note, or a validation
-rule's input message, as the pointer's tooltip.
-
-The editor sends one operation at a time with a 30 ms send delay and queues
-later edits behind the request in flight; each tab numbers its requests with
-its own `client_id` and an increasing `client_seq`, so a retry after a timeout
-is idempotent, and `spreadsheet_busy` repeats the same request after 200 ms
-up to five times. The saving indicator covers each submitted edit from the
-start of local processing, including work waiting for the worker, through its
-server acknowledgement. Every reply, push, and sync result applies the entries
-after the editor's revision to the confirmed document in order. When the entries
-include other editors' operations and local operations are still pending, the
-worker rebuilds the local document from the confirmed one and rebases each
-pending operation over those entries; a pending operation that conflicts is
-dropped, and its author sees the target and the reason so the edit can be made
-again. A `spreadsheet_conflict` reply drops the request in flight the same way
-after applying the missed entries, and a push that skips a revision asks for
-`sheet:sync`. `reset_required`, a `reset` entry, or `client_sequence_conflict`
-discards the pending operations, tells the author, and bootstraps again; the
-same happens after a restore, an upload, or an Agent Drive write. The editor
-also discards and reports an edit that the author submits while that bootstrap
-is still loading. A changed page revision that the Pod socket's version check
-reports also asks for `sheet:sync`. The editor shares the page channel with the file Page, which keeps
-handling comment and access events. The editor sends the selection with
-`sheet:presence` at most every 250 ms, sends `null` when the grid loses focus,
-and paints each collaborator's selection and name in a color derived from the
-collaborator's uid.
-
-The editor helps with formulas from the kernel's function list, which names
-every function GridCraft evaluates with its category, signature, and
-description; the catalogs translate the descriptions of the common functions.
-While a formula draft is open in the cell editor or the formula bar, typing a
-function name at an operand position lists matching functions, the common ones
-first, and the caret inside a call shows that function's signature with the
-current argument in bold. A press on a cell while the caret waits for an
-operand, after `=`, an opening parenthesis, a separator, or an operator, types
-that cell's reference, and dragging widens it to a range; on another sheet the
-reference names that sheet, and the draft stays open in the formula bar until
-Enter commits it on its own sheet. F4 cycles the reference at the caret through
-its relative and absolute forms, and the grid outlines every reference of the
-draft in its own colour. The **Formulas** menu and Alt+= insert a function over
-the run of numbers above the active cell, or else to its left, and open the
-editor on it; on a range they write one formula per column below it, or one
-after a single row. The status bar shows the sum, average, and count that the
-kernel computes for a selection of several cells.
-
-The **Data** menu holds the data tools. A filter covers the selection, or the
-block of content around the active cell when one cell is selected, and the
-header cells of its range show a button that lists the column's distinct
-values with their current selection (the kernel's `filter_values`); applying
-the list sends one `filter.set` with every column's value list, so a custom or
-top-N criterion that came from the file survives only until a column is edited
-in the browser. Data validation writes `validation.set` over the selection from
-a dialog, and a list rule with a dropdown shows an arrow beside the active cell
-that offers its entries. Before the editor commits typed input with `cell.set`,
-it asks the kernel's `validate_input`: a `stop` rule keeps the cell as it was
-and tells the author why, while a `warning` or `information` rule applies the
-input and tells them; pastes, fills, and formulas are not checked. Format as
-table and convert to range send `table.toggle`; the grid paints the table's
-style, and its own filter buttons and totals row are not editable here. Find
-and replace (`Ctrl+F`, `Ctrl+H`) search the displayed values of the sheet or
-the workbook, or the inputs when asked to; a replace matches the inputs,
-rewrites the matched cells as one undo step, and searches again. Conditional
-formats are painted but not edited. The charts of a sheet are painted over the
-cells at their anchors: the kernel lays each one out with GridCraft's chart
-crate from the workbook's current values, at the size the grid shows it, and
-returns drawing primitives that the canvas paints, so a chart follows the
-values its series name. Charts are read from the file and not created, moved,
-or edited here, and shapes, slicers, and pivot layouts stay in the file without
-a view.
-
-The freeze menu freezes the first row, the first column, or everything up to
-and including the active row, column, or cell, and a row or column header's
-context menu freezes up to that line; a heavier line marks the frozen panes.
-
-The fill handle at the selection's corner drags out a `range.fill` in series
-mode, and a button at the filled range then offers copying instead, the series
-again, or formats only. Each choice replaces the fill before it: while that fill
-is still this tab's latest undo step, the editor undoes it first, so formats
-only leaves the values that the cells held before the drag. Double-clicking the
-handle fills down as far as the data in the column beside the selection
-reaches. Ctrl+D and Ctrl+R copy the first row or column of the selection over
-the rest, the context menu's **Fill** submenu offers the same fills and
-continues that row or column as a series instead, and Ctrl+Enter writes the draft into every selected cell, moving a formula's
-relative references with each. A copy writes the displayed text as
-tab-separated values and an HTML table whose `data-ankole-spreadsheet`
-attribute carries the kernel's copied block with its source page, sheet, and
-range. Pasting that block into an Ankole spreadsheet becomes one `range.paste`
-with formulas moved to the destination, a cut pasted in the same page becomes
-`range.move` so references to the cells follow, and pasting from another
-application writes the text of each HTML table cell or each tab-separated
-value. Paste special pastes values, formulas, or formats only; it reads the
-system clipboard when the browser allows and this tab's last copy otherwise.
-The context menu also inserts or deletes rows, columns, and cells in a chosen
-direction and clears contents, formats, or both, and the format painter
-repeats the formats of the selection it took over the next selection, or over
-every selection until Escape when double-clicked. While the painter holds
-formats, Enter paints them over the selection that the keyboard made.
-
-Pictures enter from the toolbar or the context menu, from a pasted image, or
-from an image file dropped on a cell, which places it in that cell. The editor
-keeps a PNG or JPEG within 2 MiB and 4096 pixels as it is and redraws any other
-image as PNG or JPEG at most 2048 pixels on its longest edge until it fits. A
-floating picture inserts at the active cell at its own size up to 400 pixels;
-dragging moves it, its corner handles resize it with its proportions kept,
-Delete removes it, and its context menu places it in its cell, shows it full
-size, or downloads it. A cell picture is drawn inside its cell with its
-proportions kept, and its context menu lifts it out over the cells.
-
-The canvas paints the headers, the filter buttons, the list arrow, the fill
-handle, and the floating pictures, so each of them also has a keyboard path from
-the cell editor, which keeps focus while no cell is edited. Shift+F10 or the
-context-menu key opens the context menu where the selection shows: on the
-selected picture, on the header of whole selected rows or columns, or else on
-the active cell. Shift+Space selects the rows of the selection and Ctrl+Space
-its columns, so the row and column header menus open the same way. Alt+Down
-opens the value list of a filter's header cell, or else the entries of the
-active cell's list validation, and the cell menu names that list as its first
-entry; the list gives focus back to the grid when it closes. Ctrl+Alt+P
-(Command+Option+P on Apple platforms) and the cell menu's **Select next
-picture** select the sheet's floating pictures in turn. A status message then
-names the selected picture, the arrow keys move it by one cell, Delete removes
-it, Shift+F10 opens its menu, and Escape returns to the cells.
-
-Undo and redo are personal, and each step may apply several operations. Before
-this tab types into, pastes over, fills, or clears cells, or puts a picture into
-a cell, the editor reads the inputs that the affected cells hold, and undo
-writes them back with `range.set_values`. Before it changes formats, the editor
-reads a format snapshot of the range with the kernel's `format_snapshot`: the
-cells that hold a format of their own and, for whole rows or columns, the lines
-that hold a line format. Undo puts them back with `range.restore_formats`, which
-also takes away formats added since and removes the blank cells that only held
-them. Formats travel as format patches, so undo brings back a pattern or
-gradient fill as its foreground colour and does not keep a diagonal border.
-Edits that change both, such as typing, pasting everything, filling, and
-clearing all, restore the inputs and then the formats. Undoing a merge unmerges
-the merged bounds, merges again the areas the bounds held before, and puts back
-the cleared values and formats; undoing an unmerge merges the areas again. The
-outline border's four sides are one step. The editor reads this state inside
-its edit queue, so an undo pressed right after an edit always undoes that edit.
-Sorting, cell shifts, moves, row and column inserts and deletes, line sizes,
-freezing, notes, floating pictures, filters, validation, tables, and sheet
-operations are not undoable, and neither is a format change over more than
-100,000 stored cells or a merge over more than 1,000,000 cells, so the history
-ends when this tab applies one. It
-also clears whenever another editor's row, column, cell-shift, move, sort, or
-sheet deletion commits, because earlier coordinates no longer name the same
-cells. A viewer without `node_edit` gets
-the same grid with selection, copy, and live updates, and neither editing
-controls nor the version history.
-A file larger than `max_file_bytes` starts no worker. When the bootstrap
-metadata reports `has_unsupported_objects`, editors see a dismissible warning
-that saving drops slicers, timelines, Power Pivot data models, and named sheet
-views, and that the version history keeps the original file. The download link
-of a spreadsheet Page omits `sha256`, so it returns the file with every
-committed edit.
-
-`pod.spreadsheet.limits` bounds the feature per tenant: `max_file_bytes`
-(default 20 MiB) is the largest file an editor may load or edit, and a larger
-file returns `file_too_large` so the browser offers the download only;
-`compaction_idle_seconds` (30), `compaction_op_threshold` (100), and
-`compaction_structural_threshold` (10) tune compaction. Each control-plane node
-keeps at most 64 opened workbooks in memory and drops one after ten idle
-minutes; the cache never owns state, so a node that misses reopens the Page's
-object and replays the uncompacted operations.
+File Pages whose names end in `.xlsx`, `.xlsm`, `.docx`, `.docm`, or `.pptx`
+(ignoring letter case and Drive duplicate ` (n)` suffixes) are Office Pages
+owned by `Ankole.Pod.OfficeFiles`. The file node's current object holds the
+authoritative Office archive, `pod_office_ops` stores uncompacted unit-level
+operations keyed by `page.revision` (cells and ranges for spreadsheets,
+top-level paragraphs and tables for Word documents, and whole slides for
+presentations), `Ankole.Pod.Jobs.CompactOfficeFile` writes pending operations
+into new Drive objects within the bounds of `pod.office.limits`, and
+`POST /api/v2/pod/pages/:id/convert-to-document` converts a Word Page into a
+native document Page. See [Office Files](OfficeFiles.md) for the complete
+specification, wire operations, Presence soft unit locks, font architecture, and
+Agent `office.*` RPC contract.
 
 ## Applets
 

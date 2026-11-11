@@ -93,8 +93,7 @@ test('a workbook uploaded into an open file page saves edits and follows replace
     workbook.Sheets['采购台账'].A1 = { t: 's', v: '替换后的采购台账' }
     const reloaded = page.waitForResponse(
       response =>
-        response.request().method() === 'GET' &&
-        new URL(response.url()).pathname === `/api/v2/pod/pages/${id}/spreadsheet`
+        response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/v2/pod/pages/${id}/office`
     )
     await upload(
       page,

@@ -836,7 +836,7 @@ defmodule Ankole.Pod.Pages.Tree do
 
   @doc """
   Names a file Page after a new title while keeping the stored file's extension,
-  so a renamed workbook still opens as a spreadsheet and downloads with its type.
+  so a renamed Office file still opens in its editor and downloads with its type.
   A title that already ends with that extension is used as given.
   """
   def file_name_from_title(title, current_name) do

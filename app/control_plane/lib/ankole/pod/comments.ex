@@ -401,6 +401,14 @@ defmodule Ankole.Pod.Comments do
 
   defp preview_root_for_wakeup_in_tx(%{type: :file} = page, comment_id, body, nil, attrs) do
     cond do
+      Ankole.Pod.OfficeFiles.office_file?(page) ->
+        if Enum.any?(
+             [:anchor, :base_revision, :from, :to, :quote],
+             &(not is_nil(Ankole.Attrs.get(attrs, &1)))
+           ),
+           do: {:error, :invalid_comment_anchor},
+           else: {:ok, %{id: comment_id, body: body, quote: nil, anchor: nil}}
+
       Enum.any?([:base_revision, :from, :to], &(not is_nil(Ankole.Attrs.get(attrs, &1)))) ->
         {:error, :invalid_comment_anchor}
 
@@ -449,6 +457,14 @@ defmodule Ankole.Pod.Comments do
 
   defp maybe_anchor(actor, %{type: :file} = page, comment, attrs) do
     cond do
+      Ankole.Pod.OfficeFiles.office_file?(page) ->
+        if Enum.any?(
+             [:anchor, :base_revision, :from, :to, :quote],
+             &(not is_nil(Ankole.Attrs.get(attrs, &1)))
+           ),
+           do: {:error, :invalid_comment_anchor},
+           else: {:ok, comment, page}
+
       Enum.any?([:base_revision, :from, :to], &(not is_nil(Ankole.Attrs.get(attrs, &1)))) ->
         {:error, :invalid_comment_anchor}
 
@@ -493,22 +509,26 @@ defmodule Ankole.Pod.Comments do
     do: {:error, :invalid_comment_anchor}
 
   defp put_anchor(actor, %{type: :file} = page, comment, attrs) do
-    raw_anchor = Ankole.Attrs.get(attrs, :anchor)
-    raw_quote = Ankole.Attrs.get(attrs, :quote, comment.quote)
-
-    with true <-
-           Enum.all?([:base_revision, :from, :to], &is_nil(Ankole.Attrs.get(attrs, &1))),
-         {:ok, normalized_anchor} <- normalize_file_anchor(raw_anchor, page.object_id),
-         {:ok, normalized_quote} <- normalize_file_quote(raw_quote),
-         {:ok, updated} <-
-           change(comment, actor, %{
-             anchor: normalized_anchor,
-             quote: normalized_quote
-           }) do
-      {:ok, updated, page}
+    if Ankole.Pod.OfficeFiles.office_file?(page) do
+      {:error, :invalid_comment_anchor}
     else
-      false -> {:error, :invalid_comment_anchor}
-      error -> error
+      raw_anchor = Ankole.Attrs.get(attrs, :anchor)
+      raw_quote = Ankole.Attrs.get(attrs, :quote, comment.quote)
+
+      with true <-
+             Enum.all?([:base_revision, :from, :to], &is_nil(Ankole.Attrs.get(attrs, &1))),
+           {:ok, normalized_anchor} <- normalize_file_anchor(raw_anchor, page.object_id),
+           {:ok, normalized_quote} <- normalize_file_quote(raw_quote),
+           {:ok, updated} <-
+             change(comment, actor, %{
+               anchor: normalized_anchor,
+               quote: normalized_quote
+             }) do
+        {:ok, updated, page}
+      else
+        false -> {:error, :invalid_comment_anchor}
+        error -> error
+      end
     end
   end
 
@@ -704,12 +724,17 @@ defmodule Ankole.Pod.Comments do
 
     profile = Serialization.author_json(comment.author, profiles)
 
+    office_file? = Ankole.Pod.OfficeFiles.office_file?(page)
+
     {anchor_value, anchor_present, anchor_outdated} =
       case page.type do
         :doc ->
           {nil, comment.id in ids, false}
 
         :knowledge ->
+          {nil, false, false}
+
+        :file when office_file? ->
           {nil, false, false}
 
         :file ->
@@ -743,7 +768,7 @@ defmodule Ankole.Pod.Comments do
       can_edit: can_edit,
       can_delete: can_edit,
       can_resolve: can_resolve,
-      can_reanchor: page.type != :knowledge && can_resolve
+      can_reanchor: page.type != :knowledge && not office_file? && can_resolve
     })
   end
 

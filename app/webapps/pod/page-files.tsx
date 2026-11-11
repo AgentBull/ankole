@@ -1,8 +1,10 @@
 import {
   isDelimitedTextTable,
+  isLegacyWorkbookFile,
+  isOfficeSpreadsheetFile,
   isPresentationFile,
   isTextFile,
-  isWorkbookFile,
+  isWordFile,
   previewMediaType
 } from '../common/file-preview'
 import { formatFileBytes } from '../common/file-format'
@@ -24,16 +26,20 @@ import type { FileCommentAnchor, FileCommentSelection, FilePreviewHandle } from 
 import { DelimitedTablePreview, MediaFilePreview, TextFilePreview } from './page-file-previews'
 import { usePageRealtime } from './use-page-realtime'
 import { isRealtimeAccessDenied } from './realtime'
-import { isSpreadsheetFileName } from './state/spreadsheet-grid'
+import { officeFileFormat } from './office/office-files'
 import type { ParsedSearchTarget } from './search-targets'
 
 export type DriveFile = NonNullable<Awaited<ReturnType<typeof podFiles>>>['files'][number]
 export type UploadedFile = PodFileCopyResponse
 const SpreadsheetPage = lazy(() => import('./spreadsheet/spreadsheet-page'))
+const WordPage = lazy(() => import('./word/word-page'))
+const PresentationPage = lazy(() => import('./presentation/presentation-page'))
+const SpreadsheetPreview = lazy(() => import('./spreadsheet/spreadsheet-preview'))
+const WordPreview = lazy(() => import('./word/word-preview'))
+const PresentationPreview = lazy(() => import('./presentation/presentation-preview'))
 const LegacySpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
-const PresentationPreview = lazy(() => import('./file-presentation'))
 const PdfPreview = lazy(() => import('./file-pdf'))
-const filesQuery = (id: string) => ({
+export const filesQuery = (id: string) => ({
   queryKey: [...contentKeys.page(id), 'files'],
   queryFn: () => podFiles({ path: { id } })
 })
@@ -94,7 +100,7 @@ export function FilePage({
     entry => !entry.path.startsWith('assets/') && !entry.path.startsWith('attachments/')
   )
   const name = file?.path.split('/').at(-1) ?? t('pod.content.file')
-  const spreadsheet = Boolean(file && isSpreadsheetFileName(name))
+  const officeKind = file ? officeFileFormat(name) : undefined
   const findQuery = searchFind.trim()
   const chooseLabel = file ? t('pod.content.choose_a_replacement_file') : t('pod.content.choose_a_file_to_upload')
   const canUpload = Boolean(manifest.data) && !manifest.isFetching && !upload.isPending
@@ -173,24 +179,44 @@ export function FilePage({
           </div>
         )}
         {file && (
-          // A spreadsheet download omits the digest, so the server first writes pending edits into the file.
+          // An Office download omits the digest, so the server first writes pending edits into the file.
           <a
             className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-            href={spreadsheet ? fileURL(page.id, file.path) : fileURL(page.id, file.path, file.sha256)}
+            href={officeKind ? fileURL(page.id, file.path) : fileURL(page.id, file.path, file.sha256)}
             download={sanitizeFileName(name)}>
-            {spreadsheet ? t('pod.spreadsheet.download') : t('pod.content.download_original')}
+            {officeKind ? t('pod.office.download') : t('pod.content.download_original')}
           </a>
         )}
       </div>
       {manifest.isPending ? (
         <ContentLoading label={t('pod.content.loading_file')} />
-      ) : spreadsheet ? (
+      ) : officeKind === 'spreadsheet' ? (
         // Compaction replaces the object while the editor stays open, so only the page resets it.
         <ErrorBoundary variant="panel" resetKeys={[page.id]}>
           <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.spreadsheet.loading')} immediate />}>
             <SpreadsheetPage
               detail={detail}
               initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
+              initialFind={findQuery || undefined}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      ) : officeKind === 'word' ? (
+        <ErrorBoundary variant="panel" resetKeys={[page.id]}>
+          <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.word.loading')} immediate />}>
+            <WordPage
+              detail={detail}
+              initialPage={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
+              initialFind={findQuery || undefined}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      ) : officeKind === 'presentation' ? (
+        <ErrorBoundary variant="panel" resetKeys={[page.id]}>
+          <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.presentation.loading')} immediate />}>
+            <PresentationPage
+              detail={detail}
+              initialSlide={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
               initialFind={findQuery || undefined}
             />
           </Suspense>
@@ -205,6 +231,7 @@ export function FilePage({
             onRequestComment={onRequestComment}
             previewRef={previewRef}
             searchTarget={searchTarget}
+            searchFind={findQuery}
           />
         </ErrorBoundary>
       ) : canEdit ? (
@@ -242,7 +269,8 @@ function FilePreview({
   canComment,
   onRequestComment,
   previewRef,
-  searchTarget
+  searchTarget,
+  searchFind
 }: {
   pageID: string
   file: DriveFile
@@ -250,6 +278,7 @@ function FilePreview({
   onRequestComment?: (selection: FileCommentSelection) => void
   previewRef?: Ref<FilePreviewHandle | null>
   searchTarget?: ParsedSearchTarget
+  searchFind: string
 }) {
   const innerPreview = useRef<FilePreviewHandle | null>(null)
   const versioned = (selection: FileCommentSelection): FileCommentSelection => ({
@@ -286,7 +315,14 @@ function FilePreview({
           previewRef={innerPreview}
           initialAnchor={initialAnchor?.kind === 'csv_rows' ? initialAnchor : undefined}
         />
-      ) : isWorkbookFile(name, mime) ? (
+      ) : isOfficeSpreadsheetFile(name, mime) ? (
+        <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.spreadsheet.loading')} immediate />}>
+          <SpreadsheetPreview
+            url={url}
+            initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
+          />
+        </Suspense>
+      ) : isLegacyWorkbookFile(name, mime) ? (
         <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.content.loading_spreadsheet_preview')} />}>
           <LegacySpreadsheetPreview
             key={url}
@@ -294,12 +330,20 @@ function FilePreview({
             initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
           />
         </Suspense>
-      ) : isPresentationFile(name, mime) ? (
-        <Suspense fallback={<ContentLoading label={t('pod.content.loading_slide_preview')} />}>
-          <PresentationPreview
-            key={url}
+      ) : isWordFile(name, mime) ? (
+        <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.word.preview_loading')} immediate />}>
+          <WordPreview
             url={url}
             initialPage={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
+            initialFind={searchFind}
+          />
+        </Suspense>
+      ) : isPresentationFile(name, mime) ? (
+        <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.presentation.preview_loading')} immediate />}>
+          <PresentationPreview
+            url={url}
+            initialSlide={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
+            initialFind={searchFind}
           />
         </Suspense>
       ) : mime?.startsWith('image/') ? (

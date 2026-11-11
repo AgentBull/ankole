@@ -159,7 +159,7 @@ pub fn classify(filename: &str, mime_type: Option<&str>) -> Option<(FileSubtype,
             | "svelte" | "astro" | "zig" | "nim" | "dart" | "gradle" | "cmake" => {
                 return Some((FileSubtype::Text, "code"));
             }
-            "docx" => return Some((FileSubtype::Document, "docx")),
+            "docx" | "docm" => return Some((FileSubtype::Document, "docx")),
             "pptx" => return Some((FileSubtype::Document, "pptx")),
             "odt" => return Some((FileSubtype::Document, "odt")),
             "ods" => return Some((FileSubtype::Document, "ods")),
@@ -191,7 +191,8 @@ pub fn classify(filename: &str, mime_type: Option<&str>) -> Option<(FileSubtype,
             Some((FileSubtype::Text, "json"))
         }
         "application/pdf" => Some((FileSubtype::Document, "pdf")),
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        | "application/vnd.ms-word.document.macroenabled.12" => {
             Some((FileSubtype::Document, "docx"))
         }
         "application/vnd.openxmlformats-officedocument.presentationml.presentation" => {

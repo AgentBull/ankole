@@ -31,6 +31,8 @@
     "app/kernel/test/vectors/**",
     "app/kernel/src/applet_runtime/bootstrap.js",
     "app/kernel/spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts",
+    "app/kernel/word-wasm/ankole_word_wasm.d.ts",
+    "app/kernel/presentation-wasm/ankole_presentation_wasm.d.ts",
     "libs/ankole-editor/corpus/**",
     "libs/ankole-editor/upstream/fixtures/**"
   ]

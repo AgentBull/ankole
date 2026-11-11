@@ -10,7 +10,17 @@
       "types": "./spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts",
       "default": "./dist/spreadsheet-wasm/ankole_spreadsheet_wasm.js"
     },
-    "./spreadsheet-wasm/*": "./dist/spreadsheet-wasm/*"
+    "./spreadsheet-wasm/*": "./dist/spreadsheet-wasm/*",
+    "./presentation-wasm": {
+      "types": "./presentation-wasm/ankole_presentation_wasm.d.ts",
+      "default": "./dist/presentation-wasm/ankole_presentation_wasm.js"
+    },
+    "./presentation-wasm/*": "./dist/presentation-wasm/*",
+    "./word-wasm": {
+      "types": "./word-wasm/ankole_word_wasm.d.ts",
+      "default": "./dist/word-wasm/ankole_word_wasm.js"
+    },
+    "./word-wasm/*": "./dist/word-wasm/*"
   },
   "scripts": {
     "build": "bun run build:wasm",
@@ -19,10 +29,10 @@
     "fmt:check": "cargo fmt --all --manifest-path Cargo.toml --check && mix format --check-formatted",
     "build:node": "bun scripts/build-node-addon.ts",
     "build:wasm": "bun scripts/build-wasm.ts",
-    "lint": "cargo fmt --all --manifest-path Cargo.toml --check && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif,test-ca --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml -p ankole_spreadsheet -p ankole_spreadsheet_wasm --all-targets -- -D warnings && bun scripts/cargo.ts check --manifest-path Cargo.toml -p ankole_spreadsheet_wasm --target wasm32-unknown-unknown && mix format --check-formatted",
+    "lint": "cargo fmt --all --manifest-path Cargo.toml --check && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif,test-ca --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml -p deckcraft-fonts -p ankole_spreadsheet -p ankole_spreadsheet_wasm -p ankole_presentation -p ankole_presentation_wasm -p ankole_word -p ankole_word_wasm --all-targets -- -D warnings && bun scripts/cargo.ts check --manifest-path Cargo.toml -p ankole_spreadsheet_wasm -p ankole_presentation_wasm -p ankole_word_wasm --target wasm32-unknown-unknown && mix format --check-formatted",
     "test": "bun run test:rust && bun run test:elixir && bun run test:node",
     "test:elixir": "mix deps.get && mix test",
     "test:node": "bun scripts/cargo.ts test --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi && bun run build:node && bun test ./test/node",
-    "test:rust": "bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif,test-ca && bun scripts/cargo.ts test --manifest-path Cargo.toml -p ankole_spreadsheet -p ankole_spreadsheet_wasm"
+    "test:rust": "bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif,test-ca && bun scripts/cargo.ts test --manifest-path Cargo.toml -p deckcraft-fonts -p ankole_spreadsheet -p ankole_spreadsheet_wasm -p ankole_presentation -p ankole_presentation_wasm -p ankole_word -p ankole_word_wasm"
   }
 }

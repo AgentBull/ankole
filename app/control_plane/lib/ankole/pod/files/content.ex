@@ -29,8 +29,8 @@ defmodule Ankole.Pod.Files.Content do
   @doc """
   Names an object at a file node under the writer's authority, in the caller's transaction.
 
-  A spreadsheet page then reconciles its operation log with the new object
-  (`Ankole.Pod.Spreadsheets.object_committed_in_tx/3`).
+  An Office page then reconciles its operation log with the new object
+  (`Ankole.Pod.OfficeFiles.object_committed_in_tx/3`).
   """
   def commit_in_tx(actor, id, stored, attrs \\ %{}) do
     Repo.require_transaction!({__MODULE__, :commit_in_tx})
@@ -57,16 +57,16 @@ defmodule Ankole.Pod.Files.Content do
                }
              )
            ),
-         :ok <- Ankole.Pod.Spreadsheets.object_committed_in_tx(actor, node, updated),
+         :ok <- Ankole.Pod.OfficeFiles.object_committed_in_tx(actor, node, updated),
          :ok <- Ankole.Pod.FileExtraction.object_committed_in_tx(updated, object) do
       {:ok, Paths.project(updated, object, updated.name)}
     end
   end
 
   @doc """
-  Names a spreadsheet compaction's rewrite of a file node's object, in the caller's transaction.
+  Names an Office compaction's rewrite of a file node's object, in the caller's transaction.
 
-  `Ankole.Pod.Spreadsheets` already authorized the edits that the new object
+  `Ankole.Pod.OfficeFiles` already authorized the edits that the new object
   holds, so this call neither authorizes the write nor reconciles the log.
   """
   def rewrite_in_tx(id, stored) do
@@ -145,8 +145,8 @@ defmodule Ankole.Pod.Files.Content do
   end
 
   defp sync_created_file_in_tx(node, object) do
-    if Ankole.Pod.Spreadsheets.spreadsheet?(node.name) do
-      Ankole.Pod.Spreadsheets.reconcile_file_in_tx(node)
+    if Ankole.Pod.OfficeFiles.spreadsheet?(node.name) do
+      Ankole.Pod.OfficeFiles.reconcile_file_in_tx(node)
     else
       Ankole.Pod.FileExtraction.object_committed_in_tx(node, object)
     end

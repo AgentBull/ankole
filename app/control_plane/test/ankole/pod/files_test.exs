@@ -105,7 +105,8 @@ defmodule Ankole.Pod.FilesTest do
 
     assert {:ok, renamed} = Pages.fetch(page.id)
     assert {renamed.title, renamed.name} == {"Budget 2027", "Budget 2027.xlsx"}
-    assert Ankole.Pod.Spreadsheets.spreadsheet?(renamed)
+    assert Ankole.Pod.OfficeFiles.office_file?(renamed)
+    assert Ankole.Pod.OfficeFiles.kind(renamed) == :spreadsheet
 
     assert {:ok, _} =
              Pages.update(actor, page.id, %{title: "Forecast.XLSX", expected_title: "Budget 2027"})

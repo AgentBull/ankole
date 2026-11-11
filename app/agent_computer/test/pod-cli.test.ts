@@ -764,4 +764,95 @@ export default { 'POST /total': async ({ body }) => ({total: total(body.a, body.
       '--limit must be at most 100'
     )
   })
+
+  it('parses and bridges Office Page read, render, apply, and conversion operations', async () => {
+    expect(await commandFromArgs(['office', 'inspect', 'page-1', '--sheet', 'Summary', '--range', 'A1:D10'])).toEqual({
+      operation: 'office.inspect',
+      params: { id: 'page-1', sheet: 'Summary', range: 'A1:D10' },
+      cwd: process.cwd()
+    })
+    expect(
+      await commandFromArgs(['office', 'render', 'page-1', '--page', '2', '--scale', '1.5', '--to', 'renders/p2.png'])
+    ).toEqual({
+      operation: 'office.render',
+      params: { id: 'page-1', page: 2, scale: 1.5, local_path: 'renders/p2.png' },
+      cwd: process.cwd()
+    })
+    expect(await commandFromArgs(['office.render', '{"id":"page-1","slide":3}', '--to', 'renders/s3.png'])).toEqual({
+      operation: 'office.render',
+      params: { id: 'page-1', slide: 3, local_path: 'renders/s3.png' },
+      cwd: process.cwd()
+    })
+    expect(await commandFromArgs(['office', 'commands', 'page-1', 'table'])).toEqual({
+      operation: 'office.commands',
+      params: { id: 'page-1', query: 'table' },
+      cwd: process.cwd()
+    })
+    expect(
+      await commandFromArgs([
+        'office',
+        'apply',
+        'page-1',
+        '--expected-revision',
+        '4',
+        '{"commands":[{"command":"format.bold"}]}'
+      ])
+    ).toEqual({
+      operation: 'office.apply',
+      params: { id: 'page-1', expected_revision: 4, commands: [{ command: 'format.bold' }] },
+      cwd: process.cwd()
+    })
+    expect(await commandFromArgs(['office', 'to-document', 'page-1', '--parent', 'folder-2'])).toEqual({
+      operation: 'office.to_document',
+      params: { id: 'page-1', parent_id: 'folder-2' },
+      cwd: process.cwd()
+    })
+
+    const root = await mkdtemp(join(tmpdir(), 'pod-cli-office-'))
+    const calls: { method: string; operation: string; params: Record<string, unknown>; retry: unknown }[] = []
+    const rpc = (async (method, payload, _frame, opts) => {
+      const req = payload as { operation: string; paramsJson: Uint8Array }
+      calls.push({
+        method,
+        operation: req.operation,
+        params: jsonObjectFromBytes(req.paramsJson, 'params') ?? {},
+        retry: opts?.retryOnDisconnect
+      })
+      return create(JSONPassthroughResponseSchema, {
+        bodyJson: jsonBytes({ result: { revision: 5 } })
+      })
+    }) as RPCRequester
+    const bridge = startPodCLIBridge({
+      rpc,
+      frame: { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } },
+      drive: new FakeDrive(root).drive(),
+      socketRoot: root
+    })
+    try {
+      for (const cmd of [
+        await commandFromArgs(['office', 'inspect', 'page-1'], root),
+        await commandFromArgs(['office', 'render', 'page-1', '--slide', '1', '--to', 'slides/s1.png'], root),
+        await commandFromArgs(['office', 'commands', 'page-1'], root),
+        await commandFromArgs(['office', 'apply', 'page-1', '{"commands":[{"command":"slide.new"}]}'], root),
+        await commandFromArgs(['office', 'to-document', 'page-1'], root)
+      ]) {
+        await requestSocketLineBridge(bridge.socketPath, JSON.stringify(cmd), 'bad response')
+      }
+      expect(calls.map(c => [c.method, c.operation, c.retry])).toEqual([
+        ['pod.read', 'office.inspect', true],
+        ['pod.read', 'office.render', true],
+        ['pod.read', 'office.commands', true],
+        ['pod.write', 'office.apply', false],
+        ['pod.write', 'office.to_document', false]
+      ])
+      expect(calls[1]!.params).toEqual({
+        id: 'page-1',
+        slide: 1,
+        home_relative_path: 'slides/s1.png'
+      })
+    } finally {
+      bridge.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

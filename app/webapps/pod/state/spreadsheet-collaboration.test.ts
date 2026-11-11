@@ -112,7 +112,7 @@ function fakeChannel(reply: Reply = async () => undefined) {
     ready: Promise.resolve({}),
     push: async <T>(event: string, payload: object) => {
       pushes.push({ event, payload, at: Date.now() })
-      if (event === 'sheet:sync') {
+      if (event === 'office:sync') {
         return { revision: (payload as { revision: number }).revision, changes: [], reset_required: false } as T
       }
       return (await answer(event, payload)) as T
@@ -129,7 +129,7 @@ function fakeChannel(reply: Reply = async () => undefined) {
   return {
     channel,
     pushes,
-    applies: () => pushes.filter(push => push.event === 'sheet:apply'),
+    applies: () => pushes.filter(push => push.event === 'office:apply'),
     answer(next: Reply) {
       answer = next
     },
@@ -203,7 +203,7 @@ async function started(
   models.push(model)
   options.observe?.(model)
   await model.start()
-  await until(() => socket.pushes.some(push => push.event === 'sheet:sync'))
+  await until(() => socket.pushes.some(push => push.event === 'office:sync'))
   return { model, notices, loads: () => loads }
 }
 
@@ -270,11 +270,11 @@ test('foreign operations in an acknowledgement rebuild the local document and dr
   expect(model.canUndo.value).toBe(false)
 })
 
-test('spreadsheet_conflict applies the missed changes and drops the request in flight', async () => {
+test('office_conflict applies the missed changes and drops the request in flight', async () => {
   const inserted = { type: 'line.insert', sheet_id: 1, axis: 'rows', at: 0, count: 1 }
   const { engine, called } = fakeEngine()
   const socket = fakeChannel(async () => {
-    throw rejection('spreadsheet_conflict', {
+    throw rejection('office_conflict', {
       reason: 'overlapping_structural_edit',
       revision: 1,
       changes: [entry(1, inserted)]
@@ -305,7 +305,7 @@ test('reset_required bootstraps again and discards unsent edits', async () => {
   expect(notices).toEqual([{ kind: 'discarded', count: 1 }])
   expect(model.revision.value).toBe(9)
   expect(model.pending.value).toBe(0)
-  socket.emit('sheet:changes', {
+  socket.emit('office:changes', {
     revision: 10,
     changes: [{ ...entry(10, null as never), kind: 'reset' }],
     reset_required: false
@@ -313,11 +313,11 @@ test('reset_required bootstraps again and discards unsent edits', async () => {
   await until(() => loads() === 3)
 })
 
-test('spreadsheet_busy repeats the same request after 200 ms', async () => {
+test('office_busy repeats the same request after 200 ms', async () => {
   const { engine } = fakeEngine()
   let attempts = 0
   const socket = fakeChannel(async (_event, payload) => {
-    if (++attempts < 3) throw rejection('spreadsheet_busy')
+    if (++attempts < 3) throw rejection('office_busy')
     return acknowledge(1, payload)
   })
   const { model } = await started(socket, engine)
@@ -334,7 +334,7 @@ test('presence updates are throttled to one every 250 ms and blur clears the sel
   const { engine } = fakeEngine()
   const socket = fakeChannel()
   const { model } = await started(socket, engine)
-  const presence = () => socket.pushes.filter(push => push.event === 'sheet:presence')
+  const presence = () => socket.pushes.filter(push => push.event === 'office:presence')
   model.select({ anchor: { row: 0, col: 0 }, focus: { row: 0, col: 1 } })
   await until(() => presence().length === 1)
   for (const row of [1, 2, 3]) model.select({ anchor: { row, col: 0 }, focus: { row, col: 0 } })
@@ -389,13 +389,13 @@ test('undo restores the previous input of a cell and redo applies the edit again
   expect(socket.applies()).toHaveLength(7)
 })
 
-test('a pushed change that skips a revision catches up with sheet:sync', async () => {
+test('a pushed change that skips a revision catches up with office:sync', async () => {
   const { engine, called } = fakeEngine()
   const socket = fakeChannel()
   const { model } = await started(socket, engine)
-  const syncs = () => socket.pushes.filter(push => push.event === 'sheet:sync')
+  const syncs = () => socket.pushes.filter(push => push.event === 'office:sync')
   const before = syncs().length
-  socket.emit('sheet:changes', {
+  socket.emit('office:changes', {
     revision: 3,
     changes: [entry(3, { type: 'cell.set', sheet_id: 1, cell: 'C1', input: '1' })],
     reset_required: false
@@ -403,7 +403,7 @@ test('a pushed change that skips a revision catches up with sheet:sync', async (
   await until(() => syncs().length === before + 1)
   expect(syncs().at(-1)!.payload).toEqual({ revision: 0 })
   expect(called('commit')).toHaveLength(0)
-  socket.emit('sheet:changes', {
+  socket.emit('office:changes', {
     revision: 1,
     changes: [entry(1, { type: 'cell.set', sheet_id: 1, cell: 'C1', input: '1' })],
     reset_required: false
@@ -525,7 +525,7 @@ test('a reset discards local work queued behind it before the worker applies it'
   const { engine, called } = fakeEngine()
   const socket = fakeChannel()
   const { model, notices } = await started(socket, engine, { loads: [0, 9] })
-  socket.emit('sheet:changes', { revision: 9, changes: [], reset_required: true })
+  socket.emit('office:changes', { revision: 9, changes: [], reset_required: true })
   const queued = model.setCell({ row: 0, col: 0 }, 'old workbook edit')
   expect(model.pending.value).toBe(1)
   expect(await queued).toBeUndefined()
@@ -546,7 +546,7 @@ test('an edit committed while a reset reloads the workbook is discarded with a n
     return open(bytes, ops)
   }
   model.edit({ row: 0, col: 0 }, 'typed during reload')
-  socket.emit('sheet:changes', { revision: 9, changes: [], reset_required: true })
+  socket.emit('office:changes', { revision: 9, changes: [], reset_required: true })
   await until(() => model.status.value === 'loading')
   expect(await model.commitEdit('down')).toBeUndefined()
   expect(model.pending.value).toBe(0)
@@ -725,6 +725,42 @@ test('the format painter repeats the held formats over the target and lets go un
   expect(model.painter.value?.sticky).toBe(true)
   model.clearCopied()
   expect(model.painter.value).toBeNull()
+})
+
+test('the format painter can accept a target before the Worker finishes reading the source', async () => {
+  const { engine, called } = fakeEngine()
+  engine.sheets = async () => [SHEET, { ...SHEET, sheet_id: 2, name: 'Another sheet' }]
+  const copyBlock = engine.copyBlock
+  const read = Promise.withResolvers<void>()
+  engine.copyBlock = async (sheetID, range) => {
+    await read.promise
+    return copyBlock(sheetID, range)
+  }
+  const socket = fakeChannel(async (_event, payload) => acknowledge(socket.applies().length, payload))
+  const { model, notices } = await started(socket, engine)
+
+  const pick = model.pickFormats(false)
+  expect(model.painter.value?.sticky).toBe(false)
+  const sticky = model.pickFormats(true)
+  expect(model.painter.value?.sticky).toBe(true)
+  const paint = model.paintFormats({ r0: 0, c0: 1, r1: 0, c1: 1 })
+  expect(model.pending.value).toBe(1)
+  model.showSheet(2)
+  model.clearCopied()
+  read.resolve()
+  await Promise.all([pick, sticky, paint])
+
+  expect(called('copyBlock')).toHaveLength(1)
+  expect(called('applyLocal').at(-1)?.args[0]).toMatchObject({ type: 'range.paste', sheet_id: 1, range: 'B1' })
+  expect(model.painter.value).toBeNull()
+
+  const failure = new Error('Cannot copy the source formats')
+  engine.copyBlock = async () => {
+    throw failure
+  }
+  await model.pickFormats(false)
+  expect(model.painter.value).toBeNull()
+  expect(notices).toEqual([{ kind: 'failed', error: failure }])
 })
 
 test('a formula draft stays open on another sheet while it waits for a reference and commits on its own sheet', async () => {

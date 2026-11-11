@@ -5,14 +5,15 @@ defmodule Ankole.Pod.Pages.Lifecycle do
   alias Ankole.Pod.{
     AppletEnv,
     FileCache,
+    OfficeCheckpoint,
+    OfficeOp,
     PageChange,
     PageDailyActivity,
     PageComment,
     PageContent,
     PageSearchDocument,
     PageSnapshot,
-    PageUserState,
-    SpreadsheetOp
+    PageUserState
   }
 
   def move_node_in_tx(id, old_path), do: Ankole.Brain.Knowledge.page_moved_in_tx(id, old_path)
@@ -79,7 +80,8 @@ defmodule Ankole.Pod.Pages.Lifecycle do
           {AppletEnv, :purge},
           {PageUserState, :purge},
           {PageChange, :prune},
-          {SpreadsheetOp, :prune},
+          {OfficeOp, :prune},
+          {OfficeCheckpoint, :purge},
           {FileCache, :purge},
           {PageComment, :purge},
           {PageSnapshot, :purge},

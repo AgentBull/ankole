@@ -32,14 +32,20 @@ function resolveMode(raw: string | undefined): 'auto' | 'enabled' | 'disabled' {
 }
 
 export function buildCargoEnv(env: NodeJS.ProcessEnv = process.env, options: CargoEnvOptions = {}): NodeJS.ProcessEnv {
-  const mode = resolveMode(env.ANKOLE_SCCACHE)
-  if (mode === 'disabled') return { ...env }
-  if (env.RUSTC_WRAPPER?.trim()) return { ...env }
+  // Keep WordCraft and DeckCraft builds independent of host dictionary or font checkouts.
+  const baseEnv: NodeJS.ProcessEnv = {
+    ...env,
+    CRAFT_I18N_DIR: '',
+    CRAFT_FONTS_DIR: ''
+  }
+  const mode = resolveMode(baseEnv.ANKOLE_SCCACHE)
+  if (mode === 'disabled') return baseEnv
+  if (baseEnv.RUSTC_WRAPPER?.trim()) return baseEnv
 
   const resolveExecutable =
     options.resolveExecutable ??
     ((pathEnv: string | undefined) => Bun.which('sccache', pathEnv ? { PATH: pathEnv } : undefined))
-  const sccachePath = resolveExecutable(env.PATH ?? process.env.PATH)
+  const sccachePath = resolveExecutable(baseEnv.PATH ?? process.env.PATH)
 
   if (!sccachePath) {
     if (mode === 'enabled') {
@@ -48,10 +54,10 @@ export function buildCargoEnv(env: NodeJS.ProcessEnv = process.env, options: Car
         'ANKOLE_SCCACHE=1 is set, but sccache is not on PATH; continuing with standard Cargo. Install it with: bun run kit env-setup'
       )
     }
-    return { ...env }
+    return baseEnv
   }
 
-  const nextEnv: NodeJS.ProcessEnv = { ...env }
+  const nextEnv: NodeJS.ProcessEnv = { ...baseEnv }
   for (const key of remoteBackendEnvKeys) {
     delete nextEnv[key]
   }

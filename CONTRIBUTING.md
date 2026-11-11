@@ -92,7 +92,7 @@ You do not need to learn Elixir, Rust, and Bun internals up front—the root `pa
 | Control Plane | Serves Setup, Console APIs, durable workflows, and commit authority | `app/control_plane` | `http://ankole.localhost:4000` |
 | Webapps | React apps for Setup, Auth, Pod, and Console | `app/webapps` | Vite on `localhost:3035` (proxied via `:4000`) |
 | Agent Computer | Executes Worker environment tools, Codex, and materialized Skills | `app/agent_computer` | One Docker container per Agent (`ankole.installation=dev`) |
-| Kernel | Shared native Rust primitives and HTTP/WebSocket transport | `app/kernel` | Loaded into Elixir via Rustler, the browser daemon via N-API, and the Pod spreadsheet editor via WebAssembly |
+| Kernel | Shared native Rust primitives and HTTP/WebSocket transport | `app/kernel` | Loaded into Elixir via Rustler, the browser daemon via N-API, and the Pod Office editors and previews via WebAssembly |
 | RuntimeFabric | Multiplexes live control-plane-to-Worker RPCs over a Phoenix Channel | Control Plane | `ws://localhost:4000/runtime-fabric/worker` |
 
 ### Elixir in five minutes
@@ -606,7 +606,7 @@ On pushes to `main`, `Publish RuntimeFabric image pair` calls `Repository checks
 ### Subsystem check notes
 
 - **Function Runtime (`test:integration` & `test:native`)**: Protocol integration tests spin up a local HTTP webhook receiver that the devkit container reaches via `host.docker.internal`. `test:native` launches an ephemeral container from `ankole-function-runtime:dev` (override with `ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE`) to verify CPU-limit shutdown events, physical PTC cancellation, one-shot and warm-worker thread retirement, resident memory at 20 and 100 workers, and `SIGTERM` draining (using shortened wall-clock limits rather than production's 5-minute Applet ceiling), then prints the artifact directory containing native event logs and resource metrics before removing the container.
-- **Spreadsheet WebAssembly module**: The Pod spreadsheet editor loads the kernel's WebAssembly build from `app/kernel/dist/spreadsheet-wasm/`, which git does not track. Run `bun run --filter @ankole/kernel build:wasm` once before `bun dev`, `bun run webapps:dev`, `bun run webapps:build`, or the browser suites, and again after changing `app/kernel/spreadsheet` or `app/kernel/spreadsheet-wasm`; it needs the `wasm32-unknown-unknown` Rust target (`rustup target add wasm32-unknown-unknown`). The script also refreshes `app/kernel/spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts`, generated declarations that stay in git so that type checks pass on machines without a Rust toolchain; commit that file whenever the build changes it.
+- **Office WebAssembly modules**: The Pod Office editors and read-only previews load the kernel's WebAssembly builds from `app/kernel/dist/{spreadsheet,word,presentation}-wasm/`, which git does not track. Run `bun run --filter @ankole/kernel build:wasm` once before `bun dev`, `bun run webapps:dev`, `bun run webapps:build`, or the browser suites, and again after changing `app/kernel/spreadsheet*`, `app/kernel/word*`, or `app/kernel/presentation*`; it needs the `wasm32-unknown-unknown` Rust target (`rustup target add wasm32-unknown-unknown`). The script also refreshes `app/kernel/spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts`, `app/kernel/word-wasm/ankole_word_wasm.d.ts`, and `app/kernel/presentation-wasm/ankole_presentation_wasm.d.ts`, generated declarations that stay in git so that type checks pass on machines without a Rust toolchain; commit those files whenever the build changes them.
 - **Website TypeScript version pin**: `app/website` intentionally pins TypeScript `6.0.3` while the rest of the workspace uses TypeScript 7, because `@astrojs/check` supports only TypeScript 5–6 (`astro check` errors on 7.0, and `@astrojs/ts-content-mapper` requires 7.1+). Keep that pin until Astro supports TypeScript 7.1+.
 - **Control-plane test partitioning and incremental runs**: `bun run control-plane:test` compiles `:ankole` once and executes the suite across isolated `MIX_TEST_PARTITION` worker processes (`ANKOLE_TEST_PARTITIONS` overrides the worker count). For incremental feedback on changed modules, run `bun run control-plane:test:stale`; to run one ExUnit file directly, pass its path (`bun run control-plane:test test/path/to/file_test.exs`) or `cd app/control_plane && mix test test/path/to/file_test.exs`.
 - **Cloud connector live acceptance**: With `ANKOLE_EDITION=saas`, use a disposable `MIX_TEST_PARTITION` and provide a Composio project key through `ANKOLE_COMPOSIO_SMOKE_KEY`. Run `bun run control-plane:test ../../internals/control_plane/test/cloud/live_smoke_test.exs` to verify pinned execution and real platform error handling. For the personal-account flow, also set `ANKOLE_FIGMA_SMOKE_PAT` and `ANKOLE_FIGMA_SMOKE_FILE_URL`, then run `bun run control-plane:test ../../internals/control_plane/test/cloud/figma_live_smoke_test.exs`. This binds the real Figma identity, checks account visibility, and reads the supplied design through Gateway. Both suites use read-only external operations and roll back their local configuration and credentials. Missing credentials explicitly skip live checks; omitting the file URL skips only file reading.
@@ -714,7 +714,7 @@ Unit and integration tests for the Pod domain live under `test/ankole/pod/`, whi
 To run the real-browser Playwright suite against production Pod bundles, the Applet SDK, and the site Console (using three Pod Human identities plus one site administrator), execute these three steps across separate terminals:
 
 ```bash
-# 1. Build the spreadsheet WebAssembly module and the production frontend bundles
+# 1. Build the Office WebAssembly modules and the production frontend bundles
 bun run --filter @ankole/kernel build:wasm
 cd app/webapps
 bun run build
@@ -743,9 +743,10 @@ How `pod_browser_server.exs` works:
 
 To check the development asset path, start Vite with `PORT` matching the fixture
 server's port, then set `POD_BROWSER_DEV_SERVER=http://127.0.0.1:3035` when
-launching the fixture server. Run `spreadsheet.spec.ts` against that fixture to
-exercise the real spreadsheet Worker with Vite and the Pod page on different
-origins. Omit `POD_BROWSER_DEV_SERVER` for production-bundle checks.
+launching the fixture server. Run `spreadsheet.spec.ts` or `office-files.spec.ts`
+against that fixture to exercise the real Office Workers with Vite and the Pod
+page on different origins. Omit `POD_BROWSER_DEV_SERVER` for production-bundle
+checks.
 
 For durable Action stories, start the fixture with `POD_BROWSER_ACTIONS=true` and
 run `bun run test:pod action-runs.spec.ts`. This enables the real Oban
@@ -801,17 +802,19 @@ own containers and volumes when it stops, including on `SIGTERM`. Normal script
 exit and Worker startup failures stop that same owner. Without this mode, the Agent
 case is skipped; a passing browser-only run does not verify the Worker path.
 
-The spreadsheet Worker integration test uses the same source-mounted image to
-run `ankole-files get` and `ankole-files put` through the real file relay. It
-checks that a download includes pending Human edits and that an Agent's file
-replacement resets spreadsheet collaborators. After building the image above,
-run it in the dedicated spreadsheet test partition:
+The Office Worker integration test uses the same source-mounted image to run
+`ankole-files` and `ankole-pod office.*` through RuntimeFabric and the file
+relay. It checks that a download includes pending Human edits, that an Agent's
+file replacement resets collaborators, and that `office.inspect`,
+`office.apply`, `office.render --to`, and `office.to_document` execute against
+live Office Pages. After building the image above, run it in a dedicated test
+partition:
 
 ```bash
 cd app/control_plane
-MIX_ENV=test MIX_TEST_PARTITION=spreadsheet \
+MIX_ENV=test MIX_TEST_PARTITION=office \
   ANKOLE_E2E_WORKER_IMAGE="$(cat /tmp/ankole-doc-worker-image)" \
-  mix test integration/pod_spreadsheet_worker_test.exs --include external
+  mix test integration/pod_office_worker_test.exs --include external
 ```
 
 The fixture removes its Docker Worker and volume when the test finishes.

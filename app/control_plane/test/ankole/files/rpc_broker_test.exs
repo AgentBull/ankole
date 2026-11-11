@@ -195,7 +195,7 @@ defmodule Ankole.Files.RPCBrokerTest do
     assert {:error, :not_found} = Files.fetch(uid, "missing")
   end
 
-  test "spreadsheet downloads by node and path flush pending cells through the relay", %{
+  test "office file downloads by node and path flush pending edits through the relay", %{
     uid: uid,
     route: route,
     ctx: ctx
@@ -209,10 +209,10 @@ defmodule Ankole.Files.RPCBrokerTest do
           {%{path: file.path}, "C2", "=B2*1.2",
            "[Sheet: Sheet1]\nR1\tForecast\nR2\t\t12500\t15000\n"}
         ] do
-      {:ok, %{revision: revision}} = Ankole.Pod.Spreadsheets.bootstrap(actor, file.id)
+      {:ok, %{revision: revision}} = Ankole.Pod.OfficeFiles.bootstrap(actor, file.id)
 
       assert {:ok, _} =
-               Ankole.Pod.Spreadsheets.apply_op(actor, file.id, %{
+               Ankole.Pod.OfficeFiles.apply_op(actor, file.id, %{
                  base_revision: revision,
                  client_id: "forecast-editor",
                  client_seq: revision + 1,
@@ -229,7 +229,7 @@ defmodule Ankole.Files.RPCBrokerTest do
       bytes = WorkerFilesFake.files(worker)["forecast.xlsx"]
       assert downloaded.sha256 == Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 
-      assert {:ok, %{plain_text: ^text}} = Ankole.Kernel.spreadsheet_open(bytes, [])
+      assert {:ok, %{plain_text: ^text}} = Ankole.Kernel.office_open(:spreadsheet, bytes, [])
 
       {:ok, entries} = :zip.extract(bytes, [:memory])
       {_, sheet} = List.keyfind(entries, ~c"xl/worksheets/sheet1.xml", 0)
@@ -253,11 +253,11 @@ defmodule Ankole.Files.RPCBrokerTest do
         assert forecast == 15_000
       end
 
-      assert {:ok, %{ops: []}} = Ankole.Pod.Spreadsheets.bootstrap(actor, file.id)
+      assert {:ok, %{ops: []}} = Ankole.Pod.OfficeFiles.bootstrap(actor, file.id)
     end
   end
 
-  test "a spreadsheet commit relays replacement bytes and resets an editor's pending log", %{
+  test "an office file commit relays replacement bytes and resets an editor's pending log", %{
     uid: uid,
     route: route,
     ctx: ctx
@@ -266,10 +266,10 @@ defmodule Ankole.Files.RPCBrokerTest do
     replacement = workbook("Revised forecast")
     WorkerFilesFake.start!(route, files: %{"revised.xlsx" => replacement})
     actor = actor_fixture(uid)
-    {:ok, %{revision: revision}} = Ankole.Pod.Spreadsheets.bootstrap(actor, file.id)
+    {:ok, %{revision: revision}} = Ankole.Pod.OfficeFiles.bootstrap(actor, file.id)
 
     assert {:ok, %{revision: edited_revision}} =
-             Ankole.Pod.Spreadsheets.apply_op(actor, file.id, %{
+             Ankole.Pod.OfficeFiles.apply_op(actor, file.id, %{
                base_revision: revision,
                client_id: "forecast-editor",
                client_seq: 1,
@@ -288,26 +288,27 @@ defmodule Ankole.Files.RPCBrokerTest do
     assert committed.node_id == file.id
 
     assert {:ok, %{ops: [], file: %{object_id: object_id}}} =
-             Ankole.Pod.Spreadsheets.bootstrap(actor, file.id)
+             Ankole.Pod.OfficeFiles.bootstrap(actor, file.id)
 
     assert object_id == committed.object_id
     assert {:ok, ^replacement} = Files.read_object(object_id)
 
     assert {:ok, %{reset_required: true, changes: [%{kind: :reset}]}} =
-             Ankole.Pod.Spreadsheets.since(actor, file.id, edited_revision)
+             Ankole.Pod.OfficeFiles.since(actor, file.id, edited_revision)
   end
 
   defp workbook(label) do
-    {:ok, %{doc_ref: document}} = Ankole.Kernel.spreadsheet_create_blank("Forecast")
+    {:ok, %{doc_ref: document}} = Ankole.Kernel.office_create_blank(:spreadsheet, "Forecast")
 
     {:ok, %{doc_ref: document}} =
-      Ankole.Kernel.spreadsheet_apply(
+      Ankole.Kernel.office_apply(
         document,
         %{"type" => "cell.set", "sheet_id" => 1, "cell" => "A1", "input" => label},
-        []
+        [],
+        nil
       )
 
-    {:ok, %{xlsx_bytes: bytes}} = Ankole.Kernel.spreadsheet_export_xlsx(document)
+    {:ok, %{bytes: bytes}} = Ankole.Kernel.office_export(document)
     bytes
   end
 

@@ -26,8 +26,8 @@ RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["ap
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   bun install --no-save
 
-# The Pod spreadsheet editor loads the kernel's WebAssembly build, which the
-# Bun-only bundle stage cannot compile.
+# Pod Office editors load the kernel's WebAssembly builds, which the Bun-only
+# bundle stage cannot compile.
 FROM bun-deps AS kernel-wasm
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -85,6 +85,8 @@ COPY --parents \
 COPY app/locales ./app/locales
 COPY app/webapps ./app/webapps
 COPY --from=kernel-wasm /repo/app/kernel/dist/spreadsheet-wasm ./app/kernel/dist/spreadsheet-wasm
+COPY --from=kernel-wasm /repo/app/kernel/dist/presentation-wasm ./app/kernel/dist/presentation-wasm
+COPY --from=kernel-wasm /repo/app/kernel/dist/word-wasm ./app/kernel/dist/word-wasm
 COPY libs/ankole-editor/src ./libs/ankole-editor/src
 COPY libs/ankole-editor/upstream ./libs/ankole-editor/upstream
 COPY libs/applet-sdk/src ./libs/applet-sdk/src
@@ -304,6 +306,10 @@ RUN --mount=type=cache,target=/root/.cargo/git \
   mix phx.digest --no-deps-check \
   && mix release
 
+FROM ${BUN_IMAGE} AS office-fonts
+COPY app/control_plane/scripts/fetch-office-fonts.mjs /tmp/fetch-office-fonts.mjs
+RUN bun /tmp/fetch-office-fonts.mjs /usr/share/ankole/fonts
+
 FROM ${RUNNER_IMAGE}
 
 WORKDIR /app
@@ -341,6 +347,8 @@ RUN groupadd --system --gid 10001 ankole \
   && install -d -o ankole -g ankole /var/lib/ankole /var/lib/ankole/files
 
 COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/${ANKOLE_EDITION}/prod/rel/ankole ./
+COPY --from=office-fonts --chown=ankole:ankole /usr/share/ankole/fonts /usr/share/ankole/fonts
+COPY app/kernel/vendor/deckcraft-fonts/LICENSE-* /usr/share/licenses/ankole/deckcraft/
 COPY --chown=ankole:ankole app/library ./app/library
 
 USER 10001:10001
@@ -351,6 +359,7 @@ ENV LC_ALL=en_US.UTF-8
 ENV MIX_ENV=prod
 ENV PHX_SERVER=true
 ENV PORT=4000
+ENV ANKOLE_OFFICE_FONTS_DIR=/usr/share/ankole/fonts
 
 # Each release sets these arguments. Every RUN after an ARG sees its value, so a RUN
 # above this point would miss the layer cache on every release.

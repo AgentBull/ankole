@@ -6,12 +6,14 @@ use rustler::types::binary::{Binary, OwnedBinary};
 use rustler::{Encoder, Env, Error, LocalPid, Monitor, NifResult as NIFResult, ResourceArc, Term};
 use serde_json::Value as JSONValue;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 
 mod object_store;
 mod vfs;
 
-use ankole_spreadsheet::{ApplyError, Conflict, SpreadsheetDoc};
+use ankole_presentation::PresentationDoc;
+use ankole_spreadsheet::SpreadsheetDoc;
+use ankole_word::WordDoc;
 
 use crate::authz;
 use crate::brain_chunker;
@@ -36,11 +38,23 @@ mod atoms {
         private,
         public,
         invalid,
+        busy,
         conflict,
         target_deleted,
         overlapping_structural_edit,
         sheet_deleted,
         concurrent_sort_or_merge,
+        block_changed,
+        slide_changed,
+        slide_deleted,
+        slides_reordered,
+        container_deleted,
+        container_changed,
+        field_changed,
+        identifier_taken,
+        concurrent_revision,
+        unbalanced_markers,
+        document_too_large,
         skipped,
         failed,
         text,
@@ -119,12 +133,16 @@ impl rustler::Resource for UniversalAIClientRequestResource {
     }
 }
 
-/// One immutable spreadsheet version. Applying an operation returns a new resource, so concurrent
-/// readers of the old one never need a lock.
-pub struct SpreadsheetResource(SpreadsheetDoc);
+/// One immutable Office document version held by the kernel. Applying an operation returns a new
+/// resource, so concurrent readers of an earlier version never need a lock.
+pub enum OfficeDocResource {
+    Spreadsheet(Box<SpreadsheetDoc>),
+    Word(WordDoc),
+    Presentation(PresentationDoc),
+}
 
 #[rustler::resource_impl]
-impl rustler::Resource for SpreadsheetResource {}
+impl rustler::Resource for OfficeDocResource {}
 
 /// Holds the Elixir stream ref in an owned environment so Rust-owned async tasks
 /// can tag messages without keeping a BEAM scheduler thread occupied.
@@ -340,107 +358,566 @@ pub fn page_restore_comments_nif(
     Ok((page.xml, page.plain_text))
 }
 
-// Formula parsing, recalculation, and XML reading recurse. GridCraft budgets about 1 MiB of
-// stack per formula evaluation, more than BEAM's default dirty CPU stack.
-fn with_spreadsheet_stack<R>(call: impl FnOnce() -> R) -> R {
+static WORD_SITE_FONTS_ONCE: Once = Once::new();
+static PRESENTATION_SITE_FONTS_ONCE: Once = Once::new();
+
+fn read_site_font_blobs(dir: &str) -> Vec<Vec<u8>> {
+    let mut blobs = Vec::new();
+    if !dir.is_empty()
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        let mut paths: Vec<std::path::PathBuf> = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| {
+                        matches!(ext.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc")
+                    })
+            })
+            .collect();
+        paths.sort();
+        for path in paths {
+            if let Ok(bytes) = std::fs::read(&path)
+                && !bytes.is_empty()
+            {
+                blobs.push(bytes);
+            }
+        }
+    }
+    blobs
+}
+
+fn ensure_word_site_fonts(fonts_dir: &str) {
+    WORD_SITE_FONTS_ONCE.call_once(|| {
+        let blobs = read_site_font_blobs(fonts_dir);
+        ankole_word::init_site_fonts(&blobs);
+    });
+}
+
+fn ensure_presentation_site_fonts(fonts_dir: &str) {
+    PRESENTATION_SITE_FONTS_ONCE.call_once(|| {
+        let blobs = read_site_font_blobs(fonts_dir);
+        ankole_presentation::init_site_fonts(&blobs);
+    });
+}
+
+// Formula parsing, OOXML reading, and page/slide layout recurse deeper than BEAM's default dirty
+// CPU thread stack.
+fn with_office_stack<R>(call: impl FnOnce() -> R) -> R {
     stacker::grow(8 * 1024 * 1024, call)
 }
 
-/// Returns `{doc, xlsx, plain_text, metadata_json}` for a new workbook with one empty sheet.
+/// Returns `{doc_ref, bytes, plain_text | nil, metadata_json | nil}` for a blank Office document.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn spreadsheet_create_blank_nif<'a>(env: Env<'a>, title: Term<'a>) -> NIFResult<Term<'a>> {
-    let title = decode_string(title, "title")?;
-    let (doc, exported) = with_spreadsheet_stack(|| ankole_spreadsheet::create_blank(&title))
-        .map_err(spreadsheet_error)?;
-    let metadata = encode_serialized(&exported.metadata)?;
-    let xlsx = binary_term(env, exported.xlsx);
-    Ok((
-        ResourceArc::new(SpreadsheetResource(doc)),
-        xlsx,
-        exported.plain_text,
-        metadata,
-    )
-        .encode(env))
-}
-
-/// Reads `.xlsx` bytes, replays the JSON array of uncompacted operations, and returns
-/// `{doc, plain_text, metadata_json}`.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn spreadsheet_open_nif(
-    xlsx: Term<'_>,
-    tail_ops: Term<'_>,
-) -> NIFResult<(ResourceArc<SpreadsheetResource>, String, String)> {
-    let xlsx = decode_binary(xlsx, "xlsx")?;
-    let tail_ops = decode_string(tail_ops, "tail_ops")?;
-    let doc = with_spreadsheet_stack(|| ankole_spreadsheet::open(xlsx.as_slice(), &tail_ops))
-        .map_err(spreadsheet_error)?;
-    let (plain_text, metadata) = (
-        ankole_spreadsheet::plain_text(&doc),
-        ankole_spreadsheet::metadata(&doc),
-    );
-    Ok((
-        ResourceArc::new(SpreadsheetResource(doc)),
-        plain_text,
-        encode_serialized(&metadata)?,
-    ))
-}
-
-/// Returns `{:ok, {doc, committed_op, structural_edit | nil}}`, `{:conflict, reason}` when the
-/// rebase refuses, or `{:error, message}`.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn spreadsheet_apply_nif<'a>(
+pub fn office_create_blank_nif<'a>(
     env: Env<'a>,
-    doc: ResourceArc<SpreadsheetResource>,
-    incoming_op: Term<'a>,
-    prior_ops: Term<'a>,
+    format: Term<'a>,
+    title: Term<'a>,
 ) -> NIFResult<Term<'a>> {
-    let incoming_op = decode_string(incoming_op, "incoming_op")?;
-    let prior_ops = decode_string(prior_ops, "prior_ops")?;
-    match with_spreadsheet_stack(|| ankole_spreadsheet::apply(&doc.0, &incoming_op, &prior_ops)) {
-        Ok(applied) => {
-            let op = encode_serialized(&applied.op)?;
-            let edit = applied
-                .structural_edit
-                .as_ref()
-                .map(encode_serialized)
-                .transpose()?;
+    let format = decode_string(format, "format")?;
+    let title = decode_string(title, "title")?;
+    match format.as_str() {
+        "spreadsheet" => {
+            let (doc, exported) = with_office_stack(|| ankole_spreadsheet::create_blank(&title))
+                .map_err(office_display_error)?;
+            let metadata = encode_serialized(&exported.metadata)?;
             Ok((
-                atoms::ok(),
-                (ResourceArc::new(SpreadsheetResource(applied.doc)), op, edit),
+                ResourceArc::new(OfficeDocResource::Spreadsheet(Box::new(doc))),
+                binary_term(env, exported.xlsx),
+                Some(exported.plain_text),
+                Some(metadata),
             )
                 .encode(env))
         }
-        Err(ApplyError::Conflict(conflict)) => {
-            let reason = match conflict {
-                Conflict::TargetDeleted => atoms::target_deleted(),
-                Conflict::OverlappingStructuralEdit => atoms::overlapping_structural_edit(),
-                Conflict::SheetDeleted => atoms::sheet_deleted(),
-                Conflict::ConcurrentSortOrMerge => atoms::concurrent_sort_or_merge(),
-            };
-            Ok((atoms::conflict(), reason).encode(env))
+        "word" => {
+            let (doc, bytes) = with_office_stack(|| ankole_word::create_blank(&title))
+                .map_err(office_display_error)?;
+            Ok((
+                ResourceArc::new(OfficeDocResource::Word(doc)),
+                binary_term(env, bytes),
+                Option::<String>::None,
+                Option::<String>::None,
+            )
+                .encode(env))
         }
-        Err(ApplyError::Error(reason)) => Err(spreadsheet_error(reason)),
+        "presentation" => {
+            let (doc, bytes) = with_office_stack(|| ankole_presentation::create_blank(&title))
+                .map_err(office_display_error)?;
+            Ok((
+                ResourceArc::new(OfficeDocResource::Presentation(doc)),
+                binary_term(env, bytes),
+                Option::<String>::None,
+                Option::<String>::None,
+            )
+                .encode(env))
+        }
+        other => Err(error_message(format!("unsupported office format: {other}"))),
     }
 }
 
-/// Returns `{xlsx, plain_text, metadata_json}` for the document's current state.
+/// Opens Office file `bytes`, applies an optional compaction `checkpoint`, replays `tail_ops`, and
+/// returns `{doc_ref, plain_text | nil, metadata_json | nil}` or `{:busy, reason}` when an
+/// operation carries a newer `model_version`.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn spreadsheet_export_xlsx_nif<'a>(
+pub fn office_open_nif<'a>(
     env: Env<'a>,
-    doc: ResourceArc<SpreadsheetResource>,
+    format: Term<'a>,
+    bytes: Term<'a>,
+    tail_ops: Term<'a>,
+    checkpoint: Term<'a>,
 ) -> NIFResult<Term<'a>> {
-    let exported = with_spreadsheet_stack(|| ankole_spreadsheet::export_xlsx(&doc.0))
-        .map_err(spreadsheet_error)?;
-    let metadata = encode_serialized(&exported.metadata)?;
+    let format = decode_string(format, "format")?;
+    let bytes = decode_binary(bytes, "bytes")?;
+    let tail_ops = decode_string(tail_ops, "tail_ops")?;
+    let checkpoint = decode_optional_string(checkpoint, "checkpoint")?;
+    match format.as_str() {
+        "spreadsheet" => {
+            let doc = with_office_stack(|| ankole_spreadsheet::open(bytes.as_slice(), &tail_ops))
+                .map_err(office_display_error)?;
+            let plain_text = ankole_spreadsheet::plain_text(&doc);
+            let metadata = encode_serialized(&ankole_spreadsheet::metadata(&doc))?;
+            Ok((
+                ResourceArc::new(OfficeDocResource::Spreadsheet(Box::new(doc))),
+                Some(plain_text),
+                Some(metadata),
+            )
+                .encode(env))
+        }
+        "word" => match with_office_stack(|| {
+            ankole_word::open_with_checkpoint(bytes.as_slice(), &tail_ops, checkpoint.as_deref())
+        }) {
+            Ok(doc) => Ok((
+                ResourceArc::new(OfficeDocResource::Word(doc)),
+                Option::<String>::None,
+                Option::<String>::None,
+            )
+                .encode(env)),
+            Err(ankole_word::ApplyError::FutureVersion { .. }) => {
+                Ok((atoms::busy(), "future_model_version").encode(env))
+            }
+            Err(reason) => Err(office_display_error(reason)),
+        },
+        "presentation" => match with_office_stack(|| {
+            ankole_presentation::open_with_checkpoint(
+                bytes.as_slice(),
+                &tail_ops,
+                checkpoint.as_deref(),
+            )
+        }) {
+            Ok(doc) => Ok((
+                ResourceArc::new(OfficeDocResource::Presentation(doc)),
+                Option::<String>::None,
+                Option::<String>::None,
+            )
+                .encode(env)),
+            Err(ankole_presentation::ApplyError::FutureVersion { .. }) => {
+                Ok((atoms::busy(), "future_model_version").encode(env))
+            }
+            Err(reason) => Err(office_display_error(reason)),
+        },
+        other => Err(error_message(format!("unsupported office format: {other}"))),
+    }
+}
+
+/// Rebases `incoming_op` over `prior_ops` and applies it to `doc`.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn office_apply_nif<'a>(
+    env: Env<'a>,
+    doc: ResourceArc<OfficeDocResource>,
+    incoming_op: Term<'a>,
+    prior_ops: Term<'a>,
+    actor_name: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let incoming_op = decode_string(incoming_op, "incoming_op")?;
+    let prior_ops = decode_string(prior_ops, "prior_ops")?;
+    let actor_name = decode_optional_string(actor_name, "actor_name")?;
+    match &*doc {
+        OfficeDocResource::Spreadsheet(sheet) => {
+            match with_office_stack(|| ankole_spreadsheet::apply(sheet, &incoming_op, &prior_ops)) {
+                Ok(applied) => {
+                    let op_json = encode_serialized(&applied.op)?;
+                    let edit = applied
+                        .structural_edit
+                        .as_ref()
+                        .map(encode_serialized)
+                        .transpose()?;
+                    Ok((
+                        atoms::ok(),
+                        (
+                            ResourceArc::new(OfficeDocResource::Spreadsheet(Box::new(applied.doc))),
+                            op_json,
+                            applied.carries_media,
+                            edit,
+                        ),
+                    )
+                        .encode(env))
+                }
+                Err(ankole_spreadsheet::ApplyError::Conflict(conflict)) => {
+                    let reason = match conflict {
+                        ankole_spreadsheet::Conflict::TargetDeleted => atoms::target_deleted(),
+                        ankole_spreadsheet::Conflict::OverlappingStructuralEdit => {
+                            atoms::overlapping_structural_edit()
+                        }
+                        ankole_spreadsheet::Conflict::SheetDeleted => atoms::sheet_deleted(),
+                        ankole_spreadsheet::Conflict::ConcurrentSortOrMerge => {
+                            atoms::concurrent_sort_or_merge()
+                        }
+                    };
+                    Ok((atoms::conflict(), reason).encode(env))
+                }
+                Err(ankole_spreadsheet::ApplyError::Error(reason)) => {
+                    Err(office_display_error(reason))
+                }
+            }
+        }
+        OfficeDocResource::Word(word) => {
+            match with_office_stack(|| {
+                ankole_word::apply(word, &incoming_op, &prior_ops, actor_name.as_deref())
+            }) {
+                Ok(applied) => {
+                    let op_json = encode_serialized(&applied.op)?;
+                    Ok((
+                        atoms::ok(),
+                        (
+                            ResourceArc::new(OfficeDocResource::Word(applied.doc)),
+                            op_json,
+                            applied.carries_media,
+                            Option::<String>::None,
+                        ),
+                    )
+                        .encode(env))
+                }
+                Err(ankole_word::ApplyError::Conflict(conflict)) => {
+                    let reason = match conflict {
+                        ankole_word::Conflict::BlockChanged => atoms::block_changed(),
+                        ankole_word::Conflict::ContainerDeleted => atoms::container_deleted(),
+                        ankole_word::Conflict::ContainerChanged => atoms::container_changed(),
+                        ankole_word::Conflict::FieldChanged => atoms::field_changed(),
+                        ankole_word::Conflict::IdentifierTaken => atoms::identifier_taken(),
+                        ankole_word::Conflict::ConcurrentRevision => atoms::concurrent_revision(),
+                        ankole_word::Conflict::UnbalancedMarkers => atoms::unbalanced_markers(),
+                    };
+                    Ok((atoms::conflict(), reason).encode(env))
+                }
+                Err(ankole_word::ApplyError::FutureVersion { .. }) => {
+                    Ok((atoms::busy(), "future_model_version").encode(env))
+                }
+                Err(ankole_word::ApplyError::Error(reason)) => Err(office_display_error(reason)),
+            }
+        }
+        OfficeDocResource::Presentation(pres) => {
+            match with_office_stack(|| {
+                ankole_presentation::apply(pres, &incoming_op, &prior_ops, actor_name.as_deref())
+            }) {
+                Ok(applied) => {
+                    let op_json = encode_serialized(&applied.op)?;
+                    Ok((
+                        atoms::ok(),
+                        (
+                            ResourceArc::new(OfficeDocResource::Presentation(applied.doc)),
+                            op_json,
+                            applied.carries_media,
+                            Option::<String>::None,
+                        ),
+                    )
+                        .encode(env))
+                }
+                Err(ankole_presentation::ApplyError::Conflict(conflict)) => {
+                    let reason = match conflict {
+                        ankole_presentation::Conflict::SlideChanged => atoms::slide_changed(),
+                        ankole_presentation::Conflict::SlideDeleted => atoms::slide_deleted(),
+                        ankole_presentation::Conflict::SlidesReordered => atoms::slides_reordered(),
+                        ankole_presentation::Conflict::FieldChanged => atoms::field_changed(),
+                        ankole_presentation::Conflict::IdentifierTaken => atoms::identifier_taken(),
+                    };
+                    Ok((atoms::conflict(), reason).encode(env))
+                }
+                Err(ankole_presentation::ApplyError::FutureVersion { .. }) => {
+                    Ok((atoms::busy(), "future_model_version").encode(env))
+                }
+                Err(ankole_presentation::ApplyError::Error(reason)) => {
+                    Err(office_display_error(reason))
+                }
+            }
+        }
+    }
+}
+
+/// Serializes an Office document into `{bytes, plain_text | nil, metadata_json | nil}`.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn office_export_nif<'a>(
+    env: Env<'a>,
+    doc: ResourceArc<OfficeDocResource>,
+) -> NIFResult<Term<'a>> {
+    match &*doc {
+        OfficeDocResource::Spreadsheet(sheet) => {
+            let exported = with_office_stack(|| ankole_spreadsheet::export_xlsx(sheet))
+                .map_err(office_display_error)?;
+            let metadata = encode_serialized(&exported.metadata)?;
+            Ok((
+                binary_term(env, exported.xlsx),
+                Some(exported.plain_text),
+                Some(metadata),
+            )
+                .encode(env))
+        }
+        OfficeDocResource::Word(word) => {
+            let bytes = with_office_stack(|| ankole_word::export_docx(word))
+                .map_err(office_display_error)?;
+            Ok((
+                binary_term(env, bytes),
+                Option::<String>::None,
+                Option::<String>::None,
+            )
+                .encode(env))
+        }
+        OfficeDocResource::Presentation(pres) => {
+            let bytes = with_office_stack(|| ankole_presentation::export_pptx(pres))
+                .map_err(office_display_error)?;
+            Ok((
+                binary_term(env, bytes),
+                Option::<String>::None,
+                Option::<String>::None,
+            )
+                .encode(env))
+        }
+    }
+}
+
+/// Serializes an Office document for compaction into `{bytes, plain_text | nil, metadata_json | nil, checkpoint_json | nil}`.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn office_export_checkpoint_nif<'a>(
+    env: Env<'a>,
+    doc: ResourceArc<OfficeDocResource>,
+) -> NIFResult<Term<'a>> {
+    match &*doc {
+        OfficeDocResource::Spreadsheet(sheet) => {
+            let exported = with_office_stack(|| ankole_spreadsheet::export_xlsx(sheet))
+                .map_err(office_display_error)?;
+            let metadata = encode_serialized(&exported.metadata)?;
+            Ok((
+                binary_term(env, exported.xlsx),
+                Some(exported.plain_text),
+                Some(metadata),
+                Option::<String>::None,
+            )
+                .encode(env))
+        }
+        OfficeDocResource::Word(word) => {
+            let (bytes, checkpoint) =
+                with_office_stack(|| ankole_word::export_docx_with_checkpoint(word))
+                    .map_err(office_display_error)?;
+            Ok((
+                binary_term(env, bytes),
+                Option::<String>::None,
+                Option::<String>::None,
+                checkpoint,
+            )
+                .encode(env))
+        }
+        OfficeDocResource::Presentation(pres) => {
+            let (bytes, checkpoint) =
+                with_office_stack(|| ankole_presentation::export_pptx_with_checkpoint(pres))
+                    .map_err(office_display_error)?;
+            Ok((
+                binary_term(env, bytes),
+                Option::<String>::None,
+                Option::<String>::None,
+                checkpoint,
+            )
+                .encode(env))
+        }
+    }
+}
+
+/// Inspects the structure and text of an Office document and returns JSON.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn office_inspect_nif(
+    doc: ResourceArc<OfficeDocResource>,
+    params: Term<'_>,
+) -> NIFResult<String> {
+    let params = decode_string(params, "params")?;
+    let value = match &*doc {
+        OfficeDocResource::Spreadsheet(sheet) => {
+            with_office_stack(|| ankole_spreadsheet::inspect(sheet, &params))
+                .map_err(office_display_error)?
+        }
+        OfficeDocResource::Word(word) => with_office_stack(|| ankole_word::inspect(word, &params))
+            .map_err(office_display_error)?,
+        OfficeDocResource::Presentation(pres) => {
+            with_office_stack(|| ankole_presentation::inspect(pres, &params))
+                .map_err(office_display_error)?
+        }
+    };
+    encode_serialized(&value)
+}
+
+/// Renders one 1-based page or slide of a Word or Presentation document to `{png_bytes, width, height, count}`.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn office_render_nif<'a>(
+    env: Env<'a>,
+    doc: ResourceArc<OfficeDocResource>,
+    index: Term<'a>,
+    scale: Term<'a>,
+    fonts_dir: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let index = decode_usize(index, "index")?;
+    let zero_index = index
+        .checked_sub(1)
+        .ok_or_else(|| error_message("index must be at least 1"))?;
+    let scale_f64: f64 = scale
+        .decode()
+        .map_err(|_| error_message("scale must be a float"))?;
+    let scale_f32 = scale_f64 as f32;
+    let fonts_dir = decode_string(fonts_dir, "fonts_dir")?;
+    let (png, width, height, count) = match &*doc {
+        OfficeDocResource::Word(word) => {
+            ensure_word_site_fonts(&fonts_dir);
+            with_office_stack(|| ankole_word::render_page_png_meta(word, zero_index, scale_f32))
+                .map_err(office_display_error)?
+        }
+        OfficeDocResource::Presentation(pres) => {
+            ensure_presentation_site_fonts(&fonts_dir);
+            with_office_stack(|| {
+                ankole_presentation::render_slide_png_meta(pres, zero_index, scale_f32)
+            })
+            .map_err(office_display_error)?
+        }
+        OfficeDocResource::Spreadsheet(_) => {
+            return Err(error_message("spreadsheet rendering is not supported"));
+        }
+    };
+    Ok((binary_term(env, png), width, height, count).encode(env))
+}
+
+/// Lists safe headless commands for `format` (`"word"` or `"presentation"`).
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn office_commands_nif(format: Term<'_>, query: Term<'_>) -> NIFResult<String> {
+    let format = decode_string(format, "format")?;
+    let query = decode_optional_string(query, "query")?;
+    let value = match format.as_str() {
+        "word" => with_office_stack(|| ankole_word::commands(query.as_deref())),
+        "presentation" => with_office_stack(|| ankole_presentation::commands(query.as_deref())),
+        other => {
+            return Err(error_message(format!(
+                "unsupported command format: {other}"
+            )));
+        }
+    };
+    encode_serialized(&value)
+}
+
+/// Applies a batch of headless engine commands and returns `{next_ref, change_set_json, results_json}`.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn office_apply_commands_nif<'a>(
+    env: Env<'a>,
+    doc: ResourceArc<OfficeDocResource>,
+    commands: Term<'a>,
+    actor_name: Term<'a>,
+    fonts_dir: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let commands = decode_string(commands, "commands")?;
+    let actor_name = decode_string(actor_name, "actor_name")?;
+    let fonts_dir = decode_string(fonts_dir, "fonts_dir")?;
+    match &*doc {
+        OfficeDocResource::Word(word) => {
+            ensure_word_site_fonts(&fonts_dir);
+            let (next_doc, changeset, results) =
+                with_office_stack(|| ankole_word::apply_commands(word, &commands, &actor_name))
+                    .map_err(office_display_error)?;
+            let cs_json = match changeset {
+                Some(cs) => encode_serialized(&cs)?,
+                None => encode_serialized(&serde_json::json!({
+                    "model_version": ankole_word::MODEL_VERSION,
+                    "edits": []
+                }))?,
+            };
+            let res_json = encode_serialized(&results)?;
+            Ok((
+                ResourceArc::new(OfficeDocResource::Word(next_doc)),
+                cs_json,
+                res_json,
+            )
+                .encode(env))
+        }
+        OfficeDocResource::Presentation(pres) => {
+            ensure_presentation_site_fonts(&fonts_dir);
+            let (next_doc, changeset, results) = with_office_stack(|| {
+                ankole_presentation::apply_commands(pres, &commands, &actor_name)
+            })
+            .map_err(office_display_error)?;
+            let cs_json = match changeset {
+                Some(cs) => encode_serialized(&cs)?,
+                None => encode_serialized(&serde_json::json!({
+                    "model_version": ankole_presentation::MODEL_VERSION,
+                    "edits": []
+                }))?,
+            };
+            let res_json = encode_serialized(&results)?;
+            Ok((
+                ResourceArc::new(OfficeDocResource::Presentation(next_doc)),
+                cs_json,
+                res_json,
+            )
+                .encode(env))
+        }
+        OfficeDocResource::Spreadsheet(_) => Err(error_message(
+            "spreadsheet operations do not use engine commands",
+        )),
+    }
+}
+
+/// Converts a Word document to validated `page_document` XML, extracted media, and a conversion report.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn office_to_document_nif<'a>(
+    env: Env<'a>,
+    doc: ResourceArc<OfficeDocResource>,
+) -> NIFResult<Term<'a>> {
+    let OfficeDocResource::Word(word) = &*doc else {
+        return Err(error_message(
+            "only Word documents convert to document Pages",
+        ));
+    };
+    let converted = match with_office_stack(|| ankole_word::to_document(word)) {
+        Ok(converted) => converted,
+        Err(ankole_word::Error::Invalid(ref reason)) if reason.contains("document_too_large") => {
+            return Ok((atoms::error(), atoms::document_too_large()).encode(env));
+        }
+        Err(reason) => return Err(office_display_error(reason)),
+    };
+
+    let validated = match with_office_stack(|| crate::page_document::validate(&converted.xml)) {
+        Ok(page) => page,
+        Err(ref reason)
+            if reason == "page source exceeds the UTF-16 limit"
+                || reason == "page node or depth limit exceeded" =>
+        {
+            return Ok((atoms::error(), atoms::document_too_large()).encode(env));
+        }
+        Err(reason) => return Err(error_message(reason)),
+    };
+
+    let media_terms: Vec<Term<'a>> = converted
+        .assets
+        .into_iter()
+        .map(|asset| (asset.filename, asset.mime, binary_term(env, asset.bytes)).encode(env))
+        .collect();
+    let omitted_json = encode_serialized(&converted.report.omitted)?;
+    let downgraded_json = encode_serialized(&converted.report.downgraded)?;
+
     Ok((
-        binary_term(env, exported.xlsx),
-        exported.plain_text,
-        metadata,
+        validated.xml,
+        validated.plain_text,
+        media_terms,
+        omitted_json,
+        downgraded_json,
     )
         .encode(env))
 }
 
-fn spreadsheet_error(reason: ankole_spreadsheet::Error) -> Error {
+fn office_display_error(reason: impl std::fmt::Display) -> Error {
     error_message(reason.to_string())
 }
 

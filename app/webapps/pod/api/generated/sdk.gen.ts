@@ -432,6 +432,18 @@ import type {
   PodNextStepsData,
   PodNextStepsErrors,
   PodNextStepsResponses,
+  PodOfficeCreateData,
+  PodOfficeCreateErrors,
+  PodOfficeCreateResponses,
+  PodOfficeData,
+  PodOfficeErrors,
+  PodOfficeResponses,
+  PodOfficeRestoreData,
+  PodOfficeRestoreErrors,
+  PodOfficeRestoreResponses,
+  PodOfficeVersionsData,
+  PodOfficeVersionsErrors,
+  PodOfficeVersionsResponses,
   PodPageChildrenData,
   PodPageChildrenErrors,
   PodPageChildrenResponses,
@@ -549,24 +561,15 @@ import type {
   PodSpaceWriteData,
   PodSpaceWriteErrors,
   PodSpaceWriteResponses,
-  PodSpreadsheetCreateData,
-  PodSpreadsheetCreateErrors,
-  PodSpreadsheetCreateResponses,
-  PodSpreadsheetData,
-  PodSpreadsheetErrors,
-  PodSpreadsheetResponses,
-  PodSpreadsheetRestoreData,
-  PodSpreadsheetRestoreErrors,
-  PodSpreadsheetRestoreResponses,
-  PodSpreadsheetVersionsData,
-  PodSpreadsheetVersionsErrors,
-  PodSpreadsheetVersionsResponses,
   PodSubjectsData,
   PodSubjectsErrors,
   PodSubjectsResponses,
   PodVersionsData,
   PodVersionsErrors,
   PodVersionsResponses,
+  PodWordConvertToDocumentData,
+  PodWordConvertToDocumentErrors,
+  PodWordConvertToDocumentResponses,
   PostConversationMessageData,
   PostConversationMessageErrors,
   PostConversationMessageResponses,
@@ -1057,6 +1060,19 @@ export const podJobSchedulesPut = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podOfficeRestore operation on pod_office_operation resource
+ */
+export const podOfficeRestore = <ThrowOnError extends boolean = true>(
+  options: Options<PodOfficeRestoreData, ThrowOnError>
+): RequestResult<PodOfficeRestoreResponses, PodOfficeRestoreErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodOfficeRestoreResponses, PodOfficeRestoreErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/office/versions/{version_id}/restore',
+    ...options
   })
 
 /**
@@ -2029,19 +2045,6 @@ export const conversationExecution = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podSpreadsheetRestore operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheetRestore = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetRestoreData, ThrowOnError>
-): RequestResult<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore',
-    ...options
-  })
-
-/**
  * podBaseAggregate operation on pod_base_operation resource
  */
 export const podBaseAggregate = <ThrowOnError extends boolean = true>(
@@ -2419,19 +2422,6 @@ export const postConversationMessage = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
-  })
-
-/**
- * podSpreadsheet operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheet = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetData, ThrowOnError>
-): RequestResult<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet',
-    ...options
   })
 
 /**
@@ -3316,19 +3306,6 @@ export const podPageHistory = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podSpreadsheetVersions operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheetVersions = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetVersionsData, ThrowOnError>
-): RequestResult<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet/versions',
-    ...options
-  })
-
-/**
  * podBaseViewDelete operation on pod_base_operation resource
  */
 export const podBaseViewDelete = <ThrowOnError extends boolean = true>(
@@ -3440,6 +3417,19 @@ export const podPageSharingWrite = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podOfficeVersions operation on pod_office_operation resource
+ */
+export const podOfficeVersions = <ThrowOnError extends boolean = true>(
+  options: Options<PodOfficeVersionsData, ThrowOnError>
+): RequestResult<PodOfficeVersionsResponses, PodOfficeVersionsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodOfficeVersionsResponses, PodOfficeVersionsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/office/versions',
+    ...options
+  })
+
+/**
  * podConversations operation on pod_chat_operation resource
  */
 export const podConversations = <ThrowOnError extends boolean = true>(
@@ -3484,6 +3474,19 @@ export const metaImportSkill = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podOffice operation on pod_office_operation resource
+ */
+export const podOffice = <ThrowOnError extends boolean = true>(
+  options: Options<PodOfficeData, ThrowOnError>
+): RequestResult<PodOfficeResponses, PodOfficeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodOfficeResponses, PodOfficeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/office',
+    ...options
   })
 
 /**
@@ -3695,6 +3698,28 @@ export const metaBrainSupersedeClaim = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podWordConvertToDocument operation on pod_office_operation resource
+ */
+export const podWordConvertToDocument = <ThrowOnError extends boolean = true>(
+  options: Options<PodWordConvertToDocumentData, ThrowOnError>
+): RequestResult<PodWordConvertToDocumentResponses, PodWordConvertToDocumentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PodWordConvertToDocumentResponses,
+    PodWordConvertToDocumentErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/convert-to-document',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podMentionCandidates operation on pod_page_operation resource
  */
 export const podMentionCandidates = <ThrowOnError extends boolean = true>(
@@ -3721,23 +3746,6 @@ export const renamePodMember = <ThrowOnError extends boolean = true>(
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
-    }
-  })
-
-/**
- * podSpreadsheetCreate operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheetCreate = <ThrowOnError extends boolean = true>(
-  options?: Options<PodSpreadsheetCreateData, ThrowOnError>
-): RequestResult<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).post<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/spreadsheet-pages',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options?.headers
     }
   })
 
@@ -3852,6 +3860,23 @@ export const podCommentAttention = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/comments/attention',
     ...options
+  })
+
+/**
+ * podOfficeCreate operation on pod_office_operation resource
+ */
+export const podOfficeCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodOfficeCreateData, ThrowOnError>
+): RequestResult<PodOfficeCreateResponses, PodOfficeCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodOfficeCreateResponses, PodOfficeCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/office-pages',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**

@@ -2,6 +2,28 @@ import { state, publishApplet, requestWithSharingVersion as request } from './fi
 import { listRoute, conversationRoute, pageIDFromURL, pageRoute as route } from './routes'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { initSync as initPresentationWasm, PresentationEditor } from '@ankole/kernel/presentation-wasm'
+
+const presentationWasm = new URL(
+  '../../../kernel/dist/presentation-wasm/ankole_presentation_wasm_bg.wasm',
+  import.meta.url
+)
+
+function buildSamplePptx(): Buffer {
+  initPresentationWasm({ module: readFileSync(presentationWasm) })
+  const editor = PresentationEditor.create_blank('Results')
+  try {
+    const first = JSON.parse(editor.execute_command('slide.inspect', '{}')) as { shapes: Array<{ id: number }> }
+    editor.execute_command('text.set', JSON.stringify({ id: first.shapes[0].id, text: 'Quarterly results' }))
+    editor.execute_command('slide.new', '{}')
+    const second = JSON.parse(editor.execute_command('slide.inspect', '{}')) as { shapes: Array<{ id: number }> }
+    editor.execute_command('text.set', JSON.stringify({ id: second.shapes[0].id, text: 'Next quarter' }))
+    editor.execute_command('text.set', JSON.stringify({ id: second.shapes[1].id, text: 'Launch the research service' }))
+    return Buffer.from(editor.export_pptx())
+  } finally {
+    editor.free()
+  }
+}
 
 const content = (page: Page) => page.locator('.editor-content')
 
@@ -176,10 +198,6 @@ test('uploaded workbooks and presentations preview through the authorized Pod fi
       'Revenue'
     )
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['Quarter two', 28]]), 'Forecast')
-    const PPTX = await import('@office-kit/pptx')
-    const presentation = PPTX.createPresentation()
-    PPTX.addTitleSlide(presentation, 'Quarterly results')
-    PPTX.addContentSlide(presentation, { title: 'Next quarter', body: 'Launch the research service' })
     const files = [
       {
         name: 'Forecast.ods',
@@ -189,7 +207,7 @@ test('uploaded workbooks and presentations preview through the authorized Pod fi
       {
         name: 'Results.pptx',
         mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        buffer: Buffer.from(await PPTX.savePresentation(presentation))
+        buffer: buildSamplePptx()
       }
     ]
     for (const file of files) {
@@ -200,8 +218,8 @@ test('uploaded workbooks and presentations preview through the authorized Pod fi
       })
       await owner.goto(state.base_url + route(page.id))
       await owner.getByLabel('选择上传文件', { exact: true }).setInputFiles(file)
-      await expect(owner.getByRole('link', { name: '下载原文件', exact: true })).toBeVisible()
       if (file.name.endsWith('.ods')) {
+        await expect(owner.getByRole('link', { name: '下载原文件', exact: true })).toBeVisible()
         await expect(
           owner
             .getByTitle(/工作表.*Revenue/)
@@ -216,13 +234,12 @@ test('uploaded workbooks and presentations preview through the authorized Pod fi
             .getByText('Quarter two', { exact: true })
         ).toBeVisible()
       } else {
-        await expect(
-          owner.frameLocator('iframe[title="幻灯片 1"]').getByText('Quarterly results', { exact: true })
-        ).toBeVisible()
+        await expect(owner.getByRole('link', { name: '下载', exact: true })).toBeVisible()
+        await expect(owner.getByRole('img', { name: '第 1 张幻灯片画布', exact: true })).toBeVisible()
+        await expect(owner.getByText('Quarterly results', { exact: true })).toBeVisible()
         await owner.getByRole('button', { name: '第 2 页', exact: true }).click()
-        await expect(
-          owner.frameLocator('iframe[title="幻灯片 2"]').getByText('Launch the research service', { exact: true })
-        ).toBeVisible()
+        await expect(owner.getByRole('img', { name: '第 2 张幻灯片画布', exact: true })).toBeVisible()
+        await expect(owner.getByText('Next quarter', { exact: true })).toBeVisible()
       }
     }
   } finally {

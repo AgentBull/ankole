@@ -12,6 +12,13 @@ import { pageCreated, updatePageMetadata } from './state/navigation-cache'
 import { InternalAPIError } from '../common/internal-api-client'
 import { BdiLabel } from '../common/bidi-file-name'
 import { stripBidi } from '../common/bidi'
+import {
+  isLegacyWorkbookFile,
+  isOfficeSpreadsheetFile,
+  isPresentationFile,
+  isWordFile,
+  previewMediaType
+} from '../common/file-preview'
 import { requestErrorCode, requestErrorDetails } from '../common/request-errors'
 
 import { useTranslation } from 'react-i18next'
@@ -109,7 +116,8 @@ import { PageIconPicker } from './page-icon'
 import { canMovePage } from './state/page-move'
 import { PageFindBar, readSingleLineSelectionInContainer, shouldHandlePageFindShortcut } from './find-bar'
 import { normalizeSearchQuery, parseSearchTarget } from './search-targets'
-import { isSpreadsheetFileName } from './state/spreadsheet-grid'
+import { filesQuery } from './page-files'
+import type { OfficeNavigationSession } from './office/office-collaboration'
 import { PodSidebarToggle, PodTopBarActions } from './top-bar'
 import './page-workspace.css'
 
@@ -201,16 +209,29 @@ function PageWorkspace({
   const [search, setSearch] = useSearchParams()
   const urlFind = search.get('find')?.trim() ?? ''
   const urlTarget = parseSearchTarget(search.get('at'), search.get('view'))
-  const fileCheckName = page.name || page.title || ''
-  const fileMime = typeof page.metadata?.mime_type === 'string' ? page.metadata.mime_type : ''
+  const accessDenied = isRealtimeAccessDenied(loadError)
+  const fileManifest = useQuery({
+    ...filesQuery(page.id),
+    enabled: page.type === 'file' && !accessDenied
+  })
+  const primaryFile = fileManifest.data?.files.find(
+    entry => !entry.path.startsWith('assets/') && !entry.path.startsWith('attachments/')
+  )
+  const fileCheckName = primaryFile?.path.split('/').at(-1) || page.name || page.title || ''
+  const fileMime = previewMediaType(fileCheckName, primaryFile?.content_type) ?? ''
+  const isOfficeFile =
+    page.type === 'file' &&
+    (isOfficeSpreadsheetFile(fileCheckName, fileMime) ||
+      isWordFile(fileCheckName, fileMime) ||
+      isPresentationFile(fileCheckName, fileMime))
   const domFindSupported =
     page.type === 'doc' ||
     page.type === 'knowledge' ||
     (page.type === 'file' &&
-      !isSpreadsheetFileName(fileCheckName) &&
-      !/\.(pptx|pdf|xls|xlsb|ods)$/i.test(fileCheckName) &&
-      fileMime !== 'application/pdf' &&
-      !fileMime.includes('presentationml'))
+      !isOfficeFile &&
+      !isLegacyWorkbookFile(fileCheckName, fileMime) &&
+      !/\.pdf$/i.test(fileCheckName) &&
+      fileMime !== 'application/pdf')
   const [manualFind, setManualFind] = useState(false)
   const [seededFindQuery, setSeededFindQuery] = useState<string | undefined>(undefined)
   const [findFocusTrigger, setFindFocusTrigger] = useState(0)
@@ -382,7 +403,7 @@ function PageWorkspace({
   }
   const selectCommentAnchor = (threadID?: string) => {
     selectionReturnThread.current = threadID ?? focusedComment
-    if (page.type === 'file') {
+    if (page.type === 'file' && !isOfficeFile) {
       const selection = filePreviewRef.current?.currentSelection()
       if (!selection) {
         if (isMobile) setComments(false)
@@ -411,18 +432,29 @@ function PageWorkspace({
   }
   const [titleComposing, setTitleComposing] = useState(false)
   const dirty = drafts.hasUnsavedChanges.value
+  const officeSession = useRef<OfficeNavigationSession | null>(null)
+  const [activeOfficeSession, setActiveOfficeSession] = useState<OfficeNavigationSession | null>(null)
+  const [officeSaveFailed, setOfficeSaveFailed] = useState(false)
+  const officeUnsaved = Boolean(activeOfficeSession?.hasUnsavedChanges())
   const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => {
-      if (!dirty || current.pathname === next.pathname) return false
+    shouldBlockFn: async ({ current, next }) => {
+      if (current.pathname === next.pathname) return false
       const currentPage = podPagePathnameID(current.pathname)
-      return !currentPage || currentPage !== podPagePathnameID(next.pathname)
+      if (currentPage && currentPage === podPagePathnameID(next.pathname)) return false
+      const session = officeSession.current
+      const saveFailed = session ? !(await session.savePending()) : false
+      setOfficeSaveFailed(saveFailed)
+      return saveFailed || drafts.hasUnsavedChanges.peek()
     },
     enableBeforeUnload: false,
     withResolver: true
   })
   useEffect(() => {
-    if (!dirty && blocker.status === 'blocked') blocker.proceed?.()
-  }, [dirty, blocker])
+    if (!officeUnsaved && officeSaveFailed) setOfficeSaveFailed(false)
+  }, [officeUnsaved, officeSaveFailed])
+  useEffect(() => {
+    if (!dirty && !officeUnsaved && !officeSaveFailed && blocker.status === 'blocked') blocker.proceed?.()
+  }, [dirty, officeUnsaved, officeSaveFailed, blocker])
   useEffect(() => {
     const stop = effect(() => {
       // Persist local recovery data after edits, acknowledgements, and explicit discards.
@@ -432,7 +464,9 @@ function PageWorkspace({
     })
     const leave = (event: BeforeUnloadEvent) => {
       drafts.persist()
-      if (drafts.hasUnsavedChanges.value) event.preventDefault()
+      if (drafts.hasUnsavedChanges.value || officeSession.current?.hasUnsavedChanges()) {
+        event.preventDefault()
+      }
     }
     const persist = () => drafts.persist()
     const visibility = () => {
@@ -449,7 +483,6 @@ function PageWorkspace({
       document.removeEventListener('visibilitychange', visibility)
     }
   }, [drafts])
-  const accessDenied = isRealtimeAccessDenied(loadError)
   const trashed = Boolean(page.deleted_at)
   const toolsAvailable = page.type === 'doc' && !accessDenied && !trashed
   const commentsAvailable = ['doc', 'knowledge', 'file'].includes(page.type) && !accessDenied && !trashed
@@ -513,7 +546,18 @@ function PageWorkspace({
   const pageHost = useMemo<PageHostActions>(
     () => ({
       navigateToPage: targetPageID => navigateWorkspacePage(targetPageID),
-      openChat: options => openWorkspaceChat(options)
+      openChat: options => openWorkspaceChat(options),
+      registerOfficeSession: session => {
+        officeSession.current = session
+        setActiveOfficeSession(session)
+        return () => {
+          if (officeSession.current === session) {
+            officeSession.current = null
+            setActiveOfficeSession(prev => (prev === session ? null : prev))
+            setOfficeSaveFailed(false)
+          }
+        }
+      }
     }),
     []
   )
@@ -581,7 +625,7 @@ function PageWorkspace({
         key="comments"
         detail={detail}
         content={
-          page.type === 'file'
+          page.type === 'file' && !isOfficeFile
             ? { kind: 'file' }
             : page.type === 'doc' && model
               ? { kind: 'document', editor: editorHandle, revision: model.revision, ready: model.bodyReady }
@@ -598,7 +642,7 @@ function PageWorkspace({
         selectAnchor={selectCommentAnchor}
         reveal={(id, fileAnchor) => {
           focusComment(id)
-          if (page.type === 'file') {
+          if (page.type === 'file' && !isOfficeFile) {
             return fileAnchor ? (filePreviewRef.current?.revealAnchor(fileAnchor) ?? null) : null
           }
           const instance = documentEditor.current
@@ -1156,26 +1200,42 @@ function PageWorkspace({
           returnFocus={chatTrigger}
         />
       )}
-      <Dialog open={blocker.status === 'blocked'} onOpenChange={open => !open && blocker.reset?.()}>
+      <Dialog
+        open={blocker.status === 'blocked'}
+        onOpenChange={open => {
+          if (!open) {
+            setOfficeSaveFailed(false)
+            blocker.reset?.()
+          }
+        }}>
         <DialogContent className="pod-dialog" closeLabel={t('common.close')}>
           <DialogTitle>{t('pod.content.unsaved_changes')}</DialogTitle>
           <p className="text-sm">{t('pod.content.unsaved_changes_leave_warning')}</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => blocker.reset?.()}>
-              {t('pod.content.continue_editing')}
-            </Button>
             <Button
               variant="outline"
               onClick={() => {
-                exportDraft()
-                blocker.proceed?.()
+                setOfficeSaveFailed(false)
+                blocker.reset?.()
               }}>
-              {t('pod.content.download_draft_and_leave')}
+              {t('pod.content.continue_editing')}
             </Button>
+            {dirty && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  exportDraft()
+                  setOfficeSaveFailed(false)
+                  blocker.proceed?.()
+                }}>
+                {t('pod.content.download_draft_and_leave')}
+              </Button>
+            )}
             <Button
               variant="destructive"
               onClick={() => {
                 drafts.discard()
+                setOfficeSaveFailed(false)
                 blocker.proceed?.()
               }}>
               {t('pod.content.discard_changes_and_leave')}
@@ -1203,8 +1263,8 @@ function focusElement(target: HTMLElement | null | undefined): boolean {
 function focusWorkspaceStart(editor: Editor | null, root: HTMLElement | null): boolean {
   if (focusEditorStart(editor)) return true
   if (!root) return false
-  const cellEditor = root.querySelector<HTMLTextAreaElement>('[data-spreadsheet-cell-editor]')
-  if (focusElement(cellEditor)) return true
+  const officeEditor = root.querySelector<HTMLElement>('[data-spreadsheet-cell-editor], [data-office-editor-input]')
+  if (focusElement(officeEditor)) return true
   const baseTarget =
     root.querySelector<HTMLElement>(
       '.pod-base-grid [data-grid-record] :is(input, [role="combobox"], textarea, button):not(:disabled)'
