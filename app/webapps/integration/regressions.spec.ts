@@ -140,7 +140,8 @@ test('selecting either Agent in a group enables sending and retains the selectio
   }
 })
 
-test('tenant slugs use browser validation before a request', async ({ page }) => {
+/** Serves the new-tenant form and collects every write that the form sends. */
+async function newTenantForm(page: Page): Promise<Route[]> {
   const writes: Route[] = []
   await page.route('**/api/v2/site/**', route => {
     if (route.request().method() !== 'GET') {
@@ -157,6 +158,25 @@ test('tenant slugs use browser validation before a request', async ({ page }) =>
     })
   })
   await page.goto('/tenants/new')
+  return writes
+}
+
+test('a required field keeps text that arrives without a key press while its error shows', async ({ page }) => {
+  await newTenantForm(page)
+  const slug = page.locator('input[pattern]')
+  await page.locator('button[type="submit"]').click()
+  await expect(slug).toHaveAttribute('aria-invalid', 'true')
+
+  // A paste from the context menu, an autofill, or a drop changes the value in
+  // one input event that no key press or click precedes.
+  await slug.focus()
+  await page.keyboard.insertText('qa-one')
+  await expect(slug).toHaveValue('qa-one')
+  await expect(slug).not.toHaveAttribute('aria-invalid', 'true')
+})
+
+test('tenant slugs use browser validation before a request', async ({ page }) => {
+  const writes = await newTenantForm(page)
   const slug = page.locator('input[pattern]')
   for (const [value, valid] of [
     ['qa-one', true],

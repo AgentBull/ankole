@@ -471,12 +471,15 @@ export function LabeledField({
     // a composite control such as Select renders for form participation. Blur
     // re-evaluates the control so a field the user leaves incomplete says so
     // at once, with a trim check because native `required` accepts blanks.
-    // Any interaction clears the message until the next blur or submit.
+    // Any interaction clears the message until the next blur or submit. Input
+    // clears it in the bubble phase: React renders a capture-phase state update
+    // before the control's own `onChange` runs, which writes the old controlled
+    // value over text that arrived without a key press, such as a paste.
     <Field
       data-invalid={shownError ? true : undefined}
       onChangeCapture={clearNativeInvalid}
       onClickCapture={clearNativeInvalid}
-      onInputCapture={clearNativeInvalid}
+      onInput={clearNativeInvalid}
       onKeyDownCapture={clearNativeInvalid}
       onBlurCapture={event => {
         const control = event.target
