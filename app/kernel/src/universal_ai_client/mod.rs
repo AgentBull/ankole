@@ -7,6 +7,7 @@
 //! state machine live paired in `api_resolver/<protocol>.rs`.
 
 pub mod api_resolver;
+mod aws_sigv4;
 mod client;
 mod downstream;
 mod error;

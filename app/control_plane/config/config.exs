@@ -8,6 +8,7 @@ config :ankole,
 config :ankole, Ankole.Repo, types: Ankole.PostgrexTypes
 
 config :ankole, :control_plane_plugin_modules, [
+  Ankole.Plugins.AmazonAIProviders,
   Ankole.Plugins.ChinaMarketAIProviders,
   Ankole.Plugins.CloudConnectorsAdapter,
   Ankole.Plugins.DatabaseConnectors,

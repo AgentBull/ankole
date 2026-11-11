@@ -6,6 +6,7 @@ use serde_json::{Map, Number, Value, json};
 use super::error::{StreamError, StreamErrorCode};
 use super::spec::{APIResolverKind, ConversionPolicy, ResponseContext};
 
+mod amazon;
 mod anthropic;
 pub(crate) mod anthropic_v2026;
 mod audio;
@@ -34,6 +35,7 @@ mod tool_identity;
 mod usage;
 mod web;
 
+use self::amazon::*;
 use self::anthropic::*;
 use self::anthropic_v2026::*;
 use self::audio::*;

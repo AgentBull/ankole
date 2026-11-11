@@ -204,6 +204,8 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::OpenrouterTranscription => Box::new(OpenrouterTranscription),
         APIResolverKind::CloudflareTranscription => Box::new(CloudflareTranscription),
         APIResolverKind::MistralOcr => Box::new(MistralOcr),
+        APIResolverKind::AmazonPollySpeech => Box::new(AmazonPollySpeech),
+        APIResolverKind::AmazonTextractOcr => Box::new(AmazonTextractOcr),
     }
 }
 

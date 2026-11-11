@@ -1,5 +1,6 @@
 //! Protocol-local tests and shared replay/identity contracts exercise APIResolver.
 
+mod amazon;
 mod anthropic;
 mod anthropic_v2026;
 mod audio;

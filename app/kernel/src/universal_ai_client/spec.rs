@@ -43,6 +43,8 @@ pub enum APIResolverKind {
     OpenrouterTranscription,
     CloudflareTranscription,
     MistralOcr,
+    AmazonPollySpeech,
+    AmazonTextractOcr,
 }
 
 impl APIResolverKind {
@@ -78,12 +80,17 @@ impl APIResolverKind {
             Self::OpenrouterTranscription => "openrouter_transcription",
             Self::CloudflareTranscription => "cloudflare_transcription",
             Self::MistralOcr => "mistral_ocr",
+            Self::AmazonPollySpeech => "amazon_polly_speech",
+            Self::AmazonTextractOcr => "amazon_textract_ocr",
         }
     }
 
     /// A speech provider answers with the audio itself rather than with JSON.
     pub fn answers_with_audio(self) -> bool {
-        matches!(self, Self::OpenrouterSpeech | Self::CloudflareSpeech)
+        matches!(
+            self,
+            Self::OpenrouterSpeech | Self::CloudflareSpeech | Self::AmazonPollySpeech
+        )
     }
 }
 
@@ -190,6 +197,9 @@ pub(crate) struct PreparedHTTPRequestSpec {
     pub(crate) timeout: TimeoutSpec,
     #[serde(default)]
     pub(crate) transport: TransportSpec,
+    /// Signs the request for an AWS service once its body is built.
+    #[serde(default)]
+    pub(crate) aws_sigv4: Option<crate::universal_ai_client::aws_sigv4::AwsSigV4Spec>,
 }
 
 impl PreparedHTTPRequestSpec {

@@ -1846,7 +1846,18 @@ the request to `/audio/speech` unchanged under the provider model. The
 `cloudflare` provider kind serves the Deepgram Aura models on Workers AI,
 which take the text and the voice, answer with MP3, and keep their own rate
 and delivery; a request that asks such a model for `pcm`, `speed`, or
-`instructions` fails with `400 unsupported_value`.
+`instructions` fails with `400 unsupported_value`. The `amazon` provider
+kind, which the `amazon-ai-providers` Plugin registers, serves Amazon Polly:
+the model is the Polly engine, such as `neural`, and Polly needs a voice for
+every request, so a request that names none uses the profile's `voice`
+option and fails with `400 missing_required_parameter` when the profile has
+none either. Polly answers with `mp3` or `pcm` and rejects `speed` and
+`instructions`.
+
+The `amazon` kind signs each request with AWS Signature Version 4 from the
+access key of the selected pool member and the row's `region`. The signature
+covers the final body bytes, so the kernel signs after it has built the body,
+and each service is reached at its own regional endpoint.
 
 `POST /audio/transcriptions` turns audio into text through the
 `transcription` profile:
@@ -1895,7 +1906,12 @@ directly. The `mistral` provider kind serves the capability: it sends a PDF
 to Mistral's `/ocr` endpoint as a document link and an image as an image
 link, each as a base64 data URL, together with the selected `pages`.
 AIGateway returns the text only, so it removes the placeholder that the
-Provider's Markdown holds for each picture of a page.
+Provider's Markdown holds for each picture of a page. The `amazon` provider
+kind serves Amazon Textract: one synchronous `DetectDocumentText` call reads
+a PNG or JPEG image or a one-page PDF, and AIGateway returns the lines that
+Textract found, one per line of the page's `markdown`. Textract takes no
+WebP image and no `pages`; such a request fails with
+`400 unsupported_value`.
 
 When the `ocr` profile is not configured, a language model that accepts
 images reads the document, so the request can carry an image only, and a PDF

@@ -44,6 +44,9 @@ pub(crate) fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<Upstream
     put_resolved_anthropic_version(spec.api_resolver, &context, &body, &mut upstream);
     upstream.body = Some(encode_json(&Value::Object(body))?);
     put_default_json_headers(&mut upstream);
+    if let Some(credentials) = &spec.upstream.aws_sigv4 {
+        super::aws_sigv4::sign(&mut upstream, credentials, std::time::SystemTime::now())?;
+    }
     Ok(upstream)
 }
 

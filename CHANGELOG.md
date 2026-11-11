@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.121 (2026-11-11)
+
+- Add the optional `amazon-ai-providers` Plugin, whose `amazon` provider kind
+  serves Amazon Polly on the `speech` slot and Amazon Textract on the `ocr`
+  slot. Polly takes its engine, such as `neural`, as the model and the
+  profile's `voice` when a request names none; Textract reads a PNG or JPEG
+  image or a one-page PDF. AIGateway signs each request with AWS Signature
+  Version 4 from the pool member's access key and the provider row's region.
+
 ## Version 2.0.0-alpha.120 (2026-11-11)
 
 - Close gaps in OCR for scanned PDF pages. Two Pages that hold the same file

@@ -315,8 +315,9 @@ The devkit validates and applies the selected database migrations before startin
 Phoenix. Developers restart `bun dev` to apply migrations added during a running
 session.
 
-The public build compiles 15 Control Plane Plugins (`china-market-ai-providers`
-and `vercel-worker-provider` as optional Plugins, plus 13 `activation: :always`
+The public build compiles 16 Control Plane Plugins (`amazon-ai-providers`,
+`china-market-ai-providers`, and `vercel-worker-provider` as optional Plugins,
+plus 13 `activation: :always`
 identity, messaging, and Connector adapters), while six enterprise IM and
 directory Plugins (`dingtalk-adapter`, `google-workspace-adapter`,
 `lark-adapter`, `microsoft365-adapter`, `slack-adapter`, and `wecom-adapter`)
