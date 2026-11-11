@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.116 (2026-11-11)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.115 (2026-11-11)
 
 - Sync the block editor engine with Wordgard through `7008e6a`. The engine
