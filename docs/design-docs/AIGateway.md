@@ -51,7 +51,7 @@ end of an Agent turn.
 
 ## Select a Model for Each Kind of Work
 
-AIGateway exposes seven capability kinds:
+AIGateway exposes twelve capability kinds:
 
 - `llm`
 - `embedding`
@@ -60,14 +60,21 @@ AIGateway exposes seven capability kinds:
 - `web_fetch`
 - `image_generate`
 - `decision`
+- `speech`
+- `transcription`
+- `ocr`
+- `video`
+- `music`
 
 `Ankole.AIGateway.ModelProfiles` owns model and capability configuration at
 three layers: Site defaults, Pod overrides, and sparse subject overrides. Agents
 store overrides in `agents.options`; registered system Principals store them in
 AppConfigure under `system:<uid>`. Site, Pod, and system Principals expose
 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`,
-`web_fetch`, `image_generate`, `rerank`, and `decision`; Agents expose the same
-slots except `rerank` and `decision`. Pod and Site rows live in AppConfigure under
+`web_fetch`, `image_generate`, `rerank`, `decision`, `speech`,
+`transcription`, `ocr`, `video`, and `music`; Agents expose the same slots
+except `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, and
+`music`. Pod and Site rows live in AppConfigure under
 `ai_gateway.model_profiles.<slot>` and `ai_gateway.provider_hosted.<capability>`.
 Deleting a row restores inheritance; storing `nil` is invalid because only a
 missing row may advance fallback to the next layer.
@@ -104,24 +111,28 @@ control-plane compaction can run without an Agent binding. Brain executes as
 slots. This includes reranking during Agent-initiated recall. The `default` and
 `rerank.default` capability selectors resolve a system Principal's effective
 rerank slot; Agent and Human rerank calls use the Pod slot. The `default` and
-`decision.default` selectors resolve the `decision` slot by the same rule. Pod Applets execute
+`decision.default` selectors resolve the `decision` slot by the same rule, as do
+`speech.default` for the `speech` slot, `transcription.default` for the
+`transcription` slot, `ocr.default` for the `ocr` slot, `video.default` for
+the `video` slot, and `music.default` for the `music` slot. Pod Applets execute
 as `system`, accept only built-in LLM slots, and do not consult a creator Agent
 or its quota. OIDC-bound external requests use their explicit model binding.
 
 Provider-hosted switches inherit from Pod and Site for system Principals;
-system overrides accept only the ten fixed slots, with no custom aliases.
+system overrides accept only the fifteen fixed slots, with no custom aliases.
 Without subject overrides, every effective slot matches the Pod configuration.
 
 Alongside fixed profiles, an Agent can store custom LLM profiles in
 `agents.options["ai_agent"]["models"]`. Each custom name matches
 `[a-z][a-z0-9_-]{0,63}`, avoids the eight Agent fixed slots, is immutable, and
-has a non-empty description. The names `rerank` and `decision` are valid custom
-LLM aliases; they do not collide with the Pod/Site rerank and decision
-capabilities, whose default selectors are `default`, `rerank.default`, and
-`decision.default`. OIDC Clients use the same custom-alias
+has a non-empty description. The names `rerank`, `decision`, `speech`,
+`transcription`, `ocr`, `video`, and `music` are valid custom LLM aliases; they do not collide with the
+Pod/Site capabilities of the same names, whose default selectors are `default`
+and `<capability>.default`, such as `rerank.default`. OIDC Clients use the same custom-alias
 contract and still resolve external Human requests through the Client's model
 binding. Custom aliases never configure embedding, rerank, web search, web
-fetch, image generation, or decisions.
+fetch, image generation, decisions, speech, transcription, OCR, video, or
+music.
 
 The Console's `/model-profiles` page edits Pod and Site defaults through
 `/api/v2/model-profiles`, including rerank and Provider-hosted switches. Agent
@@ -260,7 +271,15 @@ each value to the native field name: OpenAI-family providers send
 `prompt_cache_options`, `prompt_cache_retention`, `safety_identifier`, and
 `context_management`,
 OpenRouter sends `textVerbosity` as `verbosity`, and Claude sends `inferenceGeo`
-as `inference_geo`. OpenAI Chat Completions rejects the Responses-only options
+as `inference_geo`. For prompt-cache continuity, OpenAI Responses requests on
+stateful conversations derive a deterministic `prompt_cache_key` from the
+conversation identity whenever the caller omits one, Claude Messages requests
+attach top-level `cache_control: {"type": "ephemeral"}` when the caller omits
+explicit cache breakpoints, OpenRouter injects top-level ephemeral
+`cache_control` automatically for Anthropic Claude targets when none is set, and
+`StatefulLifecycle` strips transient `store` and `cache_control` fields from
+replayed history items before assembling the next upstream request. OpenAI Chat
+Completions rejects the Responses-only options
 `reasoningSummary`, `truncation`, and `contextManagement` with
 `unsupported_provider_option`. Claude accepts the `reasoningEffort` values
 `low`, `medium`, `high`, and `xhigh`, and sends `xhigh` as `max`.
@@ -324,6 +343,16 @@ kind as a whole, the provider row itself declares that capability:
   OpenAI Responses tool contract—passing custom tools through verbatim and
   allowing upstream compaction pass-through. First-party OpenAI kinds always
   enable this behavior, and non-Responses provider kinds always disable it.
+
+A provider kind declares its request-scoped settings once, and a kind that
+serves several capabilities can limit a setting to the capabilities whose
+requests read it. The provider-kinds catalog reports that list with each
+setting, and Console offers the setting only on the model profiles of those
+capabilities, so a speech profile on a `cloudflare` row shows neither the
+search engine nor the image options. A setting without the list serves every
+capability of its kind. The list shapes the form only: AIGateway accepts every
+declared request option on any profile of the kind, and a request sends the
+options that its capability reads.
 
 Trusted Plugins can register additional provider kinds via
 `ai_gateway.provider`, without replacing AIGateway's storage, authorization,
@@ -713,6 +742,12 @@ All runtime endpoints mount under `/api/v1/ai-gateway`:
 - `POST /web_fetch`
 - `POST /decisions`
 - `POST /images`
+- `POST /audio/speech`
+- `POST /audio/transcriptions`
+- `POST /ocr`
+- `POST /videos`, `GET /videos/:id`, and `GET /videos/:id/content`
+- `POST /audio/music`, `GET /audio/music/:id`, and
+  `GET /audio/music/:id/content`
 
 ## Identify Every Caller
 
@@ -772,14 +807,25 @@ Every row names its `capability`. Besides language-model rounds, the ledger
 records the images that an `image_generate` provider generated, for a direct
 image request or for a hosted Response, as one row with `unit` `image` and the
 number of images in `quantity`, and it records each call of a decision model
-with the token counts that the model reported. `provider_cost` holds the cost
-of such a round when the Provider reports one. An image that the
+with the token counts that the model reported. A speech call is one row with
+`unit` `character` and the length of its `input` in `quantity`. A
+transcription call is one row with `unit` `second` and the seconds of audio
+that the Provider reports, rounded up; the row carries no unit when the
+Provider reports no duration. A call of an OCR model is one row with `unit`
+`page` and the number of pages that the Provider processed. A completed video
+or music job is one row with `unit` `second` and the `duration` that its
+request named; the row carries no unit when the request named none.
+`provider_cost` holds the cost of such a round
+when the Provider reports one. An image that the
 language-model provider generates natively stays inside that provider's
-language-model round. Token quota windows, the usage of one Signal, and the
-Console Model usage page read language-model rows only.
+language-model round. Token quota windows and the usage of one Signal read
+language-model rows only. The Console Model usage page sums the tokens of
+language-model rows and lists the other capabilities in a table of their own.
 
 Applet backend calls to `AnkoleRuntime.ai.generateText`,
 `AnkoleRuntime.ai.generateImage`, `AnkoleRuntime.ai.decide`,
+`AnkoleRuntime.ai.generateSpeech`, `AnkoleRuntime.ai.transcribe`,
+`AnkoleRuntime.ai.ocr`,
 `AnkoleRuntime.web.search`, and `AnkoleRuntime.web.fetch` run in-process under
 the selected ordinary or `admin` execution Principal (`caller: "pod_applet"`). Human Principals resolve the
 tenant's `system` model profiles, whereas Agent Principals resolve that Agent's
@@ -1095,7 +1141,11 @@ ledger:
   Human also carries the Principal's display name, and the Agent breakdown
   lists only Agent subjects. A deleted Agent keeps its row without a name,
   because its `agent` or `codex` rounds, which only an Agent makes, identify
-  it. The summary reads each row of the window once in
+  it. Those totals count language-model rows. `by_capability` sums the rows
+  of every other capability by capability and unit: the number of `calls`,
+  the `quantity` in that unit, such as pages or seconds, and the
+  `provider_cost` that the Providers reported, each `null` when no call of
+  the row carries it. The summary reads each row of the window once in
   `(inserted_at, id)` keyset pages. Principal/AuthZ
   authorizes it on `site_console:ai_gateway_usage` with the `read` action.
 
@@ -1231,14 +1281,25 @@ WebSocket, and synchronous Responses uniformly):
   a call only when its frozen descriptor permits `programmatic` callers—turning
   direct-only or malformed calls into explicit tool errors before they cross the
   execution boundary.
-- In the synthesized program tool prompt, bindings that also have direct tool
-  declarations list only their JavaScript global names (since their schemas are
-  already in the provider `tools` array), whereas programmatic-only bindings
-  embed their full schemas. Global names follow Codex code-mode rules: root
-  tools and the default `functions` namespace use `name`; other namespaces use
-  `namespace__name` (omitting the extra `__` if `namespace` already ends with
-  `_` or `name` starts with `_`) with non-identifier characters replaced by `_`
-  (two tools colliding on the same global name invalidate the request).
+- In the synthesized program tool prompt, AIGateway states explicit orchestration
+  selection rules—directing the model to use `program` when a task needs three or
+  more tool calls, loops, parallel batch fan-out with `Promise.all`, in-memory
+  filtering or aggregation, or conditional branching on structured results, while
+  forbidding single-call wrappers and keeping user interaction, approval,
+  delegation, and outbound messaging on direct tool calls. Bindings that also
+  have direct tool declarations list only their JavaScript global names (since
+  their schemas are already in the provider `tools` array), whereas
+  programmatic-only bindings embed their full schemas; tools without an
+  `output_schema` resolve to raw strings inside the isolate so scripts check for
+  `"Error:"` prefixes before calling `JSON.parse`. Global names follow Codex
+  code-mode rules: root tools and the default `functions` namespace use `name`;
+  other namespaces use `namespace__name` (omitting the extra `__` if `namespace`
+  already ends with `_` or `name` starts with `_`) with non-identifier
+  characters replaced by `_` (two tools colliding on the same global name
+  invalidate the request). When a `program` step completes without an execution
+  error, AIGateway caps the model-facing `text()` payload at `32 KiB` (`32,768`
+  UTF-8 bytes, preserving valid JSON across multi-part outputs) so intermediate
+  data remains confined to isolate memory.
 - Persisted program fingerprints carry the `ankole_ptc_v2.` prefix and freeze
   `namespace`, `name`, and the JavaScript global name for every binding (other
   fingerprint versions are rejected). Settled `program`/`program_output` pairs
@@ -1293,7 +1354,11 @@ Strict resource caps bound internal loops before they can amplify cost:
   programs, 256 nested program calls, 1,024 retained provider-history items, and
   `8 MiB` of retained provider history, alongside isolate caps on code size,
   memo size, pending calls, output bytes, heap, wall time, and concurrency—failing
-  explicitly rather than dropping call/output edges.
+  explicitly rather than dropping call/output edges. The input that the request
+  starts with, including the stored history of a stateful conversation, counts
+  toward both provider-history limits, and
+  [automatic compaction](#shorten-long-history) plans a checkpoint when a
+  stored history nears them.
 - If stored history contains duplicate items or contradictory pair IDs with no
   safe cut point, AIGateway rejects the turn rather than guessing or rewriting
   durable rows; operators recover by starting a new conversation or retracting/deleting
@@ -1528,13 +1593,42 @@ token usage automatically against `ai_gateway.compaction` in AppConfigure:
 
 `CompactionPolicy` enforces no server-side ceiling on the integer fields, while
 the Console caps integer inputs at `9007199254740991` (`Number.MAX_SAFE_INTEGER`)
-to avoid JSON precision loss. Because provider usage includes fixed instructions
-and tool schemas—which compaction cannot shrink—operators should keep the
-effective trigger comfortably above fixed input size (leaving room for the
-summary, retained tail, and next turn); setting `max_threshold_tokens` too close
-to fixed input (or pairing a tiny model context with a large output reservation)
-can trigger compaction on every turn or leave zero retained rows, as AIGateway
-does not suppress back-to-back compactions.
+to avoid JSON precision loss. To fire compaction proactively before unmeasured
+trailing items overflow the window while avoiding consecutive low-yield
+checkpoints, AIGateway projects preflight context tokens from the latest
+provider usage anchor: it calibrates a `wire_ratio` (clamped to `[0.75, 2.50]`)
+between the anchor round's reported provider usage and its local item/prompt
+estimate, scales trailing journaled tool results, `current_input`, and newly
+mounted tools or instructions by that ratio, and compares the projected total
+against the effective trigger. Unless projected usage exceeds `97%` of
+`effective_context_length`, AIGateway applies two anti-thrash guards: when a
+prior automatic summarizer checkpoint reduced usage by less than `8%` and the
+first post-checkpoint response still exceeded the trigger, AIGateway suppresses
+automatic compaction until new growth reaches `max(5% of trigger, min(4,000,
+trigger / 2))` tokens; and on triggers of `64,000` tokens or more, AIGateway
+skips local summarization when the compressible prefix ahead of `tail_rows`
+yields fewer than `min(5% of trigger, 4,000)` estimated tokens. Because provider
+usage includes fixed instructions and tool schemas—which compaction cannot
+shrink—operators should keep `max_threshold_tokens` comfortably above fixed
+input size so normal turns retain room for the summary, tail, and next turn.
+
+A stored history can also grow large while it is still below the token trigger,
+because Provider ciphertext and inline images take many bytes per token. A
+Response that runs the hosted-tool loop counts its stored history toward the
+loop's limits of 1,024 retained items and `8 MiB` (see
+[Run Tool Search and Program Calls](#run-tool-search-and-program-calls)), and
+it ends incomplete once that history, the new input, and the loop's own items
+pass either limit. AIGateway therefore also plans a checkpoint for a stateful
+history when its items, encoded the way the loop encodes them, reach three
+quarters of either limit—even when token-yield cooldown is currently suppressing
+token-triggered compaction. The remaining quarter is headroom for the new input
+and the rounds of the next Response, not a reservation: an input larger than
+that headroom still passes a limit. The response metadata of such a compaction
+records `auto_compaction.trigger = "provider_history"`. The model can still
+read a history that is below the token trigger, so when this checkpoint cannot
+be written (for example, because the summarizer fails), the request runs on the
+full history, and AIGateway neither truncates the history nor reports a context
+overflow.
 
 Under this single protocol, `ai_gateway.compaction.upstream` (a tenant setting
 inheriting the site default) chooses between two backends:
@@ -1768,6 +1862,173 @@ level, and providers cap the size of a schema, so a request that a language
 model answers can carry at most 500 options and levels in total; AIGateway
 rejects a larger one with `400 invalid_value`.
 
+## Turn Text into Speech and Audio into Text
+
+`Ankole.AIGateway.Audio` owns two request contracts. Both resolve a Pod or
+Site profile through `default`, the capability's `.default` selector, or an
+explicit `provider_id/model` selector, and neither has a language-model
+fallback: a request whose profile is not configured fails with
+`model_profile_not_configured`.
+
+`POST /audio/speech` turns text into audio through the `speech` profile:
+
+- `input` is required and holds the text to speak.
+- `voice` optionally names a voice of the model.
+- `response_format` is `mp3`, the default, or `pcm`.
+- `speed` optionally sets a playback speed multiplier, and `instructions`
+  optionally describes the delivery, such as tone or pacing.
+
+The response body is the audio itself. Its content type is the audio type
+that the Provider names; when the Provider names none, it is `audio/mpeg` for
+`mp3` and `audio/pcm` for `pcm`. A caller can send `Accept: audio/*`. The
+kernel hands the Provider's bytes to the control plane as base64, reads up to
+128 MiB of audio, and fails the request when a Provider answers a speech
+request with anything but audio. The `openrouter` provider kind sends
+the request to `/audio/speech` unchanged under the provider model. The
+`cloudflare` provider kind serves the Deepgram Aura models on Workers AI,
+which take the text and the voice, answer with MP3, and keep their own rate
+and delivery; a request that asks such a model for `pcm`, `speed`, or
+`instructions` fails with `400 unsupported_value`. The `amazon` provider
+kind, which the `amazon-ai-providers` Plugin registers, serves Amazon Polly:
+the model is the Polly engine, such as `neural`, and Polly needs a voice for
+every request, so a request that names none uses the profile's `voice`
+option and fails with `400 missing_required_parameter` when the profile has
+none either. Polly answers with `mp3` or `pcm` and rejects `speed` and
+`instructions`.
+
+The `amazon` kind signs each request with AWS Signature Version 4 from the
+access key of the selected pool member and the row's `region`. The signature
+covers the final body bytes, so the kernel signs after it has built the body,
+and each service is reached at its own regional endpoint.
+
+`POST /audio/transcriptions` turns audio into text through the
+`transcription` profile:
+
+- `input_audio` is required and holds `data`, base64 audio that decodes to at
+  most 25 MiB, and `format`, such as `mp3` or `wav`.
+- `language` optionally names the spoken language.
+- `response_format` is `json`, the default, or `verbose_json`.
+- `vad_filter` optionally asks the model to skip the parts without speech. A
+  model that has no such filter ignores it.
+
+The response carries `model`, `text`, and `usage` with the `seconds` of audio
+when the Provider reports them. With `verbose_json` it also carries the
+`language`, the `duration` in seconds, and `segments`, each with `start`,
+`end`, and `text`, as far as the Provider reports them. The `openrouter`
+provider kind sends the request to `/audio/transcriptions`. The `cloudflare`
+provider kind serves the Workers AI models that take base64 audio, such as
+`@cf/openai/whisper-large-v3-turbo`.
+
+## Read a Document as Markdown
+
+`POST /ocr` returns the text of a PDF or a document image as Markdown, page
+by page. `Ankole.AIGateway.OCR` owns the request contract:
+
+- `document` is required and holds a PDF or one PNG, JPEG, or WebP image, as
+  a base64 data URL or as an object with `content_type` and `base64`.
+  AIGateway accepts a PDF of at most 50 MiB and an image of at most 20 MiB,
+  both measured in decoded bytes. An OCR model can accept less, such as a
+  smaller document or fewer image formats, and AIGateway passes its rejection
+  on to the caller.
+- `pages` optionally lists 1 to 100 distinct page indexes of a PDF, starting
+  at 0. When the request omits it, AIGateway sends no `pages` to the OCR
+  model. A caller that needs more than 100 selected pages sends them in
+  several requests. An image is one page and takes no `pages`.
+- `model` is required.
+
+The response carries `model`, `pages`, and `usage`. `pages` lists the pages
+that the Provider reports, each with its `index` and its `markdown`.
+AIGateway passes the Provider's `index` through unchanged and sorts the pages
+by it. A page without text has an empty `markdown`. `usage` holds the number
+of `pages` that the Provider processed.
+
+The `default` and `ocr.default` selectors resolve the Pod or Site `ocr`
+profile, and an explicit `provider_id/model` selector names an OCR model
+directly. The `mistral` provider kind serves the capability: it sends a PDF
+to Mistral's `/ocr` endpoint as a document link and an image as an image
+link, each as a base64 data URL, together with the selected `pages`.
+AIGateway returns the text only, so it removes the placeholder that the
+Provider's Markdown holds for each picture of a page. The `amazon` provider
+kind serves Amazon Textract: one synchronous `DetectDocumentText` call reads
+a PNG or JPEG image or a one-page PDF, and AIGateway returns the lines that
+Textract found, one per line of the page's `markdown`. Textract takes no
+WebP image and no `pages`; such a request fails with
+`400 unsupported_value`.
+
+When the `ocr` profile is not configured, a language model that accepts
+images reads the document, so the request can carry an image only, and a PDF
+fails with `400 unsupported_value`. AIGateway sends one stateless Responses
+request to the caller's `vision_fallback` profile, or to the `primary`
+profile when `vision_fallback` is not configured, and reports that model in
+`model`. The instructions ask for the text in reading order, with headings,
+lists, and tables as Markdown, and they tell the model to treat the image as
+data and to name an image without text, which becomes a page with an empty
+`markdown`. A reply without any text fails with `invalid_ocr_output`. Such a
+request counts as an ordinary language-model request for usage records and
+for an Agent's token quota, and its `usage` also holds `input_tokens` and
+`output_tokens`.
+
+## Generate Video and Music
+
+A Provider finishes a video or a piece of music after the gateway request has
+returned, so these two capabilities run as media jobs.
+`Ankole.AIGateway.MediaJobs` owns the contract, and
+`ai_gateway_media_jobs` holds one row per job.
+
+`POST /videos` and `POST /audio/music` validate the request, resolve the
+model, and answer `202` with the job: its `id`, its `status`, the `model`,
+`created_at`, and `expires_at`. `GET /videos/:id` and `GET /audio/music/:id`
+return the same object to the Principal that created the job. A job is
+`pending` until the background job starts it, `in_progress` while the
+Provider works, and then `completed` or `failed`. A completed job also holds
+the file's `content_type` and `size`; a failed job holds an `error` with a
+`code` and a `message`. `GET /videos/:id/content` and
+`GET /audio/music/:id/content` send the file of a completed job and accept a
+`Range` header; for any other job they fail with `409 media_not_ready`.
+
+A video request holds a `prompt` and can hold `duration` in seconds,
+`resolution`, `aspect_ratio`, `size`, `generate_audio`, `seed`, and a
+`first_frame` and `last_frame`, each an `https` URL or a base64 data URL of
+an image of up to 10 MiB. A music request holds a `prompt` and can hold
+`lyrics`, `instrumental`, and `duration` in seconds. The `default`,
+`video.default`, and `music.default` selectors resolve the Pod or Site
+`video` and `music` profiles, and an explicit `provider_id/model` selector
+names a model directly. Neither capability has a language-model fallback: a
+request whose profile is not configured fails with
+`model_profile_not_configured`.
+
+`Ankole.AIGateway.Jobs.RunMediaJob` runs a job to its end:
+
+- It marks the row `in_progress` before it sends the request to the Provider.
+  A job that runs again after a crash therefore never asks for a second
+  generation, which the Provider would bill. A row that is `in_progress`
+  without a generation to wait for fails with `media_job_interrupted`.
+- The `openrouter` provider kind serves video. OpenRouter accepts the
+  generation at `/videos` and answers with its id; the job stores the id,
+  snoozes for ten seconds, and reads `/videos/:id` until OpenRouter reports
+  that the generation completed or failed. A generation that is still running
+  after one hour fails with `media_generation_timeout`. The job resolves the
+  profile on every step with the job id as the credential affinity, so that
+  one credential of a Provider pool serves all steps; a profile that names
+  another model by then fails the job with `model_profile_changed`.
+- The `cloudflare` provider kind serves music through the partner models of
+  Workers AI, such as `minimax/music-2.6` and `elevenlabs/music-v2`. The
+  model answers the request itself, once the audio exists, with a link to it.
+  AIGateway names `instrumental` and `duration` the way each of these two
+  partners expects them and sends the fields unchanged to any other model.
+- When the Provider reports the link to the file, the job stores the link and
+  then streams the file into the tenant's object storage through
+  `Ankole.Files`. A link on the Provider's own host is read with the
+  Provider's credential; a link on another host carries its own signature and
+  receives none. A failed download is tried again from the stored link.
+- A rejected submission fails the job at once. Any other error is tried again,
+  five times in all, and then fails the job.
+
+A media job and its file live for seven days. The hourly artifact cleanup
+deletes the rows whose `expires_at` has passed, which releases their objects
+to the object collection of `Ankole.Files`. A caller that keeps the file
+copies it before then.
+
 ## Store Vision Files and Generated Images
 
 `ai_gateway_artifacts` stores uploaded vision files (`purpose=vision`, up to
@@ -1896,7 +2157,8 @@ site-wide AppConfigure keys read once at node boot (changing them requires a
 restart; the control plane scrubs standard `OTEL_*` exporter environment
 variables before OpenTelemetry boots and again before configuring the exporter,
 and trace export is strictly best-effort with no database queue or retry effect
-on model calls):
+on model calls; a graceful node shutdown flushes buffered spans before the
+exporter stops):
 
 - `observability.traces.enabled` (default `false`; enabling it exports model
   prompts and outputs externally, so operators must point it only at a trusted
@@ -2089,7 +2351,14 @@ differences cleanly:
 - **Chat `reasoning_details` & Gemini signatures**: Streamed `reasoning_details`
   concatenate into one public `reasoning` item sealed in an AIGateway envelope
   bound to `(provider_type, model_id)` (shared across rows of the same type and
-  model; explicit `reasoning.effort` overrides route `reasoningEffort`). On
+  model; explicit `reasoning.effort` overrides route `reasoningEffort`). A
+  Provider streams one `reasoning.text` detail as many short fragments that
+  repeat the detail's other fields, so the adapter joins consecutive fragments
+  whose fields other than `text` and `signature` are equal into the one detail
+  that a non-streaming response returns. A signature closes its detail, and
+  details of every other type stay as the Provider sent them. Replay joins the
+  fragments of each stored item the same way and keeps the details of separate
+  items apart. On
   replay, valid matching envelopes restore details onto the assistant message
   (dropping standalone reasoning with no assistant text or tool call so Chat
   providers never reject an empty assistant turn), while missing, stale, or

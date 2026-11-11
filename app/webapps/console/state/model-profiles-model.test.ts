@@ -57,6 +57,11 @@ describe('ModelProfilesModel', () => {
     expect(PROFILE_NAMES).not.toContain('rerank')
     expect(POD_PROFILE_NAMES).toContain('decision')
     expect(PROFILE_NAMES).not.toContain('decision')
+    expect(POD_PROFILE_NAMES).toContain('speech')
+    expect(POD_PROFILE_NAMES).toContain('transcription')
+    expect(POD_PROFILE_NAMES).toContain('ocr')
+    expect(POD_PROFILE_NAMES).toContain('video')
+    expect(POD_PROFILE_NAMES).toContain('music')
 
     expect(
       resolvedProfileValue({

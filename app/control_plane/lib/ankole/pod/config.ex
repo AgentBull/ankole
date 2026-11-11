@@ -11,7 +11,7 @@ defmodule Ankole.Pod.Config do
   }
   @limit_keys Map.keys(@defaults)
   @applet_defaults %{"timeout_ms" => 60_000, "heap_mb" => 128}
-  @spreadsheet_defaults [
+  @office_defaults [
     max_file_bytes: 20 * 1024 * 1024,
     compaction_idle_seconds: 30,
     compaction_op_threshold: 100,
@@ -65,14 +65,13 @@ defmodule Ankole.Pod.Config do
           "Base query and record limits: query_rows, record_bytes, group_count, and statement_timeout_ms."
       ),
       Definition.new!(
-        key: "pod.spreadsheet.limits",
+        key: "pod.office.limits",
         scope: :tenant,
         encrypted: false,
-        schema: Schema.new(&validate_spreadsheet_limits/1),
-        default_value:
-          Map.new(@spreadsheet_defaults, fn {key, value} -> {to_string(key), value} end),
+        schema: Schema.new(&validate_office_limits/1),
+        default_value: Map.new(@office_defaults, fn {key, value} -> {to_string(key), value} end),
         description:
-          "Spreadsheet page limits: max_file_bytes for online editing, and compaction_idle_seconds, compaction_op_threshold, and compaction_structural_threshold for writing edits into the file."
+          "Office page limits: max_file_bytes for online editing, and compaction_idle_seconds, compaction_op_threshold, and compaction_structural_threshold for writing edits into the file."
       ),
       Definition.new!(
         key: "pod.ot_replay_window",
@@ -81,12 +80,33 @@ defmodule Ankole.Pod.Config do
         schema: Schema.new(&positive_integer/1),
         default_value: 1000,
         description: "Number of recent document change batches retained for OT replay."
+      ),
+      Definition.new!(
+        key: "pod.ocr_existing_scans",
+        scope: :tenant,
+        encrypted: false,
+        schema: Schema.new(&boolean/1),
+        default_value: false,
+        description:
+          "Sends the scanned PDF pages that no OCR model read at upload to the OCR model. The OCR provider charges for every page."
       )
     ]
   end
 
   def allow_external_guests?,
     do: AppConfigure.get_by_key("pod.allow_external_guests") == {:ok, true}
+
+  @doc "Whether an administrator agreed to pay for OCR of the scans that were uploaded unread."
+  def ocr_existing_scans?,
+    do: AppConfigure.get_by_key("pod.ocr_existing_scans") == {:ok, true}
+
+  @doc "Whether the Pod has no value of its own for `pod.ocr_existing_scans`, so the Site's applies."
+  def follows_site_ocr_existing_scans? do
+    case AppConfigure.resolve_by_key("pod.ocr_existing_scans") do
+      {:ok, %{source: :tenant}} -> false
+      _site_or_default -> true
+    end
+  end
 
   @doc "Publishes access changes for the configuration's actual affected workspace set."
   def broadcast_guest_access(:tenant), do: Ankole.Pod.Pages.broadcast_access()
@@ -148,18 +168,18 @@ defmodule Ankole.Pod.Config do
 
   defp validate_applet_limits(_), do: {:error, :invalid_limits}
 
-  @doc "Returns the spreadsheet page limits as a map with atom keys."
-  def spreadsheet_limits do
-    with {:ok, limits} <- AppConfigure.get_by_key("pod.spreadsheet.limits"),
+  @doc "Returns the Office page limits as a map with atom keys."
+  def office_limits do
+    with {:ok, limits} <- AppConfigure.get_by_key("pod.office.limits"),
          do:
            {:ok,
-            Map.new(@spreadsheet_defaults, fn {key, _default} ->
+            Map.new(@office_defaults, fn {key, _default} ->
               {key, Map.fetch!(limits, to_string(key))}
             end)}
   end
 
-  defp validate_spreadsheet_limits(limits) when is_map(limits) do
-    keys = Enum.map(@spreadsheet_defaults, fn {key, _default} -> to_string(key) end)
+  defp validate_office_limits(limits) when is_map(limits) do
+    keys = Enum.map(@office_defaults, fn {key, _default} -> to_string(key) end)
 
     if Enum.sort(Map.keys(limits)) == Enum.sort(keys) and
          Enum.all?(Map.values(limits), &(is_integer(&1) and &1 > 0)),
@@ -167,7 +187,7 @@ defmodule Ankole.Pod.Config do
        else: {:error, :invalid_limits}
   end
 
-  defp validate_spreadsheet_limits(_), do: {:error, :invalid_limits}
+  defp validate_office_limits(_), do: {:error, :invalid_limits}
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
   defp positive_integer(_), do: {:error, :invalid_positive_integer}

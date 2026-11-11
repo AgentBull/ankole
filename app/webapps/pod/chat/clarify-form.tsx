@@ -209,7 +209,7 @@ function choice(
 
 function itemsHint(
   field: Extract<ClarifyField, { type: 'multi_select' }>,
-  t: (key: string, values?: Record<string, unknown>) => string
+  t: (key: string, values: Record<string, unknown>) => string
 ) {
   const { min_items: min, max_items: max } = field
   if (min && max) return t('pod.chat_form.items_range', { min, max })

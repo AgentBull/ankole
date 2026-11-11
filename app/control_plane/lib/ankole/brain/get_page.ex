@@ -1,5 +1,5 @@
 defmodule Ankole.Brain.GetPage do
-  @moduledoc "L0 summaries, L1 outlines and complete OKF pages under Drive visibility."
+  @moduledoc "L0 summaries, L1 outlines, complete OKF pages, and extracted file text under Drive visibility."
   require Ash.Query
   alias Ankole.Brain.{Access, Knowledge, Objects}
   alias Ankole.Brain.Schemas.Page
@@ -60,6 +60,31 @@ defmodule Ankole.Brain.GetPage do
       summary: PageKnowledge.summary(page.meta)
     }
 
+  # A file page has no OKF document: L0 and L1 preview its table summary or
+  # leading text, and L2 returns the extracted text. The L2 limit sits above
+  # ordinary documents and only cuts a file near the extraction limit, which
+  # would otherwise fill a model's context in one read.
+  @file_content_tokens 100_000
+  @table_guidance "These rows are extracted text. For exact totals, grouping, or filtering, compute over the original file instead of estimating from them."
+
+  defp render(%{kind: :file} = page, level) when level in [:l0, "l0"],
+    do: {:ok, %{level: "L0", summary: file_preview(page, 100), file: file_coverage(page)}}
+
+  defp render(%{kind: :file} = page, level) when level in [:l1, "l1"],
+    do: {:ok, %{level: "L1", content: file_preview(page, 400), file: file_coverage(page)}}
+
+  defp render(%{kind: :file} = page, _level) do
+    content = Ankole.Kernel.truncate_o200k_base_tokens(page.body, @file_content_tokens)
+
+    {:ok,
+     %{
+       level: "L2",
+       content: content,
+       metadata: page.meta,
+       file: Map.put(file_coverage(page), "content_truncated", content != page.body)
+     }}
+  end
+
   defp render(page, level) when level in [:l0, "l0"],
     do: PageKnowledge.project(nil, page.meta, level)
 
@@ -67,4 +92,34 @@ defmodule Ankole.Brain.GetPage do
     do: {:ok, %{level: "L2", content: body, metadata: metadata}}
 
   defp render(page, level), do: PageKnowledge.project(page.xml, page.meta, level)
+
+  defp file_preview(
+         %{
+           content_hash: version,
+           upstream_state: %{"file_summary" => %{"version" => version, "text" => text}}
+         },
+         tokens
+       ),
+       do: Ankole.Kernel.truncate_o200k_base_tokens(text, tokens)
+
+  defp file_preview(page, tokens),
+    do: Ankole.Kernel.truncate_o200k_base_tokens(page.body, tokens)
+
+  # What the extraction covered: `truncated` marks text cut at the extraction
+  # limit, `textless_pages` lists PDF pages that still have no text, and
+  # `ocr_pages` lists the scanned pages whose text an OCR model read.
+  defp file_coverage(%{file: %{"format" => format, "metadata" => metadata}} = page) do
+    coverage =
+      metadata
+      |> Map.take(
+        ~w(truncated page_count extracted_pages textless_pages ocr_pages sheets row_count line_count)
+      )
+      |> Map.put("format", format)
+
+    if Ankole.Brain.FileText.table?(page),
+      do: Map.put(coverage, "guidance", @table_guidance),
+      else: coverage
+  end
+
+  defp file_coverage(_page), do: %{}
 end

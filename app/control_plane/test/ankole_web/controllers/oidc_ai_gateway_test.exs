@@ -33,7 +33,18 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
          "model" => "blocked/model",
          "state" => "hello",
          "questions" => %{"urgent" => %{"type" => "noul", "instructions" => "Urgent?"}}
-       }}
+       }},
+      {"/api/v1/ai-gateway/audio/speech", %{"model" => "blocked/model", "input" => "hello"}},
+      {"/api/v1/ai-gateway/audio/transcriptions",
+       %{"model" => "blocked/model", "input_audio" => %{"data" => "UklGRg==", "format" => "wav"}}},
+      {"/api/v1/ai-gateway/ocr",
+       %{"model" => "blocked/model", "document" => "data:image/png;base64,iVBORw0="}},
+      # A default selector is an alias like any other: the Client must list it.
+      {"/api/v1/ai-gateway/ocr",
+       %{"model" => "ocr.default", "document" => "data:image/png;base64,iVBORw0="}},
+      {"/api/v1/ai-gateway/audio/speech", %{"model" => "speech.default", "input" => "hello"}},
+      {"/api/v1/ai-gateway/videos", %{"model" => "video.default", "prompt" => "hello"}},
+      {"/api/v1/ai-gateway/audio/music", %{"model" => "blocked/model", "prompt" => "hello"}}
     ]
 
     for {path, body} <- requests do
@@ -44,6 +55,23 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
         |> post(path, body)
 
       assert %{"error" => %{"code" => "model_not_allowed"}} = json_response(response, 403)
+    end
+
+    # A request without `model` names no alias for the Client to allow, so no
+    # entry may run on a default model.
+    for path <- ~w(audio/speech audio/transcriptions ocr videos audio/music) do
+      response =
+        conn
+        |> recycle()
+        |> bearer(fixture.access_token)
+        |> post("/api/v1/ai-gateway/#{path}", %{
+          "input" => "hello",
+          "prompt" => "hello",
+          "input_audio" => %{"data" => "UklGRg==", "format" => "wav"},
+          "document" => "data:image/png;base64,iVBORw0="
+        })
+
+      assert %{"error" => %{"param" => "model"}} = json_response(response, 400)
     end
   end
 

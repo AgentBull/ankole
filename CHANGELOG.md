@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.116 (2026-11-12)
+## Version 2.0.0-alpha.134 (2026-11-12)
 
 - Realign the shared design tokens with the Ankole Base Styles library. The hue
   colour steps (`--color-red-*` through `--color-magenta-*`) take the library's
@@ -125,10 +125,17 @@
   is in To do or In progress, the Home tab shows a Background Agent
   tasks row directly above Shared with me, and the row opens the board under
   the same title. The board is the page's only layout, and the page no longer
-  offers New issue, so Issues come from the personal assistant's background
-  work and from `POST /api/v2/pod/issues`. When the page is too narrow for all
-  five columns, such as beside an open Issue, the columns wrap onto another
-  row instead of scrolling sideways.
+  offers New issue, so Issues come from the conversations in which a
+  Background Agent Job or Workflow starts and from `POST /api/v2/pod/issues`.
+  When the page is too narrow for all five columns, such as beside an open
+  Issue, the columns wrap onto another row instead of scrolling sideways.
+- Remove from Pod's interface the Work controls that 2.0.0-alpha.123 added:
+  the Issue panel, the label filter on the board, the schedule buttons, the
+  sub-issue and Squad fields, and the Work tab's badge. The Work board does
+  not show an Issue's labels, parent, sub-issues, Squad, or repeating rule.
+  Ankole keeps all of them: set them with `POST /api/v2/pod/issues`, replace
+  an Issue's labels with `PATCH /api/v2/pod/issues/:id`, and pause, resume,
+  run, or remove a schedule with `PATCH /api/v2/pod/issues/scheduled/:id`.
 - Open a work item on the Work board in the same side panel that a
   conversation uses for a task. The board narrows to a column while the panel
   slides in, and the panel shows the run's plan, steps, and result with its
@@ -147,6 +154,323 @@
   reached when focus leaves, and it keeps still when the device asks for
   reduced motion. The edge's colours are the `--composer-edge-stops` token,
   which takes the stops of the new `--border-quaternary-stops` token on light.
+
+## Version 2.0.0-alpha.133 (2026-11-12)
+
+- Read and edit Word documents (`.docx`, `.docm`) and presentations (`.pptx`)
+  directly in Pod alongside spreadsheets (`.xlsx`, `.xlsm`). Create blank
+  Office files from the Page creation menu or upload existing files; edits save
+  automatically into the Office file with version history, PDF export for Word
+  and Presentation Pages, full-screen slide show playback, and Presence soft
+  locks on active top-level blocks and slides so collaborators can work on
+  different sections or slides concurrently.
+- Preview `.docx`, `.docm`, `.pptx`, `.xlsx`, and `.xlsm` Chat attachments and
+  read-only file Pages with the same WebAssembly engines, including text
+  selection, clipboard copy, and in-file search.
+- Convert any Word Page into a native Pod document Page in one click
+  (`POST /api/v2/pod/pages/:id/convert-to-document`), preserving headings,
+  formatted runs, nested lists, merged and shaded tables, extracted media
+  assets, equations, and footnotes while keeping the original Word file intact.
+- Add `ankole-pod office` (`inspect`, `render --to`, `commands`, `apply`, and
+  `to-document`) so Agents can inspect, visually render, edit, and convert Pod
+  Office Pages through the shared operation log without resetting human
+  collaborators, while keeping `OfficeCLI` for local `/workspace` files.
+- Generalize Pod's spreadsheet configuration and HTTP/channel endpoints to
+  Office Pages (`pod.office.limits`, `POST /api/v2/pod/office-pages`, and
+  `/api/v2/pod/pages/:id/office*`), migrating existing `pod.spreadsheet.limits`
+  tenant settings automatically. Run `mix ecto.migrate`: the migration renames
+  `pod_spreadsheet_ops` to `pod_office_ops` and creates
+  `pod_office_checkpoints`.
+
+## Version 2.0.0-alpha.132 (2026-11-12)
+
+- Cut repeated access checks on live conversation streams, and let shutdown
+  finish its cleanup.
+  - A conversation's live event stream reuses a successful access check for
+    5 seconds instead of querying the database before every 40 ms text flush.
+    A Page-permission change still rechecks at once. Ankole detects a sign-out
+    or a disabled Human on the first frame or 15-second heartbeat after that
+    5-second window.
+  - Supervisor shutdown now runs the cleanup that AI Gateway response streams
+    already define, cancelling open upstream streams and program tasks.
+  - The Docker Compose control plane waits up to 60 seconds for a graceful
+    stop, matching the Helm chart, instead of Docker's 10-second default. For
+    the first upgrade to this release, run `docker compose stop --timeout 60`,
+    because the running container still carries the old 10-second timeout.
+  - When a channel reply preview exits or times out while a new turn takes it
+    over, the turn continues without the preview instead of failing.
+  - One Applet invocation runs at most 64 capability calls at a time; further
+    calls wait and start as earlier ones finish. Feishu, Slack, and DingTalk
+    connections dispatch at most 64 events at a time and leave further events
+    unacknowledged, so the platform redelivers them.
+
+## Version 2.0.0-alpha.131 (2026-11-11)
+
+- Internal changes only.
+
+## Version 2.0.0-alpha.130 (2026-11-11)
+
+- Internal changes only.
+
+## Version 2.0.0-alpha.129 (2026-11-11)
+
+- Fix Squads after an AI colleague is renamed. Renaming an Agent left its old
+  name in the Squads of existing Issues, so those Issues stopped showing it as
+  a Squad member. A rename now updates the Agent's name in every Squad.
+
+## Version 2.0.0-alpha.128 (2026-11-12)
+
+- Add Personal Skills, `/learn` workflow extraction, and `/<slug>` Skill
+  invocation in Pod. Any workspace member can create, edit, import, and delete
+  Personal Skills attached exclusively to their own Personal Assistant
+  (`skills.agent_uid`), and members with `tenant_console:custom_skills` can
+  promote a Personal Skill to a Workspace Skill. Leading `/learn` turns (and the
+  message-level `Save as Skill (/learn)` action) draft `library.skill.save`
+  Action Cards validated by `SkillLinter` with revision preconditions and
+  personal-draft redaction for other group-room viewers, while leading `/<slug>`
+  turns and the `/` command picker invoke runtime-enabled Skills directly.
+- Add live Connector Auth Cards, Page Access Cards, and a 4-stage Page access
+  diagnostic waterfall. When a native room turn stops on `consent_required` or
+  `access_denied` (`node_view`), Pod renders an inline `ConnectorAuthCardView`
+  or `PageAccessCardView`, groups pending conversations under `Needs your input`
+  (alongside inline Clarify controls on `waiting_on_user` Background Agent Jobs
+  and Workflows), and automatically resumes the blocked Agent once the owner
+  completes authorization in the popup window or a Page manager clicks `Grant
+  view & continue` (preserving any higher existing role). The Page Share
+  popover gains a `Check access` view (`GET /api/v2/pod/pages/:id/sharing/explain`)
+  showing the 4-stage authorization waterfall, and `pod.page.set_sharing` Action
+  Cards summarize affected principals' current access.
+- Add the `My Memories & Context` lens (`?lens=mine`), `Focus on me` graph
+  highlight, and object claims inspector in `/meta/brain`. Viewers can inspect
+  active Facts and Takes on any selected Brain object, filter the graph to the
+  1-hop neighborhood around themselves and their Personal Assistant, and add,
+  edit (`supersede`), or retract (`forget`) personal memories and workspace
+  claims from `/meta/brain?lens=mine` (including private memories captured in
+  Personal Assistant DM conversations).
+- Enable `programmatic_tool_calling` (`program`) across read-only Session tools
+  and `tool_search` (`defer_loading`) for setup tools, preserve prompt-cache
+  prefixes across OpenAI Responses, Claude, OpenRouter Claude, and Workflow wake
+  turns, project preflight context growth with unproductive-compaction
+  hysteresis (while keeping `8 MiB / 1,024-item` provider-history checkpoints
+  active), and shape repetitive test, build, package-manager, `git log`, JSON,
+  and `cat` CLI outputs in Agent Computer (retaining full raw bytes in
+  `outputLogPath` and bypassing downstream pipes and redirections). Run
+  `mix ecto.migrate`: the migrations create `connector_auth_waits`, add
+  `skills.agent_uid`, and add `library.skill.save` to `action_cards`.
+
+## Version 2.0.0-alpha.127 (2026-11-11)
+
+- Let a scanned PDF be read again, and recover sooner when an OCR run dies.
+  A file in the trash no longer lends what OCR read from it, so moving every
+  copy of a file to the trash and uploading it again sends it to OCR afresh.
+  The job that reads a file's scans now refreshes its claim every 20 seconds.
+  When its node dies, another job of the same file takes over after about a
+  minute instead of 30 minutes.
+
+## Version 2.0.0-alpha.126 (2026-11-11)
+
+- Give every copy of a scanned PDF its text as soon as OCR has read one of
+  them. A copy that was uploaded before the OCR model existed now takes the
+  pages that OCR reads from a later upload of the same file. It no longer
+  waits for an administrator to accept the charges for earlier scans, because
+  taking those pages costs nothing, and Console no longer counts it among the
+  unread scans.
+
+## Version 2.0.0-alpha.125 (2026-11-11)
+
+- Send the same scanned PDF to OCR once in a Pod. A file uploaded to another
+  place takes the pages that OCR already read from the same bytes, including
+  a page in which OCR found no text, instead of being sent again. When two
+  extraction jobs hold the same bytes at the same time, one sends them, and
+  the other waits and then takes the stored pages. Run `mix ecto.migrate`:
+  the migration adds an index on `file_objects (tenant_id, sha256)`.
+
+## Version 2.0.0-alpha.124 (2026-11-11)
+
+- Fix OCR for scanned PDFs in a trashed folder. Pod marks only the folder
+  when someone moves it to the trash, so the scans inside were still counted
+  when Console asked about the scans uploaded earlier, and they were still
+  sent to the OCR provider once an administrator accepted the charges. Pod
+  now leaves every file under a trashed folder out of the count and sends
+  none of its pages; restoring the folder brings its scans back.
+
+## Version 2.0.0-alpha.123 (2026-11-11)
+
+- Extend Work. An Issue can repeat on a cron schedule: each run sends its
+  request to the Agent, reports in the Issue's conversation, and returns the
+  Issue to In review, and the person who made it repeat can pause, resume, run,
+  or remove the schedule from the Issue's panel or from Scheduled. Issues carry
+  labels, and the board filters by one label. A person can break an Issue into
+  sub-issues; accepting a sub-issue posts its result in the parent's
+  conversation, where the parent's Agent continues. An Issue for a personal
+  assistant can name a Squad of AI colleagues among whom the assistant shares
+  the work. A direct conversation with an AI colleague or a group now enters
+  Work when its first Background Agent Job or Workflow starts, as a
+  conversation with a personal assistant already did, and stays there until
+  someone accepts it. The Work tab shows a badge for the Issues that need an
+  answer or wait for review, and lists them first. Run `mix ecto.migrate`: the
+  migration adds labels, the parent link, and the Squad to Issues.
+
+## Version 2.0.0-alpha.122 (2026-11-11)
+
+- Add video and music generation to AIGateway as media jobs. `POST /videos`
+  and `POST /audio/music` answer `202` with a job, `GET /videos/:id` and
+  `GET /audio/music/:id` read it, and `GET /videos/:id/content` and
+  `GET /audio/music/:id/content` send the generated file once the job is
+  `completed`. A background job sends the request, waits for the Provider,
+  and saves the file in the tenant's object storage, where it stays for seven
+  days. The new Pod and Site `video` and `music` profiles select the model:
+  OpenRouter serves video, and Cloudflare serves music through the Workers AI
+  partner models `minimax/music-2.6` and `elevenlabs/music-v2`. The usage
+  ledger records each completed job. The migration creates
+  `ai_gateway_media_jobs` and replaces the capability check on
+  `ai_gateway_usage_records`, which holds that table's exclusive lock while
+  PostgreSQL validates its rows; on a large database plan the upgrade for a
+  quiet period.
+
+## Version 2.0.0-alpha.121 (2026-11-11)
+
+- Add the optional `amazon-ai-providers` Plugin, whose `amazon` provider kind
+  serves Amazon Polly on the `speech` slot and Amazon Textract on the `ocr`
+  slot. Polly takes its engine, such as `neural`, as the model and the
+  profile's `voice` when a request names none; Textract reads a PNG or JPEG
+  image or a one-page PDF. AIGateway signs each request with AWS Signature
+  Version 4 from the pool member's access key and the provider row's region.
+
+## Version 2.0.0-alpha.120 (2026-11-11)
+
+- Close gaps in OCR for scanned PDF pages. Two Pages that hold the same file
+  no longer both send its scans when their jobs run at the same time: a
+  reconciliation pass enqueues one Page for each object. OCR pages that a run
+  kept after it could not store its extraction now join the file's text on the
+  next pass, at no charge. A file whose search text went missing is extracted
+  again after a rebuild. A result for bytes that were committed again while
+  the run was reading is stored for the new object. Committing unchanged bytes
+  keeps the cache's time, so a scan whose OCR run failed is still retried. A
+  learning run that finds its content version outdated asks for the page's
+  current version, which covers the runs that were executing during the
+  upgrade to 2.0.0-alpha.119. That upgrade's migration replaces the origin
+  check on `ai_gateway_usage_records` first and holds the table's exclusive
+  lock until the migration commits, across the view rebuild and two data
+  updates; on a large database plan the upgrade for a quiet period.
+
+## Version 2.0.0-alpha.119 (2026-11-11)
+
+- Read scanned PDF pages with OCR. When the Pod or the Site has an OCR model,
+  file extraction sends the pages of a newly uploaded PDF that have no text
+  layer to that model and adds what it reads to the file's text under the same
+  `[Page N]` lines, so Pod search and Brain cover those pages, and Brain
+  relearns a file once OCR text arrives. The OCR provider charges for every
+  page, so each page is sent once: the file's cache keeps what OCR read
+  (`pod_file_caches.ocr`), and later extractions reuse it, as does a commit of
+  the same bytes and another Page that holds the same file. Scanned PDFs that
+  were not read at upload stay unread until an administrator accepts the
+  charges. Console asks when the OCR profile is saved, shows how many files
+  and pages are waiting (and says so while it is still counting after an
+  upgrade), and stores the answer in the new tenant setting
+  `pod.ocr_existing_scans` (default `false`). A Site-level consent covers
+  every Pod without a value of its own, and a Pod that declined keeps its
+  refusal. AIGateway records the pages under the new `pod_files` usage origin.
+  Without an OCR model, scanned pages stay unsearchable. A File Page's content
+  version in Brain now follows the SHA-256 of its bytes, so committing an
+  unchanged file again, as an Agent's `drive put` does, no longer makes Brain
+  learn it again; the upgrade renames the versions that learned files and
+  waiting learning jobs carry.
+  `Ankole.Kernel.file_extract_text/4` takes the page texts, a PDF's cache
+  metadata lists the pages OCR read in `ocr_pages`, and
+  `GET /api/v2/unread-scans` and `GET /api/v2/site/unread-scans` return the
+  waiting files and pages.
+- Let the `ocr` Skill call the AIGateway OCR API. The Skill gains
+  `scripts/ocr_api.py`, which sends an image or a PDF to `/ocr` and prints
+  Markdown per page, next to the local engine; the Agent decides which one to
+  use. The shell of a Codex Job receives `ANKOLE_RUNTIME_AI_GATEWAY_URL` and
+  `ANKOLE_RUNTIME_AI_GATEWAY_TOKEN_FILE`, so a Skill script can call a gateway
+  endpoint with the Agent's own key.
+
+## Version 2.0.0-alpha.118 (2026-11-11)
+
+- Add `POST /audio/speech` and `POST /audio/transcriptions` to AIGateway, with
+  Pod and Site `speech` and `transcription` model slots in Console. OpenRouter
+  serves its text-to-speech and speech-to-text models, and Cloudflare serves
+  the Deepgram Aura models and the Workers AI models that take base64 audio,
+  such as Whisper large v3 turbo. A speech response is the audio itself, as
+  `mp3` or `pcm`, and a client can ask for it with `Accept: audio/*`; a
+  transcription returns the text, plus the language, the duration, and timed
+  segments with `verbose_json`. Both requests fail with
+  `model_profile_not_configured` until an operator binds the slot. Run
+  `mix ecto.migrate`: the migration lets the usage ledger record a speech call
+  by its characters and a transcription call by its seconds of audio. It
+  rechecks every usage row under a table lock, so gateway calls wait while it
+  runs on a large ledger.
+- Add `POST /ocr` to AIGateway. It returns the text of one PNG, JPEG, or WebP
+  document image as Markdown, read by the caller's `vision_fallback` language
+  model, or by `primary` when that profile is not configured.
+- Add `AnkoleRuntime.ai.generateSpeech`, `ai.transcribe`, and `ai.ocr` to
+  Applets. `generateSpeech` saves the audio as a Pod file the way
+  `generateImage` saves an image, and `transcribe` and `ocr` read a Pod file.
+- Let `POST /ocr` read PDFs through a dedicated OCR model. Add the `mistral`
+  provider kind and the Pod and Site `ocr` model slot in Console. With the slot
+  bound, `/ocr` accepts a PDF of up to 50 MiB and an optional `pages` list of
+  up to 100 page indexes, starting at 0, and returns Markdown per page. Without
+  the slot, a language model that accepts images still reads one image, and a
+  PDF fails with `unsupported_value`. Run `mix ecto.migrate`: the migration
+  lets the usage ledger record an OCR call by its pages, and it rechecks every
+  usage row under a table lock as well.
+- Show a provider's request options in Console only on the model profiles that
+  use them. A provider kind can limit a request setting to some of its
+  capabilities, so a speech, transcription, or decision profile on a Cloudflare
+  provider shows neither the search engine nor the image options, and a speech
+  or transcription profile on OpenRouter shows no language-model options.
+- Show the usage of capabilities that count no tokens on the Console Model
+  usage page. A table lists OCR, transcription, speech, image generation, and
+  decision-model calls with their number, the quantity in pages, seconds,
+  characters, or images, and the cost in US dollars when the Provider reports
+  one.
+- Bring File Pages into Brain. `recall` searches a public file whose text
+  Ankole can extract (PDF, Office and OpenDocument files, spreadsheets,
+  CSV/TSV, and text) by page, slide, sheet, or section. A file in the Brain
+  tree, or one whose own page or an ancestor enables `extract_facts`, also
+  yields facts and timeline events that cite it, and the Brain graph shows it
+  as their evidence source; a File Page has its own Learn business facts
+  control for that. A spreadsheet contributes one summary of its sheets and
+  columns instead of row-level facts. Replacing a file relearns it, and a file
+  replaced by a format that Ankole cannot read drops its passages, facts, and
+  timelines. The `brain` tool reads a file's extracted text with a note of
+  what the extraction covered. Extracted search text now carries the numbers,
+  dates, and formula results of spreadsheet cells, marks each page, slide, and
+  sheet (`[Page N]`, `[Slide N]`, `[Sheet: name]`), turns Word and
+  OpenDocument headings into `[Section: outer > heading]` lines, and labels
+  table rows `R<row>`; after the upgrade, Ankole re-extracts existing files in
+  the background. The migration adds File Pages to `brain_page_nodes` and
+  renames `upstream_state.facts_revision` and `timeline_revision` to
+  `facts_version` and `timeline_version`.
+- Keep addressing an Issue's Agent after a teammate joins the Issue's
+  conversation. The conversation becomes a group, and its composer selects the
+  Issue's Agent as the recipient until the member picks another one.
+
+## Version 2.0.0-alpha.117 (2026-11-11)
+
+- Internal changes only.
+
+## Version 2.0.0-alpha.116 (2026-11-11)
+
+- Fix long conversations that stopped answering with
+  `provider_history_byte_limit_exceeded`. When a model streamed its reasoning
+  through a Chat Completions provider such as OpenRouter, AIGateway stored
+  every streamed fragment as a separate `reasoning_details` entry, so the stored
+  reasoning took many times the bytes of the reasoning itself. A conversation
+  could then reach the `8 MiB` history limit of one Response long before the
+  token trigger for compaction. Every later message in it ended with the
+  "This message could not be finished" notice, and `/retry` failed the same
+  way. AIGateway now joins the fragments of one reasoning text into one entry,
+  both when it stores a response and when it replays a stored one.
+- Compact a conversation when its stored history reaches three quarters of the
+  item limit (1,024) or byte limit (`8 MiB`) of one Response, even when it is
+  below the token trigger. A conversation that already fails with
+  `provider_history_byte_limit_exceeded` or `provider_history_item_limit_exceeded`
+  is compacted on its next message and continues; `/compress` remains
+  available. When that compaction cannot write its summary, the message runs on
+  the full history as before.
 
 ## Version 2.0.0-alpha.115 (2026-11-11)
 

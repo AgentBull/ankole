@@ -79,7 +79,7 @@ import type { FindMode } from './spreadsheet-find-dialog'
 import { SpreadsheetFormulaAssist } from './spreadsheet-formula-assist'
 import { SpreadsheetFunctionsDialog } from './spreadsheet-functions-dialog'
 import { SpreadsheetValidationDialog } from './spreadsheet-validation-dialog'
-import { SpreadsheetVersions } from './spreadsheet-versions'
+import { OfficeVersions } from '../office/office-versions'
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36]
 const NUMBER_FORMATS = {
@@ -693,7 +693,7 @@ export function SpreadsheetToolbar({
               ))}
             </AvatarGroup>
           )}
-          {canEdit && <SpreadsheetVersions pageID={pageID} />}
+          {canEdit && <OfficeVersions pageID={pageID} />}
         </div>
       </div>
       <div className="flex items-center gap-2 border-t border-border px-2 py-1">

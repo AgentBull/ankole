@@ -118,6 +118,10 @@ defmodule Ankole.Pod.Access.Graph do
     end
   end
 
+  @doc false
+  def snapshot_space_bits_for_explain(snapshot, evaluated),
+    do: snapshot_space_bits(snapshot, evaluated)
+
   defp snapshot_space_bits(%{"principal" => %{"membership" => "guest"}}, _), do: 0
 
   defp snapshot_space_bits(snapshot, evaluated) do

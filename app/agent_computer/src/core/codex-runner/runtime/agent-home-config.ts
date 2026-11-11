@@ -7,6 +7,7 @@ import { rename } from 'node:fs/promises'
 import { mkdirAgentSync, mkdirAgent, chownAgentPath } from '../../../common/agent-user'
 import { dirname, join, relative } from 'node:path'
 import { agentHomePaths, codexSQLiteHome } from '../../agent-home-paths'
+import { commandPath } from '../../execution/command-env'
 import type { CodexRuntimeConfig } from '../runtime-config'
 import { CODEX_RUNTIME_CONFIG_TOML_ENV, CODEX_RUNTIME_TOKEN_ENV } from './codex-home-lock'
 
@@ -40,7 +41,7 @@ export function materializeCodexConfig(input: { agentHomeRoot: string; viewKey?:
 
   const env: Record<string, string> = {
     // The Worker image sets this variable, and the entry restores it.
-    PATH: process.env.PATH!,
+    PATH: commandPath(process.env.PATH),
     HOME: paths.home,
     CODEX_HOME: paths.codexHome,
     CODEX_SQLITE_HOME: sqliteHome,

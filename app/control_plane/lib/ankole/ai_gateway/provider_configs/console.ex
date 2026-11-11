@@ -51,7 +51,10 @@ defmodule Ankole.AIGateway.ProviderConfigs.Console do
       type: :atom,
       allow_nil?: false,
       constraints: [one_of: ~w(connection credential request)a]
-    ]
+    ],
+    # The capabilities whose model profiles offer a request setting; nil
+    # means every capability of the provider kind.
+    capabilities: [type: {:array, :string}]
   ]
 
   @kind_fields [

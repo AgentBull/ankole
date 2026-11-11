@@ -8394,6 +8394,13 @@ export type GetAiGatewayUsageResponses = {
       reported_rounds: number
       rounds: number
     }>
+    by_capability: Array<{
+      calls: number
+      capability: string
+      provider_cost?: number | null
+      quantity?: number | null
+      unit?: string | null
+    }>
     by_human: Array<{
       cache_creation_input_tokens?: number | null
       cached_input_tokens?: number | null
@@ -8632,6 +8639,35 @@ export type DecryptWorkerEnvResponses = {
 }
 
 export type DecryptWorkerEnvResponse = DecryptWorkerEnvResponses[keyof DecryptWorkerEnvResponses]
+
+export type GetUnreadScansData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/unread-scans'
+}
+
+export type GetUnreadScansErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetUnreadScansError = GetUnreadScansErrors[keyof GetUnreadScansErrors]
+
+export type GetUnreadScansResponses = {
+  /**
+   * Success
+   */
+  200: {
+    counting: boolean
+    files: number
+    pages: number
+  }
+}
+
+export type GetUnreadScansResponse = GetUnreadScansResponses[keyof GetUnreadScansResponses]
 
 export type SetAgentLibraryPluginData = {
   /**

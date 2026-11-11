@@ -57,6 +57,7 @@ export function Connectors() {
   const { t, i18n } = useTranslation()
   const model = useModel(ConnectorsModel)
   const params = new URLSearchParams(window.location.search)
+  const isPopup = params.get('popup') === '1'
   const originalTaskPath = localReturnPath(params.get('intent'), window.location.origin)
   const automation = connectorAutomationContext(params)
   const session = useQuery({
@@ -106,7 +107,8 @@ export function Connectors() {
               trigger,
               automation,
               subjectKind,
-              intent: params.get('intent')
+              intent: params.get('intent'),
+              popup: isPopup
             }),
             subject_kind: subjectKind
           }
@@ -128,6 +130,13 @@ export function Connectors() {
     claim.mutate(code)
     window.history.replaceState(null, '', connectorAddressAfterAuthorization(url))
   }, [claim.mutate])
+  useEffect(() => {
+    if (!isPopup || (!claim.isSuccess && !model.credentialsBound.value)) return
+    const timer = window.setTimeout(() => {
+      window.close()
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [isPopup, claim.isSuccess, model.credentialsBound.value])
   const disconnect = useMutation({
     mutationFn: (id: string) => api.podConnectorAccountsDisconnect({ path: { id } }),
     onSuccess: refresh

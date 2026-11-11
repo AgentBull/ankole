@@ -23,6 +23,9 @@ const readOperations = [
   'files.manifest',
   'files.download',
   'chat.attachment.get',
+  'office.inspect',
+  'office.render',
+  'office.commands',
   'base.tables',
   'base.schema',
   'base.query',
@@ -50,6 +53,8 @@ const writeOperations = [
   'pages.patch',
   'comments.reply',
   'comments.resolve',
+  'office.apply',
+  'office.to_document',
   'applets.pull',
   'files.upload',
   'applets.publish',
@@ -254,7 +259,11 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
           await writeFile(documentPath!, params.markdown)
           delete params.markdown
         }
-        if (command.operation === 'chat.attachment.get' || command.operation === 'files.download') {
+        if (
+          command.operation === 'chat.attachment.get' ||
+          command.operation === 'files.download' ||
+          command.operation === 'office.render'
+        ) {
           if (typeof params.local_path !== 'string') throw new Error('File download requires a destination path')
           const local = resolve(command.cwd, params.local_path)
           await opts.drive.homeRelativePath(local, { create: true })

@@ -205,8 +205,14 @@ defmodule Ankole.Conversations.NativeRoom do
         ]
       )
 
+    prepared_cards =
+      all_ids
+      |> Ankole.Conversations.ActionCards.prepared_conversation_ids()
+      |> Enum.map(&Map.get(origins, &1, &1))
+
     active =
       active ++
+        prepared_cards ++
         Enum.map(jobs ++ workflows, fn work ->
           {:conversation, id} = Ankole.Sessions.Key.parse(work.owner_session_id)
           Map.get(origins, id, id)

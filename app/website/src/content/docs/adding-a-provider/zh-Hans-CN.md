@@ -74,6 +74,7 @@ setting(:reasoningEffort, type: :select, default: "high",
 | `encrypted?` | 存储元数据，标记该凭据值是否需要静态加密落盘 |
 | `advanced?` | Console 表单展示标记，仅影响界面呈现，不改变参数校验或运行时行为 |
 | `scope` | 作用域：`:credential`（按凭据池成员）、`:connection`（按 Provider 记录）或 `:request`（按模型档案） |
+| `capabilities` | 仅用于 `:request` 设置：列出会读取该设置的能力种类，例如 `[:image_generate]`；Console 只在这些能力的模型档案上显示它，省略时在所有档案上显示 |
 
 每条 Provider 记录都配有一个凭据池（哪怕池中只有一个成员）。调用 `prepare` 函数前，解析器会先从池中选出一个健康的凭据成员，并解密其 `:credential` 作用域的配置；端点地址、自定义请求头等 `:connection` 配置由整条 Provider 记录共用；`:request` 配置则取自具体的模型档案（Model Profile）。这三类配置会合并进同一个 `settings` 映射传给 `prepare` 函数，因此 `prepare` 函数只需直接按键读取，无需自行实现凭据池调度。
 
@@ -94,7 +95,7 @@ end
 
 | 字段 | 含义 |
 |---|---|
-| `kind` | 能力种类，取值为 `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate`、`:decision_model` 之一 |
+| `kind` | 能力种类，取值为 `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate`、`:decision_model`、`:speech_model`、`:transcription_model`、`:ocr_model`、`:video_model`、`:music_model` 之一 |
 | `upstream` | 上游传输形态，由 `kind` 自动决定：`:language_model` 为 `:sse`，其余种类均为 `:json` |
 | `api_resolver` | Rust 侧负责协议编码与网络传输的解析器标识（atom，如 `:openai_responses`） |
 | `prepare` | 负责组装请求的 Elixir 函数名 |
@@ -102,7 +103,7 @@ end
 | `supports_parallel_tool_calls?` | 该 Provider 是否支持并行工具调用 |
 | `supports_native_image_generation?` | 未单独配置托管 `image_generate` 档案时，该大语言模型能否直接执行通用图像生成工具 |
 
-上述七种能力在运行时分别映射为以下外部名称：`language_model` → `"llm"`、`embedding_model` → `"embedding"`、`rerank_model` → `"rerank"`、`decision_model` → `"decision"`，其余三种网页与图像能力名称保持不变。仅提供大语言模型的 Provider 只需声明 `language_model`；同时提供大语言模型和向量嵌入服务的 Provider 则将两者一并声明。
+上述十二种能力在运行时分别映射为以下外部名称：`language_model` → `"llm"`、`embedding_model` → `"embedding"`、`rerank_model` → `"rerank"`、`decision_model` → `"decision"`、`speech_model` → `"speech"`、`transcription_model` → `"transcription"`、`ocr_model` → `"ocr"`、`video_model` → `"video"`、`music_model` → `"music"`，其余三种网页与图像能力名称保持不变。仅提供大语言模型的 Provider 只需声明 `language_model`；同时提供大语言模型和向量嵌入服务的 Provider 则将两者一并声明。
 
 TypeSafe、Microsoft Foundry 和 OpenRouter 的 SystemOne 端点使用 `:systemone_decision`，OpenAI `/decisions` 使用 `:openai_decision`。解析器负责状态和图像编码、问题转换及答案归一化；Provider 的 `prepare` 函数负责基础 URL、部署或模型名称、鉴权、专有请求头和请求选项。`TypeSafe` 还展示了 Provider 自有的 `/models` 元数据来源，可同时读取 TypeSafe 的 `models` 和 OpenAI 风格的 `data` 目录条目。
 

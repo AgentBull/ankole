@@ -23,6 +23,7 @@ import {
   getAiGatewayProvider,
   getPrivilegedTenant,
   getSiteAppConfiguration,
+  getSiteUnreadScans,
   listAiGatewayModels,
   listAiGatewayProviderKinds,
   listAiGatewayProviders,
@@ -108,6 +109,9 @@ import type {
   GetSiteAppConfigurationData,
   GetSiteAppConfigurationError,
   GetSiteAppConfigurationResponse,
+  GetSiteUnreadScansData,
+  GetSiteUnreadScansError,
+  GetSiteUnreadScansResponse,
   ListAiGatewayModelsData,
   ListAiGatewayModelsError,
   ListAiGatewayModelsResponse,
@@ -1063,6 +1067,31 @@ export const suspendTenantMutation = (
   }
   return mutationOptions
 }
+
+export const getSiteUnreadScansQueryKey = (options?: Options<GetSiteUnreadScansData>) =>
+  createQueryKey('getSiteUnreadScans', options)
+
+/**
+ * get_site_unread_scans operation on site_app_configuration_operation resource
+ */
+export const getSiteUnreadScansOptions = (options?: Options<GetSiteUnreadScansData>) =>
+  queryOptions<
+    GetSiteUnreadScansResponse,
+    GetSiteUnreadScansError,
+    GetSiteUnreadScansResponse,
+    ReturnType<typeof getSiteUnreadScansQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getSiteUnreadScans({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getSiteUnreadScansQueryKey(options)
+  })
 
 export const listSiteWorkerEnvsQueryKey = (options?: Options<ListSiteWorkerEnvsData>) =>
   createQueryKey('listSiteWorkerEnvs', options)

@@ -37,7 +37,7 @@ test('a spreadsheet page edits cells, collaborates live, keeps versions, and dow
     await report.getByRole('button', { name: '新建页面', exact: true }).click()
     const created = owner.waitForResponse(
       response =>
-        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/spreadsheet-pages'
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/office-pages'
     )
     await owner.getByRole('menuitem', { name: '电子表格', exact: true }).click()
     const response = await created

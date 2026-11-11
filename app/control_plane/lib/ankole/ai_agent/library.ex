@@ -42,7 +42,7 @@ defmodule Ankole.AIAgent.Library do
          "agent_plugins" => plugins,
          "skills" =>
            Skills.list()
-           |> Enum.filter(&is_nil(&1.agent_plugin_id))
+           |> Enum.filter(&(is_nil(&1.agent_plugin_id) and is_nil(&1.agent_uid)))
            |> Enum.map(&capability(&1, MapSet.new()))
        }}
     end
@@ -57,13 +57,17 @@ defmodule Ankole.AIAgent.Library do
          "agent_plugins" => plugins,
          "skills" =>
            Skills.list()
-           |> Enum.filter(&is_nil(&1.agent_plugin_id))
-           |> Enum.map(&capability(&1, bindings))
+           |> Enum.filter(
+             &(is_nil(&1.agent_plugin_id) and (is_nil(&1.agent_uid) or &1.agent_uid == uid))
+           )
+           |> Enum.map(&capability(&1, bindings, uid))
        }}
     end
   end
 
-  def capability(skill, bindings) do
+  def capability(skill, bindings, uid \\ nil) do
+    personal? = is_binary(uid) and skill.agent_uid == uid
+
     %{
       "id" => skill.slug,
       "name" => skill.slug,
@@ -71,8 +75,8 @@ defmodule Ankole.AIAgent.Library do
       "source_kind" => to_string(skill.source_kind),
       "agent_plugin_id" => skill.agent_plugin_id,
       "enabled_for_all" => skill.enabled_for_all,
-      "bound" => MapSet.member?(bindings, skill.id),
-      "effective_enabled" => Skills.enabled?(skill, bindings),
+      "bound" => personal? or MapSet.member?(bindings, skill.id),
+      "effective_enabled" => Skills.enabled_for_agent?(skill, uid, bindings),
       "revision" => skill.revision
     }
   end
@@ -104,7 +108,7 @@ defmodule Ankole.AIAgent.Library do
       &(Ankole.BackgroundAgentJobs.RuntimeProjection.allows_skill?(
           opts[:runtime_projection],
           &1
-        ) and Skills.enabled?(&1, bindings) and
+        ) and Skills.enabled_for_agent?(&1, uid, bindings) and
           (is_nil(&1.agent_plugin_id) or parents[&1.agent_plugin_id] == true))
     )
     |> Enum.map(&summary(&1, uid, MapSet.member?(lessons, &1.slug)))
@@ -125,7 +129,7 @@ defmodule Ankole.AIAgent.Library do
              opts[:runtime_projection],
              skill
            ),
-         true <- Skills.enabled?(skill, Skills.bindings(uid)),
+         true <- Skills.enabled_for_agent?(skill, uid, Skills.bindings(uid)),
          {:ok, true} <- parent_enabled?(skill.agent_plugin_id, uid, opts),
          do: {:ok, skill},
          else: (
@@ -245,7 +249,9 @@ defmodule Ankole.AIAgent.Library do
     do: %{
       "id" => skill.slug,
       "skill_name" => skill.slug,
+      "name" => skill.name,
       "agent_uid" => uid,
+      "personal" => skill.agent_uid == uid,
       "description" => skill.description,
       "source_kind" => to_string(skill.source_kind),
       "agent_plugin_id" => skill.agent_plugin_id,

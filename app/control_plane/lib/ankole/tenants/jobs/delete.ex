@@ -16,13 +16,13 @@ defmodule Ankole.Tenants.Jobs.Delete do
     pod_files pod_applet_envs pod_applet_approvals message_attachments delivery_attachments
     drive_vfs_exports
     page_user_states page_changes page_comments page_snapshots page_daily_activity page_search_documents page_contents
-    pod_search_queries pod_spreadsheet_ops pod_file_caches permission_grants
+    pod_search_queries pod_office_ops pod_office_checkpoints pod_file_caches permission_grants
     conversation_action_cards external_message_refs conversation_messages conversation_participants
     next_step_suggestions issues
     session_ambient_judgments scheduled_events cron_schedules
     sessions agent_computer_worker_envs runner_bindings runner_devices
     agent_plugin_overrides agent_skill_lessons agent_skills agent_contracts skill_files skills
-    ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
+    ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records ai_gateway_media_jobs
     app_configurations base_change_outbox automation_job_states signal_binding_receipts
     signal_bindings automation_job_runs signal_webhook_endpoints automation_jobs
     background_agent_job_turn_items brain_metric_revisions brain_dataset_bindings
@@ -38,7 +38,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     principal_group_external_bindings principal_group_memberships deliveries
     conversation_inbound_batches conversation_input_tombstones
     connector_db_catalog_columns connector_db_catalog_tables
-    connector_triggers connector_oauth_sessions connector_connected_accounts connector_auth_configs
+    connector_auth_waits connector_triggers connector_oauth_sessions connector_connected_accounts connector_auth_configs
     workflow_agent_calls delivery_previews signals ai_gateway_messages
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
     workflow_runs ai_gateway_conversations background_agent_jobs

@@ -96,7 +96,7 @@ defmodule Ankole.Sessions.Model do
       "instructions" => run.instructions,
       "input" => run.input,
       "metadata" => Run.metadata(run),
-      "tools" => ToolCatalog.wire(run.tools) ++ run.hosted_tools,
+      "tools" => request_tools(run),
       "parallel_tool_calls" => model["supports_parallel_tool_calls"] == true,
       "__ankole_codex_vision" => vision(model)
     }
@@ -107,6 +107,23 @@ defmodule Ankole.Sessions.Model do
 
     request
   end
+
+  defp request_tools(run) do
+    base = ToolCatalog.wire(run.tools) ++ run.hosted_tools
+
+    base
+    |> maybe_append_tool(
+      Enum.any?(run.tools, &Ankole.Sessions.Tool.deferred?/1),
+      %{"type" => "tool_search", "execution" => "server"}
+    )
+    |> maybe_append_tool(
+      Enum.any?(run.tools, &Ankole.Sessions.Tool.programmatic?/1),
+      %{"type" => "programmatic_tool_calling"}
+    )
+  end
+
+  defp maybe_append_tool(tools, true, declaration), do: tools ++ [declaration]
+  defp maybe_append_tool(tools, false, _declaration), do: tools
 
   def inactivity_deadline(run) do
     timeout = inactivity_timeout(run)

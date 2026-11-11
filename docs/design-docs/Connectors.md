@@ -220,7 +220,16 @@ Lark calendar and task operations select personal or application resources throu
 `resource_scope`; personal resource requests require personal consent.
 A permanent token-refresh failure also returns this consent link on the failed
 call, so the member can reconnect immediately. Consent links use the tenant's
-canonical Pod origin and can be opened from external IM messages.
+canonical Pod origin and can be opened from external IM messages. When a native
+room turn hits `consent_required`, `Ankole.Connectors.Gateway` mints the consent
+session with a `/connectors` popup return marker and attaches a structured
+`connector_auth` prompt to the tool envelope. At turn completion, `Posting`
+commits a live `ConnectorAuthCardView` message alongside a `connector_auth_waits`
+row so `Accounts.put_tokens_in_tx/5` resolves the pending external wait and
+wakes the blocked Agent automatically once the Human finishes authorization in
+the popup window (and if the Human completes consent before `Posting` commits
+the blocked turn's final reply, `AuthWaits.activate_or_complete_in_tx/4`
+resolves the newly opened checkpoint immediately in the same transaction).
 
 Lark personal grants include `offline_access` and
 `contact:user.employee_id:readonly` for refresh and employee identification.
@@ -566,8 +575,13 @@ Tenant teardown deletes catalog columns and tables before connection roots.
 Principal authorization uses rank 3. Application roots, connected accounts, and
 OAuth sessions use rank 6, with roots before their dependents. Jobs and Bindings
 precede connector triggers at rank 7. Delivery receipts and Runs use rank 8.
+When `Accounts.put_tokens_in_tx/5` wakes blocked room turns after storing fresh
+tokens at rank 6, `Ankole.Connectors.AuthWaits` acquires `Sessions` (`9`),
+`Conversations` and `Signals` (`11`), and `connector_auth_waits` (`12`) in
+strictly ascending order before resolving each matching interaction checkpoint.
 Network requests never hold these row locks. Tenant teardown removes Signal
-Bindings and triggers before accounts and roots, preserving foreign-key order.
+Bindings, connector auth waits, and triggers before accounts and roots,
+preserving foreign-key order.
 
 Related contracts: [Plugins](Plugins.md), [MCP-backed Skills](MCPBackedSkills.md),
 [Signals](Signals.md), [Automation Jobs](AutomationJobs.md),

@@ -22,6 +22,7 @@ defmodule Ankole.Issues.Activity do
           title: rule.name,
           status: to_string(rule.status),
           agentUID: rule.agent_uid,
+          manageable: rule.human_uid == Actor.uid(actor),
           rooms: rule_rooms(rule),
           schedule: rule.schedule,
           timezone: rule.timezone,
@@ -41,6 +42,7 @@ defmodule Ankole.Issues.Activity do
           title: "",
           status: "scheduled",
           agentUID: event.agent_uid,
+          manageable: false,
           rooms: [event.conversation_id || room_id(event.session_id)],
           schedule: nil,
           timezone: event.timezone,
@@ -55,6 +57,35 @@ defmodule Ankole.Issues.Activity do
      |> named()
      |> Enum.sort_by(&(&1.dueAt || ~U[9999-12-31 00:00:00Z]), DateTime)}
   end
+
+  @doc """
+  Pauses, resumes, runs now, or removes a cron rule. A Human manages the rules
+  that run on the Human's own authority, such as the rule of an Issue that the
+  Human made repeat.
+  """
+  def change_schedule(%Actor{} = actor, id, change) do
+    uid = Actor.uid(actor)
+
+    with {:ok, %{human_uid: ^uid, owner_job_id: nil} = rule} <-
+           Ankole.Schedule.get_cron_schedule(id),
+         {:ok, _} <- apply_change(rule.id, change) do
+      {:ok, rule.id}
+    else
+      {:ok, _rule} -> {:error, :issue_not_found}
+      {:error, :not_found} -> {:error, :issue_not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp apply_change(id, :pause), do: Ankole.Schedule.pause_cron_schedule(id)
+  defp apply_change(id, :resume), do: Ankole.Schedule.resume_cron_schedule(id)
+  defp apply_change(id, :remove), do: Ankole.Schedule.remove_cron_schedule(id)
+
+  defp apply_change(id, :run),
+    do:
+      Ankole.Schedule.run_cron_schedule(id,
+        idempotency_key: "work-run:" <> Ankole.Ecto.UUIDv7.autogenerate()
+      )
 
   # A rule belongs to the conversation that manages it, or else to a
   # conversation that receives its reports.

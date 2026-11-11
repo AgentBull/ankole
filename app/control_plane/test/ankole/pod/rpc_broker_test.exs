@@ -2138,6 +2138,136 @@ defmodule Ankole.Pod.RPCBrokerTest do
     end
   end
 
+  test "Agents inspect, render, edit, and convert Office Pages through Pod RPC", ctx do
+    owner = actor_fixture(ctx.owner)
+
+    {:ok, word_page} =
+      Ankole.Pod.OfficeFiles.create_blank(owner, %{
+        format: "word",
+        title: "Quarterly Memo",
+        private_owner_uid: ctx.owner
+      })
+
+    {:ok, pres_page} =
+      Ankole.Pod.OfficeFiles.create_blank(owner, %{
+        format: "presentation",
+        title: "Board Slides",
+        private_owner_uid: ctx.owner
+      })
+
+    {:ok, sheet_page} =
+      Ankole.Pod.OfficeFiles.create_blank(owner, %{
+        format: "spreadsheet",
+        title: "Revenue Model",
+        private_owner_uid: ctx.owner
+      })
+
+    for page <- [word_page, pres_page, sheet_page] do
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
+          grants: [%{principal_uid: ctx.agent, role: "edit"}]
+        })
+    end
+
+    worker = WorkerFilesFake.start!(ctx.route, files: %{})
+
+    assert {:ok, %{"result" => %{"format" => "word", "revision" => 1}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("office.inspect", %{id: word_page.id}),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"format" => "word", "commands" => word_commands}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("office.commands", %{id: word_page.id, query: "text.insert"}),
+               ctx.ctx
+             )
+
+    assert Enum.any?(word_commands, &(&1["id"] == "text.insert"))
+
+    assert {:ok, %{"result" => %{"revision" => 2, "format" => "word"}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("office.apply", %{
+                 id: word_page.id,
+                 base_revision: 1,
+                 commands: [
+                   %{"command" => "text.insert", "params" => %{"text" => "Executive Summary"}}
+                 ]
+               }),
+               ctx.ctx
+             )
+
+    assert {:error, %{"code" => "revision_conflict"}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("office.apply", %{
+                 id: word_page.id,
+                 base_revision: 1,
+                 commands: [
+                   %{"command" => "text.insert", "params" => %{"text" => "Stale"}}
+                 ]
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"format" => "word", "index" => 1, "bytes" => png_bytes}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("office.render", %{
+                 id: word_page.id,
+                 page: 1,
+                 home_relative_path: "renders/page-1.png"
+               }),
+               ctx.ctx
+             )
+
+    assert png_bytes > 0
+
+    assert binary_part(WorkerFilesFake.files(worker)["renders/page-1.png"], 0, 8) ==
+             <<137, 80, 78, 71, 13, 10, 26, 10>>
+
+    assert {:ok,
+            %{"result" => %{"format" => "presentation", "index" => 1, "bytes" => slide_bytes}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("office.render", %{
+                 id: pres_page.id,
+                 slide: 1,
+                 home_relative_path: "renders/slide-1.png"
+               }),
+               ctx.ctx
+             )
+
+    assert slide_bytes > 0
+
+    assert binary_part(WorkerFilesFake.files(worker)["renders/slide-1.png"], 0, 8) ==
+             <<137, 80, 78, 71, 13, 10, 26, 10>>
+
+    assert {:ok, %{"result" => %{"revision" => 2, "format" => "spreadsheet"}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("office.apply", %{
+                 id: sheet_page.id,
+                 ops: [%{"type" => "cell.set", "sheet_id" => 1, "cell" => "A1", "input" => "42"}]
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"page" => %{"id" => doc_id, "type" => "doc"}}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("office.to_document", %{id: word_page.id}),
+               ctx.ctx
+             )
+
+    agent_actor = actor_fixture(ctx.agent)
+    assert {:ok, %{content: %{plain_text: plain}}} = Pages.get(agent_actor, doc_id)
+    assert plain =~ "Executive Summary"
+  end
+
   defp worker_applet_manifest(route, page_id, source) do
     files = [
       {"src/main.tsx", "source"},

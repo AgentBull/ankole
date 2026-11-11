@@ -1226,6 +1226,19 @@ impl Op {
             _ => return None,
         })
     }
+
+    /// Reports whether the operation embeds encoded picture bytes into the operation log.
+    #[must_use]
+    pub const fn carries_media(&self) -> bool {
+        matches!(
+            self,
+            Op::ImageInsert { .. }
+                | Op::CellPicture {
+                    picture: Some(_),
+                    ..
+                }
+        )
+    }
 }
 
 /// The axis along which a cell shift moves cells: `down`/`up` move rows, `right`/`left` columns.
@@ -1527,6 +1540,30 @@ mod tests {
                 index: None
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn carries_media_matches_embedded_picture_payloads() -> Result<(), Box<dyn std::error::Error>> {
+        let png = parse(
+            r#"{"type":"image.insert","sheet_id":1,"anchor":{"cell":"A1","width":20,"height":10},"picture":{"mime":"image/png","data":"iVBORw0KGgo="}}"#,
+        )?;
+        assert!(png.carries_media());
+
+        let cell_pic = parse(
+            r#"{"type":"cell.picture","sheet_id":1,"cell":"A1","picture":{"mime":"image/png","data":"iVBORw0KGgo="}}"#,
+        )?;
+        assert!(cell_pic.carries_media());
+
+        let clear_pic =
+            parse(r#"{"type":"cell.picture","sheet_id":1,"cell":"A1","picture":null}"#)?;
+        assert!(!clear_pic.carries_media());
+
+        let delete_pic = parse(r#"{"type":"image.delete","sheet_id":1,"image_id":1}"#)?;
+        assert!(!delete_pic.carries_media());
+
+        let plain = parse(r#"{"type":"cell.set","sheet_id":1,"cell":"A1","input":"42"}"#)?;
+        assert!(!plain.carries_media());
         Ok(())
     }
 }

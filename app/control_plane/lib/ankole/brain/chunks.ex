@@ -10,6 +10,7 @@ defmodule Ankole.Brain.Chunks do
 
   alias Ankole.Brain.Chunker
   alias Ankole.Brain.Config
+  alias Ankole.Brain.FileText
   alias Ankole.Brain.Schemas.{Chunk, Timeline}
   alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Repo
@@ -210,7 +211,7 @@ defmodule Ankole.Brain.Chunks do
       chunking = Keyword.get(opts, :chunking) || Config.chunking()
 
       body_specs =
-        specs(body, :body, object.id, chunking)
+        body_specs(object, body, chunking)
         |> Enum.map(&Map.put(&1, :subject_page_id, object.id))
 
       timeline_specs =
@@ -233,6 +234,45 @@ defmodule Ankole.Brain.Chunks do
        end)}
     end
   end
+
+  # A file's text is chunked per page, slide, or sheet, and each chunk opens
+  # with that segment's marker and table header. The table summary takes the
+  # positions after the body, so writing it leaves the body vectors in place.
+  defp body_specs(%{kind: :file} = object, body, chunking) do
+    table? = FileText.table?(object)
+
+    FileText.segments(body)
+    |> Enum.flat_map(fn {marker, text} ->
+      header = FileText.chunk_header(marker, text, table?)
+
+      text
+      |> specs(:body, object.id, chunking)
+      |> Enum.map(&open_with(&1, header))
+    end)
+    |> Enum.concat(specs(file_summary(object, body), :body, object.id, chunking))
+  end
+
+  defp body_specs(object, body, chunking), do: specs(body, :body, object.id, chunking)
+
+  defp open_with(spec, []), do: spec
+
+  defp open_with(spec, header) do
+    text = FileText.with_header(spec.text, header)
+    %{spec | text: text, token_count: Chunker.estimate_tokens(text)}
+  end
+
+  # Only the summary of the current content version is indexed.
+  defp file_summary(
+         %{
+           content_hash: version,
+           upstream_state: %{"file_summary" => %{"version" => version, "text" => text}}
+         },
+         body
+       )
+       when body != "",
+       do: "[Summary]\n" <> text
+
+  defp file_summary(_object, _body), do: ""
 
   defp specs("", _kind, _source, _chunking), do: []
 

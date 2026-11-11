@@ -34,8 +34,14 @@ defmodule Ankole.Conversations.Delivery.Posting do
              completion.attachments,
              opts
            ),
-         {:ok, replies} <- reply_in_tx(target, statement, opts) do
-      {:ok, %PostResult{intents: attachments ++ replies}}
+         {:ok, reply_outcome} <- reply_in_tx(target, statement, opts) do
+      {replies, signals} =
+        case reply_outcome do
+          {intents, woken_signals} -> {intents, woken_signals}
+          intents -> {intents, []}
+        end
+
+      {:ok, %PostResult{intents: attachments ++ replies, signals: signals}}
     end
   end
 
@@ -145,16 +151,99 @@ defmodule Ankole.Conversations.Delivery.Posting do
     end
   end
 
-  defp reply_in_tx(_target, %Statement{} = statement, opts) do
-    if is_binary(Statement.text(statement)) do
-      Delivery.commit_final_reply_in_tx(
-        statement.signal,
-        statement.completion.final_response,
-        Statement.text(statement),
-        Keyword.put(opts, :attachment_count, length(statement.completion.attachments))
-      )
-    else
-      {:ok, []}
+  defp reply_in_tx(target, %Statement{} = statement, opts) do
+    alias Ankole.Connectors.AuthWaits
+    alias Ankole.Pod.Access.BlockedWaits
+
+    wait =
+      if Map.get(target, :primary) == true and is_nil(statement.notice),
+        do: AuthWaits.active_wait_for_signal(statement.signal.id),
+        else: nil
+
+    blocked_page_wait =
+      if is_nil(wait) and Map.get(target, :primary) == true and is_nil(statement.notice),
+        do: BlockedWaits.ungranted_wait_for_signal(statement.signal.id),
+        else: nil
+
+    cond do
+      not is_nil(wait) ->
+        now = statement.now || DateTime.utc_now(:microsecond)
+        local_id = AuthWaits.interaction_local_id(wait)
+        payload = AuthWaits.client_payload(wait, statement.signal.id)
+
+        visible_text =
+          case Statement.text(statement) do
+            text when is_binary(text) and text != "" ->
+              text
+
+            _ ->
+              "Connect #{payload["display_name"]} (#{wait.authorization_url}) to continue."
+          end
+
+        presentation = AuthWaits.build_presentation(wait, statement.signal.id, visible_text)
+
+        with :ok <-
+               Ankole.Sessions.Queue.lock_session_in_tx(
+                 statement.signal.agent_uid,
+                 statement.signal.session_id
+               ),
+             {:ok, intents} <-
+               Delivery.commit_final_reply_in_tx(
+                 statement.signal,
+                 statement.completion.final_response,
+                 visible_text,
+                 Keyword.put(opts, :attachment_count, length(statement.completion.attachments))
+               ),
+             {:ok, _} <-
+               Interactions.open_in_tx(
+                 statement.signal,
+                 presentation,
+                 now
+               ),
+             {:ok, woken_signals} <-
+               AuthWaits.activate_or_complete_in_tx(wait, statement.signal, local_id, now) do
+          {:ok, {intents, woken_signals}}
+        end
+
+      not is_nil(blocked_page_wait) ->
+        visible_text =
+          case Statement.text(statement) do
+            text when is_binary(text) and text != "" ->
+              text
+
+            _ ->
+              "Grant page view access in Pod to continue."
+          end
+
+        presentation =
+          BlockedWaits.build_presentation(blocked_page_wait, statement.signal.id, visible_text)
+
+        with {:ok, intents} <-
+               Delivery.commit_final_reply_in_tx(
+                 statement.signal,
+                 statement.completion.final_response,
+                 visible_text,
+                 Keyword.put(opts, :attachment_count, length(statement.completion.attachments))
+               ),
+             {:ok, _} <-
+               Interactions.open_in_tx(
+                 statement.signal,
+                 presentation,
+                 statement.now || DateTime.utc_now(:microsecond)
+               ) do
+          {:ok, intents}
+        end
+
+      is_binary(Statement.text(statement)) ->
+        Delivery.commit_final_reply_in_tx(
+          statement.signal,
+          statement.completion.final_response,
+          Statement.text(statement),
+          Keyword.put(opts, :attachment_count, length(statement.completion.attachments))
+        )
+
+      true ->
+        {:ok, []}
     end
   end
 

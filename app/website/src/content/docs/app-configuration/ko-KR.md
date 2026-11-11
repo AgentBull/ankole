@@ -51,10 +51,11 @@ AppConfigure는 제품 설정을 PostgreSQL에 저장하며 대부분의 변경�
 | `pod.allow_external_guests` | 테넌트 | 초대받은 외부 게스트가 공유된 Pod 페이지에 접근하도록 허용할지 여부(기본값 `true`) |
 | `pod.applet.limits` | 테넌트 | Applet 실행 한도(기본값 `timeout_ms: 60000`, `heap_mb: 128`) |
 | `pod.base.limits` | 테넌트 | Base 쿼리 및 레코드 한도(기본값 `query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
-| `pod.spreadsheet.limits` | 테넌트 | 스프레드시트 페이지 한도: 온라인으로 열 수 있는 최대 파일 크기(`max_file_bytes: 20971520`)와 편집 내용을 파일에 반영하는 시점(`compaction_idle_seconds: 30`, `compaction_op_threshold: 100`, `compaction_structural_threshold: 10`) |
+| `pod.office.limits` | 테넌트 | Office 페이지(스프레드시트, Word 문서, 프레젠테이션) 한도: 브라우저에서 열 수 있는 최대 파일 크기(`max_file_bytes: 20971520`)와 편집 내용을 파일에 반영하는 시점(`compaction_idle_seconds: 30`, `compaction_op_threshold: 100`, `compaction_structural_threshold: 10`) |
 | `drive.trash_retention_days` | 테넌트 | 삭제된 Drive 노드를 자동으로 영구 삭제하기 전까지 보관하는 일수. 기본값은 `30`이며, `0`으로 설정하면 설정을 바꿀 때까지 무기한 보관 |
 | `drive.vfs_max_upload_bytes` | 사이트 | Worker `/drive` VFS 업로드당 최대 바이트 수. 기본값 `0`은 객체 저장소 업로드 한도를 사용 |
 | `pod.ot_replay_window` | 테넌트 | OT 재생을 위해 보관하는 최근 문서 변경 배치 수(기본값 `1000`) |
+| `pod.ocr_existing_scans` | 테넌트 | 업로드할 때 OCR로 읽지 못한 스캔 PDF 페이지를 OCR 모델로 전송. OCR 제공업체가 페이지마다 요금 부과. 휴지통에 있는 PDF(휴지통 폴더 안의 PDF 포함)는 전송하지 않음(기본값 `false`) |
 
 ### Workflow
 

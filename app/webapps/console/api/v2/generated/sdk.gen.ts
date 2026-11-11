@@ -219,6 +219,9 @@ import type {
   GetSignalBindingData,
   GetSignalBindingErrors,
   GetSignalBindingResponses,
+  GetUnreadScansData,
+  GetUnreadScansErrors,
+  GetUnreadScansResponses,
   LearnBrainSourceData,
   LearnBrainSourceErrors,
   LearnBrainSourceResponses,
@@ -2008,6 +2011,18 @@ export const decryptWorkerEnv = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<DecryptWorkerEnvResponses, DecryptWorkerEnvErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
+ * get_unread_scans operation on app_configuration_operation resource
+ */
+export const getUnreadScans = <ThrowOnError extends boolean = false>(
+  options?: Options<GetUnreadScansData, ThrowOnError>
+): RequestResult<GetUnreadScansResponses, GetUnreadScansErrors, ThrowOnError> =>
+  (options?.client ?? client).get<GetUnreadScansResponses, GetUnreadScansErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/unread-scans',
     ...options
   })
 

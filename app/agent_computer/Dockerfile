@@ -25,8 +25,13 @@ WORKDIR /repo
 COPY app/kernel/Cargo.toml app/kernel/Cargo.lock app/kernel/build.rs ./app/kernel/
 COPY app/kernel/src ./app/kernel/src
 COPY app/kernel/scripts ./app/kernel/scripts
+COPY app/kernel/presentation ./app/kernel/presentation
+COPY app/kernel/presentation-wasm ./app/kernel/presentation-wasm
 COPY app/kernel/spreadsheet ./app/kernel/spreadsheet
 COPY app/kernel/spreadsheet-wasm ./app/kernel/spreadsheet-wasm
+COPY app/kernel/vendor ./app/kernel/vendor
+COPY app/kernel/word ./app/kernel/word
+COPY app/kernel/word-wasm ./app/kernel/word-wasm
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
@@ -301,11 +306,32 @@ RUN set -eux; \
   chmod 0755 /usr/local/bin/ankole-git-askpass /usr/local/bin/ankole-worker-supervisor /usr/local/bin/ankole-worker-entry /usr/local/bin/ankole-worker-command-entry /usr/local/bin/ankole-worker-nfs; \
   printf '%s\n' \
     'export CODEX_UNSAFE_ALLOW_NO_SANDBOX=1' \
+    'if [ -z "${ANKOLE_HARNESS_STDOUT_ID:-}" ] && [ -L "/proc/$$/fd/1" ]; then' \
+    '  export ANKOLE_HARNESS_STDOUT_ID="$(/usr/bin/readlink "/proc/$$/fd/1" 2>/dev/null || true)"' \
+    'fi' \
     'if [ -n "${BASH_VERSION:-}" ]; then' \
     '  shopt -s expand_aliases 2>/dev/null || true' \
     'fi' \
     > /etc/profile.d/ankole-agent-computer.sh; \
   chmod 0644 /etc/profile.d/ankole-agent-computer.sh; \
+  mkdir -p /usr/local/libexec/ankole-cli-shims; \
+  for shim_tool in pytest vitest jest mix cargo tsc oxlint eslint npm pnpm yarn bun pip pip3 uv curl git cat; do \
+    printf '%s\n' \
+      '#!/bin/sh' \
+      'if [ "${ANKOLE_RAW:-}" = "1" ] || [ "${ANKOLE_SHIM_ACTIVE:-}" = "1" ] || [ "${ANKOLE_PERCEPTUAL_POSTURE:-}" = "exact_data_forensics" ]; then' \
+      '  PATH="${PATH#/usr/local/libexec/ankole-cli-shims:}"' \
+      "  exec ${shim_tool} \"\$@\"" \
+      'fi' \
+      'if [ -n "${ANKOLE_HARNESS_STDOUT_ID:-}" ] && [ -L "/proc/$$/fd/1" ]; then' \
+      '  if [ "$(/usr/bin/readlink "/proc/$$/fd/1" 2>/dev/null || true)" != "${ANKOLE_HARNESS_STDOUT_ID}" ]; then' \
+      '    PATH="${PATH#/usr/local/libexec/ankole-cli-shims:}"' \
+      "    exec ${shim_tool} \"\$@\"" \
+      '  fi' \
+      'fi' \
+      "exec /usr/local/bin/bun /repo/app/agent_computer/src/cli/shim/ankole-cli-shim.ts ${shim_tool} \"\$@\"" \
+      > "/usr/local/libexec/ankole-cli-shims/${shim_tool}"; \
+    chmod 0755 "/usr/local/libexec/ankole-cli-shims/${shim_tool}"; \
+  done; \
   printf '%s\n' \
     '[ -r /etc/profile.d/ankole-agent-computer.sh ] && . /etc/profile.d/ankole-agent-computer.sh' \
     >> /etc/bash.bashrc; \

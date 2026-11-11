@@ -30,22 +30,22 @@
     "@agentbull/active-support": "^1.6.0",
     "@ankole/browser": "workspace:*",
     "@ankole/uikit": "workspace:*",
-    "@bufbuild/protobuf": "2.16.0",
+    "@bufbuild/protobuf": "2.17.0",
     "@ff-labs/fff-bun": "0.11.0",
     "@opentelemetry/api": "^1.10.0",
-    "@opentelemetry/otlp-transformer": "^0.300.0",
-    "@opentelemetry/resources": "^3.0.0",
-    "@opentelemetry/sdk-trace": "^3.0.0",
-    "pele": "1.12.0",
+    "@opentelemetry/otlp-transformer": "^0.301.1",
+    "@opentelemetry/resources": "^3.1.1",
+    "@opentelemetry/sdk-trace": "^3.1.1",
+    "pele": "1.13.0",
     "phoenix": "1.8.16",
     "pino": "^10.4.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.75.0",
-    "@bufbuild/protoc-gen-es": "2.16.0",
+    "@bufbuild/protoc-gen-es": "2.17.0",
     "@types/bun": "1.4.4",
     "@types/phoenix": "^1.6.7",
-    "openai": "7.45.1"
+    "openai": "7.55.0"
   }
 }

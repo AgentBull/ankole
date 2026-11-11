@@ -74,6 +74,7 @@ setting(:reasoningEffort, type: :select, default: "high",
 | `encrypted?` | 저장 시 암호화해야 하는 자격 증명 값인지 나타내는 스토리지 메타데이터 |
 | `advanced?` | Console 설정 화면용 표시 메타데이터로, 검증이나 런타임 동작에는 영향을 주지 않음 |
 | `scope` | `:credential`(풀 항목별), `:connection`(Provider 행별), `:request`(모델 프로필별) |
+| `capabilities` | `:request` 설정에만 지정할 수 있음. 이 설정을 읽는 Capability 종류를 `[:image_generate]`처럼 나열하면 Console은 해당 Capability의 모델 프로필에만 설정을 표시하고, 생략하면 모든 프로필에 표시함 |
 
 자격 증명이 하나뿐인 경우를 포함해 모든 Provider 행은 자격 증명 풀을 가집니다. 리졸버는 prepare 함수를 호출하기 전에 정상 상태인 풀 구성원 하나를 골라 `:credential` 범위 설정을 복호화합니다. 엔드포인트나 커스텀 헤더 같은 `:connection` 설정은 해당 Provider 행 전체에서 공유되며, `:request` 설정은 모델 프로필에서 전달됩니다. 따라서 prepare 함수는 이미 병합·해석된 설정 맵에서 세 범위의 값을 읽기만 하면 되며, 풀 선택 로직을 직접 구현할 필요가 없습니다.
 
@@ -94,7 +95,7 @@ end
 
 | 필드 | 의미 |
 |---|---|
-| `kind` | `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate`, `:decision_model` 중 하나 |
+| `kind` | `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate`, `:decision_model`, `:speech_model`, `:transcription_model`, `:ocr_model`, `:video_model`, `:music_model` 중 하나 |
 | `upstream` | 전송 형식. `kind`에 따라 결정되며 `:language_model`은 `:sse`, 나머지는 모두 `:json` |
 | `api_resolver` | 인코딩과 네트워크 전송을 담당하는 Rust 측 리졸버 atom(예: `:openai_responses`) |
 | `prepare` | 전송할 요청 구조체를 조립하는 Elixir 함수 이름 |
@@ -102,7 +103,7 @@ end
 | `supports_parallel_tool_calls?` | 업스트림 Provider가 병렬 도구 호출을 지원하는지 여부 |
 | `supports_native_image_generation?` | 별도의 호스팅된 `image_generate` 프로필 없이 LLM이 공용 이미지 도구를 직접 실행할 수 있는지 여부 |
 
-일곱 가지 Capability 종류는 런타임 외부 이름에 다음과 같이 대응합니다. `language_model`은 `"llm"`, `embedding_model`은 `"embedding"`, `rerank_model`은 `"rerank"`, `decision_model`은 `"decision"`으로 매핑되며, 나머지 웹 및 이미지 관련 세 종류는 이름을 그대로 사용합니다. LLM만 제공하는 Provider는 `language_model`만 선언하면 되고, LLM과 임베딩을 함께 제공한다면 두 블록을 모두 선언합니다.
+열두 가지 Capability 종류는 런타임 외부 이름에 다음과 같이 대응합니다. `language_model`은 `"llm"`, `embedding_model`은 `"embedding"`, `rerank_model`은 `"rerank"`, `decision_model`은 `"decision"`, `speech_model`은 `"speech"`, `transcription_model`은 `"transcription"`, `ocr_model`은 `"ocr"`, `video_model`은 `"video"`, `music_model`은 `"music"`으로 매핑되며, 나머지 웹 및 이미지 관련 세 종류는 이름을 그대로 사용합니다. LLM만 제공하는 Provider는 `language_model`만 선언하면 되고, LLM과 임베딩을 함께 제공한다면 두 블록을 모두 선언합니다.
 
 TypeSafe, Microsoft Foundry, OpenRouter의 SystemOne 엔드포인트는 `:systemone_decision`을 사용하고, OpenAI `/decisions`는 `:openai_decision`을 사용합니다. 리졸버는 state와 이미지 인코딩, 질문 변환, 답변 정규화를 담당하고 Provider의 prepare 함수는 base URL, 배포 또는 모델 이름, 인증, 전용 헤더와 요청 옵션을 담당합니다. `TypeSafe`에는 Provider 전용 `/models` 메타데이터 소스도 구현되어 있어 TypeSafe의 `models`와 OpenAI 형식의 `data` 카탈로그 항목을 모두 읽을 수 있습니다.
 

@@ -8,6 +8,7 @@ import type { ActionCardDecision } from './room-api'
 import type { ActionCardState } from './types'
 
 const DESTRUCTIVE_ACTION_KINDS = new Set(['pod.page.delete', 'pod.base.delete_table'])
+const DRAFT_DISCLOSURE_ACTION_KINDS = new Set(['pod.knowledge.save', 'brain.object.create', 'library.skill.save'])
 const KNOWLEDGE_ACTION_KINDS = new Set(['pod.knowledge.save', 'brain.object.create'])
 
 /**
@@ -23,6 +24,8 @@ function actionCardSpec(
   const status = card.status ?? 'prepared'
   const payload = card.payload ?? {}
   const details = formatPayloadDetails(card, t)
+  const sharingExplainText =
+    card.action_kind === 'pod.page.set_sharing' ? formatSharingExplainText(payload.explain_summaries, t) : undefined
   const resolvedBy = card.resolved_by_name || t('pod.chat_timeline.teammate')
   return spec(
     add(
@@ -51,7 +54,8 @@ function actionCardSpec(
               }),
             ...details.map((text, index) => add(`detail:${index}`, 'Line', { text }))
           ]),
-        KNOWLEDGE_ACTION_KINDS.has(card.action_kind) &&
+        DRAFT_DISCLOSURE_ACTION_KINDS.has(card.action_kind) &&
+          (typeof payload.diff === 'string' || typeof payload.markdown === 'string') &&
           add('drafts', 'Group', { kind: 'drafts' }, [
             typeof payload.diff === 'string' &&
               add('diff', 'Disclosure', {
@@ -65,6 +69,16 @@ function actionCardSpec(
                 text: payload.markdown || t('pod.chat_action_card.empty_draft'),
                 tall: true
               })
+          ]),
+        sharingExplainText &&
+          add('sharing-explain', 'Group', { kind: 'drafts' }, [
+            add('explain-summaries', 'Disclosure', {
+              title: t('pod.chat_action_card.current_access_preview', {
+                defaultValue: 'Current access before this change'
+              }),
+              text: sharingExplainText,
+              open: false
+            })
           ]),
         status === 'prepared' &&
           add('actions', 'Group', { kind: 'actions' }, [
@@ -154,7 +168,8 @@ export function ActionCardView({
   }).at(-1)
   const pending = mutationState?.status === 'pending'
   const decision = (mutationState?.variables as { decision?: ActionCardDecision } | undefined)?.decision
-  const enabled = (card.status ?? 'prepared') === 'prepared' && !!onResolve && !pending
+  const redacted = card.payload?.redacted === true
+  const enabled = (card.status ?? 'prepared') === 'prepared' && !!onResolve && !pending && !redacted
   // A card that was already decided when it was first shown renders its outcome still.
   const [firstStatus] = useState(card.status ?? 'prepared')
 
@@ -185,6 +200,8 @@ function actionKindLabel(kind: string, t: ReturnType<typeof useTranslation>['t']
     case 'brain.object.create':
     case 'pod.knowledge.save':
       return t('pod.chat_action_card.kind_knowledge_save')
+    case 'library.skill.save':
+      return t('pod.chat_action_card.kind_skill_save', { defaultValue: 'Save Skill approval' })
     case 'pod.page.set_sharing':
       return t('pod.chat_action_card.kind_set_sharing', { defaultValue: 'Permission change approval' })
     case 'pod.page.delete':
@@ -225,6 +242,44 @@ function formatPayloadDetails(card: ActionCardState, t: ReturnType<typeof useTra
     }
     if (typeof payload.base_revision === 'number') {
       lines.push(t('pod.chat_action_card.base_revision', { revision: payload.base_revision }))
+    }
+  } else if (card.action_kind === 'library.skill.save') {
+    const skillName = typeof payload.skill_name === 'string' ? payload.skill_name : undefined
+    const slug = typeof payload.slug === 'string' ? payload.slug : undefined
+    if (skillName || slug) {
+      lines.push(
+        t('pod.chat_action_card.skill_target', {
+          defaultValue: 'Skill: {$target}',
+          target: skillName && slug ? `${skillName} (/${slug})` : (skillName ?? `/${slug}`)
+        })
+      )
+    }
+    if (typeof payload.target === 'string') {
+      lines.push(
+        payload.target === 'workspace'
+          ? typeof payload.bind_agent_uid === 'string'
+            ? t('pod.chat_action_card.skill_scope_workspace_bound', {
+                defaultValue: 'Scope: Workspace Skill (enabled for @{$agent})',
+                agent: payload.bind_agent_uid
+              })
+            : t('pod.chat_action_card.skill_scope_workspace', { defaultValue: 'Scope: Workspace Skill' })
+          : t('pod.chat_action_card.skill_scope_personal', {
+              defaultValue: 'Scope: Personal Skill (only on your Personal Assistant)'
+            })
+      )
+    }
+    if (typeof payload.base_revision === 'number') {
+      lines.push(t('pod.chat_action_card.base_revision', { revision: payload.base_revision }))
+    }
+    if (typeof payload.scope_note === 'string' && payload.scope_note.trim()) {
+      lines.push(payload.scope_note)
+    }
+    if (payload.redacted === true) {
+      lines.push(
+        t('pod.chat_action_card.skill_private_redacted', {
+          defaultValue: 'Draft content is only visible to the Personal Assistant owner.'
+        })
+      )
     }
   } else if (card.action_kind === 'pod.page.set_sharing') {
     if (typeof payload.inherit_permissions === 'boolean') {
@@ -281,4 +336,29 @@ function formatPayloadDetails(card: ActionCardState, t: ReturnType<typeof useTra
     }
   }
   return lines
+}
+
+function formatSharingExplainText(
+  rawSummaries: unknown,
+  t: ReturnType<typeof useTranslation>['t']
+): string | undefined {
+  if (!Array.isArray(rawSummaries) || rawSummaries.length === 0) return undefined
+  const lines: string[] = []
+  for (const raw of rawSummaries) {
+    const item = recordValue(raw)
+    if (!item || typeof item.subject_uid !== 'string') continue
+    const subjectLabel =
+      typeof item.subject_name === 'string' && item.subject_name
+        ? `${item.subject_name} (@${item.subject_uid})`
+        : `@${item.subject_uid}`
+    const verdict =
+      item.current_allowed === true
+        ? typeof item.current_role === 'string' && item.current_role
+          ? `${t('pod.sharing.verdict_allowed', { defaultValue: 'Allowed' })} (${item.current_role})`
+          : t('pod.sharing.verdict_allowed', { defaultValue: 'Allowed' })
+        : t('pod.sharing.verdict_denied', { defaultValue: 'Denied' })
+    const reason = typeof item.decision_reason === 'string' ? item.decision_reason : ''
+    lines.push(reason ? `${subjectLabel}: ${verdict} — ${reason}` : `${subjectLabel}: ${verdict}`)
+  }
+  return lines.length > 0 ? lines.join('\n') : undefined
 }

@@ -118,6 +118,20 @@ export function chatRecipientAvailable(
   )
 }
 
+/**
+ * The Agent that the composer of an Issue's room addresses until the person picks another recipient. A room of one
+ * person and the Agent is a `dm`, which addresses its Agent already, so the default matters once the room is a group.
+ */
+export function issueRecipientUID(
+  detail:
+    | { issueAgentUID?: string | null; conversation: { roomMode: string; agents: { uid: string; active: boolean }[] } }
+    | undefined,
+  callableUIDs: string[]
+) {
+  const uid = detail?.conversation.roomMode === 'group' ? detail.issueAgentUID : undefined
+  return uid && chatRecipientAvailable(uid, detail!.conversation.agents, callableUIDs) ? uid : undefined
+}
+
 export function chatCommandPolicy(input: {
   sending: boolean
   queuePending: boolean
@@ -185,8 +199,18 @@ export function shouldSendOnEnter(event: {
   )
 }
 
+function composeSkillSubmissionText(rawText: string, skill: { slug: string; name: string } | null): string {
+  if (!skill) return rawText
+  const trimmed = rawText.trimStart()
+  if (trimmed === `/${skill.slug}` || trimmed.startsWith(`/${skill.slug} `) || trimmed.startsWith(`/${skill.slug}\n`)) {
+    return rawText
+  }
+  return rawText ? `/${skill.slug} ${rawText}` : `/${skill.slug}`
+}
+
 function createChat() {
   const draft = signal('')
+  const attachedSkill = signal<{ slug: string; name: string } | null>(null)
   /** Adds text after what the draft already holds, with a blank line between them. */
   const appendDraft = (text: string) => {
     draft.value = draft.peek().trim() ? `${draft.peek()}\n\n${text}` : text
@@ -229,7 +253,7 @@ function createChat() {
   let stopCommandID: string | undefined
   const hasText = computed(() => draft.value.trim().length > 0)
   const hasEditText = computed(() => editDraft.value.trim().length > 0)
-  const hasContent = computed(() => hasText.value || attachments.hasFiles.value)
+  const hasContent = computed(() => hasText.value || attachments.hasFiles.value || attachedSkill.value !== null)
   const quoted = computed(() => links.value.find(link => link.quote != null))
   const editQuoted = computed(() => editLinks.value.find(link => link.quote != null))
   const selectedMessageCount = computed(() => selectedMessageIDs.value.length)
@@ -243,14 +267,15 @@ function createChat() {
     return next
   })
   const clearCapturedDraft = (capture: Pick<MessageSubmission, 'text' | 'links' | 'mentions'>) => {
-    if (
-      draft.peek() !== capture.text ||
-      !equal(links.peek(), capture.links ?? []) ||
-      !equal(mentions.peek(), capture.mentions ?? [])
-    ) {
+    const currentText = draft.peek()
+    const currentSkill = attachedSkill.peek()
+    const matchesText =
+      currentText === capture.text || composeSkillSubmissionText(currentText, currentSkill) === capture.text
+    if (!matchesText || !equal(links.peek(), capture.links ?? []) || !equal(mentions.peek(), capture.mentions ?? [])) {
       return
     }
     draft.value = ''
+    attachedSkill.value = null
     mentions.value = []
     links.value = []
   }
@@ -282,6 +307,7 @@ function createChat() {
 
   return {
     draft,
+    attachedSkill,
     attachments,
     conversationID,
     selectedAgentUID,
@@ -574,7 +600,7 @@ function createChat() {
       nextID: () => string,
       deliveryMode: FollowUpBehavior = 'steer'
     ): MessageSubmission {
-      const text = draft.value
+      const text = composeSkillSubmissionText(draft.value, attachedSkill.value)
       const previous = pending.value
       const capture = attachments.capture()
       const submission =

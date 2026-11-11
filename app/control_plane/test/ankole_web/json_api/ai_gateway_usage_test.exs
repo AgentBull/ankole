@@ -92,6 +92,74 @@ defmodule AnkoleWeb.JSONAPI.AIGatewayUsageTest do
     assert row["key"] == agent.uid
   end
 
+  test "calls that are not language-model rounds are summed by capability and unit", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+    record!(agent.uid, :agent, nil, 100, 20)
+
+    for attrs <- [
+          %{capability: :ocr, unit: :page, quantity: 12},
+          %{capability: :ocr, unit: :page, quantity: 3},
+          %{capability: :transcription, unit: :second, quantity: 10, provider_cost: "0.000508"},
+          %{capability: :transcription, unit: :second, quantity: 5, provider_cost: "0.0003"},
+          # A transcription whose Provider reported no duration has no unit.
+          %{capability: :transcription},
+          %{capability: :decision, input_tokens: 41}
+        ] do
+      assert {:ok, _record} =
+               Ankole.Ash.create(
+                 UsageRecord,
+                 :record_round,
+                 Map.merge(
+                   %{subject_uid: agent.uid, origin: :agent, model: "usage-console/model"},
+                   attrs
+                 )
+               )
+    end
+
+    assert %{"total" => %{"rounds" => 1}, "by_capability" => by_capability} =
+             conn
+             |> console_conn()
+             |> recycle_api()
+             |> put_req_header("accept", @media)
+             |> put_req_header("content-type", @media)
+             |> get("/api/v2/ai-gateway/usage")
+             |> json_response(200)
+
+    # The token totals still count language-model rounds only.
+    assert by_capability == [
+             %{
+               "capability" => "decision",
+               "unit" => nil,
+               "calls" => 1,
+               "quantity" => nil,
+               "provider_cost" => nil
+             },
+             %{
+               "capability" => "ocr",
+               "unit" => "page",
+               "calls" => 2,
+               "quantity" => 15,
+               "provider_cost" => nil
+             },
+             %{
+               "capability" => "transcription",
+               "unit" => nil,
+               "calls" => 1,
+               "quantity" => nil,
+               "provider_cost" => nil
+             },
+             %{
+               "capability" => "transcription",
+               "unit" => "second",
+               "calls" => 2,
+               "quantity" => 15,
+               "provider_cost" => 0.000808
+             }
+           ]
+  end
+
   test "a signed-in Human without a Console grant is refused", %{conn: conn} do
     %{principal: member} = human_fixture()
 

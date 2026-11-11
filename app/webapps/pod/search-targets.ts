@@ -134,6 +134,25 @@ export function resolveFindNeedleSets(
   return { primary: [contiguous], fallback }
 }
 
+/** Chooses a query and match for an Office search link, preferring the indexed page or slide. */
+export async function findOfficeSearchMatch<Match>(
+  query: string,
+  targetIndex: number | undefined,
+  find: (needle: string) => Promise<Match[]>,
+  location: (match: Match) => number
+): Promise<{ needle: string; matches: Match[]; index: number } | undefined> {
+  const { primary, fallback } = resolveFindNeedleSets(query, { searchSyntax: true })
+  let first: { needle: string; matches: Match[]; index: number } | undefined
+  for (const needle of [...primary, ...fallback]) {
+    const matches = await find(needle)
+    if (matches.length === 0) continue
+    const index = targetIndex === undefined ? 0 : matches.findIndex(match => location(match) === targetIndex)
+    if (index >= 0) return { needle, matches, index }
+    first ??= { needle, matches, index: 0 }
+  }
+  return first
+}
+
 /** Collects non-overlapping `[start, end)` UTF-16 spans inside an already normalized haystack. */
 export function collectNormalizedSpanOffsets(
   normalizedHaystack: string,

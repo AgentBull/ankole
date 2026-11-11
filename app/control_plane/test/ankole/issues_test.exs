@@ -60,6 +60,23 @@ defmodule Ankole.IssuesTest do
     Repo.one!(from(job in Job, where: job.title == ^title, select: job.id))
   end
 
+  # Reads a room as the browser does.
+  defp show(actor, room_id) do
+    Ankole.Pod.Chat.Browser
+    |> Ash.ActionInput.for_action(:show, %{id: room_id}, tenant: Repo.tenant_id!())
+    |> Ankole.Ash.run_action_authorized(actor)
+  end
+
+  # Fires the run that a person asked of the rule, as its Oban job would.
+  defp fire_pending(rule) do
+    [event] =
+      Ankole.Schedule.list_scheduled_events!(
+        query: [filter: [cron_schedule_id: rule.id, status: :scheduled]]
+      )
+
+    assert {:ok, %{status: :fired}} = Ankole.Schedule.fire_due_event(event.id)
+  end
+
   defp chat_room(owner, agent_uid) do
     room_id = Ankole.Ecto.UUIDv7.autogenerate()
 
@@ -129,6 +146,25 @@ defmodule Ankole.IssuesTest do
     assert follow_up.agent_uid == ctx.agent.uid
     assert follow_up.data["text"] == "Add last month's numbers."
     refute follow_up.data["optional_reply"]
+  end
+
+  test "an Issue shared with a teammate names its Agent as the room's default recipient", ctx do
+    teammate = human_fixture(%{display_name: "Bob"}).principal
+
+    assert {:ok, item} =
+             Issues.create(ctx.owner, %{title: "Churn report", agent_uid: ctx.agent.uid})
+
+    # The invitation makes the room a group, where a message names no Agent unless its sender picks one.
+    assert {:ok, shared} =
+             Conversations.manage_participants(ctx.owner, item.id, %{add_uids: [teammate.uid]})
+
+    assert shared.conversation.room_mode == :group
+    assert {:ok, [%{id: id}]} = Issues.list(actor_fixture(teammate))
+    assert id == item.id
+
+    assert {:ok, %{issueAgentUID: uid}} = show(ctx.owner, item.id)
+    assert uid == ctx.agent.uid
+    assert {:ok, %{issueAgentUID: nil}} = show(ctx.owner, chat_room(ctx.owner, ctx.agent.uid))
   end
 
   test "an Issue that waits keeps its request until a person starts it", ctx do
@@ -374,20 +410,174 @@ defmodule Ankole.IssuesTest do
     assert {:ok, []} = Issues.list(ctx.outsider)
   end
 
-  test "a room without an Issue appears in Work while a Background Agent Job runs in it", ctx do
+  test "a conversation with an AI colleague enters Work when its first Job starts", ctx do
     room_id = chat_room(ctx.owner, ctx.agent.uid)
+    assert {:ok, []} = Issues.list(ctx.owner)
+
     job_id = start_job(ctx.owner, ctx.agent.uid, room_id, "Vendor comparison")
 
-    assert {:ok, [%{id: ^room_id, tracked: false, status: :working, runs: [run]} = item]} =
+    assert {:ok, [%{id: ^room_id, tracked: true, status: :working, runs: [run]} = item]} =
              Issues.list(ctx.owner)
 
     assert run.title == "Vendor comparison"
     assert item.agent.uid == ctx.agent.uid
-    assert {:error, :issue_not_found} = Issues.get(ctx.owner, room_id)
     assert {:ok, []} = Issues.list(ctx.outsider)
 
+    # The work stays on the board after the Job ends, until a person accepts it.
     assert {:ok, _} = BackgroundAgentJobs.request_stop(job_id, %{"agent_uid" => ctx.agent.uid})
-    assert {:ok, []} = Issues.list(ctx.owner)
+    settle(room_id)
+    assert {:ok, [%{id: ^room_id, status: :review, runs: []}]} = Issues.list(ctx.owner)
+  end
+
+  test "labels sort an Issue, and a person can change them", ctx do
+    assert {:ok, item} =
+             Issues.create(ctx.owner, %{
+               title: "Pricing page copy",
+               agent_uid: ctx.agent.uid,
+               labels: [" marketing ", "Q4", "marketing", ""],
+               start: false
+             })
+
+    assert item.labels == ["marketing", "Q4"]
+
+    assert {:ok, %{labels: ["launch"]}} =
+             Issues.update(ctx.owner, item.id, %{labels: ["launch"]})
+
+    assert {:error, :invalid_issue} =
+             Issues.update(ctx.owner, item.id, %{labels: Enum.map(1..11, &"label #{&1}")})
+
+    assert {:error, :invalid_issue} =
+             Issues.update(ctx.owner, item.id, %{labels: [String.duplicate("x", 41)]})
+
+    assert {:ok, %{labels: ["launch"]}} = Issues.get(ctx.owner, item.id)
+  end
+
+  test "an accepted sub-Issue reports its result to the Agent of its parent", ctx do
+    assert {:ok, parent} =
+             Issues.create(ctx.owner, %{title: "Launch plan", agent_uid: ctx.agent.uid})
+
+    settle(parent.id)
+
+    assert {:ok, child} =
+             Issues.create(ctx.owner, %{
+               title: "Competitor pricing",
+               agent_uid: ctx.agent.uid,
+               parent_id: parent.id
+             })
+
+    assert child.parent == %{id: parent.id, title: "Launch plan"}
+    assert {:ok, %{children: %{total: 1, done: 0}}} = Issues.get(ctx.owner, parent.id)
+
+    [request] = inputs(child.id)
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        Ankole.ConversationsFixtures.post_statement_in_tx(request, "Rivals charge $20 to $40.")
+      end)
+
+    settle(child.id)
+    assert {:ok, %{status: :done}} = Issues.update(ctx.owner, child.id, %{status: :done})
+    assert {:ok, %{children: %{total: 1, done: 1}}} = Issues.get(ctx.owner, parent.id)
+
+    assert [_request, %Signal{type: "conversation.message.addressed"} = report] =
+             inputs(parent.id)
+
+    assert report.agent_uid == ctx.agent.uid
+    assert report.sender_key == ctx.owner.principal.uid
+    assert report.data["text"] =~ "Competitor pricing"
+    assert report.data["text"] =~ "> Rivals charge $20 to $40."
+
+    # A parent that someone else cannot open stays out of reach.
+    assert {:error, :invalid_issue} =
+             Issues.create(ctx.outsider, %{
+               title: "Sneaky",
+               agent_uid: ctx.agent.uid,
+               parent_id: parent.id
+             })
+  end
+
+  test "a personal assistant shares an Issue with its Squad through the request", ctx do
+    assistant =
+      Ankole.SessionsCase.agent_fixture(%{
+        type: :personal_assistant,
+        owner_principal_uid: ctx.owner.principal.uid
+      }).principal
+
+    assert {:ok, item} =
+             Issues.create(ctx.owner, %{
+               title: "Quarterly review deck",
+               agent_uid: assistant.uid,
+               squad_uids: [ctx.agent.uid]
+             })
+
+    assert item.squad == [%{uid: ctx.agent.uid, name: "Research Agent"}]
+    assert [%Signal{agent_uid: agent_uid} = request] = inputs(item.id)
+    assert agent_uid == assistant.uid
+
+    assert [%{"type" => "agent", "uid" => uid}] =
+             Conversations.get_message!(request.message_id).mentions
+
+    assert uid == ctx.agent.uid
+
+    # The Squad follows a member's rename.
+    assert {:ok, _} = Ankole.Principals.disable_agent(ctx.agent.uid)
+    assert {:ok, _} = Ankole.Principals.rename(ctx.agent.uid, "renamed-research")
+    assert {:ok, _} = Ankole.Principals.enable_agent("renamed-research")
+
+    assert {:ok, %{squad: [%{uid: "renamed-research", name: "Research Agent"}]}} =
+             Issues.get(ctx.owner, item.id)
+
+    # Only a personal assistant hands work to colleagues.
+    assert {:error, :invalid_issue} =
+             Issues.create(ctx.owner, %{
+               title: "Colleague squad",
+               agent_uid: ctx.agent.uid,
+               squad_uids: [assistant.uid]
+             })
+  end
+
+  test "a repeating Issue runs its request on schedule and reopens for review", ctx do
+    assert {:ok, item} =
+             Issues.create(ctx.owner, %{
+               title: "Weekly churn digest",
+               description: "Summarize cancellations.",
+               agent_uid: ctx.agent.uid,
+               repeat: %{expression: "0 9 * * 1", timezone: "Asia/Singapore"},
+               start: false
+             })
+
+    assert %{status: :todo, repeat: %{status: :active, expression: "0 9 * * 1"} = repeat} = item
+    assert repeat.timezone == "Asia/Singapore"
+    assert %DateTime{} = repeat.dueAt
+    # The fire runs the request in the rule's Session, so the room holds no request message.
+    assert inputs(item.id) == []
+
+    rule = Issues.Queries.rule(item.id)
+    assert rule.payload["task"] == "Weekly churn digest\n\nSummarize cancellations."
+    assert rule.delivery["targets"] == [%{"conversation_id" => item.id}]
+    assert rule.human_uid == ctx.owner.principal.uid
+
+    assert {:ok, %{status: :working}} = Issues.update(ctx.owner, item.id, %{status: :started})
+    fire_pending(rule)
+
+    assert {:ok, %Issues.Issue{status: :started}} = Issues.Queries.fetch(item.id)
+    assert [%Signal{type: "cron.fire"}] = inputs(item.id)
+    assert {:ok, %{status: :working}} = Issues.get(ctx.owner, item.id)
+
+    settle(item.id)
+    assert {:ok, %{status: :review}} = Issues.get(ctx.owner, item.id)
+    assert {:ok, %{status: :done}} = Issues.update(ctx.owner, item.id, %{status: :done})
+
+    # The next fire reopens the accepted Issue for review.
+    assert {:ok, _} = Issues.change_schedule(ctx.owner, rule.id, :run)
+    fire_pending(rule)
+    assert {:ok, %Issues.Issue{status: :started}} = Issues.Queries.fetch(item.id)
+
+    assert {:ok, _} = Issues.change_schedule(ctx.owner, rule.id, :pause)
+    assert {:ok, %{repeat: %{status: :paused, dueAt: nil}}} = Issues.get(ctx.owner, item.id)
+    assert {:error, :issue_not_found} = Issues.change_schedule(ctx.outsider, rule.id, :resume)
+
+    assert {:ok, [%{kind: "cron", manageable: true}]} = Issues.scheduled(ctx.owner)
   end
 
   test "a recurring rule appears for the people in the room that manages it", ctx do

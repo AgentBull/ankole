@@ -176,7 +176,10 @@ defmodule Ankole.AIAgent.SkillsTest do
 
     assert Skills.binding_summaries(ctx.actor, [custom])[custom.id] == %{
              colleague_count: 2,
-             assistant_enabled: false
+             assistant_enabled: false,
+             agent_uids: Enum.sort([ctx.agent.uid, other.uid]),
+             runtime_assistant_enabled: false,
+             runtime_agent_uids: Enum.sort([ctx.agent.uid, other.uid])
            }
 
     assert Enum.sort(Skills.bound_agents(custom.id)) == Enum.sort([ctx.agent.uid, other.uid])

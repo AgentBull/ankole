@@ -6,7 +6,10 @@ defmodule Ankole.Issues.View do
   `status` follows the room (`waiting`, `working`) and otherwise the Issue
   (`todo`, `review`, `done`). `tracked` tells that the room has an Issue, and
   `description` is the request of an Issue that has not started. `runs` are the
-  room's live runs, in the shape of a room's linked runs.
+  room's live runs, in the shape of a room's linked runs. `parent` names the
+  Issue that this one is part of, `children` counts its sub-Issues, `squad`
+  names the colleagues among whom its personal assistant shares the work, and
+  `repeat` describes the cron rule that repeats it.
   """
 
   use Ash.Type.NewType,
@@ -69,6 +72,50 @@ defmodule Ankole.Issues.View do
                 createdAt: [type: :utc_datetime_usec, allow_nil?: false],
                 updatedAt: [type: :utc_datetime_usec, allow_nil?: false]
               ]
+            ]
+          ]
+        ],
+        labels: [type: {:array, :string}, allow_nil?: false],
+        parent: [
+          type: :map,
+          constraints: [
+            fields: [
+              id: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
+              title: [type: :string, allow_nil?: false, constraints: [allow_empty?: true]]
+            ]
+          ]
+        ],
+        children: [
+          type: :map,
+          constraints: [
+            fields: [
+              total: [type: :integer, allow_nil?: false],
+              done: [type: :integer, allow_nil?: false]
+            ]
+          ]
+        ],
+        squad: [
+          type: {:array, :map},
+          allow_nil?: false,
+          constraints: [
+            items: [
+              fields: [
+                uid: [type: Ankole.Ash.Types.PrincipalKey, allow_nil?: false],
+                name: [type: :string, allow_nil?: false, constraints: [allow_empty?: true]]
+              ]
+            ]
+          ]
+        ],
+        repeat: [
+          type: :map,
+          constraints: [
+            fields: [
+              id: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
+              status: [type: :atom, allow_nil?: false, constraints: [one_of: [:active, :paused]]],
+              manageable: [type: :boolean, allow_nil?: false],
+              expression: [type: :string],
+              timezone: [type: :string, allow_nil?: false],
+              dueAt: [type: :utc_datetime_usec]
             ]
           ]
         ],

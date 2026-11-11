@@ -42,6 +42,8 @@ defmodule Ankole.Brain.Schemas.Page do
     attribute(:kind, :atom)
     attribute(:effective_date, :date)
     attribute(:content_hash, :string)
+    # A file page's extraction cache: `format`, `extract_status`, and `metadata`.
+    attribute(:file, Ankole.Ash.Types.JSONMap)
     attribute(:managed_by_source_id, Ankole.Ash.Types.UUIDv7)
     attribute(:deleted_at, :utc_datetime_usec, public?: true)
     attribute(:created_at, :utc_datetime_usec)
@@ -50,6 +52,15 @@ defmodule Ankole.Brain.Schemas.Page do
 
   calculations do
     calculate(:pod_url, :string, __MODULE__.PodURL, public?: true)
+
+    # Source learning has covered the page's text. A file page counts as a
+    # Brain object from then on; until then it is only indexed for retrieval,
+    # and a file without extracted text, such as an image, never counts.
+    calculate(
+      :learned?,
+      :boolean,
+      expr(body != "" and not is_nil(fragment("?->>'facts_version'", upstream_state)))
+    )
   end
 
   defmodule PodURL do
@@ -83,6 +94,8 @@ defmodule Ankole.Brain.Schemas.Page do
             query,
             is_nil(deleted_at) == not (^Ash.Query.get_argument(query, :deleted))
           )
+
+        query = Ash.Query.filter(query, kind != :file or learned?)
 
         query =
           if prefix = Ash.Query.get_argument(query, :prefix),

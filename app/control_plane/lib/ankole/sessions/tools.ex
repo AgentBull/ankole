@@ -12,8 +12,18 @@ defmodule Ankole.Sessions.Tools do
   alias Ankole.Sessions.ToolResult
   alias Ankole.Sessions.Wait
 
+  @direct_result_budget 8_000
+  @programmatic_result_budget 64_000
+
+  def programmatic_call?(%{"caller" => %{"type" => "program"}}), do: true
+  def programmatic_call?(_call), do: false
+
+  def result_budget(call),
+    do: if(programmatic_call?(call), do: @programmatic_result_budget, else: @direct_result_budget)
+
   def prepare(run, call) do
     with %{} = tool <- ToolCatalog.find(run, call),
+         :ok <- ensure_caller_allowed(tool, call),
          {:ok, args} <- arguments(call, tool),
          {:ok, args} <- validate(tool, args),
          :ok <- authorize_call(run, tool.name, args) do
@@ -22,6 +32,9 @@ defmodule Ankole.Sessions.Tools do
       nil ->
         {:error, error("Unknown tool #{call["name"]}", "unknown_tool")}
 
+      {:error, {:caller_not_allowed, caller_type}} ->
+        {:error, error("Tool #{call["name"]} cannot be called from #{caller_type}.", "forbidden")}
+
       {:error, reason}
       when reason == :forbidden or (is_tuple(reason) and elem(reason, 0) == :forbidden) ->
         {:error, error("Tool invocation is not authorized.", "forbidden")}
@@ -29,6 +42,22 @@ defmodule Ankole.Sessions.Tools do
       {:error, reason} ->
         {:error,
          error("Invalid arguments for tool #{call["name"]}: #{reason}", "invalid_arguments")}
+    end
+  end
+
+  defp ensure_caller_allowed(%Tool{} = tool, call) do
+    required_caller =
+      case call["caller"] do
+        %{"type" => "program"} -> "programmatic"
+        nil -> "direct"
+        %{"type" => other} when is_binary(other) -> other
+        _other -> "unknown"
+      end
+
+    if required_caller in Tool.allowed_callers(tool) do
+      :ok
+    else
+      {:error, {:caller_not_allowed, required_caller}}
     end
   end
 

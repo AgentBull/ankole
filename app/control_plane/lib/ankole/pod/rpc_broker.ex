@@ -1,13 +1,13 @@
 defmodule Ankole.Pod.RPCBroker do
   @moduledoc "Agent access to the same Pod domain contracts that serve the browser."
 
-  alias Ankole.Pod.{Bases, Comments, Documents, Files, Pages}
+  alias Ankole.Pod.{Bases, Comments, Documents, Files, OfficeFiles, Pages}
   import Ankole.Pod.Serialization, only: [json_value: 1, navigation_page: 1]
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.WorkerFiles
 
-  @read_operations ~w(jobs.actions jobs.runs jobs.list jobs.get_run bindings.list jobs.schedules.list jobs.schedules.runs jobs.webhooks.list skills.bundle pages.list pages.children pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate)
-  @write_operations ~w(jobs.schedules.put jobs.schedules.pause jobs.schedules.resume jobs.schedules.run jobs.schedules.delete jobs.webhooks.create jobs.webhooks.update jobs.webhooks.pause jobs.webhooks.resume jobs.webhooks.cancel jobs.webhooks.delete chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call applets.transfer_owner jobs.create jobs.configure jobs.delete bindings.put base.configure_table base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy)
+  @read_operations ~w(jobs.actions jobs.runs jobs.list jobs.get_run bindings.list jobs.schedules.list jobs.schedules.runs jobs.webhooks.list skills.bundle pages.list pages.children pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate office.inspect office.render office.commands)
+  @write_operations ~w(jobs.schedules.put jobs.schedules.pause jobs.schedules.resume jobs.schedules.run jobs.schedules.delete jobs.webhooks.create jobs.webhooks.update jobs.webhooks.pause jobs.webhooks.resume jobs.webhooks.cancel jobs.webhooks.delete chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call applets.transfer_owner jobs.create jobs.configure jobs.delete bindings.put base.configure_table base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy office.apply office.to_document)
 
   def handle_read(turn, %FabricProto.PodRequest{} = request, ctx) do
     with {:ok, actor} <- actor_for_request(turn, ctx) do
@@ -22,7 +22,7 @@ defmodule Ankole.Pod.RPCBroker do
       ctx = Map.merge(ctx, %{actor: actor, write_authority: actor.turn_authority})
 
       ctx =
-        if request.operation == "pages.create" and turn,
+        if request.operation in ["pages.create", "office.to_document"] and turn,
           do:
             Map.put(ctx, :source_message_id, Ankole.Conversations.Route.source_message_id(turn)),
           else: ctx
@@ -62,14 +62,30 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp handle(request, ctx, allowed) do
     with true <- request.operation in allowed,
-         {:ok, params} when is_map(params) <- Torque.decode(request.params_json),
-         :ok <- disclosure_target(request.operation, ctx.actor, params),
-         {:ok, result} <- dispatch(request.operation, ctx.actor, params, ctx) do
-      {:ok, %{"result" => json_value(result)}}
+         {:ok, params} when is_map(params) <- Torque.decode(request.params_json) do
+      case run_authorized_operation(request.operation, ctx, params) do
+        {:ok, result} ->
+          {:ok, %{"result" => json_value(result)}}
+
+        {:error, reason} ->
+          Ankole.Pod.Access.BlockedWaits.maybe_record_blocked_turn(
+            ctx,
+            request.operation,
+            params,
+            reason
+          )
+
+          error(ctx, reason)
+      end
     else
       false -> error(ctx, :invalid_pod_operation)
-      {:error, reason} -> error(ctx, reason)
       _ -> error(ctx, :invalid_pod_payload)
+    end
+  end
+
+  defp run_authorized_operation(operation, ctx, params) do
+    with :ok <- disclosure_target(operation, ctx.actor, params) do
+      dispatch(operation, ctx.actor, params, ctx)
     end
   end
 
@@ -239,6 +255,49 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp dispatch("files.upload", actor, params, ctx), do: upload(actor, params, ctx)
+
+  defp dispatch("office.inspect", actor, params, _ctx),
+    do: OfficeFiles.inspect_doc(actor, params["id"] || params["page_id"], params)
+
+  defp dispatch("office.render", actor, params, ctx) do
+    send_rendered_file(params["home_relative_path"], ctx, fn local ->
+      OfficeFiles.render_to_file(actor, params["id"] || params["page_id"], params, local)
+    end)
+  end
+
+  defp dispatch("office.commands", actor, params, _ctx),
+    do: OfficeFiles.commands(actor, params["id"] || params["page_id"], params["query"])
+
+  defp dispatch("office.apply", actor, params, ctx) do
+    id = params["id"] || params["page_id"]
+
+    with {:ok, context} <- page_context(actor),
+         {:ok, page} <- Pages.authorize(actor, id, "node_edit"),
+         :ok <- Ankole.Pod.AgentPages.editable(actor, context, page) do
+      OfficeFiles.apply_agent(actor, page.id, params, ctx.write_authority)
+    end
+  end
+
+  defp dispatch("office.to_document", actor, params, ctx) do
+    id = params["id"] || params["page_id"]
+
+    params =
+      if ctx[:source_message_id],
+        do: Map.put_new(params, "saved_from_message_id", ctx.source_message_id),
+        else: params
+
+    with {:ok, context} <- page_context(actor),
+         {:ok, source} <- Pages.fetch(id),
+         {:ok, _} <- Ankole.Pod.AgentPages.visible(context, source),
+         :ok <- editable_conversion_destination(actor, context, params) do
+      OfficeFiles.convert_to_document(
+        actor,
+        source.id,
+        Map.take(params, ["parent_id", "private_owner_uid", "title", "saved_from_message_id"]),
+        ctx.write_authority
+      )
+    end
+  end
 
   defp dispatch("applets.publish", actor, params, ctx),
     do:
@@ -485,7 +544,7 @@ defmodule Ankole.Pod.RPCBroker do
     do: Bases.copy_table(actor, params["id"], params, ctx.write_authority)
 
   defp disclosure_target(operation, actor, params)
-       when operation in ~w(pages.sharing comments.list comments.show files.manifest files.download base.tables) do
+       when operation in ~w(pages.sharing comments.list comments.show files.manifest files.download base.tables office.inspect office.render office.commands) do
     readable_target(actor, params["id"] || params["page_id"])
   end
 
@@ -607,6 +666,32 @@ defmodule Ankole.Pod.RPCBroker do
       end
     end
   end
+
+  defp send_rendered_file(target, ctx, render_file) do
+    local = Ankole.Files.temp_path()
+
+    try do
+      with {:ok, target} <- Ankole.Files.normalize_path(target),
+           {:ok, metadata} <- render_file.(local),
+           {:ok, _} <-
+             WorkerFiles.put(target, {:file, local},
+               worker: Ankole.AgentWorkers.WorkerRoute.caller(ctx),
+               max_bytes: max(Ankole.Attrs.get(metadata, :bytes) || 1, 1)
+             ) do
+        {:ok, metadata}
+      end
+    after
+      File.rm(local)
+    end
+  end
+
+  defp editable_conversion_destination(actor, context, %{"parent_id" => parent_id})
+       when is_binary(parent_id) do
+    with {:ok, parent} <- Pages.fetch(parent_id),
+         do: Ankole.Pod.AgentPages.editable(actor, context, parent)
+  end
+
+  defp editable_conversion_destination(_actor, _context, _params), do: :ok
 
   defp send_file(target, ctx, receive_file) do
     local = Ankole.Files.temp_path()

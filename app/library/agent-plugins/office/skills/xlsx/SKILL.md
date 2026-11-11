@@ -16,6 +16,11 @@ For visual styling, use `design-md` when the user requests the internal design s
 
 ## Setup
 
+Choose the tool by where the file lives:
+
+- **Pod Office Pages (`.xlsx` / `.xlsm` Pages with a Pod `page_id`):** Use `ankole-pod office` (`office inspect` and `office apply` with canonical spreadsheet `ops`) so edits commit through the Page's operation log, merge at cell/range granularity with open browser collaborators, and preserve version history. Only overwrite a Pod file Page through Drive when delivering a brand-new generated workbook from scratch.
+- **Local scratch files in `/workspace`:** Use `OfficeCLI` as documented below.
+
 The Worker image build installs OfficeCLI and checks its version. Run `officecli --version` and `officecli help xlsx`. If both commands succeed, continue with the installed CLI. Version numbers in upstream references and known-issue notes are not runtime requirements. If either command fails, report the command and error as the runtime blocker. Worker image maintenance happens outside the Job.
 
 ## Playbooks

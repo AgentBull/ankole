@@ -164,6 +164,48 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
   def interaction_request(presentation, _source_signal_id, _output),
     do: normalize(presentation)
 
+  @doc """
+  Builds an external link interaction (such as connector OAuth/token consent or
+  blocked resource access) backed by a durable interaction ID.
+  """
+  @spec link_interaction_request(t(), String.t(), map()) :: t()
+  def link_interaction_request(presentation, source_signal_id, output)
+      when is_map(presentation) and is_binary(source_signal_id) and is_map(output) do
+    interaction_id = value(output, "interaction_id")
+    prompt = value(output, "prompt") || value(output, "body") || value(output, "text")
+    label = value(output, "label") || "Continue"
+    url = value(output, "url")
+    next_revision = presentation |> normalize() |> Map.fetch!("revision") |> Kernel.+(1)
+
+    controls =
+      if is_binary(interaction_id) and is_binary(url) do
+        [
+          %{
+            "id" => interaction_id,
+            "type" => "link",
+            "label" => label,
+            "style" => "primary",
+            "url" => url,
+            "source_signal_id" => source_signal_id,
+            "interaction_id" => interaction_id,
+            "control_id" => "external-link",
+            "revision" => next_revision
+          }
+        ]
+      else
+        []
+      end
+
+    apply_interaction_request(presentation, %{
+      "revision" => next_revision,
+      "prompt" => prompt,
+      "controls" => controls
+    })
+  end
+
+  def link_interaction_request(presentation, _source_signal_id, _output),
+    do: normalize(presentation)
+
   @doc "Builds the exact provider callback value for one presentation action."
   @spec callback_value(String.t(), map()) :: {:ok, map()} | {:error, :invalid_callback_action}
   def callback_value(source_signal_id, %{"type" => "button"} = action)
@@ -1094,7 +1136,8 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
         selected_choice_label(actions, interaction_id, option_id) || answer_text
 
       {kind, interaction_id, _option_id, answer_text}
-      when kind in ["free_text", "form"] and is_binary(interaction_id) and
+      when kind in ["free_text", "form", "connector_connected", "access_granted"] and
+             is_binary(interaction_id) and
              is_binary(answer_text) ->
         answer_text
 

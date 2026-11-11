@@ -33,6 +33,7 @@ defmodule Ankole.Brain.SourceLearning do
   alias Ankole.AIGateway
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
+  alias Ankole.Brain.FileText
   alias Ankole.Brain.LearningEntities
   alias Ankole.Brain.ModelCalls
   alias Ankole.Brain.Objects
@@ -47,17 +48,23 @@ defmodule Ankole.Brain.SourceLearning do
 
   @max_content_bytes 10 * 1024 * 1024
   @extraction_window_chars 12_000
+  @item_shape ~s({"type":"fact","claim":"...","kind":"event|preference|commitment|belief|fact","subject_page_id":"<page ID, new declaration slug, or null>","notability":"high|medium|low","confidence":0.75,"context":"..."})
 
-  @doc "Extracts a saved page revision outside the commit transaction."
-  def learn_page(page_id, expected_revision) do
+  @doc """
+  Extracts a page's content version outside the commit transaction.
+
+  The content version is the page revision as text, or, for a file page, the
+  object and extractor version that produced its text.
+  """
+  def learn_page(page_id, expected_version) do
     with :ok <- ensure_enabled(),
          {:ok, page} <- Objects.get_by_slug(page_id),
-         true <- is_nil(page.deleted_at) and page.revision == expected_revision,
+         true <- is_nil(page.deleted_at) and page.content_hash == to_string(expected_version),
          true <- Ankole.Brain.Knowledge.extractable?(page) and not facts_current?(page),
-         {:ok, extraction} <- extract_excerpts(page.id, page.title, text_excerpts(page.body)) do
+         {:ok, extraction} <- extract_page(page) do
       Repo.transact_top_level(
         fn ->
-          commit_page_run_in_tx(page_id, expected_revision, extraction)
+          commit_page_run_in_tx(page_id, expected_version, extraction)
         end,
         after_commit: &Ankole.Brain.Namespace.committed/1
       )
@@ -67,23 +74,38 @@ defmodule Ankole.Brain.SourceLearning do
     end
   end
 
-  @doc "Commits extracted facts only while the source page is live at the captured revision."
-  def commit_page_run_in_tx(page_id, expected_revision, extraction) do
+  @doc "Commits extracted facts only while the source page is live at the captured content version."
+  def commit_page_run_in_tx(page_id, expected_version, extraction) do
     Ankole.Pod.Pages.Tree.lock_tree(shared: true)
+    version = to_string(expected_version)
 
     with {:ok, node} <- Ankole.Pod.Pages.Tree.lock(page_id),
          true <- is_nil(node.deleted_at),
          {:ok, page} <- Objects.get_by_slug(page_id),
          true <-
-           page.revision == expected_revision and Ankole.Brain.Knowledge.extractable?(page) and
-             not facts_current?(page) do
-      write_claims(page, extraction.items, page_id, "page:#{page_id}:#{expected_revision}")
+           page.content_hash == version and Ankole.Brain.Knowledge.extractable?(page) and
+             not facts_current?(page),
+         {:ok, written} <-
+           write_claims(page, extraction.items, page_id, "page:#{page_id}:#{version}"),
+         :ok <- put_file_summary_in_tx(page, extraction) do
+      {:ok, written}
     else
       false -> {:error, :stale_run}
       {:error, :not_found} -> {:error, :stale_run}
       error -> error
     end
   end
+
+  # The summary becomes a retrieval chunk after the file's body chunks.
+  defp put_file_summary_in_tx(page, %{summary: summary}) do
+    state = %{"file_summary" => %{"version" => page.content_hash, "text" => summary}}
+
+    with {:ok, _} <- Ankole.Pod.Knowledge.sync_upstream_in_tx(page.id, state),
+         {:ok, _} <- Ankole.Brain.Chunks.reconcile_node_in_tx(page.id),
+         do: :ok
+  end
+
+  defp put_file_summary_in_tx(_page, _extraction), do: :ok
 
   @doc """
   Registers one file or url Source.
@@ -247,6 +269,27 @@ defmodule Ankole.Brain.SourceLearning do
       else: {:ok, %{windows: 0, items: []}}
   end
 
+  # A table's rows are records to query, not statements to remember, so a
+  # spreadsheet or delimited file yields one summary with table-level facts.
+  # Every other page is extracted window by window.
+  defp extract_page(%{kind: :file} = page) do
+    if FileText.table?(page),
+      do: summarize_table(page),
+      else: extract_excerpts(page.id, page.title, file_excerpts(page.body))
+  end
+
+  defp extract_page(page), do: extract_excerpts(page.id, page.title, text_excerpts(page.body))
+
+  @doc "A file's extraction windows. Each one opens with the marker of its page, slide, or sheet."
+  @spec file_windows(String.t()) :: [String.t()]
+  def file_windows(body), do: body |> file_excerpts() |> pack_excerpts()
+
+  defp file_excerpts(body) do
+    for {marker, text} <- FileText.segments(body),
+        window <- text_excerpts(text),
+        do: FileText.with_header(window, List.wrap(marker))
+  end
+
   defp extract_excerpts(_reference, _title, []), do: {:ok, %{windows: 0, items: []}}
 
   defp extract_excerpts(reference, title, excerpts) do
@@ -325,21 +368,16 @@ defmodule Ankole.Brain.SourceLearning do
 
     prompt = """
     Extract durable factual claims from this source excerpt. Return one JSON
-    object: {"items":[{"type":"fact","claim":"...","kind":"event|preference|commitment|belief|fact","subject_page_id":"<page ID, new declaration slug, or null>","notability":"high|medium|low","confidence":0.75,"context":"..."}]}
+    object: {"items":[#{@item_shape}]}
 
-    #{LearningEntities.claim_rules()}
-    #{LearningEntities.prompt(pages)}
-
-    Choose subject_page_id separately for each claim: the person, company, or
-    other entity the assertion describes. For facts about this source itself,
-    use #{reference}. Use null for useful claims without an identifiable subject.
-    You may include object declarations in items for new subjects when justified.
-    The system keeps this source page as every claim's permission and evidence
-    source regardless of subject. Do not emit a new object for this source.
+    #{item_rules(reference, pages)}
     Preserve speaker attribution. A submitted transcript can quote other people;
     its submitter is not necessarily its speaker. Generated assistant output is
     a suggestion or statement by the model, not evidence of an external event.
     For conversation records, cite the response_id in each item's context.
+    A file excerpt marks where its text comes from with [Page N], [Slide N],
+    [Sheet: name], or [Section: heading] lines. Name that page, slide, sheet, or
+    section in each item's context.
 
     Return only {"items":[...]} with both declarations and assertions in that
     single array. Do not return a standalone item, separate arrays, or commentary.
@@ -363,6 +401,91 @@ defmodule Ankole.Brain.SourceLearning do
         {:error, reason}
     end
   end
+
+  defp item_rules(reference, pages) do
+    """
+    #{LearningEntities.claim_rules()}
+    #{LearningEntities.prompt(pages)}
+
+    Choose subject_page_id separately for each claim: the person, company, or
+    other entity the assertion describes. For facts about this source itself,
+    use #{reference}. Use null for useful claims without an identifiable subject.
+    You may include object declarations in items for new subjects when justified.
+    The system keeps this source page as every claim's permission and evidence
+    source regardless of subject. Do not emit a new object for this source.
+    """
+  end
+
+  # The model sees each sheet's extracted row count and leading rows, never
+  # the whole table, so the prompt confines it to what a sample can establish.
+  defp summarize_table(page) do
+    outline = FileText.table_outline(page.body)
+
+    case outline != [] && Config.extraction_model() do
+      false ->
+        {:ok, %{windows: 0, items: []}}
+
+      nil ->
+        {:error, :extraction_model_not_configured}
+
+      model ->
+        sheets =
+          Enum.map_join(outline, "\n\n", fn sheet ->
+            Enum.join(
+              ["#{sheet.sheet || "[Table]"} #{sheet.rows} rows extracted" | sheet.sample],
+              "\n"
+            )
+          end)
+
+        pages = LearningEntities.candidates(page.title <> "\n" <> sheets)
+
+        prompt = """
+        Summarize this spreadsheet or delimited file so that a later search can
+        find it and a reader knows what it can answer. Return one JSON object:
+        {"summary":"...","items":[#{@item_shape}]}
+
+        Write the summary as Markdown in the language of the data: what the
+        table records, which questions it answers, the size of each sheet, and
+        a dictionary of its columns giving each column's position, name, and
+        meaning as far as the header and the sample show it.
+
+        Each sheet below gives its extracted row count and only its leading
+        rows. A row reads R<row number>, then its cells in column order
+        separated by tabs. The leading rows are a sample: never state a date
+        range, a set of categories, a total, a maximum, or a minimum for the
+        whole table from them.#{if truncated?(page), do: " The extracted text stops before the end of the file, so the row counts are lower bounds."}
+
+        Put in items only what holds for the whole file: whom or what the table
+        belongs to, what each sheet covers, or a figure on a row that is itself
+        labelled as a total. Return "items":[] when nothing qualifies.
+
+        #{item_rules(page.id, pages)}
+        Return only that JSON object, without commentary.
+
+        Source: #{Ankole.JSON.encode!(%{id: page.id, title: page.title})}
+        <table>
+        #{sheets}
+        </table>
+        """
+
+        case ModelCalls.complete_json(model, prompt, caller: "brain.source_learning") do
+          {:ok, %{"summary" => summary, "items" => items}}
+          when is_binary(summary) and is_list(items) ->
+            if Enum.all?(items, &is_map/1),
+              do: {:ok, %{windows: 1, items: items, summary: summary}},
+              else: {:error, {:extraction_failed, :invalid_extraction_response}}
+
+          {:ok, _invalid_output} ->
+            {:error, {:extraction_failed, :invalid_extraction_response}}
+
+          {:error, reason} ->
+            {:error, {:extraction_failed, reason}}
+        end
+    end
+  end
+
+  defp truncated?(%{file: %{"metadata" => %{"truncated" => true}}}), do: true
+  defp truncated?(_page), do: false
 
   # Claims write with deferred embedding: Self-healing embeds them within
   # its next sweep, and dedup is pointless here because the previous
@@ -418,7 +541,7 @@ defmodule Ankole.Brain.SourceLearning do
       end)
 
     with :ok <- ensure_extraction_written(items, written),
-         :ok <- set_facts_revision_in_tx(object.id, object.revision),
+         :ok <- set_facts_version_in_tx(object.id, object.content_hash),
          do: {:ok, written}
   end
 
@@ -437,19 +560,26 @@ defmodule Ankole.Brain.SourceLearning do
 
   defp facts_current?(page) do
     {:ok, properties} = Ankole.Pod.Pages.fetch(page.id)
-    properties.upstream_state["facts_revision"] == page.revision
+    properties.upstream_state["facts_version"] == page.content_hash
   end
 
-  def clear_facts_revision_in_tx(id), do: set_facts_revision_in_tx(id, nil)
+  def clear_facts_version_in_tx(id), do: set_facts_version_in_tx(id, nil)
 
+  @doc "Retires what Brain extracted from a page whose content is now empty."
   def clear_page_facts_in_tx(page) do
     expire_automatic_facts_in_tx(page.id)
-    set_facts_revision_in_tx(page.id, page.revision)
+
+    {:ok, _removed} =
+      Ankole.Brain.Schemas.Timeline
+      |> Ash.Query.filter(source_node_id == ^page.id and string_starts_with(provenance, "page:"))
+      |> Ankole.Ash.destroy_where(:remove)
+
+    set_facts_version_in_tx(page.id, page.content_hash)
   end
 
-  defp set_facts_revision_in_tx(id, revision) do
+  defp set_facts_version_in_tx(id, version) do
     with {:ok, _} <-
-           Ankole.Pod.Knowledge.sync_upstream_in_tx(id, %{"facts_revision" => revision}),
+           Ankole.Pod.Knowledge.sync_upstream_in_tx(id, %{"facts_version" => version}),
          do: :ok
   end
 

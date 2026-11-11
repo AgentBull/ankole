@@ -606,6 +606,39 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
     assert plain_match.primary_target == nil
   end
 
+  test "workbook body matches resolve the sheet whose marker line precedes them", ctx do
+    {:ok, %{doc_ref: doc}} = Ankole.Kernel.office_create_blank(:spreadsheet, "Ledger")
+
+    {:ok, %{doc_ref: doc}} =
+      Ankole.Kernel.office_apply(doc, %{"type" => "sheet.insert", "name" => "Second"}, [], nil)
+
+    {:ok, %{metadata: %{"sheets" => sheets}}} = Ankole.Kernel.office_export(doc)
+    %{"sheet_id" => second} = Enum.find(sheets, &(&1["name"] == "Second"))
+
+    {:ok, %{doc_ref: doc}} =
+      Ankole.Kernel.office_apply(
+        doc,
+        %{"type" => "cell.set", "sheet_id" => second, "cell" => "A1", "input" => "Quasarledger"},
+        [],
+        nil
+      )
+
+    {:ok, %{bytes: bytes}} = Ankole.Kernel.office_export(doc)
+
+    {:ok, page} =
+      Files.create_from_upload(
+        ctx.actor,
+        %{private_owner_uid: ctx.owner.uid},
+        "ledger.xlsx",
+        bytes,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      )
+
+    assert {:ok, %{pages: [found], matches: [match]}} = Pages.search(ctx.actor, "Quasarledger")
+    assert found.id == page.id
+    assert %{kind: :spreadsheet_cell, sheet_name: "Second"} = match.primary_target
+  end
+
   test "ODS body matches resolve exact sheet targets even when earlier sheets mention the sheet name",
        ctx do
     xml = """

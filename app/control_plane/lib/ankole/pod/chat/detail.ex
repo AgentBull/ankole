@@ -1,5 +1,24 @@
 defmodule Ankole.Pod.Chat.Detail do
   @moduledoc "A room snapshot with history and each Agent's queue and current work."
+
+  @question_option [
+    fields: [
+      label: [type: :string, allow_nil?: false],
+      description: [type: :string]
+    ]
+  ]
+
+  @pending_question [
+    fields: [
+      id: [type: :string, allow_nil?: false],
+      header: [type: :string],
+      question: [type: :string, allow_nil?: false],
+      isOther: [type: :boolean],
+      isSecret: [type: :boolean],
+      options: [type: {:array, :map}, constraints: [items: @question_option]]
+    ]
+  ]
+
   use Ash.Type.NewType,
     subtype_of: :map,
     constraints: [
@@ -51,6 +70,10 @@ defmodule Ankole.Pod.Chat.Detail do
                 successorJobID: [type: :string],
                 stoppable: [type: :boolean],
                 canMessage: [type: :boolean],
+                pendingQuestions: [
+                  type: {:array, :map},
+                  constraints: [items: @pending_question]
+                ],
                 summary: [type: :string, constraints: [trim?: false]],
                 stepCount: [type: :integer],
                 planCompleted: [type: :integer],
@@ -107,6 +130,7 @@ defmodule Ankole.Pod.Chat.Detail do
           ]
         ],
         conversation: [type: Ankole.Pod.Chat.Conversation, allow_nil?: false],
+        issueAgentUID: [type: Ankole.Ash.Types.PrincipalKey],
         artifacts: [
           type: :map,
           allow_nil?: false,

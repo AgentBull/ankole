@@ -297,7 +297,12 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   Reads one bounded window of the persisted result text together with the
   result's path fields, without loading the full result document.
   """
-  @spec get_result_window_for_agent(pos_integer(), String.t(), non_neg_integer()) ::
+  @spec get_result_window_for_agent(
+          pos_integer(),
+          String.t(),
+          non_neg_integer(),
+          pos_integer()
+        ) ::
           %{
             job: Job.t(),
             output_window: binary() | nil,
@@ -305,14 +310,19 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
             result_paths: map()
           }
           | nil
-  def get_result_window_for_agent(job_id, agent_uid, offset)
+  def get_result_window_for_agent(
+        job_id,
+        agent_uid,
+        offset,
+        window_bytes \\ @result_window_bytes
+      )
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_integer(offset) and
-             offset >= 0 do
+             offset >= 0 and is_integer(window_bytes) and window_bytes > 0 do
     Job
     |> Ash.Query.filter(id == ^job_id and agent_uid == ^agent_uid)
     |> Ash.Query.select(@result_read_columns)
     |> Ash.Query.load(
-      result_output_window: %{from: offset + 1, bytes: @result_window_bytes},
+      result_output_window: %{from: offset + 1, bytes: window_bytes},
       result_output_bytes: %{},
       result_fields: %{}
     )

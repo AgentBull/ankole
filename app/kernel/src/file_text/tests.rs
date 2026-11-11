@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::{Cursor, Write};
 
 use lopdf::content::{Content, Operation};
@@ -5,7 +6,15 @@ use lopdf::{Document, Object, Stream, dictionary};
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
-use super::{ExtractStatus, FileSubtype, classify, extract};
+use super::pdf::clean_page;
+use super::{
+    ExtractStatus, FileSubtype, FileTextResult, MAX_PDF_PAGES, PLAIN_TEXT_LIMIT, classify,
+};
+
+/// Extracts without OCR text, which is how every file but a scanned PDF is read.
+fn extract(bytes: &[u8], filename: &str, mime_type: Option<&str>) -> FileTextResult {
+    super::extract(bytes, filename, mime_type, None)
+}
 
 fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
@@ -17,7 +26,7 @@ fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     writer.finish().unwrap().into_inner()
 }
 
-fn build_two_page_pdf(page1: &str, page2: &str) -> Vec<u8> {
+fn build_pdf(pages: &[&str]) -> Vec<u8> {
     let mut doc = Document::with_version("1.5");
     let pages_id = doc.new_object_id();
     let font_id = doc.add_object(dictionary! {
@@ -48,26 +57,25 @@ fn build_two_page_pdf(page1: &str, page2: &str) -> Vec<u8> {
         )
     };
 
-    let c1 = doc.add_object(make_content(page1));
-    let c2 = doc.add_object(make_content(page2));
-
-    let p1_id = doc.add_object(dictionary! {
-        "Type" => "Page",
-        "Parent" => pages_id,
-        "Contents" => c1,
-    });
-    let p2_id = doc.add_object(dictionary! {
-        "Type" => "Page",
-        "Parent" => pages_id,
-        "Contents" => c2,
-    });
+    let kids: Vec<Object> = pages
+        .iter()
+        .map(|text| {
+            let contents = doc.add_object(make_content(text));
+            doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "Contents" => contents,
+            })
+            .into()
+        })
+        .collect();
 
     doc.objects.insert(
         pages_id,
         Object::Dictionary(dictionary! {
             "Type" => "Pages",
-            "Kids" => vec![p1_id.into(), p2_id.into()],
-            "Count" => 2,
+            "Count" => kids.len() as i64,
+            "Kids" => kids,
             "Resources" => resources_id,
             "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
         }),
@@ -125,7 +133,14 @@ fn extracts_utf8_markdown_with_nfkc_and_rejects_binary() {
     assert_eq!(res.subtype, FileSubtype::Text);
     assert_eq!(res.format, "md");
     assert_eq!(res.plain_text, "# Q4 路线图\n第二行正文完");
-    assert_eq!(res.metadata["line_count"], 2);
+    assert_eq!(
+        res.metadata,
+        serde_json::json!({ "line_count": 2, "truncated": false })
+    );
+
+    let long = extract("长".repeat(200_000).as_bytes(), "long.txt", None);
+    assert_eq!(long.plain_text.len(), PLAIN_TEXT_LIMIT - 2);
+    assert_eq!(long.metadata["truncated"], true);
 
     let bin = extract(b"hello\0world", "fake.txt", Some("text/plain"));
     assert_eq!(bin.status, ExtractStatus::Skipped);
@@ -133,17 +148,29 @@ fn extracts_utf8_markdown_with_nfkc_and_rejects_binary() {
 }
 
 #[test]
-fn extracts_csv_preserving_data_row_line_alignment() {
+fn extracts_delimited_records_as_numbered_rows_one_line_each() {
     let csv_bytes = b"region,notes\n\"East\nChina\",Alpha\nWest,Beta\n";
     let res = extract(csv_bytes, "sales.csv", Some("text/csv"));
     assert_eq!(res.status, ExtractStatus::Ok);
     assert_eq!(res.format, "csv");
-    assert_eq!(res.metadata["row_count"], 2);
-    let lines: Vec<&str> = res.plain_text.lines().collect();
     assert_eq!(
-        lines,
-        vec!["region\tnotes", "East China\tAlpha", "West\tBeta"]
+        res.metadata,
+        serde_json::json!({ "row_count": 2, "delimiter": ",", "truncated": false })
     );
+    assert_eq!(
+        res.plain_text,
+        "R1\tregion\tnotes\nR2\tEast China\tAlpha\nR3\tWest\tBeta\n"
+    );
+
+    // Blank cells keep their column, trailing ones are dropped, and a blank record keeps its line.
+    let sparse = extract(b"a\t\tc\t\t\n\t\t\n x \ty\n", "sparse.tsv", None);
+    assert_eq!(sparse.plain_text, "R1\ta\t\tc\nR2\t\nR3\tx\ty\n");
+    assert_eq!(sparse.metadata["row_count"], 2);
+
+    let long = extract("内容,x\n".repeat(60_000).as_bytes(), "long.csv", None);
+    assert!(long.plain_text.len() <= PLAIN_TEXT_LIMIT);
+    assert_eq!(long.metadata["row_count"], 59_999);
+    assert_eq!(long.metadata["truncated"], true);
 }
 
 #[test]
@@ -171,6 +198,10 @@ fn extracts_docx_skipping_deleted_revisions_and_fallbacks() {
     assert_eq!(res.plain_text.matches("文本框内容").count(), 1);
     assert!(res.plain_text.contains("指标"));
     assert!(res.plain_text.contains("99%"));
+    assert_eq!(
+        res.metadata,
+        serde_json::json!({ "part_count": 1, "truncated": false })
+    );
 
     let ole_encrypted = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 1, 2, 3];
     let skipped = extract(&ole_encrypted, "locked.docx", None);
@@ -179,7 +210,79 @@ fn extracts_docx_skipping_deleted_revisions_and_fallbacks() {
 }
 
 #[test]
-fn extracts_pptx_in_presentation_order_with_notes_and_page_spans() {
+fn docx_and_odt_headings_open_sections_named_by_their_outline() {
+    let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+    <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:style w:type="paragraph" w:styleId="1"><w:name w:val="heading 1"/></w:style>
+      <w:style w:type="paragraph" w:styleId="Clause">
+        <w:name w:val="Clause"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr>
+      </w:style>
+      <w:style w:type="paragraph" w:styleId="SubClause">
+        <w:name w:val="Sub clause"/><w:basedOn w:val="Clause"/>
+      </w:style>
+      <w:style w:type="paragraph" w:styleId="Body"><w:name w:val="Body Text"/></w:style>
+    </w:styles>"#;
+    let doc_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p><w:r><w:t>采购合同</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="1"/></w:pPr><w:r><w:t>合同</w:t></w:r><w:r><w:t>条款</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="Body"/></w:pPr><w:r><w:t>甲方应按期付款。</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="SubClause"/></w:pPr><w:r><w:t>违约责任</w:t></w:r></w:p>
+        <w:p><w:r><w:t>逾期支付违约金。</w:t></w:r></w:p>
+        <w:tbl><w:tr><w:tc>
+          <w:p><w:pPr><w:pStyle w:val="1"/></w:pPr><w:r><w:t>表头</w:t></w:r></w:p>
+        </w:tc></w:tr></w:tbl>
+        <w:p><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:r><w:t>附则</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="1"/><w:outlineLvl w:val="9"/></w:pPr><w:r><w:t>本合同一式两份。</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="1"/></w:pPr></w:p>
+      </w:body>
+    </w:document>"#
+        .as_bytes();
+    let docx = extract(
+        &build_zip(&[
+            ("word/styles.xml", styles_xml),
+            ("word/document.xml", doc_xml),
+        ]),
+        "contract.docx",
+        None,
+    );
+    assert_eq!(
+        docx.plain_text,
+        "采购合同\n[Section: 合同条款]\n甲方应按期付款。\n[Section: 合同条款 > 违约责任]\n\
+         逾期支付违约金。\n表头\n[Section: 附则]\n本合同一式两份。\n"
+    );
+
+    // Without a style sheet only a paragraph's own outline level marks a heading.
+    let unstyled = extract(
+        &build_zip(&[("word/document.xml", doc_xml)]),
+        "contract.docx",
+        None,
+    );
+    assert_eq!(unstyled.plain_text.matches("[Section: ").count(), 1);
+    assert!(unstyled.plain_text.contains("合同条款\n甲方应按期付款。"));
+
+    let odt_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+    <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+                             xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+      <office:body><office:text>
+        <text:h text:outline-level="1">General</text:h>
+        <text:p>Opening words.</text:p>
+        <text:h text:outline-level="2">Scope</text:h>
+        <text:p>What it covers.</text:p>
+        <text:h text:outline-level="1">Closing</text:h>
+      </office:text></office:body>
+    </office:document-content>"#;
+    let odt = extract(&build_zip(&[("content.xml", odt_xml)]), "notes.odt", None);
+    assert_eq!(
+        odt.plain_text,
+        "[Section: General]\nOpening words.\n[Section: General > Scope]\nWhat it covers.\n\
+         [Section: Closing]\n"
+    );
+}
+
+#[test]
+fn extracts_pptx_in_presentation_order_with_slide_markers_notes_and_page_spans() {
     let pres_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
     <p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
                     xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -217,10 +320,17 @@ fn extracts_pptx_in_presentation_order_with_notes_and_page_spans() {
     let p2_start = pages[1]["start_byte"].as_u64().unwrap() as usize;
     let p2_end = pages[1]["end_byte"].as_u64().unwrap() as usize;
     assert_eq!(pages[0]["page"], 1);
-    assert!(res.plain_text[p1_start..p1_end].contains("Opening Cover"));
+    assert_eq!(
+        &res.plain_text[p1_start..p1_end],
+        "[Slide 1]\nOpening Cover\n"
+    );
     assert_eq!(pages[1]["page"], 2);
-    assert!(res.plain_text[p2_start..p2_end].contains("Second Deck Page"));
-    assert!(res.plain_text[p2_start..p2_end].contains("Speaker cue alpha"));
+    assert_eq!(
+        &res.plain_text[p2_start..p2_end],
+        "[Slide 2]\nSecond Deck Page\nSpeaker cue alpha\n"
+    );
+    assert_eq!((p1_start, p2_end), (0, res.plain_text.len()));
+    assert_eq!(res.metadata["truncated"], false);
 }
 
 #[test]
@@ -240,15 +350,18 @@ fn extracts_odt_and_ods_and_skips_encrypted_manifest() {
     </office:document-content>"#;
     let ods = extract(&build_zip(&[("content.xml", ods_xml)]), "book.ods", None);
     assert_eq!(ods.status, ExtractStatus::Ok);
-    assert_eq!(ods.plain_text, "Ledger\nAccount\tBalance\n");
-    assert_eq!(ods.metadata["sheets"], serde_json::json!(["Ledger"]));
+    assert_eq!(ods.plain_text, "[Sheet: Ledger]\nR1\tAccount\tBalance\n");
     assert_eq!(
-        ods.metadata["sheet_spans"],
-        serde_json::json!([{
-            "sheet_name": "Ledger",
-            "start_byte": 0,
-            "end_byte": 23
-        }])
+        ods.metadata,
+        serde_json::json!({
+            "sheets": ["Ledger"],
+            "sheet_spans": [{
+                "sheet_name": "Ledger",
+                "start_byte": 0,
+                "end_byte": ods.plain_text.len()
+            }],
+            "truncated": false
+        })
     );
 
     let multi_ods_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
@@ -271,11 +384,13 @@ fn extracts_odt_and_ods_and_skips_encrypted_manifest() {
     );
     let spans = multi_ods.metadata["sheet_spans"].as_array().unwrap();
     assert_eq!(spans.len(), 2);
-    let needle_offset = multi_ods.plain_text.find("Odsreviewneedle").unwrap();
     let s2_start = spans[1]["start_byte"].as_u64().unwrap() as usize;
     let s2_end = spans[1]["end_byte"].as_u64().unwrap() as usize;
     assert_eq!(spans[1]["sheet_name"], "Second");
-    assert!(needle_offset >= s2_start && needle_offset < s2_end);
+    assert_eq!(
+        &multi_ods.plain_text[s2_start..s2_end],
+        "[Sheet: Second]\nR1\tOdsreviewneedle\n"
+    );
 
     let enc_manifest = br#"<manifest:manifest><manifest:file-entry><manifest:encryption-data/></manifest:file-entry></manifest:manifest>"#;
     let locked = extract(
@@ -292,22 +407,176 @@ fn extracts_odt_and_ods_and_skips_encrypted_manifest() {
 
 #[test]
 fn extracts_pdf_pages_and_classifies_blank_or_corrupt_pdfs() {
-    let pdf_bytes = build_two_page_pdf("Executive Summary", "Appendix Metrics");
+    let pdf_bytes = build_pdf(&["Executive Summary", "", "p. 3", "Appendix Metrics"]);
     let res = extract(&pdf_bytes, "brief.pdf", Some("application/pdf"));
     assert_eq!(res.status, ExtractStatus::Ok);
-    assert_eq!(res.metadata["page_count"], 2);
-    let pages = res.metadata["pages"].as_array().unwrap();
-    assert_eq!(pages.len(), 2);
-    let s2 = pages[1]["start_byte"].as_u64().unwrap() as usize;
-    let e2 = pages[1]["end_byte"].as_u64().unwrap() as usize;
-    assert_eq!(pages[1]["page"], 2);
-    assert!(res.plain_text[s2..e2].contains("Appendix Metrics"));
+    assert_eq!(
+        res.plain_text,
+        "[Page 1]\nExecutive Summary\n[Page 3]\np. 3\n[Page 4]\nAppendix Metrics\n"
+    );
+    assert_eq!(
+        res.metadata,
+        serde_json::json!({
+            "page_count": 4,
+            "pages": [
+                { "page": 1, "start_byte": 0, "end_byte": 27 },
+                { "page": 3, "start_byte": 27, "end_byte": 41 },
+                { "page": 4, "start_byte": 41, "end_byte": 67 }
+            ],
+            "truncated": false,
+            "extracted_pages": 4,
+            "textless_pages": [2, 3]
+        })
+    );
 
-    let blank_pdf = build_two_page_pdf("", "");
+    let blank_pdf = build_pdf(&["", ""]);
     let blank_res = extract(&blank_pdf, "scan.pdf", None);
     assert_eq!(blank_res.status, ExtractStatus::Skipped);
     assert_eq!(blank_res.error.as_deref(), Some("empty_text_layer"));
 
     let corrupt = extract(b"%PDF-1.7\ngarbage-not-a-valid-xref", "broken.pdf", None);
     assert_eq!(corrupt.status, ExtractStatus::Failed);
+}
+
+#[test]
+fn pdf_pages_without_a_text_layer_take_the_text_that_ocr_read() {
+    let pdf_bytes = build_pdf(&["Executive Summary", "", "p. 3"]);
+    let recognized = BTreeMap::from([
+        (1, "OCR of a page that has its own text".to_owned()),
+        (2, " # Scanned\u{200B} invoice\n\nTotal: 42 \n".to_owned()),
+        (3, "  ".to_owned()),
+    ]);
+    let res = super::extract(&pdf_bytes, "brief.pdf", None, Some(&recognized));
+    assert_eq!(
+        res.plain_text,
+        "[Page 1]\nExecutive Summary\n[Page 2]\n# Scanned invoice\n\nTotal: 42\n[Page 3]\np. 3\n"
+    );
+    assert_eq!(
+        res.metadata["pages"],
+        serde_json::json!([
+            { "page": 1, "start_byte": 0, "end_byte": 27 },
+            { "page": 2, "start_byte": 27, "end_byte": 65 },
+            { "page": 3, "start_byte": 65, "end_byte": 79 }
+        ])
+    );
+    assert_eq!(res.metadata["textless_pages"], serde_json::json!([3]));
+    assert_eq!(res.metadata["ocr_pages"], serde_json::json!([2]));
+
+    // A scan has no text of its own, and its metadata names the pages OCR could read.
+    let scan = build_pdf(&["", ""]);
+    let unread = extract(&scan, "scan.pdf", None);
+    assert_eq!(unread.status, ExtractStatus::Skipped);
+    assert_eq!(unread.metadata["textless_pages"], serde_json::json!([1, 2]));
+    assert!(unread.metadata.get("ocr_pages").is_none());
+
+    let read = BTreeMap::from([(2, "Stamped receipt".to_owned())]);
+    let res = super::extract(&scan, "scan.pdf", None, Some(&read));
+    assert_eq!(res.status, ExtractStatus::Ok);
+    assert_eq!(res.plain_text, "[Page 2]\nStamped receipt\n");
+    assert_eq!(res.metadata["textless_pages"], serde_json::json!([1]));
+    assert_eq!(res.metadata["ocr_pages"], serde_json::json!([2]));
+
+    // An OCR run that found no text stays on record.
+    let blank = super::extract(&scan, "scan.pdf", None, Some(&BTreeMap::new()));
+    assert_eq!(blank.status, ExtractStatus::Skipped);
+    assert_eq!(blank.error.as_deref(), Some("empty_text_layer"));
+    assert_eq!(blank.metadata["ocr_pages"], serde_json::json!([]));
+}
+
+#[test]
+fn a_pdf_stops_at_the_text_limit_and_lists_no_page_after_the_cut() {
+    // Three-byte characters make the cut land inside one, which leaves the text short of the
+    // limit. The scan after the cut is not listed, and the one before it still is.
+    let long = "\u{4e2d}".repeat(PLAIN_TEXT_LIMIT / 3 + 10);
+    let res = extract(
+        &build_pdf(&["", &long, "", "after the cut"]),
+        "long.pdf",
+        None,
+    );
+    assert_eq!(res.status, ExtractStatus::Ok);
+    assert!(res.plain_text.len() <= PLAIN_TEXT_LIMIT);
+    assert_eq!(res.metadata["truncated"], true);
+    assert_eq!(res.metadata["extracted_pages"], 2);
+    assert_eq!(res.metadata["textless_pages"], serde_json::json!([1]));
+
+    // OCR text for the scan before the cut still fits, and it pushes the cut forward.
+    let read = BTreeMap::from([(1, "Scan before the long page".to_owned())]);
+    let res = super::extract(&build_pdf(&["", &long, ""]), "long.pdf", None, Some(&read));
+    assert!(
+        res.plain_text
+            .starts_with("[Page 1]\nScan before the long page\n[Page 2]\n")
+    );
+    assert!(res.plain_text.len() <= PLAIN_TEXT_LIMIT);
+    assert_eq!(res.metadata["ocr_pages"], serde_json::json!([1]));
+    assert_eq!(res.metadata["textless_pages"], serde_json::json!([]));
+}
+
+#[test]
+fn pdf_pages_lose_invisible_characters_and_stop_at_the_page_limit() {
+    assert_eq!(
+        clean_page(" \u{FEFF}co\u{00AD}op\u{200B}er\u{200F}ate\u{FFFE}\u{FFFF} Ｑ4\n"),
+        "cooperate Q4"
+    );
+    // Line-end hyphens stay as the page wrote them.
+    assert_eq!(clean_page("inter-\nnational"), "inter-\nnational");
+
+    let pages = vec!["Recurring page text"; MAX_PDF_PAGES + 1];
+    let res = extract(&build_pdf(&pages), "long.pdf", None);
+    assert_eq!(res.metadata["page_count"], MAX_PDF_PAGES + 1);
+    assert_eq!(res.metadata["extracted_pages"], MAX_PDF_PAGES);
+    assert_eq!(res.metadata["truncated"], true);
+    assert!(
+        res.plain_text
+            .ends_with("[Page 500]\nRecurring page text\n")
+    );
+}
+
+#[test]
+fn ods_rows_keep_their_numbers_and_columns_across_repeats() {
+    let ods_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+    <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+                             xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+                             xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+      <office:body><office:spreadsheet>
+        <table:table table:name=" Ledger ">
+          <table:table-column table:number-columns-repeated="4"/>
+          <table:table-row>
+            <table:table-cell><text:p>Account</text:p></table:table-cell>
+            <table:table-cell table:number-columns-repeated="2"/>
+            <table:table-cell><text:p>Opening</text:p><text:p>balance</text:p></table:table-cell>
+            <table:table-cell table:number-columns-repeated="1020"/>
+          </table:table-row>
+          <table:table-row table:number-rows-repeated="3">
+            <table:table-cell table:number-columns-repeated="1024"/>
+          </table:table-row>
+          <table:table-row table:number-rows-repeated="2">
+            <table:table-cell/>
+            <table:table-cell table:number-columns-repeated="2"><text:p>0</text:p></table:table-cell>
+          </table:table-row>
+          <table:table-row table:number-rows-repeated="1048569"/>
+          <table:table-row>
+            <table:covered-table-cell/>
+            <table:table-cell><text:p>Last</text:p></table:table-cell>
+          </table:table-row>
+        </table:table>
+        <table:table table:name="Filled">
+          <table:table-row table:number-rows-repeated="5000">
+            <table:table-cell><text:p>same</text:p></table:table-cell>
+          </table:table-row>
+          <table:table-row><table:table-cell><text:p>end</text:p></table:table-cell></table:table-row>
+        </table:table>
+      </office:spreadsheet></office:body>
+    </office:document-content>"#;
+    let ods = extract(&build_zip(&[("content.xml", ods_xml)]), "book.ods", None);
+    let (ledger, filled) = ods.plain_text.split_once("[Sheet: Filled]\n").unwrap();
+    assert_eq!(
+        ledger,
+        "[Sheet: Ledger]\nR1\tAccount\t\t\tOpening balance\nR5\t\t0\t0\nR6\t\t0\t0\nR1048576\t\tLast\n"
+    );
+    // A repeated row with text is written 1,000 times at most; the next row keeps its number.
+    let rows: Vec<&str> = filled.lines().collect();
+    assert_eq!(rows.len(), 1_001);
+    assert_eq!(rows[999], "R1000\tsame");
+    assert_eq!(rows[1_000], "R5001\tend");
+    assert_eq!(ods.metadata["truncated"], false);
 }

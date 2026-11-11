@@ -122,15 +122,15 @@ defmodule Ankole.Pod.Serialization do
       |> enum_json(:kind)
       |> Ankole.JSON.plain()
 
-  def spreadsheet_op_json(entry),
+  def office_op_json(entry),
     do:
       entry
       |> Map.take([:revision, :kind, :client_id, :client_seq, :op, :created_at])
       |> enum_json(:kind)
       |> Ankole.JSON.plain()
 
-  @doc "A spreadsheet snapshot from the page history, with its author profile."
-  def spreadsheet_version_json(snapshot, profiles),
+  @doc "An Office file snapshot from the page history, with its author profile."
+  def office_version_json(snapshot, profiles),
     do: %{
       id: snapshot.id,
       revision: snapshot.revision,
@@ -294,14 +294,14 @@ defmodule Ankole.Pod.Serialization do
       "move_requires_manage" ->
         403
 
-      code when code in ~w(file_too_large applet_env_too_large spreadsheet_full) ->
+      code when code in ~w(file_too_large applet_env_too_large office_full document_too_large) ->
         413
 
       code
       when code in ~w(revision_conflict title_conflict document_conflict sharing_conflict cannot_restore manifest_changed
                           field_conflict record_conflict record_exists schema_conflict local_table_changed
                           client_sequence_conflict applet_revision_changed approval_conflict conversation_conflict
-                          position_conflict spreadsheet_conflict spreadsheet_busy
+                          position_conflict office_conflict office_busy
                           job_sources_changed binding_source_changed automation_job_not_active
                           signal_source_in_use connector_trigger_busy connection_changed connector_trigger_changed
                           webhook_terminal cron_schedule_completed cron_schedule_deleted) ->

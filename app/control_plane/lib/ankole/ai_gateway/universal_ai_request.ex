@@ -24,7 +24,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
     upstream: nil,
     headers: [],
     provider_options: nil,
-    include_model: true
+    include_model: true,
+    aws_sigv4: nil
   ]
 
   @typedoc """
@@ -38,7 +39,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
           upstream: atom() | nil,
           headers: [{binary(), binary()}],
           provider_options: map() | nil,
-          include_model: boolean()
+          include_model: boolean(),
+          aws_sigv4: map() | nil
         }
 
   @doc """
@@ -86,7 +88,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
           url: url,
           headers: request.headers,
           timeout: timeout(request.ctx),
-          transport: setting(request.ctx, :transport) || %{}
+          transport: setting(request.ctx, :transport) || %{},
+          aws_sigv4: request.aws_sigv4
         }
         |> Map.reject(fn {_key, value} -> is_nil(value) end)
 
@@ -102,6 +105,29 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
            )
        }}
     end
+  end
+
+  @doc """
+  Signs the request for the AWS `service` with Signature Version 4.
+
+  The signature covers the request's final body bytes, so the kernel signs
+  after it has built the body. The credentials are the `access_key_id`,
+  `secret_access_key`, and optional `session_token` settings, and the scope
+  takes the `region` setting.
+  """
+  @spec aws_sigv4(t(), binary()) :: t()
+  def aws_sigv4(%__MODULE__{ctx: ctx} = request, service) when is_binary(service) do
+    credentials =
+      %{
+        access_key_id: setting(ctx, :access_key_id),
+        secret_access_key: setting(ctx, :secret_access_key),
+        session_token: setting(ctx, :session_token),
+        region: setting(ctx, :region),
+        service: service
+      }
+      |> Map.reject(fn {_key, value} -> value in [nil, ""] end)
+
+    %{request | aws_sigv4: credentials}
   end
 
   @doc """

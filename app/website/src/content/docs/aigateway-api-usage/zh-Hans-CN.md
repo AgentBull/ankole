@@ -62,6 +62,11 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST /web_fetch` | 抓取网页正文 |
 | `POST /decisions` | 回答带类型的问题并给出概率 |
 | `POST /images` | 生成或编辑图片 |
+| `POST /audio/speech` | 把文本合成为语音 |
+| `POST /audio/transcriptions` | 把音频转写为文本 |
+| `POST /ocr` | 把 PDF 或文档图片识别为 Markdown |
+| `POST /videos` | 发起视频生成，再用 `GET /videos/:id` 读取任务、`GET /videos/:id/content` 读取文件 |
+| `POST /audio/music` | 发起音乐生成，再用 `GET /audio/music/:id` 读取任务、`GET /audio/music/:id/content` 读取文件 |
 
 各端点的详细参数说明请参阅 [AIGateway](../ai-gateway/) 及用户指南中的对应功能页。
 

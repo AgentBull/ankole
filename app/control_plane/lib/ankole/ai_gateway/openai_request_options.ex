@@ -29,11 +29,13 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
   def text_verbosity_values, do: @text_verbosity_values
 
   @doc "Writes the public options to their provider-native request locations."
-  @spec put_provider_options(UniversalAIRequest.t() | {:error, term()}, endpoint()) ::
+  @spec put_provider_options(UniversalAIRequest.t() | {:error, term()}, endpoint(), map()) ::
           UniversalAIRequest.t() | {:error, term()}
-  def put_provider_options({:error, _reason} = error, _endpoint), do: error
+  def put_provider_options(request, endpoint, raw_request \\ %{})
 
-  def put_provider_options(%UniversalAIRequest{} = request, :responses) do
+  def put_provider_options({:error, _reason} = error, _endpoint, _raw_request), do: error
+
+  def put_provider_options(%UniversalAIRequest{} = request, :responses, _raw_request) do
     options =
       (request.provider_options || %{})
       |> put_nested_option("reasoningSummary", "reasoning", "summary")
@@ -44,7 +46,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
     UniversalAIRequest.put_provider_options(request, options)
   end
 
-  def put_provider_options(%UniversalAIRequest{} = request, :chat_completions) do
+  def put_provider_options(%UniversalAIRequest{} = request, :chat_completions, raw_request) do
     options = request.provider_options || %{}
 
     case Enum.find(@responses_only_options, &Map.has_key?(options, &1)) do
@@ -54,6 +56,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
           options
           |> rename_option("textVerbosity", "verbosity")
           |> rename_common_options()
+          |> maybe_put_request_prompt_cache_key(raw_request)
         )
 
       option ->
@@ -61,7 +64,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
     end
   end
 
-  def put_provider_options(%UniversalAIRequest{} = request, :decisions) do
+  def put_provider_options(%UniversalAIRequest{} = request, :decisions, _raw_request) do
     options = request.provider_options || %{}
 
     case Enum.find(@decisions_unsupported_options, &Map.has_key?(options, &1)) do
@@ -72,6 +75,13 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
         {:error, {:unsupported_provider_option, option, "decisions"}}
     end
   end
+
+  defp maybe_put_request_prompt_cache_key(options, %{"prompt_cache_key" => key})
+       when is_binary(key) and key != "" do
+    Map.put_new(options, "prompt_cache_key", key)
+  end
+
+  defp maybe_put_request_prompt_cache_key(options, _raw_request), do: options
 
   # OpenAI endpoints accept these shared request fields under their snake_case names.
   defp rename_common_options(options) do

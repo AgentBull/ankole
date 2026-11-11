@@ -21,7 +21,8 @@ async function session(browser: Browser, identity: 'owner' | 'member' | 'viewer'
 
 async function create(page: Page, title: string) {
   await page.goto(pageRoute(state.report_id))
-  const { page: created } = await request<{ page: { id: string } }>(page, '/spreadsheet-pages', 'POST', {
+  const { page: created } = await request<{ page: { id: string } }>(page, '/office-pages', 'POST', {
+    format: 'spreadsheet',
     title,
     parent_id: state.report_id
   })
@@ -207,7 +208,7 @@ test('viewers follow live changes and reconnecting editors report deleted target
     await expect(viewer.page.getByRole('button', { name: '加粗', exact: true })).toHaveCount(0)
     await expect(viewer.page.getByRole('button', { name: '版本历史', exact: true })).toHaveCount(0)
     await expect(formula(viewer.page)).toHaveAttribute('readonly', '')
-    expect((await requestResponse(viewer.page, `/pages/${id}/spreadsheet/versions`)).status).toBe(403)
+    expect((await requestResponse(viewer.page, `/pages/${id}/office/versions`)).status).toBe(403)
     await enter(owner.page, 1, 0, '实时库存 48')
     await cell(viewer.page, 1, 0)
     await active(viewer.page).toBe('A2：实时库存 48')

@@ -42,7 +42,8 @@ defmodule Ankole.Principals.Rename.References do
   ]
   @principal_key_arrays [
     {"identity_directory_states", "member_uids"},
-    {"identity_directory_states", "missing_uids"}
+    {"identity_directory_states", "missing_uids"},
+    {"issues", "squad_uids"}
   ]
   @actor_refs [
     {"agent_skill_lessons", "author"},
@@ -65,7 +66,7 @@ defmodule Ankole.Principals.Rename.References do
     {"page_comments", "updated_by"},
     {"page_contents", "updated_by"},
     {"page_snapshots", "author"},
-    {"pod_spreadsheet_ops", "author"}
+    {"pod_office_ops", "author"}
   ]
   @actor_ref_arrays [{"page_contents", "contributors"}]
   @json_uids [
@@ -76,6 +77,8 @@ defmodule Ankole.Principals.Rename.References do
     {"principal_groups", "metadata", ["signals", "agent_uid"]},
     {"conversation_messages", "rich_content", ["target_agent_uid"]},
     {"conversation_messages", "rich_content", ["event", "actor_uid"]},
+    {"conversation_action_cards", "payload", ["agent_uid"]},
+    {"conversation_action_cards", "payload", ["bind_agent_uid"]},
     {"signals", "data", ["author_uid"]},
     {"signals", "data", ["session", "agent_uid"]},
     {"signals", "data", ["entry", "author", "principal_uid"]},

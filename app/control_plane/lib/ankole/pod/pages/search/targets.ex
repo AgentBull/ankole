@@ -316,13 +316,15 @@ defmodule Ankole.Pod.Pages.Search.Targets do
         if sheet_names == [] do
           nil
         else
-          lines_before = body |> String.split("\n") |> Enum.take(match_line)
+          # The kernel opens each sheet's rows with a `[Sheet: name]` line.
+          opened =
+            for "[Sheet: " <> rest <- body |> String.split("\n") |> Enum.take(match_line),
+                do: String.replace_suffix(rest, "]", "")
 
           {active_sheet, _remaining} =
-            Enum.reduce(lines_before, {hd(sheet_names), sheet_names}, fn line,
-                                                                         {current, pending} ->
+            Enum.reduce(opened, {hd(sheet_names), sheet_names}, fn name, {current, pending} ->
               case pending do
-                [next | rest] when line == next -> {next, rest}
+                [^name | rest] -> {name, rest}
                 _ -> {current, pending}
               end
             end)

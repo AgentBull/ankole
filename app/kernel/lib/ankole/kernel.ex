@@ -54,44 +54,52 @@ defmodule Ankole.Kernel do
                              "Invalid ANKOLE_SCCACHE value #{inspect(other)}; expected 0, 1, true, false, or auto"
                    end
 
-                 cond do
-                   sccache_mode == :disabled ->
-                     []
+                 craft_env = [
+                   {"CRAFT_I18N_DIR", ""},
+                   {"CRAFT_FONTS_DIR", ""}
+                 ]
 
-                   System.get_env("RUSTC_WRAPPER") not in [nil, ""] ->
-                     []
+                 sccache_env =
+                   cond do
+                     sccache_mode == :disabled ->
+                       []
 
-                   sccache = System.find_executable("sccache") ->
-                     [
-                       {"RUSTC_WRAPPER", sccache},
-                       {"CMAKE_C_COMPILER_LAUNCHER",
-                        case System.get_env("CMAKE_C_COMPILER_LAUNCHER") do
-                          value when value in [nil, ""] -> sccache
-                          value -> value
-                        end},
-                       {"CMAKE_CXX_COMPILER_LAUNCHER",
-                        case System.get_env("CMAKE_CXX_COMPILER_LAUNCHER") do
-                          value when value in [nil, ""] -> sccache
-                          value -> value
-                        end},
-                       {"SCCACHE_CACHE_SIZE",
-                        case System.get_env("SCCACHE_CACHE_SIZE") do
-                          value when value in [nil, ""] -> "20G"
-                          value -> value
-                        end}
-                       | Enum.map(sccache_remote_env_keys, &{&1, nil})
-                     ]
+                     System.get_env("RUSTC_WRAPPER") not in [nil, ""] ->
+                       []
 
-                   sccache_mode == :enabled ->
-                     Mix.shell().info(
-                       "WARN: ANKOLE_SCCACHE=1 is set, but sccache is not on PATH; continuing with standard Cargo."
-                     )
+                     sccache = System.find_executable("sccache") ->
+                       [
+                         {"RUSTC_WRAPPER", sccache},
+                         {"CMAKE_C_COMPILER_LAUNCHER",
+                          case System.get_env("CMAKE_C_COMPILER_LAUNCHER") do
+                            value when value in [nil, ""] -> sccache
+                            value -> value
+                          end},
+                         {"CMAKE_CXX_COMPILER_LAUNCHER",
+                          case System.get_env("CMAKE_CXX_COMPILER_LAUNCHER") do
+                            value when value in [nil, ""] -> sccache
+                            value -> value
+                          end},
+                         {"SCCACHE_CACHE_SIZE",
+                          case System.get_env("SCCACHE_CACHE_SIZE") do
+                            value when value in [nil, ""] -> "20G"
+                            value -> value
+                          end}
+                         | Enum.map(sccache_remote_env_keys, &{&1, nil})
+                       ]
 
-                     []
+                     sccache_mode == :enabled ->
+                       Mix.shell().info(
+                         "WARN: ANKOLE_SCCACHE=1 is set, but sccache is not on PATH; continuing with standard Cargo."
+                       )
 
-                   true ->
-                     []
-                 end
+                       []
+
+                     true ->
+                       []
+                   end
+
+                 craft_env ++ sccache_env
                )
 
   # Static checks such as `mix credo` and `mix xref` read compiled modules and
@@ -379,7 +387,10 @@ defmodule Ankole.Kernel do
   @doc "Applies one prepared Wordgard ChangeSet through the page XML conversion chain."
   @spec page_apply(String.t(), list()) :: {:ok, map()} | {:error, String.t()}
   def page_apply(source, changes) when is_binary(source) and is_list(changes) do
-    source |> page_apply_nif(Ankole.Kernel.JSON.encode!(changes)) |> decode_page_result()
+    # A ChangeSet can carry a whole document, so its encode runs on a dirty scheduler.
+    source
+    |> page_apply_nif(Ankole.Kernel.JSON.encode!(changes, dirty: true))
+    |> decode_page_result()
   end
 
   @doc "Computes a structural and UTF-16 ChangeSet between canonical page documents."
@@ -446,112 +457,324 @@ defmodule Ankole.Kernel do
 
   defp decode_page_result({xml, plain_text}), do: {:ok, %{xml: xml, plain_text: plain_text}}
 
-  @typedoc "An immutable spreadsheet version held by the kernel. Applying an operation returns a new one."
-  @type spreadsheet :: reference()
-  @type spreadsheet_conflict ::
+  @typedoc "An immutable Office document version held by the kernel. Applying an operation returns a new one."
+  @type office_doc :: reference()
+  @type office_format :: :spreadsheet | :word | :presentation
+  @type office_conflict ::
           :target_deleted
           | :overlapping_structural_edit
           | :sheet_deleted
           | :concurrent_sort_or_merge
-  @type spreadsheet_export :: %{xlsx_bytes: binary(), plain_text: String.t(), metadata: map()}
+          | :block_changed
+          | :slide_changed
+          | :slide_deleted
+          | :slides_reordered
+          | :container_deleted
+          | :container_changed
+          | :field_changed
+          | :identifier_taken
+          | :concurrent_revision
+          | :unbalanced_markers
+  @type office_export :: %{
+          bytes: binary(),
+          plain_text: String.t() | nil,
+          metadata: map() | nil
+        }
+  @type office_checkpoint_export :: %{
+          bytes: binary(),
+          plain_text: String.t() | nil,
+          metadata: map() | nil,
+          checkpoint: String.t() | nil
+        }
 
-  @doc """
-  Creates a workbook with one empty sheet whose `sheet_id` is 1, and returns it with its `.xlsx`
-  bytes, search text, and metadata.
-  """
-  @spec spreadsheet_create_blank(String.t()) ::
+  @doc "Creates a blank Office file of the requested `format` and returns its document reference and bytes."
+  @spec office_create_blank(office_format(), String.t()) ::
           {:ok,
            %{
-             doc_ref: spreadsheet(),
-             xlsx_bytes: binary(),
-             plain_text: String.t(),
-             metadata: map()
+             doc_ref: office_doc(),
+             bytes: binary(),
+             plain_text: String.t() | nil,
+             metadata: map() | nil
            }}
           | {:error, error_reason()}
-  def spreadsheet_create_blank(title) when is_binary(title) do
-    case spreadsheet_create_blank_nif(title) do
+  def office_create_blank(format, title)
+      when format in [:spreadsheet, :word, :presentation] and is_binary(title) do
+    case office_create_blank_nif(Atom.to_string(format), title) do
       {:error, _reason} = error ->
         error
 
-      {doc_ref, xlsx_bytes, plain_text, metadata} ->
+      {doc_ref, bytes, plain_text, metadata} ->
         {:ok,
          %{
            doc_ref: doc_ref,
-           xlsx_bytes: xlsx_bytes,
+           bytes: bytes,
            plain_text: plain_text,
-           metadata: Torque.decode!(metadata)
+           metadata: metadata && Torque.decode!(metadata)
          }}
     end
   end
 
   @doc """
-  Reads `.xlsx` bytes and replays the committed operations not yet compacted into them, in
-  revision order.
+  Reads Office file `bytes` for `format`, applies an optional compaction `checkpoint`, and replays
+  committed operations not yet compacted into them, in revision order.
   """
-  @spec spreadsheet_open(binary(), [map()]) ::
-          {:ok, %{doc_ref: spreadsheet(), plain_text: String.t(), metadata: map()}}
+  @spec office_open(office_format(), binary(), [map()], String.t() | nil) ::
+          {:ok,
+           %{
+             doc_ref: office_doc(),
+             plain_text: String.t() | nil,
+             metadata: map() | nil
+           }}
+          | {:busy, String.t()}
           | {:error, error_reason()}
-  def spreadsheet_open(xlsx_bytes, tail_ops) when is_binary(xlsx_bytes) and is_list(tail_ops) do
-    case spreadsheet_open_nif(xlsx_bytes, Torque.encode!(tail_ops)) do
+  def office_open(format, bytes, tail_ops, checkpoint \\ nil)
+      when format in [:spreadsheet, :word, :presentation] and is_binary(bytes) and
+             is_list(tail_ops) and (is_binary(checkpoint) or is_nil(checkpoint)) do
+    case office_open_nif(
+           Atom.to_string(format),
+           bytes,
+           Torque.encode!(tail_ops),
+           checkpoint
+         ) do
       {:error, _reason} = error ->
         error
 
+      {:busy, _reason} = busy ->
+        busy
+
       {doc_ref, plain_text, metadata} ->
-        {:ok, %{doc_ref: doc_ref, plain_text: plain_text, metadata: Torque.decode!(metadata)}}
+        {:ok,
+         %{
+           doc_ref: doc_ref,
+           plain_text: plain_text,
+           metadata: metadata && Torque.decode!(metadata)
+         }}
     end
   end
 
   @doc """
-  Rebases `incoming_op` over `prior_ops` (the operations committed after the author's base
-  revision, in revision order) and applies it to `doc_ref`, which must be the latest revision.
+  Rebases `incoming_op` over `prior_ops` (in revision order) and applies it to `doc_ref`.
 
-  Returns the new document with the committed operation and its structural edit, or
-  `{:conflict, reason}` when the rebase would have to guess. `doc_ref` stays valid either way.
+  When `actor_name` is a binary, server-owned comment and tracked-change author metadata are
+  overwritten with `actor_name`; `nil` replays already-committed operations without altering
+  stored author names.
   """
-  @spec spreadsheet_apply(spreadsheet(), map(), [map()]) ::
-          {:ok, %{doc_ref: spreadsheet(), committed_op: map(), structural_edit: map() | nil}}
-          | {:conflict, spreadsheet_conflict()}
+  @spec office_apply(office_doc(), map(), [map()], String.t() | nil) ::
+          {:ok,
+           %{
+             doc_ref: office_doc(),
+             committed_op: map(),
+             carries_media: boolean(),
+             structural_edit: map() | nil
+           }}
+          | {:conflict, office_conflict()}
+          | {:busy, String.t()}
           | {:error, error_reason()}
-  def spreadsheet_apply(doc_ref, incoming_op, prior_ops)
-      when is_reference(doc_ref) and is_map(incoming_op) and is_list(prior_ops) do
-    case spreadsheet_apply_nif(doc_ref, Torque.encode!(incoming_op), Torque.encode!(prior_ops)) do
-      {:ok, {doc_ref, committed_op, structural_edit}} ->
+  def office_apply(doc_ref, incoming_op, prior_ops, actor_name)
+      when is_reference(doc_ref) and is_map(incoming_op) and is_list(prior_ops) and
+             (is_binary(actor_name) or is_nil(actor_name)) do
+    case office_apply_nif(
+           doc_ref,
+           Torque.encode!(incoming_op),
+           Torque.encode!(prior_ops),
+           actor_name
+         ) do
+      {:ok, {doc_ref, committed_op, carries_media, structural_edit}} ->
         {:ok,
          %{
            doc_ref: doc_ref,
            committed_op: Torque.decode!(committed_op),
+           carries_media: carries_media,
            structural_edit: structural_edit && Torque.decode!(structural_edit)
          }}
 
       {:conflict, _reason} = conflict ->
         conflict
 
+      {:busy, _reason} = busy ->
+        busy
+
       {:error, _reason} = error ->
         error
     end
   end
 
-  @doc "Serializes a spreadsheet as `.xlsx` with its search text and metadata."
-  @spec spreadsheet_export_xlsx(spreadsheet()) ::
-          {:ok, spreadsheet_export()} | {:error, error_reason()}
-  def spreadsheet_export_xlsx(doc_ref) when is_reference(doc_ref) do
-    case spreadsheet_export_xlsx_nif(doc_ref) do
+  @doc "Serializes an Office document to its native `.xlsx`, `.docx`/`.docm`, or `.pptx` bytes."
+  @spec office_export(office_doc()) :: {:ok, office_export()} | {:error, error_reason()}
+  def office_export(doc_ref) when is_reference(doc_ref) do
+    case office_export_nif(doc_ref) do
       {:error, _reason} = error ->
         error
 
-      {xlsx_bytes, plain_text, metadata} ->
+      {bytes, plain_text, metadata} ->
         {:ok,
-         %{xlsx_bytes: xlsx_bytes, plain_text: plain_text, metadata: Torque.decode!(metadata)}}
+         %{
+           bytes: bytes,
+           plain_text: plain_text,
+           metadata: metadata && Torque.decode!(metadata)
+         }}
     end
   end
 
-  defp spreadsheet_create_blank_nif(_title), do: :erlang.nif_error(:nif_not_loaded)
-  defp spreadsheet_open_nif(_xlsx_bytes, _tail_ops), do: :erlang.nif_error(:nif_not_loaded)
+  @doc """
+  Serializes an Office document to standard OOXML bytes and derives an identity checkpoint when
+  needed to keep in-flight collaborative IDs stable across compaction.
+  """
+  @spec office_export_with_checkpoint(office_doc()) ::
+          {:ok, office_checkpoint_export()} | {:error, error_reason()}
+  def office_export_with_checkpoint(doc_ref) when is_reference(doc_ref) do
+    case office_export_checkpoint_nif(doc_ref) do
+      {:error, _reason} = error ->
+        error
 
-  defp spreadsheet_apply_nif(_doc_ref, _incoming_op, _prior_ops),
+      {bytes, plain_text, metadata, checkpoint} ->
+        {:ok,
+         %{
+           bytes: bytes,
+           plain_text: plain_text,
+           metadata: metadata && Torque.decode!(metadata),
+           checkpoint: checkpoint
+         }}
+    end
+  end
+
+  @doc "Returns structural and textual details of an Office document for Agents."
+  @spec office_inspect(office_doc(), map()) :: {:ok, map()} | {:error, error_reason()}
+  def office_inspect(doc_ref, params) when is_reference(doc_ref) and is_map(params) do
+    case office_inspect_nif(doc_ref, Torque.encode!(params)) do
+      {:error, _reason} = error -> error
+      json when is_binary(json) -> {:ok, Torque.decode!(json)}
+    end
+  end
+
+  @doc "Renders one 1-based page or slide of a Word or Presentation document to PNG."
+  @spec office_render(office_doc(), pos_integer(), float()) ::
+          {:ok,
+           %{
+             png_bytes: binary(),
+             width: non_neg_integer(),
+             height: non_neg_integer(),
+             count: non_neg_integer()
+           }}
+          | {:error, error_reason()}
+  def office_render(doc_ref, index, scale)
+      when is_reference(doc_ref) and is_integer(index) and index >= 1 and is_float(scale) do
+    case office_render_nif(doc_ref, index, scale, default_office_fonts_dir()) do
+      {:error, _reason} = error ->
+        error
+
+      {png_bytes, width, height, count} ->
+        {:ok, %{png_bytes: png_bytes, width: width, height: height, count: count}}
+    end
+  end
+
+  @doc "Lists supported headless engine commands and parameter schemas for `format`."
+  @spec office_commands(:word | :presentation, String.t() | nil) ::
+          {:ok, [map()]} | {:error, error_reason()}
+  def office_commands(format, query)
+      when format in [:word, :presentation] and (is_binary(query) or is_nil(query)) do
+    case office_commands_nif(Atom.to_string(format), query) do
+      {:error, _reason} = error -> error
+      json when is_binary(json) -> {:ok, Torque.decode!(json)}
+    end
+  end
+
+  @doc "Applies a batch of headless engine commands and derives one canonical change set."
+  @spec office_apply_commands(office_doc(), [map()], String.t()) ::
+          {:ok, %{doc_ref: office_doc(), change_set: map(), results: [map()]}}
+          | {:error, error_reason()}
+  def office_apply_commands(doc_ref, commands, actor_name)
+      when is_reference(doc_ref) and is_list(commands) and is_binary(actor_name) do
+    case office_apply_commands_nif(
+           doc_ref,
+           Torque.encode!(commands),
+           actor_name,
+           default_office_fonts_dir()
+         ) do
+      {:error, _reason} = error ->
+        error
+
+      {next_ref, change_set_json, results_json} ->
+        {:ok,
+         %{
+           doc_ref: next_ref,
+           change_set: Torque.decode!(change_set_json),
+           results: Torque.decode!(results_json)
+         }}
+    end
+  end
+
+  defp default_office_fonts_dir do
+    configured =
+      case System.get_env("ANKOLE_OFFICE_FONTS_DIR") do
+        nil -> "/usr/share/ankole/fonts"
+        raw -> String.trim(raw)
+      end
+
+    cond do
+      configured != "" and File.dir?(configured) ->
+        configured
+
+      match?({:ok, _}, :application.get_key(:ankole, :vsn)) ->
+        Application.app_dir(:ankole, "priv/static/fonts/office")
+
+      true ->
+        configured
+    end
+  end
+
+  @doc "Converts a Word document into validated `page_document` XML, extracted media, and a conversion report."
+  @spec office_to_document(office_doc()) ::
+          {:ok,
+           %{
+             xml: String.t(),
+             plain_text: String.t(),
+             media: [%{filename: String.t(), mime: String.t(), bytes: binary()}],
+             omitted: %{optional(String.t()) => non_neg_integer()},
+             downgraded: %{optional(String.t()) => non_neg_integer()}
+           }}
+          | {:error, :document_too_large | error_reason()}
+  def office_to_document(doc_ref) when is_reference(doc_ref) do
+    case office_to_document_nif(doc_ref) do
+      {:error, _reason} = error ->
+        error
+
+      {xml, plain_text, media, omitted_json, downgraded_json} ->
+        {:ok,
+         %{
+           xml: xml,
+           plain_text: plain_text,
+           media:
+             Enum.map(media, fn {filename, mime, bytes} ->
+               %{filename: filename, mime: mime, bytes: bytes}
+             end),
+           omitted: Torque.decode!(omitted_json),
+           downgraded: Torque.decode!(downgraded_json)
+         }}
+    end
+  end
+
+  defp office_create_blank_nif(_format, _title), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp office_open_nif(_format, _bytes, _tail_ops, _checkpoint),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  defp spreadsheet_export_xlsx_nif(_doc_ref), do: :erlang.nif_error(:nif_not_loaded)
+  defp office_apply_nif(_doc_ref, _incoming_op, _prior_ops, _actor_name),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  defp office_export_nif(_doc_ref), do: :erlang.nif_error(:nif_not_loaded)
+  defp office_export_checkpoint_nif(_doc_ref), do: :erlang.nif_error(:nif_not_loaded)
+  defp office_inspect_nif(_doc_ref, _params), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp office_render_nif(_doc_ref, _index, _scale, _fonts_dir),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  defp office_commands_nif(_format, _query), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp office_apply_commands_nif(_doc_ref, _commands, _actor_name, _fonts_dir),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  defp office_to_document_nif(_doc_ref), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc "Returns zero-based byte offsets and lengths for original CommonMark code, with delimiters."
   @spec markdown_code_ranges(String.t()) :: [{non_neg_integer(), non_neg_integer()}]
@@ -672,13 +895,23 @@ defmodule Ankole.Kernel do
     end
   end
 
-  @doc "Extracts bounded NFKC-normalized search text and locating metadata from file bytes."
-  @spec file_extract_text(binary(), String.t(), String.t() | nil) ::
-          {:ok, file_extraction()} | {:error, error_reason()}
-  def file_extract_text(bytes, filename, mime_type \\ nil)
+  @doc """
+  Extracts bounded NFKC-normalized search text and locating metadata from file bytes.
+
+  `page_texts` lists `{page, text}` pairs that OCR read from a PDF, with pages
+  numbered from 1. A page without a text layer takes its text from that list.
+  """
+  @spec file_extract_text(
+          binary(),
+          String.t(),
+          String.t() | nil,
+          [{pos_integer(), String.t()}] | nil
+        ) :: {:ok, file_extraction()} | {:error, error_reason()}
+  def file_extract_text(bytes, filename, mime_type \\ nil, page_texts \\ nil)
       when is_binary(bytes) and is_binary(filename) and
-             (is_binary(mime_type) or is_nil(mime_type)) do
-    case file_extract_text_nif(bytes, filename, mime_type) do
+             (is_binary(mime_type) or is_nil(mime_type)) and
+             (is_list(page_texts) or is_nil(page_texts)) do
+    case file_extract_text_nif(bytes, filename, mime_type, page_texts) do
       {:error, _reason} = error ->
         error
 
@@ -707,7 +940,7 @@ defmodule Ankole.Kernel do
   defp file_extractor_version_nif, do: :erlang.nif_error(:nif_not_loaded)
   defp file_classify_format_nif(_filename, _mime_type), do: :erlang.nif_error(:nif_not_loaded)
 
-  defp file_extract_text_nif(_bytes, _filename, _mime_type),
+  defp file_extract_text_nif(_bytes, _filename, _mime_type, _page_texts),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """

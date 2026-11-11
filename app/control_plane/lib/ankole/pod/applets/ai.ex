@@ -1,5 +1,5 @@
 defmodule Ankole.Pod.Applets.AI do
-  @moduledoc "Stateless Applet text generation, image generation, and decisions through Pod model profiles."
+  @moduledoc "Stateless Applet text, image, speech, transcription, OCR, and decision calls through Pod model profiles."
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Artifacts
@@ -17,6 +17,142 @@ defmodule Ankole.Pod.Applets.AI do
     outputCompression moderation inputFidelity saveTo
   )
 
+  @speech_option_keys ~w(input voice format speed instructions saveTo)
+  @max_audio_bytes 25 * 1024 * 1024
+
+  @doc """
+  Turns text into audio through the Pod `speech` profile and saves the audio
+  as a Pod file, in the Applet's assets unless `saveTo` names another page.
+  """
+  def generate_speech(page, actor, options, opts \\ [])
+
+  def generate_speech(%{id: applet_page_id}, %Ankole.AuthZ.Actor{} = actor, options, opts)
+      when is_map(options) and is_list(opts) do
+    with {:ok, principal} <-
+           Access.write(actor.turn_authority, fn ->
+             Access.principal(actor)
+           end),
+         :ok <- known_options(options, @speech_option_keys),
+         true <- valid_save_to?(options["saveTo"]) or invalid_request(),
+         {:ok, destination} <- authorize_destination(actor, applet_page_id, options["saveTo"]),
+         {:ok, body} <-
+           gateway_call(principal, &AIGateway.create_speech/3, speech_request(options)),
+         {:ok, committed} <-
+           commit_generated_file(actor, destination, body["audio"], body["content_type"]) do
+      {:ok, generated_file(committed, body["content_type"], opts)}
+    else
+      {:error, {:file_too_large, _, _}} -> {:error, :file_too_large}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def generate_speech(_page, _actor, _options, _opts), do: {:error, :invalid_request}
+
+  defp speech_request(options) do
+    %{"model" => "speech.default", "input" => options["input"]}
+    |> maybe_put_gateway("voice", options["voice"])
+    |> maybe_put_gateway("response_format", options["format"])
+    |> maybe_put_gateway("speed", options["speed"])
+    |> maybe_put_gateway("instructions", options["instructions"])
+  end
+
+  @doc """
+  Turns a Pod audio file into text through the Pod `transcription` profile.
+  The file name's extension names the audio format.
+  """
+  def transcribe(%Ankole.AuthZ.Actor{} = actor, options) do
+    with {:ok, principal} <-
+           Access.write(actor.turn_authority, fn ->
+             Access.principal(actor)
+           end),
+         :ok <- known_options(options, ~w(audio language vadFilter verbose)),
+         {:ok, input_audio} <- pod_audio(actor, options["audio"]),
+         {:ok, body} <-
+           gateway_call(
+             principal,
+             &AIGateway.create_transcription/3,
+             %{"model" => "transcription.default", "input_audio" => input_audio}
+             |> maybe_put_gateway("language", options["language"])
+             |> maybe_put_gateway("vad_filter", options["vadFilter"])
+             |> maybe_put_gateway(
+               "response_format",
+               if(options["verbose"] == true, do: "verbose_json")
+             )
+           ) do
+      {:ok, Map.take(body, ~w(model text language duration segments usage))}
+    end
+  end
+
+  defp pod_audio(actor, path) when is_binary(path) do
+    format = path |> Path.extname() |> String.trim_leading(".") |> String.downcase()
+
+    with {:ok, page_id, relative} <- Files.parse_path(path),
+         {:ok, _entry, bytes} <-
+           Files.read(actor, page_id, relative, nil, max_bytes: @max_audio_bytes) do
+      {:ok, %{"data" => Base.encode64(bytes), "format" => format}}
+    end
+  end
+
+  defp pod_audio(_actor, _path), do: invalid_request()
+
+  @doc """
+  Reads the text of a Pod image file as Markdown, through the Pod `ocr`
+  profile or, when no OCR model is configured, a language model that accepts
+  images. `usage` counts the pages, and the tokens when a language model read
+  the image.
+  """
+  def ocr(%Ankole.AuthZ.Actor{} = actor, options) do
+    with {:ok, principal} <-
+           Access.write(actor.turn_authority, fn ->
+             Access.principal(actor)
+           end),
+         :ok <- known_options(options, ~w(image)),
+         true <- is_binary(options["image"]) or invalid_request(),
+         {:ok, document} <- resolve_pod_image_data_url(actor, options["image"]),
+         {:ok, body} <-
+           gateway_call(principal, &AIGateway.create_ocr/3, %{
+             "model" => "ocr.default",
+             "document" => document
+           }) do
+      {:ok,
+       %{
+         model: body["model"],
+         pages: body["pages"],
+         usage: %{
+           pages: body["usage"]["pages"],
+           inputTokens: body["usage"]["input_tokens"] || 0,
+           outputTokens: body["usage"]["output_tokens"] || 0
+         }
+       }}
+    end
+  end
+
+  defp known_options(options, keys) do
+    if Map.keys(options) -- keys == [], do: :ok, else: invalid_request()
+  end
+
+  defp invalid_request do
+    {:error, %{status: 400, code: "invalid_request", message: "invalid_request", details: nil}}
+  end
+
+  # A rejected request names the field at fault, so the Applet author can fix it.
+  defp gateway_call(principal, create, request) do
+    case create.(principal.uid, request,
+           caller: "pod_applet",
+           request_context: human_context(principal)
+         ) do
+      {:ok, %{body: body}} ->
+        {:ok, body}
+
+      {:error, %OpenAIError{status: 400, message: message}} ->
+        {:error, %{status: 400, code: "invalid_request", message: message, details: nil}}
+
+      {:error, reason} ->
+        {:error,
+         %{status: status(reason), code: code(reason), message: code(reason), details: nil}}
+    end
+  end
+
   @doc """
   Answers typed questions about a state through the Pod `decision` profile, or
   through the `light` profile when no decision model is configured.
@@ -31,13 +167,12 @@ defmodule Ankole.Pod.Applets.AI do
   end
 
   defp do_decide(principal, options) do
-    with [] <- Map.keys(options) -- ~w(state questions images),
-         {:ok, %{body: body}} <-
-           AIGateway.create_decision(
-             principal.uid,
-             Map.put(options, "model", "decision.default"),
-             caller: "pod_applet",
-             request_context: human_context(principal)
+    with :ok <- known_options(options, ~w(state questions images)),
+         {:ok, body} <-
+           gateway_call(
+             principal,
+             &AIGateway.create_decision/3,
+             Map.put(options, "model", "decision.default")
            ) do
       {:ok,
        %{
@@ -48,18 +183,6 @@ defmodule Ankole.Pod.Applets.AI do
            outputTokens: body["usage"]["output_tokens"] || 0
          }
        }}
-    else
-      # A rejected request names the field at fault, so the Applet author can fix it.
-      {:error, %OpenAIError{status: 400, message: message}} ->
-        {:error, %{status: 400, code: "invalid_request", message: message, details: nil}}
-
-      {:error, reason} ->
-        {:error,
-         %{status: status(reason), code: code(reason), message: code(reason), details: nil}}
-
-      _unknown_options ->
-        {:error,
-         %{status: 400, code: "invalid_request", message: "invalid_request", details: nil}}
     end
   end
 
@@ -110,13 +233,13 @@ defmodule Ankole.Pod.Applets.AI do
            end),
          {:ok, validated} <- validate_image_options(options),
          {:ok, destination} <-
-           authorize_image_destination(actor, applet_page_id, validated.save_to),
+           authorize_destination(actor, applet_page_id, validated.save_to),
          {:ok, image_urls} <- resolve_pod_image_paths(actor, validated.images),
          {:ok, mask_url} <- resolve_optional_pod_image_path(actor, validated.mask),
          gateway_req = build_gateway_image_request(validated, image_urls, mask_url),
          {:ok, body} <- create_gateway_image(principal, gateway_req),
          {:ok, committed} <-
-           commit_generated_image(
+           commit_generated_file(
              actor,
              destination,
              body["bytes"],
@@ -124,27 +247,16 @@ defmodule Ankole.Pod.Applets.AI do
            ) do
       usage = body["usage"] || %{}
 
-      result = %{
-        url: file_content_url(committed.page_id, committed.file.path, opts[:authentication_ref]),
-        mimeType: body["mime_type"],
-        file: %{
-          path: "pages/#{committed.page_id}/#{committed.file.path}",
-          objectId: committed.file.object_id,
-          sha256: committed.file.sha256,
-          size: committed.file.size,
-          contentType: committed.file.content_type,
-          pageId: committed.page_id,
-          name: committed.name,
-          mime: committed.file.content_type || body["mime_type"]
-        },
-        usage: %{
+      result =
+        committed
+        |> generated_file(body["mime_type"], opts)
+        |> Map.put(:usage, %{
           inputTokens: usage["input_tokens"] || 0,
           outputTokens: usage["output_tokens"] || 0,
           totalTokens:
             usage["total_tokens"] ||
               (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
-        }
-      }
+        })
 
       result =
         if is_binary(body["revised_prompt"]) and body["revised_prompt"] != "",
@@ -166,6 +278,24 @@ defmodule Ankole.Pod.Applets.AI do
   end
 
   def generate_image(_page, _actor, _options, _opts), do: {:error, :invalid_request}
+
+  # Describes the Pod file that holds generated content, with a URL to read it.
+  defp generated_file(committed, mime_type, opts) do
+    %{
+      url: file_content_url(committed.page_id, committed.file.path, opts[:authentication_ref]),
+      mimeType: mime_type,
+      file: %{
+        path: "pages/#{committed.page_id}/#{committed.file.path}",
+        objectId: committed.file.object_id,
+        sha256: committed.file.sha256,
+        size: committed.file.size,
+        contentType: committed.file.content_type,
+        pageId: committed.page_id,
+        name: committed.name,
+        mime: committed.file.content_type || mime_type
+      }
+    }
+  end
 
   defp create_gateway_image(principal, gateway_req) do
     case AIGateway.create_image(principal.uid, gateway_req,
@@ -328,13 +458,13 @@ defmodule Ankole.Pod.Applets.AI do
 
   defp valid_save_to?(_save_to), do: false
 
-  defp authorize_image_destination(actor, applet_page_id, nil) do
+  defp authorize_destination(actor, applet_page_id, nil) do
     with {:ok, _page} <- Pages.authorize(actor, applet_page_id, "node_view", trash: false) do
       {:ok, {:applet_asset, applet_page_id, nil, "node_view"}}
     end
   end
 
-  defp authorize_image_destination(actor, _applet_page_id, %{"pageId" => target_id} = save_to) do
+  defp authorize_destination(actor, _applet_page_id, %{"pageId" => target_id} = save_to) do
     with {:ok, target_page} <- Pages.authorize(actor, target_id, "node_view", trash: false) do
       case target_page.type do
         :applet ->
@@ -413,13 +543,13 @@ defmodule Ankole.Pod.Applets.AI do
   defp maybe_put_gateway(map, _key, []), do: map
   defp maybe_put_gateway(map, key, value), do: Map.put(map, key, value)
 
-  defp commit_generated_image(
+  defp commit_generated_file(
          actor,
          {:applet_asset, applet_page_id, custom_name, required_action},
          bytes,
          mime_type
        ) do
-    filename = image_filename(custom_name, mime_type)
+    filename = generated_filename(custom_name, mime_type)
 
     with {:ok, stored} <- Ankole.Files.store(bytes) do
       Access.write(
@@ -451,8 +581,8 @@ defmodule Ankole.Pod.Applets.AI do
     end
   end
 
-  defp commit_generated_image(actor, {:upload, target_id, role, custom_name}, bytes, mime_type) do
-    filename = image_filename(custom_name, mime_type)
+  defp commit_generated_file(actor, {:upload, target_id, role, custom_name}, bytes, mime_type) do
+    filename = generated_filename(custom_name, mime_type)
 
     with {:ok, uploaded} <-
            Files.upload(
@@ -469,23 +599,26 @@ defmodule Ankole.Pod.Applets.AI do
     end
   end
 
-  defp image_filename(nil, mime_type), do: "generated." <> image_extension(mime_type)
+  defp generated_filename(nil, mime_type), do: "generated." <> file_extension(mime_type)
 
-  defp image_filename(name, mime_type) when is_binary(name) do
+  defp generated_filename(name, mime_type) when is_binary(name) do
     clean = Ankole.Files.file_name(name)
 
     if Path.extname(clean) == "" do
-      clean <> "." <> image_extension(mime_type)
+      clean <> "." <> file_extension(mime_type)
     else
       clean
     end
   end
 
-  defp image_extension("image/png"), do: "png"
-  defp image_extension("image/jpeg"), do: "jpg"
-  defp image_extension("image/webp"), do: "webp"
-  defp image_extension("image/gif"), do: "gif"
-  defp image_extension(_mime), do: "png"
+  defp file_extension("image/png"), do: "png"
+  defp file_extension("image/jpeg"), do: "jpg"
+  defp file_extension("image/webp"), do: "webp"
+  defp file_extension("image/gif"), do: "gif"
+  defp file_extension("audio/mpeg"), do: "mp3"
+  defp file_extension("audio/pcm"), do: "pcm"
+  defp file_extension("audio/" <> subtype), do: subtype
+  defp file_extension(_mime), do: "png"
 
   defp file_content_url(page_id, relative_path, auth_ref) do
     base =

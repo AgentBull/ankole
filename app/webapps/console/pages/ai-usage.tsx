@@ -22,10 +22,14 @@ import { ErrorBlock } from '../../common/error-block'
 import { PageHeader, PageStack } from '../console-page'
 
 type UsageRow = GetAiGatewayUsageResponse['total']
+type CapabilityRow = GetAiGatewayUsageResponse['by_capability'][number]
 
 const WINDOWS = ['7', '30'] as const
 
-/** One tenant's model usage over a recent window, by Agent, by Human, and by origin. */
+/**
+ * One tenant's model usage over a recent window: tokens by Agent, by Human,
+ * and by origin, and what the calls of every other capability produced.
+ */
 export function AIUsagePage() {
   const { t } = useTranslation()
   const [params, setParams] = useSearchParams()
@@ -60,7 +64,7 @@ export function AIUsagePage() {
       <ErrorBlock error={usage.error} />
       {usage.isPending ? (
         <Skeleton className="h-48 w-full" />
-      ) : usage.data?.total.rounds === 0 ? (
+      ) : usage.data?.total.rounds === 0 && usage.data.by_capability.length === 0 ? (
         // One empty state for the whole window, whose next step is the longer window.
         <div className="grid justify-items-start gap-3 border border-border bg-card p-6">
           <p className="text-sm text-pretty text-muted-foreground">{t('console.ai_usage.empty')}</p>
@@ -92,6 +96,7 @@ export function AIUsagePage() {
             rows={usage.data.by_origin}
             label={row => t(`console.ai_usage.origin_${row.key}`, { defaultValue: row.key ?? '—' })}
           />
+          <CapabilityTable rows={usage.data.by_capability} />
         </>
       ) : null}
     </PageStack>
@@ -105,6 +110,64 @@ function PrincipalName({ row }: { row: UsageRow }) {
       <span className="truncate">{row.name ?? row.key}</span>
       {row.name && <span className="truncate font-mono text-xs text-muted-foreground">{row.key}</span>}
     </span>
+  )
+}
+
+// Calls that are not language-model rounds count pages, seconds, characters,
+// or images instead of tokens, so they have their own table.
+export function CapabilityTable({ rows }: { rows: CapabilityRow[] }) {
+  const { t, i18n } = useTranslation()
+  const number = new Intl.NumberFormat(i18n.language)
+  const cost = new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 6 })
+  const titleID = useId()
+
+  return (
+    <section className="grid min-w-0 gap-3">
+      <div className="grid gap-1">
+        <h3 id={titleID} className="title-section">
+          {t('console.ai_usage.by_capability')}
+        </h3>
+        <p className="text-sm text-pretty text-muted-foreground">{t('console.ai_usage.by_capability_description')}</p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="border border-border bg-card p-6 text-sm text-muted-foreground">
+          {t('console.ai_usage.by_capability_empty')}
+        </p>
+      ) : (
+        <div className="overflow-x-auto border border-border bg-card">
+          <Table aria-labelledby={titleID} className="min-w-[640px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('console.ai_usage.capability')}</TableHead>
+                <TableHead className="text-right">{t('console.ai_usage.calls')}</TableHead>
+                <TableHead className="text-right">{t('console.ai_usage.quantity')}</TableHead>
+                <TableHead>{t('console.ai_usage.unit')}</TableHead>
+                <TableHead className="text-right">{t('console.ai_usage.reported_cost')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map(row => (
+                <TableRow key={`${row.capability}:${row.unit ?? ''}`}>
+                  <TableCell>
+                    {t(`console.ai_usage.capability_${row.capability}`, { defaultValue: row.capability })}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{number.format(row.calls)}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {row.quantity == null ? '—' : number.format(row.quantity)}
+                  </TableCell>
+                  <TableCell>
+                    {row.unit ? t(`console.ai_usage.unit_${row.unit}`, { defaultValue: row.unit }) : '—'}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {row.provider_cost == null ? '—' : cost.format(row.provider_cost)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
   )
 }
 

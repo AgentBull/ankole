@@ -17,6 +17,7 @@ defmodule Ankole.Sessions.Tools.RelatedContext do
             "cursor" => %{"type" => "string"}
           }
         },
+        "allowed_callers" => ["direct", "programmatic"],
         "read_only" => true,
         "destructive" => false
       }

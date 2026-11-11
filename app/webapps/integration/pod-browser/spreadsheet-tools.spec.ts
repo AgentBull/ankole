@@ -24,7 +24,8 @@ async function session(browser: Browser) {
 
 async function create(page: Page, title: string) {
   await page.goto(pageRoute(state.report_id))
-  const { page: created } = await request<{ page: { id: string } }>(page, '/spreadsheet-pages', 'POST', {
+  const { page: created } = await request<{ page: { id: string } }>(page, '/office-pages', 'POST', {
+    format: 'spreadsheet',
     title,
     parent_id: state.report_id
   })

@@ -56,6 +56,7 @@ defmodule Ankole.Files do
   defdelegate upload_limit(), to: Objects
   defdelegate complete_object_in_tx(stored), to: Objects, as: :complete_in_tx
   defdelegate fetch_object(id), to: Objects, as: :fetch
+  defdelegate same_bytes_object_ids(id), to: Objects, as: :same_bytes_ids
   defdelegate read_object(id), to: Objects, as: :read
   defdelegate read_object_to_file(id, path), to: Objects, as: :read_to_file
   defdelegate read_object_range(id, offset, length), to: Objects, as: :read_range
@@ -72,7 +73,8 @@ defmodule Ankole.Files do
       {"pod_files", "object_id"},
       {"drive_vfs_exports", "object_id"},
       {"page_snapshots", "object_id"},
-      {"profile_avatars", "object_id"}
+      {"profile_avatars", "object_id"},
+      {"ai_gateway_media_jobs", "object_id"}
     ]
 
   # Agent runtime files use paths relative to their existing private root.

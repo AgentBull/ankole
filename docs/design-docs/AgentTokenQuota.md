@@ -25,14 +25,15 @@ runs—as well as Background Agent Jobs. If an Agent request starts compaction
 through a `compaction_trigger` item, that compaction keeps the Agent or Codex
 origin and counts the same way.
 
-The ledger has six origins, assigned in this priority order:
+The ledger has seven origins, assigned in this priority order:
 
 1. `codex` for an Agent subject using the Codex protocol;
 2. `agent` for every other Agent subject;
 3. `oidc_human` for an OIDC Human subject, including explicit compaction;
 4. `compaction` for an internal `compaction.summary` or `compaction.upstream` caller;
-5. `applet` for an internal `pod_applet` caller; and
-6. `brain` for `brain` and phase-specific `brain.*` callers.
+5. `applet` for an internal `pod_applet` caller;
+6. `pod_files` for an internal `pod_files` caller, which is file extraction sending scanned PDF pages to OCR; and
+7. `brain` for `brain` and phase-specific `brain.*` callers.
 
 Explicit subject credentials always take precedence over a caller label. Only
 unbound control-plane calls use caller-based classification. Automatic
@@ -72,7 +73,7 @@ enforced by a plugin.
 | --- | --- |
 | `id` | UUIDv7 primary key |
 | `subject_uid` | The executing Agent, Human, or system Principal |
-| `origin` | `agent`, `codex`, `oidc_human`, `compaction`, `applet`, or `brain`; only the first two enter Agent quota windows |
+| `origin` | `agent`, `codex`, `oidc_human`, `compaction`, `applet`, `pod_files`, or `brain`; only the first two enter Agent quota windows |
 | `model` | The requested `provider_id/model` selector |
 | `provider_model` | The model that the Provider reported, when it differs from the requested model; NULL otherwise |
 | `model_profile` | The model profile that the caller requested, such as `light`; NULL for an explicit `provider_id/model` selector |
@@ -85,8 +86,8 @@ enforced by a plugin.
 | `signal_id` | The Signal that started that Turn; NULL when unknown |
 | `job_id` | The Background Agent Job that made the round; NULL for other work |
 | `attempt` | The attempt number of that Job; NULL for other work |
-| `capability` | What the round served: `llm`, `image_generate`, or `decision`; only `llm` rows enter quota windows, per-turn usage, and the Console summary |
-| `unit`, `quantity` | What a round other than a language-model round produced, such as `image` and the number of generated images; NULL for `llm` and `decision` rows |
+| `capability` | What the round served: `llm`, `image_generate`, `decision`, `speech`, `transcription`, `ocr`, `video`, or `music`; only `llm` rows enter quota windows, per-turn usage, and the Console token totals, and the Console lists the other capabilities by unit |
+| `unit`, `quantity` | What a round other than a language-model round produced: `image` and the number of generated images, `character` and the length of a speech request's text, `second` and the seconds of transcribed audio or the `duration` that a video or music request named, or `page` and the pages that an OCR model read; NULL for `llm` and `decision` rows, for a transcription whose Provider reports no duration, and for a video or music job whose request named no duration |
 | `provider_cost` | The cost that the Provider reported for a round other than a language-model round; NULL when not reported |
 | `inserted_at` | Record time; the window query uses it |
 

@@ -117,6 +117,7 @@ defmodule AnkoleWeb.PodControllerTest do
              "artifacts",
              "conversation",
              "editableInputs",
+             "issueAgentUID",
              "latestInput",
              "linkedRuns",
              "messageRange",
@@ -527,11 +528,14 @@ defmodule AnkoleWeb.PodControllerTest do
     refute_receive {:ai_gateway_event, :response_started, ^gateway}
   end
 
-  for revoked <- [:authentication, :principal] do
-    @tag revoked: revoked
-    test "revoking #{revoked} stops disclosure of queued stream output", %{
+  # A Page-permission broadcast rechecks at once; a revocation without one
+  # reaches the stream once its last successful check is 5 seconds old.
+  for {revoked, detection} <- [authentication: :recheck, principal: :recheck, principal: :expiry] do
+    @tag revoked: revoked, detection: detection
+    test "#{detection} after revoking #{revoked} stops disclosure of queued stream output", %{
       conn: conn,
-      revoked: revoked
+      revoked: revoked,
+      detection: detection
     } do
       {:ok, true} =
         Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
@@ -584,7 +588,11 @@ defmodule AnkoleWeb.PodControllerTest do
           end
 
         assert {:ok, _} = result
+        if detection == :expiry, do: Process.sleep(5_100)
       end
+
+      delta = {:ai_gateway_event, :output_text_delta, gateway}
+      events = if detection == :recheck, do: [:recheck_access, delta], else: [delta]
 
       request = %{
         stream_request(authenticated_conn, detail.conversation.id)
@@ -592,7 +600,7 @@ defmodule AnkoleWeb.PodControllerTest do
             {StreamAdapter,
              %{
                owner: self(),
-               events: [{:ai_gateway_event, :output_text_delta, gateway}],
+               events: events,
                chunks_left: 5,
                after_chunk: revoke
              }}

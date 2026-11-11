@@ -19,6 +19,7 @@ defmodule Ankole.Pod.Chat.Presentation do
             &1,
             detail.interaction_states,
             Map.get(detail, :action_card_states, %{}),
+            Map.get(detail, :access_blocked_states, %{}),
             assistant_names
           ),
           :savedPages,
@@ -163,7 +164,8 @@ defmodule Ankole.Pod.Chat.Presentation do
 
   defp row_status(%{conversation: conversation, agents: agents, viewer: viewer} = detail) do
     cond do
-      pending_interactions(detail) != [] or Map.get(detail, :has_prepared_action_card?, false) ->
+      has_pending_native_interaction?(detail) or
+          Map.get(detail, :has_prepared_action_card?, false) ->
         "waiting_choice"
 
       Enum.any?(
@@ -175,8 +177,11 @@ defmodule Ankole.Pod.Chat.Presentation do
       ) ->
         "streaming"
 
+      Enum.any?(detail.linked_jobs, &(&1.status == :waiting_on_user)) ->
+        "waiting_choice"
+
       Map.get(detail, :peer_running?, false) or
-        Enum.any?(detail.linked_jobs, &(&1.status in [:queued, :running, :waiting_on_user])) or
+        Enum.any?(detail.linked_jobs, &(&1.status in [:queued, :running])) or
           Enum.any?(detail.linked_workflows, &(&1.status == :running)) ->
         "running_background"
 
@@ -212,17 +217,41 @@ defmodule Ankole.Pod.Chat.Presentation do
       deliveryMode: input.data["delivery_mode"] || "steer"
     }
 
-  defp message_json(message, interactions, action_cards, assistant_names) do
+  defp message_json(
+         message,
+         interactions,
+         action_cards,
+         access_blocked_states,
+         assistant_names
+       ) do
     rich = message.rich_content || %{}
 
     rich =
-      case rich["clarify"] do
-        %{} = clarify ->
-          Map.put(
-            rich,
-            "clarify",
-            Map.merge(clarify, Map.get(interactions, message.id, %{"state" => "superseded"}))
-          )
+      Enum.reduce(["clarify", "connector_auth", "access_blocked"], rich, fn key, acc ->
+        case acc[key] do
+          %{} = payload ->
+            Map.put(
+              acc,
+              key,
+              Map.merge(payload, Map.get(interactions, message.id, %{"state" => "superseded"}))
+            )
+
+          _ ->
+            acc
+        end
+      end)
+
+    rich =
+      case rich["access_blocked"] do
+        %{} = blocked ->
+          enriched = Map.merge(blocked, Map.get(access_blocked_states, message.id, %{}))
+
+          enriched =
+            if enriched["state"] != "pending",
+              do: Map.put(enriched, "can_grant", false),
+              else: enriched
+
+          Map.put(rich, "access_blocked", enriched)
 
         _ ->
           rich
@@ -266,18 +295,36 @@ defmodule Ankole.Pod.Chat.Presentation do
     }
   end
 
+  defp has_pending_native_interaction?(detail) do
+    Enum.any?(detail.pending_questions, fn message ->
+      rich = message.rich_content || %{}
+
+      has_card? =
+        is_map(rich["clarify"]) or is_map(rich["connector_auth"]) or
+          is_map(rich["access_blocked"])
+
+      has_card? and
+        Map.get(detail.interaction_states, message.id, %{"state" => "superseded"})["state"] ==
+          "pending"
+    end)
+  end
+
   defp pending_interactions(detail) do
     detail.pending_questions
     |> Enum.sort_by(& &1.seq)
     |> Enum.flat_map(fn message ->
-      clarify = message.rich_content["clarify"]
+      case message.rich_content["clarify"] do
+        %{} = clarify ->
+          case Map.merge(
+                 clarify,
+                 Map.get(detail.interaction_states, message.id, %{"state" => "superseded"})
+               ) do
+            %{"state" => "pending"} = pending ->
+              [Map.merge(pending, %{"messageID" => message.id, "agentUID" => message.author_uid})]
 
-      case Map.merge(
-             clarify,
-             Map.get(detail.interaction_states, message.id, %{"state" => "superseded"})
-           ) do
-        %{"state" => "pending"} = pending ->
-          [Map.merge(pending, %{"messageID" => message.id, "agentUID" => message.author_uid})]
+            _ ->
+              []
+          end
 
         _ ->
           []
@@ -693,7 +740,8 @@ defmodule Ankole.Pod.Chat.Presentation do
 
   defp job_run_summary(job, source, metric, can_act?) do
     successor_id = metric[:successor_job_id]
-    pending_question = job |> extract_pending_questions() |> List.first()
+    pending_questions = extract_pending_questions(job)
+    pending_question = List.first(pending_questions)
 
     summary =
       cond do
@@ -726,6 +774,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       successorJobID: successor_id && to_string(successor_id),
       stoppable: job.status in [:queued, :running, :waiting_on_user],
       canMessage: job_can_message?(job, successor_id, can_act?),
+      pendingQuestions: pending_questions,
       summary: summary && String.slice(summary, 0, 240),
       stepCount: metric[:step_count] || 0,
       planCompleted: metric[:plan_completed],
@@ -756,6 +805,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       sourceToolCallID: workflow.source_tool_call_id,
       stoppable: workflow.status == :running,
       canMessage: false,
+      pendingQuestions: [],
       summary: summary && String.slice(summary, 0, 240),
       stepCount: if(counts, do: counts.total, else: 0),
       taskCounts: counts,

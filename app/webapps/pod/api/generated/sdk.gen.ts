@@ -15,6 +15,9 @@ import type {
   ChangePodMembershipData,
   ChangePodMembershipErrors,
   ChangePodMembershipResponses,
+  ChangePodScheduledWorkData,
+  ChangePodScheduledWorkErrors,
+  ChangePodScheduledWorkResponses,
   ChoosePodNextStepData,
   ChoosePodNextStepErrors,
   ChoosePodNextStepResponses,
@@ -72,6 +75,9 @@ import type {
   GetPodInteractionData,
   GetPodInteractionErrors,
   GetPodInteractionResponses,
+  GrantConversationPageAccessData,
+  GrantConversationPageAccessErrors,
+  GrantConversationPageAccessResponses,
   ListPodRunnerDevicesData,
   ListPodRunnerDevicesErrors,
   ListPodRunnerDevicesResponses,
@@ -87,9 +93,24 @@ import type {
   MetaAgentsData,
   MetaAgentsErrors,
   MetaAgentsResponses,
+  MetaBrainAddFactData,
+  MetaBrainAddFactErrors,
+  MetaBrainAddFactResponses,
   MetaBrainData,
   MetaBrainErrors,
+  MetaBrainForgetClaimData,
+  MetaBrainForgetClaimErrors,
+  MetaBrainForgetClaimResponses,
+  MetaBrainMyContextData,
+  MetaBrainMyContextErrors,
+  MetaBrainMyContextResponses,
+  MetaBrainNodeClaimsData,
+  MetaBrainNodeClaimsErrors,
+  MetaBrainNodeClaimsResponses,
   MetaBrainResponses,
+  MetaBrainSupersedeClaimData,
+  MetaBrainSupersedeClaimErrors,
+  MetaBrainSupersedeClaimResponses,
   MetaCreateAgentData,
   MetaCreateAgentErrors,
   MetaCreateAgentResponses,
@@ -105,6 +126,9 @@ import type {
   MetaImportSkillData,
   MetaImportSkillErrors,
   MetaImportSkillResponses,
+  MetaPublishSkillData,
+  MetaPublishSkillErrors,
+  MetaPublishSkillResponses,
   MetaSaveAgentContractData,
   MetaSaveAgentContractErrors,
   MetaSaveAgentContractResponses,
@@ -408,6 +432,18 @@ import type {
   PodNextStepsData,
   PodNextStepsErrors,
   PodNextStepsResponses,
+  PodOfficeCreateData,
+  PodOfficeCreateErrors,
+  PodOfficeCreateResponses,
+  PodOfficeData,
+  PodOfficeErrors,
+  PodOfficeResponses,
+  PodOfficeRestoreData,
+  PodOfficeRestoreErrors,
+  PodOfficeRestoreResponses,
+  PodOfficeVersionsData,
+  PodOfficeVersionsErrors,
+  PodOfficeVersionsResponses,
   PodPageChildrenData,
   PodPageChildrenErrors,
   PodPageChildrenResponses,
@@ -476,6 +512,9 @@ import type {
   PodPageSearchResponses,
   PodPageSharingData,
   PodPageSharingErrors,
+  PodPageSharingExplainData,
+  PodPageSharingExplainErrors,
+  PodPageSharingExplainResponses,
   PodPageSharingResponses,
   PodPageSharingUpdateData,
   PodPageSharingUpdateErrors,
@@ -522,24 +561,15 @@ import type {
   PodSpaceWriteData,
   PodSpaceWriteErrors,
   PodSpaceWriteResponses,
-  PodSpreadsheetCreateData,
-  PodSpreadsheetCreateErrors,
-  PodSpreadsheetCreateResponses,
-  PodSpreadsheetData,
-  PodSpreadsheetErrors,
-  PodSpreadsheetResponses,
-  PodSpreadsheetRestoreData,
-  PodSpreadsheetRestoreErrors,
-  PodSpreadsheetRestoreResponses,
-  PodSpreadsheetVersionsData,
-  PodSpreadsheetVersionsErrors,
-  PodSpreadsheetVersionsResponses,
   PodSubjectsData,
   PodSubjectsErrors,
   PodSubjectsResponses,
   PodVersionsData,
   PodVersionsErrors,
   PodVersionsResponses,
+  PodWordConvertToDocumentData,
+  PodWordConvertToDocumentErrors,
+  PodWordConvertToDocumentResponses,
   PostConversationMessageData,
   PostConversationMessageErrors,
   PostConversationMessageResponses,
@@ -973,6 +1003,23 @@ export const podAppletJobCreate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * metaPublishSkill operation on meta_library resource
+ */
+export const metaPublishSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaPublishSkillData, ThrowOnError>
+): RequestResult<MetaPublishSkillResponses, MetaPublishSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<MetaPublishSkillResponses, MetaPublishSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}/publish',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * metaGlobalContracts operation on meta_library resource
  */
 export const metaGlobalContracts = <ThrowOnError extends boolean = true>(
@@ -1013,6 +1060,19 @@ export const podJobSchedulesPut = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podOfficeRestore operation on pod_office_operation resource
+ */
+export const podOfficeRestore = <ThrowOnError extends boolean = true>(
+  options: Options<PodOfficeRestoreData, ThrowOnError>
+): RequestResult<PodOfficeRestoreResponses, PodOfficeRestoreErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodOfficeRestoreResponses, PodOfficeRestoreErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/office/versions/{version_id}/restore',
+    ...options
   })
 
 /**
@@ -1244,6 +1304,19 @@ export const podAppletOwner = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * metaBrainForgetClaim operation on meta_brain resource
+ */
+export const metaBrainForgetClaim = <ThrowOnError extends boolean = true>(
+  options: Options<MetaBrainForgetClaimData, ThrowOnError>
+): RequestResult<MetaBrainForgetClaimResponses, MetaBrainForgetClaimErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<MetaBrainForgetClaimResponses, MetaBrainForgetClaimErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/brain/claims/{claim_id}',
+    ...options
   })
 
 /**
@@ -1972,19 +2045,6 @@ export const conversationExecution = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podSpreadsheetRestore operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheetRestore = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetRestoreData, ThrowOnError>
-): RequestResult<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore',
-    ...options
-  })
-
-/**
  * podBaseAggregate operation on pod_base_operation resource
  */
 export const podBaseAggregate = <ThrowOnError extends boolean = true>(
@@ -2365,19 +2425,6 @@ export const postConversationMessage = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podSpreadsheet operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheet = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetData, ThrowOnError>
-): RequestResult<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet',
-    ...options
-  })
-
-/**
  * podBaseTableCreate operation on pod_base_operation resource
  */
 export const podBaseTableCreate = <ThrowOnError extends boolean = true>(
@@ -2404,6 +2451,19 @@ export const podPeerExchange = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}',
+    ...options
+  })
+
+/**
+ * metaBrainMyContext operation on meta_brain resource
+ */
+export const metaBrainMyContext = <ThrowOnError extends boolean = true>(
+  options?: Options<MetaBrainMyContextData, ThrowOnError>
+): RequestResult<MetaBrainMyContextResponses, MetaBrainMyContextErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<MetaBrainMyContextResponses, MetaBrainMyContextErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/brain/my-context',
     ...options
   })
 
@@ -2673,6 +2733,19 @@ export const podConnectorAuthConfigsUpdate = <ThrowOnError extends boolean = tru
   })
 
 /**
+ * podPageSharingExplain operation on pod_page_operation resource
+ */
+export const podPageSharingExplain = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageSharingExplainData, ThrowOnError>
+): RequestResult<PodPageSharingExplainResponses, PodPageSharingExplainErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageSharingExplainResponses, PodPageSharingExplainErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/sharing/explain',
+    ...options
+  })
+
+/**
  * enablePodAgent operation on pod_admin_operation resource
  */
 export const enablePodAgent = <ThrowOnError extends boolean = true>(
@@ -2782,6 +2855,24 @@ export const setPodAdministrator = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * grantConversationPageAccess operation on pod_chat_operation resource
+ */
+export const grantConversationPageAccess = <ThrowOnError extends boolean = true>(
+  options: Options<GrantConversationPageAccessData, ThrowOnError>
+): RequestResult<GrantConversationPageAccessResponses, GrantConversationPageAccessErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    GrantConversationPageAccessResponses,
+    GrantConversationPageAccessErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/interactions/{interaction_id}/grant-page-access',
+    ...options
   })
 
 /**
@@ -2929,6 +3020,19 @@ export const podKnowledgeExport = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/knowledge/export',
+    ...options
+  })
+
+/**
+ * metaBrainNodeClaims operation on meta_brain resource
+ */
+export const metaBrainNodeClaims = <ThrowOnError extends boolean = true>(
+  options: Options<MetaBrainNodeClaimsData, ThrowOnError>
+): RequestResult<MetaBrainNodeClaimsResponses, MetaBrainNodeClaimsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<MetaBrainNodeClaimsResponses, MetaBrainNodeClaimsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/brain/nodes/{page_id}/claims',
     ...options
   })
 
@@ -3202,19 +3306,6 @@ export const podPageHistory = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podSpreadsheetVersions operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheetVersions = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetVersionsData, ThrowOnError>
-): RequestResult<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet/versions',
-    ...options
-  })
-
-/**
  * podBaseViewDelete operation on pod_base_operation resource
  */
 export const podBaseViewDelete = <ThrowOnError extends boolean = true>(
@@ -3237,6 +3328,23 @@ export const podBaseViewUpdate = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/views/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaBrainAddFact operation on meta_brain resource
+ */
+export const metaBrainAddFact = <ThrowOnError extends boolean = true>(
+  options: Options<MetaBrainAddFactData, ThrowOnError>
+): RequestResult<MetaBrainAddFactResponses, MetaBrainAddFactErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<MetaBrainAddFactResponses, MetaBrainAddFactErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/brain/my-context/facts',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -3309,6 +3417,19 @@ export const podPageSharingWrite = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podOfficeVersions operation on pod_office_operation resource
+ */
+export const podOfficeVersions = <ThrowOnError extends boolean = true>(
+  options: Options<PodOfficeVersionsData, ThrowOnError>
+): RequestResult<PodOfficeVersionsResponses, PodOfficeVersionsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodOfficeVersionsResponses, PodOfficeVersionsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/office/versions',
+    ...options
+  })
+
+/**
  * podConversations operation on pod_chat_operation resource
  */
 export const podConversations = <ThrowOnError extends boolean = true>(
@@ -3354,6 +3475,38 @@ export const metaImportSkill = <ThrowOnError extends boolean = true>(
       ...options.headers
     }
   })
+
+/**
+ * podOffice operation on pod_office_operation resource
+ */
+export const podOffice = <ThrowOnError extends boolean = true>(
+  options: Options<PodOfficeData, ThrowOnError>
+): RequestResult<PodOfficeResponses, PodOfficeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodOfficeResponses, PodOfficeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/office',
+    ...options
+  })
+
+/**
+ * changePodScheduledWork operation on issue_operation resource
+ */
+export const changePodScheduledWork = <ThrowOnError extends boolean = true>(
+  options: Options<ChangePodScheduledWorkData, ThrowOnError>
+): RequestResult<ChangePodScheduledWorkResponses, ChangePodScheduledWorkErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<ChangePodScheduledWorkResponses, ChangePodScheduledWorkErrors, ThrowOnError, 'data'>(
+    {
+      responseStyle: 'data',
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/pod/issues/scheduled/{id}',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
 
 /**
  * podPageCommentsRead operation on pod_document_comment_operation resource
@@ -3523,6 +3676,50 @@ export const setPodModelSelection = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * metaBrainSupersedeClaim operation on meta_brain resource
+ */
+export const metaBrainSupersedeClaim = <ThrowOnError extends boolean = true>(
+  options: Options<MetaBrainSupersedeClaimData, ThrowOnError>
+): RequestResult<MetaBrainSupersedeClaimResponses, MetaBrainSupersedeClaimErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    MetaBrainSupersedeClaimResponses,
+    MetaBrainSupersedeClaimErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/brain/claims/{claim_id}/supersede',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podWordConvertToDocument operation on pod_office_operation resource
+ */
+export const podWordConvertToDocument = <ThrowOnError extends boolean = true>(
+  options: Options<PodWordConvertToDocumentData, ThrowOnError>
+): RequestResult<PodWordConvertToDocumentResponses, PodWordConvertToDocumentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PodWordConvertToDocumentResponses,
+    PodWordConvertToDocumentErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/convert-to-document',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podMentionCandidates operation on pod_page_operation resource
  */
 export const podMentionCandidates = <ThrowOnError extends boolean = true>(
@@ -3549,23 +3746,6 @@ export const renamePodMember = <ThrowOnError extends boolean = true>(
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
-    }
-  })
-
-/**
- * podSpreadsheetCreate operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheetCreate = <ThrowOnError extends boolean = true>(
-  options?: Options<PodSpreadsheetCreateData, ThrowOnError>
-): RequestResult<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).post<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/spreadsheet-pages',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options?.headers
     }
   })
 
@@ -3680,6 +3860,23 @@ export const podCommentAttention = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/comments/attention',
     ...options
+  })
+
+/**
+ * podOfficeCreate operation on pod_office_operation resource
+ */
+export const podOfficeCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodOfficeCreateData, ThrowOnError>
+): RequestResult<PodOfficeCreateResponses, PodOfficeCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodOfficeCreateResponses, PodOfficeCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/office-pages',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**

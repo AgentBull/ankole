@@ -20,7 +20,7 @@ defmodule AnkoleKernel.MixProject do
   defp deps do
     [
       {:rustler, "~> 0.38.0", runtime: false},
-      {:torque, "~> 0.5.0"}
+      {:torque, "~> 0.5.4"}
     ]
   end
 end

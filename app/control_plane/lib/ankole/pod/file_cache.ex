@@ -8,6 +8,12 @@ defmodule Ankole.Pod.FileCache do
   extraction succeeded (`:ok`), was intentionally skipped (`:skipped`), or failed
   on malformed input (`:failed`) so background reconciliation never retries an
   unchanged object at the same `extractor_version`.
+
+  `ocr` is the one column the kernel cannot rebuild: it holds what an OCR model
+  read from the object's scanned pages, which the Pod paid for. `"pages"` maps
+  each page number OCR has read to its text, an empty string for a page without
+  text, and `"failures"` counts the OCR runs that have failed in a row. A later
+  extraction of the same object takes the text from here.
   """
   use Ankole.Ash.Resource,
     tenancy: :tenant,
@@ -47,7 +53,36 @@ defmodule Ankole.Pod.FileCache do
 
     attribute(:extract_error, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:metadata, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
+    attribute(:ocr, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
     attribute(:updated_at, :utc_datetime_usec, allow_nil?: false)
+  end
+
+  calculations do
+    # The pages without a text layer that OCR has not read.
+    calculate(
+      :unread_scan_pages,
+      :integer,
+      expr(
+        fragment(
+          "(SELECT count(*) FROM jsonb_array_elements_text(?->'textless_pages') AS unread(page) WHERE NOT jsonb_exists(COALESCE(?->'pages', '{}'::jsonb), unread.page))",
+          metadata,
+          ocr
+        )
+      )
+    )
+
+    # The pages that the metadata lists without text although OCR has read text from them.
+    calculate(
+      :unmerged_ocr_pages,
+      :integer,
+      expr(
+        fragment(
+          "(SELECT count(*) FROM jsonb_array_elements_text(?->'textless_pages') AS kept(page) WHERE COALESCE(?->'pages'->>kept.page, '') <> '')",
+          metadata,
+          ocr
+        )
+      )
+    )
   end
 
   actions do
@@ -63,6 +98,7 @@ defmodule Ankole.Pod.FileCache do
         :extract_status,
         :extract_error,
         :metadata,
+        :ocr,
         :updated_at
       ])
 
@@ -76,6 +112,7 @@ defmodule Ankole.Pod.FileCache do
         :extract_status,
         :extract_error,
         :metadata,
+        :ocr,
         :updated_at
       ])
     end

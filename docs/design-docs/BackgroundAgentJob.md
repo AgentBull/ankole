@@ -233,9 +233,10 @@ steer-seeded successors to resolve their conversation without a live calling
 turn. The owner Session also links the Job to an [Issue](Issues.md): a Job
 whose owner is an Issue's room is one of that Issue's runs. Creating a Job from
 an Agent's turn, or continuing a finished Job, reopens the room's accepted
-Issue in the same transaction and gives a personal assistant's task room its
-Issue when the room has none. A successor that a steer message seeds leaves the
-Issue as it is.
+Issue in the same transaction and gives a room of the Chat list its Issue when
+the room has none. A Job whose owner is a cron rule's execution Session belongs
+to the Issue of the rule's owner room. A successor that a steer message seeds
+leaves the Issue as it is.
 
 When the originating Conversation is a Pod room, the control plane derives the
 source Page ID and Pod delivery instructions from the Conversation owner and
@@ -641,7 +642,12 @@ The runner sends Job execution context and the current Skill index as developer
 instructions. The context directs the Job to save durable outputs in its Agent's
 private Drive with `ankole-files put` and return the resulting `nodeId` to the
 caller. Received attachments include an `ankole-pod chat attachment get` command
-that reads the source Message's frozen object under current membership.
+that reads the source Message's frozen object under current membership. For
+research, document-authoring, and multi-stage engineering tasks, the developer
+instructions also direct the Job to checkpoint structured intermediate notes and
+draft sections progressively to workspace files (such as `.ankole/` scratch
+notes or target draft files) rather than accumulating the entire deliverable in
+transient turn context before writing.
 
 The `design-md` Skill reads the project's `DESIGN.override.md` or `DESIGN.md`
 whole when present. Otherwise it reads `~/DESIGN.md`, together with any project
@@ -1053,9 +1059,13 @@ path):
   lead assistant message as a candidate only until the lead thread starts
   another work item (command, file edit, tool call, or collaboration call;
   automatic compaction does not clear it) or starts a new lead Turn.
-- If no candidate final report exists when the Turn tree settles, the runner
-  prompts the same thread once for a final report before failing with
-  `codex_empty_report`.
+- If no candidate final report exists when the Turn tree settles—or once a
+  candidate report is ready for final acceptance—`CodexRunner` re-anchors the
+  lead thread against a bounded verbatim excerpt (up to `8,000` characters) of
+  the original `job.task` plus the latest applied steer so acceptance
+  verification checks every concrete requirement against the original brief even
+  after intermediate compactions; if the thread still produces no non-empty
+  final report, the attempt fails with `codex_empty_report`.
 
 On wakeup, the main Agent checks reported deliverables and verification against
 the user's goal: it reuses completed verification rather than spawning redundant

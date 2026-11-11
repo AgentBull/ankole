@@ -6,7 +6,9 @@ defmodule Ankole.Issues.Issue do
   whose Background Agent Jobs and Workflows are the Issue's runs. This row holds
   what a person decides: `todo` until the Agent receives the request, `started`
   once it has, and `done` when a person accepts the result. `description` is the
-  request that starts the Agent.
+  request that starts the Agent. `labels` sort the Issue, `parent_id` names the
+  Issue that it is part of, and `squad_uids` names the AI colleagues among whom
+  a personal assistant shares the work.
   """
 
   use Ankole.Ash.Resource,
@@ -23,7 +25,8 @@ defmodule Ankole.Issues.Issue do
 
     foreign_key_names([
       {:conversation_id, "issues_conversation_fkey"},
-      {:agent_uid, "issues_agent_fkey"}
+      {:agent_uid, "issues_agent_fkey"},
+      {:parent_id, "issues_parent_fkey"}
     ])
   end
 
@@ -50,6 +53,22 @@ defmodule Ankole.Issues.Issue do
 
     attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
 
+    attribute(:labels, {:array, :string},
+      allow_nil?: false,
+      default: [],
+      constraints: [max_length: 10, items: [max_length: 40]],
+      public?: true
+    )
+
+    attribute(:parent_id, Ankole.Ash.Types.UUIDv7, public?: true)
+
+    attribute(:squad_uids, {:array, Ankole.Ash.Types.PrincipalKey},
+      allow_nil?: false,
+      default: [],
+      constraints: [max_length: 10],
+      public?: true
+    )
+
     timestamps(type: :utc_datetime_usec, public?: true)
   end
 
@@ -58,12 +77,26 @@ defmodule Ankole.Issues.Issue do
 
     create :open do
       primary?(true)
-      accept([:conversation_id, :status, :description, :agent_uid])
+
+      accept([
+        :conversation_id,
+        :status,
+        :description,
+        :agent_uid,
+        :labels,
+        :parent_id,
+        :squad_uids
+      ])
     end
 
     # A task room receives its Issue once, however many runs start in it.
     create_if_absent :ensure do
       accept([:conversation_id, :status, :agent_uid])
+    end
+
+    update :label do
+      require_atomic?(true)
+      accept([:labels])
     end
 
     # The request changes only while the Agent has not received it.

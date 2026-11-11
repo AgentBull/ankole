@@ -35,8 +35,8 @@ multiplexing subcommands through an `action` parameter.
 
 A run records the calling Session as its owner. When that Session is the room
 of an [Issue](Issues.md), the run is one of the Issue's runs. Creating a run
-reopens the room's accepted Issue in the same transaction and gives a personal
-assistant's task room its Issue when the room has none.
+reopens the room's accepted Issue in the same transaction and gives a room of
+the Chat list its Issue when the room has none.
 
 Deployment-wide Workflow settings cap `concurrency` and `max_agent_calls` if the
 caller requests higher numbers. `workflow` returns the decimal `run_id` and the
@@ -52,7 +52,8 @@ automatically.
   `wake_count`), and up to 10 task failure summaries. A `sleeping` task is still
   in progress—not finished—hibernating until an event wakes it.
 - For a completed run, passing a UTF-8 byte offset in `result_offset` reads one
-  bounded result slice (up to 8,000 bytes) alongside the total byte length while
+  bounded result slice (`8,000` bytes on direct model calls, or up to `64,000`
+  bytes when called from `program`) alongside the total byte length while
   omitting task summaries; pass the returned next offset to read subsequent
   slices directly from PostgreSQL.
 
@@ -93,8 +94,10 @@ owner `workflow.task.message` or a lifecycle event from a `BackgroundAgentJob`
 that the task created. Claiming a wake passes through the standard dispatch
 gates, so if the Agent is at capacity, Ankole defers the wake again. Once
 admitted, the wake turn resumes the existing AIGateway conversation with the
-triggering event rendered as the user message and rebuilds `submit_result` from
-the persisted task contract (`prompt`, `schema`, and `label`).
+same static system instructions as the initial turn—placing wake-continuation
+guidance together with the triggering event inside the wake user message so the
+conversation's prompt-cache prefix stays intact—and rebuilds `submit_result`
+from the persisted task contract (`prompt`, `schema`, and `label`).
 
 Each sleep resets the call's per-wake attempt counter to zero while consuming
 one unit from the hard cap of 16 sleeps per call. If a wake turn crashes before

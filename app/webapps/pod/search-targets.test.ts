@@ -7,12 +7,24 @@ import {
   collectRawMatchSpans,
   encodeSearchTarget,
   extractXmlPreview,
+  findOfficeSearchMatch,
   normalizeSearchQuery,
   normalizeSearchText,
   parseSearchTarget,
   resolveFindNeedleSets,
   splitHighlightSegments
 } from './search-targets'
+
+it('prefers the indexed Office page even when an earlier query term matches elsewhere', async () => {
+  const match = { page: 2 }
+  const result = await findOfficeSearchMatch(
+    '"another result" Ｔarget',
+    2,
+    async term => (term === 'target' ? [match] : [{ page: 0 }]),
+    item => item.page
+  )
+  expect(result).toEqual({ needle: 'target', matches: [match], index: 0 })
+})
 
 type MiniNode = MiniElement | MiniText
 

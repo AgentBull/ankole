@@ -72,7 +72,7 @@ describe('provider settings', () => {
   })
 
   test('projects only request-scoped DSL settings for model profiles', () => {
-    expect(requestSettings(providerKind('openai')).map(setting => [setting.key, setting.type])).toEqual([
+    expect(requestSettings(providerKind('openai'), 'llm').map(setting => [setting.key, setting.type])).toEqual([
       ['reasoningEffort', 'select'],
       ['enable_search', 'boolean'],
       ['thinking_budget', 'integer'],
@@ -84,9 +84,27 @@ describe('provider settings', () => {
     ])
   })
 
+  test('offers a request setting only on the profiles whose capability reads it', () => {
+    const kind: AIGatewayProviderKindItem = {
+      ...providerKind('cloudflare'),
+      capabilities: ['web_search', 'image_generate', 'speech'],
+      settings: [
+        providerSetting('engine', { scope: 'request', capabilities: ['web_search'] }),
+        providerSetting('steps', { scope: 'request', type: 'integer', capabilities: ['image_generate'] }),
+        providerSetting('user', { scope: 'request' })
+      ]
+    }
+    const keys = (capability: string) => requestSettings(kind, capability).map(setting => setting.key)
+
+    expect(keys('web_search')).toEqual(['engine', 'user'])
+    expect(keys('image_generate')).toEqual(['steps', 'user'])
+    // A setting that names no capability serves them all.
+    expect(keys('speech')).toEqual(['user'])
+  })
+
   test('serializes smart field drafts using the DSL value types', () => {
     const result = buildSettingOptions(
-      requestSettings(providerKind('openai')),
+      requestSettings(providerKind('openai'), 'llm'),
       {
         reasoningEffort: 'xhigh',
         enable_search: 'true',
@@ -114,7 +132,7 @@ describe('provider settings', () => {
   })
 
   test('omits a blank service tier while accepting declared and custom values', () => {
-    const settings = requestSettings(providerKind('openai'))
+    const settings = requestSettings(providerKind('openai'), 'llm')
     const message = (field: string, error: string) => `${field}:${error}`
 
     expect(buildSettingOptions(settings, { serviceTier: '' }, message)).toEqual({ ok: true, value: {} })
@@ -130,7 +148,7 @@ describe('provider settings', () => {
 
   test('reports the specific invalid typed field', () => {
     const result = buildSettingOptions(
-      requestSettings(providerKind('openai')),
+      requestSettings(providerKind('openai'), 'llm'),
       { thinking_budget: '2.5' },
       (field, error) => `${field}:${error}`
     )
@@ -140,7 +158,7 @@ describe('provider settings', () => {
 
   test('rejects values outside a select setting declared options', () => {
     const result = buildSettingOptions(
-      requestSettings(providerKind('openai')),
+      requestSettings(providerKind('openai'), 'llm'),
       { reasoningEffort: 'max' },
       (field, error) => `${field}:${error}`
     )

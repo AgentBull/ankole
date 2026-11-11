@@ -3,9 +3,9 @@ defmodule Ankole.Pod do
   The Pod domain: the page tree, page content, and Base schemas.
 
   The Ash resources own the pages, page content and changes, personal page
-  state, spreadsheet operations and file caches, and Base tables, fields, and
+  state, Office file operations and file caches, and Base tables, fields, and
   views. `Ankole.Pod.Pages`, `Ankole.Pod.Documents`,
-  `Ankole.Pod.Files`, `Ankole.Pod.Spreadsheets`, `Ankole.Pod.Applets`, and
+  `Ankole.Pod.Files`, `Ankole.Pod.OfficeFiles`, `Ankole.Pod.Applets`, and
   `Ankole.Pod.Bases` run their operations in top-level transactions.
   The Pod Base subsystem owns the `base_records` rows through the
   `Ankole.Pod.BaseRecord` Ecto schema, because users define their fields at
@@ -75,10 +75,10 @@ defmodule Ankole.Pod do
   defdelegate authorize_node_write(actor, node), to: NodeContents, as: :authorize_write
 
   @doc """
-  Writes a spreadsheet page's pending edits into its file before a reader takes
+  Writes an Office page's pending edits into its file before a reader takes
   the bytes. Runs outside a transaction; other nodes return `:ok` at once.
   """
-  defdelegate flush_node(id), to: Ankole.Pod.Spreadsheets, as: :flush_if_dirty
+  defdelegate flush_node(id), to: Ankole.Pod.OfficeFiles, as: :flush_if_dirty
 
   defdelegate commit_node_object_in_tx(actor, id, object, attrs \\ %{}),
     to: NodeContents,
@@ -124,7 +124,7 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.Applets.Browser)
     resource(Ankole.Pod.Bases.Browser)
     resource(Ankole.Pod.Files.Browser)
-    resource(Ankole.Pod.Spreadsheets.Browser)
+    resource(Ankole.Pod.OfficeFiles.Browser)
     resource(Ankole.Pod.Chat.Browser)
     resource(Ankole.Pod.RunnerBrowser)
 
@@ -143,7 +143,8 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.Comments.Browser)
     resource(Ankole.Pod.Documents.History.Browser)
     resource(Ankole.Pod.PageUserState)
-    resource(Ankole.Pod.SpreadsheetOp)
+    resource(Ankole.Pod.OfficeOp)
+    resource(Ankole.Pod.OfficeCheckpoint)
     resource(Ankole.Pod.FileCache)
     resource(Ankole.Pod.PageSearchDocument)
     resource(Ankole.Pod.SearchQuery)
@@ -313,6 +314,12 @@ defmodule Ankole.Pod do
         route(:get, "/", :list, name: "podIssues", wrap_in_result?: false)
         route(:post, "/", :create, name: "createPodIssue", wrap_in_result?: false)
         route(:get, "/scheduled", :scheduled, name: "podScheduledWork", wrap_in_result?: false)
+
+        route(:patch, "/scheduled/:id", :change_schedule,
+          name: "changePodScheduledWork",
+          wrap_in_result?: false
+        )
+
         route(:get, "/:id", :show, name: "podIssue", wrap_in_result?: false)
         route(:patch, "/:id", :update, name: "updatePodIssue", wrap_in_result?: false)
       end
@@ -331,6 +338,32 @@ defmodule Ankole.Pod do
 
       base_route "/meta/brain", Ankole.Brain.Browser do
         route(:get, "/", :graph, name: "metaBrain", wrap_in_result?: false)
+
+        route(:get, "/nodes/:page_id/claims", :node_claims,
+          name: "metaBrainNodeClaims",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/my-context", :my_context,
+          name: "metaBrainMyContext",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/my-context/facts", :add_my_fact,
+          name: "metaBrainAddFact",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/claims/:claim_id/supersede", :supersede_my_claim,
+          name: "metaBrainSupersedeClaim",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/claims/:claim_id", :forget_my_claim,
+          name: "metaBrainForgetClaim",
+          query_params: [:reason],
+          wrap_in_result?: false
+        )
       end
 
       base_route "/meta", Ankole.AIAgent.Library.Browser do
@@ -339,6 +372,11 @@ defmodule Ankole.Pod do
         route(:post, "/skills/import", :import, name: "metaImportSkill", wrap_in_result?: false)
         route(:get, "/skills/:slug", :detail, name: "metaSkill", wrap_in_result?: false)
         route(:put, "/skills/:slug", :save, name: "metaSaveSkill", wrap_in_result?: false)
+
+        route(:post, "/skills/:slug/publish", :publish,
+          name: "metaPublishSkill",
+          wrap_in_result?: false
+        )
 
         route(:delete, "/skills/:slug", :delete,
           name: "metaDeleteSkill",
@@ -535,6 +573,13 @@ defmodule Ankole.Pod do
 
         route(
           :post,
+          "/conversations/:id/interactions/:interaction_id/grant-page-access",
+          :grant_blocked_page_access,
+          name: "grantConversationPageAccess"
+        )
+
+        route(
+          :post,
           "/conversations/:id/action-cards/:card_id/resolve",
           :resolve_action_card,
           name: "resolveConversationActionCard"
@@ -585,13 +630,17 @@ defmodule Ankole.Pod do
         route(:post, "/pages/:id/copy-file", :copy, name: "podFileCopy")
       end
 
-      base_route "/", Ankole.Pod.Spreadsheets.Browser do
-        route(:post, "/spreadsheet-pages", :create, name: "podSpreadsheetCreate")
-        route(:get, "/pages/:id/spreadsheet", :bootstrap, name: "podSpreadsheet")
-        route(:get, "/pages/:id/spreadsheet/versions", :versions, name: "podSpreadsheetVersions")
+      base_route "/", Ankole.Pod.OfficeFiles.Browser do
+        route(:post, "/office-pages", :create, name: "podOfficeCreate")
+        route(:get, "/pages/:id/office", :bootstrap, name: "podOffice")
+        route(:get, "/pages/:id/office/versions", :versions, name: "podOfficeVersions")
 
-        route(:post, "/pages/:id/spreadsheet/versions/:version_id/restore", :restore,
-          name: "podSpreadsheetRestore"
+        route(:post, "/pages/:id/office/versions/:version_id/restore", :restore,
+          name: "podOfficeRestore"
+        )
+
+        route(:post, "/pages/:id/convert-to-document", :convert_to_document,
+          name: "podWordConvertToDocument"
         )
       end
 
@@ -735,6 +784,11 @@ defmodule Ankole.Pod do
         route :get, "/pages/:id/sharing", :sharing do
           name("podPageSharing")
         end
+
+        route(:get, "/pages/:id/sharing/explain", :explain_sharing,
+          name: "podPageSharingExplain",
+          query_params: [:subject_uid, :action]
+        )
 
         route :put, "/pages/:id/sharing", :set_sharing do
           name("podPageSharingWrite")

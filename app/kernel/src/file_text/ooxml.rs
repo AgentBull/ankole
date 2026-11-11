@@ -5,7 +5,7 @@ use quick_xml::{Reader, XmlVersion};
 use serde_json::json;
 
 use super::{
-    BoundedZip, FileSubtype, FileTextResult, PLAIN_TEXT_LIMIT, PageTextSpan, ZipOpenError,
+    BoundedZip, FileSubtype, FileTextResult, Outline, PLAIN_TEXT_LIMIT, PageTextSpan, ZipOpenError,
     append_xml_entity, attr_value_by_local, local_name, push_newline_once, push_tab_once,
     sanitize_nfkc, truncate_utf8, zip_error_to_result,
 };
@@ -61,43 +61,55 @@ pub(super) fn extract_docx(bytes: &[u8]) -> FileTextResult {
     };
 
     let mut out = String::new();
+    // Each part with whether it is the main document, whose headings open sections.
     let mut parts = Vec::with_capacity(headers.len() + footers.len() + 3);
     for h in headers {
         if let Ok(Some(xml)) = zip.read_utf8(&h) {
-            parts.push(xml);
+            parts.push((xml, false));
         }
     }
-    parts.push(main_xml);
+    parts.push((main_xml, true));
     for extra in ["word/footnotes.xml", "word/endnotes.xml"] {
         if let Ok(Some(xml)) = zip.read_utf8(extra) {
-            parts.push(xml);
+            parts.push((xml, false));
         }
     }
     for f in footers {
         if let Ok(Some(xml)) = zip.read_utf8(&f) {
-            parts.push(xml);
+            parts.push((xml, false));
         }
     }
 
-    for xml in &parts {
-        if let Err(reason) = parse_ooxml_text_events(xml, WORDPROCESSING_DIALECT, &mut out) {
-            return FileTextResult::failed(FileSubtype::Document, "docx", reason);
-        }
-        push_newline_once(&mut out);
+    let mut headings = Headings {
+        styles: heading_styles(&mut zip),
+        outline: Outline::default(),
+    };
+    let mut truncated = false;
+    for (xml, main) in &parts {
         if out.len() >= PLAIN_TEXT_LIMIT {
+            truncated = true;
             break;
         }
+        let headings = main.then_some(&mut headings);
+        match parse_ooxml_text_events(xml, WORDPROCESSING_DIALECT, &mut out, headings) {
+            Ok(stopped) => truncated |= stopped,
+            Err(reason) => return FileTextResult::failed(FileSubtype::Document, "docx", reason),
+        }
+        push_newline_once(&mut out);
     }
 
-    let clean = truncate_utf8(sanitize_nfkc(&out), PLAIN_TEXT_LIMIT);
+    let clean = sanitize_nfkc(&out);
+    truncated |= clean.len() > PLAIN_TEXT_LIMIT;
     FileTextResult::ok(
         FileSubtype::Document,
         "docx",
-        clean,
-        json!({ "part_count": parts.len() }),
+        truncate_utf8(clean, PLAIN_TEXT_LIMIT),
+        json!({ "part_count": parts.len(), "truncated": truncated }),
     )
 }
 
+/// Extracts each slide's text and speaker notes in presentation order. Each slide with text
+/// starts with a `[Slide N]` line, and its entry in `pages` spans that line and the text.
 pub(super) fn extract_pptx(bytes: &[u8]) -> FileTextResult {
     let mut zip = match BoundedZip::open(bytes) {
         Ok(z) => z,
@@ -119,9 +131,11 @@ pub(super) fn extract_pptx(bytes: &[u8]) -> FileTextResult {
     let total_slides = slide_paths.len();
     let mut out = String::new();
     let mut pages = Vec::with_capacity(total_slides);
+    let mut truncated = false;
 
     for (index, slide_path) in slide_paths.iter().enumerate() {
         if out.len() >= PLAIN_TEXT_LIMIT {
+            truncated = true;
             break;
         }
         let page_num = (index + 1) as u32;
@@ -129,10 +143,11 @@ pub(super) fn extract_pptx(bytes: &[u8]) -> FileTextResult {
 
         match zip.read_utf8(slide_path) {
             Ok(Some(xml)) => {
-                if let Err(reason) =
-                    parse_ooxml_text_events(&xml, DRAWINGML_DIALECT, &mut slide_raw)
-                {
-                    return FileTextResult::failed(FileSubtype::Document, "pptx", reason);
+                match parse_ooxml_text_events(&xml, DRAWINGML_DIALECT, &mut slide_raw, None) {
+                    Ok(stopped) => truncated |= stopped,
+                    Err(reason) => {
+                        return FileTextResult::failed(FileSubtype::Document, "pptx", reason);
+                    }
                 }
             }
             Ok(None) => continue,
@@ -143,7 +158,9 @@ pub(super) fn extract_pptx(bytes: &[u8]) -> FileTextResult {
             && let Ok(Some(notes_xml)) = zip.read_utf8(&notes_path)
         {
             push_newline_once(&mut slide_raw);
-            let _ = parse_ooxml_text_events(&notes_xml, DRAWINGML_DIALECT, &mut slide_raw);
+            truncated |=
+                parse_ooxml_text_events(&notes_xml, DRAWINGML_DIALECT, &mut slide_raw, None)
+                    .unwrap_or(false);
         }
 
         let slide_clean = sanitize_nfkc(slide_raw.trim());
@@ -155,10 +172,10 @@ pub(super) fn extract_pptx(bytes: &[u8]) -> FileTextResult {
             out.push('\n');
         }
         let start_byte = out.len();
-        out.push_str(&slide_clean);
-        out.push('\n');
+        out.push_str(&format!("[Slide {page_num}]\n{slide_clean}\n"));
         if out.len() > PLAIN_TEXT_LIMIT {
             out = truncate_utf8(out, PLAIN_TEXT_LIMIT);
+            truncated = true;
         }
         let end_byte = out.len();
         if end_byte > start_byte {
@@ -177,18 +194,28 @@ pub(super) fn extract_pptx(bytes: &[u8]) -> FileTextResult {
         json!({
             "page_count": total_slides,
             "pages": pages,
+            "truncated": truncated,
         }),
     )
 }
 
+/// Appends the text of one part to `out`. Returns whether the text budget stopped the read before
+/// the end of the part.
+///
+/// With `headings`, a paragraph outside a table whose style or own properties give it an outline
+/// level becomes a `[Section: …]` line instead of plain text.
 fn parse_ooxml_text_events(
     xml: &str,
     dialect: OoxmlDialect,
     out: &mut String,
-) -> Result<(), String> {
+    mut headings: Option<&mut Headings>,
+) -> Result<bool, String> {
     let mut reader = Reader::from_str(xml);
     let mut in_text = false;
     let mut ignored_depth = 0usize;
+    // The open paragraphs, innermost last: where each one's text starts and its outline level.
+    let mut paragraphs: Vec<(usize, Option<u8>)> = Vec::new();
+    let mut table_depth = 0usize;
 
     loop {
         match reader.read_event() {
@@ -208,12 +235,20 @@ fn parse_ooxml_text_events(
                     "tab" => out.push('\t'),
                     "br" => out.push('\n'),
                     "cr" if dialect.allow_carriage_return_break => out.push('\n'),
+                    "p" if headings.is_some() => paragraphs.push((out.len(), None)),
+                    "tbl" => table_depth += 1,
+                    name @ ("pStyle" | "outlineLvl") => {
+                        outline_level(name, &e, headings.as_deref(), paragraphs.last_mut());
+                    }
                     _ => {}
                 }
             }
             Ok(Event::Empty(e)) => {
                 if ignored_depth == 0 {
                     match local_name(e.name().as_ref()) {
+                        name @ ("pStyle" | "outlineLvl") => {
+                            outline_level(name, &e, headings.as_deref(), paragraphs.last_mut());
+                        }
                         "tab" => out.push('\t'),
                         "br" => out.push('\n'),
                         "cr" if dialect.allow_carriage_return_break => out.push('\n'),
@@ -228,8 +263,17 @@ fn parse_ooxml_text_events(
                 }
                 match local_name(e.name().as_ref()) {
                     "t" => in_text = false,
-                    "p" | "tr" => push_newline_once(out),
+                    "p" => match (paragraphs.pop(), headings.as_deref_mut()) {
+                        (Some((start, Some(level))), Some(headings))
+                            if paragraphs.is_empty() && table_depth == 0 =>
+                        {
+                            headings.outline.mark(out, start, level);
+                        }
+                        _ => push_newline_once(out),
+                    },
+                    "tr" => push_newline_once(out),
                     "tc" => push_tab_once(out),
+                    "tbl" => table_depth = table_depth.saturating_sub(1),
                     _ => {}
                 }
             }
@@ -248,15 +292,102 @@ fn parse_ooxml_text_events(
                     append_xml_entity(&e, out);
                 }
             }
-            Ok(Event::Eof) => break,
+            Ok(Event::Eof) => return Ok(false),
             Err(err) => return Err(format!("{}: {err}", dialect.error_prefix)),
             _ => {}
         }
         if out.len() >= PLAIN_TEXT_LIMIT + 4096 {
-            break;
+            return Ok(true);
         }
     }
-    Ok(())
+}
+
+/// What the main document part needs to turn its heading paragraphs into `[Section: …]` lines.
+struct Headings {
+    /// The outline level, from 1, of each paragraph style that is a heading, by style id.
+    styles: HashMap<String, u8>,
+    outline: Outline,
+}
+
+/// Records the outline level that a paragraph's `pStyle` or own `outlineLvl` gives it. Word
+/// counts outline levels from 0 and writes 9 for body text.
+fn outline_level(
+    name: &str,
+    element: &quick_xml::events::BytesStart<'_>,
+    headings: Option<&Headings>,
+    paragraph: Option<&mut (usize, Option<u8>)>,
+) {
+    let (Some(headings), Some((_, level)), Some(value)) =
+        (headings, paragraph, attr_value_by_local(element, "val"))
+    else {
+        return;
+    };
+    if name == "pStyle" {
+        *level = level.or(headings.styles.get(&value).copied());
+    } else {
+        *level = value.parse::<u8>().ok().filter(|v| *v <= 8).map(|v| v + 1);
+    }
+}
+
+/// The heading styles of `word/styles.xml`: a style is a heading when it is named `heading N`,
+/// which Word keeps in English in every locale, when it sets an outline level, or when the style
+/// it is based on is one.
+fn heading_styles(zip: &mut BoundedZip<'_>) -> HashMap<String, u8> {
+    let Ok(Some(xml)) = zip.read_utf8("word/styles.xml") else {
+        return HashMap::new();
+    };
+    let mut levels: HashMap<String, u8> = HashMap::new();
+    let mut parents: HashMap<String, String> = HashMap::new();
+    let mut style: Option<String> = None;
+    let mut reader = Reader::from_str(&xml);
+    loop {
+        let event = reader.read_event();
+        let element = match &event {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => e,
+            Ok(Event::End(e)) if local_name(e.name().as_ref()) == "style" => {
+                style = None;
+                continue;
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => continue,
+        };
+        let value = attr_value_by_local(element, "val");
+        match (local_name(element.name().as_ref()), &style, value) {
+            ("style", _, _) => style = attr_value_by_local(element, "styleId"),
+            ("name", Some(id), Some(name)) => {
+                let level = name
+                    .to_ascii_lowercase()
+                    .strip_prefix("heading ")
+                    .and_then(|level| level.parse::<u8>().ok())
+                    .filter(|level| (1..=9).contains(level));
+                if let Some(level) = level {
+                    levels.entry(id.clone()).or_insert(level);
+                }
+            }
+            ("outlineLvl", Some(id), Some(level)) => {
+                if let Some(level) = level.parse::<u8>().ok().filter(|level| *level <= 8) {
+                    levels.insert(id.clone(), level + 1);
+                }
+            }
+            ("basedOn", Some(id), Some(parent)) => {
+                parents.insert(id.clone(), parent);
+            }
+            _ => {}
+        }
+    }
+    // A style inherits its outline level along `basedOn`; eight hops cover any real chain.
+    for _ in 0..8 {
+        let inherited: Vec<(String, u8)> = parents
+            .iter()
+            .filter(|(id, _)| !levels.contains_key(*id))
+            .filter_map(|(id, parent)| Some((id.clone(), *levels.get(parent)?)))
+            .collect();
+        if inherited.is_empty() {
+            break;
+        }
+        levels.extend(inherited);
+    }
+    levels
 }
 
 fn resolve_pptx_slide_order(zip: &mut BoundedZip<'_>) -> Result<Vec<String>, ZipOpenError> {

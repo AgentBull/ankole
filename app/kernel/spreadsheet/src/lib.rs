@@ -39,6 +39,7 @@ mod doc;
 mod functions;
 mod ids;
 mod index;
+mod inspect;
 mod ops;
 mod rebase;
 mod snapshot;
@@ -55,6 +56,7 @@ pub use functions::{FunctionInfo, functions};
 pub use gridcraft_chart::Prim as ChartPrim;
 pub use ids::{CellArea, ImageId, SheetId};
 pub use index::{Metadata, PLAIN_TEXT_LIMIT, SheetSummary};
+pub use inspect::inspect;
 pub use ops::{
     CellFormat, FillMode, FormatPatch, FormulaStorage, ImageAnchor, LineFormat, MAX_PICTURE_BYTES,
     MergeShape, Op, PasteCell, Picture, PictureMime, SortHeader, StructuralEdit, TableChange,
@@ -116,6 +118,8 @@ pub struct Applied {
     /// The operation as committed: rebased onto the latest revision and normalized (assigned sheet
     /// ids and names filled in), so replaying it on the same base gives the same document.
     pub op: Op,
+    /// Whether the committed operation embeds encoded picture bytes.
+    pub carries_media: bool,
     /// How the operation moved rows, columns, or blocks, when it did.
     pub structural_edit: Option<StructuralEdit>,
 }
@@ -195,8 +199,8 @@ pub fn export_xlsx(doc: &SpreadsheetDoc) -> Result<Exported, Error> {
     })
 }
 
-/// The document's search text: sheet names, constant text cells, and notes, at most
-/// [`PLAIN_TEXT_LIMIT`] bytes.
+/// The document's search text: per sheet a `[Sheet: <name>]` line, the rows as the grid shows them
+/// (`R<row>\t<cell>\t<cell>...`), and the notes, at most [`PLAIN_TEXT_LIMIT`] bytes.
 #[must_use]
 pub fn plain_text(doc: &SpreadsheetDoc) -> String {
     index::plain_text(doc.workbook())
@@ -210,10 +214,12 @@ pub fn metadata(doc: &SpreadsheetDoc) -> Metadata {
 
 fn commit(doc: &SpreadsheetDoc, mut op: Op) -> Result<Applied, Error> {
     let next = doc.execute(&mut op)?;
+    let carries_media = op.carries_media();
     let structural_edit = op.structural_edit();
     Ok(Applied {
         doc: next,
         op,
+        carries_media,
         structural_edit,
     })
 }

@@ -45,7 +45,8 @@ function renderTaskAgents(input: {
     'All absolute paths shown to you are the real paths inside this Worker. Relative paths resolve from the Job workspace.',
     input.driveInstructions || codexJobDriveContext(),
     input.podInstructions,
-    'Your final message is the Job result and the caller accepts it as the verification record: verify the work against what the task says the deliverable must satisfy, and state the outcome with evidence, relevant paths, and remaining risks.',
+    'When the task produces documents, reports, Pages, code changes, or data files, materialize an initial working draft to the target Page, Drive path, or Job workspace as soon as the core plan and facts are clear, then refine and verify it in place instead of holding all writes until the end.',
+    'Before ending the Job, reconcile every acceptance criterion against the original task verbatim without relaxing constraints. Your final message is the verification record: report the outcome with concrete evidence, saved deliverable paths, and remaining risks; if any required criterion remains unmet or blocked, state `Outcome: incomplete` explicitly alongside completed artifact paths and the exact unmet criteria.',
     'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes.',
     'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead.',
     'Complete foreground work before ending the turn; do not leave required shell jobs running in the background.'

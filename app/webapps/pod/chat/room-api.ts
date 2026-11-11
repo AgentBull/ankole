@@ -8,7 +8,8 @@ import {
   updateConversation,
   updateConversationParticipants,
   answerConversationInteraction,
-  resolveConversationActionCard
+  resolveConversationActionCard,
+  grantConversationPageAccess
 } from '../api/generated/sdk.gen'
 import type {
   UpdateConversationData,
@@ -62,7 +63,16 @@ export function useRoomActions(id: string) {
       else onError(error)
     }
   })
-  return { update, participants, answer, resolveActionCard }
+  const grantPageAccess = useMutation({
+    mutationFn: ({ interactionID }: { interactionID: string }) =>
+      grantConversationPageAccess({ path: { id, interaction_id: interactionID } }),
+    onSuccess,
+    onError: error => {
+      if (requestErrorCode(error) === 'interaction_not_pending') void refreshConversationQueries(client, id)
+      else onError(error)
+    }
+  })
+  return { update, participants, answer, resolveActionCard, grantPageAccess }
 }
 
 export const teammatesKey = () => [...podKeys.agents, 'teammates'] as const

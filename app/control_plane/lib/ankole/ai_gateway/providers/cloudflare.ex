@@ -1,7 +1,7 @@
 defmodule Ankole.AIGateway.Providers.Cloudflare do
   @moduledoc """
-  Cloudflare provider: Web Search through AI Gateway, and decision and image
-  models through Workers AI.
+  Cloudflare provider: Web Search through AI Gateway, and decision, image,
+  speech, transcription, and music models through Workers AI.
   """
 
   use Ankole.AIGateway.ProviderDSL
@@ -21,10 +21,20 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
-    setting(:engine, options: ~w(ceramic exa linkup), scope: :request)
-    setting(:steps, type: :integer, scope: :request)
-    setting(:seed, type: :integer, scope: :request)
-    setting(:safety_tolerance, type: :integer, scope: :request)
+    setting(:engine,
+      options: ~w(ceramic exa linkup),
+      scope: :request,
+      capabilities: [:web_search]
+    )
+
+    setting(:steps, type: :integer, scope: :request, capabilities: [:image_generate])
+    setting(:seed, type: :integer, scope: :request, capabilities: [:image_generate])
+
+    setting(:safety_tolerance,
+      type: :integer,
+      scope: :request,
+      capabilities: [:image_generate]
+    )
 
     web_search do
       api_resolver(:cloudflare_web_search)
@@ -42,6 +52,25 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
       api_resolver(:cloudflare_images)
       prepare(:prepare_image_generate)
       timeout_ms(300_000)
+    end
+
+    speech_model do
+      api_resolver(:cloudflare_speech)
+      prepare(:prepare_speech_model)
+      timeout_ms(300_000)
+    end
+
+    transcription_model do
+      api_resolver(:cloudflare_transcription)
+      prepare(:prepare_transcription_model)
+      timeout_ms(300_000)
+    end
+
+    music_model do
+      api_resolver(:cloudflare_music)
+      prepare(:prepare_music_model)
+      # The model answers once the whole piece exists.
+      timeout_ms(900_000)
     end
   end
 
@@ -104,6 +133,64 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
     ctx
     |> UniversalAIRequest.new(account_path(ctx, path), :cloudflare_images, include_model: false)
     |> UniversalAIRequest.bearer_auth()
+  end
+
+  @doc """
+  Builds a text-to-speech request for a Deepgram Aura model on Workers AI.
+  These models answer with MP3 audio and keep their own speaking rate and
+  delivery.
+  """
+  def prepare_speech_model(ctx) do
+    cond do
+      ctx.request["response_format"] != "mp3" ->
+        unsupported_speech_field("response_format")
+
+      field = Enum.find(~w(speed instructions), &is_map_key(ctx.request, &1)) ->
+        unsupported_speech_field(field)
+
+      true ->
+        ctx
+        |> UniversalAIRequest.new(account_path(ctx, "ai/run/" <> ctx.model), :cloudflare_speech,
+          include_model: false
+        )
+        |> UniversalAIRequest.bearer_auth()
+    end
+  end
+
+  @doc """
+  Builds a speech-to-text request for a Workers AI model that takes base64
+  audio, such as `@cf/openai/whisper-large-v3-turbo`.
+  """
+  def prepare_transcription_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new(
+      account_path(ctx, "ai/run/" <> ctx.model),
+      :cloudflare_transcription,
+      include_model: false
+    )
+    |> UniversalAIRequest.bearer_auth()
+  end
+
+  @doc """
+  Builds a music request for a partner model on Workers AI, such as
+  `minimax/music-2.6`. The request names the model in its body, and the answer
+  links to the audio.
+  """
+  def prepare_music_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new(account_path(ctx, "ai/run"), :cloudflare_music,
+      include_model: false
+    )
+    |> UniversalAIRequest.bearer_auth()
+  end
+
+  defp unsupported_speech_field(field) do
+    {:error,
+     OpenAIError.invalid(
+       field,
+       "unsupported_value",
+       "The configured speech model does not accept #{field}."
+     )}
   end
 
   @doc """

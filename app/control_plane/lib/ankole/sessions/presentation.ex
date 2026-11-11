@@ -358,9 +358,20 @@ defmodule Ankole.Sessions.Presentation do
              images,
              states
            ) do
+      blocked_toolkits =
+        run.signal_id
+        |> Ankole.Connectors.AuthWaits.list_for_signal()
+        |> MapSet.new(& &1.toolkit)
+
+      blocked_page_ids =
+        Ankole.Pod.Access.BlockedWaits.blocked_page_ids_for_signal(run.signal_id)
+
       execution =
         chain.response_chain
-        |> Ankole.Sessions.Presentation.Execution.from_chain(states)
+        |> Ankole.Sessions.Presentation.Execution.from_chain(states, "completed",
+          blocked_toolkits: blocked_toolkits,
+          blocked_page_ids: blocked_page_ids
+        )
         |> put_usage(run)
 
       {:ok, Map.merge(chain, Map.put(projection, :execution, execution))}
@@ -380,11 +391,21 @@ defmodule Ankole.Sessions.Presentation do
             run.signal_id
         end)
 
+      blocked_toolkits =
+        run.signal_id
+        |> Ankole.Connectors.AuthWaits.list_for_signal()
+        |> MapSet.new(& &1.toolkit)
+
+      blocked_page_ids =
+        Ankole.Pod.Access.BlockedWaits.blocked_page_ids_for_signal(run.signal_id)
+
       {:ok,
        rows
        |> Ankole.Sessions.Presentation.Execution.from_chain(
          Ankole.Sessions.RoundState.load(rows),
-         status
+         status,
+         blocked_toolkits: blocked_toolkits,
+         blocked_page_ids: blocked_page_ids
        )
        |> put_usage(run)}
     end

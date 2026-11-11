@@ -760,6 +760,10 @@ describe('real edge-runtime protocol', () => {
         'GET /search': () => AnkoleRuntime.web.search({ query: 'ankole', limit: 3 }),
         'GET /fetch': () => AnkoleRuntime.admin.web.fetch({ urls: ['https://example.com'], maxChars: 5000 }),
         'GET /decide': () => AnkoleRuntime.ai.decide({ state: 'refund', questions: { urgent: { type: 'noul', instructions: 'Urgent?' } } }),
+        'GET /transcribe': () => AnkoleRuntime.ai.transcribe({ audio: 'pages/p1/call.mp3' }),
+        'GET /ocr': () => AnkoleRuntime.ai.ocr({ image: 'pages/p1/scan.png' }),
+        'GET /speech': () => AnkoleRuntime.ai.generateSpeech({ input: 'blocked on GET' }),
+        'POST /speech': () => AnkoleRuntime.ai.generateSpeech({ input: 'Hello.' }),
         'GET /image': () => AnkoleRuntime.ai.generateImage({ prompt: 'blocked on GET' }),
         'POST /image': () => AnkoleRuntime.admin.ai.generateImage({ prompt: 'poster', outputFormat: 'png' })
       }`
@@ -772,6 +776,12 @@ describe('real edge-runtime protocol', () => {
     expect((await invoke(sha, { method: 'GET', path: '/search' }, { call })).body).toEqual({ ok: 'web.search' })
     expect((await invoke(sha, { method: 'GET', path: '/fetch' }, { call })).body).toEqual({ ok: 'admin.web.fetch' })
     expect((await invoke(sha, { method: 'GET', path: '/decide' }, { call })).body).toEqual({ ok: 'ai.decide' })
+    expect((await invoke(sha, { method: 'GET', path: '/transcribe' }, { call })).body).toEqual({ ok: 'ai.transcribe' })
+    expect((await invoke(sha, { method: 'GET', path: '/ocr' }, { call })).body).toEqual({ ok: 'ai.ocr' })
+    expect((await invoke(sha, { method: 'GET', path: '/speech' }, { call })).body.error.code).toBe('read_only_route')
+    expect((await invoke(sha, { method: 'POST', path: '/speech' }, { call })).body).toEqual({
+      ok: 'ai.generateSpeech'
+    })
     expect((await invoke(sha, { method: 'GET', path: '/image' }, { call })).body.error.code).toBe('read_only_route')
     expect((await invoke(sha, { method: 'POST', path: '/image' }, { call })).body).toEqual({
       ok: 'admin.ai.generateImage'
@@ -783,6 +793,9 @@ describe('real edge-runtime protocol', () => {
         operation: 'ai.decide',
         args: [{ state: 'refund', questions: { urgent: { type: 'noul', instructions: 'Urgent?' } } }]
       },
+      { operation: 'ai.transcribe', args: [{ audio: 'pages/p1/call.mp3' }] },
+      { operation: 'ai.ocr', args: [{ image: 'pages/p1/scan.png' }] },
+      { operation: 'ai.generateSpeech', args: [{ input: 'Hello.' }] },
       { operation: 'admin.ai.generateImage', args: [{ prompt: 'poster', outputFormat: 'png' }] }
     ])
   })

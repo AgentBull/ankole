@@ -6,7 +6,7 @@ defmodule Ankole.Brain.Knowledge do
   alias Ankole.Pod.Pages.Tree, as: Nodes
 
   def page_learning(%{type: type, is_root: false} = page)
-      when type in [:doc, :knowledge, :base, :applet] do
+      when type in [:doc, :knowledge, :base, :applet, :file] do
     with true <- Ankole.Brain.Config.enabled?(),
          {:ok, node} <- Nodes.fetch(page.id),
          {:ok, path} <- Nodes.path(node),
@@ -36,7 +36,7 @@ defmodule Ankole.Brain.Knowledge do
         with {:ok, page} <- Objects.get_by_slug(node_id),
              true <- extractable?(page),
              false <- String.trim(page.body) == "" do
-          {:ok, _} = Ankole.Brain.Jobs.LearnSource.enqueue_page(page.id, page.revision)
+          {:ok, _} = Ankole.Brain.Jobs.LearnSource.enqueue_page(page.id, page.content_hash)
         end
       end)
     end
@@ -51,7 +51,7 @@ defmodule Ankole.Brain.Knowledge do
       public? = is_nil(hd(path).private_owner_uid) and is_nil(hd(path).conversation_id)
 
       public? and Enum.all?(path, &is_nil(&1.deleted_at)) and
-        node.type in [:knowledge, :doc, :base, :applet] and not node.is_root and
+        node.type in [:knowledge, :doc, :base, :applet, :file] and not node.is_root and
         not Enum.any?(path, &(&1.system_key == "ankole_brain_sources"))
     else
       _ -> false
@@ -78,6 +78,8 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
+  # A file page has no content until Pod extracts its text, so the extraction
+  # cache drives its index instead of the page write.
   def page_changed_in_tx(%{type: type}, _content) when type == :file, do: :ok
 
   # A content save also synchronizes the data semantics of Brain objects;
@@ -87,11 +89,35 @@ defmodule Ankole.Brain.Knowledge do
          do: Ankole.Brain.DataSemantics.sync_in_tx(knowledge)
   end
 
+  @doc "Reindexes and relearns a file page after Pod wrote or cleared its extraction cache."
+  def file_cache_changed_in_tx(page) do
+    if indexable?(page) do
+      with {:ok, _knowledge} <- reindex_in_tx(page.id), do: :ok
+    else
+      :ok
+    end
+  end
+
+  @doc """
+  Enqueues learning for the page's current content version when its facts do
+  not cover it. A learning run that finds its own version outdated calls this,
+  so a page whose version was renamed under the run is still learned.
+  """
+  @spec learn_current(String.t()) :: :ok
+  def learn_current(page_id) do
+    Ankole.Repo.transact_top_level(fn ->
+      with {:ok, knowledge} <- Objects.get_by_slug(page_id), do: learn_in_tx(knowledge)
+    end)
+
+    :ok
+  end
+
   defp reindex_in_tx(id) do
+    # Clearing an emptied page removes its timelines, so it precedes the chunks.
     with {:ok, knowledge} <- Objects.get_by_slug(id),
+         :ok <- learn_in_tx(knowledge),
          {:ok, _} <- Chunks.reconcile_locked_in_tx(knowledge),
          {:ok, _} <- Links.reconcile_object_links_in_tx(id),
-         :ok <- learn_in_tx(knowledge),
          do: {:ok, knowledge}
   end
 
@@ -103,9 +129,14 @@ defmodule Ankole.Brain.Knowledge do
       String.trim(knowledge.body) == "" ->
         Ankole.Brain.SourceLearning.clear_page_facts_in_tx(knowledge)
 
+      # The facts already cover this content version, as they do after a commit
+      # of the bytes the page already held.
+      knowledge.upstream_state["facts_version"] == knowledge.content_hash ->
+        :ok
+
       Ankole.Brain.Config.enabled?() ->
         with {:ok, _} <-
-               Ankole.Brain.Jobs.LearnSource.enqueue_page(knowledge.id, knowledge.revision),
+               Ankole.Brain.Jobs.LearnSource.enqueue_page(knowledge.id, knowledge.content_hash),
              do: :ok
 
       true ->
@@ -190,7 +221,7 @@ defmodule Ankole.Brain.Knowledge do
       case Objects.get_by_slug(node_id) do
         {:ok, page} ->
           {:ok, _} = Nodes.lock(page.id)
-          :ok = Ankole.Brain.SourceLearning.clear_facts_revision_in_tx(page.id)
+          :ok = Ankole.Brain.SourceLearning.clear_facts_version_in_tx(page.id)
           {:ok, _} = reindex_in_tx(page.id)
 
         {:error, :not_found} ->

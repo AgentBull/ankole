@@ -228,6 +228,15 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
              )
   end
 
+  test "a stored history needs a checkpoint at three quarters of a hosted-tool history limit" do
+    small_item = text_message("user", "ok")
+    refute CompactionPolicy.provider_history_trigger?(List.duplicate(small_item, 767))
+    assert CompactionPolicy.provider_history_trigger?(List.duplicate(small_item, 768))
+
+    refute CompactionPolicy.provider_history_trigger?([sealed_reasoning(5 * 1024 * 1024)])
+    assert CompactionPolicy.provider_history_trigger?([sealed_reasoning(7 * 1024 * 1024)])
+  end
+
   test "websocket stateful history auto-compacts through ChatGPT Subscription streaming" do
     %{principal: agent} = agent_fixture()
 
@@ -3375,6 +3384,480 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     assert recovered_msg.metadata["usage"]["total_tokens"] == 18_620
 
     assert Enum.reverse(Agent.get(upstream_calls, & &1)) == ["gpt-compact-light", "gpt-5.6"]
+  end
+
+  # Sealed reasoning takes many bytes per token, so this history nears the byte
+  # limit of the hosted-tool loop at half of the token trigger.
+  test "auto-compaction checkpoints a history that nears the hosted-tool byte limit below the token trigger" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.90, max_threshold_tokens: 400_000, tail_rows: 2)
+    {:ok, upstream_calls} = Agent.start_link(fn -> [] end)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        model = request.body["model"]
+        Agent.update(upstream_calls, &[model | &1])
+        encoded_input = Ankole.JSON.encode!(request.body["input"])
+        refute encoded_input =~ "SEALED_REASONING"
+
+        case model do
+          "gpt-compact-light" ->
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_sealed_history_summary",
+               "gpt-compact-light",
+               "## Active Task\nAttribution for two holding periods is done.",
+               %{"input_tokens" => 900, "output_tokens" => 120, "total_tokens" => 1_020}
+             )}
+
+          "gpt-5.6" ->
+            assert encoded_input =~ "Add the first holding period."
+
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_after_sealed_history",
+               "gpt-5.6",
+               "Added the first holding period.",
+               %{"input_tokens" => 9_000, "output_tokens" => 200, "total_tokens" => 9_200}
+             )}
+        end
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-sealed-history-checkpoint", base_url,
+      profiles: [{"primary", "gpt-5.6", 1_048_576}, {"light", "gpt-compact-light", 131_072}]
+    )
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "sealed-history-checkpoint")
+
+    sealed_round = fn user_text, assistant_text ->
+      [
+        text_message("user", user_text),
+        sealed_reasoning(2_400_000),
+        text_message("assistant", assistant_text)
+      ]
+    end
+
+    {:ok, m1} =
+      start_stateful_message(
+        agent.uid,
+        conversation,
+        "sealed-history-1",
+        sealed_round.("Attribute the July holdings.", "July attribution is done.")
+      )
+
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], provider_usage(60_000, 500))
+
+    {:ok, m2} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        m1,
+        "sealed-history-2",
+        sealed_round.("Attribute the August holdings.", "August attribution is done.")
+      )
+
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], provider_usage(120_000, 500))
+
+    {:ok, m3} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        m2,
+        "sealed-history-3",
+        sealed_round.("Compare both periods.", "The comparison table is ready.")
+      )
+
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], provider_usage(180_000, 500))
+
+    {:ok, m4} =
+      start_linked_stateful_message(agent.uid, conversation, m3, "sealed-history-tail-1", [
+        text_message("user", "Publish the comparison.")
+      ])
+
+    {:ok, m4} = ResponseCommit.commit_complete(m4, [], provider_usage(190_000, 300))
+
+    {:ok, m5} =
+      start_linked_stateful_message(agent.uid, conversation, m4, "sealed-history-tail-2", [
+        text_message("assistant", "The comparison is published.")
+      ])
+
+    {:ok, m5} = ResponseCommit.commit_complete(m5, [], provider_usage(200_000, 300))
+
+    assert {:ok, stream, meta} =
+             Ankole.AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "input" => [text_message("user", "Add the first holding period.")],
+               "metadata" => %{"signal_id" => UUIDv7.autogenerate()}
+             })
+
+    assert {:ok, %{terminal_response: body}, _meta} =
+             Ankole.AIGateway.ResponseStream.await_terminal(stream, meta, 5_000)
+
+    assert body["status"] == "completed"
+
+    [checkpoint] =
+      Message
+      |> Repo.all()
+      |> Enum.filter(&(&1.conversation_id == conversation.id and &1.type == :checkpoint))
+
+    assert checkpoint.previous_message_id == m5.id
+
+    "resp_" <> response_id = body["id"]
+    response = Repo.get!(Message, response_id)
+    assert response.previous_message_id == checkpoint.id
+
+    assert %{
+             "trigger" => "provider_history",
+             "history_usage_tokens_before" => 200_300,
+             "token_threshold" => 400_000
+           } = response.metadata["auto_compaction"]
+
+    assert Enum.reverse(Agent.get(upstream_calls, & &1)) == ["gpt-compact-light", "gpt-5.6"]
+  end
+
+  # The history still fits the model's context, so a failed summary must not
+  # cost the conversation its history.
+  test "a history-size checkpoint that cannot be written leaves the request on the full history" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.90, max_threshold_tokens: 400_000, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_empty_history_size_summary",
+           request.body["model"],
+           "",
+           %{"input_tokens" => 9, "output_tokens" => 0, "total_tokens" => 9}
+         )}
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-history-size-summary-fail", base_url)
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "history-size-summary-fail")
+
+    many_items = fn label ->
+      for index <- 1..400 do
+        text_message(if(rem(index, 2) == 1, do: "user", else: "assistant"), "#{label} #{index}")
+      end
+    end
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "history-size-a", many_items.("first"))
+
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(20_000))
+
+    {:ok, m2} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        m1,
+        "history-size-b",
+        many_items.("second")
+      )
+
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], usage(40_000))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "history-size-c", [
+        text_message("user", "latest tail")
+      ])
+
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], usage(41_000))
+
+    current_input = [text_message("user", "new request")]
+
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "truncation" => "auto",
+               "metadata" => %{"signal_id" => "history-size-summary-fail-event"}
+             })
+
+    assert_receive {:gateway_request, %{body: %{"model" => "gpt-compact-light"}}}
+
+    assert request.response_context.request["input"] ==
+             m1.content ++ m2.content ++ m3.content ++ current_input
+
+    refute Enum.any?(Repo.all(Message), &(&1.type == :checkpoint))
+  end
+
+  test "preflight delta projection compacts before dispatch when unmeasured tool outputs push tokens past threshold" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.90, max_threshold_tokens: 400_000, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_preflight_delta",
+           "gpt-compact-light",
+           "## Active Task\nEarlier tool exploration is summarized."
+         )}
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-preflight-delta", base_url)
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "preflight-delta-compaction")
+
+    large_chunk = String.duplicate("diagnostic line with context ", 8_000)
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "preflight-delta-1", [
+        text_message("user", "Inspect module A\n" <> large_chunk),
+        text_message("assistant", "Module A inspected\n" <> large_chunk)
+      ])
+
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], provider_usage(105_000, 1_000))
+
+    call_id = "call_preflight_large_output"
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "preflight-delta-2", [
+        text_message("user", "Inspect module B\n" <> large_chunk),
+        %{
+          "type" => "function_call",
+          "call_id" => call_id,
+          "name" => "command",
+          "arguments" => ~s({"cmd":"pytest"})
+        }
+      ])
+
+    # Below 230_400 threshold on its own (215_000 <= 230_400), but trailing
+    # journaled tool output pushes projected input well past 230_400.
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], provider_usage(214_000, 1_000))
+
+    {:ok, journal} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "preflight-delta-journal", [
+        %{
+          "type" => "function_call_output",
+          "call_id" => call_id,
+          "output" => String.duplicate("tool output row ", 6_000)
+        }
+      ])
+
+    {:ok, _journal} = ResponseCommit.commit_complete(journal, [], %{})
+
+    assert {:ok, _request, %{message: run}} =
+             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "Summarize the failure")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"signal_id" => "preflight-delta-next-turn"}
+             })
+
+    assert_receive {:gateway_request, %{body: %{"model" => "gpt-compact-light"}}}
+
+    assert %{
+             "trigger" => "preflight_delta",
+             "history_usage_tokens_before" => 215_000,
+             "projected_input_tokens" => projected_tokens,
+             "preflight_delta_tokens" => delta_tokens,
+             "wire_ratio" => wire_ratio
+           } = run.metadata["auto_compaction"]
+
+    assert projected_tokens > 230_400
+    assert delta_tokens > 15_400
+    assert wire_ratio >= 0.75 and wire_ratio <= 2.5
+  end
+
+  test "anti-thrash hysteresis suppresses repeated summarizer calls after an unproductive auto-compaction until growth crosses hysteresis" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.90, max_threshold_tokens: 400_000, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_after_hysteresis",
+           "gpt-compact-light",
+           "## Active Task\nRe-compacted once substantial new work accumulated."
+         )}
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-hysteresis-guard", base_url)
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "anti-thrash-hysteresis")
+
+    {:ok, anchor} =
+      start_stateful_message(agent.uid, conversation, "hysteresis-anchor", [
+        text_message("user", "Initial heavy context")
+      ])
+
+    {:ok, anchor} = ResponseCommit.commit_complete(anchor, [], provider_usage(238_000, 500))
+
+    {:ok, checkpoint} =
+      insert_compaction_checkpoint(
+        agent.uid,
+        conversation,
+        anchor,
+        "Earlier work summary",
+        [],
+        %{
+          "auto" => true,
+          "history_usage_tokens_before" => 238_500,
+          "summarizer" => %{"model" => "gpt-compact-light", "selector" => "light"}
+        }
+      )
+
+    # First post-checkpoint response barely dropped (< 8% reduction) and stayed above 230_400.
+    {:ok, r1} =
+      start_linked_stateful_message(agent.uid, conversation, checkpoint, "hysteresis-r1", [
+        text_message("user", String.duplicate("post-checkpoint work ", 1_200)),
+        text_message("assistant", String.duplicate("post-checkpoint reply ", 1_200))
+      ])
+
+    {:ok, r1} = ResponseCommit.commit_complete(r1, [], provider_usage(232_500, 500))
+
+    {:ok, r2} =
+      start_linked_stateful_message(agent.uid, conversation, r1, "hysteresis-r2", [
+        text_message("user", "Short follow-up"),
+        text_message("assistant", "Short answer")
+      ])
+
+    {:ok, _r2} = ResponseCommit.commit_complete(r2, [], provider_usage(233_200, 300))
+
+    assert {:ok, _suppressed_req, %{message: suppressed_run}} =
+             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "One more small check")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"signal_id" => "hysteresis-suppressed-turn"}
+             })
+
+    refute_receive {:gateway_request, _summarizer_request}, 100
+
+    assert %{
+             "reason" => "unproductive_previous_compaction",
+             "previous_tokens_before" => 238_500,
+             "first_post_checkpoint_tokens" => 233_000
+           } = suppressed_run.metadata["auto_compaction_cooldown"]
+
+    # Complete that suppressed turn with substantial new tokens crossing hysteresis (+12k > 11_520),
+    # and verify compaction re-engages cleanly.
+    {:ok, _completed_suppressed} =
+      ResponseCommit.commit_complete(
+        suppressed_run,
+        [text_message("assistant", String.duplicate("accumulated work ", 2_500))],
+        provider_usage(245_500, 500)
+      )
+
+    assert {:ok, _resumed_req, %{message: resumed_run}} =
+             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "Continue after growth")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"signal_id" => "hysteresis-resumed-turn"}
+             })
+
+    assert_receive {:gateway_request, %{body: %{"model" => "gpt-compact-light"}}}
+    assert is_map(resumed_run.metadata["auto_compaction"])
+  end
+
+  test "provider-history item limit overrides unproductive token compaction cooldown" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.90, max_threshold_tokens: 400_000, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_size_override",
+           "gpt-compact-light",
+           "## Active Task\nCompacted because history items crossed 75% of hosted-tool cap."
+         )}
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-hysteresis-size-override", base_url)
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "hysteresis-size-override")
+
+    {:ok, anchor} =
+      start_stateful_message(agent.uid, conversation, "size-override-anchor", [
+        text_message("user", "Initial heavy context")
+      ])
+
+    {:ok, anchor} = ResponseCommit.commit_complete(anchor, [], provider_usage(238_000, 500))
+
+    {:ok, checkpoint} =
+      insert_compaction_checkpoint(
+        agent.uid,
+        conversation,
+        anchor,
+        "Earlier work summary",
+        [],
+        %{
+          "auto" => true,
+          "history_usage_tokens_before" => 238_500,
+          "summarizer" => %{"model" => "gpt-compact-light", "selector" => "light"}
+        }
+      )
+
+    # First post-checkpoint response barely dropped (< 8% reduction), activating cooldown.
+    {:ok, r1} =
+      start_linked_stateful_message(agent.uid, conversation, checkpoint, "size-override-r1", [
+        text_message("user", String.duplicate("post-checkpoint work ", 1_200)),
+        text_message("assistant", String.duplicate("post-checkpoint reply ", 1_200))
+      ])
+
+    {:ok, r1} = ResponseCommit.commit_complete(r1, [], provider_usage(232_500, 500))
+
+    # Next turn stays flat in tokens (within cooldown), while accumulating > 768 items (75% of 1024 cap).
+    many_items =
+      for idx <- 1..775 do
+        text_message("assistant", "item-#{idx}")
+      end
+
+    {:ok, r2} =
+      start_linked_stateful_message(agent.uid, conversation, r1, "size-override-r2", [
+        text_message("user", "Emit many small items")
+      ])
+
+    {:ok, _r2} = ResponseCommit.commit_complete(r2, many_items, provider_usage(233_200, 300))
+
+    assert {:ok, _req2, %{message: size_compacted_run}} =
+             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "Must compact by item count despite cooldown")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"signal_id" => "size-override-trigger"}
+             })
+
+    assert_receive {:gateway_request, %{body: %{"model" => "gpt-compact-light"}}}
+    assert size_compacted_run.metadata["auto_compaction"]["trigger"] == "provider_history"
+  end
+
+  defp sealed_reasoning(bytes) do
+    %{
+      "type" => "reasoning",
+      "summary" => [],
+      "encrypted_content" => "SEALED_REASONING_" <> String.duplicate("A", bytes)
+    }
   end
 
   defp compactable_conversation!(agent, conversation_key, extra_text \\ "") do

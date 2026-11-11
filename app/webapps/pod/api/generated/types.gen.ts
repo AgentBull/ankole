@@ -273,26 +273,6 @@ export type MetaAgent = {
 }
 
 /**
- * A "Resource object" representing a pod_spreadsheet_operation
- */
-export type PodSpreadsheetOperation = {
-  /**
-   * An attributes object for a pod_spreadsheet_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_spreadsheet_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
  * Filters the query to results matching the given filter object
  */
 export type MetaBrainFilter = {
@@ -1077,6 +1057,26 @@ export type EventBindingOperationFilter = {
 }
 
 /**
+ * A "Resource object" representing a pod_office_operation
+ */
+export type PodOfficeOperation = {
+  /**
+   * An attributes object for a pod_office_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_office_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a pod_file_operation
  */
 export type PodFileOperation = {
@@ -1556,9 +1556,26 @@ export type PodIssuesResponses = {
         name: string
         uid: string
       } | null
+      children?: {
+        done: number
+        total: number
+      } | null
       description?: string | null
       id: string
+      labels: Array<string>
       lastActivityAt: string
+      parent?: {
+        id: string
+        title: string
+      } | null
+      repeat?: {
+        dueAt?: string | null
+        expression?: string | null
+        id: string
+        manageable: boolean
+        status: 'active' | 'paused'
+        timezone: string
+      } | null
       runs: Array<{
         agentUID: string
         completedAt?: string | null
@@ -1583,6 +1600,10 @@ export type PodIssuesResponses = {
         title: string
         updatedAt: string
       }>
+      squad: Array<{
+        name: string
+        uid: string
+      }>
       status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
       title: string
       tracked: boolean
@@ -1600,6 +1621,13 @@ export type CreatePodIssueData = {
     data: {
       agentUID: string
       description?: string | null
+      labels?: Array<string> | null
+      parentID?: string | null
+      repeat?: {
+        expression: string
+        timezone: string
+      } | null
+      squadUIDs?: Array<string> | null
       start?: boolean | null
       title: string
     }
@@ -1627,9 +1655,26 @@ export type CreatePodIssueResponses = {
       name: string
       uid: string
     } | null
+    children?: {
+      done: number
+      total: number
+    } | null
     description?: string | null
     id: string
+    labels: Array<string>
     lastActivityAt: string
+    parent?: {
+      id: string
+      title: string
+    } | null
+    repeat?: {
+      dueAt?: string | null
+      expression?: string | null
+      id: string
+      manageable: boolean
+      status: 'active' | 'paused'
+      timezone: string
+    } | null
     runs: Array<{
       agentUID: string
       completedAt?: string | null
@@ -1653,6 +1698,10 @@ export type CreatePodIssueResponses = {
       } | null
       title: string
       updatedAt: string
+    }>
+    squad: Array<{
+      name: string
+      uid: string
     }>
     status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
     title: string
@@ -1908,6 +1957,7 @@ export type UpdateConversationQueueResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -1921,6 +1971,17 @@ export type UpdateConversationQueueResponses = {
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      pendingQuestions?: Array<{
+        header?: string | null
+        id: string
+        isOther?: boolean | null
+        isSecret?: boolean | null
+        options?: Array<{
+          description?: string | null
+          label: string
+        }> | null
+        question: string
+      }> | null
       planCompleted?: number | null
       planTotal?: number | null
       sourceMessageID?: string | null
@@ -2443,6 +2504,64 @@ export type PodAppletJobCreateResponses = {
 
 export type PodAppletJobCreateResponse = PodAppletJobCreateResponses[keyof PodAppletJobCreateResponses]
 
+export type MetaPublishSkillData = {
+  /**
+   * Request body for the metaPublishSkill operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/publish'
+}
+
+export type MetaPublishSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaPublishSkillError = MetaPublishSkillErrors[keyof MetaPublishSkillErrors]
+
+export type MetaPublishSkillResponses = {
+  /**
+   * Success
+   */
+  201: {
+    agent_plugin_id?: string | null
+    agent_uid?: string | null
+    agent_uids: Array<string>
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    can_publish: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    runtime_agent_uids: Array<string>
+    runtime_assistant_enabled: boolean
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaPublishSkillResponse = MetaPublishSkillResponses[keyof MetaPublishSkillResponses]
+
 export type MetaGlobalContractsData = {
   body?: never
   path?: never
@@ -2557,6 +2676,45 @@ export type PodJobSchedulesPutResponses = {
 
 export type PodJobSchedulesPutResponse = PodJobSchedulesPutResponses[keyof PodJobSchedulesPutResponses]
 
+export type PodOfficeRestoreData = {
+  body?: never
+  path: {
+    version_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/office/versions/{version_id}/restore'
+}
+
+export type PodOfficeRestoreErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodOfficeRestoreError = PodOfficeRestoreErrors[keyof PodOfficeRestoreErrors]
+
+export type PodOfficeRestoreResponses = {
+  /**
+   * Success
+   */
+  201: {
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    format: 'spreadsheet' | 'word' | 'presentation'
+    page_id: string
+    revision: number
+  }
+}
+
+export type PodOfficeRestoreResponse = PodOfficeRestoreResponses[keyof PodOfficeRestoreResponses]
+
 export type PodJobWebhooksResumeData = {
   body?: never
   path: {
@@ -2610,12 +2768,16 @@ export type MetaSkillsResponses = {
    */
   200: {
     can_create: boolean
+    can_create_workspace: boolean
     skills: Array<{
       agent_plugin_id?: string | null
+      agent_uid?: string | null
+      agent_uids: Array<string>
       assistant_enabled: boolean
       can_bind_all: boolean
       can_delete: boolean
       can_edit: boolean
+      can_publish: boolean
       colleague_count: number
       description: string
       enabled_for_all: boolean
@@ -2627,6 +2789,8 @@ export type MetaSkillsResponses = {
       }
       name: string
       revision: number
+      runtime_agent_uids: Array<string>
+      runtime_assistant_enabled: boolean
       slug: string
       source_kind: string
     }>
@@ -2641,10 +2805,12 @@ export type MetaCreateSkillData = {
    */
   body: {
     data: {
+      agent_uid?: string | null
       manifest_xml: string
       metadata: {
         [key: string]: unknown
       }
+      personal: boolean
       slug: string
     }
   }
@@ -2668,10 +2834,13 @@ export type MetaCreateSkillResponses = {
    */
   201: {
     agent_plugin_id?: string | null
+    agent_uid?: string | null
+    agent_uids: Array<string>
     assistant_enabled: boolean
     can_bind_all: boolean
     can_delete: boolean
     can_edit: boolean
+    can_publish: boolean
     colleague_count: number
     description: string
     enabled_for_all: boolean
@@ -2683,6 +2852,8 @@ export type MetaCreateSkillResponses = {
     }
     name: string
     revision: number
+    runtime_agent_uids: Array<string>
+    runtime_assistant_enabled: boolean
     slug: string
     source_kind: string
   }
@@ -2755,10 +2926,13 @@ export type MetaSkillChangeFileResponses = {
    */
   200: {
     agent_plugin_id?: string | null
+    agent_uid?: string | null
+    agent_uids: Array<string>
     assistant_enabled: boolean
     can_bind_all: boolean
     can_delete: boolean
     can_edit: boolean
+    can_publish: boolean
     colleague_count: number
     description: string
     enabled_for_all: boolean
@@ -2770,6 +2944,8 @@ export type MetaSkillChangeFileResponses = {
     }
     name: string
     revision: number
+    runtime_agent_uids: Array<string>
+    runtime_assistant_enabled: boolean
     slug: string
     source_kind: string
   }
@@ -2812,10 +2988,13 @@ export type MetaSkillPutFileResponses = {
    */
   200: {
     agent_plugin_id?: string | null
+    agent_uid?: string | null
+    agent_uids: Array<string>
     assistant_enabled: boolean
     can_bind_all: boolean
     can_delete: boolean
     can_edit: boolean
+    can_publish: boolean
     colleague_count: number
     description: string
     enabled_for_all: boolean
@@ -2827,6 +3006,8 @@ export type MetaSkillPutFileResponses = {
     }
     name: string
     revision: number
+    runtime_agent_uids: Array<string>
+    runtime_assistant_enabled: boolean
     slug: string
     source_kind: string
   }
@@ -3240,6 +3421,37 @@ export type PodAppletOwnerResponses = {
 
 export type PodAppletOwnerResponse = PodAppletOwnerResponses[keyof PodAppletOwnerResponses]
 
+export type MetaBrainForgetClaimData = {
+  body?: never
+  path: {
+    claim_id: string
+  }
+  query?: {
+    reason?: string
+  }
+  url: '/api/v2/pod/meta/brain/claims/{claim_id}'
+}
+
+export type MetaBrainForgetClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaBrainForgetClaimError = MetaBrainForgetClaimErrors[keyof MetaBrainForgetClaimErrors]
+
+export type MetaBrainForgetClaimResponses = {
+  /**
+   * Success
+   */
+  200: {
+    forgotten_id: string
+  }
+}
+
+export type MetaBrainForgetClaimResponse = MetaBrainForgetClaimResponses[keyof MetaBrainForgetClaimResponses]
+
 export type PodAppletEnvDecryptData = {
   body?: never
   path: {
@@ -3526,10 +3738,13 @@ export type MetaSkillResponses = {
     }>
     skill: {
       agent_plugin_id?: string | null
+      agent_uid?: string | null
+      agent_uids: Array<string>
       assistant_enabled: boolean
       can_bind_all: boolean
       can_delete: boolean
       can_edit: boolean
+      can_publish: boolean
       colleague_count: number
       description: string
       enabled_for_all: boolean
@@ -3541,6 +3756,8 @@ export type MetaSkillResponses = {
       }
       name: string
       revision: number
+      runtime_agent_uids: Array<string>
+      runtime_assistant_enabled: boolean
       slug: string
       source_kind: string
     }
@@ -3585,10 +3802,13 @@ export type MetaSaveSkillResponses = {
    */
   200: {
     agent_plugin_id?: string | null
+    agent_uid?: string | null
+    agent_uids: Array<string>
     assistant_enabled: boolean
     can_bind_all: boolean
     can_delete: boolean
     can_edit: boolean
+    can_publish: boolean
     colleague_count: number
     description: string
     enabled_for_all: boolean
@@ -3600,6 +3820,8 @@ export type MetaSaveSkillResponses = {
     }
     name: string
     revision: number
+    runtime_agent_uids: Array<string>
+    runtime_assistant_enabled: boolean
     slug: string
     source_kind: string
   }
@@ -4037,6 +4259,7 @@ export type ConversationDetailResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -4050,6 +4273,17 @@ export type ConversationDetailResponses = {
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      pendingQuestions?: Array<{
+        header?: string | null
+        id: string
+        isOther?: boolean | null
+        isSecret?: boolean | null
+        options?: Array<{
+          description?: string | null
+          label: string
+        }> | null
+        question: string
+      }> | null
       planCompleted?: number | null
       planTotal?: number | null
       sourceMessageID?: string | null
@@ -4333,6 +4567,7 @@ export type UpdateConversationResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -4346,6 +4581,17 @@ export type UpdateConversationResponses = {
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      pendingQuestions?: Array<{
+        header?: string | null
+        id: string
+        isOther?: boolean | null
+        isSecret?: boolean | null
+        options?: Array<{
+          description?: string | null
+          label: string
+        }> | null
+        question: string
+      }> | null
       planCompleted?: number | null
       planTotal?: number | null
       sourceMessageID?: string | null
@@ -4722,6 +4968,7 @@ export type AnswerConversationInteractionResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -4735,6 +4982,17 @@ export type AnswerConversationInteractionResponses = {
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      pendingQuestions?: Array<{
+        header?: string | null
+        id: string
+        isOther?: boolean | null
+        isSecret?: boolean | null
+        options?: Array<{
+          description?: string | null
+          label: string
+        }> | null
+        question: string
+      }> | null
       planCompleted?: number | null
       planTotal?: number | null
       sourceMessageID?: string | null
@@ -5414,6 +5672,7 @@ export type ResolveConversationActionCardResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -5427,6 +5686,17 @@ export type ResolveConversationActionCardResponses = {
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      pendingQuestions?: Array<{
+        header?: string | null
+        id: string
+        isOther?: boolean | null
+        isSecret?: boolean | null
+        options?: Array<{
+          description?: string | null
+          label: string
+        }> | null
+        question: string
+      }> | null
       planCompleted?: number | null
       planTotal?: number | null
       sourceMessageID?: string | null
@@ -6435,44 +6705,6 @@ export type ConversationExecutionResponses = {
 
 export type ConversationExecutionResponse = ConversationExecutionResponses[keyof ConversationExecutionResponses]
 
-export type PodSpreadsheetRestoreData = {
-  body?: never
-  path: {
-    version_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore'
-}
-
-export type PodSpreadsheetRestoreErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetRestoreError = PodSpreadsheetRestoreErrors[keyof PodSpreadsheetRestoreErrors]
-
-export type PodSpreadsheetRestoreResponses = {
-  /**
-   * Success
-   */
-  201: {
-    file: {
-      content_type?: string | null
-      object_id: string
-      path: string
-      sha256: string
-      size: number
-    }
-    page_id: string
-    revision: number
-  }
-}
-
-export type PodSpreadsheetRestoreResponse = PodSpreadsheetRestoreResponses[keyof PodSpreadsheetRestoreResponses]
-
 export type PodBaseAggregateData = {
   /**
    * Request body for the podBaseAggregate operation on pod_base_operation resource
@@ -6899,10 +7131,13 @@ export type MetaSkillSetAllResponses = {
    */
   200: {
     agent_plugin_id?: string | null
+    agent_uid?: string | null
+    agent_uids: Array<string>
     assistant_enabled: boolean
     can_bind_all: boolean
     can_delete: boolean
     can_edit: boolean
+    can_publish: boolean
     colleague_count: number
     description: string
     enabled_for_all: boolean
@@ -6914,6 +7149,8 @@ export type MetaSkillSetAllResponses = {
     }
     name: string
     revision: number
+    runtime_agent_uids: Array<string>
+    runtime_assistant_enabled: boolean
     slug: string
     source_kind: string
   }
@@ -7565,6 +7802,7 @@ export type PodScheduledWorkResponses = {
       id: string
       kind: string
       lastFiredAt?: string | null
+      manageable: boolean
       schedule?: {
         [key: string]: unknown
       } | null
@@ -7737,6 +7975,7 @@ export type PostConversationMessageResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -7750,6 +7989,17 @@ export type PostConversationMessageResponses = {
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      pendingQuestions?: Array<{
+        header?: string | null
+        id: string
+        isOther?: boolean | null
+        isSecret?: boolean | null
+        options?: Array<{
+          description?: string | null
+          label: string
+        }> | null
+        question: string
+      }> | null
       planCompleted?: number | null
       planTotal?: number | null
       sourceMessageID?: string | null
@@ -7882,54 +8132,6 @@ export type PostConversationMessageResponses = {
 }
 
 export type PostConversationMessageResponse = PostConversationMessageResponses[keyof PostConversationMessageResponses]
-
-export type PodSpreadsheetData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet'
-}
-
-export type PodSpreadsheetErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetError = PodSpreadsheetErrors[keyof PodSpreadsheetErrors]
-
-export type PodSpreadsheetResponses = {
-  /**
-   * Success
-   */
-  200: {
-    file: {
-      content_type?: string | null
-      object_id: string
-      path: string
-      sha256: string
-      size: number
-    }
-    metadata?: {
-      [key: string]: unknown
-    } | null
-    ops: Array<{
-      client_id: string
-      client_seq: number
-      op: {
-        [key: string]: unknown
-      }
-      revision: number
-    }>
-    page_id: string
-    revision: number
-  }
-}
-
-export type PodSpreadsheetResponse = PodSpreadsheetResponses[keyof PodSpreadsheetResponses]
 
 export type PodBaseTableCreateData = {
   /**
@@ -8083,6 +8285,55 @@ export type PodPeerExchangeResponses = {
 }
 
 export type PodPeerExchangeResponse = PodPeerExchangeResponses[keyof PodPeerExchangeResponses]
+
+export type MetaBrainMyContextData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/brain/my-context'
+}
+
+export type MetaBrainMyContextErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaBrainMyContextError = MetaBrainMyContextErrors[keyof MetaBrainMyContextErrors]
+
+export type MetaBrainMyContextResponses = {
+  /**
+   * Success
+   */
+  200: {
+    assistant_uid?: string | null
+    canonical_page_id?: string | null
+    claims: Array<{
+      bucket: string
+      can_edit: boolean
+      can_forget: boolean
+      claim: string
+      claim_type: string
+      confidence?: number | null
+      created_at: string
+      holder: string
+      id: string
+      kind: string
+      notability?: string | null
+      provenance: string
+      source_node_id: string
+      source_title?: string | null
+      subject_page_id?: string | null
+      subject_slug?: string | null
+      subject_title?: string | null
+      weight?: number | null
+    }>
+    viewer_uid: string
+  }
+}
+
+export type MetaBrainMyContextResponse = MetaBrainMyContextResponses[keyof MetaBrainMyContextResponses]
 
 export type UnbindPodCredentialData = {
   body?: never
@@ -8844,6 +9095,55 @@ export type PodConnectorAuthConfigsUpdateResponses = {
 export type PodConnectorAuthConfigsUpdateResponse =
   PodConnectorAuthConfigsUpdateResponses[keyof PodConnectorAuthConfigsUpdateResponses]
 
+export type PodPageSharingExplainData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query: {
+    action?: 'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'
+    subject_uid: string
+  }
+  url: '/api/v2/pod/pages/{id}/sharing/explain'
+}
+
+export type PodPageSharingExplainErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageSharingExplainError = PodPageSharingExplainErrors[keyof PodPageSharingExplainErrors]
+
+export type PodPageSharingExplainResponses = {
+  /**
+   * Success
+   */
+  200: {
+    action: string
+    agent_type?: string | null
+    allowed: boolean
+    authority_uid: string
+    decision_reason: string
+    effective_actions: Array<string>
+    effective_role?: string | null
+    stages: Array<{
+      details: {
+        [key: string]: unknown
+      }
+      id: string
+      status: string
+      summary: string
+    }>
+    subject_kind: string
+    subject_name: string
+    subject_uid: string
+  }
+}
+
+export type PodPageSharingExplainResponse = PodPageSharingExplainResponses[keyof PodPageSharingExplainResponses]
+
 export type EnablePodAgentData = {
   body?: never
   path: {
@@ -8894,6 +9194,7 @@ export type MetaBrainResponses = {
    * Success
    */
   200: {
+    assistant_uid?: string | null
     categories: Array<{
       can_edit: boolean
       entity_type: string
@@ -8915,6 +9216,7 @@ export type MetaBrainResponses = {
       title: string
       type: string
     }>
+    viewer_uid: string
   }
 }
 
@@ -9124,6 +9426,306 @@ export type SetPodAdministratorResponses = {
 }
 
 export type SetPodAdministratorResponse = SetPodAdministratorResponses[keyof SetPodAdministratorResponses]
+
+export type GrantConversationPageAccessData = {
+  body?: never
+  path: {
+    interaction_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/interactions/{interaction_id}/grant-page-access'
+}
+
+export type GrantConversationPageAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GrantConversationPageAccessError =
+  GrantConversationPageAccessErrors[keyof GrantConversationPageAccessErrors]
+
+export type GrantConversationPageAccessResponses = {
+  /**
+   * Success
+   */
+  201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+        tool?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+        tool?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      latestMessagePreview?: string | null
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        lastVisitedAt?: string | null
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    editableInputs: Array<{
+      agentUIDs: Array<string>
+      messageID: string
+      supersededByParticipant: boolean
+    }>
+    issueAgentUID?: string | null
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      canMessage?: boolean | null
+      completedAt?: string | null
+      continuedFromJobID?: string | null
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      pendingQuestions?: Array<{
+        header?: string | null
+        id: string
+        isOther?: boolean | null
+        isSecret?: boolean | null
+        options?: Array<{
+          description?: string | null
+          label: string
+        }> | null
+        question: string
+      }> | null
+      planCompleted?: number | null
+      planTotal?: number | null
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      sourceToolCallID?: string | null
+      startedAt?: string | null
+      status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      successorJobID?: string | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        node_id?: string | null
+        object_id: string
+        path: string
+        position: number
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type GrantConversationPageAccessResponse =
+  GrantConversationPageAccessResponses[keyof GrantConversationPageAccessResponses]
 
 export type PodMentionsResolveData = {
   /**
@@ -9506,6 +10108,54 @@ export type PodKnowledgeExportResponses = {
 }
 
 export type PodKnowledgeExportResponse = PodKnowledgeExportResponses[keyof PodKnowledgeExportResponses]
+
+export type MetaBrainNodeClaimsData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/brain/nodes/{page_id}/claims'
+}
+
+export type MetaBrainNodeClaimsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaBrainNodeClaimsError = MetaBrainNodeClaimsErrors[keyof MetaBrainNodeClaimsErrors]
+
+export type MetaBrainNodeClaimsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    claims: Array<{
+      bucket: string
+      can_edit: boolean
+      can_forget: boolean
+      claim: string
+      claim_type: string
+      confidence?: number | null
+      created_at: string
+      holder: string
+      id: string
+      kind: string
+      notability?: string | null
+      provenance: string
+      source_node_id: string
+      source_title?: string | null
+      subject_page_id?: string | null
+      subject_slug?: string | null
+      subject_title?: string | null
+      weight?: number | null
+    }>
+  }
+}
+
+export type MetaBrainNodeClaimsResponse = MetaBrainNodeClaimsResponses[keyof MetaBrainNodeClaimsResponses]
 
 export type PodConnectorAccountsDisconnectData = {
   body?: never
@@ -10193,50 +10843,6 @@ export type PodPageHistoryResponses = {
 
 export type PodPageHistoryResponse = PodPageHistoryResponses[keyof PodPageHistoryResponses]
 
-export type PodSpreadsheetVersionsData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet/versions'
-}
-
-export type PodSpreadsheetVersionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetVersionsError = PodSpreadsheetVersionsErrors[keyof PodSpreadsheetVersionsErrors]
-
-export type PodSpreadsheetVersionsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    versions: Array<{
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      created_at: string
-      file_name: string
-      id: string
-      reason: 'created' | 'uploaded' | 'checkpoint' | 'before_restore' | 'restored'
-      revision: number
-      sha256: string
-      size: number
-    }>
-  }
-}
-
-export type PodSpreadsheetVersionsResponse = PodSpreadsheetVersionsResponses[keyof PodSpreadsheetVersionsResponses]
-
 export type PodBaseViewDeleteData = {
   body?: never
   path: {
@@ -10309,6 +10915,62 @@ export type PodBaseViewUpdateResponses = {
 }
 
 export type PodBaseViewUpdateResponse = PodBaseViewUpdateResponses[keyof PodBaseViewUpdateResponses]
+
+export type MetaBrainAddFactData = {
+  /**
+   * Request body for the metaBrainAddFact operation on meta_brain resource
+   */
+  body: {
+    data: {
+      claim: string
+      kind?: string | null
+      notability?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/brain/my-context/facts'
+}
+
+export type MetaBrainAddFactErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaBrainAddFactError = MetaBrainAddFactErrors[keyof MetaBrainAddFactErrors]
+
+export type MetaBrainAddFactResponses = {
+  /**
+   * Success
+   */
+  201: {
+    claim: {
+      bucket: string
+      can_edit: boolean
+      can_forget: boolean
+      claim: string
+      claim_type: string
+      confidence?: number | null
+      created_at: string
+      holder: string
+      id: string
+      kind: string
+      notability?: string | null
+      provenance: string
+      source_node_id: string
+      source_title?: string | null
+      subject_page_id?: string | null
+      subject_slug?: string | null
+      subject_title?: string | null
+      weight?: number | null
+    }
+    status: string
+  }
+}
+
+export type MetaBrainAddFactResponse = MetaBrainAddFactResponses[keyof MetaBrainAddFactResponses]
 
 export type PodBaseWriteData = {
   /**
@@ -10635,6 +11297,50 @@ export type PodPageSharingWriteResponses = {
 
 export type PodPageSharingWriteResponse = PodPageSharingWriteResponses[keyof PodPageSharingWriteResponses]
 
+export type PodOfficeVersionsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/office/versions'
+}
+
+export type PodOfficeVersionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodOfficeVersionsError = PodOfficeVersionsErrors[keyof PodOfficeVersionsErrors]
+
+export type PodOfficeVersionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    versions: Array<{
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      created_at: string
+      file_name: string
+      id: string
+      reason: 'created' | 'uploaded' | 'checkpoint' | 'before_restore' | 'restored'
+      revision: number
+      sha256: string
+      size: number
+    }>
+  }
+}
+
+export type PodOfficeVersionsResponse = PodOfficeVersionsResponses[keyof PodOfficeVersionsResponses]
+
 export type PodConversationsData = {
   body?: never
   path?: never
@@ -10895,6 +11601,7 @@ export type CreateConversationResponses = {
       messageID: string
       supersededByParticipant: boolean
     }>
+    issueAgentUID?: string | null
     latestInput?: {
       agentUIDs: Array<string>
       authorUID?: string | null
@@ -10908,6 +11615,17 @@ export type CreateConversationResponses = {
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      pendingQuestions?: Array<{
+        header?: string | null
+        id: string
+        isOther?: boolean | null
+        isSecret?: boolean | null
+        options?: Array<{
+          description?: string | null
+          label: string
+        }> | null
+        question: string
+      }> | null
       planCompleted?: number | null
       planTotal?: number | null
       sourceMessageID?: string | null
@@ -11047,7 +11765,9 @@ export type MetaImportSkillData = {
    */
   body: {
     data: {
+      agent_uid?: string | null
       content_base64: string
+      personal: boolean
       slug: string
     }
   }
@@ -11071,10 +11791,13 @@ export type MetaImportSkillResponses = {
    */
   201: {
     agent_plugin_id?: string | null
+    agent_uid?: string | null
+    agent_uids: Array<string>
     assistant_enabled: boolean
     can_bind_all: boolean
     can_delete: boolean
     can_edit: boolean
+    can_publish: boolean
     colleague_count: number
     description: string
     enabled_for_all: boolean
@@ -11086,12 +11809,100 @@ export type MetaImportSkillResponses = {
     }
     name: string
     revision: number
+    runtime_agent_uids: Array<string>
+    runtime_assistant_enabled: boolean
     slug: string
     source_kind: string
   }
 }
 
 export type MetaImportSkillResponse = MetaImportSkillResponses[keyof MetaImportSkillResponses]
+
+export type PodOfficeData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/office'
+}
+
+export type PodOfficeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodOfficeError = PodOfficeErrors[keyof PodOfficeErrors]
+
+export type PodOfficeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    checkpoint?: string | null
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    format: 'spreadsheet' | 'word' | 'presentation'
+    metadata?: {
+      [key: string]: unknown
+    } | null
+    ops: Array<{
+      client_id: string
+      client_seq: number
+      op: {
+        [key: string]: unknown
+      }
+      revision: number
+    }>
+    page_id: string
+    revision: number
+  }
+}
+
+export type PodOfficeResponse = PodOfficeResponses[keyof PodOfficeResponses]
+
+export type ChangePodScheduledWorkData = {
+  /**
+   * Request body for the changePodScheduledWork operation on issue_operation resource
+   */
+  body: {
+    data: {
+      change: 'pause' | 'resume' | 'run' | 'remove'
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/issues/scheduled/{id}'
+}
+
+export type ChangePodScheduledWorkErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ChangePodScheduledWorkError = ChangePodScheduledWorkErrors[keyof ChangePodScheduledWorkErrors]
+
+export type ChangePodScheduledWorkResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+  }
+}
+
+export type ChangePodScheduledWorkResponse = ChangePodScheduledWorkResponses[keyof ChangePodScheduledWorkResponses]
 
 export type PodPageCommentsReadData = {
   /**
@@ -11279,9 +12090,26 @@ export type PodIssueResponses = {
       name: string
       uid: string
     } | null
+    children?: {
+      done: number
+      total: number
+    } | null
     description?: string | null
     id: string
+    labels: Array<string>
     lastActivityAt: string
+    parent?: {
+      id: string
+      title: string
+    } | null
+    repeat?: {
+      dueAt?: string | null
+      expression?: string | null
+      id: string
+      manageable: boolean
+      status: 'active' | 'paused'
+      timezone: string
+    } | null
     runs: Array<{
       agentUID: string
       completedAt?: string | null
@@ -11306,6 +12134,10 @@ export type PodIssueResponses = {
       title: string
       updatedAt: string
     }>
+    squad: Array<{
+      name: string
+      uid: string
+    }>
     status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
     title: string
     tracked: boolean
@@ -11321,6 +12153,7 @@ export type UpdatePodIssueData = {
   body?: {
     data: {
       description?: string | null
+      labels?: Array<string> | null
       status?: 'started' | 'done' | null
     }
   }
@@ -11349,9 +12182,26 @@ export type UpdatePodIssueResponses = {
       name: string
       uid: string
     } | null
+    children?: {
+      done: number
+      total: number
+    } | null
     description?: string | null
     id: string
+    labels: Array<string>
     lastActivityAt: string
+    parent?: {
+      id: string
+      title: string
+    } | null
+    repeat?: {
+      dueAt?: string | null
+      expression?: string | null
+      id: string
+      manageable: boolean
+      status: 'active' | 'paused'
+      timezone: string
+    } | null
     runs: Array<{
       agentUID: string
       completedAt?: string | null
@@ -11375,6 +12225,10 @@ export type UpdatePodIssueResponses = {
       } | null
       title: string
       updatedAt: string
+    }>
+    squad: Array<{
+      name: string
+      uid: string
     }>
     status: 'todo' | 'working' | 'waiting' | 'review' | 'done'
     title: string
@@ -11687,6 +12541,106 @@ export type SetPodModelSelectionResponses = {
 
 export type SetPodModelSelectionResponse = SetPodModelSelectionResponses[keyof SetPodModelSelectionResponses]
 
+export type MetaBrainSupersedeClaimData = {
+  /**
+   * Request body for the metaBrainSupersedeClaim operation on meta_brain resource
+   */
+  body: {
+    data: {
+      claim: string
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/brain/claims/{claim_id}/supersede'
+}
+
+export type MetaBrainSupersedeClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaBrainSupersedeClaimError = MetaBrainSupersedeClaimErrors[keyof MetaBrainSupersedeClaimErrors]
+
+export type MetaBrainSupersedeClaimResponses = {
+  /**
+   * Success
+   */
+  201: {
+    claim: {
+      bucket: string
+      can_edit: boolean
+      can_forget: boolean
+      claim: string
+      claim_type: string
+      confidence?: number | null
+      created_at: string
+      holder: string
+      id: string
+      kind: string
+      notability?: string | null
+      provenance: string
+      source_node_id: string
+      source_title?: string | null
+      subject_page_id?: string | null
+      subject_slug?: string | null
+      subject_title?: string | null
+      weight?: number | null
+    }
+  }
+}
+
+export type MetaBrainSupersedeClaimResponse = MetaBrainSupersedeClaimResponses[keyof MetaBrainSupersedeClaimResponses]
+
+export type PodWordConvertToDocumentData = {
+  /**
+   * Request body for the podWordConvertToDocument operation on pod_office_operation resource
+   */
+  body?: {
+    data: {
+      parent_id?: string | null
+      private_owner_uid?: string | null
+      title?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/convert-to-document'
+}
+
+export type PodWordConvertToDocumentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodWordConvertToDocumentError = PodWordConvertToDocumentErrors[keyof PodWordConvertToDocumentErrors]
+
+export type PodWordConvertToDocumentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    downgraded: {
+      [key: string]: unknown
+    }
+    omitted: {
+      [key: string]: unknown
+    }
+    page: PodPageType
+  }
+}
+
+export type PodWordConvertToDocumentResponse =
+  PodWordConvertToDocumentResponses[keyof PodWordConvertToDocumentResponses]
+
 export type PodMentionCandidatesData = {
   body?: never
   path?: never
@@ -11781,42 +12735,6 @@ export type RenamePodMemberResponses = {
 }
 
 export type RenamePodMemberResponse = RenamePodMemberResponses[keyof RenamePodMemberResponses]
-
-export type PodSpreadsheetCreateData = {
-  /**
-   * Request body for the podSpreadsheetCreate operation on pod_spreadsheet_operation resource
-   */
-  body?: {
-    data: {
-      parent_id?: string | null
-      private_owner_uid?: string | null
-      title?: string | null
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/spreadsheet-pages'
-}
-
-export type PodSpreadsheetCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetCreateError = PodSpreadsheetCreateErrors[keyof PodSpreadsheetCreateErrors]
-
-export type PodSpreadsheetCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    page: PodPageType
-  }
-}
-
-export type PodSpreadsheetCreateResponse = PodSpreadsheetCreateResponses[keyof PodSpreadsheetCreateResponses]
 
 export type PodMeData = {
   body?: never
@@ -12063,6 +12981,43 @@ export type PodCommentAttentionResponses = {
 }
 
 export type PodCommentAttentionResponse = PodCommentAttentionResponses[keyof PodCommentAttentionResponses]
+
+export type PodOfficeCreateData = {
+  /**
+   * Request body for the podOfficeCreate operation on pod_office_operation resource
+   */
+  body: {
+    data: {
+      format: 'spreadsheet' | 'word' | 'presentation'
+      parent_id?: string | null
+      private_owner_uid?: string | null
+      title?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/office-pages'
+}
+
+export type PodOfficeCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodOfficeCreateError = PodOfficeCreateErrors[keyof PodOfficeCreateErrors]
+
+export type PodOfficeCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    page: PodPageType
+  }
+}
+
+export type PodOfficeCreateResponse = PodOfficeCreateResponses[keyof PodOfficeCreateResponses]
 
 export type PodPageSearchData = {
   body?: never
@@ -12487,10 +13442,13 @@ export type MetaSkillSetBindingResponses = {
    */
   200: {
     agent_plugin_id?: string | null
+    agent_uid?: string | null
+    agent_uids: Array<string>
     assistant_enabled: boolean
     can_bind_all: boolean
     can_delete: boolean
     can_edit: boolean
+    can_publish: boolean
     colleague_count: number
     description: string
     enabled_for_all: boolean
@@ -12502,6 +13460,8 @@ export type MetaSkillSetBindingResponses = {
     }
     name: string
     revision: number
+    runtime_agent_uids: Array<string>
+    runtime_assistant_enabled: boolean
     slug: string
     source_kind: string
   }

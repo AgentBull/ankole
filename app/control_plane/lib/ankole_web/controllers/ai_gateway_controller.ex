@@ -119,9 +119,95 @@ defmodule AnkoleWeb.AIGatewayController do
     ]
 
     case AIGateway.create_image(subject_uid, request, opts) do
-      {:ok, %{body: body}} -> json(conn, ImageRequests.public_body(body))
+      # Generated images arrive as base64, so the encode runs on a dirty scheduler.
+      {:ok, %{body: body}} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Ankole.JSON.encode!(ImageRequests.public_body(body), dirty: true))
+
+      {:error, reason} ->
+        error(conn, reason)
+    end
+  end
+
+  def speech(conn, _params) do
+    case AIGateway.create_speech(subject_uid(conn), conn.body_params || %{}, call_opts(conn)) do
+      {:ok, %{body: %{"audio" => audio, "content_type" => content_type}}} ->
+        conn
+        |> put_resp_content_type(content_type, nil)
+        |> send_resp(200, audio)
+
+      {:error, reason} ->
+        error(conn, reason)
+    end
+  end
+
+  def transcriptions(conn, _params) do
+    case AIGateway.create_transcription(
+           subject_uid(conn),
+           conn.body_params || %{},
+           call_opts(conn)
+         ) do
+      {:ok, %{body: body}} -> json(conn, body)
       {:error, reason} -> error(conn, reason)
     end
+  end
+
+  # Without an OCR profile, OCR runs on the caller's language model, so it
+  # carries the same caller facts as a Responses request.
+  def ocr(conn, _params) do
+    case AIGateway.create_ocr(subject_uid(conn), conn.body_params || %{}, call_opts(conn)) do
+      {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  # `/videos` and `/audio/music` share the media-job actions. The route names
+  # the capability in `conn.assigns.media`.
+  def create_media_job(conn, _params) do
+    case AIGateway.create_media_job(
+           subject_uid(conn),
+           conn.assigns.media,
+           conn.body_params || %{},
+           call_opts(conn)
+         ) do
+      {:ok, %{status: status, body: body}} -> conn |> put_status(status) |> json(body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def media_job(conn, %{"id" => id}) do
+    case AIGateway.fetch_media_job(subject_uid(conn), conn.assigns.media, id) do
+      {:ok, body} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def media_job_content(conn, %{"id" => id}) do
+    case AIGateway.media_job_content(subject_uid(conn), conn.assigns.media, id) do
+      {:ok, %{object: object, content_type: content_type, id: id}} ->
+        [extension | _] = MIME.extensions(content_type) ++ ["bin"]
+
+        AnkoleWeb.PodResponse.send_sandboxed_object(
+          conn,
+          object,
+          "#{id}.#{extension}",
+          content_type,
+          false
+        )
+
+      {:error, reason} ->
+        error(conn, reason)
+    end
+  end
+
+  defp subject_uid(conn), do: conn.assigns.current_ai_gateway_subject_uid
+
+  defp call_opts(conn) do
+    [
+      subject_type: conn.assigns.current_ai_gateway_subject_type,
+      request_context: RequestContext.from_headers(conn.req_headers, "http")
+    ]
   end
 
   def web_fetch(conn, _params) do

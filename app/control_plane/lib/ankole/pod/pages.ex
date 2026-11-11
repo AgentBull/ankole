@@ -42,6 +42,11 @@ defmodule Ankole.Pod.Pages do
     do: match?(:ok, destination(actor, nil, nil))
 
   defdelegate sharing(actor, id), to: Sharing
+
+  defdelegate explain_sharing(actor, id, subject_uid, action \\ "node_view"),
+    to: Sharing,
+    as: :explain_access
+
   defdelegate subjects(actor), to: Sharing
   defdelegate set_sharing(actor, id, attrs, authority \\ nil), to: Sharing
   defdelegate set_sharing_in_tx(actor, id, attrs), to: Sharing
@@ -150,7 +155,8 @@ defmodule Ankole.Pod.Pages do
       title = Ankole.Attrs.get(attrs, :title, "") |> Ankole.Files.Path.strip_bidi_and_controls()
       kind = Ankole.Attrs.get(attrs, :type, "doc")
 
-      with {:ok, content, projection} <-
+      with {:ok, position} <- initial_position(parent.id, attrs),
+           {:ok, content, projection} <-
              prepare_initial_content(kind, Ankole.Attrs.get(attrs, :xml), metadata),
            {:ok, page} <-
              Nodes.create_in_tx(
@@ -162,7 +168,7 @@ defmodule Ankole.Pod.Pages do
                  created_by: ActorRef.from_principal(principal),
                  title: title,
                  icon: Ankole.Attrs.get(attrs, :icon),
-                 position: Ankole.Attrs.get(attrs, :position),
+                 position: position,
                  saved_from_message_id: source && source.id,
                  children_view: children_view,
                  metadata: metadata
@@ -465,6 +471,22 @@ defmodule Ankole.Pod.Pages do
          {:ok, moved} <- Nodes.move_in_tx(actor, id, %{parent_id: parent.id}),
          {:ok, page} <- update_properties_in_tx(page, :position, %{position: position}) do
       {:ok, %{page: page, undo: undo, access_changed: moved.acl_anchor_id != old_anchor}}
+    end
+  end
+
+  defp initial_position(parent_id, attrs) do
+    case Ankole.Attrs.get(attrs, :position) do
+      nil ->
+        if is_nil(Ankole.Attrs.get(attrs, :after_id)) and
+             is_nil(Ankole.Attrs.get(attrs, :before_id)) do
+          {:ok, nil}
+        else
+          with :ok <- materialize_positions(parent_id),
+               do: move_position(%{id: nil}, parent_id, nil, attrs)
+        end
+
+      position ->
+        {:ok, position}
     end
   end
 

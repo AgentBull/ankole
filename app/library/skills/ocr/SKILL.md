@@ -1,10 +1,10 @@
 ---
 name: ocr
-description: "Recognize text in images: screenshots, scanned copy, receipts, etc. Use when text must be read out of pixels. For any PDF, start with the pdf Skill."
+description: "Recognize text in images and scanned PDFs: screenshots, scanned copy, receipts, etc., with the local OCR engine or through the OCR API. Use when text must be read out of pixels. For any PDF, start with the pdf Skill."
 default_enabled: true
 category: productivity
 tags: [OCR, Documents, Images, PDF, Text-Extraction, Productivity]
-version: 1.0.0
+version: 1.1.0
 ankole-runtime: background_job
 license: MIT
 platforms: [linux]
@@ -19,9 +19,17 @@ metadata:
 
 This Skill reads **text out of pixels**: photos, screenshots, scans,
 whiteboard shots, receipts, and PDF pages that carry no machine-readable
-text. The Agent Computer image installs RapidOCR with the PP-OCRv6 medium
-detection and recognition models on the OpenVINO CPU runtime, so recognition
-runs locally: no network call, no API key, no cost per page.
+text. It offers two tools:
+
+- `scripts/ocr.py` runs the local engine. The Agent Computer image installs
+  RapidOCR with the PP-OCRv6 medium detection and recognition models on the
+  OpenVINO CPU runtime, so recognition runs locally: no network call, no API
+  key, no cost per page.
+- `scripts/ocr_api.py` sends the file to the AIGateway `/ocr` endpoint,
+  which answers with Markdown per page. See [OCR API](#ocr-api).
+
+Which tool to use, or whether to read an image with your own vision, is your
+call. The sections below say what each tool reads, returns, and costs.
 
 Do not OCR a document that carries real text. Extraction is exact and
 instant; recognition is approximate and costs seconds per page:
@@ -68,7 +76,36 @@ python scripts/ocr.py in.pdf                 # scanned file, every page
 python scripts/ocr.py in.pdf --pages 2,6     # only the listed pages
 ```
 
-## Cost And Flags
+## OCR API
+
+`ocr_api.py` sends one image or PDF to the AIGateway `/ocr` endpoint and
+prints the Markdown of each page. It needs no setup: the runtime provides
+the endpoint's address in `ANKOLE_RUNTIME_AI_GATEWAY_URL` and the Agent's
+key in the file that `ANKOLE_RUNTIME_AI_GATEWAY_TOKEN_FILE` names.
+
+```bash
+python scripts/ocr_api.py scan.pdf                 # every page
+python scripts/ocr_api.py scan.pdf --pages 2,6     # only the listed pages, at most 100
+python scripts/ocr_api.py photo.jpg --json         # the endpoint's JSON: model, pages, usage
+```
+
+Who reads the file depends on how the space is configured:
+
+- With an OCR model bound, that model reads the file: a PDF of up to 50 MiB,
+  or a PNG, JPEG, or WebP image of up to 20 MiB. The scripts and layouts
+  that it reads are the model's own, not the local engine's. Its provider
+  bills the space for each page.
+- Without an OCR model, a language model that accepts images reads one
+  image, and the endpoint rejects a PDF with an error that says so. That
+  request counts against the Agent's token quota like any other model call.
+
+The answer is Markdown, so headings and tables keep their structure where
+the model recognizes them. With `--json`, the `model` field names who read
+the file and `usage` counts the pages. When the endpoint rejects a request,
+the script prints the endpoint's error, which names the field at fault, and
+exits 1.
+
+## Cost And Flags Of The Local Engine
 
 The models load once per process and take seconds; each page then costs
 roughly one to two seconds of CPU. Pass every input in one invocation
@@ -89,14 +126,13 @@ small print at `--dpi 300`, before concluding the document is unreadable.
 
 ## Limits
 
-- One model covers 50 languages: Simplified and Traditional Chinese, English,
-  Japanese, and the Latin-script European languages. Korean, Arabic, Cyrillic,
-  Thai, and other scripts are not covered. When a document falls outside
-  coverage, do not deliver garbage text; tell the human:
-  > "This document appears to be in [script], which the local OCR model does
-  > not cover. I can work with a text-bearing version of the file, or you can
-  > tell me how you want the original handled."
-- Output is text lines in reading order with positions. Tables come back as
-  positioned lines, not table markup; formulas and handwriting degrade.
+- The local model covers 50 languages: Simplified and Traditional Chinese,
+  English, Japanese, and the Latin-script European languages. Korean, Arabic,
+  Cyrillic, Thai, and other scripts are not covered: for them the local
+  engine returns garbage text with low scores. The OCR API does not share
+  this limit; its coverage is that of the model that answers.
+- The local engine's output is text lines in reading order with positions.
+  Tables come back as positioned lines, not table markup; formulas and
+  handwriting degrade.
 - The Skill reads text out of a document. It does not write a text layer back
   into a PDF, so it cannot make a PDF searchable.

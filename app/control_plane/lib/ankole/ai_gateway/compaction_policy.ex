@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.CompactionPolicy do
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.CompactionRender
   alias Ankole.AIGateway.CompactionSummarizer
+  alias Ankole.AIGateway.HostedTools.StreamLoop
 
   @config_key "ai_gateway.compaction"
   # Compact late. Every token below the trigger is replayed on each model call,
@@ -32,6 +33,14 @@ defmodule Ankole.AIGateway.CompactionPolicy do
   # history back — which calls repeated work, where the tokens went, what a
   # thread forgot — and that reading stops at the first opaque capsule.
   @default_upstream false
+  # A Response that runs the hosted-tool loop ends incomplete once its provider
+  # history passes an item limit or a byte limit, and the stored history counts
+  # toward both. Provider ciphertext and inline images take many bytes per
+  # token, so a history can come near those limits long before the token
+  # trigger, and every later Response that runs the loop on it ends the same
+  # way. A checkpoint is therefore due while a quarter of each limit is still
+  # free for the next input and the loop's own rounds.
+  @provider_history_trigger_share 0.75
   @default_config %{
     "threshold" => @default_threshold_percent,
     "max_threshold_tokens" => @default_max_threshold_tokens,
@@ -99,6 +108,14 @@ defmodule Ankole.AIGateway.CompactionPolicy do
       max_output_tokens: max_output_tokens
     }
   end
+
+  @doc """
+  Returns whether the stored history items are large enough to need a
+  checkpoint before the hosted-tool loop of the next Response runs on them.
+  """
+  @spec provider_history_trigger?([map()]) :: boolean()
+  def provider_history_trigger?(history_items) when is_list(history_items),
+    do: StreamLoop.provider_history_usage(history_items) >= @provider_history_trigger_share
 
   def tail_rows do
     config()

@@ -1,6 +1,7 @@
 defmodule Ankole.AIGateway.Jobs.CleanupExpiredArtifacts do
   @moduledoc """
-  Idempotent hourly cleanup for expired artifacts and failed generated images.
+  Idempotent hourly cleanup for expired artifacts, failed generated images,
+  and media jobs whose retention has ended.
   """
 
   use Ankole.Job, tenancy: :site, queue: :default, max_attempts: 3
@@ -13,6 +14,7 @@ defmodule Ankole.AIGateway.Jobs.CleanupExpiredArtifacts do
 
   defp sweep(%Oban.Job{}) do
     _counts = Artifacts.cleanup_expired_and_failed()
+    _count = Ankole.AIGateway.MediaJobs.cleanup_expired()
     :ok
   end
 end

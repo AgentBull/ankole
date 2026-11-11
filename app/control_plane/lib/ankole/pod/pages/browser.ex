@@ -27,6 +27,7 @@ defmodule Ankole.Pod.Pages.Browser do
     allow(:delete_embeds, check: :guardrail)
     allow(:user_state, check: :guardrail)
     allow(:sharing, check: :guardrail)
+    allow(:explain_sharing, check: :guardrail)
     allow(:subjects, check: :guardrail)
     allow(:set_sharing, check: :guardrail)
     allow(:update_sharing, check: :guardrail)
@@ -1050,6 +1051,59 @@ defmodule Ankole.Pod.Pages.Browser do
 
       run(fn input, context ->
         APIError.result(Pages.sharing(context.actor, input.arguments.id))
+      end)
+    end
+
+    action :explain_sharing, :map do
+      constraints(
+        fields: [
+          subject_uid: [type: PrincipalKey, allow_nil?: false],
+          authority_uid: [type: PrincipalKey, allow_nil?: false],
+          subject_name: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+          subject_kind: [type: :string, allow_nil?: false],
+          agent_type: [type: :string],
+          action: [type: :string, allow_nil?: false],
+          allowed: [type: :boolean, allow_nil?: false],
+          effective_role: [type: :string],
+          effective_actions: [type: {:array, :string}, allow_nil?: false],
+          decision_reason: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+          stages: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  id: [type: :string, allow_nil?: false],
+                  status: [type: :string, allow_nil?: false],
+                  summary: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+                  details: [type: Ankole.Ash.Types.JSONMap, allow_nil?: false]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      argument(:id, UUIDv7, allow_nil?: false)
+      argument(:subject_uid, PrincipalKey, allow_nil?: false)
+
+      argument(:action, :atom,
+        allow_nil?: false,
+        default: :node_view,
+        constraints: [
+          one_of: [:node_view, :node_contribute, :node_edit, :node_manage, :node_comment]
+        ]
+      )
+
+      run(fn input, context ->
+        APIError.result(
+          Pages.explain_sharing(
+            context.actor,
+            input.arguments.id,
+            input.arguments.subject_uid,
+            input.arguments.action
+          )
+        )
       end)
     end
 

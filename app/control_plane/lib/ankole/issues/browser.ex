@@ -18,6 +18,7 @@ defmodule Ankole.Issues.Browser do
     allow(:show, check: :guardrail)
     allow(:create, check: :guardrail)
     allow(:update, check: :guardrail)
+    allow(:change_schedule, check: :guardrail)
   end
 
   json_api do
@@ -41,12 +42,26 @@ defmodule Ankole.Issues.Browser do
       end)
     end
 
-    # The Agent starts at once unless `start` is false.
+    # The Agent starts at once unless `start` is false. `repeat` runs the request
+    # on a cron schedule; `parentID` makes a sub-Issue; `squadUIDs` names the
+    # colleagues among whom a personal assistant shares the work.
     action :create, View do
       argument(:title, :string, allow_nil?: false)
       argument(:description, :string, constraints: [trim?: false, allow_empty?: true])
       argument(:agentUID, PrincipalKey, allow_nil?: false)
       argument(:start, :boolean, default: true)
+      argument(:labels, {:array, :string})
+      argument(:parentID, UUIDv7)
+      argument(:squadUIDs, {:array, PrincipalKey})
+
+      argument(:repeat, :map,
+        constraints: [
+          fields: [
+            expression: [type: :string, allow_nil?: false],
+            timezone: [type: :string, allow_nil?: false]
+          ]
+        ]
+      )
 
       run(fn input, context ->
         arguments = input.arguments
@@ -55,7 +70,11 @@ defmodule Ankole.Issues.Browser do
           title: arguments.title,
           description: arguments[:description],
           agent_uid: arguments.agentUID,
-          start: arguments.start
+          start: arguments.start,
+          labels: arguments[:labels],
+          parent_id: arguments[:parentID],
+          squad_uids: arguments[:squadUIDs],
+          repeat: arguments[:repeat]
         })
         |> APIError.result()
       end)
@@ -63,20 +82,39 @@ defmodule Ankole.Issues.Browser do
 
     # `status: started` starts a `todo` Issue or reopens a `done` one, and
     # `status: done` accepts the result. `description` changes the request of an
-    # Issue in `todo`.
+    # Issue in `todo`, and `labels` replaces its labels.
     action :update, View do
       argument(:id, UUIDv7, allow_nil?: false)
       argument(:description, :string, constraints: [trim?: false, allow_empty?: true])
       argument(:status, :atom, constraints: [one_of: [:started, :done]])
+      argument(:labels, {:array, :string})
 
       run(fn input, context ->
         arguments = input.arguments
 
         Issues.update(context.actor, arguments.id, %{
           description: arguments[:description],
-          status: arguments[:status]
+          status: arguments[:status],
+          labels: arguments[:labels]
         })
         |> APIError.result()
+      end)
+    end
+
+    # Pauses, resumes, runs, or removes a cron rule that runs on the Human's authority.
+    action :change_schedule, :map do
+      argument(:id, UUIDv7, allow_nil?: false)
+
+      argument(:change, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:pause, :resume, :run, :remove]]
+      )
+
+      constraints(fields: [id: [type: UUIDv7, allow_nil?: false]])
+
+      run(fn input, context ->
+        Issues.change_schedule(context.actor, input.arguments.id, input.arguments.change)
+        |> APIError.result(&%{id: &1})
       end)
     end
 
@@ -95,6 +133,7 @@ defmodule Ankole.Issues.Browser do
                   status: [type: :string, allow_nil?: false],
                   agentUID: [type: PrincipalKey, allow_nil?: false],
                   agentName: [type: :string, allow_nil?: false],
+                  manageable: [type: :boolean, allow_nil?: false],
                   conversationID: [type: UUIDv7, allow_nil?: false],
                   conversationTitle: [
                     type: :string,

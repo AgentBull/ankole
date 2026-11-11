@@ -1,6 +1,8 @@
 defmodule Ankole.AIGateway.UsageConsole.Actions do
   @moduledoc """
-  Reads the tenant usage summary for the Console.
+  Reads the tenant usage summary for the Console: the tokens of
+  language-model rounds, and what the calls of every other capability
+  produced.
 
   The Agent breakdown keeps only rounds whose subject is an Agent, because a
   Human or system Principal can also call a model. Rows name their Principal.
@@ -28,7 +30,8 @@ defmodule Ankole.AIGateway.UsageConsole.Actions do
        total: summary.total,
        by_agent: for(row <- summary.by_agent, agent?.(row), do: named(row, principals)),
        by_human: Enum.map(summary.by_human, &named(&1, principals)),
-       by_origin: summary.by_origin
+       by_origin: summary.by_origin,
+       by_capability: Ankole.AIGateway.UsageLedger.capability_summary(since)
      }}
   end
 

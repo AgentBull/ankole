@@ -98,6 +98,7 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
         'state.delete',
         'signals.emit',
         'ai.generateImage',
+        'ai.generateSpeech',
         'notifications.post',
         'approvals.request',
         'approvals.decide',
@@ -159,7 +160,10 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
       ai: Object.freeze({
         generateText: (options: unknown) => invoke('ai.generateText', [options]),
         generateImage: (options: unknown) => invoke('ai.generateImage', [options]),
-        decide: (options: unknown) => invoke('ai.decide', [options])
+        decide: (options: unknown) => invoke('ai.decide', [options]),
+        generateSpeech: (options: unknown) => invoke('ai.generateSpeech', [options]),
+        transcribe: (options: unknown) => invoke('ai.transcribe', [options]),
+        ocr: (options: unknown) => invoke('ai.ocr', [options])
       }),
       web: Object.freeze({
         search: (options: unknown) => invoke('web.search', [options]),

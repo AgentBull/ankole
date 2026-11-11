@@ -163,17 +163,26 @@ defmodule Ankole.Connectors.Accounts do
       if kind == "human" do
         put_human_tokens(config.id, actor.uid, tokens, metadata)
       else
-        Repo.transact_top_level(fn ->
-          with :ok <- Store.admin(actor),
-               %{status: "active"} = locked <- Store.lock(config.id),
-               do:
-                 put_tokens_in_tx(locked, "app", tokens["external_subject_id"], tokens, metadata)
-        end)
+        put_app_tokens(actor, config.id, tokens, metadata)
       end
     else
       false -> {:error, :credential_binding_not_supported}
       error -> error
     end
+  end
+
+  defp put_app_tokens(actor, auth_config_id, tokens, metadata) do
+    Ankole.Connectors.AuthWaits.with_flush(fn ->
+      Repo.transact_top_level(
+        fn ->
+          with :ok <- Store.admin(actor),
+               %{status: "active"} = locked <- Store.lock(auth_config_id),
+               do:
+                 put_tokens_in_tx(locked, "app", tokens["external_subject_id"], tokens, metadata)
+        end,
+        after_commit: fn _ -> Ankole.Connectors.AuthWaits.publish_flushed() end
+      )
+    end)
   end
 
   defp authorize_credentials(%{type: :human}, "human"), do: :ok
@@ -197,8 +206,13 @@ defmodule Ankole.Connectors.Accounts do
 
   def put_human_tokens(auth_config_id, human_uid, tokens, metadata \\ %{}),
     do:
-      Repo.transact_top_level(fn ->
-        put_human_tokens_in_tx(auth_config_id, human_uid, tokens, metadata)
+      Ankole.Connectors.AuthWaits.with_flush(fn ->
+        Repo.transact_top_level(
+          fn ->
+            put_human_tokens_in_tx(auth_config_id, human_uid, tokens, metadata)
+          end,
+          after_commit: fn _ -> Ankole.Connectors.AuthWaits.publish_flushed() end
+        )
       end)
 
   def put_human_tokens_in_tx(auth_config_id, human_uid, tokens, metadata \\ %{}) do
@@ -263,6 +277,8 @@ defmodule Ankole.Connectors.Accounts do
       with {:ok, account} <- result, :ok <- enqueue_claim(account, existing) do
         if existing && is_nil(account.upstream_connection_id),
           do: Triggers.reauthorize_account_in_tx(account.id)
+
+        :ok = Ankole.Connectors.AuthWaits.resolve_for_account_in_tx(config, account)
 
         {:ok, account}
       end

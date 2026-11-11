@@ -1,0 +1,32 @@
+[package]
+name = "ankole_presentation"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Host-neutral presentation documents, unit change sets, and slide conflict rules over DeckCraft"
+license = "Apache-2.0"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+base64-simd = "0.8.0"
+deckcraft-color = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+deckcraft-engine = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+deckcraft-fonts = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+deckcraft-geom = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+deckcraft-model = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+deckcraft-pdf = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+deckcraft-pptx = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+deckcraft-render = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+deckcraft-text = { git = "https://github.com/storytold/deckcraft", rev = "54846750d495baabc064bd6e1f27779399188ced" }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+serde = { version = "1.0.229", features = ["derive", "rc"] }
+serde_json = { version = "1.0.154" }
+thiserror = "2"
+unicode-normalization = "0.1.26"
+unicode-segmentation = "1.13.3"
+
+[dev-dependencies]
+zip = { version = "9.4.2", default-features = false, features = ["deflate"] }

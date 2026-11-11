@@ -3,9 +3,11 @@ import {
   AppsRegular,
   BookOpenRegular,
   DatabaseRegular,
+  DocumentPowerpointRegular,
   DocumentRegular,
   DocumentTableRegular,
   DocumentTextRegular,
+  DocumentWordRegular,
   EmojiRegular
 } from '@ankole/uikit/icons'
 import {
@@ -28,7 +30,7 @@ import { isCustomEmojiIcon } from './page-icon-value'
 import { customEmojiLibrary, uploadCustomEmoji } from './native-transfers'
 import { InternalAPIError } from '../common/internal-api-client'
 import { updatePageMetadata } from './state/navigation-cache'
-import { isSpreadsheetFileName } from './state/spreadsheet-grid'
+import { officeFileFormat } from './office/office-files'
 
 const icons = {
   doc: DocumentTextRegular,
@@ -38,9 +40,15 @@ const icons = {
   file: DocumentRegular
 }
 
+const officeIcons = {
+  word: DocumentWordRegular,
+  spreadsheet: DocumentTableRegular,
+  presentation: DocumentPowerpointRegular
+}
+
 /**
  * A Page keeps the same icon in navigation, references, and pickers. A file Page whose title names
- * a spreadsheet gets the spreadsheet mark.
+ * an Office document, workbook, or presentation gets its format mark.
  */
 export function PageIcon({
   page,
@@ -74,8 +82,8 @@ export function PageIcon({
       </span>
     )
   }
-  const Icon =
-    page.type === 'file' && page.title && isSpreadsheetFileName(page.title) ? DocumentTableRegular : icons[page.type]
+  const officeKind = page.type === 'file' ? officeFileFormat(page.title) : undefined
+  const Icon = officeKind ? officeIcons[officeKind] : icons[page.type]
   return <Icon aria-hidden className={classes} />
 }
 

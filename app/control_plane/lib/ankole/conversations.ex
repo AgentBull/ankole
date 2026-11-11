@@ -196,6 +196,8 @@ defmodule Ankole.Conversations do
   defdelegate context_snapshot(id, key, read_seq, excluded_ids, opts \\ []), to: Queries
   defdelegate context_snapshot_in_tx(id, key, read_seq, excluded_ids, opts), to: Queries
   defdelegate participating_ids(uid), to: Queries
+  defdelegate assistant_dm_conversation_ids(human_uid, assistant_uid), to: Queries
+  defdelegate dm_conversation_ids_for_human(human_uid, conversation_ids), to: Queries
 
   defdelegate resolve_attachment(actor, conversation_id, message_id, position),
     to: Ankole.Conversations.Attachments,

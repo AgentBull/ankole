@@ -26,6 +26,16 @@ defmodule Ankole.AIGateway.UsageConsole do
 
   @rows [type: {:array, :map}, allow_nil?: false, constraints: [items: [fields: @row_fields]]]
 
+  # Calls that are not language-model rounds count what they produced in a
+  # unit, such as pages or seconds, instead of tokens.
+  @capability_fields [
+    capability: [type: :string, allow_nil?: false],
+    unit: [type: :string],
+    calls: [type: :integer, allow_nil?: false, constraints: [min: 0]],
+    quantity: @count,
+    provider_cost: [type: :float, constraints: [min: 0]]
+  ]
+
   json_api do
     type("ai_gateway_usage_summary")
     derive_filter?(false)
@@ -42,7 +52,12 @@ defmodule Ankole.AIGateway.UsageConsole do
           total: [type: :map, allow_nil?: false, constraints: [fields: @row_fields]],
           by_agent: @rows,
           by_human: @rows,
-          by_origin: @rows
+          by_origin: @rows,
+          by_capability: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @capability_fields]]
+          ]
         ]
       )
 

@@ -669,4 +669,42 @@ defmodule Ankole.Pod.CommentsTest do
 
     assert not is_nil(deleted.deleted_at)
   end
+
+  test "Office Pages accept unanchored page discussions and reject document-anchored comments",
+       ctx do
+    for format <- ["spreadsheet", "word", "presentation"] do
+      {:ok, office_page} =
+        Ankole.Pod.OfficeFiles.create_blank(ctx.owner, %{
+          format: format,
+          private_owner_uid: ctx.owner.principal.uid
+        })
+
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.principal.uid, office_page.id, %{
+          grants: [
+            %{principal_uid: ctx.contributor.principal.uid, role: "contribute"},
+            %{principal_uid: ctx.viewer.principal.uid, role: "view"}
+          ]
+        })
+
+      assert {:ok, %{comment: thread}} =
+               Comments.create(ctx.contributor, office_page.id, %{
+                 body: "Discussion on #{format} page"
+               })
+
+      assert thread.quote == nil
+      refute thread.anchor_present
+
+      assert {:error, _} =
+               Comments.create(ctx.contributor, office_page.id, %{
+                 body: "Anchored attempt",
+                 base_revision: 1,
+                 from: 1,
+                 to: 3
+               })
+
+      assert {:ok, %{threads: [listed]}} = Comments.list(ctx.viewer, office_page.id)
+      assert listed.id == thread.id
+    end
+  end
 end

@@ -48,7 +48,8 @@ export function connectorReturnTo({
   trigger,
   automation,
   subjectKind,
-  intent
+  intent,
+  popup
 }: {
   connection?: string
   scopes?: string[]
@@ -56,10 +57,12 @@ export function connectorReturnTo({
   automation?: ConnectorAutomationContext
   subjectKind?: 'human' | 'app'
   intent?: string | null
+  popup?: boolean
 }) {
   const params = new URLSearchParams()
   if (connection) params.set('connection', connection)
   if (intent) params.set('intent', intent)
+  if (popup) params.set('popup', '1')
   if (subjectKind) params.set('subject_kind', subjectKind)
   if (scopes?.length) params.set('scopes', scopes.join(' '))
   if (trigger) {

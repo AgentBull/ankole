@@ -28,11 +28,13 @@ async function downloadSkillFile(slug: string, path: string) {
 
 export function DeleteSkillDialog({
   name,
+  impactNotice,
   pending,
   close,
   confirm
 }: {
   name: string
+  impactNotice?: string
   pending: boolean
   close(): void
   confirm(): void
@@ -43,6 +45,11 @@ export function DeleteSkillDialog({
       <DialogContent closeLabel={t('common.close')} showCloseButton={!pending}>
         <DialogTitle>{t('pod.meta.delete_permanently')}</DialogTitle>
         <p>{t('pod.meta.delete_confirmation', { name })}</p>
+        {impactNotice && (
+          <p className="rounded-md border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-foreground">
+            {impactNotice}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" disabled={pending} onClick={close}>
             {t('common.cancel')}

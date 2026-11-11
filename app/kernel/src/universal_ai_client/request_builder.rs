@@ -42,8 +42,15 @@ pub(crate) fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<Upstream
     let resolver = APIResolver::new(spec.api_resolver, context.clone());
     let body = resolver.build_body()?;
     put_resolved_anthropic_version(spec.api_resolver, &context, &body, &mut upstream);
-    upstream.body = Some(encode_json(&Value::Object(body))?);
+    // A GET reads a resource that the request's URL names, such as the state
+    // of a video generation, so it sends no body.
+    if !upstream.method.eq_ignore_ascii_case("GET") {
+        upstream.body = Some(encode_json(&Value::Object(body))?);
+    }
     put_default_json_headers(&mut upstream);
+    if let Some(credentials) = &spec.upstream.aws_sigv4 {
+        super::aws_sigv4::sign(&mut upstream, credentials, std::time::SystemTime::now())?;
+    }
     Ok(upstream)
 }
 

@@ -4,6 +4,7 @@ import {
   ArrowCounterclockwiseRegular,
   CheckmarkCircleRegular,
   EditRegular,
+  FlashRegular,
   TextQuoteRegular
 } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
@@ -14,17 +15,18 @@ const actionIcon =
   'motion-safe:[transition:transform_160ms_cubic-bezier(.32,.72,.24,1)] motion-safe:group-active/button:transform-[scale(.9)] motion-reduce:transition-none'
 
 /**
- * The actions of a message and the time it was sent: select, quote, copy, then edit and retry when they apply,
- * as 32px buttons 6px apart. The time sits on the inner side of the row: after the actions under a message on
- * the left, and before them (`timeFirst`) under the reader's own message on the right. The row always takes its
- * place under the message, so showing it never moves the timeline: the latest reply shows it, and an earlier
- * message shows it while the pointer or keyboard focus is on that message.
+ * The actions of a message and the time it was sent: select, quote, copy, then save as Skill, edit, and retry when
+ * they apply, as 32px buttons 6px apart. The time sits on the inner side of the row: after the actions under a
+ * message on the left, and before them (`timeFirst`) under the reader's own message on the right. The row always
+ * takes its place under the message, so showing it never moves the timeline: the latest reply shows it, and an
+ * earlier message shows it while the pointer or keyboard focus is on that message.
  */
 export function MessageActions({
   text,
   time,
   timeFirst = false,
   onQuote,
+  onSaveAsSkill,
   onSelectMessage,
   onEdit,
   editDisabledReason,
@@ -37,6 +39,7 @@ export function MessageActions({
   /** States the time before the actions instead of after them. */
   timeFirst?: boolean
   onQuote?: (text: string) => void
+  onSaveAsSkill?: () => void
   onSelectMessage?: () => void
   onEdit?: () => void
   editDisabledReason?: string
@@ -104,6 +107,17 @@ export function MessageActions({
             }
           }}>
           <CopyIcon copied={copied} className={`size-5 ${actionIcon}`} />
+        </Button>
+      )}
+      {onSaveAsSkill && !!text && (
+        <Button
+          variant="ghost"
+          size="icon-md"
+          className={actionButton}
+          title={t('pod.chat_timeline.save_as_skill', { defaultValue: 'Save as Skill (/learn)' })}
+          aria-label={t('pod.chat_timeline.save_as_skill', { defaultValue: 'Save as Skill (/learn)' })}
+          onClick={onSaveAsSkill}>
+          <FlashRegular aria-hidden className={actionIcon} />
         </Button>
       )}
       {onEdit && (

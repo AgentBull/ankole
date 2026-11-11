@@ -105,6 +105,9 @@ services:
     image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:2.0.0-alpha.24}
     pull_policy: always
     restart: unless-stopped
+    # Matches the Helm terminationGracePeriodSeconds so endpoint draining,
+    # HTTP shutdown, and Oban job shutdown finish before Docker sends SIGKILL.
+    stop_grace_period: 60s
     environment: *control-plane-environment
     # The control plane runs as user ankole; this group gives it the Docker
     # socket, which is equal to root on the host.

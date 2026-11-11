@@ -42,7 +42,13 @@ const chatGPTLoginErrorCodes: Record<string, { upstream: boolean }> = {
  * Localizes coded ChatGPT sign-in failures and keeps the real upstream
  * response visible; unknown failures fall back to the envelope message.
  */
-function chatGPTLoginErrorText(error: unknown, t: (key: string, values?: Record<string, string>) => string): string {
+function chatGPTLoginErrorText(
+  error: unknown,
+  t: {
+    (key: string): string
+    (key: string, values: Record<string, string>): string
+  }
+): string {
   if (typeof error === 'string') return error
   const code = requestErrorCode(error) ?? ''
   const entry = chatGPTLoginErrorCodes[code]

@@ -70,7 +70,52 @@ defmodule Ankole.AIGateway.Providers.Claude do
       map: @reasoning_effort_map
     )
     |> UniversalAIRequest.rename_provider_option("inferenceGeo", "inference_geo")
+    |> put_default_cache_control(ctx)
   end
+
+  # Anthropic Messages caches a prompt prefix only when `cache_control` is
+  # supplied. Top-level ephemeral `cache_control` enables automatic prefix
+  # caching across system instructions, tools, and conversation turns while
+  # preserving any explicit caller breakpoint configuration.
+  defp put_default_cache_control({:error, _reason} = error, _ctx), do: error
+
+  defp put_default_cache_control(%UniversalAIRequest{} = request, ctx) do
+    provider_options = request.provider_options || %{}
+
+    cond do
+      Map.has_key?(provider_options, "cache_control") ->
+        request
+
+      is_map(ctx.request) and Map.has_key?(ctx.request, "cache_control") ->
+        request
+
+      count_block_cache_controls(ctx.request) >= 4 ->
+        request
+
+      true ->
+        UniversalAIRequest.put_provider_options(
+          request,
+          Map.put(provider_options, "cache_control", %{"type" => "ephemeral"})
+        )
+    end
+  end
+
+  defp count_block_cache_controls(%{} = value) do
+    own = if Map.has_key?(value, "cache_control"), do: 1, else: 0
+
+    nested =
+      Enum.reduce(value, 0, fn
+        {"cache_control", _v}, acc -> acc
+        {_k, v}, acc -> acc + count_block_cache_controls(v)
+      end)
+
+    own + nested
+  end
+
+  defp count_block_cache_controls(values) when is_list(values),
+    do: Enum.reduce(values, 0, fn v, acc -> acc + count_block_cache_controls(v) end)
+
+  defp count_block_cache_controls(_value), do: 0
 
   # Anthropic-compatible gateways may accept OAuth-style bearer tokens, while
   # first-party Anthropic commonly uses `x-api-key`.

@@ -24,15 +24,20 @@ without persisting another topology.
 
 Object keys are `tenants/<tenant-id>/objects/<uuidv7>`. A new write always gets a
 new key and row, even for identical bytes. SHA-256 is calculated during upload
-for integrity and Pod resource idempotency; it is not an object identity or a
-deduplication index. Multiple nodes or attachments can explicitly reference one
-existing object without copying it. Objects are never shared across tenants.
+for integrity and Pod resource idempotency; it is not an object identity, and
+Files stores every write as its own object. Multiple nodes or attachments can
+explicitly reference one existing object without copying it. Objects are never
+shared across tenants. `Ankole.Files.same_bytes_object_ids/1` returns the
+tenant's completed objects that hold the same bytes as a given object, through
+the `file_objects` index on `(tenant_id, sha256)`. Pod calls it to reuse what
+OCR read from a scanned PDF instead of sending the same bytes again
+([Files and Conversation origins](PodContentModel.md#files-and-conversation-origins)).
 
 Drive keeps no file version table or recovery API of its own. Overwriting a
 file changes its node's `object_id`; the last successful commit wins.
 Already-sent attachments retain their original object reference. Pod's page
-history (`PageSnapshot`) keeps document snapshots and, for spreadsheet pages,
-references to earlier file objects; see [Spreadsheet pages](#spreadsheet-pages).
+history (`PageSnapshot`) keeps document snapshots and, for Office pages,
+references to earlier file objects; see [Office pages](#office-pages).
 An empty file has no object until its first write.
 
 Pod publishes committed Page changes on `drive-node:<id>` after the top-level
@@ -44,10 +49,10 @@ use last-commit-wins semantics. Pod document and Applet revisions describe their
 own content, independently of file objects.
 
 Every write that names an object at a file Page goes through
-`Ankole.Pod.Files.Content.commit_in_tx/4`, which lets `Ankole.Pod.Spreadsheets`
-reconcile a spreadsheet's operation log with the new object in the same
+`Ankole.Pod.Files.Content.commit_in_tx/4`, which lets `Ankole.Pod.OfficeFiles`
+reconcile an Office page's operation log with the new object in the same
 transaction. Before the `files.get` RPC hands a file Page's bytes to an Agent,
-Pod writes the spreadsheet's pending edits into its object. A Worker Drive
+Pod writes any pending Office edits into its object. A Worker Drive
 mount reads the object of the last compaction, and Pod publishes each
 compaction like any other content commit, so mounts refresh after it.
 
@@ -409,33 +414,35 @@ Applet publication binds all object references and its manifest atomically.
 Custom emoji have no node owner and survive individual page purge. These
 resources are accessible through `ankole-pod`, including `applet pull`.
 
-## Spreadsheet pages
+## Office pages
 
-A spreadsheet page is a file node whose name ends in `.xlsx` or `.xlsm`; its
-current object holds the workbook, and Pod's operation log holds the edits
-that compaction has not written yet. [Pod Content Model](PodContentModel.md#spreadsheet-pages)
-owns the editing contract.
+An Office page is a file node whose name ends in `.xlsx`, `.xlsm`, `.docx`,
+`.docm`, or `.pptx`; its current object holds the Office archive, and
+`pod_office_ops` holds unit-level edits that compaction has not written yet.
+[Office Files](OfficeFiles.md) owns the editing, compaction, and conversion
+contracts.
 
-Compaction (`Ankole.Pod.Spreadsheets.flush_if_dirty/1`) uses the two write
-steps above: it exports the workbook and calls `store/1` outside any
+Compaction (`Ankole.Pod.OfficeFiles.flush_if_dirty/1`) uses the two write steps
+above: it exports the Office document and calls `store/1` outside any
 transaction, and then, under the node lock, names the new object at the node
-with `Ankole.Pod.Files.Content.rewrite_in_tx/2` and marks the exported operations
-`compacted`. That call does not authorize or report the write again, because
-the edits it holds were authorized when they were committed. Pod manifests,
-Pod reads and downloads that do not pin a digest, and the `files.get` RPC
-compact first, so they return the latest edits. A Pod read that pins a digest
-returns exactly those bytes while the node still names them and fails with
-`manifest_changed` afterwards. Worker Drive mounts read the object of the last
-compaction and refresh when its commit is published.
+with `Ankole.Pod.Files.Content.rewrite_in_tx/2` and marks the exported
+operations `compacted`. That call does not authorize or report the write again,
+because the edits it holds were authorized when they were committed. Pod
+manifests, Pod reads and downloads that do not pin a digest, and the
+`files.get` RPC compact first, so they return the latest edits. A Pod read that
+pins a digest returns exactly those bytes while the node still names them and
+fails with `manifest_changed` afterwards. Worker Drive mounts read the object
+of the last compaction and refresh when its commit is published.
 
-An upload, a restore, or any other write through `Ankole.Pod.Files.Content.commit_in_tx/4`
-replaces the workbook from outside the log: in the same transaction
-`Ankole.Pod.Spreadsheets` marks every pending operation `compacted` and appends a `reset`
-entry. Pod uploads and restores first write pending edits into the current
-object, so the version that the page history keeps for it holds them; other
-Drive writes replace the object as it stands.
+An upload, a restore, or any other write through
+`Ankole.Pod.Files.Content.commit_in_tx/4` replaces the Office file from outside
+the log: in the same transaction `Ankole.Pod.OfficeFiles` marks every pending
+operation `compacted` and appends a `reset` entry. Pod uploads and restores
+first write pending edits into the current object, so the version that the page
+history keeps for it holds them; other Drive writes replace the object as it
+stands.
 
-Spreadsheet versions are rows in `page_snapshots` whose `object_id` references
+Office page versions are rows in `page_snapshots` whose `object_id` references
 `file_objects` instead of carrying document XML. The collector treats each such
 row as a live reference, so a version keeps its object after compaction, an
 upload, or a restore names another one. Page history retention expires

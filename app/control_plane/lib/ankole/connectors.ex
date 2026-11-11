@@ -89,6 +89,7 @@ defmodule Ankole.Connectors do
     resource(Ankole.Connectors.AuthConfig)
     resource(Ankole.Connectors.ConnectedAccount)
     resource(Ankole.Connectors.OAuthSession)
+    resource(Ankole.Connectors.AuthWait)
     resource(Ankole.Connectors.Trigger)
     resource(Ankole.Connectors.DbCatalogTable)
     resource(Ankole.Connectors.DbCatalogColumn)

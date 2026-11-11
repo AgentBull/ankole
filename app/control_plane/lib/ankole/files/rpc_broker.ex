@@ -41,7 +41,7 @@ defmodule Ankole.Files.RPCBroker do
     end
   end
 
-  # Pod first writes a spreadsheet's pending edits into the node, so the Agent
+  # Pod first writes an Office page's pending edits into the node, so the Agent
   # receives the object that holds them.
   defp current_file(actor, request) do
     with {:ok, file} <- requested_file(actor, request),

@@ -3,13 +3,16 @@ import {
   AvatarImage,
   AvatarFallback,
   Button,
+  buttonVariants,
   Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
+  Switch
 } from '@ankole/uikit'
+import { CommentRegular } from '@ankole/uikit/icons'
 import { useSignal } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -30,7 +33,10 @@ import {
   metaUpdateAgent,
   metaSaveAgentContract,
   metaSaveGlobalContract,
-  type MetaAgent
+  metaSkillsQuery,
+  metaSkillSetBinding,
+  type MetaAgent,
+  type MetaSkill
 } from './meta-api'
 
 export function MetaAgents() {
@@ -41,7 +47,11 @@ export function MetaAgents() {
     <div className="mx-auto w-full max-w-4xl space-y-5 p-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">{t('pod.meta.agents')}</h1>
-        {agents.data?.can_create && <Button onClick={() => setCreating(!creating)}>{t('pod.meta.new_agent')}</Button>}
+        {agents.data?.can_create && (
+          <Button type="button" onClick={() => setCreating(!creating)}>
+            {t('pod.meta.new_agent')}
+          </Button>
+        )}
       </div>
       {creating && <AgentIdentity />}
       {agents.error && <ContentError error={agents.error} retry={() => void agents.refetch()} />}
@@ -52,9 +62,14 @@ export function MetaAgents() {
             <li key={agent.uid}>
               <Link to={`/meta/agents/colleagues/${agent.uid}`} className="nav-row flex items-center gap-3 p-4">
                 <AgentAvatar agent={agent} />
-                <span className="min-w-0">
-                  <span className="block font-medium">{agent.display_name}</span>
-                  <span className="block text-sm text-fg-secondary">{agent.role}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-foreground">{agent.display_name}</span>
+                    <code className="rounded-mini bg-muted px-1.5 py-0.5 font-mono text-xs text-fg-secondary">
+                      @{agent.uid}
+                    </code>
+                  </span>
+                  <span className="block truncate text-sm text-fg-secondary">{agent.role}</span>
                 </span>
               </Link>
             </li>
@@ -142,6 +157,9 @@ function AgentIdentity({ agent }: { agent?: MetaAgent }) {
             required={field !== 'avatar_url'}
             value={form.value[field]}
             disabled={mutation.isPending || (agent && !agent.can_edit)}
+            autoCorrect={field === 'uid' || field === 'avatar_url' ? 'off' : undefined}
+            autoCapitalize={field === 'uid' || field === 'avatar_url' ? 'none' : undefined}
+            spellCheck={field !== 'uid' && field !== 'avatar_url'}
             onChange={event => {
               form.value = { ...form.value, [field]: event.target.value }
               mutation.reset()
@@ -203,14 +221,101 @@ export function MetaGlobalSettings() {
 }
 
 function AgentSettings({ uid, title }: { uid: string; title?: string }) {
+  const { t } = useTranslation()
   const agent = useQuery(metaAgentQuery(uid))
+  const chatHref = agent.data?.type === 'personal_assistant' ? '/' : `/dm/${encodeURIComponent(uid)}`
   return (
     <div className="mx-auto w-full max-w-4xl space-y-5 p-6">
-      <h1 className="text-2xl font-semibold">{title ?? agent.data?.display_name}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="text-2xl font-semibold">{title ?? agent.data?.display_name}</h1>
+          <code className="rounded-mini bg-muted px-2 py-0.5 font-mono text-xs text-fg-secondary">@{uid}</code>
+        </div>
+        {agent.data && (
+          <Link to={chatHref} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+            <CommentRegular aria-hidden data-icon="inline-start" />
+            {t('pod.meta.send_message')}
+          </Link>
+        )}
+      </div>
       {agent.error && <ContentError error={agent.error} retry={() => void agent.refetch()} />}
       {agent.data && <AgentIdentity key={agent.data.uid} agent={agent.data} />}
+      {agent.data && <AgentSkillsSection agent={agent.data} />}
       <Contracts uid={uid} />
     </div>
+  )
+}
+
+function AgentSkillsSection({ agent }: { agent: MetaAgent }) {
+  const { t } = useTranslation()
+  const baseId = useId()
+  const client = useQueryClient()
+  const skills = useQuery(metaSkillsQuery())
+  const toggle = useMutation({
+    mutationFn: ({ skill, enabled }: { skill: MetaSkill; enabled: boolean }) =>
+      metaSkillSetBinding({
+        path: { slug: skill.slug },
+        body: { data: { agent_uid: agent.uid, enabled } }
+      }),
+    onSettled: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: metaKeys.skills() }),
+        client.invalidateQueries({ queryKey: metaKeys.agents() })
+      ])
+  })
+
+  if (skills.isPending) return <ContentSkeleton variant="list" rows={2} />
+  if (skills.error) return <ContentError error={skills.error} retry={() => void skills.refetch()} />
+  const items = (skills.data?.skills ?? []).filter(skill => !skill.agent_uid || skill.agent_uid === agent.uid)
+  if (items.length === 0) return null
+
+  return (
+    <fieldset className="space-y-3 rounded-lg border border-border p-5">
+      <legend className="font-semibold">{t('pod.meta.enabled_skills')}</legend>
+      <div className="divide-y divide-border">
+        {items.map(skill => {
+          const isPersonal = skill.agent_uid === agent.uid
+          const boundUids = skill.agent_uids ?? []
+          const enabled = isPersonal || skill.enabled_for_all || boundUids.includes(agent.uid)
+          const locked = isPersonal || skill.enabled_for_all || !agent.can_bind || toggle.isPending
+          const switchId = `${baseId}-skill-${skill.slug}`
+          return (
+            <div key={skill.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor={switchId} className="font-medium text-sm text-foreground">
+                    {skill.name}
+                  </label>
+                  <code className="rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+                    /{skill.slug}
+                  </code>
+                  {isPersonal && (
+                    <span className="rounded-mini bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                      {t('pod.meta.scope_personal_badge', { defaultValue: 'Personal' })}
+                    </span>
+                  )}
+                </div>
+                {skill.description && <p className="mt-0.5 text-xs text-fg-secondary">{skill.description}</p>}
+                {isPersonal && (
+                  <p className="mt-0.5 text-xs text-fg-tertiary">
+                    {t('pod.meta.personal_skill_always_active', {
+                      defaultValue: 'Personal Skills are always active on your Personal Assistant.'
+                    })}
+                  </p>
+                )}
+              </div>
+              <Switch
+                id={switchId}
+                checked={enabled}
+                disabled={locked}
+                onCheckedChange={next => toggle.mutate({ skill, enabled: next })}
+              />
+            </div>
+          )
+        })}
+      </div>
+      {toggle.error && <ContentError error={toggle.error} />}
+    </fieldset>
   )
 }
 

@@ -55,9 +55,18 @@ export function CollapsedWorkView({
   const thinking = execution.thinking_summary
   const runningSteps = steps.filter(
     step =>
-      !['completed', 'complete', 'success', 'succeeded', 'settled', 'stopped', 'cancelled', 'failed', 'error'].includes(
-        step.status
-      )
+      ![
+        'completed',
+        'complete',
+        'success',
+        'succeeded',
+        'settled',
+        'blocked',
+        'stopped',
+        'cancelled',
+        'failed',
+        'error'
+      ].includes(step.status)
   )
   const stopped = ['stopped', 'cancelled'].includes(execution.status ?? '')
   // A step can fail while its turn recovers and finishes, so only the turn's own status fails it.

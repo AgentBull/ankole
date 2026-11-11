@@ -4,10 +4,12 @@ defmodule Ankole.AIGateway.Compaction do
   @moduledoc """
   AIGateway-owned automatic history compaction.
 
-  Automatic token decisions use the newest provider-returned usage stored on
-  the visible AIGateway history. Each usage value is a cumulative snapshot, not
-  an amount to add to earlier Response usage. AIGateway does not estimate token
-  counts from content.
+  Automatic token decisions anchor on the newest cumulative provider-returned
+  usage snapshot stored on the visible AIGateway history, calibrated with a
+  bounded `wire_ratio` delta projection for unmeasured trailing items (such as
+  journaled tool outputs, `current_input`, and newly mounted tools) and guarded
+  by anti-thrash hysteresis when fixed prompt overhead keeps post-compaction
+  usage near the trigger.
   """
 
   alias Ankole.AIGateway.CompactionArtifacts
@@ -22,6 +24,12 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AIGateway.CompactionCandidate
 
   @stable_tail_summary "Earlier conversation history was omitted because it exceeded the active context budget."
+  @min_productive_reduction_ratio 0.08
+  @hysteresis_window_share 0.05
+  @min_hysteresis_floor_tokens 4_000
+  @min_prefix_yield_cap_tokens 4_000
+  @real_window_floor_tokens 64_000
+  @hard_context_ceiling_share 0.97
 
   @type history_plan :: %{
           history: [Message.t()],
@@ -58,7 +66,19 @@ defmodule Ankole.AIGateway.Compaction do
       :native_state,
       :upstream_compaction?
     ]
-    defstruct @enforce_keys ++ [brain_context: nil]
+    # A required checkpoint replaces a history that no longer fits the model's
+    # context. An optional one only keeps a history that still fits small.
+    defstruct @enforce_keys ++
+                [
+                  brain_context: nil,
+                  original_injection: nil,
+                  required?: true,
+                  projected_tokens: 0,
+                  delta_tokens: 0,
+                  wire_ratio: 1.0,
+                  synthetic_usage?: false,
+                  trigger: :history_usage
+                ]
   end
 
   @doc false
@@ -75,7 +95,11 @@ defmodule Ankole.AIGateway.Compaction do
         opts \\ []
       )
       when is_list(history) and is_list(current_input) and is_map(request) do
-    total_tokens = CompactionHistory.history_usage_tokens(history)
+    projection =
+      CompactionHistory.preflight_usage_projection(subject_uid, history, current_input, request)
+
+    total_tokens = projection.history_tokens
+    projected_tokens = projection.projected_tokens
     threshold = CompactionPolicy.threshold_spec(runtime, request)
     upstream_compaction? = CompactionPolicy.upstream_compaction?()
 
@@ -91,6 +115,10 @@ defmodule Ankole.AIGateway.Compaction do
         brain_context_pack: [],
         request: request,
         total_tokens: total_tokens,
+        projected_tokens: projected_tokens,
+        delta_tokens: projection.delta_tokens,
+        wire_ratio: projection.wire_ratio,
+        synthetic_usage?: projection.synthetic_usage?,
         threshold: threshold,
         runtime: runtime,
         issuer: Map.get(runtime, "provider_id"),
@@ -100,15 +128,137 @@ defmodule Ankole.AIGateway.Compaction do
 
       cond do
         CompactionHistory.force_local_checkpoint?(native_state, upstream_compaction?) ->
-          context |> prepare_checkpoint_context() |> plan_local_compact_history()
+          %{context | trigger: :native_checkpoint}
+          |> prepare_checkpoint_context()
+          |> plan_local_compact_history()
 
-        total_tokens <= threshold.tokens ->
-          {:ok, unchanged(context)}
+        total_tokens > threshold.tokens ->
+          maybe_compact_with_hysteresis(context)
+
+        projected_tokens > threshold.tokens ->
+          maybe_compact_preflight_delta(context)
+
+        provider_history_checkpoint_due?(history) ->
+          plan_provider_history_checkpoint(context)
 
         true ->
-          context |> prepare_checkpoint_context() |> plan_compact_history()
+          {:ok, unchanged(context)}
       end
     end
+  end
+
+  defp maybe_compact_with_hysteresis(%PlanContext{} = context) do
+    case compaction_cooldown(context.history, context.projected_tokens, context.threshold) do
+      {:suppress, cooldown_metadata} ->
+        if provider_history_checkpoint_due?(context.history) do
+          plan_provider_history_checkpoint(context)
+        else
+          {:ok,
+           unchanged_with_metadata(context, %{"auto_compaction_cooldown" => cooldown_metadata})}
+        end
+
+      :proceed ->
+        context |> prepare_checkpoint_context() |> plan_compact_history()
+    end
+  end
+
+  defp maybe_compact_preflight_delta(%PlanContext{} = context) do
+    case compaction_cooldown(context.history, context.projected_tokens, context.threshold) do
+      {:suppress, cooldown_metadata} ->
+        if provider_history_checkpoint_due?(context.history) do
+          plan_provider_history_checkpoint(context)
+        else
+          {:ok,
+           unchanged_with_metadata(context, %{"auto_compaction_cooldown" => cooldown_metadata})}
+        end
+
+      :proceed ->
+        required? = context.projected_tokens > context.threshold.effective_context_length
+
+        preflight_context =
+          %{context | required?: required?, trigger: :preflight_delta}
+          |> prepare_checkpoint_context()
+
+        case plan_compact_history(preflight_context) do
+          {:ok, plan} -> {:ok, plan}
+          {:error, _reason} when not required? -> {:ok, unchanged(context)}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp provider_history_checkpoint_due?(history) do
+    history
+    |> CompactionHistory.messages_to_items()
+    |> CompactionPolicy.provider_history_trigger?()
+  end
+
+  # The history still fits the model's context, so a checkpoint that cannot be
+  # written leaves the request on the full history. Truncating it would drop
+  # work that the model can still read.
+  defp plan_provider_history_checkpoint(%PlanContext{} = context) do
+    case %{context | required?: false, trigger: :provider_history}
+         |> prepare_checkpoint_context()
+         |> plan_compact_history() do
+      {:ok, plan} -> {:ok, plan}
+      {:error, _reason} -> {:ok, unchanged(context)}
+    end
+  end
+
+  defp compaction_cooldown(history, projected_tokens, threshold) do
+    with {[%Message{type: :checkpoint, metadata: %{} = metadata}], _post_rows} <-
+           CompactionHistory.split_last_compaction(history),
+         true <- Map.get(metadata, "auto") == true and is_map(Map.get(metadata, "summarizer")),
+         before_tokens when is_integer(before_tokens) and before_tokens > 0 <-
+           prior_compaction_baseline_tokens(metadata),
+         first_post_tokens when first_post_tokens > threshold.tokens <-
+           CompactionHistory.first_post_checkpoint_usage_tokens(history),
+         true <-
+           before_tokens - first_post_tokens <
+             before_tokens * @min_productive_reduction_ratio do
+      hysteresis_tokens = hysteresis_budget_tokens(threshold)
+      growth_tokens = max(projected_tokens - first_post_tokens, 0)
+      hard_ceiling = hard_context_ceiling_tokens(threshold)
+
+      if growth_tokens < hysteresis_tokens and projected_tokens <= hard_ceiling do
+        {:suppress,
+         %{
+           "reason" => "unproductive_previous_compaction",
+           "previous_tokens_before" => before_tokens,
+           "first_post_checkpoint_tokens" => first_post_tokens,
+           "projected_input_tokens" => projected_tokens,
+           "growth_since_checkpoint_tokens" => growth_tokens,
+           "hysteresis_tokens" => hysteresis_tokens
+         }}
+      else
+        :proceed
+      end
+    else
+      _not_in_cooldown -> :proceed
+    end
+  end
+
+  defp prior_compaction_baseline_tokens(metadata) do
+    projected = Map.get(metadata, "projected_tokens_before")
+    before = Map.get(metadata, "history_usage_tokens_before")
+
+    cond do
+      is_integer(projected) and is_integer(before) -> max(projected, before)
+      is_integer(before) -> before
+      is_integer(projected) -> projected
+      true -> nil
+    end
+  end
+
+  defp hysteresis_budget_tokens(threshold) do
+    max(
+      floor(threshold.tokens * @hysteresis_window_share),
+      min(@min_hysteresis_floor_tokens, div(threshold.tokens, 2))
+    )
+  end
+
+  defp hard_context_ceiling_tokens(threshold) do
+    floor(threshold.effective_context_length * @hard_context_ceiling_share)
   end
 
   @doc false
@@ -136,6 +286,8 @@ defmodule Ankole.AIGateway.Compaction do
 
     recovery_tail_rows = min(CompactionPolicy.tail_rows(), max(length(history) - 1, 0))
 
+    total_tokens = CompactionHistory.history_usage_tokens(history)
+
     context = %PlanContext{
       brain_context: Keyword.get(opts, :brain_context),
       subject_uid: subject_uid,
@@ -145,12 +297,14 @@ defmodule Ankole.AIGateway.Compaction do
       injection: injection,
       brain_context_pack: [],
       request: request,
-      total_tokens: CompactionHistory.history_usage_tokens(history),
+      total_tokens: total_tokens,
+      projected_tokens: total_tokens,
       threshold: CompactionPolicy.threshold_spec(runtime, request),
       runtime: runtime,
       issuer: nil,
       native_state: :none,
-      upstream_compaction?: false
+      upstream_compaction?: false,
+      trigger: :replay_recovery
     }
 
     context
@@ -160,7 +314,8 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp prepare_checkpoint_context(%PlanContext{} = context) do
     input = context.current_input
-    injection = Map.drop(context.injection, ~w(brain_context_pack brain_context_pack_claimed))
+    original_injection = context.original_injection || context.injection
+    injection = Map.drop(original_injection, ~w(brain_context_pack brain_context_pack_claimed))
 
     pack =
       CompactionArtifacts.checkpoint_pack(
@@ -172,7 +327,13 @@ defmodule Ankole.AIGateway.Compaction do
         brain_context: context.brain_context
       )
 
-    %{context | current_input: input, injection: injection, brain_context_pack: pack}
+    %{
+      context
+      | current_input: input,
+        original_injection: original_injection,
+        injection: injection,
+        brain_context_pack: pack
+    }
   end
 
   @doc false
@@ -242,6 +403,7 @@ defmodule Ankole.AIGateway.Compaction do
              CompactionPolicy.retained_tail_budget_tokens(threshold, pack),
              tail_rows_requested
            ),
+         :ok <- ensure_worthwhile_prefix_yield(context, candidate, tail_rows_requested),
          candidate = %{candidate | brain_context_pack: pack},
          # The summary bypasses the quota but stays attributed to the Turn that needed it.
          {:ok, summary} <-
@@ -273,30 +435,94 @@ defmodule Ankole.AIGateway.Compaction do
            checkpoint_metadata:
              CompactionArtifacts.checkpoint_metadata(
                request,
-               CompactionArtifacts.compaction_metadata(summary, candidate, total_tokens, %{
-                 "auto" => true
-               }),
+               CompactionArtifacts.compaction_metadata(
+                 summary,
+                 candidate,
+                 total_tokens,
+                 checkpoint_auto_flags(context)
+               ),
                context.issuer
              )
          },
          %{
-           "auto_compaction" => %{
-             "history_usage_tokens_before" => total_tokens,
-             "token_threshold" => threshold.tokens,
-             "context_length" => threshold.context_length,
-             "threshold" => threshold.threshold,
-             "max_threshold_tokens" => threshold.max_threshold_tokens,
-             "summarizer_model" => summary.model,
-             "usage" => summary.usage
-           }
+           "auto_compaction" =>
+             put_trigger(context, %{
+               "history_usage_tokens_before" => total_tokens,
+               "token_threshold" => threshold.tokens,
+               "context_length" => threshold.context_length,
+               "threshold" => threshold.threshold,
+               "max_threshold_tokens" => threshold.max_threshold_tokens,
+               "summarizer_model" => summary.model,
+               "usage" => summary.usage
+             })
          }
        )}
     else
-      {:error, :invalid_history_projection} = error -> error
-      {:error, reason} -> overflow_fallback(context, reason)
+      {:suppress_prefix, cooldown_metadata} ->
+        {:ok,
+         unchanged_with_metadata(context, %{"auto_compaction_cooldown" => cooldown_metadata})}
+
+      {:error, :invalid_history_projection} = error ->
+        error
+
+      {:error, reason} ->
+        overflow_fallback(context, reason)
     end
     |> preserve_visible_anchor(visible_previous_response_id)
   end
+
+  defp ensure_worthwhile_prefix_yield(
+         %PlanContext{
+           trigger: trigger,
+           synthetic_usage?: false,
+           projected_tokens: projected_tokens,
+           wire_ratio: wire_ratio,
+           threshold: threshold
+         },
+         candidate,
+         nil
+       )
+       when trigger in [:history_usage, :preflight_delta] do
+    if threshold.tokens >= @real_window_floor_tokens and
+         projected_tokens <= hard_context_ceiling_tokens(threshold) do
+      prefix_items = CompactionHistory.messages_to_items(candidate.prefix)
+
+      prefix_tokens =
+        if prefix_items == [],
+          do: 0,
+          else: round(CompactionHistory.items_token_estimate(prefix_items) * wire_ratio)
+
+      min_prefix_tokens =
+        min(
+          floor(threshold.tokens * @hysteresis_window_share),
+          @min_prefix_yield_cap_tokens
+        )
+
+      if prefix_tokens < min_prefix_tokens do
+        {:suppress_prefix,
+         %{
+           "reason" => "insufficient_prefix_yield",
+           "prefix_estimated_tokens" => prefix_tokens,
+           "min_prefix_tokens" => min_prefix_tokens,
+           "projected_input_tokens" => projected_tokens,
+           "wire_ratio" => wire_ratio
+         }}
+      else
+        :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp ensure_worthwhile_prefix_yield(_context, _candidate, _tail_rows_requested), do: :ok
+
+  defp checkpoint_auto_flags(%PlanContext{projected_tokens: projected, total_tokens: total})
+       when projected > total do
+    %{"auto" => true, "projected_tokens_before" => projected}
+  end
+
+  defp checkpoint_auto_flags(%PlanContext{}), do: %{"auto" => true}
 
   defp upstream_history_plan(%PlanContext{} = context, upstream) do
     %PlanContext{
@@ -336,15 +562,16 @@ defmodule Ankole.AIGateway.Compaction do
              )
          },
          %{
-           "auto_compaction" => %{
-             "source" => "upstream",
-             "history_usage_tokens_before" => total_tokens,
-             "token_threshold" => threshold.tokens,
-             "context_length" => threshold.context_length,
-             "threshold" => threshold.threshold,
-             "max_threshold_tokens" => threshold.max_threshold_tokens,
-             "usage" => upstream.usage
-           }
+           "auto_compaction" =>
+             put_trigger(context, %{
+               "source" => "upstream",
+               "history_usage_tokens_before" => total_tokens,
+               "token_threshold" => threshold.tokens,
+               "context_length" => threshold.context_length,
+               "threshold" => threshold.threshold,
+               "max_threshold_tokens" => threshold.max_threshold_tokens,
+               "usage" => upstream.usage
+             })
          }
        )}
     else
@@ -362,13 +589,20 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp preserve_visible_anchor(result, _previous_response_id), do: result
 
-  defp unchanged(%PlanContext{history: history, request: request} = context) do
+  defp unchanged(%PlanContext{} = context), do: unchanged_with_metadata(context, %{})
+
+  defp unchanged_with_metadata(
+         %PlanContext{history: history, request: request} = context,
+         metadata
+       ) do
+    restored_context = %{context | injection: context.original_injection || context.injection}
+
     history_plan(
-      context,
+      restored_context,
       history,
       CompactionHistory.previous_response_id_for(history, request),
       nil,
-      %{}
+      metadata
     )
   end
 
@@ -390,11 +624,48 @@ defmodule Ankole.AIGateway.Compaction do
     }
   end
 
+  # The token counts alone would read as a checkpoint written below its
+  # trigger, so the metadata names non-standard triggers and preflight deltas.
+  defp put_trigger(%PlanContext{} = context, metadata) do
+    metadata
+    |> maybe_put_trigger_name(context.trigger)
+    |> maybe_put_projection_metadata(context)
+  end
+
+  defp maybe_put_trigger_name(metadata, :provider_history),
+    do: Map.put(metadata, "trigger", "provider_history")
+
+  defp maybe_put_trigger_name(metadata, :preflight_delta),
+    do: Map.put(metadata, "trigger", "preflight_delta")
+
+  defp maybe_put_trigger_name(metadata, _trigger), do: metadata
+
+  defp maybe_put_projection_metadata(
+         metadata,
+         %PlanContext{
+           projected_tokens: projected_tokens,
+           delta_tokens: delta_tokens,
+           wire_ratio: wire_ratio
+         }
+       )
+       when delta_tokens > 0 do
+    metadata
+    |> Map.put("projected_input_tokens", projected_tokens)
+    |> Map.put("preflight_delta_tokens", delta_tokens)
+    |> Map.put("wire_ratio", wire_ratio)
+  end
+
+  defp maybe_put_projection_metadata(metadata, _context), do: metadata
+
+  defp overflow_fallback(%PlanContext{required?: false}, reason), do: {:error, reason}
+
   defp overflow_fallback(%PlanContext{} = context, reason) do
+    overflow_tokens = max(context.total_tokens, context.projected_tokens)
+
     if auto_truncation?(context.request) do
       truncate_history(context, reason)
     else
-      {:error, context_overflow(context.total_tokens, reason, "disabled", context.threshold)}
+      {:error, context_overflow(overflow_tokens, reason, "disabled", context.threshold)}
     end
   end
 

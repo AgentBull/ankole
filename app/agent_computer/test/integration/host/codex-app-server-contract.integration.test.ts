@@ -458,6 +458,78 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     }
   }, 60_000)
 
+  it('gives the Job shell the AIGateway address and a readable key file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-gateway-env-'))
+    mkdirAgentSync(root, 0o700)
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'codex-home')
+    const requests: JSONObject[] = []
+    const notifications: JSONRPCMessage[] = []
+    const provider = createGatewayEnvProbeProvider(requests)
+    if (typeof provider.port !== 'number') throw new Error('Gateway env provider did not bind a TCP port')
+    let client: CodexAppServerClient | undefined
+
+    try {
+      mkdirAgentSync(workspace)
+      mkdirAgentSync(codexHome)
+      const baseURL = `http://127.0.0.1:${provider.port}/v1`
+      resetCodexAgentRuntimeConfig(codexHome, baseURL)
+      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
+
+      const runtime = pluginTestRuntime(baseURL)
+      const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime }) as Record<string, any>
+      config.model_providers.ankole_aigateway.supports_websockets = false
+      client = new CodexAppServerClient({
+        cwd: workspace,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: workspace,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        },
+        onNotification: notification => notifications.push(notification)
+      })
+
+      await client.initialize()
+      const thread = (await client.request('thread/start', {
+        cwd: workspace,
+        model: runtime.modelProfile.model,
+        modelProvider: 'ankole_aigateway',
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        config
+      })) as ThreadStartResponse
+      const turn = (await client.request('turn/start', {
+        threadId: thread.thread.id,
+        input: [{ type: 'text', text: 'Run the gateway environment probe.', text_elements: [] }],
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      })) as { turn: { id: string } }
+      await waitForPluginTurn(notifications, turn.turn.id)
+
+      // A Skill script calls a gateway endpoint with these two values.
+      const output = customToolOutputTexts(requests[1]!, gatewayEnvProbeCallID).at(-1)
+      expect(output).toContain(`url=${baseURL}`)
+      expect(output).toContain('key=contract-key')
+    } catch (error) {
+      const stderr = notifications
+        .filter(notification => notification.method === '$stderr' && isRecord(notification.params))
+        .flatMap(notification =>
+          isRecord(notification.params) && typeof notification.params.text === 'string'
+            ? [notification.params.text]
+            : []
+        )
+        .join('')
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
+    } finally {
+      await client?.close()
+      provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it('officially installs Agent-owned Plugins and keeps them globally disabled', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-agent-plugin-runtime-'))
     mkdirAgentSync(root, 0o700)
@@ -928,6 +1000,54 @@ function notificationThreadID(notification: JSONRPCMessage): string | undefined 
   if (typeof params.threadId === 'string') return params.threadId
   const thread = isRecord(params.thread) ? params.thread : {}
   return typeof thread.id === 'string' ? thread.id : undefined
+}
+
+const gatewayEnvProbeCallID = 'gateway-env-probe-call'
+
+// The model runs one shell command that prints the gateway address and the
+// key that the shell reads from the key file, and then finishes.
+function createGatewayEnvProbeProvider(requests: JSONObject[]) {
+  const command =
+    `printf 'url=%s\\n' "$ANKOLE_RUNTIME_AI_GATEWAY_URL"; ` +
+    `printf 'key=%s\\n' "$(cat "$ANKOLE_RUNTIME_AI_GATEWAY_TOKEN_FILE")"`
+  const code = [
+    `const result = await tools.exec_command({ cmd: ${JSON.stringify(command)} });`,
+    'text(result.output);'
+  ].join('\n')
+
+  return Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url)
+      if (request.method === 'GET' && url.pathname === '/v1/models') {
+        return Response.json({ models: [execOutputModelCard('gpt-5.4')] })
+      }
+      if (request.method !== 'POST' || url.pathname !== '/v1/responses') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 })
+      }
+
+      const body = (await request.json()) as JSONObject
+      requests.push(body)
+      const model = typeof body.model === 'string' ? body.model : 'gpt-5.4'
+
+      if (requests.length === 1) {
+        return execOutputResponse('gateway-env-probe', model, [
+          { type: 'custom_tool_call', call_id: gatewayEnvProbeCallID, name: 'exec', input: code }
+        ])
+      }
+
+      return execOutputResponse('gateway-env-done', model, [
+        {
+          id: 'gateway-env-message',
+          type: 'message',
+          status: 'completed',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Gateway environment checked.', annotations: [] }]
+        }
+      ])
+    }
+  })
 }
 
 function createExecOutputResponsesProvider(requests: JSONObject[]) {

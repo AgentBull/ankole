@@ -1,4 +1,4 @@
-import { chatWorkspace, state } from './fixtures'
+import { chatWorkspace, request, state } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 
 /** Hands work to the personal assistant through `POST /issues`, then reloads the page so that it reads the Issue. */
@@ -98,6 +98,33 @@ test('starting an Issue sends its request to the Agent as the first message of i
     await expect(panel.getByRole('heading').first()).toBeVisible()
     await expect(panel.getByRole('textbox', { name: '描述', exact: true })).toHaveCount(0)
     await expect(panel.getByRole('link', { name: '在对话中打开', exact: true })).toBeVisible()
+  } finally {
+    await context.close()
+  }
+})
+
+test("an Issue shared with a teammate still addresses the Issue's Agent by default", async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1680, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto('/work')
+    const title = `Shared issue ${Date.now().toString(36)}`
+    const issue = await request<{ id: string; agent: { name: string } }>(page, '/issues', 'POST', {
+      title,
+      agentUID: state.agent_uid
+    })
+    await request(page, `/conversations/${issue.id}/participants`, 'POST', { addUIDs: [state.member.uid] })
+
+    await page.getByRole('navigation', { name: 'Work', exact: true }).getByRole('link', { name: title }).click()
+    const panel = page.getByRole('complementary', { name: 'Issue', exact: true })
+    const recipient = panel.getByRole('combobox', { name: '选择 Agent', exact: true })
+    await expect(recipient).toHaveText(issue.agent.name)
+
+    // The person can still write to the teammates alone and leave the answer to the Agent's judgment.
+    await recipient.click()
+    await page.getByRole('option', { name: '允许主动回应的 Agent', exact: true }).click()
+    await expect(recipient).toHaveText('允许主动回应的 Agent')
   } finally {
     await context.close()
   }

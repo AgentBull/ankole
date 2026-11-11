@@ -11,7 +11,7 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 
 ## 杠杆 1：model profile 档位
 
-模型档案（Model Profile）在 **Console → Model Profiles** 中通过三层稀疏继承链（`Site -> Pod -> Agent/System`）解析。每个 Agent 提供八个内置槽位（五个语言模型槽位，外加 `web_search`、`web_fetch` 与 `image_generate`）；站点、Pod 与内置 `system` 主体（`ankole_brain`、`system`）则在此基础上增加 `rerank` 与 `decision` 两个槽位。未单独覆盖的槽位自动继承 Pod 与站点默认值，并支持 `coding -> heavy -> primary` 与 `light -> primary` 跨槽位回退。
+模型档案（Model Profile）在 **Console → Model Profiles** 中通过三层稀疏继承链（`Site -> Pod -> Agent/System`）解析。每个 Agent 提供八个内置槽位（五个语言模型槽位，外加 `web_search`、`web_fetch` 与 `image_generate`）；站点、Pod 与内置 `system` 主体（`ankole_brain`、`system`）则在此基础上增加 `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video` 与 `music` 七个槽位。未单独覆盖的槽位自动继承 Pod 与站点默认值，并支持 `coding -> heavy -> primary` 与 `light -> primary` 跨槽位回退。
 
 | 档案槽位 | 触发场景 | 控费要点 |
 |---|---|---|
@@ -24,6 +24,11 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 | `image_generate` | 图像生成工具 | 按张计费较高；仅在确有生图需求时绑定 |
 | `rerank`（Site / Pod / `system`） | Brain 召回重排与 `/rerank` 默认路由 | 绑定响应快、单价低的专用 Rerank 模型 |
 | `decision`（Site / Pod / `system`） | `/decisions` 带概率的作答 | 绑定决策模型；留空时由 `light` 模型作答 |
+| `speech`（Site / Pod / `system`） | `/audio/speech` 语音合成 | 绑定语音合成模型；留空时语音合成请求会失败 |
+| `transcription`（Site / Pod / `system`） | `/audio/transcriptions` 语音转写 | 绑定语音转写模型；留空时转写请求会失败 |
+| `ocr`（Site / Pod / `system`） | `/ocr` 把 PDF 和图片识别为 Markdown | 需要识别 PDF 时绑定 OCR 模型；留空时由语言模型识别，只能读图片。绑定后，Pod 还会把新上传的 PDF 中的扫描页自动送去识别，服务商按页收费 |
+| `video`（Site / Pod / `system`） | `/videos` 生成视频 | 绑定视频模型；留空时视频请求会失败。服务商按每次生成收费 |
+| `music`（Site / Pod / `system`） | `/audio/music` 生成音乐 | 绑定音乐模型；留空时音乐请求会失败。服务商按每次生成收费 |
 
 控制面内部子系统的模型调用统一归属内置 `system` 主体执行，后台治理与小应用调用绝不会挤占任何前台 Agent 的 Token 配额：
 

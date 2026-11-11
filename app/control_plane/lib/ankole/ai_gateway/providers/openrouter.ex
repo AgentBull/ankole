@@ -25,21 +25,32 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     setting(:app_referer, default: @default_referer, advanced: true)
     setting(:app_title, default: @default_title, advanced: true)
 
-    setting(:user, scope: :request, advanced: true)
+    # The speech and transcription requests send their own fields only, and a
+    # decision request rejects the three language-model options, so their model
+    # profiles do not offer these options.
+    @option_capabilities [:language_model, :embedding_model, :rerank_model, :image_generate]
+
+    setting(:user, scope: :request, advanced: true, capabilities: @option_capabilities)
 
     setting(:reasoningEffort,
       type: :select,
       options: ReasoningEffort.Levels.values(),
-      scope: :request
+      scope: :request,
+      capabilities: @option_capabilities
     )
 
-    setting(:textVerbosity, scope: :request)
+    setting(:textVerbosity, scope: :request, capabilities: @option_capabilities)
 
     # OpenRouter provider routing preferences (`order`, `only`, `ignore`,
     # `allow_fallbacks`, `require_parameters`, ...). The map goes to the request
     # body as `provider`, so a profile can keep a model away from an upstream
     # that truncates its output.
-    setting(:provider, type: :map, scope: :request, advanced: true)
+    setting(:provider,
+      type: :map,
+      scope: :request,
+      advanced: true,
+      capabilities: [:decision_model | @option_capabilities]
+    )
 
     language_model do
       api_resolver(:openai_chat_completions)
@@ -66,6 +77,24 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     decision_model do
       api_resolver(:systemone_decision)
       prepare(:prepare_decision_model)
+    end
+
+    speech_model do
+      api_resolver(:openrouter_speech)
+      timeout_ms(300_000)
+      prepare(:prepare_speech_model)
+    end
+
+    transcription_model do
+      api_resolver(:openrouter_transcription)
+      timeout_ms(300_000)
+      prepare(:prepare_transcription_model)
+    end
+
+    video_model do
+      api_resolver(:openrouter_video)
+      timeout_ms(300_000)
+      prepare(:prepare_video_model)
     end
   end
 
@@ -190,10 +219,12 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
   defp put_anthropic_cache_control({:error, _reason} = error, _ctx), do: error
 
   defp put_anthropic_cache_control(%UniversalAIRequest{} = request, ctx) do
-    if anthropic_model?(ctx.model) do
+    provider_options = request.provider_options || %{}
+
+    if anthropic_model?(ctx.model) and not Map.has_key?(provider_options, "cache_control") do
       UniversalAIRequest.put_provider_options(
         request,
-        Map.put(request.provider_options, "cache_control", %{"type" => "ephemeral"})
+        Map.put(provider_options, "cache_control", %{"type" => "ephemeral"})
       )
     else
       request
@@ -300,6 +331,42 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
        do: UniversalAIRequest.put_header(request, "TypeSafe-Danger-Zone-Images", "true")
 
   defp maybe_put_decision_images_header(request, _request), do: request
+
+  @doc "Builds an OpenRouter `/audio/speech` request, which answers with audio bytes."
+  def prepare_speech_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("audio/speech", :openrouter_speech, include_model: false)
+    |> common_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+  end
+
+  @doc "Builds an OpenRouter `/audio/transcriptions` request with base64 audio."
+  def prepare_transcription_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("audio/transcriptions", :openrouter_transcription,
+      include_model: false
+    )
+    |> common_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+  end
+
+  @doc """
+  Builds an OpenRouter `/videos` request. A request with `job_id` reads the
+  state of that generation; any other request submits a generation, which
+  OpenRouter answers before the video exists.
+  """
+  def prepare_video_model(ctx) do
+    {path, method} =
+      case ctx.request do
+        %{"job_id" => job_id} -> {"videos/" <> URI.encode(job_id, &URI.char_unreserved?/1), "GET"}
+        _submission -> {"videos", "POST"}
+      end
+
+    ctx
+    |> UniversalAIRequest.new(path, :openrouter_video, method: method, include_model: false)
+    |> common_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+  end
 
   @impl true
   def models_metadata_source(ctx) when is_map(ctx) do

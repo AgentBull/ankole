@@ -1354,5 +1354,65 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       assert Enum.all?(outputs, &(&1["status"] == "incomplete"))
       assert StreamLoop.incomplete_reason(limited) == "program_batch_limit_exceeded"
     end
+
+    test "synthesized program tool embeds positive and negative orchestration strategy rules" do
+      {provider_request, _plan} =
+        plan!(
+          request([
+            market_tool(["direct", "programmatic"]),
+            function_tool("late_only", ["programmatic"])
+          ])
+        )
+
+      program_tool =
+        Enum.find(provider_request["tools"], fn tool -> tool["name"] == "program" end)
+
+      assert is_map(program_tool)
+      description = program_tool["description"]
+      assert byte_size(description) < 32_768
+      assert description =~ "3+ tool calls"
+      assert description =~ "Promise.all"
+      assert description =~ "Do not wrap a single tool call in `program`"
+      assert description =~ "user interaction, approval, delegation"
+      assert description =~ "check for `\"Error:\"` before `JSON.parse`"
+    end
+
+    test "program model result caps single and multi-part text() output at 32 KiB with valid UTF-8 and JSON" do
+      oversized_single = String.duplicate("脉络分析-", 4_000)
+      assert byte_size(oversized_single) > 32_768
+
+      single_downstream =
+        PTC.downstream_output("prog_cap_single", completed_outcome(oversized_single))
+
+      assert single_downstream["type"] == "function_call_output"
+      assert String.valid?(single_downstream["output"])
+      assert byte_size(single_downstream["output"]) <= 32_768
+      assert single_downstream["output"] =~ "program output truncated at 32 KiB"
+
+      multi_parts =
+        Enum.map(1..40, fn idx ->
+          %{kind: "text", value: "chunk-#{idx}-" <> String.duplicate("数据", 500)}
+        end)
+
+      multi_outcome = %{
+        status: :completed,
+        output: multi_parts,
+        pending_calls: [],
+        error: nil,
+        error_code: nil
+      }
+
+      multi_downstream = PTC.downstream_output("prog_cap_multi", multi_outcome)
+      assert byte_size(multi_downstream["output"]) <= 32_768
+
+      assert {:ok, %{"status" => "completed", "result" => encoded_parts}} =
+               Ankole.JSON.decode(multi_downstream["output"])
+
+      assert {:ok, decoded_parts} = Ankole.JSON.decode(encoded_parts)
+      assert is_list(decoded_parts)
+
+      assert List.last(decoded_parts)["value"] =~
+               "program output truncated at 32 KiB"
+    end
   end
 end

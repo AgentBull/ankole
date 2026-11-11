@@ -60,6 +60,9 @@ import type {
   GetSiteAppConfigurationData,
   GetSiteAppConfigurationErrors,
   GetSiteAppConfigurationResponses,
+  GetSiteUnreadScansData,
+  GetSiteUnreadScansErrors,
+  GetSiteUnreadScansResponses,
   ListAiGatewayModelsData,
   ListAiGatewayModelsErrors,
   ListAiGatewayModelsResponses,
@@ -653,6 +656,18 @@ export const suspendTenant = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * get_site_unread_scans operation on site_app_configuration_operation resource
+ */
+export const getSiteUnreadScans = <ThrowOnError extends boolean = false>(
+  options?: Options<GetSiteUnreadScansData, ThrowOnError>
+): RequestResult<GetSiteUnreadScansResponses, GetSiteUnreadScansErrors, ThrowOnError> =>
+  (options?.client ?? client).get<GetSiteUnreadScansResponses, GetSiteUnreadScansErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/unread-scans',
+    ...options
   })
 
 /**

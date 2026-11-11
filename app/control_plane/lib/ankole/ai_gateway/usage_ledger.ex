@@ -10,7 +10,8 @@ defmodule Ankole.AIGateway.UsageLedger do
   language-model rows only.
   Explicit subject credentials determine the origin before internal caller
   labels. Only Agent and Codex rows count toward Agent token quota windows;
-  Brain, Applet, OIDC Human, and automatic compaction rows remain ledger-only.
+  Brain, Applet, Pod file extraction, OIDC Human, and automatic compaction rows
+  remain ledger-only.
   A ledger write failure never discards an already delivered provider response.
   """
 
@@ -48,17 +49,32 @@ defmodule Ankole.AIGateway.UsageLedger do
   def record(_runtime, _subject_type, _round, _opts), do: :ok
 
   @doc """
-  Records one completed call of an image or decision provider.
+  Records one completed call of an image, decision, speech, transcription,
+  OCR, video, or music provider.
 
   `result` carries the Provider's `usage`. An image call records `quantity`
-  generated images, one by default. `request_context` attributes the call to
-  the work that made it when the runtime does not carry that context itself.
+  generated images, one by default. A speech call records the `quantity` of
+  characters that it turned into audio, a transcription call records the
+  seconds of audio that the Provider reports, and an OCR call records the
+  pages that the Provider processed. A completed video or music job records
+  the seconds that its request named in `quantity`, when it named any.
+  `request_context` attributes the call to the work that made it when the
+  runtime does not carry that context itself.
   """
   @spec record_capability(map() | nil, String.t() | nil, map(), keyword()) :: :ok
   def record_capability(runtime, subject_type, result, opts \\ [])
 
   def record_capability(%{"capability" => capability} = runtime, subject_type, result, opts)
-      when capability in ["image_generate", "decision"] and is_map(result) do
+      when capability in [
+             "image_generate",
+             "decision",
+             "speech",
+             "transcription",
+             "ocr",
+             "video",
+             "music"
+           ] and
+             is_map(result) do
     runtime =
       case Keyword.get(opts, :request_context) do
         %{} = request_context -> Map.put(runtime, "request_context", request_context)
@@ -95,6 +111,45 @@ defmodule Ankole.AIGateway.UsageLedger do
       quantity: Keyword.get(opts, :quantity, 1),
       provider_cost: provider_cost(usage)
     }
+  end
+
+  defp capability_use("speech", usage, opts) do
+    %{
+      capability: :speech,
+      unit: :character,
+      quantity: Keyword.fetch!(opts, :quantity),
+      provider_cost: provider_cost(usage)
+    }
+  end
+
+  # A started second counts as a whole one.
+  defp capability_use("transcription", %{"seconds" => seconds} = usage, _opts)
+       when is_number(seconds) and seconds >= 0 do
+    %{
+      capability: :transcription,
+      unit: :second,
+      quantity: ceil(seconds),
+      provider_cost: provider_cost(usage)
+    }
+  end
+
+  defp capability_use("transcription", usage, _opts),
+    do: %{capability: :transcription, provider_cost: provider_cost(usage)}
+
+  defp capability_use("ocr", %{"pages" => pages}, _opts) when is_integer(pages),
+    do: %{capability: :ocr, unit: :page, quantity: pages}
+
+  defp capability_use("ocr", _usage, _opts), do: %{capability: :ocr}
+
+  # A media job records the seconds that its request asked for, when it named
+  # them.
+  defp capability_use(capability, usage, opts) when capability in ["video", "music"] do
+    use = %{capability: String.to_existing_atom(capability), provider_cost: provider_cost(usage)}
+
+    case Keyword.get(opts, :quantity) do
+      seconds when is_integer(seconds) -> Map.merge(use, %{unit: :second, quantity: seconds})
+      _unnamed -> use
+    end
   end
 
   defp provider_cost(%{"cost" => cost}) when is_number(cost) and cost >= 0,
@@ -188,6 +243,76 @@ defmodule Ankole.AIGateway.UsageLedger do
       agent_subjects: groups.agent_subjects
     }
   end
+
+  @doc """
+  Sums the tenant's calls that are not language-model rounds from `since`
+  onwards, by capability and unit.
+
+  Each row says how many calls it counts, the `quantity` that they produced in
+  their unit, such as pages or seconds, and the cost that the Providers
+  reported. `quantity` is `nil` for calls that record no unit, and
+  `provider_cost` is `nil` when no call of the row reported a cost.
+  """
+  # shortcut: reads each row of the window once, like `window_summary/1`; move
+  # the grouping into an SQL read model together with it.
+  @spec capability_summary(DateTime.t()) :: [map()]
+  def capability_summary(%DateTime{} = since) do
+    since
+    |> fold_capabilities(nil, %{})
+    |> Enum.map(fn {{capability, unit}, totals} ->
+      Map.merge(totals, %{
+        capability: Atom.to_string(capability),
+        unit: unit && Atom.to_string(unit),
+        provider_cost: totals.provider_cost && Decimal.to_float(totals.provider_cost)
+      })
+    end)
+    |> Enum.sort_by(&{&1.capability, &1.unit || ""})
+  end
+
+  defp fold_capabilities(since, last, groups) do
+    rows =
+      UsageRecord
+      |> capability_page(since, last)
+      |> Ash.Query.select([:id, :inserted_at, :capability, :unit, :quantity, :provider_cost])
+      |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+      |> Ash.Query.limit(@summary_page)
+      |> Ankole.Ash.read!()
+
+    groups =
+      Enum.reduce(rows, groups, fn row, groups ->
+        Map.update(
+          groups,
+          {row.capability, row.unit},
+          %{calls: 1, quantity: row.quantity, provider_cost: row.provider_cost},
+          &%{
+            calls: &1.calls + 1,
+            quantity: sum(&1.quantity, row.quantity),
+            provider_cost: sum(&1.provider_cost, row.provider_cost)
+          }
+        )
+      end)
+
+    case rows do
+      rows when length(rows) == @summary_page -> fold_capabilities(since, List.last(rows), groups)
+      _last_page -> groups
+    end
+  end
+
+  defp capability_page(query, since, nil),
+    do: Ash.Query.filter(query, capability != :llm and inserted_at >= ^since)
+
+  defp capability_page(query, _since, %{inserted_at: at, id: id}) do
+    Ash.Query.filter(
+      query,
+      capability != :llm and (inserted_at > ^at or (inserted_at == ^at and id > ^id))
+    )
+  end
+
+  # A value that no call reported stays nil instead of becoming zero.
+  defp sum(nil, value), do: value
+  defp sum(total, nil), do: total
+  defp sum(%Decimal{} = total, %Decimal{} = value), do: Decimal.add(total, value)
+  defp sum(total, value), do: total + value
 
   # Keyset pages on `(inserted_at, id)` follow the `(tenant_id, inserted_at)` index,
   # so every page starts where the previous one ended.
@@ -425,6 +550,7 @@ defmodule Ankole.AIGateway.UsageLedger do
   defp origin(_runtime, "oidc_human", _caller), do: :oidc_human
   defp origin(_runtime, nil, "compaction." <> _stage), do: :compaction
   defp origin(_runtime, nil, "pod_applet"), do: :applet
+  defp origin(_runtime, nil, "pod_files"), do: :pod_files
   defp origin(_runtime, nil, "brain"), do: :brain
 
   defp origin(_runtime, nil, "brain." <> _stage), do: :brain

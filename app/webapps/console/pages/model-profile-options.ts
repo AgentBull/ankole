@@ -3,7 +3,18 @@ import type { AIGatewayModelCatalogEntry, AIGatewayProviderKindItem } from '../s
 import type { ProfileDraft } from '../state/model-profiles-model'
 import type { AIGatewayProviderItem, SettingValidationError } from '../state/provider-settings'
 
-export type ModelProfileCapability = 'llm' | 'web_search' | 'web_fetch' | 'image_generate' | 'rerank' | 'decision'
+export type ModelProfileCapability =
+  | 'llm'
+  | 'web_search'
+  | 'web_fetch'
+  | 'image_generate'
+  | 'rerank'
+  | 'decision'
+  | 'speech'
+  | 'transcription'
+  | 'ocr'
+  | 'video'
+  | 'music'
 
 export function profileCapability(profile: string): ModelProfileCapability {
   if (profile === 'web_search') return 'web_search'
@@ -11,6 +22,11 @@ export function profileCapability(profile: string): ModelProfileCapability {
   if (profile === 'image_generate') return 'image_generate'
   if (profile === 'rerank') return 'rerank'
   if (profile === 'decision') return 'decision'
+  if (profile === 'speech') return 'speech'
+  if (profile === 'transcription') return 'transcription'
+  if (profile === 'ocr') return 'ocr'
+  if (profile === 'video') return 'video'
+  if (profile === 'music') return 'music'
   return 'llm'
 }
 

@@ -10,3 +10,7 @@ export const SESSION_CONTEXT_ID_ENV = 'ANKOLE_RUNTIME_SESSION_CONTEXT_ID'
 export const CLI_CONTEXT_FILE_ENV = 'ANKOLE_RUNTIME_CLI_CONTEXT_FILE'
 /** Worker-managed SQLite ledger directory outside `/workspace` for first-use CLI guidance. */
 export const CLI_LEDGER_DIR_ENV = 'ANKOLE_RUNTIME_CLI_LEDGER_DIR'
+/** Base URL of the AIGateway API, for shell tools that call a gateway endpoint such as `/ocr`. */
+export const AI_GATEWAY_URL_ENV = 'ANKOLE_RUNTIME_AI_GATEWAY_URL'
+/** File that holds the Agent's current AIGateway API key. The Worker rewrites it when the key rotates. */
+export const AI_GATEWAY_TOKEN_FILE_ENV = 'ANKOLE_RUNTIME_AI_GATEWAY_TOKEN_FILE'

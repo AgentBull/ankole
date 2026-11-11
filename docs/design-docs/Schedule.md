@@ -236,6 +236,15 @@ human replies to a delivered cron message in chat, that reply routes to
 `owner_session_id`, which sees the committed cron Message as shared Conversation
 context rather than the cron Session's internal tool history.
 
+A rule whose owner Session is the room of an [Issue](Issues.md) repeats that
+Issue. Work creates such a rule when a person makes an Issue repeat, and every
+fire of a rule owned by an Issue's room marks the Issue as started in the fire's
+transaction through `Issues.track_fire_in_tx/1`, so each run's result waits for
+review. Status changes of a `cron:<schedule_id>` Session refresh the Pod's room
+lists, which shows the run on that Issue's work item. In Work, the Human whose
+authority a rule runs on pauses, resumes, runs, or removes it through the same
+`Ankole.Schedule` operations that the Console uses.
+
 Editing `payload` or `delivery` closes the rule's active AIGateway conversation
 so the next fire starts a fresh conversation from the updated definition,
 whereas time-only edits keep the conversation open. Deleting or completing a

@@ -38,6 +38,8 @@ defmodule DingTalkOpenAPI.Stream.Client do
   @open_path "/v1.0/gateway/connections/open"
   @user_agent "dingtalk_openapi-elixir/0.1"
   @reconnect_cap_s 60
+  # Frames beyond this many in-flight dispatches stay unacked, so DingTalk redelivers them.
+  @max_dispatch_tasks 64
 
   defstruct client: nil,
             dispatcher: nil,
@@ -280,6 +282,12 @@ defmodule DingTalkOpenAPI.Stream.Client do
   end
 
   defp route_frame(%{"type" => "SYSTEM"}, state), do: state
+
+  defp route_frame(%{"type" => type}, %{dispatch_tasks: tasks} = state)
+       when type in ["EVENT", "CALLBACK"] and map_size(tasks) >= @max_dispatch_tasks do
+    Logger.warning("dingtalk_openapi stream busy; leaving frame unacked for redelivery")
+    state
+  end
 
   defp route_frame(%{"type" => type, "headers" => headers} = frame, state)
        when type in ["EVENT", "CALLBACK"] do

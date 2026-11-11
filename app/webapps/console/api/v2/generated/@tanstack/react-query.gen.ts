@@ -76,6 +76,7 @@ import {
   getPrincipal,
   getPrincipalGroup,
   getSignalBinding,
+  getUnreadScans,
   learnBrainSource,
   listAgentLibraryDocuments,
   listAgentModelProfiles,
@@ -393,6 +394,9 @@ import type {
   GetSignalBindingData,
   GetSignalBindingError,
   GetSignalBindingResponse,
+  GetUnreadScansData,
+  GetUnreadScansError,
+  GetUnreadScansResponse,
   LearnBrainSourceData,
   LearnBrainSourceError,
   LearnBrainSourceResponse,
@@ -3828,6 +3832,31 @@ export const decryptWorkerEnvMutation = (
   }
   return mutationOptions
 }
+
+export const getUnreadScansQueryKey = (options?: Options<GetUnreadScansData>) =>
+  createQueryKey('getUnreadScans', options)
+
+/**
+ * get_unread_scans operation on app_configuration_operation resource
+ */
+export const getUnreadScansOptions = (options?: Options<GetUnreadScansData>) =>
+  queryOptions<
+    GetUnreadScansResponse,
+    GetUnreadScansError,
+    GetUnreadScansResponse,
+    ReturnType<typeof getUnreadScansQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getUnreadScans({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getUnreadScansQueryKey(options)
+  })
 
 /**
  * set_agent_library_plugin operation on agent_library_console resource

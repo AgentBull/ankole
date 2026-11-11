@@ -2262,6 +2262,10 @@ details[open] > summary > .pod-chat-disclosure-caret {
 .pod-chat-tool-step[data-status='failed'] .pod-chat-tool-title {
   color: var(--destructive-foreground);
 }
+.pod-chat-tool-step[data-status='blocked'] .pod-chat-tool-state,
+.pod-chat-tool-step[data-status='blocked'] .pod-chat-tool-title {
+  color: var(--warning-foreground);
+}
 /* A tool's output, a command's terminal, a diff, and a draft that an approval carries are block cards: the lightest
    gray inside a hairline at the control radius, labels of the 12px step, and 12px monospace source on a 26px line.
    Each part sits 10px inside the card's edge and a hairline divides the parts. */
@@ -2694,10 +2698,12 @@ summary.pod-chat-block-card-header:hover {
 /* A run card is a card of the content's card family, at most 540px wide, that shrinks with its column: a 20px
    status icon, 8px, and a column of the title in the 14px Medium step with the elapsed time and a 16px chevron at
    its end, the status line, and a two-line summary in the 12px step. A run that waits or failed keeps a tinted
-   edge, and the run the inspector shows takes the selected fill. */
+   edge, and the run the inspector shows takes the selected fill. When a background job waits on the reader, the
+   card wraps the answer form onto a full-width row under a hairline and takes no hover fill. */
 .pod-chat-linked-run {
   @apply surface-outline;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   width: 100%;
   max-width: 540px;
@@ -2711,8 +2717,20 @@ summary.pod-chat-block-card-header:hover {
 .pod-chat-linked-run[data-compact] {
   max-width: 100%;
 }
-.pod-chat-linked-run:hover {
+.pod-chat-linked-run:not([data-answering]):hover {
   background: var(--layer-hover);
+}
+.pod-chat-linked-run-answer {
+  flex-basis: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.pod-chat-linked-run-answer > .pod-chat-choice-card {
+  margin: 0;
 }
 .pod-chat-linked-run[data-active] {
   border-color: var(--border-strong);

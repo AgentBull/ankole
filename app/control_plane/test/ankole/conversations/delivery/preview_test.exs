@@ -601,6 +601,21 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert :sys.get_state(recovered_pid).structured_reply
   end
 
+  test "a preview that exits while a new turn adopts it returns an error to the caller" do
+    %{subject: subject, signal: signal} = addressed_signal("adopt-exit")
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, signal.session_id)
+
+    {:global, name} = Preview.via_tuple(signal)
+    retiring = spawn(fn -> receive do: ({:"$gen_call", _from, _message} -> exit(:gone)) end)
+    assert :yes = :global.register_name(name, retiring)
+    on_exit(fn -> :global.unregister_name(name) end)
+
+    assert {:error, {:reply_preview_unavailable, :gone}} =
+             Preview.maybe_start_for(signal, subject.uid, conversation.id)
+  end
+
   test "CardKit coalesces preview changes for one second between syncs" do
     %{subject: subject, signal: signal} = addressed_signal("rich-sync-throttle")
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, signal)

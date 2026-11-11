@@ -1,5 +1,6 @@
 import { beforeAll, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRouter, RouterContextProvider } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import i18n, { loadLocale } from '../../common/i18n'
@@ -31,6 +32,7 @@ import {
   stepTitle
 } from '../chat/tool-run-view'
 import { MessageActions } from '../chat/message-actions'
+import { LinkedExecutionCard } from '../chat/linked-execution-card'
 import { MessageView } from '../chat/timeline-message'
 import {
   BACKTRACK_DOUBLE_ESCAPE_MS,
@@ -260,17 +262,25 @@ test('consecutive reads, searches, and listings fold into one collapsed row that
   expect(html).toContain('Searching code: “useActivityLabel”')
   expect(html).toContain('Running tests · bun test')
 
-  // A folded row still shows a read that is running, and otherwise one that failed.
-  const groupStatus = (statuses: string[]) =>
-    /<details class="pod-chat-tool-group" data-status="(\w+)"><summary>.*?aria-label="(\w+)"/
+  // A folded row shows a running read first, and expands automatically when a step inside failed.
+  const groupStatus = (statuses: string[]): Array<string | undefined> | undefined =>
+    /<details( open="")? class="pod-chat-tool-group" data-status="(\w+)"><summary>.*?aria-label="(\w+)"/
       .exec(
         render(<ToolRunView steps={statuses.map((status, index) => ({ ...steps[0]!, id: `s${index}`, status }))} />)
       )
       ?.slice(1)
-  expect(groupStatus(['completed', 'failed', 'running'])).toEqual(['running', 'Running'])
-  expect(groupStatus(['completed', 'error'])).toEqual(['failed', 'Failed'])
-  expect(groupStatus(['completed', 'cancelled'])).toEqual(['stopped', 'Stopped'])
-  expect(groupStatus(['completed', 'completed'])).toEqual(['completed', 'Completed'])
+  expect(groupStatus(['completed', 'failed', 'running'])).toEqual<Array<string | undefined>>([
+    undefined,
+    'running',
+    'Running'
+  ])
+  expect(groupStatus(['completed', 'error'])).toEqual<Array<string | undefined>>([' open=""', 'failed', 'Failed'])
+  expect(groupStatus(['completed', 'cancelled'])).toEqual<Array<string | undefined>>([undefined, 'stopped', 'Stopped'])
+  expect(groupStatus(['completed', 'completed'])).toEqual<Array<string | undefined>>([
+    undefined,
+    'completed',
+    'Completed'
+  ])
 
   await i18n.changeLanguage('zh-Hans-CN')
   try {
@@ -763,7 +773,10 @@ test('attachments without a recorded media type preview by extension with the Po
   expect(attachmentPreviewKind('研报.md', 'text/markdown')).toBe('markdown')
   expect(attachmentPreviewKind('notes.markdown')).toBe('markdown')
   expect(attachmentPreviewKind('page.html', 'text/html')).toBe('text')
-  expect(attachmentPreviewKind('proposal.docx')).toBeUndefined()
+  expect(attachmentPreviewKind('proposal.docx')).toBe('word')
+  expect(attachmentPreviewKind('template.docm')).toBe('word')
+  expect(attachmentPreviewKind('deck.pptx')).toBe('presentation')
+  expect(attachmentPreviewKind('legacy.doc')).toBeUndefined()
 })
 
 test('a committed clarification replaces its stream without hiding another Agent', () => {
@@ -1095,6 +1108,479 @@ test('a live reply and the committed message that replaces it render the same tr
     expect(committedHTML).not.toContain('data-live-agent')
     expect(path(liveHTML)).toBe(path(committedHTML))
     expect(path(liveHTML)).toBe('article>div')
+  } finally {
+    client.clear()
+  }
+})
+
+test('first-class memory, web, and read-only ankole-pod steps fold while writes and mcporter stay expanded', () => {
+  const steps = [
+    {
+      id: 'mem-1',
+      tool: 'brain.search',
+      title: 'Search memory: Q4 OKRs',
+      status: 'completed',
+      label_key: 'conversations.delivery.reply.activity.memory_recall',
+      label_bindings: { query: 'Q4 OKRs' }
+    },
+    {
+      id: 'web-1',
+      tool: 'web_search',
+      title: 'Search web: Ash JSON API',
+      status: 'completed',
+      label_key: 'conversations.delivery.reply.activity.web_search',
+      label_bindings: { query: 'Ash JSON API' }
+    },
+    {
+      id: 'pod-read-1',
+      tool: 'command',
+      title: 'Read page: Architecture',
+      status: 'completed',
+      input: { command: '/bin/zsh -lc \'ankole-pod pages.read {"id":"page-1"}\'' }
+    },
+    {
+      id: 'pod-write-1',
+      tool: 'command',
+      title: 'Run command: ankole-pod base.write',
+      status: 'completed',
+      input: { command: 'ankole-pod base.write \'{"id":"base-1"}\'' }
+    },
+    {
+      id: 'mcp-1',
+      tool: 'command',
+      title: 'Run command: mcporter call github.list_issues',
+      status: 'completed',
+      input: { command: 'mcporter call github.list_issues' }
+    }
+  ]
+
+  expect(groupExploration(steps).map(entry => (Array.isArray(entry) ? entry.map(step => step.id) : entry.id))).toEqual([
+    ['mem-1', 'web-1', 'pod-read-1'],
+    'pod-write-1',
+    'mcp-1'
+  ])
+
+  const html = render(<ToolRunView steps={steps} />)
+  expect(html).toContain('Recalled 1 memory · Checked 1 web source · Read 1 Pod resource')
+})
+
+test('LinkedExecutionCard renders inline choices and quick-reply composer as a sibling outside the main button when waiting_on_user', () => {
+  const client = new QueryClient()
+  const run: LinkedExecution = {
+    id: '42',
+    kind: 'background_agent_job',
+    title: 'Migrate staging schema',
+    agentUID: 'ops_agent',
+    status: 'waiting_on_user',
+    stoppable: true,
+    canMessage: true,
+    pendingQuestions: [
+      {
+        id: 'q1',
+        header: 'Strategy',
+        question: 'Proceed with online index rebuild?',
+        options: [
+          { label: 'Yes, online', description: 'Zero downtime' },
+          { label: 'Maintenance window', description: 'Faster lock' }
+        ]
+      }
+    ],
+    createdAt: '2026-11-11T08:00:00Z',
+    updatedAt: '2026-11-11T08:01:00Z'
+  }
+  try {
+    const html = render(
+      <QueryClientProvider client={client}>
+        <LinkedExecutionCard run={run} conversationID="conv-1" />
+      </QueryClientProvider>
+    )
+    expect(html).toContain('pod-chat-linked-run-answer')
+    expect(html).toContain('Proceed with online index rebuild?')
+    expect(html).toContain('Yes, online')
+    expect(html).toContain('Type your answer to continue this task…')
+    // Ensure interactive answer controls are NOT nested inside the main inspector button.
+    const mainButtonMatch = /<button[^>]*class="pod-chat-linked-run-main"[^>]*>([\s\S]*?)<\/button>/.exec(html)
+    expect(mainButtonMatch?.[1]).not.toContain('pod-chat-linked-run-answer')
+  } finally {
+    client.clear()
+  }
+})
+
+test('blocked connector steps render honest blocked state and ConnectorAuthCardView via InteractionSurface', () => {
+  const client = new QueryClient()
+  const model = new ChatModel()
+  const message = {
+    id: 'msg-blocked',
+    seq: 4,
+    kind: 'message',
+    authorType: 'agent',
+    authorUID: 'agent',
+    authorDisplayName: 'Assistant',
+    authorArchived: false,
+    text: 'I need GitHub access to inspect acme/app.',
+    createdAt: '2026-11-11T09:00:00Z',
+    signalID: 'sig-1',
+    replyToMessageID: null,
+    mentions: [],
+    savedPages: [],
+    links: [],
+    attachments: [],
+    richContent: {
+      connector_auth: {
+        wait_id: 'wait-1',
+        interaction_id: 'sig-1:connector_auth:wait-1',
+        connection_slug: 'work',
+        display_name: 'GitHub (Work)',
+        plugin_id: 'github',
+        toolkit: 'github',
+        tool_name: 'repos_get',
+        subject_kind: 'human',
+        auth_scheme: 'oauth2',
+        required_scopes: ['repo'],
+        authorization_url: '/connectors?connection=work&subject_kind=human',
+        state: 'pending'
+      },
+      execution: {
+        steps: [
+          {
+            id: 'step-gh',
+            tool: 'command',
+            title: 'Run command: mcporter call github.repos_get',
+            status: 'blocked',
+            input: { command: 'mcporter call github.repos_get owner=acme repo=app' }
+          }
+        ]
+      }
+    }
+  } as unknown as TimelineMessage
+
+  try {
+    const html = render(
+      <QueryClientProvider client={client}>
+        <MessageView
+          model={model}
+          conversationID="conv-1"
+          linkedRuns={[]}
+          onJumpToSource={() => {}}
+          keyboardActive={false}
+          own={false}
+          message={message}
+          showActions
+        />
+      </QueryClientProvider>
+    )
+    expect(html).toContain('data-testid="chat-connector-auth-card"')
+    expect(html).toContain('GitHub (Work)')
+    expect(html).toContain('Connect &amp; Authorize')
+    expect(html).toContain('data-status="blocked"')
+
+    const prevDocument = globalThis.document
+    globalThis.document = {
+      querySelector: (sel: string) =>
+        sel === 'meta[name="ankole-principal"]' ? ({ content: 'bob' } as HTMLMetaElement) : null
+    } as unknown as Document
+    try {
+      const otherViewerMessage = {
+        ...message,
+        richContent: {
+          ...message.richContent,
+          connector_auth: {
+            ...message.richContent!.connector_auth!,
+            human_uid: 'alice'
+          }
+        }
+      } as unknown as TimelineMessage
+      const bobHtml = render(
+        <QueryClientProvider client={client}>
+          <MessageView
+            model={model}
+            conversationID="conv-1"
+            linkedRuns={[]}
+            onJumpToSource={() => {}}
+            keyboardActive={false}
+            own={false}
+            message={otherViewerMessage}
+            showActions
+          />
+        </QueryClientProvider>
+      )
+      expect(bobHtml).toContain('Waiting for @alice to connect GitHub (Work).')
+      expect(bobHtml).not.toContain('Connect &amp; Authorize')
+      expect(bobHtml).not.toContain('Connected · Resuming automatically')
+    } finally {
+      globalThis.document = prevDocument
+    }
+  } finally {
+    client.clear()
+  }
+})
+
+test('library.skill.save ActionCard renders ownership details, diff/draft disclosures, and ChatModel prefixes attachedSkill', () => {
+  const client = new QueryClient()
+  const model = new ChatModel()
+  model.attachedSkill.value = { slug: 'pg-audit', name: 'Postgres Audit' }
+  model.draft.value = 'Inspect slow queries on orders'
+  expect(model.hasContent.value).toBe(true)
+
+  const submission = model.submit('conv-1', 'assistant', () => 'msg-1')
+  expect(submission.text).toBe('/pg-audit Inspect slow queries on orders')
+  model.accepted(submission)
+  expect(model.draft.value).toBe('')
+  expect(model.attachedSkill.value).toBeNull()
+
+  const cardMessage = {
+    id: 'msg-skill-card',
+    seq: 5,
+    kind: 'message',
+    authorType: 'agent',
+    authorUID: 'assistant',
+    authorDisplayName: 'Personal Assistant',
+    authorArchived: false,
+    text: '',
+    createdAt: '2026-11-11T09:05:00Z',
+    signalID: 'sig-2',
+    replyToMessageID: null,
+    mentions: [],
+    savedPages: [],
+    links: [],
+    attachments: [],
+    richContent: {
+      action_card: {
+        card_id: 'card-skill-1',
+        action_kind: 'library.skill.save',
+        summary: 'Save Postgres Index Audit workflow as a Personal Skill.',
+        status: 'prepared',
+        payload: {
+          operation: 'update',
+          slug: 'pg-audit',
+          skill_name: 'Postgres Audit',
+          target: 'personal',
+          agent_uid: 'assistant',
+          base_revision: 1,
+          diff: '- 1. Check index\n+ 1. Check covering keyset index',
+          markdown: '# Postgres Audit\n\n## When to Use\nWhen auditing slow queries.'
+        }
+      }
+    }
+  } as unknown as TimelineMessage
+
+  const replyMessage = {
+    id: 'msg-agent-reply',
+    seq: 6,
+    kind: 'message',
+    authorType: 'agent',
+    authorUID: 'assistant',
+    authorDisplayName: 'Personal Assistant',
+    authorArchived: false,
+    text: 'Audit complete: keyset index reduced latency from 840ms to 4ms.',
+    createdAt: '2026-11-11T09:06:00Z',
+    signalID: 'sig-3',
+    replyToMessageID: null,
+    mentions: [],
+    savedPages: [],
+    links: [],
+    attachments: []
+  } as unknown as TimelineMessage
+
+  try {
+    const cardHtml = render(
+      <QueryClientProvider client={client}>
+        <MessageView
+          model={model}
+          conversationID="conv-1"
+          linkedRuns={[]}
+          onJumpToSource={() => {}}
+          onResolveActionCard={async () => {}}
+          keyboardActive={false}
+          own={false}
+          message={cardMessage}
+          showActions
+        />
+      </QueryClientProvider>
+    )
+    expect(cardHtml).toContain('Save Skill approval')
+    expect(cardHtml).toContain('Postgres Audit (/pg-audit)')
+    expect(cardHtml).toContain('Scope: Personal Skill (only on your Personal Assistant)')
+    expect(cardHtml).toContain('Check covering keyset index')
+
+    const redactedCardMessage = {
+      ...cardMessage,
+      richContent: {
+        action_card: {
+          ...cardMessage.richContent!.action_card!,
+          payload: {
+            operation: 'update',
+            slug: 'pg-audit',
+            skill_name: 'Postgres Audit',
+            target: 'personal',
+            agent_uid: 'assistant',
+            base_revision: 1,
+            redacted: true
+          }
+        }
+      }
+    } as unknown as TimelineMessage
+    const redactedHtml = render(
+      <QueryClientProvider client={client}>
+        <MessageView
+          model={model}
+          conversationID="conv-1"
+          linkedRuns={[]}
+          onJumpToSource={() => {}}
+          onResolveActionCard={async () => {}}
+          keyboardActive={false}
+          own={false}
+          message={redactedCardMessage}
+          showActions
+        />
+      </QueryClientProvider>
+    )
+    expect(redactedHtml).toContain('Draft content is only visible to the Personal Assistant owner.')
+    expect(redactedHtml).not.toContain('Check covering keyset index')
+
+    const replyHtml = render(
+      <QueryClientProvider client={client}>
+        <MessageView
+          model={model}
+          conversationID="conv-1"
+          linkedRuns={[]}
+          onJumpToSource={() => {}}
+          onSaveAsSkill={() => {}}
+          keyboardActive={false}
+          own={false}
+          message={replyMessage}
+          showActions
+        />
+      </QueryClientProvider>
+    )
+    expect(replyHtml).toContain('Save as Skill (/learn)')
+  } finally {
+    client.clear()
+  }
+})
+
+test('MessageView renders PageAccessCardView with 4-stage waterfall for managers and redacts restricted titles for non-managers', () => {
+  const client = new QueryClient()
+  const model = new ChatModel()
+
+  const managerMessage = {
+    id: 'msg-access-manager',
+    seq: 7,
+    kind: 'message',
+    authorType: 'agent',
+    authorUID: 'research',
+    authorDisplayName: 'Research Colleague',
+    authorArchived: false,
+    text: 'I need view access to Q4 Strategy to finish this analysis.',
+    createdAt: '2026-11-11T09:10:00Z',
+    signalID: 'sig-access-1',
+    replyToMessageID: null,
+    mentions: [],
+    savedPages: [],
+    links: [],
+    attachments: [],
+    richContent: {
+      access_blocked: {
+        interaction_id: 'sig-access-1:access_blocked:msg-access-manager',
+        state: 'pending',
+        page_id: '019a0000-0000-7000-8000-000000000001',
+        page_title: 'Q4 Strategy',
+        agent_uid: 'research',
+        agent_name: 'Research Colleague',
+        grant_target_uid: 'research',
+        target_name: 'Research Colleague',
+        can_grant: true,
+        already_granted: false,
+        explain: {
+          page_id: '019a0000-0000-7000-8000-000000000001',
+          subject_uid: 'research',
+          subject_name: 'Research Colleague',
+          authority_uid: 'research',
+          action: 'node_view',
+          allowed: false,
+          effective_role: null,
+          decision_reason: 'Inheritance is turned off on this page and @research has no explicit grant.',
+          stages: [
+            { id: 'subject_resolution', status: 'pass', summary: 'Evaluated as AI Colleague @research.' },
+            { id: 'space_and_trash_gate', status: 'pass', summary: 'Active Space page.' },
+            { id: 'acl_anchor_chain', status: 'fail', summary: 'No matching grant on restricted anchor.' },
+            { id: 'brain_disclosure_gate', status: 'skip', summary: 'Skipped after ACL denial.' }
+          ]
+        }
+      }
+    }
+  } as unknown as TimelineMessage
+
+  const viewerMessage = {
+    ...managerMessage,
+    id: 'msg-access-viewer',
+    text: 'I need view access to a restricted page to continue.',
+    richContent: {
+      access_blocked: {
+        interaction_id: 'sig-access-2:access_blocked:msg-access-viewer',
+        state: 'pending',
+        page_id: '019a0000-0000-7000-8000-000000000002',
+        page_title: null,
+        agent_uid: 'research',
+        agent_name: 'Research Colleague',
+        grant_target_uid: 'research',
+        target_name: 'Research Colleague',
+        can_grant: false,
+        already_granted: false,
+        explain: null
+      }
+    }
+  } as unknown as TimelineMessage
+
+  const router = createRouter({
+    routeTree: createRootRoute(),
+    history: createMemoryHistory({ initialEntries: ['/'] })
+  })
+
+  try {
+    const managerHtml = render(
+      <QueryClientProvider client={client}>
+        <RouterContextProvider router={router}>
+          <MessageView
+            model={model}
+            conversationID="conv-1"
+            linkedRuns={[]}
+            onJumpToSource={() => {}}
+            keyboardActive={false}
+            own={false}
+            message={managerMessage}
+            showActions
+          />
+        </RouterContextProvider>
+      </QueryClientProvider>
+    )
+    expect(managerHtml).toContain('chat-page-access-card')
+    expect(managerHtml).toContain('Q4 Strategy')
+    expect(managerHtml).toContain('Grant View &amp; Continue')
+    expect(managerHtml).toContain('Why access was blocked (4 stages)')
+    expect(managerHtml).toContain('access-waterfall')
+    expect(managerHtml).toContain('No matching grant on restricted anchor.')
+
+    const viewerHtml = render(
+      <QueryClientProvider client={client}>
+        <RouterContextProvider router={router}>
+          <MessageView
+            model={model}
+            conversationID="conv-1"
+            linkedRuns={[]}
+            onJumpToSource={() => {}}
+            keyboardActive={false}
+            own={false}
+            message={viewerMessage}
+            showActions
+          />
+        </RouterContextProvider>
+      </QueryClientProvider>
+    )
+    expect(viewerHtml).toContain('Restricted page')
+    expect(viewerHtml).toContain('Waiting for a page manager to grant view access.')
+    expect(viewerHtml).not.toContain('Grant View &amp; Continue')
+    expect(viewerHtml).not.toContain('Q4 Strategy')
   } finally {
     client.clear()
   }

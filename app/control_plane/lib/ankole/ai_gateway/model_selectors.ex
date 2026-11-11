@@ -4,8 +4,9 @@ defmodule Ankole.AIGateway.ModelSelectors do
 
   LLM profiles keep their familiar names such as `primary`, while capability
   profiles expose explicit default selectors. Embedding accepts only explicit
-  `provider_id/model` selectors; rerank and decision have Pod/Site default
-  bindings that do not share the Agent custom LLM alias namespace.
+  `provider_id/model` selectors; rerank, decision, speech, transcription, and
+  OCR have Pod/Site default bindings that do not share the Agent custom LLM alias
+  namespace.
   """
 
   @default_bindings %{
@@ -28,6 +29,26 @@ defmodule Ankole.AIGateway.ModelSelectors do
     "decision" => %{
       profile: "decision",
       selector: "decision.default"
+    },
+    "speech" => %{
+      profile: "speech",
+      selector: "speech.default"
+    },
+    "transcription" => %{
+      profile: "transcription",
+      selector: "transcription.default"
+    },
+    "ocr" => %{
+      profile: "ocr",
+      selector: "ocr.default"
+    },
+    "video" => %{
+      profile: "video",
+      selector: "video.default"
+    },
+    "music" => %{
+      profile: "music",
+      selector: "music.default"
     }
   }
 

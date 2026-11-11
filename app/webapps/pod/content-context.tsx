@@ -11,10 +11,12 @@ import { revalidateMentions } from './state/document-mentions'
 import { podKeys } from './api'
 import { metaKeys, type MetaBrainGraph } from './meta-api'
 import { pageHrefFor } from './use-page-metadata'
+import type { OfficeNavigationSession } from './office/office-collaboration'
 
 export type PageHostActions = {
   navigateToPage(pageID: string): void
   openChat(options?: PodChatOpenOptions): void
+  registerOfficeSession?(session: OfficeNavigationSession): () => void
 }
 
 const PageHostContext = createContext<PageHostActions | null>(null)

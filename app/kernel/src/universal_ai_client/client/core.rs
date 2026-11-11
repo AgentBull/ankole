@@ -239,7 +239,11 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
         .provider_headers(&response.headers));
     }
 
-    let body = decode_response_body(&response.body)?;
+    let body = if spec.api_resolver.answers_with_audio() {
+        audio_body(&response)?
+    } else {
+        decode_response_body(&response.body)?
+    };
     let mut resolver =
         api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
     let mut normalized_body = resolver.normalize_body(response.status, body)?;
@@ -315,6 +319,37 @@ async fn download_result_url(
         );
     }
     Ok(())
+}
+
+/// Hands a speech provider's audio to the resolver as base64 next to the
+/// media type that the provider declared. A 2xx body that is not audio is the
+/// provider's own error report, so the request fails with its excerpt.
+fn audio_body(response: &transport::HTTPResponse) -> Result<Value, StreamError> {
+    let media_type = response
+        .headers
+        .iter()
+        .find(|(name, _value)| name.eq_ignore_ascii_case("content-type"))
+        .and_then(|(_name, value)| value.split(';').next())
+        .map(|media_type| media_type.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if response.body.is_empty()
+        || !(media_type.starts_with("audio/") || media_type == "application/octet-stream")
+    {
+        return Err(StreamError::new(
+            "invalid_upstream_response",
+            "api_resolver",
+            "upstream speech response must contain audio",
+        )
+        .provider_status(response.status)
+        .provider_body_excerpt(&response.body));
+    }
+
+    Ok(json!({
+        "audio": STANDARD.encode_to_string(&response.body),
+        "content_type": media_type,
+        "usage": {}
+    }))
 }
 
 async fn run_raw_request(spec: RawRequestSpec) -> Result<Value, StreamError> {

@@ -3,6 +3,7 @@ import {
   DatabaseRegular,
   DocumentEditRegular,
   DocumentTextRegular,
+  LockClosedRegular,
   SearchRegular,
   SparkleRegular,
   TextBulletListTreeRegular,
@@ -412,7 +413,8 @@ export function ToolRunView({
   )
 }
 
-type ExplorationKind = 'read' | 'search' | 'list'
+const EXPLORATION_KIND_ORDER = ['read', 'search', 'list', 'recall', 'web', 'pod_read'] as const
+type ExplorationKind = (typeof EXPLORATION_KIND_ORDER)[number]
 
 const EXPLORATION_LABELS: Record<string, ExplorationKind> = {
   file_read: 'read',
@@ -424,7 +426,26 @@ const EXPLORATION_LABELS: Record<string, ExplorationKind> = {
   command_find_files_family: 'search',
   file_list: 'list',
   file_list_target: 'list',
-  command_list_files_family: 'list'
+  command_list_files_family: 'list',
+  memory_recall: 'recall',
+  memory_entity_read: 'recall',
+  memory_whoknows: 'recall',
+  memory_delta: 'recall',
+  memory_metric_query: 'recall',
+  memory_page_read: 'recall',
+  source_read: 'recall',
+  recall_related_context: 'recall',
+  web_search: 'web',
+  web_fetch: 'web',
+  web_fetch_many: 'web',
+  web_fetch_many_target: 'web',
+  web_fetch_target: 'web',
+  pod_page_read: 'pod_read',
+  pod_page_list: 'pod_read',
+  pod_page_search: 'pod_read',
+  pod_base_tables: 'pod_read',
+  pod_base_query: 'pod_read',
+  pod_base_schema: 'pod_read'
 }
 
 /** Steps recorded before activity labels existed carry only their tool name. */
@@ -432,17 +453,69 @@ const EXPLORATION_TOOLS: Record<string, ExplorationKind> = {
   read_file: 'read',
   grep: 'search',
   find: 'search',
-  ls: 'list'
+  ls: 'list',
+  'brain.search': 'recall',
+  recall: 'recall',
+  entity: 'recall',
+  whoknows: 'recall',
+  delta: 'recall',
+  metric_query: 'recall',
+  recall_related_context: 'recall',
+  source_read: 'recall',
+  web_search: 'web',
+  web_search_call: 'web',
+  web_fetch: 'web',
+  web_fetch_many: 'web',
+  'pod.pages.read': 'pod_read',
+  'pod.pages.list': 'pod_read',
+  'pod.pages.search': 'pod_read',
+  'pod.base.tables': 'pod_read',
+  'pod.base.query': 'pod_read',
+  'pod.base.schema': 'pod_read'
+}
+
+function unwrapShellCommand(raw: string): string {
+  const trimmed = raw.trim()
+  const shellMatch = /^(?:\/?(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-lc\s+([\s\S]+)$/.exec(trimmed)
+  if (!shellMatch?.[1]) return trimmed
+  const inner = shellMatch[1].trim()
+  if (inner.startsWith("'") && inner.endsWith("'") && inner.length >= 2) {
+    return inner.slice(1, -1).replaceAll("'\\''", "'").trim()
+  }
+  if (inner.startsWith('"') && inner.endsWith('"') && inner.length >= 2) {
+    return inner.slice(1, -1).replaceAll('\\"', '"').trim()
+  }
+  return inner
+}
+
+function isReadOnlyPodCommand(step: ExecutionStep): boolean {
+  if (!/bash|terminal|command|shell/.test(step.tool)) return false
+  const input = decoded(step.input)
+  const raw = isRecord(input) && typeof input.command === 'string' ? input.command : undefined
+  if (!raw) {
+    return /^(?:Read page|List pages|Search pages|List tables|Query table|Read table schema)(?::|\s|\(|$)/.test(
+      step.title || ''
+    )
+  }
+  const command = unwrapShellCommand(raw)
+  if (/[\r\n;&|><`]|(?:\$\()/.test(command)) return false
+  return /^ankole-pod\s+(?:pages\.(?:read|list|search)|base\.(?:tables|schema|query)|comments\s+(?:list|show))(?:\s|$)/.test(
+    command
+  )
 }
 
 function explorationKind(step: ExecutionStep): ExplorationKind | undefined {
   if (skillStepName(step) !== undefined) return undefined
-  return step.label_key
-    ? EXPLORATION_LABELS[step.label_key.replace('conversations.delivery.reply.activity.', '')]
-    : EXPLORATION_TOOLS[step.tool]
+  if (step.status === 'blocked') return undefined
+  if (step.label_key) {
+    const byLabel = EXPLORATION_LABELS[step.label_key.replace('conversations.delivery.reply.activity.', '')]
+    if (byLabel) return byLabel
+  }
+  if (isReadOnlyPodCommand(step)) return 'pod_read'
+  return EXPLORATION_TOOLS[step.tool]
 }
 
-/** Folds each run of two or more consecutive read, search, or list steps into one group. */
+/** Folds each run of two or more consecutive read-only exploration steps into one group. */
 export function groupExploration(steps: ExecutionStep[]): Array<ExecutionStep | ExecutionStep[]> {
   const entries: Array<ExecutionStep | ExecutionStep[]> = []
   let run: ExecutionStep[] = []
@@ -465,17 +538,23 @@ export function groupExploration(steps: ExecutionStep[]): Array<ExecutionStep | 
 
 function ExplorationGroup({ steps, live }: { steps: ExecutionStep[]; live: boolean }) {
   const { t } = useTranslation()
-  const counts: Record<ExplorationKind, number> = { read: 0, search: 0, list: 0 }
+  const counts: Record<ExplorationKind, number> = {
+    read: 0,
+    search: 0,
+    list: 0,
+    recall: 0,
+    web: 0,
+    pod_read: 0
+  }
   for (const step of steps) counts[explorationKind(step)!] += 1
-  const title = (['read', 'search', 'list'] as const)
-    .filter(kind => counts[kind] > 0)
+  const title = EXPLORATION_KIND_ORDER.filter(kind => counts[kind] > 0)
     .map(kind => t(`pod.chat_timeline.explored_${kind}`, { count: counts[kind] }))
     .join(' · ')
-  // The folded row shows a running read first, then a failed or stopped one.
+  // The folded row shows a running read first, then a failed or stopped one; failed groups expand automatically.
   const statuses = steps.map(step => stepStatus(step.status))
   const status = (['running', 'failed', 'stopped'] as const).find(state => statuses.includes(state)) ?? 'completed'
   return (
-    <details className="pod-chat-tool-group" data-status={status}>
+    <details open={status === 'failed' || undefined} className="pod-chat-tool-group" data-status={status}>
       <summary>
         <CaretRightFilled className="pod-chat-disclosure-caret" aria-hidden />
         <span
@@ -497,16 +576,21 @@ function ExplorationGroup({ steps, live }: { steps: ExecutionStep[]; live: boole
   )
 }
 
-type StepStatus = 'running' | 'completed' | 'failed' | 'stopped'
+type StepStatus = 'running' | 'completed' | 'blocked' | 'failed' | 'stopped'
 
 function stepStatus(status: string): StepStatus {
+  if (status === 'blocked') return 'blocked'
   if (['failed', 'error'].includes(status)) return 'failed'
   if (['stopped', 'cancelled'].includes(status)) return 'stopped'
   if (['completed', 'complete', 'success', 'succeeded', 'settled'].includes(status)) return 'completed'
   return 'running'
 }
 
-/** A step's state takes the status mark of every run in the chat, in the row's 20px status slot. */
+/**
+ * A step's state takes the status mark of every run in the chat, in the row's 20px status slot. The control plane
+ * marks a step blocked when it failed for a missing connector authorization or Page access, and such a step shows a
+ * lock instead, because the run marks have no blocked state.
+ */
 function StepState({ status }: { status: StepStatus }) {
   const { t } = useTranslation()
   return (
@@ -514,7 +598,7 @@ function StepState({ status }: { status: StepStatus }) {
       key={status}
       className="pod-chat-tool-state motion-safe:animate-[pod-chat-tool-status-in_360ms_cubic-bezier(.22,1,.36,1)_both]"
       aria-label={t(`pod.chat_timeline.${status}`)}>
-      <ExecutionStatusMark status={status} />
+      {status === 'blocked' ? <LockClosedRegular aria-hidden /> : <ExecutionStatusMark status={status} />}
     </span>
   )
 }

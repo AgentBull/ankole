@@ -53,6 +53,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
                     "additionalProperties": false
                   },
                   "execution_mode": "parallel",
+                  "defer_loading": true,
                   "read_only": true,
                   "destructive": false
                 },
@@ -81,6 +82,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
                     "additionalProperties": false
                   },
                   "execution_mode": "parallel",
+                  "allowed_callers": ["direct", "programmatic"],
                   "read_only": true,
                   "destructive": false
                 },
@@ -110,6 +112,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
                     "additionalProperties": false
                   },
                   "execution_mode": "parallel",
+                  "allowed_callers": ["direct", "programmatic"],
                   "read_only": true,
                   "destructive": false
                 },
@@ -321,10 +324,17 @@ defmodule Ankole.Sessions.Tools.Jobs do
 
   def execute(
         run,
-        %{"name" => "show_background_job_details"},
+        %{"name" => "show_background_job_details"} = call,
         %{"result_offset" => offset} = args
       ) do
-    case Jobs.get_result_window_for_agent(args["job_id"], run.agent_uid, offset) do
+    budget = Tools.result_budget(call)
+
+    case Jobs.get_result_window_for_agent(
+           args["job_id"],
+           run.agent_uid,
+           offset,
+           max(budget, 16_384)
+         ) do
       %{
         job: %Job{status: :succeeded} = job,
         output_window: text,
@@ -334,18 +344,23 @@ defmodule Ankole.Sessions.Tools.Jobs do
       when is_binary(text) and is_integer(total) ->
         paths = if is_nil(job.runner_id), do: bounded_paths(paths), else: %{}
 
-        Tools.window(Ankole.Text.utf8_prefix(text, byte_size(text)), offset, total, fn text,
-                                                                                       next ->
-          %{
-            "title" => job.title,
-            "status" => Atom.to_string(job.status),
-            "result_ref" => %{"type" => "background_agent_job", "job_id" => job.id},
-            "workspace_owner_job_id" => job.workspace_owner_job_id,
-            "result" => %{"offset" => offset, "output_text" => text, "next_offset" => next}
-          }
-          |> put_runner_id(job)
-          |> Map.merge(paths)
-        end)
+        Tools.window(
+          Ankole.Text.utf8_prefix(text, byte_size(text)),
+          offset,
+          total,
+          fn text, next ->
+            %{
+              "title" => job.title,
+              "status" => Atom.to_string(job.status),
+              "result_ref" => %{"type" => "background_agent_job", "job_id" => job.id},
+              "workspace_owner_job_id" => job.workspace_owner_job_id,
+              "result" => %{"offset" => offset, "output_text" => text, "next_offset" => next}
+            }
+            |> put_runner_id(job)
+            |> Map.merge(paths)
+          end,
+          budget
+        )
 
       nil ->
         {:error, :job_not_found}

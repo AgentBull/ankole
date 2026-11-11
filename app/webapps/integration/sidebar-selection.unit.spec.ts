@@ -138,6 +138,7 @@ test('Meta Ankole routes select Home, keep Meta Ankole collapsed until toggled, 
       return route.fulfill({
         json: {
           can_create: false,
+          can_create_workspace: false,
           skills: [
             {
               id: 'skill-1',
@@ -145,11 +146,15 @@ test('Meta Ankole routes select Home, keep Meta Ankole collapsed until toggled, 
               name: 'Ops Guide',
               description: 'Operational handbook',
               source_kind: 'custom',
+              agent_uids: [],
+              runtime_agent_uids: [],
               can_bind_all: false,
               can_delete: false,
               can_edit: false,
+              can_publish: false,
               colleague_count: 0,
               assistant_enabled: false,
+              runtime_assistant_enabled: false,
               enabled_for_all: false,
               manifest_markdown: '# Ops Guide',
               manifest_xml: '<page><p>Ops Guide</p></page>',

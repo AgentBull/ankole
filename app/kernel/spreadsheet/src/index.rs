@@ -3,17 +3,19 @@
 //! Both outputs are rebuildable caches: the control plane stores them beside the authoritative
 //! `.xlsx` and regenerates them from it whenever needed.
 
+use std::collections::BTreeMap;
 use std::io::Read;
 
-use gridcraft_core::Value;
-use gridcraft_model::{Visibility, Workbook};
+use gridcraft_core::{CellRef, RangeRef};
+use gridcraft_model::{Sheet, Visibility, Workbook};
 use serde::Serialize;
 
 use crate::doc::SpreadsheetDoc;
 use crate::ids::SheetId;
+use crate::view::display_text;
 
-/// Longest search text kept for one workbook, in bytes. Large numeric tables would otherwise grow
-/// the search index without adding useful terms.
+/// Longest text kept for one workbook, in bytes. The control plane stores, indexes, and chunks
+/// this text, so the limit bounds that work however large the workbook's tables are.
 pub const PLAIN_TEXT_LIMIT: usize = 512 * 1024;
 
 /// GridCraft reports these warnings for content it does not show but writes back unchanged, so
@@ -88,6 +90,8 @@ pub struct Metadata {
     pub warnings: Vec<String>,
     /// Whether saving drops objects of the source file, such as slicers.
     pub has_unsupported_objects: bool,
+    /// Whether the workbook's text is longer than [`PLAIN_TEXT_LIMIT`] and was cut there.
+    pub truncated: bool,
 }
 
 /// One sheet in tab order. `rows` and `cols` count up to the last stored cell.
@@ -126,39 +130,34 @@ pub(crate) fn metadata(doc: &SpreadsheetDoc) -> Metadata {
         sheets,
         warnings: source.warnings.clone(),
         has_unsupported_objects: source.has_unsupported_objects,
+        // shortcut: the flag costs a second pass over the workbook's text on open and on export;
+        // derive the text and the outline in one call if that pass shows up in a profile.
+        truncated: bounded_text(doc.workbook()).1,
     }
 }
 
-/// Sheet names, then each sheet's constant text cells row by row (tab-separated within a row),
-/// then its comments, truncated to [`PLAIN_TEXT_LIMIT`]. Formula results are left out because they
-/// repeat text that the sheet already holds.
+/// The workbook as text, one sheet after another, cut at [`PLAIN_TEXT_LIMIT`].
+///
+/// Each sheet starts with a `[Sheet: <name>]` line. Every row that shows something follows as
+/// `R<row>\t<cell>\t<cell>...`: `<row>` is the 1-based row number, the cells run from column A,
+/// a blank cell is an empty string between two tabs, and the blank cells after the last shown
+/// one are dropped. A cell reads as the grid shows it, so numbers, dates, and formula results
+/// carry their number format, and a tab or line break inside a cell becomes a space. A cell that
+/// holds a picture is blank. A merged range taller than one row repeats its top-left text in its
+/// first column on every later row that shows something, so each row carries the label it sits
+/// under. The sheet's comments and their replies follow its rows as plain lines.
 pub(crate) fn plain_text(wb: &Workbook) -> String {
+    bounded_text(wb).0
+}
+
+/// [`plain_text`], and whether the limit cut it.
+fn bounded_text(wb: &Workbook) -> (String, bool) {
     let mut out = String::new();
-    'sheets: for sheet in &wb.sheets {
-        push_line(&mut out, &sheet.name);
-        let mut row = None;
-        for (cell_ref, cell) in sheet.cells.iter() {
-            let (None, Value::Text(text)) = (&cell.formula, &cell.value) else {
-                continue;
-            };
-            if text.trim().is_empty() {
-                continue;
-            }
-            if row == Some(cell_ref.row) {
-                out.push('\t');
-            } else {
-                if row.is_some() {
-                    out.push('\n');
-                }
-                row = Some(cell_ref.row);
-            }
-            out.push_str(text);
-            if out.len() > PLAIN_TEXT_LIMIT {
-                break 'sheets;
-            }
-        }
-        if row.is_some() {
-            out.push('\n');
+    for sheet in &wb.sheets {
+        out.push_str(&format!("[Sheet: {}]\n", one_line(&sheet.name)));
+        push_rows(&mut out, wb, sheet);
+        if out.len() > PLAIN_TEXT_LIMIT {
+            break;
         }
         for comment in sheet.comments.values() {
             push_line(&mut out, &comment.text);
@@ -170,7 +169,91 @@ pub(crate) fn plain_text(wb: &Workbook) -> String {
             break;
         }
     }
-    truncate(out)
+    let truncated = out.len() > PLAIN_TEXT_LIMIT;
+    (truncate(out), truncated)
+}
+
+/// Appends the rows of `sheet` that show something and stops once `out` passes the limit.
+fn push_rows(out: &mut String, wb: &Workbook, sheet: &Sheet) {
+    // The merged ranges that repeat a label, in the order the walk below reaches their rows.
+    let mut merges: Vec<(RangeRef, String)> = sheet
+        .merges
+        .iter()
+        .filter(|range| range.end.row > range.start.row)
+        .map(|range| (*range, cell_text(wb, sheet, range.start)))
+        .filter(|(_, text)| !text.is_empty())
+        .collect();
+    merges.sort_by_key(|(range, _)| range.start.row);
+    let mut later = merges.iter().peekable();
+    let mut open: Vec<&(RangeRef, String)> = Vec::new();
+
+    let mut cells = sheet.cells.iter().peekable();
+    while let Some(&(CellRef { row, .. }, _)) = cells.peek() {
+        let mut shown = BTreeMap::new();
+        while let Some((at, _)) = cells.next_if(|(at, _)| at.row == row) {
+            let text = cell_text(wb, sheet, at);
+            if !text.is_empty() {
+                shown.insert(at.col, text);
+            }
+        }
+        if shown.is_empty() {
+            continue;
+        }
+        while let Some(merge) = later.next_if(|(range, _)| range.start.row < row) {
+            open.push(merge);
+        }
+        open.retain(|(range, _)| range.end.row >= row);
+        for (range, text) in &open {
+            shown.entry(range.start.col).or_insert_with(|| text.clone());
+        }
+
+        out.push_str(&format!("R{}", row + 1));
+        let mut next_col = 0;
+        for (col, text) in &shown {
+            out.extend(std::iter::repeat_n('\t', (col - next_col + 1) as usize));
+            out.push_str(text);
+            next_col = col + 1;
+        }
+        out.push('\n');
+        if out.len() > PLAIN_TEXT_LIMIT {
+            return;
+        }
+    }
+}
+
+/// What the grid shows in a stored cell, on one line; nothing for a cell that holds a picture.
+fn cell_text(wb: &Workbook, sheet: &Sheet, at: CellRef) -> String {
+    let Some(cell) = sheet.cells.get(at) else {
+        return String::new();
+    };
+    let formula = cell.formula.as_deref();
+    if (cell.value.is_empty() && formula.is_none())
+        || sheet.cell_pictures.contains_key(&at)
+        || formula.is_some_and(|formula| is_image_formula(&formula.text))
+    {
+        return String::new();
+    }
+    one_line(&display_text(wb, sheet, at))
+}
+
+/// Whether the formula, written with or without `=`, places a picture in its cell: WPS writes
+/// `DISPIMG`, and Excel writes `IMAGE`, which files spell `_xlfn.IMAGE`.
+fn is_image_formula(formula: &str) -> bool {
+    let starts_with = |text: &str, prefix: &str| {
+        text.get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+    };
+    let call = formula.trim_start().trim_start_matches('=');
+    let call = if starts_with(call, "_xlfn.") {
+        &call[6..]
+    } else {
+        call
+    };
+    starts_with(call, "DISPIMG(") || starts_with(call, "IMAGE(")
+}
+
+fn one_line(text: &str) -> String {
+    text.replace(['\t', '\n', '\r'], " ").trim().to_owned()
 }
 
 fn push_line(out: &mut String, text: &str) {
@@ -193,18 +276,25 @@ fn truncate(mut text: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use gridcraft_core::{CellRef, Value};
-    use gridcraft_model::{Comment, Sheet, Workbook};
+    use std::sync::Arc;
 
-    use super::{PLAIN_TEXT_LIMIT, plain_text};
+    use gridcraft_core::{CellRef, RangeRef, Value};
+    use gridcraft_model::{Cell, Comment, Formula, NumFmt, Sheet, Style, Workbook};
+
+    use super::{PLAIN_TEXT_LIMIT, bounded_text, plain_text};
+
+    fn workbook(sheet: Sheet) -> Workbook {
+        let mut wb = Workbook::new();
+        wb.sheets = vec![Arc::new(sheet)];
+        wb
+    }
 
     #[test]
-    fn plain_text_lists_names_text_cells_and_comments() {
-        let mut wb = Workbook::new();
+    fn plain_text_marks_the_sheet_numbers_its_rows_and_lists_comments() {
         let mut sheet = Sheet::new("华东区");
         sheet.set_value(CellRef::new(0, 0), Value::text("地区"));
         sheet.set_value(CellRef::new(0, 1), Value::text("收入"));
-        sheet.set_value(CellRef::new(1, 0), Value::text("上海"));
+        sheet.set_value(CellRef::new(1, 0), Value::text("上海\n浦东"));
         sheet.set_value(CellRef::new(1, 1), Value::number(12.0));
         sheet.comments.insert(
             CellRef::new(1, 0),
@@ -219,19 +309,85 @@ mod tests {
                 note_box: None,
             },
         );
-        wb.sheets = vec![std::sync::Arc::new(sheet)];
-        assert_eq!(plain_text(&wb), "华东区\n地区\t收入\n上海\n核对\n");
+        assert_eq!(
+            bounded_text(&workbook(sheet)),
+            (
+                "[Sheet: 华东区]\nR1\t地区\t收入\nR2\t上海 浦东\t12\n核对\n".to_owned(),
+                false
+            )
+        );
+    }
+
+    #[test]
+    fn plain_text_shows_cells_as_the_grid_does_and_keeps_their_columns() {
+        let mut wb = Workbook::new();
+        let mut styled = |code: &str| {
+            wb.styles.intern(Style {
+                num_fmt: NumFmt::new(code),
+                ..Style::default()
+            })
+        };
+        let (amount, percent, date) = (styled("#,##0.00"), styled("0.0%"), styled("yyyy-mm-dd"));
+        let mut sheet = Sheet::new("S");
+        let mut set = |row, col, value, formula: Option<&str>, style| {
+            let formula = formula.map(|text| Arc::new(Formula::new(text)));
+            sheet.set_cell(
+                CellRef::new(row, col),
+                Cell {
+                    value,
+                    formula,
+                    style,
+                },
+            );
+        };
+        set(0, 0, Value::number(1234.5), None, amount);
+        set(0, 2, Value::number(0.125), None, percent);
+        set(0, 4, Value::number(45292.0), None, date);
+        set(2, 1, Value::number(3.0), Some("=1+2"), amount);
+        set(2, 2, Value::Bool(true), None, amount);
+        // Row 2 and the tail of row 3 hold pictures only.
+        let dispimg = "=DISPIMG(\"ID_1\",1)";
+        set(1, 0, Value::text(dispimg), Some(dispimg), amount);
+        set(2, 3, Value::text("x"), Some("_xlfn.image(\"u\")"), amount);
+        set(2, 4, Value::text("x"), Some("=IMAGE(\"u\")"), amount);
+        wb.sheets = vec![Arc::new(sheet)];
+        assert_eq!(
+            plain_text(&wb),
+            "[Sheet: S]\nR1\t1,234.50\t\t12.5%\t\t2024-01-01\nR3\t\t3.00\tTRUE\n"
+        );
+    }
+
+    #[test]
+    fn plain_text_repeats_a_tall_merge_down_its_first_column_only() {
+        let mut sheet = Sheet::new("S");
+        let mut text = |row, col, value: &str| {
+            sheet.set_value(CellRef::new(row, col), Value::text(value));
+        };
+        // A1:B3 labels rows 1-3, and row 3 shows nothing else.
+        text(0, 0, "华东");
+        text(0, 2, "上海");
+        text(1, 2, "杭州");
+        // A5:C5 is one row tall.
+        text(4, 0, "合计");
+        text(5, 3, "9");
+        sheet.merges = vec![
+            RangeRef::new(CellRef::new(0, 0), CellRef::new(2, 1)),
+            RangeRef::new(CellRef::new(4, 0), CellRef::new(4, 2)),
+        ];
+        assert_eq!(
+            plain_text(&workbook(sheet)),
+            "[Sheet: S]\nR1\t华东\t\t上海\nR2\t华东\t\t杭州\nR5\t合计\nR6\t\t\t\t9\n"
+        );
     }
 
     #[test]
     fn plain_text_stops_at_the_limit_on_a_char_boundary() {
-        let mut wb = Workbook::new();
         let mut sheet = Sheet::new("S");
         for row in 0..60_000 {
             sheet.set_value(CellRef::new(row, 0), Value::text("中文内容"));
         }
-        wb.sheets = vec![std::sync::Arc::new(sheet)];
-        let text = plain_text(&wb);
+        let (text, truncated) = bounded_text(&workbook(sheet));
         assert!(text.len() <= PLAIN_TEXT_LIMIT && text.len() > PLAIN_TEXT_LIMIT - 4);
+        assert!(truncated);
     }
 }

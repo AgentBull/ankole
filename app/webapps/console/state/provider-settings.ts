@@ -101,9 +101,15 @@ export function decryptedCredentialFieldText(
   return settingDraftValue(raw)
 }
 
-/** Returns the request-scoped settings accepted by model profiles for a provider kind. */
-export function requestSettings(kind: AIGatewayProviderKindItem | undefined): ProviderSetting[] {
-  return settingsForScope(kind, 'request')
+/**
+ * Returns the request-scoped settings that a model profile of `capability`
+ * offers for a provider kind. A setting without `capabilities` serves every
+ * capability of the kind; one that lists them is read only by those requests.
+ */
+export function requestSettings(kind: AIGatewayProviderKindItem | undefined, capability: string): ProviderSetting[] {
+  return settingsForScope(kind, 'request').filter(
+    setting => !setting.capabilities || setting.capabilities.includes(capability)
+  )
 }
 
 function settingsForScope(

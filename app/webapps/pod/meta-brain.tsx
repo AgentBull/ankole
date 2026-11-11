@@ -31,6 +31,7 @@ import {
   DismissRegular,
   FullScreenMaximizeRegular,
   OrganizationHorizontalRegular,
+  PersonHeartRegular,
   StackRegular,
   TagRegular,
   TargetRegular,
@@ -46,6 +47,7 @@ import { useSearchParams } from '../common/router'
 import { PageContentList } from './content-list'
 import { ContentError } from './content-primitives'
 import { metaBrainQuery, metaKeys } from './meta-api'
+import { BrainMyContextView, BrainNodeClaimsSection } from './meta-brain-claims'
 import { usePageCreation } from './page-create-menu'
 import { PageRoute } from './page-workspace'
 import {
@@ -414,6 +416,8 @@ function BrainInspectorCard({
           </ul>
         </div>
       )}
+
+      <BrainNodeClaimsSection pageId={object.id} />
     </div>
   )
 }
@@ -423,6 +427,7 @@ export function MetaBrain() {
   const graph = useQuery(metaBrainQuery())
   const [search, setSearch] = useState('')
   const [params, setParams] = useSearchParams()
+  const lens = params.get('lens') === 'mine' ? 'mine' : 'workspace'
   const category = params.get('category') ?? 'all'
   const layoutMode = parseLayoutMode(params.get('layout'))
 
@@ -431,6 +436,7 @@ export function MetaBrain() {
   const [layersOpen, setLayersOpen] = useState(true)
   const [includeCategoryHubs, setIncludeCategoryHubs] = useState(true)
   const [showEdgeLabels, setShowEdgeLabels] = useState(false)
+  const [focusOnMe, setFocusOnMe] = useState(false)
   const [hiddenEntityTypes, setHiddenEntityTypes] = useState<Set<string>>(() => new Set())
   const [hiddenRelationKinds, setHiddenRelationKinds] = useState<Set<BrainRelationKind>>(() => new Set())
 
@@ -443,6 +449,14 @@ export function MetaBrain() {
 
   const data = graph.data
   const pages: BrainOntologyNode[] = usePagesMetadata(data?.nodes ?? [])
+
+  const focusSlugs = useMemo(() => {
+    if (!focusOnMe || !data) return undefined
+    const slugs = new Set<string>()
+    if (data.viewer_uid) slugs.add(`people/${data.viewer_uid}`)
+    if (data.assistant_uid) slugs.add(`agents/${data.assistant_uid}`)
+    return slugs.size > 0 ? slugs : undefined
+  }, [data, focusOnMe])
 
   const selected = data?.categories.find(item => item.name === category)
   const destination = data?.categories.find(item => item.name === (creating ? createCategory : category))
@@ -466,12 +480,14 @@ export function MetaBrain() {
         layout: layoutMode,
         includeCategoryHubs,
         hiddenEntityTypes,
-        hiddenRelationKinds
+        hiddenRelationKinds,
+        focusSlugs
       }),
     [
       category,
       data?.categories,
       data?.links,
+      focusSlugs,
       hiddenEntityTypes,
       hiddenRelationKinds,
       includeCategoryHubs,
@@ -490,8 +506,30 @@ export function MetaBrain() {
   return (
     <div className="mx-auto w-full max-w-7xl space-y-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{t('pod.meta.brain')}</h1>
-        {data?.categories.some(item => item.can_edit) && (
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold">{t('pod.meta.brain')}</h1>
+          <ToggleGroup
+            spacing={0}
+            value={[lens]}
+            onValueChange={value => {
+              const nextLens = value[0] as 'workspace' | 'mine' | undefined
+              if (!nextLens || nextLens === lens) return
+              const next = new URLSearchParams(params)
+              if (nextLens === 'workspace') next.delete('lens')
+              else next.set('lens', 'mine')
+              setParams(next)
+            }}>
+            <ToggleGroupItem value="workspace">
+              <OrganizationHorizontalRegular aria-hidden className="size-3.5" />
+              <span>{t('pod.meta.lens_workspace')}</span>
+            </ToggleGroupItem>
+            <ToggleGroupItem value="mine">
+              <PersonHeartRegular aria-hidden className="size-3.5" />
+              <span>{t('pod.meta.lens_mine')}</span>
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+        {lens === 'workspace' && data?.categories.some(item => item.can_edit) && (
           <Button
             disabled={create.isPending}
             onClick={() => {
@@ -506,260 +544,285 @@ export function MetaBrain() {
         )}
       </div>
 
-      {creating && (
-        <Dialog open onOpenChange={setCreating}>
-          <DialogContent closeLabel={t('common.close')}>
-            <DialogTitle>{t('pod.meta.new_object')}</DialogTitle>
-            <label id="brain-create-category">{t('pod.meta.category')}</label>
-            <Select value={createCategory ?? ''} onValueChange={value => setCreateCategory(String(value))}>
-              <SelectTrigger aria-labelledby="brain-create-category">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {data?.categories
-                  .filter(item => item.can_edit)
-                  .map(item => (
+      {lens === 'mine' ? (
+        <BrainMyContextView />
+      ) : (
+        <>
+          {creating && (
+            <Dialog open onOpenChange={setCreating}>
+              <DialogContent closeLabel={t('common.close')}>
+                <DialogTitle>{t('pod.meta.new_object')}</DialogTitle>
+                <label id="brain-create-category">{t('pod.meta.category')}</label>
+                <Select value={createCategory ?? ''} onValueChange={value => setCreateCategory(String(value))}>
+                  <SelectTrigger aria-labelledby="brain-create-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {data?.categories
+                      .filter(item => item.can_edit)
+                      .map(item => (
+                        <SelectItem key={item.id} value={item.name}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <DialogFooter>
+                  <Button
+                    disabled={create.isPending || !destination?.can_edit}
+                    onClick={() => void create.submit('knowledge')}>
+                    {t('pod.meta.create')}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-52 flex-1">
+              <label htmlFor="brain-search" className="mb-1 block text-sm">
+                {t('pod.meta.find_object')}
+              </label>
+              <Input id="brain-search" value={search} onChange={event => setSearch(event.target.value)} />
+            </div>
+
+            <div className="w-48">
+              <label id="brain-category" className="mb-1 block text-sm">
+                {t('pod.meta.category')}
+              </label>
+              <Select
+                value={category}
+                onValueChange={value => {
+                  const next = new URLSearchParams(params)
+                  next.set('category', String(value))
+                  setParams(next)
+                }}>
+                <SelectTrigger aria-labelledby="brain-category" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('pod.meta.all_categories')}</SelectItem>
+                  {data?.categories.map(item => (
                     <SelectItem key={item.id} value={item.name}>
                       {item.name}
                     </SelectItem>
                   ))}
-              </SelectContent>
-            </Select>
-            <DialogFooter>
-              <Button
-                disabled={create.isPending || !destination?.can_edit}
-                onClick={() => void create.submit('knowledge')}>
-                {t('pod.meta.create')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-52 flex-1">
-          <label htmlFor="brain-search" className="mb-1 block text-sm">
-            {t('pod.meta.find_object')}
-          </label>
-          <Input id="brain-search" value={search} onChange={event => setSearch(event.target.value)} />
-        </div>
-
-        <div className="w-48">
-          <label id="brain-category" className="mb-1 block text-sm">
-            {t('pod.meta.category')}
-          </label>
-          <Select
-            value={category}
-            onValueChange={value => {
-              const next = new URLSearchParams(params)
-              next.set('category', String(value))
-              setParams(next)
-            }}>
-            <SelectTrigger aria-labelledby="brain-category" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('pod.meta.all_categories')}</SelectItem>
-              {data?.categories.map(item => (
-                <SelectItem key={item.id} value={item.name}>
-                  {item.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <ToggleGroup
-          spacing={0}
-          value={[layoutMode]}
-          onValueChange={value => {
-            const mode = value[0] as AnkoleGraphLayoutMode | undefined
-            if (!mode || mode === layoutMode) return
-            const next = new URLSearchParams(params)
-            if (mode === 'force') next.delete('layout')
-            else next.set('layout', mode)
-            setParams(next)
-          }}>
-          {LAYOUT_OPTIONS.map(({ mode, labelKey, Icon }) => (
-            <ToggleGroupItem key={mode} value={mode} aria-label={t(`pod.meta.${labelKey}`)}>
-              <Icon className="size-3.5" />
-              <span className="hidden sm:inline">{t(`pod.meta.${labelKey}`)}</span>
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-
-        <div className="flex items-center gap-1.5">
-          <Toggle
-            variant="outline"
-            aria-label={t('pod.meta.toggle_layers')}
-            pressed={layersOpen}
-            onPressedChange={setLayersOpen}>
-            <StackRegular className="size-3.5" />
-            <span className="hidden md:inline">{t('pod.meta.toggle_layers')}</span>
-          </Toggle>
-          {layoutMode !== 'combo' && (
-            <Toggle
-              variant="outline"
-              aria-label={t('pod.meta.category_hubs')}
-              pressed={includeCategoryHubs}
-              onPressedChange={setIncludeCategoryHubs}>
-              <TextBulletListTreeRegular className="size-3.5" />
-              <span className="hidden lg:inline">{t('pod.meta.category_hubs')}</span>
-            </Toggle>
-          )}
-          <Toggle
-            variant="outline"
-            aria-label={t('pod.meta.edge_labels')}
-            pressed={showEdgeLabels}
-            onPressedChange={setShowEdgeLabels}>
-            <TagRegular className="size-3.5" />
-            <span className="hidden lg:inline">{t('pod.meta.edge_labels')}</span>
-          </Toggle>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => graphRef.current?.zoomOut()}
-            aria-label={t('pod.meta.zoom_out')}>
-            <ZoomOutRegular className="size-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => graphRef.current?.fitView()}
-            aria-label={t('pod.meta.fit_view')}>
-            <FullScreenMaximizeRegular className="size-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => graphRef.current?.zoomIn()}
-            aria-label={t('pod.meta.zoom_in')}>
-            <ZoomInRegular className="size-4" />
-          </Button>
-        </div>
-      </div>
-
-      {graph.error && <ContentError error={graph.error} retry={() => void graph.refetch()} />}
-
-      <AnkoleGraph
-        ref={graphRef}
-        ariaLabel={t('pod.meta.graph')}
-        nodes={projection.nodes}
-        edges={projection.edges}
-        combos={projection.combos}
-        layout={layoutMode}
-        selectedNodeId={selectedNodeId}
-        highlightedNodeId={hoveredDirectoryId}
-        focusCenterNodeId={selectedNodeId}
-        showEdgeLabels={showEdgeLabels}
-        onSelectNode={setSelectedNodeId}
-        onNavigateNode={node => {
-          if (node.href) void navigate({ to: node.href })
-        }}
-        className="h-[64vh] min-h-[520px]"
-        emptyState={
-          !graph.isPending ? <p className="text-sm text-fg-secondary">{t('pod.meta.no_objects')}</p> : undefined
-        }
-        topLeftOverlay={
-          layersOpen && (projection.entityLayers.length > 0 || projection.relationLayers.length > 0) ? (
-            <BrainLayersCard
-              entityLayers={projection.entityLayers}
-              relationLayers={projection.relationLayers}
-              palette={palette}
-              hasHiddenLayers={hasHiddenLayers}
-              onToggleEntityType={entityType => {
-                setHiddenEntityTypes(prev => {
-                  const next = new Set(prev)
-                  if (next.has(entityType)) next.delete(entityType)
-                  else next.add(entityType)
-                  return next
-                })
-              }}
-              onToggleRelationKind={kind => {
-                setHiddenRelationKinds(prev => {
-                  const next = new Set(prev)
-                  if (next.has(kind)) next.delete(kind)
-                  else next.add(kind)
-                  return next
-                })
-              }}
-              onReset={() => {
-                setHiddenEntityTypes(new Set())
-                setHiddenRelationKinds(new Set())
-              }}
-              onClose={() => setLayersOpen(false)}
-            />
-          ) : undefined
-        }
-        rightOverlay={
-          selection ? (
-            <BrainInspectorCard
-              selection={selection}
-              palette={palette}
-              onSelectNode={setSelectedNodeId}
-              onFocusNode={id => graphRef.current?.focusNode(id)}
-              onCreateInCategory={catName => {
-                setCreateCategory(catName)
-                setCreating(true)
-              }}
-              onClose={() => setSelectedNodeId(null)}
-            />
-          ) : undefined
-        }
-        bottomOverlay={
-          projection.visibleObjects.length > 0 ? (
-            <div className="ceramic rounded-full border border-border px-3 py-1 text-xs text-fg-secondary shadow-xs">
-              {t('pod.meta.graph_stats', {
-                nodes: projection.visibleObjects.length,
-                edges: projection.edges.length
-              })}
+                </SelectContent>
+              </Select>
             </div>
-          ) : undefined
-        }
-      />
 
-      {projection.visibleObjects.length > 0 && (
-        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {projection.visibleObjects.map(node => {
-            const ramp = resolveBrainColorRamp(node.type)
-            const dotColor = palette.ramps[ramp].fill
-            const isSelected = selectedNodeId === node.id
-            return (
-              <li
-                key={node.id}
-                onMouseEnter={() => setHoveredDirectoryId(node.id)}
-                onMouseLeave={() => setHoveredDirectoryId(prev => (prev === node.id ? null : prev))}
-                className={`nav-row flex items-center justify-between gap-2 rounded-control px-2.5 py-1.5 ${
-                  isSelected ? 'bg-bg-secondary ring-1 ring-border' : ''
-                }`}>
-                <Link to={`/meta/brain/${node.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: dotColor }}
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 truncate">{node.title}</span>
-                </Link>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-xs text-fg-tertiary">{node.type}</span>
-                  <button
-                    type="button"
-                    aria-label={t('pod.meta.focus_node')}
-                    onClick={() => {
-                      setSelectedNodeId(node.id)
-                      graphRef.current?.focusNode(node.id)
-                    }}
-                    className="rounded p-1 text-fg-tertiary hover:bg-bg-secondary hover:text-fg-primary">
-                    <TargetRegular className="size-3.5" />
-                  </button>
+            <ToggleGroup
+              spacing={0}
+              value={[layoutMode]}
+              onValueChange={value => {
+                const mode = value[0] as AnkoleGraphLayoutMode | undefined
+                if (!mode || mode === layoutMode) return
+                const next = new URLSearchParams(params)
+                if (mode === 'force') next.delete('layout')
+                else next.set('layout', mode)
+                setParams(next)
+              }}>
+              {LAYOUT_OPTIONS.map(({ mode, labelKey, Icon }) => (
+                <ToggleGroupItem key={mode} value={mode} aria-label={t(`pod.meta.${labelKey}`)}>
+                  <Icon className="size-3.5" />
+                  <span className="hidden sm:inline">{t(`pod.meta.${labelKey}`)}</span>
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+
+            <div className="flex items-center gap-1.5">
+              <Toggle
+                variant="outline"
+                aria-label={t('pod.meta.toggle_layers')}
+                pressed={layersOpen}
+                onPressedChange={setLayersOpen}>
+                <StackRegular className="size-3.5" />
+                <span className="hidden md:inline">{t('pod.meta.toggle_layers')}</span>
+              </Toggle>
+              {layoutMode !== 'combo' && (
+                <Toggle
+                  variant="outline"
+                  aria-label={t('pod.meta.category_hubs')}
+                  pressed={includeCategoryHubs}
+                  onPressedChange={setIncludeCategoryHubs}>
+                  <TextBulletListTreeRegular className="size-3.5" />
+                  <span className="hidden lg:inline">{t('pod.meta.category_hubs')}</span>
+                </Toggle>
+              )}
+              <Toggle
+                variant="outline"
+                aria-label={t('pod.meta.edge_labels')}
+                pressed={showEdgeLabels}
+                onPressedChange={setShowEdgeLabels}>
+                <TagRegular className="size-3.5" />
+                <span className="hidden lg:inline">{t('pod.meta.edge_labels')}</span>
+              </Toggle>
+              <Toggle
+                variant="outline"
+                aria-label={t('pod.meta.focus_on_me')}
+                pressed={focusOnMe}
+                onPressedChange={next => {
+                  setFocusOnMe(next)
+                  if (next) {
+                    const viewerSlug = data?.viewer_uid ? `people/${data.viewer_uid}` : null
+                    const assistantSlug = data?.assistant_uid ? `agents/${data.assistant_uid}` : null
+                    const seed = pages.find(node => node.slug === viewerSlug || node.slug === assistantSlug)
+                    if (seed) graphRef.current?.focusNode(seed.id)
+                  } else {
+                    graphRef.current?.fitView()
+                  }
+                }}>
+                <PersonHeartRegular aria-hidden className="size-3.5" />
+                <span className="hidden md:inline">{t('pod.meta.focus_on_me')}</span>
+              </Toggle>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => graphRef.current?.zoomOut()}
+                aria-label={t('pod.meta.zoom_out')}>
+                <ZoomOutRegular className="size-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => graphRef.current?.fitView()}
+                aria-label={t('pod.meta.fit_view')}>
+                <FullScreenMaximizeRegular className="size-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => graphRef.current?.zoomIn()}
+                aria-label={t('pod.meta.zoom_in')}>
+                <ZoomInRegular className="size-4" />
+              </Button>
+            </div>
+          </div>
+
+          {graph.error && <ContentError error={graph.error} retry={() => void graph.refetch()} />}
+
+          <AnkoleGraph
+            ref={graphRef}
+            ariaLabel={t('pod.meta.graph')}
+            nodes={projection.nodes}
+            edges={projection.edges}
+            combos={projection.combos}
+            layout={layoutMode}
+            selectedNodeId={selectedNodeId}
+            highlightedNodeId={hoveredDirectoryId ?? (focusOnMe ? projection.primaryFocusNodeId : null)}
+            focusCenterNodeId={selectedNodeId ?? (focusOnMe ? projection.primaryFocusNodeId : null)}
+            showEdgeLabels={showEdgeLabels}
+            onSelectNode={setSelectedNodeId}
+            onNavigateNode={node => {
+              if (node.href) void navigate({ to: node.href })
+            }}
+            className="h-[64vh] min-h-[520px]"
+            emptyState={
+              !graph.isPending ? <p className="text-sm text-fg-secondary">{t('pod.meta.no_objects')}</p> : undefined
+            }
+            topLeftOverlay={
+              layersOpen && (projection.entityLayers.length > 0 || projection.relationLayers.length > 0) ? (
+                <BrainLayersCard
+                  entityLayers={projection.entityLayers}
+                  relationLayers={projection.relationLayers}
+                  palette={palette}
+                  hasHiddenLayers={hasHiddenLayers}
+                  onToggleEntityType={entityType => {
+                    setHiddenEntityTypes(prev => {
+                      const next = new Set(prev)
+                      if (next.has(entityType)) next.delete(entityType)
+                      else next.add(entityType)
+                      return next
+                    })
+                  }}
+                  onToggleRelationKind={kind => {
+                    setHiddenRelationKinds(prev => {
+                      const next = new Set(prev)
+                      if (next.has(kind)) next.delete(kind)
+                      else next.add(kind)
+                      return next
+                    })
+                  }}
+                  onReset={() => {
+                    setHiddenEntityTypes(new Set())
+                    setHiddenRelationKinds(new Set())
+                  }}
+                  onClose={() => setLayersOpen(false)}
+                />
+              ) : undefined
+            }
+            rightOverlay={
+              selection ? (
+                <BrainInspectorCard
+                  selection={selection}
+                  palette={palette}
+                  onSelectNode={setSelectedNodeId}
+                  onFocusNode={id => graphRef.current?.focusNode(id)}
+                  onCreateInCategory={catName => {
+                    setCreateCategory(catName)
+                    setCreating(true)
+                  }}
+                  onClose={() => setSelectedNodeId(null)}
+                />
+              ) : undefined
+            }
+            bottomOverlay={
+              projection.visibleObjects.length > 0 ? (
+                <div className="ceramic rounded-full border border-border px-3 py-1 text-xs text-fg-secondary shadow-xs">
+                  {t('pod.meta.graph_stats', {
+                    nodes: projection.visibleObjects.length,
+                    edges: projection.edges.length
+                  })}
                 </div>
-              </li>
-            )
-          })}
-        </ul>
+              ) : undefined
+            }
+          />
+
+          {projection.visibleObjects.length > 0 && (
+            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {projection.visibleObjects.map(node => {
+                const ramp = resolveBrainColorRamp(node.type)
+                const dotColor = palette.ramps[ramp].fill
+                const isSelected = selectedNodeId === node.id
+                const dimmed = !!projection.focusedNodeIds && !projection.focusedNodeIds.has(node.id)
+                return (
+                  <li
+                    key={node.id}
+                    onMouseEnter={() => setHoveredDirectoryId(node.id)}
+                    onMouseLeave={() => setHoveredDirectoryId(prev => (prev === node.id ? null : prev))}
+                    className={`nav-row flex items-center justify-between gap-2 rounded-control px-2.5 py-1.5 transition-opacity ${
+                      isSelected ? 'bg-bg-secondary ring-1 ring-border' : ''
+                    } ${dimmed ? 'opacity-45' : ''}`}>
+                    <Link to={`/meta/brain/${node.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+                      <span
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: dotColor }}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate">{node.title}</span>
+                    </Link>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className="text-xs text-fg-tertiary">{node.type}</span>
+                      <button
+                        type="button"
+                        aria-label={t('pod.meta.focus_node')}
+                        onClick={() => {
+                          setSelectedNodeId(node.id)
+                          graphRef.current?.focusNode(node.id)
+                        }}
+                        className="rounded p-1 text-fg-tertiary hover:bg-bg-secondary hover:text-fg-primary">
+                        <TargetRegular className="size-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </>
       )}
     </div>
   )

@@ -51,10 +51,11 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `pod.allow_external_guests` | Tenant | 招待された外部ゲストによる共有 Pod ページへのアクセスを許可するかどうか。既定値 `true` |
 | `pod.applet.limits` | Tenant | Applet 呼び出しの制限値（既定値 `timeout_ms: 60000`、`heap_mb: 128`） |
 | `pod.base.limits` | Tenant | Base のクエリおよびレコード制限値（既定値 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
-| `pod.spreadsheet.limits` | Tenant | スプレッドシートページの制限値。オンラインで開ける最大ファイルサイズ（`max_file_bytes: 20971520`）と、編集をファイルへ書き戻すタイミング（`compaction_idle_seconds: 30`、`compaction_op_threshold: 100`、`compaction_structural_threshold: 10`） |
+| `pod.office.limits` | Tenant | Office ページ（スプレッドシート、Word 文書、プレゼンテーション）の制限値。ブラウザ上で開ける最大ファイルサイズ（`max_file_bytes: 20971520`）と、編集内容をファイルへ書き戻すタイミング（`compaction_idle_seconds: 30`、`compaction_op_threshold: 100`、`compaction_structural_threshold: 10`） |
 | `drive.trash_retention_days` | Tenant | 削除された Drive ノードを自動で完全削除するまでの保持日数。既定値は `30`。`0` にすると設定変更まで無期限に保持 |
 | `drive.vfs_max_upload_bytes` | Site | Worker の `/drive` VFS アップロード 1 件あたりの最大バイト数。既定値 `0` はオブジェクトストアの上限を使用 |
 | `pod.ot_replay_window` | Tenant | OT リプレイ用に保持する直近のドキュメント変更バッチ数。既定値 `1000` |
+| `pod.ocr_existing_scans` | Tenant | アップロード時に OCR で読み取られなかったスキャン PDF のページを OCR モデルに送る。OCR プロバイダーがページごとに課金する。ゴミ箱にある PDF（ゴミ箱内のフォルダーにあるものを含む）は送らない。既定値 `false` |
 
 ### Workflow
 

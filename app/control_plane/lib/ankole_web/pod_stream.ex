@@ -8,6 +8,8 @@ defmodule AnkoleWeb.PodStream do
   alias Ankole.Sessions.Events, as: SessionEvents
   @ping_interval 15_000
   @flush_interval 40
+  # Revocations without a :recheck_access broadcast reach an active stream within this window.
+  @access_ttl 5_000
 
   def open(conn, %{conversation: conversation}) do
     scope = %{
@@ -19,7 +21,8 @@ defmodule AnkoleWeb.PodStream do
       agents: %{},
       buffers: %{},
       flush_at: nil,
-      ping_at: now() + @ping_interval
+      ping_at: now() + @ping_interval,
+      access_checked_at: nil
     }
 
     :ok = ConversationEvents.subscribe(scope.id)
@@ -55,7 +58,7 @@ defmodule AnkoleWeb.PodStream do
 
     receive do
       :recheck_access ->
-        write(conn, ": access checked\n\n", scope)
+        write(conn, ": access checked\n\n", %{scope | access_checked_at: nil})
 
       {:conversation_event, ^id, kind} when kind in [:message, :status] ->
         committed(conn, scope)
@@ -381,19 +384,31 @@ defmodule AnkoleWeb.PodStream do
   end
 
   defp write(conn, data, scope) do
-    if authorized?(conn, scope) do
-      case chunk(conn, data) do
-        {:ok, conn} -> loop(conn, scope)
-        {:error, _reason} -> {conn, scope}
-      end
-    else
-      case chunk(
-             conn,
-             frame(:access_revoked, %{conversationID: scope.id, reason: "access_revoked"})
-           ) do
-        {:ok, conn} -> {conn, scope}
-        {:error, _reason} -> {conn, scope}
-      end
+    case check_access(conn, scope) do
+      {:ok, scope} ->
+        case chunk(conn, data) do
+          {:ok, conn} -> loop(conn, scope)
+          {:error, _reason} -> {conn, scope}
+        end
+
+      :revoked ->
+        case chunk(
+               conn,
+               frame(:access_revoked, %{conversationID: scope.id, reason: "access_revoked"})
+             ) do
+          {:ok, conn} -> {conn, scope}
+          {:error, _reason} -> {conn, scope}
+        end
+    end
+  end
+
+  defp check_access(conn, scope) do
+    checked_at = scope.access_checked_at
+
+    cond do
+      checked_at && now() - checked_at < @access_ttl -> {:ok, scope}
+      authorized?(conn, scope) -> {:ok, %{scope | access_checked_at: now()}}
+      true -> :revoked
     end
   end
 

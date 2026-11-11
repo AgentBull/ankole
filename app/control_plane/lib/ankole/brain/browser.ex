@@ -1,5 +1,5 @@
 defmodule Ankole.Brain.Browser do
-  @moduledoc "The member's visible Brain ontology and semantic graph."
+  @moduledoc "The member's visible Brain ontology, semantic graph, and personal memory surface."
   use Ankole.Ash.OperationResource,
     domain: Ankole.Brain,
     authorizers: [Ankole.AuthZ.Authorizer],
@@ -7,9 +7,35 @@ defmodule Ankole.Brain.Browser do
 
   alias Ankole.Ash.Types.UUIDv7
 
+  @claim_fields [
+    id: [type: UUIDv7, allow_nil?: false],
+    claim_type: [type: :string, allow_nil?: false],
+    claim: [type: :string, allow_nil?: false],
+    kind: [type: :string, allow_nil?: false],
+    holder: [type: :string, allow_nil?: false],
+    source_node_id: [type: UUIDv7, allow_nil?: false],
+    source_title: [type: :string, allow_nil?: true],
+    subject_page_id: [type: UUIDv7, allow_nil?: true],
+    subject_title: [type: :string, allow_nil?: true],
+    subject_slug: [type: :string, allow_nil?: true],
+    bucket: [type: :string, allow_nil?: false],
+    notability: [type: :string, allow_nil?: true],
+    confidence: [type: :float, allow_nil?: true],
+    weight: [type: :float, allow_nil?: true],
+    provenance: [type: :string, allow_nil?: false],
+    created_at: [type: :utc_datetime_usec, allow_nil?: false],
+    can_edit: [type: :boolean, allow_nil?: false],
+    can_forget: [type: :boolean, allow_nil?: false]
+  ]
+
   authz do
     scope(:pod)
     allow(:graph, check: :guardrail)
+    allow(:node_claims, check: :guardrail)
+    allow(:my_context, check: :guardrail)
+    allow(:add_my_fact, check: :guardrail)
+    allow(:supersede_my_claim, check: :guardrail)
+    allow(:forget_my_claim, check: :guardrail)
   end
 
   json_api do
@@ -22,6 +48,8 @@ defmodule Ankole.Brain.Browser do
 
       constraints(
         fields: [
+          viewer_uid: [type: :string, allow_nil?: false],
+          assistant_uid: [type: :string, allow_nil?: true],
           categories: [
             type: {:array, :map},
             allow_nil?: false,
@@ -72,6 +100,86 @@ defmodule Ankole.Brain.Browser do
 
       run(__MODULE__.Actions)
     end
+
+    action :node_claims, :map do
+      transaction?(false)
+      argument(:page_id, UUIDv7, allow_nil?: false)
+
+      constraints(
+        fields: [
+          claims: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @claim_fields]]
+          ]
+        ]
+      )
+
+      run(__MODULE__.Actions)
+    end
+
+    action :my_context, :map do
+      transaction?(false)
+
+      constraints(
+        fields: [
+          viewer_uid: [type: :string, allow_nil?: false],
+          assistant_uid: [type: :string, allow_nil?: true],
+          canonical_page_id: [type: UUIDv7, allow_nil?: true],
+          claims: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: @claim_fields]]
+          ]
+        ]
+      )
+
+      run(__MODULE__.Actions)
+    end
+
+    action :add_my_fact, :map do
+      transaction?(false)
+      argument(:claim, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:kind, :string, default: "preference")
+      argument(:notability, :string, default: "medium")
+
+      constraints(
+        fields: [
+          status: [type: :string, allow_nil?: false],
+          claim: [type: :map, allow_nil?: false, constraints: [fields: @claim_fields]]
+        ]
+      )
+
+      run(__MODULE__.Actions)
+    end
+
+    action :supersede_my_claim, :map do
+      transaction?(false)
+      argument(:claim_id, UUIDv7, allow_nil?: false)
+      argument(:claim, :string, allow_nil?: false, constraints: [trim?: false])
+
+      constraints(
+        fields: [
+          claim: [type: :map, allow_nil?: false, constraints: [fields: @claim_fields]]
+        ]
+      )
+
+      run(__MODULE__.Actions)
+    end
+
+    action :forget_my_claim, :map do
+      transaction?(false)
+      argument(:claim_id, UUIDv7, allow_nil?: false)
+      argument(:reason, :string, default: "Removed by user in Meta Brain")
+
+      constraints(
+        fields: [
+          forgotten_id: [type: UUIDv7, allow_nil?: false]
+        ]
+      )
+
+      run(__MODULE__.Actions)
+    end
   end
 end
 
@@ -79,24 +187,420 @@ defmodule Ankole.Brain.Browser.Actions do
   @moduledoc false
   use Ash.Resource.Actions.Implementation
   require Ash.Query
-  alias Ankole.Brain.{Access, Namespace}
+  alias Ankole.Brain.{Access, Claims, Forget, Namespace, Objects, Scope}
   alias Ankole.Brain.Schemas.{Claim, Link, Page, SchemaType, Timeline}
   alias Ankole.Pod.Pages.Tree
+  alias Ankole.Repo
 
-  def run(_, _, %{actor: actor}) do
+  def run(input, _, %{actor: actor}) do
     with :ok <- Ankole.AIAgent.Library.Management.member(actor) do
-      Ankole.Repo.transact_repeatable_read_only(fn -> graph(actor) end)
+      dispatch(input.action.name, input.arguments, actor)
     end
     |> Ankole.Pod.APIError.result()
   end
 
+  defp dispatch(:graph, _args, actor) do
+    Repo.transact_repeatable_read_only(fn -> graph(actor) end)
+  end
+
+  defp dispatch(:node_claims, %{page_id: page_id}, actor) do
+    Repo.transact_repeatable_read_only(fn -> node_claims(actor, page_id) end)
+  end
+
+  defp dispatch(:my_context, _args, actor) do
+    Repo.transact_repeatable_read_only(fn -> my_context(actor) end)
+  end
+
+  defp dispatch(:add_my_fact, args, actor) do
+    add_my_fact(actor, args)
+  end
+
+  defp dispatch(:supersede_my_claim, %{claim_id: claim_id, claim: text}, actor) do
+    supersede_my_claim(actor, claim_id, text)
+  end
+
+  defp dispatch(:forget_my_claim, %{claim_id: claim_id} = args, actor) do
+    forget_my_claim(actor, claim_id, Map.get(args, :reason))
+  end
+
+  defp viewer_assistant_uid(uid) do
+    case Ankole.Principals.personal_assistant(uid) do
+      %{principal: %{uid: assistant_uid}} -> assistant_uid
+      %{uid: assistant_uid} -> assistant_uid
+      _ -> nil
+    end
+  end
+
+  defp open_access(actor) do
+    Access.for_context(%{
+      querier_uid: actor.principal.uid,
+      authn: actor.authn,
+      disclosure: Access.open_disclosure()
+    })
+  end
+
+  defp node_claims(actor, page_id) do
+    uid = actor.principal.uid
+
+    with {:ok, access} <- open_access(actor),
+         true <- Access.visible?(access, page_id) do
+      claims =
+        Claim
+        |> Ash.Query.filter(subject_page_id == ^page_id or source_node_id == ^page_id)
+        |> Access.filter_current_claims()
+        |> Access.filter_claims(access)
+        |> Ash.Query.deselect([:embedding, :embedding_signature, :embedding_error])
+        |> Ash.Query.sort(created_at: :desc, id: :desc)
+        |> Ash.Query.limit(100)
+        |> Ankole.Ash.read!()
+
+      {:ok, %{claims: serialize_claims(claims, uid, access)}}
+    else
+      false -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp my_context(actor) do
+    uid = actor.principal.uid
+    assistant_uid = viewer_assistant_uid(uid)
+    private_scope_id = Scope.principal(uid)
+
+    canonical_id =
+      case Scope.canonical_page_id(uid) do
+        {:ok, id} -> id
+        _ -> nil
+      end
+
+    assistant_canonical_id =
+      case assistant_uid && Scope.canonical_page_id(assistant_uid) do
+        {:ok, id} -> id
+        _ -> nil
+      end
+
+    pa_dm_ids = Ankole.Conversations.assistant_dm_conversation_ids(uid, assistant_uid)
+
+    pa_dm_root_ids =
+      if pa_dm_ids == [],
+        do: [],
+        else: Ankole.Pod.root_ids_for_conversations(pa_dm_ids)
+
+    source_candidates =
+      [private_scope_id | pa_dm_root_ids]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    subject_candidates =
+      [canonical_id, assistant_canonical_id]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    holder_candidates =
+      [
+        "people/" <> uid,
+        canonical_id,
+        assistant_uid && "agents/" <> assistant_uid,
+        assistant_canonical_id
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    with {:ok, access} <- open_access(actor) do
+      query =
+        if subject_candidates != [] do
+          Ash.Query.filter(
+            Claim,
+            source_node_id in ^source_candidates or subject_page_id in ^subject_candidates or
+              holder in ^holder_candidates
+          )
+        else
+          Ash.Query.filter(
+            Claim,
+            source_node_id in ^source_candidates or holder in ^holder_candidates
+          )
+        end
+
+      claims =
+        query
+        |> Access.filter_current_claims()
+        |> Access.filter_claims(access)
+        |> Ash.Query.deselect([:embedding, :embedding_signature, :embedding_error])
+        |> Ash.Query.sort(created_at: :desc, id: :desc)
+        |> Ash.Query.limit(200)
+        |> Ankole.Ash.read!()
+
+      {:ok,
+       %{
+         viewer_uid: uid,
+         assistant_uid: assistant_uid,
+         canonical_page_id: canonical_id,
+         claims: serialize_claims(claims, uid, access)
+       }}
+    end
+  end
+
+  defp add_my_fact(actor, args) do
+    uid = actor.principal.uid
+    kind = args[:kind] || "preference"
+    notability = args[:notability] || "medium"
+
+    with {:ok, canonical_id, private_scope_id} <- ensure_personal_memory_targets(actor),
+         {:ok, %{claim: written, status: status}} <-
+           Claims.write_fact(
+             %{
+               claim: args[:claim],
+               kind: kind,
+               notability: notability,
+               confidence: 1.0,
+               holder: "people/" <> uid,
+               subject_page_id: canonical_id,
+               source_node_id: private_scope_id,
+               provenance: "user_explicit:meta_brain",
+               valid_from: DateTime.utc_now(:microsecond)
+             },
+             uid
+           ),
+         {:ok, serialized} <-
+           Repo.transact_repeatable_read_only(fn ->
+             with {:ok, access} <- open_access(actor) do
+               {:ok, hd(serialize_claims([written], uid, access))}
+             end
+           end) do
+      {:ok, %{status: Atom.to_string(status), claim: serialized}}
+    end
+  end
+
+  defp ensure_personal_memory_targets(actor) do
+    uid = actor.principal.uid
+    private_scope_id = Scope.principal(uid)
+
+    ready? =
+      match?({:ok, _}, Tree.fetch(private_scope_id)) and
+        match?({:ok, _}, Scope.canonical_page_id(uid))
+
+    ensure_result =
+      if ready? do
+        :ok
+      else
+        case Repo.transact_top_level(
+               fn ->
+                 Tree.lock_tree()
+
+                 with {:ok, _} <- Ankole.Pod.ensure_private_root_in_tx(uid),
+                      :ok <-
+                        Objects.ensure_canonical_object_in_tx(
+                          uid,
+                          :human,
+                          actor.principal.display_name
+                        ) do
+                   :ok
+                 end
+               end,
+               after_commit: &Namespace.committed/1
+             ) do
+          {:ok, :ok} -> :ok
+          {:error, _} = error -> error
+        end
+      end
+
+    with :ok <- ensure_result,
+         {:ok, canonical_id} <- Scope.canonical_page_id(uid) do
+      {:ok, canonical_id, private_scope_id}
+    end
+  end
+
+  defp supersede_my_claim(actor, claim_id, text) do
+    uid = actor.principal.uid
+
+    with :ok <- ensure_visible_claim(actor, claim_id),
+         {:ok, updated} <-
+           Claims.supersede_claim(
+             claim_id,
+             %{claim: text, provenance: "user_correction:meta_brain"},
+             uid
+           ) do
+      Repo.transact_repeatable_read_only(fn ->
+        with {:ok, access} <- open_access(actor) do
+          {:ok, %{claim: hd(serialize_claims([updated], uid, access))}}
+        end
+      end)
+    end
+  end
+
+  defp forget_my_claim(actor, claim_id, reason) do
+    uid = actor.principal.uid
+
+    trimmed_reason =
+      case reason do
+        value when is_binary(value) ->
+          if String.trim(value) == "",
+            do: "Removed by user in Meta Brain",
+            else: String.trim(value)
+
+        _ ->
+          "Removed by user in Meta Brain"
+      end
+
+    with :ok <- ensure_visible_claim(actor, claim_id),
+         {:ok, _forgotten} <- Forget.forget_claim(claim_id, trimmed_reason, uid) do
+      {:ok, %{forgotten_id: claim_id}}
+    end
+  end
+
+  defp ensure_visible_claim(actor, claim_id) do
+    Repo.transact_repeatable_read_only(fn ->
+      with {:ok, access} <- open_access(actor) do
+        found =
+          Claim
+          |> Ash.Query.filter(id == ^claim_id)
+          |> Access.filter_claims(access)
+          |> Ash.Query.select([:id])
+          |> Ankole.Ash.read_one!()
+
+        if found, do: {:ok, :visible}, else: {:error, :not_found}
+      end
+    end)
+    |> case do
+      {:ok, :visible} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp serialize_claims([], _uid, _access), do: []
+
+  defp serialize_claims(claims, uid, access) do
+    private_scope_id = Scope.principal(uid)
+    principal_ref = Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: uid})
+
+    subject_ids =
+      claims
+      |> Enum.map(& &1.subject_page_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    source_ids =
+      claims
+      |> Enum.map(& &1.source_node_id)
+      |> Enum.uniq()
+
+    subjects_by_id =
+      if subject_ids == [] do
+        %{}
+      else
+        Page
+        |> Ash.Query.filter(id in ^subject_ids and is_nil(deleted_at))
+        |> Access.filter_objects(access)
+        |> Ash.Query.select([:id, :title, :slug])
+        |> Ankole.Ash.read!()
+        |> Map.new(&{&1.id, &1})
+      end
+
+    sources_by_id =
+      if source_ids == [] do
+        %{}
+      else
+        Ankole.Pod.list_page_records!(
+          query: [
+            filter: [id: [in: source_ids], deleted_at: [is_nil: true]],
+            select: [
+              :id,
+              :title,
+              :name,
+              :private_owner_uid,
+              :conversation_id,
+              :acl_anchor_id,
+              :is_acl_anchor,
+              :deleted_at
+            ]
+          ]
+        )
+        |> Enum.filter(&Access.visible_node?(access, &1))
+        |> Map.new(&{&1.id, &1})
+      end
+
+    conversation_ids =
+      sources_by_id
+      |> Map.values()
+      |> Enum.map(& &1.conversation_id)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    dm_conversation_ids =
+      Ankole.Conversations.dm_conversation_ids_for_human(uid, conversation_ids)
+
+    ctx = %{
+      uid: uid,
+      private_scope_id: private_scope_id,
+      principal_ref: principal_ref,
+      subjects_by_id: subjects_by_id,
+      sources_by_id: sources_by_id,
+      dm_conversation_ids: dm_conversation_ids
+    }
+
+    Enum.map(claims, &serialize_claim(&1, ctx))
+  end
+
+  defp serialize_claim(claim, ctx) do
+    subject = claim.subject_page_id && Map.get(ctx.subjects_by_id, claim.subject_page_id)
+    source = Map.get(ctx.sources_by_id, claim.source_node_id)
+    eligible? = claim.author == ctx.principal_ref or not is_nil(source)
+
+    can_edit =
+      eligible? and is_nil(claim.superseded_by) and
+        (claim.claim_type == :fact or is_nil(claim.resolved_at))
+
+    %{
+      id: claim.id,
+      claim_type: Atom.to_string(claim.claim_type),
+      claim: claim.claim,
+      kind: claim.kind,
+      holder: claim.holder,
+      source_node_id: claim.source_node_id,
+      source_title: claim_source_title(claim, source, ctx.private_scope_id),
+      subject_page_id: if(subject, do: subject.id),
+      subject_title: subject && subject.title,
+      subject_slug: subject && subject.slug,
+      bucket: if(personal_claim_source?(claim, source, ctx), do: "personal", else: "workspace"),
+      notability: claim.notability,
+      confidence: claim.confidence,
+      weight: claim.weight,
+      provenance: claim.provenance,
+      created_at: claim.created_at,
+      can_edit: can_edit,
+      can_forget: eligible?
+    }
+  end
+
+  defp personal_claim_source?(claim, source, ctx) do
+    claim.source_node_id == ctx.private_scope_id or
+      (not is_nil(source) and
+         (source.private_owner_uid == ctx.uid or
+            (is_binary(source.conversation_id) and
+               MapSet.member?(ctx.dm_conversation_ids, source.conversation_id))))
+  end
+
+  defp claim_source_title(claim, source, private_scope_id) do
+    cond do
+      claim.source_node_id == private_scope_id ->
+        nil
+
+      not is_nil(source) and
+          (not is_nil(source.private_owner_uid) or not is_nil(source.conversation_id)) ->
+        nil
+
+      source ->
+        source.title || source.name
+
+      true ->
+        nil
+    end
+  end
+
   defp graph(actor) do
+    uid = actor.principal.uid
+
     with {:ok, root} <- Namespace.root(),
-         {:ok, access} <-
-           Access.for_context(%{
-             querier_uid: actor.principal.uid,
-             disclosure: %{mode: :relaxed, asker_uid: nil, present_uids: []}
-           }) do
+         {:ok, access} <- open_access(actor) do
       schema_by_category =
         SchemaType
         |> Ash.Query.select([:name, :primitive, :slug_prefix])
@@ -141,9 +645,14 @@ defmodule Ankole.Brain.Browser.Actions do
             _ -> []
           end
 
+      # A file joins the graph once source learning has covered it, as the
+      # evidence source of the facts extracted from it.
       raw_nodes =
         Page
-        |> Ash.Query.filter(id not in ^excluded and is_nil(deleted_at) and kind == :knowledge)
+        |> Ash.Query.filter(
+          id not in ^excluded and is_nil(deleted_at) and
+            (kind == :knowledge or (kind == :file and learned?))
+        )
         |> Access.filter_objects(access)
         |> Ash.Query.sort(title: :asc)
         |> Ash.Query.select([:id, :title, :slug, :type, :subtype, :parent_id])
@@ -166,7 +675,14 @@ defmodule Ankole.Brain.Browser.Actions do
 
       links = collect_links(nodes, visible_ids, access)
 
-      {:ok, %{categories: categories, nodes: nodes, links: links}}
+      {:ok,
+       %{
+         viewer_uid: uid,
+         assistant_uid: viewer_assistant_uid(uid),
+         categories: categories,
+         nodes: nodes,
+         links: links
+       }}
     end
   end
 

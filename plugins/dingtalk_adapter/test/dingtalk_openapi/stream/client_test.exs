@@ -76,6 +76,65 @@ defmodule DingTalkOpenAPI.Stream.ClientTest do
     assert Client.status(pid) == :connected
   end
 
+  test "a connection at its dispatch limit leaves a new CALLBACK unacked for redelivery" do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+    {:ok, {_address, port}} = :inet.sockname(listener)
+    parent = self()
+    server = spawn_link(fn -> run_busy_ws_server(listener, parent) end)
+    on_exit(fn -> send(server, :close) end)
+
+    dispatcher =
+      Dispatcher.on_callback(Dispatcher.new(), "/v1.0/im/bot/messages/get", fn _topic, _event ->
+        send(parent, :dispatched)
+        {:ok, %{}}
+      end)
+
+    client =
+      APIClient.new(
+        client_id: "ding-busy",
+        client_secret: "secret",
+        req_options: [
+          plug: fn conn ->
+            Req.Test.json(conn, %{"endpoint" => "ws://127.0.0.1:#{port}/connect", "ticket" => "t"})
+          end
+        ]
+      )
+
+    pid =
+      start_supervised!({Client, client: client, dispatcher: dispatcher, auto_reconnect: false})
+
+    assert_receive :upgraded, 1_000
+    in_flight = Map.new(1..64, fn _ -> {make_ref(), {"msg", "event", 0}} end)
+    :sys.replace_state(pid, &%{&1 | dispatch_tasks: in_flight})
+    send(server, :push)
+
+    assert_receive {:client_frame, {:error, :timeout}}, 3_000
+    refute_received :dispatched
+    assert map_size(:sys.get_state(pid).dispatch_tasks) == 64
+  end
+
+  defp run_busy_ws_server(listener, parent) do
+    with {:ok, socket} <- :gen_tcp.accept(listener, 2_000),
+         :ok <- :gen_tcp.close(listener),
+         {:ok, request} <- recv_until_headers(socket),
+         {:ok, key} <- websocket_key(request),
+         :ok <- :gen_tcp.send(socket, upgrade_response(key)) do
+      send(parent, :upgraded)
+
+      receive do
+        :push -> :ok = :gen_tcp.send(socket, server_text_frame(callback_frame()))
+      end
+
+      send(parent, {:client_frame, recv_client_text_frame(socket)})
+
+      receive do
+        :close -> :gen_tcp.close(socket)
+      after
+        5_000 -> :gen_tcp.close(socket)
+      end
+    end
+  end
+
   defp run_ws_server(listener, parent) do
     with {:ok, socket} <- :gen_tcp.accept(listener, 2_000),
          :ok <- :gen_tcp.close(listener),

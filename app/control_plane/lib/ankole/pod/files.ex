@@ -5,19 +5,19 @@ defmodule Ankole.Pod.Files do
   Manifest reads and commits run in top-level transactions under the Page row
   lock. File replacements compare object IDs; Applet publications compare Pod
   revisions. A manifest, a read that does not pin a digest, and a file
-  replacement first write a spreadsheet page's pending edits into its object
-  (`Ankole.Pod.Spreadsheets.flush_if_dirty/1`), so they see the latest bytes.
+  replacement first write an Office page's pending edits into its object
+  (`Ankole.Pod.OfficeFiles.flush_if_dirty/1`), so they see the latest bytes.
   """
 
   alias Ankole.Files, as: Drive
   alias Ankole.Pod.Access
-  alias Ankole.Pod.{Pages, PodFile, Spreadsheets}
+  alias Ankole.Pod.{OfficeFiles, Pages, PodFile}
   require Ash.Query
   alias Ankole.Repo
 
   @doc "Lists one page's current file manifest. Paths are relative to the page directory."
   def manifest(%Ankole.AuthZ.Actor{} = actor, page_id) do
-    with :ok <- Spreadsheets.flush_if_dirty(page_id),
+    with :ok <- OfficeFiles.flush_if_dirty(page_id),
          do: Repo.transact_top_level(fn -> manifest_in_tx(actor, page_id) end)
   end
 
@@ -64,7 +64,7 @@ defmodule Ankole.Pod.Files do
   Resolves an authorized immutable file reference without downloading its bytes.
 
   A pinned digest resolves exactly those bytes while they are the page's
-  file; a spreadsheet editor pairs them with the operations it bootstrapped.
+  file; an Office editor pairs them with the operations it bootstrapped.
   """
   def resolve_read(actor, page_id, relative, digest \\ nil) do
     with :ok <- latest_bytes(page_id, digest),
@@ -72,7 +72,7 @@ defmodule Ankole.Pod.Files do
            Repo.transact_top_level(fn -> resolve_read_in_tx(actor, page_id, relative, digest) end)
   end
 
-  defp latest_bytes(page_id, nil), do: Spreadsheets.flush_if_dirty(page_id)
+  defp latest_bytes(page_id, nil), do: OfficeFiles.flush_if_dirty(page_id)
   defp latest_bytes(_page_id, _digest), do: :ok
 
   defp resolve_read_in_tx(actor, page_id, relative, digest) do
@@ -246,9 +246,9 @@ defmodule Ankole.Pod.Files do
     end
   end
 
-  # A replaced spreadsheet first takes its pending edits, so that the version
+  # A replaced Office file first takes its pending edits, so that the version
   # kept for it holds them.
-  defp replaceable(page_id, "file"), do: Spreadsheets.flush_if_dirty(page_id)
+  defp replaceable(page_id, "file"), do: OfficeFiles.flush_if_dirty(page_id)
   defp replaceable(_page_id, _role), do: :ok
 
   defp message_attachment(actor, message_id, position)
@@ -462,7 +462,7 @@ defmodule Ankole.Pod.Files do
   end
 
   defp commit_upload_object(actor, page, "file", path, object_id, content_type) do
-    with :ok <- Spreadsheets.keep_replaced_in_tx(actor, page),
+    with :ok <- OfficeFiles.keep_replaced_in_tx(actor, page),
          :ok <- rename_upload(actor, page, path),
          do:
            Ankole.Pod.commit_node_object_in_tx(actor, page.id, object_id, %{

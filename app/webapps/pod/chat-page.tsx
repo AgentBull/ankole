@@ -665,6 +665,22 @@ export function ChatPage({
                   model.quote({ kind: 'message', id: message.id, quote })
                   composerInput.current?.focus()
                 }}
+                onSaveAsSkill={
+                  availableAgents.some(agent =>
+                    data.conversation.agents.some(roomAgent => roomAgent.uid === agent.uid && roomAgent.active)
+                  )
+                    ? () => {
+                        const existing = model.draft.peek().trimStart()
+                        model.attachedSkill.value = null
+                        model.draft.value = existing.startsWith('/learn')
+                          ? existing
+                          : existing
+                            ? `/learn ${existing}`
+                            : '/learn '
+                        composerInput.current?.focus()
+                      }
+                    : undefined
+                }
                 // A `ui` block's reply button leaves its text in the composer for the Human to send.
                 onReply={text => {
                   if (model.suggestReply(text)) composerInput.current?.focus()

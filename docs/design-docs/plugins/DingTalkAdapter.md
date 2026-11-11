@@ -79,7 +79,9 @@ Before opening each WebSocket session, the client requests a fresh Stream
 ticket, then handles keepalive pings, disconnects, event frames, and card
 callbacks. The client acknowledges each Stream frame only after its handler
 commits; if the process crashes beforehand, DingTalk redelivers the frame and
-Ankole's durable deduplication keys prevent duplicate records.
+Ankole's durable deduplication keys prevent duplicate records. One connection
+dispatches at most 64 frames at a time and leaves any further frame
+unacknowledged, so DingTalk redelivers it after the burst.
 
 ## Receive Messages
 

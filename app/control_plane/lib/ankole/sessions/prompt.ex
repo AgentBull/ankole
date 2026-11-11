@@ -30,6 +30,7 @@ defmodule Ankole.Sessions.Prompt do
 
   @image_policy "\nImages created in this turn with the hosted image_generation tool are attached to the final reply automatically. Available image inputs use turn-local img_N references, not local file paths. Do not search for or call reply_attachment on the generated image itself."
   @skills_intro "You have access to the following skills. Skills are task-specific instructions and references.\nBefore performing a task or subtask you are already going to do, call `skill_view(name)` only if a listed skill covers that task, then follow the loaded instructions. If the user asks to inspect, view, choose, recommend, or identify an available skill, the index is only a routing aid: pick the relevant listed skill and call `skill_view(name)` before answering. Otherwise continue without a skill."
+  @skill_save_policy ~s[When you work out a non-trivial reusable workflow or receive a durable workflow correction from the user, or when the user asks to save a workflow as a Skill, propose saving or updating a `SKILL.md` package via `propose_action_card` (`action_kind: "library.skill.save"`, defaulting `target` to `"personal"` unless the user asks for a shared workspace/colleague Skill).]
   @background_skill_note "Entries marked [background task] must run in a BackgroundAgentJob. Create one with create_background_job, name the Skill in its self-contained task, and do not execute the Skill inline."
 
   @doc "Renders only the current causal native Human statement, without attached content."
@@ -103,11 +104,7 @@ defmodule Ankole.Sessions.Prompt do
       "Do not call submit_result while a job you created is still live: wait for its event and read its result, or stop_background_job first.",
       "A delegated job cannot ask a human. If you cannot proceed without main-Agent input, sleep with attention set to true and a note that states the needed decision.",
       "The result must match this JSON Schema: #{JSON.encode!(task["schema"])}",
-      "</workflow_task_contract>",
-      if(run.event.type != "workflow.task.dispatch",
-        do:
-          "This turn continues your earlier work: you slept and an event woke you. Read the event, use your conversation context, and end the turn with submit_result or another sleep."
-      )
+      "</workflow_task_contract>"
     ]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join("\n\n")
@@ -147,6 +144,7 @@ defmodule Ankole.Sessions.Prompt do
         do: skills_catalog(context.skills, :main, available?(opts, "create_background_job")),
         else: ""
       ),
+      if(available?(opts, "propose_action_card"), do: @skill_save_policy, else: ""),
       runtime_context(opts)
     ])
   end

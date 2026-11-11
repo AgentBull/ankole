@@ -51,7 +51,11 @@ defmodule Ankole.Conversations.ActionCards do
            Principals.get_principal(run.agent_uid),
          agent_actor = Actor.new(agent_principal),
          {:ok, target_node_id, payload, preconditions} <-
-           draft_action(agent_actor, conversation, Map.get(args, "action_kind"), args),
+           (if Map.get(args, "action_kind") == "library.skill.save" do
+              draft_skill_save(run, conversation, args)
+            else
+              draft_action(agent_actor, conversation, Map.get(args, "action_kind"), args)
+            end),
          :ok <- knowledge_disclosure(run, args["action_kind"], target_node_id) do
       card_id = Ankole.Ecto.UUIDv7.autogenerate()
 
@@ -167,13 +171,16 @@ defmodule Ankole.Conversations.ActionCards do
         with {:ok, node_id} <- cast_uuid(node_id, "node_id"),
              {:ok, sharing} <- Sharing.sharing(agent_actor, node_id),
              {:ok, page} <- Pages.fetch(node_id) do
+          normalized_grants = normalize_grant_items(grants)
+
           payload =
             %{
               "node_id" => page.id,
               "node_title" => page.title
             }
             |> maybe_put_unchanged("inherit_permissions", inherit_permissions)
-            |> maybe_put_unchanged("grants", normalize_grant_items(grants))
+            |> maybe_put_unchanged("grants", normalized_grants)
+            |> maybe_put_sharing_explain_summaries(agent_actor, page, normalized_grants)
 
           preconditions = %{
             "node_id" => page.id,
@@ -344,6 +351,175 @@ defmodule Ankole.Conversations.ActionCards do
     {:error, "Unsupported action_kind: #{inspect(kind)}"}
   end
 
+  defp draft_skill_save(run, conversation, args) do
+    alias Ankole.AIAgent.Library.{SkillLinter, Skills}
+
+    with {:ok, %{slug: slug, content: content}} <-
+           SkillLinter.validate_and_parse(args["markdown"], args["slug"]),
+         {:ok, target} <- resolve_skill_save_target(run, conversation, args["target"]) do
+      case Skills.get(slug) do
+        {:error, :not_found} ->
+          payload =
+            %{
+              "operation" => "create",
+              "slug" => slug,
+              "skill_name" => content.name,
+              "description" => content.description,
+              "target" => target.scope,
+              "agent_uid" => target.agent_uid,
+              "bind_agent_uid" => target.bind_agent_uid,
+              "markdown" => content.manifest_markdown,
+              "diff" => content.manifest_markdown
+            }
+            |> maybe_put_non_nil("scope_note", target.scope_note)
+
+          {:ok, nil, payload, %{"slug" => slug, "expected_missing" => true}}
+
+        {:ok, existing} ->
+          cond do
+            existing.source_kind != :custom ->
+              {:error,
+               "Slug \"#{slug}\" belongs to a built-in or plugin Skill and cannot be overwritten. Choose another slug."}
+
+            is_binary(existing.agent_uid) and existing.agent_uid != target.agent_uid ->
+              {:error,
+               "Slug \"#{slug}\" is already taken in this workspace. Choose another descriptive slug."}
+
+            is_nil(existing.agent_uid) and target.scope != "workspace" ->
+              {:error,
+               "Slug \"#{slug}\" already exists as a workspace Skill. Choose a distinct slug for your personal Skill, or pass target: \"workspace\" with base_revision: #{existing.revision} to update the workspace Skill."}
+
+            is_binary(existing.agent_uid) and target.scope == "workspace" ->
+              {:error,
+               "Slug \"#{slug}\" is currently a personal Skill. Pass target: \"personal\" with base_revision: #{existing.revision} to update it, or choose a new slug for the workspace Skill."}
+
+            args["base_revision"] != existing.revision ->
+              {:error,
+               "Skill \"#{slug}\" is at revision #{existing.revision}. Read its latest content with skill_view and pass base_revision: #{existing.revision}."}
+
+            true ->
+              diff =
+                List.myers_difference(
+                  String.split(existing.manifest_markdown, "\n"),
+                  String.split(content.manifest_markdown, "\n")
+                )
+                |> Enum.flat_map(fn
+                  {:eq, lines} -> Enum.map(lines, &("  " <> &1))
+                  {:del, lines} -> Enum.map(lines, &("- " <> &1))
+                  {:ins, lines} -> Enum.map(lines, &("+ " <> &1))
+                end)
+                |> Enum.join("\n")
+
+              payload =
+                %{
+                  "operation" => "update",
+                  "slug" => existing.slug,
+                  "skill_name" => content.name,
+                  "description" => content.description,
+                  "target" => target.scope,
+                  "agent_uid" => existing.agent_uid,
+                  "bind_agent_uid" => target.bind_agent_uid,
+                  "markdown" => content.manifest_markdown,
+                  "diff" => diff,
+                  "base_revision" => existing.revision
+                }
+                |> maybe_put_non_nil("scope_note", target.scope_note)
+
+              preconditions = %{
+                "skill_id" => existing.id,
+                "slug" => existing.slug,
+                "expected_revision" => existing.revision
+              }
+
+              {:ok, nil, payload, preconditions}
+          end
+      end
+    end
+  end
+
+  defp resolve_skill_save_target(run, conversation, raw_target) do
+    alias Ankole.AIAgent.Library.Management
+
+    requested = if raw_target == "workspace", do: "workspace", else: "personal"
+    requester_uid = requester_human_uid(run, conversation)
+
+    requester_actor =
+      case requester_uid && Principals.get_principal(requester_uid) do
+        {:ok, %{type: :human, status: :active, membership: :member} = principal} ->
+          Actor.new(principal)
+
+        _ ->
+          nil
+      end
+
+    case {requested, requester_actor} do
+      {"workspace", %Actor{} = human_actor} ->
+        if Management.authorize(human_actor, "tenant_console:custom_skills") == :ok and
+             Management.binding(human_actor, run.agent_uid) == :ok do
+          {:ok,
+           %{
+             scope: "workspace",
+             agent_uid: nil,
+             bind_agent_uid: run.agent_uid,
+             scope_note: nil
+           }}
+        else
+          with {:ok, %{principal: assistant}} <-
+                 Principals.ensure_personal_assistant(human_actor.principal.uid) do
+            {:ok,
+             %{
+               scope: "personal",
+               agent_uid: assistant.uid,
+               bind_agent_uid: nil,
+               scope_note:
+                 "Drafted for your personal assistant because saving workspace skills requires custom-skill permission."
+             }}
+          end
+        end
+
+      {"workspace", nil} ->
+        {:ok,
+         %{
+           scope: "workspace",
+           agent_uid: nil,
+           bind_agent_uid: run.agent_uid,
+           scope_note: nil
+         }}
+
+      {"personal", %Actor{} = human_actor} ->
+        with {:ok, %{principal: assistant}} <-
+               Principals.ensure_personal_assistant(human_actor.principal.uid) do
+          {:ok,
+           %{
+             scope: "personal",
+             agent_uid: assistant.uid,
+             bind_agent_uid: nil,
+             scope_note: nil
+           }}
+        end
+
+      {"personal", nil} ->
+        {:error,
+         "Saving a personal Skill requires an active workspace member account. Link your account or pass target: \"workspace\" for a workspace Skill."}
+    end
+  end
+
+  defp requester_human_uid(run, conversation) do
+    data = run.event.data || %{}
+
+    run.event.human_uid ||
+      get_in(data, ["confirmed_by_uid"]) ||
+      get_in(data, ["action", "operator_principal_uid"]) ||
+      get_in(data, ["entry", "author", "principal_uid"]) ||
+      Principals.served_human_uid(run.agent_uid, nil) ||
+      if(conversation && conversation.kind == :native && conversation.room_mode == :dm,
+        do: conversation.created_by
+      )
+  end
+
+  defp maybe_put_non_nil(map, _key, nil), do: map
+  defp maybe_put_non_nil(map, key, value), do: Map.put(map, key, value)
+
   defp supported_conversation_action(%Conversation{kind: :native}, kind)
        when kind in ["pod.knowledge.save", "brain.object.create"], do: :ok
 
@@ -461,7 +637,7 @@ defmodule Ankole.Conversations.ActionCards do
   end
 
   @doc "Loads durable ActionCard projections for a list of Native messages."
-  def native_cards(messages) when is_list(messages) do
+  def native_cards(messages, viewer_actor \\ nil) when is_list(messages) do
     card_ids =
       messages
       |> Enum.map(&get_in(&1.rich_content || %{}, ["action_card", "card_id"]))
@@ -482,7 +658,7 @@ defmodule Ankole.Conversations.ActionCards do
 
         case card_id && Map.get(cards, card_id) do
           %ActionCard{} = card ->
-            {message.id, client_card_state(card)}
+            {message.id, client_card_state(card, viewer_actor)}
 
           nil ->
             {message.id, %{}}
@@ -491,14 +667,14 @@ defmodule Ankole.Conversations.ActionCards do
     end
   end
 
-  def client_card_state(%ActionCard{} = card) do
+  def client_card_state(%ActionCard{} = card, viewer_actor \\ nil) do
     %{
       "card_id" => card.id,
       "interaction_id" => card.source_signal_id <> ":" <> card.interaction_id,
       "action_kind" => card.action_kind,
       "summary" => card.summary,
       "target_node_id" => card.target_node_id,
-      "payload" => client_payload(card),
+      "payload" => client_payload(card, viewer_actor),
       "status" => to_string(card.status),
       "resolved_by_uid" => card.resolved_by_uid,
       "resolved_by_name" => card.resolved_by_name,
@@ -507,14 +683,39 @@ defmodule Ankole.Conversations.ActionCards do
     }
   end
 
-  defp client_payload(%ActionCard{action_kind: "pod.knowledge.save"} = card),
+  defp client_payload(%ActionCard{action_kind: "pod.knowledge.save"} = card, _viewer_actor),
     do: Map.put(card.payload, "base_revision", card.preconditions["expected_revision"])
 
-  defp client_payload(%ActionCard{} = card), do: card.payload
+  defp client_payload(%ActionCard{action_kind: "library.skill.save"} = card, viewer_actor) do
+    payload =
+      case card.preconditions["expected_revision"] do
+        rev when is_integer(rev) -> Map.put(card.payload, "base_revision", rev)
+        _ -> card.payload
+      end
 
-  def browser_card_state(%ActionCard{} = card, %Conversation{} = conversation) do
+    if is_binary(payload["agent_uid"]) and not viewer_can_read_skill_card?(viewer_actor, card) do
+      payload
+      |> Map.drop(["diff", "markdown"])
+      |> Map.put("redacted", true)
+    else
+      payload
+    end
+  end
+
+  defp client_payload(%ActionCard{} = card, _viewer_actor), do: card.payload
+
+  defp viewer_can_read_skill_card?(%Actor{} = viewer_actor, %ActionCard{} = card),
+    do: can_view_card_target?(%{viewer_actor | turn_authority: nil}, card)
+
+  defp viewer_can_read_skill_card?(_, _card), do: false
+
+  def browser_card_state(
+        %ActionCard{} = card,
+        %Conversation{} = conversation,
+        viewer_actor \\ nil
+      ) do
     card
-    |> client_card_state()
+    |> client_card_state(viewer_actor)
     |> Map.merge(%{
       "conversation_id" => card.conversation_id,
       "conversation_kind" => to_string(conversation.kind),
@@ -531,7 +732,7 @@ defmodule Ankole.Conversations.ActionCards do
          {:ok, %Conversation{} = conversation} <-
            Conversations.get_conversation(card.conversation_id),
          :ok <- authorize_browser_card_view(human_actor, conversation, card) do
-      {:ok, browser_card_state(card, conversation)}
+      {:ok, browser_card_state(card, conversation, human_actor)}
     else
       {:ok, nil} -> {:error, :not_found}
       nil -> {:error, :not_found}
@@ -550,7 +751,7 @@ defmodule Ankole.Conversations.ActionCards do
              fn -> resolve_browser_card_in_tx(human_actor, card_id, decision) end,
              after_commit: &__MODULE__.publish_after_commit/1
            ) do
-      {:ok, browser_card_state(outcome.card, outcome.conversation)}
+      {:ok, browser_card_state(outcome.card, outcome.conversation, human_actor)}
     end
   end
 
@@ -1097,6 +1298,29 @@ defmodule Ankole.Conversations.ActionCards do
     end
   end
 
+  defp apply_domain_action_in_tx(
+         actor,
+         _conversation,
+         %ActionCard{action_kind: "library.skill.save"} = card
+       ) do
+    case Ankole.AIAgent.Library.Skills.upsert_from_action_card_in_tx(
+           actor,
+           card.payload,
+           card.preconditions
+         ) do
+      {:ok, saved, effects} ->
+        verb = if card.payload["operation"] == "update", do: "Updated", else: "Saved"
+        scope = if is_binary(saved.agent_uid), do: "personal Skill", else: "workspace Skill"
+        {:ok, "#{verb} #{scope} \"#{saved.name}\" (/#{saved.slug}).", effects}
+
+      {:stale, _note} = stale ->
+        stale
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   defp apply_domain_action_in_tx(_actor, _conversation, _card), do: {:error, :invalid_request}
 
   defp authorize_base_page_for_card(actor, page_id) do
@@ -1181,8 +1405,21 @@ defmodule Ankole.Conversations.ActionCards do
 
   defp updated_at_matches?(_updated_at, _expected), do: true
 
-  defp authorize_browser_card_view(actor, %Conversation{kind: :native} = conversation, _card) do
-    if Native.visible_conversation?(actor, conversation.id), do: :ok, else: {:error, :not_found}
+  defp authorize_browser_card_view(
+         actor,
+         %Conversation{kind: :native} = conversation,
+         %ActionCard{} = card
+       ) do
+    personal_skill_card? =
+      card.action_kind == "library.skill.save" and is_binary(card.payload["agent_uid"])
+
+    if Native.visible_conversation?(actor, conversation.id) and
+         (not personal_skill_card? or Actor.uid(actor) == card.resolved_by_uid or
+            can_view_card_target?(actor, card)) do
+      :ok
+    else
+      {:error, :not_found}
+    end
   end
 
   defp authorize_browser_card_view(actor, %Conversation{kind: :external}, %ActionCard{} = card) do
@@ -1209,7 +1446,31 @@ defmodule Ankole.Conversations.ActionCards do
     end
   end
 
+  defp can_view_card_target?(actor, %ActionCard{action_kind: "library.skill.save"} = card) do
+    case card.payload["agent_uid"] do
+      uid when is_binary(uid) ->
+        Ankole.AIAgent.Library.Management.agent(actor, uid, "read") == :ok
+
+      _ ->
+        Ankole.AIAgent.Library.Management.member(actor) == :ok
+    end
+  end
+
   defp can_view_card_target?(_actor, _card), do: false
+
+  defp can_manage_card_target?(actor, %ActionCard{action_kind: "library.skill.save"} = card) do
+    alias Ankole.AIAgent.Library.Management
+
+    case card.payload["agent_uid"] do
+      uid when is_binary(uid) ->
+        Management.agent(actor, uid, "update") == :ok
+
+      _ ->
+        Management.authorize(actor, "tenant_console:custom_skills") == :ok and
+          (is_nil(card.payload["bind_agent_uid"]) or
+             Management.binding(actor, card.payload["bind_agent_uid"]) == :ok)
+    end
+  end
 
   defp can_manage_card_target?(actor, %ActionCard{action_kind: "pod.base.delete_table"} = card) do
     with table_id when is_binary(table_id) <- card.payload["table_id"],
@@ -1244,7 +1505,11 @@ defmodule Ankole.Conversations.ActionCards do
   defp can_manage_card_target?(_actor, _card), do: false
 
   defp authorize_cancel(actor, %Conversation{kind: :native} = conversation, card, _source) do
+    personal_skill_card? =
+      card.action_kind == "library.skill.save" and is_binary(card.payload["agent_uid"])
+
     if Native.visible_conversation?(actor, conversation.id) and
+         (not personal_skill_card? or can_manage_card_target?(actor, card)) and
          (NativeRoom.participant(conversation.id, Actor.uid(actor)) != nil or
             NativeRoom.owner?(actor, conversation) or
             AuthZ.authorize(
@@ -1564,9 +1829,13 @@ defmodule Ankole.Conversations.ActionCards do
         peer -> [peer.peer_sender_uid, peer.peer_target_uid]
       end
 
+    skill_uids =
+      [card.payload["agent_uid"], card.payload["bind_agent_uid"]]
+      |> Enum.filter(&is_binary/1)
+
     uids =
       ([actor_uid, source.human_uid, card.agent_uid, created_by | added_uids] ++
-         grant_uids ++ peer_uids)
+         grant_uids ++ peer_uids ++ skill_uids)
       |> Enum.filter(&(is_binary(&1) and &1 != ""))
       |> Enum.uniq()
 
@@ -1661,6 +1930,39 @@ defmodule Ankole.Conversations.ActionCards do
 
   defp maybe_put_unchanged(map, _key, :unchanged), do: map
   defp maybe_put_unchanged(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_sharing_explain_summaries(payload, _agent_actor, _page, :unchanged), do: payload
+
+  defp maybe_put_sharing_explain_summaries(payload, agent_actor, page, grants)
+       when is_list(grants) do
+    summaries =
+      grants
+      |> Enum.flat_map(fn
+        %{"principal_uid" => uid} when is_binary(uid) -> [uid]
+        _ -> []
+      end)
+      |> Enum.uniq()
+      |> Enum.take(8)
+      |> Enum.flat_map(fn uid ->
+        case Sharing.explain_access(agent_actor, page.id, uid, "node_view") do
+          {:ok, explained} ->
+            [
+              %{
+                "subject_uid" => explained.subject_uid,
+                "subject_name" => explained.subject_name,
+                "current_allowed" => explained.allowed,
+                "current_role" => explained.effective_role,
+                "decision_reason" => explained.decision_reason
+              }
+            ]
+
+          _ ->
+            []
+        end
+      end)
+
+    if summaries == [], do: payload, else: Map.put(payload, "explain_summaries", summaries)
+  end
 
   defp maybe_put_map_key(target, atom_key, source, string_key) when is_atom(atom_key) do
     if Map.has_key?(source, string_key),
