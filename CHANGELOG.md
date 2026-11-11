@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.125 (2026-11-11)
+
+- Send the same scanned PDF to OCR once in a Pod. A file uploaded to another
+  place takes the pages that OCR already read from the same bytes, including
+  a page in which OCR found no text, instead of being sent again. When two
+  extraction jobs hold the same bytes at the same time, one sends them, and
+  the other waits and then takes the stored pages. Run `mix ecto.migrate`:
+  the migration adds an index on `file_objects (tenant_id, sha256)`.
+
 ## Version 2.0.0-alpha.124 (2026-11-11)
 
 - Fix OCR for scanned PDFs in a trashed folder. Pod marks only the folder

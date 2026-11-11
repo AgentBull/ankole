@@ -24,9 +24,14 @@ without persisting another topology.
 
 Object keys are `tenants/<tenant-id>/objects/<uuidv7>`. A new write always gets a
 new key and row, even for identical bytes. SHA-256 is calculated during upload
-for integrity and Pod resource idempotency; it is not an object identity or a
-deduplication index. Multiple nodes or attachments can explicitly reference one
-existing object without copying it. Objects are never shared across tenants.
+for integrity and Pod resource idempotency; it is not an object identity, and
+Files stores every write as its own object. Multiple nodes or attachments can
+explicitly reference one existing object without copying it. Objects are never
+shared across tenants. `Ankole.Files.same_bytes_object_ids/1` returns the
+tenant's completed objects that hold the same bytes as a given object, through
+the `file_objects` index on `(tenant_id, sha256)`. Pod calls it to reuse what
+OCR read from a scanned PDF instead of sending the same bytes again
+([Files and Conversation origins](PodContentModel.md#files-and-conversation-origins)).
 
 Drive keeps no file version table or recovery API of its own. Overwriting a
 file changes its node's `object_id`; the last successful commit wins.

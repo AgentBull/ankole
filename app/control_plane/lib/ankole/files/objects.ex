@@ -66,6 +66,24 @@ defmodule Ankole.Files.Objects do
 
   def fetch(_id), do: {:error, :not_found}
 
+  @doc """
+  The IDs of the tenant's completed objects that hold the same bytes as `id`,
+  by their SHA-256. The list includes `id`.
+  """
+  def same_bytes_ids(id) do
+    case fetch(id) do
+      {:ok, %{sha256: sha256}} when is_binary(sha256) ->
+        FileObject
+        |> Ash.Query.filter(sha256 == ^sha256 and not is_nil(completed_at))
+        |> Ash.Query.select([:id])
+        |> Ankole.Ash.read!()
+        |> Enum.map(& &1.id)
+
+      _not_found ->
+        [id]
+    end
+  end
+
   def complete_in_tx(stored) when is_map(stored) do
     Repo.require_transaction!({__MODULE__, :complete_in_tx})
     id = Ankole.Attrs.get(stored, :object_id)

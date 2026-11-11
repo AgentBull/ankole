@@ -239,14 +239,17 @@ defmodule Ankole.Pod.FileExtraction do
 
   @doc """
   The `ocr` map to extract `object_id` on `page_id` with: the page's own, plus
-  the pages that OCR has read for the same object on any other page. A file
-  that several pages share is paid for once.
+  the pages that OCR has read from the same bytes on any other page of the
+  tenant, whether that page holds this object or another object with the same
+  SHA-256. A file that is in several places is paid for once.
   """
   @spec known_ocr(String.t(), String.t()) :: map()
   def known_ocr(page_id, object_id) do
+    object_ids = Drive.same_bytes_object_ids(object_id)
+
     caches =
       FileCache
-      |> Ash.Query.filter(object_id == ^object_id)
+      |> Ash.Query.filter(object_id in ^object_ids)
       |> Ash.Query.select([:page_id, :ocr])
       |> Ankole.Ash.read!()
 
@@ -609,9 +612,13 @@ defmodule Ankole.Pod.FileExtraction do
 
   defp ocr_state(pages, _previous, false), do: %{"pages" => pages}
 
-  # The `system` Principal reads its own `ocr` override before the Pod and
-  # Site profiles, which is how AIGateway resolves the request.
-  defp ocr_configured? do
+  @doc """
+  Whether the Pod has an `ocr` model. The `system` Principal reads its own
+  `ocr` override before the Pod and Site profiles, which is how AIGateway
+  resolves the request.
+  """
+  @spec ocr_configured?() :: boolean()
+  def ocr_configured? do
     match?({:ok, _profile}, ModelProfiles.get_model_profile(@ocr_subject_uid, "ocr"))
   end
 

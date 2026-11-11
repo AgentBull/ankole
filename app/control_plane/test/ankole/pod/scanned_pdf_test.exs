@@ -333,6 +333,62 @@ defmodule Ankole.Pod.ScannedPdfTest do
     end
   end
 
+  test "the same bytes uploaded to another page take what OCR read and are not sent again", ctx do
+    configure_ocr(fn _request -> read_pages([{1, "Scanned appendix"}]) end)
+    bytes = pdf(["Cover page with a text layer", ""])
+    page = upload(ctx, "report.pdf", bytes)
+    assert %{failure: 0} = extract()
+    assert_receive {:ocr_request, _request}
+
+    # A connector that downloads a file again creates a new page, and every upload names a new object.
+    copy = upload(ctx, "report again.pdf", bytes)
+    assert copy.object_id != page.object_id
+    assert %{failure: 0} = extract()
+    refute_received {:ocr_request, _request}
+
+    assert body_text(copy) ==
+             "[Page 1]\nCover page with a text layer\n[Page 2]\nScanned appendix\n"
+
+    assert cache(copy).ocr == cache(page).ocr
+    assert [_usage] = Repo.all(UsageRecord)
+  end
+
+  test "two jobs that run at the same time send the same bytes to OCR once", ctx do
+    test_pid = self()
+
+    # The OCR provider holds its answer until the test has run the second job.
+    configure_ocr(fn _request ->
+      send(test_pid, {:reading, self()})
+
+      receive do
+        :answer -> read_pages([{0, "Stamped receipt"}])
+      after
+        10_000 -> read_pages([])
+      end
+    end)
+
+    bytes = pdf([""])
+    page = upload(ctx, "scan.pdf", bytes)
+    reader = Task.async(fn -> extract() end)
+    assert_receive {:reading, provider}, 5_000
+
+    # The same file arrives on another page while the first job waits for OCR.
+    copy = upload(ctx, "copy.pdf", bytes)
+    assert copy.object_id != page.object_id
+    assert %{snoozed: 1, failure: 0} = extract()
+
+    send(provider, :answer)
+    assert %{failure: 0} = Task.await(reader, 30_000)
+
+    # The job that waited runs again and takes the pages that the reader stored.
+    assert %{failure: 0, snoozed: 0} = Oban.drain_queue(queue: :default, with_scheduled: true)
+    assert_received {:ocr_request, _request}
+    refute_received {:ocr_request, _request}
+    assert body_text(page) == "[Page 1]\nStamped receipt\n"
+    assert body_text(copy) == body_text(page)
+    assert [%{quantity: 1}] = Repo.all(UsageRecord)
+  end
+
   test "pages kept after a failed commit join the text without consent or another charge", ctx do
     page = upload(ctx, "mixed.pdf", pdf(["Cover page with a text layer", ""]))
     assert %{failure: 0} = extract()

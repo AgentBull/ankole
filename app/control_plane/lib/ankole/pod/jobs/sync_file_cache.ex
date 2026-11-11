@@ -19,16 +19,24 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
       states: [:available, :scheduled, :retryable, :executing]
     ]
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ankole.Files, as: Drive
   alias Ankole.Kernel
   alias Ankole.Pod.{FileExtraction, Page, Pages, Spreadsheets}
   alias Ankole.Repo
 
+  # A job waits this many seconds before it looks again while another job has
+  # the same bytes at the OCR provider.
+  @reader_wait_seconds 10
+
   @impl Ankole.Job
-  def run(%Oban.Job{
-        args: %{"page_id" => page_id, "object_id" => object_id} = args,
-        attempt: attempt
-      })
+  def run(
+        %Oban.Job{
+          args: %{"page_id" => page_id, "object_id" => object_id} = args,
+          attempt: attempt
+        } = job
+      )
       when is_binary(page_id) and is_binary(object_id) do
     with {:ok, %Page{type: :file, purge_started_at: nil, object_id: ^object_id} = page} <-
            Pages.fetch(page_id),
@@ -37,18 +45,13 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
          {:ok, %{subtype: subtype, format: format}} <-
            Kernel.file_classify_format(clean_name, page.content_type),
          {:ok, object} <- Drive.fetch_object(object_id) do
-      version = Kernel.file_extractor_version()
-      cache = FileExtraction.cache(page_id, object_id)
-      ocr = FileExtraction.known_ocr(page_id, object_id)
       read_scans? = read_scans?(page, args, attempt)
 
-      # A cache that is current has nothing left to extract, and a run that
-      # came second must not pay for the same pages again.
-      if FileExtraction.pending?(cache, format, version, ocr, read_scans?) do
-        extract(page, clean_name, object, {subtype, format, version}, ocr, read_scans?)
-      else
-        :ok
-      end
+      # Without an `ocr` model no job sends anything, so none has to wait.
+      if format == "pdf" and FileExtraction.ocr_configured?() and
+           reader_busy?(job, object, read_scans?),
+         do: {:snooze, @reader_wait_seconds},
+         else: sync(page, clean_name, object, {subtype, format}, read_scans?)
     else
       :unsupported -> :ok
       {:ok, _superseded} -> :ok
@@ -59,6 +62,55 @@ defmodule Ankole.Pod.Jobs.SyncFileCache do
   end
 
   def run(_job), do: :ok
+
+  defp sync(page, clean_name, object, {subtype, format}, read_scans?) do
+    version = Kernel.file_extractor_version()
+    cache = FileExtraction.cache(page.id, object.id)
+    # Read after `reader_busy?/3`, so it holds what an earlier reader stored.
+    ocr = FileExtraction.known_ocr(page.id, object.id)
+
+    # A cache that is current has nothing left to extract, and a run that
+    # came second must not pay for the same pages again.
+    if FileExtraction.pending?(cache, format, version, ocr, read_scans?) do
+      extract(page, clean_name, object, {subtype, format, version}, ocr, read_scans?)
+    else
+      :ok
+    end
+  end
+
+  # OCR charges for every page, so one job at a time sends the scans of the
+  # same bytes, whichever pages and objects hold them. A job that may read
+  # scans marks its Oban row with the bytes unless a running job already
+  # carries that mark. A job that finds the mark on another running job waits,
+  # and when it runs again `known_ocr/2` holds the pages that the reader
+  # stored. The advisory lock orders the jobs that look at the same moment, and
+  # the transaction ends before any request goes to OCR. The mark ends with the
+  # job's first attempt, the only one that reads scans.
+  defp reader_busy?(%Oban.Job{id: id} = job, object, read_scans?) do
+    bytes = "#{Repo.tenant_id!()}:#{Base.encode16(object.sha256, case: :lower)}"
+
+    {:ok, busy?} =
+      Repo.transact_top_level(fn ->
+        Ankole.AdvisoryLock.lock!(Repo, "pod-ocr-reader:" <> bytes)
+
+        reading? =
+          Repo.exists?(
+            from j in Oban.Job,
+              where:
+                j.state == "executing" and j.worker == ^inspect(__MODULE__) and j.attempt == 1 and
+                  j.id != ^(id || 0) and fragment("?->>'reads' = ?", j.meta, ^bytes)
+          )
+
+        {:ok, reading? or (read_scans? and is_integer(id) and not marked?(job, bytes))}
+      end)
+
+    busy?
+  end
+
+  # Without the mark no other job would see this one, so a job that Oban could
+  # not mark waits like a job that found another reader.
+  defp marked?(%Oban.Job{meta: meta} = job, bytes),
+    do: match?({:ok, _job}, Oban.update_job(job, %{meta: Map.put(meta, "reads", bytes)}))
 
   # OCR costs the Pod money for every page, so only the first attempt of a job
   # reads scans: a later attempt may already have paid for them. The job of an

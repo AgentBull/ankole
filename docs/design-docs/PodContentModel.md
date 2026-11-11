@@ -2420,21 +2420,26 @@ the kernel lists no page after the point where the text was cut, so every
 listed page can still be read. The cache row keeps what the model read in `pod_file_caches.ocr`:
 `pages` maps each page number that OCR has read to its text, an empty string
 for a page without text, and `failures` counts the runs that failed in a row.
-Every extraction of the same object passes those pages to the kernel, so a
-page is paid for once: an extractor upgrade, a rebuild, a second run of the
-same job, and another Page that holds the same object all reuse the stored
-text. A commit of the bytes that a Page already holds, which an Agent's
+Every extraction passes to the kernel the pages that OCR has read from the
+same bytes anywhere in the tenant: `FileExtraction.known_ocr/2` merges the
+`ocr` of every cache row whose object has the file's SHA-256, which
+`Ankole.Files.same_bytes_object_ids/1` finds. A page is therefore paid for
+once in a tenant: an extractor upgrade, a rebuild, a second run of the same
+job, another Page that holds the same object, and the same file uploaded to
+another Page all reuse the stored text. A commit of the bytes that a Page already holds, which an Agent's
 `drive put` or a sync client makes for every unchanged file, names a new
 object; `FileExtraction` compares the objects' SHA-256 and moves the cache to
 the new object without extracting or reading anything again, and the file's
 content version in Brain follows the same digest, so Brain does not learn the
-file again either. The comparison is per Page: the same bytes committed on
-another Page, as a connector does when it creates a new File Page for every
-download, are extracted and read once for that Page. Two things drop what OCR
-read: renaming a file to a name that Ankole does not extract removes its cache
-row, and a page recorded as read without text stays that way when the same
-file is uploaded to the same Page again. Uploading the file as a new Page
-reads it afresh. Each page with OCR text takes
+file again either. The same bytes committed on another Page, as a connector
+does when it creates a new File Page for every download, are extracted again
+for that Page, and the extraction takes its scanned pages from the stored
+text. Renaming a file to a name that Ankole does not extract removes its
+cache row and, with it, what OCR read on that Page. A page recorded as read
+without text stays that way for every copy of the file in the tenant: an
+upload of the same bytes, to the same Page or to a new one, takes the stored
+result, and OCR reads the file afresh only after the last cache row of those
+bytes is gone. Each page with OCR text takes
 it under its own `[Page N]` line, leaves `textless_pages`, and joins
 `metadata.ocr_pages`. When a request fails, the pages read by the requests
 before it stay, and when the extraction cannot be stored, the pages go onto
@@ -2443,6 +2448,21 @@ the model counts pages another way: Pod uses none of its text and records the
 requested pages as read without text, because asking again would pay again
 for the same answer. AIGateway records each request under the `pod_files` origin
 with the pages it read.
+
+Jobs run side by side, and two of them may hold the same bytes: two Pages
+share an object, or the same file arrives on two Pages at once. One job at a
+time sends those bytes to OCR. Before `SyncFileCache` extracts a PDF, it
+takes an advisory lock on the tenant and the file's SHA-256 and looks for
+another `SyncFileCache` job in its first attempt that is `executing` and
+whose Oban `meta.reads` names those bytes. When there is none and the job may
+read scans, it writes that mark on its own row and goes on. The transaction
+ends there, so the job holds no lock while OCR works. When another job
+carries the mark, the job snoozes for ten seconds without extracting
+anything, and the run that follows the reader finds the reader's pages
+through `known_ocr/2`. The mark counts only while its job is `executing` in
+its first attempt, the only attempt that reads scans; the job of a node that
+died keeps the mark until Oban's Lifeline plugin returns the job to the queue
+after 30 minutes.
 
 `pod.ocr_existing_scans` is the administrator's consent to pay for the scans
 that were not read at upload. The setting is off by default and resolves
