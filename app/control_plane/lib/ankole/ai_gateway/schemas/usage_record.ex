@@ -37,6 +37,16 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
         "ai_gateway_usage_records_cache_creation_input_tokens_check"
       )
 
+      check_constraint(
+        :cache_creation_30m_input_tokens,
+        "ai_gateway_usage_records_cache_creation_30m_input_tokens_check"
+      )
+
+      check_constraint(
+        :cache_creation_12h_input_tokens,
+        "ai_gateway_usage_records_cache_creation_12h_input_tokens_check"
+      )
+
       check_constraint(:reasoning_tokens, "ai_gateway_usage_records_reasoning_tokens_check")
       check_constraint(:job_id, "ai_gateway_usage_records_job_id_check")
       check_constraint(:attempt, "ai_gateway_usage_records_attempt_check")
@@ -68,6 +78,8 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
     attribute(:output_tokens, :integer, constraints: [min: 0])
     attribute(:cached_input_tokens, :integer, constraints: [min: 0])
     attribute(:cache_creation_input_tokens, :integer, constraints: [min: 0])
+    attribute(:cache_creation_30m_input_tokens, :integer, constraints: [min: 0])
+    attribute(:cache_creation_12h_input_tokens, :integer, constraints: [min: 0])
     attribute(:reasoning_tokens, :integer, constraints: [min: 0])
     attribute(:human_uid, Ankole.Ash.Types.PrincipalKey)
     attribute(:session_id, :string, constraints: [trim?: false])
@@ -102,6 +114,8 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
         :output_tokens,
         :cached_input_tokens,
         :cache_creation_input_tokens,
+        :cache_creation_30m_input_tokens,
+        :cache_creation_12h_input_tokens,
         :reasoning_tokens,
         :human_uid,
         :session_id,

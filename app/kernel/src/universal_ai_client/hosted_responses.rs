@@ -1519,13 +1519,21 @@ fn add_usage(total: &mut Value, usage: &Value) {
         );
     }
     // Only Providers with explicit prompt caching report cache writes, so the
-    // aggregate carries the count only when some round reported it.
-    let cache_creation_tokens = add_reported(
-        total["input_tokens_details"].get("cache_creation_tokens"),
-        normalized["input_tokens_details"].get("cache_creation_tokens"),
-    );
-    if !cache_creation_tokens.is_null() {
-        total["input_tokens_details"]["cache_creation_tokens"] = cache_creation_tokens;
+    // aggregate carries a count only when some round reported it. The
+    // 30-minute and 12-hour lifetimes sum independently of the total, so a
+    // round that reports only the total still contributes.
+    for key in [
+        "cache_creation_tokens",
+        "cache_creation_30m_tokens",
+        "cache_creation_12h_tokens",
+    ] {
+        let cache_count = add_reported(
+            total["input_tokens_details"].get(key),
+            normalized["input_tokens_details"].get(key),
+        );
+        if !cache_count.is_null() {
+            total["input_tokens_details"][key] = cache_count;
+        }
     }
 }
 
@@ -1604,6 +1612,42 @@ mod tests {
         assert_eq!(
             total["input_tokens_details"]["cache_creation_tokens"],
             json!(5)
+        );
+    }
+
+    #[test]
+    fn aggregate_usage_sums_cache_write_lifetimes_only_when_reported() {
+        let mut total = Value::Null;
+        add_usage(
+            &mut total,
+            &json!({
+                "input_tokens": 100,
+                "input_tokens_details": {
+                    "cache_write_tokens": 40,
+                    "cache_write_tokens_details": {"ttl_30m_tokens": 25}
+                }
+            }),
+        );
+        add_usage(
+            &mut total,
+            &json!({
+                "input_tokens": 50,
+                "input_tokens_details": {
+                    "cache_write_tokens": 60,
+                    "cache_write_tokens_details": {"ttl_12h_tokens": 60}
+                }
+            }),
+        );
+        let details = &total["input_tokens_details"];
+        assert_eq!(details["cache_creation_tokens"], json!(100));
+        assert_eq!(details["cache_creation_30m_tokens"], json!(25));
+        assert_eq!(details["cache_creation_12h_tokens"], json!(60));
+
+        let mut without_tiers = Value::Null;
+        add_usage(&mut without_tiers, &json!({"input_tokens": 5}));
+        assert_eq!(
+            without_tiers["input_tokens_details"].get("cache_creation_30m_tokens"),
+            None
         );
     }
 

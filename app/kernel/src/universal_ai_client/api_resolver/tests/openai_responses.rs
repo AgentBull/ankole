@@ -95,6 +95,66 @@ fn openai_responses_requires_terminal_event_on_finish() {
 }
 
 #[test]
+fn openai_responses_terminal_states_keep_cache_write_lifetimes() {
+    let usage = json!({
+        "input_tokens": 12000,
+        "output_tokens": 40,
+        "input_tokens_details": {
+            "cached_tokens": 4000,
+            "cache_write_tokens": 7000,
+            "cache_write_tokens_details": {
+                "ttl_30m_tokens": 3000,
+                "ttl_12h_tokens": 4000
+            }
+        }
+    });
+
+    // A truncated stream ends with the incomplete terminal and keeps the usage
+    // that the Provider already reported.
+    let mut resolver =
+        APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());
+    resolver
+        .ingest(json!({
+            "type": "response.in_progress",
+            "response": {"id": "resp_1", "status": "in_progress", "usage": usage}
+        }))
+        .unwrap();
+    let events = resolver
+        .ingest(json!({
+            "type": "response.incomplete",
+            "response": {"id": "resp_1", "status": "incomplete", "usage": usage}
+        }))
+        .unwrap();
+    let terminal = events.last().unwrap();
+    assert_eq!(terminal["type"], "response.incomplete");
+    let details = &terminal["response"]["usage"]["input_tokens_details"];
+    assert_eq!(details["cached_tokens"], json!(4000));
+    assert_eq!(details["cache_creation_tokens"], json!(7000));
+    assert_eq!(details["cache_creation_30m_tokens"], json!(3000));
+    assert_eq!(details["cache_creation_12h_tokens"], json!(4000));
+
+    // A transport error ends with the failed terminal and the last reported
+    // usage.
+    let mut resolver =
+        APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());
+    resolver
+        .ingest(json!({
+            "type": "response.in_progress",
+            "response": {"id": "resp_2", "status": "in_progress", "usage": usage}
+        }))
+        .unwrap();
+    let error = StreamError::new("upstream_read_failed", "read", "connection closed");
+    let events = resolver.fail(&error);
+    let terminal = events.last().unwrap();
+    assert_eq!(terminal["type"], "response.failed");
+    let details = &terminal["response"]["usage"]["input_tokens_details"];
+    assert_eq!(details["cached_tokens"], json!(4000));
+    assert_eq!(details["cache_creation_tokens"], json!(7000));
+    assert_eq!(details["cache_creation_30m_tokens"], json!(3000));
+    assert_eq!(details["cache_creation_12h_tokens"], json!(4000));
+}
+
+#[test]
 fn openai_responses_error_event_is_not_terminal_by_itself() {
     let mut resolver =
         APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());

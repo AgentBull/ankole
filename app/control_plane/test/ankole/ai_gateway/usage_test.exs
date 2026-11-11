@@ -140,4 +140,64 @@ defmodule Ankole.AIGateway.UsageTest do
              "web_search" => %{"requests" => 2}
            }) == %{"web_search" => %{"requests" => 3}}
   end
+
+  test "OpenAI cache write lifetimes stay beside the total and the plain input" do
+    usage = %{
+      "input_tokens" => 12_000,
+      "output_tokens" => 40,
+      "total_tokens" => 12_040,
+      "input_tokens_details" => %{
+        "cached_tokens" => 4_000,
+        "cache_creation_tokens" => 7_000,
+        "cache_creation_30m_tokens" => 3_000,
+        "cache_creation_12h_tokens" => 4_000
+      }
+    }
+
+    assert %{
+             input_tokens: 12_000,
+             output_tokens: 40,
+             cached_input_tokens: 4_000,
+             cache_creation_input_tokens: 7_000,
+             cache_creation_30m_input_tokens: 3_000,
+             cache_creation_12h_input_tokens: 4_000
+           } = Usage.counts(usage)
+
+    assert Usage.net_input_tokens(usage) == 1_000
+    assert Usage.net_input_tokens(%{"input_tokens" => 10}) == 10
+
+    assert Usage.net_input_tokens(%{
+             "input_tokens" => 4,
+             "input_tokens_details" => %{"cached_tokens" => 9}
+           }) == 0
+
+    assert Usage.net_input_tokens(%{"output_tokens" => 4}) == nil
+  end
+
+  test "cache write lifetimes sum across merged rounds without double counting input" do
+    round = %{
+      "input_tokens" => 1_000,
+      "output_tokens" => 10,
+      "input_tokens_details" => %{
+        "cached_tokens" => 400,
+        "cache_creation_tokens" => 300,
+        "cache_creation_30m_tokens" => 180,
+        "cache_creation_12h_tokens" => 120
+      }
+    }
+
+    merged = Usage.merge(round, round)
+
+    assert merged["input_tokens"] == 2_000
+    assert merged["output_tokens"] == 20
+
+    assert merged["input_tokens_details"] == %{
+             "cached_tokens" => 800,
+             "cache_creation_tokens" => 600,
+             "cache_creation_30m_tokens" => 360,
+             "cache_creation_12h_tokens" => 240
+           }
+
+    assert Usage.net_input_tokens(merged) == 600
+  end
 end

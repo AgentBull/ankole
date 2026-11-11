@@ -1386,6 +1386,16 @@ keeps a count that the Provider did not report as `null`; a usage that the
 Provider omitted entirely is `null` as a whole. `input_tokens` always includes
 the prompt-cache portions, which `input_tokens_details` breaks out as
 `cached_tokens` for cache reads and `cache_creation_tokens` for cache writes.
+OpenAI splits the cache-write total by lifetime in `cache_write_tokens_details`
+under the Responses details and in
+`prompt_tokens_details.cache_write_tokens_details` for Chat Completions; the
+kernel keeps both portions as `cache_creation_30m_tokens` and
+`cache_creation_12h_tokens` beside the total, derives a missing total from their
+sum, and raises a total that is below the breakdown. The usage ledger records
+both portions. Because `input_tokens` already contains every cache portion,
+pricing starts from `AIGateway.Usage.net_input_tokens/1`, which subtracts the
+cache read and cache write totals from `input_tokens`, instead of adding the
+cache counts to the input again.
 Anthropic Messages and Bedrock Converse report uncached input, cache reads, and
 cache writes as disjoint fields, so the kernel adds the cache portions back into
 `input_tokens`. Chat Completions Providers that name these counts differently
@@ -1395,8 +1405,9 @@ OpenRouter's and Kimi's `cache_write_tokens` and DashScope's
 `cache_creation_input_tokens` become `cache_creation_tokens`.
 A hosted composite response sums
 the counts that its main-model rounds reported, keeps a count that no main-model
-round reported `null`, carries `cache_creation_tokens` only when some main-model
-round reported it, and adds the image tokens only to the counts that the
+round reported `null`, carries `cache_creation_tokens` and each lifetime portion
+only when some main-model round reported it, and adds the image tokens only to
+the counts that the
 main-model rounds reported, so subtracting `tool_usage.image_gen` never turns an
 image-only report into a reported zero. `tool_usage.image_gen` itself keeps
 integer counts. The composite `model` is the model that the last main-model

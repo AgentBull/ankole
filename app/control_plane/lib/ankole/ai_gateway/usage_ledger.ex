@@ -320,6 +320,8 @@ defmodule Ankole.AIGateway.UsageLedger do
       output_tokens: counts.output_tokens,
       cached_input_tokens: counts.cached_input_tokens,
       cache_creation_input_tokens: counts.cache_creation_input_tokens,
+      cache_creation_30m_input_tokens: counts.cache_creation_30m_input_tokens,
+      cache_creation_12h_input_tokens: counts.cache_creation_12h_input_tokens,
       reasoning_tokens: counts.reasoning_tokens,
       human_uid: human_uid(origin, runtime, request_context),
       session_id: Ankole.Attrs.optional_text(Map.get(request_context, "session_id")),

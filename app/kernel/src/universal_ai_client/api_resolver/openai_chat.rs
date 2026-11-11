@@ -222,31 +222,7 @@ impl ChatState {
             return;
         }
         let mut merged = self.usage.as_object().cloned().unwrap_or_default();
-        for (key, value) in incoming_obj {
-            if value.is_null() {
-                continue;
-            }
-            if let Some(sub_in) = value.as_object() {
-                if sub_in.is_empty() {
-                    continue;
-                }
-                let mut sub_out = merged
-                    .get(key)
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default();
-                for (k, v) in sub_in {
-                    if !v.is_null() {
-                        sub_out.insert(k.clone(), v.clone());
-                    }
-                }
-                if !sub_out.is_empty() {
-                    merged.insert(key.clone(), Value::Object(sub_out));
-                }
-            } else {
-                merged.insert(key.clone(), value.clone());
-            }
-        }
+        merge_usage_object(&mut merged, incoming_obj);
         if !merged.is_empty() {
             self.usage = Value::Object(merged);
         }
@@ -261,14 +237,17 @@ impl ChatState {
         context: &ResponseContext,
         chunk: Value,
     ) -> Result<Vec<Value>, StreamError> {
+        // An error chunk can still carry the usage of the attempt, so keep it
+        // before the failure ends the stream: the failed terminal response
+        // reports what the Provider already counted.
+        if let Some(usage) = chunk.get("usage").filter(|value| value.is_object()) {
+            self.merge_usage(usage);
+        }
         if chunk.get("error").is_some_and(|error| !error.is_null()) {
             return Err(provider_body_error(200, chunk));
         }
 
         self.put_chat_metadata(&chunk);
-        if let Some(usage) = chunk.get("usage").filter(|value| value.is_object()) {
-            self.merge_usage(usage);
-        }
 
         let mut events = self.ensure_response_started(context);
         let choice = chunk
@@ -831,6 +810,31 @@ impl APIProtocol for ChatState {
 
     fn is_terminal(&self) -> bool {
         self.terminal
+    }
+}
+
+// A later Chat Completions usage object repeats the counts it reports and may
+// report only part of a nested detail, such as one cache-write lifetime, so
+// merge every level instead of replacing the object that an earlier chunk
+// already filled. A null count never erases a reported one.
+fn merge_usage_object(target: &mut Map<String, Value>, incoming: &Map<String, Value>) {
+    for (key, value) in incoming {
+        if value.is_null() {
+            continue;
+        }
+        if let Some(incoming_object) = value.as_object() {
+            if incoming_object.is_empty() {
+                continue;
+            }
+            match target.get_mut(key).and_then(Value::as_object_mut) {
+                Some(existing) => merge_usage_object(existing, incoming_object),
+                None => {
+                    target.insert(key.clone(), Value::Object(incoming_object.clone()));
+                }
+            }
+        } else {
+            target.insert(key.clone(), value.clone());
+        }
     }
 }
 

@@ -113,6 +113,170 @@ fn openai_chat_accumulates_text_usage_and_terminal_response() {
 }
 
 #[test]
+fn openai_chat_merges_cache_write_lifetimes_across_usage_chunks() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({"input": "hi"}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+            ..ResponseContext::default()
+        },
+    );
+
+    resolver
+        .ingest(json!({
+            "id": "chatcmpl_1",
+            "created": 10,
+            "model": "gpt-test",
+            "choices": [{"delta": {"content": "hello"}, "finish_reason": null}],
+            "usage": {
+                "prompt_tokens": 1200,
+                "completion_tokens": 0,
+                "prompt_tokens_details": {
+                    "cached_tokens": 400,
+                    "cache_write_tokens": 400,
+                    "cache_write_tokens_details": {"ttl_30m_tokens": 150}
+                }
+            }
+        }))
+        .unwrap();
+
+    // A later chunk reports the other lifetime of the same breakdown and none
+    // of the counts that it already reported.
+    resolver
+        .ingest(json!({
+            "choices": [{"delta": {}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 1200,
+                "completion_tokens": 80,
+                "prompt_tokens_details": {
+                    "cache_write_tokens_details": {"ttl_12h_tokens": 250}
+                }
+            }
+        }))
+        .unwrap();
+
+    let events = resolver.finish().unwrap();
+    let terminal = events.last().unwrap();
+    assert_eq!(terminal["type"], "response.completed");
+    let usage = &terminal["response"]["usage"];
+    assert_eq!(usage["input_tokens"], json!(1200));
+    assert_eq!(usage["output_tokens"], json!(80));
+    let details = &usage["input_tokens_details"];
+    assert_eq!(details["cached_tokens"], json!(400));
+    assert_eq!(details["cache_creation_tokens"], json!(400));
+    assert_eq!(details["cache_creation_30m_tokens"], json!(150));
+    assert_eq!(details["cache_creation_12h_tokens"], json!(250));
+}
+
+#[test]
+fn openai_chat_failed_terminal_reports_cache_write_lifetimes() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({"input": "hi"}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+            ..ResponseContext::default()
+        },
+    );
+
+    resolver
+        .ingest(json!({
+            "id": "chatcmpl_1",
+            "created": 10,
+            "model": "gpt-test",
+            "choices": [{"delta": {"content": "hello"}, "finish_reason": null}]
+        }))
+        .unwrap();
+
+    // The error chunk carries the usage of the attempt, which the failed
+    // terminal response must still report.
+    let error = resolver
+        .ingest(json!({
+            "error": {"message": "upstream reset", "code": 502},
+            "usage": {
+                "prompt_tokens": 900,
+                "completion_tokens": 10,
+                "prompt_tokens_details": {
+                    "cached_tokens": 300,
+                    "cache_write_tokens": 500,
+                    "cache_write_tokens_details": {
+                        "ttl_30m_tokens": 200,
+                        "ttl_12h_tokens": 300
+                    }
+                }
+            }
+        }))
+        .unwrap_err();
+
+    let events = resolver.fail(&error);
+    let terminal = &events[0];
+    assert_eq!(terminal["type"], "response.failed");
+    let details = &terminal["response"]["usage"]["input_tokens_details"];
+    assert_eq!(details["cached_tokens"], json!(300));
+    assert_eq!(details["cache_creation_tokens"], json!(500));
+    assert_eq!(details["cache_creation_30m_tokens"], json!(200));
+    assert_eq!(details["cache_creation_12h_tokens"], json!(300));
+}
+
+#[test]
+fn openai_chat_truncated_terminal_reports_cache_write_lifetimes() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({"input": "hi"}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+            ..ResponseContext::default()
+        },
+    );
+
+    resolver
+        .ingest(json!({
+            "id": "chatcmpl_1",
+            "created": 10,
+            "model": "gpt-test",
+            "choices": [{"delta": {"content": "hello"}, "finish_reason": null}],
+            "usage": {
+                "prompt_tokens": 1200,
+                "completion_tokens": 80,
+                "prompt_tokens_details": {
+                    "cached_tokens": 400,
+                    "cache_write_tokens": 700,
+                    "cache_write_tokens_details": {
+                        "ttl_30m_tokens": 300,
+                        "ttl_12h_tokens": 400
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+    // The stream closes without a finish_reason: the terminal response is
+    // incomplete and keeps the usage that the Provider already reported.
+    let events = resolver.finish().unwrap();
+    let terminal = events.last().unwrap();
+    assert_eq!(terminal["type"], "response.incomplete");
+    assert_eq!(
+        terminal["response"]["incomplete_details"]["reason"],
+        "upstream_stream_closed"
+    );
+    let details = &terminal["response"]["usage"]["input_tokens_details"];
+    assert_eq!(details["cached_tokens"], json!(400));
+    assert_eq!(details["cache_creation_tokens"], json!(700));
+    assert_eq!(details["cache_creation_30m_tokens"], json!(300));
+    assert_eq!(details["cache_creation_12h_tokens"], json!(400));
+}
+
+#[test]
 fn openai_chat_top_level_error_chunk_becomes_provider_failure() {
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,

@@ -8,6 +8,13 @@ defmodule Ankole.AIGateway.Usage do
 
   Counts must be nonnegative integers. Canonical detail fields take priority
   over older Provider names and flat fields, including an explicit zero.
+
+  `input_tokens` includes the cache portions, as the Responses usage shape
+  defines it. `cache_creation_input_tokens` is the total of the cache writes,
+  and `cache_creation_30m_input_tokens` and `cache_creation_12h_input_tokens`
+  split it by lifetime when the Provider reports the split. A caller that
+  prices each portion separately starts from `net_input_tokens/1`; it must not
+  add the cache counts to `input_tokens` again.
   """
 
   @input_keys ~w(input_tokens prompt_tokens inputTokens)
@@ -104,9 +111,13 @@ defmodule Ankole.AIGateway.Usage do
           output_tokens: non_neg_integer() | nil,
           cached_input_tokens: non_neg_integer() | nil,
           cache_creation_input_tokens: non_neg_integer() | nil,
+          cache_creation_30m_input_tokens: non_neg_integer() | nil,
+          cache_creation_12h_input_tokens: non_neg_integer() | nil,
           reasoning_tokens: non_neg_integer() | nil
         }
   def counts(usage) when is_map(usage) do
+    input_details = Map.get(usage, "input_tokens_details")
+
     %{
       input_tokens: integer(usage, @input_keys),
       output_tokens: integer(usage, @output_keys),
@@ -117,8 +128,9 @@ defmodule Ankole.AIGateway.Usage do
           ~w(cached_tokens cached cachedInputTokens),
           ~w(cached_tokens cachedTokens)
         ),
-      cache_creation_input_tokens:
-        integer(Map.get(usage, "input_tokens_details"), ~w(cache_creation_tokens)),
+      cache_creation_input_tokens: integer(input_details, ~w(cache_creation_tokens)),
+      cache_creation_30m_input_tokens: integer(input_details, ~w(cache_creation_30m_tokens)),
+      cache_creation_12h_input_tokens: integer(input_details, ~w(cache_creation_12h_tokens)),
       reasoning_tokens:
         detail(
           usage,
@@ -130,6 +142,34 @@ defmodule Ankole.AIGateway.Usage do
   end
 
   def counts(_usage), do: counts(%{})
+
+  @doc """
+  Returns the input tokens that were neither cache reads nor cache writes.
+
+  `input_tokens` includes both cache portions, so pricing the cache portions
+  separately starts here instead of adding them to `input_tokens`. A usage
+  that reports neither cache portion keeps the whole input. An unreported
+  input stays `nil`.
+  """
+  @spec net_input_tokens(term()) :: non_neg_integer() | nil
+  def net_input_tokens(usage) do
+    counts = counts(usage)
+
+    case counts.input_tokens do
+      nil ->
+        nil
+
+      input ->
+        # A usage that reports only the lifetime split still accounts for its
+        # writes.
+        cache_write =
+          counts.cache_creation_input_tokens ||
+            (counts.cache_creation_30m_input_tokens || 0) +
+              (counts.cache_creation_12h_input_tokens || 0)
+
+        max(input - (counts.cached_input_tokens || 0) - cache_write, 0)
+    end
+  end
 
   @doc """
   Projects usage to the public Responses usage object.

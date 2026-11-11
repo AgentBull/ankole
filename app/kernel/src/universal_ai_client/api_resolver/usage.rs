@@ -2,6 +2,22 @@ use serde_json::{Map, Value, json};
 
 use super::{integer_value, put_default};
 
+// The OpenAI cache-write breakdown lives under `input_tokens_details` in the
+// Responses API and under `prompt_tokens_details` in Chat Completions. An
+// OpenAI-compatible Provider may flatten it or keep the older
+// `cache_write_details` spelling, so read every shape.
+const CACHE_WRITE_SCOPES: &[&str] = &[
+    "",
+    "cache_write_details",
+    "cache_write_tokens_details",
+    "input_tokens_details",
+    "input_tokens_details.cache_write_details",
+    "input_tokens_details.cache_write_tokens_details",
+    "prompt_tokens_details",
+    "prompt_tokens_details.cache_write_details",
+    "prompt_tokens_details.cache_write_tokens_details",
+];
+
 // A count the Provider did not report stays `null`, so callers can tell it
 // apart from a reported zero. A usage that is not an object is `null` as a
 // whole.
@@ -53,6 +69,63 @@ pub(crate) fn normalize_response_usage(usage: &Value) -> Value {
             "cache_creation_tokens".to_string(),
             Value::from(flat_creation),
         );
+    }
+    // OpenAI breaks the cache-write total into the 30-minute and 12-hour
+    // lifetimes and reports both counts, including a zero. The counts do not
+    // overlap, so their sum never exceeds the total; a Provider that reports
+    // only the breakdown still gets a total. Read the canonical detail, the
+    // Chat Completions spelling, and the flat shape, then drop the
+    // Provider-specific nested object so re-normalizing is idempotent.
+    let cache_write_30m = scoped_usage_count(
+        usage,
+        CACHE_WRITE_SCOPES,
+        &[
+            "cache_creation_30m_tokens",
+            "cache_write_30m_tokens",
+            "ttl_30m_tokens",
+        ],
+    );
+    let cache_write_12h = scoped_usage_count(
+        usage,
+        CACHE_WRITE_SCOPES,
+        &[
+            "cache_creation_12h_tokens",
+            "cache_write_12h_tokens",
+            "ttl_12h_tokens",
+        ],
+    );
+    input_details.remove("cache_write_details");
+    input_details.remove("cache_write_tokens_details");
+    let tier_total = [cache_write_30m, cache_write_12h]
+        .iter()
+        .any(Option::is_some)
+        .then(|| {
+            cache_write_30m
+                .unwrap_or(0)
+                .saturating_add(cache_write_12h.unwrap_or(0))
+        });
+    if let Some(cache_creation_tokens) = match (
+        input_details
+            .get("cache_creation_tokens")
+            .and_then(integer_value),
+        tier_total,
+    ) {
+        (Some(direct), Some(tiers)) => Some(direct.max(tiers)),
+        (direct, None) => direct,
+        (None, Some(tiers)) => Some(tiers),
+    } {
+        input_details.insert(
+            "cache_creation_tokens".to_string(),
+            Value::from(cache_creation_tokens),
+        );
+    }
+    for (key, count) in [
+        ("cache_creation_30m_tokens", cache_write_30m),
+        ("cache_creation_12h_tokens", cache_write_12h),
+    ] {
+        if let Some(count) = count {
+            input_details.insert(key.to_string(), Value::from(count));
+        }
     }
     if let Some(cc) = usage.get("cache_creation").filter(|v| v.is_object()) {
         input_details
@@ -180,6 +253,22 @@ pub(super) fn normalize_bedrock_usage(usage: &Value) -> Value {
 fn usage_count(usage: &Value, keys: &[&str]) -> Option<i64> {
     keys.iter()
         .find_map(|key| usage.get(*key).and_then(integer_value))
+}
+
+// Reads one count from the first scope that reports it. A scope is a
+// dot-separated path from the usage object; the empty scope is the usage
+// itself.
+fn scoped_usage_count(usage: &Value, scopes: &[&str], keys: &[&str]) -> Option<i64> {
+    scopes.iter().find_map(|scope| {
+        let target = if scope.is_empty() {
+            Some(usage)
+        } else {
+            scope
+                .split('.')
+                .try_fold(usage, |current, segment| current.get(segment))
+        };
+        target.and_then(|object| usage_count(object, keys))
+    })
 }
 
 fn usage_details(usage: &Value, key: &str, legacy_key: &str) -> Map<String, Value> {
@@ -342,6 +431,100 @@ mod tests {
             Value::Null
         );
         assert_eq!(normalize_bedrock_usage(&Value::Null), Value::Null);
+    }
+
+    #[test]
+    fn openai_cache_write_lifetimes_stay_beside_the_write_total() {
+        // The Responses API documents a total plus the two disjoint lifetimes
+        // under the canonical details.
+        let responses = normalize_response_usage(&json!({
+            "input_tokens": 12000,
+            "output_tokens": 40,
+            "input_tokens_details": {
+                "cached_tokens": 4000,
+                "cache_write_tokens": 7000,
+                "cache_write_tokens_details": {
+                    "ttl_30m_tokens": 3000,
+                    "ttl_12h_tokens": 4000
+                }
+            }
+        }));
+        let details = &responses["input_tokens_details"];
+        assert_eq!(responses["input_tokens"], json!(12000));
+        assert_eq!(details["cached_tokens"], json!(4000));
+        assert_eq!(details["cache_creation_tokens"], json!(7000));
+        assert_eq!(details["cache_creation_30m_tokens"], json!(3000));
+        assert_eq!(details["cache_creation_12h_tokens"], json!(4000));
+        assert_eq!(details.get("cache_write_tokens_details"), None);
+        assert_eq!(normalize_response_usage(&responses), responses);
+
+        // Chat Completions spells the same breakdown with a different key.
+        let chat = normalize_response_usage(&json!({
+            "prompt_tokens": 1200,
+            "completion_tokens": 80,
+            "prompt_tokens_details": {
+                "cached_tokens": 400,
+                "cache_write_tokens": 400,
+                "cache_write_tokens_details": {
+                    "ttl_30m_tokens": 150,
+                    "ttl_12h_tokens": 250
+                }
+            }
+        }));
+        let details = &chat["input_tokens_details"];
+        assert_eq!(chat["input_tokens"], json!(1200));
+        assert_eq!(details["cached_tokens"], json!(400));
+        assert_eq!(details["cache_creation_tokens"], json!(400));
+        assert_eq!(details["cache_creation_30m_tokens"], json!(150));
+        assert_eq!(details["cache_creation_12h_tokens"], json!(250));
+    }
+
+    #[test]
+    fn openai_cache_write_breakdown_derives_a_missing_total() {
+        // A zero lifetime is reported, and a breakdown without a total still
+        // fills the total from the two disjoint counts.
+        let derived = normalize_response_usage(&json!({
+            "input_tokens": 900,
+            "input_tokens_details": {
+                "cached_tokens": 200,
+                "cache_write_details": {
+                    "ttl_30m_tokens": 0,
+                    "ttl_12h_tokens": 300
+                }
+            }
+        }));
+        let details = &derived["input_tokens_details"];
+        assert_eq!(details["cache_creation_tokens"], json!(300));
+        assert_eq!(details["cache_creation_30m_tokens"], json!(0));
+        assert_eq!(details["cache_creation_12h_tokens"], json!(300));
+        assert_eq!(details.get("cache_write_details"), None);
+
+        // A total below the breakdown is raised, never lowered.
+        let inconsistent = normalize_response_usage(&json!({
+            "input_tokens": 900,
+            "input_tokens_details": {
+                "cache_write_tokens": 100,
+                "cache_write_tokens_details": {
+                    "ttl_30m_tokens": 100,
+                    "ttl_12h_tokens": 200
+                }
+            }
+        }));
+        assert_eq!(
+            inconsistent["input_tokens_details"]["cache_creation_tokens"],
+            json!(300)
+        );
+
+        // A flat lifetime count is read as well.
+        let flat = normalize_response_usage(&json!({
+            "prompt_tokens": 50,
+            "ttl_30m_tokens": 10,
+            "ttl_12h_tokens": 20
+        }));
+        let details = &flat["input_tokens_details"];
+        assert_eq!(details["cache_creation_tokens"], json!(30));
+        assert_eq!(details["cache_creation_30m_tokens"], json!(10));
+        assert_eq!(details["cache_creation_12h_tokens"], json!(20));
     }
 
     #[test]

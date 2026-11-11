@@ -176,6 +176,8 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       assert record.output_tokens == nil
       assert record.cached_input_tokens == nil
       assert record.cache_creation_input_tokens == nil
+      assert record.cache_creation_30m_input_tokens == nil
+      assert record.cache_creation_12h_input_tokens == nil
       assert record.model == "openai-token-quota/gpt-5.5"
       assert record.provider_model == "gpt-5.5-2026-10-01"
       assert record.model_profile == "light"
@@ -344,6 +346,41 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
              } = AIGateway.turn_usage(signal_id)
 
       assert AIGateway.turn_usage(Ankole.Ecto.UUIDv7.autogenerate()) == nil
+    end
+
+    test "a round records the cache write lifetimes beside the total" do
+      %{principal: agent} = agent_fixture()
+
+      :ok =
+        UsageLedger.record(
+          %{
+            "capability" => "llm",
+            "subject_uid" => agent.uid,
+            "provider_id" => "ledger-test",
+            "model" => "gpt-5.5"
+          },
+          "agent",
+          %{
+            "status" => "completed",
+            "usage" => %{
+              "input_tokens" => 12_000,
+              "output_tokens" => 40,
+              "input_tokens_details" => %{
+                "cached_tokens" => 4_000,
+                "cache_creation_tokens" => 7_000,
+                "cache_creation_30m_tokens" => 3_000,
+                "cache_creation_12h_tokens" => 4_000
+              }
+            }
+          }
+        )
+
+      assert [record] = usage_records()
+      assert record.input_tokens == 12_000
+      assert record.cached_input_tokens == 4_000
+      assert record.cache_creation_input_tokens == 7_000
+      assert record.cache_creation_30m_input_tokens == 3_000
+      assert record.cache_creation_12h_input_tokens == 4_000
     end
 
     test "a streaming round without usage records unknown counts and public integer usage" do
