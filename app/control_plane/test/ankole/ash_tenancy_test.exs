@@ -3,7 +3,7 @@ defmodule Ankole.AshTenancyTest do
 
   alias Ecto.Adapters.SQL
 
-  alias TenantIsolationFixture.{Probe, SiteProbe}
+  alias TenantIsolationFixture.{Probe, SiteOperationProbe, SiteProbe, TenantOperationProbe}
 
   setup do
     SQL.query!(Repo, """
@@ -71,6 +71,51 @@ defmodule Ankole.AshTenancyTest do
              end)
 
     assert [%{value: "audit"}] = Repo.without_tenant(fn -> Ankole.Ash.read!(SiteProbe) end)
+  end
+
+  test "site operation resources run without a tenant and reject a forged tenant" do
+    assert SiteOperationProbe.__tenancy__() == :site
+    assert TenantOperationProbe.__tenancy__() == :tenant
+
+    assert {:ok, %{tenant: nil}} =
+             Repo.without_tenant(fn ->
+               Ankole.Ash.run_action(SiteOperationProbe, :site_probe, %{})
+             end)
+
+    other = create_tenant()
+
+    assert_raise ArgumentError, ~r/action tenant/, fn ->
+      Repo.without_tenant(fn ->
+        Ankole.Ash.run_action(SiteOperationProbe, :site_probe, %{}, tenant: other.id)
+      end)
+    end
+
+    assert {:ok, %{tenant: tenant_id}} =
+             Repo.with_tenant(other.id, fn ->
+               Ankole.Ash.run_action(TenantOperationProbe, :tenant_probe, %{})
+             end)
+
+    assert tenant_id == other.id
+  end
+
+  test "site operation resources authorize through the site console scope without a tenant" do
+    %{principal: principal} = Ankole.PrincipalsFixtures.human_fixture()
+    actor = Ankole.AuthZ.Actor.new(principal)
+
+    assert {:ok, %{tenant: nil}} =
+             Repo.without_tenant(fn ->
+               Ankole.Ash.run_action(SiteOperationProbe, :site_probe, %{},
+                 actor: actor,
+                 authorize?: true
+               )
+             end)
+
+    Repo.without_tenant(fn ->
+      assert :ok = Ankole.AuthZ.Checks.ActorGuardrail.check(actor, :site_console)
+
+      assert {:error, :forbidden} =
+               Ankole.AuthZ.Checks.ActorGuardrail.check(actor, :tenant_console)
+    end)
   end
 
   test "atomic row updates run as one statement or in the caller's transaction" do

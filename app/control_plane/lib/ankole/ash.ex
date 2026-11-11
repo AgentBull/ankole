@@ -24,14 +24,18 @@ defmodule Ankole.Ash do
     do: read_one(query, Keyword.merge(opts, actor: actor, authorize?: true))
 
   def run_action_authorized(
-        %Ash.ActionInput{} = input,
+        %Ash.ActionInput{resource: resource} = input,
         %Ankole.AuthZ.Actor{} = actor,
         opts \\ []
       ),
       do:
         Ash.run_action(
           input,
-          Keyword.merge(opts, actor: actor, authorize?: true, tenant: Ankole.Repo.tenant_id())
+          Keyword.merge(opts,
+            actor: actor,
+            authorize?: true,
+            tenant: action_tenant(resource)
+          )
         )
 
   def for_create(resource, action, attrs, opts \\ []),
@@ -164,7 +168,7 @@ defmodule Ankole.Ash do
   end
 
   def run_action(resource, action, args, opts \\ []) do
-    tenant = Ankole.Repo.tenant_id()
+    tenant = action_tenant(resource)
 
     if Keyword.get(opts, :tenant, tenant) != tenant,
       do: raise(ArgumentError, "action tenant does not match the selected resource scope")
@@ -175,6 +179,15 @@ defmodule Ankole.Ash do
     |> Ash.ActionInput.for_action(action, args, options)
     |> Ash.run_action(options)
     |> Ankole.Errors.boundary_result()
+  end
+
+  # Site operations run without a tenant; tenant resources keep reading the
+  # process tenant exactly as before.
+  defp action_tenant(resource) do
+    if Code.ensure_loaded?(resource) and function_exported?(resource, :__tenancy__, 0) and
+         resource.__tenancy__() == :site,
+       do: nil,
+       else: Ankole.Repo.tenant_id()
   end
 
   def bulk_create(inputs, resource, action, opts \\ []),

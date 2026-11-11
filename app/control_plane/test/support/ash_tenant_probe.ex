@@ -248,3 +248,58 @@ defmodule TenantIsolationFixture.Domain do
     end
   end
 end
+
+defmodule TenantIsolationFixture.OperationDomain do
+  @moduledoc false
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
+
+  resources do
+    allow_unregistered?(true)
+
+    resource(TenantIsolationFixture.SiteOperationProbe)
+    resource(TenantIsolationFixture.TenantOperationProbe)
+  end
+
+  json_api do
+    authorize?(true)
+  end
+end
+
+defmodule TenantIsolationFixture.SiteOperationProbe do
+  @moduledoc false
+  use Ankole.Ash.OperationResource,
+    tenancy: :site,
+    domain: TenantIsolationFixture.OperationDomain,
+    authorizers: [Ankole.AuthZ.Authorizer],
+    extensions: [Ankole.AuthZ.Extension]
+
+  authz do
+    scope(:site_console)
+    allow(:site_probe, check: :guardrail)
+  end
+
+  actions do
+    action :site_probe, :map do
+      run(fn _input, _context -> {:ok, %{tenant: Ankole.Repo.tenant_id()}} end)
+    end
+  end
+end
+
+defmodule TenantIsolationFixture.TenantOperationProbe do
+  @moduledoc false
+  use Ankole.Ash.OperationResource,
+    domain: TenantIsolationFixture.OperationDomain,
+    authorizers: [Ankole.AuthZ.Authorizer],
+    extensions: [Ankole.AuthZ.Extension]
+
+  authz do
+    scope(:site_console)
+    allow(:tenant_probe, check: :guardrail)
+  end
+
+  actions do
+    action :tenant_probe, :map do
+      run(fn _input, _context -> {:ok, %{tenant: Ankole.Repo.tenant_id()}} end)
+    end
+  end
+end
