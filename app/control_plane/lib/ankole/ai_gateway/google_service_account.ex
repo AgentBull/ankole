@@ -51,18 +51,20 @@ defmodule Ankole.AIGateway.GoogleServiceAccount do
              | :not_a_service_account_key
              | :missing_client_email
              | :missing_project_id
-             | :invalid_private_key}
+             | :invalid_private_key
+             | :invalid_token_uri}
   def parse(json) when is_binary(json) do
     with {:ok, %{} = fields} <- decode(json),
          :ok <- require_service_account(fields),
          {:ok, client_email} <- text_field(fields, "client_email", :missing_client_email),
          {:ok, project_id} <- text_field(fields, "project_id", :missing_project_id),
+         {:ok, token_uri} <- token_uri(fields["token_uri"]),
          {:ok, private_key} <- private_key(fields["private_key"]) do
       {:ok,
        %{
          client_email: client_email,
          project_id: project_id,
-         token_uri: text(fields["token_uri"]) || @default_token_uri,
+         token_uri: token_uri,
          private_key: private_key
        }}
     end
@@ -118,40 +120,114 @@ defmodule Ankole.AIGateway.GoogleServiceAccount do
   end
 
   defp exchange(key, now, opts) do
-    options =
-      [
-        method: :post,
-        url: key.token_uri,
-        form: [
-          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-          assertion: assertion(key, now)
-        ],
-        retry: false,
-        receive_timeout: 15_000
-      ] ++ EgressProxy.req_options(key.token_uri, Keyword.take(opts, [:proxy_url]))
+    ssrf_filter = resolve_ssrf_filter(opts)
 
-    case Req.request(options) do
-      {:ok, %Req.Response{status: 200, body: %{"access_token" => token} = body}}
-      when is_binary(token) and token != "" ->
-        {:ok, token, expires_in(body)}
+    with {:ok, proxy_options} <-
+           EgressProxy.resolve_req_options(
+             key.token_uri,
+             Keyword.take(opts, [:proxy_url, :require_proxy])
+           ),
+         :ok <- validate_token_endpoint(key.token_uri, ssrf_filter, proxy_options != []) do
+      options =
+        [
+          method: :post,
+          url: key.token_uri,
+          form: [
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            assertion: assertion(key, now)
+          ],
+          redirect: false,
+          retry: false,
+          receive_timeout: 15_000
+        ] ++ proxy_options
 
-      # Google answers 400 `invalid_grant` for a deleted key, a disabled
-      # account, or assertion timestamps it does not accept, and 401
-      # `invalid_client` for an unknown account.
-      {:ok, %Req.Response{status: status, body: body}} when status in [400, 401] ->
-        code = error_code(body, status)
-        log_failure(key, "rejected", status, code)
-        {:error, {:google_token_rejected, code}}
+      case Req.request(options) do
+        {:ok, %Req.Response{status: 200, body: %{"access_token" => token} = body}}
+        when is_binary(token) and token != "" ->
+          {:ok, token, expires_in(body)}
 
-      {:ok, %Req.Response{status: status, body: body}} ->
-        code = error_code(body, status)
-        log_failure(key, "transient", status, code)
-        {:error, {:google_token_transient, code}}
+        # Google answers 400 `invalid_grant` for a deleted key, a disabled
+        # account, or assertion timestamps it does not accept, and 401
+        # `invalid_client` for an unknown account.
+        {:ok, %Req.Response{status: status, body: body}} when status in [400, 401] ->
+          code = error_code(body, status)
+          log_failure(key, "rejected", status, code)
+          {:error, {:google_token_rejected, code}}
 
-      {:error, exception} ->
-        reason = Exception.message(exception)
-        log_failure(key, "transient", nil, reason)
-        {:error, {:google_token_transient, reason}}
+        {:ok, %Req.Response{status: status, body: body}} ->
+          code = error_code(body, status)
+          log_failure(key, "transient", status, code)
+          {:error, {:google_token_transient, code}}
+
+        {:error, exception} ->
+          reason = Exception.message(exception)
+          log_failure(key, "transient", nil, reason)
+          {:error, {:google_token_transient, reason}}
+      end
+    else
+      {:error, {:google_token_rejected, _} = rejected} ->
+        {:error, rejected}
+
+      {:error, reason} when is_atom(reason) ->
+        reason_text = Atom.to_string(reason)
+        log_failure(key, "transient", nil, reason_text)
+        {:error, {:google_token_transient, reason_text}}
+    end
+  end
+
+  defp resolve_ssrf_filter(opts) do
+    case Keyword.fetch(opts, :ssrf_filter) do
+      {:ok, explicit} ->
+        explicit == true
+
+      :error ->
+        if Ankole.Repo.tenant_id() do
+          {:ok, enabled?} = Ankole.Security.SSRFFilter.enabled?()
+          enabled?
+        else
+          false
+        end
+    end
+  end
+
+  defp validate_token_endpoint(url, ssrf_filter, proxied?) do
+    schemes = if ssrf_filter, do: ["https"], else: ["https", "http"]
+
+    with :ok <- Ankole.Kernel.validate_web_url(url, schemes, ssrf_filter),
+         :ok <- maybe_validate_token_ips(URI.parse(url).host, ssrf_filter, proxied?) do
+      :ok
+    else
+      {:error, reason} ->
+        {:error, {:google_token_rejected, "token_uri_" <> to_string(reason)}}
+    end
+  end
+
+  defp maybe_validate_token_ips(_host, _ssrf_filter, true), do: :ok
+
+  defp maybe_validate_token_ips(host, ssrf_filter, false) when is_binary(host) do
+    trimmed = host |> String.trim_leading("[") |> String.trim_trailing("]")
+
+    addresses =
+      case :inet.parse_address(String.to_charlist(trimmed)) do
+        {:ok, ip} ->
+          [ip]
+
+        {:error, _} ->
+          Enum.flat_map([:inet, :inet6], fn family ->
+            case :inet.getaddrs(String.to_charlist(trimmed), family) do
+              {:ok, resolved} -> resolved
+              _ -> []
+            end
+          end)
+      end
+
+    if addresses == [] do
+      :ok
+    else
+      Ankole.Kernel.validate_ip_addresses(
+        Enum.map(addresses, &to_string(:inet.ntoa(&1))),
+        ssrf_filter
+      )
     end
   end
 
@@ -222,6 +298,22 @@ defmodule Ankole.AIGateway.GoogleServiceAccount do
   end
 
   defp text(_value), do: nil
+
+  defp token_uri(raw) do
+    uri = text(raw) || @default_token_uri
+
+    case URI.new(uri) do
+      {:ok, %URI{scheme: scheme, host: host, userinfo: nil}}
+      when scheme in ["https", "http"] and is_binary(host) and host != "" ->
+        case Ankole.Kernel.validate_web_url(uri, ["https", "http"], false) do
+          :ok -> {:ok, uri}
+          {:error, _reason} -> {:error, :invalid_token_uri}
+        end
+
+      _other ->
+        {:error, :invalid_token_uri}
+    end
+  end
 
   defp private_key(pem) when is_binary(pem) do
     case :public_key.pem_decode(pem) do

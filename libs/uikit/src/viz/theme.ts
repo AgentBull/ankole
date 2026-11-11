@@ -693,3 +693,279 @@ export function sanitizeExportedSvg(
 
   return output
 }
+
+export interface BuildPeleTokensOptions {
+  radius?: string
+  fontSans?: string
+  fontMono?: string
+}
+
+/**
+ * Builds the complete `--pele-*` and internal `--_*` CSS custom property map from a resolved
+ * `VizThemePalette` so Worker CLI, Chat Mermaid frames, and Editor previews share one contract.
+ */
+export function buildPeleTokenMap(palette: VizThemePalette, options?: BuildPeleTokensOptions): Record<string, string> {
+  const fontSans = options?.fontSans ?? palette.fontSans
+  const fontMono = options?.fontMono ?? palette.fontMono
+  const radius = options?.radius ?? '4px'
+  const seriesColors = [...palette.categorical, ...palette.extendedCategorical]
+  const map: Record<string, string> = {
+    '--pele-bg': palette.background,
+    '--pele-fg': palette.foreground,
+    '--pele-fg-on-light': '#18191a',
+    '--pele-fg-on-dark': '#f4f4f2',
+    '--pele-muted': palette.fgTertiary,
+    '--pele-line': palette.fgSecondary,
+    '--pele-surface': palette.layer01,
+    '--pele-surface-alt': palette.isDark ? palette.layer02 : palette.border,
+    '--pele-border': palette.borderStrong,
+    '--pele-accent': palette.categorical[0],
+    '--pele-critical': palette.down,
+    '--pele-error': palette.down,
+    '--pele-font': fontSans,
+    '--pele-font-mono': fontMono,
+    '--pele-radius': radius,
+    '--pele-zoom-top': '8px',
+    '--pele-zoom-right': '8px',
+    '--pele-zoom-bottom': 'auto',
+    '--pele-zoom-left': 'auto',
+    '--pele-zoom-cursor': 'pointer',
+    '--_bg': palette.background,
+    '--_fg': palette.foreground,
+    '--_m': palette.fgTertiary,
+    '--_l': palette.fgSecondary,
+    '--_s': palette.layer01,
+    '--_a': palette.isDark ? palette.layer02 : palette.border,
+    '--_b': palette.borderStrong,
+    '--_c': palette.categorical[0],
+    '--_r': radius,
+    '--_fm': fontMono,
+    '--_hw': 'bold',
+    '--_tw': 'bold',
+    '--_w': 'bold'
+  }
+  for (let i = 0; i < seriesColors.length; i += 1) {
+    map[`--pele-series-${i + 1}`] = seriesColors[i]!
+  }
+  return map
+}
+
+/**
+ * Formats public `--pele-*` custom properties into an inline CSS declaration block (`--pele-bg:...;--pele-fg:...`).
+ */
+export function buildPeleCssVarsString(palette: VizThemePalette, options?: BuildPeleTokensOptions): string {
+  const tokens = buildPeleTokenMap(palette, options)
+  const keys = [
+    '--pele-bg',
+    '--pele-fg',
+    '--pele-fg-on-light',
+    '--pele-fg-on-dark',
+    '--pele-muted',
+    '--pele-line',
+    '--pele-surface',
+    '--pele-surface-alt',
+    '--pele-border',
+    '--pele-accent',
+    '--pele-critical',
+    '--pele-error',
+    '--pele-font',
+    '--pele-font-mono',
+    '--pele-radius'
+  ]
+  return keys.map(key => `${key}:${tokens[key]!}`).join(';')
+}
+
+/**
+ * Reads intrinsic pixel dimensions from an SVG string's `viewBox` or `width`/`height` attributes.
+ */
+export function parseSvgDimensions(
+  svg: string,
+  fallback?: { width?: number; height?: number }
+): { width: number; height: number } {
+  const vbMatch = /\bviewBox\s*=\s*['"]\s*[-+\d.]+\s+[-+\d.]+\s+([-+\d.]+)\s+([-+\d.]+)\s*['"]/i.exec(svg)
+  if (vbMatch) {
+    const w = Number.parseFloat(vbMatch[1]!)
+    const h = Number.parseFloat(vbMatch[2]!)
+    if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
+      return { width: Math.ceil(w), height: Math.ceil(h) }
+    }
+  }
+  const defaultW = fallback?.width ?? 680
+  const defaultH = fallback?.height ?? 400
+  const wMatch = /\bwidth\s*=\s*['"]([-+\d.]+)(?:px)?['"]/i.exec(svg)
+  const hMatch = /\bheight\s*=\s*['"]([-+\d.]+)(?:px)?['"]/i.exec(svg)
+  const w = wMatch ? Number.parseFloat(wMatch[1]!) : defaultW
+  const h = hMatch ? Number.parseFloat(hMatch[1]!) : defaultH
+  return {
+    width: Number.isFinite(w) && w > 0 ? Math.ceil(w) : defaultW,
+    height: Number.isFinite(h) && h > 0 ? Math.ceil(h) : defaultH
+  }
+}
+
+function replaceSingleLevelVars(input: string, tokens: Readonly<Record<string, string>>): string {
+  return input.replace(/var\(\s*(--[a-zA-Z0-9_-]+)(?:\s*,\s*([^()]+))?\s*\)/g, (full, name: string, fb?: string) => {
+    const resolved = tokens[name]
+    if (resolved !== undefined) return resolved
+    if (fb !== undefined) return fb.trim()
+    return full
+  })
+}
+
+function escapeXmlAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+export interface MaterializePeleSvgOptions {
+  width?: number
+  height?: number
+  safetyPaddingPx?: number
+  injectBackgroundRect?: boolean
+  extraTokens?: Readonly<Record<string, string>>
+}
+
+/**
+ * Resolves all Pele CSS custom properties (`--pele-*` and `--_*`) into concrete palette
+ * values, strips inline custom property declarations, converts CSS `rx` styles to SVG
+ * `rx` attributes, and optionally inserts a solid background `<rect>` so standalone SVG
+ * exports and offline PDF engines render faithfully.
+ */
+export function materializePeleSvg(
+  rawSvg: string,
+  palette: VizThemePalette,
+  options?: MaterializePeleSvgOptions
+): { svg: string; width: number; height: number } {
+  const tokenMap: Record<string, string> = {
+    ...buildPeleTokenMap(palette),
+    ...options?.extraTokens
+  }
+
+  let output = rawSvg
+  for (let pass = 0; pass < 4; pass += 1) {
+    const next = replaceSingleLevelVars(output, tokenMap)
+    const declRe = /(--_[a-zA-Z0-9_-]+)\s*:\s*([^;"]+)/g
+    for (const match of next.matchAll(declRe)) {
+      const propName = match[1]!
+      const propVal = match[2]!.trim()
+      if (propVal && !propVal.includes('var(--')) {
+        tokenMap[propName] = propVal
+      }
+    }
+    output = next
+    if (!/var\(\s*--/.test(output)) break
+  }
+
+  for (let pass = 0; pass < 2 && /var\(\s*--/.test(output); pass += 1) {
+    output = replaceSingleLevelVars(output, tokenMap)
+  }
+
+  output = output.replace(/\sstyle="rx:\s*([\d.]+)(?:px)?\s*;?\s*"/gi, ' rx="$1"')
+
+  output = output.replace(/\bstyle="([^"]*)"/g, (_full, styleContent: string) => {
+    const kept = styleContent
+      .split(';')
+      .map(part => part.trim())
+      .filter(part => part.length > 0 && !part.startsWith('--'))
+    if (kept.length === 0) return ''
+    return `style="${escapeXmlAttr(kept.join(';'))}"`
+  })
+
+  output = sanitizeExportedSvg(output, palette, { safetyPaddingPx: options?.safetyPaddingPx ?? 8 })
+
+  let finalWidth = options?.width ?? 480
+  let finalHeight = options?.height ?? 320
+
+  const vbMatch = /\bviewBox\s*=\s*(['"])\s*([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s*\1/i.exec(output)
+  let vbX = 0
+  let vbY = 0
+  let vbW = finalWidth
+  let vbH = finalHeight
+
+  if (vbMatch) {
+    vbX = Number.parseFloat(vbMatch[2]!)
+    vbY = Number.parseFloat(vbMatch[3]!)
+    vbW = Number.parseFloat(vbMatch[4]!)
+    vbH = Number.parseFloat(vbMatch[5]!)
+    if (options?.width && options?.height) {
+      finalWidth = Math.round(options.width)
+      finalHeight = Math.round(options.height)
+    } else if (options?.width && vbW > 0) {
+      finalWidth = Math.round(options.width)
+      finalHeight = Math.max(1, Math.round((options.width * vbH) / vbW))
+    } else if (options?.height && vbH > 0) {
+      finalHeight = Math.round(options.height)
+      finalWidth = Math.max(1, Math.round((options.height * vbW) / vbH))
+    } else {
+      finalWidth = Math.max(1, Math.ceil(vbW))
+      finalHeight = Math.max(1, Math.ceil(vbH))
+    }
+  }
+
+  const injectBackgroundRect = options?.injectBackgroundRect ?? true
+  const bgFill = tokenMap['--pele-bg'] ?? palette.background
+  output = output.replace(/<svg\b([^>]*)>/i, (_openTag, attrs: string) => {
+    let nextAttrs = attrs.replace(/\swidth\s*=\s*(['"])[^'"]*\1/i, '').replace(/\sheight\s*=\s*(['"])[^'"]*\1/i, '')
+    nextAttrs = `${nextAttrs} width="${finalWidth}" height="${finalHeight}"`
+    if (!injectBackgroundRect) {
+      return `<svg${nextAttrs}>`
+    }
+    const bgRect = `<rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="${escapeXmlAttr(bgFill)}"/>`
+    return `<svg${nextAttrs}>${bgRect}`
+  })
+
+  return { svg: output, width: finalWidth, height: finalHeight }
+}
+
+export interface RasterizeSvgOptions {
+  width: number
+  height: number
+  scale?: number
+  background?: string
+}
+
+async function renderSvgOntoCanvas(svg: string, options: RasterizeSvgOptions): Promise<HTMLCanvasElement> {
+  const scale = options.scale ?? 2
+  const outWidth = Math.max(1, Math.ceil(options.width * scale))
+  const outHeight = Math.max(1, Math.ceil(options.height * scale))
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.decoding = 'async'
+    el.onload = () => resolve(el)
+    el.onerror = () => reject(new Error('Failed to decode diagram SVG'))
+    el.src = url
+  })
+
+  const canvas = document.createElement('canvas')
+  canvas.width = outWidth
+  canvas.height = outHeight
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D context unavailable')
+  if (options.background) {
+    ctx.fillStyle = options.background
+    ctx.fillRect(0, 0, outWidth, outHeight)
+  }
+  ctx.drawImage(img, 0, 0, outWidth, outHeight)
+  return canvas
+}
+
+/**
+ * Rasterizes a self-contained SVG string into a PNG `Blob` on an offscreen HTML `<canvas>`.
+ */
+export async function rasterizeSvgToPngBlob(svg: string, options: RasterizeSvgOptions): Promise<Blob> {
+  const canvas = await renderSvgOntoCanvas(svg, options)
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob)
+      else reject(new Error('PNG encoding failed'))
+    }, 'image/png')
+  })
+}
+
+/**
+ * Rasterizes a self-contained SVG string into a `data:image/png;base64,...` URL.
+ */
+export async function rasterizeSvgToPngDataUrl(svg: string, options: RasterizeSvgOptions): Promise<string> {
+  const canvas = await renderSvgOntoCanvas(svg, options)
+  return canvas.toDataURL('image/png')
+}

@@ -3,11 +3,11 @@ defmodule AnkoleWeb.RunnerDeviceController do
 
   use AnkoleWeb, :controller
 
-  alias Ankole.AgentWorkers.RunnerDevices
+  alias Ankole.AgentWorkers
 
   def pair(conn, %{"code" => code}) do
     with true <- site?(conn),
-         {:ok, result} <- RunnerDevices.pair(code) do
+         {:ok, result} <- AgentWorkers.pair_runner_device(code) do
       conn |> put_resp_header("cache-control", "no-store") |> json(result)
     else
       _ -> unauthorized(conn)
@@ -19,7 +19,8 @@ defmodule AnkoleWeb.RunnerDeviceController do
   def bindings(conn, _) do
     with true <- site?(conn),
          ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         {:ok, bindings} <- RunnerDevices.bootstrap(token, AnkoleWeb.PodURL.site_origin(conn)) do
+         {:ok, bindings} <-
+           AgentWorkers.bootstrap_runner_device(token, AnkoleWeb.PodURL.site_origin(conn)) do
       conn |> put_resp_header("cache-control", "no-store") |> json(%{bindings: bindings})
     else
       {:error, :worker_runtime_not_configured} ->

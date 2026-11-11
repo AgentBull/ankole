@@ -13,8 +13,7 @@ defmodule Ankole.Issues.Activity do
   @doc "Lists the Agents' recurring rules and the pending checkbacks, soonest first."
   def scheduled(%Actor{} = actor) do
     rules =
-      Ankole.Schedule.list_cron_schedules()
-      |> Enum.filter(&(&1.status in [:active, :paused] and is_nil(&1.owner_job_id)))
+      Ankole.Schedule.list_active_agent_cron_schedules()
       |> Enum.map(fn rule ->
         %{
           kind: "cron",

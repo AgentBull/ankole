@@ -214,7 +214,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
     with {:ok, bytes} <- Base.decode64(encoded),
          true <- byte_size(bytes) <= Ankole.WorkerFiles.max_transfer_bytes(),
          {:ok, page} <- Pages.authorize(actor, id, "node_view"),
-         {:ok, role} <- upload_role(page.type),
+         {:ok, role} <- Files.upload_role(page.type),
          {:ok, result} <-
            Files.upload(
              actor,
@@ -271,11 +271,6 @@ defmodule Ankole.Pod.Applets.Capabilities do
   end
 
   defp file_read_digest(_options), do: {:error, :invalid_request}
-
-  defp upload_role(:file), do: {:ok, "file"}
-  defp upload_role(:doc), do: {:ok, "asset"}
-  defp upload_role(:base), do: {:ok, "attachment"}
-  defp upload_role(_), do: {:error, :invalid_file_role}
 
   defp file_entry(id, file),
     do: %{

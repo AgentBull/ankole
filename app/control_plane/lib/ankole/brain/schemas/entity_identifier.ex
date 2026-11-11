@@ -37,8 +37,9 @@ defmodule Ankole.Brain.Schemas.EntityIdentifier do
   actions do
     defaults([:read])
 
-    create :add do
+    create_if_absent :add do
       accept([:id, :entity_page_id, :namespace, :value, :created_at])
+      upsert_identity(:value)
     end
 
     destroy :remove do

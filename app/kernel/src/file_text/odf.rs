@@ -174,9 +174,26 @@ fn parse_odf_xml(
     let mut column = 0usize;
     let mut cell_repeat = 1usize;
     let mut row_cells: Vec<String> = Vec::new();
+    let mut row_bytes = 0usize;
     // The open heading of a text document: where its text starts and its outline level.
     let mut heading: Option<(usize, u8)> = None;
     let mut outline = Outline::default();
+
+    fn push_bounded_cell_str(cell_buf: &mut String, text: &str, budget: usize) {
+        let remaining = budget.saturating_sub(cell_buf.len());
+        if remaining == 0 {
+            return;
+        }
+        if text.len() <= remaining {
+            cell_buf.push_str(text);
+        } else {
+            let mut end = remaining;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            cell_buf.push_str(&text[..end]);
+        }
+    }
 
     fn repeat(start: &BytesStart<'_>, attr: &str) -> usize {
         attr_value_by_local(start, attr)
@@ -218,6 +235,7 @@ fn parse_odf_xml(
                         row_repeat = repeat(&e, "number-rows-repeated");
                         column = 0;
                         row_cells.clear();
+                        row_bytes = 0;
                     }
                     "table-cell" | "covered-table-cell" if spreadsheet_mode => {
                         in_cell = true;
@@ -235,14 +253,14 @@ fn parse_odf_xml(
                     }
                     "tab" => {
                         if in_cell {
-                            cell_buf.push(' ');
+                            push_bounded_cell_str(&mut cell_buf, " ", BUDGET);
                         } else if text_depth > 0 {
                             active_out(leading, sheets).push('\t');
                         }
                     }
                     "line-break" => {
                         if in_cell {
-                            cell_buf.push(' ');
+                            push_bounded_cell_str(&mut cell_buf, " ", BUDGET);
                         } else if text_depth > 0 {
                             active_out(leading, sheets).push('\n');
                         }
@@ -254,7 +272,7 @@ fn parse_odf_xml(
                             .min(16);
                         if in_cell {
                             for _ in 0..count {
-                                cell_buf.push(' ');
+                                push_bounded_cell_str(&mut cell_buf, " ", BUDGET);
                             }
                         } else if text_depth > 0 {
                             let target = active_out(leading, sheets);
@@ -278,14 +296,14 @@ fn parse_odf_xml(
                         }
                         "tab" => {
                             if in_cell {
-                                cell_buf.push(' ');
+                                push_bounded_cell_str(&mut cell_buf, " ", BUDGET);
                             } else if text_depth > 0 {
                                 active_out(leading, sheets).push('\t');
                             }
                         }
                         "line-break" => {
                             if in_cell {
-                                cell_buf.push(' ');
+                                push_bounded_cell_str(&mut cell_buf, " ", BUDGET);
                             } else if text_depth > 0 {
                                 active_out(leading, sheets).push('\n');
                             }
@@ -297,7 +315,7 @@ fn parse_odf_xml(
                                 .min(16);
                             if in_cell {
                                 for _ in 0..count {
-                                    cell_buf.push(' ');
+                                    push_bounded_cell_str(&mut cell_buf, " ", BUDGET);
                                 }
                             } else if text_depth > 0 {
                                 let target = active_out(leading, sheets);
@@ -320,7 +338,7 @@ fn parse_odf_xml(
                         text_depth = text_depth.saturating_sub(1);
                         if in_cell {
                             if !cell_buf.is_empty() && !cell_buf.ends_with(' ') {
-                                cell_buf.push(' ');
+                                push_bounded_cell_str(&mut cell_buf, " ", BUDGET);
                             }
                         } else if text_depth == 0 {
                             match heading.take() {
@@ -332,10 +350,27 @@ fn parse_odf_xml(
                     "table-cell" | "covered-table-cell" if spreadsheet_mode => {
                         in_cell = false;
                         let text = table_cell(&cell_buf);
-                        if !text.is_empty() && column < MAX_SHEET_COLUMNS {
-                            row_cells.resize(column, String::new());
-                            let copies = cell_repeat.min(MAX_SHEET_COLUMNS - column);
-                            row_cells.extend(std::iter::repeat_n(text, copies));
+                        if !text.is_empty()
+                            && column < MAX_SHEET_COLUMNS
+                            && total_bytes.saturating_add(row_bytes) < BUDGET
+                        {
+                            let gap = column.saturating_sub(row_cells.len());
+                            let remaining =
+                                BUDGET.saturating_sub(total_bytes.saturating_add(row_bytes));
+                            if gap < remaining {
+                                row_cells.resize(column, String::new());
+                                row_bytes = row_bytes.saturating_add(gap);
+                                let rem_after_gap =
+                                    BUDGET.saturating_sub(total_bytes.saturating_add(row_bytes));
+                                let per_copy = text.len().saturating_add(1);
+                                let max_copies_by_budget = (rem_after_gap / per_copy).max(1);
+                                let copies = cell_repeat
+                                    .min(MAX_SHEET_COLUMNS - column)
+                                    .min(max_copies_by_budget);
+                                row_bytes =
+                                    row_bytes.saturating_add(copies.saturating_mul(per_copy));
+                                row_cells.extend(std::iter::repeat_n(text, copies));
+                            }
                         }
                         column = column.saturating_add(cell_repeat);
                         cell_buf.clear();
@@ -354,6 +389,7 @@ fn parse_odf_xml(
                                 out.push_str(&line);
                             }
                             row_cells.clear();
+                            row_bytes = 0;
                         }
                         row_number = row_number.saturating_add(row_repeat);
                     }
@@ -366,7 +402,7 @@ fn parse_odf_xml(
                 if ignored_depth == 0 && text_depth > 0 {
                     let text = e.xml10_content();
                     if in_cell {
-                        cell_buf.push_str(&text);
+                        push_bounded_cell_str(&mut cell_buf, &text, BUDGET);
                     } else {
                         total_bytes += text.len();
                         active_out(leading, sheets).push_str(&text);
@@ -377,7 +413,7 @@ fn parse_odf_xml(
                 if ignored_depth == 0 && text_depth > 0 {
                     let text = e.xml10_content();
                     if in_cell {
-                        cell_buf.push_str(&text);
+                        push_bounded_cell_str(&mut cell_buf, &text, BUDGET);
                     } else {
                         total_bytes += text.len();
                         active_out(leading, sheets).push_str(&text);
@@ -387,7 +423,9 @@ fn parse_odf_xml(
             Ok(Event::GeneralRef(e)) => {
                 if ignored_depth == 0 && text_depth > 0 {
                     if in_cell {
-                        append_xml_entity(&e, &mut cell_buf);
+                        if cell_buf.len() < BUDGET {
+                            append_xml_entity(&e, &mut cell_buf);
+                        }
                     } else {
                         append_xml_entity(&e, active_out(leading, sheets));
                     }

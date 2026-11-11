@@ -790,3 +790,33 @@ fn anthropic_skips_null_output_limits_and_uses_max_tokens() {
     let body = resolver.build_body().unwrap();
     assert_eq!(body["max_tokens"], 128);
 }
+
+#[test]
+fn anthropic_strict_rejects_forced_tool_choice_when_thinking_is_enabled() {
+    for tool_choice in [
+        json!("required"),
+        json!("any"),
+        json!({"type": "required"}),
+        json!({"type": "function", "name": "lookup"}),
+        json!({"type": "tool", "name": "lookup"}),
+    ] {
+        let resolver = APIResolver::new(
+            APIResolverKind::AnthropicMessages,
+            ResponseContext {
+                model: "claude-test".to_string(),
+                request: json!({
+                    "input": "call lookup",
+                    "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+                    "tool_choice": tool_choice
+                }),
+                provider_options: json!({"thinking": {"type": "enabled", "budget_tokens": 1024}}),
+                stream: None,
+                include_model: true,
+                policy: ConversionPolicy::Strict,
+            },
+        );
+        let err = resolver.build_body().unwrap_err();
+        assert_eq!(err.code, "unexpressible_field");
+        assert_eq!(err.provider_status, Some(400));
+    }
+}

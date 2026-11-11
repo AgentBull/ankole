@@ -19,16 +19,20 @@ const binding = z.object({
   runtime_fabric_url: z.string()
 })
 const bindingList = z.object({ bindings: z.array(binding) })
-type Device = z.infer<typeof deviceState>
-type Binding = z.infer<typeof binding>
+export type Device = z.infer<typeof deviceState>
+export type Binding = z.infer<typeof binding>
+export type ReconcileDeps = {
+  request?: typeof request
+  docker?: typeof docker
+}
 
-class DeviceRevoked extends Error {}
+export class DeviceRevoked extends Error {}
 
 function localHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '[::1]'
 }
 
-function siteOrigin(value: string): string {
+export function siteOrigin(value: string): string {
   const url = URL.parse(value)
   if (
     !url ||
@@ -44,7 +48,7 @@ function siteOrigin(value: string): string {
   return url.origin
 }
 
-function workerEndpoint(value: string, origin: string): string {
+export function workerEndpoint(value: string, origin: string): string {
   const url = URL.parse(value)
   const devSocket =
     url?.protocol === 'ws:' &&
@@ -105,7 +109,7 @@ function readDevice(path: string): Device {
   return { ...parsed.data, origin: siteOrigin(parsed.data.origin) }
 }
 
-function key(...parts: string[]): string {
+export function key(...parts: string[]): string {
   return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24)
 }
 
@@ -125,13 +129,13 @@ async function docker(args: string[], env?: Record<string, string | undefined>):
   return stdout.trim()
 }
 
-async function containers(owner: string, all = true): Promise<string[]> {
-  const names = await docker(['ps', ...(all ? ['-a'] : []), '--filter', `label=${owner}`, '--format', '{{.Names}}'])
+async function containers(owner: string, all = true, runDocker = docker): Promise<string[]> {
+  const names = await runDocker(['ps', ...(all ? ['-a'] : []), '--filter', `label=${owner}`, '--format', '{{.Names}}'])
   return names ? names.split('\n') : []
 }
 
-async function stopContainers(names: string[]): Promise<void> {
-  if (names.length > 0) await docker(['stop', '--time', '15', ...names])
+async function stopContainers(names: string[], runDocker = docker): Promise<void> {
+  if (names.length > 0) await runDocker(['stop', '--time', '15', ...names])
 }
 
 async function createContainer(
@@ -139,7 +143,8 @@ async function createContainer(
   name: string,
   home: string,
   bind: Binding,
-  endpoint: string
+  endpoint: string,
+  runDocker = docker
 ): Promise<void> {
   const workerEnv = {
     WORKER_ID: bind.agent_uid,
@@ -149,7 +154,7 @@ async function createContainer(
     ANKOLE_RUNTIME_FABRIC_ENDPOINT: endpoint,
     ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: bind.worker_token
   }
-  await docker(
+  await runDocker(
     [
       'create',
       '--name',
@@ -169,8 +174,10 @@ async function createContainer(
   )
 }
 
-async function reconcile(device: Device, owner: string): Promise<void> {
-  const response = await request(device.origin, '/bindings', bindingList, {
+export async function reconcile(device: Device, owner: string, deps: ReconcileDeps = {}): Promise<void> {
+  const runRequest = deps.request ?? request
+  const runDocker = deps.docker ?? docker
+  const response = await runRequest(device.origin, '/bindings', bindingList, {
     headers: { Authorization: `Bearer ${device.token}` }
   })
   const desired = response.bindings.map(bind => {
@@ -183,20 +190,20 @@ async function reconcile(device: Device, owner: string): Promise<void> {
     throw new Error('Ankole returned more than one binding for the same Agent.')
   }
 
-  const existing = await containers(owner)
+  const existing = await containers(owner, true, runDocker)
   const needed = new Set(desired.map(item => item.name))
   const obsolete = existing.filter(name => !needed.has(name))
   if (obsolete.length > 0) {
-    await stopContainers(obsolete)
-    await docker(['rm', ...obsolete])
+    await stopContainers(obsolete, runDocker)
+    await runDocker(['rm', ...obsolete])
   }
 
-  const running = new Set(await containers(owner, false))
+  const running = new Set(await containers(owner, false, runDocker))
   for (const { bind, home, name, endpoint } of desired) {
     if (running.has(name)) continue
     try {
-      if (!existing.includes(name)) await createContainer(owner, name, home, bind, endpoint)
-      await docker(['start', name])
+      if (!existing.includes(name)) await createContainer(owner, name, home, bind, endpoint, runDocker)
+      await runDocker(['start', name])
     } catch (error) {
       console.error(`Cannot start Worker for ${bind.agent_uid}: ${message(error)}`)
     }
@@ -263,7 +270,9 @@ async function main(): Promise<void> {
   }
 }
 
-await main().catch(error => {
-  console.error(message(error))
-  process.exitCode = 1
-})
+if (import.meta.main) {
+  await main().catch(error => {
+    console.error(message(error))
+    process.exitCode = 1
+  })
+}

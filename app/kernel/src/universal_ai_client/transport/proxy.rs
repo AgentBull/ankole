@@ -82,7 +82,7 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-pub(super) fn resolved_proxy(upstream: &UpstreamSpec) -> Result<Option<URL>, StreamError> {
+pub(crate) fn resolved_proxy(upstream: &UpstreamSpec) -> Result<Option<URL>, StreamError> {
     let target = parse_upstream_url(&upstream.url)?;
     ProxyEnvironment::from_process().resolve(&target, upstream.transport.proxy.as_deref())
 }
@@ -530,11 +530,7 @@ mod tests {
                 idle_ms: 100,
                 total_ms: None,
             },
-            transport: TransportSpec {
-                proxy: None,
-                #[cfg(feature = "test-ca")]
-                ca_cert_pem: None,
-            },
+            transport: TransportSpec::default(),
         };
 
         let Err(error) = open_http_stream_for_upstream(&upstream).await else {
@@ -571,11 +567,7 @@ mod tests {
                     idle_ms: 600_000,
                     total_ms: None,
                 },
-                transport: TransportSpec {
-                    proxy: None,
-                    #[cfg(feature = "test-ca")]
-                    ca_cert_pem: None,
-                },
+                transport: TransportSpec::default(),
             },
             response_context: Default::default(),
             limits: Default::default(),

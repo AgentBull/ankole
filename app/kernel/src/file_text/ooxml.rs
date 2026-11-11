@@ -64,24 +64,34 @@ pub(super) fn extract_docx(bytes: &[u8]) -> FileTextResult {
     // Each part with whether it is the main document, whose headings open sections.
     let mut parts = Vec::with_capacity(headers.len() + footers.len() + 3);
     for h in headers {
-        if let Ok(Some(xml)) = zip.read_utf8(&h) {
-            parts.push((xml, false));
+        match zip.read_utf8(&h) {
+            Ok(Some(xml)) => parts.push((xml, false)),
+            Ok(None) => {}
+            Err(err) => return zip_error_to_result("docx", err),
         }
     }
     parts.push((main_xml, true));
     for extra in ["word/footnotes.xml", "word/endnotes.xml"] {
-        if let Ok(Some(xml)) = zip.read_utf8(extra) {
-            parts.push((xml, false));
+        match zip.read_utf8(extra) {
+            Ok(Some(xml)) => parts.push((xml, false)),
+            Ok(None) => {}
+            Err(err) => return zip_error_to_result("docx", err),
         }
     }
     for f in footers {
-        if let Ok(Some(xml)) = zip.read_utf8(&f) {
-            parts.push((xml, false));
+        match zip.read_utf8(&f) {
+            Ok(Some(xml)) => parts.push((xml, false)),
+            Ok(None) => {}
+            Err(err) => return zip_error_to_result("docx", err),
         }
     }
 
+    let styles = match heading_styles(&mut zip) {
+        Ok(styles) => styles,
+        Err(err) => return zip_error_to_result("docx", err),
+    };
     let mut headings = Headings {
-        styles: heading_styles(&mut zip),
+        styles,
         outline: Outline::default(),
     };
     let mut truncated = false;
@@ -154,13 +164,25 @@ pub(super) fn extract_pptx(bytes: &[u8]) -> FileTextResult {
             Err(err) => return zip_error_to_result("pptx", err),
         }
 
-        if let Some(notes_path) = resolve_slide_notes_path(&mut zip, slide_path)
-            && let Ok(Some(notes_xml)) = zip.read_utf8(&notes_path)
-        {
-            push_newline_once(&mut slide_raw);
-            truncated |=
-                parse_ooxml_text_events(&notes_xml, DRAWINGML_DIALECT, &mut slide_raw, None)
+        let notes_path = match resolve_slide_notes_path(&mut zip, slide_path) {
+            Ok(path) => path,
+            Err(err) => return zip_error_to_result("pptx", err),
+        };
+        if let Some(notes_path) = notes_path {
+            match zip.read_utf8(&notes_path) {
+                Ok(Some(notes_xml)) => {
+                    push_newline_once(&mut slide_raw);
+                    truncated |= parse_ooxml_text_events(
+                        &notes_xml,
+                        DRAWINGML_DIALECT,
+                        &mut slide_raw,
+                        None,
+                    )
                     .unwrap_or(false);
+                }
+                Ok(None) => {}
+                Err(err) => return zip_error_to_result("pptx", err),
+            }
         }
 
         let slide_clean = sanitize_nfkc(slide_raw.trim());
@@ -332,9 +354,9 @@ fn outline_level(
 /// The heading styles of `word/styles.xml`: a style is a heading when it is named `heading N`,
 /// which Word keeps in English in every locale, when it sets an outline level, or when the style
 /// it is based on is one.
-fn heading_styles(zip: &mut BoundedZip<'_>) -> HashMap<String, u8> {
-    let Ok(Some(xml)) = zip.read_utf8("word/styles.xml") else {
-        return HashMap::new();
+fn heading_styles(zip: &mut BoundedZip<'_>) -> Result<HashMap<String, u8>, ZipOpenError> {
+    let Some(xml) = zip.read_utf8("word/styles.xml")? else {
+        return Ok(HashMap::new());
     };
     let mut levels: HashMap<String, u8> = HashMap::new();
     let mut parents: HashMap<String, String> = HashMap::new();
@@ -387,7 +409,7 @@ fn heading_styles(zip: &mut BoundedZip<'_>) -> HashMap<String, u8> {
         }
         levels.extend(inherited);
     }
-    levels
+    Ok(levels)
 }
 
 fn resolve_pptx_slide_order(zip: &mut BoundedZip<'_>) -> Result<Vec<String>, ZipOpenError> {
@@ -452,20 +474,27 @@ fn resolve_pptx_slide_order(zip: &mut BoundedZip<'_>) -> Result<Vec<String>, Zip
     Ok(numbered.into_iter().map(|(_, name)| name).collect())
 }
 
-fn resolve_slide_notes_path(zip: &mut BoundedZip<'_>, slide_path: &str) -> Option<String> {
-    let (dir, filename) = slide_path.rsplit_once('/')?;
+fn resolve_slide_notes_path(
+    zip: &mut BoundedZip<'_>,
+    slide_path: &str,
+) -> Result<Option<String>, ZipOpenError> {
+    let Some((dir, filename)) = slide_path.rsplit_once('/') else {
+        return Ok(None);
+    };
     let rels_path = format!("{dir}/_rels/{filename}.rels");
-    let rels_xml = zip.read_utf8(&rels_path).ok()??;
+    let Some(rels_xml) = zip.read_utf8(&rels_path)? else {
+        return Ok(None);
+    };
     let rels = parse_relationships(&rels_xml);
     for (target, rel_type) in rels.values() {
         if rel_type.ends_with("/notesSlide") {
             let resolved = resolve_zip_path(dir, target);
             if zip.contains(&resolved) {
-                return Some(resolved);
+                return Ok(Some(resolved));
             }
         }
     }
-    None
+    Ok(None)
 }
 
 fn parse_relationships(xml: &str) -> HashMap<String, (String, String)> {

@@ -95,3 +95,36 @@ fn a_response_without_pages_is_an_invalid_upstream_response() {
 
     assert_eq!(error.code, "invalid_upstream_response");
 }
+
+#[test]
+fn mistral_ocr_collapses_long_runs_of_blank_lines_and_rejects_strict_streaming() {
+    let body = resolver(json!({}))
+        .normalize_body(
+            200,
+            json!({
+                "pages": [{
+                    "index": 0,
+                    "markdown": format!("Header{}Footer", "\n".repeat(5_000)),
+                    "images": []
+                }]
+            }),
+        )
+        .unwrap();
+    assert_eq!(body["pages"][0]["markdown"], json!("Header\n\nFooter"));
+
+    let strict_stream = APIResolver::new(
+        APIResolverKind::MistralOcr,
+        ResponseContext {
+            model: "mistral-ocr-latest".to_string(),
+            request: json!({"document": "data:image/png;base64,iVBORw0=", "stream": true}),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: false,
+            policy: ConversionPolicy::Strict,
+        },
+    );
+    assert_eq!(
+        strict_stream.build_body().unwrap_err().code,
+        "unsupported_parameter"
+    );
+}

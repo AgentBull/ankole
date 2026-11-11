@@ -1010,7 +1010,9 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
     }
 
     let thinking_enabled = anthropic_thinking_enabled(body.get("thinking"));
-    if let Some(tool_choice) = anthropic_tool_choice(request.get("tool_choice"), thinking_enabled) {
+    if let Some(tool_choice) =
+        anthropic_tool_choice(request.get("tool_choice"), thinking_enabled, strict)?
+    {
         body.insert("tool_choice".to_string(), tool_choice);
         consumed.insert("tool_choice");
     }
@@ -1707,7 +1709,18 @@ fn anthropic_thinking_enabled(thinking: Option<&Value>) -> bool {
     )
 }
 
-fn anthropic_tool_choice(choice: Option<&Value>, thinking_enabled: bool) -> Option<Value> {
+fn anthropic_tool_choice(
+    choice: Option<&Value>,
+    thinking_enabled: bool,
+    strict: bool,
+) -> Result<Option<Value>, StreamError> {
+    let forced_with_thinking = || -> Result<Option<Value>, StreamError> {
+        if strict {
+            Err(unexpressible_anthropic_field("tool_choice"))
+        } else {
+            Ok(Some(json!({ "type": "auto" })))
+        }
+    };
     match choice {
         Some(Value::Object(map)) => match map.get("type").and_then(Value::as_str) {
             Some("function" | "custom") => {
@@ -1715,9 +1728,11 @@ fn anthropic_tool_choice(choice: Option<&Value>, thinking_enabled: bool) -> Opti
                     .get("function")
                     .and_then(Value::as_object)
                     .unwrap_or(map);
-                let name = function.get("name").and_then(Value::as_str)?;
+                let Some(name) = function.get("name").and_then(Value::as_str) else {
+                    return Ok(None);
+                };
                 if thinking_enabled {
-                    return Some(json!({ "type": "auto" }));
+                    return forced_with_thinking();
                 }
                 let namespace = function
                     .get("namespace")
@@ -1726,40 +1741,42 @@ fn anthropic_tool_choice(choice: Option<&Value>, thinking_enabled: bool) -> Opti
                 let name = namespace
                     .map(|namespace| flattened_namespace_tool_name(namespace, name))
                     .unwrap_or_else(|| flattened_namespace_tool_name("", name));
-                Some(json!({ "type": "tool", "name": name }))
+                Ok(Some(json!({ "type": "tool", "name": name })))
             }
             Some("tool") => {
-                let name = map.get("name").and_then(Value::as_str)?;
+                let Some(name) = map.get("name").and_then(Value::as_str) else {
+                    return Ok(None);
+                };
                 if thinking_enabled {
-                    return Some(json!({ "type": "auto" }));
+                    return forced_with_thinking();
                 }
                 let name = map
                     .get("namespace")
                     .and_then(Value::as_str)
                     .map(|namespace| flattened_namespace_tool_name(namespace, name))
                     .unwrap_or_else(|| flattened_namespace_tool_name("", name));
-                Some(json!({ "type": "tool", "name": name }))
+                Ok(Some(json!({ "type": "tool", "name": name })))
             }
             Some("any" | "required") => {
                 if thinking_enabled {
-                    Some(json!({ "type": "auto" }))
+                    forced_with_thinking()
                 } else {
-                    Some(json!({ "type": "any" }))
+                    Ok(Some(json!({ "type": "any" })))
                 }
             }
-            Some("auto") => Some(json!({ "type": "auto" })),
-            Some("none") => Some(json!({ "type": "none" })),
-            _type => None,
+            Some("auto") => Ok(Some(json!({ "type": "auto" }))),
+            Some("none") => Ok(Some(json!({ "type": "none" }))),
+            _type => Ok(None),
         },
-        Some(Value::String(value)) if value == "auto" => Some(json!({ "type": "auto" })),
+        Some(Value::String(value)) if value == "auto" => Ok(Some(json!({ "type": "auto" }))),
         Some(Value::String(value)) if value == "required" || value == "any" => {
             if thinking_enabled {
-                Some(json!({ "type": "auto" }))
+                forced_with_thinking()
             } else {
-                Some(json!({ "type": "any" }))
+                Ok(Some(json!({ "type": "any" })))
             }
         }
-        Some(Value::String(value)) if value == "none" => Some(json!({ "type": "none" })),
-        _choice => None,
+        Some(Value::String(value)) if value == "none" => Ok(Some(json!({ "type": "none" }))),
+        _choice => Ok(None),
     }
 }

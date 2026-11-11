@@ -20,10 +20,10 @@ defmodule Ankole.AIGateway.MediaJobs do
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestExecution
+  alias Ankole.AIGateway.RequestParams
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.Schemas.MediaJob
   alias Ankole.AIGateway.UsageLedger
-  alias Ankole.Attrs
   alias Ankole.Files
   alias Ankole.Principals
   alias Ankole.Repo
@@ -31,8 +31,8 @@ defmodule Ankole.AIGateway.MediaJobs do
   @capabilities ~w(video music)
   @request_fields %{
     "video" =>
-      ~w(model prompt duration resolution aspect_ratio size generate_audio seed first_frame last_frame),
-    "music" => ~w(model prompt lyrics instrumental duration)
+      ~w(prompt duration resolution aspect_ratio size generate_audio seed first_frame last_frame),
+    "music" => ~w(prompt lyrics instrumental duration)
   }
   @default_content_types %{video: "video/mp4", music: "audio/mpeg"}
   # A frame travels inside the job row until the Provider has the request.
@@ -49,10 +49,8 @@ defmodule Ankole.AIGateway.MediaJobs do
   @spec create(String.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def create(subject_uid, capability, request, opts)
       when capability in @capabilities and is_map(request) do
-    request =
-      request |> Attrs.normalize_external_attrs() |> Map.take(@request_fields[capability])
-
-    with :ok <- validate(capability, request),
+    with {:ok, request} <- RequestParams.prepare(request, @request_fields[capability]),
+         :ok <- validate(capability, request),
          {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, capability, request),
          # Preparing the request here reports a field that the Provider does
          # not accept to the caller instead of to the job.
@@ -125,8 +123,34 @@ defmodule Ankole.AIGateway.MediaJobs do
     end
   end
 
+  @doc false
+  @spec fail_unexpected(String.t(), Exception.t()) :: :ok
+  def fail_unexpected(id, exception) when is_binary(id) do
+    case Ankole.Ash.read_one(Ash.Query.filter(MediaJob, id == ^id)) do
+      {:ok, %MediaJob{status: status} = job} when status in [:pending, :in_progress] ->
+        _ =
+          fail(
+            job,
+            OpenAIError.server(
+              500,
+              "media_job_failed",
+              Exception.message(exception)
+            )
+          )
+
+        :ok
+
+      _other ->
+        :ok
+    end
+  end
+
   defp insert(runtime, request, opts) do
     now = DateTime.utc_now(:microsecond)
+
+    request_context =
+      (Keyword.get(opts, :request_context) || %{})
+      |> maybe_put_caller(Keyword.get(opts, :caller))
 
     Repo.transact_top_level(fn ->
       with {:ok, job} <-
@@ -137,7 +161,7 @@ defmodule Ankole.AIGateway.MediaJobs do
                provider_id: runtime["provider_id"],
                model: runtime["model"],
                request: request,
-               request_context: Keyword.get(opts, :request_context) || %{},
+               request_context: request_context,
                expires_at: DateTime.add(now, @retention_seconds, :second)
              }),
            {:ok, _oban_job} <- Oban.insert(RunMediaJob.new(%{media_job_id: job.id})) do
@@ -145,6 +169,11 @@ defmodule Ankole.AIGateway.MediaJobs do
       end
     end)
   end
+
+  defp maybe_put_caller(request_context, caller) when is_binary(caller) and caller != "",
+    do: Map.put(request_context, "caller", caller)
+
+  defp maybe_put_caller(request_context, _caller), do: request_context
 
   defp advance(job) do
     with {:ok, runtime} <- runtime(job), do: step(job, runtime)
@@ -180,15 +209,25 @@ defmodule Ankole.AIGateway.MediaJobs do
     end
   end
 
-  # The row leaves `pending` before the Provider receives the request, so a
-  # job that runs again after a crash never asks for a second generation,
-  # which the Provider would bill.
+  # The row leaves `pending` atomically before the Provider receives the
+  # request, so a concurrent or retried worker never asks for a second
+  # generation, which the Provider would bill.
   defp step(%MediaJob{status: :pending} = job, runtime) do
-    with {:ok, job} <- update(job, %{status: :in_progress}) do
-      case upstream(runtime, job.request) do
-        {:ok, result} -> record(job, runtime, result)
-        {:error, reason} -> {:fail, reason}
-      end
+    case Ankole.Ash.update_where(
+           Ash.Query.filter(MediaJob, id == ^job.id and status == :pending),
+           :claim_pending
+         ) do
+      {:ok, [%MediaJob{} = claimed]} ->
+        case upstream(runtime, claimed.request) do
+          {:ok, result} -> record(claimed, runtime, result)
+          {:error, reason} -> {:fail, reason}
+        end
+
+      {:ok, []} ->
+        :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -259,7 +298,9 @@ defmodule Ankole.AIGateway.MediaJobs do
           runtime,
           job.subject_type,
           %{"usage" => job.usage || %{}},
-          quantity: job.request["duration"]
+          quantity: job.request["duration"],
+          caller: job.request_context["caller"],
+          request_context: Map.delete(job.request_context || %{}, "caller")
         )
 
       :ok
@@ -281,12 +322,27 @@ defmodule Ankole.AIGateway.MediaJobs do
     error in Files.HTTP.Error -> {:error, {:media_download_failed, error.reason}}
   end
 
-  # A link on the Provider's own host is read with the headers of a Provider
-  # request, which hold the credential. A link on another host carries its own
-  # signature and receives no credential.
-  defp download_headers(url, %{upstream: %{url: provider_url, headers: headers}}) do
-    if URI.parse(url).host == URI.parse(provider_url).host, do: headers, else: []
+  # A link on the Provider's own origin is read with the headers of a Provider
+  # request, which hold the credential. Any link on another scheme, host, or
+  # port carries its own signature and receives no credential.
+  @doc false
+  def download_headers(url, %{upstream: %{url: provider_url, headers: headers}})
+      when is_binary(url) and is_binary(provider_url) do
+    target = URI.parse(url)
+    provider = URI.parse(provider_url)
+
+    if target.scheme in ["http", "https"] and target.scheme == provider.scheme and
+         is_binary(target.host) and target.host != "" and
+         is_binary(provider.host) and provider.host != "" and
+         {String.downcase(target.host), target.port || URI.default_port(target.scheme)} ==
+           {String.downcase(provider.host), provider.port || URI.default_port(provider.scheme)} do
+      headers
+    else
+      []
+    end
   end
+
+  def download_headers(_url, _prepared), do: []
 
   defp complete(job, stored) do
     Repo.transact_top_level(fn ->

@@ -8,7 +8,12 @@
     "./types": "./src/types.ts",
     "./records": "./src/records.ts",
     "./viz": "./src/viz.ts",
-    "./toolkits": "./src/toolkits.ts",
+    "./toolkits": {
+      "types": "./src/toolkits/index.d.ts"
+    },
+    "./toolkits/*": {
+      "types": "./src/toolkits/*.d.ts"
+    },
     "./server": {
       "types": "./src/server.ts"
     }

@@ -11,7 +11,6 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
   use Phoenix.Socket
 
   alias Ankole.AgentWorkers
-  alias Ankole.AgentWorkers.RunnerDevices
 
   channel "worker", AnkoleWeb.WorkerChannel
 
@@ -43,8 +42,11 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
 
   defp authenticate(worker_id, token) do
     case AgentWorkers.authenticate(worker_id, token) do
-      {:error, :invalid_worker_credential} -> RunnerDevices.authenticate(worker_id, token)
-      result -> result
+      {:error, :invalid_worker_credential} ->
+        AgentWorkers.authenticate_runner_worker(worker_id, token)
+
+      result ->
+        result
     end
   end
 

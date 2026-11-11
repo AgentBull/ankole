@@ -12,7 +12,9 @@ use tokio::sync::mpsc;
 use super::stream::{
     decode_raw_response_body, decode_response_body, run_stream, send_aborted_once,
 };
-use crate::common::{KernelError, KernelResult, io_runtime, validate_web_url};
+use crate::common::{
+    KernelError, KernelResult, io_runtime, validate_ip_addresses, validate_web_url,
+};
 use crate::universal_ai_client::{
     api_resolver, error::StreamError, hosted_responses, request_builder, transport,
 };
@@ -254,6 +256,7 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
             &upstream,
             &mut normalized_body,
             spec.limits.max_response_bytes,
+            spec.result_download_ssrf_filter,
         )
         .await?;
     }
@@ -274,12 +277,15 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
 /// A failed download reports no provider status. The provider has already
 /// generated and billed the image, so the caller must neither rotate the
 /// credential nor send the request again.
+const MAX_RESULT_DOWNLOAD_REDIRECTS: usize = 5;
+
 async fn download_result_url(
     upstream: &UpstreamSpec,
     body: &mut Value,
     max_response_bytes: usize,
+    ssrf_filter: bool,
 ) -> Result<(), StreamError> {
-    let Some(url) = body
+    let Some(mut current_url) = body
         .get("result_url")
         .and_then(Value::as_str)
         .map(str::to_owned)
@@ -287,26 +293,96 @@ async fn download_result_url(
         return Ok(());
     };
     let failed = |message: String| StreamError::new("transport_failed", "result_download", message);
-    if validate_web_url(&url, &["https", "http"], false).is_err() {
-        return Err(failed(
-            "the result link is not a web URL that the client fetches".to_string(),
-        ));
-    }
-    let mut download = upstream.clone();
-    download.method = "GET".to_string();
-    download.url = url;
-    download.headers = Vec::new();
-    download.body = None;
 
-    let response = transport::send_http_request(&download, max_response_bytes)
-        .await
-        .map_err(|error| failed(error.message))?;
-    if !(200..300).contains(&response.status) {
-        return Err(failed(format!(
-            "result download returned HTTP status {}",
-            response.status
-        )));
-    }
+    let response = {
+        let mut final_response = None;
+        for hop in 0..=MAX_RESULT_DOWNLOAD_REDIRECTS {
+            if validate_web_url(&current_url, &["https", "http"], ssrf_filter).is_err() {
+                return Err(failed(
+                    "the result link is not a web URL that the client fetches".to_string(),
+                ));
+            }
+            let parsed = reqwest::Url::parse(&current_url).map_err(|_| {
+                failed("the result link is not a web URL that the client fetches".to_string())
+            })?;
+
+            let mut download = upstream.clone();
+            download.method = "GET".to_string();
+            download.url = current_url.clone();
+            download.headers = Vec::new();
+            download.body = None;
+
+            let proxy =
+                transport::resolved_proxy(&download).map_err(|error| failed(error.message))?;
+            let response = match (proxy, parsed.host()) {
+                (None, Some(url::Host::Domain(domain))) => {
+                    let port = parsed.port_or_known_default().unwrap_or(443);
+                    let addrs: Vec<std::net::SocketAddr> = tokio::time::timeout(
+                        download.timeout.connect_duration(),
+                        tokio::net::lookup_host((domain, port)),
+                    )
+                    .await
+                    .map_err(|_| failed("result download DNS lookup timed out".to_string()))?
+                    .map_err(|reason| {
+                        failed(format!("result download DNS lookup failed: {reason}"))
+                    })?
+                    .collect();
+                    let ips: Vec<std::net::IpAddr> =
+                        addrs.iter().map(std::net::SocketAddr::ip).collect();
+                    validate_ip_addresses(&ips, ssrf_filter).map_err(|_| {
+                        failed("the result link resolved to a disallowed address".to_string())
+                    })?;
+                    transport::send_no_redirect_http_request(
+                        &download,
+                        Some((domain, &addrs)),
+                        max_response_bytes,
+                    )
+                    .await
+                    .map_err(|error| failed(error.message))?
+                }
+                _ => transport::send_no_redirect_http_request(&download, None, max_response_bytes)
+                    .await
+                    .map_err(|error| failed(error.message))?,
+            };
+
+            if matches!(response.status, 301 | 302 | 303 | 307 | 308) {
+                if hop == MAX_RESULT_DOWNLOAD_REDIRECTS {
+                    return Err(failed(
+                        "result download exceeded maximum redirects".to_string(),
+                    ));
+                }
+                let location = response
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value.trim())
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| {
+                        failed(format!(
+                            "result download redirect status {} missing Location header",
+                            response.status
+                        ))
+                    })?;
+                let next_url = parsed.join(location).map_err(|_| {
+                    failed("result download redirect Location is invalid".to_string())
+                })?;
+                current_url = next_url.to_string();
+                continue;
+            }
+
+            if !(200..300).contains(&response.status) {
+                return Err(failed(format!(
+                    "result download returned HTTP status {}",
+                    response.status
+                )));
+            }
+
+            final_response = Some(response);
+            break;
+        }
+        final_response
+            .ok_or_else(|| failed("result download exceeded maximum redirects".to_string()))?
+    };
 
     if let Some(object) = body.as_object_mut() {
         object.remove("result_url");

@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
@@ -14,6 +13,7 @@ import {
 } from 'react'
 import { useReducedMotion } from '../hooks/use-reduced-motion'
 import { cn } from '../lib/utils'
+import { useCanvasThemePalette } from './lazy-graph'
 import {
   buildG6GraphSpec,
   computeGraphTopology,
@@ -82,29 +82,7 @@ export interface AnkoleGraphProps {
   ref?: Ref<AnkoleGraphHandle>
 }
 
-function subscribeThemeSignature(onChange: () => void): () => void {
-  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return () => {}
-  const observer = new MutationObserver(onChange)
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme', 'class', 'style']
-  })
-  return () => observer.disconnect()
-}
-
-function currentThemeSignature(): string {
-  if (typeof document === 'undefined') return 'light'
-  const root = document.documentElement
-  return `${root.getAttribute('data-theme') ?? 'light'}:${root.className}`
-}
-
-export function useCanvasThemePalette(): AnkoleCanvasThemePalette {
-  const signature = useSyncExternalStore(subscribeThemeSignature, currentThemeSignature, () => 'light')
-  return useMemo(() => {
-    void signature
-    return resolveCanvasThemePalette()
-  }, [signature])
-}
+export { useCanvasThemePalette }
 
 const NO_COMBOS: readonly AnkoleGraphCombo[] = []
 

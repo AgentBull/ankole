@@ -89,7 +89,7 @@ COPY --from=kernel-wasm /repo/app/kernel/dist/presentation-wasm ./app/kernel/dis
 COPY --from=kernel-wasm /repo/app/kernel/dist/word-wasm ./app/kernel/dist/word-wasm
 COPY libs/ankole-editor/src ./libs/ankole-editor/src
 COPY libs/ankole-editor/upstream ./libs/ankole-editor/upstream
-COPY libs/applet-sdk/src ./libs/applet-sdk/src
+COPY --exclude=toolkits --exclude=server.ts libs/applet-sdk/src ./libs/applet-sdk/src
 COPY libs/uikit/src ./libs/uikit/src
 
 RUN --mount=from=ankole-internals,source=/,target=/mnt/internals \
@@ -114,12 +114,12 @@ RUN --mount=type=secret,id=posthog_cli_api_key,required=false \
       POSTHOG_CLI_HOST="https://us.posthog.com" \
       POSTHOG_CLI_PROJECT_ID="711045" \
       POSTHOG_CLI_API_KEY="$(tr -d '\r\n' < /run/secrets/posthog_cli_api_key)" \
-      bunx @posthog/cli@latest sourcemap inject --directory "${assets_dir}" \
+      ./node_modules/.bin/posthog-cli sourcemap inject --directory "${assets_dir}" \
       && bun -e 'import { gzipSync } from "node:zlib"; import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"; import path from "node:path"; const dir = process.argv[1]; for (const f of readdirSync(dir, { recursive: true })) { if (typeof f !== "string" || !f.endsWith(".js")) continue; const p = path.join(dir, f); const src = readFileSync(p); const gz = gzipSync(src); if (gz.byteLength < src.byteLength) writeFileSync(`${p}.gz`, gz); else try { unlinkSync(`${p}.gz`); } catch {} }' "${assets_dir}" \
       && POSTHOG_CLI_HOST="https://us.posthog.com" \
          POSTHOG_CLI_PROJECT_ID="711045" \
          POSTHOG_CLI_API_KEY="$(tr -d '\r\n' < /run/secrets/posthog_cli_api_key)" \
-         bunx @posthog/cli@latest sourcemap upload --directory "${assets_dir}"; \
+         ./node_modules/.bin/posthog-cli sourcemap upload --directory "${assets_dir}"; \
     fi; \
     find "${assets_dir}" \( -name '*.map' -o -name '*.map.gz' \) -delete; \
   fi
@@ -281,6 +281,7 @@ RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
   --mount=type=cache,id=ankole-cp-sccache-${TARGETARCH},target=/var/cache/sccache \
   --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
+  --mount=type=cache,id=ankole-cp-relay-native-${TARGETARCH},target=/repo/internals/control_plane/native/relay_native/target \
   mix compile
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
@@ -303,6 +304,7 @@ RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
   --mount=type=cache,id=ankole-cp-sccache-${TARGETARCH},target=/var/cache/sccache \
   --mount=type=cache,id=ankole-cp-kernel-${TARGETARCH},target=/repo/app/kernel/target \
+  --mount=type=cache,id=ankole-cp-relay-native-${TARGETARCH},target=/repo/internals/control_plane/native/relay_native/target \
   mix phx.digest --no-deps-check \
   && mix release
 

@@ -5,6 +5,7 @@ import {
   ChatModel,
   chatCommandPolicy,
   chatRecipientAvailable,
+  effectiveTargetAgentUID,
   issueRecipientUID,
   mergeMessages,
   resolveFollowUpDeliveryModes,
@@ -79,6 +80,11 @@ test("the room of an Issue addresses the Issue's Agent by default once it is a g
   expect(issueRecipientUID(room('group'), ['agent-a'])).toBeUndefined()
   // An Agent that the person cannot call leaves the recipient to the person.
   expect(issueRecipientUID(room('group', 'agent-a'), ['agent-b'])).toBeUndefined()
+
+  // Uninitialized selection (null) follows issueRecipientUID, while explicit '' preserves group listeners.
+  expect(effectiveTargetAgentUID(null, room('group', 'agent-a'), ['agent-a', 'agent-b'])).toBe('agent-a')
+  expect(effectiveTargetAgentUID('', room('group', 'agent-a'), ['agent-a', 'agent-b'])).toBe('')
+  expect(effectiveTargetAgentUID('agent-b', room('group', 'agent-a'), ['agent-a', 'agent-b'])).toBe('agent-b')
 })
 
 test('composer, retry and message actions share command eligibility without blocking stop during model selection', () => {

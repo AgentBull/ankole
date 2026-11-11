@@ -77,6 +77,12 @@ defmodule Ankole.AIGateway.Schemas.MediaJob do
       ])
     end
 
+    update :claim_pending do
+      require_atomic?(true)
+      change(filter(expr(status == :pending)))
+      change(set_attribute(:status, :in_progress))
+    end
+
     update :advance do
       accept([
         :status,

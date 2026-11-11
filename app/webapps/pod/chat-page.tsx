@@ -26,7 +26,7 @@ import {
   podKeys,
   type ConversationDetail
 } from './api'
-import { ChatModel, mergeMessages } from './state/chat'
+import { ChatModel, effectiveTargetAgentUID, mergeMessages } from './state/chat'
 import { unsavedInlineEditDraft } from './state/chat-drafts'
 import { LocalChatDrafts, UnconfirmedChats, useChatDraft, useChatDrafts } from './chat-drafts'
 import { findMessageStep, firstUnreadMessageID, useChatHistory, type ChatEntry } from './chat-history'
@@ -309,14 +309,6 @@ export function ChatPage({
   const personalAssistant = data
     ? data.conversation.conversationKind === 'assistant_task'
     : !!agents.data?.personalAssistantAvailable && !selected
-  const agentUID =
-    data?.conversation.agents.find(agent => agent.uid === model.targetAgentUID.value)?.uid ??
-    data?.conversation.agents[0]?.uid ??
-    (personalAssistant
-      ? (assistant?.uid ?? '')
-      : selected
-        ? (availableAgents.find(agent => agent.uid === selected)?.uid ?? '')
-        : (availableAgents[0]?.uid ?? ''))
   const callableAgents = [
     ...new Map(
       [...availableAgents, ...(data?.conversation.agents.filter(agent => agent.canChat) ?? [])].map(agent => [
@@ -325,6 +317,16 @@ export function ChatPage({
       ])
     ).values()
   ]
+  const callableAgentUIDs = callableAgents.map(agent => agent.uid)
+  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value, data, callableAgentUIDs)
+  const agentUID =
+    data?.conversation.agents.find(agent => agent.uid === targetUID)?.uid ??
+    data?.conversation.agents[0]?.uid ??
+    (personalAssistant
+      ? (assistant?.uid ?? '')
+      : selected
+        ? (availableAgents.find(agent => agent.uid === selected)?.uid ?? '')
+        : (availableAgents[0]?.uid ?? ''))
   const commands = useChatCommands({
     model,
     drafts,
@@ -335,7 +337,7 @@ export function ChatPage({
     agentUID,
     agentsError: !agents.isSuccess,
     personalAssistant,
-    callableAgentUIDs: callableAgents.map(agent => agent.uid),
+    callableAgentUIDs,
     refresh: () => refreshConversationDetail(client, conversationID!),
     onInlineEditSettled: () => {
       const active = document.activeElement

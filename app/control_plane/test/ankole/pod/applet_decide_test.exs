@@ -70,4 +70,29 @@ defmodule Ankole.Pod.AppletDecideTest do
 
     refute_received {:decision_request, _body}
   end
+
+  test "Gateway.error preserves deterministic 413 and 422 OpenAIError codes and messages" do
+    alias Ankole.AIGateway.OpenAIError
+    alias Ankole.Pod.Applets.Gateway
+
+    assert %{status: 413, code: "file_too_large", message: "Audio exceeds 25 MB"} =
+             Gateway.error(:ai, %OpenAIError{
+               status: 413,
+               type: "invalid_request_error",
+               code: "payload_too_large",
+               message: "Audio exceeds 25 MB"
+             })
+
+    assert %{
+             status: 422,
+             code: "upstream_decision_refusal",
+             message: "Question schema unsupported"
+           } =
+             Gateway.error(:ai, %OpenAIError{
+               status: 422,
+               type: "invalid_request_error",
+               code: "upstream_decision_refusal",
+               message: "Question schema unsupported"
+             })
+  end
 end

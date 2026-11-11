@@ -151,8 +151,17 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.Webhooks do
   defp delivery_id("typeform", data, _, _), do: data["event_id"]
   defp delivery_id("trello", data, _, _), do: get_in(data, ["action", "id"])
 
-  defp delivery_id("zendesk", _, headers, body),
-    do: Signatures.header(headers, "x-zendesk-webhook-invocation-id") || digest(body)
+  defp delivery_id("zendesk", _, headers, body) do
+    Signatures.header(headers, "x-zendesk-webhook-invocation-id") ||
+      case Signatures.header(headers, "x-zendesk-webhook-signature") do
+        sig when is_binary(sig) and sig != "" ->
+          ts = Signatures.header(headers, "x-zendesk-webhook-signature-timestamp") || ""
+          digest(ts <> "." <> sig)
+
+        _ ->
+          digest(body)
+      end
+  end
 
   defp delivery_id(_, _, _, body), do: digest(body)
   defp digest(body), do: Base.encode16(:crypto.hash(:sha256, body), case: :lower)

@@ -249,7 +249,8 @@ and continueSlice({delaySeconds,progress}) continue the same Run with latest cod
 AnkoleRuntime capabilities use the caller or personal Job owner; team Jobs use
 AnkoleRuntime.admin, which executes as the Applet's current owner. GET and nested
 calls are read-only. mcp.call(tool,args,{server,connection?,account?,skill?})
-uses a Toolkit, or an enabled remote HTTP Skill when skill is supplied.
+uses a Toolkit (type per platform with import type { Inputs, Outputs } from '@ankole/applet-sdk/toolkits/<toolkit>'),
+or an enabled remote HTTP Skill when skill is supplied.
 admin.mcp uses the current Page owner; HttpError.details preserves consent links
 and recovery metadata. signals.emit({targetJobId,type,data}) accepts a same-Page Job;
 omit targetJobId to publish to Bindings and check delivered for a delivery receipt.

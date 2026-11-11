@@ -552,16 +552,19 @@ export const provider = defineApplet(App)`
       await writeFile(
         join(app, 'src/server/main.ts'),
         `import type { Routes } from '@ankole/applet-sdk/server'
+import type { Inputs as GithubInputs } from '@ankole/applet-sdk/toolkits/github'
 import { total } from './total'
-export default { 'POST /total': async ({ body }) => ({total: total(body.a, body.b)}) } satisfies Routes`
+type RunInput = GithubInputs['actions_get_run']
+export default { 'POST /total': async ({ body }) => ({total: total(body.a, body.b), ok: true as RunInput extends object ? true : false}) } satisfies Routes`
       )
       const built = await buildApplet(app)
       expect(built.files).toContain('server/main.js')
       const server = await readFile(join(app, 'server/main.js'), 'utf8')
       expect(new Bun.Transpiler({ loader: 'js' }).scanImports(server)).toEqual([])
       expect(server).not.toContain('require(')
+      expect(server).not.toContain('@ankole/applet-sdk/toolkits')
       const routes = (await import(join(app, 'server/main.js'))).default
-      expect(await routes['POST /total']({ body: { a: 2, b: 3 } })).toEqual({ total: 5 })
+      expect(await routes['POST /total']({ body: { a: 2, b: 3 } })).toEqual({ total: 5, ok: true })
       await rm(join(app, 'src/server/main.ts'))
       expect((await buildApplet(app)).files).not.toContain('server/main.js')
       expect(await Bun.file(join(app, 'server/main.js')).exists()).toBe(false)

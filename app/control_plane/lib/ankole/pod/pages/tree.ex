@@ -762,15 +762,18 @@ defmodule Ankole.Pod.Pages.Tree do
     |> Enum.map(&hd/1)
   end
 
-  def descendants(id) do
+  def descendants(id) when is_binary(id), do: descendants([id])
+  def descendants([]), do: []
+
+  def descendants(ids) when is_list(ids) do
     Repo.query!(
       """
       WITH RECURSIVE subtree AS (
-        SELECT id FROM pages WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid
-        UNION ALL SELECT c.id FROM pages c JOIN subtree s ON c.parent_id = s.id WHERE c.tenant_id = $1::text::uuid
+        SELECT id FROM pages WHERE tenant_id = $1::text::uuid AND id = ANY($2::text[]::uuid[])
+        UNION SELECT c.id FROM pages c JOIN subtree s ON c.parent_id = s.id WHERE c.tenant_id = $1::text::uuid
       ) SELECT id::text FROM subtree
       """,
-      [Repo.tenant_id!(), id]
+      [Repo.tenant_id!(), ids]
     ).rows
     |> Enum.map(&hd/1)
   end

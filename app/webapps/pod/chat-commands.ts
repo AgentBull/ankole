@@ -2,7 +2,7 @@ import { uuidV4 } from '@agentbull/active-support'
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '@ankole/uikit'
 import { t } from 'i18next'
-import { useEffect, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
 import {
@@ -27,7 +27,7 @@ import {
   chatRecipientAvailable,
   draftLinks,
   draftMentions,
-  issueRecipientUID,
+  effectiveTargetAgentUID,
   queuedInputs,
   resolveFollowUpDeliveryModes,
   type ChatEditSnapshot,
@@ -201,10 +201,7 @@ export function useChatCommands({
     }
   })
   const callableSet = new Set(callableAgentUIDs)
-  const issueAgentUID = issueRecipientUID(data, callableAgentUIDs)
-  useEffect(() => {
-    if (issueAgentUID && !model.targetAgentUID.peek()) model.targetAgentUID.value = issueAgentUID
-  }, [model, issueAgentUID])
+  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value, data, callableAgentUIDs)
   const sending = (send.isPending && send.variables.owner === model) || model.pending.value?.state === 'sending'
   const working =
     !!data &&
@@ -213,14 +210,12 @@ export function useChatCommands({
   const mentionedAgentUIDs = model.mentionedAgentUIDs.value
   const addressedUIDs = data
     ? data.conversation.roomMode === 'group'
-      ? model.targetAgentUID.value || mentionedAgentUIDs.length > 0
-        ? [...new Set([...(model.targetAgentUID.value ? [model.targetAgentUID.value] : []), ...mentionedAgentUIDs])]
+      ? targetUID || mentionedAgentUIDs.length > 0
+        ? [...new Set([...(targetUID ? [targetUID] : []), ...mentionedAgentUIDs])]
         : data.conversation.agents
             .filter(agent => agent.active && agent.mayIntervene && callableSet.has(agent.uid))
             .map(agent => agent.uid)
-      : [model.targetAgentUID.value || agentUID || data.conversation.agents[0]?.uid].filter(
-          (uid): uid is string => !!uid
-        )
+      : [targetUID || agentUID || data.conversation.agents[0]?.uid].filter((uid): uid is string => !!uid)
     : []
   const targetWorking =
     !!data &&
@@ -264,7 +259,7 @@ export function useChatCommands({
   const recipientUID =
     data?.pendingInteractions.find(question => question.interaction_id === answeringID)?.agentUID ??
     queueEditing?.agentUID ??
-    model.targetAgentUID.value
+    targetUID
   const recipientAvailable =
     !data ||
     (!!answeringID && !!recipientUID && callableSet.has(recipientUID)) ||
@@ -405,7 +400,7 @@ export function useChatCommands({
     else {
       const recipientUID = agentUID || (personalAssistant ? (model.pending.peek()?.agentUID ?? '') : '')
       const deliveryMode = modeOverride ?? deliveryModes.primary
-      const submission = model.submit(conversationID, recipientUID, () => uuidV4(), deliveryMode)
+      const submission = model.submit(conversationID, recipientUID, () => uuidV4(), deliveryMode, targetUID)
       // Release the new-chat slot without treating an unconfirmed create as a saved conversation.
       if (!conversationID && !pageID) drafts.remember(model, submission.conversationID)
       send.mutate({
@@ -474,7 +469,7 @@ export function useChatCommands({
         slot =>
           callableAgentUIDs.includes(slot.agentUID) &&
           slot.workStatus.state !== 'idle' &&
-          (!model.targetAgentUID.value || model.targetAgentUID.value === slot.agentUID)
+          (!targetUID || targetUID === slot.agentUID)
       )
       .map(slot => slot.agentUID) ?? []
   const editConflict =
@@ -536,7 +531,7 @@ export function useChatCommands({
       const candidates = data.pendingQueues
         .filter(
           slot =>
-            (!model.targetAgentUID.value || slot.agentUID === model.targetAgentUID.value) &&
+            (!targetUID || slot.agentUID === targetUID) &&
             callableSet.has(slot.agentUID) &&
             data.conversation.agents.some(agent => agent.uid === slot.agentUID && agent.active) &&
             policy(slot.agentUID).canQueue('retract')

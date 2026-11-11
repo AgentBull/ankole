@@ -131,8 +131,14 @@ defmodule Ankole.Sessions.Prompt.Input do
 
           mentions =
             case facts do
-              {message, _, _} -> Enum.map(message.mentions, & &1["uid"])
-              _ -> []
+              {message, _, _} ->
+                Enum.map(message.mentions, & &1["uid"])
+
+              _ ->
+                case event.conversation_id && Ankole.Issues.Queries.fetch(event.conversation_id) do
+                  {:ok, %{squad_uids: uids}} -> uids
+                  _ -> []
+                end
             end
 
           colleagues =

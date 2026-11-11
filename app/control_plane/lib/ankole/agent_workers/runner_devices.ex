@@ -10,17 +10,36 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
   @heartbeat_seconds 60
 
   def list(%Actor{} = actor) do
+    with {:ok, %{devices: devices}} <- list_with_colleagues(actor) do
+      {:ok, devices}
+    end
+  end
+
+  def list_with_colleagues(%Actor{} = actor) do
     with {:ok, owner} <- member(actor) do
-      RunnerDevice
-      |> Ash.Query.filter(owner_uid == ^owner.uid and is_nil(revoked_at))
-      |> Ash.Query.sort(name: :asc, id: :asc)
-      |> Ankole.Ash.read!()
-      |> Enum.filter(fn device ->
-        device.owner_access_version == owner.access_version and
-          (device.token_digest != nil or pending?(device))
-      end)
-      |> Enum.map(&project(&1, bindings(&1.id)))
-      |> then(&{:ok, &1})
+      colleagues = owned_colleagues(owner)
+      colleagues_by_uid = Map.new(colleagues, &{&1.uid, &1})
+
+      devices =
+        RunnerDevice
+        |> Ash.Query.filter(owner_uid == ^owner.uid and is_nil(revoked_at))
+        |> Ash.Query.sort(name: :asc, id: :asc)
+        |> Ankole.Ash.read!()
+        |> Enum.filter(fn device ->
+          device.owner_access_version == owner.access_version and
+            (device.token_digest != nil or pending?(device))
+        end)
+
+      rows_by_runner = bindings_by_runner(Enum.map(devices, & &1.id))
+
+      {:ok,
+       %{
+         devices:
+           Enum.map(devices, fn device ->
+             project(device, Map.get(rows_by_runner, device.id, []), colleagues_by_uid)
+           end),
+         colleagues: colleagues
+       }}
     end
   end
 
@@ -78,7 +97,8 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
              true <- device.owner_access_version == owner.access_version,
              true <- owned_agent?(agent_uid, owner.uid),
              {:ok, _} <- existing_or_register(runner_id, agent_uid, origin, config) do
-          {:ok, project(device, bindings(runner_id))}
+          colleagues_by_uid = Map.new(owned_colleagues(owner), &{&1.uid, &1})
+          {:ok, project(device, bindings(runner_id), colleagues_by_uid)}
         else
           {:error, _} = error -> error
           _ -> {:error, :runner_unavailable}
@@ -106,25 +126,25 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
                        token_digest: nil
                      }),
                    {:ok, routes} <- disconnect_bindings_in_tx(runner_id),
-                   {:ok, job} <-
-                     BackgroundAgentJobs.fail_revoked_runner_job_in_tx(runner_id, now) do
-                {:ok, %{routes: routes, job: job}}
+                   {:ok, jobs} <-
+                     BackgroundAgentJobs.fail_revoked_runner_jobs_in_tx(runner_id, now) do
+                {:ok, %{routes: routes, jobs: jobs}}
               end
 
             %RunnerDevice{owner_uid: uid} when uid == owner.uid ->
-              {:ok, %{routes: [], job: nil}}
+              {:ok, %{routes: [], jobs: []}}
 
             _ ->
               {:error, :runner_unavailable}
           end
         end,
-        after_commit: fn %{routes: routes, job: job} ->
+        after_commit: fn %{routes: routes, jobs: jobs} ->
           Enum.each(routes, fn {uid, route} ->
             if route, do: WorkerRoute.close_connection(uid, route, :runner_revoked)
             AgentWorkers.notify_changed(uid)
           end)
 
-          if job, do: BackgroundAgentJobs.publish_status_commit(job)
+          Enum.each(jobs, &BackgroundAgentJobs.publish_status_commit/1)
         end
       )
     end
@@ -166,12 +186,24 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
 
   def bootstrap(token, origin) when is_binary(token) and byte_size(token) == 43 do
     with %RunnerDevice{} = candidate <- by_credential(RunnerDevice, :token_digest, token),
-         {:ok, config} <- Config.fetch() do
-      Repo.with_tenant(candidate.tenant_id, fn ->
-        Repo.transact_top_level(fn ->
-          bootstrap_in_tx(candidate.id, digest(token), origin, config)
-        end)
-      end)
+         {:ok, config} <- Config.fetch(),
+         {:ok, %{specs: specs}} <-
+           Repo.with_tenant(candidate.tenant_id, fn ->
+             Repo.transact_top_level(
+               fn ->
+                 bootstrap_in_tx(candidate.id, digest(token), origin, config)
+               end,
+               after_commit: fn %{routes: routes} ->
+                 Enum.each(routes, fn {uid, route} ->
+                   if route,
+                     do: WorkerRoute.close_connection(uid, route, :stale_worker_generation)
+
+                   AgentWorkers.notify_changed(uid)
+                 end)
+               end
+             )
+           end) do
+      {:ok, specs}
     else
       nil -> {:error, :invalid_runner_credential}
       {:error, _} = error -> error
@@ -183,18 +215,29 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
   defp bootstrap_in_tx(id, token_digest, origin, config) do
     with %RunnerDevice{revoked_at: nil, token_digest: ^token_digest} = device <-
            lock_runner_in_tx(id),
-         true <- active_owner?(device) do
+         {:ok, owner} <- member(device.owner_uid),
+         true <- owner.access_version == device.owner_access_version do
+      owned_uids = owned_active_agent_uids(owner.uid)
+
       id
       |> bindings()
-      |> Enum.filter(&owned_agent?(&1.agent_uid, device.owner_uid))
-      |> Enum.reduce_while({:ok, []}, fn binding, {:ok, acc} ->
-        with {:ok, binding} <- current_generation(binding, origin, config),
+      |> Enum.filter(&MapSet.member?(owned_uids, &1.agent_uid))
+      |> Enum.reduce_while({:ok, {[], []}}, fn binding, {:ok, {specs, routes}} ->
+        with {:ok, binding, replaced_route} <- current_generation(binding, origin, config),
              {:ok, spec} <- launch_spec(binding) do
-          {:cont, {:ok, [spec | acc]}}
+          next_routes = if replaced_route, do: [replaced_route | routes], else: routes
+          {:cont, {:ok, {[spec | specs], next_routes}}}
         else
           error -> {:halt, error}
         end
       end)
+      |> case do
+        {:ok, {specs, routes}} ->
+          {:ok, %{specs: Enum.reverse(specs), routes: Enum.reverse(routes)}}
+
+        error ->
+          error
+      end
     else
       _ -> {:error, :invalid_runner_credential}
     end
@@ -333,6 +376,16 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
     |> Ankole.Ash.read!()
   end
 
+  defp bindings_by_runner([]), do: %{}
+
+  defp bindings_by_runner(ids) do
+    RunnerBinding
+    |> Ash.Query.filter(runner_id in ^ids)
+    |> Ash.Query.sort(agent_uid: :asc)
+    |> Ankole.Ash.read!()
+    |> Enum.group_by(& &1.runner_id)
+  end
+
   defp disconnect_bindings_in_tx(id) do
     Enum.reduce_while(bindings(id), {:ok, []}, fn row, {:ok, routes} ->
       locked = lock_binding_in_tx(row.agent_uid, id)
@@ -370,11 +423,12 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
   defp current_generation(binding, origin, config) do
     if binding.protocol_version == config.protocol_version and binding.image == config.image and
          binding.instance_settings == settings(origin) do
-      {:ok, binding}
+      {:ok, binding, nil}
     else
       with %RunnerBinding{} = locked <- lock_binding_in_tx(binding.agent_uid, binding.runner_id),
-           {:ok, attrs} <- generation_attrs(binding.runner_id, origin, config) do
-        Ankole.Ash.update(locked, :replace_generation, attrs)
+           {:ok, attrs} <- generation_attrs(binding.runner_id, origin, config),
+           {:ok, updated} <- Ankole.Ash.update(locked, :replace_generation, attrs) do
+        {:ok, updated, {locked.agent_uid, locked.transport_route}}
       else
         nil -> {:error, :runner_unavailable}
         error -> error
@@ -494,6 +548,29 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
     )
   end
 
+  defp owned_colleagues(owner) do
+    [status: :active, owner_principal_uid: owner.uid]
+    |> Principals.list_agents()
+    |> Enum.sort_by(fn %{agent: agent} ->
+      {if(agent.type == :personal_assistant, do: 0, else: 1), agent.uid}
+    end)
+    |> Enum.map(fn %{principal: principal, agent: agent} ->
+      hydrated = %{principal | agent: %{agent | owner_principal: owner}}
+
+      %{
+        uid: agent.uid,
+        displayName: Principals.display_name(hydrated),
+        agentType: to_string(agent.type)
+      }
+    end)
+  end
+
+  defp owned_active_agent_uids(owner_uid) do
+    [status: :active, owner_principal_uid: owner_uid]
+    |> Principals.list_agents()
+    |> MapSet.new(& &1.agent.uid)
+  end
+
   defp digest(token), do: :crypto.hash(:sha256, token)
 
   defp pending?(device, now \\ DateTime.utc_now()) do
@@ -506,7 +583,19 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
 
   defp fresh?(_), do: false
 
-  defp project(device, rows) do
+  defp binding_status(%RunnerDevice{token_digest: nil}, _row), do: "offline"
+
+  defp binding_status(_device, %RunnerBinding{state: :ready} = row) do
+    if fresh?(row), do: "connected", else: "offline"
+  end
+
+  defp binding_status(_device, %RunnerBinding{state: :draining} = row) do
+    if fresh?(row), do: "draining", else: "offline"
+  end
+
+  defp binding_status(_device, _row), do: "offline"
+
+  defp project(device, rows, colleagues_by_uid) do
     %{
       id: device.id,
       name: device.name,
@@ -516,7 +605,17 @@ defmodule Ankole.AgentWorkers.RunnerDevices do
           Enum.any?(rows, &(fresh?(&1) and &1.state == :ready)) -> "online"
           true -> "offline"
         end,
-      bindings: Enum.map(rows, &%{agentUID: &1.agent_uid})
+      bindings:
+        Enum.map(rows, fn row ->
+          colleague = Map.get(colleagues_by_uid, row.agent_uid)
+
+          %{
+            agentUID: row.agent_uid,
+            displayName: colleague && colleague.displayName,
+            agentType: colleague && colleague.agentType,
+            status: binding_status(device, row)
+          }
+        end)
     }
   end
 end

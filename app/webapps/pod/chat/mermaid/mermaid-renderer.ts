@@ -1,3 +1,9 @@
+import {
+  buildPeleCssVarsString,
+  parseSvgDimensions,
+  resolveVizTheme,
+  type VizThemePalette
+} from '@ankole/uikit/viz/theme'
 import { PeleError } from 'pele/core'
 import { renderAsync, type DiagramType } from 'pele/lazy'
 
@@ -69,25 +75,31 @@ export function resolveActiveMermaidTheme(doc: Document | undefined = globalThis
   return doc?.documentElement?.dataset?.theme === 'dark' ? 'dark' : 'light'
 }
 
-export function buildPelePaletteCssVars(theme: MermaidThemeMode): string {
+function resolveChatMermaidPalette(theme: MermaidThemeMode): VizThemePalette {
   const p = MERMAID_PALETTES[theme]
-  return [
-    `--pele-bg:${p.bg}`,
-    `--pele-fg:${p.fg}`,
-    `--pele-fg-on-light:${p.fgOnLight}`,
-    `--pele-fg-on-dark:${p.fgOnDark}`,
-    `--pele-muted:${p.muted}`,
-    `--pele-line:${p.line}`,
-    `--pele-surface:${p.surface}`,
-    `--pele-surface-alt:${p.surfaceAlt}`,
-    `--pele-border:${p.border}`,
-    `--pele-accent:${p.accent}`,
-    `--pele-critical:${p.critical}`,
-    `--pele-error:${p.critical}`,
-    `--pele-font:${DIAGRAM_HOST_FONT_SANS}`,
-    `--pele-font-mono:${DIAGRAM_HOST_FONT_MONO}`,
-    `--pele-radius:6px`
-  ].join(';')
+  return resolveVizTheme(null, {
+    theme,
+    tokenOverrides: {
+      '--background': p.bg,
+      '--foreground': p.fg,
+      '--fg-secondary': p.line,
+      '--fg-tertiary': p.muted,
+      '--layer-01': p.surface,
+      '--layer-02': p.surfaceAlt,
+      '--border': p.surfaceAlt,
+      '--border-strong': p.border,
+      '--chart-1': p.accent,
+      '--chart-down': p.critical
+    }
+  })
+}
+
+export function buildPelePaletteCssVars(theme: MermaidThemeMode): string {
+  return buildPeleCssVarsString(resolveChatMermaidPalette(theme), {
+    radius: '6px',
+    fontSans: DIAGRAM_HOST_FONT_SANS,
+    fontMono: DIAGRAM_HOST_FONT_MONO
+  })
 }
 
 /**
@@ -185,25 +197,6 @@ export async function renderMermaidDiagram(code: string, theme: MermaidThemeMode
 
   storeCachedDiagram(cacheKey('mermaid', theme, trimmed), entry)
   return entry
-}
-
-function parseSvgDimensions(svg: string): { width: number; height: number } {
-  const vbMatch = /\bviewBox\s*=\s*['"]\s*[-+\d.]+\s+[-+\d.]+\s+([-+\d.]+)\s+([-+\d.]+)\s*['"]/i.exec(svg)
-  if (vbMatch) {
-    const w = Number.parseFloat(vbMatch[1]!)
-    const h = Number.parseFloat(vbMatch[2]!)
-    if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
-      return { width: Math.ceil(w), height: Math.ceil(h) }
-    }
-  }
-  const wMatch = /\bwidth\s*=\s*['"]([-+\d.]+)(?:px)?['"]/i.exec(svg)
-  const hMatch = /\bheight\s*=\s*['"]([-+\d.]+)(?:px)?['"]/i.exec(svg)
-  const w = wMatch ? Number.parseFloat(wMatch[1]!) : 680
-  const h = hMatch ? Number.parseFloat(hMatch[1]!) : 400
-  return {
-    width: Number.isFinite(w) && w > 0 ? Math.ceil(w) : 680,
-    height: Number.isFinite(h) && h > 0 ? Math.ceil(h) : 400
-  }
 }
 
 export async function renderInfographicDiagram(code: string, theme: MermaidThemeMode): Promise<RenderedMermaidDiagram> {

@@ -271,8 +271,9 @@ room of an Issue that waits, review and acceptance, the events that follow a
 change, the status that follows a Background Agent Job, the reopening of an
 accepted Issue by a Job, a continued Job, and a Workflow, the personal
 assistant's task room, a conversation with an AI colleague, labels, the report
-of an accepted sub-Issue, a Squad, a repeating Issue and its rule, and the
-scheduled list with a room that a person can no longer open. A change to room creation, to the start
+of an accepted sub-Issue, a Squad, a repeating Issue and its rule (including
+Squad delegation in scheduled runs), and the scheduled list with a room that a
+person cannot open. A change to room creation, to the start
 of an Issue, or to the owner-Session link must keep those cases passing against
 the real Conversations, Signals, and Sessions owners.
 `integration/pod-browser/work.spec.ts` covers the board in the browser.

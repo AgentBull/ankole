@@ -253,28 +253,103 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   def fail_revoked_runner_job_in_tx(runner_id, now) do
-    with %Job{id: id, agent_uid: uid} <- Queries.running_for_runner(runner_id),
-         :ok <- lock_agent_slots(uid),
-         %Job{status: :running} <- Queries.lock_for_agent_in_tx(id, uid) do
-      error = %{"code" => "runner_revoked", "summary" => "The owner disconnected the device."}
+    with {:ok, results} <- fail_revoked_runner_jobs_in_tx(runner_id, now) do
+      {:ok, List.first(results)}
+    end
+  end
 
-      with {:ok, result} <-
-             commit_status_after_runtime_prefix_in_tx(
-               id,
-               uid,
-               %{"status" => :failed, "error" => error},
-               now,
-               nil,
-               error,
-               transition_action: :fail_turn
-             ),
-           {:ok, :ok} <- Dispatch.complete_all_open_events_in_tx(id, uid, now) do
-        {:ok, result}
+  def fail_revoked_runner_jobs_in_tx(runner_id, now) do
+    case Queries.live_for_runner(runner_id) do
+      [] ->
+        {:ok, []}
+
+      candidates ->
+        error = %{"code" => "runner_revoked", "summary" => "The owner disconnected the device."}
+        attrs = %{"status" => :failed, "error" => error}
+
+        candidates
+        |> Enum.map(& &1.agent_uid)
+        |> Enum.uniq()
+        |> Enum.sort()
+        |> Enum.each(&lock_agent_slots/1)
+
+        live_jobs =
+          candidates
+          |> Enum.map(&Queries.lock_for_agent_in_tx(&1.id, &1.agent_uid))
+          |> Enum.filter(
+            &match?(%Job{status: status} when status in [:queued, :running, :waiting_on_user], &1)
+          )
+
+        with {:ok, transitioned} <- fail_locked_runner_jobs_in_tx(live_jobs, attrs, error, now),
+             :ok <- lock_runner_job_sessions_in_tx(transitioned),
+             {:ok, with_wakeups} <- append_runner_job_wakeups_in_tx(transitioned, now) do
+          complete_runner_job_signals_in_tx(with_wakeups, now)
+        end
+    end
+  end
+
+  defp fail_locked_runner_jobs_in_tx(jobs, attrs, error, now) do
+    Enum.reduce_while(jobs, {:ok, []}, fn job, {:ok, acc} ->
+      action = if job.status == :running, do: :fail_turn, else: :fail_admission
+
+      input =
+        attrs
+        |> WorkerWait.clear()
+        |> preserve_metadata(job)
+        |> lifecycle_timestamps(job, now)
+        |> transition_input(action)
+
+      with {:ok, committed} <- transition(job, action, input),
+           :ok <- maybe_interrupt_active_slots(job, error, now),
+           :ok <- enforce_turn_trajectory_completion(job, attrs, action) do
+        {:cont, {:ok, [committed | acc]}}
+      else
+        {:error, _reason} = err -> {:halt, err}
       end
-    else
-      nil -> {:ok, nil}
-      %Job{} -> {:ok, nil}
-      {:error, _reason} = error -> error
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      error -> error
+    end
+  end
+
+  defp lock_runner_job_sessions_in_tx(jobs) do
+    sessions =
+      Enum.flat_map(jobs, fn job ->
+        [
+          {job.agent_uid, Ankole.BackgroundAgentJobs.job_session_id(job.id)},
+          {job.agent_uid, job.owner_session_id}
+        ]
+      end)
+
+    Ankole.Sessions.Queue.lock_sessions_in_tx(sessions)
+  end
+
+  defp append_runner_job_wakeups_in_tx(jobs, now) do
+    Enum.reduce_while(jobs, {:ok, []}, fn job, {:ok, acc} ->
+      case Wakeups.conclude_transition_in_tx(job, now, nil) do
+        {:ok, wakeup_event} -> {:cont, {:ok, [%{job: job, wakeup_event: wakeup_event} | acc]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      error -> error
+    end
+  end
+
+  defp complete_runner_job_signals_in_tx(results, now) do
+    Enum.reduce_while(results, {:ok, []}, fn %{job: job} = result, {:ok, acc} ->
+      with {:ok, nil} <- resolve_open_steers_after_commit(job, now, nil, []),
+           {:ok, :ok} <- Dispatch.complete_all_open_events_in_tx(job.id, job.agent_uid, now) do
+        {:cont, {:ok, [result | acc]}}
+      else
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      error -> error
     end
   end
 

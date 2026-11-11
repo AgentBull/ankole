@@ -132,6 +132,22 @@ export function issueRecipientUID(
   return uid && chatRecipientAvailable(uid, detail!.conversation.agents, callableUIDs) ? uid : undefined
 }
 
+/**
+ * Resolves the active recipient selection without copying query state into `ChatModel.targetAgentUID`:
+ * `null` follows the room's default Issue Agent, `''` is an explicit group-listeners selection, and any
+ * non-empty string is an explicit Agent UID.
+ */
+export function effectiveTargetAgentUID(
+  selectedTargetUID: string | null,
+  detail:
+    | { issueAgentUID?: string | null; conversation: { roomMode: string; agents: { uid: string; active: boolean }[] } }
+    | undefined,
+  callableUIDs: string[]
+): string {
+  if (selectedTargetUID !== null) return selectedTargetUID
+  return issueRecipientUID(detail, callableUIDs) ?? ''
+}
+
 export function chatCommandPolicy(input: {
   sending: boolean
   queuePending: boolean
@@ -236,7 +252,7 @@ function createChat() {
   const mentions = signal<{ type: 'agent' | 'human'; uid: string; displayName: string }[]>([])
   const links = signal<ChatLinks>([])
   const neededInvites = signal<{ uid: string; displayName: string }[]>([])
-  const targetAgentUID = signal('')
+  const targetAgentUID = signal<string | null>(null)
   const answeringInteractionID = signal<string>()
   let activityObservation = 0
   const error = signal<unknown>()
@@ -598,18 +614,20 @@ function createChat() {
       conversationID: string | undefined,
       agentUID: string,
       nextID: () => string,
-      deliveryMode: FollowUpBehavior = 'steer'
+      deliveryMode: FollowUpBehavior = 'steer',
+      resolvedTargetUID?: string
     ): MessageSubmission {
       const text = composeSkillSubmissionText(draft.value, attachedSkill.value)
       const previous = pending.value
       const capture = attachments.capture()
+      const effectiveTarget = (resolvedTargetUID ?? targetAgentUID.value) || undefined
       const submission =
         previous &&
         previous.text === text &&
         previous.agentUID === agentUID &&
         previous.deliveryMode === deliveryMode &&
         previous.modelProfile === modelProfile.value &&
-        previous.targetAgentUID === (targetAgentUID.value || undefined) &&
+        previous.targetAgentUID === effectiveTarget &&
         equal(previous.mentions ?? [], mentions.value) &&
         equal(previous.links ?? [], links.value) &&
         equal(previous.attachmentIDs ?? [], capture.attachmentIDs)
@@ -621,7 +639,7 @@ function createChat() {
               text,
               deliveryMode,
               modelProfile: modelProfile.value,
-              targetAgentUID: targetAgentUID.value || undefined,
+              targetAgentUID: effectiveTarget,
               mentions: mentions.value,
               links: links.value,
               ...capture

@@ -532,6 +532,7 @@ fn stream_model_spec(spec: &StreamSpec) -> ModelRequestSpec {
             max_response_bytes: spec.limits.max_pending_bytes,
         },
         hosted_tools: None,
+        result_download_ssrf_filter: false,
     }
 }
 

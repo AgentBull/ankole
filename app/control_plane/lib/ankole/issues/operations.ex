@@ -86,7 +86,7 @@ defmodule Ankole.Issues.Operations do
       idempotency_key: issue.conversation_id,
       schedule: Map.put(repeat, "kind", "cron"),
       delivery: %{"targets" => [%{"conversation_id" => issue.conversation_id}]},
-      payload: %{"task" => request(title, issue.description)}
+      payload: %{"task" => scheduled_request(title, issue.description, issue.squad_uids)}
     }
 
     with {:ok, %{cron_schedule: rule}} <-
@@ -119,42 +119,124 @@ defmodule Ankole.Issues.Operations do
   def update(%Actor{} = actor, id, attrs) when is_map(attrs) do
     with {:ok, issue} <- Queries.fetch(id),
          :ok <- Queries.access(actor, issue),
-         {:ok, result} <-
-           Repo.transact_top_level(fn -> update_in_tx(actor, issue.conversation_id, attrs) end,
-             after_commit: &publish/1
-           ) do
+         {:ok, result} <- commit_update(actor, issue.conversation_id, attrs, 2) do
       if issue.status != :done and result.issue.status == :done, do: report(actor, result.issue)
       projected({:ok, result}, actor)
     end
   end
 
-  # The row lock comes first, as it does when a run starts in the room, and
-  # makes a second start read the Issue that the first one already started.
-  defp update_in_tx(actor, id, attrs) do
-    with {:ok, issue} <- Queries.lock(id),
-         {:ok, issue} <- describe(issue, attrs[:description]),
-         {:ok, issue} <- label(issue, attrs[:labels]),
-         do: move(actor, issue, attrs[:status])
+  defp commit_update(actor, id, attrs, retries) do
+    case Repo.transact_top_level(fn -> update_in_tx(actor, id, attrs) end,
+           after_commit: &publish/1
+         ) do
+      {:error, :stale_issue_snapshot} when retries > 0 ->
+        commit_update(actor, id, attrs, retries - 1)
+
+      {:error, :stale_issue_snapshot} ->
+        {:error, :invalid_issue}
+
+      other ->
+        other
+    end
   end
 
-  defp describe(issue, nil), do: {:ok, issue}
+  # Schedule and Conversation locks sit below Issues in LockOrder, so lower-rank
+  # effects run against the snapshot first and commit only if the locked Issue
+  # row still matches that snapshot; otherwise the transaction rolls back and retries.
+  defp update_in_tx(actor, id, attrs) do
+    with {:ok, snapshot} <- Queries.fetch(id),
+         :ok <- validate_update_attrs(snapshot, attrs),
+         {:ok, parsed_labels} <- validate_optional_labels(attrs[:labels]),
+         {:ok, posted, used_snapshot?} <- prepare_update_effects_in_tx(actor, snapshot, attrs),
+         {:ok, issue} <- Queries.lock(id),
+         :ok <- verify_snapshot(snapshot, issue, attrs, used_snapshot?),
+         {:ok, issue} <- apply_description(issue, attrs[:description]),
+         {:ok, issue} <- apply_labels(issue, parsed_labels),
+         do: apply_move(issue, attrs[:status], posted)
+  end
+
+  defp validate_update_attrs(%Issue{status: status}, attrs) do
+    cond do
+      not is_nil(attrs[:description]) and (not is_binary(attrs[:description]) or status != :todo) ->
+        {:error, :invalid_issue}
+
+      attrs[:status] not in [nil, :started, :done] ->
+        {:error, :invalid_issue}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_optional_labels(nil), do: {:ok, nil}
+  defp validate_optional_labels(values), do: labels(values)
+
+  defp prepare_update_effects_in_tx(actor, %Issue{status: :todo} = snapshot, attrs) do
+    starting? = attrs[:status] == :started
+    describing? = is_binary(attrs[:description])
+
+    if not starting? and not describing? do
+      {:ok, nil, false}
+    else
+      description = if(describing?, do: attrs[:description], else: snapshot.description)
+
+      case Queries.rule(snapshot.conversation_id) do
+        nil ->
+          if starting? do
+            with {:ok, posted} <-
+                   post_initial_request_in_tx(actor, snapshot, room_title(snapshot), description),
+                 do: {:ok, posted, true}
+          else
+            {:ok, nil, true}
+          end
+
+        rule ->
+          with :ok <-
+                 if(starting?,
+                   do:
+                     Ankole.Principals.WorkAccess.check_record_in_tx(
+                       Ankole.Schedule.Schemas.CronSchedule,
+                       rule.id
+                     ),
+                   else: :ok
+                 ),
+               :ok <- if(describing?, do: sync_rule_task(snapshot, description, rule), else: :ok),
+               :ok <- if(starting?, do: arm_rule_start_in_tx(rule), else: :ok),
+               do: {:ok, nil, true}
+      end
+    end
+  end
+
+  defp prepare_update_effects_in_tx(_actor, _snapshot, _attrs), do: {:ok, nil, false}
+
+  defp verify_snapshot(snapshot, issue, attrs, used_snapshot?) do
+    cond do
+      used_snapshot? and
+          {issue.status, issue.description} != {snapshot.status, snapshot.description} ->
+        {:error, :stale_issue_snapshot}
+
+      not used_snapshot? and attrs[:status] == :started and issue.status == :todo ->
+        {:error, :stale_issue_snapshot}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp apply_description(issue, nil), do: {:ok, issue}
 
   # After the start, the request is the room's first message.
-  defp describe(%Issue{status: :todo} = issue, text) when is_binary(text) do
-    with {:ok, changed} <- change(issue, :describe, %{description: text}),
-         :ok <- sync_rule_task(changed),
-         do: {:ok, changed}
-  end
+  defp apply_description(%Issue{status: :todo} = issue, text) when is_binary(text),
+    do: change(issue, :describe, %{description: text})
 
-  defp describe(_issue, _text), do: {:error, :invalid_issue}
+  defp apply_description(_issue, _text), do: {:error, :invalid_issue}
 
-  defp label(issue, nil), do: {:ok, issue}
-
-  defp label(issue, values) do
-    with {:ok, labels} <- labels(values), do: change(issue, :label, %{labels: labels})
-  end
+  defp apply_labels(issue, nil), do: {:ok, issue}
+  defp apply_labels(issue, labels), do: change(issue, :label, %{labels: labels})
 
   defp change(issue, action, input) do
+    Ankole.LockOrder.check_rows("issues", [issue.conversation_id])
+
     case issue |> selected() |> Ankole.Ash.update_where(action, input) do
       {:ok, [changed]} -> {:ok, changed}
       {:ok, []} -> {:error, :invalid_issue}
@@ -163,58 +245,61 @@ defmodule Ankole.Issues.Operations do
   end
 
   # A repeating Issue that waits keeps its rule's task equal to its request.
-  defp sync_rule_task(issue) do
-    case Queries.rule(issue.conversation_id) do
-      nil ->
-        :ok
+  defp sync_rule_task(issue, description, rule) do
+    payload =
+      Map.put(
+        rule.payload || %{},
+        "task",
+        scheduled_request(room_title(issue), description, issue.squad_uids)
+      )
 
-      rule ->
-        payload =
-          Map.put(rule.payload || %{}, "task", request(room_title(issue), issue.description))
-
-        with {:ok, _rule} <-
-               Ankole.Schedule.Cron.update_cron_schedule_in_tx(rule.id, %{payload: payload}, []),
-             do: :ok
-    end
+    with {:ok, _rule} <-
+           Ankole.Schedule.Cron.update_cron_schedule_in_tx(rule.id, %{payload: payload}, []),
+         do: :ok
   end
 
-  defp move(_actor, issue, nil), do: {:ok, %{issue: issue, posted: nil}}
-  defp move(_actor, %Issue{status: status} = issue, status), do: move(nil, issue, nil)
+  defp apply_move(issue, nil, posted), do: {:ok, %{issue: issue, posted: posted}}
 
-  defp move(actor, %Issue{status: :todo} = issue, :started) do
-    case Queries.rule(issue.conversation_id) do
-      nil -> start_in_tx(actor, issue, room_title(issue))
-      rule -> run_rule_in_tx(issue, rule)
-    end
+  defp apply_move(%Issue{status: status} = issue, status, posted),
+    do: {:ok, %{issue: issue, posted: posted}}
+
+  defp apply_move(%Issue{status: :todo} = issue, :started, nil),
+    do: {:ok, %{issue: issue, posted: nil}}
+
+  defp apply_move(%Issue{status: :todo} = issue, :started, posted) do
+    with {:ok, result} <- transition(issue, :start),
+         do: {:ok, %{result | posted: posted}}
   end
 
-  defp move(_actor, %Issue{status: :done} = issue, :started),
+  defp apply_move(%Issue{status: :done} = issue, :started, _posted),
     do: transition(issue, if(requested?(issue), do: :start, else: :wait))
 
-  defp move(_actor, issue, :done), do: transition(issue, :finish)
-  defp move(_actor, _issue, _status), do: {:error, :invalid_issue}
+  defp apply_move(issue, :done, _posted), do: transition(issue, :finish)
 
   defp start_in_tx(actor, issue, title) do
-    with {:ok, posted} <-
-           Conversations.post_in_tx(actor, issue.conversation_id, %{
-             message_id: Ankole.Ecto.UUIDv7.autogenerate(),
-             text: request(title, issue.description),
-             target_agent_uid: issue.agent_uid,
-             mentions: Enum.map(issue.squad_uids, &%{type: :agent, uid: &1})
-           }),
+    with {:ok, posted} <- post_initial_request_in_tx(actor, issue, title, issue.description),
          {:ok, result} <- transition(issue, :start),
          do: {:ok, %{result | posted: posted}}
+  end
+
+  defp post_initial_request_in_tx(actor, issue, title, description) do
+    Conversations.post_in_tx(actor, issue.conversation_id, %{
+      message_id: issue.conversation_id,
+      text: request(title, description),
+      target_agent_uid: issue.agent_uid,
+      mentions: Enum.map(issue.squad_uids, &%{type: :agent, uid: &1})
+    })
   end
 
   # A repeating Issue starts with one run of its rule, and the fire marks it
   # started. Until then the pending run shows the Issue as working, and a second
   # start finds that run instead of arming another.
-  defp run_rule_in_tx(issue, rule) do
+  defp arm_rule_start_in_tx(rule) do
     with false <- Queries.pending_run?(rule.id),
          {:ok, _run} <- run_rule(rule.id, &Ankole.Schedule.Cron.run_cron_schedule_in_tx/2) do
-      {:ok, %{issue: issue, posted: nil}}
+      :ok
     else
-      true -> {:ok, %{issue: issue, posted: nil}}
+      true -> :ok
       error -> error
     end
   end
@@ -227,7 +312,16 @@ defmodule Ankole.Issues.Operations do
     if String.trim(description) == "", do: title, else: title <> "\n\n" <> description
   end
 
+  defp scheduled_request(title, description, []), do: request(title, description)
+
+  defp scheduled_request(title, description, squad_uids) do
+    request(title, description) <>
+      "\n\nSquad: " <> Enum.map_join(squad_uids, ", ", &("@" <> &1))
+  end
+
   defp transition(issue, action) do
+    Ankole.LockOrder.check_rows("issues", [issue.conversation_id])
+
     case issue |> selected() |> Ankole.Ash.update_where(action) do
       {:ok, [changed]} -> {:ok, %{issue: changed, posted: nil}}
       {:ok, []} -> {:ok, %{issue: issue, posted: nil}}
@@ -349,6 +443,7 @@ defmodule Ankole.Issues.Operations do
   defp open_for_room(agent_uid, id) do
     with {:ok, %{kind: :native, native_access_scope: :participants}} <-
            Conversations.get_conversation(id),
+         :ok <- Ankole.LockOrder.check_rows("issues", [id]),
          {:ok, _issue, _} <-
            Ankole.Ash.insert_if_absent(Issue, :ensure, %{
              conversation_id: id,
@@ -444,13 +539,19 @@ defmodule Ankole.Issues.Operations do
       Conversations.authorize_agent(actor, uid) == :ok
   end
 
-  # Work offers fixed cron expressions in the creator's time zone; Schedule
-  # validates both when it creates the rule.
+  # Work offers fixed cron expressions in the creator's time zone; validate both
+  # before opening the Issue's room so a rejected schedule leaves no orphan row.
   defp repeat(nil), do: {:ok, nil}
 
   defp repeat(%{expression: expression, timezone: timezone})
-       when is_binary(expression) and is_binary(timezone),
-       do: {:ok, %{"expression" => expression, "timezone" => timezone}}
+       when is_binary(expression) and is_binary(timezone) do
+    schedule = %{"kind" => "cron", "expression" => expression, "timezone" => timezone}
+
+    case Ankole.Schedule.next_fire_after(schedule, timezone, DateTime.utc_now(:microsecond)) do
+      {:ok, %DateTime{}} -> {:ok, %{"expression" => expression, "timezone" => timezone}}
+      {:error, _reason} -> {:error, :invalid_issue}
+    end
+  end
 
   defp repeat(_repeat), do: {:error, :invalid_issue}
 end

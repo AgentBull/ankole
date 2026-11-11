@@ -676,6 +676,31 @@ defmodule Ankole.Pod.ScannedPdfTest do
     assert waiting_jobs(page) == []
   end
 
+  test "a one-page scanned PDF omits pages so single-page OCR providers accept it, and reconcile_scans merges sibling OCR without consent",
+       ctx do
+    earlier = upload(ctx, "earlier-one-page.pdf", pdf([""]))
+    assert %{failure: 0} = extract()
+
+    configure_ocr(fn request ->
+      refute Map.has_key?(request, "pages")
+      read_pages([{0, "Single page Textract-compatible OCR"}])
+    end)
+
+    fresh = upload(ctx, "fresh-one-page.pdf", pdf([""]))
+    assert %{failure: 0} = extract()
+    assert_receive {:ocr_request, _request}
+    assert body_text(fresh) == "[Page 1]\nSingle page Textract-compatible OCR\n"
+
+    # Drop the automatic copy job to simulate a lost/skipped wakeup; reconcile_scans
+    # still merges the already-paid OCR onto `earlier` without `pod.ocr_existing_scans`.
+    Repo.delete_all(from j in Oban.Job, where: j.worker == "Ankole.Pod.Jobs.SyncFileCache")
+    assert :ok = FileExtraction.reconcile_tenant_batch()
+    assert [_job] = waiting_jobs(earlier)
+    assert %{failure: 0} = extract()
+    refute_received {:ocr_request, _request}
+    assert body_text(earlier) == "[Page 1]\nSingle page Textract-compatible OCR\n"
+  end
+
   defp configure_ocr(respond) do
     test_pid = self()
 

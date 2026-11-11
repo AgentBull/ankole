@@ -13,10 +13,12 @@ defmodule Ankole.AIGateway.Decisions do
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestExecution
+  alias Ankole.AIGateway.RequestParams
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.UsageLedger
-  alias Ankole.Attrs
+
+  @decision_fields ~w(state questions images)
 
   @max_questions 64
   @question_id ~r/\A[A-Za-z0-9_.-]{1,100}\z/
@@ -46,9 +48,9 @@ defmodule Ankole.AIGateway.Decisions do
         ) :: {:ok, map()} | {:error, term()}
   def create_decision(subject_uid, request, opts, create_response_fun)
       when is_map(request) and is_function(create_response_fun, 3) do
-    request = Attrs.normalize_external_attrs(request)
-
-    with {:ok, images} <- validate(request) do
+    with {:ok, request} <-
+           RequestParams.prepare(request, @decision_fields, keep_nil: ~w(state)),
+         {:ok, images} <- validate(request) do
       # Every model receives the images as data URLs, and a request without
       # images carries no `images` field.
       request =

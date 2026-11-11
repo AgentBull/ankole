@@ -1,5 +1,7 @@
 use super::*;
 
+const KNOWN_DECISION_FIELDS: &[&str] = &["state", "questions", "images"];
+
 /// Cloudflare decision models: Clef on Workers AI and partner models such as
 /// Jev behind the unified `ai/run` endpoint.
 #[derive(Debug)]
@@ -7,7 +9,15 @@ pub(super) struct CloudflareDecision;
 
 impl APIProtocol for CloudflareDecision {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "Cloudflare decision")?;
+        validate_known_request_fields(
+            &request,
+            KNOWN_DECISION_FIELDS,
+            strict,
+            "Cloudflare decision",
+        )?;
         let mut input = Map::new();
 
         // `state` is required and may be null, so it is copied as given.
@@ -53,10 +63,27 @@ pub(super) struct SystemOneDecision;
 
 impl APIProtocol for SystemOneDecision {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let mut body = context.resolved_provider_request_object();
-        let state = body.remove("state").unwrap_or(Value::Null);
-        let images = body.remove("images").unwrap_or(Value::Null);
-        body.remove("stream");
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "SystemOne decision")?;
+        validate_known_request_fields(
+            &request,
+            KNOWN_DECISION_FIELDS,
+            strict,
+            "SystemOne decision",
+        )?;
+
+        let state = request.remove("state").unwrap_or(Value::Null);
+        let images = request.remove("images").unwrap_or(Value::Null);
+        let mut body = context.sanitized_provider_options_object();
+        for (key, value) in request {
+            body.insert(key, value);
+        }
+        if context.include_model {
+            body.insert("model".to_string(), json!(context.model));
+        } else {
+            body.remove("model");
+        }
 
         if images.is_null() {
             body.insert("state".to_string(), systemone_state(state)?);
@@ -210,14 +237,23 @@ pub(super) struct OpenAIDecision;
 
 impl APIProtocol for OpenAIDecision {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
-        let state = request.get("state").cloned().unwrap_or(Value::Null);
-        let images = request.get("images").cloned().unwrap_or(Value::Null);
-        let questions = request.get("questions").cloned().unwrap_or(Value::Null);
-        let mut body = request;
-        body.remove("state");
-        body.remove("images");
-        body.remove("stream");
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "OpenAI decision")?;
+        validate_known_request_fields(&request, KNOWN_DECISION_FIELDS, strict, "OpenAI decision")?;
+
+        let state = request.remove("state").unwrap_or(Value::Null);
+        let images = request.remove("images").unwrap_or(Value::Null);
+        let questions = request.remove("questions").unwrap_or(Value::Null);
+        let mut body = context.sanitized_provider_options_object();
+        for (key, value) in request {
+            body.insert(key, value);
+        }
+        if context.include_model {
+            body.insert("model".to_string(), json!(context.model));
+        } else {
+            body.remove("model");
+        }
         body.insert("input".to_string(), openai_decision_input(state, images)?);
         body.insert(
             "questions".to_string(),

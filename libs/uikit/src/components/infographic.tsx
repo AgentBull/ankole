@@ -4,9 +4,7 @@ import type { InfographicMountOptions, MountedInfographic } from '../viz/infogra
 
 export type {
   BuiltinInfographicTemplate,
-  InfographicAccessibleSummary,
   InfographicMountOptions,
-  InfographicSummaryItem,
   InfographicSyntaxValidationResult,
   MountedInfographic
 } from '../viz/infographic'

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde_json::json;
 
@@ -10,6 +10,15 @@ use super::{
 /// A page whose text is shorter than this many characters counts as having no text layer, which
 /// is how a scanned page reads.
 const TEXTLESS_PAGE_CHARS: usize = 10;
+const MAX_PDF_STREAM_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_PDF_TOTAL_UNCOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
+
+fn is_stream_limit_exceeded(err: &lopdf::Error) -> bool {
+    matches!(
+        err,
+        lopdf::Error::Decompress(lopdf::DecompressError::MemoryLimitExceeded { .. })
+    )
+}
 
 /// Extracts the text page by page. Each page with text starts with a `[Page N]` line, and its
 /// entry in `pages` spans that line and the text. A page without a text layer to speak of takes
@@ -29,8 +38,19 @@ pub(super) fn extract_pdf(
         return FileTextResult::failed(FileSubtype::Document, "pdf", "invalid_pdf_header");
     }
 
-    let mut doc = match lopdf::Document::load_mem(bytes) {
+    let load_options = lopdf::LoadOptions {
+        max_decompressed_size: Some(MAX_PDF_STREAM_UNCOMPRESSED_BYTES),
+        ..Default::default()
+    };
+    let mut doc = match lopdf::Document::load_mem_with_options(bytes, load_options) {
         Ok(doc) => doc,
+        Err(err) if is_stream_limit_exceeded(&err) => {
+            return FileTextResult::skipped(
+                FileSubtype::Document,
+                "pdf",
+                "pdf_stream_limit_exceeded",
+            );
+        }
         Err(err) => {
             let msg = err.to_string();
             if msg.to_ascii_lowercase().contains("encrypt")
@@ -64,18 +84,77 @@ pub(super) fn extract_pdf(
     let mut textless_pages = Vec::new();
     let mut ocr_pages = Vec::new();
     let mut cut = false;
+    let mut seen_streams: HashSet<lopdf::ObjectId> = HashSet::new();
+    let mut total_uncompressed_bytes = 0usize;
 
-    for &page_num in page_map.keys().take(MAX_PDF_PAGES) {
+    for (&page_num, &page_id) in page_map.iter().take(MAX_PDF_PAGES) {
         // A cut can land inside a character and leave the text a few bytes short of the limit.
         // The pages after it are not read, so none of them is listed as waiting for OCR.
         if cut || out.len() >= PLAIN_TEXT_LIMIT {
             break;
         }
+
+        for stream_id in doc.get_page_contents(page_id) {
+            if !seen_streams.insert(stream_id) {
+                continue;
+            }
+            let remaining =
+                MAX_PDF_TOTAL_UNCOMPRESSED_BYTES.saturating_sub(total_uncompressed_bytes);
+            if remaining == 0 {
+                return FileTextResult::skipped(
+                    FileSubtype::Document,
+                    "pdf",
+                    "pdf_stream_limit_exceeded",
+                );
+            }
+            let stream_limit = MAX_PDF_STREAM_UNCOMPRESSED_BYTES.min(remaining);
+            if let Ok(lopdf::Object::Stream(stream)) = doc.get_object_mut(stream_id) {
+                if stream.is_compressed() {
+                    match stream.decompress_with_limit(stream_limit) {
+                        Ok(()) => {
+                            total_uncompressed_bytes =
+                                total_uncompressed_bytes.saturating_add(stream.content.len());
+                        }
+                        Err(err) if is_stream_limit_exceeded(&err) => {
+                            return FileTextResult::skipped(
+                                FileSubtype::Document,
+                                "pdf",
+                                "pdf_stream_limit_exceeded",
+                            );
+                        }
+                        Err(_) => {}
+                    }
+                } else {
+                    if stream.content.len() > stream_limit {
+                        return FileTextResult::skipped(
+                            FileSubtype::Document,
+                            "pdf",
+                            "pdf_stream_limit_exceeded",
+                        );
+                    }
+                    total_uncompressed_bytes =
+                        total_uncompressed_bytes.saturating_add(stream.content.len());
+                }
+            }
+        }
+
+        let remaining_font_limit = MAX_PDF_STREAM_UNCOMPRESSED_BYTES.min(
+            MAX_PDF_TOTAL_UNCOMPRESSED_BYTES
+                .saturating_sub(total_uncompressed_bytes)
+                .max(1),
+        );
         extracted_pages += 1;
-        let mut text = match doc.extract_text(&[page_num]) {
+        let mut text = match doc.extract_text_with_limit(&[page_num], remaining_font_limit) {
             Ok(page) => {
                 any_page_ok = true;
                 clean_page(&page)
+            }
+            Err(err) if is_stream_limit_exceeded(&err) => {
+                return FileTextResult::skipped(
+                    FileSubtype::Document,
+                    "pdf",
+                    "pdf_stream_limit_exceeded",
+                );
             }
             Err(err) => {
                 first_err.get_or_insert_with(|| err.to_string());

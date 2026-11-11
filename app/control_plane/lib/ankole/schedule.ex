@@ -235,6 +235,14 @@ defmodule Ankole.Schedule do
   @spec list_cron_schedules(String.t() | nil, String.t() | nil) :: [CronSchedule.t()]
   defdelegate list_cron_schedules(agent_uid \\ nil, owner_session_id \\ nil), to: Queries
 
+  @doc "Lists active or paused conversation-owned cron schedules for a set of owner sessions."
+  @spec list_room_cron_schedules([String.t()]) :: [CronSchedule.t()]
+  defdelegate list_room_cron_schedules(owner_session_ids), to: Queries
+
+  @doc "Lists active or paused Agent cron schedules across the tenant without loading payloads."
+  @spec list_active_agent_cron_schedules() :: [CronSchedule.t()]
+  defdelegate list_active_agent_cron_schedules(), to: Queries
+
   @doc """
   Builds the stable execution session id one cron schedule's fires run in.
   """

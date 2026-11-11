@@ -34,22 +34,25 @@ defmodule Ankole.Issues.Queries do
   end
 
   @doc "Finds the Issue of a room and locks its row in the caller's transaction."
-  def lock(id), do: read(id, &Ash.Query.lock(&1, :for_update))
+  def lock(id), do: read(id, &Ash.Query.lock(&1, :for_update), lock?: true)
 
-  defp read(id, prepare) when is_binary(id) do
+  defp read(id, prepare, opts \\ [])
+
+  defp read(id, prepare, opts) when is_binary(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
+         read_opts <- if(opts[:lock?], do: [lock_identity: {"issues", id}], else: []),
          %Issue{} = issue <-
            Issue
            |> Ash.Query.filter(conversation_id == ^id)
            |> prepare.()
-           |> Ankole.Ash.read_one!() do
+           |> Ankole.Ash.read_one!(read_opts) do
       {:ok, issue}
     else
       _ -> {:error, :issue_not_found}
     end
   end
 
-  defp read(_id, _prepare), do: {:error, :issue_not_found}
+  defp read(_id, _prepare, _opts), do: {:error, :issue_not_found}
 
   @doc """
   Finds the cron rule that repeats an Issue: the rule that Work created for the
@@ -80,11 +83,20 @@ defmodule Ankole.Issues.Queries do
   @doc "Reads one Issue as a work item."
   def get(%Actor{} = actor, id) do
     with {:ok, issue} <- fetch(id),
-         {:ok, joined} = Conversations.participating_ids(Actor.uid(actor)),
-         [item] <- items(actor, [issue], MapSet.new([issue.conversation_id]), joined) do
+         visible_parents <- visible_parent_ids(actor, issue),
+         [item] <- items(actor, [issue], MapSet.new([issue.conversation_id]), visible_parents) do
       {:ok, item}
     else
       _ -> {:error, :issue_not_found}
+    end
+  end
+
+  defp visible_parent_ids(_actor, %Issue{parent_id: nil}), do: []
+
+  defp visible_parent_ids(actor, %Issue{parent_id: parent_id}) do
+    case Conversations.visible_native_conversation(actor, parent_id) do
+      {:ok, _conversation} -> [parent_id]
+      _ -> []
     end
   end
 
@@ -137,47 +149,57 @@ defmodule Ankole.Issues.Queries do
 
   # The cron rules that the rooms own, by the rule's execution Session.
   defp rules(rooms) do
-    Ankole.Schedule.list_cron_schedules()
-    |> Enum.filter(fn rule ->
-      rule.status in [:active, :paused] and is_nil(rule.owner_job_id) and
-        MapSet.member?(rooms, room_id(rule.owner_session_id))
-    end)
+    rooms
+    |> Enum.map(&Key.conversation/1)
+    |> Ankole.Schedule.list_room_cron_schedules()
     |> Map.new(&{Ankole.Schedule.cron_execution_session_id(&1.id), &1})
   end
 
-  # The live runs whose owner is one of the rooms or a cron rule of one. A
-  # tenant has few live runs, so the status filter selects them and the rooms
-  # narrow them here.
+  # The live runs whose owner is one of the rooms or a cron rule of one.
   defp live_runs(rooms, rules) do
-    fields = [
-      :id,
-      :agent_uid,
-      :owner_session_id,
-      :source_signal_id,
-      :source_tool_call_id,
-      :title,
-      :status,
-      :inserted_at,
-      :updated_at,
-      :completed_at
-    ]
+    owner_sessions = Enum.map(rooms, &Key.conversation/1) ++ Map.keys(rules)
 
-    jobs =
-      Ankole.BackgroundAgentJobs.list_jobs!(
-        query: [
-          filter: [status: [in: @live_jobs], skill_lesson_reflection?: false],
-          select: fields ++ [:continued_from_job_id, :runtime_thread_id, :started_at, :metadata],
-          sort: [inserted_at: :desc]
-        ]
-      )
+    if owner_sessions == [] do
+      {[], []}
+    else
+      fields = [
+        :id,
+        :agent_uid,
+        :owner_session_id,
+        :source_signal_id,
+        :source_tool_call_id,
+        :title,
+        :status,
+        :inserted_at,
+        :updated_at,
+        :completed_at
+      ]
 
-    workflows =
-      Ankole.Workflow.list_runs!(
-        query: [filter: [status: :running], select: fields, sort: [inserted_at: :desc]]
-      )
+      jobs =
+        Ankole.BackgroundAgentJobs.list_jobs!(
+          query: [
+            filter: [
+              status: [in: @live_jobs],
+              skill_lesson_reflection?: false,
+              owner_session_id: [in: owner_sessions]
+            ],
+            select:
+              fields ++ [:continued_from_job_id, :runtime_thread_id, :started_at, :metadata],
+            sort: [inserted_at: :desc]
+          ]
+        )
 
-    in_rooms = &MapSet.member?(rooms, owner_room(&1.owner_session_id, rules))
-    {Enum.filter(jobs, in_rooms), Enum.filter(workflows, in_rooms)}
+      workflows =
+        Ankole.Workflow.list_runs!(
+          query: [
+            filter: [status: :running, owner_session_id: [in: owner_sessions]],
+            select: fields,
+            sort: [inserted_at: :desc]
+          ]
+        )
+
+      {jobs, workflows}
+    end
   end
 
   defp owner_room("cron:" <> _ = session_id, rules),

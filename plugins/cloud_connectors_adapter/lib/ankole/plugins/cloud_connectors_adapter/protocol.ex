@@ -156,7 +156,7 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.Protocol do
          Regex.match?(~r/^[a-zA-Z0-9][a-zA-Z0-9-]*$/, subdomain) do
       {:ok,
        %{
-         "base_url" => "https://#{subdomain}.zendesk.com",
+         "base_url" => Map.get(config, :base_url) || "https://#{subdomain}.zendesk.com",
          "parameters" => [
            header("Authorization", "Basic " <> Base.encode64(email <> "/token:" <> token))
          ]
@@ -247,8 +247,15 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.Protocol do
   defp identity_url("calendly", _, _, _), do: {:ok, "https://api.calendly.com/users/me"}
   defp identity_url("trello", _, _, _), do: {:ok, "https://api.trello.com/1/members/me"}
 
-  defp identity_url("salesforce", _, tokens, _),
-    do: {:ok, tokens["instance_url"] <> "/services/oauth2/userinfo"}
+  defp identity_url("salesforce", config, tokens, auth) do
+    case tokens["instance_url"] || auth["base_url"] || metadata(config)["base_url"] do
+      base when is_binary(base) and base != "" ->
+        {:ok, String.trim_trailing(base, "/") <> "/services/oauth2/userinfo"}
+
+      _ ->
+        {:error, :invalid_oauth_response}
+    end
+  end
 
   defp identity_url(id, _, _, _) when id in ~w(googlecalendar google_analytics),
     do: {:ok, "https://openidconnect.googleapis.com/v1/userinfo"}

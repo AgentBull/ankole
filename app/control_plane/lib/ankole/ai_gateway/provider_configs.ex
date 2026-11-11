@@ -796,7 +796,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     not_a_service_account_key: "the pasted JSON is not a service account key",
     missing_client_email: "the service account key has no client_email",
     missing_project_id: "the service account key has no project_id",
-    invalid_private_key: "the service account key has no readable private key"
+    invalid_private_key: "the service account key has no readable private key",
+    invalid_token_uri: "the service account key has an invalid token_uri"
   }
 
   @doc """

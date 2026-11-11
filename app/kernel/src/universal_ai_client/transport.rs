@@ -22,7 +22,8 @@ use super::spec::{StreamSpec, UpstreamSpec};
 use crate::common::bounded_cache::BoundedCache;
 
 mod proxy;
-use proxy::{parse_upstream_url, resolved_proxy, websocket_transport_stream};
+pub(crate) use proxy::resolved_proxy;
+use proxy::{parse_upstream_url, websocket_transport_stream};
 
 /// Idle budget that only complete provider events reset.
 ///
@@ -138,10 +139,45 @@ pub(crate) async fn send_http_request(
     })
 }
 
+pub(crate) async fn send_no_redirect_http_request(
+    upstream: &UpstreamSpec,
+    pinned_domain: Option<(&str, &[std::net::SocketAddr])>,
+    max_response_bytes: usize,
+) -> Result<HTTPResponse, StreamError> {
+    let client = match pinned_domain {
+        Some((domain, addrs)) => {
+            let proxy = resolved_proxy(upstream)?;
+            build_client_with_addrs(upstream, proxy.as_ref(), true, Some((domain, addrs)))?
+        }
+        None => client_for_options(upstream, true)?,
+    };
+    let mut stream = open_http_stream_with_client(&client, upstream).await?;
+    let body = collect_http_body(
+        &mut stream.body,
+        upstream.timeout.idle_duration(),
+        upstream.timeout.total_duration(),
+        max_response_bytes,
+    )
+    .await?;
+
+    Ok(HTTPResponse {
+        status: stream.status,
+        headers: stream.headers,
+        body,
+    })
+}
+
 pub(super) async fn open_http_stream_for_upstream(
     upstream: &UpstreamSpec,
 ) -> Result<HTTPStream, StreamError> {
     let client = client_for(upstream)?;
+    open_http_stream_with_client(&client, upstream).await
+}
+
+async fn open_http_stream_with_client(
+    client: &reqwest::Client,
+    upstream: &UpstreamSpec,
+) -> Result<HTTPStream, StreamError> {
     let mut request = client.request(method_from_spec(&upstream.method)?, upstream.url.as_str());
     for (name, value) in &upstream.headers {
         request = request.header(name.as_str(), value.as_str());
@@ -253,15 +289,21 @@ async fn collect_http_body_until_idle(
 struct ClientKey {
     proxy: Option<String>,
     connect_ms: u64,
+    disable_redirects: bool,
     #[cfg(feature = "test-ca")]
     ca_cert_pem: Option<String>,
 }
 
 impl ClientKey {
-    fn from_upstream(upstream: &UpstreamSpec, proxy: Option<&URL>) -> Self {
+    fn from_upstream(
+        upstream: &UpstreamSpec,
+        proxy: Option<&URL>,
+        disable_redirects: bool,
+    ) -> Self {
         Self {
             proxy: proxy.map(URL::to_string),
             connect_ms: upstream.timeout.connect_ms,
+            disable_redirects,
             #[cfg(feature = "test-ca")]
             ca_cert_pem: upstream
                 .transport
@@ -275,14 +317,21 @@ impl ClientKey {
 }
 
 fn client_for(upstream: &UpstreamSpec) -> Result<reqwest::Client, StreamError> {
+    client_for_options(upstream, false)
+}
+
+fn client_for_options(
+    upstream: &UpstreamSpec,
+    disable_redirects: bool,
+) -> Result<reqwest::Client, StreamError> {
     let proxy = resolved_proxy(upstream)?;
-    let key = ClientKey::from_upstream(upstream, proxy.as_ref());
+    let key = ClientKey::from_upstream(upstream, proxy.as_ref(), disable_redirects);
 
     if let Some(client) = HTTP_CLIENTS.get_cloned(&key) {
         return Ok(client);
     }
 
-    let client = build_client(upstream, proxy.as_ref())?;
+    let client = build_client(upstream, proxy.as_ref(), disable_redirects)?;
     HTTP_CLIENTS.insert(key, client.clone());
 
     Ok(client)
@@ -372,12 +421,30 @@ fn websocket_connect_error(reason: WebSocketError) -> StreamError {
 fn build_client(
     upstream: &UpstreamSpec,
     proxy: Option<&URL>,
+    disable_redirects: bool,
+) -> Result<reqwest::Client, StreamError> {
+    build_client_with_addrs(upstream, proxy, disable_redirects, None)
+}
+
+fn build_client_with_addrs(
+    upstream: &UpstreamSpec,
+    proxy: Option<&URL>,
+    disable_redirects: bool,
+    pinned_domain: Option<(&str, &[std::net::SocketAddr])>,
 ) -> Result<reqwest::Client, StreamError> {
     let mut builder = reqwest::Client::builder()
         .no_proxy()
         .use_rustls_tls()
         .connect_timeout(upstream.timeout.connect_duration())
         .http1_only();
+
+    if disable_redirects {
+        builder = builder.redirect(reqwest::redirect::Policy::none());
+    }
+
+    if let Some((domain, addrs)) = pinned_domain {
+        builder = builder.resolve_to_addrs(domain, addrs);
+    }
 
     #[cfg(feature = "test-ca")]
     if let Some(ca_pem) = upstream
@@ -448,7 +515,7 @@ mod tests {
             .unwrap(),
         };
 
-        let result = build_client(&upstream, None);
+        let result = build_client(&upstream, None, false);
 
         #[cfg(feature = "test-ca")]
         assert!(result.is_err());

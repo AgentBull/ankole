@@ -225,4 +225,91 @@ defmodule Ankole.Plugins.DatabaseConnectorsTest do
     assert MySQL.quote("we`ird") == "`we``ird`"
     assert ClickHouse.quote("we`ird") == "`we\\`ird`"
   end
+
+  test "catalog short-circuits when no tables match and scopes column queries to selected tables" do
+    for module <- [PostgreSQL, MySQL, ClickHouse] do
+      empty_exec = fn sql, params, _opts, consume ->
+        send(self(), {:empty_sql, module, sql, params})
+        {:ok, %{result: consume.([])}}
+      end
+
+      assert {:ok, []} = module.catalog(empty_exec, 25)
+      assert_received {:empty_sql, ^module, _sql, [25]}
+      refute_received {:empty_sql, ^module, _, _}
+    end
+
+    pg_exec = fn sql, params, _opts, consume ->
+      send(self(), {:pg_sql, sql, params})
+
+      rows =
+        cond do
+          sql =~ "FROM pg_class" ->
+            [["public", "orders", "r", "Orders", 12]]
+
+          sql =~ "JOIN pg_constraint" ->
+            [["public", "orders", "p", ["id"], nil, nil, []]]
+
+          sql =~ "JOIN pg_attribute" ->
+            [["public", "orders", "id", 1, "uuid", false, nil]]
+        end
+
+      {:ok, %{result: consume.([{[], rows}])}}
+    end
+
+    assert {:ok, [%{"schema" => "public", "name" => "orders", "primary_key" => ["id"]}]} =
+             PostgreSQL.catalog(pg_exec, 10)
+
+    assert_received {:pg_sql, _, [10]}
+    assert_received {:pg_sql, pg_cols_sql, [["public"], ["orders"]]}
+    assert pg_cols_sql =~ "unnest($1::text[], $2::text[])"
+    assert_received {:pg_sql, pg_cons_sql, [["public"], ["orders"]]}
+    assert pg_cons_sql =~ "unnest($1::text[], $2::text[])"
+
+    mysql_exec = fn sql, params, _opts, consume ->
+      send(self(), {:mysql_sql, sql, params})
+
+      rows =
+        cond do
+          sql =~ "FROM information_schema.TABLES" ->
+            [["shop", "orders", "BASE TABLE", "", 12]]
+
+          sql =~ "FROM information_schema.COLUMNS" ->
+            [["shop", "orders", "id", 1, "bigint", 0, "", "PRI"]]
+
+          sql =~ "FROM information_schema.KEY_COLUMN_USAGE" ->
+            [["shop", "orders", "PRIMARY", "id", nil, nil, nil]]
+        end
+
+      {:ok, %{result: consume.([{[], rows}])}}
+    end
+
+    assert {:ok, [%{"schema" => "shop", "name" => "orders", "primary_key" => ["id"]}]} =
+             MySQL.catalog(mysql_exec, 10)
+
+    assert_received {:mysql_sql, _, [10]}
+    assert_received {:mysql_sql, my_cols_sql, ["shop", "orders"]}
+    assert my_cols_sql =~ "(TABLE_SCHEMA, TABLE_NAME) IN ((?, ?))"
+    assert_received {:mysql_sql, my_keys_sql, ["shop", "orders"]}
+    assert my_keys_sql =~ "(TABLE_SCHEMA, TABLE_NAME) IN ((?, ?))"
+
+    ch_exec = fn sql, params, _opts, consume ->
+      send(self(), {:ch_sql, sql, params})
+
+      rows =
+        if sql =~ "FROM system.tables" do
+          [["analytics", "ev'ents\\raw", "MergeTree", "", "42", "ts", "ts"]]
+        else
+          [["analytics", "ev'ents\\raw", "ts", "1", "DateTime", "", 1]]
+        end
+
+      {:ok, %{result: consume.([{[], rows}])}}
+    end
+
+    assert {:ok, [%{"schema" => "analytics", "name" => "ev'ents\\raw", "row_estimate" => 42}]} =
+             ClickHouse.catalog(ch_exec, 10)
+
+    assert_received {:ch_sql, _, [10]}
+    assert_received {:ch_sql, ch_cols_sql, []}
+    assert ch_cols_sql =~ "(database, table) IN (('analytics', 'ev\\'ents\\\\raw'))"
+  end
 end

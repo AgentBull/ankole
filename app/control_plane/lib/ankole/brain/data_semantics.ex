@@ -209,21 +209,19 @@ defmodule Ankole.Brain.DataSemantics do
   end
 
   defp add_identifier(page_id, {namespace, value}) do
-    holder =
-      EntityIdentifier
-      |> Ash.Query.filter(namespace == ^namespace and value == ^value)
-      |> Ankole.Ash.read_one!()
+    case Ankole.Ash.insert_if_absent(EntityIdentifier, :add, %{
+           entity_page_id: page_id,
+           namespace: namespace,
+           value: value
+         }) do
+      {:ok, %{entity_page_id: ^page_id}, _status} ->
+        :ok
 
-    if holder do
-      {:error, {:entity_identifier_conflict, %{namespace: namespace, value: value}}}
-    else
-      with {:ok, _row} <-
-             Ankole.Ash.create(EntityIdentifier, :add, %{
-               entity_page_id: page_id,
-               namespace: namespace,
-               value: value
-             }),
-           do: :ok
+      {:ok, _other_holder, :existing} ->
+        {:error, {:entity_identifier_conflict, %{namespace: namespace, value: value}}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

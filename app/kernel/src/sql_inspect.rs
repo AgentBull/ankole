@@ -30,6 +30,9 @@ use sqlparser::tokenizer::{Token, Tokenizer};
 
 /// Inputs larger than this fail with `parse_error`.
 pub const MAX_SQL_BYTES: usize = 1024 * 1024;
+const MAX_AST_DEPTH: usize = 256;
+const STACK_RED_ZONE: usize = 2 * 1024 * 1024;
+const STACK_GROW_BYTES: usize = 8 * 1024 * 1024;
 
 /// Aggregate function names, in lower case. ClickHouse `-If` combinators such as
 /// `sumIf` also count as aggregates.
@@ -251,6 +254,12 @@ impl InspectError {
 /// `columns`, `aggregates`, `literals`, `joins`, `group_by`, `limit`, and
 /// `fanout_risk`. `Ankole.Kernel.sql_inspect/2` documents each key.
 pub fn inspect(sql: &str, dialect: &str) -> Result<JSONValue, InspectError> {
+    stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_BYTES, || {
+        inspect_inner(sql, dialect)
+    })
+}
+
+fn inspect_inner(sql: &str, dialect: &str) -> Result<JSONValue, InspectError> {
     let (dialect, side_effects): (Box<dyn Dialect>, &'static [&'static [&'static str]]) =
         match dialect {
             "postgres" => (Box::new(PostgreSqlDialect {}), &[POSTGRES_SIDE_EFFECTS]),
@@ -275,14 +284,18 @@ pub fn inspect(sql: &str, dialect: &str) -> Result<JSONValue, InspectError> {
         return Err(InspectError::new("empty", "SQL is empty"));
     }
 
-    let statements = Parser::parse_sql(dialect.as_ref(), sql).map_err(|error| {
-        // sqlparser does not parse the MySQL `LOCK IN SHARE MODE` suffix.
-        if has_lock_in_share_mode(dialect.as_ref(), sql) {
-            InspectError::new("locking_clause", "LOCK IN SHARE MODE locks rows")
-        } else {
-            InspectError::parse(error.to_string())
-        }
-    })?;
+    let statements = Parser::new(dialect.as_ref())
+        .with_recursion_limit(MAX_AST_DEPTH)
+        .try_with_sql(sql)
+        .and_then(|mut parser| parser.parse_statements())
+        .map_err(|error| {
+            // sqlparser does not parse the MySQL `LOCK IN SHARE MODE` suffix.
+            if has_lock_in_share_mode(dialect.as_ref(), sql) {
+                InspectError::new("locking_clause", "LOCK IN SHARE MODE locks rows")
+            } else {
+                InspectError::parse(error.to_string())
+            }
+        })?;
     let statement = match statements.as_slice() {
         [] => return Err(InspectError::new("empty", "SQL contains no statement")),
         [statement] => statement,
@@ -343,6 +356,7 @@ struct Inspector {
     joins: usize,
     group_by: bool,
     fanout_risk: bool,
+    depth: usize,
 }
 
 impl Inspector {
@@ -385,21 +399,24 @@ impl Inspector {
     }
 
     fn add_set_expr_tables(&mut self, body: &SetExpr) {
-        match body {
-            SetExpr::SetOperation { left, right, .. } => {
-                self.add_set_expr_tables(left);
-                self.add_set_expr_tables(right);
-            }
-            // PostgreSQL `TABLE name` reads a whole table.
-            SetExpr::Table(table) => {
-                if let Some(name) = &table.table_name {
-                    let table = (None, table.schema_name.clone(), name.clone());
-                    if !self.tables.contains(&table) {
-                        self.tables.push(table);
+        let mut stack = vec![body];
+        while let Some(current) = stack.pop() {
+            match current {
+                SetExpr::SetOperation { left, right, .. } => {
+                    stack.push(right);
+                    stack.push(left);
+                }
+                // PostgreSQL `TABLE name` reads a whole table.
+                SetExpr::Table(table) => {
+                    if let Some(name) = &table.table_name {
+                        let table = (None, table.schema_name.clone(), name.clone());
+                        if !self.tables.contains(&table) {
+                            self.tables.push(table);
+                        }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
 
@@ -447,6 +464,12 @@ impl Visitor for Inspector {
     }
 
     fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<InspectError> {
+        if self.depth >= MAX_AST_DEPTH {
+            return ControlFlow::Break(InspectError::parse(
+                "SQL exceeds maximum expression nesting depth",
+            ));
+        }
+        self.depth += 1;
         if !query.locks.is_empty() {
             return ControlFlow::Break(InspectError::new(
                 "locking_clause",
@@ -462,6 +485,11 @@ impl Visitor for Inspector {
             }
         }
         self.add_set_expr_tables(&query.body);
+        ControlFlow::Continue(())
+    }
+
+    fn post_visit_query(&mut self, _query: &Query) -> ControlFlow<InspectError> {
+        self.depth = self.depth.saturating_sub(1);
         ControlFlow::Continue(())
     }
 
@@ -503,6 +531,12 @@ impl Visitor for Inspector {
     }
 
     fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<InspectError> {
+        if self.depth >= MAX_AST_DEPTH {
+            return ControlFlow::Break(InspectError::parse(
+                "SQL exceeds maximum expression nesting depth",
+            ));
+        }
+        self.depth += 1;
         let column = match expr {
             Expr::Function(function) => {
                 self.check_function(&function.name)?;
@@ -520,6 +554,11 @@ impl Visitor for Inspector {
         {
             self.columns.push(column);
         }
+        ControlFlow::Continue(())
+    }
+
+    fn post_visit_expr(&mut self, _expr: &Expr) -> ControlFlow<InspectError> {
+        self.depth = self.depth.saturating_sub(1);
         ControlFlow::Continue(())
     }
 }
@@ -661,16 +700,19 @@ fn select_fanout_risk(select: &Select, ctes: &HashMap<String, bool>) -> bool {
 }
 
 fn push_factors<'a>(factor: &'a TableFactor, out: &mut Vec<&'a TableFactor>) {
-    if let TableFactor::NestedJoin {
-        table_with_joins, ..
-    } = factor
-    {
-        push_factors(&table_with_joins.relation, out);
-        for join in &table_with_joins.joins {
-            push_factors(&join.relation, out);
+    let mut stack = vec![factor];
+    while let Some(current) = stack.pop() {
+        if let TableFactor::NestedJoin {
+            table_with_joins, ..
+        } = current
+        {
+            for join in table_with_joins.joins.iter().rev() {
+                stack.push(&join.relation);
+            }
+            stack.push(&table_with_joins.relation);
+        } else {
+            out.push(current);
         }
-    } else {
-        out.push(factor);
     }
 }
 
@@ -1250,5 +1292,23 @@ mod tests {
         );
         assert_eq!(result["aggregates"], json!([]));
         assert_eq!(result["fanout_risk"], false);
+    }
+
+    #[test]
+    fn deeply_nested_queries_fail_cleanly_on_small_thread_stacks() {
+        let deep_parens = format!("SELECT {}1{}", "(".repeat(2_000), ")".repeat(2_000));
+        let deep_and = std::iter::repeat_n("a = 1", 2_000)
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let deep_where = format!("SELECT a FROM t WHERE {deep_and}");
+
+        let handle = std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                assert_eq!(code(&deep_parens, "postgres"), "parse_error");
+                assert_eq!(code(&deep_where, "postgres"), "parse_error");
+            })
+            .unwrap();
+        handle.join().unwrap();
     }
 }

@@ -9,7 +9,6 @@ defmodule Ankole.AgentWorkers.RunnerConnection do
 
   def admit_in_tx(%{agent_uid: uid, runner_id: runner_id} = input) do
     case active_binding_in_tx(uid, runner_id, input.generation) do
-      %RunnerBinding{state: :draining} -> {:error, :stale_worker_generation}
       %RunnerBinding{} = binding -> admit(binding, input)
       nil -> {:error, :stale_worker_generation}
     end
@@ -27,6 +26,9 @@ defmodule Ankole.AgentWorkers.RunnerConnection do
         {:error, :worker_incarnation_active}
 
       true ->
+        replaced_route =
+          if binding.transport_route != input.route, do: binding.transport_route
+
         with {:ok, worker} <-
                update(binding, %{
                  state: :ready,
@@ -35,7 +37,7 @@ defmodule Ankole.AgentWorkers.RunnerConnection do
                  last_worker_heartbeat_at: now,
                  capacity: input.capacity
                }),
-             do: {:ok, %{worker: worker, replaced_route: binding.transport_route}}
+             do: {:ok, %{worker: worker, replaced_route: replaced_route}}
     end
   end
 

@@ -12,7 +12,16 @@ pub(super) struct AmazonTextractOcr;
 
 impl APIProtocol for AmazonPollySpeech {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "Amazon Polly")?;
+        validate_known_request_fields(
+            &request,
+            &["input", "voice", "response_format"],
+            strict,
+            "Amazon Polly",
+        )?;
+        let defaults = context.sanitized_provider_options_object();
         let mut body = Map::new();
         body.insert("Engine".to_string(), json!(context.model));
         for (field, key) in [
@@ -20,7 +29,11 @@ impl APIProtocol for AmazonPollySpeech {
             ("VoiceId", "voice"),
             ("OutputFormat", "response_format"),
         ] {
-            if let Some(value) = request.get(key).filter(|value| useful_value(value)) {
+            if let Some(value) = request
+                .get(key)
+                .filter(|value| useful_value(value))
+                .or_else(|| defaults.get(key).filter(|value| useful_value(value)))
+            {
                 body.insert(field.to_string(), value.clone());
             }
         }
@@ -39,7 +52,10 @@ impl APIProtocol for AmazonPollySpeech {
 
 impl APIProtocol for AmazonTextractOcr {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        let request = context.resolved_provider_request_object();
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let mut request = context.canonical_request_object();
+        strip_non_streaming_flag(&mut request, strict, "Amazon Textract")?;
+        validate_known_request_fields(&request, &["document", "pages"], strict, "Amazon Textract")?;
         // Textract takes the bytes as bare base64, without the data URL's head.
         let bytes = request
             .get("document")
@@ -74,28 +90,35 @@ impl APIProtocol for AmazonTextractOcr {
             .and_then(Value::as_u64)
             .unwrap_or(1)
             .max(1);
-        let mut pages = vec![Vec::new(); page_count as usize];
+        let mut pages_by_number: std::collections::BTreeMap<u64, Vec<&str>> =
+            std::collections::BTreeMap::new();
         for block in blocks {
-            if block.get("BlockType").and_then(Value::as_str) != Some("LINE") {
-                continue;
-            }
             let page = block
                 .get("Page")
                 .and_then(Value::as_u64)
                 .unwrap_or(1)
-                .max(1) as usize;
-            if let (Some(lines), Some(text)) = (
-                pages.get_mut(page - 1),
-                block.get("Text").and_then(Value::as_str),
-            ) {
-                lines.push(text);
+                .max(1);
+            match block.get("BlockType").and_then(Value::as_str) {
+                Some("PAGE") => {
+                    pages_by_number.entry(page).or_default();
+                }
+                Some("LINE") => {
+                    if let Some(text) = block.get("Text").and_then(Value::as_str) {
+                        pages_by_number.entry(page).or_default().push(text);
+                    }
+                }
+                _ => {}
             }
         }
+        if pages_by_number.is_empty() {
+            pages_by_number.insert(1, Vec::new());
+        }
 
-        let pages: Vec<Value> = pages
-            .iter()
-            .enumerate()
-            .map(|(index, lines)| json!({"index": index, "markdown": lines.join("\n")}))
+        let pages: Vec<Value> = pages_by_number
+            .into_iter()
+            .map(|(page, lines)| {
+                json!({"index": page.saturating_sub(1), "markdown": lines.join("\n")})
+            })
             .collect();
 
         Ok(json!({

@@ -803,6 +803,36 @@ defmodule Ankole.Brain.DataSemanticsTest do
                "identifiers" => %{"erp.supplier_id" => 42}
              })
 
+    {:ok, vendor} = create_object(ctx, ctx.companies, "Vendor", %{})
+    {:ok, acme_obj} = Objects.get_by_slug(acme.id)
+    {:ok, vendor_obj} = Objects.get_by_slug(vendor.id)
+
+    assert {:ok, :healthy_tx} =
+             Repo.transact(fn ->
+               assert :ok = Ankole.Brain.DataSemantics.sync_in_tx(acme_obj)
+
+               assert {:error,
+                       {:entity_identifier_conflict, %{namespace: "erp.supplier_id", value: "42"}}} =
+                        Ankole.Brain.DataSemantics.sync_in_tx(%{
+                          vendor_obj
+                          | meta: %{"identifiers" => %{"erp.supplier_id" => 42}}
+                        })
+
+               assert :ok =
+                        Ankole.Brain.DataSemantics.sync_in_tx(%{
+                          vendor_obj
+                          | meta: %{"identifiers" => %{"erp.supplier_id" => "S-2"}}
+                        })
+
+               {:ok, :healthy_tx}
+             end)
+
+    assert ["S-2"] ==
+             EntityIdentifier
+             |> Ash.Query.filter(entity_page_id == ^vendor.id)
+             |> Ankole.Ash.read!()
+             |> Enum.map(& &1.value)
+
     assert {:error, {:invalid_entity_identifiers, _}} =
              create_object(ctx, ctx.companies, "Blank", %{
                "identifiers" => %{"erp.supplier_id" => " "}

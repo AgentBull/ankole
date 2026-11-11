@@ -39,12 +39,14 @@ binding's launch contract. The Agent Computer receives the binding credential;
 the device credential stays with the launcher.
 
 The `runner_devices` row belongs to the Human. A `runner_bindings` row connects
-a device to an Agent in the same tenant. A member can connect multiple devices
-to their assistant and bind their other owned Agents to the same devices.
-Each binding has its own generation, connection, and Docker volume. Devices
-have one active Background Agent Job slot shared by their bindings. The
-managed Worker continues to own ordinary Session environments and Jobs
-created without a device selection.
+a device to an Agent in the same tenant. From **Account → My devices**, a member
+views each paired device's bound Agents and live binding health (`connected`,
+`draining`, or `offline`) and binds additional owned AI colleagues to any paired
+device. Each binding has its own generation, connection, and Docker volume;
+`RunnerConnection` fences superseded routes while re-admitting same-route
+reconnects and expired `:draining` bindings. Devices have one active Background
+Agent Job slot shared by their bindings. The managed Worker continues to own
+ordinary Session environments and Jobs created without a device selection.
 
 The selected Runner becomes part of a Background Agent Job's workspace
 identity. When its device is unavailable, Ankole waits for that device within
@@ -58,9 +60,10 @@ A device owner can inspect the device's environment. Ankole projects only
 permitted variables to a device Job and checks the active binding when
 authorizing runtime writes and device model credentials. Revoking a device
 invalidates its enrollment and bindings, closes their live routes, and fails
-its running Job so the Agent can admit other work. Ankole sends that failure to
-the Job's original session. The launcher stops the corresponding containers
-while their local volumes stay on the user's machine.
+its `:queued`, `:running`, and `:waiting_on_user` Jobs so the Agent can admit
+other work. Ankole sends that failure to the Job's original session. The
+launcher stops the corresponding containers while their local volumes stay on
+the user's machine.
 
 The launcher uses a local Docker engine and pulls the site's approved image.
 The device must reach the site's WSS endpoint, AI Gateway and HTTP file relay.

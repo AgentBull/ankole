@@ -49,7 +49,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import type { ChatModel, FollowUpBehavior } from '../state/chat'
-import { shouldSendOnEnter, hasDraftMention, queuedInputs } from '../state/chat'
+import { effectiveTargetAgentUID, shouldSendOnEnter, hasDraftMention, queuedInputs } from '../state/chat'
 import type { ChatCommands } from '../chat-commands'
 import type { ConversationDetail, PodAgent } from '../api'
 import {
@@ -170,12 +170,12 @@ export function Composer({
   const roomAgents = (detail?.conversation.agents ?? agents).filter(agent => agent.active && callable.has(agent.uid))
   const group = detail?.conversation.roomMode === 'group'
   const humanOnly = (group || detail?.conversation.accessScope === 'anchor_page') && roomAgents.length === 0
+  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value, detail, [...callable])
   const recipientUID =
     answerQuestion?.agentUID ??
     queueEditing?.agentUID ??
     (conversationID
-      ? model.targetAgentUID.value ||
-        (group || humanOnly ? '__listeners__' : (detail?.conversation.agents[0]?.uid ?? null))
+      ? targetUID || (group || humanOnly ? '__listeners__' : (detail?.conversation.agents[0]?.uid ?? null))
       : agentUID || null)
   const recipientAgentUIDs = roomAgents.map(agent => agent.uid)
   // Keep an unavailable selection visible until the user chooses another recipient.

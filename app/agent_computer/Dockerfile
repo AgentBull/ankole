@@ -87,7 +87,6 @@ RUN rm -rf dist /tmp/ankole-browser-runtime/dist \
 
 WORKDIR /repo
 
-COPY libs/applet-sdk/src ./libs/applet-sdk/src
 COPY libs/uikit/src ./libs/uikit/src
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
@@ -96,6 +95,8 @@ COPY app/agent_computer/src/cli/viz ./app/agent_computer/src/cli/viz
 RUN mkdir -p /tmp/ankole-viz-runtime/dist \
   && bun app/agent_computer/src/cli/viz/build-harness.ts /tmp/ankole-viz-runtime/dist \
   && chmod -R a+rX /tmp/ankole-viz-runtime
+
+COPY libs/applet-sdk/src ./libs/applet-sdk/src
 
 # Fetch and verify release CLIs in independent BuildKit stages so cold builds
 # run concurrently and bumping one CLI version never invalidates the others.

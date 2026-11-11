@@ -580,3 +580,82 @@ fn ods_rows_keep_their_numbers_and_columns_across_repeats() {
     assert_eq!(rows[1_000], "R5001\tend");
     assert_eq!(ods.metadata["truncated"], false);
 }
+
+#[test]
+fn ods_large_repeated_cells_and_pdf_and_ooxml_bombs_stay_within_memory_budgets() {
+    // 1. An ODS cell carrying megabytes of text with `number-columns-repeated="16384"`
+    //    must stop at the text budget instead of cloning 16,384 copies in memory.
+    let huge_cell = "x".repeat(PLAIN_TEXT_LIMIT * 2);
+    let ods_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+        <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+                                 xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+                                 xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+          <office:body><office:spreadsheet>
+            <table:table table:name="Wide">
+              <table:table-row>
+                <table:table-cell table:number-columns-repeated="16384"><text:p>{huge_cell}</text:p></table:table-cell>
+              </table:table-row>
+            </table:table>
+          </office:spreadsheet></office:body>
+        </office:document-content>"#
+    );
+    let ods = extract(
+        &build_zip(&[("content.xml", ods_xml.as_bytes())]),
+        "wide.ods",
+        None,
+    );
+    assert_eq!(ods.status, ExtractStatus::Ok);
+    assert_eq!(ods.metadata["truncated"], true);
+    assert!(ods.plain_text.len() <= PLAIN_TEXT_LIMIT);
+
+    // 2. An oversized secondary DOCX part (`word/styles.xml` > 16 MiB uncompressed)
+    //    propagates `zip_limit_exceeded` as `Skipped` instead of being silently ignored.
+    let mut docx_writer = ZipWriter::new(Cursor::new(Vec::new()));
+    let deflate = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    docx_writer
+        .start_file("word/document.xml", deflate)
+        .unwrap();
+    docx_writer
+        .write_all(b"<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>")
+        .unwrap();
+    docx_writer.start_file("word/styles.xml", deflate).unwrap();
+    let big_styles = vec![b' '; 17 * 1024 * 1024];
+    docx_writer.write_all(&big_styles).unwrap();
+    let docx_bytes = docx_writer.finish().unwrap().into_inner();
+    let docx = extract(&docx_bytes, "oversized-styles.docx", None);
+    assert_eq!(docx.status, ExtractStatus::Skipped);
+    assert_eq!(docx.error.as_deref(), Some("zip_limit_exceeded"));
+
+    // 3. A PDF whose compressed page stream inflates past 16 MiB is skipped cleanly
+    //    with `pdf_stream_limit_exceeded`.
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let mut bomb_stream = Stream::new(dictionary! {}, vec![b' '; 17 * 1024 * 1024]);
+    bomb_stream.compress().unwrap();
+    let contents_id = doc.add_object(bomb_stream);
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => contents_id,
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Count" => 1,
+            "Kids" => vec![page_id.into()],
+            "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    let mut pdf_bytes = Vec::new();
+    doc.save_to(&mut pdf_bytes).unwrap();
+    let pdf = extract(&pdf_bytes, "bomb.pdf", None);
+    assert_eq!(pdf.status, ExtractStatus::Skipped);
+    assert_eq!(pdf.error.as_deref(), Some("pdf_stream_limit_exceeded"));
+}

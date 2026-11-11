@@ -753,6 +753,121 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.ProtocolTest do
     assert definition.scope_options == ["Lead", "Contact"]
   end
 
+  test "Zendesk rejects stale webhook timestamps and derives distinct delivery IDs without invocation headers" do
+    body =
+      Torque.encode!(%{
+        "event_type" => "zendesk.ticket.created",
+        "ticket" => %{"id" => "ticket-42"}
+      })
+
+    stale_unix = to_string(System.system_time(:second) - 301)
+
+    stale_headers = [
+      {"x-zendesk-webhook-signature-timestamp", stale_unix},
+      {"x-zendesk-webhook-signature", hmac(stale_unix <> body, :sha256, :base64)}
+    ]
+
+    assert {:error, :invalid_webhook_signature} =
+             Signatures.verify("zendesk", "secret", body, stale_headers, %{})
+
+    stale_iso =
+      DateTime.utc_now()
+      |> DateTime.add(-301, :second)
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+
+    stale_iso_headers = [
+      {"x-zendesk-webhook-signature-timestamp", stale_iso},
+      {"x-zendesk-webhook-signature", hmac(stale_iso <> body, :sha256, :base64)}
+    ]
+
+    assert {:error, :invalid_webhook_signature} =
+             Signatures.verify("zendesk", "secret", body, stale_iso_headers, %{})
+
+    fresh_iso_a =
+      DateTime.utc_now()
+      |> DateTime.add(-5, :second)
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+
+    fresh_iso_b = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    headers_a = [
+      {"x-zendesk-webhook-signature-timestamp", fresh_iso_a},
+      {"x-zendesk-webhook-signature", hmac(fresh_iso_a <> body, :sha256, :base64)}
+    ]
+
+    headers_b = [
+      {"x-zendesk-webhook-signature-timestamp", fresh_iso_b},
+      {"x-zendesk-webhook-signature", hmac(fresh_iso_b <> body, :sha256, :base64)}
+    ]
+
+    assert {:ok, event_a} =
+             Webhooks.receive("zendesk", %{}, %{"webhook_secret" => "secret"}, body, headers_a)
+
+    assert {:ok, event_b} =
+             Webhooks.receive("zendesk", %{}, %{"webhook_secret" => "secret"}, body, headers_b)
+
+    assert event_a["id"] != event_b["id"]
+  end
+
+  test "Zendesk rolls back newly created triggers and webhook when partial setup fails" do
+    parent = self()
+
+    plug = fn conn, _opts ->
+      {:ok, raw, conn} = Plug.Conn.read_body(conn)
+      send(parent, {:zendesk_req, conn.method, conn.request_path, raw})
+
+      {status, body} =
+        case {conn.method, conn.request_path} do
+          {"GET", "/api/v2/webhooks"} -> {200, %{"webhooks" => []}}
+          {"POST", "/api/v2/webhooks"} -> {200, %{"webhook" => %{"id" => "wh-new"}}}
+          {"GET", "/api/v2/triggers.json"} -> {200, %{"triggers" => []}}
+          {"POST", "/api/v2/triggers.json"} -> {200, %{"trigger" => %{"id" => "tr-created-1"}}}
+          {"GET", "/api/v2/webhooks/wh-new/signing_secret"} -> {500, %{"error" => "boom"}}
+          {"DELETE", "/api/v2/triggers/tr-created-1.json"} -> {204, nil}
+          {"DELETE", "/api/v2/webhooks/wh-new"} -> {204, nil}
+        end
+
+      resp = if body, do: Torque.encode!(body), else: ""
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(status, resp)
+    end
+
+    server =
+      start_supervised!({Bandit, plug: {plug, []}, ip: {127, 0, 0, 1}, port: 0},
+        id: :zendesk_fail
+      )
+
+    {:ok, {_, port}} = ThousandIsland.listener_info(server)
+
+    config = %{base_url: "http://127.0.0.1:#{port}", public_metadata: %{}}
+
+    credentials = %{
+      "email" => "admin@example.com",
+      "subdomain" => "support",
+      "api_token" => "pat"
+    }
+
+    ep =
+      endpoint(%{"scope_key" => "account"})
+      |> Map.put("event_types", ["zendesk.ticket.created"])
+
+    assert {:error, _} = Subscriptions.reconcile("zendesk", config, credentials, ep, true)
+    assert_receive {:zendesk_req, "POST", "/api/v2/webhooks", _}
+    assert_receive {:zendesk_req, "POST", "/api/v2/triggers.json", _}
+    assert_receive {:zendesk_req, "GET", "/api/v2/webhooks/wh-new/signing_secret", ""}
+    assert_receive {:zendesk_req, "DELETE", "/api/v2/triggers/tr-created-1.json", ""}
+    assert_receive {:zendesk_req, "DELETE", "/api/v2/webhooks/wh-new", ""}
+  end
+
+  test "Salesforce identity returns invalid_oauth_response when neither instance_url nor base_url is present" do
+    assert {:error, :invalid_oauth_response} =
+             Protocol.validate("salesforce", %{}, %{"access_token" => "tok"})
+  end
+
   defp hmac(raw, hash, :base64), do: Base.encode64(:crypto.mac(:hmac, hash, "secret", raw))
 
   defp hmac(raw, hash, :hex),

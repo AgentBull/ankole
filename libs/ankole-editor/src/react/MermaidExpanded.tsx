@@ -1,4 +1,4 @@
-import { resolveVizTheme, sanitizeExportedSvg } from '@ankole/uikit'
+import { materializePeleSvg, rasterizeSvgToPngDataUrl, resolveVizTheme } from '@ankole/uikit'
 import { ArrowDownloadRegular, DismissRegular } from '@ankole/uikit/icons'
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -21,6 +21,24 @@ type DiagramPreviewController = {
   destroy(): void
 }
 
+const PELE_STYLE_TOKEN_KEYS = [
+  '--pele-bg',
+  '--pele-fg',
+  '--pele-fg-on-light',
+  '--pele-fg-on-dark',
+  '--pele-muted',
+  '--pele-line',
+  '--pele-surface',
+  '--pele-surface-alt',
+  '--pele-border',
+  '--pele-accent',
+  '--pele-critical',
+  '--pele-error',
+  '--pele-font',
+  '--pele-font-mono',
+  '--pele-radius'
+] as const
+
 function serializeExpandedDiagramSvg(
   previewEl: HTMLElement | null
 ): { svg: string; width: number; height: number; background: string } | null {
@@ -28,21 +46,28 @@ function serializeExpandedDiagramSvg(
   if (!previewEl || !svgEl) return null
   const style = getComputedStyle(previewEl)
   const palette = resolveVizTheme(previewEl)
+  const extraTokens: Record<string, string> = {}
+  for (const key of PELE_STYLE_TOKEN_KEYS) {
+    const val = style.getPropertyValue(key).trim()
+    if (val) extraTokens[key] = val
+  }
   const rawXml = new XMLSerializer().serializeToString(svgEl)
-  const peleResolved = rawXml.replace(
-    /var\(\s*(--pele-[a-z0-9-]+)\s*(?:,\s*([^)]+))?\)/gi,
-    (_match, varName: string, fallback?: string) => {
-      const value = style.getPropertyValue(varName).trim()
-      return value || fallback?.trim() || palette.foreground
-    }
-  )
-  const cleanSvg = sanitizeExportedSvg(peleResolved, palette, { safetyPaddingPx: 8 })
   const rect = svgEl.getBoundingClientRect()
   const vb = svgEl.viewBox?.baseVal
-  const width = Math.max(1, Math.ceil((vb && vb.width > 0 ? vb.width : rect.width) || 640))
-  const height = Math.max(1, Math.ceil((vb && vb.height > 0 ? vb.height : rect.height) || 360))
-  const background = style.getPropertyValue('--pele-bg').trim() || palette.background
-  return { svg: cleanSvg, width, height, background }
+  const fallbackWidth = Math.max(1, Math.ceil((vb && vb.width > 0 ? vb.width : rect.width) || 640))
+  const fallbackHeight = Math.max(1, Math.ceil((vb && vb.height > 0 ? vb.height : rect.height) || 360))
+  const materialized = materializePeleSvg(rawXml, palette, {
+    ...(vb && vb.width > 0 ? {} : { width: fallbackWidth, height: fallbackHeight }),
+    safetyPaddingPx: 8,
+    extraTokens
+  })
+  const background = extraTokens['--pele-bg'] || palette.background
+  return {
+    svg: materialized.svg,
+    width: materialized.width,
+    height: materialized.height,
+    background
+  }
 }
 
 function triggerExpandedDownload(href: string, filename: string) {
@@ -131,26 +156,13 @@ export function MermaidExpanded() {
   const downloadPng = async () => {
     const exported = serializeExpandedDiagramSvg(preview.current)
     if (!exported) return
-    const scale = 2
-    const canvas = document.createElement('canvas')
-    canvas.width = exported.width * scale
-    canvas.height = exported.height * scale
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(exported.svg)}`
-    await new Promise<void>((resolve, reject) => {
-      const img = new Image()
-      img.decoding = 'async'
-      img.onload = () => {
-        ctx.fillStyle = exported.background
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        resolve()
-      }
-      img.onerror = () => reject(new Error('Failed to rasterize diagram SVG'))
-      img.src = dataUrl
+    const dataUrl = await rasterizeSvgToPngDataUrl(exported.svg, {
+      width: exported.width,
+      height: exported.height,
+      scale: 2,
+      background: exported.background
     })
-    triggerExpandedDownload(canvas.toDataURL('image/png'), `${fileStem}.png`)
+    triggerExpandedDownload(dataUrl, `${fileStem}.png`)
   }
 
   return createPortal(

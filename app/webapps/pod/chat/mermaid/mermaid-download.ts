@@ -1,3 +1,4 @@
+import { rasterizeSvgToPngBlob } from '@ankole/uikit/viz/theme'
 import { blobToDataUrl, downloadBlob } from '../../../common/browser-files'
 import { planScreenshotPixelRatio } from '../screenshot-budget'
 import { injectStandaloneSvgTheme, MERMAID_PALETTES, type MermaidThemeMode } from './mermaid-renderer'
@@ -23,32 +24,11 @@ export async function svgToPngBlob(svg: string, width: number, height: number, t
   const plan = planScreenshotPixelRatio(safeWidth, safeHeight)
   if (plan.kind === 'needsPagination') throw new Error('Diagram is too large to export as PNG')
   const ratio = Math.min(2, plan.pixelRatio)
-  const outWidth = safeWidth * ratio
-  const outHeight = safeHeight * ratio
-  const url = svgToDataUrl(svg, theme)
-
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const el = new Image()
-    el.decoding = 'async'
-    el.onload = () => resolve(el)
-    el.onerror = () => reject(new Error('Failed to decode Mermaid SVG'))
-    el.src = url
-  })
-
-  const canvas = document.createElement('canvas')
-  canvas.width = outWidth
-  canvas.height = outHeight
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas 2D context unavailable')
-  ctx.fillStyle = MERMAID_PALETTES[theme].bg
-  ctx.fillRect(0, 0, outWidth, outHeight)
-  ctx.drawImage(img, 0, 0, outWidth, outHeight)
-
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(blob => {
-      if (blob) resolve(blob)
-      else reject(new Error('PNG encoding failed'))
-    }, 'image/png')
+  return rasterizeSvgToPngBlob(injectStandaloneSvgTheme(svg, theme), {
+    width: safeWidth,
+    height: safeHeight,
+    scale: ratio,
+    background: MERMAID_PALETTES[theme].bg
   })
 }
 

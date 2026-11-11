@@ -249,7 +249,7 @@ defmodule Ankole.Workflow.Lifecycle do
   end
 
   @doc "Creates or finds the run of one Workflow tool call and wakes its owner process."
-  def create_with_dispatch_in_tx(attrs) when is_map(attrs) do
+  def create_with_dispatch_in_tx(attrs, opts \\ []) when is_map(attrs) and is_list(opts) do
     with :ok <- validate_string_keys(attrs),
          :ok <- reject_unsupported_fields(attrs),
          {:ok, agent_uid} <-
@@ -272,11 +272,11 @@ defmodule Ankole.Workflow.Lifecycle do
         |> Map.put_new("args", %{})
         |> Map.put("error", %{})
 
-      persist_in_tx(attrs)
+      persist_in_tx(attrs, Keyword.get(opts, :track_issue?, true))
     end
   end
 
-  defp persist_in_tx(attrs) do
+  defp persist_in_tx(attrs, track_issue?) do
     attrs = Ankole.Principals.WorkAccess.inherit(attrs)
 
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
@@ -293,13 +293,17 @@ defmodule Ankole.Workflow.Lifecycle do
           {:ok, %{run: run}}
 
         {:ok, nil} ->
-          with :ok <-
-                 Ankole.Issues.ensure_for_task_room_in_tx(
-                   attrs["agent_uid"],
-                   attrs["owner_session_id"]
-                 ),
-               {:ok, run} <- Ankole.Ash.create(Run, :create_run, attrs),
-               :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
+          with {:ok, run} <- Ankole.Ash.create(Run, :create_run, attrs),
+               :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id),
+               :ok <-
+                 if(track_issue?,
+                   do:
+                     Ankole.Issues.ensure_for_task_room_in_tx(
+                       attrs["agent_uid"],
+                       attrs["owner_session_id"]
+                     ),
+                   else: :ok
+                 ) do
             {:ok, %{run: run}}
           end
 

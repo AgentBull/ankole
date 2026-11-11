@@ -331,13 +331,26 @@ defmodule Ankole.Plugins.DatabaseConnectors.ClickHouse do
              [max_tables],
              [take: max_tables],
              &rows/1
-           ),
-         {:ok, %{result: columns}} <-
+           ) do
+      catalog_details(exec, tables)
+    end
+  end
+
+  defp catalog_details(_exec, []), do: {:ok, []}
+
+  defp catalog_details(exec, tables) do
+    tuples =
+      Enum.map_join(tables, ", ", fn [database, name | _] ->
+        "(#{literal(database)}, #{literal(name)})"
+      end)
+
+    with {:ok, %{result: columns}} <-
            exec.(
              """
              SELECT database, table, name, toString(position), type, comment,
                     is_in_sorting_key OR is_in_primary_key
-             FROM system.columns WHERE database NOT IN #{@system_databases}
+             FROM system.columns
+             WHERE database NOT IN #{@system_databases} AND (database, table) IN (#{tuples})
              ORDER BY database, table, position
              """,
              [],
@@ -347,6 +360,9 @@ defmodule Ankole.Plugins.DatabaseConnectors.ClickHouse do
       {:ok, assemble(tables, columns)}
     end
   end
+
+  defp literal(value),
+    do: "'" <> (value |> String.replace("\\", "\\\\") |> String.replace("'", "\\'")) <> "'"
 
   defp rows(chunks), do: Enum.flat_map(chunks, fn {_names, rows} -> rows end)
 

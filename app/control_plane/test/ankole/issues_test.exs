@@ -580,6 +580,91 @@ defmodule Ankole.IssuesTest do
     assert {:ok, [%{kind: "cron", manageable: true}]} = Issues.scheduled(ctx.owner)
   end
 
+  test "a repeating Issue rejects invalid schedules before opening a room and carries Squad delegation into scheduled runs",
+       ctx do
+    for invalid <- [
+          %{expression: "not a cron", timezone: "UTC"},
+          %{expression: "0 9 * * 1", timezone: "Mars/Olympus"}
+        ] do
+      assert {:error, :invalid_issue} =
+               Issues.create(ctx.owner, %{
+                 title: "Broken repeat",
+                 agent_uid: ctx.agent.uid,
+                 repeat: invalid
+               })
+    end
+
+    assert {:ok, []} = Issues.list(ctx.owner)
+    assert Repo.aggregate(Conversations.Conversation, :count) == 0
+
+    long_role =
+      String.duplicate("Deep competitive intelligence and SaaS pricing benchmarking. ", 4)
+      |> String.trim()
+
+    colleague =
+      Ankole.SessionsCase.agent_fixture(%{
+        owner_principal_uid: ctx.owner.principal.uid,
+        display_name: "Pricing Specialist",
+        role: long_role
+      }).principal
+
+    Ankole.ConversationsFixtures.grant_chat(ctx.owner.principal.uid, colleague.uid)
+
+    assistant =
+      Ankole.SessionsCase.agent_fixture(%{
+        type: :personal_assistant,
+        owner_principal_uid: ctx.owner.principal.uid
+      }).principal
+
+    assert {:ok, item} =
+             Issues.create(ctx.owner, %{
+               title: "Weekly rival check",
+               description: "Check tier changes.",
+               agent_uid: assistant.uid,
+               squad_uids: [colleague.uid],
+               repeat: %{expression: "0 9 * * 1", timezone: "UTC"},
+               start: false
+             })
+
+    rule = Issues.Queries.rule(item.id)
+
+    assert rule.payload["task"] ==
+             "Weekly rival check\n\nCheck tier changes.\n\nSquad: @#{colleague.uid}"
+
+    assert {:ok, %{description: "Check enterprise tier changes."}} =
+             Issues.update(ctx.owner, item.id, %{description: "Check enterprise tier changes."})
+
+    updated_rule = Issues.Queries.rule(item.id)
+
+    assert updated_rule.payload["task"] ==
+             "Weekly rival check\n\nCheck enterprise tier changes.\n\nSquad: @#{colleague.uid}"
+
+    assert {:ok, %{status: :working}} = Issues.update(ctx.owner, item.id, %{status: :started})
+    fire_pending(updated_rule)
+
+    assert [%Signal{type: "cron.fire"} = event] = inputs(item.id)
+
+    messages =
+      Ankole.Sessions.Prompt.Input.messages(
+        %{
+          agent_uid: assistant.uid,
+          session_id: event.session_id,
+          context: %{conversation: %{timezone: "UTC"}}
+        },
+        event
+      )
+
+    prompt_text =
+      messages
+      |> List.last()
+      |> Map.fetch!("content")
+      |> Enum.filter(&(&1["type"] == "input_text"))
+      |> Enum.map_join("\n", & &1["text"])
+
+    assert prompt_text =~ "Squad: @#{colleague.uid}"
+    assert prompt_text =~ long_role
+  end
+
   test "a recurring rule appears for the people in the room that manages it", ctx do
     assert {:ok, item} =
              Issues.create(ctx.owner, %{title: "Weekly digest", agent_uid: ctx.agent.uid})

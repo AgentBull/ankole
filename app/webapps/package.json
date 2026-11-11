@@ -65,6 +65,7 @@
   "devDependencies": {
     "@babel/core": "8.1.0",
     "@playwright/test": "1.65.0",
+    "@posthog/cli": "0.19.3",
     "@rolldown/plugin-babel": "0.3.1",
     "@tailwindcss/postcss": "4.3.5",
     "@tailwindcss/vite": "4.3.5",
