@@ -11,7 +11,8 @@ export type {
   StatisticalChartTier2Type,
   StatisticalChartType,
   StatisticalReferenceLine,
-  StatisticalStackMode
+  StatisticalStackMode,
+  StatisticalSummaryType
 } from '../viz/statistical'
 
 export interface AnkoleChartSummaryTable {
@@ -321,7 +322,7 @@ export function AnkoleChart({
       })
   }, [spec, themeRevision])
 
-  const accessibleLabel = ariaLabel ?? spec.title ?? `${spec.type} chart`
+  const accessibleLabel = ariaLabel ?? spec.title ?? (spec.type === 'stat' ? 'Metric card' : `${spec.type} chart`)
   const fileStem = sanitizeDownloadStem(exportFilename ?? ariaLabel ?? spec.title)
   const showExportControls = allowExport && !isEmptyData
 

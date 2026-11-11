@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import { cn } from '../lib/utils'
+import type { StatTrendDirection } from '../viz/statistical'
 import type { MarketConvention } from '../viz/theme'
 
-export type StatTrendDirection = 'up' | 'down' | 'neutral'
+export type { StatTrendDirection } from '../viz/statistical'
 
 export interface AnkoleSparklineProps {
   values: readonly number[]

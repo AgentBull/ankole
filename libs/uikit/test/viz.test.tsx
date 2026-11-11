@@ -23,7 +23,7 @@ import {
   offlineInfographicResourceLoader,
   validateInfographicSyntax
 } from '../src/viz/infographic'
-import { prepareStatisticalChartSpec, type StatisticalChartType } from '../src/viz/statistical'
+import { prepareStatisticalChartSpec, resolveStatTrend, type StatisticalChartType } from '../src/viz/statistical'
 
 describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
   test('resolves light/dark palettes, monotonic sequential ramps, zero-anchored diverging scales, and cn convention swap', () => {
@@ -150,7 +150,7 @@ describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
 })
 
 describe('Statistical & financial pure spec builders', () => {
-  test('falls back from percent to stacked on negative values, guards zero-sum buckets, and supports all 19 chart types', () => {
+  test('falls back from percent to stacked on negative values, guards zero-sum buckets, and supports all 21 chart types', () => {
     const palette = resolveVizTheme(null, { theme: 'light' })
 
     const fallback = prepareStatisticalChartSpec(
@@ -211,7 +211,9 @@ describe('Statistical & financial pure spec builders', () => {
       'treemap',
       'sunburst',
       'sankey',
-      'wordcloud'
+      'wordcloud',
+      'quantile_band',
+      'stat'
     ]
     for (const chartType of allTypes) {
       const built = prepareStatisticalChartSpec(
@@ -470,6 +472,128 @@ describe('Statistical & financial pure spec builders', () => {
       palette
     )
     expect(Array.isArray((sunburstPrepared.g2Spec as { data?: unknown }).data)).toBe(true)
+  })
+
+  test('renders metric cards and quantile bands from the same theme tokens, trend conventions, and accessibility contract', () => {
+    const intlPalette = resolveVizTheme(null, { theme: 'light', marketConvention: 'intl' })
+    const cnPalette = resolveVizTheme(null, { theme: 'light', marketConvention: 'cn' })
+
+    const stat = prepareStatisticalChartSpec(
+      {
+        type: 'stat',
+        title: 'Median latency',
+        subtitle: 'vs. previous period',
+        unit: 'ms',
+        valueField: 'p50',
+        comparisonField: 'delta',
+        data: [{ p50: 182, delta: '+12.4%' }]
+      },
+      intlPalette
+    )
+    const statSpec = stat.g2Spec as {
+      type?: string
+      padding?: number
+      title?: unknown
+      legend?: unknown
+      children?: { style?: Record<string, unknown> }[]
+    }
+    expect(statSpec.type).toBe('view')
+    expect(statSpec.padding).toBe(0)
+    expect(statSpec.title).toBeUndefined()
+    expect(statSpec.legend).toBe(false)
+    expect((statSpec.children ?? []).map(child => String(child.style?.text))).toEqual([
+      'Median latency',
+      'vs. previous period',
+      '182',
+      'ms',
+      '▲ +12.4%'
+    ])
+    expect(statSpec.children?.at(-1)?.style?.fill).toBe(intlPalette.upForeground)
+
+    const explicitDown = prepareStatisticalChartSpec(
+      {
+        type: 'stat',
+        valueField: 'p50',
+        formattedValueField: 'p50Text',
+        comparisonField: 'delta',
+        trendField: 'trend',
+        data: [{ p50: 182, p50Text: '182 ms', delta: '+12.4%', trend: 'down' }]
+      },
+      intlPalette
+    )
+    const downTexts = (explicitDown.g2Spec as { children?: { style?: Record<string, unknown> }[] }).children ?? []
+    expect(String(downTexts.at(-1)?.style?.text)).toBe('▼ +12.4%')
+    expect(downTexts.at(-1)?.style?.fill).toBe(intlPalette.downForeground)
+
+    // The palette already follows the market convention, so a positive `cn` delta uses the red ramp.
+    const cnStat = prepareStatisticalChartSpec(
+      {
+        type: 'stat',
+        valueField: 'value',
+        comparisonField: 'delta',
+        data: [{ value: 1, delta: '+1.0%' }]
+      },
+      cnPalette
+    )
+    const cnTexts = (cnStat.g2Spec as { children?: { style?: Record<string, unknown> }[] }).children ?? []
+    expect(cnTexts.at(-1)?.style?.fill).toBe(cnPalette.upForeground)
+    expect(cnPalette.upForeground).toBe(intlPalette.downForeground)
+
+    expect(resolveStatTrend(undefined, '+3')).toBe('up')
+    expect(resolveStatTrend(undefined, '−3')).toBe('down')
+    expect(resolveStatTrend('neutral', '+3')).toBe('neutral')
+    expect(resolveStatTrend(undefined, undefined)).toBe('neutral')
+
+    const band = prepareStatisticalChartSpec(
+      {
+        type: 'quantile_band',
+        xField: 'bucket',
+        yField: 'p50',
+        bandLowField: 'p5',
+        bandHighField: 'p95',
+        bandLabel: 'p5–p95',
+        data: [
+          { bucket: '10:00', p50: 120, p5: 80, p95: 190 },
+          { bucket: '11:00', p50: 140, p5: 95, p95: 210 }
+        ]
+      },
+      intlPalette
+    )
+    const bandSpec = band.g2Spec as {
+      type?: string
+      data?: unknown
+      children?: Record<string, unknown>[]
+    }
+    expect(bandSpec.type).toBe('view')
+    expect(Array.isArray(bandSpec.data)).toBe(true)
+
+    const [areaMark, lineMark] = bandSpec.children ?? []
+    expect(areaMark?.type).toBe('area')
+    expect(areaMark?.encode).toEqual({ x: 'bucket', y: 'p95', y1: 'p5' })
+    const areaStyle = areaMark?.style as { fill?: string } | undefined
+    expect(areaStyle?.fill).toBe(intlPalette.categorical[0])
+    expect(areaMark?.tooltip).toBe(false)
+
+    expect(lineMark?.type).toBe('line')
+    expect(lineMark?.encode).toMatchObject({ x: 'bucket', y: 'p50' })
+    const tooltip = lineMark?.tooltip as {
+      items: ((d: Record<string, unknown>) => { name: string; value: string })[]
+    }
+    expect(tooltip.items[0]!({ bucket: '10:00', p5: 80, p50: 120, p95: 190 })).toEqual({
+      name: 'p5–p95',
+      value: '80 – 190'
+    })
+    expect(tooltip.items[1]!({ bucket: '10:00', p5: 80, p50: 120, p95: 190 })).toEqual({
+      name: 'p50',
+      value: '120'
+    })
+
+    const lineOnly = prepareStatisticalChartSpec(
+      { type: 'quantile_band', xField: 'bucket', yField: 'p50', data: [{ bucket: '10:00', p50: 120 }] },
+      intlPalette
+    )
+    const lineOnlyChildren = (lineOnly.g2Spec as { children?: Record<string, unknown>[] }).children ?? []
+    expect(lineOnlyChildren.map(child => child.type)).toEqual(['line'])
   })
 })
 
