@@ -68,7 +68,18 @@ export type TableSchema = {
 }
 export type Condition = {
   field_id: string
-  operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+  operator:
+    | 'is'
+    | 'not_is'
+    | 'in'
+    | 'contains'
+    | 'is_empty'
+    | 'is_not_empty'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'text_contains'
   value?: Value
 }
 export type Filter = { conjunction: 'and' | 'or'; conditions: Condition[] }
@@ -189,9 +200,26 @@ export type EphemeralChannel = {
   close(): void
 }
 export type PodFileTarget = string | { path: string; pageID?: string; pageId?: string; sha256?: string }
+export type PodPrincipal = {
+  uid: string
+  name: string
+  kind: 'human' | 'agent'
+  avatar_url?: string | null
+  subtitle?: string | null
+  membership?: 'member' | 'guest' | null
+}
+export type PodChatOpenOptions = {
+  prompt?: string
+  quote?: string
+  conversationID?: string
+}
 export type PodAPI = {
   request<T>(path: string, method?: string, body?: unknown): Promise<T>
   fileURL(target: PodFileTarget): string
+  navigateToPage(pageID: string): void
+  openChat(options?: PodChatOpenOptions): void
+  principalsKey?: readonly unknown[]
+  principals(): Promise<PodPrincipal[]>
 }
 export type BaseAPI = {
   schema(tableID: string): Promise<TableSchema>

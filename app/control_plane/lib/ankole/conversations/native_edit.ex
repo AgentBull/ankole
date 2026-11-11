@@ -276,6 +276,7 @@ defmodule Ankole.Conversations.NativeEdit do
       |> Ankole.Ash.read_one!()
 
     with %Message{author_type: :human, author_uid: ^human_uid, kind: :message} <- target,
+         false <- Native.applet_notification?(target),
          :ok <- validate_target_agents(target, agent_uid),
          false <- other_human_replied_after?(conversation_id, target.seq, human_uid),
          %Signal{} = target_signal <- oldest_target_signal(conversation_id, target.id, agent_uid) do
@@ -283,6 +284,7 @@ defmodule Ankole.Conversations.NativeEdit do
         Message
         |> Ash.Query.filter(conversation_id == ^conversation_id and seq > ^target.seq)
         |> Ankole.Ash.read!()
+        |> Enum.reject(&Native.applet_notification?/1)
 
       later_human = Enum.filter(later_messages, &(&1.author_type == :human))
       later_human_ids = Enum.map(later_human, & &1.id)
@@ -342,7 +344,8 @@ defmodule Ankole.Conversations.NativeEdit do
     Message
     |> Ash.Query.filter(
       conversation_id == ^conversation_id and seq > ^seq and not withdrawn and
-        author_type == :human and author_uid != ^human_uid
+        author_type == :human and author_uid != ^human_uid and
+        is_nil(fragment("(?->>'applet_page_id')", rich_content))
     )
     |> Ankole.Ash.exists?()
   end

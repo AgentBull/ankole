@@ -385,19 +385,21 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
   defp scoped_cache_key(ctx, token, base_key) do
     {scope, principal} = extract_pod_identity(ctx)
     digest = authorization_digest(ctx, token)
+    origin = UniversalAIRequest.setting(ctx, :base_url) || @default_base_url
+    key = "#{base_key}|origin=#{origin}"
 
     cond do
       non_empty_str?(scope) and non_empty_str?(digest) ->
-        "#{base_key}|scope=#{scope}|principal=#{principal || "anonymous"}|tok=#{digest}"
+        "#{key}|scope=#{scope}|principal=#{principal || "anonymous"}|tok=#{digest}"
 
       non_empty_str?(scope) ->
-        "#{base_key}|scope=#{scope}|principal=#{principal || "anonymous"}"
+        "#{key}|scope=#{scope}|principal=#{principal || "anonymous"}"
 
       non_empty_str?(digest) ->
-        "#{base_key}|tok=#{digest}"
+        "#{key}|tok=#{digest}"
 
       true ->
-        base_key
+        key
     end
   end
 

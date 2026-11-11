@@ -136,5 +136,86 @@ describe('shared SQL and local table query contract', () => {
         group: { field_id: 'creator', value: 'u_alice' }
       }).map(record => record.id)
     ).toEqual(['r1'])
+
+    expect(
+      queryLocalRecords(attributedRecords, attributionFields, {
+        filter: { conjunction: 'and', conditions: [{ field_id: 'creator', operator: 'not_is', value: 'u_alice' }] }
+      }).map(record => record.id)
+    ).toEqual(['r2'])
+
+    expect(
+      queryLocalRecords(attributedRecords, attributionFields, {
+        filter: { conjunction: 'and', conditions: [{ field_id: 'updater', operator: 'not_is', value: 'u_charlie' }] }
+      }).map(record => record.id)
+    ).toEqual(['r1'])
+
+    expect(
+      queryLocalRecords(attributedRecords, attributionFields, {
+        filter: {
+          conjunction: 'and',
+          conditions: [
+            {
+              field_id: 'creator',
+              operator: 'in',
+              value: ['  U_ALICE  ', 'ankole:01950000-0000-7000-8000-000000000001:principal/u_charlie']
+            }
+          ]
+        }
+      }).map(record => record.id)
+    ).toEqual(['r1', 'r2'])
+
+    // Explicit ActorRefs from a different tenant never match same-UID principals in this tenant.
+    expect(
+      queryLocalRecords(attributedRecords, attributionFields, {
+        filter: {
+          conjunction: 'and',
+          conditions: [
+            {
+              field_id: 'creator',
+              operator: 'is',
+              value: 'ankole:01950000-0000-7000-8000-000000000999:principal/u_alice'
+            }
+          ]
+        }
+      }).map(record => record.id)
+    ).toEqual([])
+  })
+
+  test('not_is and in match PostgreSQL null and empty-cell semantics', () => {
+    expect(
+      queryLocalRecords(records, fields, {
+        filter: { conjunction: 'and', conditions: [{ field_id: 'name', operator: 'not_is', value: 'Alpha' }] }
+      }).map(record => record.id)
+    ).toEqual(['b', 'c', 'd'])
+
+    expect(
+      queryLocalRecords(records, fields, {
+        filter: { conjunction: 'and', conditions: [{ field_id: 'empty_text', operator: 'not_is', value: 'y' }] }
+      }).map(record => record.id)
+    ).toEqual(['b', 'c', 'd'])
+
+    expect(
+      queryLocalRecords(records, fields, {
+        filter: {
+          conjunction: 'and',
+          conditions: [{ field_id: 'name', operator: 'in', value: ['Alpha', 'Gamma'] }]
+        }
+      }).map(record => record.id)
+    ).toEqual(['a', 'c'])
+
+    expect(
+      queryLocalRecords(records, fields, {
+        filter: { conjunction: 'and', conditions: [{ field_id: 'name', operator: 'in', value: [] }] }
+      }).map(record => record.id)
+    ).toEqual([])
+
+    expect(
+      queryLocalRecords(records, fields, {
+        filter: {
+          conjunction: 'and',
+          conditions: [{ field_id: 'tags', operator: 'in', value: [['red'], ['red', 'blue']] }]
+        }
+      }).map(record => record.id)
+    ).toEqual(['a', 'b'])
   })
 })

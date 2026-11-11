@@ -299,7 +299,12 @@ fn collect_google_reference_images(
     };
     for source in sources {
         if let Some(raw) = source.as_str() {
-            if !raw.starts_with("data:") && raw.contains("://") {
+            let trimmed = raw.trim();
+            if !trimmed
+                .get(..5)
+                .is_some_and(|p| p.eq_ignore_ascii_case("data:"))
+                && trimmed.contains("://")
+            {
                 return Err(StreamError::new(
                     "invalid_image_reference",
                     "api_resolver",
@@ -315,19 +320,28 @@ fn collect_google_reference_images(
 }
 
 fn split_data_url_or_base64(input: &str) -> (&str, &str) {
-    if let Some(rest) = input.strip_prefix("data:")
-        && let Some((header, b64)) = rest.split_once(";base64,")
+    let trimmed = input.trim();
+    if let Some(rest) = trimmed
+        .get(..5)
+        .filter(|p| p.eq_ignore_ascii_case("data:"))
+        .and_then(|_| trimmed.get(5..))
+        && let Some((meta, payload)) = rest.split_once(',')
     {
-        return (
-            if header.is_empty() {
-                "image/png"
-            } else {
-                header
-            },
-            b64,
-        );
+        let mut segments = meta.split(';');
+        let raw_mime = segments.next().unwrap_or("").trim();
+        let is_base64 = segments.any(|param| param.trim().eq_ignore_ascii_case("base64"));
+        if is_base64 {
+            return (
+                if raw_mime.is_empty() {
+                    "image/png"
+                } else {
+                    raw_mime
+                },
+                payload.trim(),
+            );
+        }
     }
-    ("image/png", input)
+    ("image/png", trimmed)
 }
 
 fn size_to_aspect_ratio(size: &str) -> Option<&'static str> {
@@ -338,14 +352,6 @@ fn size_to_aspect_ratio(size: &str) -> Option<&'static str> {
         "4:3" => Some("4:3"),
         "3:4" => Some("3:4"),
         _ => None,
-    }
-}
-
-fn output_format_to_mime(format: &str) -> &'static str {
-    match format {
-        "jpeg" | "jpg" => "image/jpeg",
-        "webp" => "image/webp",
-        _ => "image/png",
     }
 }
 
@@ -380,20 +386,27 @@ fn extract_candidate_images(object: &Value, default_mime: &str) -> Vec<Value> {
         for part in parts {
             let Some(inline) = part
                 .get("inlineData")
-                .or_else(|| part.get("inline_data"))
                 .and_then(Value::as_object)
+                .or_else(|| part.get("inline_data").and_then(Value::as_object))
             else {
                 continue;
             };
             if let Some(data) = inline
                 .get("data")
                 .and_then(Value::as_str)
+                .map(str::trim)
                 .filter(|v| !v.is_empty())
             {
                 let mime = inline
                     .get("mimeType")
-                    .or_else(|| inline.get("mime_type"))
                     .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        inline
+                            .get("mime_type")
+                            .and_then(Value::as_str)
+                            .filter(|s| !s.is_empty())
+                    })
                     .unwrap_or(default_mime);
                 results.push(json!({ "b64_json": data, "media_type": mime, "revised_prompt": revised_prompt }));
             }
@@ -410,19 +423,35 @@ fn extract_prediction_images(object: &Value, default_mime: &str) -> Vec<Value> {
     for pred in predictions {
         if let Some(b64) = pred
             .get("bytesBase64Encoded")
-            .or_else(|| pred.get("b64_json"))
             .and_then(Value::as_str)
+            .map(str::trim)
             .filter(|v| !v.is_empty())
+            .or_else(|| {
+                pred.get("b64_json")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+            })
         {
             let mime = pred
                 .get("mimeType")
-                .or_else(|| pred.get("media_type"))
                 .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    pred.get("media_type")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                })
                 .unwrap_or(default_mime);
             let revised_prompt = pred
                 .get("prompt")
-                .or_else(|| pred.get("revised_prompt"))
-                .and_then(Value::as_str);
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    pred.get("revised_prompt")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                });
             results.push(
                 json!({ "b64_json": b64, "media_type": mime, "revised_prompt": revised_prompt }),
             );
@@ -440,14 +469,20 @@ fn extract_data_images(object: &Value, default_mime: &str) -> Vec<Value> {
         if let Some(b64) = item
             .get("b64_json")
             .and_then(Value::as_str)
+            .map(str::trim)
             .filter(|v| !v.is_empty())
         {
             let mime = item
                 .get("media_type")
-                .or_else(|| item.get("mime_type"))
                 .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    item.get("mime_type")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                })
                 .unwrap_or(default_mime);
-            results.push(json!({ "b64_json": b64, "media_type": mime, "revised_prompt": item.get("revised_prompt").and_then(Value::as_str) }));
+            results.push(json!({ "b64_json": b64, "media_type": mime, "revised_prompt": item.get("revised_prompt").and_then(Value::as_str).filter(|s| !s.is_empty()) }));
         }
     }
     results

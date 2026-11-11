@@ -23,8 +23,10 @@ fn claude_45_plus_and_v2026_models_are_classified_correctly() {
         "claude-opus-4-5-20251101",
         "claude-haiku-4-5-20251001",
         "claude-4.5-sonnet",
+        "claude-sonnet-4-6-20260401",
         "claude-opus-4-8-20260601",
         "claude-sonnet-5-20261001",
+        "claude-sonnet-6-20270101",
         "claude-fable-5-preview",
         "claude-mythos-5-20261021",
         "anthropic/claude-sonnet-5",
@@ -235,4 +237,37 @@ fn anthropic_v2026_drops_assistant_messages_left_without_content() {
 
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["role"], "user");
+}
+
+#[test]
+fn anthropic_v2026_coalesces_adjacent_user_messages_after_dropping_empty_assistant_turn() {
+    let context = v2026_context(
+        "claude-sonnet-5",
+        json!({
+            "input": [
+                {"role": "user", "content": "first"},
+                {
+                    "role": "assistant",
+                    "content": [{"type": "document", "source": {"type": "text", "data": "doc"}}]
+                },
+                {"role": "user", "content": "second"}
+            ]
+        }),
+        json!({}),
+        ConversionPolicy::Tolerant,
+    );
+
+    let resolver = APIResolver::new(APIResolverKind::AnthropicMessages, context);
+    let body = resolver.build_body().unwrap();
+    let messages = body["messages"].as_array().unwrap();
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(
+        messages[0]["content"],
+        json!([
+            {"type": "text", "text": "first"},
+            {"type": "text", "text": "second"}
+        ])
+    );
 }

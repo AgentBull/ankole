@@ -183,6 +183,7 @@ defmodule Ankole.Brain.CalibrationTest do
     assert take.author == ActorRef.from_principal(context.member)
     assert {:ok, holder} = Ankole.Brain.Scope.canonical_page_id(context.member.uid)
     assert take.holder == holder
+    assert take.holderUid == context.member.uid
     assert take.sourceNodeId == source.id
     assert take.untilDate == prediction["untilDate"]
     assert {:ok, %{takes: [^take]}} = Brain.applet_list_takes(actor, scope)
@@ -239,6 +240,99 @@ defmodule Ankole.Brain.CalibrationTest do
              Brain.applet_list_takes(actor, Map.put(scope, "holderUid", context.member.uid))
 
     assert MapSet.new(takes, & &1.id) == MapSet.new([take.id, legacy.id])
+    assert Enum.all?(takes, &(&1.holderUid == context.member.uid))
+  end
+
+  test "applet_list_facts returns active scoped Facts with holderUid and filters by notability, kind, holderUid, and query",
+       context do
+    alias Ankole.AuthZ.Actor
+    alias Ankole.Brain
+    alias Ankole.Pod.Pages
+
+    actor = Actor.new(context.member)
+    stranger = human_fixture().principal |> Actor.new()
+
+    {:ok, source} =
+      Pages.create(actor, %{type: "doc", private_owner_uid: context.member.uid})
+
+    {:ok, canonical_holder} = Ankole.Brain.Scope.canonical_page_id(context.member.uid)
+
+    high_fact =
+      write_fact!(context, "Lead time is 14 days at 100%_capacity",
+        source_node_id: source.id,
+        holder: canonical_holder,
+        notability: "high",
+        kind: "commitment"
+      )
+
+    medium_fact =
+      write_fact!(context, "MOQ stays 500 units",
+        source_node_id: source.id,
+        holder: "people/#{context.member.uid}",
+        notability: "medium",
+        kind: "preference"
+      )
+
+    world_fact =
+      write_fact!(context, "Port congestion cleared",
+        source_node_id: source.id,
+        holder: "world",
+        notability: "low",
+        kind: "event"
+      )
+
+    superseded =
+      write_fact!(context, "Old tariff rate 5%",
+        source_node_id: source.id,
+        notability: "high"
+      )
+
+    assert {:ok, replacement} =
+             Brain.supersede_claim(
+               superseded.id,
+               %{claim: "Updated tariff rate 8%"},
+               context.member.uid
+             )
+
+    expired =
+      write_fact!(context, "Temporary surcharge",
+        source_node_id: source.id,
+        notability: "high"
+      )
+
+    assert {:ok, _} = Brain.expire_fact(expired.id)
+    _other_source = write_fact!(context, "Unrelated source fact", notability: "high")
+
+    scope = %{"sourceNodeId" => source.id, "subjectPageId" => context.object.id}
+    assert {:error, :not_found} = Brain.applet_list_facts(stranger, scope)
+
+    assert {:ok, %{facts: all_facts}} = Brain.applet_list_facts(actor, scope)
+
+    assert MapSet.new(all_facts, & &1.id) ==
+             MapSet.new([high_fact.id, medium_fact.id, world_fact.id, replacement.id])
+
+    by_id = Map.new(all_facts, &{&1.id, &1})
+    assert by_id[high_fact.id].holderUid == context.member.uid
+    assert by_id[medium_fact.id].holderUid == context.member.uid
+    assert by_id[world_fact.id].holderUid == nil
+
+    assert {:ok, %{facts: notable}} =
+             Brain.applet_list_facts(actor, Map.put(scope, "notability", ["high", "medium"]))
+
+    assert MapSet.new(notable, & &1.id) ==
+             MapSet.new([high_fact.id, medium_fact.id, replacement.id])
+
+    assert {:ok, %{facts: [matched]}} =
+             Brain.applet_list_facts(
+               actor,
+               Map.merge(scope, %{
+                 "holderUid" => context.member.uid,
+                 "kind" => "commitment",
+                 "query" => "100%_CAP"
+               })
+             )
+
+    assert matched.id == high_fact.id
   end
 
   test "a Pod with only primary runs Dreaming and attributes calibration to its system Principal",

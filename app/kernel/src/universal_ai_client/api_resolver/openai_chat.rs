@@ -982,7 +982,7 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
             } else {
                 function
                     .get("arguments")
-                    .map(value_to_string)
+                    .map(value_to_text)
                     .unwrap_or_else(|| "{}".to_string())
             };
             let mut item = json!({
@@ -1048,7 +1048,7 @@ fn chat_assistant_content_parts(content: &Value) -> Vec<Value> {
             .filter_map(chat_assistant_content_part)
             .collect(),
         Value::Null => Vec::new(),
-        value => output_text_part(&value_to_string(value))
+        value => output_text_part(&value_to_text(value))
             .into_iter()
             .collect(),
     }
@@ -1153,9 +1153,19 @@ fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value
         "store",
         "metadata",
     ] {
-        if let Some(value) = request.get(key).cloned().filter(useful_value) {
-            body.insert(key.to_string(), value);
-            consumed.insert(key);
+        if let Some(value) = request.get(key) {
+            if key == "stop" && value.as_array().is_some_and(Vec::is_empty) {
+                consumed.insert(key);
+                continue;
+            }
+            if key == "user" && value.as_str().is_some_and(str::is_empty) {
+                consumed.insert(key);
+                continue;
+            }
+            if useful_value(value) {
+                body.insert(key.to_string(), value.clone());
+                consumed.insert(key);
+            }
         }
     }
     if let Some(reasoning) = request.get("reasoning").filter(|v| !v.is_null()) {
@@ -1174,12 +1184,16 @@ fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value
             consumed.insert("reasoning");
         }
     }
-    if let Some(stop_seq) = request.get("stop_sequences").cloned().filter(useful_value) {
-        if !body.contains_key("stop") {
-            body.insert("stop".to_string(), stop_seq);
+    if let Some(stop_seq) = request.get("stop_sequences") {
+        if stop_seq.as_array().is_some_and(Vec::is_empty) {
             consumed.insert("stop_sequences");
-        } else if body.get("stop") == Some(&stop_seq) {
-            consumed.insert("stop_sequences");
+        } else if useful_value(stop_seq) {
+            if !body.contains_key("stop") {
+                body.insert("stop".to_string(), stop_seq.clone());
+                consumed.insert("stop_sequences");
+            } else if body.get("stop") == Some(stop_seq) {
+                consumed.insert("stop_sequences");
+            }
         }
     }
 
@@ -1247,8 +1261,11 @@ fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value
     }
     body.insert("stream".to_string(), json!(stream));
     if let Some(inst) = request.get("instructions").filter(|v| !v.is_null())
-        && (!strict || inst.is_string() || inst.is_array())
-        && !chat_text_content(inst).is_empty()
+        && (!strict
+            || inst.is_string()
+            || inst
+                .as_array()
+                .is_some_and(|arr| arr.is_empty() || !chat_text_content(inst).is_empty()))
     {
         consumed.insert("instructions");
     }
@@ -1903,7 +1920,7 @@ fn chat_function_call(
         strict_function_arguments(map)?
     } else {
         map.get("arguments")
-            .map(value_to_string)
+            .map(value_to_text)
             .unwrap_or_else(|| "{}".to_string())
     };
 

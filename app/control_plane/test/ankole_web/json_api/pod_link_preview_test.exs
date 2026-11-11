@@ -107,6 +107,23 @@ defmodule AnkoleWeb.JSONAPI.PodLinkPreviewTest do
           |> put_resp_header("content-encoding", "gzip")
           |> send_resp(200, compressed)
 
+        "/%E6%96%87%E6%A1%A3" ->
+          html = """
+          <!doctype html>
+          <html>
+            <head>
+              <!-- </head> -->
+              <meta property="og:title" content="After Commented Closing Head" />
+              <meta itemprop="description" content="Schema.org itemprop summary" />
+            </head>
+            <body>Unicode path</body>
+          </html>
+          """
+
+          conn
+          |> put_resp_content_type("text/html; charset=utf-8")
+          |> send_resp(200, html)
+
         _ ->
           send_resp(conn, 404, "not found")
       end
@@ -188,6 +205,19 @@ defmodule AnkoleWeb.JSONAPI.PodLinkPreviewTest do
              "url" => "#{base_url}/gzipped",
              "title" => "Compressed Page",
              "description" => "Gzipped summary",
+             "image" => nil,
+             "icon" => "#{base_url}/favicon.ico"
+           }
+
+    iri_conn =
+      gzip_conn
+      |> recycle_api()
+      |> api_post("/api/v2/pod/links/unfurl", %{url: "#{base_url}/文档"})
+
+    assert api_response(iri_conn, 200) == %{
+             "url" => "#{base_url}/%E6%96%87%E6%A1%A3",
+             "title" => "After Commented Closing Head",
+             "description" => "Schema.org itemprop summary",
              "image" => nil,
              "icon" => "#{base_url}/favicon.ico"
            }

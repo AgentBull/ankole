@@ -27,6 +27,7 @@ mod standard;
 #[cfg(test)]
 mod tests;
 mod tool_identity;
+mod usage;
 mod web;
 
 use self::anthropic::*;
@@ -49,4 +50,5 @@ use self::openrouter_images::*;
 use self::rerank::*;
 pub(crate) use self::standard::*;
 use self::tool_identity::*;
+pub(crate) use self::usage::*;
 use self::web::*;

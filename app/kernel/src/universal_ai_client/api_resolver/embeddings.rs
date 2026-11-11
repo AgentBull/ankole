@@ -56,9 +56,9 @@ pub(crate) fn build_embeddings_body(
     context: &ResponseContext,
 ) -> Result<Map<String, Value>, StreamError> {
     let mut request = context.resolved_provider_request_object();
-    // Embeddings never stream; the context flag is not a provider parameter.
-    request.remove("stream");
-    if context.policy() == ConversionPolicy::Strict {
+    let strict = context.policy() == ConversionPolicy::Strict;
+    strip_non_streaming_flag(&mut request, strict, "embeddings")?;
+    if strict {
         validate_strict_embeddings_request(&request)?;
     }
     if let Some(task) = request.get("task").and_then(Value::as_str)
@@ -175,7 +175,7 @@ fn normalize_jina_embeddings_body(
     )
 }
 
-fn normalize_embedding_body(
+pub(super) fn normalize_embedding_body(
     context: &ResponseContext,
     status: u16,
     body: Value,

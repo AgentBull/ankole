@@ -88,7 +88,7 @@ function settledBox(list: HTMLElement): SegmentBox | null {
   const { clientLeft, clientTop } = ghost
   ghost.remove()
   const tab = tabs[index]
-  if (!rect || !tab) return null
+  if (!rect || !tab || (rect.width === 0 && rect.height === 0)) return null
   return {
     tab,
     left: rect.left - frame.left - clientLeft,
@@ -131,8 +131,11 @@ function SegmentIndicator() {
         const vertical = list.closest('[data-slot="tabs"]')?.hasAttribute('data-vertical')
         if (vertical) indicator.dataset.activationDirection = box.top < placed.top ? 'up' : 'down'
         else indicator.dataset.activationDirection = box.left < placed.left ? 'left' : 'right'
-        const durations = getComputedStyle(indicator).transitionDuration.split(',').map(Number.parseFloat)
-        travellingUntil = performance.now() + Math.max(...durations) * 1000
+        const durations = getComputedStyle(indicator)
+          .transitionDuration.split(',')
+          .map(Number.parseFloat)
+          .filter(Number.isFinite)
+        travellingUntil = performance.now() + (durations.length > 0 ? Math.max(...durations) * 1000 : 0)
       }
       indicator.hidden = false
       indicator.style.setProperty('--segment-left', `${box.left}px`)

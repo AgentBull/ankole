@@ -234,11 +234,12 @@ export function mountApplet(
     }
   }
   const routes = createAppletRoutes(pageID, revision, changed)
+  let currentRuntime = runtime
   let bound: AppletRuntime = {
     ...runtime,
     embedded,
     get principal() {
-      return runtime.principal
+      return currentRuntime.principal
     },
     theme: currentTheme,
     revision,
@@ -247,11 +248,11 @@ export function mountApplet(
       key: runtime.runs.key,
       get(...args) {
         current()
-        return runtime.runs.get(...args)
+        return currentRuntime.runs.get(...args)
       },
       subscribe(runID, callback) {
         current()
-        const unsubscribe = runtime.runs.subscribe(runID, event => {
+        const unsubscribe = currentRuntime.runs.subscribe(runID, event => {
           if (!disposed) callback(event)
         })
         const stop = () => {
@@ -272,16 +273,31 @@ export function mountApplet(
     pod: {
       request(...args) {
         current()
-        return runtime.pod.request(...args)
+        return currentRuntime.pod.request(...args)
       },
       fileURL(target) {
         current()
-        return runtime.pod.fileURL(target)
+        return currentRuntime.pod.fileURL(target)
+      },
+      navigateToPage(targetPageID) {
+        current()
+        currentRuntime.pod.navigateToPage(targetPageID)
+      },
+      openChat(options) {
+        current()
+        currentRuntime.pod.openChat(options)
+      },
+      get principalsKey() {
+        return currentRuntime.pod.principalsKey
+      },
+      principals() {
+        current()
+        return currentRuntime.pod.principals()
       }
     },
     channel(name) {
       current()
-      const channel = runtime.channel(name)
+      const channel = currentRuntime.channel(name)
       const close = () => {
         cleanup.delete(close)
         channel.close()
@@ -395,6 +411,7 @@ export function mountApplet(
     dispose,
     update(next: Omit<AppletRuntime, 'revision' | 'routes' | 'embedded'>) {
       if (disposed || next.pageID !== pageID) return
+      currentRuntime = next
       bound = { ...bound, actions: next.actions, title: next.title, theme: currentTheme }
       if (!provider) return
       try {

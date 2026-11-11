@@ -12,6 +12,17 @@ export function unsavedInlineEditDraft(model: Model, reactive = false): string {
   return text.trim() !== '' && (text !== editing.originalText || !equal(links, editing.originalLinks)) ? text : ''
 }
 
+export type PendingPageQuote = {
+  /** Set when targeting a Page's side-sheet chat; omitted when navigating to a standalone `/conversations/:id` room. */
+  pageID?: string
+  /** Page ID attached to `model.quote(...)` when `quote` is present (defaults to `pageID`). */
+  sourcePageID?: string
+  /** `'latest'` while `PageChat` resolves the target conversation, `'new'` for a fresh draft, or a `conversationID`. */
+  target: string
+  quote?: string
+  prompt?: string
+}
+
 /** One Pod owns its unfinished conversations for the lifetime of the document. */
 export class ChatDrafts {
   private readonly models = new Map<string, Model>()
@@ -26,10 +37,35 @@ export class ChatDrafts {
     this.newChatVersion.value++
   }
   /**
-   * A Page selection that someone asked an Agent about, waiting for that Page's chat to quote it. The chat
-   * that opens takes it, because which conversation opens is known only once the chat resolves.
+   * A Page selection or Applet prompt waiting for its resolved target chat composer.
    */
-  readonly pageQuote = signal<{ pageID: string; quote: string } | null>(null)
+  readonly pageQuote = signal<PendingPageQuote | null>(null)
+
+  resolvePageQuoteTarget(pageID: string, target: string | null): void {
+    const current = this.pageQuote.peek()
+    if (!current || current.pageID !== pageID || current.target !== 'latest') return
+    if (!target) {
+      this.pageQuote.value = null
+      return
+    }
+    if (target !== 'latest') {
+      this.pageQuote.value = { ...current, target }
+    }
+  }
+
+  consumePageQuote(context: { pageID?: string; conversationID?: string }): PendingPageQuote | null {
+    const current = this.pageQuote.peek()
+    if (!current || current.target === 'latest') return null
+    const matchesPageChat = Boolean(
+      context.pageID && current.pageID === context.pageID && current.target === (context.conversationID ?? 'new')
+    )
+    const matchesStandaloneChat = Boolean(
+      !context.pageID && !current.pageID && context.conversationID && current.target === context.conversationID
+    )
+    if (!matchesPageChat && !matchesStandaloneChat) return null
+    this.pageQuote.value = null
+    return current
+  }
 
   get(conversationID?: string, pageID?: string, colleagueUID?: string): Model {
     const key = conversationID

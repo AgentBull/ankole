@@ -20,7 +20,9 @@ impl APIProtocol for CohereRerank {
 
 pub(crate) fn build_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
     let mut request = context.resolved_provider_request_object();
-    if context.policy() == ConversionPolicy::Strict {
+    let strict = context.policy() == ConversionPolicy::Strict;
+    strip_non_streaming_flag(&mut request, strict, "cohere_rerank")?;
+    if strict {
         validate_strict_rerank_request(&request)?;
     }
 
@@ -40,52 +42,13 @@ pub(crate) fn on_provider_body(
     status: u16,
     body: Value,
 ) -> Result<Value, StreamError> {
-    let mut object = provider_object_body(status, body, "Cohere rerank")?
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
-
-    let strict = context.policy() == ConversionPolicy::Strict;
-    if strict {
-        validate_rerank_results_contract(status, &object, "Cohere rerank")?;
-    }
-
-    let request = context.resolved_provider_request();
-    let documents = request
-        .get("documents")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let return_documents = if strict {
-        request
-            .get("return_documents")
-            .and_then(Value::as_bool)
-            .unwrap_or(true)
-    } else {
-        true
-    };
-
-    put_default(&mut object, "id", json!(generated_id("rerank")));
-    put_default(&mut object, "model", json!(context.model));
-    object.insert(
-        "results".to_string(),
-        normalize_rerank_results(
-            object.get("results").unwrap_or(&Value::Null),
-            &documents,
-            return_documents,
-            strict,
-        ),
-    );
-    let usage = normalize_cohere_rerank_usage(status, &object)?;
-    if strict && !has_valid_rerank_usage_receipt(Some(&usage)) {
-        return Err(invalid_upstream_body_error(
-            status.max(502),
-            Value::Object(object),
-            "Cohere rerank response is missing valid numeric `usage` receipt",
-        ));
-    }
-    object.insert("usage".to_string(), usage);
-    Ok(Value::Object(object))
+    resolve_rerank_body_with_usage(
+        context,
+        status,
+        body,
+        "Cohere rerank",
+        normalize_cohere_rerank_usage,
+    )
 }
 
 fn serialize_cohere_document(document: &Value) -> Value {
@@ -100,7 +63,7 @@ fn serialize_cohere_document(document: &Value) -> Value {
             let encoded = serde_json::to_string(document).unwrap_or_default();
             Value::String(encoded)
         }
-        other => Value::String(value_to_string(other)),
+        other => Value::String(value_to_text(other)),
     }
 }
 

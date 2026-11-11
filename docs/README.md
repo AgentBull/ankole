@@ -207,13 +207,15 @@ tools/e2e/run --real-llm
 ## Reading Order
 
 1. Start with **this page** to see how subsystems fit together and how messages move end to end.
-2. Read [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) to understand Ankole's deliberate architectural boundaries.
-3. Read the **design document** below for the specific subsystem you plan to modify.
+2. Read [Lifecycle Overview](design-docs/overview.md) to trace the state machines governing chat turns, long-running work, Workers, schedules, sign-in ceremonies, accounts, and startup.
+3. Read [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) to understand Ankole's deliberate architectural boundaries.
+4. Read the **design document** below for the specific subsystem you plan to modify.
 
 ## Document Index
 
 | Document | Scope |
 | --- | --- |
+| [Lifecycle Overview](design-docs/overview.md) | End-to-end state machines for chat turns, long-running work, Workers, schedules, sign-in ceremonies, Human accounts, message batches, peer forwarding, turn workspaces, and site startup |
 | [Tenants](design-docs/Tenants.md) | Site administration, explicit tenant contexts, Base shard isolation, and tenant lifecycle |
 | [AIGateway](design-docs/AIGateway.md) | Model provider routing, stateful Response graphs, context compaction, and generated artifacts |
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token budgets, billing windows, resets, and quota rejection behavior |

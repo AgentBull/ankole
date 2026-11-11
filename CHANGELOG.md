@@ -1,5 +1,26 @@
 # Changelog
 
+## Version 2.0.0-alpha.109 (2026-11-11)
+
+- Filter Base views, Applet record queries, and Base aggregates with `not_is`
+  ("is not") and `in` ("is any of", up to 500 items), matching PostgreSQL null
+  semantics across server and local small-table execution, and search Base
+  records from the CLI with `pod base list-records --search <text>`.
+- Build interactive Applets with `Slider`, `NumberInput`, `DatePicker`,
+  `DateRangePicker`, `FileDropzone`, and `PrincipalBadge` from `@ankole/uikit`,
+  resolve workspace Human and AI colleague profiles via `usePrincipals` and
+  `usePrincipal`, navigate between Pod Pages with `pod.navigateToPage`, and hand
+  off context quotes or prompts to the Page Chat sidebar with `pod.openChat`.
+- Read active source-scoped Brain Facts from Applet backends with
+  `AnkoleRuntime.brain.listFacts`, and include resolved `holderUid` fields on
+  Applet Fact and Take payloads for Principal badges and Brier calibration
+  views.
+- Preserve queued user inputs when editing the last message of an idle Pod
+  conversation, open conversation-summary files directly in the Chat preview
+  pane, keep portrait and landscape PDF first-page thumbnails at their true
+  aspect ratio, and unfurl `application/xhtml+xml` links while unwrapping empty
+  list items when converting pasted URLs into cards or previews.
+
 ## Version 2.0.0-alpha.108 (2026-11-11)
 
 - Let an Agent show a small interactive UI inside a reply in Pod Chat. A fenced

@@ -35,9 +35,9 @@ impl APIProtocol for GoogleEmbeddings {
 
 pub(crate) fn build_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
     let mut request = context.resolved_provider_request_object();
-    // Embeddings never stream; the context flag is not a provider parameter.
-    request.remove("stream");
-    if context.policy() == ConversionPolicy::Strict {
+    let strict = context.policy() == ConversionPolicy::Strict;
+    strip_non_streaming_flag(&mut request, strict, "google_embeddings")?;
+    if strict {
         validate_strict_google_embeddings_request(&request)?;
     }
 
@@ -89,11 +89,11 @@ pub(crate) fn on_provider_body(
     }
 
     let usage = normalize_google_embedding_usage(&object);
-    if context.policy() == ConversionPolicy::Strict && !has_valid_embeddings_usage(&usage) {
+    if context.policy() == ConversionPolicy::Strict && !has_valid_google_embeddings_usage(&usage) {
         return Err(invalid_upstream_body_error(
             status.max(502),
             object,
-            "Google embeddings response is missing valid numeric `usage`",
+            "Google embeddings response did not contain valid `usage` or `usageMetadata`",
         ));
     }
 
@@ -132,13 +132,13 @@ fn validate_strict_google_embeddings_request(
 
     match request.get("input") {
         Some(Value::String(text)) if !text.is_empty() => {}
-        Some(Value::Array(items)) if !items.is_empty() && valid_embeddings_array(items) => {}
+        Some(Value::Array(items)) if !items.is_empty() && valid_google_embeddings_array(items) => {}
         Some(Value::Object(map)) if !map.is_empty() => {}
         _ => {
             return Err(StreamError::new(
                 "invalid_embeddings_input",
                 "api_resolver",
-                "google_embeddings requires a non-empty `input`",
+                "google_embeddings requires a non-empty string, multimodal content object, or batch array `input`",
             )
             .provider_status(400));
         }
@@ -348,6 +348,22 @@ fn normalize_and_validate_google_vectors(
     Ok(())
 }
 
+fn valid_google_embeddings_array(items: &[Value]) -> bool {
+    items.iter().all(|item| match item {
+        Value::String(text) => !text.is_empty(),
+        Value::Object(map) => !map.is_empty(),
+        _ => false,
+    })
+}
+
+fn has_valid_google_embeddings_usage(usage: &Value) -> bool {
+    has_valid_embeddings_usage(usage)
+        || usage
+            .as_object()
+            .and_then(|map| map.get("billable_characters"))
+            .is_some_and(|v| v.as_u64().is_some())
+}
+
 fn normalize_google_embedding_usage(body: &Value) -> Value {
     if let Some(usage) = body.get("usage").filter(|value| value.is_object()) {
         return usage.clone();
@@ -376,20 +392,21 @@ fn normalize_google_embedding_usage(body: &Value) -> Value {
             .get("totalTokenCount")
             .and_then(Value::as_u64)
             .or(prompt_tokens);
+        let billable_chars = metadata
+            .get("billableCharacterCount")
+            .and_then(Value::as_u64);
 
-        return match (prompt_tokens, total_tokens) {
-            (None, None) => json!({}),
-            (prompt, total) => {
-                let mut usage = Map::new();
-                if let Some(prompt) = prompt {
-                    usage.insert("prompt_tokens".to_string(), json!(prompt));
-                }
-                if let Some(total) = total {
-                    usage.insert("total_tokens".to_string(), json!(total));
-                }
-                Value::Object(usage)
-            }
-        };
+        let mut usage = Map::new();
+        if let Some(prompt) = prompt_tokens {
+            usage.insert("prompt_tokens".to_string(), json!(prompt));
+        }
+        if let Some(total) = total_tokens {
+            usage.insert("total_tokens".to_string(), json!(total));
+        }
+        if let Some(chars) = billable_chars {
+            usage.insert("billable_characters".to_string(), json!(chars));
+        }
+        return Value::Object(usage);
     }
 
     json!({})

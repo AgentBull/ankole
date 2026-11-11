@@ -42,6 +42,7 @@ defmodule Ankole.Brain do
     as: :execute
 
   defdelegate applet_list_takes(actor, options), to: Ankole.Brain.AppletTakes, as: :list
+  defdelegate applet_list_facts(actor, options), to: Ankole.Brain.AppletTakes, as: :list_facts
   defdelegate applet_write_take(actor, options), to: Ankole.Brain.AppletTakes, as: :write
   defdelegate applet_calibration(actor, options), to: Ankole.Brain.AppletTakes, as: :calibration
 

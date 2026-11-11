@@ -96,8 +96,8 @@ defmodule Ankole.Pod.Pages.LinkPreview do
     head =
       raw_html
       |> ensure_valid_utf8()
-      |> extract_head_slice()
       |> strip_head_noise()
+      |> extract_head_slice()
 
     metas = extract_meta_tags(head)
     links = extract_link_tags(head)
@@ -144,12 +144,12 @@ defmodule Ankole.Pod.Pages.LinkPreview do
     if trimmed == "" or byte_size(trimmed) > @max_url_bytes or contains_control_bytes?(trimmed) do
       {:error, :invalid_url}
     else
-      case URI.new(trimmed) do
-        {:ok, %URI{scheme: scheme, host: host, userinfo: nil} = uri}
-        when scheme in ["http", "https"] and is_binary(host) and host != "" ->
-          normalized_path = if uri.path in [nil, ""], do: "/", else: uri.path
-          {:ok, URI.to_string(%{uri | path: normalized_path, fragment: nil})}
-
+      with {:ok, ascii} <- iri_to_ascii_url(trimmed),
+           {:ok, %URI{scheme: scheme, host: host, userinfo: nil} = uri}
+           when scheme in ["http", "https"] and is_binary(host) and host != "" <- URI.new(ascii) do
+        normalized_path = if uri.path in [nil, ""], do: "/", else: uri.path
+        {:ok, URI.to_string(%{uri | path: normalized_path, fragment: nil})}
+      else
         _invalid ->
           {:error, :invalid_url}
       end
@@ -321,7 +321,7 @@ defmodule Ankole.Pod.Pages.LinkPreview do
           end
 
         {:error, _conn, :closed, responses} when responses != [] ->
-          case apply_mint_responses(responses, %{state | done?: true}) do
+          case apply_mint_responses(responses, state) do
             {:ok, next_state} -> do_receive_head_loop(%{next_state | done?: true}, deadline)
             {:error, _} = error -> error
           end
@@ -336,9 +336,15 @@ defmodule Ankole.Pod.Pages.LinkPreview do
   defp apply_mint_responses(responses, initial) do
     Enum.reduce_while(responses, {:ok, initial}, fn message, {:ok, state} ->
       case apply_mint_message(message, state) do
-        {:ok, %{done?: true} = halted} -> {:halt, {:ok, halted}}
-        {:ok, next} -> {:cont, {:ok, next}}
-        {:error, _} = error -> {:halt, error}
+        {:ok, %{done?: true} = halted} ->
+          {:halt, {:ok, halted}}
+
+        {:ok, next} ->
+          {:cont, {:ok, next}}
+
+        {:error, _} = error ->
+          close_zstream(state.zstream)
+          {:halt, error}
       end
     end)
   end
@@ -363,8 +369,14 @@ defmodule Ankole.Pod.Pages.LinkPreview do
   end
 
   defp apply_mint_message({:data, ref, chunk}, %{ref: ref} = state) when is_binary(chunk) do
-    with {:ok, decoded} <- decode_chunk(state.zstream, chunk) do
-      append_body_chunk(state, decoded)
+    remaining = max(@max_body_bytes - state.bytes, 0)
+
+    if remaining == 0 do
+      {:ok, %{state | done?: true}}
+    else
+      with {:ok, decoded} <- decode_chunk(state.zstream, chunk, remaining) do
+        append_body_chunk(state, decoded)
+      end
     end
   end
 
@@ -380,14 +392,25 @@ defmodule Ankole.Pod.Pages.LinkPreview do
     slice = if byte_size(chunk) > remaining, do: binary_part(chunk, 0, remaining), else: chunk
     bytes = state.bytes + byte_size(slice)
     window = state.tail <> slice
-    done? = bytes >= @max_body_bytes or contains_head_close?(window)
+    next_chunks = [slice | state.chunks]
+
+    head_closed? =
+      contains_head_close?(window) and
+        next_chunks
+        |> Enum.reverse()
+        |> IO.iodata_to_binary()
+        |> ensure_valid_utf8()
+        |> strip_head_noise()
+        |> contains_head_close?()
+
+    done? = bytes >= @max_body_bytes or head_closed?
 
     {:ok,
      %{
        state
        | bytes: bytes,
          tail: tail_bytes(window, 6),
-         chunks: [slice | state.chunks],
+         chunks: next_chunks,
          done?: done?
      }}
   end
@@ -406,12 +429,30 @@ defmodule Ankole.Pod.Pages.LinkPreview do
 
   defp maybe_open_zstream(existing, _encoding), do: existing
 
-  defp decode_chunk(nil, chunk), do: {:ok, chunk}
+  defp decode_chunk(nil, chunk, _limit), do: {:ok, chunk}
 
-  defp decode_chunk(zstream, chunk) do
-    {:ok, IO.iodata_to_binary(:zlib.inflate(zstream, chunk))}
+  defp decode_chunk(zstream, chunk, limit) do
+    inflate_bounded(zstream, chunk, [], 0, limit)
   rescue
     ErlangError -> {:error, :invalid_compressed_body}
+  end
+
+  defp inflate_bounded(zstream, data, parts, size, limit) do
+    case :zlib.safeInflate(zstream, data) do
+      {:continue, output} ->
+        next_size = size + IO.iodata_length(output)
+        next_parts = [parts, output]
+
+        if next_size >= limit,
+          do: {:ok, IO.iodata_to_binary(next_parts)},
+          else: inflate_bounded(zstream, [], next_parts, next_size, limit)
+
+      {:finished, output} ->
+        {:ok, IO.iodata_to_binary([parts, output])}
+
+      {:need_dictionary, _adler, _output} ->
+        {:error, :invalid_compressed_body}
+    end
   end
 
   defp close_zstream(nil), do: :ok
@@ -496,8 +537,12 @@ defmodule Ankole.Pod.Pages.LinkPreview do
   end
 
   defp resolve_redirect_url(current_url, location) do
-    merged = current_url |> URI.parse() |> URI.merge(String.trim(location)) |> URI.to_string()
-    normalize_http_url(merged)
+    with {:ok, ref} <- iri_reference_to_ascii(String.trim(location)) do
+      merged = current_url |> URI.parse() |> URI.merge(ref) |> URI.to_string()
+      normalize_http_url(merged)
+    else
+      _ -> {:error, :invalid_redirect}
+    end
   rescue
     ArgumentError -> {:error, :invalid_redirect}
   end
@@ -565,9 +610,12 @@ defmodule Ankole.Pod.Pages.LinkPreview do
   defp meta_content(metas, keys) do
     Enum.find_value(keys, fn target ->
       Enum.find_value(metas, fn attrs ->
-        key = String.downcase(attrs["property"] || attrs["name"] || attrs["itemprop"] || "")
+        matched? =
+          Enum.any?(["property", "name", "itemprop"], fn attr ->
+            String.downcase(attrs[attr] || "") == target
+          end)
 
-        if key == target do
+        if matched? do
           clean_text(attrs["content"])
         end
       end)
@@ -608,11 +656,12 @@ defmodule Ankole.Pod.Pages.LinkPreview do
   defp resolve_web_asset_url("", _base_url), do: nil
 
   defp resolve_web_asset_url(candidate, base_url) do
-    merged = base_url |> URI.parse() |> URI.merge(String.trim(candidate)) |> URI.to_string()
-
-    case normalize_http_url(merged) do
-      {:ok, valid} -> valid
-      {:error, _} -> nil
+    with {:ok, ref} <- iri_reference_to_ascii(String.trim(candidate)),
+         merged <- base_url |> URI.parse() |> URI.merge(ref) |> URI.to_string(),
+         {:ok, valid} <- normalize_http_url(merged) do
+      valid
+    else
+      _ -> nil
     end
   rescue
     ArgumentError -> nil
@@ -701,5 +750,89 @@ defmodule Ankole.Pod.Pages.LinkPreview do
     value
     |> :binary.bin_to_list()
     |> Enum.any?(fn byte -> byte <= 0x1F or byte == 0x7F end)
+  end
+
+  defp iri_to_ascii_url(raw) do
+    case Regex.run(~r/\A([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^\/?#]*)(.*)\z/su, raw,
+           capture: :all_but_first
+         ) do
+      [scheme_sep, authority, rest] ->
+        with {:ok, ascii_authority} <- ascii_authority(authority) do
+          {:ok, scheme_sep <> ascii_authority <> percent_encode_iri(rest)}
+        end
+
+      _ ->
+        {:error, :invalid_url}
+    end
+  end
+
+  defp iri_reference_to_ascii(raw) do
+    cond do
+      raw == "" or contains_control_bytes?(raw) ->
+        {:error, :invalid_url}
+
+      Regex.match?(~r/\A[a-zA-Z][a-zA-Z0-9+.-]*:\/\//u, raw) ->
+        iri_to_ascii_url(raw)
+
+      String.starts_with?(raw, "//") ->
+        case Regex.run(~r/\A\/\/([^\/?#]*)(.*)\z/su, raw, capture: :all_but_first) do
+          [authority, rest] ->
+            with {:ok, ascii_authority} <- ascii_authority(authority) do
+              {:ok, "//" <> ascii_authority <> percent_encode_iri(rest)}
+            end
+
+          _ ->
+            {:error, :invalid_url}
+        end
+
+      true ->
+        {:ok, percent_encode_iri(raw)}
+    end
+  end
+
+  defp ascii_authority(authority) do
+    cond do
+      authority == "" or String.contains?(authority, "@") ->
+        {:error, :invalid_url}
+
+      String.starts_with?(authority, "[") ->
+        {:ok, authority}
+
+      true ->
+        {host, port_suffix} =
+          case String.split(authority, ":", parts: 2) do
+            [h, p] -> {h, ":" <> p}
+            [h] -> {h, ""}
+          end
+
+        with {:ok, ascii_host} <- idna_host(host) do
+          {:ok, ascii_host <> port_suffix}
+        end
+    end
+  end
+
+  defp idna_host(""), do: {:error, :invalid_url}
+
+  defp idna_host(host) do
+    if String.printable?(host) and Enum.all?(:binary.bin_to_list(host), &(&1 < 0x80)) do
+      {:ok, host}
+    else
+      encoded = host |> String.to_charlist() |> :idna.encode() |> List.to_string()
+      {:ok, encoded}
+    end
+  rescue
+    _ -> {:error, :invalid_url}
+  catch
+    _, _ -> {:error, :invalid_url}
+  end
+
+  defp percent_encode_iri(binary) do
+    for <<byte <- binary>>, into: "" do
+      if byte >= 0x80 or byte == ?\s do
+        "%" <> Base.encode16(<<byte>>)
+      else
+        <<byte>>
+      end
+    end
   end
 end

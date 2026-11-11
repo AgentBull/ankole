@@ -119,4 +119,46 @@ describe('Pod conversation drafts', () => {
     expect(drafts.localPageDrafts('confirmed-page').map(draft => draft.text)).toEqual(['A locally authored request'])
     expect(drafts.localPageDrafts('unconfirmed-page')).toEqual([])
   })
+
+  test('pageQuote waits for target conversation resolution instead of leaking into an open sibling chat', () => {
+    const drafts = new ChatDrafts()
+    drafts.pageQuote.value = {
+      pageID: 'applet-page-1',
+      target: 'latest',
+      quote: 'SKU-42 stockout in 6 days',
+      prompt: 'Draft a purchase order proposal for SKU-42.'
+    }
+
+    // Neither a fresh 'new' draft nor an unrelated open conversation may consume while 'latest' is unresolved.
+    expect(drafts.consumePageQuote({ pageID: 'applet-page-1' })).toBeNull()
+    expect(drafts.consumePageQuote({ pageID: 'applet-page-1', conversationID: 'conv-other' })).toBeNull()
+
+    drafts.resolvePageQuoteTarget('applet-page-1', 'conv-target')
+    expect(drafts.consumePageQuote({ pageID: 'applet-page-1', conversationID: 'conv-other' })).toBeNull()
+    expect(drafts.consumePageQuote({ pageID: 'applet-page-1', conversationID: 'conv-target' })).toEqual({
+      pageID: 'applet-page-1',
+      target: 'conv-target',
+      quote: 'SKU-42 stockout in 6 days',
+      prompt: 'Draft a purchase order proposal for SKU-42.'
+    })
+    expect(drafts.pageQuote.value).toBeNull()
+
+    // Standalone /conversations/:id handoff when assistant panel is unavailable.
+    drafts.pageQuote.value = {
+      sourcePageID: 'applet-page-1',
+      target: 'conv-standalone',
+      prompt: 'Review supplier lead time.'
+    }
+    expect(drafts.consumePageQuote({ conversationID: 'conv-other' })).toBeNull()
+    expect(drafts.consumePageQuote({ conversationID: 'conv-standalone' })).toEqual({
+      sourcePageID: 'applet-page-1',
+      target: 'conv-standalone',
+      prompt: 'Review supplier lead time.'
+    })
+
+    // Closing the sheet before 'latest' resolves clears the pending handoff rather than leaving stale state.
+    drafts.pageQuote.value = { pageID: 'applet-page-1', target: 'latest', quote: 'Canceled quote' }
+    drafts.resolvePageQuoteTarget('applet-page-1', null)
+    expect(drafts.pageQuote.value).toBeNull()
+  })
 })

@@ -130,6 +130,7 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
       }),
       brain: Object.freeze({
         listTakes: (options: unknown) => invoke('brain.listTakes', [options]),
+        listFacts: (options: unknown) => invoke('brain.listFacts', [options]),
         writeTake: (options: unknown) => invoke('brain.writeTake', [options]),
         calibration: (options: unknown) => invoke('brain.calibration', [options])
       }),

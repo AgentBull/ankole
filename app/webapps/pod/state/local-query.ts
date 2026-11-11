@@ -9,6 +9,8 @@ const FILTER_KEYS = new Set(['conjunction', 'conditions'])
 const CONDITION_KEYS = new Set(['field_id', 'operator', 'value'])
 const CONDITION_OPERATORS = new Set([
   'is',
+  'not_is',
+  'in',
   'contains',
   'is_empty',
   'is_not_empty',
@@ -30,6 +32,7 @@ function hasOnlyAllowedKeys(record: object, allowed: ReadonlySet<string>): boole
 
 const numeric = (field?: BaseField) => !!field && effectiveFieldType(field) === 'number'
 const datetime = (field?: BaseField) => !!field && effectiveFieldType(field) === 'datetime'
+const attribution = (field?: BaseField) => !!field && (field.type === 'created_by' || field.type === 'updated_by')
 const canonicalDatetime = (value: unknown) => {
   if (value === null) return true
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value)) return false
@@ -64,6 +67,20 @@ export function canQueryLocally(schema: TableSchema, query: RecordQuery): boolea
       const definition = field(condition.field_id)
       if (['is_empty', 'is_not_empty'].includes(condition.operator)) return true
       if (numeric(definition)) return false
+      if (condition.operator === 'in') {
+        if (
+          !Array.isArray(condition.value) ||
+          condition.value.length > 500 ||
+          condition.value.some(item => item === null || item === undefined)
+        ) {
+          return false
+        }
+        return (
+          !datetime(definition) || condition.value.every(item => typeof item === 'string' && canonicalDatetime(item))
+        )
+      }
+      if (condition.value === null || condition.value === undefined) return false
+      if (attribution(definition) && ['gt', 'gte', 'lt', 'lte'].includes(condition.operator)) return false
       if (datetime(definition) && !canonicalDatetime(condition.value)) return false
       if (condition.operator === 'text_contains') return !!schema.local_query?.text_contains_ascii
       return (
@@ -77,6 +94,7 @@ export function canQueryLocally(schema: TableSchema, query: RecordQuery): boolea
         hasOnlyAllowedKeys(sort, SORT_KEYS) &&
         (sort.direction === 'asc' || sort.direction === 'desc') &&
         !numeric(field(sort.field_id)) &&
+        !attribution(field(sort.field_id)) &&
         (!array(field(sort.field_id)) || !!schema.local_query?.jsonb_compare)
     )
   )

@@ -30,9 +30,9 @@ impl APIProtocol for OpenAIEmbeddings {
 
 pub(crate) fn build_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
     let mut request = context.resolved_provider_request_object();
-    // Embeddings never stream; the context flag is not a provider parameter.
-    request.remove("stream");
-    if context.policy() == ConversionPolicy::Strict {
+    let strict = context.policy() == ConversionPolicy::Strict;
+    strip_non_streaming_flag(&mut request, strict, "openai_embeddings")?;
+    if strict {
         validate_strict_openai_embeddings_request(&request)?;
     }
 
@@ -71,51 +71,38 @@ pub(crate) fn on_provider_body(
     status: u16,
     body: Value,
 ) -> Result<Value, StreamError> {
-    let mut object = provider_object_body(status, body, "OpenAI embeddings")?
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    normalize_embedding_body(
+        context,
+        status,
+        body,
+        "OpenAI embeddings",
+        normalize_openai_embedding_data,
+    )
+}
 
-    if context.policy() == ConversionPolicy::Strict {
-        validate_strict_embeddings_response(status, &mut object, context, "OpenAI embeddings")?;
-    }
-
-    put_default(&mut object, "object", json!("list"));
-    put_default(&mut object, "model", json!(context.model));
-
-    let data = match object.get("data").and_then(Value::as_array) {
-        Some(items) => Value::Array(
-            items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| {
-                    let Some(map) = item.as_object() else {
-                        return json!({
-                            "object": "embedding",
-                            "embedding": item,
-                            "index": index
-                        });
-                    };
-                    let mut normalized = map.clone();
-                    put_default(&mut normalized, "object", json!("embedding"));
-                    put_default(&mut normalized, "index", json!(index));
-                    Value::Object(normalized)
-                })
-                .collect(),
-        ),
-        None => json!([]),
+fn normalize_openai_embedding_data(data: &Value) -> Value {
+    let Some(items) = data.as_array() else {
+        return json!([]);
     };
-    object.insert("data".to_string(), data);
-    object.insert(
-        "usage".to_string(),
-        object
-            .get("usage")
-            .filter(|value| value.is_object())
-            .cloned()
-            .unwrap_or_else(|| json!({})),
-    );
-
-    Ok(Value::Object(object))
+    Value::Array(
+        items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let Some(map) = item.as_object() else {
+                    return json!({
+                        "object": "embedding",
+                        "embedding": item,
+                        "index": index
+                    });
+                };
+                let mut normalized = map.clone();
+                put_default(&mut normalized, "object", json!("embedding"));
+                put_default(&mut normalized, "index", json!(index));
+                Value::Object(normalized)
+            })
+            .collect(),
+    )
 }
 
 fn validate_strict_openai_embeddings_request(

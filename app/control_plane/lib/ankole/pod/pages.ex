@@ -111,10 +111,28 @@ defmodule Ankole.Pod.Pages do
   def create(%Ankole.AuthZ.Actor{} = actor, attrs, authority \\ nil) when is_map(attrs) do
     authority = authority || actor.turn_authority
 
-    Access.write_tree(authority, fn -> create_in_tx(actor, attrs) end,
-      root_ids: fn -> destination_root_ids(actor, attrs) end,
-      after_commit: &committed_tree/1
-    )
+    case Access.write_tree(authority, fn -> create_in_tx(actor, attrs) end,
+           root_ids: fn -> destination_root_ids(actor, attrs) end,
+           after_commit: &committed_tree/1
+         ) do
+      {:ok, page} = ok ->
+        :telemetry.execute(
+          [:ankole, :pod, :page, :created],
+          %{count: 1},
+          %{
+            tenant_id: page.tenant_id,
+            page_id: page.id,
+            page_type: page.type,
+            actor_type: Map.get(actor.principal, :type),
+            actor_uid: Ankole.AuthZ.Actor.uid(actor)
+          }
+        )
+
+        ok
+
+      other ->
+        other
+    end
   end
 
   @doc "Creates a page in the caller's transaction."

@@ -2711,7 +2711,18 @@ export type PodBaseQueryData = {
       filter?: {
         conditions: Array<{
           field_id: string
-          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+          operator:
+            | 'is'
+            | 'not_is'
+            | 'in'
+            | 'contains'
+            | 'is_empty'
+            | 'is_not_empty'
+            | 'gt'
+            | 'gte'
+            | 'lt'
+            | 'lte'
+            | 'text_contains'
           value?: unknown | null
         }>
         conjunction: 'and' | 'or'
@@ -5338,7 +5349,18 @@ export type PodBaseCopyData = {
       filter?: {
         conditions: Array<{
           field_id: string
-          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+          operator:
+            | 'is'
+            | 'not_is'
+            | 'in'
+            | 'contains'
+            | 'is_empty'
+            | 'is_not_empty'
+            | 'gt'
+            | 'gte'
+            | 'lt'
+            | 'lte'
+            | 'text_contains'
           value?: unknown | null
         }>
         conjunction: 'and' | 'or'
@@ -6242,13 +6264,26 @@ export type PodBaseAggregateData = {
           filter?: {
             conditions: Array<{
               field_id: string
-              operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+              operator:
+                | 'is'
+                | 'not_is'
+                | 'in'
+                | 'contains'
+                | 'is_empty'
+                | 'is_not_empty'
+                | 'gt'
+                | 'gte'
+                | 'lt'
+                | 'lte'
+                | 'text_contains'
               value?: unknown | null
             }>
             conjunction: 'and' | 'or'
           } | null
           operator:
             | 'is'
+            | 'not_is'
+            | 'in'
             | 'contains'
             | 'is_empty'
             | 'is_not_empty'
@@ -6275,7 +6310,18 @@ export type PodBaseAggregateData = {
         filter?: {
           conditions: Array<{
             field_id: string
-            operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+            operator:
+              | 'is'
+              | 'not_is'
+              | 'in'
+              | 'contains'
+              | 'is_empty'
+              | 'is_not_empty'
+              | 'gt'
+              | 'gte'
+              | 'lt'
+              | 'lte'
+              | 'text_contains'
             value?: unknown | null
           }>
           conjunction: 'and' | 'or'

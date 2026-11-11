@@ -51,9 +51,10 @@ import {
   RiLayoutColumnLine,
   RiTableLine
 } from '@remixicon/react'
+import { podLocation } from '../common/pod-url'
 import { contentKeys, limitPageTitle, podFileURL, podRequest, type PageDetail } from './content-api'
 import { ErrorBoundary } from '../common/error-boundary'
-import { useContent } from './content-context'
+import { useContent, usePageHost } from './content-context'
 import { usePageHref } from './use-page-metadata'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
@@ -113,7 +114,8 @@ export function BasePage({
   bindSavedView?: (viewID: string, table?: string) => void
   embedded?: boolean
 }) {
-  const { base, realtime, readDenial } = useContent()
+  const { base, realtime, readDenial, principals, pageHref } = useContent()
+  const pageHost = usePageHost()
   const { resolvedTheme } = useTheme()
   const theme = resolvedTheme === 'dark' ? 'dark' : 'light'
   const client = useQueryClient()
@@ -134,7 +136,18 @@ export function BasePage({
       runs: createAppletRuns(client, realtime, detail.page.id),
       pod: {
         request: podRequest,
-        fileURL: target => podFileURL(detail.page.id, target)
+        fileURL: target => podFileURL(detail.page.id, target),
+        navigateToPage(targetPageID) {
+          const trimmed = targetPageID.trim()
+          if (!trimmed) return
+          if (pageHost) pageHost.navigateToPage(trimmed)
+          else if (typeof window !== 'undefined') window.location.assign(podLocation(pageHref(trimmed)).pathname)
+        },
+        openChat(options) {
+          pageHost?.openChat(options)
+        },
+        principalsKey: [...contentKeys.all, 'principals'],
+        principals
       },
       channel: name => realtime.channel(detail.page.id, name),
       principal: realtime.principal,
@@ -150,6 +163,9 @@ export function BasePage({
       readDenial,
       base,
       realtime,
+      pageHost,
+      principals,
+      pageHref,
       theme
     ]
   )

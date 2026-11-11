@@ -83,7 +83,8 @@ defmodule Ankole.Pod.Applets.Capabilities do
              do: {:ok, caller}
 
       admin? ->
-        with {:ok, principal} <- Ankole.Pod.Applets.owner(page) do
+        with {:ok, owner} <- Ankole.Pod.Applets.owner(page),
+             {:ok, principal} <- resolve_admin_principal(owner, operation) do
           authority = Ankole.AutomationJobs.applet_attempt_authority(context, principal.uid)
 
           {:ok,
@@ -100,6 +101,21 @@ defmodule Ankole.Pod.Applets.Capabilities do
              do: {:ok, caller}
     end
   end
+
+  defp resolve_admin_principal(%{type: :agent} = owner, "notifications.post") do
+    case Ankole.Principals.authority_uid(owner.uid) do
+      uid when uid != owner.uid ->
+        case Ankole.Principals.get_principal(uid) do
+          {:ok, %{type: :human, status: :active} = human} -> {:ok, human}
+          _ -> {:error, :applet_owner_unavailable}
+        end
+
+      _ ->
+        {:ok, owner}
+    end
+  end
+
+  defp resolve_admin_principal(owner, _operation), do: {:ok, owner}
 
   defp dispatch_context(context, _page, _actor, _caller, "state." <> operation, args),
     do: Ankole.AutomationJobs.applet_state(context, operation, args)
@@ -145,6 +161,9 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   defp dispatch(_page, actor, "brain.listTakes", [options]) when is_map(options),
     do: Ankole.Brain.applet_list_takes(actor, options)
+
+  defp dispatch(_page, actor, "brain.listFacts", [options]) when is_map(options),
+    do: Ankole.Brain.applet_list_facts(actor, options)
 
   defp dispatch(_page, actor, "brain.writeTake", [options]) when is_map(options),
     do: Ankole.Brain.applet_write_take(actor, options)

@@ -1,6 +1,6 @@
 import type { Element } from './tree'
 
-const attributes: Record<string, readonly string[]> = {
+export const knowledgeAttributes: Readonly<Record<string, readonly string[]>> = {
   page: [],
   p: [],
   h1: [],
@@ -37,7 +37,7 @@ const attributes: Record<string, readonly string[]> = {
  * with the kernel codec, including plain `<mermaid>` diagrams without display attributes.
  */
 export function validateKnowledge(tree: Element): Element {
-  const allowed = attributes[tree.name]
+  const allowed = knowledgeAttributes[tree.name]
   if (!allowed) throw new Error(`Knowledge pages do not support <${tree.name}>.`)
   for (const key of Object.keys(tree.attrs)) {
     if (!allowed.includes(key)) throw new Error(`Knowledge pages do not support ${tree.name}.${key}.`)

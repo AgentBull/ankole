@@ -3,9 +3,10 @@ import { fromMarkdown } from 'mdast-util-from-markdown'
 import { mathFromMarkdown } from 'mdast-util-math'
 import { math } from 'micromark-extension-math'
 import { mdxMd } from 'micromark-extension-mdx-md'
-import { validateKnowledge } from './knowledge'
-import { parseMarkdown, type MarkdownMode } from './markdown'
+import { knowledgeAttributes, validateKnowledge } from './knowledge'
+import { readMarkdownTree, type MarkdownMode } from './markdown'
 import { normalizeTree } from './normalize'
+import { safeLinkHref } from './resources'
 import { applySourceEdits, codeRanges, isEscaped, isLinkDestination, scanTag, type SourceEdit } from './tags'
 import { element, removeInvalidCharacters, text, textOf, type Element, type Node } from './tree'
 import { ruleOf } from './vocabulary'
@@ -27,38 +28,6 @@ const htmlInlineAliases: Readonly<Record<string, string>> = {
 }
 
 const transparentWrappers = new Set(['details', 'summary', 'center'])
-
-const knowledgeAllowedAttrs: Readonly<Record<string, readonly string[]>> = {
-  page: [],
-  p: [],
-  h1: [],
-  h2: [],
-  h3: [],
-  h4: [],
-  h5: [],
-  h6: [],
-  strong: [],
-  em: [],
-  s: [],
-  code: [],
-  br: [],
-  hr: [],
-  blockquote: [],
-  ul: [],
-  mermaid: [],
-  table: [],
-  tr: [],
-  a: ['href', 'title'],
-  img: ['src', 'alt', 'title'],
-  ol: ['start'],
-  li: ['task'],
-  pre: ['lang', 'meta'],
-  callout: ['tone', 'icon'],
-  th: ['align'],
-  td: ['align'],
-  media: ['src', 'title', 'description', 'kind'],
-  mention: ['page', 'principal']
-}
 
 /** Extract leading YAML frontmatter when every line inside the `---` block has YAML structure. */
 function extractYamlFrontmatter(source: string): { body: string; title?: string } {
@@ -343,16 +312,16 @@ function cleanNode(node: Node, mode: MarkdownMode): Node[] {
       return node.children.flatMap(child => cleanNode(child, mode))
     }
     if (node.name === 'embed') {
-      const href = node.attrs.href?.trim()
-      if (!href) return []
-      const label = node.attrs.title?.trim() || href
-      return [element('p', {}, [element('a', { href }, [text(label)])])]
+      const safeHref = node.attrs.href ? safeLinkHref(node.attrs.href) : null
+      if (!safeHref) return []
+      const label = node.attrs.title?.trim() || safeHref
+      return [element('p', {}, [element('a', { href: safeHref }, [text(label)])])]
     }
     if (node.name === 'media' && node.attrs.kind && node.attrs.kind !== 'image') {
-      const src = node.attrs.src?.trim()
-      if (!src) return []
-      const label = node.attrs.title?.trim() || src
-      return [element('p', {}, [element('a', { href: src }, [text(label)])])]
+      const safeSrc = node.attrs.src ? safeLinkHref(node.attrs.src) : null
+      if (!safeSrc) return []
+      const label = node.attrs.title?.trim() || safeSrc
+      return [element('p', {}, [element('a', { href: safeSrc }, [text(label)])])]
     }
   }
 
@@ -362,7 +331,7 @@ function cleanNode(node: Node, mode: MarkdownMode): Node[] {
     return content ? [text(content)] : []
   }
 
-  const knowledgeAllowed = mode === 'knowledge' ? knowledgeAllowedAttrs[node.name] : undefined
+  const knowledgeAllowed = mode === 'knowledge' ? knowledgeAttributes[node.name] : undefined
   const attrs: Record<string, string> = {}
   for (const [key, val] of Object.entries(node.attrs)) {
     if (!Object.hasOwn(rule.attributes, key)) continue
@@ -374,7 +343,21 @@ function cleanNode(node: Node, mode: MarkdownMode): Node[] {
 
   const children = node.children.flatMap(child => cleanNode(child, mode))
 
-  if (node.name === 'a' && !attrs.href?.trim()) return children
+  if (node.name === 'a') {
+    const safeHref = attrs.href ? safeLinkHref(attrs.href) : null
+    if (!safeHref) return children
+    attrs.href = safeHref
+  }
+  if (node.name === 'embed' && attrs.href) {
+    const safeHref = safeLinkHref(attrs.href)
+    if (safeHref) attrs.href = safeHref
+    else delete attrs.href
+  }
+  if ((node.name === 'img' || node.name === 'media') && attrs.src) {
+    const safeSrc = safeLinkHref(attrs.src)
+    if (safeSrc) attrs.src = safeSrc
+    else delete attrs.src
+  }
   if (node.name === 'img' && !attrs.src?.trim()) return []
   if (node.name === 'media' && !attrs.src?.trim()) return []
   if (node.name === 'embed' && !attrs.ref?.trim() && !attrs.href?.trim()) return []
@@ -398,10 +381,10 @@ export function parsePastedMarkdown(raw: string, mode: MarkdownMode = 'doc'): El
   if (!cleaned.trim()) return null
   const prepped = preprocessMarkdown(extractYamlFrontmatter(cleaned).body)
   try {
-    return cleanPastedPage(parseMarkdown(rewritePastedMarkup(prepped), mode), mode)
+    return readMarkdownTree(rewritePastedMarkup(prepped), mode, tree => cleanPastedPage(tree, mode))
   } catch {
     try {
-      return cleanPastedPage(parseMarkdown(escapeAllTagsOutsideCode(prepped), mode), mode)
+      return readMarkdownTree(escapeAllTagsOutsideCode(prepped), mode, tree => cleanPastedPage(tree, mode))
     } catch {
       return null
     }

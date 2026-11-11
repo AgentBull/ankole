@@ -77,7 +77,10 @@ test('distinct SDK generations use one host cache subscription that the host can
       request: unused,
       fileURL: () => {
         throw new Error('This fixture exercises route reads')
-      }
+      },
+      navigateToPage: () => {},
+      openChat: () => {},
+      principals: async () => []
     },
     theme: 'light',
     channel() {

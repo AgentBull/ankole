@@ -12,7 +12,7 @@ export type AppletJob = {
 }
 
 /** Published Action discovery, Job configuration, and its latest 100 Runs. */
-export function createAppletJobs(pod: PodAPI, pageID: string) {
+export function createAppletJobs(pod: Pick<PodAPI, 'request'>, pageID: string) {
   const root = `/pages/${encodeURIComponent(pageID)}`
   return {
     actions: async () => (await pod.request<{ actions: string[] }>(`${root}/job-actions`)).actions,

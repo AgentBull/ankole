@@ -584,6 +584,8 @@ export function SelectionToolbar() {
     return () => {
       cancelAnimationFrame(frame)
       clearHoverTimer()
+      viewMenuOpen.current = false
+      refresh.current = () => {}
       document.removeEventListener('focusin', update)
       document.removeEventListener('focusout', update)
       document.removeEventListener('pointerup', pointerUp)
@@ -650,6 +652,7 @@ export function SelectionToolbar() {
   const switchInlineView = async (target: LinkInfo, nextView: ResourceView) => {
     clearHoverTimer()
     hovered.current = null
+    viewMenuOpen.current = false
     if (nextView === 'title') setUnfurling(true)
     try {
       await convertInlineLinkView(editor, target, nextView)
@@ -659,7 +662,10 @@ export function SelectionToolbar() {
     }
   }
 
-  if (!info) return null
+  if (!info) {
+    viewMenuOpen.current = false
+    return null
+  }
   const activeInlineView =
     info.caretLink && info.caretLink.to <= state.doc.length ? inlineLinkView(state, info.caretLink) : 'link'
   const linkViews = availableLinkViews(state)

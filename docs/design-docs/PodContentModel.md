@@ -2133,8 +2133,13 @@ exact PostgreSQL text representations for `numeric` and `jsonb` keys to avoid
 JavaScript float rounding), groupings, and aggregates—emitting JSONB expressions
 for `inline` tables and native column/edge SQL for `physical` tables:
 
-- Array equality checks both JSONB equality and containment, and author system
-  fields accept either a single Principal UID or a UID list.
+- Filter conditions support `is`, `not_is`, `in` (up to 500 non-null items; an
+  empty list evaluates to `FALSE`), `contains`, `text_contains`, `gt`, `gte`,
+  `lt`, `lte`, `is_empty`, and `is_not_empty`. Both `not_is` and `in` preserve
+  SQL null semantics and exclude rows whose cell is empty or null. Array equality
+  checks both JSONB equality and containment, and author system fields
+  (`created_by` and `updated_by`) accept bare Principal UIDs or full `ActorRef`
+  strings across `is`, `not_is`, `in`, and group queries.
 - Record queries accept an optional `search` substring that filters rows before
   keyset pagination against the table's formatted `is_primary` display label
   across any field type (resolving select option names, attachment filenames,
@@ -2899,10 +2904,22 @@ observer across Applet generations until the Pod unmounts:
   renders a window of loaded rows, retaining focus as the window moves. It
   uses the supplied column widths or a 160px default. Mark a button or link in
   a cell with `data-row-link` to open the record from the row or the keyboard.
-- **`ApprovalCard` from `@ankole/uikit`** shows an approval's summary, status
-  and details. Applets supply localized labels and provide review controls when
-  the assigned reviewer opens a pending request. The Applet owns submission,
-  query refresh and the optional reason field.
+- **`ApprovalCard` and interactive business controls from `@ankole/uikit`**:
+  `ApprovalCard` shows an approval's summary, status, and details while leaving
+  submission, query refresh, and optional reason fields to the Applet;
+  `PrincipalBadge` renders Human member and AI colleague identity chips; and
+  `Slider`, `NumberInput`, `DatePicker`, `DateRangePicker`, and `FileDropzone`
+  provide accessible numeric scrubbing, timezone-aware ISO calendar selection,
+  and file selection primitives on top of `@base-ui/react` and semantic theme
+  tokens.
+- **`usePrincipals`, `usePrincipal`, `normalizePrincipalUID`, and host navigation bridges**:
+  `pod.principals()` shares the workspace subject directory cache (`{ uid, name, kind }`),
+  allowing `usePrincipals` and `usePrincipal` to resolve `created_by`,
+  `updated_by`, and Brain `holderUid` identifiers without extra network calls.
+  `pod.navigateToPage(pageID)` switches the surrounding Pod workspace to another
+  Page, and `pod.openChat({ prompt?, quote?, conversationID? })` opens the Page
+  Chat sidebar on the host Page (embedded document or standalone Applet) and
+  seeds the composer draft for Human-to-Agent handoffs.
 - **`useChannel`**: Joins `applet:<page-id>:<room>` for ephemeral messages and
   presence, rechecking each recipient's authentication, Pod login policy, and
   Page access before every delivery and closing the subscription on denial.
@@ -3066,14 +3083,18 @@ business write:
   capability is read-only, so `GET` routes may call it. It returns the metric
   result and fails with the metric error codes that
   [Brain](BrainV3.md#executing-a-metric) defines.
-- **`brain.listTakes`, `brain.writeTake`, and `brain.calibration`** read and
-  record Takes for a specific `sourceNodeId` and optional `subjectPageId`.
-  Brain applies the execution Principal's source access and any Agent turn
-  disclosure limits. The writer needs `node_contribute` on the source, and
-  Brain attributes the Take to that Principal. Reads can filter by `holderUid`
-  and `kind`. Calibration can also filter by the domain assigned to a resolved
-  Take. [Brain](BrainV3.md#atomic-knowledge-and-authorization) owns grading and
-  evidence scope.
+- **`brain.listFacts`, `brain.listTakes`, `brain.writeTake`, and `brain.calibration`**
+  read active extracted Facts, read and record Takes, and compute calibration
+  scores for a specific `sourceNodeId` and optional `subjectPageId`. Brain
+  applies the execution Principal's source access and any Agent turn disclosure
+  limits. Writing a Take requires `node_contribute` on the source and attributes
+  both author and holder to that Principal. Both `listFacts` and `listTakes`
+  filter by `holderUid` and `kind` (`listFacts` also filters by `notability` and
+  case-insensitive `query` text) and resolve `holderUid` alongside `holder` on
+  returned items so Applets can join claims directly to Principal metadata and
+  per-holder calibration scores. Calibration can also filter by the domain
+  assigned to a resolved Take. [Brain](BrainV3.md#atomic-knowledge-and-authorization)
+  owns grading and evidence scope.
 - **`notifications.post({conversationId, messageId, text})`** posts a native
   chat message and advances the room's unread marker without addressing an
   Agent. The execution Principal is a Human who can contribute to the Applet

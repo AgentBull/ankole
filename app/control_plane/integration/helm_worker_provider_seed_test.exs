@@ -213,6 +213,26 @@ defmodule Ankole.HelmWorkerProviderSeedIntegrationTest do
       fn_pdb = resource!(docs, "PodDisruptionBudget", "ankole-saas-function-runtime")
       assert fn_pdb["spec"]["minAvailable"] == 1
 
+      ph_dep = resource!(docs, "Deployment", "ankole-saas-posthog-proxy")
+      assert ph_dep["spec"]["replicas"] == 2
+
+      assert is_binary(
+               ph_dep["spec"]["template"]["metadata"]["annotations"]["checksum/configmap"]
+             )
+
+      assert byte_size(
+               ph_dep["spec"]["template"]["metadata"]["annotations"]["checksum/configmap"]
+             ) == 64
+
+      ph_cm = resource!(docs, "ConfigMap", "ankole-saas-posthog-proxy")
+      assert ph_cm["data"]["nginx.conf.tpl"] =~ ~s(proxy_set_header Cookie "";)
+      assert ph_cm["data"]["nginx.conf.tpl"] =~ ~s(set $ph_api "us.i.posthog.com";)
+      assert ph_cm["data"]["nginx.conf.tpl"] =~ ~s(set $ph_assets "us-assets.i.posthog.com";)
+
+      ph_ing = resource!(docs, "Ingress", "ankole-saas-posthog-proxy")
+      assert Enum.map(ph_ing["spec"]["rules"], & &1["host"]) == ["observability.ankole.ai"]
+      assert resource!(docs, "NetworkPolicy", "ankole-saas-posthog-proxy")
+
       single_docs =
         render!(
           @saas_chart,

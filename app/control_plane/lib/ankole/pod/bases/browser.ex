@@ -58,7 +58,19 @@ defmodule Ankole.Pod.Bases.Browser do
       other_exclude_values_json: [type: {:array, :string}]
     ]
   ]
-  @operators [:is, :contains, :is_empty, :is_not_empty, :gt, :gte, :lt, :lte, :text_contains]
+  @operators [
+    :is,
+    :not_is,
+    :in,
+    :contains,
+    :is_empty,
+    :is_not_empty,
+    :gt,
+    :gte,
+    :lt,
+    :lte,
+    :text_contains
+  ]
   @filter [
     fields: [
       conjunction: [type: :atom, constraints: [one_of: [:and, :or]], allow_nil?: false],

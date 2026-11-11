@@ -203,8 +203,9 @@ pub(super) fn normalize_openai_compatible_image_response(
     }
 
     let default_mime_type = default_image_mime_type(context);
+    let strict = context.policy() == ConversionPolicy::Strict;
     let normalized_data =
-        normalize_image_data_items(images, status, &object, default_mime_type, label)?;
+        normalize_image_data_items(images, status, &object, default_mime_type, strict, label)?;
     let first = &normalized_data[0];
     let created = object
         .get("created")
@@ -212,11 +213,9 @@ pub(super) fn normalize_openai_compatible_image_response(
         .unwrap_or_else(now_seconds);
     let usage_obj = object
         .get("usage")
-        .or_else(|| object.get("usageMetadata"))
-        .and_then(Value::as_object);
-    if context.policy() == ConversionPolicy::Strict
-        && !usage_obj.is_some_and(has_valid_image_usage_receipt)
-    {
+        .and_then(Value::as_object)
+        .or_else(|| object.get("usageMetadata").and_then(Value::as_object));
+    if strict && !usage_obj.is_some_and(has_valid_image_usage_receipt) {
         return Err(invalid_upstream_body_error(
             status.max(502),
             object,
@@ -293,6 +292,7 @@ fn normalize_image_data_items(
     status: u16,
     object: &Value,
     default_mime_type: &str,
+    strict: bool,
     label: &'static str,
 ) -> Result<Vec<Value>, StreamError> {
     let mut normalized_data = Vec::with_capacity(images.len());
@@ -307,6 +307,7 @@ fn normalize_image_data_items(
         let b64_json = image
             .get("b64_json")
             .and_then(Value::as_str)
+            .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
                 invalid_upstream_body_error(
@@ -315,12 +316,18 @@ fn normalize_image_data_items(
                     format!("{label} response item did not contain `b64_json` bytes"),
                 )
             })?;
-        let media_type = image
-            .get("media_type")
-            .or_else(|| image.get("mime_type"))
+        if strict && base64_simd::STANDARD.check(b64_json.as_bytes()).is_err() {
+            return Err(invalid_upstream_body_error(
+                status.max(502),
+                object.clone(),
+                format!("{label} response `b64_json` is not valid Base64"),
+            ));
+        }
+        let media_type = resolve_image_media_type(image, default_mime_type);
+        let revised_prompt = image
+            .get("revised_prompt")
             .and_then(Value::as_str)
-            .unwrap_or(default_mime_type);
-        let revised_prompt = image.get("revised_prompt").and_then(Value::as_str);
+            .filter(|s| !s.is_empty());
 
         normalized_data.push(json!({
             "b64_json": b64_json,
@@ -340,16 +347,49 @@ pub(super) fn requested_image_count(context: &ResponseContext) -> usize {
         .max(1) as usize
 }
 
+pub(super) fn output_format_to_mime(format: &str) -> &'static str {
+    match format.trim().to_ascii_lowercase().as_str() {
+        "jpeg" | "jpg" | "image/jpeg" | "image/jpg" => "image/jpeg",
+        "webp" | "image/webp" => "image/webp",
+        _ => "image/png",
+    }
+}
+
+fn resolve_image_media_type<'a>(
+    map: &'a Map<String, Value>,
+    default_mime_type: &'a str,
+) -> &'a str {
+    if let Some(mime) = map
+        .get("media_type")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            map.get("mime_type")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })
+    {
+        if mime.contains('/') {
+            return mime;
+        }
+        return output_format_to_mime(mime);
+    }
+    if let Some(fmt) = map
+        .get("output_format")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        return output_format_to_mime(fmt);
+    }
+    default_mime_type
+}
+
 pub(super) fn default_image_mime_type(context: &ResponseContext) -> &'static str {
-    match context
+    context
         .resolved_provider_request_object()
         .get("output_format")
         .and_then(Value::as_str)
-    {
-        Some("jpeg" | "jpg") => "image/jpeg",
-        Some("webp") => "image/webp",
-        _format => "image/png",
-    }
+        .map_or("image/png", output_format_to_mime)
 }
 
 pub(super) fn normalize_image_stream_event(
@@ -397,6 +437,7 @@ fn normalize_partial_image_event(
     let b64_json = map
         .get("b64_json")
         .and_then(Value::as_str)
+        .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| {
             invalid_upstream_body_error(
@@ -405,15 +446,21 @@ fn normalize_partial_image_event(
                 format!("{label} partial_image event is missing `b64_json`"),
             )
         })?;
+    if context.policy() == ConversionPolicy::Strict
+        && base64_simd::STANDARD.check(b64_json.as_bytes()).is_err()
+    {
+        return Err(invalid_upstream_body_error(
+            502,
+            event.clone(),
+            format!("{label} partial_image `b64_json` is not valid Base64"),
+        ));
+    }
     let index = map
         .get("partial_image_index")
         .and_then(Value::as_u64)
         .unwrap_or(0);
-    let media_type = map
-        .get("media_type")
-        .or_else(|| map.get("output_format"))
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| default_image_mime_type(context));
+    let default_mime = default_image_mime_type(context);
+    let media_type = resolve_image_media_type(map, default_mime);
     Ok(vec![json!({
         "type": "image_generation.partial_image",
         "partial_image_index": index,
@@ -428,19 +475,35 @@ fn normalize_completed_image_event(
     event: &Value,
     label: &'static str,
 ) -> Result<Vec<Value>, StreamError> {
-    let _b64_or_url = map
+    let strict = context.policy() == ConversionPolicy::Strict;
+    let b64_opt = map
         .get("b64_json")
-        .or_else(|| map.get("url"))
         .and_then(Value::as_str)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            invalid_upstream_body_error(
-                502,
-                event.clone(),
-                format!("{label} completed event is missing `b64_json` or `url`"),
-            )
-        })?;
-    if context.policy() == ConversionPolicy::Strict
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let url_opt = map
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    if b64_opt.is_none() && url_opt.is_none() {
+        return Err(invalid_upstream_body_error(
+            502,
+            event.clone(),
+            format!("{label} completed event is missing `b64_json` or `url`"),
+        ));
+    }
+    if strict
+        && let Some(b64) = b64_opt
+        && base64_simd::STANDARD.check(b64.as_bytes()).is_err()
+    {
+        return Err(invalid_upstream_body_error(
+            502,
+            event.clone(),
+            format!("{label} completed `b64_json` is not valid Base64"),
+        ));
+    }
+    if strict
         && !map
             .get("usage")
             .and_then(Value::as_object)
@@ -452,26 +515,16 @@ fn normalize_completed_image_event(
             format!("{label} completed event is missing non-empty `usage`"),
         ));
     }
-    let media_type = map
-        .get("media_type")
-        .or_else(|| map.get("output_format"))
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| default_image_mime_type(context));
+    let default_mime = default_image_mime_type(context);
+    let media_type = resolve_image_media_type(map, default_mime);
     let mut normalized = json!({
         "type": "image_generation.completed",
-        "b64_json": map
-            .get("b64_json")
-            .and_then(Value::as_str)
-            .map_or(Value::Null, |value| json!(value)),
+        "b64_json": b64_opt.map_or(Value::Null, |value| json!(value)),
         "media_type": media_type,
         "revised_prompt": map.get("revised_prompt").cloned().unwrap_or(Value::Null),
         "usage": map.get("usage").cloned().unwrap_or_else(|| json!({}))
     });
-    if let Some(url) = map
-        .get("url")
-        .and_then(Value::as_str)
-        .filter(|u| !u.is_empty())
-    {
+    if let Some(url) = url_opt {
         normalized["url"] = json!(url);
     }
     Ok(vec![normalized])

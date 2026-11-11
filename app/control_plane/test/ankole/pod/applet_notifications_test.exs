@@ -16,11 +16,12 @@ defmodule Ankole.Pod.AppletNotificationsTest do
     agent = agent_fixture().principal
     Ankole.ConversationsFixtures.grant_chat(owner.uid, agent.uid)
     conversation_id = Ash.UUIDv7.generate()
+    initial_message_id = Ash.UUIDv7.generate()
 
     assert {:ok, _} =
              Ankole.ConversationsFixtures.create(owner.uid, %{
                conversation_id: conversation_id,
-               message_id: Ash.UUIDv7.generate(),
+               message_id: initial_message_id,
                agent_uid: agent.uid,
                participant_uids: [recipient.uid],
                text: "Portfolio review"
@@ -100,6 +101,88 @@ defmodule Ankole.Pod.AppletNotificationsTest do
     end
 
     assert Conversations.get_conversation!(conversation_id).last_notifiable_seq == prior_seq + 2
+
+    assert {:ok, detail} = Conversations.get(actor, conversation_id)
+    assert detail.latest_input.id == initial_message_id
+
+    editable_ids = Enum.map(detail.editable_inputs, & &1.messageID)
+    assert initial_message_id in editable_ids
+    refute first["messageId"] in editable_ids
+    refute second["messageId"] in editable_ids
+
+    assert {:ok, _} =
+             Ankole.Conversations.NativeEdit.edit_last(actor, conversation_id, %{
+               command_id: Ash.UUIDv7.generate(),
+               message_id: initial_message_id,
+               agent_uid: agent.uid,
+               expected_text: "Portfolio review",
+               expected_version: detail.queue_versions[agent.uid],
+               text: "Updated portfolio review"
+             })
+  end
+
+  test "personal-assistant-owned Applets post admin notifications through their human owner authority" do
+    owner = human_fixture().principal
+    actor = actor_fixture(owner)
+
+    assistant =
+      agent_fixture(%{type: :personal_assistant, owner_principal_uid: owner.uid}).principal
+
+    assistant_actor = actor_fixture(assistant)
+    colleague = agent_fixture().principal
+    Ankole.ConversationsFixtures.grant_chat(owner.uid, colleague.uid)
+    conversation_id = Ash.UUIDv7.generate()
+
+    assert {:ok, _} =
+             Ankole.ConversationsFixtures.create(owner.uid, %{
+               conversation_id: conversation_id,
+               message_id: Ash.UUIDv7.generate(),
+               agent_uid: colleague.uid,
+               text: "Daily check"
+             })
+
+    {:ok, page} =
+      Pages.create(assistant_actor, %{
+        type: "applet",
+        title: "Assistant alerts",
+        private_owner_uid: owner.uid
+      })
+
+    assert page.owner_uid == assistant.uid
+
+    publish_applet_fixture(%{actor: actor, page: page}, """
+    export default {
+      actions: {
+        warn: {idempotent: true, handler: ctx => AnkoleRuntime.admin.notifications.post(ctx.signal.data)}
+      }
+    }
+    """)
+
+    {:ok, job} =
+      AutomationJobs.create_applet_job(actor, page.id, "warn", %{authorization_kind: "service"})
+
+    notice = payload(conversation_id, "Assistant-owned applet alert.")
+
+    {:ok, %{automation_job_run: run}} =
+      Repo.transact_top_level(fn ->
+        AutomationJobs.enqueue_locked_in_tx(
+          AutomationJobs.lock_job_in_tx(job.id),
+          %{"data" => notice},
+          []
+        )
+      end)
+
+    {:ok, attempt} = AutomationJobs.start_applet_attempt(run.id, 0)
+    assert {:completed, %{"status" => 200}} = AutomationJobs.execute_applet_attempt(attempt)
+
+    msg_id = notice["messageId"]
+    msg_text = notice["text"]
+
+    assert %{author_uid: uid, text: ^msg_text, rich_content: %{"applet_page_id" => applet_id}} =
+             Ankole.Ash.read_one!(Ash.Query.filter(Conversations.Message, id == ^msg_id))
+
+    assert uid == owner.uid
+    assert applet_id == page.id
   end
 
   defp payload(conversation_id, text),

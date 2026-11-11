@@ -448,16 +448,33 @@ defmodule Ankole.Pod.AppletsTest do
     end
   end
 
-  test "published routes read and write authorized Brain Takes", ctx do
+  test "published routes read and write authorized Brain Takes and read scoped Facts", ctx do
     owner = actor_fixture(ctx.owner)
     reader = actor_fixture(ctx.reader)
     {:ok, source} = Pages.create(owner, %{type: "doc", private_owner_uid: ctx.owner})
     page = create(ctx.owner)
 
+    {:ok, %{claim: fact}} =
+      Ankole.Brain.write_fact(
+        %{
+          claim: "Supplier confirmed 14-day lead time",
+          kind: "commitment",
+          holder: "people/#{ctx.owner}",
+          source_node_id: source.id,
+          notability: "high",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "Confirmed PO email"
+        },
+        ctx.owner,
+        %{options: [embed: false, dedup: false]}
+      )
+
     routes = """
     const scope = {sourceNodeId: '#{source.id}'};
     export default {
       'GET /takes': () => AnkoleRuntime.brain.listTakes(scope),
+      'GET /facts': r => AnkoleRuntime.brain.listFacts({...scope, ...r.query}),
       'GET /calibration': () => AnkoleRuntime.brain.calibration(scope),
       'GET /write': () => AnkoleRuntime.brain.writeTake(scope),
       'POST /takes': r => AnkoleRuntime.brain.writeTake({...r.body, ...scope})
@@ -482,10 +499,22 @@ defmodule Ankole.Pod.AppletsTest do
     assert {:ok, %{"status" => 200, "body" => take}} = Applets.call(owner, page.id, write)
     assert take["claim"] == prediction["claim"]
     assert take["untilDate"] == prediction["untilDate"]
+    assert take["holderUid"] == ctx.owner
     assert take["author"] == to_string(Ankole.ActorRef.from_actor(owner))
 
     assert {:ok, %{"status" => 200, "body" => %{"takes" => [^take]}}} =
              call(ctx.reader, page.id, "GET", "/takes")
+
+    assert {:ok, %{"status" => 200, "body" => %{"facts" => [returned_fact]}}} =
+             Applets.call(reader, page.id, %{
+               "method" => "GET",
+               "path" => "/facts",
+               "query" => %{"notability" => "high", "query" => "14-day"}
+             })
+
+    assert returned_fact["id"] == fact.id
+    assert returned_fact["claim"] == "Supplier confirmed 14-day lead time"
+    assert returned_fact["holderUid"] == ctx.owner
 
     assert {:ok, %{"status" => 200, "body" => %{"resolvedCount" => 0, "brier" => nil}}} =
              call(ctx.reader, page.id, "GET", "/calibration")

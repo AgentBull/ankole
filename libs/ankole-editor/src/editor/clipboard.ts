@@ -530,8 +530,11 @@ export function pasteTextAtDocumentStart(editor: Wordgard, text: string): boolea
       to: 0,
       insert: [T.Paragraph.create([])]
     })
-    baseState = baseState.update({ changes: prefixChange }).state
   }
+  baseState = baseState.update({
+    ...(prefixChange ? { changes: prefixChange } : {}),
+    selection: GardSelection.cursor(1)
+  }).state
   const targetContext = baseState.doc.resolve(1)
   let slice =
     readSingleIframeEmbed(text, baseState) ??
@@ -548,11 +551,10 @@ export function pasteTextAtDocumentStart(editor: Wordgard, text: string): boolea
   })
   const combined = prefixChange ? prefixChange.compose(pasteChange) : pasteChange
   const caretAfter = pasteChange.mapPos(1, 1)
-  editor.dispatch({
+  dispatchStep(editor, {
     changes: combined,
     selection: cx => GardSelection.near(cx, caretAfter, -1),
-    userEvent: 'input.paste',
-    scrollIntoView: true
+    userEvent: 'input.paste'
   })
   editor.focus()
   return true
