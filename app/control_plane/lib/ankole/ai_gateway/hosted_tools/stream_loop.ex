@@ -66,6 +66,27 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
     }
   end
 
+  @doc """
+  Returns the share of the provider-history limits that `items` use: the larger
+  of their share of the item limit and their share of the byte limit.
+
+  A loop starts with the history of its request, so that history counts toward
+  both limits before the first provider round. `CompactionPolicy` reads this
+  share to write a checkpoint while the loop still has room for its own rounds.
+  """
+  @spec provider_history_usage([map()]) :: float()
+  def provider_history_usage(items) when is_list(items) do
+    count = length(items)
+
+    bytes =
+      case json_items_size(items) do
+        {:ok, item_bytes} -> json_array_size(count, item_bytes)
+        {:error, _reason} -> 0
+      end
+
+    max(count / @max_provider_history_items, bytes / @max_provider_history_bytes)
+  end
+
   @doc "Returns the zero-based provider round index."
   @spec round(t()) :: non_neg_integer()
   def round(%__MODULE__{rounds: rounds}), do: rounds

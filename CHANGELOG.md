@@ -1,5 +1,25 @@
 # Changelog
 
+## Version 2.0.0-alpha.116 (2026-11-11)
+
+- Fix long conversations that stopped answering with
+  `provider_history_byte_limit_exceeded`. When a model streamed its reasoning
+  through a Chat Completions provider such as OpenRouter, AIGateway stored
+  every streamed fragment as a separate `reasoning_details` entry, so the stored
+  reasoning took many times the bytes of the reasoning itself. A conversation
+  could then reach the `8 MiB` history limit of one Response long before the
+  token trigger for compaction. Every later message in it ended with the
+  "This message could not be finished" notice, and `/retry` failed the same
+  way. AIGateway now joins the fragments of one reasoning text into one entry,
+  both when it stores a response and when it replays a stored one.
+- Compact a conversation when its stored history reaches three quarters of the
+  item limit (1,024) or byte limit (`8 MiB`) of one Response, even when it is
+  below the token trigger. A conversation that already fails with
+  `provider_history_byte_limit_exceeded` or `provider_history_item_limit_exceeded`
+  is compacted on its next message and continues; `/compress` remains
+  available. When that compaction cannot write its summary, the message runs on
+  the full history as before.
+
 ## Version 2.0.0-alpha.115 (2026-11-11)
 
 - Sync the block editor engine with Wordgard through `7008e6a`. The engine
