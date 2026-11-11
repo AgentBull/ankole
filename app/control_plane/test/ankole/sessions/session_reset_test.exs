@@ -247,6 +247,9 @@ defmodule Ankole.Sessions.SessionResetTest do
         session_id: Schedule.cron_execution_session_id(cron_schedule.id)
       }
 
+      # This test admits the cron fire itself; a real Driver would race it for the Session epoch.
+      stub_driver(execution_actor)
+
       assert Schedule.list_cron_runs(cron_schedule.id, 10) == []
       assert cron_schedule.next_fire_at == first_cron_slot
 

@@ -76,6 +76,12 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
                created_by: %{"signal_id" => source.id}
              )
 
+    # The fire lands in the schedule's own execution Session, which this test admits itself.
+    stub_driver(%{
+      agent_uid: agent.uid,
+      session_id: Ankole.Schedule.cron_execution_session_id(cron.id)
+    })
+
     assert {:ok, %{signal: event}} =
              Ankole.Schedule.fire_cron(cron.id, now: cron.next_fire_at)
 

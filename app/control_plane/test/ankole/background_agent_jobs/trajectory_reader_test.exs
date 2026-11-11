@@ -488,10 +488,13 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
   end
 
   defp create_job!(agent_uid, suffix) do
+    # The source Signal commits first, as it does before a real tool call creates a Job.
+    source_signal_id = Ankole.WorkFixtures.service_source(agent_uid).id
+
     assert {:ok, %{job: job}} =
              Repo.transact(fn ->
                BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(%{
-                 "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+                 "source_signal_id" => source_signal_id,
                  "agent_uid" => agent_uid,
                  "owner_session_id" => "parent-session-#{suffix}",
                  "source_tool_call_id" => "tool-background-agent-job-#{suffix}",

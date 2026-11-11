@@ -116,6 +116,7 @@ defmodule AnkoleWeb.PodControllerTest do
              "activities",
              "artifacts",
              "conversation",
+             "editableInputs",
              "latestInput",
              "linkedRuns",
              "messageRange",
