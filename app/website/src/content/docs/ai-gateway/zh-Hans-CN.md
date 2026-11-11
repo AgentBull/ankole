@@ -54,6 +54,8 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST` | `/audio/speech` | HTTP | 把文本合成为语音 |
 | `POST` | `/audio/transcriptions` | HTTP | 把音频转写为文本 |
 | `POST` | `/ocr` | HTTP | 把 PDF 或文档图片识别为 Markdown |
+| `POST` | `/videos` | HTTP | 发起视频生成；`GET /videos/:id` 读取任务，`GET /videos/:id/content` 读取文件 |
+| `POST` | `/audio/music` | HTTP | 发起音乐生成；`GET /audio/music/:id` 读取任务，`GET /audio/music/:id/content` 读取文件 |
 | `GET/POST/DELETE` | `/files`、`/files/:id`、`/files/:id/content` | HTTP | 上传、读取与删除文件 |
 
 `POST /responses` 是整个网关的核心端点，负责承载模型推理回合，也是唯一会按传输方式与状态持久性分流的路由。
@@ -90,8 +92,8 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 在发起任何上游请求之前，AIGateway 会通过三层稀疏**模型档案（Model Profile）**继承链（`Site -> Pod -> Agent/System`，在 **Console → Model Profiles** 中配置）将模型选择符解析到真实的 Provider 绑定：
 
-- **站点（Site）、Pod 与 `system` 主体（`ankole_brain`、`system`）**提供十三个固定槽位：五个语言模型槽位（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）与八个独立能力槽位（`web_search`、`web_fetch`、`image_generate`、`rerank`、`decision`、`speech`、`transcription`、`ocr`）。
-- **Agent** 提供除 `rerank`、`decision`、`speech`、`transcription` 与 `ocr` 外的八个内置槽位，并支持配置自定义语言模型别名；未单独覆盖的槽位会自动继承 Pod 与站点默认值。
+- **站点（Site）、Pod 与 `system` 主体（`ankole_brain`、`system`）**提供十五个固定槽位：五个语言模型槽位（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）与十个独立能力槽位（`web_search`、`web_fetch`、`image_generate`、`rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music`）。
+- **Agent** 提供除 `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video` 与 `music` 外的八个内置槽位，并支持配置自定义语言模型别名；未单独覆盖的槽位会自动继承 Pod 与站点默认值。
 - **跨槽位回退链**按 `coding -> heavy -> primary` 与 `light -> primary` 解析，因此只需在站点或 Pod 层配置好 `primary`，Agent 与企业大脑即可直接运行，再按需为特定 Pod、Agent 或 `system` 主体单独指定模型覆盖。
 
 在权限允许的场景下，管理员与显式内部调用也可直接传入 `provider_id/model` 选择符。调用 `GET /models` 可列出当前主体能够解析的全部模型，并支持可选的 OpenRouter 风格筛选参数（`q`、`context`、`min_price`、`max_price`、`sort` 及模态过滤）。
@@ -145,6 +147,8 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 `POST /audio/speech` 把 `input` 中的文本合成为语音。请求携带 `model`（`speech.default`、`default` 或显式的 `provider_id/model`），还可以指定 `voice`、`response_format`（`mp3` 或 `pcm`，默认 `mp3`）、`speed` 以及描述语气的 `instructions`。响应体就是音频本身，内容类型取 provider 给出的音频类型；provider 没有给出时，`mp3` 对应 `audio/mpeg`，`pcm` 对应 `audio/pcm`。OpenRouter 提供其目录中的语音合成模型；Cloudflare 提供 Deepgram Aura 系列模型，这些模型只返回 MP3，不接受 `pcm`、`speed` 和 `instructions`。启用 `amazon-ai-providers` 插件后，Amazon Web Services provider 可以提供 Amazon Polly：模型名就是 Polly 的引擎（例如 `neural`），请求没有指定 `voice` 时使用档案里设置的音色。`POST /audio/transcriptions` 把音频转写为文本。请求携带 `model`（`transcription.default`、`default` 或显式的 `provider_id/model`）和 `input_audio`，后者包含 base64 编码的 `data`（解码后不超过 25 MiB）与 `format`；还可以附带 `language`、`vad_filter` 开关和 `response_format`（`json` 或 `verbose_json`，默认 `json`）。响应返回 `model`、`text` 和 `usage`，其中 `usage` 给出音频的 `seconds`；选择 `verbose_json` 时，响应还会带上 `language`、`duration` 和带时间戳的 `segments`。OpenRouter 提供其目录中的语音转写模型；Cloudflare 提供接收 base64 音频的 Workers AI 模型，例如 `@cf/openai/whisper-large-v3-turbo`。这两个端点都没有回退：对应档案绑定之前，请求会以 `model_profile_not_configured` 失败。AIGateway 在用量台账中为每次语音合成记录字符数，为每次转写记录音频秒数。
 
 `POST /ocr` 把 PDF 或文档图片逐页识别为 Markdown。请求携带一个 `document`：一份 PDF，或一张 PNG、JPEG、WebP 图片，写成 base64 data URL，或写成带 `content_type` 与 `base64` 的对象。AIGateway 接受不超过 50 MiB 的 PDF 和不超过 20 MiB 的图片，都按解码后的大小计算；OCR 模型自身能接受的范围可能更小。对于 PDF，可以用 `pages` 列出 1 到 100 个互不重复的页码（从 0 开始）；请求省略 `pages` 时，AIGateway 不向 OCR 模型发送页码。响应返回 `model`、`pages` 和 `usage`，`usage` 给出识别的 `pages` 数。`pages` 中的每一项包含 provider 报告的 `index` 与该页的 `markdown`，没有文字的页 `markdown` 为空；AIGateway 按 `index` 升序排列这些页。`default` / `ocr.default` 选择符解析 Pod/Site 的 `ocr` 档案，由 Mistral provider 的 OCR 模型提供服务。启用 `amazon-ai-providers` 插件后，Amazon Web Services provider 可以提供 Amazon Textract，它能读 PNG、JPEG 图片或单页 PDF，不接受 `pages`。未配置该档案时，改由一个支持图片输入的语言模型来读：优先使用调用方的 `vision_fallback` 档案，未配置时使用 `primary`。语言模型只能读一张图片，所以这时传 PDF 会以 `unsupported_value` 失败，请求也按普通语言模型请求计量。AIGateway 在用量台账中为每次 OCR 模型调用记录页数。
+
+`POST /videos` 与 `POST /audio/music` 发起的生成要等 Provider 稍后才完成，所以它们返回 `202` 和一个媒体任务，其中有 `id`、`status`、`model`、`created_at` 与 `expires_at`。请求携带 `model`（`video.default` 或 `music.default`、`default`，或显式的 `provider_id/model`）与 `prompt`。视频请求还可以指定以秒为单位的 `duration`，以及 `resolution`、`aspect_ratio`、`size`、`generate_audio`、`seed`、`first_frame` 与 `last_frame`，两个帧各是一个 `https` URL 或一张不超过 10 MiB 的图片的 base64 data URL；音乐请求可以指定 `lyrics`、`instrumental` 和以秒为单位的 `duration`。用 `GET /videos/:id` 或 `GET /audio/music/:id` 读取任务，直到 `status` 变为 `completed` 或 `failed`：完成的任务带有文件的 `content_type` 与 `size`，失败的任务带有 `error`。之后 `GET /videos/:id/content` 与 `GET /audio/music/:id/content` 返回文件，并支持 `Range` 请求头。AIGateway 把任务和文件保留七天。`video` 档案可以选择 OpenRouter（`openrouter`）的视频模型，`music` 档案可以选择 Cloudflare（`cloudflare`）Workers AI 的合作方模型，例如 `minimax/music-2.6` 或 `elevenlabs/music-v2`。这两个档案都没有语言模型回退。
 
 文件管理同样作为一等公民提供：`POST /files` 上传文件、`GET /files` 列出文件、`GET /files/:id` 与 `GET /files/:id/content` 读取元数据与文件内容字节、`DELETE /files/:id` 删除文件。所有文件操作均严格按调用主体隔离范围。
 

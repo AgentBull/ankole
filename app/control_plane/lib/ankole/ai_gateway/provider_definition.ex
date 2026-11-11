@@ -81,6 +81,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             | :speech_model
             | :transcription_model
             | :ocr_model
+            | :video_model
+            | :music_model
 
     @typedoc """
     Capability metadata used to route a public model capability to provider
@@ -149,4 +151,6 @@ defmodule Ankole.AIGateway.ProviderDefinition do
   def capability_name(:speech_model), do: "speech"
   def capability_name(:transcription_model), do: "transcription"
   def capability_name(:ocr_model), do: "ocr"
+  def capability_name(:video_model), do: "video"
+  def capability_name(:music_model), do: "music"
 end

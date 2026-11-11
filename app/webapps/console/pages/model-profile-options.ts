@@ -13,6 +13,8 @@ export type ModelProfileCapability =
   | 'speech'
   | 'transcription'
   | 'ocr'
+  | 'video'
+  | 'music'
 
 export function profileCapability(profile: string): ModelProfileCapability {
   if (profile === 'web_search') return 'web_search'
@@ -23,6 +25,8 @@ export function profileCapability(profile: string): ModelProfileCapability {
   if (profile === 'speech') return 'speech'
   if (profile === 'transcription') return 'transcription'
   if (profile === 'ocr') return 'ocr'
+  if (profile === 'video') return 'video'
+  if (profile === 'music') return 'music'
   return 'llm'
 }
 

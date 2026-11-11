@@ -13,7 +13,7 @@ resolver, provider 모듈, kernel은 각자 한 단계씩만 전담합니다. re
 
 `Ankole.AIGateway.Resolver`는 요청의 `model` 필드를 구체적인 provider 런타임 맵으로 변환합니다. 이 단계에서 `primary`, `web_search.default`, 또는 명시적인 `provider_id/model` 같은 호출 주체별 selector가 실제 provider ID, provider 종류, 업스트림 모델 이름, 해석된 런타임 설정으로 결정됩니다.
 
-Agent에는 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`까지 총 8개의 내장 모델 프로필이 있으며, 이 중 `coding`은 화면에서 Background Agent Jobs로 표시되는 프로필의 내부 API 및 저장소 이름입니다. 개별 덮어쓰기가 없는 슬롯은 **Console → Model Profiles**에서 `Site -> Pod -> Agent` 순서로 희소 상속되며, Site·Pod·`system` Principal(`ankole_brain`, `system`)에는 내장 슬롯 `rerank`, `decision`, `speech`, `transcription`, `ocr`이 추가로 제공됩니다.
+Agent에는 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`까지 총 8개의 내장 모델 프로필이 있으며, 이 중 `coding`은 화면에서 Background Agent Jobs로 표시되는 프로필의 내부 API 및 저장소 이름입니다. 개별 덮어쓰기가 없는 슬롯은 **Console → Model Profiles**에서 `Site -> Pod -> Agent` 순서로 희소 상속되며, Site·Pod·`system` Principal(`ankole_brain`, `system`)에는 내장 슬롯 `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, `music`이 추가로 제공됩니다.
 
 Embedding은 개별 Agent 프로필에 속하지 않으므로 AIGateway에서 직접 호출할 때는 명시적인 `provider_id/model` selector를 전달해야 하며, Brain은 [AppConfigure](../app-configuration/)의 `brain.embedding_model`에서 사이트 전역 embedding 모델을 읽습니다. Rerank의 경우 `ankole_brain`은 유효 `rerank` 슬롯(`Site -> Pod -> ankole_brain`)을 해석하고 Agent 및 Human의 rerank 호출은 Pod의 `rerank` 슬롯을 사용합니다. 검색 동작에 미치는 영향은 [Brain](../brain/)을 참조하십시오.
 

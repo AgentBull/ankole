@@ -36,7 +36,7 @@ test('the capability table names each capability and unit and leaves unreported 
   expect(cells).toEqual(
     [
       ['OCR', '2', '15', 'Pages', '—'],
-      ['Transcription', '2', '1,500', 'Seconds of audio', '0.000808'],
+      ['Transcription', '2', '1,500', 'Seconds', '0.000808'],
       ['Decision model', '1', '—', '—', '—']
     ].flat()
   )

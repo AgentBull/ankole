@@ -42,7 +42,9 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       # A default selector is an alias like any other: the Client must list it.
       {"/api/v1/ai-gateway/ocr",
        %{"model" => "ocr.default", "document" => "data:image/png;base64,iVBORw0="}},
-      {"/api/v1/ai-gateway/audio/speech", %{"model" => "speech.default", "input" => "hello"}}
+      {"/api/v1/ai-gateway/audio/speech", %{"model" => "speech.default", "input" => "hello"}},
+      {"/api/v1/ai-gateway/videos", %{"model" => "video.default", "prompt" => "hello"}},
+      {"/api/v1/ai-gateway/audio/music", %{"model" => "blocked/model", "prompt" => "hello"}}
     ]
 
     for {path, body} <- requests do
@@ -57,13 +59,14 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
 
     # A request without `model` names no alias for the Client to allow, so no
     # entry may run on a default model.
-    for path <- ~w(audio/speech audio/transcriptions ocr) do
+    for path <- ~w(audio/speech audio/transcriptions ocr videos audio/music) do
       response =
         conn
         |> recycle()
         |> bearer(fixture.access_token)
         |> post("/api/v1/ai-gateway/#{path}", %{
           "input" => "hello",
+          "prompt" => "hello",
           "input_audio" => %{"data" => "UklGRg==", "format" => "wav"},
           "document" => "data:image/png;base64,iVBORw0="
         })

@@ -172,7 +172,7 @@ defmodule Ankole.AIGateway.ModelProfilesTest do
     assert ModelProfiles.profile_capability("rerank") == {:ok, "llm"}
 
     # The other Pod/Site capability slots leave their names to custom aliases too.
-    for name <- ~w(decision speech transcription ocr) do
+    for name <- ~w(decision speech transcription ocr video music) do
       assert ModelProfiles.custom_profile_name?(name)
       assert ModelProfiles.profile_capability(name) == {:ok, "llm"}
     end

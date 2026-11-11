@@ -20,6 +20,7 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.Decisions
   alias Ankole.AIGateway.ImageRequests
+  alias Ankole.AIGateway.MediaJobs
   alias Ankole.AIGateway.Models
   alias Ankole.AIGateway.OCR
   alias Ankole.AIGateway.Observability
@@ -39,6 +40,7 @@ defmodule Ankole.AIGateway do
   resources do
     resource(Ankole.AIGateway.Schemas.Artifact)
     resource(Ankole.AIGateway.Schemas.CompactionArtifact)
+    resource(Ankole.AIGateway.Schemas.MediaJob)
     resource(Ankole.AIGateway.Schemas.UsageRecord)
     resource(Ankole.AIGateway.UsageConsole)
 
@@ -683,6 +685,24 @@ defmodule Ankole.AIGateway do
           {:ok, gateway_response()} | {:error, term()}
   def create_transcription(subject_uid, request, opts \\ []),
     do: Audio.create_transcription(subject_uid, request, opts)
+
+  @doc """
+  Creates a media job that generates a video through the `video` profile or
+  music through the `music` profile. The response body is the job, which the
+  caller reads with `fetch_media_job/3` until it is `completed` or `failed`.
+  """
+  @spec create_media_job(String.t(), String.t(), map(), keyword()) ::
+          {:ok, gateway_response()} | {:error, term()}
+  def create_media_job(subject_uid, capability, request, opts \\ []),
+    do: MediaJobs.create(subject_uid, capability, request, opts)
+
+  @doc "Returns the caller's `video` or `music` media job."
+  @spec fetch_media_job(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate fetch_media_job(subject_uid, capability, id), to: MediaJobs, as: :fetch
+
+  @doc "Returns the stored object and media type of the caller's completed media job."
+  @spec media_job_content(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate media_job_content(subject_uid, capability, id), to: MediaJobs, as: :content
 
   @doc """
   Reads the text of a PDF or a document image as Markdown, through the `ocr`

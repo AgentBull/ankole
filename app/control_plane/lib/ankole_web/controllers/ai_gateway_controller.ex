@@ -156,6 +156,45 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
+  # `/videos` and `/audio/music` share the media-job actions. The route names
+  # the capability in `conn.assigns.media`.
+  def create_media_job(conn, _params) do
+    case AIGateway.create_media_job(
+           subject_uid(conn),
+           conn.assigns.media,
+           conn.body_params || %{},
+           call_opts(conn)
+         ) do
+      {:ok, %{status: status, body: body}} -> conn |> put_status(status) |> json(body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def media_job(conn, %{"id" => id}) do
+    case AIGateway.fetch_media_job(subject_uid(conn), conn.assigns.media, id) do
+      {:ok, body} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def media_job_content(conn, %{"id" => id}) do
+    case AIGateway.media_job_content(subject_uid(conn), conn.assigns.media, id) do
+      {:ok, %{object: object, content_type: content_type, id: id}} ->
+        [extension | _] = MIME.extensions(content_type) ++ ["bin"]
+
+        AnkoleWeb.PodResponse.send_sandboxed_object(
+          conn,
+          object,
+          "#{id}.#{extension}",
+          content_type,
+          false
+        )
+
+      {:error, reason} ->
+        error(conn, reason)
+    end
+  end
+
   defp subject_uid(conn), do: conn.assigns.current_ai_gateway_subject_uid
 
   defp call_opts(conn) do

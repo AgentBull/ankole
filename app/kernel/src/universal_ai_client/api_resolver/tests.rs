@@ -11,6 +11,7 @@ mod decision;
 mod embeddings;
 mod encrypted_fields;
 mod images;
+mod media;
 mod ocr;
 mod openai_chat;
 mod openai_responses;

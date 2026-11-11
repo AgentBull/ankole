@@ -168,6 +168,11 @@ defmodule AnkoleWeb.Router do
     get "/files/:file_id/content", AIGatewayFilesController, :content
     # The response is audio, so a client can ask for `audio/*`.
     post "/audio/speech", AIGatewayController, :speech
+    # The response is the generated file, so a client can ask for its media type.
+    get "/videos/:id/content", AIGatewayController, :media_job_content, assigns: %{media: "video"}
+
+    get "/audio/music/:id/content", AIGatewayController, :media_job_content,
+      assigns: %{media: "music"}
   end
 
   scope "/api/v1/ai-gateway", AnkoleWeb do
@@ -190,6 +195,10 @@ defmodule AnkoleWeb.Router do
     post "/images", AIGatewayController, :images
     post "/audio/transcriptions", AIGatewayController, :transcriptions
     post "/ocr", AIGatewayController, :ocr
+    post "/videos", AIGatewayController, :create_media_job, assigns: %{media: "video"}
+    get "/videos/:id", AIGatewayController, :media_job, assigns: %{media: "video"}
+    post "/audio/music", AIGatewayController, :create_media_job, assigns: %{media: "music"}
+    get "/audio/music/:id", AIGatewayController, :media_job, assigns: %{media: "music"}
   end
 
   # Capability URL ingress for external task receipts. The token in the path is

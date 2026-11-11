@@ -21,7 +21,9 @@ defmodule Ankole.AIGateway.ProviderDSL do
     :decision_model,
     :speech_model,
     :transcription_model,
-    :ocr_model
+    :ocr_model,
+    :video_model,
+    :music_model
   ]
 
   @doc false
@@ -121,6 +123,12 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   @doc "Declares the provider's OCR capability."
   defmacro ocr_model(do: block), do: capability(:ocr_model, block)
+
+  @doc "Declares the provider's video-generation capability."
+  defmacro video_model(do: block), do: capability(:video_model, block)
+
+  @doc "Declares the provider's music-generation capability."
+  defmacro music_model(do: block), do: capability(:music_model, block)
 
   @doc """
   Declares the Rust API protocol resolver used for this capability.

@@ -325,6 +325,8 @@ defmodule Ankole.TenancyGuardTest do
       "The durable row id is generated globally, not from a tenant-local name.",
     "ai_gateway_messages_tool_result_journal_key_index" =>
       "The journal digest includes the globally unique subject uid and message id.",
+    "ai_gateway_media_jobs_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
     "ai_gateway_usage_records_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
     "automation_job_runs_pkey" =>

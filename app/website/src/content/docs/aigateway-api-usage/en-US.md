@@ -65,6 +65,8 @@ Calls over stateless HTTP or SSE cannot include the stateful fields `previous_re
 | `POST /audio/speech` | Turn text into spoken audio |
 | `POST /audio/transcriptions` | Turn audio into text |
 | `POST /ocr` | Read a PDF or a document image as Markdown |
+| `POST /videos` | Start a video generation, then read the job at `GET /videos/:id` and the file at `GET /videos/:id/content` |
+| `POST /audio/music` | Start a music generation, then read the job at `GET /audio/music/:id` and the file at `GET /audio/music/:id/content` |
 
 Each endpoint is documented in detail on the [AIGateway](../ai-gateway/) page and the corresponding User-guide feature page.
 

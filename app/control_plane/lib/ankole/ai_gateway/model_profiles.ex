@@ -25,7 +25,8 @@ defmodule Ankole.AIGateway.ModelProfiles do
   @profiles ~w(
     primary light heavy coding vision_fallback web_search web_fetch image_generate
   )
-  @pod_profiles @profiles ++ ["rerank", "decision", "speech", "transcription", "ocr"]
+  @pod_profiles @profiles ++
+                  ["rerank", "decision", "speech", "transcription", "ocr", "video", "music"]
   @provider_hosted_capabilities ~w(web_search image_generate)
   @provider_hosted_defaults %{
     "web_search" => true,
@@ -763,7 +764,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
   end
 
   defp capability_for_default(profile)
-       when profile in ["rerank", "decision", "speech", "transcription", "ocr"],
+       when profile in ["rerank", "decision", "speech", "transcription", "ocr", "video", "music"],
        do: profile
 
   defp capability_for_default(profile), do: capability_for_profile(profile)

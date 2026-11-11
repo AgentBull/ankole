@@ -9,7 +9,7 @@ Model tokens account for most of Ankole's operational cost, so control-plane set
 
 ## Lever 1: model-profile tiers
 
-Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/System`) in **Console → Model Profiles**. Each Agent exposes eight built-in slots—five language-model slots plus `web_search`, `web_fetch`, and `image_generate`—while Site, Pod, and `system` Principals (`ankole_brain` and `system`) add the `rerank`, `decision`, `speech`, `transcription`, and `ocr` slots. Unset slots inherit from Pod and Site defaults, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`.
+Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/System`) in **Console → Model Profiles**. Each Agent exposes eight built-in slots—five language-model slots plus `web_search`, `web_fetch`, and `image_generate`—while Site, Pod, and `system` Principals (`ankole_brain` and `system`) add the `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, and `music` slots. Unset slots inherit from Pod and Site defaults, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`.
 
 | Slot | When it runs | Cost impact |
 |---|---|---|
@@ -25,6 +25,8 @@ Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/
 | `speech` (Site / Pod / `system`) | `/audio/speech` turns text into audio | Bind a text-to-speech model; left unset, speech requests fail |
 | `transcription` (Site / Pod / `system`) | `/audio/transcriptions` turns audio into text | Bind a speech-to-text model; left unset, transcription requests fail |
 | `ocr` (Site / Pod / `system`) | `/ocr` reads PDFs and images as Markdown | Bind an OCR model to read PDFs; left unset, a language model reads images only. Once bound, Pod also sends the scanned pages of newly uploaded PDFs to it, and the provider charges for every page |
+| `video` (Site / Pod / `system`) | `/videos` generates videos | Bind a video model; left unset, video requests fail. The provider charges for each generation |
+| `music` (Site / Pod / `system`) | `/audio/music` generates music | Bind a music model; left unset, music requests fail. The provider charges for each generation |
 
 Control-plane subsystem calls run under built-in `system` Principals so background maintenance and Applets never consume a foreground Agent's token quota:
 

@@ -95,7 +95,7 @@ end
 
 | フィールド | 意味 |
 |---|---|
-| `kind` | `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate`、`:decision_model`、`:speech_model`、`:transcription_model`、`:ocr_model` のいずれか |
+| `kind` | `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate`、`:decision_model`、`:speech_model`、`:transcription_model`、`:ocr_model`、`:video_model`、`:music_model` のいずれか |
 | `upstream` | 通信フォーマット。`kind` から自動的に決まり、`:language_model` は `:sse`、それ以外はすべて `:json` になる |
 | `api_resolver` | エンコーディングと transport を担う Rust 側の resolver atom（例: `:openai_responses`） |
 | `prepare` | 送信用のリクエストを組み立てる Elixir 関数 |
@@ -103,7 +103,7 @@ end
 | `supports_parallel_tool_calls?` | provider が並列ツール呼び出しを受け付けるかどうか |
 | `supports_native_image_generation?` | hosted の `image_generate` プロファイルなしで、LLM が公開画像ツールを実行できるかどうか |
 
-これら 10 種類の capability kind は、実行時に使われる外部名へマッピングされます。具体的には `language_model` が `"llm"`、`embedding_model` が `"embedding"`、`rerank_model` が `"rerank"`、`decision_model` が `"decision"`、`speech_model` が `"speech"`、`transcription_model` が `"transcription"`、`ocr_model` が `"ocr"` に対応し、残りの 3 つの Web / 画像系 kind はそのままの名前で使われます。LLM のみを提供する provider は `language_model` だけを宣言し、LLM と embedding の両方を提供する provider はその両方を宣言します。
+これら 12 種類の capability kind は、実行時に使われる外部名へマッピングされます。具体的には `language_model` が `"llm"`、`embedding_model` が `"embedding"`、`rerank_model` が `"rerank"`、`decision_model` が `"decision"`、`speech_model` が `"speech"`、`transcription_model` が `"transcription"`、`ocr_model` が `"ocr"`、`video_model` が `"video"`、`music_model` が `"music"` に対応し、残りの 3 つの Web / 画像系 kind はそのままの名前で使われます。LLM のみを提供する provider は `language_model` だけを宣言し、LLM と embedding の両方を提供する provider はその両方を宣言します。
 
 TypeSafe、Microsoft Foundry、OpenRouter の SystemOne エンドポイントには `:systemone_decision`、OpenAI `/decisions` には `:openai_decision` を使用します。resolver は state と画像のエンコーディング、質問の変換、回答の正規化を担当し、provider の prepare 関数は base URL、デプロイ名またはモデル名、認証、固有ヘッダー、リクエストオプションを担当します。`TypeSafe` には provider 独自の `/models` メタデータソースの実装もあり、TypeSafe の `models` と OpenAI 形式の `data` の両方のカタログを読み取れます。
 

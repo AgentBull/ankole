@@ -30,7 +30,9 @@ defmodule Ankole.AIGateway.Providers do
     :decision_model,
     :speech_model,
     :transcription_model,
-    :ocr_model
+    :ocr_model,
+    :video_model,
+    :music_model
   ]
   @cache_key {__MODULE__, :registry}
 
@@ -468,6 +470,21 @@ defmodule Ankole.AIGateway.Providers do
   @spec build_ocr_request(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def build_ocr_request(runtime, request, opts \\ []),
     do: build_prepared_request(runtime, :ocr_model, request, opts)
+
+  @doc """
+  Builds a prepared video-generation request for UniversalAIClient. A request
+  with `job_id` asks the Provider for the state of that generation.
+  """
+  @spec build_video_request(map(), map()) :: {:ok, map()} | {:error, term()}
+  def build_video_request(runtime, request),
+    do: build_prepared_request(runtime, :video_model, request, [])
+
+  @doc """
+  Builds a prepared music-generation request for UniversalAIClient.
+  """
+  @spec build_music_request(map(), map()) :: {:ok, map()} | {:error, term()}
+  def build_music_request(runtime, request),
+    do: build_prepared_request(runtime, :music_model, request, [])
 
   @doc """
   Builds a prepared image-generation request for the provider that serves the

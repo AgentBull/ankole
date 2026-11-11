@@ -1,7 +1,7 @@
 defmodule Ankole.AIGateway.Providers.Cloudflare do
   @moduledoc """
   Cloudflare provider: Web Search through AI Gateway, and decision, image,
-  speech, and transcription models through Workers AI.
+  speech, transcription, and music models through Workers AI.
   """
 
   use Ankole.AIGateway.ProviderDSL
@@ -64,6 +64,13 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
       api_resolver(:cloudflare_transcription)
       prepare(:prepare_transcription_model)
       timeout_ms(300_000)
+    end
+
+    music_model do
+      api_resolver(:cloudflare_music)
+      prepare(:prepare_music_model)
+      # The model answers once the whole piece exists.
+      timeout_ms(900_000)
     end
   end
 
@@ -159,6 +166,19 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
     |> UniversalAIRequest.new(
       account_path(ctx, "ai/run/" <> ctx.model),
       :cloudflare_transcription,
+      include_model: false
+    )
+    |> UniversalAIRequest.bearer_auth()
+  end
+
+  @doc """
+  Builds a music request for a partner model on Workers AI, such as
+  `minimax/music-2.6`. The request names the model in its body, and the answer
+  links to the audio.
+  """
+  def prepare_music_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new(account_path(ctx, "ai/run"), :cloudflare_music,
       include_model: false
     )
     |> UniversalAIRequest.bearer_auth()

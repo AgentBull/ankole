@@ -95,7 +95,7 @@ end
 
 | Field | Meaning |
 |---|---|
-| `kind` | one of `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate`, `:decision_model`, `:speech_model`, `:transcription_model`, `:ocr_model` |
+| `kind` | one of `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate`, `:decision_model`, `:speech_model`, `:transcription_model`, `:ocr_model`, `:video_model`, `:music_model` |
 | `upstream` | the wire shape, set from `kind`: `:sse` for `:language_model` and `:json` for every other kind |
 | `api_resolver` | the Rust-side resolver atom (e.g. `:openai_responses`) that owns encoding and transport |
 | `prepare` | the Elixir function that builds the prepared request |
@@ -103,7 +103,7 @@ end
 | `supports_parallel_tool_calls?` | whether the provider accepts parallel tool calls |
 | `supports_native_image_generation?` | whether an LLM can execute the public image tool without a hosted `image_generate` profile |
 
-The ten capability kinds map to the external names that the runtime uses: `language_model` → `"llm"`, `embedding_model` → `"embedding"`, `rerank_model` → `"rerank"`, `decision_model` → `"decision"`, `speech_model` → `"speech"`, `transcription_model` → `"transcription"`, `ocr_model` → `"ocr"`, while `web_search`, `web_fetch`, and `image_generate` keep the same names. Declare only the capabilities that the upstream service actually offers—for instance, an LLM-only provider declares just `language_model`, whereas a provider serving both chat and embeddings declares `language_model` and `embedding_model`.
+The twelve capability kinds map to the external names that the runtime uses: `language_model` → `"llm"`, `embedding_model` → `"embedding"`, `rerank_model` → `"rerank"`, `decision_model` → `"decision"`, `speech_model` → `"speech"`, `transcription_model` → `"transcription"`, `ocr_model` → `"ocr"`, `video_model` → `"video"`, `music_model` → `"music"`, while `web_search`, `web_fetch`, and `image_generate` keep the same names. Declare only the capabilities that the upstream service actually offers—for instance, an LLM-only provider declares just `language_model`, whereas a provider serving both chat and embeddings declares `language_model` and `embedding_model`.
 
 Decision providers use `:systemone_decision` for TypeSafe, Microsoft Foundry, and OpenRouter SystemOne endpoints, or `:openai_decision` for OpenAI `/decisions`. The resolvers own state and image encoding, question conversion, and answer normalization; the provider's prepare function owns the base URL, deployment or model name, authentication, provider-specific headers, and request options. `TypeSafe` also demonstrates a provider-owned `/models` metadata source that accepts both TypeSafe `models` and OpenAI-style `data` catalog entries.
 

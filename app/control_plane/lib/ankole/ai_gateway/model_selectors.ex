@@ -41,6 +41,14 @@ defmodule Ankole.AIGateway.ModelSelectors do
     "ocr" => %{
       profile: "ocr",
       selector: "ocr.default"
+    },
+    "video" => %{
+      profile: "video",
+      selector: "video.default"
+    },
+    "music" => %{
+      profile: "music",
+      selector: "music.default"
     }
   }
 

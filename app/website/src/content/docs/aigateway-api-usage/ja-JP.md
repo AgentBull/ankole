@@ -65,6 +65,8 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST /audio/speech` | テキストを音声に変換 |
 | `POST /audio/transcriptions` | 音声をテキストに変換 |
 | `POST /ocr` | PDF または文書画像を Markdown として読み取り |
+| `POST /videos` | 動画生成を開始し、`GET /videos/:id` でジョブを、`GET /videos/:id/content` でファイルを取得 |
+| `POST /audio/music` | 音楽生成を開始し、`GET /audio/music/:id` でジョブを、`GET /audio/music/:id/content` でファイルを取得 |
 
 各エンドポイントの詳細については、[AIGateway](../ai-gateway/) の概念ページおよび対応するユーザーガイドの各機能ページを参照してください。
 

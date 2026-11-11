@@ -51,7 +51,7 @@ end of an Agent turn.
 
 ## Select a Model for Each Kind of Work
 
-AIGateway exposes ten capability kinds:
+AIGateway exposes twelve capability kinds:
 
 - `llm`
 - `embedding`
@@ -63,6 +63,8 @@ AIGateway exposes ten capability kinds:
 - `speech`
 - `transcription`
 - `ocr`
+- `video`
+- `music`
 
 `Ankole.AIGateway.ModelProfiles` owns model and capability configuration at
 three layers: Site defaults, Pod overrides, and sparse subject overrides. Agents
@@ -70,8 +72,9 @@ store overrides in `agents.options`; registered system Principals store them in
 AppConfigure under `system:<uid>`. Site, Pod, and system Principals expose
 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`,
 `web_fetch`, `image_generate`, `rerank`, `decision`, `speech`,
-`transcription`, and `ocr`; Agents expose the same slots except `rerank`,
-`decision`, `speech`, `transcription`, and `ocr`. Pod and Site rows live in AppConfigure under
+`transcription`, `ocr`, `video`, and `music`; Agents expose the same slots
+except `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, and
+`music`. Pod and Site rows live in AppConfigure under
 `ai_gateway.model_profiles.<slot>` and `ai_gateway.provider_hosted.<capability>`.
 Deleting a row restores inheritance; storing `nil` is invalid because only a
 missing row may advance fallback to the next layer.
@@ -110,24 +113,26 @@ slots. This includes reranking during Agent-initiated recall. The `default` and
 rerank slot; Agent and Human rerank calls use the Pod slot. The `default` and
 `decision.default` selectors resolve the `decision` slot by the same rule, as do
 `speech.default` for the `speech` slot, `transcription.default` for the
-`transcription` slot, and `ocr.default` for the `ocr` slot. Pod Applets execute
+`transcription` slot, `ocr.default` for the `ocr` slot, `video.default` for
+the `video` slot, and `music.default` for the `music` slot. Pod Applets execute
 as `system`, accept only built-in LLM slots, and do not consult a creator Agent
 or its quota. OIDC-bound external requests use their explicit model binding.
 
 Provider-hosted switches inherit from Pod and Site for system Principals;
-system overrides accept only the thirteen fixed slots, with no custom aliases.
+system overrides accept only the fifteen fixed slots, with no custom aliases.
 Without subject overrides, every effective slot matches the Pod configuration.
 
 Alongside fixed profiles, an Agent can store custom LLM profiles in
 `agents.options["ai_agent"]["models"]`. Each custom name matches
 `[a-z][a-z0-9_-]{0,63}`, avoids the eight Agent fixed slots, is immutable, and
 has a non-empty description. The names `rerank`, `decision`, `speech`,
-`transcription`, and `ocr` are valid custom LLM aliases; they do not collide with the
+`transcription`, `ocr`, `video`, and `music` are valid custom LLM aliases; they do not collide with the
 Pod/Site capabilities of the same names, whose default selectors are `default`
 and `<capability>.default`, such as `rerank.default`. OIDC Clients use the same custom-alias
 contract and still resolve external Human requests through the Client's model
 binding. Custom aliases never configure embedding, rerank, web search, web
-fetch, image generation, decisions, speech, transcription, or OCR.
+fetch, image generation, decisions, speech, transcription, OCR, video, or
+music.
 
 The Console's `/model-profiles` page edits Pod and Site defaults through
 `/api/v2/model-profiles`, including rerank and Provider-hosted switches. Agent
@@ -732,6 +737,9 @@ All runtime endpoints mount under `/api/v1/ai-gateway`:
 - `POST /audio/speech`
 - `POST /audio/transcriptions`
 - `POST /ocr`
+- `POST /videos`, `GET /videos/:id`, and `GET /videos/:id/content`
+- `POST /audio/music`, `GET /audio/music/:id`, and
+  `GET /audio/music/:id/content`
 
 ## Identify Every Caller
 
@@ -796,7 +804,10 @@ with the token counts that the model reported. A speech call is one row with
 transcription call is one row with `unit` `second` and the seconds of audio
 that the Provider reports, rounded up; the row carries no unit when the
 Provider reports no duration. A call of an OCR model is one row with `unit`
-`page` and the number of pages that the Provider processed. `provider_cost` holds the cost of such a round
+`page` and the number of pages that the Provider processed. A completed video
+or music job is one row with `unit` `second` and the `duration` that its
+request named; the row carries no unit when the request named none.
+`provider_cost` holds the cost of such a round
 when the Provider reports one. An image that the
 language-model provider generates natively stays inside that provider's
 language-model round. Token quota windows and the usage of one Signal read
@@ -1925,6 +1936,67 @@ data and to name an image without text, which becomes a page with an empty
 request counts as an ordinary language-model request for usage records and
 for an Agent's token quota, and its `usage` also holds `input_tokens` and
 `output_tokens`.
+
+## Generate Video and Music
+
+A Provider finishes a video or a piece of music after the gateway request has
+returned, so these two capabilities run as media jobs.
+`Ankole.AIGateway.MediaJobs` owns the contract, and
+`ai_gateway_media_jobs` holds one row per job.
+
+`POST /videos` and `POST /audio/music` validate the request, resolve the
+model, and answer `202` with the job: its `id`, its `status`, the `model`,
+`created_at`, and `expires_at`. `GET /videos/:id` and `GET /audio/music/:id`
+return the same object to the Principal that created the job. A job is
+`pending` until the background job starts it, `in_progress` while the
+Provider works, and then `completed` or `failed`. A completed job also holds
+the file's `content_type` and `size`; a failed job holds an `error` with a
+`code` and a `message`. `GET /videos/:id/content` and
+`GET /audio/music/:id/content` send the file of a completed job and accept a
+`Range` header; for any other job they fail with `409 media_not_ready`.
+
+A video request holds a `prompt` and can hold `duration` in seconds,
+`resolution`, `aspect_ratio`, `size`, `generate_audio`, `seed`, and a
+`first_frame` and `last_frame`, each an `https` URL or a base64 data URL of
+an image of up to 10 MiB. A music request holds a `prompt` and can hold
+`lyrics`, `instrumental`, and `duration` in seconds. The `default`,
+`video.default`, and `music.default` selectors resolve the Pod or Site
+`video` and `music` profiles, and an explicit `provider_id/model` selector
+names a model directly. Neither capability has a language-model fallback: a
+request whose profile is not configured fails with
+`model_profile_not_configured`.
+
+`Ankole.AIGateway.Jobs.RunMediaJob` runs a job to its end:
+
+- It marks the row `in_progress` before it sends the request to the Provider.
+  A job that runs again after a crash therefore never asks for a second
+  generation, which the Provider would bill. A row that is `in_progress`
+  without a generation to wait for fails with `media_job_interrupted`.
+- The `openrouter` provider kind serves video. OpenRouter accepts the
+  generation at `/videos` and answers with its id; the job stores the id,
+  snoozes for ten seconds, and reads `/videos/:id` until OpenRouter reports
+  that the generation completed or failed. A generation that is still running
+  after one hour fails with `media_generation_timeout`. The job resolves the
+  profile on every step with the job id as the credential affinity, so that
+  one credential of a Provider pool serves all steps; a profile that names
+  another model by then fails the job with `model_profile_changed`.
+- The `cloudflare` provider kind serves music through the partner models of
+  Workers AI, such as `minimax/music-2.6` and `elevenlabs/music-v2`. The
+  model answers the request itself, once the audio exists, with a link to it.
+  AIGateway names `instrumental` and `duration` the way each of these two
+  partners expects them and sends the fields unchanged to any other model.
+- When the Provider reports the link to the file, the job stores the link and
+  then streams the file into the tenant's object storage through
+  `Ankole.Files`. A link on the Provider's own host is read with the
+  Provider's credential; a link on another host carries its own signature and
+  receives none. A failed download is tried again from the stored link.
+- A rejected submission fails the job at once. Any other error is tried again,
+  five times in all, and then fails the job.
+
+A media job and its file live for seven days. The hourly artifact cleanup
+deletes the rows whose `expires_at` has passed, which releases their objects
+to the object collection of `Ankole.Files`. A caller that keeps the file
+copies it before then.
 
 ## Store Vision Files and Generated Images
 

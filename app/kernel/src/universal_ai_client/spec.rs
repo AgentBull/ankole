@@ -45,6 +45,8 @@ pub enum APIResolverKind {
     MistralOcr,
     AmazonPollySpeech,
     AmazonTextractOcr,
+    OpenrouterVideo,
+    CloudflareMusic,
 }
 
 impl APIResolverKind {
@@ -82,6 +84,8 @@ impl APIResolverKind {
             Self::MistralOcr => "mistral_ocr",
             Self::AmazonPollySpeech => "amazon_polly_speech",
             Self::AmazonTextractOcr => "amazon_textract_ocr",
+            Self::OpenrouterVideo => "openrouter_video",
+            Self::CloudflareMusic => "cloudflare_music",
         }
     }
 

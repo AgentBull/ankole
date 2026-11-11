@@ -12,7 +12,16 @@ export const PROFILE_NAMES = [
   'web_fetch',
   'image_generate'
 ] as const
-export const POD_PROFILE_NAMES = [...PROFILE_NAMES, 'rerank', 'decision', 'speech', 'transcription', 'ocr'] as const
+export const POD_PROFILE_NAMES = [
+  ...PROFILE_NAMES,
+  'rerank',
+  'decision',
+  'speech',
+  'transcription',
+  'ocr',
+  'video',
+  'music'
+] as const
 export type ProfileName = (typeof POD_PROFILE_NAMES)[number]
 
 export function resolvedProfileValue(entry: unknown): JSONObject {

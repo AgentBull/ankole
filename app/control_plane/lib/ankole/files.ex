@@ -72,7 +72,8 @@ defmodule Ankole.Files do
       {"pod_files", "object_id"},
       {"drive_vfs_exports", "object_id"},
       {"page_snapshots", "object_id"},
-      {"profile_avatars", "object_id"}
+      {"profile_avatars", "object_id"},
+      {"ai_gateway_media_jobs", "object_id"}
     ]
 
   # Agent runtime files use paths relative to their existing private root.

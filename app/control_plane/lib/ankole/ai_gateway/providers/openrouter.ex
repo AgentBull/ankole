@@ -90,6 +90,12 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       timeout_ms(300_000)
       prepare(:prepare_transcription_model)
     end
+
+    video_model do
+      api_resolver(:openrouter_video)
+      timeout_ms(300_000)
+      prepare(:prepare_video_model)
+    end
   end
 
   @doc """
@@ -338,6 +344,24 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     |> UniversalAIRequest.new("audio/transcriptions", :openrouter_transcription,
       include_model: false
     )
+    |> common_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+  end
+
+  @doc """
+  Builds an OpenRouter `/videos` request. A request with `job_id` reads the
+  state of that generation; any other request submits a generation, which
+  OpenRouter answers before the video exists.
+  """
+  def prepare_video_model(ctx) do
+    {path, method} =
+      case ctx.request do
+        %{"job_id" => job_id} -> {"videos/" <> URI.encode(job_id, &URI.char_unreserved?/1), "GET"}
+        _submission -> {"videos", "POST"}
+      end
+
+    ctx
+    |> UniversalAIRequest.new(path, :openrouter_video, method: method, include_model: false)
     |> common_headers(ctx)
     |> UniversalAIRequest.bearer_auth()
   end

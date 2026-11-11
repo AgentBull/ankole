@@ -1,5 +1,22 @@
 # Changelog
 
+## Version 2.0.0-alpha.122 (2026-11-11)
+
+- Add video and music generation to AIGateway as media jobs. `POST /videos`
+  and `POST /audio/music` answer `202` with a job, `GET /videos/:id` and
+  `GET /audio/music/:id` read it, and `GET /videos/:id/content` and
+  `GET /audio/music/:id/content` send the generated file once the job is
+  `completed`. A background job sends the request, waits for the Provider,
+  and saves the file in the tenant's object storage, where it stays for seven
+  days. The new Pod and Site `video` and `music` profiles select the model:
+  OpenRouter serves video, and Cloudflare serves music through the Workers AI
+  partner models `minimax/music-2.6` and `elevenlabs/music-v2`. The usage
+  ledger records each completed job. The migration creates
+  `ai_gateway_media_jobs` and replaces the capability check on
+  `ai_gateway_usage_records`, which holds that table's exclusive lock while
+  PostgreSQL validates its rows; on a large database plan the upgrade for a
+  quiet period.
+
 ## Version 2.0.0-alpha.121 (2026-11-11)
 
 - Add the optional `amazon-ai-providers` Plugin, whose `amazon` provider kind

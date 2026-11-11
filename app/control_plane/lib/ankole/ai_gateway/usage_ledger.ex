@@ -49,21 +49,31 @@ defmodule Ankole.AIGateway.UsageLedger do
   def record(_runtime, _subject_type, _round, _opts), do: :ok
 
   @doc """
-  Records one completed call of an image, decision, speech, transcription, or
-  OCR provider.
+  Records one completed call of an image, decision, speech, transcription,
+  OCR, video, or music provider.
 
   `result` carries the Provider's `usage`. An image call records `quantity`
   generated images, one by default. A speech call records the `quantity` of
   characters that it turned into audio, a transcription call records the
   seconds of audio that the Provider reports, and an OCR call records the
-  pages that the Provider processed. `request_context` attributes the call to
-  the work that made it when the runtime does not carry that context itself.
+  pages that the Provider processed. A completed video or music job records
+  the seconds that its request named in `quantity`, when it named any.
+  `request_context` attributes the call to the work that made it when the
+  runtime does not carry that context itself.
   """
   @spec record_capability(map() | nil, String.t() | nil, map(), keyword()) :: :ok
   def record_capability(runtime, subject_type, result, opts \\ [])
 
   def record_capability(%{"capability" => capability} = runtime, subject_type, result, opts)
-      when capability in ["image_generate", "decision", "speech", "transcription", "ocr"] and
+      when capability in [
+             "image_generate",
+             "decision",
+             "speech",
+             "transcription",
+             "ocr",
+             "video",
+             "music"
+           ] and
              is_map(result) do
     runtime =
       case Keyword.get(opts, :request_context) do
@@ -130,6 +140,17 @@ defmodule Ankole.AIGateway.UsageLedger do
     do: %{capability: :ocr, unit: :page, quantity: pages}
 
   defp capability_use("ocr", _usage, _opts), do: %{capability: :ocr}
+
+  # A media job records the seconds that its request asked for, when it named
+  # them.
+  defp capability_use(capability, usage, opts) when capability in ["video", "music"] do
+    use = %{capability: String.to_existing_atom(capability), provider_cost: provider_cost(usage)}
+
+    case Keyword.get(opts, :quantity) do
+      seconds when is_integer(seconds) -> Map.merge(use, %{unit: :second, quantity: seconds})
+      _unnamed -> use
+    end
+  end
 
   defp provider_cost(%{"cost" => cost}) when is_number(cost) and cost >= 0,
     do: Decimal.new("#{cost}")
