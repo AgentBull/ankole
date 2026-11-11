@@ -28,6 +28,8 @@ Operators tune the trigger through the `ai_gateway.compaction` AppConfigure key:
 
 These defaults assume a 256k context window: `max_threshold_tokens` prevents giant-context models from accumulating histories so long that summarization itself becomes expensive, while smaller-context models trigger later in their window via `small_context_trigger_ratio` (`0.85`).
 
+Token usage is not the only trigger. Encrypted reasoning and inline images take many bytes per token, so a history can grow large long before it crosses the token threshold. AIGateway also compacts a conversation when its stored history reaches three quarters of what a single tool-using response can carry (1,024 items or 8 MiB). This size trigger has no setting.
+
 ### What the summarizer does
 
 Once token usage crosses the threshold, AIGateway invokes a summarizer model to condense the older span into a structured summary. The compaction prompt frames that output strictly as **reference state, not instructions**: `"Do NOT continue the conversation. Do NOT respond to any questions. ONLY output the structured summary."` The resulting summary captures user intent, key decisions, errors, and fixes while preserving exact file paths, function names, error strings, command lines, and identifiers—because paraphrasing a path or identifier breaks downstream tool calls.
@@ -51,7 +53,7 @@ Each compaction run writes a durable `CompactionArtifact` in AIGateway, anchorin
 
 `ai_gateway.compaction` and `sessions.wake_recycle` work together across warm and cold traffic:
 
-- **Warm active conversations (`ai_gateway.compaction`):** While turns arrive within the upstream provider's prompt-cache window, Ankole keeps extending the same AIGateway conversation to maximize prefix-cache hit rates, compacting only when cumulative context crosses `threshold` / `max_threshold_tokens`.
+- **Warm active conversations (`ai_gateway.compaction`):** While turns arrive within the upstream provider's prompt-cache window, Ankole keeps extending the same AIGateway conversation to maximize prefix-cache hit rates, compacting only when cumulative context crosses `threshold` / `max_threshold_tokens` or the stored history reaches the size trigger.
 - **Cold resumptions (`sessions.wake_recycle`):** When a Session resumes after sitting idle at least `min_cold_gap_seconds` (default `3,600` seconds, after upstream prompt caches expire) with context at or above `min_context_tokens` (default `128,000` tokens)—or after `im_max_idle_seconds` (default `259,200` seconds / 72 hours) on an external IM channel—`Ankole.Sessions.WakeRecycle` closes the cold AIGateway model conversation instead of replaying an uncached six-figure prompt, opens a successor branch, and injects a deterministic `<wake-briefing>` capped at `8,000` `o200k_base` tokens; see [Sessions](../sessions/).
 
 ## Tuning

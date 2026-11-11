@@ -58,7 +58,9 @@ defmodule Ankole.AIGateway.Compaction do
       :native_state,
       :upstream_compaction?
     ]
-    defstruct @enforce_keys ++ [brain_context: nil]
+    # A required checkpoint replaces a history that no longer fits the model's
+    # context. An optional one only keeps a history that still fits small.
+    defstruct @enforce_keys ++ [brain_context: nil, required?: true]
   end
 
   @doc false
@@ -102,12 +104,33 @@ defmodule Ankole.AIGateway.Compaction do
         CompactionHistory.force_local_checkpoint?(native_state, upstream_compaction?) ->
           context |> prepare_checkpoint_context() |> plan_local_compact_history()
 
-        total_tokens <= threshold.tokens ->
-          {:ok, unchanged(context)}
+        total_tokens > threshold.tokens ->
+          context |> prepare_checkpoint_context() |> plan_compact_history()
+
+        provider_history_checkpoint_due?(history) ->
+          plan_provider_history_checkpoint(context)
 
         true ->
-          context |> prepare_checkpoint_context() |> plan_compact_history()
+          {:ok, unchanged(context)}
       end
+    end
+  end
+
+  defp provider_history_checkpoint_due?(history) do
+    history
+    |> CompactionHistory.messages_to_items()
+    |> CompactionPolicy.provider_history_trigger?()
+  end
+
+  # The history still fits the model's context, so a checkpoint that cannot be
+  # written leaves the request on the full history. Truncating it would drop
+  # work that the model can still read.
+  defp plan_provider_history_checkpoint(%PlanContext{} = context) do
+    case %{context | required?: false}
+         |> prepare_checkpoint_context()
+         |> plan_compact_history() do
+      {:ok, plan} -> {:ok, plan}
+      {:error, _reason} -> {:ok, unchanged(context)}
     end
   end
 
@@ -280,15 +303,16 @@ defmodule Ankole.AIGateway.Compaction do
              )
          },
          %{
-           "auto_compaction" => %{
-             "history_usage_tokens_before" => total_tokens,
-             "token_threshold" => threshold.tokens,
-             "context_length" => threshold.context_length,
-             "threshold" => threshold.threshold,
-             "max_threshold_tokens" => threshold.max_threshold_tokens,
-             "summarizer_model" => summary.model,
-             "usage" => summary.usage
-           }
+           "auto_compaction" =>
+             put_trigger(context, %{
+               "history_usage_tokens_before" => total_tokens,
+               "token_threshold" => threshold.tokens,
+               "context_length" => threshold.context_length,
+               "threshold" => threshold.threshold,
+               "max_threshold_tokens" => threshold.max_threshold_tokens,
+               "summarizer_model" => summary.model,
+               "usage" => summary.usage
+             })
          }
        )}
     else
@@ -336,15 +360,16 @@ defmodule Ankole.AIGateway.Compaction do
              )
          },
          %{
-           "auto_compaction" => %{
-             "source" => "upstream",
-             "history_usage_tokens_before" => total_tokens,
-             "token_threshold" => threshold.tokens,
-             "context_length" => threshold.context_length,
-             "threshold" => threshold.threshold,
-             "max_threshold_tokens" => threshold.max_threshold_tokens,
-             "usage" => upstream.usage
-           }
+           "auto_compaction" =>
+             put_trigger(context, %{
+               "source" => "upstream",
+               "history_usage_tokens_before" => total_tokens,
+               "token_threshold" => threshold.tokens,
+               "context_length" => threshold.context_length,
+               "threshold" => threshold.threshold,
+               "max_threshold_tokens" => threshold.max_threshold_tokens,
+               "usage" => upstream.usage
+             })
          }
        )}
     else
@@ -389,6 +414,15 @@ defmodule Ankole.AIGateway.Compaction do
       run_metadata: run_metadata
     }
   end
+
+  # The token counts alone would read as a checkpoint written below its
+  # trigger, so the metadata names the size trigger.
+  defp put_trigger(%PlanContext{required?: false}, metadata),
+    do: Map.put(metadata, "trigger", "provider_history")
+
+  defp put_trigger(%PlanContext{}, metadata), do: metadata
+
+  defp overflow_fallback(%PlanContext{required?: false}, reason), do: {:error, reason}
 
   defp overflow_fallback(%PlanContext{} = context, reason) do
     if auto_truncation?(context.request) do

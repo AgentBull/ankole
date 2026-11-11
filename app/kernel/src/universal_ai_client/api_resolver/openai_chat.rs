@@ -23,7 +23,7 @@ impl ChatReasoning {
 
         match delta.get("reasoning_details") {
             Some(Value::Array(details)) => {
-                self.details.extend(details.iter().cloned());
+                self.push_details(details);
                 appended = !details.is_empty();
             }
             Some(Value::Null) | None => {}
@@ -76,6 +76,23 @@ impl ChatReasoning {
         Ok(appended)
     }
 
+    /// A provider streams one `reasoning.text` detail as many fragments of a
+    /// few characters each. Keeping every fragment as its own detail stores
+    /// and replays the fragment's fields once per fragment, which makes the
+    /// envelope many times larger than the reasoning it carries. Joining the
+    /// fragments restores the detail that a non-streaming response returns.
+    fn push_details(&mut self, details: &[Value]) {
+        for detail in details {
+            let merged = self
+                .details
+                .last_mut()
+                .is_some_and(|last| merge_text_detail_fragment(last, detail));
+            if !merged {
+                self.details.push(detail.clone());
+            }
+        }
+    }
+
     fn from_message(message: &Value) -> Result<Self, StreamError> {
         let mut reasoning = Self::default();
         reasoning.append_delta(message)?;
@@ -103,11 +120,14 @@ impl ChatReasoning {
         let encoded = item.get("encrypted_content").and_then(Value::as_str)?;
         let object = reasoning_envelope::decode(CHAT_REASONING_PREFIX, context, encoded)?;
 
-        let details = match object.get("reasoning_details") {
-            Some(Value::Array(details)) => details.clone(),
-            Some(Value::Null) | None => Vec::new(),
+        // An envelope sealed before fragments were joined still holds one
+        // detail per fragment, so replay joins them here.
+        let mut reasoning = Self::default();
+        match object.get("reasoning_details") {
+            Some(Value::Array(details)) => reasoning.push_details(details),
+            Some(Value::Null) | None => {}
             Some(_invalid) => return None,
-        };
+        }
         let text = match object.get("reasoning") {
             Some(Value::String(text)) => text.clone(),
             Some(Value::Null) | None => String::new(),
@@ -122,17 +142,17 @@ impl ChatReasoning {
             Some(_invalid) => return None,
         };
 
-        let reasoning = Self {
-            details,
-            text,
-            tool_call_extra_content,
-        };
+        reasoning.text = text;
+        reasoning.tool_call_extra_content = tool_call_extra_content;
         if reasoning.is_empty() {
             return None;
         }
         Some(reasoning)
     }
 
+    // Two reasoning items come from two provider responses, so their details
+    // stay separate even when the last detail of one resembles the first
+    // detail of the next.
     fn extend(&mut self, mut other: Self) {
         self.details.append(&mut other.details);
         self.text.push_str(&other.text);
@@ -1038,6 +1058,59 @@ fn chat_reasoning_item(
 
 fn invalid_chat_reasoning(message: impl Into<String>) -> StreamError {
     StreamError::new("invalid_reasoning_replay", "api_resolver", message)
+}
+
+/// Joins `fragment` onto `last` when both are fragments of one
+/// `reasoning.text` detail, and reports whether it did.
+///
+/// A provider repeats the fields of a detail on every fragment and varies only
+/// `text` and `signature`, so two fragments belong to one detail exactly when
+/// their other fields are equal. A signature closes the detail that it signs,
+/// so text that follows a signed detail starts a new one. A detail of any
+/// other type is opaque provider state and stays as the provider sent it.
+fn merge_text_detail_fragment(last: &mut Value, fragment: &Value) -> bool {
+    let (Some(last), Some(fragment)) = (last.as_object_mut(), fragment.as_object()) else {
+        return false;
+    };
+    if !text_detail_fragment(last)
+        || !text_detail_fragment(fragment)
+        || last.get("signature").is_some_and(|value| !value.is_null())
+        || !same_detail_identity(last, fragment)
+    {
+        return false;
+    }
+
+    if let Some(text) = fragment.get("text").and_then(Value::as_str) {
+        match last.get_mut("text") {
+            Some(Value::String(joined)) => joined.push_str(text),
+            _absent => {
+                last.insert("text".to_string(), json!(text));
+            }
+        }
+    }
+    if let Some(signature) = fragment.get("signature").filter(|value| !value.is_null()) {
+        last.insert("signature".to_string(), signature.clone());
+    }
+    true
+}
+
+fn text_detail_fragment(detail: &Map<String, Value>) -> bool {
+    detail.get("type").and_then(Value::as_str) == Some("reasoning.text")
+        && matches!(
+            detail.get("text"),
+            None | Some(Value::Null | Value::String(_))
+        )
+}
+
+fn same_detail_identity(left: &Map<String, Value>, right: &Map<String, Value>) -> bool {
+    detail_identity(left).count() == detail_identity(right).count()
+        && detail_identity(left).all(|(key, value)| right.get(key) == Some(value))
+}
+
+fn detail_identity(detail: &Map<String, Value>) -> impl Iterator<Item = (&String, &Value)> {
+    detail
+        .iter()
+        .filter(|(key, _value)| !matches!(key.as_str(), "text" | "signature"))
 }
 
 fn chat_assistant_content_parts(content: &Value) -> Vec<Value> {
