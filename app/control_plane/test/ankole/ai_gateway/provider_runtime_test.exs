@@ -776,8 +776,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_endpoints, "openrouter-turn-hosted-tools", provider.updated_at, "images/models",
-         "images/models/openai/gpt-image-1/endpoints"},
+        {:image_model_endpoints, "openrouter-turn-hosted-tools", provider.updated_at,
+         "images/models", "images/models/openai/gpt-image-1/endpoints"},
         [
           %{
             "provider_slug" => "openai",
