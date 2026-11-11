@@ -110,7 +110,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_endpoints, provider_id, provider.updated_at,
+        {:image_model_endpoints, provider_id, provider.updated_at, "images/models",
          "images/models/openai/gpt-image-1/endpoints"},
         [
           %{
@@ -261,7 +261,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_endpoints, image_provider_id, image_provider.updated_at,
+        {:image_model_endpoints, image_provider_id, image_provider.updated_at, "images/models",
          "images/models/openai/gpt-image-2/endpoints"},
         [
           %{
