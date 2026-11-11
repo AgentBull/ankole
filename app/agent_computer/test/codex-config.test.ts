@@ -305,7 +305,16 @@ describe('@ankole/agent-computer Codex config', () => {
         }
       })
       expect(threadConfig.model_reasoning_effort).toBe('xhigh')
-      expect(threadConfig.shell_environment_policy).toEqual({ inherit: 'all', set: { JOB: 'one' } })
+      // The shell also learns where the AIGateway API is and where the
+      // Agent's current key is kept, so a Skill script can call `/ocr`.
+      expect(threadConfig.shell_environment_policy).toEqual({
+        inherit: 'all',
+        set: {
+          JOB: 'one',
+          ANKOLE_RUNTIME_AI_GATEWAY_URL: 'https://control.example.test/api/v1/ai-gateway',
+          ANKOLE_RUNTIME_AI_GATEWAY_TOKEN_FILE: codexAIGatewayTokenPath(materialized.codexHome)
+        }
+      })
     } finally {
       if (previousStateRoot === undefined) delete process.env.CODEX_SQLITE_HOME
       else process.env.CODEX_SQLITE_HOME = previousStateRoot

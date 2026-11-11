@@ -989,7 +989,7 @@ Search and directory lists enforce access before applying result caps:
 - **Full-text search**: Matches titles, structured metadata (Knowledge tags,
   descriptions, sources, Base table/view/field names, and file names), and
   extracted bodies (documents, Knowledge bodies, text/code/Markdown/CSV/TSV,
-  Office documents, text-layer PDFs, and spreadsheet cell text) across visible
+  Office documents, PDFs, and spreadsheet cell text) across visible
   Pages (including shared child Pages whose parent is hidden) via
   `page_search_documents`, ranking title matches ahead of metadata and body
   matches through `pg_search` BM25 conjunctions, substring tiers, workspace
@@ -2363,7 +2363,7 @@ indexes File Pages into `page_search_documents` and records extraction state in
 CSV/TSV, and source-code files (`<= 256 KiB`) as well as copied files sharing an
 already cached `(object_id, format)` project synchronously inside the commit
 transaction, whereas Office documents (`.docx`, `.pptx`, `.odt`, `.ods` with
-per-sheet byte spans in `metadata.sheet_spans`), text-layer `.pdf` files
+per-sheet byte spans in `metadata.sheet_spans`), `.pdf` files
 (storing per-page byte spans in `metadata.pages` for page-number search jumps),
 and larger text files run asynchronously in `Ankole.Pod.Jobs.SyncFileCache` via
 the `DirtyCpu` Rust NIF `file_extract_text` and commit under an
@@ -2372,7 +2372,9 @@ the `DirtyCpu` Rust NIF `file_extract_text` and commit under an
 bounded batches to backfill missing projections (rebuilding File Pages from
 their immutable `object_id`) and stale extractor versions while leaving
 `skipped` and `failed` objects untouched at the current
-`(object_id, format, extractor_version)`.
+`(object_id, format, extractor_version)`. The one exception is a PDF with
+scanned pages that OCR has not read, which the same job sends again under the
+conditions described below.
 
 One copy of the extracted text serves both Pod search and Brain (see
 [Retrieval and progressive reads](BrainV3.md#retrieval-and-progressive-reads)),
@@ -2392,7 +2394,75 @@ appear formatted, a cell that holds a picture reads blank, and a vertically
 merged cell repeats on each later row of its range that has other content. The text of one file stops at 512 KiB, and a PDF
 at 500 pages; `metadata.truncated` records that either limit cut the text. PDF
 metadata also carries `extracted_pages` and `textless_pages`, the pages with
-fewer than ten characters of text, such as scanned pages. Spreadsheet caches
+fewer than ten characters of text, such as scanned pages.
+
+The Pod's `ocr` model
+([Read a Document as Markdown](AIGateway.md#read-a-document-as-markdown)) can
+read a PDF's `textless_pages`, and the OCR provider charges for every page it
+reads. `SyncFileCache` therefore sends pages to it in two cases only. The
+first run of the job that an upload enqueues reads the uploaded file's scans,
+because an administrator who binds an `ocr` model is told that new uploads are
+read. The first run of any other job (an extraction of an outdated cache, a
+rebuild) reads scans only while the tenant setting `pod.ocr_existing_scans` is
+on, and a later attempt of a job never reads them, because the attempt before
+it may have paid already. A file that is itself in the trash is not read; a
+file inside a folder in the trash still is.
+
+A run sends the unread pages as the tenant's `system` Principal, at most 100
+pages of the PDF per request. It sends a request only while the text that
+comes before the request's first page leaves room in the file's 512 KiB, and
+the kernel lists no page after the point where the text was cut, so every
+listed page can still be read. The cache row keeps what the model read in `pod_file_caches.ocr`:
+`pages` maps each page number that OCR has read to its text, an empty string
+for a page without text, and `failures` counts the runs that failed in a row.
+Every extraction of the same object passes those pages to the kernel, so a
+page is paid for once: an extractor upgrade, a rebuild, a second run of the
+same job, and another Page that holds the same object all reuse the stored
+text. A commit of the bytes that a Page already holds, which an Agent's
+`drive put` or a sync client makes for every unchanged file, names a new
+object; `FileExtraction` compares the objects' SHA-256 and moves the cache to
+the new object without extracting or reading anything again, and the file's
+content version in Brain follows the same digest, so Brain does not learn the
+file again either. The comparison is per Page: the same bytes committed on
+another Page, as a connector does when it creates a new File Page for every
+download, are extracted and read once for that Page. Each page with OCR text takes
+it under its own `[Page N]` line, leaves `textless_pages`, and joins
+`metadata.ocr_pages`. When a request fails, the pages read by the requests
+before it stay, and when the extraction cannot be stored, the pages go onto
+the existing cache row. A reply that names a page outside the request means
+the model counts pages another way: Pod uses none of its text and records the
+requested pages as read without text, because asking again would pay again
+for the same answer. AIGateway records each request under the `pod_files` origin
+with the pages it read.
+
+`pod.ocr_existing_scans` is the administrator's consent to pay for the scans
+that were not read at upload. The setting is off by default and resolves
+through the Site value like every tenant setting, so a Site-level consent
+covers every Pod that has no value of its own, and a Pod's own value, a
+refusal included, stands against it. When an administrator saves the Pod or
+Site `ocr` profile and the value in effect at that scope is not on, the
+Console counts the unread scans and their pages (`GET /api/v2/unread-scans`
+for the Pod, `GET /api/v2/site/unread-scans` for the Pods that follow the Site
+value), names the charge, and asks. The count also says whether it is still
+`counting`: right after an upgrade some PDFs have no current cache or no page
+list yet, and the Console then asks even when the count is zero and marks the
+numbers as incomplete. Accepting stores `true` at that scope,
+declining stores `false`, and closing the dialog stores nothing; when no scan
+is waiting, the Console does not ask. The answer can change later in
+AppConfigure.
+
+While the setting is on and the Pod has an `ocr` model, each
+`ReconcileSearchIndex` pass sends the PDFs with unread scans through
+`SyncFileCache` again, up to its work budget. A scan whose run failed waits 30
+minutes times its failures in a row, and after five failures the pass tries
+it once a day, so an outage or an empty provider account ends without anyone
+uploading the files again. A PDF whose every page is a scan is `skipped` with
+`empty_text_layer` and keeps its page list, so the same pass reaches it, and
+the OCR run replaces it with an `ok` cache. A scan that an earlier release
+cached without a page list is extracted again whether or not the setting is
+on, which costs nothing and lets the Console count its pages.
+
+Spreadsheet caches
 carry the same `extractor_version` as every other file, so raising the version
 re-derives workbooks too. Every cache write or purge calls
 `Ankole.Brain.Knowledge.file_cache_changed_in_tx/1` in the same transaction,

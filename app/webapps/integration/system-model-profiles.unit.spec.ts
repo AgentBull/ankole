@@ -278,6 +278,65 @@ test('opens directly on Site defaults without a selected tenant and updates prov
     ])
 })
 
+// Saves the Site OCR profile against a fixture in which reading earlier scans is off and `unread` scans wait.
+async function saveSiteOCRProfile(page: Page, unread: { files: number; pages: number; counting: boolean }) {
+  await fixture(page, { initialURL: '/model-profiles' })
+  const settingWrites: unknown[] = []
+  await page.route('**/api/v2/site/app-configurations/pod.ocr_existing_scans', route => {
+    if (route.request().method() !== 'GET') settingWrites.push(route.request().postDataJSON())
+    return route.fulfill({
+      json: {
+        app_configuration: { key: 'pod.ocr_existing_scans', overridden: false, value: null, fallback_value: false }
+      }
+    })
+  })
+  await page.route('**/api/v2/site/unread-scans', route => route.fulfill({ json: unread }))
+
+  const ocr = page.locator('form').filter({ has: page.getByRole('button', { name: /^OCR model/ }) })
+  await ocr.getByRole('button', { name: /^OCR model/ }).click()
+  await ocr.getByRole('combobox', { name: 'Model', exact: true }).fill('mistral-ocr-latest')
+  await page.getByRole('option', { name: /Use.*mistral-ocr-latest/ }).click()
+  const counted = page.waitForResponse(response => response.url().includes('/api/v2/site/unread-scans'))
+  await ocr.getByRole('button', { name: 'Save', exact: true }).click()
+  await counted
+  return { settingWrites, dialog: page.getByRole('dialog', { name: 'Read the scanned PDFs uploaded earlier?' }) }
+}
+
+test('saving the OCR profile shows what reading the earlier scans would cost and waits for consent', async ({
+  page
+}) => {
+  const { settingWrites, dialog } = await saveSiteOCRProfile(page, { files: 3, pages: 41, counting: false })
+
+  await expect(dialog).toContainText('the OCR provider charges for each of those pages too')
+  await expect(dialog).toContainText(
+    'Unread scanned PDFs in the Pods that follow the Site setting: 3. Unread pages: 41.'
+  )
+  // Nothing is turned on until the administrator accepts the charges.
+  expect(settingWrites).toEqual([])
+
+  await dialog.getByRole('button', { name: 'Read them and accept the charges', exact: true }).click()
+  await expect.poll(() => settingWrites).toEqual([{ data: { value: true } }])
+  await expect(dialog).toHaveCount(0)
+})
+
+test('declining stores the refusal, and nothing is asked when no scan is waiting', async ({ page }) => {
+  const { settingWrites, dialog } = await saveSiteOCRProfile(page, { files: 2, pages: 5, counting: false })
+  await dialog.getByRole('button', { name: 'Not now', exact: true }).click()
+  await expect.poll(() => settingWrites).toEqual([{ data: { value: false } }])
+  await expect(dialog).toHaveCount(0)
+
+  const quiet = await saveSiteOCRProfile(page, { files: 0, pages: 0, counting: false })
+  await expect(quiet.dialog).toHaveCount(0)
+  expect(quiet.settingWrites).toEqual([])
+})
+
+test('right after an upgrade the question still comes and says that the numbers are incomplete', async ({ page }) => {
+  const { dialog } = await saveSiteOCRProfile(page, { files: 0, pages: 0, counting: true })
+  await expect(dialog).toContainText(
+    'Unread scanned PDFs in the Pods that follow the Site setting: 0. Unread pages: 0. Pod is still listing the PDFs uploaded earlier, so the final numbers will be higher.'
+  )
+})
+
 test('Pod defaults tab keeps scope tabs mounted when no tenant is selected and binds the chosen tenant', async ({
   page
 }) => {

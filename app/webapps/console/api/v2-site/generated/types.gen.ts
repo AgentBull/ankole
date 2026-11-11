@@ -2058,6 +2058,35 @@ export type SuspendTenantResponses = {
 
 export type SuspendTenantResponse = SuspendTenantResponses[keyof SuspendTenantResponses]
 
+export type GetSiteUnreadScansData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/unread-scans'
+}
+
+export type GetSiteUnreadScansErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetSiteUnreadScansError = GetSiteUnreadScansErrors[keyof GetSiteUnreadScansErrors]
+
+export type GetSiteUnreadScansResponses = {
+  /**
+   * Success
+   */
+  200: {
+    counting: boolean
+    files: number
+    pages: number
+  }
+}
+
+export type GetSiteUnreadScansResponse = GetSiteUnreadScansResponses[keyof GetSiteUnreadScansResponses]
+
 export type ListSiteWorkerEnvsData = {
   body?: never
   path?: never

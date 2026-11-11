@@ -26,7 +26,7 @@ Ankole에서 발생하는 지출의 대부분은 모델 토큰 비용이며, 통
 | `decision`(Site / Pod / `system`) | `/decisions`의 확률 포함 답변 | 결정 모델 연결 권장. 비워 두면 `light` 모델이 답변 |
 | `speech`(Site / Pod / `system`) | `/audio/speech`의 음성 합성 | 음성 합성 모델 연결 필요. 비워 두면 음성 합성 요청이 실패 |
 | `transcription`(Site / Pod / `system`) | `/audio/transcriptions`의 음성 인식 | 음성 인식 모델 연결 필요. 비워 두면 음성 인식 요청이 실패 |
-| `ocr`(Site / Pod / `system`) | `/ocr`의 PDF·이미지 Markdown 읽기 | PDF를 읽으려면 OCR 모델 연결 필요. 비워 두면 언어 모델이 이미지만 읽음 |
+| `ocr`(Site / Pod / `system`) | `/ocr`의 PDF·이미지 Markdown 읽기 | PDF를 읽으려면 OCR 모델 연결 필요. 비워 두면 언어 모델이 이미지만 읽음. 연결하면 Pod가 새로 업로드된 PDF의 스캔 페이지도 자동으로 전송하며, 제공업체가 페이지마다 요금 부과 |
 
 컨트롤 플레인 서브시스템의 모델 호출은 내장 `system` Principal 명의로 실행되므로 백그라운드 유지보수나 Applet이 포그라운드 Agent의 토큰 할당량을 소모하지 않습니다.
 

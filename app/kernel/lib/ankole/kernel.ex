@@ -672,13 +672,23 @@ defmodule Ankole.Kernel do
     end
   end
 
-  @doc "Extracts bounded NFKC-normalized search text and locating metadata from file bytes."
-  @spec file_extract_text(binary(), String.t(), String.t() | nil) ::
-          {:ok, file_extraction()} | {:error, error_reason()}
-  def file_extract_text(bytes, filename, mime_type \\ nil)
+  @doc """
+  Extracts bounded NFKC-normalized search text and locating metadata from file bytes.
+
+  `page_texts` lists `{page, text}` pairs that OCR read from a PDF, with pages
+  numbered from 1. A page without a text layer takes its text from that list.
+  """
+  @spec file_extract_text(
+          binary(),
+          String.t(),
+          String.t() | nil,
+          [{pos_integer(), String.t()}] | nil
+        ) :: {:ok, file_extraction()} | {:error, error_reason()}
+  def file_extract_text(bytes, filename, mime_type \\ nil, page_texts \\ nil)
       when is_binary(bytes) and is_binary(filename) and
-             (is_binary(mime_type) or is_nil(mime_type)) do
-    case file_extract_text_nif(bytes, filename, mime_type) do
+             (is_binary(mime_type) or is_nil(mime_type)) and
+             (is_list(page_texts) or is_nil(page_texts)) do
+    case file_extract_text_nif(bytes, filename, mime_type, page_texts) do
       {:error, _reason} = error ->
         error
 
@@ -707,7 +717,7 @@ defmodule Ankole.Kernel do
   defp file_extractor_version_nif, do: :erlang.nif_error(:nif_not_loaded)
   defp file_classify_format_nif(_filename, _mime_type), do: :erlang.nif_error(:nif_not_loaded)
 
-  defp file_extract_text_nif(_bytes, _filename, _mime_type),
+  defp file_extract_text_nif(_bytes, _filename, _mime_type, _page_texts),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """

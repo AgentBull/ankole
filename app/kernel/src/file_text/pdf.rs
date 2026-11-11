@@ -11,11 +11,16 @@ use super::{
 /// is how a scanned page reads.
 const TEXTLESS_PAGE_CHARS: usize = 10;
 
-/// Extracts the text layer page by page. Each page with text starts with a `[Page N]` line, and
-/// its entry in `pages` spans that line and the text. `extracted_pages` counts the pages read
-/// before a limit stopped the extraction, and `textless_pages` lists the ones among them that
-/// have no text layer to speak of.
-pub(super) fn extract_pdf(bytes: &[u8]) -> FileTextResult {
+/// Extracts the text page by page. Each page with text starts with a `[Page N]` line, and its
+/// entry in `pages` spans that line and the text. A page without a text layer to speak of takes
+/// the text that OCR read from it when `recognized` holds one. `extracted_pages` counts the pages
+/// read before a limit stopped the extraction, and `textless_pages` lists the ones among them
+/// that still have no text. `ocr_pages` lists the pages whose text came from OCR, and it is
+/// present whenever `recognized` is given, so an OCR run that found nothing is still on record.
+pub(super) fn extract_pdf(
+    bytes: &[u8],
+    recognized: Option<&BTreeMap<u32, String>>,
+) -> FileTextResult {
     if bytes.len() > MAX_DOCUMENT_INPUT_BYTES {
         return FileTextResult::skipped(FileSubtype::Document, "pdf", "file_too_large");
     }
@@ -57,53 +62,79 @@ pub(super) fn extract_pdf(bytes: &[u8]) -> FileTextResult {
     let mut first_err: Option<String> = None;
     let mut extracted_pages = 0usize;
     let mut textless_pages = Vec::new();
+    let mut ocr_pages = Vec::new();
     let mut cut = false;
 
     for &page_num in page_map.keys().take(MAX_PDF_PAGES) {
-        if out.len() >= PLAIN_TEXT_LIMIT {
+        // A cut can land inside a character and leave the text a few bytes short of the limit.
+        // The pages after it are not read, so none of them is listed as waiting for OCR.
+        if cut || out.len() >= PLAIN_TEXT_LIMIT {
             break;
         }
         extracted_pages += 1;
-        let page = doc.extract_text(&[page_num]);
-        let cleaned = page.as_deref().map(clean_page).unwrap_or_default();
-        if cleaned.chars().count() < TEXTLESS_PAGE_CHARS {
-            textless_pages.push(page_num);
-        }
-        match page {
-            Ok(_) => {
+        let mut text = match doc.extract_text(&[page_num]) {
+            Ok(page) => {
                 any_page_ok = true;
-                if cleaned.is_empty() {
-                    continue;
-                }
-                if !out.is_empty() && !out.ends_with('\n') {
-                    out.push('\n');
-                }
-                let start_byte = out.len();
-                out.push_str(&format!("[Page {page_num}]\n{cleaned}\n"));
-                if out.len() > PLAIN_TEXT_LIMIT {
-                    out = truncate_utf8(out, PLAIN_TEXT_LIMIT);
-                    cut = true;
-                }
-                let end_byte = out.len();
-                if end_byte > start_byte {
-                    spans.push(PageTextSpan {
-                        page: page_num,
-                        start_byte,
-                        end_byte,
-                    });
-                }
+                clean_page(&page)
             }
             Err(err) => {
-                if first_err.is_none() {
-                    first_err = Some(err.to_string());
+                first_err.get_or_insert_with(|| err.to_string());
+                String::new()
+            }
+        };
+        if text.chars().count() < TEXTLESS_PAGE_CHARS {
+            let read = recognized
+                .and_then(|pages| pages.get(&page_num))
+                .map(|page| clean_page(page))
+                .filter(|page| !page.is_empty());
+            match read {
+                Some(page) => {
+                    text = page;
+                    ocr_pages.push(page_num);
                 }
+                None => textless_pages.push(page_num),
             }
         }
+        if text.is_empty() {
+            continue;
+        }
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        let start_byte = out.len();
+        out.push_str(&format!("[Page {page_num}]\n{text}\n"));
+        if out.len() > PLAIN_TEXT_LIMIT {
+            out = truncate_utf8(out, PLAIN_TEXT_LIMIT);
+            cut = true;
+        }
+        let end_byte = out.len();
+        if end_byte > start_byte {
+            spans.push(PageTextSpan {
+                page: page_num,
+                start_byte,
+                end_byte,
+            });
+        }
+    }
+
+    let mut metadata = json!({
+        "page_count": total_pages,
+        "pages": spans,
+        "truncated": cut || extracted_pages < total_pages,
+        "extracted_pages": extracted_pages,
+        "textless_pages": textless_pages,
+    });
+    if recognized.is_some() {
+        metadata["ocr_pages"] = json!(ocr_pages);
     }
 
     if out.trim().is_empty() {
         if any_page_ok {
-            return FileTextResult::skipped(FileSubtype::Document, "pdf", "empty_text_layer");
+            // The metadata names the pages that OCR could still read.
+            return FileTextResult {
+                metadata,
+                ..FileTextResult::skipped(FileSubtype::Document, "pdf", "empty_text_layer")
+            };
         }
         return FileTextResult::failed(
             FileSubtype::Document,
@@ -115,18 +146,7 @@ pub(super) fn extract_pdf(bytes: &[u8]) -> FileTextResult {
         );
     }
 
-    FileTextResult::ok(
-        FileSubtype::Document,
-        "pdf",
-        out,
-        json!({
-            "page_count": total_pages,
-            "pages": spans,
-            "truncated": cut || extracted_pages < total_pages,
-            "extracted_pages": extracted_pages,
-            "textless_pages": textless_pages,
-        }),
-    )
+    FileTextResult::ok(FileSubtype::Document, "pdf", out, metadata)
 }
 
 /// The text of one page: normalized, without the invisible characters PDF producers scatter

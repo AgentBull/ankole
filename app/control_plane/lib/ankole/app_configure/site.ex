@@ -12,6 +12,14 @@ defmodule Ankole.AppConfigure.Site do
     show_raised_errors?(false)
 
     routes do
+      route(
+        Ankole.AppConfigure.SiteOperations,
+        :get,
+        "/unread-scans",
+        :console_unread_scans,
+        name: "get_site_unread_scans"
+      )
+
       base_route "/app-configurations", Ankole.AppConfigure.SiteOperations do
         route(:get, "/", :console_list, name: "list_site_app_configurations")
 

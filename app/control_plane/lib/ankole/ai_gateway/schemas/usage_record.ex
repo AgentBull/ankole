@@ -58,7 +58,9 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
 
     attribute(:origin, :atom,
       allow_nil?: false,
-      constraints: [one_of: [:agent, :codex, :applet, :brain, :oidc_human, :compaction]]
+      constraints: [
+        one_of: [:agent, :codex, :applet, :brain, :oidc_human, :compaction, :pod_files]
+      ]
     )
 
     attribute(:model, :string, allow_nil?: false, constraints: [trim?: false])

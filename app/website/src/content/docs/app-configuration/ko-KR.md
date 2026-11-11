@@ -55,6 +55,7 @@ AppConfigure는 제품 설정을 PostgreSQL에 저장하며 대부분의 변경�
 | `drive.trash_retention_days` | 테넌트 | 삭제된 Drive 노드를 자동으로 영구 삭제하기 전까지 보관하는 일수. 기본값은 `30`이며, `0`으로 설정하면 설정을 바꿀 때까지 무기한 보관 |
 | `drive.vfs_max_upload_bytes` | 사이트 | Worker `/drive` VFS 업로드당 최대 바이트 수. 기본값 `0`은 객체 저장소 업로드 한도를 사용 |
 | `pod.ot_replay_window` | 테넌트 | OT 재생을 위해 보관하는 최근 문서 변경 배치 수(기본값 `1000`) |
+| `pod.ocr_existing_scans` | 테넌트 | 업로드할 때 OCR로 읽지 못한 스캔 PDF 페이지를 OCR 모델로 전송. OCR 제공업체가 페이지마다 요금 부과(기본값 `false`) |
 
 ### Workflow
 

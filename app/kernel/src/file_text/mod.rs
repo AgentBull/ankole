@@ -18,6 +18,7 @@ mod odf;
 mod ooxml;
 mod pdf;
 
+use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
 
 use quick_xml::XmlVersion;
@@ -216,7 +217,14 @@ pub fn classify(filename: &str, mime_type: Option<&str>) -> Option<(FileSubtype,
 }
 
 /// Extracts bounded, NFKC-normalized searchable text and locating metadata from file bytes.
-pub fn extract(bytes: &[u8], filename: &str, mime_type: Option<&str>) -> FileTextResult {
+/// `recognized` maps PDF page numbers, starting at 1, to the text that OCR read from them, and a
+/// page without a text layer takes its text from there.
+pub fn extract(
+    bytes: &[u8],
+    filename: &str,
+    mime_type: Option<&str>,
+    recognized: Option<&BTreeMap<u32, String>>,
+) -> FileTextResult {
     let Some((subtype, format)) = classify(filename, mime_type) else {
         return FileTextResult::skipped(FileSubtype::Document, "unsupported", "unsupported_format");
     };
@@ -230,7 +238,7 @@ pub fn extract(bytes: &[u8], filename: &str, mime_type: Option<&str>) -> FileTex
             (FileSubtype::Document, "pptx") => ooxml::extract_pptx(bytes),
             (FileSubtype::Document, "odt") => odf::extract_odt(bytes),
             (FileSubtype::Document, "ods") => odf::extract_ods(bytes),
-            (FileSubtype::Document, "pdf") => pdf::extract_pdf(bytes),
+            (FileSubtype::Document, "pdf") => pdf::extract_pdf(bytes, recognized),
             _ => FileTextResult::skipped(subtype, format, "unsupported_format"),
         }));
 

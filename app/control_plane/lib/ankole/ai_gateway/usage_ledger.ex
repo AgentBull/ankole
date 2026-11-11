@@ -10,7 +10,8 @@ defmodule Ankole.AIGateway.UsageLedger do
   language-model rows only.
   Explicit subject credentials determine the origin before internal caller
   labels. Only Agent and Codex rows count toward Agent token quota windows;
-  Brain, Applet, OIDC Human, and automatic compaction rows remain ledger-only.
+  Brain, Applet, Pod file extraction, OIDC Human, and automatic compaction rows
+  remain ledger-only.
   A ledger write failure never discards an already delivered provider response.
   """
 
@@ -528,6 +529,7 @@ defmodule Ankole.AIGateway.UsageLedger do
   defp origin(_runtime, "oidc_human", _caller), do: :oidc_human
   defp origin(_runtime, nil, "compaction." <> _stage), do: :compaction
   defp origin(_runtime, nil, "pod_applet"), do: :applet
+  defp origin(_runtime, nil, "pod_files"), do: :pod_files
   defp origin(_runtime, nil, "brain"), do: :brain
 
   defp origin(_runtime, nil, "brain." <> _stage), do: :brain

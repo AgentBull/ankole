@@ -11,6 +11,13 @@ defmodule Ankole.AppConfigure.SiteOperations do
     resolve_param(:key, :string)
     allow(:console_list, resource: "site_console:app_configurations", action: "read")
     allow(:console_show, resource: "site_console:app_configuration:{key}", action: "read")
+
+    # Whoever may read the consent setting may see what consenting would send to OCR.
+    allow(:console_unread_scans,
+      resource: "site_console:app_configuration:pod.ocr_existing_scans",
+      action: "read"
+    )
+
     allow(:console_update, resource: "site_console:app_configuration:{key}", action: "update")
     allow(:console_delete, resource: "site_console:app_configuration:{key}", action: "reset")
     allow(:console_decrypt, resource: "site_console:app_configuration:{key}", action: "decrypt")
@@ -35,6 +42,20 @@ defmodule Ankole.AppConfigure.SiteOperations do
   end
 
   actions do
+    action :console_unread_scans, :map do
+      transaction?(false)
+
+      constraints(
+        fields: [
+          counting: [type: :boolean, allow_nil?: false],
+          files: [type: :integer, allow_nil?: false],
+          pages: [type: :integer, allow_nil?: false]
+        ]
+      )
+
+      run({Ankole.AppConfigure.ConsoleActions, scope: :global})
+    end
+
     action :console_update_group, :map do
       transaction?(false)
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::{Cursor, Write};
 
 use lopdf::content::{Content, Operation};
@@ -6,7 +7,14 @@ use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
 use super::pdf::clean_page;
-use super::{ExtractStatus, FileSubtype, MAX_PDF_PAGES, PLAIN_TEXT_LIMIT, classify, extract};
+use super::{
+    ExtractStatus, FileSubtype, FileTextResult, MAX_PDF_PAGES, PLAIN_TEXT_LIMIT, classify,
+};
+
+/// Extracts without OCR text, which is how every file but a scanned PDF is read.
+fn extract(bytes: &[u8], filename: &str, mime_type: Option<&str>) -> FileTextResult {
+    super::extract(bytes, filename, mime_type, None)
+}
 
 fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
@@ -428,6 +436,79 @@ fn extracts_pdf_pages_and_classifies_blank_or_corrupt_pdfs() {
 
     let corrupt = extract(b"%PDF-1.7\ngarbage-not-a-valid-xref", "broken.pdf", None);
     assert_eq!(corrupt.status, ExtractStatus::Failed);
+}
+
+#[test]
+fn pdf_pages_without_a_text_layer_take_the_text_that_ocr_read() {
+    let pdf_bytes = build_pdf(&["Executive Summary", "", "p. 3"]);
+    let recognized = BTreeMap::from([
+        (1, "OCR of a page that has its own text".to_owned()),
+        (2, " # Scanned\u{200B} invoice\n\nTotal: 42 \n".to_owned()),
+        (3, "  ".to_owned()),
+    ]);
+    let res = super::extract(&pdf_bytes, "brief.pdf", None, Some(&recognized));
+    assert_eq!(
+        res.plain_text,
+        "[Page 1]\nExecutive Summary\n[Page 2]\n# Scanned invoice\n\nTotal: 42\n[Page 3]\np. 3\n"
+    );
+    assert_eq!(
+        res.metadata["pages"],
+        serde_json::json!([
+            { "page": 1, "start_byte": 0, "end_byte": 27 },
+            { "page": 2, "start_byte": 27, "end_byte": 65 },
+            { "page": 3, "start_byte": 65, "end_byte": 79 }
+        ])
+    );
+    assert_eq!(res.metadata["textless_pages"], serde_json::json!([3]));
+    assert_eq!(res.metadata["ocr_pages"], serde_json::json!([2]));
+
+    // A scan has no text of its own, and its metadata names the pages OCR could read.
+    let scan = build_pdf(&["", ""]);
+    let unread = extract(&scan, "scan.pdf", None);
+    assert_eq!(unread.status, ExtractStatus::Skipped);
+    assert_eq!(unread.metadata["textless_pages"], serde_json::json!([1, 2]));
+    assert!(unread.metadata.get("ocr_pages").is_none());
+
+    let read = BTreeMap::from([(2, "Stamped receipt".to_owned())]);
+    let res = super::extract(&scan, "scan.pdf", None, Some(&read));
+    assert_eq!(res.status, ExtractStatus::Ok);
+    assert_eq!(res.plain_text, "[Page 2]\nStamped receipt\n");
+    assert_eq!(res.metadata["textless_pages"], serde_json::json!([1]));
+    assert_eq!(res.metadata["ocr_pages"], serde_json::json!([2]));
+
+    // An OCR run that found no text stays on record.
+    let blank = super::extract(&scan, "scan.pdf", None, Some(&BTreeMap::new()));
+    assert_eq!(blank.status, ExtractStatus::Skipped);
+    assert_eq!(blank.error.as_deref(), Some("empty_text_layer"));
+    assert_eq!(blank.metadata["ocr_pages"], serde_json::json!([]));
+}
+
+#[test]
+fn a_pdf_stops_at_the_text_limit_and_lists_no_page_after_the_cut() {
+    // Three-byte characters make the cut land inside one, which leaves the text short of the
+    // limit. The scan after the cut is not listed, and the one before it still is.
+    let long = "\u{4e2d}".repeat(PLAIN_TEXT_LIMIT / 3 + 10);
+    let res = extract(
+        &build_pdf(&["", &long, "", "after the cut"]),
+        "long.pdf",
+        None,
+    );
+    assert_eq!(res.status, ExtractStatus::Ok);
+    assert!(res.plain_text.len() <= PLAIN_TEXT_LIMIT);
+    assert_eq!(res.metadata["truncated"], true);
+    assert_eq!(res.metadata["extracted_pages"], 2);
+    assert_eq!(res.metadata["textless_pages"], serde_json::json!([1]));
+
+    // OCR text for the scan before the cut still fits, and it pushes the cut forward.
+    let read = BTreeMap::from([(1, "Scan before the long page".to_owned())]);
+    let res = super::extract(&build_pdf(&["", &long, ""]), "long.pdf", None, Some(&read));
+    assert!(
+        res.plain_text
+            .starts_with("[Page 1]\nScan before the long page\n[Page 2]\n")
+    );
+    assert!(res.plain_text.len() <= PLAIN_TEXT_LIMIT);
+    assert_eq!(res.metadata["ocr_pages"], serde_json::json!([1]));
+    assert_eq!(res.metadata["textless_pages"], serde_json::json!([]));
 }
 
 #[test]

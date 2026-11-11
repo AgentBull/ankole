@@ -8640,6 +8640,35 @@ export type DecryptWorkerEnvResponses = {
 
 export type DecryptWorkerEnvResponse = DecryptWorkerEnvResponses[keyof DecryptWorkerEnvResponses]
 
+export type GetUnreadScansData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/unread-scans'
+}
+
+export type GetUnreadScansErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetUnreadScansError = GetUnreadScansErrors[keyof GetUnreadScansErrors]
+
+export type GetUnreadScansResponses = {
+  /**
+   * Success
+   */
+  200: {
+    counting: boolean
+    files: number
+    pages: number
+  }
+}
+
+export type GetUnreadScansResponse = GetUnreadScansResponses[keyof GetUnreadScansResponses]
+
 export type SetAgentLibraryPluginData = {
   /**
    * Request body for the set_agent_library_plugin operation on agent_library_console resource

@@ -32,6 +32,12 @@ defmodule Ankole.AppConfigure.ConsoleActions do
          do: {:ok, %{app_configurations: items}}
   end
 
+  defp execute(%{action: %{name: :console_unread_scans}}, :tenant),
+    do: {:ok, Ankole.Pod.FileExtraction.unread_scans()}
+
+  defp execute(%{action: %{name: :console_unread_scans}}, :global),
+    do: {:ok, Ankole.Pod.FileExtraction.unread_scans_following_site()}
+
   defp execute(%{action: %{name: :console_connector_catalog}}, :tenant),
     do: {:ok, %{connectors: Ankole.Connectors.catalog()}}
 

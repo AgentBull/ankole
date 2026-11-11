@@ -2,9 +2,11 @@ import { isRecord } from '@agentbull/active-support'
 import {
   AIGATEWAY_PROVIDER_NAME,
   codexAIGatewayAuthConfig,
+  codexAIGatewayTokenPath,
   encodeAIGatewayModelBinding,
   type CodexJobBindingIdentity
 } from '../runtime/agent-home-config'
+import { AI_GATEWAY_TOKEN_FILE_ENV, AI_GATEWAY_URL_ENV } from '../../execution/turn_runtime_env'
 import { AIGATEWAY_OBSERVABILITY_USER_ID_HEADER, aiGatewayTurnTraceHeaders } from '../../ai_gateway_transport'
 import type { TurnTracePropagation } from '../../../observability/turn-tracing'
 import type { CodexRuntimeConfig } from '../runtime-config'
@@ -70,9 +72,15 @@ export function codexJobThreadConfig(input: {
         { name: 'skill-installer', enabled: false }
       ]
     },
+    // A shell tool reaches the AIGateway endpoints that the model does not
+    // call by itself, such as `/ocr`, with the Agent's own key.
     shell_environment_policy: {
       inherit: 'all',
-      set: input.env
+      set: {
+        ...input.env,
+        [AI_GATEWAY_URL_ENV]: baseURL,
+        [AI_GATEWAY_TOKEN_FILE_ENV]: codexAIGatewayTokenPath(input.codexHome)
+      }
     }
   })
   replaceTurnTraceHeaders(config, input.turnTracePropagation)

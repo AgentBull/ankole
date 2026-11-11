@@ -26,7 +26,7 @@ Ankole の運用コストの大半はモデルのトークン消費によるも�
 | `decision`（Site / Pod / `system`） | `/decisions` の確率付き回答 | 判定モデルを割り当てる枠。未設定時は `light` モデルが回答 |
 | `speech`（Site / Pod / `system`） | `/audio/speech` の音声合成 | 音声合成モデルを割り当てる枠。未設定時は音声合成リクエストが失敗 |
 | `transcription`（Site / Pod / `system`） | `/audio/transcriptions` の文字起こし | 文字起こしモデルを割り当てる枠。未設定時は文字起こしリクエストが失敗 |
-| `ocr`（Site / Pod / `system`） | `/ocr` の PDF・画像の Markdown 読み取り | PDF の読み取りに必要な OCR モデルを割り当てる枠。未設定時は言語モデルが画像だけを読み取る |
+| `ocr`（Site / Pod / `system`） | `/ocr` の PDF・画像の Markdown 読み取り | PDF の読み取りに必要な OCR モデルを割り当てる枠。未設定時は言語モデルが画像だけを読み取る。割り当てると、Pod は新しくアップロードされた PDF のスキャンページも自動で送り、プロバイダーがページごとに課金する |
 
 control plane 内部サブシステムのモデル呼び出しは組み込みの `system` Principal のもとで実行されるため、バックグラウンド保守や Applet がフォアグラウンド Agent のトークンクォータを消費することはありません。
 

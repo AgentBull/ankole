@@ -55,6 +55,7 @@ AppConfigure は製品設定を PostgreSQL に保存し、多くの変更は後�
 | `drive.trash_retention_days` | Tenant | 削除された Drive ノードを自動で完全削除するまでの保持日数。既定値は `30`。`0` にすると設定変更まで無期限に保持 |
 | `drive.vfs_max_upload_bytes` | Site | Worker の `/drive` VFS アップロード 1 件あたりの最大バイト数。既定値 `0` はオブジェクトストアの上限を使用 |
 | `pod.ot_replay_window` | Tenant | OT リプレイ用に保持する直近のドキュメント変更バッチ数。既定値 `1000` |
+| `pod.ocr_existing_scans` | Tenant | アップロード時に OCR で読み取られなかったスキャン PDF のページを OCR モデルに送る。OCR プロバイダーがページごとに課金する。既定値 `false` |
 
 ### Workflow
 

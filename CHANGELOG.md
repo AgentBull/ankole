@@ -1,5 +1,38 @@
 # Changelog
 
+## Version 2.0.0-alpha.119 (2026-11-11)
+
+- Read scanned PDF pages with OCR. When the Pod or the Site has an OCR model,
+  file extraction sends the pages of a newly uploaded PDF that have no text
+  layer to that model and adds what it reads to the file's text under the same
+  `[Page N]` lines, so Pod search and Brain cover those pages, and Brain
+  relearns a file once OCR text arrives. The OCR provider charges for every
+  page, so each page is sent once: the file's cache keeps what OCR read
+  (`pod_file_caches.ocr`), and later extractions reuse it, as does a commit of
+  the same bytes and another Page that holds the same file. Scanned PDFs that
+  were not read at upload stay unread until an administrator accepts the
+  charges. Console asks when the OCR profile is saved, shows how many files
+  and pages are waiting (and says so while it is still counting after an
+  upgrade), and stores the answer in the new tenant setting
+  `pod.ocr_existing_scans` (default `false`). A Site-level consent covers
+  every Pod without a value of its own, and a Pod that declined keeps its
+  refusal. AIGateway records the pages under the new `pod_files` usage origin.
+  Without an OCR model, scanned pages stay unsearchable. A File Page's content
+  version in Brain now follows the SHA-256 of its bytes, so committing an
+  unchanged file again, as an Agent's `drive put` does, no longer makes Brain
+  learn it again; the upgrade renames the versions that learned files and
+  waiting learning jobs carry.
+  `Ankole.Kernel.file_extract_text/4` takes the page texts, a PDF's cache
+  metadata lists the pages OCR read in `ocr_pages`, and
+  `GET /api/v2/unread-scans` and `GET /api/v2/site/unread-scans` return the
+  waiting files and pages.
+- Let the `ocr` Skill call the AIGateway OCR API. The Skill gains
+  `scripts/ocr_api.py`, which sends an image or a PDF to `/ocr` and prints
+  Markdown per page, next to the local engine; the Agent decides which one to
+  use. The shell of a Codex Job receives `ANKOLE_RUNTIME_AI_GATEWAY_URL` and
+  `ANKOLE_RUNTIME_AI_GATEWAY_TOKEN_FILE`, so a Skill script can call a gateway
+  endpoint with the Agent's own key.
+
 ## Version 2.0.0-alpha.118 (2026-11-11)
 
 - Add `POST /audio/speech` and `POST /audio/transcriptions` to AIGateway, with

@@ -81,12 +81,33 @@ defmodule Ankole.Pod.Config do
         schema: Schema.new(&positive_integer/1),
         default_value: 1000,
         description: "Number of recent document change batches retained for OT replay."
+      ),
+      Definition.new!(
+        key: "pod.ocr_existing_scans",
+        scope: :tenant,
+        encrypted: false,
+        schema: Schema.new(&boolean/1),
+        default_value: false,
+        description:
+          "Sends the scanned PDF pages that no OCR model read at upload to the OCR model. The OCR provider charges for every page."
       )
     ]
   end
 
   def allow_external_guests?,
     do: AppConfigure.get_by_key("pod.allow_external_guests") == {:ok, true}
+
+  @doc "Whether an administrator agreed to pay for OCR of the scans that were uploaded unread."
+  def ocr_existing_scans?,
+    do: AppConfigure.get_by_key("pod.ocr_existing_scans") == {:ok, true}
+
+  @doc "Whether the Pod has no value of its own for `pod.ocr_existing_scans`, so the Site's applies."
+  def follows_site_ocr_existing_scans? do
+    case AppConfigure.resolve_by_key("pod.ocr_existing_scans") do
+      {:ok, %{source: :tenant}} -> false
+      _site_or_default -> true
+    end
+  end
 
   @doc "Publishes access changes for the configuration's actual affected workspace set."
   def broadcast_guest_access(:tenant), do: Ankole.Pod.Pages.broadcast_access()

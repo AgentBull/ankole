@@ -26,7 +26,7 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 | `decision`（Site / Pod / `system`） | `/decisions` 带概率的作答 | 绑定决策模型；留空时由 `light` 模型作答 |
 | `speech`（Site / Pod / `system`） | `/audio/speech` 语音合成 | 绑定语音合成模型；留空时语音合成请求会失败 |
 | `transcription`（Site / Pod / `system`） | `/audio/transcriptions` 语音转写 | 绑定语音转写模型；留空时转写请求会失败 |
-| `ocr`（Site / Pod / `system`） | `/ocr` 把 PDF 和图片识别为 Markdown | 需要识别 PDF 时绑定 OCR 模型；留空时由语言模型识别，只能读图片 |
+| `ocr`（Site / Pod / `system`） | `/ocr` 把 PDF 和图片识别为 Markdown | 需要识别 PDF 时绑定 OCR 模型；留空时由语言模型识别，只能读图片。绑定后，Pod 还会把新上传的 PDF 中的扫描页自动送去识别，服务商按页收费 |
 
 控制面内部子系统的模型调用统一归属内置 `system` 主体执行，后台治理与小应用调用绝不会挤占任何前台 Agent 的 Token 配额：
 

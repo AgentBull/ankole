@@ -115,6 +115,11 @@ defmodule Ankole.Brain.Knowledge do
       String.trim(knowledge.body) == "" ->
         Ankole.Brain.SourceLearning.clear_page_facts_in_tx(knowledge)
 
+      # The facts already cover this content version, as they do after a commit
+      # of the bytes the page already held.
+      knowledge.upstream_state["facts_version"] == knowledge.content_hash ->
+        :ok
+
       Ankole.Brain.Config.enabled?() ->
         with {:ok, _} <-
                Ankole.Brain.Jobs.LearnSource.enqueue_page(knowledge.id, knowledge.content_hash),

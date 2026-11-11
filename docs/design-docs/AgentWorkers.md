@@ -1067,6 +1067,12 @@ Jobs) to `ANKOLE_RUNTIME_CLI_CONTEXT_FILE`. Both automatic and explicitly reques
 compactions advance the Codex context count once when they complete. Agent Computer
 stores the file with `0600` permissions in a runtime directory outside the workspace
 and points `ANKOLE_RUNTIME_CLI_LEDGER_DIR` at a SQLite ledger (`state.db`) there.
+The shell of a Codex Job also receives `ANKOLE_RUNTIME_AI_GATEWAY_URL`, the
+base URL of the AIGateway API, and `ANKOLE_RUNTIME_AI_GATEWAY_TOKEN_FILE`, the
+file in which Agent Computer keeps the Agent's current AIGateway key and
+rewrites it when the key rotates. A Skill script uses the pair to call a
+gateway endpoint that the model does not call by itself, as the `ocr` Skill's
+`ocr_api.py` calls `/ocr`.
 Worker CLIs (`ankole-pod`,
 `ankole-files`, the `create-webhook-cli` family, and the
 `ankole-browser` for pipe protection)

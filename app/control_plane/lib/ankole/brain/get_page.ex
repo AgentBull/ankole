@@ -106,12 +106,13 @@ defmodule Ankole.Brain.GetPage do
     do: Ankole.Kernel.truncate_o200k_base_tokens(page.body, tokens)
 
   # What the extraction covered: `truncated` marks text cut at the extraction
-  # limit, and `textless_pages` lists PDF pages without a text layer.
+  # limit, `textless_pages` lists PDF pages that still have no text, and
+  # `ocr_pages` lists the scanned pages whose text an OCR model read.
   defp file_coverage(%{file: %{"format" => format, "metadata" => metadata}} = page) do
     coverage =
       metadata
       |> Map.take(
-        ~w(truncated page_count extracted_pages textless_pages sheets row_count line_count)
+        ~w(truncated page_count extracted_pages textless_pages ocr_pages sheets row_count line_count)
       )
       |> Map.put("format", format)
 

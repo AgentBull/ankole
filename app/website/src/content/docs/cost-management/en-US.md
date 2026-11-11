@@ -24,7 +24,7 @@ Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/
 | `decision` (Site / Pod / `system`) | `/decisions` answers with probabilities | Bind a decision model; left unset, the `light` model answers |
 | `speech` (Site / Pod / `system`) | `/audio/speech` turns text into audio | Bind a text-to-speech model; left unset, speech requests fail |
 | `transcription` (Site / Pod / `system`) | `/audio/transcriptions` turns audio into text | Bind a speech-to-text model; left unset, transcription requests fail |
-| `ocr` (Site / Pod / `system`) | `/ocr` reads PDFs and images as Markdown | Bind an OCR model to read PDFs; left unset, a language model reads images only |
+| `ocr` (Site / Pod / `system`) | `/ocr` reads PDFs and images as Markdown | Bind an OCR model to read PDFs; left unset, a language model reads images only. Once bound, Pod also sends the scanned pages of newly uploaded PDFs to it, and the provider charges for every page |
 
 Control-plane subsystem calls run under built-in `system` Principals so background maintenance and Applets never consume a foreground Agent's token quota:
 

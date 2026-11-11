@@ -5,7 +5,7 @@ import { Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQueryClient } from '@tanstack/react-query'
-import { useLayoutEffect, useMemo, type ComponentProps } from 'react'
+import { useLayoutEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
@@ -32,6 +32,7 @@ import {
   type ProfileName
 } from '../state/model-profiles-model'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
+import { OcrExistingScansDialog, ocrExistingScansQuestion, type UnreadScans } from './ocr-existing-scans-dialog'
 import { useEditorDraft } from '../use-editor-draft'
 import type { AIGatewayProviderItem } from '../state/provider-settings'
 
@@ -216,6 +217,7 @@ export function ProfileEditor({
   const signals = model.profiles[profile]
   const draft = signals.draft.value
   const hasOverride = Object.hasOwn(configuration.overrides, profile)
+  const [existingScans, setExistingScans] = useState<{ unread: UnreadScans | undefined } | null>(null)
   const persist = useMutation({
     mutationFn: async (input: ProfilePersistence) => {
       if ('agentUID' in target) {
@@ -257,6 +259,17 @@ export function ProfileEditor({
     const message = t(`console.models.${messageKey}`, { profile: modelProfileLabel(t, profile) })
     if (result.hasUnsavedChanges) toast.info(message)
     else toast.success(message)
+    // OCR costs money for every page, so the scans uploaded before this model wait for an explicit answer.
+    // Nothing is asked when reading them is already on, or when no scan is waiting and none is still being listed.
+    if (profile === 'ocr' && input.action === 'saved' && 'defaultsScope' in target) {
+      void ocrExistingScansQuestion(target.defaultsScope).then(
+        question => {
+          const waiting = !question.unread || question.unread.files > 0 || question.unread.counting
+          if (!question.enabled && waiting) setExistingScans({ unread: question.unread })
+        },
+        () => undefined
+      )
+    }
   }
   const submit = () => {
     if (persist.isPending) return
@@ -310,6 +323,16 @@ export function ProfileEditor({
           persist.mutate({ action: 'cleared', submission: model.submission(profile) }, { onSuccess: finishPersistence })
         }
       />
+      {'defaultsScope' in target ? (
+        <OcrExistingScansDialog
+          scope={target.defaultsScope}
+          unread={existingScans?.unread}
+          open={existingScans !== null}
+          onOpenChange={open => {
+            if (!open) setExistingScans(null)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

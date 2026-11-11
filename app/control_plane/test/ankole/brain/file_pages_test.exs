@@ -70,7 +70,7 @@ defmodule Ankole.Brain.FilePagesTest do
     page = upload(ctx, "notes.md", "The factory has three lines.", "text/markdown")
     {:ok, first} = Objects.get_by_slug(page.id)
 
-    assert first.content_hash == "#{page.object_id}:v#{Ankole.Kernel.file_extractor_version()}"
+    assert first.content_hash == file_version(page)
 
     {:ok, _replaced} =
       Files.upload(
@@ -109,6 +109,57 @@ defmodule Ankole.Brain.FilePagesTest do
              end)
 
     assert {:error, :stale_run} = SourceLearning.learn_page(page.id, second.content_hash)
+  end
+
+  test "committing the same bytes again keeps the content version, and Brain learns nothing new",
+       ctx do
+    page = upload(ctx, "notes.md", "The factory has three lines.", "text/markdown")
+    {:ok, first} = Objects.get_by_slug(page.id)
+
+    assert {:ok, %{claims: 1}} =
+             Repo.transact_top_level(fn ->
+               SourceLearning.commit_page_run_in_tx(page.id, first.content_hash, %{
+                 items: [%{"claim" => "The factory has three lines", "kind" => "fact"}],
+                 windows: 1
+               })
+             end)
+
+    learned = learn_jobs(page.id)
+
+    # An Agent's `drive put` and a sync client commit unchanged files again, each time as a new object.
+    {:ok, _file} =
+      Files.upload(
+        ctx.actor,
+        page.id,
+        "file",
+        page.object_id,
+        "notes.md",
+        "The factory has three lines.",
+        "text/markdown"
+      )
+
+    {:ok, again} = Objects.get_by_slug(page.id)
+    {:ok, recommitted} = Pages.fetch(page.id)
+    assert recommitted.object_id != page.object_id
+    assert again.content_hash == first.content_hash
+    assert learn_jobs(page.id) == learned
+    assert [%{chunk_text: "The factory has three lines."}] = chunks(page.id)
+
+    # Different bytes are a new version, and Brain learns it.
+    {:ok, _file} =
+      Files.upload(
+        ctx.actor,
+        page.id,
+        "file",
+        recommitted.object_id,
+        "notes.md",
+        "The factory has four lines.",
+        "text/markdown"
+      )
+
+    {:ok, changed} = Objects.get_by_slug(page.id)
+    assert changed.content_hash != first.content_hash
+    assert length(learn_jobs(page.id)) == length(learned) + 1
   end
 
   test "a table file learns one summary, indexed after body chunks that keep their vectors",
@@ -354,7 +405,14 @@ defmodule Ankole.Brain.FilePagesTest do
              Repo.get_by!(FileCache, page_id: page.id)
 
     assert {:ok, %{content_hash: hash}} = Objects.get_by_slug(page.id)
-    assert hash == "#{page.object_id}:v#{version}"
+    assert hash == file_version(page)
+  end
+
+  # A file's content version: the digest of its bytes and the extractor version.
+  defp file_version(page) do
+    {:ok, current} = Pages.fetch(page.id)
+    {:ok, object} = Ankole.Files.fetch_object(current.object_id)
+    "#{Base.encode16(object.sha256, case: :lower)}:v#{Ankole.Kernel.file_extractor_version()}"
   end
 
   defp upload(ctx, name, content, content_type) do

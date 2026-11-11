@@ -523,12 +523,26 @@ pub fn file_extract_text_nif(
     bytes: Term<'_>,
     filename: Term<'_>,
     mime_type: Term<'_>,
+    page_texts: Term<'_>,
 ) -> NIFResult<FileExtractTextNIF> {
     let bytes = decode_binary(bytes, "bytes")?;
     let filename = decode_string(filename, "filename")?;
     let mime_type = decode_optional_string(mime_type, "mime_type")?;
+    let recognized = page_texts
+        .decode::<Option<Vec<(u32, String)>>>()
+        .map_err(|_| error_message("page_texts must be nil or a list of {page, text}"))?
+        .map(|pages| {
+            pages
+                .into_iter()
+                .collect::<std::collections::BTreeMap<_, _>>()
+        });
     let result = stacker::grow(8 * 1024 * 1024, || {
-        crate::file_text::extract(bytes.as_slice(), &filename, mime_type.as_deref())
+        crate::file_text::extract(
+            bytes.as_slice(),
+            &filename,
+            mime_type.as_deref(),
+            recognized.as_ref(),
+        )
     });
     let status = match result.status {
         crate::file_text::ExtractStatus::Ok => atoms::ok(),

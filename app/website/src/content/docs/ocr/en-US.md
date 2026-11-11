@@ -42,9 +42,15 @@ From the recognized text, the Agent can return raw transcripts, cleaned prose, s
 
 For best accuracy, send a sharp, upright image at full resolution—prefer the original file over a compressed chat screenshot when dealing with fine print. You can also ask the Agent to highlight uncertain lines explicitly instead of guessing.
 
+## Use an OCR model through AIGateway
+
+The `ocr` Skill also shows the Agent how to call the [AIGateway](../ai-gateway/) OCR API. When an administrator binds an OCR model to the **OCR model** slot in **Console → Default model profiles**, the Agent can send a scanned PDF or an image to that model and get Markdown back page by page. Such a model reads the scripts and layouts that it was built for, and its provider bills each page. Without a bound OCR model, the API passes one image to a language model that accepts images.
+
+The Agent decides for each document whether to recognize it locally, send it to the OCR API, or read an image with its own vision. You can also tell it which one to use.
+
 ## Limits
 
-- Scripts outside the 50-language model—including Korean, Arabic, Cyrillic, and Thai—are not supported.
+- The local model does not cover scripts outside its 50 languages, including Korean, Arabic, Cyrillic, and Thai. An OCR model behind the OCR API can cover them.
 - Cursive handwriting, mathematical formulas, complex tables, curved text, and blurry or heavily skewed photos can reduce recognition accuracy. Tables are extracted as positioned text lines rather than a reconstructed table grid.
 - Running OCR extracts text for the Agent to use, but does not embed a searchable text layer back into the source PDF.
 

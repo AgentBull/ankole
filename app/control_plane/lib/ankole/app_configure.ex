@@ -70,6 +70,14 @@ defmodule Ankole.AppConfigure do
         wrap_in_result?: false
       )
 
+      route(
+        Ankole.AppConfigure.ConsoleOperations,
+        :get,
+        "/unread-scans",
+        :console_unread_scans,
+        name: "get_unread_scans"
+      )
+
       base_route "/app-configurations", Ankole.AppConfigure.ConsoleOperations do
         route(:get, "/", :console_list, name: "list_app_configurations")
 
