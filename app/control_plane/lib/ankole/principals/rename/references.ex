@@ -42,7 +42,8 @@ defmodule Ankole.Principals.Rename.References do
   ]
   @principal_key_arrays [
     {"identity_directory_states", "member_uids"},
-    {"identity_directory_states", "missing_uids"}
+    {"identity_directory_states", "missing_uids"},
+    {"issues", "squad_uids"}
   ]
   @actor_refs [
     {"agent_skill_lessons", "author"},

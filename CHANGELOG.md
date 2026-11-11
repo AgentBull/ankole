@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.0.0-alpha.129 (2026-11-11)
+
+- Fix Squads after an AI colleague is renamed. Renaming an Agent left its old
+  name in the Squads of existing Issues, so those Issues stopped showing it as
+  a Squad member. A rename now updates the Agent's name in every Squad.
+
 ## Version 2.0.0-alpha.128 (2026-11-12)
 
 - Add Personal Skills, `/learn` workflow extraction, and `/<slug>` Skill

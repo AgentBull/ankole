@@ -38,8 +38,10 @@ work. The status records only what a person decides:
 The Agent references a Principal, so a Principal rename follows through the
 foreign key, and deleting the Agent clears the reference. Deleting the room
 deletes its Issue, and deleting a parent's room clears the parent link of its
-sub-Issues. A Squad is an array of Principal UIDs, so a work item names only
-the Squad members that are still active.
+sub-Issues. A Squad is an array of Principal UIDs that no foreign key can
+follow, so `Principals.Rename.References` rewrites `squad_uids` when a member
+is renamed, and a work item names only the Squad members that are still
+active.
 
 ## Rooms and access
 
