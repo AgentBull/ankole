@@ -23,7 +23,8 @@ import {
   offlineInfographicResourceLoader,
   validateInfographicSyntax
 } from '../src/viz/infographic'
-import { prepareStatisticalChartSpec, resolveStatTrend, type StatisticalChartType } from '../src/viz/statistical'
+import { describeStatChart, resolveStatTrend } from '../src/viz/stat-summary'
+import { prepareStatisticalChartSpec, type StatisticalChartType } from '../src/viz/statistical'
 
 describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
   test('resolves light/dark palettes, monotonic sequential ramps, zero-anchored diverging scales, and cn convention swap', () => {
@@ -541,8 +542,24 @@ describe('Statistical & financial pure spec builders', () => {
 
     expect(resolveStatTrend(undefined, '+3')).toBe('up')
     expect(resolveStatTrend(undefined, '−3')).toBe('down')
+    expect(resolveStatTrend(undefined, '12.4%')).toBe('up')
+    expect(resolveStatTrend(undefined, '-12.4%')).toBe('down')
+    expect(resolveStatTrend(undefined, '1,204')).toBe('up')
     expect(resolveStatTrend('neutral', '+3')).toBe('neutral')
     expect(resolveStatTrend(undefined, undefined)).toBe('neutral')
+
+    expect(
+      describeStatChart({
+        type: 'stat',
+        title: 'Median latency',
+        subtitle: 'vs. previous period',
+        unit: 'ms',
+        valueField: 'p50',
+        comparisonField: 'delta',
+        data: [{ p50: 182, delta: '+12.4%' }]
+      })
+    ).toBe('Median latency: 182 ms, ▲ +12.4% (vs. previous period)')
+    expect(describeStatChart({ type: 'stat', data: { value: 7 } })).toBe('7')
 
     const band = prepareStatisticalChartSpec(
       {
@@ -573,6 +590,21 @@ describe('Statistical & financial pure spec builders', () => {
     const areaStyle = areaMark?.style as { fill?: string } | undefined
     expect(areaStyle?.fill).toBe(intlPalette.categorical[0])
     expect(areaMark?.tooltip).toBe(false)
+
+    const smoothBand = prepareStatisticalChartSpec(
+      {
+        type: 'quantile_band',
+        smooth: true,
+        xField: 'bucket',
+        yField: 'p50',
+        bandLowField: 'p5',
+        bandHighField: 'p95',
+        data: [{ bucket: '10:00', p50: 120, p5: 80, p95: 190 }]
+      },
+      intlPalette
+    )
+    const smoothArea = (smoothBand.g2Spec as { children?: Record<string, unknown>[] }).children?.[0]
+    expect(smoothArea?.encode).toEqual({ x: 'bucket', y: 'p95', y1: 'p5', shape: 'smooth' })
 
     expect(lineMark?.type).toBe('line')
     expect(lineMark?.encode).toMatchObject({ x: 'bucket', y: 'p50' })
@@ -706,6 +738,21 @@ describe('Thin lazy React visualization wrappers', () => {
     expect(chartHtml).toContain('data-slot="chart-export-svg"')
     expect(chartHtml).toContain('<th scope="col"')
     expect(chartHtml).toContain('Segment contribution')
+
+    const statHtml = renderToStaticMarkup(
+      <AnkoleChart
+        spec={{
+          type: 'stat',
+          title: 'Median latency',
+          subtitle: 'vs. previous period',
+          unit: 'ms',
+          valueField: 'p50',
+          comparisonField: 'delta',
+          data: [{ p50: 182, delta: '+12.4%' }]
+        }}
+      />
+    )
+    expect(statHtml).toContain('aria-label="Median latency: 182 ms, ▲ +12.4% (vs. previous period)"')
 
     const finHtml = renderToStaticMarkup(
       <AnkoleFinancialChart

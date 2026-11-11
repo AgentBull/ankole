@@ -49,7 +49,8 @@ Subcommands:
                     Exits 0 with {"ok":true,"valid":true,"kind":...} or exits 1 with {"ok":false,"valid":false,"errors":[...]}.
   mermaid           Render Mermaid flow/sequence/state/ER/class diagrams via Pele (<30ms pure-Bun SVG; Chromium for PNG).
   chart             Render AntV G2 v5 statistical charts (column, bar, line, area, combo, pie, donut, funnel, scatter,
-                    histogram, boxplot, heatmap, radar, waterfall, gauge, treemap, sunburst, sankey, wordcloud).
+                    histogram, boxplot, heatmap, radar, waterfall, gauge, treemap, sunburst, sankey, wordcloud, stat,
+                    quantile_band).
   kline             Render TradingView Lightweight Charts v5 financial candlestick/baseline/yield-curve PNGs.
   graph             Render AntV G6 v5 network topologies (force, hierarchy, combo, radial).
   infographic       Render @antv/infographic narrative diagrams (SWOT, timelines, pros/cons, roadmaps, hierarchies).

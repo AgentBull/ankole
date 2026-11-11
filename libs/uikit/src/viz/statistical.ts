@@ -1,5 +1,7 @@
 import { Renderer as SVGRenderer } from '@antv/g-svg'
 import { corelib, extend, graphlib, plotlib, Runtime, type G2Spec } from '@antv/g2'
+import { formatFallbackNumeric, toFiniteNumber } from './format'
+import { statChartParts, statTrendGlyph, type StatTrendDirection } from './stat-summary'
 import {
   assignSeriesColors,
   pickReadableDataLabelInk,
@@ -11,6 +13,8 @@ import {
   type VizThemeMode,
   type VizThemePalette
 } from './theme'
+
+export { resolveStatTrend, type StatTrendDirection } from './stat-summary'
 
 const BASE_CORELIB = corelib()
 
@@ -55,8 +59,6 @@ export type StatisticalChartType = StatisticalChartTier1Type | StatisticalChartT
 export type StatisticalStackMode = 'grouped' | 'stacked' | 'percent'
 
 export type PercentFallbackReason = 'negative_values'
-
-export type StatTrendDirection = 'up' | 'down' | 'neutral'
 
 export interface StatisticalReferenceLine {
   value: number
@@ -150,15 +152,6 @@ function formatPercentageShare(share: number): string {
   return `${pct.toFixed(1).replace(/\.0$/, '')}%`
 }
 
-function formatFallbackNumeric(raw: unknown): string {
-  const num = toFiniteNumber(raw)
-  if (num !== null) {
-    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(num)
-  }
-  if (raw === null || raw === undefined || raw === '') return '—'
-  return String(raw)
-}
-
 function formatRowMetricText(
   row: Record<string, unknown>,
   rawField: string,
@@ -175,58 +168,13 @@ function formatRowMetricText(
   return baseText
 }
 
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return null
-}
-
-/**
- * Resolves the trend of a `stat` comparison. An explicit trend from the spec or data wins;
- * otherwise the sign of the comparison value decides, with `cn` conventions already applied
- * by the palette.
- */
-export function resolveStatTrend(explicit: unknown, comparison: unknown): StatTrendDirection {
-  if (explicit === 'up' || explicit === 'down' || explicit === 'neutral') return explicit
-
-  const number = toFiniteNumber(comparison)
-  if (number !== null) {
-    if (number > 0) return 'up'
-    if (number < 0) return 'down'
-    return 'neutral'
-  }
-
-  if (typeof comparison === 'string') {
-    const trimmed = comparison.trim()
-    if (trimmed.startsWith('+') || trimmed.startsWith('▲')) return 'up'
-    if (/^[-−]/.test(trimmed) || trimmed.startsWith('▼')) return 'down'
-  }
-  return 'neutral'
-}
-
-function formatStatComparison(comparison: unknown): string {
-  if (typeof comparison === 'number' && Number.isFinite(comparison)) {
-    return `${comparison > 0 ? '+' : ''}${comparison}`
-  }
-  if (typeof comparison === 'string') return comparison.replace(/^[▲▼]\s*/, '').trim()
-  return ''
-}
-
-function statTrendGlyph(trend: StatTrendDirection): string {
-  if (trend === 'up') return '▲'
-  if (trend === 'down') return '▼'
-  return '—'
-}
-
 function statTrendForeground(trend: StatTrendDirection, palette: VizThemePalette): string {
   if (trend === 'up') return palette.upForeground
   if (trend === 'down') return palette.downForeground
   return palette.fgSecondary
 }
 
+/** Builds one positioned G2 text mark for a `stat` card. */
 function statTextMark(text: string, style: Record<string, unknown>, animate: boolean): Record<string, unknown> {
   return {
     type: 'text',
@@ -243,20 +191,9 @@ function statTextMark(text: string, style: Record<string, unknown>, animate: boo
 function buildStatChartMarks(
   spec: StatisticalChartSpec,
   palette: VizThemePalette,
-  rows: readonly Record<string, unknown>[],
   animate: boolean
 ): Record<string, unknown>[] {
-  const valueField = spec.valueField ?? spec.yField ?? 'value'
-  const row = rows[0] ?? {}
-  const formattedValue = spec.formattedValueField ? row[spec.formattedValueField] : undefined
-  const valueText =
-    typeof formattedValue === 'string' && formattedValue !== ''
-      ? formattedValue
-      : formatFallbackNumeric(row[valueField])
-  const unit = spec.unit?.trim()
-  const comparison = spec.comparisonField ? row[spec.comparisonField] : undefined
-  const comparisonText = formatStatComparison(comparison)
-  const trend = resolveStatTrend(spec.trendField ? row[spec.trendField] : undefined, comparison)
+  const { valueText, unit, comparisonText, trend } = statChartParts(spec)
   const monoFamily = palette.fontMono || palette.fontSans
 
   const marks: Record<string, unknown>[] = []
@@ -1647,7 +1584,8 @@ export function prepareStatisticalChartSpec(
             x: xField,
             y: highField,
             y1: lowField,
-            ...(seriesField ? { color: seriesField } : {})
+            ...(seriesField ? { color: seriesField } : {}),
+            ...(spec.smooth ? { shape: 'smooth' } : {})
           },
           style: {
             fillOpacity: seriesField ? 0.14 : 0.16,
@@ -1688,11 +1626,10 @@ export function prepareStatisticalChartSpec(
     }
 
     case 'stat': {
-      const statRows = Array.isArray(spec.data) ? spec.data : [spec.data]
       primaryNode = {
         type: 'view',
         padding: 0,
-        children: buildStatChartMarks(spec, palette, statRows, animateEnabled !== false)
+        children: buildStatChartMarks(spec, palette, animateEnabled !== false)
       }
       break
     }
