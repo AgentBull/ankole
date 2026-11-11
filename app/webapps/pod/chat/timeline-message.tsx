@@ -26,7 +26,9 @@ import {
   messageTime,
   timelineEventLabel
 } from './timeline-projections'
-import type { InspectorTarget, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+import type { ExecutionSummary, InspectorTarget, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+
+const NO_SAVED_PAGES: TimelineMessage['savedPages'] = []
 
 export type InlineEditControls = {
   canSubmit: boolean
@@ -73,10 +75,15 @@ export function MessageIdentity({
   )
 }
 
-export const CommittedMessage = memo(function CommittedMessage({
+/**
+ * Renders a timeline message. An Agent reply renders here while it streams too, with `live` in place of
+ * `message`, so that the committed message that replaces it reuses the same tree and its content keeps its state.
+ */
+export const MessageView = memo(function MessageView({
   model,
   detail,
   message,
+  live,
   conversationID,
   peerReply,
   peerLive = false,
@@ -110,7 +117,8 @@ export const CommittedMessage = memo(function CommittedMessage({
 }: {
   model: InstanceType<typeof ChatModel>
   detail?: ConversationDetail
-  message: TimelineMessage
+  message?: TimelineMessage
+  live?: TimelineLiveStream
   conversationID: string
   peerReply?: TimelineMessage
   peerLive?: boolean
@@ -143,17 +151,18 @@ export const CommittedMessage = memo(function CommittedMessage({
   readOnlyReason?: string
 }) {
   const { t, i18n } = useTranslation()
+  const label = useActivityLabel()
   const pageHref = usePageHref()
-  const savedPages = usePagesMetadata(message.savedPages)
-  const rich = message.richContent
-  const human = message.authorType === 'human'
-  const name = message.authorDisplayName
-  const onRetry = retryable && onRegenerateMessage ? () => onRegenerateMessage(message) : undefined
-  const onEdit = canEdit && onEditMessage ? () => onEditMessage(message) : undefined
-  const onQuote = onQuoteMessage ? (text: string) => onQuoteMessage(text, message) : undefined
-  const onSelectMessage = onSelectMessageID ? () => onSelectMessageID(message.id) : undefined
+  const savedPages = usePagesMetadata(message?.savedPages ?? NO_SAVED_PAGES)
+  const rich = message?.richContent
+  const human = message?.authorType === 'human'
+  const name = message ? message.authorDisplayName : live?.agentName || t('pod.chat_timeline.agent')
+  const onRetry = message && retryable && onRegenerateMessage ? () => onRegenerateMessage(message) : undefined
+  const onEdit = message && canEdit && onEditMessage ? () => onEditMessage(message) : undefined
+  const onQuote = message && onQuoteMessage ? (text: string) => onQuoteMessage(text, message) : undefined
+  const onSelectMessage = message && onSelectMessageID ? () => onSelectMessageID(message.id) : undefined
 
-  if (message.kind === 'notice' && !rich?.execution) {
+  if (message?.kind === 'notice' && !rich?.execution) {
     const label = timelineEventLabel(message, t, i18n.language)
     return (
       <div className="pod-chat-timeline-event">
@@ -168,7 +177,7 @@ export const CommittedMessage = memo(function CommittedMessage({
       </div>
     )
   }
-  if (rich?.agent_peer_outbound) {
+  if (message && rich?.agent_peer_outbound) {
     return (
       <PeerExchangeCard
         conversationID={conversationID}
@@ -195,14 +204,20 @@ export const CommittedMessage = memo(function CommittedMessage({
   }
   const prompt = rich?.clarify
   const actionCard = rich?.action_card
-  const visibleExecution = rich?.execution
+  const activity = live?.activity?.state === 'active' ? live.activity : undefined
+  const execution: ExecutionSummary | undefined = live
     ? {
-        ...rich.execution,
-        steps: filterPromotedExecutionSteps(rich.execution.steps, linkedRuns)
+        thinking_summary: live.thinkingSummary,
+        steps: filterPromotedExecutionSteps(
+          activity ? activitySteps(activity, item => label(item, true)) : [],
+          linkedRuns
+        )
       }
-    : undefined
+    : rich?.execution && { ...rich.execution, steps: filterPromotedExecutionSteps(rich.execution.steps, linkedRuns) }
+  const text = message ? message.text : live?.text
   return (
     <article
+      data-live-agent={live?.agentUID}
       data-backtrack-active={backtrackActive || undefined}
       className={cn(
         'pod-chat-timeline-message',
@@ -214,12 +229,12 @@ export const CommittedMessage = memo(function CommittedMessage({
       <MessageIdentity
         name={name}
         human={human}
-        archived={message.authorArchived}
-        time={message.createdAt}
+        archived={message?.authorArchived}
+        time={message?.createdAt}
         avatarURL={avatarURL}
-        quiet={own || continued || !!rich?.peer_agent_uid}
+        quiet={!!message && (own || continued || !!rich?.peer_agent_uid)}
       />
-      {editingInline && detail && inlineEdit ? (
+      {message && editingInline && detail && inlineEdit ? (
         <InlineMessageEditor model={model} message={message} detail={detail} {...inlineEdit} />
       ) : (
         <>
@@ -236,16 +251,19 @@ export const CommittedMessage = memo(function CommittedMessage({
               </span>
             </button>
           )}
-          {message.links
+          {message?.links
             .filter(link => link.quote)
             .map(link => (
               <blockquote key={link.id} className="pod-chat-quoted-message">
                 {link.quote}
               </blockquote>
             ))}
-          {visibleExecution && (
+          {execution && (
             <CollapsedWorkView
-              execution={visibleExecution}
+              execution={execution}
+              active={!!live}
+              startedAt={live?.startedAt}
+              phaseLabel={live && !live.thinkingSummary && activity?.phase ? label(activity.phase) : undefined}
               attention={
                 prompt?.state === 'pending' || (!!actionCard && (actionCard.status ?? 'prepared') === 'prepared')
               }
@@ -264,13 +282,18 @@ export const CommittedMessage = memo(function CommittedMessage({
               readOnlyReason={readOnlyReason}
             />
           ) : (
-            message.text && (
+            text && (
               <div className={human ? 'pod-chat-human-text' : undefined}>
-                <ChatMarkdown text={message.text} generated={message.authorType === 'agent'} onReply={onReply} />
+                <ChatMarkdown
+                  text={text}
+                  generated={!!live || message?.authorType === 'agent'}
+                  streaming={!!live}
+                  onReply={onReply}
+                />
               </div>
             )
           )}
-          <MessageArtifacts conversationID={conversationID} message={message} />
+          {message && <MessageArtifacts conversationID={conversationID} message={message} />}
           {linkedRuns.map(run => (
             <LinkedExecutionCard
               key={`${run.kind}:${run.id}`}
@@ -281,15 +304,17 @@ export const CommittedMessage = memo(function CommittedMessage({
               onOpenInspector={onOpenInspector}
             />
           ))}
-          <MessageActions
-            text={message.text}
-            onQuote={onQuote}
-            onSelectMessage={onSelectMessage}
-            onEdit={onEdit}
-            editDisabledReason={editDisabledReason}
-            onRetry={onRetry}
-            alwaysVisible={showActions || !!onRetry || backtrackActive}
-          />
+          {message && (
+            <MessageActions
+              text={message.text}
+              onQuote={onQuote}
+              onSelectMessage={onSelectMessage}
+              onEdit={onEdit}
+              editDisabledReason={editDisabledReason}
+              onRetry={onRetry}
+              alwaysVisible={showActions || !!onRetry || backtrackActive}
+            />
+          )}
         </>
       )}
       {savedPages.map(page => (
@@ -301,54 +326,3 @@ export const CommittedMessage = memo(function CommittedMessage({
     </article>
   )
 })
-
-export function LiveMessage({
-  stream,
-  avatarURL,
-  conversationID,
-  linkedRuns,
-  showAgentOnRuns = false,
-  activeInspector,
-  onOpenInspector,
-  onReply
-}: {
-  stream: TimelineLiveStream
-  avatarURL?: string | null
-  conversationID: string
-  linkedRuns: LinkedExecution[]
-  showAgentOnRuns?: boolean
-  activeInspector?: InspectorTarget | null
-  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
-  onReply?: (text: string) => void
-}) {
-  const { t } = useTranslation()
-  const label = useActivityLabel()
-  const activeActivity = stream.activity?.state === 'active' ? stream.activity : undefined
-  const rawSteps = activeActivity ? activitySteps(activeActivity, item => label(item, true)) : []
-  const steps = filterPromotedExecutionSteps(rawSteps, linkedRuns)
-  return (
-    <article className="pod-chat-timeline-message pod-chat-agent-message" data-live-agent={stream.agentUID}>
-      <MessageIdentity name={stream.agentName || t('pod.chat_timeline.agent')} avatarURL={avatarURL} />
-      <CollapsedWorkView
-        active
-        startedAt={stream.startedAt}
-        phaseLabel={!stream.thinkingSummary && activeActivity?.phase ? label(activeActivity.phase) : undefined}
-        execution={{
-          thinking_summary: stream.thinkingSummary,
-          steps
-        }}
-      />
-      {stream.text && <ChatMarkdown text={stream.text} generated streaming onReply={onReply} />}
-      {linkedRuns.map(run => (
-        <LinkedExecutionCard
-          key={`${run.kind}:${run.id}`}
-          conversationID={conversationID}
-          run={run}
-          showAgentName={showAgentOnRuns}
-          isActive={isExecutionActive(activeInspector, run)}
-          onOpenInspector={onOpenInspector}
-        />
-      ))}
-    </article>
-  )
-}

@@ -41,6 +41,11 @@
   showed a validation error, the first paste from the context menu, autofill,
   or drag-and-drop left the field empty; the field now keeps the text and
   clears the error.
+- Keep what a member did in an Agent's reply when the reply finishes
+  streaming. The open work summary, a code block's line wrapping, a Mermaid
+  view, and the state of a `ui` block stay as they were, and the reply no
+  longer shifts when it is saved. A `ui` block also shows the state its reader
+  left when the reader returns to the room.
 
 ## Version 2.0.0-alpha.110 (2026-11-11)
 

@@ -77,7 +77,8 @@ export function CollapsedWorkView({
     prevUrgent.current = urgent
     if (userToggled.current) return
     if ((active && !thinkingDisclosure) || urgent) setExpanded(true)
-    else if (thinkingDisclosure) setExpanded(false)
+    // A finished turn folds its steps away, as it does when its message first loads, unless the reader chose.
+    else setExpanded(false)
   }, [active, thinkingDisclosure, urgent])
   const elapsed = active && startedAt && (
     <span aria-live="off" className="ms-1 shrink-0 empty:hidden">

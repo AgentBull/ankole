@@ -726,7 +726,10 @@ In the timeline, compact event notices sit alongside attributed messages:
   only, and no element uses `repeat`, `watch`, or named slots. A settled block
   that fails this check shows its source as code. While a reply streams, Pod
   renders the lines that have arrived and checks the props once the block
-  settles. The turn context of a
+  settles. A settled block that mounts again, for example after the reader
+  returns to the room, shows the state that its reader left; Pod keeps that
+  state in memory for the 48 most recent blocks, by block source. The turn
+  context of a
   native room carries `ui_blocks: interactive`. The turn context of an external
   IM conversation carries `ui_blocks: code_only`, and delivery leaves a `ui`
   block of such a reply as a fenced code block, as it does for Mermaid.
@@ -739,9 +742,16 @@ In the timeline, compact event notices sit alongside attributed messages:
   Pod keeps that choice for the rest of the turn while new steps and model
   Responses arrive, and opens the summary again only when the turn newly needs
   their attention. Once the reply commits, the entire execution trace collapses
-  above the answer, whereas stopped or failed turns keep their recorded steps
-  expanded (including command strings, stdout/stderr, and exit codes when
-  recorded).
+  above the answer unless the person chose to keep it open during the turn,
+  whereas stopped or failed turns keep their recorded steps expanded (including
+  command strings, stdout/stderr, and exit codes when recorded).
+- An Agent's live reply and the committed message that replaces it render in
+  the same timeline row. `ChatModel` gives each live reply a key and hands that
+  key to the reply's first committed Agent message, or to the notice that ended
+  the turn when no Agent message exists. The committed reply therefore keeps
+  what the person did while it streamed, such as the work summary's open
+  state, a code block's line wrapping, a Mermaid view, or the state of a `ui`
+  block.
 - Linked Background Agent Jobs and Workflows appear once inside the live turn
   and then attach to the committed reply, collapsing respawn continuation chains
   onto the latest job card and hiding duplicate launch tool steps in the turn's

@@ -1659,9 +1659,6 @@
 .pod-chat-message-actions[data-visible] {
   z-index: 1;
 }
-.pod-chat-timeline .pod-chat-agent-message > .pod-chat-markdown {
-  margin-top: 0;
-}
 .pod-chat-timeline-event {
   display: flex;
   align-items: center;

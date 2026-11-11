@@ -8,6 +8,7 @@ import MarkdownRenderer from '../markdown-renderer'
 import { uiBlockCatalog } from './catalog'
 import { compileUIBlock } from './compile'
 import UIBlock from './ui-block'
+import { rememberViewState } from './view-state'
 
 beforeAll(() => loadLocale('en-US'))
 
@@ -206,4 +207,15 @@ test('only an Agent reply renders the block, and it hands the block its source u
   // While an Agent reply streams, the block shows nothing until it loads; a Human's fenced block is always code.
   expect(render(true, true)).not.toContain('"op"')
   expect(render(false, true)).toContain(example)
+})
+
+test('a settled block that mounts again shows what its reader left, and a streaming block starts fresh', () => {
+  // A block of its own, so the state remembered here stays out of the other tests.
+  const block = example.replace('East revenue', 'Eastern revenue')
+  expect(markup(block)).toContain('Eastern revenue')
+  rememberViewState(block, { region: 'west' })
+  const again = markup(block)
+  expect(again).toContain('West revenue')
+  expect(again).not.toContain('Eastern revenue')
+  expect(markup(block, true)).toContain('Eastern revenue')
 })

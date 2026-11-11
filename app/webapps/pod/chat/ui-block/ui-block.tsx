@@ -8,6 +8,7 @@ import { CodeBlockView } from '../code-block-view'
 import { compileUIBlock } from './compile'
 import { uiBlockRegistry } from './registry'
 import { useLatestHandlers } from './use-latest-handlers'
+import { useViewState } from './view-state'
 
 /** Renders a fenced `ui` block of a chat message. A settled block without a usable spec shows its source. */
 export default function UIBlock({
@@ -21,6 +22,7 @@ export default function UIBlock({
   onReply?: (text: string) => void
 }) {
   const spec = useMemo(() => compileUIBlock(code, streaming), [code, streaming])
+  const store = useViewState(code, streaming, spec?.state)
   const handlers = useLatestHandlers({
     reply: params => {
       if (typeof params.text === 'string' && params.text.trim()) onReply?.(params.text)
@@ -32,7 +34,7 @@ export default function UIBlock({
       {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
       data-testid="chat-ui-block"
       className={withExternalTranslationGuardClass('pod-chat-ui-block my-3')}>
-      <JSONUIProvider registry={uiBlockRegistry} initialState={spec.state} handlers={handlers}>
+      <JSONUIProvider registry={uiBlockRegistry} store={store} handlers={handlers}>
         <Renderer spec={spec} registry={uiBlockRegistry} loading={streaming} />
       </JSONUIProvider>
     </div>

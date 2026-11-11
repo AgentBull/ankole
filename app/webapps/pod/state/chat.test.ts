@@ -534,6 +534,35 @@ describe('Pod message lifecycle', () => {
     expect(model.liveStreams.value.agent).toBeUndefined()
   })
 
+  test('a committed reply takes over the key of the live reply it replaces, and the next reply gets its own', () => {
+    const model = new ChatModel()
+    model.started('response-1', ['signal-1'], 'agent')
+    model.delta('response-1', 'Answer', ['signal-1'], 'agent')
+    const liveKey = model.liveReplyKey('agent')
+    expect(model.messageKey('older')).toBe('older')
+    // Within one turn a new Response keeps the key, so the reply stays in the same tree across tool rounds.
+    model.started('response-2', ['signal-1'], 'agent')
+    expect(model.liveReplyKey('agent')).toBe(liveKey)
+    const question = { ...message('question', 4, 'agent'), signalID: 'signal-1', richContent: { clarify: {} } }
+    model.reconcile([
+      { ...message('notice', 2, 'system'), kind: 'notice', signalID: 'signal-1' },
+      { ...message('reply', 3, 'agent'), signalID: 'signal-1' },
+      question as ConversationMessage
+    ])
+    expect(model.liveStreams.value.agent).toBeUndefined()
+    // The Agent's first message of the turn takes over; the turn's other messages keep their own keys.
+    expect(model.messageKey('reply')).toBe(liveKey)
+    expect(model.messageKey('notice')).toBe('notice')
+    expect(model.messageKey('question')).toBe('question')
+    model.started('response-3', ['signal-2'], 'agent')
+    expect(model.liveReplyKey('agent')).not.toBe(liveKey)
+    // A live reply that disappears without a committed message leaves its key to the Agent's next reply.
+    const nextKey = model.liveReplyKey('agent')
+    model.disconnected()
+    model.started('response-4', ['signal-3'], 'agent')
+    expect(model.liveReplyKey('agent')).toBe(nextKey)
+  })
+
   test('a late prior reply and prior idle result cannot clear a newer Response', () => {
     const model = new ChatModel()
     model.started('response-2', ['signal-2'], 'agent')

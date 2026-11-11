@@ -158,13 +158,15 @@ export function mergeMessages(
   return result
 }
 
-function replyCommitted(messages: ConversationMessage[], live: Pick<TimelineLiveStream, 'signalIDs'>): boolean {
-  return messages.some(
+/** The committed message that replaces a live reply: its Agent message, or else the notice that ended its turn. */
+function committedReply(messages: ConversationMessage[], live: Pick<TimelineLiveStream, 'signalIDs'>) {
+  const replies = messages.filter(
     message =>
       message.signalID != null &&
       live.signalIDs.includes(message.signalID) &&
       (message.authorType === 'agent' || message.kind === 'notice')
   )
+  return replies.find(message => message.authorType === 'agent' && message.kind === 'message') ?? replies[0]
 }
 
 export function shouldSendOnEnter(event: {
@@ -194,6 +196,16 @@ function createChat() {
   const selectedAgentUID = signal('')
   const pending = signal<PendingMessage>()
   const liveStreams = signal<Record<string, TimelineLiveStream>>({})
+  /**
+   * The timeline renders an Agent's live reply under `live` and the committed message that replaces it under the
+   * key that `committed` records, so the reply's content stays mounted and keeps its state. `live` counts each
+   * Agent's replaced replies, so that its next reply gets a key of its own.
+   */
+  const replyKeys = signal<{ live: Record<string, number>; committed: Record<string, string> }>({
+    live: {},
+    committed: {}
+  })
+  const liveReplyKey = (agentUID: string, live = replyKeys.value.live) => `live:${agentUID}:${live[agentUID] ?? 0}`
   const activities = signal<Record<string, PodActivity>>({})
   const latestActivities = new Map<string, PodActivity>()
   const observedAt: Record<string, number> = {}
@@ -275,6 +287,14 @@ function createChat() {
     selectedAgentUID,
     pending,
     liveStreams,
+    /** The React key of an Agent's live reply in the timeline. */
+    liveReplyKey(agentUID: string) {
+      return liveReplyKey(agentUID)
+    },
+    /** The React key of a committed message: the key of the live reply that it replaced, or its own ID. */
+    messageKey(messageID: string) {
+      return replyKeys.value.committed[messageID] ?? messageID
+    },
     activities,
     mentions,
     links,
@@ -674,9 +694,23 @@ function createChat() {
             selectedMessageIDs.value = currentSelected.filter(id => loadedIDs.has(id))
           }
         }
-        liveStreams.value = Object.fromEntries(
-          Object.entries(liveStreams.value).filter(([, stream]) => !replyCommitted(messages, stream))
-        )
+        const replaced = Object.values(liveStreams.peek()).flatMap(stream => {
+          const reply = committedReply(messages, stream)
+          return reply ? [{ stream, reply }] : []
+        })
+        if (replaced.length) {
+          const keys = replyKeys.peek()
+          const live = { ...keys.live }
+          const committed = { ...keys.committed }
+          for (const { stream, reply } of replaced) {
+            committed[reply.id] ??= liveReplyKey(stream.agentUID, live)
+            live[stream.agentUID] = (live[stream.agentUID] ?? 0) + 1
+          }
+          replyKeys.value = { live, committed }
+          liveStreams.value = Object.fromEntries(
+            Object.entries(liveStreams.peek()).filter(([, stream]) => !replaced.some(item => item.stream === stream))
+          )
+        }
       })
     },
     started(responseID: string, signalIDs: string[], agentUID: string, agentName?: string, startedAt?: string) {

@@ -10,7 +10,17 @@ import {
   RiImageLine
 } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { ErrorBoundary } from '../../common/error-boundary'
@@ -26,7 +36,7 @@ import { pairPeerExchanges } from './peer-exchange-card'
 import type { ActionCardDecision } from './room-api'
 import { captureSelectedMessages, type CaptureSelectedMessagesResult } from './select-screenshot'
 import { SelectShareLightbox } from './select-share-lightbox'
-import { CommittedMessage, LiveMessage, MessageIdentity, type InlineEditControls } from './timeline-message'
+import { MessageIdentity, MessageView, type InlineEditControls } from './timeline-message'
 import {
   continuesPrevious,
   interleavedReplySources,
@@ -276,6 +286,63 @@ export function TurnTimeline({
     onEdit: actions?.edit,
     onReturnFocusToComposer
   })
+  /**
+   * Wraps one timeline row. Live replies and committed messages share this wrapper and `MessageView`, so a committed
+   * reply that takes over its live reply's key (`ChatModel.messageKey`) reuses the same tree.
+   */
+  const row = (
+    key: string,
+    id: string | undefined,
+    author: string | undefined,
+    resetKeys: unknown[],
+    content: ReactNode
+  ) => {
+    const selectable = author !== undefined
+    const isSelected = selectable && !!id && selectedIDSet.has(id)
+    return (
+      <Fragment key={key}>
+        {id !== undefined && id === unreadMessageID && (
+          <div className="pod-chat-unread-divider" role="separator" aria-label={t('pod.chat_timeline.new_messages')}>
+            {t('pod.chat_timeline.new_messages')}
+          </div>
+        )}
+        <div
+          data-chat-message-id={id}
+          tabIndex={-1}
+          className={cn(
+            selecting &&
+              selectable &&
+              'relative flex items-start gap-2 rounded-control px-1.5 py-0.5 transition-colors',
+            isSelected && 'bg-accent/55 ring-1 ring-border'
+          )}>
+          {selecting && selectable && id && (
+            <button
+              type="button"
+              data-select-ignore=""
+              role="checkbox"
+              aria-checked={isSelected}
+              aria-label={t('pod.chat_timeline.select_message_item', {
+                defaultValue: 'Select message from {$author}',
+                author
+              })}
+              onClick={() => model.toggleSelectedMessage(id)}
+              className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-foreground">
+              {isSelected ? (
+                <RiCheckboxLine className="size-4 text-primary" aria-hidden />
+              ) : (
+                <RiCheckboxBlankLine className="size-4" aria-hidden />
+              )}
+            </button>
+          )}
+          <div className={selecting && selectable ? 'min-w-0 flex-1' : undefined}>
+            <ErrorBoundary variant="inline" onReset={onRefresh} resetKeys={resetKeys}>
+              {content}
+            </ErrorBoundary>
+          </div>
+        </div>
+      </Fragment>
+    )
+  }
   return (
     <RevealInTimeline.Provider value={revealElement}>
       <div ref={timelineRef} className="pod-chat-history pod-chat-timeline">
@@ -287,143 +354,108 @@ export function TurnTimeline({
           className="pod-chat-history-scroll">
           <div ref={contentRef} className="pod-chat-history-content">
             <OlderMessages history={history} scrollRef={scrollRef} />
-            {messages.map((item, index) => {
-              const id = messageID(item)
-              if (item.type === 'committed' && peerExchanges.paired.has(item.message.id)) return null
-              const selectable = item.type === 'committed' && item.message.kind !== 'notice'
-              const isSelected = selectable && selectedIDSet.has(id)
-              return (
-                <Fragment key={id}>
-                  {id === unreadMessageID && (
-                    <div
-                      className="pod-chat-unread-divider"
-                      role="separator"
-                      aria-label={t('pod.chat_timeline.new_messages')}>
-                      {t('pod.chat_timeline.new_messages')}
-                    </div>
-                  )}
-                  <div
-                    data-chat-message-id={id}
-                    tabIndex={-1}
-                    className={cn(
-                      selecting &&
-                        selectable &&
-                        'relative flex items-start gap-2 rounded-control px-1.5 py-0.5 transition-colors',
-                      isSelected && 'bg-accent/55 ring-1 ring-border'
-                    )}>
-                    {selecting && selectable && (
-                      <button
-                        type="button"
-                        data-select-ignore=""
-                        role="checkbox"
-                        aria-checked={isSelected}
-                        aria-label={t('pod.chat_timeline.select_message_item', {
-                          defaultValue: 'Select message from {$author}',
-                          author: item.message.authorDisplayName
-                        })}
-                        onClick={() => model.toggleSelectedMessage(id)}
-                        className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-foreground">
-                        {isSelected ? (
-                          <RiCheckboxLine className="size-4 text-primary" aria-hidden />
-                        ) : (
-                          <RiCheckboxBlankLine className="size-4" aria-hidden />
-                        )}
-                      </button>
-                    )}
-                    <div className={selecting && selectable ? 'min-w-0 flex-1' : undefined}>
-                      <ErrorBoundary variant="inline" onReset={onRefresh} resetKeys={[id, item.message]}>
-                        {item.type === 'committed' ? (
-                          (() => {
-                            const editState = resolveCommittedMessageEditState({
-                              message: item.message,
-                              actions,
-                              latestInput,
-                              viewerUID,
-                              activeEditTarget,
-                              hasInlineEditContext: Boolean(detail && inlineEdit),
-                              backtrackID
-                            })
-                            const retryable = retryableSet.has(item.message.id)
-                            const allowAnswer = canAnswerAgent(item.message.authorUID ?? null)
-                            return (
-                              <CommittedMessage
-                                model={model}
-                                detail={editState.editingInline ? detail : undefined}
-                                message={item.message as TimelineMessage}
-                                conversationID={conversationID}
-                                peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
-                                peerLive={peerExchanges.latest.has(item.message.id)}
-                                inlineEdit={editState.editingInline ? inlineEdit : undefined}
-                                canEdit={editState.canEdit}
-                                editDisabledReason={editState.editDisabledReason}
-                                editingInline={editState.editingInline}
-                                backtrackActive={editState.backtrackActive}
-                                retryable={retryable}
-                                onEditMessage={actions?.edit ? stableEditMessage : undefined}
-                                onRegenerateMessage={
-                                  retryable && actions?.regenerate ? stableRegenerateMessage : undefined
-                                }
-                                onQuoteMessage={onQuote ? stableQuoteMessage : undefined}
-                                onReply={onReply ? stableReply : undefined}
-                                onSelectMessageID={selectable ? stableSelectMessageID : undefined}
-                                linkedRuns={executions.messages.get(item.message.id) ?? EMPTY_LINKED_RUNS}
-                                showAgentOnRuns={showAgentOnRuns}
-                                activeInspector={activeInspector}
-                                onOpenInspector={onOpenInspector ? stableOpenInspector : undefined}
-                                replySource={replySources.get(item.message.id)}
-                                onJumpToSource={stableJumpToSource}
-                                onAnswer={allowAnswer && onAnswer ? stableAnswer : undefined}
-                                onResolveActionCard={onResolveActionCard ? stableResolveActionCard : undefined}
-                                onComposeAnswer={allowAnswer && onComposeAnswer ? stableComposeAnswer : undefined}
-                                readOnlyReason={readOnlyReason}
-                                keyboardActive={item.message.id === lastChoice}
-                                showActions={item.message.id === latestReply?.id}
-                                avatarURL={memberAvatarByUID.get(item.message.authorUID ?? '')}
-                                own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
-                                queued={item.queued}
-                                continued={
-                                  id !== unreadMessageID &&
-                                  continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))
-                                }
-                              />
-                            )
-                          })()
-                        ) : (
-                          <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
-                            <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
-                            <div className="pod-chat-human-text">
-                              <ChatMarkdown text={item.message.text ?? ''} />
-                            </div>
-                            <p role="status" className="pod-chat-message-state">
-                              {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
-                            </p>
-                          </article>
-                        )}
-                      </ErrorBoundary>
-                    </div>
-                  </div>
-                </Fragment>
+            {[
+              ...messages.map((item, index) => {
+                const id = messageID(item)
+                if (item.type === 'committed' && peerExchanges.paired.has(item.message.id)) return null
+                if (item.type !== 'committed') {
+                  return row(
+                    id,
+                    id,
+                    undefined,
+                    [id, item.message],
+                    <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
+                      <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
+                      <div className="pod-chat-human-text">
+                        <ChatMarkdown text={item.message.text ?? ''} />
+                      </div>
+                      <p role="status" className="pod-chat-message-state">
+                        {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
+                      </p>
+                    </article>
+                  )
+                }
+                const editState = resolveCommittedMessageEditState({
+                  message: item.message,
+                  actions,
+                  latestInput,
+                  viewerUID,
+                  activeEditTarget,
+                  hasInlineEditContext: Boolean(detail && inlineEdit),
+                  backtrackID
+                })
+                const retryable = retryableSet.has(item.message.id)
+                const allowAnswer = canAnswerAgent(item.message.authorUID ?? null)
+                const selectable = item.message.kind !== 'notice'
+                return row(
+                  model.messageKey(id),
+                  id,
+                  selectable ? item.message.authorDisplayName : undefined,
+                  [id, item.message],
+                  <MessageView
+                    model={model}
+                    detail={editState.editingInline ? detail : undefined}
+                    message={item.message as TimelineMessage}
+                    conversationID={conversationID}
+                    peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
+                    peerLive={peerExchanges.latest.has(item.message.id)}
+                    inlineEdit={editState.editingInline ? inlineEdit : undefined}
+                    canEdit={editState.canEdit}
+                    editDisabledReason={editState.editDisabledReason}
+                    editingInline={editState.editingInline}
+                    backtrackActive={editState.backtrackActive}
+                    retryable={retryable}
+                    onEditMessage={actions?.edit ? stableEditMessage : undefined}
+                    onRegenerateMessage={retryable && actions?.regenerate ? stableRegenerateMessage : undefined}
+                    onQuoteMessage={onQuote ? stableQuoteMessage : undefined}
+                    onReply={onReply ? stableReply : undefined}
+                    onSelectMessageID={selectable ? stableSelectMessageID : undefined}
+                    linkedRuns={executions.messages.get(item.message.id) ?? EMPTY_LINKED_RUNS}
+                    showAgentOnRuns={showAgentOnRuns}
+                    activeInspector={activeInspector}
+                    onOpenInspector={onOpenInspector ? stableOpenInspector : undefined}
+                    replySource={replySources.get(item.message.id)}
+                    onJumpToSource={stableJumpToSource}
+                    onAnswer={allowAnswer && onAnswer ? stableAnswer : undefined}
+                    onResolveActionCard={onResolveActionCard ? stableResolveActionCard : undefined}
+                    onComposeAnswer={allowAnswer && onComposeAnswer ? stableComposeAnswer : undefined}
+                    readOnlyReason={readOnlyReason}
+                    keyboardActive={item.message.id === lastChoice}
+                    showActions={item.message.id === latestReply?.id}
+                    avatarURL={memberAvatarByUID.get(item.message.authorUID ?? '')}
+                    own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
+                    queued={item.queued}
+                    continued={
+                      id !== unreadMessageID &&
+                      continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))
+                    }
+                  />
+                )
+              }),
+              ...activeStreams.map(stream =>
+                row(
+                  model.liveReplyKey(stream.agentUID),
+                  undefined,
+                  undefined,
+                  [stream.responseID, stream.text],
+                  <MessageView
+                    model={model}
+                    live={stream}
+                    conversationID={conversationID}
+                    linkedRuns={executions.streams.get(stream.agentUID) ?? EMPTY_LINKED_RUNS}
+                    showAgentOnRuns={showAgentOnRuns}
+                    activeInspector={activeInspector}
+                    onOpenInspector={onOpenInspector ? stableOpenInspector : undefined}
+                    onReply={onReply ? stableReply : undefined}
+                    onJumpToSource={stableJumpToSource}
+                    keyboardActive={false}
+                    showActions={false}
+                    avatarURL={memberAvatarByUID.get(stream.agentUID)}
+                    own={false}
+                  />
+                )
               )
-            })}
-            {activeStreams.map(stream => (
-              <ErrorBoundary
-                // An Agent's turn spans one model response per tool round, so the key stays on the Agent and the
-                // work disclosure keeps the reader's expanded state while new steps arrive.
-                key={stream.agentUID}
-                variant="inline"
-                resetKeys={[stream.responseID, stream.text]}>
-                <LiveMessage
-                  stream={stream}
-                  conversationID={conversationID}
-                  linkedRuns={executions.streams.get(stream.agentUID) ?? []}
-                  showAgentOnRuns={showAgentOnRuns}
-                  activeInspector={activeInspector}
-                  onOpenInspector={onOpenInspector}
-                  onReply={onReply ? stableReply : undefined}
-                  avatarURL={members.find(member => member.uid === stream.agentUID)?.avatarURL}
-                />
-              </ErrorBoundary>
-            ))}
+            ]}
             {unloadedQuestions.map(question => {
               const agent = members.find(member => member.uid === question.agentUID)
               const asker = agent?.displayName ?? peerNames.get(question.agentUID ?? '') ?? `@${question.agentUID}`

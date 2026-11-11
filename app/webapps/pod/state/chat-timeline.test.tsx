@@ -1,5 +1,6 @@
 import { beforeAll, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import i18n, { loadLocale } from '../../common/i18n'
 import { attachmentPreviewKind } from '../attachment-preview'
@@ -30,6 +31,7 @@ import {
   stepTitle
 } from '../chat/tool-run-view'
 import { MessageActions } from '../chat/message-actions'
+import { MessageView } from '../chat/timeline-message'
 import {
   BACKTRACK_DOUBLE_ESCAPE_MS,
   consumeEmptyComposerEscape,
@@ -967,4 +969,64 @@ test('shouldYieldBacktrackToOverlay ignores ancestor Sheet dialogs containing th
 
   expect(shouldYieldBacktrackToOverlay({ closest: () => null }, chatContainer)).toBe(false)
   expect(shouldYieldBacktrackToOverlay(null, chatContainer)).toBe(false)
+})
+
+test('a live reply and the committed message that replaces it render the same tree down to the reply text', () => {
+  const client = new QueryClient()
+  const model = new ChatModel()
+  const shared = {
+    model,
+    conversationID: 'room',
+    linkedRuns: [],
+    onJumpToSource() {},
+    keyboardActive: false,
+    own: false
+  }
+  const live: TimelineLiveStream = {
+    agentUID: 'agent',
+    agentName: 'Planner',
+    responseID: 'response',
+    signalIDs: ['signal'],
+    text: 'East leads this quarter.',
+    thinkingSummary: 'Comparing regions'
+  }
+  const committed = {
+    id: 'reply',
+    seq: 3,
+    kind: 'message',
+    authorType: 'agent',
+    authorUID: 'agent',
+    authorDisplayName: 'Planner',
+    authorArchived: false,
+    text: 'East leads this quarter.',
+    createdAt: '2026-11-10T09:00:00Z',
+    signalID: 'signal',
+    replyToMessageID: null,
+    mentions: [],
+    savedPages: [],
+    links: [],
+    attachments: [],
+    richContent: { execution: { thinking_summary: 'Comparing regions', steps: [] } }
+  } as unknown as TimelineMessage
+  // The element names from the message to its reply text; React keeps a subtree whose path matches.
+  const path = (html: string) => {
+    const before = html.slice(0, html.search(/<div[^>]*class="[^"]*pod-chat-markdown/))
+    const open: string[] = []
+    for (const [, closing, name] of before.matchAll(/<(\/?)([a-z0-9]+)[^>]*>/g)) {
+      if (closing) open.pop()
+      else if (!['br', 'img', 'input', 'meta', 'path'].includes(name!)) open.push(name!)
+    }
+    return open.join('>')
+  }
+  try {
+    const wrap = (view: ReactNode) => render(<QueryClientProvider client={client}>{view}</QueryClientProvider>)
+    const liveHTML = wrap(<MessageView {...shared} live={live} showActions={false} />)
+    const committedHTML = wrap(<MessageView {...shared} message={committed} showActions />)
+    expect(liveHTML).toContain('data-live-agent="agent"')
+    expect(committedHTML).not.toContain('data-live-agent')
+    expect(path(liveHTML)).toBe(path(committedHTML))
+    expect(path(liveHTML)).toBe('article>div')
+  } finally {
+    client.clear()
+  }
 })
