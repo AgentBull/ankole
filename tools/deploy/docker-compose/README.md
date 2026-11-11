@@ -231,7 +231,7 @@ and the loaded library report `0.26.4`:
 
 ```sh
 docker compose pull
-docker compose stop
+docker compose stop --timeout 60
 docker compose up -d postgresql
 docker compose exec postgresql psql -U ankole -d ankole -v ON_ERROR_STOP=1 \
   -c "ALTER EXTENSION pg_search UPDATE TO '0.26.4'" \
@@ -241,10 +241,13 @@ docker compose up -d --force-recreate
 docker compose ps
 ```
 
-`docker compose stop` halts the old control plane before migrations while
-keeping Docker networks intact so Workers remain reachable. The control plane
-gets up to 60 seconds to drain requests and finish background jobs before
-Docker forces it to stop, so this step can take up to a minute. The new control
+`docker compose stop --timeout 60` halts the old control plane before
+migrations while keeping Docker networks intact so Workers remain reachable.
+The control plane gets up to 60 seconds to drain requests and finish background
+jobs before Docker forces it to stop, so this step can take up to a minute. The
+explicit timeout matters because a running container keeps the stop timeout it
+was created with, which is Docker's 10-second default for a container created
+from an older Compose file. The new control
 plane starts only after both migration jobs succeed. Existing per-Agent Workers
 reconnect automatically, and idle Workers with an outdated image are replaced on
 idle. Expect a brief service interruption during this single-host upgrade.

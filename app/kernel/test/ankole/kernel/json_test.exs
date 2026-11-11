@@ -19,6 +19,15 @@ defmodule Ankole.Kernel.JSONTest do
     assert {:ok, %{"keep" => kept}} = Codec.decode(json, strings: :copy)
     assert :binary.referenced_byte_size(kept) == byte_size(long)
     assert Codec.encode!(%{"a" => 1}, dirty: true) == Torque.encode!(%{"a" => 1})
+
+    deep = Enum.reduce(1..300, %{"keep" => long}, fn _, child -> %{"content" => child} end)
+    deep_json = Codec.encode!(deep, dirty: true)
+    assert deep_json == Codec.encode!(deep)
+
+    {:ok, decoded} = Codec.decode(deep_json, strings: :copy)
+    assert decoded == deep
+    kept = Enum.reduce(1..300, decoded, fn _, %{"content" => child} -> child end)["keep"]
+    assert :binary.referenced_byte_size(kept) == byte_size(long)
   end
 
   test "nested transport accepts 512 containers and rejects 513 in both directions" do

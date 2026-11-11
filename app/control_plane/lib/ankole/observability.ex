@@ -329,8 +329,6 @@ defmodule Ankole.Observability do
 
   @impl true
   def init(opts) do
-    # Lets supervisor shutdown run terminate/2, which flushes buffered spans.
-    Process.flag(:trap_exit, true)
     set_provider(nil)
     set_runtime_config(nil)
     set_exporter = Keyword.get(opts, :set_exporter, &set_exporter/1)
@@ -384,14 +382,6 @@ defmodule Ankole.Observability do
 
     {:reply, status, state}
   end
-
-  @impl true
-  def terminate(_reason, %{enabled?: true}) do
-    _ = :otel_tracer_provider.force_flush()
-    :ok
-  end
-
-  def terminate(_reason, _state), do: :ok
 
   defp start_turn_span(%Signal{} = signal, turn_start_spec) do
     provider = provider()
