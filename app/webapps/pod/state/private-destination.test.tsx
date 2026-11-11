@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { SidebarProvider } from '@ankole/uikit'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import { contentKeys } from '../content-api'
 import { ContentListRoute } from '../content-list'
@@ -50,10 +51,10 @@ describe('Private page creation', () => {
           getParentRoute: () => rootRoute,
           path: '/content/$scope',
           component: () => (
-            <>
+            <SidebarProvider>
               <ContentNavigation />
               <ContentListRoute />
-            </>
+            </SidebarProvider>
           )
         })
         const router = createRouter({

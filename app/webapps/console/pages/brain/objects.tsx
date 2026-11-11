@@ -12,7 +12,7 @@ import {
   Skeleton,
   TableCell
 } from '@ankole/uikit'
-import { RiBrainLine, RiCloseLine } from '@remixicon/react'
+import { BrainRegular, DismissRegular } from '@ankole/uikit/icons'
 import { keepPreviousData } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -87,7 +87,7 @@ function BrainObjectsList() {
       count={rows.length}
       emptyTitle={t('console.brain.objects_empty_title')}
       emptyDescription={t('console.brain.objects_empty_description')}
-      emptyIcon={<RiBrainLine aria-hidden />}
+      emptyIcon={<BrainRegular aria-hidden />}
       pagination={objects}
       isFiltered={filtered}
       onClearFilters={() => {
@@ -174,7 +174,7 @@ export function BrainObjectDrawer() {
             variant="ghost"
             className="absolute top-3 right-3"
             onClick={requestClose}>
-            <RiCloseLine />
+            <DismissRegular />
           </Button>
           <DrawerTitle className="text-lg tracking-normal normal-case">{page?.title ?? slug}</DrawerTitle>
           <DrawerDescription className="text-left break-all font-mono text-xs">{slug}</DrawerDescription>

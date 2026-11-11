@@ -12,7 +12,14 @@ import {
   toast,
   Spinner
 } from '@ankole/uikit'
-import { RiAddLine, RiFileAddLine, RiFileExcel2Line, RiFilePpt2Line, RiFileWord2Line } from '@remixicon/react'
+import {
+  AddCircleRegular,
+  AddRegular,
+  DocumentAddRegular,
+  DocumentPowerpointRegular,
+  DocumentTableRegular,
+  DocumentWordRegular
+} from '@ankole/uikit/icons'
 import { useRef } from 'react'
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
@@ -151,11 +158,11 @@ function PageTypeItems({ create, types = pageTypes }: { create: PageCreation; ty
   return types.map(type => (
     <DropdownMenuItem key={type} disabled={create.isPending} onClick={() => void create.submit(type)}>
       {type === 'word' ? (
-        <RiFileWord2Line aria-hidden className="pod-page-icon" />
+        <DocumentWordRegular aria-hidden className="pod-page-icon" />
       ) : type === 'spreadsheet' ? (
-        <RiFileExcel2Line aria-hidden className="pod-page-icon" />
+        <DocumentTableRegular className="pod-page-icon" />
       ) : type === 'presentation' ? (
-        <RiFilePpt2Line aria-hidden className="pod-page-icon" />
+        <DocumentPowerpointRegular aria-hidden className="pod-page-icon" />
       ) : (
         <PageIcon page={{ type, icon: null }} />
       )}
@@ -196,14 +203,21 @@ export function CreatePageButton({
         render={
           <Button
             variant={compact ? 'ghost' : 'outline'}
-            size={compact ? 'icon-sm' : 'sm'}
+            size={compact ? 'icon-xs' : 'sm'}
             aria-label={label}
             title={label}
             aria-busy={create.isPending}
             disabled={disabled || waitingForIdentity || create.isPending}
           />
         }>
-        {create.isPending ? <Spinner aria-hidden className="size-4" /> : <RiAddLine aria-hidden className="size-4" />}
+        {/* The compact button is a sidebar action, which draws the circled plus of the Ankole icon set. */}
+        {create.isPending ? (
+          <Spinner aria-hidden className="size-4" />
+        ) : compact ? (
+          <AddCircleRegular className="size-4" />
+        ) : (
+          <AddRegular className="size-4" />
+        )}
         {!compact && (create.isPending ? t('pod.content.creating') : label)}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56" aria-label={label}>
@@ -226,7 +240,7 @@ export function CreatePageSubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger disabled={create.isPending}>
-        <RiFileAddLine aria-hidden />
+        <DocumentAddRegular />
         {label}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-56" aria-label={label}>

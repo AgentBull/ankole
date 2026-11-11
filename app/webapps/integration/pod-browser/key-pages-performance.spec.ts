@@ -174,7 +174,8 @@ test.describe('Key page laboratory performance', () => {
               ).toBeVisible()
             })
             await act('switch to trash', async () => {
-              await page.getByRole('link', { name: '回收站', exact: true }).click()
+              await page.getByRole('button', { name: /^账户菜单/ }).click()
+              await page.getByRole('menuitem', { name: '回收站', exact: true }).click()
               await expect(page.getByText(trashTitle, { exact: true })).toBeVisible()
             })
             await act('return to cached directory', async () => {

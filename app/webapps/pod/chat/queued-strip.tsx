@@ -12,14 +12,14 @@ import {
   Spinner
 } from '@ankole/uikit'
 import {
-  RiArrowUpLine,
-  RiArrowDownLine,
-  RiCornerUpRightLine,
-  RiDragMove2Line,
-  RiEditLine,
-  RiCloseLine,
-  RiMoreLine
-} from '@remixicon/react'
+  ArrowDownRegular,
+  ArrowMoveRegular,
+  ArrowTurnRightRegular,
+  ArrowUpRegular,
+  DismissRegular,
+  EditRegular,
+  MoreHorizontalRegular
+} from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import { isApplePlatform } from '../../common/platform'
 import type { ConversationDetail, ConversationPendingInput, ConversationQueueRequest } from '../api'
@@ -71,7 +71,7 @@ export function QueuedStrip({
               {t(queue.paused ? 'pod.chat.queue_paused' : 'pod.chat.queue_title')} ({items.length})
             </h2>
             {pending?.agentUID === queue.agentUID && pending.action === 'reorder' && (
-              <Spinner className="size-3" aria-label={t('common.loading')} />
+              <Spinner className="pod-chat-working-spinner" aria-label={t('common.loading')} />
             )}
             {queue.paused && (
               <Button
@@ -81,9 +81,7 @@ export function QueuedStrip({
                 onClick={() =>
                   change({ action: 'resume', agentUID: queue.agentUID, expectedVersion: queue.queueVersion })
                 }>
-                {pending?.agentUID === queue.agentUID && pending.action === 'resume' && (
-                  <Spinner className="size-3" aria-hidden />
-                )}
+                {pending?.agentUID === queue.agentUID && pending.action === 'resume' && <Spinner aria-hidden />}
                 {t('pod.chat.resume_queue')}
               </Button>
             )}
@@ -190,7 +188,7 @@ function QueuedRow({
     <li ref={drag.targetRef} className="pod-chat-queue-item" data-editing={isEditing || undefined}>
       <TreeDropIndicator indication={drag.indication} />
       <span ref={drag.handleRef} className="pod-chat-drag-handle" aria-hidden>
-        <RiDragMove2Line className="size-3.5" />
+        <ArrowMoveRegular />
       </span>
       <span className="pod-chat-queue-position">{index + 1}</span>
       <p className="pod-chat-queue-text" title={label}>
@@ -232,9 +230,9 @@ function QueuedRow({
                 {pending === 'steer' ? (
                   <Spinner aria-hidden />
                 ) : sendIdle ? (
-                  <RiArrowUpLine aria-hidden />
+                  <ArrowUpRegular aria-hidden />
                 ) : (
-                  <RiCornerUpRightLine aria-hidden />
+                  <ArrowTurnRightRegular aria-hidden />
                 )}
                 {t(sendIdle ? 'pod.chat.send_short' : 'pod.chat_room.steer_short')}
               </Button>
@@ -245,7 +243,7 @@ function QueuedRow({
                 title={t('pod.chat.edit_pending')}
                 disabled={disabled || editing}
                 onClick={() => edit(input, queue.agentUID)}>
-                <RiEditLine aria-hidden />
+                <EditRegular aria-hidden />
               </Button>
               <Button
                 size="icon-xs"
@@ -256,7 +254,7 @@ function QueuedRow({
                 }
                 disabled={disabled || editing}
                 onClick={() => takeBack(input, queue.agentUID)}>
-                {pending === 'retract' ? <Spinner aria-hidden /> : <RiCloseLine aria-hidden />}
+                {pending === 'retract' ? <Spinner aria-hidden /> : <DismissRegular aria-hidden />}
               </Button>
             </>
           )}
@@ -272,15 +270,15 @@ function QueuedRow({
                     disabled={disabled}
                   />
                 }>
-                <RiMoreLine aria-hidden />
+                <MoreHorizontalRegular aria-hidden />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem disabled={index === 0} onClick={() => reorder(index - 1)}>
-                  <RiArrowUpLine aria-hidden />
+                  <ArrowUpRegular aria-hidden />
                   {t('pod.chat_room.move_up')}
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={index === items.length - 1} onClick={() => reorder(index + 1)}>
-                  <RiArrowDownLine aria-hidden />
+                  <ArrowDownRegular aria-hidden />
                   {t('pod.chat_room.move_down')}
                 </DropdownMenuItem>
               </DropdownMenuContent>

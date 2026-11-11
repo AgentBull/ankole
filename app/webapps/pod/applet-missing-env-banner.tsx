@@ -1,5 +1,5 @@
 import { Alert, AlertAction, AlertDescription, AlertTitle, Button } from '@ankole/uikit'
-import { RiErrorWarningLine } from '@remixicon/react'
+import { ErrorCircleRegular } from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import { Suspense, lazy, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -42,7 +42,7 @@ export function AppletMissingEnvBanner({ detail }: { detail: PageDetail }) {
       <>
         {missing.length > 0 ? (
           <Alert variant="warning" className="rounded-lg">
-            <RiErrorWarningLine aria-hidden />
+            <ErrorCircleRegular aria-hidden />
             <AlertTitle>{t('pod.env_vars.missing_required_title', { count: missing.length })}</AlertTitle>
             <AlertDescription>
               {t('pod.env_vars.missing_required_editor_description', {
@@ -85,7 +85,7 @@ export function AppletMissingEnvBanner({ detail }: { detail: PageDetail }) {
 
   return (
     <Alert variant="warning" className="rounded-lg">
-      <RiErrorWarningLine aria-hidden />
+      <ErrorCircleRegular aria-hidden />
       <AlertTitle>{t('pod.env_vars.missing_required_title', { count: missingCount })}</AlertTitle>
       <AlertDescription>{t('pod.env_vars.missing_required_viewer_description')}</AlertDescription>
     </Alert>

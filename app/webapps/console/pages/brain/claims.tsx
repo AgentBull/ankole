@@ -28,7 +28,7 @@ import {
   toast,
   Spinner
 } from '@ankole/uikit'
-import { RiChatQuoteLine, RiMore2Fill } from '@remixicon/react'
+import { MoreVerticalRegular, TextQuoteRegular } from '@ankole/uikit/icons'
 import { keepPreviousData } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -116,7 +116,7 @@ export function BrainClaimsPage() {
         count={rows.length}
         emptyTitle={t('console.brain.claims_empty_title')}
         emptyDescription={t('console.brain.claims_empty_description')}
-        emptyIcon={<RiChatQuoteLine aria-hidden />}
+        emptyIcon={<TextQuoteRegular aria-hidden />}
         pagination={claims}
         isFiltered={Boolean(query.trim() || objectSlug.trim() || claimType !== 'all' || !currentOnly)}
         onClearFilters={() => {
@@ -200,7 +200,7 @@ export function BrainClaimsPage() {
                       render={
                         <Button size="icon-sm" type="button" variant="ghost" aria-label={t('common.more_actions')} />
                       }>
-                      <RiMore2Fill />
+                      <MoreVerticalRegular />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => setSupersedeClaim(claim)}>

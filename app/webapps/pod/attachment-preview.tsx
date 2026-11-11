@@ -10,8 +10,8 @@ import {
   TEXT_PREVIEW_BYTES
 } from '../common/file-preview'
 import { readPrefix } from '../common/browser-files'
-import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
-import { RiCloseLine, RiFileLine } from '@remixicon/react'
+import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, FileCard, FileTypeMark } from '@ankole/uikit'
+import { DismissRegular, DocumentRegular } from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import {
   createContext,
@@ -131,9 +131,11 @@ export function AttachmentPreviewHost({ host, children }: { host: PreviewHost | 
 }
 
 /**
- * The file card's body: selecting it opens the file's preview, which owns the download and open-in-tab actions.
+ * A chat's file card: selecting it opens the file's preview, which owns the download and open-in-tab actions.
  * Inside a chat with a right sidebar the preview opens there; elsewhere it opens in a dialog. Files that Ankole cannot
- * render still open the preview, which then shows the file's details instead of content.
+ * render still open the preview, which then shows the file's details instead of content. The card shows an image's
+ * thumbnail as its mark and every other file's type mark, and its type line names the type and the size unless the
+ * caller states something else there, such as an upload's progress.
  */
 export function AttachmentPreview({
   name,
@@ -143,7 +145,12 @@ export function AttachmentPreview({
   downloadURL = url,
   conversationID,
   local = false,
-  children
+  label,
+  description,
+  action,
+  progress,
+  invalid,
+  className
 }: {
   name: string
   type: string | undefined
@@ -152,7 +159,14 @@ export function AttachmentPreview({
   downloadURL?: string
   conversationID?: string
   local?: boolean
-  children?: ReactNode
+  /** The name line. */
+  label: ReactNode
+  /** The type line; by default the file's type and size. */
+  description?: ReactNode
+  action?: ReactNode
+  progress?: number
+  invalid?: boolean
+  className?: string
 }) {
   const { t } = useTranslation()
   const host = use(AttachmentPreviewHostContext)
@@ -166,39 +180,31 @@ export function AttachmentPreview({
   useEffect(() => {
     if (host && open) setOpen(false)
   }, [host, open])
-  const mark = (
-    <span className="flex size-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-control bg-muted text-fg-tertiary">
-      <RiFileLine className="size-5" aria-hidden />
-      <span className="max-w-full truncate px-0.5 text-[10px] font-medium leading-3 text-fg-secondary">
-        {fileExtensionBadge(stripBidi(name), type)}
-      </span>
-    </span>
-  )
-  // The surrounding control already names the file, so the thumbnail is decoration and falls back to the file mark.
-  const thumbnail =
+  // The surrounding control already names the file, so the thumbnail is decoration and falls back to the type mark.
+  const mark =
     image && !thumbnailFailed ? (
-      <img
-        src={url}
-        alt=""
-        loading="lazy"
-        className="size-12 shrink-0 rounded-control object-cover"
-        onError={() => setThumbnailFailed(true)}
-      />
+      <img src={url} alt="" loading="lazy" onError={() => setThumbnailFailed(true)} />
     ) : (
-      mark
+      <FileTypeMark fileName={stripBidi(name)} mimeType={type} />
     )
   const card = (
-    <Button
-      ref={trigger}
-      type="button"
-      variant="ghost"
-      className="h-auto min-w-0 shrink justify-start rounded-control p-2 text-left font-normal leading-normal text-foreground"
-      aria-label={t('pod.chat_attachments.preview', { name: stripBidi(name) })}
-      title={sanitizeFileName(name)}
-      onClick={event => (host ? host.open(file, event.currentTarget, event.nativeEvent) : setOpen(true))}>
-      {thumbnail}
-      {children}
-    </Button>
+    <FileCard
+      className={className}
+      mark={mark}
+      name={label}
+      description={
+        description === undefined
+          ? [fileExtensionBadge(stripBidi(name), type), formatFileBytes(size)].filter(Boolean).join(' · ')
+          : description
+      }
+      action={action}
+      progress={progress}
+      invalid={invalid}
+      openRef={trigger}
+      openLabel={t('pod.chat_attachments.preview', { name: stripBidi(name) })}
+      openTitle={sanitizeFileName(name)}
+      onOpen={event => (host ? host.open(file, event.currentTarget, event.nativeEvent) : setOpen(true))}
+    />
   )
   if (host) return card
   return (
@@ -273,7 +279,7 @@ export function AttachmentPreviewPanel({
           aria-label={t('common.close')}
           title={t('common.close')}
           onClick={event => onClose(event.nativeEvent)}>
-          <RiCloseLine aria-hidden />
+          <DismissRegular aria-hidden />
         </Button>
       </header>
       <div
@@ -344,7 +350,7 @@ function AttachmentPreviewBody({ file }: { file: AttachmentPreviewFile }) {
         />
       ) : (
         <div className="flex flex-col items-center gap-2 py-8 text-center text-sm">
-          <RiFileLine className="size-10 text-fg-tertiary" aria-hidden />
+          <DocumentRegular className="size-10 text-fg-tertiary" aria-hidden />
           {details && <p className="text-fg-tertiary">{details}</p>}
           <p>{t('pod.chat_attachments.preview_unavailable')}</p>
         </div>

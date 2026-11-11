@@ -10,7 +10,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiAtLine, RiCheckLine, RiMoreFill, RiReplyLine } from '@remixicon/react'
+import { ArrowReplyRegular, CheckmarkRegular, MentionRegular, MoreHorizontalRegular } from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useId, useLayoutEffect, useRef, useState } from 'react'
@@ -136,13 +136,13 @@ export function CommentThread({
       <div className="pod-comment-thread-actions flex flex-wrap items-center gap-1">
         {canComment && (
           <Button variant="ghost" size="xs" aria-expanded={replying} onClick={() => setReplying(!replying)}>
-            <RiReplyLine aria-hidden />
+            <ArrowReplyRegular aria-hidden />
             {t('pod.document.reply')}
           </Button>
         )}
         {thread.can_resolve && (
           <Button variant="ghost" size="xs" disabled={action.isPending} onClick={() => action.mutate('resolve')}>
-            <RiCheckLine aria-hidden />
+            <CheckmarkRegular aria-hidden />
             {t(thread.resolved_at ? 'pod.document.reopen' : 'pod.document.resolve')}
           </Button>
         )}
@@ -210,7 +210,7 @@ function CommentEntry({
         </time>
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={t('common.more_actions')} />}>
-            <RiMoreFill aria-hidden />
+            <MoreHorizontalRegular aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
@@ -520,7 +520,7 @@ export function CommentComposer({
               model.write(draftKey, next)
               updateMentionFromInput(next, caret, caret)
             }}>
-            <RiAtLine aria-hidden />
+            <MentionRegular aria-hidden />
             {t('pod.document.mention_agent_button', { defaultValue: 'Mention Agent' })}
           </Button>
         ) : (

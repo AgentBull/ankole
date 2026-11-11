@@ -15,7 +15,14 @@ import {
 import { contentError } from './content-errors'
 import { ErrorBlock } from '../common/error-block'
 import type { PageRole, PageScope, PageType } from './content-api'
-import { RiDeleteBinLine, RiFolderLine, RiHistoryLine, RiLockLine, RiShareLine, RiStarLine } from '@remixicon/react'
+import {
+  DeleteRegular,
+  FolderRegular,
+  HistoryRegular,
+  LockClosedRegular,
+  ShareAndroidRegular,
+  StarRegular
+} from '@ankole/uikit/icons'
 
 export const scopeLabels: Record<PageScope, string> = {
   get all() {
@@ -42,13 +49,13 @@ export const scopeLabels: Record<PageScope, string> = {
 }
 
 export const scopeIcons = {
-  all: RiFolderLine,
-  space: RiFolderLine,
-  private: RiLockLine,
-  shared: RiShareLine,
-  recent: RiHistoryLine,
-  favorites: RiStarLine,
-  trash: RiDeleteBinLine
+  all: FolderRegular,
+  space: FolderRegular,
+  private: LockClosedRegular,
+  shared: ShareAndroidRegular,
+  recent: HistoryRegular,
+  favorites: StarRegular,
+  trash: DeleteRegular
 }
 
 export const typeLabels: Record<PageType, string> = {

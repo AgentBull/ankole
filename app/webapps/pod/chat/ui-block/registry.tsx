@@ -33,7 +33,7 @@ import {
   type StatisticalChartSpec
 } from '@ankole/uikit'
 import { defineRegistry, useBoundProp } from '@json-render/react'
-import { RiArrowDownLine, RiArrowUpLine } from '@remixicon/react'
+import { ArrowDownRegular, ArrowUpRegular } from '@ankole/uikit/icons'
 import { useId, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { uiBlockCatalog } from './catalog'
@@ -78,7 +78,7 @@ function DataTable({
         <TableRow>
           {columns.map(column => {
             const active = sort?.key === column.key
-            const Arrow = active && sort.descending ? RiArrowDownLine : RiArrowUpLine
+            const Arrow = active && sort.descending ? ArrowDownRegular : ArrowUpRegular
             return (
               <TableHead
                 key={column.key}

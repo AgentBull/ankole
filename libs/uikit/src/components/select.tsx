@@ -1,5 +1,5 @@
 import { Select as SelectPrimitive } from '@base-ui/react/select'
-import { RiArrowDownSLine, RiArrowUpSLine } from '@remixicon/react'
+import { CaretDownFilled, ChevronDownRegular, ChevronUpRegular } from '../icons'
 import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../lib/utils'
@@ -67,9 +67,13 @@ function SelectValue({ children, className, placeholder, ...props }: SelectPrimi
 }
 
 // A field select is a slot that holds a value. A ghost select sits in a header or toolbar band, where a
-// slot would read as an input: it is ink text with a chevron and shows a wash only on hover.
+// slot would read as an input: it is ink text with a chevron and shows a wash only on hover. The `toolbar` size is
+// the 36px selector of a shell toolbar, such as the composer's: a label of 12px text and a 12px filled arrow whose
+// wash, like a toolbar button's, tints only the box that holds them. When the toolbar runs out of room, the value
+// ends in an ellipsis and gives up its width, while the arrow and the padding around it stay, so the selector
+// never narrows past 32px.
 const selectTriggerVariants = cva(
-  "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-control border px-3 py-0 text-sm leading-5 whitespace-nowrap transition-[background-color,color] duration-(--duration-feedback) disabled:cursor-not-allowed disabled:text-fg-disabled data-placeholder:text-fg-placeholder data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-control border px-3 py-0 text-sm leading-5 whitespace-nowrap transition-[background-color,color] duration-(--duration-feedback) disabled:cursor-not-allowed disabled:text-fg-disabled data-placeholder:text-fg-placeholder data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[size=toolbar]:h-9 data-[size=toolbar]:min-w-8 data-[size=toolbar]:gap-1 data-[size=toolbar]:rounded-[calc(var(--radius-micro)+var(--spacing)*2)] data-[size=toolbar]:bg-clip-content data-[size=toolbar]:p-1.75 data-[size=toolbar]:text-50 data-[size=toolbar]:font-normal data-[size=toolbar]:*:data-[slot=select-value]:block data-[size=toolbar]:*:data-[slot=select-value]:truncate",
   {
     variants: {
       variant: {
@@ -91,7 +95,7 @@ function SelectTrigger({
   ...props
 }: SelectPrimitive.Trigger.Props &
   VariantProps<typeof selectTriggerVariants> & {
-    size?: 'sm' | 'default'
+    size?: 'sm' | 'default' | 'toolbar'
   }) {
   const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const themeContext = React.useContext(SelectThemeContext)
@@ -115,17 +119,26 @@ function SelectTrigger({
       {children}
       <SelectPrimitive.Icon
         render={
-          <RiArrowDownSLine className="pointer-events-none size-3.5 text-muted-foreground motion-safe:transition-transform motion-safe:duration-[240ms] motion-safe:ease-(--ease-segment) group-data-popup-open/select-trigger:rotate-180" />
+          size === 'toolbar' ? (
+            <CaretDownFilled className="pointer-events-none size-3" />
+          ) : (
+            <ChevronDownRegular className="pointer-events-none size-3.5 text-muted-foreground motion-safe:transition-transform motion-safe:duration-[240ms] motion-safe:ease-(--ease-segment) group-data-popup-open/select-trigger:rotate-180" />
+          )
         }
       />
     </SelectPrimitive.Trigger>
   )
 }
 
+/**
+ * The list of a select. It is ceramic, like every menu. A select in the composer's toolbar opens on the
+ * `composer` surface instead, so the list and the composer read as one object.
+ */
 function SelectContent({
   className,
   children,
   emptyLabel,
+  surface = 'ceramic',
   side = 'bottom',
   sideOffset = 4,
   align = 'center',
@@ -135,6 +148,7 @@ function SelectContent({
 }: SelectPrimitive.Popup.Props &
   Pick<SelectPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'> & {
     emptyLabel?: React.ReactNode
+    surface?: 'ceramic' | 'composer'
   }) {
   const themeContext = React.useContext(SelectThemeContext)
   const isEmpty = collectSelectItems(children).length === 0
@@ -152,7 +166,8 @@ function SelectContent({
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}
           className={cn(
-            'ceramic ceramic-primary ceramic-menu relative isolate z-50 outline-none max-h-(--available-height) p-1 w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
+            'ceramic-menu relative isolate z-50 outline-none max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
+            surface === 'composer' ? 'composer-menu' : 'ceramic ceramic-primary p-1',
             className
           )}
           {...props}>
@@ -242,11 +257,7 @@ function SelectHighlight() {
 
 function SelectLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props) {
   return (
-    <SelectPrimitive.GroupLabel
-      data-slot="select-label"
-      className={cn('px-2.5 py-2 text-xs text-muted-foreground', className)}
-      {...props}
-    />
+    <SelectPrimitive.GroupLabel data-slot="select-label" className={cn('menu-group-label', className)} {...props} />
   )
 }
 
@@ -299,7 +310,7 @@ function SelectScrollUpButton({ className, ...props }: React.ComponentProps<type
         className
       )}
       {...props}>
-      <RiArrowUpSLine />
+      <ChevronUpRegular />
     </SelectPrimitive.ScrollUpArrow>
   )
 }
@@ -313,7 +324,7 @@ function SelectScrollDownButton({ className, ...props }: React.ComponentProps<ty
         className
       )}
       {...props}>
-      <RiArrowDownSLine />
+      <ChevronDownRegular />
     </SelectPrimitive.ScrollDownArrow>
   )
 }

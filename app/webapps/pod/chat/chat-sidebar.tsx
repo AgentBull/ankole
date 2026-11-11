@@ -3,8 +3,12 @@ import { ContentSkeleton } from '../content-primitives'
 import {
   Button,
   Input,
+  SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
+  SidebarMenuIcon,
   SidebarMenuItem,
   useSidebar,
   ContextMenu,
@@ -21,15 +25,15 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiArrowDownSLine,
-  RiArrowUpSLine,
-  RiMoreLine,
-  RiPushpinLine,
-  RiNotificationOffLine,
-  RiNotificationLine,
-  RiDeleteBinLine,
-  RiLogoutBoxLine
-} from '@remixicon/react'
+  AlertOffRegular,
+  AlertRegular,
+  ChevronDownRegular,
+  ChevronUpRegular,
+  DeleteRegular,
+  MoreHorizontalRegular,
+  PinRegular,
+  SignOutRegular
+} from '@ankole/uikit/icons'
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -77,8 +81,9 @@ export function ChatSidebar() {
   const attention = useQuery(conversationAttentionQuery)
   const [filter, setFilter] = useState('')
   const search = useDebouncedValue(filter, 180)
-  // Collapsed, the assistant group still shows every task that needs attention ("peek").
-  const [assistant, setAssistant] = useState<'peek' | 'recent' | 'all'>('peek')
+  // The assistant group opens on its recent tasks each time the Chat tab opens. Collapsed, it still shows every task
+  // that needs attention ("peek").
+  const [assistant, setAssistant] = useState<'peek' | 'recent' | 'all'>('recent')
   const [needsInputOpen, setNeedsInputOpen] = useState(true)
   const [pinnedOpen, setPinnedOpen] = useState(true)
   const [messagesOpen, setMessagesOpen] = useState(true)
@@ -172,8 +177,16 @@ export function ChatSidebar() {
           (room, index) => ATTENTION.includes(room.rowStatus) || (assistant === 'recent' && index < RECENT_TASKS)
         )
   const hiddenTasks = tasks.length - shownTasks.length
+  // An open group fills up to its recent tasks from later pages. A list without a task shows no group, so it never
+  // pages for one.
   useEffect(() => {
-    if (assistant !== 'peek' && tasks.length < RECENT_TASKS && rooms.hasNextPage && !rooms.isFetchingNextPage) {
+    if (
+      assistant !== 'peek' &&
+      tasks.length > 0 &&
+      tasks.length < RECENT_TASKS &&
+      rooms.hasNextPage &&
+      !rooms.isFetchingNextPage
+    ) {
       void rooms.fetchNextPage()
     }
   }, [assistant, tasks.length, rooms.hasNextPage, rooms.isFetchingNextPage, rooms.fetchNextPage])
@@ -198,29 +211,29 @@ export function ChatSidebar() {
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={() => update.mutate({ id: room.id, data: { pinned: !room.viewer.pinned } })}>
-          <RiPushpinLine aria-hidden />
+          <PinRegular />
           {t(room.viewer.pinned ? 'pod.chat_room.unpin' : 'pod.chat_room.pin')}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => update.mutate({ id: room.id, data: { muted: !room.viewer.muted } })}>
-          {room.viewer.muted ? <RiNotificationLine aria-hidden /> : <RiNotificationOffLine aria-hidden />}
+          {room.viewer.muted ? <AlertRegular /> : <AlertOffRegular />}
           {t(room.viewer.muted ? 'pod.chat_room.unmute' : 'pod.chat_room.mute')}
         </DropdownMenuItem>
         {room.canDelete && (
           <DropdownMenuItem variant="destructive" onClick={() => setDeleting(room)}>
-            <RiDeleteBinLine aria-hidden />
+            <DeleteRegular />
             {t('pod.chat_room.delete')}
           </DropdownMenuItem>
         )}
         {!room.canDelete && room.accessScope === 'participants' && (
           <DropdownMenuItem variant="destructive" onClick={() => setLeaving(room)} disabled={leave.isPending}>
-            <RiLogoutBoxLine aria-hidden />
+            <SignOutRegular />
             {t('pod.chat_room.leave')}
           </DropdownMenuItem>
         )}
       </>
     )
     const muted = room.viewer.muted && (
-      <RiNotificationOffLine className="size-3 shrink-0" aria-label={t('pod.chat_room.mute')} />
+      <AlertOffRegular className="size-3 shrink-0" aria-label={t('pod.chat_room.mute')} />
     )
     return (
       <ContextMenu key={room.id}>
@@ -237,7 +250,9 @@ export function ChatSidebar() {
                 isActive={pathname === target}
                 onClick={close}
                 title={title}>
-                <ConversationGlyph room={room} size={twoLines ? 'md' : 'sm'} />
+                <SidebarMenuIcon>
+                  <ConversationGlyph room={room} size={twoLines ? 'md' : 'sm'} />
+                </SidebarMenuIcon>
                 {twoLines ? (
                   <span className="pod-chat-row-copy" dir="auto">
                     <span className="pod-chat-row-line">
@@ -268,11 +283,8 @@ export function ChatSidebar() {
               </SidebarMenuButton>
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  className="pod-chat-row-menu"
-                  render={
-                    <Button size="icon-xs" variant="ghost" aria-label={t('pod.chat_room.room_actions', { title })} />
-                  }>
-                  <RiMoreLine aria-hidden />
+                  render={<SidebarMenuAction aria-label={t('pod.chat_room.room_actions', { title })} />}>
+                  <MoreHorizontalRegular />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" finalFocus={menuFinalFocus}>
                   {menu}
@@ -290,9 +302,11 @@ export function ChatSidebar() {
     return (
       <SidebarMenuItem key={agent.uid} className="pod-chat-row" data-lines={2}>
         <SidebarMenuButton render={<Link to={target} />} isActive={pathname === target} onClick={close}>
-          <span className="pod-conversation-glyph" data-size="md">
-            <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
-          </span>
+          <SidebarMenuIcon>
+            <span className="pod-conversation-glyph" data-size="md">
+              <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
+            </span>
+          </SidebarMenuIcon>
           <span className="pod-chat-row-copy">
             <span className="pod-chat-row-line">
               <span className="pod-chat-row-title">
@@ -347,7 +361,7 @@ export function ChatSidebar() {
           count={String(needsInput.length)}
           open={needsInputOpen}
           onToggle={() => setNeedsInputOpen(!needsInputOpen)}>
-          {needsInputOpen && needsInput.map(roomRow)}
+          {needsInput.map(roomRow)}
         </ChatSection>
       )}
       {pinned.length > 0 && (
@@ -355,39 +369,35 @@ export function ChatSidebar() {
           label={t('pod.chat_room.section_pinned')}
           open={pinnedOpen || searching}
           onToggle={() => setPinnedOpen(!pinnedOpen)}>
-          {(pinnedOpen || searching) && pinned.map(roomRow)}
+          {pinned.map(roomRow)}
         </ChatSection>
       )}
       {tasks.length > 0 && (
         <ChatSection
           label={t('pod.chat.personal_assistant')}
           count={loadedTasks}
+          peek
           open={assistant !== 'peek' || searching}
           onToggle={() => setAssistant(assistant === 'peek' ? 'recent' : 'peek')}
           footer={
             !searching &&
             assistant !== 'peek' &&
             (hiddenTasks > 0 || assistant === 'all') && (
-              <button
-                type="button"
-                className="nav-row pod-nav-link pod-chat-section-more"
+              <SidebarMenuButton
+                className="pod-nav-link pod-chat-section-more"
                 onClick={() => {
                   if (assistant === 'all') {
                     if (rooms.hasNextPage) void rooms.fetchNextPage()
                     else setAssistant('recent')
                   } else setAssistant('all')
                 }}>
-                {assistant === 'all' && !rooms.hasNextPage ? (
-                  <RiArrowUpSLine aria-hidden />
-                ) : (
-                  <RiArrowDownSLine aria-hidden />
-                )}
+                {assistant === 'all' && !rooms.hasNextPage ? <ChevronUpRegular /> : <ChevronDownRegular />}
                 <span>
                   {assistant === 'all'
                     ? t(rooms.hasNextPage ? 'pod.superagent.show_more' : 'pod.superagent.show_less')
                     : t('pod.superagent.show_all', { count: hiddenTasks })}
                 </span>
-              </button>
+              </SidebarMenuButton>
             )
           }>
           {shownTasks.map(roomRow)}
@@ -398,7 +408,7 @@ export function ChatSidebar() {
           label={t('pod.superagent.messages_colleagues')}
           open={messagesOpen || searching}
           onToggle={() => setMessagesOpen(!messagesOpen)}>
-          {(messagesOpen || searching) && [...messages.map(roomRow), ...colleagues.map(colleagueRow)]}
+          {[...messages.map(roomRow), ...colleagues.map(colleagueRow)]}
         </ChatSection>
       )}
       {!loading && !rooms.error && !listedRooms.length && !colleagues.length && (
@@ -521,11 +531,16 @@ function ChatRenameField({ room, onDone }: { room: RoomRow; onDone(): void }) {
   )
 }
 
-/** A Chat sidebar group, headed and toggled the same way as the Home sections. */
+/**
+ * A Chat sidebar group, headed and toggled the same way as the Home sections: its body opens and closes with the
+ * sidebar's disclosure motion. A `peek` group keeps its body while closed, because its closed state still lists the
+ * rows that need attention, so its toggle changes which rows the body lists.
+ */
 function ChatSection({
   label,
   count,
   open,
+  peek = false,
   onToggle,
   footer,
   children
@@ -533,6 +548,7 @@ function ChatSection({
   label: string
   count?: string
   open: boolean
+  peek?: boolean
   onToggle(): void
   footer?: ReactNode
   children: ReactNode
@@ -540,22 +556,24 @@ function ChatSection({
   const toggle = useRef<RootSectionToggleHandle>(null)
   return (
     <section aria-label={label} className="pod-nav-section">
-      <div className="pod-nav-section-heading">
-        <RootSectionToggle ref={toggle} open={open} label={label} onToggle={onToggle} />
-        {/* The chevron owns keyboard focus, the expanded state, and the accessible name; this wider target
+      <SidebarGroupLabel className="pod-nav-section-heading">
+        {/* The caret owns keyboard focus, the expanded state, and the accessible name; this wider target
             serves pointer users, so assistive technology and role locators see one toggle per section. */}
         <button
           type="button"
           tabIndex={-1}
           aria-hidden
-          className="pod-chat-section-label"
+          className="flex min-w-0 cursor-pointer items-center gap-1.5 self-stretch text-inherit hover:text-foreground"
           onClick={event => toggle.current?.toggle(event.detail)}>
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          {count && <span className="pod-chat-section-count">{count}</span>}
+          <span className="min-w-0 truncate">{label}</span>
+          {count && <span className="tabular-nums">{count}</span>}
         </button>
-      </div>
-      <SidebarMenu>{children}</SidebarMenu>
-      {footer}
+        <RootSectionToggle ref={toggle} open={open} label={label} onToggle={onToggle} />
+      </SidebarGroupLabel>
+      <SidebarGroupContent open={peek ? undefined : open}>
+        <SidebarMenu>{children}</SidebarMenu>
+        {footer}
+      </SidebarGroupContent>
     </section>
   )
 }

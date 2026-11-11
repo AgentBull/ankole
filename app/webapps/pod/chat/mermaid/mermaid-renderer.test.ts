@@ -70,7 +70,7 @@ describe('renderMermaidDiagram (pele)', () => {
     const standalone = injectStandaloneSvgTheme(diagram.svg, 'light')
     expect(standalone).toContain('xmlns="http://www.w3.org/2000/svg"')
     expect(standalone).toContain('--pele-bg:#fffefd')
-    expect(standalone).toContain('IBMPlexSansCN')
+    expect(standalone).toContain("'AgentBullSansGB','IBMPlexSansCN'")
     expect(DIAGRAM_HOST_FONT_SANS).toContain('Noto Sans CJK SC')
 
     const expanded = expandSvgViewBox('<svg viewBox="0 0 200 100"><text>中文流程</text></svg>', 8)

@@ -1,20 +1,20 @@
 import { uuidV4 } from '@agentbull/active-support'
 import { Button, Sheet, SheetContent, SheetTitle, useReducedMotion, Spinner } from '@ankole/uikit'
 import {
-  RiArrowDownLine,
-  RiArrowLeftLine,
-  RiArrowRightLine,
-  RiArrowUpLine,
-  RiCheckLine,
-  RiCloseCircleLine,
-  RiCloseLine,
-  RiNodeTree,
-  RiQuestionLine,
-  RiStopCircleLine,
-  RiTimeLine
-} from '@remixicon/react'
+  ArrowDownRegular,
+  ArrowLeftRegular,
+  ArrowRightRegular,
+  ArrowUpRegular,
+  CaretRightFilled,
+  CircleRegular,
+  DismissCircleRegular,
+  DismissRegular,
+  QuestionCircleRegular,
+  RecordStopRegular,
+  TextBulletListTreeRegular
+} from '@ankole/uikit/icons'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { chatError, podKeys } from '../api'
@@ -55,16 +55,20 @@ export function ExecutionInspectorPanel({
   resolveAgentName,
   onClose,
   onBackToSummary,
-  onSwitchTarget
+  onSwitchTarget,
+  actions
 }: {
   conversationID: string
   target: InspectorTarget
-  variant?: 'panel' | 'sheet'
+  /** `inline` renders only the inspector's content, inside a surface that the caller owns and closes. */
+  variant?: 'panel' | 'sheet' | 'inline'
   finalFocus?: RefObject<HTMLElement | null>
   resolveAgentName?: (agentUID: string) => string | undefined
   onClose: (event?: PanelInputEvent) => void
   onBackToSummary?: (event?: PanelInputEvent) => void
   onSwitchTarget: (next: InspectorTarget) => void
+  /** Controls that the opening surface adds to the header, before Close, such as the Work page's Issue step. */
+  actions?: ReactNode
 }) {
   const { t } = useTranslation()
 
@@ -89,6 +93,7 @@ export function ExecutionInspectorPanel({
       onClose={onClose}
       onBackToSummary={target.fromSummary ? onBackToSummary : undefined}
       onSwitchTarget={onSwitchTarget}
+      actions={actions}
     />
   )
 
@@ -98,6 +103,8 @@ export function ExecutionInspectorPanel({
           name: resolveAgentName?.(target.agentUID) ?? `@${target.agentUID}`
         })
       : target.title || t('pod.chat_timeline.background_work')
+
+  if (variant === 'inline') return body
 
   if (variant === 'sheet') {
     return (
@@ -142,7 +149,8 @@ function InspectorContent({
   resolveAgentName,
   onClose,
   onBackToSummary,
-  onSwitchTarget
+  onSwitchTarget,
+  actions
 }: {
   conversationID: string
   target: InspectorTarget
@@ -150,6 +158,7 @@ function InspectorContent({
   onClose: (event?: PanelInputEvent) => void
   onBackToSummary?: (event?: PanelInputEvent) => void
   onSwitchTarget: (next: InspectorTarget) => void
+  actions?: ReactNode
 }) {
   const { t } = useTranslation()
   if (target.type === 'peer') {
@@ -162,22 +171,22 @@ function InspectorContent({
           <div className="pod-chat-inspector-title-row">
             {onBackToSummary && (
               <Button
-                size="icon-xs"
+                size="icon-sm"
                 variant="ghost"
                 aria-label={t('pod.chat_room.summary')}
                 onClick={event => onBackToSummary(event.nativeEvent)}>
-                <RiArrowLeftLine aria-hidden />
+                <ArrowLeftRegular aria-hidden />
               </Button>
             )}
             <h2 className="pod-chat-inspector-title" title={peerTitle}>
               {peerTitle}
             </h2>
             <Button
-              size="icon-xs"
+              size="icon-sm"
               variant="ghost"
               aria-label={t('common.close')}
               onClick={event => onClose(event.nativeEvent)}>
-              <RiCloseLine aria-hidden />
+              <DismissRegular aria-hidden />
             </Button>
           </div>
         </header>
@@ -203,6 +212,7 @@ function InspectorContent({
       onClose={onClose}
       onBackToSummary={onBackToSummary}
       onSwitchTarget={onSwitchTarget}
+      actions={actions}
     />
   )
 }
@@ -213,7 +223,8 @@ function ExecutionInspectorBody({
   resolveAgentName,
   onClose,
   onBackToSummary,
-  onSwitchTarget
+  onSwitchTarget,
+  actions
 }: {
   conversationID: string
   target: Extract<InspectorTarget, { type: 'execution' }>
@@ -221,6 +232,7 @@ function ExecutionInspectorBody({
   onClose: (event?: PanelInputEvent) => void
   onBackToSummary?: (event?: PanelInputEvent) => void
   onSwitchTarget: (next: InspectorTarget) => void
+  actions?: ReactNode
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -358,11 +370,11 @@ function ExecutionInspectorBody({
         <div className="pod-chat-inspector-title-row">
           {onBackToSummary && (
             <Button
-              size="icon-xs"
+              size="icon-sm"
               variant="ghost"
               aria-label={t('pod.chat_room.summary')}
               onClick={event => onBackToSummary(event.nativeEvent)}>
-              <RiArrowLeftLine aria-hidden />
+              <ArrowLeftRegular aria-hidden />
             </Button>
           )}
           <ExecutionStatusMark status={status} />
@@ -370,8 +382,8 @@ function ExecutionInspectorBody({
             {title}
           </h2>
           {stoppable && (
-            <Button size="xs" variant="outline" disabled={stopMutation.isPending} onClick={() => stopMutation.mutate()}>
-              <RiStopCircleLine aria-hidden />
+            <Button size="xs" variant="ghost" disabled={stopMutation.isPending} onClick={() => stopMutation.mutate()}>
+              <RecordStopRegular aria-hidden />
               {t(
                 stopMutation.isPending
                   ? 'pod.chat_timeline.execution_stopping'
@@ -379,12 +391,13 @@ function ExecutionInspectorBody({
               )}
             </Button>
           )}
+          {actions}
           <Button
-            size="icon-xs"
+            size="icon-sm"
             variant="ghost"
             aria-label={t('common.close')}
             onClick={event => onClose(event.nativeEvent)}>
-            <RiCloseLine aria-hidden />
+            <DismissRegular aria-hidden />
           </Button>
         </div>
         <div className="pod-chat-inspector-meta">
@@ -427,7 +440,7 @@ function ExecutionInspectorBody({
                       fromSummary: target.fromSummary
                     })
                   }>
-                  <RiArrowLeftLine aria-hidden />
+                  <ArrowLeftRegular aria-hidden />
                   {t('pod.chat_timeline.execution_view_previous')}
                 </Button>
               </div>
@@ -448,7 +461,7 @@ function ExecutionInspectorBody({
                     })
                   }>
                   {t('pod.chat_timeline.execution_open_followup')}
-                  <RiArrowRightLine aria-hidden />
+                  <ArrowRightRegular aria-hidden />
                 </Button>
               </div>
             )}
@@ -478,7 +491,7 @@ function ExecutionInspectorBody({
                 {thread.status === 'running' ? (
                   <Spinner aria-hidden className="pod-chat-working-spinner" />
                 ) : (
-                  <RiNodeTree aria-hidden />
+                  <TextBulletListTreeRegular aria-hidden />
                 )}
                 <span>{t('pod.chat_timeline.execution_child_thread', { index: index + 1 })}</span>
               </button>
@@ -560,7 +573,7 @@ function ExecutionInspectorBody({
 
           {head?.errorText && (
             <div role="alert" className="pod-chat-inspector-error">
-              <RiCloseCircleLine aria-hidden />
+              <DismissCircleRegular aria-hidden />
               <p>{head.errorText}</p>
             </div>
           )}
@@ -580,7 +593,7 @@ function ExecutionInspectorBody({
             variant="ghost"
             size="xs"
             onClick={() => void stick.scrollToBottom(reducedMotion ? 'instant' : undefined)}>
-            <RiArrowDownLine aria-hidden />
+            <ArrowDownRegular aria-hidden />
             {t('pod.chat.scroll_latest')}
           </Button>
         )}
@@ -655,7 +668,7 @@ export function JobQuickReplyComposer({
           variant="default"
           disabled={!value.trim() || submitting}
           aria-label={t('pod.chat_timeline.execution_send_action')}>
-          <RiArrowUpLine aria-hidden />
+          <ArrowUpRegular aria-hidden />
         </Button>
       </form>
     </>
@@ -712,6 +725,7 @@ function InspectorWorkGroup({
         }
       }}>
       <summary>
+        <CaretRightFilled aria-hidden className="pod-chat-disclosure-caret" />
         {Boolean(currentStep) && <Spinner aria-hidden className="pod-chat-working-spinner" />}
         {currentStep ? <WorkingLabel text={summaryLabel} /> : <span>{summaryLabel}</span>}
         {currentStep && segment.steps.length > 1 && (
@@ -728,7 +742,10 @@ function InspectorWorkGroup({
               <div className="pod-chat-thinking-text">{reasoningText}</div>
             ) : (
               <details className="pod-chat-thinking">
-                <summary>{t('pod.chat_timeline.thinking')}</summary>
+                <summary>
+                  <CaretRightFilled aria-hidden className="pod-chat-disclosure-caret" />
+                  {t('pod.chat_timeline.thinking')}
+                </summary>
                 <div className="whitespace-pre-wrap">{reasoningText}</div>
               </details>
             ))}
@@ -737,7 +754,7 @@ function InspectorWorkGroup({
             <div className="pod-chat-inspector-subthread-links">
               {matchingSubthreads.map(sub => (
                 <Button key={sub.id} size="xs" variant="outline" onClick={() => onSelectThread(sub.id)}>
-                  <RiNodeTree aria-hidden />
+                  <TextBulletListTreeRegular aria-hidden />
                   {t('pod.chat_timeline.execution_child_thread', { index: sub.index })}
                 </Button>
               ))}
@@ -767,13 +784,13 @@ function PlanCard({ plan }: { plan: NonNullable<ConversationExecutionDetail['pla
           const active = item.status === 'in_progress'
           return (
             <li key={index} data-status={item.status}>
-              {done ? (
-                <RiCheckLine className="pod-chat-exec-status-icon" data-tone="completed" aria-hidden />
-              ) : active ? (
-                <Spinner aria-hidden className="pod-chat-working-spinner" />
-              ) : (
-                <span className="pod-chat-inspector-plan-dot" aria-hidden />
-              )}
+              <span className="pod-chat-tool-state">
+                {done || active ? (
+                  <ExecutionStatusMark status={done ? 'completed' : 'running'} />
+                ) : (
+                  <CircleRegular className="pod-chat-inspector-plan-pending" aria-hidden />
+                )}
+              </span>
               <span>{item.step}</span>
             </li>
           )
@@ -802,7 +819,7 @@ export function PendingQuestionsCard({
   return (
     <section className="pod-chat-choice-card" data-state="pending">
       <div className="pod-chat-choice-header">
-        <RiQuestionLine aria-hidden />
+        <QuestionCircleRegular aria-hidden />
         <span>{t('pod.chat_timeline.decision_needed')}</span>
       </div>
       {questions.map(question => (
@@ -819,7 +836,7 @@ export function PendingQuestionsCard({
                   <Button
                     key={option.label}
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     className="pod-chat-choice"
                     aria-pressed={pressed}
                     disabled={submitting}
@@ -836,7 +853,7 @@ export function PendingQuestionsCard({
         </div>
       ))}
       {multi && hasSelection && (
-        <div className="px-3 pb-3">
+        <div>
           <Button size="sm" disabled={submitting} onClick={onSubmitSelected}>
             {t(submitting ? 'pod.chat_timeline.submitting_answer' : 'pod.chat_timeline.answer')}
           </Button>
@@ -1007,7 +1024,7 @@ function WorkflowInspectorStream({
               </span>
             )}
             {counts.failed > 0 && (
-              <span className="text-destructive">
+              <span data-tone="failed">
                 {t('pod.chat_timeline.failed')} {counts.failed}
               </span>
             )}
@@ -1041,19 +1058,13 @@ function WorkflowInspectorStream({
                     <span className="pod-chat-workflow-attempts">×{item.attempts}</span>
                   )}
                   <span className="pod-chat-tool-state">
-                    {failed ? (
-                      <RiCloseCircleLine aria-hidden />
-                    ) : sleeping ? (
-                      <RiTimeLine aria-hidden />
-                    ) : complete ? (
-                      <RiCheckLine aria-hidden />
-                    ) : (
-                      <Spinner aria-hidden />
-                    )}
+                    <ExecutionStatusMark
+                      status={failed ? 'failed' : sleeping ? 'sleeping' : complete ? 'completed' : 'running'}
+                    />
                   </span>
                 </Label>
                 {expandable && (
-                  <div className="pod-chat-tool-detail">
+                  <div className="pod-chat-block-card pod-chat-tool-detail">
                     {item.sleepNote && (
                       <div>
                         <span>{t('pod.chat_timeline.execution_sleeping')}</span>
@@ -1061,9 +1072,9 @@ function WorkflowInspectorStream({
                       </div>
                     )}
                     {error && (
-                      <div>
-                        <span className="text-destructive">{t('pod.chat_timeline.failed')}</span>
-                        <pre className="text-destructive">{error}</pre>
+                      <div data-tone="failed">
+                        <span>{t('pod.chat_timeline.failed')}</span>
+                        <pre>{error}</pre>
                       </div>
                     )}
                     {output && (

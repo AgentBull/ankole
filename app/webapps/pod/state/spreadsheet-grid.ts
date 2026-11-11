@@ -444,12 +444,12 @@ export function decodeTSV(text: string): string[][] {
 /** Collaborator marks cycle through these colour tokens; a uid always gets the same one. */
 const MEMBER_COLORS = [
   '--color-blue-60',
-  '--color-teal-60',
+  '--color-teal-80',
   '--color-purple-60',
-  '--color-magenta-60',
-  '--color-orange-50',
-  '--color-green-60',
-  '--color-cyan-60',
+  '--color-magenta-80',
+  '--color-orange-70',
+  '--color-green-80',
+  '--color-cyan-80',
   '--color-red-60'
 ]
 

@@ -1,14 +1,14 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, cn, Dialog, DialogContent, DialogTitle, toast } from '@ankole/uikit'
 import {
-  RiCheckLine,
-  RiCodeLine,
-  RiDownloadLine,
-  RiFileCopyLine,
-  RiFlowChart,
-  RiFullscreenLine,
-  RiImageLine
-} from '@remixicon/react'
+  ArrowDownloadRegular,
+  CheckmarkRegular,
+  CodeRegular,
+  CopyRegular,
+  FlowchartRegular,
+  FullScreenMaximizeRegular,
+  ImageRegular
+} from '@ankole/uikit/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -169,7 +169,7 @@ export default function MermaidDiagram({
       ref={cardRef}
       {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
       data-testid="chat-mermaid-card"
-      className={withExternalTranslationGuardClass('pod-chat-code code-surface my-3 max-w-full overflow-hidden')}>
+      className={withExternalTranslationGuardClass('pod-chat-code code-surface max-w-full overflow-hidden')}>
       <div className="code-toolbar flex flex-wrap items-center gap-1">
         <div className="mr-auto flex items-center gap-1" role="tablist" aria-label={diagramTitle}>
           <Button
@@ -179,7 +179,7 @@ export default function MermaidDiagram({
             disabled={!rendered}
             aria-selected={effectiveView === 'diagram'}
             onClick={() => switchViewMode('diagram')}>
-            <RiFlowChart aria-hidden />
+            <FlowchartRegular aria-hidden />
             {t('pod.chat_timeline.mermaid_tab_diagram', { defaultValue: 'Diagram' })}
           </Button>
           <Button
@@ -188,7 +188,7 @@ export default function MermaidDiagram({
             role="tab"
             aria-selected={effectiveView === 'source'}
             onClick={() => switchViewMode('source')}>
-            <RiCodeLine aria-hidden />
+            <CodeRegular aria-hidden />
             {t('pod.chat_timeline.mermaid_tab_source', { defaultValue: 'Source' })}
           </Button>
         </div>
@@ -208,7 +208,7 @@ export default function MermaidDiagram({
                     toast.error(t('pod.chat.copy_failed'))
                   }
                 }}>
-                {copiedKind === 'png' ? <RiCheckLine aria-hidden /> : <RiImageLine aria-hidden />}
+                {copiedKind === 'png' ? <CheckmarkRegular aria-hidden /> : <ImageRegular aria-hidden />}
                 {t('pod.chat_timeline.copy_png', { defaultValue: 'Copy PNG' })}
               </Button>
               <Button
@@ -221,7 +221,7 @@ export default function MermaidDiagram({
                     kind === 'infographic' ? 'ankole-infographic.svg' : 'ankole-diagram.svg'
                   )
                 }}>
-                <RiDownloadLine aria-hidden />
+                <ArrowDownloadRegular aria-hidden />
                 {t('pod.chat_timeline.download_svg', { defaultValue: 'SVG' })}
               </Button>
               <Button
@@ -242,7 +242,7 @@ export default function MermaidDiagram({
                     toast.error(t('pod.chat.copy_failed'))
                   }
                 }}>
-                <RiDownloadLine aria-hidden />
+                <ArrowDownloadRegular aria-hidden />
               </Button>
               <Button
                 ref={zoomTriggerRef}
@@ -251,7 +251,7 @@ export default function MermaidDiagram({
                 title={t('pod.chat_timeline.expand_diagram', { defaultValue: 'Expand diagram' })}
                 aria-label={t('pod.chat_timeline.expand_diagram', { defaultValue: 'Expand diagram' })}
                 onClick={() => setZoomOpen(true)}>
-                <RiFullscreenLine aria-hidden />
+                <FullScreenMaximizeRegular aria-hidden />
               </Button>
             </>
           )}
@@ -266,7 +266,7 @@ export default function MermaidDiagram({
                 toast.error(t('pod.chat.copy_failed'))
               }
             }}>
-            {copiedKind === 'code' ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
+            {copiedKind === 'code' ? <CheckmarkRegular aria-hidden /> : <CopyRegular aria-hidden />}
             {t(copiedKind === 'code' ? 'pod.chat_timeline.copied' : 'pod.chat.copy_code')}
           </Button>
         </div>

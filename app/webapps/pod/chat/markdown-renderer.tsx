@@ -1,7 +1,6 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, toast } from '@ankole/uikit'
-import { RiCheckLine, RiFileCopyLine, RiFileTextLine } from '@remixicon/react'
-import { Link } from '@tanstack/react-router'
+import { CheckmarkRegular, CopyRegular } from '@ankole/uikit/icons'
 import {
   Children,
   createContext,
@@ -17,14 +16,14 @@ import {
   type ReactNode
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import Markdown, { defaultUrlTransform, type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import Markdown, { defaultUrlTransform, type Components, type Options } from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { podRouteID } from '../../common/browser-context'
 import { ErrorBoundary } from '../../common/error-boundary'
-import { usePageHref } from '../use-page-metadata'
+import { MARKDOWN_SYNTAX_PLUGINS } from '../../common/markdown-syntax'
+import { PageReferenceCard } from '../message-artifacts'
 import {
   EXTERNAL_TRANSLATION_GUARD_ATTRS,
   withExternalTranslationGuardClass
@@ -32,7 +31,7 @@ import {
 import { CodeBlockView } from './code-block-view'
 import { ZoomableImage } from './zoomable-image'
 import { cjkAutolinks } from './cjk-autolinks'
-import { repairGeneratedMarkdown } from './repair-generated-markdown'
+import { MATH_OPTIONS, repairGeneratedMarkdown } from './repair-generated-markdown'
 
 const LazyMermaidDiagram = lazy(() => import('./mermaid/mermaid-diagram'))
 const LazyUIBlock = lazy(() => import('./ui-block/ui-block'))
@@ -41,8 +40,58 @@ const RevealWordsContext = createContext(false)
 /** Set for an Agent's message, whose `ui` blocks render; a Human's fenced `ui` block stays code. */
 const UIBlocksContext = createContext<{ onReply?: (text: string) => void } | null>(null)
 
-const HUMAN_REMARK_PLUGINS = [remarkGfm, remarkMath, cjkAutolinks]
-const AGENT_REMARK_PLUGINS = [remarkGfm, remarkMath, repairGeneratedMarkdown, cjkAutolinks]
+type HastNode = {
+  type: string
+  tagName?: string
+  value?: string
+  properties?: Record<string, unknown>
+  children?: HastNode[]
+}
+
+const isPageReference = (node: HastNode) =>
+  node.type === 'element' &&
+  node.tagName === 'a' &&
+  typeof node.properties?.href === 'string' &&
+  node.properties.href.startsWith('ankole:page/')
+
+/**
+ * A Page reference stands in its text 6px from the words beside it. When a reference opens or closes its block, no
+ * words stand on that side, so this plugin marks the side (`data-leading`, `data-trailing`) and the chat's styles
+ * keep the reference flush with the block's edge there.
+ */
+function markPageReferenceEdges() {
+  const blank = (node: HastNode | undefined) => !node || (node.type === 'text' && !node.value?.trim())
+  const visit = (node: HastNode) => {
+    const children = node.children ?? []
+    children.forEach((child, index) => {
+      if (isPageReference(child)) {
+        const before = children.slice(0, index).every(sibling => blank(sibling))
+        const after = children.slice(index + 1).every(sibling => blank(sibling))
+        child.properties = {
+          ...child.properties,
+          ...(before && { dataLeading: '' }),
+          ...(after && { dataTrailing: '' })
+        }
+      }
+      visit(child)
+    })
+  }
+  return (tree: HastNode) => visit(tree)
+}
+
+const REHYPE_PLUGINS: Options['rehypePlugins'] = [rehypeKatex, markPageReferenceEdges]
+
+const HUMAN_REMARK_PLUGINS: Options['remarkPlugins'] = [
+  ...MARKDOWN_SYNTAX_PLUGINS,
+  [remarkMath, MATH_OPTIONS],
+  cjkAutolinks
+]
+const AGENT_REMARK_PLUGINS: Options['remarkPlugins'] = [
+  ...MARKDOWN_SYNTAX_PLUGINS,
+  [remarkMath, MATH_OPTIONS],
+  repairGeneratedMarkdown,
+  cjkAutolinks
+]
 
 export default function MarkdownRenderer({
   text,
@@ -61,7 +110,7 @@ export default function MarkdownRenderer({
   const markdown = (
     <Markdown
       remarkPlugins={generated ? AGENT_REMARK_PLUGINS : HUMAN_REMARK_PLUGINS}
-      rehypePlugins={[rehypeKatex]}
+      rehypePlugins={REHYPE_PLUGINS}
       components={components}
       urlTransform={url => (url.startsWith('ankole:page/') ? url : defaultUrlTransform(url))}>
       {text}
@@ -107,41 +156,48 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   return <CodeBlockView code={code} language={language} />
 }
 
+/**
+ * A reply's table in its block card. Its copy control stands inside the table's top corner, over the end of the
+ * header row, and shows while the pointer is over the table or the focus is on the control, so a table at rest
+ * is only its data.
+ */
 function Table({ children }: { children?: ReactNode }) {
   const { t } = useTranslation()
   const table = useRef<HTMLTableElement>(null)
   const [copied, markCopied] = useCopyFeedback(false)
+  const label = t(copied ? 'pod.chat_timeline.copied' : 'pod.chat_timeline.copy_table')
   return (
-    <div className="my-3">
-      <div className="flex justify-end">
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={async () => {
-            const text = Array.from(table.current?.rows ?? [])
-              .map(row =>
-                Array.from(row.cells)
-                  .map(cell => cell.textContent?.replace(/\s+/g, ' ').trim())
-                  .join('\t')
-              )
-              .join('\n')
-            try {
-              await navigator.clipboard.writeText(text)
-              markCopied(true)
-              toast.success(t('pod.chat_timeline.copied'))
-            } catch {
-              toast.error(t('pod.chat.copy_failed'))
-            }
-          }}>
-          {copied ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
-          {t(copied ? 'pod.chat_timeline.copied' : 'pod.chat_timeline.copy_table')}
-        </Button>
-      </div>
-      <div className="overflow-x-auto">
-        <table ref={table} className="w-full border-collapse">
+    <div className="pod-chat-table-frame">
+      <div className="pod-chat-table surface-block overflow-x-auto">
+        <table ref={table} className="w-full border-collapse border-hidden">
           {children}
         </table>
       </div>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="pod-chat-table-copy"
+        data-copied={copied || undefined}
+        aria-label={label}
+        title={label}
+        onClick={async () => {
+          const text = Array.from(table.current?.rows ?? [])
+            .map(row =>
+              Array.from(row.cells)
+                .map(cell => cell.textContent?.replace(/\s+/g, ' ').trim())
+                .join('\t')
+            )
+            .join('\n')
+          try {
+            await navigator.clipboard.writeText(text)
+            markCopied(true)
+            toast.success(t('pod.chat_timeline.copied'))
+          } catch {
+            toast.error(t('pod.chat.copy_failed'))
+          }
+        }}>
+        {copied ? <CheckmarkRegular aria-hidden /> : <CopyRegular aria-hidden />}
+      </Button>
     </div>
   )
 }
@@ -218,19 +274,30 @@ const prose = (
     )
   }
 
-function MarkdownAnchor({ children, href }: { children?: ReactNode; href?: string }) {
-  const pageHref = usePageHref()
+function MarkdownAnchor({
+  children,
+  href,
+  'data-leading': leading,
+  'data-trailing': trailing
+}: {
+  children?: ReactNode
+  href?: string
+  'data-leading'?: string
+  'data-trailing'?: string
+}) {
   if (!href) return <span>{children}</span>
   if (href.startsWith('ankole:page/')) {
     const page = podRouteID(href.slice('ankole:page/'.length))
+    // A Page reference is the reference card wherever it stands, here on the line of the text that names it.
     return page ? (
-      <Link
+      <PageReferenceCard
         {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
-        className={withExternalTranslationGuardClass('pod-chat-page-pill')}
-        to={pageHref(page)}>
-        <RiFileTextLine aria-hidden />
-        {children}
-      </Link>
+        data-leading={leading}
+        data-trailing={trailing}
+        className={withExternalTranslationGuardClass('pod-chat-inline-reference')}
+        id={page}
+        title={children}
+      />
     ) : (
       <span>{children}</span>
     )

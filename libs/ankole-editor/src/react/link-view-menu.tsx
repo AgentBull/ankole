@@ -9,17 +9,17 @@ import { Input } from '@ankole/uikit/components/input'
 import { Spinner } from '@ankole/uikit/components/spinner'
 import { composingKey } from '@ankole/uikit/lib/keyboard'
 import {
-  RiArrowDownSLine,
-  RiAtLine,
-  RiBankCardLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiEditLine,
-  RiLink,
-  RiLinkUnlink,
-  RiText,
-  RiWindowLine
-} from '@remixicon/react'
+  CheckmarkRegular,
+  ChevronDownRegular,
+  DismissRegular,
+  EditRegular,
+  LinkDismissRegular,
+  LinkRegular,
+  MentionRegular,
+  PaymentRegular,
+  TextTRegular,
+  WindowRegular
+} from '@ankole/uikit/icons'
 import { useId, type KeyboardEvent, type RefObject } from 'react'
 import type { Wordgard } from '../core/editor'
 import type { ResourceView } from '../document/resources'
@@ -32,13 +32,13 @@ export type LinkBarDescription = { display: string; title: string; editHref: str
 export function LinkViewIcon({ view }: { view: ResourceView }) {
   switch (view) {
     case 'link':
-      return <RiLink aria-hidden="true" />
+      return <LinkRegular aria-hidden="true" />
     case 'title':
-      return <RiText aria-hidden="true" />
+      return <TextTRegular aria-hidden="true" />
     case 'card':
-      return <RiBankCardLine aria-hidden="true" />
+      return <PaymentRegular aria-hidden="true" />
     case 'preview':
-      return <RiWindowLine aria-hidden="true" />
+      return <WindowRegular aria-hidden="true" />
   }
 }
 
@@ -98,11 +98,11 @@ export function LinkViewDropdown({
         }>
         {unfurling ? <Spinner aria-hidden="true" /> : <LinkViewIcon view={current} />}
         <span>{label(`resource_view_${current}`)}</span>
-        <RiArrowDownSLine aria-hidden="true" />
+        <ChevronDownRegular aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         ref={menuRef}
-        className="link-view-menu ankole-editor-overlay"
+        className="ankole-editor-overlay"
         aria-label={label('resource_view')}
         onPointerEnter={onMenuPointerEnter}
         onPointerLeave={onMenuPointerLeave}
@@ -111,13 +111,10 @@ export function LinkViewDropdown({
           return false
         }}>
         {views.map(viewOption => (
-          <DropdownMenuItem
-            key={viewOption}
-            data-active={current === viewOption ? 'true' : undefined}
-            onClick={() => onSelect(viewOption)}>
+          <DropdownMenuItem key={viewOption} onClick={() => onSelect(viewOption)}>
             <LinkViewIcon view={viewOption} />
             <span>{label(`resource_view_${viewOption}`)}</span>
-            {current === viewOption && <RiCheckLine className="link-view-check" aria-hidden="true" />}
+            {current === viewOption && <CheckmarkRegular className="ms-auto" aria-hidden="true" />}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
@@ -192,7 +189,7 @@ export function LinkEditForm({
           {label('apply_link')}
         </Button>
         <Button type="button" variant="ghost" size="icon-xs" aria-label={label('cancel_link')} onClick={onCancel}>
-          <RiCloseLine aria-hidden="true" />
+          <DismissRegular aria-hidden="true" />
         </Button>
       </div>
       {error && (
@@ -259,7 +256,7 @@ export function LinkFloatingBar({
         title={label('edit_link')}
         onMouseDown={event => event.preventDefault()}
         onClick={onEditLink}>
-        <RiEditLine aria-hidden="true" />
+        <EditRegular aria-hidden="true" />
       </Button>
       <Button
         variant="ghost"
@@ -268,7 +265,7 @@ export function LinkFloatingBar({
         title={label('remove_link')}
         onMouseDown={event => event.preventDefault()}
         onClick={onRemoveLink}>
-        <RiLinkUnlink aria-hidden="true" />
+        <LinkDismissRegular aria-hidden="true" />
       </Button>
       {isWebLink(link.href) && (
         <>
@@ -330,25 +327,25 @@ export function MentionFloatingBar({
           render={
             <Button variant="ghost" size="xs" className="link-view-trigger" aria-label={label('resource_view')} />
           }>
-          <RiAtLine aria-hidden="true" />
+          <MentionRegular aria-hidden="true" />
           <span>{label('mention_view_inline')}</span>
-          <RiArrowDownSLine aria-hidden="true" />
+          <ChevronDownRegular aria-hidden="true" />
         </DropdownMenuTrigger>
         <DropdownMenuContent
           ref={menuRef}
-          className="link-view-menu ankole-editor-overlay"
+          className="ankole-editor-overlay"
           aria-label={label('resource_view')}
           finalFocus={() => {
             editor.focus()
             return false
           }}>
-          <DropdownMenuItem data-active="true">
-            <RiAtLine aria-hidden="true" />
+          <DropdownMenuItem>
+            <MentionRegular aria-hidden="true" />
             <span>{label('mention_view_inline')}</span>
-            <RiCheckLine className="link-view-check" aria-hidden="true" />
+            <CheckmarkRegular className="ms-auto" aria-hidden="true" />
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onEmbed}>
-            <RiWindowLine aria-hidden="true" />
+            <WindowRegular aria-hidden="true" />
             <span>{label('mention_view_embed')}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>

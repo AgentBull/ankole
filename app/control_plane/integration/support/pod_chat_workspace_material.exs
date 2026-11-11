@@ -55,7 +55,7 @@ defmodule Ankole.PodChatWorkspaceMaterial do
     | --- | --- |
     | Tasks | 18 |
 
-    The estimate is $x^2$.
+    The estimate is $$x^2$$, at a cost of $300.
 
     ```typescript
     const total = 42

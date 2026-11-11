@@ -20,7 +20,7 @@ import {
   toast
 } from '@ankole/uikit'
 
-import { RiKey2Line } from '@remixicon/react'
+import { KeyRegular } from '@ankole/uikit/icons'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
@@ -110,7 +110,7 @@ export function PrincipalsListPage() {
       isLoading={principals.isLoading}
       isEmpty={rows.length === 0}
       emptyTitle={t('console.principals.empty_title')}
-      emptyIcon={<RiKey2Line aria-hidden />}
+      emptyIcon={<KeyRegular aria-hidden />}
       emptyDescription={t('console.principals.empty_description')}
       error={principals.error}
       isFiltered={Boolean(query.trim())}

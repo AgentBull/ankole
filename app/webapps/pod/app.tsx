@@ -68,7 +68,7 @@ export function podRouteTitle(
   } else if (pathname === '/connectors') {
     label = t('pod.connectors.title')
   } else if (pathname === '/work') {
-    label = t('pod.sidebar.tabs.work')
+    label = t('pod.work.title')
   } else if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     label = t('pod.settings.title')
   } else if (pathname.startsWith('/dm/')) {
@@ -489,9 +489,9 @@ function PodShell() {
           <SidebarProvider
             className="pod-shell h-svh flex-col overflow-clip"
             style={{ '--sidebar-width': `${sidebarLayout.width.value}px` } as CSSProperties}>
-            {/* The top bar spans the window; the sidebar and the content sheets sit below it. */}
+            {/* The top bar spans the window; the sidebar and the content card sit below it. */}
             <PodTopBar />
-            <div className="pod-shell-body">
+            <div className="relative flex min-h-0 flex-1">
               <ErrorBoundary
                 variant="panel"
                 className="fixed bottom-3 left-3 z-50 w-(--sidebar-width) max-w-[calc(100vw-1.5rem)] md:static md:m-2 md:shrink-0 md:self-start"
@@ -505,8 +505,8 @@ function PodShell() {
                   )}
                 </SlotGate>
               </ErrorBoundary>
-              <SidebarInset className="min-h-0 overflow-hidden md:peer-data-[variant=inset]:m-0">
-                <div className="min-h-0 flex-1 overflow-hidden has-data-sheet:overflow-visible">
+              <SidebarInset className="min-h-0">
+                <div className="min-h-0 flex-1 overflow-hidden">
                   <Outlet />
                 </div>
               </SidebarInset>

@@ -17,7 +17,7 @@ import {
   Spinner,
   toast
 } from '@ankole/uikit'
-import { RiAddLine, RiEyeLine, RiEyeOffLine, RiRefreshLine } from '@remixicon/react'
+import { AddRegular, ArrowClockwiseRegular, EyeOffRegular, EyeRegular } from '@ankole/uikit/icons'
 import { useMutation } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -193,17 +193,17 @@ export function CredentialPoolEditor({
           {isChatGPT ? (
             <>
               <Button size="sm" type="button" onClick={() => setChatGPTLoginEntry(null)}>
-                <RiAddLine data-icon="inline-start" />
+                <AddRegular data-icon="inline-start" />
                 {t('console.providers.add_chatgpt_account')}
               </Button>
               <Button size="sm" type="button" variant="outline" onClick={() => setEnterpriseEntry(null)}>
-                <RiAddLine data-icon="inline-start" />
+                <AddRegular data-icon="inline-start" />
                 {t('console.providers.add_enterprise_token')}
               </Button>
             </>
           ) : (
             <Button size="sm" type="button" onClick={() => setCredentialEditor(null)}>
-              <RiAddLine data-icon="inline-start" />
+              <AddRegular data-icon="inline-start" />
               {t('console.providers.add_credential')}
             </Button>
           )}
@@ -275,7 +275,7 @@ export function CredentialPoolEditor({
                           ? setEnterpriseEntry(entry)
                           : setChatGPTLoginEntry(entry)
                       }>
-                      <RiRefreshLine data-icon="inline-start" />
+                      <ArrowClockwiseRegular data-icon="inline-start" />
                       {t('console.providers.reauthenticate')}
                     </Button>
                   ) : null}
@@ -727,9 +727,9 @@ function CredentialSecretFact({
           {revealing ? (
             <Spinner className="size-4" />
           ) : revealedValue === undefined ? (
-            <RiEyeLine className="size-4" />
+            <EyeRegular className="size-4" />
           ) : (
-            <RiEyeOffLine className="size-4" />
+            <EyeOffRegular className="size-4" />
           )}
         </button>
       </dd>

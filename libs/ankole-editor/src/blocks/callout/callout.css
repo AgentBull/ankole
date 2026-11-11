@@ -1,32 +1,53 @@
+/* A callout is a hairline box filled with the 10 step of its tone's hue and lettered in the 100 step; a neutral
+   callout takes the recessed gray layer and ink text. The dark theme fills each tone with its status background
+   and letters it in ink. */
 .ankole-editor,
 .ankole-editor-overlay {
   --editor-callout-bg: var(--layer-01);
-  --editor-callout-border: transparent;
+  --editor-callout-border: var(--border);
   --editor-callout-fg: var(--foreground);
-  --editor-callout-warn-bg: var(--warning-subtle);
-  --editor-callout-warn-border: transparent;
+  --editor-callout-info-bg: var(--color-blue-10);
+  --editor-callout-info-fg: var(--color-blue-100);
+  --editor-callout-warning-bg: var(--color-yellow-10);
+  --editor-callout-warning-fg: var(--color-yellow-100);
+  --editor-callout-success-bg: var(--color-green-10);
+  --editor-callout-success-fg: var(--color-green-100);
+  --editor-callout-danger-bg: var(--color-red-10);
+  --editor-callout-danger-fg: var(--color-red-100);
+}
+[data-theme='dark'] :where(.ankole-editor, .ankole-editor-overlay) {
+  --editor-callout-info-bg: var(--info-subtle);
+  --editor-callout-info-fg: var(--foreground);
+  --editor-callout-warning-bg: var(--warning-subtle);
+  --editor-callout-warning-fg: var(--foreground);
+  --editor-callout-success-bg: var(--success-subtle);
+  --editor-callout-success-fg: var(--foreground);
+  --editor-callout-danger-bg: var(--destructive-subtle);
+  --editor-callout-danger-fg: var(--foreground);
 }
 
+/* The text starts 64px in: 24px of padding, the icon's 32px box, and an 8px gap. Its first line sits 4px inside
+   the 16px top padding, so it centres on the icon box. */
 :where(.ankole-editor, .ankole-editor-overlay) .callout {
   position: relative;
   background: var(--editor-callout-bg);
   border: 1px solid var(--editor-callout-border);
   border-radius: var(--radius-control);
-  padding: 12px 16px 12px 44px;
-  margin: 8px 0;
+  padding: 20px 32px 20px 64px;
+  margin: var(--spacing-content-gap) 0;
   color: var(--editor-callout-fg);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .callout-icon {
   position: absolute;
-  left: 12px;
-  top: 12px;
-  width: 26px;
-  height: 28px;
+  left: 24px;
+  top: 16px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   background: transparent;
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--text-400);
+  line-height: var(--text-400--line-height);
 }
 :where(.ankole-editor, .ankole-editor-overlay) button.callout-icon {
   cursor: pointer;
@@ -35,22 +56,28 @@
   background: var(--accent);
   border-radius: var(--radius-control);
 }
-:where(.ankole-editor, .ankole-editor-overlay) .callout p {
-  margin: 2px 0;
+:where(.ankole-editor, .ankole-editor-overlay) .callout-content > :first-child {
+  margin-block-start: 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='warning'] {
-  background: var(--editor-callout-warn-bg);
-  border-color: var(--editor-callout-warn-border);
+:where(.ankole-editor, .ankole-editor-overlay) .callout-content > :last-child {
+  margin-block-end: 0;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .callout:not([data-tone]),
 :where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='info'] {
-  background: var(--info-subtle);
+  background: var(--editor-callout-info-bg);
+  color: var(--editor-callout-info-fg);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='warning'] {
+  background: var(--editor-callout-warning-bg);
+  color: var(--editor-callout-warning-fg);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='success'] {
-  background: var(--success-subtle);
+  background: var(--editor-callout-success-bg);
+  color: var(--editor-callout-success-fg);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='danger'] {
-  background: var(--destructive-subtle);
+  background: var(--editor-callout-danger-bg);
+  color: var(--editor-callout-danger-fg);
 }
 :where(.ankole-editor-overlay).callout-menu {
   width: 280px;

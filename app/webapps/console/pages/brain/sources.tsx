@@ -19,7 +19,7 @@ import {
   toast,
   Spinner
 } from '@ankole/uikit'
-import { RiInboxArchiveLine } from '@remixicon/react'
+import { ArchiveRegular } from '@ankole/uikit/icons'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -135,7 +135,7 @@ export function BrainSourcesPage() {
         count={rows.length}
         emptyTitle={t('console.brain.sources_empty_title')}
         emptyDescription={t('console.brain.sources_empty_description')}
-        emptyIcon={<RiInboxArchiveLine aria-hidden />}
+        emptyIcon={<ArchiveRegular aria-hidden />}
         pagination={sources}
         createAction={
           <Button ref={registerTrigger.ref} size="sm" type="button" variant={createVariant} onClick={openRegister}>

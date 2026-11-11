@@ -1,6 +1,6 @@
 'use client'
 
-import { RiArrowLeftSLine, RiArrowRightSLine, RiCalendarLine, RiCloseLine } from '@remixicon/react'
+import { CalendarRegular, ChevronLeftRegular, ChevronRightRegular, DismissRegular } from '../icons'
 import * as React from 'react'
 
 import { cn } from '../lib/utils'
@@ -495,7 +495,7 @@ export function DatePicker({
           render={
             <Button type="button" variant="outline" size="default" className="justify-between gap-2 font-normal" />
           }>
-          <RiCalendarLine aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          <CalendarRegular aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
           <span className={cn('tabular-nums', !selected && 'text-fg-placeholder')}>{selected ?? placeholder}</span>
           {timezone && (
             <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] font-normal">
@@ -512,7 +512,7 @@ export function DatePicker({
               className="touch-target"
               aria-label={previousMonthLabel}
               onClick={() => setMonthView(prev => addMonthsPlain(prev, -1))}>
-              <RiArrowLeftSLine aria-hidden="true" className="size-4" />
+              <ChevronLeftRegular aria-hidden="true" className="size-4" />
             </Button>
             <span className="text-xs text-muted-foreground">{timezone ?? 'ISO 8601'}</span>
             <Button
@@ -522,7 +522,7 @@ export function DatePicker({
               className="touch-target"
               aria-label={nextMonthLabel}
               onClick={() => setMonthView(prev => addMonthsPlain(prev, 1))}>
-              <RiArrowRightSLine aria-hidden="true" className="size-4" />
+              <ChevronRightRegular aria-hidden="true" className="size-4" />
             </Button>
           </div>
           <div ref={calendarRef}>
@@ -553,7 +553,7 @@ export function DatePicker({
           className="touch-target"
           aria-label={clearLabel}
           onClick={() => update(null)}>
-          <RiCloseLine aria-hidden="true" className="size-3.5" />
+          <DismissRegular aria-hidden="true" className="size-3.5" />
         </Button>
       )}
     </div>
@@ -642,7 +642,7 @@ export function DateRangePicker({
           render={
             <Button type="button" variant="outline" size="default" className="justify-between gap-2 font-normal" />
           }>
-          <RiCalendarLine aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          <CalendarRegular aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
           <span className={cn('tabular-nums', !summary && 'text-fg-placeholder')}>{summary ?? placeholder}</span>
           {timezone && (
             <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] font-normal">
@@ -688,7 +688,7 @@ export function DateRangePicker({
                   className="touch-target"
                   aria-label={previousMonthLabel}
                   onClick={() => setMonthView(prev => addMonthsPlain(prev, -1))}>
-                  <RiArrowLeftSLine aria-hidden="true" className="size-4" />
+                  <ChevronLeftRegular aria-hidden="true" className="size-4" />
                 </Button>
                 <span className="text-xs text-muted-foreground">{timezone ?? 'ISO 8601'}</span>
                 <Button
@@ -698,7 +698,7 @@ export function DateRangePicker({
                   className="touch-target"
                   aria-label={nextMonthLabel}
                   onClick={() => setMonthView(prev => addMonthsPlain(prev, 1))}>
-                  <RiArrowRightSLine aria-hidden="true" className="size-4" />
+                  <ChevronRightRegular aria-hidden="true" className="size-4" />
                 </Button>
               </div>
               <div ref={calendarRef} className={cn('grid gap-4', numberOfMonths === 2 && 'sm:grid-cols-2')}>
@@ -751,7 +751,7 @@ export function DateRangePicker({
           className="touch-target"
           aria-label={clearLabel}
           onClick={() => update({ from: null, to: null })}>
-          <RiCloseLine aria-hidden="true" className="size-3.5" />
+          <DismissRegular aria-hidden="true" className="size-3.5" />
         </Button>
       )}
     </div>

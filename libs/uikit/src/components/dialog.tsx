@@ -1,5 +1,5 @@
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
-import { RiCloseLine } from '@remixicon/react'
+import { DismissRegular } from '../icons'
 import type * as React from 'react'
 import { Button } from './button'
 import { cn } from '../lib/utils'
@@ -76,7 +76,7 @@ function DialogContent({
                 size="icon"
               />
             }>
-            <RiCloseLine />
+            <DismissRegular />
             <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
         )}

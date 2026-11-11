@@ -55,7 +55,6 @@
   "dependencies": {
     "@ankole/uikit": "workspace:*",
     "@marijn/find-cluster-break": "1.0.4",
-    "@remixicon/react": "4.9.0",
     "@vortexlabs/kirari": "1.2.0",
     "mdast-util-from-markdown": "2.1.0",
     "mdast-util-gfm": "3.1.0",

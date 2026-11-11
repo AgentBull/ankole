@@ -1,7 +1,7 @@
 import { t } from 'i18next'
 import { Alert, AlertAction, AlertDescription, AlertTitle, Button, toast } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiCloseLine, RiErrorWarningLine } from '@remixicon/react'
+import { DismissRegular, ErrorCircleRegular } from '@ankole/uikit/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { createClientConfig, InternalAPIError } from '../../common/internal-api-client'
@@ -238,7 +238,7 @@ function SpreadsheetWorkspace({
     <div className="space-y-3">
       {model.unsupported.value && canEdit && !warningDismissed && (
         <Alert variant="warning">
-          <RiErrorWarningLine aria-hidden />
+          <ErrorCircleRegular aria-hidden />
           <AlertTitle>{t('pod.spreadsheet.unsupported_title')}</AlertTitle>
           <AlertDescription>{t('pod.spreadsheet.unsupported_description')}</AlertDescription>
           <AlertAction>
@@ -247,7 +247,7 @@ function SpreadsheetWorkspace({
               variant="ghost"
               aria-label={t('common.close')}
               onClick={() => setWarningDismissed(true)}>
-              <RiCloseLine />
+              <DismissRegular />
             </Button>
           </AlertAction>
         </Alert>

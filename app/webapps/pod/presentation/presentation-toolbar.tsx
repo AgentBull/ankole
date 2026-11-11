@@ -27,44 +27,44 @@ import {
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
-  RiAddLine,
-  RiAlignCenter,
-  RiAlignLeft,
-  RiAlignRight,
-  RiArrowDownLine,
-  RiArrowDownSLine,
-  RiArrowGoBackLine,
-  RiArrowGoForwardLine,
-  RiArrowRightLine,
-  RiArrowUpLine,
-  RiArrowUpSLine,
-  RiBold,
-  RiBringForward,
-  RiCheckboxBlankCircleLine,
-  RiCloseLine,
-  RiCommandLine,
-  RiDeleteBinLine,
-  RiFileCopy2Line,
-  RiFileCopyLine,
-  RiFilePdf2Line,
-  RiFontColor,
-  RiImageAddLine,
-  RiItalic,
-  RiLayoutLeftLine,
-  RiPaintFill,
-  RiPencilLine,
-  RiRectangleLine,
-  RiSearchLine,
-  RiSendBackward,
-  RiSlideshowLine,
-  RiStickyNoteLine,
-  RiStrikethrough,
-  RiTableLine,
-  RiText,
-  RiUnderline,
-  RiZoomInLine,
-  RiZoomOutLine
-} from '@remixicon/react'
+  AddRegular,
+  ArrowDownRegular,
+  ArrowRedoRegular,
+  ArrowRightRegular,
+  ArrowUndoRegular,
+  ArrowUpRegular,
+  ChevronDownRegular,
+  ChevronUpRegular,
+  CircleRegular,
+  CopyRegular,
+  DeleteRegular,
+  DismissRegular,
+  DocumentPdfRegular,
+  EditRegular,
+  ImageAddRegular,
+  KeyCommandRegular,
+  NoteRegular,
+  PaintBucketRegular,
+  PanelLeftRegular,
+  PositionBackwardRegular,
+  PositionForwardRegular,
+  RectangleLandscapeRegular,
+  SearchRegular,
+  SlideMultipleRegular,
+  SlidePlayRegular,
+  TableRegular,
+  TextAlignCenterRegular,
+  TextAlignLeftRegular,
+  TextAlignRightRegular,
+  TextBoldRegular,
+  TextColorRegular,
+  TextItalicRegular,
+  TextStrikethroughRegular,
+  TextTRegular,
+  TextUnderlineRegular,
+  ZoomInRegular,
+  ZoomOutRegular
+} from '@ankole/uikit/icons'
 import { t } from 'i18next'
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { chooseLocalFile } from '../native-transfers'
@@ -269,7 +269,7 @@ function PresentationColorPicker({
                 setOpen(false)
                 onPick(null)
               }}>
-              <RiCloseLine className="size-4" />
+              <DismissRegular className="size-4" />
             </button>
           )}
         </div>
@@ -388,7 +388,7 @@ export function PresentationFindBar({
       role="search"
       aria-label={t('pod.office.find_what')}
       className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/30 px-2.5 py-1.5">
-      <RiSearchLine className="size-4 shrink-0 text-fg-tertiary" aria-hidden />
+      <SearchRegular className="size-4 shrink-0 text-fg-tertiary" aria-hidden />
       <Input
         ref={inputRef}
         aria-label={t('pod.office.find_what')}
@@ -426,13 +426,13 @@ export function PresentationFindBar({
             : t('pod.office.find_none')}
       </span>
       <ToolButton label={t('pod.office.find_previous')} disabled={matchCount === 0} onClick={onPrevious}>
-        <RiArrowUpSLine />
+        <ChevronUpRegular />
       </ToolButton>
       <ToolButton label={t('pod.office.find_next')} disabled={matchCount === 0} onClick={onNext}>
-        <RiArrowDownSLine />
+        <ChevronDownRegular />
       </ToolButton>
       <ToolButton label={t('pod.office.close_find')} onClick={onClose}>
-        <RiCloseLine />
+        <DismissRegular />
       </ToolButton>
     </div>
   )
@@ -575,7 +575,7 @@ export function PresentationToolbar({
           title={t('pod.presentation.toggle_slides_rail')}
           pressed={railOpen}
           onPressedChange={() => onToggleRail()}>
-          <RiLayoutLeftLine />
+          <PanelLeftRegular />
         </Toggle>
 
         {canEdit && (
@@ -588,7 +588,7 @@ export function PresentationToolbar({
               onClick={() => {
                 void model.undo().finally(focusEditor)
               }}>
-              <RiArrowGoBackLine />
+              <ArrowUndoRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.redo')}
@@ -596,7 +596,7 @@ export function PresentationToolbar({
               onClick={() => {
                 void model.redo().finally(focusEditor)
               }}>
-              <RiArrowGoForwardLine />
+              <ArrowRedoRegular />
             </ToolButton>
 
             <Separator orientation="vertical" className="mx-1 h-5" />
@@ -605,13 +605,13 @@ export function PresentationToolbar({
               label={t('pod.presentation.add_slide')}
               disabled={!editable}
               onClick={() => runAndFocus('slide.new', {}, { allowWhenSlideLocked: true })}>
-              <RiAddLine />
+              <AddRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.duplicate_slide')}
               disabled={!editable || slideCount === 0}
               onClick={() => runAndFocus('slide.duplicate', { index: activeSlideIndex })}>
-              <RiFileCopy2Line />
+              <SlideMultipleRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.move_slide_up')}
@@ -622,7 +622,7 @@ export function PresentationToolbar({
                   to: activeSlideIndex - 1
                 })
               }>
-              <RiArrowUpLine />
+              <ArrowUpRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.move_slide_down')}
@@ -633,13 +633,13 @@ export function PresentationToolbar({
                   to: activeSlideIndex + 1
                 })
               }>
-              <RiArrowDownLine />
+              <ArrowDownRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.delete_slide')}
               disabled={!editable || slideCount <= 1}
               onClick={() => runAndFocus('slide.delete', { index: activeSlideIndex })}>
-              <RiDeleteBinLine />
+              <DeleteRegular />
             </ToolButton>
 
             <Separator orientation="vertical" className="mx-1 h-5" />
@@ -648,7 +648,7 @@ export function PresentationToolbar({
               label={t('pod.presentation.insert_textbox')}
               disabled={!editable || slideCount === 0}
               onClick={() => runAndFocus('insert.textBox', {})}>
-              <RiText />
+              <TextTRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.insert_rectangle')}
@@ -659,7 +659,7 @@ export function PresentationToolbar({
                   rect: centeredRect(slideSizePt, 240, 140)
                 })
               }>
-              <RiRectangleLine />
+              <RectangleLandscapeRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.insert_ellipse')}
@@ -670,7 +670,7 @@ export function PresentationToolbar({
                   rect: centeredRect(slideSizePt, 180, 180)
                 })
               }>
-              <RiCheckboxBlankCircleLine />
+              <CircleRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.insert_arrow')}
@@ -681,37 +681,37 @@ export function PresentationToolbar({
                   rect: centeredRect(slideSizePt, 220, 80)
                 })
               }>
-              <RiArrowRightLine />
+              <ArrowRightRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.insert_table')}
               disabled={!editable || slideCount === 0}
               onClick={() => runAndFocus('insert.table', { rows: 3, cols: 3 })}>
-              <RiTableLine />
+              <TableRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.insert_picture')}
               disabled={!editable || slideCount === 0}
               onClick={() => void handleInsertPicture()}>
-              <RiImageAddLine />
+              <ImageAddRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.bring_forward')}
               disabled={!editable || selectedShapeIds.length === 0}
               onClick={() => runAndFocus('arrange.bringForward', {})}>
-              <RiBringForward />
+              <PositionForwardRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.send_backward')}
               disabled={!editable || selectedShapeIds.length === 0}
               onClick={() => runAndFocus('arrange.sendBackward', {})}>
-              <RiSendBackward />
+              <PositionBackwardRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.presentation.delete_shape')}
               disabled={!editable || selectedShapeIds.length === 0}
               onClick={() => runAndFocus('edit.delete', { ids: [...selectedShapeIds] })}>
-              <RiCloseLine />
+              <DismissRegular />
             </ToolButton>
 
             <Separator orientation="vertical" className="mx-1 h-5" />
@@ -723,7 +723,7 @@ export function PresentationToolbar({
               disabled={!editable || !hasShapeOrText}
               pressed={Boolean(formatState?.bold)}
               onPressedChange={pressed => runAndFocus('format.bold', { on: pressed })}>
-              <RiBold />
+              <TextBoldRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -732,7 +732,7 @@ export function PresentationToolbar({
               disabled={!editable || !hasShapeOrText}
               pressed={Boolean(formatState?.italic)}
               onPressedChange={pressed => runAndFocus('format.italic', { on: pressed })}>
-              <RiItalic />
+              <TextItalicRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -741,7 +741,7 @@ export function PresentationToolbar({
               disabled={!editable || !hasShapeOrText}
               pressed={Boolean(formatState?.underline)}
               onPressedChange={pressed => runAndFocus('format.underline', { on: pressed })}>
-              <RiUnderline />
+              <TextUnderlineRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -750,7 +750,7 @@ export function PresentationToolbar({
               disabled={!editable || !hasShapeOrText}
               pressed={Boolean(formatState?.strike)}
               onPressedChange={pressed => runAndFocus('format.strikethrough', { on: pressed })}>
-              <RiStrikethrough />
+              <TextStrikethroughRegular />
             </Toggle>
 
             <Select
@@ -782,7 +782,7 @@ export function PresentationToolbar({
               onPick={color => {
                 if (color) runAndFocus('format.color', { color })
               }}>
-              <RiFontColor />
+              <TextColorRegular />
             </PresentationColorPicker>
 
             <PresentationColorPicker
@@ -791,7 +791,7 @@ export function PresentationToolbar({
               swatches={SHAPE_FILL_SWATCHES}
               allowClear
               onPick={color => runAndFocus('shape.fill', color ? { color } : { none: true })}>
-              <RiPaintFill />
+              <PaintBucketRegular />
             </PresentationColorPicker>
 
             <PresentationColorPicker
@@ -800,7 +800,7 @@ export function PresentationToolbar({
               swatches={SHAPE_STROKE_SWATCHES}
               allowClear
               onPick={color => runAndFocus('shape.line', color ? { color } : { none: true })}>
-              <RiPencilLine />
+              <EditRegular />
             </PresentationColorPicker>
 
             <Toggle
@@ -810,7 +810,7 @@ export function PresentationToolbar({
               disabled={!editable || !hasShapeOrText}
               pressed={activeAlign === 'left'}
               onPressedChange={() => runAndFocus('format.align', { align: 'left' })}>
-              <RiAlignLeft />
+              <TextAlignLeftRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -819,7 +819,7 @@ export function PresentationToolbar({
               disabled={!editable || !hasShapeOrText}
               pressed={activeAlign === 'center'}
               onPressedChange={() => runAndFocus('format.align', { align: 'center' })}>
-              <RiAlignCenter />
+              <TextAlignCenterRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -828,14 +828,14 @@ export function PresentationToolbar({
               disabled={!editable || !hasShapeOrText}
               pressed={activeAlign === 'right'}
               onPressedChange={() => runAndFocus('format.align', { align: 'right' })}>
-              <RiAlignRight />
+              <TextAlignRightRegular />
             </Toggle>
 
             <ToolButton
               label={t('pod.office.command_palette')}
               disabled={!editable}
               onClick={() => setPaletteOpen(true)}>
-              <RiCommandLine />
+              <KeyCommandRegular />
             </ToolButton>
 
             <Separator orientation="vertical" className="mx-1 h-5" />
@@ -848,19 +848,19 @@ export function PresentationToolbar({
           title={t('pod.presentation.toggle_notes')}
           pressed={notesOpen}
           onPressedChange={() => onToggleNotes()}>
-          <RiStickyNoteLine />
+          <NoteRegular />
         </Toggle>
 
         <ToolButton label={t('pod.office.find')} onClick={onOpenFind}>
-          <RiSearchLine />
+          <SearchRegular />
         </ToolButton>
 
         <ToolButton label={t('pod.office.copy')} disabled={!hasShapeOrText} onClick={onCopy}>
-          <RiFileCopyLine />
+          <CopyRegular />
         </ToolButton>
 
         <ToolButton label={t('pod.office.zoom_out')} onClick={onZoomOut}>
-          <RiZoomOutLine />
+          <ZoomOutRegular />
         </ToolButton>
         <Button
           size="xs"
@@ -872,14 +872,14 @@ export function PresentationToolbar({
           {zoomMode === 'fit' ? t('pod.office.fit_width') : `${Math.round(effectiveZoom * 100)}%`}
         </Button>
         <ToolButton label={t('pod.office.zoom_in')} onClick={onZoomIn}>
-          <RiZoomInLine />
+          <ZoomInRegular />
         </ToolButton>
 
         <ToolButton
           label={exportingPdf ? t('pod.office.exporting_pdf') : t('pod.office.download_pdf')}
           disabled={exportingPdf || slideCount === 0}
           onClick={onDownloadPdf}>
-          {exportingPdf ? <Spinner className="size-4" /> : <RiFilePdf2Line />}
+          {exportingPdf ? <Spinner className="size-4" /> : <DocumentPdfRegular />}
         </ToolButton>
 
         <Button
@@ -889,7 +889,7 @@ export function PresentationToolbar({
           title={t('pod.presentation.present')}
           disabled={slideCount === 0}
           onClick={onPresent}>
-          <RiSlideshowLine />
+          <SlidePlayRegular />
           <span className="hidden sm:inline">{t('pod.presentation.present')}</span>
         </Button>
 

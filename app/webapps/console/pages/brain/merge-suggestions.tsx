@@ -18,7 +18,7 @@ import {
   toast,
   Spinner
 } from '@ankole/uikit'
-import { RiGitMergeLine } from '@remixicon/react'
+import { MergeRegular } from '@ankole/uikit/icons'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -111,7 +111,7 @@ export function BrainMergeSuggestionsPage() {
         count={rows.length}
         emptyTitle={t('console.brain.merge_suggestions_empty_title')}
         emptyDescription={t('console.brain.merge_suggestions_empty_description')}
-        emptyIcon={<RiGitMergeLine aria-hidden />}
+        emptyIcon={<MergeRegular aria-hidden />}
         pagination={suggestions}
         isFiltered={status !== 'pending'}
         onClearFilters={() => setStatus('pending')}

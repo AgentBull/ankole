@@ -35,42 +35,42 @@ import {
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
-  RiAlignCenter,
-  RiAlignJustify,
-  RiAlignLeft,
-  RiAlignRight,
-  RiArrowGoBackLine,
-  RiArrowGoForwardLine,
-  RiArticleLine,
-  RiBold,
-  RiChatNewLine,
-  RiCheckDoubleLine,
-  RiCodeLine,
-  RiCommandLine,
-  RiEditCircleLine,
-  RiExpandWidthLine,
-  RiFilePdf2Line,
-  RiFontColor,
-  RiFormatClear,
-  RiImageAddLine,
-  RiIndentDecrease,
-  RiIndentIncrease,
-  RiItalic,
-  RiLink,
-  RiListOrdered,
-  RiListUnordered,
-  RiMarkPenLine,
-  RiPageSeparator,
-  RiSearchLine,
-  RiSeparator,
-  RiStrikethrough,
-  RiSubscript,
-  RiSuperscript,
-  RiTableLine,
-  RiUnderline,
-  RiZoomInLine,
-  RiZoomOutLine
-} from '@remixicon/react'
+  ArrowAutofitWidthRegular,
+  ArrowRedoRegular,
+  ArrowUndoRegular,
+  CheckmarkCircleRegular,
+  CodeRegular,
+  CommentAddRegular,
+  DocumentEditRegular,
+  DocumentPageBreakRegular,
+  DocumentPdfRegular,
+  DocumentTextRegular,
+  HighlightRegular,
+  ImageAddRegular,
+  KeyCommandRegular,
+  LineHorizontal1Regular,
+  LinkRegular,
+  SearchRegular,
+  TableRegular,
+  TextAlignCenterRegular,
+  TextAlignJustifyRegular,
+  TextAlignLeftRegular,
+  TextAlignRightRegular,
+  TextBoldRegular,
+  TextBulletListLtrRegular,
+  TextClearFormattingRegular,
+  TextColorRegular,
+  TextIndentDecreaseLtrRegular,
+  TextIndentIncreaseLtrRegular,
+  TextItalicRegular,
+  TextNumberListLtrRegular,
+  TextStrikethroughRegular,
+  TextSubscriptRegular,
+  TextSuperscriptRegular,
+  TextUnderlineRegular,
+  ZoomInRegular,
+  ZoomOutRegular
+} from '@ankole/uikit/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useState, type ReactNode, type RefObject } from 'react'
@@ -313,7 +313,7 @@ export function WordToolbar({
                 void model.undo()
                 focusEditor()
               }}>
-              <RiArrowGoBackLine />
+              <ArrowUndoRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.word.redo')}
@@ -322,7 +322,7 @@ export function WordToolbar({
                 void model.redo()
                 focusEditor()
               }}>
-              <RiArrowGoForwardLine />
+              <ArrowRedoRegular />
             </ToolButton>
 
             <Separator orientation="vertical" className="mx-1 h-5 max-md:hidden" />
@@ -385,7 +385,7 @@ export function WordToolbar({
               disabled={!editable}
               pressed={Boolean(caretState?.bold)}
               onPressedChange={() => run('format.bold')}>
-              <RiBold />
+              <TextBoldRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -394,7 +394,7 @@ export function WordToolbar({
               disabled={!editable}
               pressed={Boolean(caretState?.italic)}
               onPressedChange={() => run('format.italic')}>
-              <RiItalic />
+              <TextItalicRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -403,7 +403,7 @@ export function WordToolbar({
               disabled={!editable}
               pressed={Boolean(caretState?.underline)}
               onPressedChange={() => run('format.underline')}>
-              <RiUnderline />
+              <TextUnderlineRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -412,7 +412,7 @@ export function WordToolbar({
               disabled={!editable}
               pressed={Boolean(caretState?.strike)}
               onPressedChange={() => run('format.strikethrough')}>
-              <RiStrikethrough />
+              <TextStrikethroughRegular />
             </Toggle>
             <Toggle
               size="sm"
@@ -425,16 +425,16 @@ export function WordToolbar({
                 if (caretState?.code) run('format.resetChar')
                 else run('format.font', { name: 'Consolas' })
               }}>
-              <RiCodeLine />
+              <CodeRegular />
             </Toggle>
             <ToolButton label={t('pod.word.subscript')} disabled={!editable} onClick={() => run('format.subscript')}>
-              <RiSubscript />
+              <TextSubscriptRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.word.superscript')}
               disabled={!editable}
               onClick={() => run('format.superscript')}>
-              <RiSuperscript />
+              <TextSuperscriptRegular />
             </ToolButton>
 
             <Popover open={fontColorOpen} onOpenChange={setFontColorOpen}>
@@ -448,7 +448,7 @@ export function WordToolbar({
                     disabled={!editable}
                   />
                 }>
-                <RiFontColor />
+                <TextColorRegular />
               </PopoverTrigger>
               <PopoverContent align="start" className="w-auto gap-2 p-3">
                 <PopoverTitle>{t('pod.word.font_color')}</PopoverTitle>
@@ -496,7 +496,7 @@ export function WordToolbar({
                     disabled={!editable}
                   />
                 }>
-                <RiMarkPenLine />
+                <HighlightRegular />
               </PopoverTrigger>
               <PopoverContent align="start" className="w-auto gap-2 p-3">
                 <PopoverTitle>{t('pod.word.highlight_color')}</PopoverTitle>
@@ -534,7 +534,7 @@ export function WordToolbar({
             </Popover>
 
             <ToolButton label={t('pod.word.clear_formatting')} disabled={!editable} onClick={() => run('format.clear')}>
-              <RiFormatClear />
+              <TextClearFormattingRegular />
             </ToolButton>
 
             <Separator orientation="vertical" className="mx-1 h-5 max-md:hidden" />
@@ -550,41 +550,41 @@ export function WordToolbar({
                 if (chosen) run('para.align', { value: chosen })
               }}>
               <ToggleGroupItem value="left" aria-label={t('pod.word.align_left')} title={t('pod.word.align_left')}>
-                <RiAlignLeft />
+                <TextAlignLeftRegular />
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="center"
                 aria-label={t('pod.word.align_center')}
                 title={t('pod.word.align_center')}>
-                <RiAlignCenter />
+                <TextAlignCenterRegular />
               </ToggleGroupItem>
               <ToggleGroupItem value="right" aria-label={t('pod.word.align_right')} title={t('pod.word.align_right')}>
-                <RiAlignRight />
+                <TextAlignRightRegular />
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="justify"
                 aria-label={t('pod.word.align_justify')}
                 title={t('pod.word.align_justify')}>
-                <RiAlignJustify />
+                <TextAlignJustifyRegular />
               </ToggleGroupItem>
             </ToggleGroup>
 
             <ToolButton label={t('pod.word.bullet_list')} disabled={!editable} onClick={() => run('para.bullets')}>
-              <RiListUnordered />
+              <TextBulletListLtrRegular />
             </ToolButton>
             <ToolButton label={t('pod.word.numbered_list')} disabled={!editable} onClick={() => run('para.numbering')}>
-              <RiListOrdered />
+              <TextNumberListLtrRegular />
             </ToolButton>
             <ToolButton label={t('pod.word.outdent')} disabled={!editable} onClick={() => run('para.outdent')}>
-              <RiIndentDecrease />
+              <TextIndentDecreaseLtrRegular />
             </ToolButton>
             <ToolButton label={t('pod.word.indent')} disabled={!editable} onClick={() => run('para.indent')}>
-              <RiIndentIncrease />
+              <TextIndentIncreaseLtrRegular />
             </ToolButton>
 
             <Separator orientation="vertical" className="mx-1 h-5 max-md:hidden" />
 
-            <ToolMenu label={t('pod.word.table_actions')} disabled={!editable} icon={<RiTableLine />}>
+            <ToolMenu label={t('pod.word.table_actions')} disabled={!editable} icon={<TableRegular />}>
               <DropdownMenuItem onClick={() => run('insert.table', { rows: 3, cols: 3 })}>
                 {t('pod.word.insert_table')}
               </DropdownMenuItem>
@@ -621,7 +621,7 @@ export function WordToolbar({
               label={t('pod.word.insert_picture')}
               disabled={!editable}
               onClick={() => void handleInsertPicture()}>
-              <RiImageAddLine />
+              <ImageAddRegular />
             </ToolButton>
 
             <Popover
@@ -640,7 +640,7 @@ export function WordToolbar({
                     disabled={!editable}
                   />
                 }>
-                <RiLink />
+                <LinkRegular />
               </PopoverTrigger>
               <PopoverContent align="start" className="w-72 gap-3 p-3">
                 <PopoverTitle>{t('pod.word.insert_link')}</PopoverTitle>
@@ -701,7 +701,7 @@ export function WordToolbar({
                     disabled={!editable}
                   />
                 }>
-                <RiChatNewLine />
+                <CommentAddRegular />
               </PopoverTrigger>
               <PopoverContent align="start" className="w-72 gap-3 p-3">
                 <PopoverTitle>{t('pod.word.comments')}</PopoverTitle>
@@ -743,13 +743,13 @@ export function WordToolbar({
               label={t('pod.word.insert_page_break')}
               disabled={!editable}
               onClick={() => run('insert.pageBreak')}>
-              <RiPageSeparator />
+              <DocumentPageBreakRegular />
             </ToolButton>
             <ToolButton
               label={t('pod.word.insert_horizontal_rule')}
               disabled={!editable}
               onClick={() => run('insert.horizontalLine')}>
-              <RiSeparator />
+              <LineHorizontal1Regular />
             </ToolButton>
 
             <Separator orientation="vertical" className="mx-1 h-5 max-md:hidden" />
@@ -761,10 +761,10 @@ export function WordToolbar({
               disabled={!editable}
               pressed={Boolean(caretState?.track_changes)}
               onPressedChange={() => run('review.trackChanges')}>
-              <RiEditCircleLine />
+              <DocumentEditRegular />
             </Toggle>
 
-            <ToolMenu label={t('pod.office.more_actions')} disabled={!editable} icon={<RiCheckDoubleLine />}>
+            <ToolMenu label={t('pod.office.more_actions')} disabled={!editable} icon={<CheckmarkCircleRegular />}>
               <DropdownMenuItem onClick={() => run('review.accept')}>{t('pod.word.accept_change')}</DropdownMenuItem>
               <DropdownMenuItem onClick={() => run('review.reject')}>{t('pod.word.reject_change')}</DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -780,7 +780,7 @@ export function WordToolbar({
               label={t('pod.office.command_palette')}
               disabled={!editable}
               onClick={() => setPaletteOpen(true)}>
-              <RiCommandLine />
+              <KeyCommandRegular />
             </ToolButton>
           </>
         )}
@@ -788,12 +788,12 @@ export function WordToolbar({
         <Separator orientation="vertical" className="mx-1 h-5 max-md:hidden" />
 
         <ToolButton label={t('pod.office.find')} onClick={onOpenFind}>
-          <RiSearchLine />
+          <SearchRegular />
         </ToolButton>
 
         <div className="flex items-center gap-0.5" role="group" aria-label={t('pod.office.zoom')}>
           <ToolButton label={t('pod.office.zoom_out')} onClick={onZoomOut}>
-            <RiZoomOutLine />
+            <ZoomOutRegular />
           </ToolButton>
           <Button
             size="xs"
@@ -805,7 +805,7 @@ export function WordToolbar({
             {`${Math.round(zoom * 100)}%`}
           </Button>
           <ToolButton label={t('pod.office.zoom_in')} onClick={onZoomIn}>
-            <RiZoomInLine />
+            <ZoomInRegular />
           </ToolButton>
           <Toggle
             size="sm"
@@ -813,7 +813,7 @@ export function WordToolbar({
             title={t('pod.office.fit_width')}
             pressed={fitWidth}
             onPressedChange={() => onToggleFitWidth()}>
-            <RiExpandWidthLine />
+            <ArrowAutofitWidthRegular />
           </Toggle>
         </div>
 
@@ -821,7 +821,7 @@ export function WordToolbar({
           label={exportingPdf ? t('pod.office.exporting_pdf') : t('pod.office.download_pdf')}
           disabled={exportingPdf}
           onClick={() => void handleExportPdf()}>
-          <RiFilePdf2Line />
+          <DocumentPdfRegular />
         </ToolButton>
 
         {pageID && <ConvertToDocumentButton model={model} pageID={pageID} />}
@@ -919,7 +919,7 @@ function ConvertToDocumentButton({ model, pageID }: { model: WordSession; pageID
       title={label}
       disabled={(status !== 'ready' && status !== 'read_only') || convertMutation.isPending}
       onClick={() => convertMutation.mutate()}>
-      <RiArticleLine />
+      <DocumentTextRegular />
       <span className="max-lg:hidden">{label}</span>
     </Button>
   )

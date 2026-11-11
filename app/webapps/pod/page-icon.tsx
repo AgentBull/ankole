@@ -1,15 +1,15 @@
 import { usePageMetadata } from './use-page-metadata'
 import {
-  RiApps2Line,
-  RiAttachment2,
-  RiBookOpenLine,
-  RiDatabase2Line,
-  RiEmotionLine,
-  RiFileExcel2Line,
-  RiFilePpt2Line,
-  RiFileTextLine,
-  RiFileWord2Line
-} from '@remixicon/react'
+  AppsRegular,
+  BookOpenRegular,
+  DatabaseRegular,
+  DocumentPowerpointRegular,
+  DocumentRegular,
+  DocumentTableRegular,
+  DocumentTextRegular,
+  DocumentWordRegular,
+  EmojiRegular
+} from '@ankole/uikit/icons'
 import {
   Button,
   IconPicker,
@@ -33,17 +33,17 @@ import { updatePageMetadata } from './state/navigation-cache'
 import { officeFileFormat } from './office/office-files'
 
 const icons = {
-  doc: RiFileTextLine,
-  knowledge: RiBookOpenLine,
-  base: RiDatabase2Line,
-  applet: RiApps2Line,
-  file: RiAttachment2
+  doc: DocumentTextRegular,
+  knowledge: BookOpenRegular,
+  base: DatabaseRegular,
+  applet: AppsRegular,
+  file: DocumentRegular
 }
 
 const officeIcons = {
-  word: RiFileWord2Line,
-  spreadsheet: RiFileExcel2Line,
-  presentation: RiFilePpt2Line
+  word: DocumentWordRegular,
+  spreadsheet: DocumentTableRegular,
+  presentation: DocumentPowerpointRegular
 }
 
 /**
@@ -238,7 +238,7 @@ export function PageIconPicker({ page: sourcePage, editable }: { page: Page; edi
               <PageIcon page={page} />
             ) : (
               <>
-                <RiEmotionLine aria-hidden />
+                <EmojiRegular />
                 {t('pod.content.add_icon')}
               </>
             )}

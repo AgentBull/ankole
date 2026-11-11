@@ -1,7 +1,7 @@
 import { t } from 'i18next'
 import { Alert, AlertAction, AlertDescription, Button, cn, Input, Toggle, toast } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiArrowDownSLine, RiArrowUpSLine, RiCloseLine, RiErrorWarningLine } from '@remixicon/react'
+import { ChevronDownRegular, ChevronUpRegular, DismissRegular, ErrorCircleRegular } from '@ankole/uikit/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   useCallback,
@@ -989,7 +989,7 @@ export function WordDocumentSurface({
     <div className="space-y-3">
       {missingPictures.length > 0 && !missingDismissed && (
         <Alert variant="warning">
-          <RiErrorWarningLine aria-hidden />
+          <ErrorCircleRegular aria-hidden />
           <AlertDescription>
             {t('pod.word.missing_pictures_warning', { count: missingPictures.length })}
           </AlertDescription>
@@ -1000,7 +1000,7 @@ export function WordDocumentSurface({
               aria-label={t('common.close')}
               title={t('common.close')}
               onClick={() => setMissingDismissed(true)}>
-              <RiCloseLine />
+              <DismissRegular />
             </Button>
           </AlertAction>
         </Alert>
@@ -1085,7 +1085,7 @@ export function WordDocumentSurface({
                 title={t('pod.office.find_previous')}
                 disabled={findMatches.length === 0}
                 onClick={() => stepFindMatch(-1)}>
-                <RiArrowUpSLine />
+                <ChevronUpRegular />
               </Button>
               <Button
                 size="icon-xs"
@@ -1094,7 +1094,7 @@ export function WordDocumentSurface({
                 title={t('pod.office.find_next')}
                 disabled={findMatches.length === 0}
                 onClick={() => stepFindMatch(1)}>
-                <RiArrowDownSLine />
+                <ChevronDownRegular />
               </Button>
               <Button
                 size="icon-xs"
@@ -1105,7 +1105,7 @@ export function WordDocumentSurface({
                   setFindOpen(false)
                   editorInputRef.current?.focus({ preventScroll: true })
                 }}>
-                <RiCloseLine />
+                <DismissRegular />
               </Button>
             </div>
           </div>

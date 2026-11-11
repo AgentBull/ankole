@@ -5,15 +5,15 @@ import {
   DropdownMenuTrigger
 } from '@ankole/uikit/components/dropdown-menu'
 import {
-  RiArrowDownSLine,
-  RiCheckLine,
-  RiClaudeLine,
-  RiCodeSSlashLine,
-  RiErrorWarningLine,
-  RiFileCopyLine,
-  RiMarkdownLine,
-  RiOpenaiLine
-} from '@remixicon/react'
+  BotSparkleRegular,
+  ChatSparkleRegular,
+  CheckmarkRegular,
+  ChevronDownRegular,
+  CodeRegular,
+  CopyRegular,
+  ErrorCircleRegular,
+  MarkdownRegular
+} from '@ankole/uikit/icons'
 import { useEffect, useRef, useState } from 'react'
 
 export interface DocsPageActionsLabels {
@@ -55,28 +55,28 @@ export default function DocsPageActions({ labels, markdownPath, prompt }: DocsPa
   }
 
   const openItems = [
-    { icon: RiMarkdownLine, label: labels.viewMarkdown, href: markdownPath, external: false },
+    { icon: MarkdownRegular, label: labels.viewMarkdown, href: markdownPath, external: false },
     {
-      icon: RiOpenaiLine,
+      icon: ChatSparkleRegular,
       label: labels.openChatgpt,
       href: `https://chatgpt.com/?${new URLSearchParams({ hints: 'search', prompt })}`,
       external: true
     },
     {
-      icon: RiClaudeLine,
+      icon: BotSparkleRegular,
       label: labels.openClaude,
       href: `https://claude.ai/new?${new URLSearchParams({ q: prompt })}`,
       external: true
     },
     {
-      icon: RiCodeSSlashLine,
+      icon: CodeRegular,
       label: labels.openCursor,
       href: `https://cursor.com/link/prompt?${new URLSearchParams({ text: prompt })}`,
       external: true
     }
   ]
 
-  const CopyIcon = copyState === 'copied' ? RiCheckLine : copyState === 'failed' ? RiErrorWarningLine : RiFileCopyLine
+  const CopyIcon = copyState === 'copied' ? CheckmarkRegular : copyState === 'failed' ? ErrorCircleRegular : CopyRegular
   const copyLabel = copyState === 'copied' ? labels.copied : copyState === 'failed' ? labels.copyFailed : labels.copy
 
   return (
@@ -94,7 +94,7 @@ export default function DocsPageActions({ labels, markdownPath, prompt }: DocsPa
           aria-label={labels.menu}
           title={labels.menu}
           className="inline-flex h-8 items-center border-l border-border px-2 text-muted-foreground transition-colors hover:bg-background-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
-          <RiArrowDownSLine aria-hidden="true" className="size-4" />
+          <ChevronDownRegular aria-hidden="true" className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-auto min-w-52">
           {openItems.map(item => (

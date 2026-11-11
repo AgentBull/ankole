@@ -13,13 +13,13 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
-  RiArrowRightLine,
-  RiLinksLine,
-  RiLogoutBoxRLine,
-  RiShieldKeyholeLine,
-  RiUser3Line,
-  RiComputerLine
-} from '@remixicon/react'
+  ArrowRightRegular,
+  DesktopRegular,
+  LinkMultipleRegular,
+  PersonRegular,
+  ShieldKeyholeRegular,
+  SignOutRegular
+} from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -116,11 +116,11 @@ export function AccountSettings() {
     void refreshMemberProfileQueries(client)
   }
   const navigation = [
-    { value: 'profile', label: t('pod.account.profile'), icon: <RiUser3Line aria-hidden /> },
-    { value: 'login', label: t('pod.account.login_methods'), icon: <RiShieldKeyholeLine aria-hidden /> },
-    { value: 'connections', label: t('pod.connectors.title'), icon: <RiLinksLine aria-hidden /> },
-    { value: 'devices', label: t('pod.runner.title'), icon: <RiComputerLine aria-hidden /> },
-    { value: 'exit', label: t('pod.account.exit'), icon: <RiLogoutBoxRLine aria-hidden /> }
+    { value: 'profile', label: t('pod.account.profile'), icon: <PersonRegular aria-hidden /> },
+    { value: 'login', label: t('pod.account.login_methods'), icon: <ShieldKeyholeRegular aria-hidden /> },
+    { value: 'connections', label: t('pod.connectors.title'), icon: <LinkMultipleRegular aria-hidden /> },
+    { value: 'devices', label: t('pod.runner.title'), icon: <DesktopRegular aria-hidden /> },
+    { value: 'exit', label: t('pod.account.exit'), icon: <SignOutRegular aria-hidden /> }
   ]
 
   return (
@@ -319,7 +319,7 @@ export function AccountSettings() {
         <SettingsSection title={t('pod.connectors.title')} description={t('pod.account.connectors_description')}>
           <Link to="/connectors" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
             {t('pod.account.manage_connectors')}
-            <RiArrowRightLine aria-hidden data-icon="inline-end" />
+            <ArrowRightRegular aria-hidden data-icon="inline-end" />
           </Link>
         </SettingsSection>
       </SettingsPanel>

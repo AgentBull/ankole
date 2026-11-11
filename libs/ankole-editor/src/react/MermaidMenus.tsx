@@ -1,4 +1,4 @@
-import { RiCheckLine } from '@remixicon/react'
+import { CheckmarkRegular } from '@ankole/uikit/icons'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { Plot } from '../core/doc'
@@ -113,7 +113,7 @@ export function MermaidMenus() {
       onMouseDown={event => event.preventDefault()}
       onClick={() => choose(menu.kind, id)}>
       <span>{text}</span>
-      {selected && <RiCheckLine className="mermaid-menu-check" aria-hidden />}
+      {selected && <CheckmarkRegular className="mermaid-menu-check" aria-hidden />}
     </button>
   )
   return createPortal(

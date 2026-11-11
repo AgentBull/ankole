@@ -1,4 +1,4 @@
-import { RiArrowRightSLine, RiCheckLine, RiEditLine } from '@remixicon/react'
+import { CheckmarkRegular, ChevronRightRegular, EditRegular } from '@ankole/uikit/icons'
 import { Button } from '@ankole/uikit/components/button'
 import { Checkbox } from '@ankole/uikit/components/checkbox'
 import { Field, FieldDescription, FieldError, FieldLabel } from '@ankole/uikit/components/field'
@@ -133,7 +133,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
                     aria-label={t('setup.edit_slug')}
                     disabled={!seeded || model.transliteration.value === 'loading' || mutation.isPending}
                     onClick={() => model.editSlug(slug)}>
-                    <RiEditLine aria-hidden />
+                    <EditRegular aria-hidden />
                   </Button>
                 </div>
               )}
@@ -154,7 +154,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
           </div>
           <div className="flex items-center gap-3 rounded-control border border-border/70 bg-muted/30 px-4 py-3">
             <span className="grid size-4 shrink-0 place-items-center rounded-xs bg-foreground text-background">
-              <RiCheckLine aria-hidden className="size-3" />
+              <CheckmarkRegular aria-hidden className="size-3" />
             </span>
             <span className="grid min-w-0 gap-0.5">
               <span className="text-sm font-medium">{t('setup.base_pack_name')}</span>
@@ -197,7 +197,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
             aria-busy={mutation.isPending}
             type="submit">
             {t('setup.save_industry')}
-            <RiArrowRightSLine data-icon="inline-end" />
+            <ChevronRightRegular data-icon="inline-end" />
           </Button>
         </div>
       </form>

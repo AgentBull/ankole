@@ -1,14 +1,14 @@
 import { Button, cn, Input } from '@ankole/uikit'
 import {
-  RiArrowDownSLine,
-  RiArrowLeftSLine,
-  RiArrowRightSLine,
-  RiArrowUpSLine,
-  RiCloseLine,
-  RiSearchLine,
-  RiZoomInLine,
-  RiZoomOutLine
-} from '@remixicon/react'
+  ChevronDownRegular,
+  ChevronLeftRegular,
+  ChevronRightRegular,
+  ChevronUpRegular,
+  DismissRegular,
+  SearchRegular,
+  ZoomInRegular,
+  ZoomOutRegular
+} from '@ankole/uikit/icons'
 import type { EventBus, PDFViewer } from 'pdfjs-dist/legacy/web/pdf_viewer.mjs'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -183,7 +183,7 @@ export default function PdfPreview({
           title={t('pod.content.previous_page')}
           disabled={view.page <= 1}
           onClick={() => pdf.current?.viewer.previousPage()}>
-          <RiArrowLeftSLine aria-hidden className="size-4" />
+          <ChevronLeftRegular aria-hidden className="size-4" />
         </Button>
         <Button
           type="button"
@@ -193,7 +193,7 @@ export default function PdfPreview({
           title={t('pod.content.next_page')}
           disabled={view.page >= view.pages}
           onClick={() => pdf.current?.viewer.nextPage()}>
-          <RiArrowRightSLine aria-hidden className="size-4" />
+          <ChevronRightRegular aria-hidden className="size-4" />
         </Button>
         {ready && (
           <span className="ml-1 shrink-0 text-xs tabular-nums text-fg-tertiary">
@@ -239,7 +239,7 @@ export default function PdfPreview({
               aria-label={t('pod.content.find_previous')}
               title={t('pod.content.find_previous')}
               onClick={() => find(query, 'again', true)}>
-              <RiArrowUpSLine aria-hidden className="size-4" />
+              <ChevronUpRegular aria-hidden className="size-4" />
             </Button>
             <Button
               type="button"
@@ -249,7 +249,7 @@ export default function PdfPreview({
               aria-label={t('pod.content.find_next')}
               title={t('pod.content.find_next')}
               onClick={() => find(query, 'again')}>
-              <RiArrowDownSLine aria-hidden className="size-4" />
+              <ChevronDownRegular aria-hidden className="size-4" />
             </Button>
             <Button
               type="button"
@@ -258,7 +258,7 @@ export default function PdfPreview({
               aria-label={t('pod.content.find_close')}
               title={t('pod.content.find_close')}
               onClick={closeFind}>
-              <RiCloseLine aria-hidden className="size-4" />
+              <DismissRegular aria-hidden className="size-4" />
             </Button>
           </div>
         ) : (
@@ -272,7 +272,7 @@ export default function PdfPreview({
               title={t('pod.content.find_in_page')}
               disabled={!ready}
               onClick={() => setFinding(true)}>
-              <RiSearchLine aria-hidden className="size-4" />
+              <SearchRegular aria-hidden className="size-4" />
             </Button>
           </>
         )}
@@ -284,7 +284,7 @@ export default function PdfPreview({
           title={t('pod.chat_timeline.zoom_out')}
           disabled={!ready}
           onClick={() => pdf.current?.viewer.decreaseScale()}>
-          <RiZoomOutLine aria-hidden className="size-4" />
+          <ZoomOutRegular aria-hidden className="size-4" />
         </Button>
         {ready && (
           <span className="min-w-10 shrink-0 text-center text-xs tabular-nums text-fg-tertiary">
@@ -299,7 +299,7 @@ export default function PdfPreview({
           title={t('pod.chat_timeline.zoom_in')}
           disabled={!ready}
           onClick={() => pdf.current?.viewer.increaseScale()}>
-          <RiZoomInLine aria-hidden className="size-4" />
+          <ZoomInRegular aria-hidden className="size-4" />
         </Button>
       </div>
       <div className="relative min-h-0 flex-1 bg-background-secondary">

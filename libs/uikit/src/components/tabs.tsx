@@ -2,7 +2,7 @@
 
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, type ComponentProps } from 'react'
 
 import { cn } from '../lib/utils'
 
@@ -28,7 +28,11 @@ const tabsListVariants = cva(
         default: 'border-b border-border bg-transparent',
         // Tabs that name a place, like a segmented control: the open tab sits on the selected fill, which slides
         // and stretches to the next tab when the selection changes.
-        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-7'
+        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-7',
+        // Tabs that name the sections of a navigation column: the current tab is a chip that shows its `TabsLabel`
+        // on the selected fill, and every other tab is its bare 24px icon. The fill travels like the object fill.
+        // In a sidebar's phone sheet the chips grow to 36px for touch.
+        chip: 'gap-2 bg-transparent group-data-horizontal/tabs:h-7 in-data-[mobile=true]:group-data-horizontal/tabs:h-9'
       }
     },
     defaultVariants: {
@@ -50,7 +54,7 @@ function TabsList({
       className={cn(tabsListVariants({ variant }), className)}
       {...props}>
       {children}
-      {variant === 'object' ? (
+      {variant === 'object' || variant === 'chip' ? (
         <SegmentIndicator />
       ) : (
         <TabsPrimitive.Indicator
@@ -170,13 +174,38 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
       className={cn(
-        "relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-[13px] font-normal whitespace-nowrap text-muted-foreground transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-foreground focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "group/tabs-trigger relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-[13px] font-normal whitespace-nowrap text-muted-foreground transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-foreground focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         'data-active:text-foreground',
         'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-accent group-data-[variant=object]/tabs-list:hover:text-foreground group-data-[variant=object]/tabs-list:data-active:text-foreground group-data-[variant=object]/tabs-list:data-active:fine-hover:hover:bg-transparent',
+        // A chip keeps 2px and 4px of padding around a 24px icon and 15px text, so the bare icon of a closed tab holds
+        // still when the tab opens. A closed tab draws in the secondary colour; the open tab draws its icon and its
+        // Medium label in the primary colour.
+        "group-data-[variant=chip]/tabs-list:flex-none group-data-[variant=chip]/tabs-list:gap-0 group-data-[variant=chip]/tabs-list:rounded-control group-data-[variant=chip]/tabs-list:border-0 group-data-[variant=chip]/tabs-list:px-1 group-data-[variant=chip]/tabs-list:py-0.5 in-data-[mobile=true]:group-data-[variant=chip]/tabs-list:py-1.5 group-data-[variant=chip]/tabs-list:text-85 group-data-[variant=chip]/tabs-list:text-fg-secondary group-data-[variant=chip]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=chip]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=chip]/tabs-list:data-active:font-medium group-data-[variant=chip]/tabs-list:data-active:text-foreground group-data-[variant=chip]/tabs-list:data-active:fine-hover:hover:bg-transparent group-data-[variant=chip]/tabs-list:[&_svg:not([class*='size-'])]:size-6",
         className
       )}
       {...props}
     />
+  )
+}
+
+/**
+ * The label of a chip tab. It opens beside the icon while its tab is current and closes on every other tab: the old
+ * text blurs away while the column closes, and the new text comes into focus a moment later, so the two fades
+ * overlap briefly and no frame shows a blank tab.
+ */
+function TabsLabel({ className, children, ...props }: ComponentProps<'span'>) {
+  return (
+    <span
+      data-slot="tabs-label"
+      className={cn(
+        'grid grid-cols-[minmax(0,0fr)] transition-[grid-template-columns] duration-(--duration-segment) ease-segment group-data-active/tabs-trigger:grid-cols-[minmax(0,1fr)] motion-reduce:transition-none',
+        className
+      )}
+      {...props}>
+      <span className="min-w-0 overflow-hidden ps-1 whitespace-nowrap opacity-0 blur-[2px] transition-[opacity,filter] duration-160 ease-out group-data-active/tabs-trigger:opacity-100 group-data-active/tabs-trigger:blur-none group-data-active/tabs-trigger:delay-60 group-data-active/tabs-trigger:duration-240 motion-reduce:transition-none">
+        {children}
+      </span>
+    </span>
   )
 }
 
@@ -192,4 +221,4 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
   )
 }
 
-export { Tabs, TabsContent, TabsList, TabsTrigger, tabsListVariants }
+export { Tabs, TabsContent, TabsLabel, TabsList, TabsTrigger, tabsListVariants }

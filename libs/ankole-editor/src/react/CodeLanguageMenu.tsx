@@ -1,5 +1,5 @@
 import { composingKey } from '@ankole/uikit/lib/keyboard'
-import { RiCheckLine, RiSearchLine } from '@remixicon/react'
+import { CheckmarkRegular, SearchRegular } from '@ankole/uikit/icons'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Plot } from '../core/doc'
@@ -75,7 +75,7 @@ export function CodeLanguageMenu() {
       aria-label={label('code_search_language')}
       style={position ?? { visibility: 'hidden' }}>
       <div className="code-language-search">
-        <RiSearchLine aria-hidden />
+        <SearchRegular aria-hidden />
         <input
           ref={input}
           value={query}
@@ -125,7 +125,7 @@ export function CodeLanguageMenu() {
             onMouseEnter={() => setIndex(optionIndex)}
             onClick={() => choose(option.id)}>
             <span>{option.label}</span>
-            {language?.canonical === option.id && <RiCheckLine className="code-language-check" aria-hidden />}
+            {language?.canonical === option.id && <CheckmarkRegular className="code-language-check" aria-hidden />}
           </button>
         ))}
         {!options.length && <p className="code-language-empty">—</p>}

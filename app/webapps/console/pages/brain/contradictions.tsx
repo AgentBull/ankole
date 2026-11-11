@@ -19,7 +19,7 @@ import {
   toast,
   Spinner
 } from '@ankole/uikit'
-import { RiScales3Line } from '@remixicon/react'
+import { ScalesRegular } from '@ankole/uikit/icons'
 
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -155,7 +155,7 @@ export function BrainContradictionsPage() {
         count={rows.length}
         emptyTitle={t('console.brain.contradictions_empty_title')}
         emptyDescription={t('console.brain.contradictions_empty_description')}
-        emptyIcon={<RiScales3Line aria-hidden />}
+        emptyIcon={<ScalesRegular aria-hidden />}
         pagination={contradictions}
         isFiltered={status !== 'open'}
         onClearFilters={() => setStatus('open')}

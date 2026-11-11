@@ -1,4 +1,4 @@
-import { RiArrowDownLine, RiArrowUpDownLine, RiArrowUpLine } from '@remixicon/react'
+import { ArrowDownRegular, ArrowSortRegular, ArrowUpRegular } from '../icons'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import {
   Fragment,
@@ -137,7 +137,7 @@ export function DataGrid<Row>({
             {columns.map((column, index) => {
               const direction = sort?.columnId === column.id ? sort.direction : undefined
               const Icon =
-                direction === 'asc' ? RiArrowUpLine : direction === 'desc' ? RiArrowDownLine : RiArrowUpDownLine
+                direction === 'asc' ? ArrowUpRegular : direction === 'desc' ? ArrowDownRegular : ArrowSortRegular
               return (
                 <TableHead
                   key={column.id}

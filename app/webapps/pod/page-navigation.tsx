@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next'
 import {
   Badge,
   Button,
-  cn,
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
@@ -18,11 +17,30 @@ import {
   PopoverContent,
   PopoverTitle,
   PopoverTrigger,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuActions,
+  SidebarMenuButton,
+  SidebarMenuIcon,
+  SidebarMenuItem,
+  SidebarMenuRow,
+  SidebarMenuSub,
+  SidebarMenuToggle,
   TreeDropIndicator,
   useTreeAutoScroll,
   useTreeItemDrag,
   Spinner
 } from '@ankole/uikit'
+import {
+  CaretRightFilled,
+  MoreHorizontalRegular,
+  ShareRegular,
+  TaskListSquareLtrRegular,
+  TextBulletListTreeRegular
+} from '@ankole/uikit/icons'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createContext,
@@ -35,12 +53,13 @@ import {
   useRef,
   useState,
   type ComponentPropsWithRef,
+  type CSSProperties,
+  type ReactNode,
   type Ref
 } from 'react'
 import { useComputed, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { Link, createLink, useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import { RiArrowRightSLine, RiMoreFill, RiNodeTree, RiShareLine } from '@remixicon/react'
 import { authenticationRef, podID } from '../common/browser-context'
 import { podLocation, podPageRouteID } from '../common/pod-url'
 import { BdiLabel } from '../common/bidi-file-name'
@@ -73,12 +92,13 @@ import { PageRenameField } from './page-rename-field'
 import { SpaceSettingsButton } from './space-settings'
 import { PageIcon } from './page-icon'
 import { navigationQuery, directoryPages } from './state/navigation-cache'
+import { workItemsQuery } from './work-api'
 
 const pageTree = 'pod-pages'
 
 // The followed Sidebar section owns the current mark, even when several links share a URL.
 // Keep the router's navigation handlers and href, then apply that mark to the rendered anchor.
-const SidebarLink = createLink(function SidebarAnchor({
+export const SidebarLink = createLink(function SidebarAnchor({
   current,
   ...props
 }: ComponentPropsWithRef<'a'> & { current: boolean }) {
@@ -140,22 +160,23 @@ export function RootSectionToggle({
   const release = () => {
     if (button.current) delete button.current.dataset.pointerPressed
   }
-  // A pointer click (detail > 0) rotates the chevron; keyboard and programmatic clicks flip it at once.
+  // A pointer click (detail > 0) rotates the chevron with the section body's height; keyboard and programmatic clicks
+  // flip it at once.
   const toggle = (detail: number) => {
     if (detail > 0) {
       pointerTarget.current = !open
       if (button.current) button.current.dataset.motionInput = 'pointer'
       if (chevron.current) {
-        chevron.current.style.transition = 'transform var(--duration-feedback) var(--ease-in-out)'
+        chevron.current.style.transition = `rotate ${open ? 'var(--duration-overlay)' : 'var(--duration-dialog)'} var(--ease-out)`
       }
     } else instant()
     onToggle()
   }
   useImperativeHandle(ref, () => ({ toggle }))
+  // The UIKit caret follows its title and turns while the section is open; this toggle decides how fast it turns.
   return (
-    <button
+    <SidebarMenuToggle
       ref={button}
-      type="button"
       className="pod-tree-toggle"
       aria-label={label}
       aria-expanded={open}
@@ -171,17 +192,17 @@ export function RootSectionToggle({
       onLostPointerCapture={release}
       onKeyDown={instant}
       onClick={event => toggle(event.detail)}>
-      <RiArrowRightSLine
+      <CaretRightFilled
         ref={chevron}
         aria-hidden
         className="pod-nav-root-chevron"
         onTransitionEnd={event => {
           if (event.target !== chevron.current) return
-          if (event.propertyName === 'transform') event.currentTarget.style.transition = 'none'
+          if (event.propertyName === 'rotate') event.currentTarget.style.transition = 'none'
           if (event.propertyName === 'opacity' && !button.current?.hasAttribute('data-pointer-pressed')) instant()
         }}
       />
-    </button>
+    </SidebarMenuToggle>
   )
 }
 
@@ -243,6 +264,12 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
   }
   const sharedPath = podLocation('/content/shared').pathname
   const favoritesPath = podLocation('/content/favorites').pathname
+  const workPath = podLocation('/work').pathname
+  // The board's row appears while any work item waits to start or runs, and stays while the board is open.
+  const activeWork = useQuery({
+    ...workItemsQuery,
+    select: items => items.filter(item => item.status === 'todo' || item.status === 'working').length
+  })
   return (
     <PageTreeContext value={tree}>
       <nav ref={scrollContainer} aria-label={t('pod.content.page_navigation')} className="pod-navigation">
@@ -276,18 +303,92 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
             onNavigate={onNavigate}
           />
         )}
-        <div className="pod-nav-places">
-          <Link
-            className="nav-row pod-nav-link"
-            to={sharedPath}
-            aria-current={pathname === sharedPath ? 'page' : undefined}
-            onClick={onNavigate}>
-            <RiShareLine aria-hidden />
-            <span className="truncate">{scopeLabels.shared}</span>
-          </Link>
-        </div>
+        <SidebarGroup>
+          <SidebarMenu>
+            {((activeWork.data ?? 0) > 0 || pathname === workPath) && (
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  render={
+                    <Link
+                      to={workPath}
+                      aria-current={pathname === workPath ? 'page' : undefined}
+                      onClick={onNavigate}
+                    />
+                  }
+                  className="pod-nav-link">
+                  <SidebarMenuIcon>
+                    <TaskListSquareLtrRegular />
+                  </SidebarMenuIcon>
+                  <span>{t('pod.work.title')}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                render={
+                  <Link
+                    to={sharedPath}
+                    aria-current={pathname === sharedPath ? 'page' : undefined}
+                    onClick={onNavigate}
+                  />
+                }
+                className="pod-nav-link">
+                <SidebarMenuIcon>
+                  <ShareRegular />
+                </SidebarMenuIcon>
+                <span>{scopeLabels.shared}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
       </nav>
     </PageTreeContext>
+  )
+}
+
+/**
+ * A section of the Home navigation: a region that its title names. The 32px heading holds the title, which opens the
+ * section's own list, the caret that opens and closes the section, and the section's actions at its end, which show
+ * while the heading is hovered or focused. The section's body opens and closes with the sidebar's disclosure motion
+ * and renders only while the section is open or closing.
+ */
+function NavigationSection({
+  label,
+  to,
+  open,
+  onToggle,
+  onNavigate,
+  headingRef,
+  actions,
+  indicator,
+  children
+}: {
+  label: string
+  to: string
+  open: boolean
+  onToggle(): void
+  onNavigate?: () => void
+  headingRef?: Ref<HTMLDivElement>
+  actions?: ReactNode
+  indicator?: ReactNode
+  children?: ReactNode
+}) {
+  return (
+    <SidebarGroup render={<section aria-label={label} />} className="pod-nav-section">
+      <SidebarGroupLabel ref={headingRef} className="pod-nav-section-heading relative">
+        <Link
+          className="min-w-0 truncate text-inherit no-underline hover:text-foreground"
+          to={to}
+          activeOptions={{ exact: true }}
+          onClick={onNavigate}>
+          {label}
+        </Link>
+        <RootSectionToggle open={open} label={label} onToggle={onToggle} />
+        {actions && <div className="pod-nav-actions ms-auto flex items-center">{actions}</div>}
+        {indicator}
+      </SidebarGroupLabel>
+      <SidebarGroupContent open={open}>{children}</SidebarGroupContent>
+    </SidebarGroup>
   )
 }
 
@@ -311,24 +412,20 @@ function MetaNavigationSection({
       return next
     })
   }, [])
-  const metaPath = podLocation('/meta').pathname
   return (
-    <section aria-label="Meta Ankole" className="pod-nav-section">
-      <div className="pod-nav-section-heading">
-        <RootSectionToggle open={open} label="Meta Ankole" onToggle={onToggle} />
-        <Link className="min-w-0 flex-1 truncate" to={metaPath} activeOptions={{ exact: true }} onClick={onNavigate}>
-          Meta Ankole
-        </Link>
-      </div>
-      {open && (
-        <MetaNavigation
-          activeSection={activeSection}
-          expanded={expanded}
-          onToggleBranch={toggleBranch}
-          onNavigate={onNavigate}
-        />
-      )}
-    </section>
+    <NavigationSection
+      label="Meta Ankole"
+      to={podLocation('/meta').pathname}
+      open={open}
+      onToggle={onToggle}
+      onNavigate={onNavigate}>
+      <MetaNavigation
+        activeSection={activeSection}
+        expanded={expanded}
+        onToggleBranch={toggleBranch}
+        onNavigate={onNavigate}
+      />
+    </NavigationSection>
   )
 }
 
@@ -372,75 +469,80 @@ function RecentNavigationSection({
     recentRows.map(page => ({ ...page, relevantUnread: unread.get(page.id) ?? 0 })),
     rooms
   ).slice(0, 8)
-  const recentPath = podLocation('/content/recent').pathname
   const pending = recentPages.isPending && recentRooms.isPending
   return (
-    <section aria-label={scopeLabels.recent} className="pod-nav-section">
-      <div className="pod-nav-section-heading">
-        <RootSectionToggle open={open} label={scopeLabels.recent} onToggle={onToggle} />
-        <Link
-          className="min-w-0 flex-1 truncate"
-          to={recentPath}
-          aria-current={pathname === recentPath ? 'page' : undefined}
-          onClick={onNavigate}>
-          {scopeLabels.recent}
-        </Link>
-      </div>
-      {open &&
-        (pending ? (
-          <ContentSkeleton variant="list" rows={3} className="pod-tree-empty" />
-        ) : entries.length > 0 ? (
-          <ul className="pod-nav-places">
-            {entries.map(entry => {
-              if (entry.kind === 'page') {
-                const active = isSidebarSectionActive(activeSection, 'recent') && activePageID === entry.page.id
-                return (
-                  <li key={`page:${entry.id}`} className="min-w-0">
+    <NavigationSection
+      label={scopeLabels.recent}
+      to={podLocation('/content/recent').pathname}
+      open={open}
+      onToggle={onToggle}
+      onNavigate={onNavigate}>
+      {pending ? (
+        <ContentSkeleton variant="list" rows={3} className="pod-tree-empty" />
+      ) : entries.length > 0 ? (
+        <SidebarMenu>
+          {entries.map(entry => {
+            if (entry.kind === 'page') {
+              const active = isSidebarSectionActive(activeSection, 'recent') && activePageID === entry.page.id
+              return (
+                <SidebarMenuItem key={`page:${entry.id}`}>
+                  <SidebarMenuButton
+                    render={
+                      <SidebarLink
+                        to={pageHref(entry.page.id, entry.page.title)}
+                        state={{ sidebarSection: 'recent' } as never}
+                        current={active}
+                        activeProps={{}}
+                        onClick={onNavigate}
+                      />
+                    }
+                    className="pod-nav-link">
+                    <SidebarMenuIcon>
+                      <PageIcon page={entry.page} />
+                    </SidebarMenuIcon>
+                    <span className="min-w-0 flex-1 truncate" dir="auto">
+                      {entry.page.title || t('pod.content.untitled')}
+                    </span>
+                    {!!entry.page.relevantUnread && (
+                      <Badge variant="info" size="sm" title={t('pod.document.unread_comments')}>
+                        {entry.page.relevantUnread}
+                      </Badge>
+                    )}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )
+            }
+            const target = conversationPath(entry.room)
+            const active = isSidebarSectionActive(activeSection, 'recent') && pathname === target
+            return (
+              <SidebarMenuItem key={`chat:${entry.id}`}>
+                <SidebarMenuButton
+                  render={
                     <SidebarLink
-                      className="nav-row pod-nav-link"
-                      to={pageHref(entry.page.id, entry.page.title)}
-                      state={{ sidebarSection: 'recent' } as never}
+                      to={target}
+                      state={{ keepSidebarTab: 'home', sidebarSection: 'recent' } as never}
                       current={active}
                       activeProps={{}}
-                      onClick={onNavigate}>
-                      <PageIcon page={entry.page} />
-                      <span className="min-w-0 flex-1 truncate text-left" dir="auto">
-                        {entry.page.title || t('pod.content.untitled')}
-                      </span>
-                      {!!entry.page.relevantUnread && (
-                        <Badge variant="info" size="sm" title={t('pod.document.unread_comments')}>
-                          {entry.page.relevantUnread}
-                        </Badge>
-                      )}
-                    </SidebarLink>
-                  </li>
-                )
-              }
-              const target = conversationPath(entry.room)
-              const active = isSidebarSectionActive(activeSection, 'recent') && pathname === target
-              return (
-                <li key={`chat:${entry.id}`} className="min-w-0">
-                  <SidebarLink
-                    className="nav-row pod-nav-link"
-                    to={target}
-                    state={{ keepSidebarTab: 'home', sidebarSection: 'recent' } as never}
-                    current={active}
-                    activeProps={{}}
-                    onClick={onNavigate}>
+                      onClick={onNavigate}
+                    />
+                  }
+                  className="pod-nav-link">
+                  <SidebarMenuIcon>
                     <ConversationGlyph room={entry.room} />
-                    <span className="min-w-0 flex-1 truncate text-left" dir="auto">
-                      <ConversationTitle room={entry.room} />
-                    </span>
-                    <ChatRowStatus status={entry.room.rowStatus} />
-                  </SidebarLink>
-                </li>
-              )
-            })}
-          </ul>
-        ) : (
-          <p className="pod-tree-empty">{t('pod.sidebar.recent_empty')}</p>
-        ))}
-    </section>
+                  </SidebarMenuIcon>
+                  <span className="min-w-0 flex-1 truncate" dir="auto">
+                    <ConversationTitle room={entry.room} />
+                  </span>
+                  <ChatRowStatus status={entry.room.rowStatus} />
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })}
+        </SidebarMenu>
+      ) : (
+        <p className="pod-tree-empty">{t('pod.sidebar.recent_empty')}</p>
+      )}
+    </NavigationSection>
   )
 }
 
@@ -457,51 +559,47 @@ function FavoritesNavigationSection({
 }) {
   const { t } = useTranslation()
   const pageHref = usePageHref()
-  const pathname = useLocation({ select: location => location.pathname })
   const { activeSection } = usePageTree()
   const routePageID = useParams({ strict: false, select: params => params.pageID })
   const activePageID = podPageRouteID(routePageID)
   const pages = usePagesMetadata(sourcePages)
-  const favoritesPath = podLocation('/content/favorites').pathname
   return (
-    <section aria-label={scopeLabels.favorites} className="pod-nav-section">
-      <div className="pod-nav-section-heading">
-        <RootSectionToggle open={open} label={scopeLabels.favorites} onToggle={onToggle} />
-        <Link
-          className="min-w-0 flex-1 truncate"
-          to={favoritesPath}
-          aria-current={pathname === favoritesPath ? 'page' : undefined}
-          onClick={onNavigate}>
-          {scopeLabels.favorites}
-        </Link>
-      </div>
-      {open &&
-        (pages.length > 0 ? (
-          <ul className="pod-nav-places">
-            {pages.map(page => {
-              const active = isSidebarSectionActive(activeSection, 'favorites') && activePageID === page.id
-              return (
-                <li key={page.id} className="min-w-0">
-                  <SidebarLink
-                    className="nav-row pod-nav-link"
-                    to={pageHref(page.id, page.title)}
-                    state={{ sidebarSection: 'favorites' } as never}
-                    current={active}
-                    activeProps={{}}
-                    onClick={onNavigate}>
+    <NavigationSection
+      label={scopeLabels.favorites}
+      to={podLocation('/content/favorites').pathname}
+      open={open}
+      onToggle={onToggle}
+      onNavigate={onNavigate}>
+      {pages.length > 0 ? (
+        <SidebarMenu>
+          {pages.map(page => {
+            const active = isSidebarSectionActive(activeSection, 'favorites') && activePageID === page.id
+            return (
+              <SidebarMenuItem key={page.id}>
+                <SidebarMenuButton
+                  render={
+                    <SidebarLink
+                      to={pageHref(page.id, page.title)}
+                      state={{ sidebarSection: 'favorites' } as never}
+                      current={active}
+                      activeProps={{}}
+                      onClick={onNavigate}
+                    />
+                  }
+                  className="pod-nav-link">
+                  <SidebarMenuIcon>
                     <PageIcon page={page} />
-                    <span className="min-w-0 flex-1 truncate text-left" dir="auto">
-                      {page.title || t('pod.content.untitled')}
-                    </span>
-                  </SidebarLink>
-                </li>
-              )
-            })}
-          </ul>
-        ) : (
-          <p className="pod-tree-empty">{t('pod.content.no_pages_yet')}</p>
-        ))}
-    </section>
+                  </SidebarMenuIcon>
+                  <span dir="auto">{page.title || t('pod.content.untitled')}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })}
+        </SidebarMenu>
+      ) : (
+        <p className="pod-tree-empty">{t('pod.content.no_pages_yet')}</p>
+      )}
+    </NavigationSection>
   )
 }
 
@@ -532,9 +630,16 @@ export function PageChildrenMenu({
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger render={<Button size="sm" variant="ghost" title={t('pod.content.child_pages')} />}>
-          <RiNodeTree aria-hidden className="size-4" />
-          <span className="@max-[640px]:sr-only">{t('pod.content.child_pages')}</span>
+        <PopoverTrigger
+          render={
+            <Button
+              size="icon-lg"
+              variant="ghost"
+              aria-label={t('pod.content.child_pages')}
+              title={t('pod.content.child_pages')}
+            />
+          }>
+          <TextBulletListTreeRegular />
         </PopoverTrigger>
         <PopoverContent
           align="end"
@@ -626,56 +731,87 @@ function NavigationTree({
     }
   })
   if (scope === 'private' && canCreatePrivate === false) return null
+  const canManageSpace = pages.data?.pages[0]?.can_manage_space === true
+  const canCreate = scope === 'private' || canCreateSpace
   return (
-    <section aria-label={scopeLabels[scope]} className="pod-nav-section">
-      <div ref={drop.targetRef} className="pod-nav-section-heading">
-        <RootSectionToggle open={open} label={scopeLabels[scope]} onToggle={onToggleRoot} />
-        <Link className="min-w-0 flex-1 truncate" to={podLocation(`/content/${scope}`).pathname} onClick={onNavigate}>
-          {scopeLabels[scope]}
-        </Link>
-        <div className="pod-nav-actions flex items-center">
-          {scope === 'space' && <SpaceSettingsButton canManage={pages.data?.pages[0]?.can_manage_space === true} />}
-          {(scope === 'private' || canCreateSpace) && <CreatePageButton scope={scope} privateOwner={owner} compact />}
-        </div>
-        <TreeDropIndicator indication={drop.indication} />
-      </div>
-      {open &&
-        (pages.isPending ? (
-          <ContentSkeleton variant="list" rows={2} className="px-3 py-2" />
-        ) : pages.error ? (
-          <ContentError error={pages.error} retry={() => void pages.refetch()} />
-        ) : (
+    <NavigationSection
+      label={scopeLabels[scope]}
+      to={podLocation(`/content/${scope}`).pathname}
+      open={open}
+      onToggle={onToggleRoot}
+      onNavigate={onNavigate}
+      headingRef={drop.targetRef}
+      actions={
+        ((scope === 'space' && canManageSpace) || canCreate) && (
           <>
-            <PageTree pages={known} siblings={loaded} scope={scope} />
-            {pages.hasNextPage && (
-              <Button size="sm" variant="ghost" disabled={pages.isFetching} onClick={() => void pages.fetchNextPage()}>
-                {t('pod.content.load_more_pages')}
-              </Button>
-            )}
+            {scope === 'space' && <SpaceSettingsButton canManage={canManageSpace} />}
+            {canCreate && <CreatePageButton scope={scope} privateOwner={owner} compact />}
           </>
-        ))}
-    </section>
+        )
+      }
+      indicator={<TreeDropIndicator indication={drop.indication} />}>
+      {pages.isPending ? (
+        <ContentSkeleton variant="list" rows={2} className="px-3 py-2" />
+      ) : pages.error ? (
+        <ContentError error={pages.error} retry={() => void pages.refetch()} />
+      ) : (
+        <>
+          <PageTree pages={known} siblings={loaded} scope={scope} />
+          {pages.hasNextPage && (
+            <Button size="sm" variant="ghost" disabled={pages.isFetching} onClick={() => void pages.fetchNextPage()}>
+              {t('pod.content.load_more_pages')}
+            </Button>
+          )}
+        </>
+      )}
+    </NavigationSection>
   )
 }
 
 function PageTree({ pages, siblings, scope }: { pages: NavigationPage[]; siblings: Page[]; scope: NavigationScope }) {
   const { t } = useTranslation()
   return pages.length ? (
-    <ul className="pod-tree">
+    <SidebarMenu className="pod-tree">
       {pages.map(page => (
-        <PageTreeNode key={page.id} page={page} scope={scope} siblings={siblings} />
+        <PageTreeNode key={page.id} page={page} scope={scope} siblings={siblings} depth={0} />
       ))}
-    </ul>
+    </SidebarMenu>
   ) : (
     <p className="pod-tree-empty">{t('pod.content.no_pages_yet')}</p>
   )
 }
 
-function PageTreeNode({ page, scope, siblings }: { page: NavigationPage; scope: NavigationScope; siblings: Page[] }) {
+/**
+ * The nesting level that a child list gives its rows. Each of the first six levels indents 20px; every deeper level
+ * indents 4px, so the title of a deeply nested page keeps its room.
+ */
+function childLevelStyle(depth: number): CSSProperties | undefined {
+  const level = depth + 1
+  return level > 6 ? ({ '--sidebar-menu-level': 6 + (level - 6) / 5 } as CSSProperties) : undefined
+}
+
+function PageTreeNode({
+  page,
+  scope,
+  siblings,
+  depth
+}: {
+  page: NavigationPage
+  scope: NavigationScope
+  siblings: Page[]
+  depth: number
+}) {
   useSignals()
   const { t } = useTranslation()
-  const { activeSection, model, closePage, ready, path } = usePageTree()
+  const { activeSection, model, closePage, togglePage, ready, path } = usePageTree()
   const expanded = useComputed(() => model.preferences.value.expanded.has(page.id))
+  // The child list moves when the person opens or closes this row with its arrow; a row that opens on its own, such as
+  // a restored or revealed row, or by a drop, shows its rows at once.
+  const [toggled, setToggled] = useState(false)
+  const toggle = (byArrow: boolean) => {
+    setToggled(byArrow)
+    togglePage(page.id)
+  }
   const active = useParams({
     strict: false,
     select: params => isSidebarSectionActive(activeSection, scope) && podPageRouteID(params.pageID) === page.id
@@ -697,32 +833,44 @@ function PageTreeNode({ page, scope, siblings }: { page: NavigationPage; scope: 
     return () => clearTimeout(timer)
   }, [open, children.isPending])
   return (
-    <li className="min-w-0">
-      <PageTreeRow page={page} siblings={siblings} scope={scope} open={open} pending={pending} active={active} />
-      {open && (
-        <ul className="pod-tree-children">
-          {!!children.error && (
-            <li>
-              <ContentError error={children.error} retry={() => void children.refetch()} />
-            </li>
-          )}
-          {nested.map(child => (
-            <PageTreeNode key={child.id} page={child} scope={scope} siblings={loaded} />
-          ))}
-          {children.hasNextPage && (
-            <li>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={children.isFetching}
-                onClick={() => void children.fetchNextPage()}>
-                {t('pod.content.load_more_pages')}
-              </Button>
-            </li>
-          )}
-        </ul>
-      )}
-    </li>
+    <SidebarMenuItem>
+      <PageTreeRow
+        page={page}
+        siblings={siblings}
+        scope={scope}
+        open={open}
+        pending={pending}
+        active={active}
+        toggled={toggled}
+        onToggle={toggle}
+      />
+      {/* A list that the person opens waits for its rows, so its height runs to the loaded rows. */}
+      <SidebarMenuSub
+        open={open && (!toggled || !children.isPending)}
+        instant={!toggled}
+        className="pod-tree-children"
+        style={childLevelStyle(depth)}>
+        {!!children.error && (
+          <li>
+            <ContentError error={children.error} retry={() => void children.refetch()} />
+          </li>
+        )}
+        {nested.map(child => (
+          <PageTreeNode key={child.id} page={child} scope={scope} siblings={loaded} depth={depth + 1} />
+        ))}
+        {children.hasNextPage && (
+          <li>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={children.isFetching}
+              onClick={() => void children.fetchNextPage()}>
+              {t('pod.content.load_more_pages')}
+            </Button>
+          </li>
+        )}
+      </SidebarMenuSub>
+    </SidebarMenuItem>
   )
 }
 
@@ -732,7 +880,9 @@ function PageTreeRow({
   scope,
   open,
   pending,
-  active
+  active,
+  toggled,
+  onToggle
 }: {
   page: NavigationPage
   siblings: Page[]
@@ -740,11 +890,13 @@ function PageTreeRow({
   pending: boolean
   open: boolean
   active: boolean
+  toggled: boolean
+  onToggle(byArrow: boolean): void
 }) {
   const { t } = useTranslation()
   const pageHref = usePageHref()
   const page = usePageMetadata(sourcePage)
-  const { favorites, actions, togglePage, onNavigate } = usePageTree()
+  const { favorites, actions, onNavigate } = usePageTree()
   const client = useQueryClient()
   const treeIntent = useRef<ReturnType<typeof setTimeout>>(undefined)
   const cancelTreeIntent = () => clearTimeout(treeIntent.current)
@@ -777,10 +929,10 @@ function PageTreeRow({
       const moving = cachedPageMap(client).get(source)
       if (!moving) return
       actions.move(moving, dropRequest(page, operation))
-      if (operation === 'inside' && !open) togglePage(page.id)
+      if (operation === 'inside' && !open) onToggle(false)
     },
     onRestInside: () => {
-      if (page.has_children && !open) togglePage(page.id)
+      if (page.has_children && !open) onToggle(false)
     }
   })
   const menu = (
@@ -801,80 +953,75 @@ function PageTreeRow({
       <ContextMenu>
         <ContextMenuTrigger
           ref={drag.targetRef}
-          className="nav-row pod-tree-row"
+          render={<SidebarMenuRow />}
+          className="pod-tree-row data-dragging:opacity-45"
           data-active={active ? '' : undefined}
           data-dragging={drag.dragging ? '' : undefined}>
-          {page.has_children ? (
-            <button
-              type="button"
+          {page.has_children && (
+            <SidebarMenuToggle
               className="pod-tree-toggle"
               aria-label={label}
               aria-expanded={open}
               aria-busy={pending || undefined}
+              instant={!toggled}
               onPointerEnter={prefetchTree}
               onPointerLeave={cancelTreeIntent}
               onFocus={prefetchTree}
               onBlur={cancelTreeIntent}
               onClick={() => {
                 cancelTreeIntent()
-                togglePage(page.id)
+                onToggle(true)
               }}>
-              {pending ? (
-                <Spinner aria-hidden />
-              ) : (
-                <>
-                  <RiArrowRightSLine aria-hidden className={cn('pod-tree-chevron', open && 'rotate-90')} />
-                  <PageIcon page={page} />
-                </>
-              )}
+              {pending ? <Spinner aria-hidden /> : <CaretRightFilled aria-hidden />}
               {pending && (
                 <span role="status" className="sr-only">
                   {t('pod.content.loading')}
                 </span>
               )}
-            </button>
-          ) : (
-            renaming && (
-              <span aria-hidden className="pod-tree-icon">
-                <PageIcon page={page} />
-              </span>
-            )
+            </SidebarMenuToggle>
           )}
           {renaming ? (
-            <PageRenameField page={page} onDone={() => setRenaming(false)} />
+            <SidebarMenuButton render={<div />} className="h-auto min-h-8 cursor-auto overflow-visible">
+              <SidebarMenuIcon>
+                <PageIcon page={page} />
+              </SidebarMenuIcon>
+              <div className="min-w-0 flex-1">
+                <PageRenameField page={page} onDone={() => setRenaming(false)} />
+              </div>
+            </SidebarMenuButton>
           ) : (
-            <SidebarLink
-              ref={drag.handleRef}
-              className="pod-tree-link"
-              to={pageHref(page.id, page.title)}
-              state={{ sidebarSection: scope } as never}
-              onClick={onNavigate}
-              current={active}
-              activeProps={{}}
-              title={stripBidi(label)}>
-              {!page.has_children && (
-                <span aria-hidden className="pod-tree-icon">
-                  <PageIcon page={page} />
-                </span>
-              )}
-              <span className="min-w-0 truncate text-left" dir="auto">
+            <SidebarMenuButton
+              render={
+                <SidebarLink
+                  ref={drag.handleRef}
+                  to={pageHref(page.id, page.title)}
+                  state={{ sidebarSection: scope } as never}
+                  onClick={onNavigate}
+                  current={active}
+                  activeProps={{}}
+                  title={stripBidi(label)}
+                />
+              }
+              className="pod-tree-link">
+              <SidebarMenuIcon>
+                <PageIcon page={page} />
+              </SidebarMenuIcon>
+              <span dir="auto">
                 <BdiLabel value={page.title} fallback={t('pod.content.untitled')} />
               </span>
-            </SidebarLink>
+            </SidebarMenuButton>
           )}
           {!renaming && (
-            <span className="pod-row-action">
+            <SidebarMenuActions>
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
+                    <SidebarMenuAction
                       aria-label={t('pod.sidebar.page_actions', { title: label })}
                       title={t('common.more_actions')}
                     />
                   }>
-                  <RiMoreFill aria-hidden className="size-4" />
+                  <MoreHorizontalRegular aria-hidden />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56" finalFocus={menuFinalFocus}>
                   {menu}
@@ -888,7 +1035,7 @@ function PageTreeRow({
                   compact
                 />
               )}
-            </span>
+            </SidebarMenuActions>
           )}
           <TreeDropIndicator indication={drag.indication} />
         </ContextMenuTrigger>

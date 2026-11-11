@@ -1,5 +1,5 @@
 ---
-import { RiBookmarkLine, RiFileTextLine } from '@remixicon/react'
+import { BookmarkRegular, DocumentTextRegular } from '@ankole/uikit/icons'
 import logo from '../../assets/logo.svg'
 import type { Locale } from '../../i18n/config'
 import { t } from '../../i18n/utils'
@@ -44,7 +44,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 		{
 			messages.map((message, index) => (
 				<li class={ROW} data-replay style={`--step:${index}`}>
-					<span class={`${AVATAR} bg-background-tertiary text-fg-tertiary`} aria-hidden="true">
+					<span class={`${AVATAR} bg-layer-02 text-fg-tertiary`} aria-hidden="true">
 						{message.author.slice(0, 1)}
 					</span>
 					<span class="flex items-baseline gap-2">
@@ -70,7 +70,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 		 * centres the icon's box against the line box instead, which sits it visibly high.
 		 */}
 		<span class="col-start-2">
-			<RiBookmarkLine className="mr-1.5 inline-block size-3 align-middle" aria-hidden="true" />
+			<BookmarkRegular className="mr-1.5 inline-block size-3 align-middle" aria-hidden="true" />
 			{t(lang, 'thread.note')}
 		</span>
 	</p>
@@ -87,7 +87,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 
 	<ol class="list-none p-0">
 		<li class={ROW} data-replay style="--step:4;--hold:0.55s">
-			<span class={`${AVATAR} bg-background-tertiary text-fg-tertiary`} aria-hidden="true">
+			<span class={`${AVATAR} bg-layer-02 text-fg-tertiary`} aria-hidden="true">
 				{t(lang, 'thread.h3.author').slice(0, 1)}
 			</span>
 			<span class="flex items-baseline gap-2">
@@ -114,7 +114,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 			<div class="col-start-2 text-[13px] leading-[1.55] text-foreground">
 				<p class="m-0">{t(lang, 'thread.reply')}</p>
 				<div class="mt-2.5 flex items-center gap-3 border border-border p-2.5" data-replay style="--step:6;--hold:0.55s">
-					<RiFileTextLine className="size-5 shrink-0 text-brand-60 dark:text-brand-40" aria-hidden="true" />
+					<DocumentTextRegular className="size-5 shrink-0 text-brand-60 dark:text-brand-40" aria-hidden="true" />
 					<span class="min-w-0">
 						<span class="block truncate text-xs text-foreground">{t(lang, 'thread.file.name')}</span>
 						<span class="block font-mono text-[11px] text-fg-quaternary">{t(lang, 'thread.file.meta')}</span>

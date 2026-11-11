@@ -29,6 +29,7 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxValue,
+  CopyButton,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -47,7 +48,7 @@ import {
   toast,
   useComboboxAnchor
 } from '@ankole/uikit'
-import { RiCheckLine, RiFileCopyLine, RiKey2Line, RiRefreshLine } from '@remixicon/react'
+import { ArrowClockwiseRegular, KeyRegular } from '@ankole/uikit/icons'
 import { useIsMutating, useQuery as useBaseQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -130,7 +131,7 @@ export function OIDCClientsListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.oidc_clients.empty_title')}
-      emptyIcon={<RiKey2Line aria-hidden />}
+      emptyIcon={<KeyRegular aria-hidden />}
       emptyDescription={t('console.oidc_clients.empty_description')}
       error={clients.error}
       isFiltered={Boolean(query.trim())}
@@ -420,7 +421,7 @@ export function OIDCClientEditorPage() {
                   type="button"
                   variant="outline"
                   onClick={() => rotateSecret.mutate({ path: { id: loadedClient.id } })}>
-                  <RiRefreshLine data-icon="inline-start" />
+                  <ArrowClockwiseRegular data-icon="inline-start" />
                   {t('console.oidc_clients.rotate_secret')}
                 </Button>
               ) : null}
@@ -755,20 +756,6 @@ function AllowedGroupsPicker({
 
 function ClientSecretDialog({ onClose, secret }: { onClose: () => void; secret?: string }) {
   const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => setCopied(false), [secret])
-
-  const copy = async () => {
-    if (!secret) return
-    try {
-      await navigator.clipboard.writeText(secret)
-      setCopied(true)
-      toast.success(t('console.oidc_clients.secret_copied'))
-    } catch {
-      toast.error(t('console.oidc_clients.copy_failed'))
-    }
-  }
 
   return (
     <Dialog open={Boolean(secret)} onOpenChange={open => !open && onClose()}>
@@ -779,10 +766,17 @@ function ClientSecretDialog({ onClose, secret }: { onClose: () => void; secret?:
         </DialogHeader>
         <code className="border border-border bg-muted/30 p-4 font-mono text-sm break-all select-all">{secret}</code>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => void copy()}>
-            {copied ? <RiCheckLine data-icon="inline-start" /> : <RiFileCopyLine data-icon="inline-start" />}
-            {copied ? t('console.oidc_clients.secret_copied') : t('console.oidc_clients.copy_secret')}
-          </Button>
+          {/* Keyed by the secret, so a new secret never shows the previous one's confirmation. */}
+          <CopyButton
+            key={secret}
+            variant="outline"
+            size="default"
+            value={secret ?? ''}
+            label={t('console.oidc_clients.copy_secret')}
+            copiedLabel={t('console.oidc_clients.secret_copied')}
+            onCopyError={() => toast.error(t('console.oidc_clients.copy_failed'))}>
+            {t('console.oidc_clients.copy_secret')}
+          </CopyButton>
           <Button type="button" onClick={onClose}>
             {t('common.close')}
           </Button>

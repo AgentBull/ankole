@@ -12,7 +12,7 @@ import {
   SelectValue,
   Switch
 } from '@ankole/uikit'
-import { RiChat1Line } from '@remixicon/react'
+import { CommentRegular } from '@ankole/uikit/icons'
 import { useSignal } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -233,7 +233,7 @@ function AgentSettings({ uid, title }: { uid: string; title?: string }) {
         </div>
         {agent.data && (
           <Link to={chatHref} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-            <RiChat1Line aria-hidden data-icon="inline-start" />
+            <CommentRegular aria-hidden data-icon="inline-start" />
             {t('pod.meta.send_message')}
           </Link>
         )}

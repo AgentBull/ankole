@@ -34,17 +34,17 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiCheckboxBlankCircleLine,
-  RiCheckboxCircleFill,
-  RiCloseCircleLine,
-  RiCodeSSlashLine,
-  RiFileTextLine,
-  RiProgress3Line,
-  RiRobot2Line,
-  RiTerminalBoxLine,
-  RiTimeLine,
-  RiUser3Line
-} from '@remixicon/react'
+  BotRegular,
+  CheckmarkCircleFilled,
+  CircleHalfFillRegular,
+  CircleRegular,
+  ClockRegular,
+  CodeRegular,
+  DismissCircleRegular,
+  DocumentTextRegular,
+  PersonRegular,
+  WindowConsoleRegular
+} from '@ankole/uikit/icons'
 import { match } from '@agentbull/active-support'
 
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
@@ -254,7 +254,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
         <Empty className="items-start border border-border bg-card text-left">
           <EmptyHeader className="items-start">
             <EmptyMedia variant="icon">
-              <RiTimeLine aria-hidden />
+              <ClockRegular aria-hidden />
             </EmptyMedia>
             <EmptyTitle>
               {isFiltered ? t('console.empty.no_results_title') : t('console.background_agent_jobs.empty_title')}
@@ -374,11 +374,11 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
           {selected && cancellable(selected.status) ? (
             <SheetFooter>
               <Button variant="outline" disabled={complete.isPending} onClick={() => setCompleteTargetID(selected.id)}>
-                <RiCheckboxCircleFill />
+                <CheckmarkCircleFilled />
                 {t('console.background_agent_jobs.complete')}
               </Button>
               <Button variant="destructive" disabled={cancel.isPending} onClick={() => setCancelTargetID(selected.id)}>
-                <RiCloseCircleLine />
+                <DismissCircleRegular />
                 {t('console.background_agent_jobs.cancel')}
               </Button>
             </SheetFooter>
@@ -608,7 +608,7 @@ function BackgroundAgentJobCard({
         <div className="grid gap-1 text-xs text-muted-foreground">
           <AgentName className="truncate" uid={task.agent_uid} />
           <span className="flex items-center gap-1.5">
-            <RiTimeLine className="size-3.5" />
+            <ClockRegular className="size-3.5" />
             {formatDuration(task.duration_seconds ?? 0)} ·{' '}
             {t('console.background_agent_jobs.attempt_count', { count: task.attempts })}
           </span>
@@ -891,7 +891,7 @@ function TurnProgress({ turn }: { turn: BackgroundAgentJobTurn }) {
           <ul className="grid gap-0.5">
             {files.map(file => (
               <li key={file} className="flex min-w-0 items-center gap-1.5 font-mono text-xs">
-                <RiFileTextLine className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <DocumentTextRegular className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="break-all">{file}</span>
               </li>
             ))}
@@ -922,9 +922,9 @@ function LabeledRow({ label, children }: { label: string; children: ReactNode })
 
 function PlanStep({ step }: { step: BackgroundAgentJobTurnPlanStep }) {
   const Icon = match(step.status)
-    .with('completed', () => RiCheckboxCircleFill)
-    .with('in_progress', () => RiProgress3Line)
-    .otherwise(() => RiCheckboxBlankCircleLine)
+    .with('completed', () => CheckmarkCircleFilled)
+    .with('in_progress', () => CircleHalfFillRegular)
+    .otherwise(() => CircleRegular)
 
   return (
     <li className="flex min-w-0 items-start gap-2 text-xs leading-5">
@@ -1020,7 +1020,7 @@ function TrajectoryMessageView({ message }: { message: TrajectoryMessage }) {
 
   if (message.role === 'tool') {
     return (
-      <ToolTile icon={RiTerminalBoxLine} name={message.name} reference={message.tool_call_id}>
+      <ToolTile icon={WindowConsoleRegular} name={message.name} reference={message.tool_call_id}>
         <ToolPayload text={text} />
       </ToolTile>
     )
@@ -1032,12 +1032,12 @@ function TrajectoryMessageView({ message }: { message: TrajectoryMessage }) {
       <article className="grid min-w-0 gap-2">
         {text ? (
           <div className="grid min-w-0 gap-1.5">
-            <MessageRole role="assistant" icon={RiRobot2Line} />
+            <MessageRole role="assistant" icon={BotRegular} />
             <MarkdownBody text={text} />
           </div>
         ) : null}
         {calls.map(call => (
-          <ToolTile key={call.id} icon={RiCodeSSlashLine} name={call.function.name} reference={call.id}>
+          <ToolTile key={call.id} icon={CodeRegular} name={call.function.name} reference={call.id}>
             <ToolPayload text={call.function.arguments} />
           </ToolTile>
         ))}
@@ -1049,13 +1049,13 @@ function TrajectoryMessageView({ message }: { message: TrajectoryMessage }) {
   // Both are long-form input, so they read as a bordered quote rather than a bubble.
   return (
     <article className="grid min-w-0 gap-1.5 border-l-2 border-border pl-3">
-      <MessageRole role={message.role} icon={RiUser3Line} />
+      <MessageRole role={message.role} icon={PersonRegular} />
       {text ? <MarkdownBody text={text} /> : <CodeBlock>{formatJSON(message.content)}</CodeBlock>}
     </article>
   )
 }
 
-function MessageRole({ role, icon: Icon }: { role: string; icon: typeof RiUser3Line }) {
+function MessageRole({ role, icon: Icon }: { role: string; icon: typeof PersonRegular }) {
   return (
     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <Icon className="size-3.5" aria-hidden />
@@ -1071,7 +1071,7 @@ function ToolTile({
   reference,
   children
 }: {
-  icon: typeof RiTerminalBoxLine
+  icon: typeof WindowConsoleRegular
   name: string
   reference: string
   children: ReactNode

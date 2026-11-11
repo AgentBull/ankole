@@ -1,9 +1,12 @@
 /* Code blocks: a persistent toolbar over the highlighted source (SPEC §7.6). */
 /* The frame, toolbar, and source text are the shared `code-surface`, `code-toolbar`, and `code-text` forms from
    the UI kit, which chat replies use too. */
+/* The block's line is as tall as its toolbar, so the block handle centres on the toolbar; the toolbar and the
+   source set their own lines. */
 :where(.ankole-editor) .editor-content .editor-code-block {
   @apply code-surface;
-  margin: 8px 0;
+  margin: var(--spacing-content-gap) 0;
+  line-height: 48px;
 }
 
 :where(.ankole-editor) .editor-content .editor-code-toolbar {
@@ -45,7 +48,7 @@
   white-space: nowrap;
 }
 
-:where(.ankole-editor) .editor-content .editor-code-pre {
+:where(.ankole-editor) .editor-content :is(.editor-code-pre, .editor-code-block > pre) {
   @apply code-text;
   border-radius: 0;
   background: transparent;
@@ -59,28 +62,29 @@
   overflow-wrap: anywhere;
 }
 
-/* Syntax colours. Kirari emits one class per token category; each maps to an Ankole theme token. */
+/* Syntax colours. Kirari emits one class per token category; each maps to an Ankole theme token. A category
+   takes the lightest step of its hue that keeps 4.5:1 on the code surface, so the step differs between hues. */
 :where(.ankole-editor) {
   --kirari-text: var(--foreground);
   --kirari-keyword: var(--color-purple-60);
   --kirari-variable: var(--foreground);
-  --kirari-property: var(--color-cyan-70);
+  --kirari-property: var(--color-cyan-80);
   --kirari-function: var(--color-blue-70);
-  --kirari-string: var(--color-green-70);
-  --kirari-number: var(--color-orange-60);
-  --kirari-boolean: var(--color-orange-60);
-  --kirari-null: var(--color-orange-60);
+  --kirari-string: var(--color-green-80);
+  --kirari-number: var(--color-orange-80);
+  --kirari-boolean: var(--color-orange-80);
+  --kirari-null: var(--color-orange-80);
   --kirari-comment: var(--fg-tertiary);
   --kirari-operator: var(--color-purple-70);
   --kirari-punctuation: var(--fg-secondary);
-  --kirari-type: var(--color-cyan-70);
+  --kirari-type: var(--color-cyan-80);
   --kirari-regex: var(--color-red-70);
-  --kirari-inserted: var(--color-green-70);
+  --kirari-inserted: var(--color-green-80);
   --kirari-deleted: var(--color-red-70);
   --kirari-heading: var(--color-blue-70);
   --kirari-tag: var(--color-red-70);
-  --kirari-attribute: var(--color-orange-60);
-  --kirari-entity: var(--color-yellow-60);
+  --kirari-attribute: var(--color-orange-80);
+  --kirari-entity: var(--color-yellow-90);
 }
 
 [data-theme='dark'] :where(.ankole-editor) {

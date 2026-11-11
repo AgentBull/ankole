@@ -2,7 +2,7 @@ import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Spinner } from '@ankole/uikit'
 import { uniq } from '@agentbull/active-support'
 import { revalidateLogic, useForm } from '@tanstack/react-form'
-import { RiArrowRightSLine, RiCheckLine, RiFileCopyLine, RiLoginCircleLine } from '@remixicon/react'
+import { ArrowEnterRegular, CheckmarkRegular, ChevronRightRegular, CopyRegular } from '@ankole/uikit/icons'
 import { Button } from '@ankole/uikit/components/button'
 import { Checkbox } from '@ankole/uikit/components/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit/components/collapsible'
@@ -152,7 +152,7 @@ export function SetupApp() {
                         itemState === 'current' ? 'text-foreground' : 'text-muted-foreground'
                       }`}>
                       {itemState === 'completed' ? (
-                        <RiCheckLine aria-hidden className="size-3.5" />
+                        <CheckmarkRegular aria-hidden className="size-3.5" />
                       ) : (
                         String(index + 1).padStart(2, '0')
                       )}
@@ -318,7 +318,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
             {mutation.isPending ? (
               <Spinner aria-hidden data-icon="inline-end" />
             ) : (
-              <RiArrowRightSLine data-icon="inline-end" />
+              <ChevronRightRegular data-icon="inline-end" />
             )}
           </Button>
         </div>
@@ -380,7 +380,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
       <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
         <Button disabled={!query.data || mutation.isPending} onClick={() => mutation.mutate()} type="button">
           {t('setup.save_plugins')}
-          <RiArrowRightSLine data-icon="inline-end" />
+          <ChevronRightRegular data-icon="inline-end" />
         </Button>
       </div>
     </SetupPanel>
@@ -596,9 +596,9 @@ function SSOIdentityForm({
             <Button onClick={copyCallbackURL} size="sm" type="button" variant="outline">
               {callbackCopied ? t('setup.oidc_callback_url_copied') : t('setup.oidc_callback_url_copy')}
               {callbackCopied ? (
-                <RiCheckLine aria-hidden data-icon="inline-end" />
+                <CheckmarkRegular aria-hidden data-icon="inline-end" />
               ) : (
-                <RiFileCopyLine aria-hidden data-icon="inline-end" />
+                <CopyRegular aria-hidden data-icon="inline-end" />
               )}
             </Button>
           </div>
@@ -612,7 +612,7 @@ function SSOIdentityForm({
               rel="noopener noreferrer"
               target="_blank">
               {t('setup.adapter_guide')}
-              <RiArrowRightSLine aria-hidden data-icon="inline-end" />
+              <ChevronRightRegular aria-hidden data-icon="inline-end" />
             </a>
           </div>
         </Field>
@@ -674,7 +674,7 @@ function SSOIdentityForm({
             {mutation.isPending ? (
               <Spinner aria-hidden data-icon="inline-end" />
             ) : (
-              <RiLoginCircleLine aria-hidden data-icon="inline-end" />
+              <ArrowEnterRegular aria-hidden data-icon="inline-end" />
             )}
           </Button>
         </div>

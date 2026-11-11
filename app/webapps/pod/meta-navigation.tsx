@@ -1,16 +1,23 @@
-import { cn } from '@ankole/uikit'
 import {
-  RiArrowRightSLine,
-  RiBrainLine,
-  RiDeleteBinLine,
-  RiFileTextLine,
-  RiFolderLine,
-  RiPuzzle2Line,
-  RiRobot2Line,
-  RiSettings3Line,
-  RiSparklingLine,
-  RiStarLine
-} from '@remixicon/react'
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuIcon,
+  SidebarMenuItem,
+  SidebarMenuRow,
+  SidebarMenuSub,
+  SidebarMenuToggle
+} from '@ankole/uikit'
+import {
+  BotRegular,
+  BrainRegular,
+  DeleteRegular,
+  DocumentTextRegular,
+  FolderRegular,
+  PuzzlePieceRegular,
+  SettingsRegular,
+  SparkleRegular,
+  StarRegular
+} from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import { Link, createLink, useLocation } from '@tanstack/react-router'
 import type { ComponentPropsWithRef, ReactNode } from 'react'
@@ -86,50 +93,46 @@ function MetaBranch({
   branchKey: string
   to?: string
   label: string
-  icon?: ReactNode
+  icon: ReactNode
   children: ReactNode
 }) {
   const open = expanded.has(branchKey)
   const active = to ? isMetaTargetActive(to, pathname, searchStr, activeSection) : false
   return (
-    <li className="min-w-0">
-      <div className="nav-row pod-tree-row" data-active={active ? '' : undefined}>
-        <button
-          type="button"
+    <SidebarMenuItem>
+      <SidebarMenuRow className="pod-tree-row" data-active={active ? '' : undefined}>
+        <SidebarMenuToggle
           className="pod-tree-toggle"
           aria-label={label}
           aria-expanded={open}
-          onClick={() => onToggleBranch(branchKey)}>
-          <RiArrowRightSLine aria-hidden className={cn(open && 'rotate-90')} />
-        </button>
+          onClick={() => onToggleBranch(branchKey)}
+        />
         {to ? (
-          <MetaSidebarLink
-            {...linkTarget(to)}
-            className="pod-tree-link"
-            state={{ sidebarSection: 'meta' } as never}
-            current={active}
-            activeProps={{}}
-            onClick={onNavigate}>
-            {icon}
-            <span className="min-w-0 truncate text-left" dir="auto">
-              {label}
-            </span>
-          </MetaSidebarLink>
+          <SidebarMenuButton
+            render={
+              <MetaSidebarLink
+                {...linkTarget(to)}
+                state={{ sidebarSection: 'meta' } as never}
+                current={active}
+                activeProps={{}}
+                onClick={onNavigate}
+              />
+            }
+            className="pod-tree-link">
+            <SidebarMenuIcon>{icon}</SidebarMenuIcon>
+            <span dir="auto">{label}</span>
+          </SidebarMenuButton>
         ) : (
-          <button
-            type="button"
-            className="pod-tree-link cursor-pointer text-left"
-            aria-expanded={open}
-            onClick={() => onToggleBranch(branchKey)}>
-            {icon}
-            <span className="min-w-0 truncate" dir="auto">
-              {label}
-            </span>
-          </button>
+          <SidebarMenuButton className="pod-tree-link" aria-expanded={open} onClick={() => onToggleBranch(branchKey)}>
+            <SidebarMenuIcon>{icon}</SidebarMenuIcon>
+            <span dir="auto">{label}</span>
+          </SidebarMenuButton>
         )}
-      </div>
-      {open && <ul className="pod-tree-children">{children}</ul>}
-    </li>
+      </SidebarMenuRow>
+      <SidebarMenuSub open={open} className="pod-tree-children">
+        {children}
+      </SidebarMenuSub>
+    </SidebarMenuItem>
   )
 }
 
@@ -152,20 +155,23 @@ function MetaTreeItem({
 }) {
   const active = isMetaTargetActive(to, pathname, searchStr, activeSection)
   return (
-    <li className={cn('min-w-0', className)}>
-      <div className="nav-row pod-tree-row" data-active={active ? '' : undefined}>
-        <span aria-hidden className="pod-tree-toggle-space" />
-        <MetaSidebarLink
-          {...linkTarget(to)}
-          className="pod-tree-link"
-          state={{ sidebarSection: 'meta' } as never}
-          current={active}
-          activeProps={{}}
-          onClick={onNavigate}>
+    <SidebarMenuItem className={className}>
+      <SidebarMenuRow className="pod-tree-row" data-active={active ? '' : undefined}>
+        <SidebarMenuButton
+          render={
+            <MetaSidebarLink
+              {...linkTarget(to)}
+              state={{ sidebarSection: 'meta' } as never}
+              current={active}
+              activeProps={{}}
+              onClick={onNavigate}
+            />
+          }
+          className="pod-tree-link">
           {children}
-        </MetaSidebarLink>
-      </div>
-    </li>
+        </SidebarMenuButton>
+      </SidebarMenuRow>
+    </SidebarMenuItem>
   )
 }
 
@@ -192,20 +198,15 @@ export function MetaNavigation({
     onNavigate
   }
   return (
-    <ul className="pod-tree">
-      <MetaBranch
-        branchKey="brain"
-        to="/meta/brain"
-        label={t('pod.meta.brain')}
-        icon={<RiBrainLine aria-hidden className="pod-page-icon" />}
-        {...treeProps}>
+    <SidebarMenu className="pod-tree">
+      <MetaBranch branchKey="brain" to="/meta/brain" label={t('pod.meta.brain')} icon={<BrainRegular />} {...treeProps}>
         <BrainTree {...treeProps} />
       </MetaBranch>
       <MetaBranch
         branchKey="skills"
         to="/meta/skills"
         label={t('pod.meta.skills')}
-        icon={<RiPuzzle2Line aria-hidden className="pod-page-icon" />}
+        icon={<PuzzlePieceRegular />}
         {...treeProps}>
         <SkillsTree {...treeProps} />
       </MetaBranch>
@@ -213,11 +214,11 @@ export function MetaNavigation({
         branchKey="agents"
         to="/meta/agents"
         label={t('pod.meta.agents')}
-        icon={<RiRobot2Line aria-hidden className="pod-page-icon" />}
+        icon={<BotRegular />}
         {...treeProps}>
         <AgentsTree {...treeProps} />
       </MetaBranch>
-    </ul>
+    </SidebarMenu>
   )
 }
 
@@ -233,7 +234,7 @@ function BrainTree(props: MetaTreeProps) {
           branchKey={`brain:category:${category.id}`}
           to={`/meta/brain?category=${encodeURIComponent(category.name)}`}
           label={category.name}
-          icon={<RiFolderLine aria-hidden className="pod-page-icon" />}
+          icon={<FolderRegular />}
           {...props}>
           {nodes
             .filter(node => node.slug.startsWith(`${category.name}/`))
@@ -245,14 +246,16 @@ function BrainTree(props: MetaTreeProps) {
                 searchStr={props.searchStr}
                 activeSection={props.activeSection}
                 onNavigate={props.onNavigate}>
-                <PageIcon
-                  page={{
-                    type: 'knowledge',
-                    icon: (node as { icon?: string | null }).icon ?? null,
-                    system_key: null,
-                    title: node.title
-                  }}
-                />
+                <SidebarMenuIcon>
+                  <PageIcon
+                    page={{
+                      type: 'knowledge',
+                      icon: (node as { icon?: string | null }).icon ?? null,
+                      system_key: null,
+                      title: node.title
+                    }}
+                  />
+                </SidebarMenuIcon>
                 <span className="min-w-0 truncate text-left" dir="auto">
                   <BdiLabel value={node.title} fallback={t('pod.content.untitled')} />
                 </span>
@@ -266,7 +269,9 @@ function BrainTree(props: MetaTreeProps) {
         searchStr={props.searchStr}
         activeSection={props.activeSection}
         onNavigate={props.onNavigate}>
-        <RiStarLine aria-hidden className="pod-page-icon" />
+        <SidebarMenuIcon>
+          <StarRegular />
+        </SidebarMenuIcon>
         <span className="min-w-0 truncate text-left" dir="auto">
           {t('pod.content.favorites')}
         </span>
@@ -277,7 +282,9 @@ function BrainTree(props: MetaTreeProps) {
         searchStr={props.searchStr}
         activeSection={props.activeSection}
         onNavigate={props.onNavigate}>
-        <RiDeleteBinLine aria-hidden className="pod-page-icon" />
+        <SidebarMenuIcon>
+          <DeleteRegular />
+        </SidebarMenuIcon>
         <span className="min-w-0 truncate text-left" dir="auto">
           {t('pod.content.trash')}
         </span>
@@ -294,7 +301,7 @@ function SkillsTree(props: MetaTreeProps) {
       branchKey={`skills:package:${skill.id}`}
       to={`/meta/skills/${skill.slug}`}
       label={skill.slug}
-      icon={<RiPuzzle2Line aria-hidden className="pod-page-icon" />}
+      icon={<PuzzlePieceRegular />}
       {...props}>
       <SkillFiles slug={skill.slug} {...props} />
     </MetaBranch>
@@ -328,12 +335,7 @@ function SkillFileTree({
     const children = paths.filter(candidate => candidate.startsWith(`${path}/`))
     const to = `/meta/skills/${slug}?file=${encodeURIComponent(path)}`
     return children.length > 0 ? (
-      <MetaBranch
-        key={path}
-        branchKey={`skills:dir:${slug}:${path}`}
-        label={name}
-        icon={<RiFolderLine aria-hidden className="pod-page-icon" />}
-        {...props}>
+      <MetaBranch key={path} branchKey={`skills:dir:${slug}:${path}`} label={name} icon={<FolderRegular />} {...props}>
         <SkillFileTree slug={slug} paths={children} prefix={`${path}/`} {...props} />
       </MetaBranch>
     ) : (
@@ -344,7 +346,9 @@ function SkillFileTree({
         searchStr={props.searchStr}
         activeSection={props.activeSection}
         onNavigate={props.onNavigate}>
-        <RiFileTextLine aria-hidden className="pod-page-icon" />
+        <SidebarMenuIcon>
+          <DocumentTextRegular />
+        </SidebarMenuIcon>
         <span className="min-w-0 truncate text-left" dir="auto">
           {name}
         </span>
@@ -367,9 +371,11 @@ function AgentsTree({ pathname, searchStr, activeSection, onNavigate }: MetaTree
           searchStr={searchStr}
           activeSection={activeSection}
           onNavigate={onNavigate}>
-          <span className="pod-conversation-glyph" data-size="sm">
-            <ChatAvatar name={agent.display_name} src={agent.avatar_url} agent />
-          </span>
+          <SidebarMenuIcon>
+            <span className="pod-conversation-glyph" data-size="sm">
+              <ChatAvatar name={agent.display_name} src={agent.avatar_url} agent />
+            </span>
+          </SidebarMenuIcon>
           <span className="min-w-0 truncate text-left" dir="auto">
             {agent.display_name}
           </span>
@@ -382,7 +388,9 @@ function AgentsTree({ pathname, searchStr, activeSection, onNavigate }: MetaTree
         searchStr={searchStr}
         activeSection={activeSection}
         onNavigate={onNavigate}>
-        <RiSparklingLine aria-hidden className="pod-page-icon" />
+        <SidebarMenuIcon>
+          <SparkleRegular />
+        </SidebarMenuIcon>
         <span className="min-w-0 truncate text-left" dir="auto">
           {t('pod.meta.assistant')}
         </span>
@@ -393,7 +401,9 @@ function AgentsTree({ pathname, searchStr, activeSection, onNavigate }: MetaTree
         searchStr={searchStr}
         activeSection={activeSection}
         onNavigate={onNavigate}>
-        <RiSettings3Line aria-hidden className="pod-page-icon" />
+        <SidebarMenuIcon>
+          <SettingsRegular />
+        </SidebarMenuIcon>
         <span className="min-w-0 truncate text-left" dir="auto">
           {t('pod.meta.global')}
         </span>

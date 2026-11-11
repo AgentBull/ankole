@@ -3,7 +3,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: 36px minmax(220px, min(520px, 60vh));
-  margin: 8px 0;
+  margin: var(--spacing-content-gap) 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--editor-pre-bg);
@@ -181,7 +181,7 @@
   --pele-surface: #f8f8f8;
   --pele-surface-alt: #e0e0e0;
   --pele-border: #d3d3d3;
-  --pele-accent: #1561ff;
+  --pele-accent: #2e6eeb;
 }
 
 :where(.ankole-editor) .editor-content .mermaid-block[data-theme='dark'] .mermaid-preview {
@@ -194,7 +194,7 @@
   --pele-surface: #000000;
   --pele-surface-alt: #424242;
   --pele-border: #5e5e5e;
-  --pele-accent: #77a9ff;
+  --pele-accent: #76a6ff;
 }
 
 /* Mermaid menus and the expanded diagram. */
@@ -356,7 +356,7 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   --pele-surface: #f8f8f8;
   --pele-surface-alt: #e0e0e0;
   --pele-border: #d3d3d3;
-  --pele-accent: #1561ff;
+  --pele-accent: #2e6eeb;
 }
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview[data-theme='dark'] {
@@ -369,13 +369,13 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   --pele-surface: #000000;
   --pele-surface-alt: #424242;
   --pele-border: #5e5e5e;
-  --pele-accent: #77a9ff;
+  --pele-accent: #76a6ff;
 }
 
 :where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid {
   display: flex;
   justify-content: center;
-  margin: 8px 0;
+  margin: var(--spacing-content-gap) 0;
   padding: 16px;
   overflow: auto;
   border: 1px solid var(--border);
@@ -414,7 +414,7 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   --pele-surface: #f8f8f8;
   --pele-surface-alt: #e0e0e0;
   --pele-border: #d3d3d3;
-  --pele-accent: #1561ff;
+  --pele-accent: #2e6eeb;
 }
 
 :where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid[data-theme='dark'] {
@@ -427,7 +427,7 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   --pele-surface: #000000;
   --pele-surface-alt: #424242;
   --pele-border: #5e5e5e;
-  --pele-accent: #77a9ff;
+  --pele-accent: #76a6ff;
 }
 
 :where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid > pre {

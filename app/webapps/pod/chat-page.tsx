@@ -442,7 +442,6 @@ export function ChatPage({
       agentUID={agentUID}
       detail={data}
       commands={commands}
-      variant={conversationID ? 'compact' : 'hero'}
       onInvite={() => setSharing(true)}
       onRename={() => setRenaming(true)}
       onSummary={() => changeSummary(true)}

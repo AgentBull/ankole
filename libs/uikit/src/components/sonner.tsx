@@ -1,7 +1,7 @@
 import { useTheme } from './theme-provider'
 import { Spinner } from './spinner'
 import { Toaster as Sonner, toast, type ToasterProps } from 'sonner'
-import { RiCheckboxCircleLine, RiInformationLine, RiErrorWarningLine, RiCloseCircleLine } from '@remixicon/react'
+import { CheckmarkCircleRegular, DismissCircleRegular, ErrorCircleRegular, InfoRegular } from '../icons'
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = 'system' } = useTheme()
@@ -14,10 +14,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
       offset={{ bottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}
       mobileOffset={{ bottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}
       icons={{
-        success: <RiCheckboxCircleLine className="size-4" />,
-        info: <RiInformationLine className="size-4" />,
-        warning: <RiErrorWarningLine className="size-4" />,
-        error: <RiCloseCircleLine className="size-4" />,
+        success: <CheckmarkCircleRegular className="size-4" />,
+        info: <InfoRegular className="size-4" />,
+        warning: <ErrorCircleRegular className="size-4" />,
+        error: <DismissCircleRegular className="size-4" />,
         loading: <Spinner aria-hidden className="size-4" />
       }}
       style={

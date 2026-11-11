@@ -1,23 +1,30 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
-import { Button, toast, useReducedMotion } from '@ankole/uikit'
+import { Button, CopyIcon, toast, useReducedMotion } from '@ankole/uikit'
 import {
-  RiCheckboxMultipleLine,
-  RiDoubleQuotesL,
-  RiEditLine,
-  RiFileCopyLine,
-  RiFlashlightLine,
-  RiRestartLine
-} from '@remixicon/react'
+  ArrowCounterclockwiseRegular,
+  CheckmarkCircleRegular,
+  EditRegular,
+  FlashRegular,
+  TextQuoteRegular
+} from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
+import { messageTime } from './timeline-projections'
 
 const actionButton = 'motion-safe:active:scale-none!'
 const actionIcon =
   'motion-safe:[transition:transform_160ms_cubic-bezier(.32,.72,.24,1)] motion-safe:group-active/button:transform-[scale(.9)] motion-reduce:transition-none'
-const copyLayer =
-  '[grid-area:1/1] opacity-0 data-visible:opacity-100 motion-safe:transform-[scale(.6)] motion-safe:blur-[2px] motion-safe:data-visible:transform-none motion-safe:data-visible:blur-none motion-safe:[transition:opacity_200ms_ease,transform_300ms_cubic-bezier(.32,.72,.24,1),filter_200ms_ease] motion-reduce:transition-none'
 
+/**
+ * The actions of a message and the time it was sent: select, quote, copy, then save as Skill, edit, and retry when
+ * they apply, as 32px buttons 6px apart. The time sits on the inner side of the row: after the actions under a
+ * message on the left, and before them (`timeFirst`) under the reader's own message on the right. The row always
+ * takes its place under the message, so showing it never moves the timeline: the latest reply shows it, and an
+ * earlier message shows it while the pointer or keyboard focus is on that message.
+ */
 export function MessageActions({
   text,
+  time,
+  timeFirst = false,
   onQuote,
   onSaveAsSkill,
   onSelectMessage,
@@ -27,6 +34,10 @@ export function MessageActions({
   alwaysVisible = false
 }: {
   text: string
+  /** When the message was sent. */
+  time?: string
+  /** States the time before the actions instead of after them. */
+  timeFirst?: boolean
   onQuote?: (text: string) => void
   onSaveAsSkill?: () => void
   onSelectMessage?: () => void
@@ -35,58 +46,36 @@ export function MessageActions({
   onRetry?: () => void
   alwaysVisible?: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [copied, markCopied] = useCopyFeedback(false, 1600)
   const reducedMotion = useReducedMotion()
+  const sentAt = time && (
+    <time className="pod-chat-message-time" dateTime={time} title={new Date(time).toLocaleString(i18n.language)}>
+      {messageTime(time, i18n.language)}
+    </time>
+  )
   return (
     <div
       className="pod-chat-message-actions motion-safe:[transition:opacity_240ms_ease] motion-reduce:transition-none"
       data-visible={alwaysVisible || !!onRetry || undefined}
       role="group"
       aria-label={t('pod.chat_timeline.message_actions')}>
-      {!!text && (
+      {timeFirst && sentAt}
+      {onSelectMessage && (
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-md"
           className={actionButton}
-          title={t(copied ? 'pod.chat.message_copied' : 'pod.chat.copy_message')}
-          aria-label={t(copied ? 'pod.chat.message_copied' : 'pod.chat.copy_message')}
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(text)
-              markCopied(true)
-            } catch {
-              toast.error(t('pod.chat.copy_failed'))
-            }
-          }}>
-          <span aria-hidden className={`grid size-3.5 place-items-center ${actionIcon}`}>
-            <RiFileCopyLine data-visible={!copied || undefined} className={copyLayer} />
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              data-visible={copied || undefined}
-              className={copyLayer}>
-              <path
-                d="M5 12l4 4L19 6"
-                pathLength={1}
-                strokeDasharray={1}
-                strokeDashoffset={copied ? 0 : 1}
-                className={`motion-reduce:transition-none ${
-                  copied ? 'motion-safe:[transition:stroke-dashoffset_340ms_cubic-bezier(.32,.72,.24,1)_60ms]' : ''
-                }`}
-              />
-            </svg>
-          </span>
+          title={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
+          aria-label={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
+          onClick={onSelectMessage}>
+          <CheckmarkCircleRegular aria-hidden className={actionIcon} />
         </Button>
       )}
       {onQuote && !!text && (
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-md"
           className={actionButton}
           title={t('pod.chat_timeline.quote_reply')}
           aria-label={t('pod.chat_timeline.quote_reply')}
@@ -99,35 +88,42 @@ export function MessageActions({
                 : ''
             onQuote(selected.trim() ? selected : text)
           }}>
-          <RiDoubleQuotesL aria-hidden className={actionIcon} />
+          <TextQuoteRegular aria-hidden className={actionIcon} />
+        </Button>
+      )}
+      {!!text && (
+        <Button
+          variant="ghost"
+          size="icon-md"
+          className={actionButton}
+          title={t(copied ? 'pod.chat.message_copied' : 'pod.chat.copy_message')}
+          aria-label={t(copied ? 'pod.chat.message_copied' : 'pod.chat.copy_message')}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(text)
+              markCopied(true)
+            } catch {
+              toast.error(t('pod.chat.copy_failed'))
+            }
+          }}>
+          <CopyIcon copied={copied} className={`size-5 ${actionIcon}`} />
         </Button>
       )}
       {onSaveAsSkill && !!text && (
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-md"
           className={actionButton}
           title={t('pod.chat_timeline.save_as_skill', { defaultValue: 'Save as Skill (/learn)' })}
           aria-label={t('pod.chat_timeline.save_as_skill', { defaultValue: 'Save as Skill (/learn)' })}
           onClick={onSaveAsSkill}>
-          <RiFlashlightLine aria-hidden className={actionIcon} />
-        </Button>
-      )}
-      {onSelectMessage && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className={actionButton}
-          title={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
-          aria-label={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
-          onClick={onSelectMessage}>
-          <RiCheckboxMultipleLine aria-hidden className={actionIcon} />
+          <FlashRegular aria-hidden className={actionIcon} />
         </Button>
       )}
       {onEdit && (
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-md"
           title={`${editDisabledReason || t('pod.chat.edit_last')} · ${t('pod.chat.retry_keeps_artifacts')}`}
           aria-label={t('pod.chat.edit_last')}
           aria-description={editDisabledReason}
@@ -135,7 +131,7 @@ export function MessageActions({
           focusableWhenDisabled
           className={`${actionButton} ${editDisabledReason ? 'opacity-45' : ''}`}
           onClick={onEdit}>
-          <RiEditLine aria-hidden className={actionIcon} />
+          <EditRegular aria-hidden className={actionIcon} />
         </Button>
       )}
       {onRetry && (
@@ -153,10 +149,11 @@ export function MessageActions({
             }
             onRetry()
           }}>
-          <RiRestartLine aria-hidden className={actionIcon} />
+          <ArrowCounterclockwiseRegular aria-hidden className={actionIcon} />
           {t('pod.chat.retry_reply')}
         </Button>
       )}
+      {!timeFirst && sentAt}
     </div>
   )
 }

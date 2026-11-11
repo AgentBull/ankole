@@ -10,7 +10,7 @@
 .ankole-editor-overlay {
   font-family: var(--font-family-sans);
   color: var(--foreground);
-  font-size: 16px;
+  font-size: var(--text-100);
   -webkit-font-smoothing: antialiased;
   --editor-selection-bg: var(--selection);
   --editor-scrollbar-thumb: var(--border-strong);
@@ -25,8 +25,8 @@
   --editor-h1: var(--foreground);
   --editor-h2: var(--foreground);
   --editor-pre-bg: var(--layer-01);
-  --editor-quote-border: var(--foreground);
-  --editor-quote-fg: var(--foreground);
+  --editor-quote-border: var(--layer-03);
+  --editor-quote-fg: var(--fg-secondary);
   --editor-task-border: var(--border-strong);
   --editor-task-done-fg: var(--fg-tertiary);
   --editor-task-done-bg: var(--foreground);
@@ -86,15 +86,23 @@
 .ankole-editor .editor-view > wg-scroller {
   overflow: visible;
 }
-/* Body text is 16px like Notion, with a 28px line: CJK text needs more leading than Notion's 1.5.
-   Blocks sit 4px apart, so consecutive paragraphs, list items, and to-dos keep one rhythm. */
+/* Body text is the theme's 16px step on its 24px line. Blocks stack 12px apart (`--spacing-content-gap`): each
+   block carries that gap as its vertical margin, the margins of neighbours collapse into one gap, and a block that
+   asks for more room, such as a heading, sets a larger margin. The first block starts at the top of the content
+   and the last block ends at its bottom. */
 .ankole-editor .editor-content {
   outline: none;
   padding: 0;
-  font-size: 16px;
-  line-height: 1.75;
+  font-size: var(--text-100);
+  line-height: var(--text-100--line-height);
   min-height: var(--editor-min-height, 420px);
   color: var(--editor-ink);
+}
+.ankole-editor .editor-content > :first-child {
+  margin-block-start: 0;
+}
+.ankole-editor .editor-content > :last-child {
+  margin-block-end: 0;
 }
 /* The paragraph hint is out of the line, so that it is not page text and does not move the caret. */
 .ankole-editor .editor-content[contenteditable='true'] p[data-placeholder]::before {
@@ -135,26 +143,27 @@
 
 /* Blocks */
 
+/* Headings take the content type roles: one to three keep twice the block gap above them, four to six one gap. */
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
   h1:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-size: var(--text-500);
+  font-weight: 700;
+  line-height: var(--text-500--line-height);
   color: var(--editor-h1);
-  margin: 32px 0 4px;
+  margin: calc(var(--spacing-content-gap) * 2) 0 var(--spacing-content-gap);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
   h2:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  font-size: 22px;
+  font-size: var(--text-400);
   font-weight: 600;
-  line-height: 1.35;
-  margin: 24px 0 4px;
+  line-height: var(--text-400--line-height);
+  margin: calc(var(--spacing-content-gap) * 2) 0 var(--spacing-content-gap);
   color: var(--editor-h2);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -162,10 +171,10 @@
   h3:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  font-size: 18px;
+  font-size: var(--text-300);
   font-weight: 600;
-  line-height: 1.4;
-  margin: 20px 0 4px;
+  line-height: var(--text-300--line-height);
+  margin: calc(var(--spacing-content-gap) * 2) 0 var(--spacing-content-gap);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
@@ -173,36 +182,30 @@
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
   font-weight: 600;
-  line-height: 1.5;
-  margin: 16px 0 4px;
+  margin: var(--spacing-content-gap) 0;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
   h4:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  font-size: 16px;
+  font-size: var(--text-200);
+  line-height: var(--text-200--line-height);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
-  h5:not(
+  :is(h5, h6):not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  font-size: 15px;
-}
-:where(.ankole-editor, .ankole-editor-overlay)
-  .editor-content
-  h6:not(
-    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
-  ) {
-  font-size: 14px;
+  font-size: var(--text-100);
+  line-height: var(--text-100--line-height);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
   p:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  margin: 4px 0;
+  margin: var(--spacing-content-gap) 0;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
@@ -237,22 +240,22 @@
   pre:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
+  @apply code-text;
   display: block;
-  font: 14px/1.6 var(--font-family-mono);
   white-space: pre-wrap;
-  padding: 16px 20px;
   background: var(--editor-pre-bg);
-  margin: 8px 0;
+  margin: var(--spacing-content-gap) 0;
   border-radius: var(--radius-control);
 }
+/* A quote keeps 8px inside the block gap above and below it, so its 2px rule spans only its text. */
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
   blockquote:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  margin: 8px 0;
-  padding: 0 14px;
-  border-left: 3px solid var(--editor-quote-border);
+  margin: calc(var(--spacing-content-gap) + 8px) 0;
+  padding: 0 0 0 16px;
+  border-left: 2px solid var(--editor-quote-border);
   color: var(--editor-quote-fg);
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -260,7 +263,7 @@
   :is(ul, ol):not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  margin: 4px 0;
+  margin: var(--spacing-content-gap) 0;
   padding-left: 26px;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
@@ -300,16 +303,26 @@
   ) {
   margin: 0;
 }
-/* A task item shows a check box in its left padding. Read-only task items show the same box. */
+/* A task item is a 36px row: its first line keeps 6px above and below it inside the item, and the 18px check box
+   sits in the item's left padding, 8px before the text. Read-only task items show the same box. */
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
   li[data-task]:not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
   position: relative;
+  display: flow-root;
   list-style: none;
   padding-left: 26px;
   margin-left: -26px;
+}
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task]
+  > p:first-child:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
+  margin-block: 6px;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
@@ -318,10 +331,10 @@
   )::before {
   content: '';
   position: absolute;
-  left: 2px;
-  top: 6px;
-  width: 16px;
-  height: 16px;
+  left: 0;
+  top: 9px;
+  width: 18px;
+  height: 18px;
   border: 1px solid var(--editor-task-border);
   border-radius: var(--radius-mini);
 }
@@ -355,10 +368,10 @@
   )::after {
   content: '';
   position: absolute;
-  left: 7.5px;
-  top: 9px;
+  left: 6.5px;
+  top: 12.5px;
   width: 5px;
-  height: 8px;
+  height: 9px;
   border-right: 1.5px solid var(--editor-task-check);
   border-bottom: 1.5px solid var(--editor-task-check);
   transform: rotate(45deg);
@@ -370,7 +383,7 @@
   ) {
   border: 0;
   border-top: 1px solid var(--editor-hr);
-  margin: 16px 0;
+  margin: var(--spacing-content-gap) 0;
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
@@ -440,24 +453,13 @@
   @apply code-inline;
   color: var(--editor-code-fg);
 }
+/* A link is uikit's `link`: ink text with a gray-60 underline that darkens under the pointer. */
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
   :is(a, .read-only-link):not(
     :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
   ) {
-  color: var(--foreground);
-  text-decoration-line: underline;
-  text-decoration-color: var(--border-strong);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-/* A link is ink text with an underline, as uikit's `link`; the underline darkens under the pointer. */
-:where(.ankole-editor, .ankole-editor-overlay)
-  .editor-content
-  :is(a, .read-only-link):not(
-    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
-  ):hover {
-  text-decoration-color: currentColor;
+  @apply link;
 }
 
 /* Inline mentions: page references flow and wrap like text links; principal mentions stay atomic pills. */
@@ -472,7 +474,7 @@
   padding-inline: 2px;
   border-radius: var(--radius-control);
   text-decoration-line: underline;
-  text-decoration-color: var(--border-strong);
+  text-decoration-color: var(--divider-strong);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   cursor: pointer;
@@ -506,7 +508,7 @@
 /* Read-only elements (SPEC §7.4): known elements use the styles above. */
 
 :where(.ankole-editor, .ankole-editor-overlay) .read-only-block {
-  margin: 12px 0;
+  margin: var(--spacing-content-gap) 0;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .unknown-element {
   border-radius: 3px;
@@ -518,7 +520,7 @@
 :where(.ankole-editor, .ankole-editor-overlay) div.unknown-element {
   border: 1px dashed var(--editor-unknown-border);
   padding: 22px 14px 8px;
-  margin: 12px 0;
+  margin: var(--spacing-content-gap) 0;
   position: relative;
 }
 :where(.ankole-editor, .ankole-editor-overlay) div.unknown-element::before {
@@ -533,10 +535,4 @@
 /* Readers share document typography while their contents determine the height. */
 .knowledge-reader .editor-content {
   min-height: 0;
-}
-.knowledge-reader .editor-content > :first-child {
-  margin-block-start: 0;
-}
-.knowledge-reader .editor-content > :last-child {
-  margin-block-end: 0;
 }

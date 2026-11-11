@@ -1,16 +1,16 @@
 import { Button, cn, Spinner, Toggle, toast, useIsMobile } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
-  RiArrowLeftSLine,
-  RiArrowRightSLine,
-  RiFileCopyLine,
-  RiFilePdf2Line,
-  RiLayoutLeftLine,
-  RiSearchLine,
-  RiSlideshowLine,
-  RiZoomInLine,
-  RiZoomOutLine
-} from '@remixicon/react'
+  ChevronLeftRegular,
+  ChevronRightRegular,
+  CopyRegular,
+  DocumentPdfRegular,
+  PanelLeftRegular,
+  SearchRegular,
+  SlidePlayRegular,
+  ZoomInRegular,
+  ZoomOutRegular
+} from '@ankole/uikit/icons'
 import { t } from 'i18next'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { downloadBlob, readPrefix } from '../../common/browser-files'
@@ -503,7 +503,7 @@ function PresentationPreviewWorkspace({
             title={t('pod.presentation.toggle_slides_rail')}
             pressed={railOpen}
             onPressedChange={() => setRailOpen(prev => !prev)}>
-            <RiLayoutLeftLine />
+            <PanelLeftRegular />
           </Toggle>
 
           <Button
@@ -513,7 +513,7 @@ function PresentationPreviewWorkspace({
             title={t('pod.presentation.previous_slide')}
             disabled={activeSlideIndex <= 0}
             onClick={() => void goToSlide(activeSlideIndex - 1)}>
-            <RiArrowLeftSLine />
+            <ChevronLeftRegular />
           </Button>
 
           <span role="status" className="px-1 text-xs font-medium tabular-nums text-fg-secondary">
@@ -532,7 +532,7 @@ function PresentationPreviewWorkspace({
             title={t('pod.presentation.next_slide')}
             disabled={activeSlideIndex >= slides.length - 1}
             onClick={() => void goToSlide(activeSlideIndex + 1)}>
-            <RiArrowRightSLine />
+            <ChevronRightRegular />
           </Button>
 
           <div className="ml-auto flex flex-wrap items-center gap-0.5">
@@ -542,7 +542,7 @@ function PresentationPreviewWorkspace({
               aria-label={t('pod.office.zoom_out')}
               title={t('pod.office.zoom_out')}
               onClick={() => handleZoomStep(-1)}>
-              <RiZoomOutLine />
+              <ZoomOutRegular />
             </Button>
             <Button
               size="xs"
@@ -559,7 +559,7 @@ function PresentationPreviewWorkspace({
               aria-label={t('pod.office.zoom_in')}
               title={t('pod.office.zoom_in')}
               onClick={() => handleZoomStep(1)}>
-              <RiZoomInLine />
+              <ZoomInRegular />
             </Button>
 
             <Button
@@ -568,7 +568,7 @@ function PresentationPreviewWorkspace({
               aria-label={t('pod.office.find')}
               title={t('pod.office.find')}
               onClick={() => setFindOpen(true)}>
-              <RiSearchLine />
+              <SearchRegular />
             </Button>
 
             <Button
@@ -578,7 +578,7 @@ function PresentationPreviewWorkspace({
               title={t('pod.office.copy')}
               disabled={!hasSelection}
               onClick={() => void handleCopy()}>
-              <RiFileCopyLine />
+              <CopyRegular />
             </Button>
 
             <Button
@@ -588,7 +588,7 @@ function PresentationPreviewWorkspace({
               title={exportingPdf ? t('pod.office.exporting_pdf') : t('pod.office.download_pdf')}
               disabled={exportingPdf || slides.length === 0}
               onClick={() => void handleDownloadPdf()}>
-              {exportingPdf ? <Spinner className="size-4" /> : <RiFilePdf2Line />}
+              {exportingPdf ? <Spinner className="size-4" /> : <DocumentPdfRegular />}
             </Button>
 
             <Button
@@ -598,7 +598,7 @@ function PresentationPreviewWorkspace({
               title={t('pod.presentation.present')}
               disabled={slides.length === 0}
               onClick={() => setPresentOpen(true)}>
-              <RiSlideshowLine />
+              <SlidePlayRegular />
               <span className="hidden sm:inline">{t('pod.presentation.present')}</span>
             </Button>
           </div>

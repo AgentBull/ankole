@@ -176,7 +176,8 @@ test('dragging a block changes document order and can be undone', async ({ page 
   await paragraphs.first().hover()
   const handle = page.getByRole('button', { name: 'Block 菜单', exact: true })
   await expect(handle).toHaveAttribute('draggable', 'true')
-  await handle.dragTo(paragraphs.last(), { targetPosition: { x: 20, y: 24 } })
+  // The lower half of the last paragraph's 24px line drops the block after it.
+  await handle.dragTo(paragraphs.last(), { targetPosition: { x: 20, y: 18 } })
   await expect(paragraphs).toHaveText(['Second', 'Third', 'First'])
   await page.getByRole('button', { name: '撤销', exact: true }).click()
   await expect(paragraphs).toHaveText(['First', 'Second', 'Third'])

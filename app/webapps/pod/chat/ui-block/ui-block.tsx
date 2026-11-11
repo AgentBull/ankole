@@ -33,7 +33,7 @@ export default function UIBlock({
     <div
       {...EXTERNAL_TRANSLATION_GUARD_ATTRS}
       data-testid="chat-ui-block"
-      className={withExternalTranslationGuardClass('pod-chat-ui-block my-3')}>
+      className={withExternalTranslationGuardClass('pod-chat-ui-block')}>
       <JSONUIProvider registry={uiBlockRegistry} store={store} handlers={handlers}>
         <Renderer spec={spec} registry={uiBlockRegistry} loading={streaming} />
       </JSONUIProvider>

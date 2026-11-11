@@ -13,7 +13,7 @@ import {
 } from '@ankole/uikit'
 import { formatMetricValue, useAggregate, useRecords } from '@ankole/applet-sdk'
 import type { AggregateGroup, BaseRecord } from '@ankole/applet-sdk/types'
-import { RiExpandDiagonalLine, RiRefreshLine } from '@remixicon/react'
+import { ArrowClockwiseRegular, ArrowMaximizeRegular } from '@ankole/uikit/icons'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
 import { ContentError, ContentSkeleton } from './content-primitives'
@@ -633,7 +633,7 @@ function ChartDrilldownDialog(
               })}
             </span>
             <Button size="xs" variant="ghost" onClick={props.onRefreshAggregate}>
-              <RiRefreshLine aria-hidden="true" />
+              <ArrowClockwiseRegular aria-hidden="true" />
               {t('pod.content.refresh_chart', { defaultValue: 'Refresh chart' })}
             </Button>
           </div>
@@ -675,7 +675,7 @@ function ChartDrilldownDialog(
                     aria-label={t('pod.content.record_details')}
                     title={t('pod.content.record_details')}
                     onClick={() => setSelectedRecordId(record.id)}>
-                    <RiExpandDiagonalLine aria-hidden="true" />
+                    <ArrowMaximizeRegular aria-hidden="true" />
                   </Button>
                 </div>
               ))

@@ -1,5 +1,5 @@
 ---
-import { RiGithubFill, RiMenuLine } from '@remixicon/react'
+import { BranchForkRegular, NavigationRegular } from '@ankole/uikit/icons'
 import logo from '../assets/logo.svg'
 import { GITHUB_URL, getSiteTitle } from '../consts'
 import { LOCALE_LABELS, LOCALES, type Locale } from '../i18n/config'
@@ -42,7 +42,7 @@ const navLinkActiveClass = 'text-foreground'
 		<nav class="ml-6 hidden items-center gap-1 sm:flex">
 			<a href={docsHref} class:list={[navLinkClass, docsActive && navLinkActiveClass]}>{t(lang, 'nav.docs')}</a>
 			<a href={GITHUB_URL} target="_blank" rel="noreferrer" class={navLinkClass}>
-				<RiGithubFill className="mr-1.5 size-4" />
+				<BranchForkRegular className="mr-1.5 size-4" />
 				{t(lang, 'nav.github')}
 			</a>
 		</nav>
@@ -60,7 +60,7 @@ const navLinkActiveClass = 'text-foreground'
 				class="inline-flex size-9 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:hidden"
 			>
 				<span class="sr-only">{t(lang, 'nav.menu')}</span>
-				<RiMenuLine className="size-5" aria-hidden="true" />
+				<NavigationRegular className="size-5" aria-hidden="true" />
 			</label>
 		</div>
 	</div>
@@ -70,7 +70,7 @@ const navLinkActiveClass = 'text-foreground'
 		<div class="flex flex-col px-4 py-2">
 			<a href={docsHref} class:list={[navLinkClass, docsActive && navLinkActiveClass]}>{t(lang, 'nav.docs')}</a>
 			<a href={GITHUB_URL} target="_blank" rel="noreferrer" class={navLinkClass}>
-				<RiGithubFill className="mr-1.5 size-4" />
+				<BranchForkRegular className="mr-1.5 size-4" />
 				{t(lang, 'nav.github')}
 			</a>
 		</div>

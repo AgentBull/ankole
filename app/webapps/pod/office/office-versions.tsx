@@ -9,7 +9,7 @@ import {
   DrawerTrigger,
   toast
 } from '@ankole/uikit'
-import { RiHistoryLine } from '@remixicon/react'
+import { HistoryRegular } from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -51,7 +51,7 @@ export function OfficeVersions({ pageID }: { pageID: string }) {
             title={t('pod.office.version_history')}
           />
         }>
-        <RiHistoryLine />
+        <HistoryRegular />
       </DrawerTrigger>
       <DrawerContent aria-label={t('pod.office.version_history')}>
         <DrawerHeader className="border-b border-border p-5">

@@ -20,7 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiAddLine, RiEqualizerLine } from '@remixicon/react'
+import { AddRegular, OptionsRegular } from '@ankole/uikit/icons'
 import { FieldEditorModel, fieldHasStoredValues } from './state/field-editor'
 import { requestErrorCode } from '../common/request-errors'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -214,13 +214,13 @@ export function FieldEditorButton({
         render={<Button size={iconOnly ? 'icon-xs' : 'sm'} variant="ghost" aria-label={iconLabel} title={iconLabel} />}>
         {iconOnly ? (
           field ? (
-            <RiEqualizerLine aria-hidden="true" />
+            <OptionsRegular aria-hidden="true" />
           ) : (
-            <RiAddLine aria-hidden="true" />
+            <AddRegular aria-hidden="true" />
           )
         ) : (
           <>
-            {!field && <RiAddLine aria-hidden="true" />}
+            {!field && <AddRegular aria-hidden="true" />}
             <span className="truncate">{field ? field.name : t('pod.content.add_field')}</span>
           </>
         )}

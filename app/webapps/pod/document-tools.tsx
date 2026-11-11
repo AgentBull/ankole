@@ -11,15 +11,15 @@ import {
   toast
 } from '@ankole/uikit'
 import {
-  RiBarChartBoxLine,
-  RiChatQuoteLine,
-  RiHistoryLine,
-  RiDownloadLine,
-  RiFileCopyLine,
-  RiHashtag,
-  RiMarkdownLine,
-  RiText
-} from '@remixicon/react'
+  ArrowDownloadRegular,
+  CopyRegular,
+  DataHistogramRegular,
+  HistoryRegular,
+  MarkdownRegular,
+  NumberSymbolRegular,
+  TextQuoteRegular,
+  TextTRegular
+} from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, type RefObject } from 'react'
@@ -108,17 +108,17 @@ export function DocumentMenuItems({
     <>
       <DropdownMenuSeparator />
       <DropdownMenuItem onClick={openComments}>
-        <RiChatQuoteLine aria-hidden />
+        <TextQuoteRegular aria-hidden />
         {t('pod.document.comments')}
       </DropdownMenuItem>
       {openHistory && (
         <DropdownMenuItem onClick={openHistory}>
-          <RiHistoryLine aria-hidden />
+          <HistoryRegular aria-hidden />
           {t('pod.document.history')}
         </DropdownMenuItem>
       )}
       <DropdownMenuItem onClick={openInsights} aria-keyshortcuts="Meta+Shift+I Control+Shift+I">
-        <RiBarChartBoxLine aria-hidden />
+        <DataHistogramRegular aria-hidden />
         {t('pod.document.insights')}
         <DropdownMenuShortcut>{shortcut}I</DropdownMenuShortcut>
       </DropdownMenuItem>
@@ -127,35 +127,35 @@ export function DocumentMenuItems({
           checked={model.showStats.value}
           onCheckedChange={model.setShowStats}
           aria-keyshortcuts="Meta+Shift+G Control+Shift+G">
-          <RiHashtag aria-hidden />
+          <NumberSymbolRegular aria-hidden />
           {t('pod.document.show_editing_stats')}
           <DropdownMenuShortcut>{shortcut}G</DropdownMenuShortcut>
         </DropdownMenuCheckboxItem>
       )}
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>
-          <RiDownloadLine aria-hidden />
+          <ArrowDownloadRegular aria-hidden />
           {t('pod.document.export')}
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           <DropdownMenuItem onClick={download}>
-            <RiMarkdownLine aria-hidden />
+            <MarkdownRegular aria-hidden />
             Markdown
           </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>
-          <RiFileCopyLine aria-hidden />
+          <CopyRegular aria-hidden />
           {t('pod.document.copy')}
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           <DropdownMenuItem onClick={() => void copy('markdown')}>
-            <RiMarkdownLine aria-hidden />
+            <MarkdownRegular aria-hidden />
             {t('pod.document.copy_markdown')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => void copy('text')}>
-            <RiText aria-hidden />
+            <TextTRegular aria-hidden />
             {t('pod.document.copy_text')}
           </DropdownMenuItem>
         </DropdownMenuSubContent>

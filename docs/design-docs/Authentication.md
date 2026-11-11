@@ -140,6 +140,20 @@ OTP challenge endpoint; that slot's attempt state supplies extra request headers
 when sending or resending a code (see
 [Webapp entries and slots](Plugins.md#webapp-entries-and-slots)).
 
+The email code form shows the state of each attempt in the code field itself.
+The form moves between its email step and its code step in place: the card
+glides to the height of the new step, the step fades in, and the code field
+takes keyboard focus as soon as it can be typed in. While the control plane
+checks a code, the field is disabled and a band of light crosses its slots.
+When the control plane rejects the code with `invalid_code`, the form empties
+the field, marks it invalid, and returns focus to it, because a rejected code
+cannot be edited into the right one; the error message stays until the person
+types. When the control plane accepts the code, the field takes the success
+mark and the form stays busy until the browser leaves for the return address.
+The person submits a code with the verify button; the form does not submit a
+complete code on its own. With reduced motion enabled, each state appears at
+once.
+
 ## Email transport and setup
 
 `Ankole.Authn.Mailer` delivers verification codes and Pod invitations through

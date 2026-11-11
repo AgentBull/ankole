@@ -25,6 +25,8 @@ type ClarifyView = {
   canCompose: boolean
   shortcuts: boolean
   readOnlyReason?: string
+  /** The question was answered while the card was on screen, so the outcome arrives instead of being there. */
+  fresh: boolean
 }
 
 /**
@@ -123,6 +125,7 @@ function clarifySpec(view: ClarifyView, t: ReturnType<typeof useTranslation>['t'
         interaction.state === 'answered' &&
           add('answered', 'Outcome', {
             icon: 'check',
+            fresh: view.fresh,
             avatar: Array.from(answeredBy)[0],
             text: [t('pod.chat_timeline.answered_by', { name: answeredBy }), answerLabel].filter(Boolean).join(' · ')
           }),
@@ -184,6 +187,7 @@ export function ChoiceCard({
   const choices = prompt.choices
   const fields = (prompt.fields ?? []) as ClarifyField[]
   const [draft] = useState(() => createStateStore({ text: '', values: initialDraft(fields), errors: {}, edited: {} }))
+  const [firstState] = useState(interaction.state)
   const answer = (value: ClarifyAnswer) => {
     if (!enabled || submitting.current) return
     submitting.current = true
@@ -249,7 +253,8 @@ export function ChoiceCard({
           rejection: fieldErrors && { at: result!.submittedAt, fields: fieldErrors },
           canCompose: !!onComposeAnswer,
           shortcuts: enabled && keyboardActive,
-          readOnlyReason: onAnswer ? undefined : readOnlyReason
+          readOnlyReason: onAnswer ? undefined : readOnlyReason,
+          fresh: interaction.state !== firstState
         },
         t
       )}

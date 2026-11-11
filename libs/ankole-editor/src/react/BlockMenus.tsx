@@ -13,15 +13,15 @@ import {
   DropdownMenuTrigger
 } from '@ankole/uikit/components/dropdown-menu'
 import {
-  RiAddLine,
-  RiArrowDownLine,
-  RiArrowUpLine,
-  RiDeleteBinLine,
-  RiDraggable,
-  RiFileCopyLine,
-  RiMoreLine,
-  RiText
-} from '@remixicon/react'
+  AddRegular,
+  ArrowDownRegular,
+  ArrowUpRegular,
+  CopyRegular,
+  DeleteRegular,
+  MoreHorizontalRegular,
+  ReOrderDotsVerticalRegular,
+  TextTRegular
+} from '@ankole/uikit/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import type { Command } from '../core/command'
 import { Embed, embedAttributes } from '../blocks/embed'
@@ -173,7 +173,7 @@ export function InsertMenu({
         render={
           trigger ?? (
             <Button variant="ghost" size="xs">
-              <RiAddLine />
+              <AddRegular />
               {label('insert')}
             </Button>
           )
@@ -288,7 +288,7 @@ export function BlockMenu({
               size="xs"
               aria-label={label('current_block_menu')}
               title={`${label('current_block_menu')} ⌘/Ctrl+/`}>
-              <RiMoreLine />
+              <MoreHorizontalRegular />
               {label('block')}
             </Button>
           )
@@ -408,7 +408,7 @@ function BlockActions() {
       <DropdownMenuLabel>{label(block ? 'current_block' : 'focus_document')}</DropdownMenuLabel>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger disabled={!selected.length || selected.some(unit => !canTurnInto(state, unit.before))}>
-          <RiText aria-hidden />
+          <TextTRegular aria-hidden />
           {label('turn_into')}
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="block-menu ankole-editor-overlay" aria-label={label('turn_into_type')}>
@@ -429,28 +429,28 @@ function BlockActions() {
           if (!menu || menu.pos === null || !insertBesideBlock(editor, menu.pos, 'paragraph', event.altKey)) return
           editor.dispatch({ effects: setMenu.of({ ...menu, pos: currentBlock(editor.state), inserting: true }) })
         }}>
-        <RiAddLine aria-hidden />
+        <AddRegular aria-hidden />
         {label('insert_below')}
       </DropdownMenuItem>
       <DropdownMenuItem disabled={!block} onClick={act(pos => duplicateBlocks(editor, pos))}>
-        <RiFileCopyLine aria-hidden />
+        <CopyRegular aria-hidden />
         {label('duplicate')}
       </DropdownMenuItem>
       <DropdownMenuItem
         disabled={!selected.length || !adjacentUnit(selected[0]!, -1)}
         onClick={act(pos => moveBlocks(editor, -1, pos))}>
-        <RiArrowUpLine aria-hidden />
+        <ArrowUpRegular aria-hidden />
         {label('move_up')}
       </DropdownMenuItem>
       <DropdownMenuItem
         disabled={!selected.length || !adjacentUnit(selected.at(-1)!, 1)}
         onClick={act(pos => moveBlocks(editor, 1, pos))}>
-        <RiArrowDownLine aria-hidden />
+        <ArrowDownRegular aria-hidden />
         {label('move_down')}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem disabled={!block} variant="destructive" onClick={() => void remove()}>
-        <RiDeleteBinLine aria-hidden />
+        <DeleteRegular aria-hidden />
         {label('delete_block')}
       </DropdownMenuItem>
     </>
@@ -491,10 +491,13 @@ export function BlockHandles({
       const hit = blockAt(editor, event.clientX, event.clientY, false)
       if (!hit) return setHover(null)
       const handleHeight = handle.current?.offsetHeight ?? 0
-      const lineHeight = parseFloat(getComputedStyle(hit.dom).lineHeight)
-      const lineBox = Number.isNaN(lineHeight) ? hit.rect.height : Math.min(lineHeight, hit.rect.height)
+      // The handle centres on the block's first line, which starts inside the block's top border and padding.
+      const style = getComputedStyle(hit.dom)
+      const lineHeight = parseFloat(style.lineHeight)
+      const inset = parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop)
+      const lineBox = Number.isNaN(lineHeight) ? hit.rect.height - inset : Math.min(lineHeight, hit.rect.height - inset)
       const box = anchor.getBoundingClientRect()
-      const top = hit.rect.top - box.top + (lineBox - handleHeight) / 2
+      const top = hit.rect.top - box.top + inset + (lineBox - handleHeight) / 2
       const parent = editor.state.doc.resolve(hit.pos).parent
       const list = isList(parent.node) ? editor.nodeDOM(parent.before) : null
       // List markers and task checkboxes occupy the space before the paragraph's text.
@@ -644,7 +647,7 @@ export function BlockHandles({
                 tabIndex={-1}
                 aria-label={label('insert_block')}
                 title={label('insert_block')}>
-                <RiAddLine />
+                <AddRegular />
               </Button>
             }>
             {insertMenu}
@@ -665,7 +668,7 @@ export function BlockHandles({
                     ? blockOptions.find(option => option.type === type)?.title(editor.state)
                     : label('current_block_menu')
                 }>
-                {type ? <BlockTypeIcon type={type} /> : <RiMoreLine />}
+                {type ? <BlockTypeIcon type={type} /> : <MoreHorizontalRegular />}
               </Button>
             ) : undefined
           }
@@ -697,7 +700,7 @@ export function BlockHandles({
                 setHover(null)
                 editor.focus()
               }}>
-              <RiDraggable />
+              <ReOrderDotsVerticalRegular />
             </Button>
           }
         />

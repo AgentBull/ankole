@@ -1,18 +1,18 @@
 import {
-  RiAtLine,
-  RiBarChartBoxLine,
-  RiFlowChart,
-  RiFormula,
-  RiH4,
-  RiH5,
-  RiH6,
-  RiLayoutGridLine,
-  RiMindMap,
-  RiTableLine,
-  RiImageLine,
-  RiFileLine,
-  RiLink
-} from '@remixicon/react'
+  DataHistogramRegular,
+  DocumentRegular,
+  FlowchartRegular,
+  GridRegular,
+  ImageRegular,
+  LinkRegular,
+  MathFormulaRegular,
+  MentionRegular,
+  OrganizationHorizontalRegular,
+  TableRegular,
+  TextHeader4Regular,
+  TextHeader5Regular,
+  TextHeader6Regular
+} from '@ankole/uikit/icons'
 import type { ReactElement } from 'react'
 import type { BlockType } from '../editor/block-catalog'
 
@@ -240,19 +240,19 @@ const glyphs = {
       <path d="M3 12h18" />
     </svg>
   ),
-  h4: <RiH4 />,
-  h5: <RiH5 />,
-  h6: <RiH6 />,
-  table: <RiTableLine />,
-  media: <RiImageLine />,
-  file: <RiFileLine />,
-  bookmark: <RiLink />,
-  mention: <RiAtLine />,
-  math: <RiFormula />,
-  mermaid: <RiFlowChart />,
-  infographic: <RiMindMap />,
-  page_embed: <RiLayoutGridLine />,
-  chart: <RiBarChartBoxLine />
+  h4: <TextHeader4Regular />,
+  h5: <TextHeader5Regular />,
+  h6: <TextHeader6Regular />,
+  table: <TableRegular />,
+  media: <ImageRegular />,
+  file: <DocumentRegular />,
+  bookmark: <LinkRegular />,
+  mention: <MentionRegular />,
+  math: <MathFormulaRegular />,
+  mermaid: <FlowchartRegular />,
+  infographic: <OrganizationHorizontalRegular />,
+  page_embed: <GridRegular />,
+  chart: <DataHistogramRegular />
 } satisfies Record<Exclude<BlockType, `columns${number}`>, ReactElement>
 
 export function blockMenuGroup(type: BlockType) {

@@ -1,4 +1,4 @@
-import { RiErrorWarningLine, RiFormula, RiQuestionLine } from '@remixicon/react'
+import { ErrorCircleRegular, MathFormulaRegular, QuestionCircleRegular } from '@ankole/uikit/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Leaf } from '../core/doc'
@@ -94,7 +94,7 @@ export function MathEditor() {
       role="dialog"
       aria-label={label(invalid ? 'math_invalid' : 'math_editor_title')}>
       <div className="math-editor-header">
-        {invalid ? <RiErrorWarningLine aria-hidden /> : <RiFormula aria-hidden />}
+        {invalid ? <ErrorCircleRegular aria-hidden /> : <MathFormulaRegular aria-hidden />}
         <span>{label(invalid ? 'math_invalid' : 'math_editor_title')}</span>
       </div>
       <label className="math-editor-field">
@@ -119,7 +119,7 @@ export function MathEditor() {
       <div className="math-editor-footer">
         <span>{label('math_hint')}</span>
         <a href={helpURL} target="_blank" rel="noopener noreferrer">
-          <RiQuestionLine aria-hidden />
+          <QuestionCircleRegular aria-hidden />
           {label('math_help')}
         </a>
       </div>

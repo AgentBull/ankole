@@ -1,7 +1,7 @@
 'use client'
 
 import { Combobox as ComboboxPrimitive } from '@base-ui/react'
-import { RiArrowDownSLine, RiCheckLine, RiCloseLine } from '@remixicon/react'
+import { CheckmarkRegular, ChevronDownRegular, DismissRegular } from '../icons'
 import * as React from 'react'
 import { Button } from './button'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
@@ -20,7 +20,7 @@ function ComboboxTrigger({ className, children, ...props }: ComboboxPrimitive.Tr
       className={cn("cursor-pointer disabled:cursor-not-allowed [&_svg:not([class*='size-'])]:size-4", className)}
       {...props}>
       {children}
-      <RiArrowDownSLine className="pointer-events-none size-4 text-muted-foreground" />
+      <ChevronDownRegular className="pointer-events-none size-4 text-muted-foreground" />
     </ComboboxPrimitive.Trigger>
   )
 }
@@ -32,7 +32,7 @@ function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props) {
       render={<InputGroupButton variant="ghost" size="icon-xs" />}
       className={cn('touch-target', className)}
       {...props}>
-      <RiCloseLine className="pointer-events-none" />
+      <DismissRegular className="pointer-events-none" />
     </ComboboxPrimitive.Clear>
   )
 }
@@ -132,7 +132,7 @@ function ComboboxItem({ className, children, ...props }: ComboboxPrimitive.Item.
       {children}
       <ComboboxPrimitive.ItemIndicator
         render={<span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />}>
-        <RiCheckLine className="pointer-events-none" />
+        <CheckmarkRegular className="pointer-events-none" />
       </ComboboxPrimitive.ItemIndicator>
     </ComboboxPrimitive.Item>
   )
@@ -144,11 +144,7 @@ function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props) {
 
 function ComboboxLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Props) {
   return (
-    <ComboboxPrimitive.GroupLabel
-      data-slot="combobox-label"
-      className={cn('px-2.5 py-2 text-xs font-normal text-muted-foreground', className)}
-      {...props}
-    />
+    <ComboboxPrimitive.GroupLabel data-slot="combobox-label" className={cn('menu-group-label', className)} {...props} />
   )
 }
 
@@ -220,7 +216,7 @@ function ComboboxChip({
           render={<Button variant="ghost" size="icon-xs" />}
           className="-ml-1 opacity-50 hover:opacity-100"
           data-slot="combobox-chip-remove">
-          <RiCloseLine className="pointer-events-none" />
+          <DismissRegular className="pointer-events-none" />
         </ComboboxPrimitive.ChipRemove>
       )}
     </ComboboxPrimitive.Chip>

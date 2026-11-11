@@ -1,5 +1,5 @@
 import { Input, Spinner, cn } from '@ankole/uikit'
-import { RiEyeLine, RiEyeOffLine } from '@remixicon/react'
+import { EyeOffRegular, EyeRegular } from '@ankole/uikit/icons'
 import { useEffect, useState, type ComponentProps } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -107,9 +107,9 @@ export function EncryptedValueInput({
           {revealing ? (
             <Spinner className="size-4" />
           ) : visible ? (
-            <RiEyeOffLine aria-hidden className="size-4" />
+            <EyeOffRegular aria-hidden className="size-4" />
           ) : (
-            <RiEyeLine aria-hidden className="size-4" />
+            <EyeRegular aria-hidden className="size-4" />
           )}
         </button>
       ) : null}

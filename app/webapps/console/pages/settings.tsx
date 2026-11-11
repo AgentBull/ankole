@@ -25,7 +25,7 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiCloseLine, RiMore2Fill, RiResetLeftLine } from '@remixicon/react'
+import { ArrowResetRegular, DismissRegular, MoreVerticalRegular } from '@ankole/uikit/icons'
 import {
   useIsMutating,
   useMutation as useBaseMutation,
@@ -299,11 +299,11 @@ function SingleSettingEditorDrawer() {
                           variant="ghost"
                         />
                       }>
-                      <RiMore2Fill />
+                      <MoreVerticalRegular />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-52">
                       <DropdownMenuItem variant="destructive" onClick={() => setRestoreDefaultOpen(true)}>
-                        <RiResetLeftLine />
+                        <ArrowResetRegular />
                         {t('console.settings.restore_default')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -316,7 +316,7 @@ function SingleSettingEditorDrawer() {
                   type="button"
                   variant="ghost"
                   onClick={requestClose}>
-                  <RiCloseLine />
+                  <DismissRegular />
                 </Button>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -594,7 +594,7 @@ export function SettingGroupDrawer() {
                   type="button"
                   variant="ghost"
                   onClick={requestClose}>
-                  <RiCloseLine />
+                  <DismissRegular />
                 </Button>
               </div>
               {/* A stale or hand-typed group id has no catalog entry; the id

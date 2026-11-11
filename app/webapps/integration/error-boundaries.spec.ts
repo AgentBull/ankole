@@ -42,7 +42,7 @@ test('a crashed Pod sidebar exposes recovery on desktop and mobile without reloa
     const boot = await page.evaluate(() => window.__bootMarker)
     if (viewport.width < 768) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
     await page.getByRole('button', { name: /^Account menu:/ }).click()
-    const fallback = page.locator('.pod-shell > [data-error-boundary="panel"]')
+    const fallback = page.locator('.pod-shell [data-error-boundary="panel"]')
     await expect(fallback).toBeVisible()
     await expect(fallback).toContainText('Sidebar render failure')
     await page.evaluate(() => {

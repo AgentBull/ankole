@@ -1,14 +1,14 @@
 import { Button, cn, Spinner, toast, useReducedMotion } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
-  RiArrowDownLine,
-  RiCheckboxBlankLine,
-  RiCheckboxLine,
-  RiCloseLine,
-  RiDownloadLine,
-  RiFileCopyLine,
-  RiImageLine
-} from '@remixicon/react'
+  ArrowDownRegular,
+  ArrowDownloadRegular,
+  CheckboxCheckedRegular,
+  CheckboxUncheckedRegular,
+  CopyRegular,
+  DismissRegular,
+  ImageRegular
+} from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import {
   Fragment,
@@ -40,6 +40,7 @@ import { MessageIdentity, MessageView, type InlineEditControls } from './timelin
 import {
   continuesPrevious,
   interleavedReplySources,
+  placeDelegations,
   placeLinkedExecutions,
   resolveCommittedMessageEditState,
   timelineTurns,
@@ -49,12 +50,13 @@ import {
 } from './timeline-projections'
 import { RevealInTimeline } from './timeline-scroll'
 import { TurnRail } from './turn-rail'
-import type { InspectorTarget, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+import type { InspectorTarget, LinkedExecution, PlacedDelegation, TimelineLiveStream, TimelineMessage } from './types'
 import { shouldYieldBacktrackToOverlay, useTimelineBacktrack } from './use-timeline-backtrack'
 
 // Leaves room above the first unread message for the divider that introduces it.
 const UNREAD_DIVIDER_OFFSET = 48
 const EMPTY_LINKED_RUNS: LinkedExecution[] = []
+const EMPTY_DELEGATIONS: PlacedDelegation[] = []
 
 function useStableCallback<Args extends unknown[], Result>(fn: (...args: Args) => Result): (...args: Args) => Result {
   const ref = useRef(fn)
@@ -244,6 +246,33 @@ export function TurnTimeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- placeLinkedExecutions reads only agentUID and signalIDs on streams
     [committed, streamRoutingKey, linkedRuns]
   )
+  // A delegation stands under the reply of the turn that sent it instead of in a row of its own before that reply.
+  const delegations = useMemo(
+    () => {
+      const placement = placeDelegations(committed as TimelineMessage[], activeStreams)
+      const cards = (owners: Map<string, string[]>) =>
+        new Map(
+          [...owners].map(([owner, ids]) => [
+            owner,
+            ids.flatMap((id): PlacedDelegation[] => {
+              const request = committedByID.get(id)
+              return request
+                ? [
+                    {
+                      request,
+                      reply: committedByID.get(peerExchanges.replies.get(id) ?? ''),
+                      live: peerExchanges.latest.has(id)
+                    }
+                  ]
+                : []
+            })
+          ])
+        )
+      return { placed: placement.placed, messages: cards(placement.messages), streams: cards(placement.streams) }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- placeDelegations reads only agentUID and signalIDs on streams
+    [committed, streamRoutingKey, committedByID, peerExchanges]
+  )
   const retryableSet = new Set(retryableMessageIDs)
   const memberAvatarByUID = new Map(members.map(member => [member.uid, member.avatarURL]))
   const revealElement = (element: Element) => {
@@ -331,9 +360,9 @@ export function TurnTimeline({
               onClick={() => model.toggleSelectedMessage(id)}
               className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-foreground">
               {isSelected ? (
-                <RiCheckboxLine className="size-4 text-primary" aria-hidden />
+                <CheckboxCheckedRegular className="size-4 text-primary" aria-hidden />
               ) : (
-                <RiCheckboxBlankLine className="size-4" aria-hidden />
+                <CheckboxUncheckedRegular className="size-4" aria-hidden />
               )}
             </button>
           )}
@@ -360,7 +389,19 @@ export function TurnTimeline({
             {[
               ...messages.map((item, index) => {
                 const id = messageID(item)
-                if (item.type === 'committed' && peerExchanges.paired.has(item.message.id)) return null
+                if (
+                  item.type === 'committed' &&
+                  (peerExchanges.paired.has(item.message.id) || delegations.placed.has(item.message.id))
+                ) {
+                  return null
+                }
+                // A reply that carries its turn's delegation follows the row before that delegation.
+                let before = index - 1
+                while (before >= 0) {
+                  const earlier = messages[before]
+                  if (earlier.type !== 'committed' || !delegations.placed.has(earlier.message.id)) break
+                  before -= 1
+                }
                 if (item.type !== 'committed') {
                   return row(
                     id,
@@ -368,7 +409,7 @@ export function TurnTimeline({
                     undefined,
                     [id, item.message],
                     <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
-                      <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
+                      <MessageIdentity name={t('pod.chat_timeline.you')} quiet />
                       <div className="pod-chat-human-text">
                         <ChatMarkdown text={item.message.text ?? ''} />
                       </div>
@@ -415,6 +456,7 @@ export function TurnTimeline({
                     onReply={onReply ? stableReply : undefined}
                     onSelectMessageID={selectable ? stableSelectMessageID : undefined}
                     linkedRuns={executions.messages.get(item.message.id) ?? EMPTY_LINKED_RUNS}
+                    delegations={delegations.messages.get(item.message.id) ?? EMPTY_DELEGATIONS}
                     showAgentOnRuns={showAgentOnRuns}
                     activeInspector={activeInspector}
                     onOpenInspector={onOpenInspector ? stableOpenInspector : undefined}
@@ -431,7 +473,7 @@ export function TurnTimeline({
                     queued={item.queued}
                     continued={
                       id !== unreadMessageID &&
-                      continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))
+                      continuesPrevious(messages[before], item, replySources.has(item.message.id))
                     }
                   />
                 )
@@ -447,6 +489,7 @@ export function TurnTimeline({
                     live={stream}
                     conversationID={conversationID}
                     linkedRuns={executions.streams.get(stream.agentUID) ?? EMPTY_LINKED_RUNS}
+                    delegations={delegations.streams.get(stream.agentUID) ?? EMPTY_DELEGATIONS}
                     showAgentOnRuns={showAgentOnRuns}
                     activeInspector={activeInspector}
                     onOpenInspector={onOpenInspector ? stableOpenInspector : undefined}
@@ -529,7 +572,7 @@ export function TurnTimeline({
               size="xs"
               disabled={selectedMessages.length === 0}
               onClick={() => void openShareCard()}>
-              <RiImageLine aria-hidden />
+              <ImageRegular aria-hidden />
               {t('pod.chat_timeline.share_image', { defaultValue: 'Share image' })}
             </Button>
             <Button
@@ -546,7 +589,7 @@ export function TurnTimeline({
                   toast.error(t('pod.chat.copy_failed'))
                 }
               }}>
-              <RiFileCopyLine aria-hidden />
+              <CopyRegular aria-hidden />
               {t('pod.chat_timeline.copy_markdown', { defaultValue: 'Copy Markdown' })}
             </Button>
             <Button
@@ -559,7 +602,7 @@ export function TurnTimeline({
                   conversationTitle || 'conversation-excerpt'
                 )
               }>
-              <RiDownloadLine aria-hidden />
+              <ArrowDownloadRegular aria-hidden />
               {t('pod.chat_timeline.download_markdown', { defaultValue: 'Download .md' })}
             </Button>
             <Button
@@ -568,7 +611,7 @@ export function TurnTimeline({
               title={t('common.close')}
               aria-label={t('common.close')}
               onClick={() => model.clearMessageSelection()}>
-              <RiCloseLine aria-hidden />
+              <DismissRegular aria-hidden />
             </Button>
           </div>
         )}
@@ -578,7 +621,7 @@ export function TurnTimeline({
             variant="ghost"
             size="sm"
             onClick={event => void scrollToBottom(reducedMotion || event.detail === 0 ? 'instant' : undefined)}>
-            <RiArrowDownLine aria-hidden />
+            <ArrowDownRegular aria-hidden />
             {t('pod.chat.scroll_latest')}
             {working && <Spinner aria-hidden className="pod-chat-working-spinner" />}
           </Button>

@@ -1,6 +1,6 @@
 import { formatDateTime } from '../common/date-time'
 import { Badge, Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
-import { RiCloseLine, RiDownloadLine, RiHistoryLine } from '@remixicon/react'
+import { ArrowDownloadRegular, DismissRegular, HistoryRegular } from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type RefObject } from 'react'
@@ -94,7 +94,7 @@ export function DocumentHistory({
         finalFocus={returnFocus}>
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
           <DialogTitle>
-            <RiHistoryLine aria-hidden className="inline size-4 mr-2" />
+            <HistoryRegular aria-hidden className="inline size-4 mr-2" />
             {t('pod.document.history')}
           </DialogTitle>
           <Button
@@ -103,7 +103,7 @@ export function DocumentHistory({
             aria-label={t('common.close')}
             disabled={restore.isPending}
             onClick={close}>
-            <RiCloseLine aria-hidden />
+            <DismissRegular aria-hidden />
           </Button>
         </header>
         <ErrorBoundary variant="panel" className="m-4" resetKeys={[detail.page.id, selected, compare]}>
@@ -235,7 +235,7 @@ export function DocumentHistory({
             variant="outline"
             disabled={!preview || exportSnapshot.isPending}
             onClick={() => exportSnapshot.mutate()}>
-            <RiDownloadLine aria-hidden />
+            <ArrowDownloadRegular aria-hidden />
             {t('pod.document.export_version')}
           </Button>
           <Button

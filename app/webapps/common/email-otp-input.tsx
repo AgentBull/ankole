@@ -1,16 +1,24 @@
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@ankole/uikit'
 
+/**
+ * The six-digit email code field. `invalid` marks a code the server rejected, and `status` shows a check that is
+ * running or a code that was accepted, so the field itself answers each attempt.
+ */
 export function EmailOtpInput({
   id,
   name,
   value,
   disabled,
+  invalid = false,
+  status,
   onChange
 }: {
   id: string
   name?: string
   value: string
   disabled?: boolean
+  invalid?: boolean
+  status?: 'verifying' | 'success'
   onChange: (value: string) => void
 }) {
   return (
@@ -24,6 +32,8 @@ export function EmailOtpInput({
       required
       autoFocus
       disabled={disabled}
+      aria-invalid={invalid || undefined}
+      data-status={status}
       value={value}
       containerClassName="min-w-0 w-full max-w-80"
       pasteTransformer={pasted => pasted.replace(/\D/g, '')}

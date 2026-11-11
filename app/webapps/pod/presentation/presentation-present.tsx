@@ -1,5 +1,5 @@
 import { Button } from '@ankole/uikit'
-import { RiArrowLeftSLine, RiArrowRightSLine, RiFullscreenExitLine } from '@remixicon/react'
+import { ChevronLeftRegular, ChevronRightRegular, FullScreenMinimizeRegular } from '@ankole/uikit/icons'
 import { t } from 'i18next'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -262,7 +262,7 @@ export function PresentationPresent({
           title={t('pod.presentation.previous_slide')}
           disabled={clampedIndex <= 0}
           onClick={() => goToIndex(clampedIndex - 1)}>
-          <RiArrowLeftSLine />
+          <ChevronLeftRegular />
         </Button>
 
         <span
@@ -283,7 +283,7 @@ export function PresentationPresent({
           title={t('pod.presentation.next_slide')}
           disabled={clampedIndex >= slideCount - 1}
           onClick={() => goToIndex(clampedIndex + 1)}>
-          <RiArrowRightSLine />
+          <ChevronRightRegular />
         </Button>
 
         <div className="ml-4">
@@ -294,7 +294,7 @@ export function PresentationPresent({
             aria-label={t('pod.presentation.exit_present')}
             title={t('pod.presentation.exit_present')}
             onClick={exitPresent}>
-            <RiFullscreenExitLine />
+            <FullScreenMinimizeRegular />
             <span>{t('pod.presentation.exit_present')}</span>
           </Button>
         </div>

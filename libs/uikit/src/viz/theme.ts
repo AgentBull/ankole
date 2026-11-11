@@ -49,8 +49,8 @@ export interface AssignSeriesColorsOptions {
   variant?: 'fill' | 'stroke'
 }
 
-const DEFAULT_FONT_SANS = "'IBMPlexSansCN', 'Helvetica Neue', Arial, sans-serif"
-const DEFAULT_FONT_MONO = "'IBMPlexMonoCN', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace"
+const DEFAULT_FONT_SANS = "'AgentBullSansGB', 'Helvetica Neue', Arial, sans-serif"
+const DEFAULT_FONT_MONO = "'AgentBullMono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace"
 
 const LIGHT_FALLBACKS = {
   background: '#ffffff',
@@ -223,25 +223,25 @@ const STATIC_COLOR_TOKENS: Record<string, string> = {
   '--color-gray-100': '#1c1c1e',
   '--color-brand-50': '#ff5468',
   '--color-brand-60': '#ff4669',
-  '--color-blue-50': '#4a88ff',
-  '--color-blue-60': '#1561ff',
-  '--color-teal-50': '#00a3a0',
-  '--color-teal-60': '#008583',
-  '--color-purple-50': '#a066ff',
-  '--color-purple-60': '#8838f2',
-  '--color-green-50': '#24a94f',
-  '--color-green-60': '#1a8a3c',
-  '--color-orange-50': '#e26300',
-  '--color-orange-60': '#b94f00',
-  '--color-cyan-50': '#1294eb',
-  '--color-cyan-60': '#0077c8',
-  '--color-magenta-50': '#ea468d',
-  '--color-magenta-60': '#c9256f',
-  '--color-yellow-30': '#f3c11c',
-  '--color-yellow-50': '#b28700',
-  '--color-yellow-60': '#916d00',
-  '--color-red-50': '#f14d32',
-  '--color-red-60': '#d1270e'
+  '--color-blue-50': '#0f87ff',
+  '--color-blue-60': '#2e6eeb',
+  '--color-teal-50': '#20d6be',
+  '--color-teal-60': '#19bfa1',
+  '--color-purple-50': '#8c62f9',
+  '--color-purple-60': '#753de4',
+  '--color-green-50': '#3abe84',
+  '--color-green-60': '#2cc469',
+  '--color-orange-50': '#ff814a',
+  '--color-orange-60': '#f7630c',
+  '--color-cyan-50': '#60ceff',
+  '--color-cyan-60': '#25c3fd',
+  '--color-magenta-50': '#ff63a7',
+  '--color-magenta-60': '#ff4890',
+  '--color-yellow-30': '#fffa7d',
+  '--color-yellow-50': '#fff200',
+  '--color-yellow-60': '#ffe500',
+  '--color-red-50': '#f53e29',
+  '--color-red-60': '#e6222d'
 }
 
 function detectDomDark(target: Element | null): boolean {

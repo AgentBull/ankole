@@ -246,7 +246,7 @@ async function answerPeer() {
 
 async function comment() {
   await page.goto(url(`/pages/${state.page_id}`))
-  await page.locator('.pod-page-header').getByRole('button', { name: 'Comments', exact: true }).click()
+  await page.locator('.pod-page-actions').getByRole('button', { name: 'Comments', exact: true }).click()
   const panel = page.getByRole('complementary', { name: 'Comments', exact: true })
   const input = panel.getByRole('textbox', { name: 'Add a comment…', exact: true })
   await input.fill(`@${state.colleague_uid}`)

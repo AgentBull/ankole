@@ -1,5 +1,5 @@
 ---
-import { RiArrowRightLine } from '@remixicon/react'
+import { ArrowRightRegular } from '@ankole/uikit/icons'
 import { getCollection } from 'astro:content'
 import Reveal from '../../../components/Reveal.astro'
 import { getSiteTitle } from '../../../consts'
@@ -49,7 +49,7 @@ const description = t(locale, 'docs.index.subtitle')
 								href={localePath(locale, `docs/${first.slug}`)}
 								class="group mt-8 inline-flex items-center gap-2 border-b border-brand-60 pb-1 text-sm font-medium text-foreground no-underline dark:border-brand-40">
 								{t(locale, 'docs.index.start')}
-								<RiArrowRightLine className="size-4 transition-transform duration-200 ease-[var(--ease-productive)] group-hover:translate-x-1" />
+								<ArrowRightRegular className="size-4 transition-transform duration-200 ease-[var(--ease-productive)] group-hover:translate-x-1" />
 							</a>
 						)
 					}
@@ -88,7 +88,7 @@ const description = t(locale, 'docs.index.subtitle')
 												{doc.description}
 											</span>
 										</span>
-										<RiArrowRightLine
+										<ArrowRightRegular
 											className="size-4 shrink-0 text-brand-60 transition-transform duration-200 ease-[var(--ease-productive)] group-hover:translate-x-1 dark:text-brand-40"
 											aria-hidden="true"
 										/>

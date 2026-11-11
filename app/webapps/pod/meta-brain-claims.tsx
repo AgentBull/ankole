@@ -9,7 +9,14 @@ import {
   SelectValue,
   toast
 } from '@ankole/uikit'
-import { RiAddLine, RiBuildingLine, RiDeleteBinLine, RiEditLine, RiFileTextLine, RiLockLine } from '@remixicon/react'
+import {
+  AddRegular,
+  BuildingRegular,
+  DeleteRegular,
+  DocumentTextRegular,
+  EditRegular,
+  LockClosedRegular
+} from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
@@ -146,7 +153,7 @@ function BrainClaimRow({
                 <Link
                   to={pageHref(claim.source_node_id, claim.source_title)}
                   className="inline-flex max-w-48 items-center gap-1 truncate rounded bg-bg-secondary px-1.5 py-0.5 text-fg-secondary hover:text-fg-primary hover:underline">
-                  <RiFileTextLine aria-hidden className="size-3 shrink-0" />
+                  <DocumentTextRegular aria-hidden className="size-3 shrink-0" />
                   <span className="truncate">{claim.source_title}</span>
                 </Link>
               )}
@@ -171,7 +178,7 @@ function BrainClaimRow({
                       setDraft(claim.claim)
                       setEditing(true)
                     }}>
-                    <RiEditLine aria-hidden className="size-3" />
+                    <EditRegular aria-hidden className="size-3" />
                     <span>{t('pod.meta.claim_correct')}</span>
                   </Button>
                 )}
@@ -183,7 +190,7 @@ function BrainClaimRow({
                     disabled={busy}
                     aria-label={`${t('pod.meta.claim_forget')}: ${shortPreview}`}
                     onClick={() => forget.mutate()}>
-                    <RiDeleteBinLine aria-hidden className="size-3" />
+                    <DeleteRegular aria-hidden className="size-3" />
                     <span>{t('pod.meta.claim_forget')}</span>
                   </Button>
                 )}
@@ -317,7 +324,7 @@ export function BrainMyContextView() {
             </Select>
           </div>
           <Button type="submit" disabled={addFact.isPending}>
-            <RiAddLine aria-hidden className="size-4" />
+            <AddRegular aria-hidden className="size-4" />
             <span>{t('pod.meta.save_memory')}</span>
           </Button>
         </form>
@@ -350,7 +357,7 @@ export function BrainMyContextView() {
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-0.5">
                 <h2 className="flex items-center gap-1.5 text-sm font-semibold text-fg-primary">
-                  <RiLockLine aria-hidden className="size-4 text-fg-secondary" />
+                  <LockClosedRegular aria-hidden className="size-4 text-fg-secondary" />
                   <span>{t('pod.meta.personal_memories_heading')}</span>
                 </h2>
                 <p className="text-xs text-fg-secondary">{t('pod.meta.personal_memories_subheading')}</p>
@@ -374,7 +381,7 @@ export function BrainMyContextView() {
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-0.5">
                 <h2 className="flex items-center gap-1.5 text-sm font-semibold text-fg-primary">
-                  <RiBuildingLine aria-hidden className="size-4 text-fg-secondary" />
+                  <BuildingRegular aria-hidden className="size-4 text-fg-secondary" />
                   <span>{t('pod.meta.workspace_context_heading')}</span>
                 </h2>
                 <p className="text-xs text-fg-secondary">{t('pod.meta.workspace_context_subheading')}</p>

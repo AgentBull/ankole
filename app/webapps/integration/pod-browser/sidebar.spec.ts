@@ -189,24 +189,42 @@ test('mobile navigation has touch targets and closes when reopening the current 
       expect(heights.length).toBeGreaterThan(0)
       expect(heights.every(height => height >= 40)).toBe(true)
     }
-    const toggles = await sidebar.locator('.pod-tree-toggle').evaluateAll(elements =>
-      elements.map(element => {
-        const bounds = element.getBoundingClientRect()
-        const icon = element.querySelector('svg')!.getBoundingClientRect()
-        return {
-          width: Number(bounds.width.toFixed(3)),
-          height: Number(bounds.height.toFixed(3)),
-          iconWidth: Number(icon.width.toFixed(3)),
-          iconHeight: Number(icon.height.toFixed(3))
+    // A section title's 16px caret and a parent row's 20px arrow each sit in a 32px touch box. Without hover the
+    // arrow stays in the row's icon slot, where it covers the row's icon.
+    for (const [toggles, glyph] of [
+      [sidebar.locator('.pod-nav-section-heading > .pod-tree-toggle'), 16],
+      [sidebar.locator('.pod-tree-row > .pod-tree-toggle'), 20]
+    ] as const) {
+      const sizes = await toggles.evaluateAll(elements =>
+        elements.map(element => {
+          const bounds = element.getBoundingClientRect()
+          const icon = element.querySelector('svg')!.getBoundingClientRect()
+          const slot = element.parentElement!.querySelector('[data-sidebar="menu-icon"]')
+          return {
+            width: Number(bounds.width.toFixed(3)),
+            height: Number(bounds.height.toFixed(3)),
+            iconWidth: Number(icon.width.toFixed(3)),
+            iconHeight: Number(icon.height.toFixed(3)),
+            opacity: getComputedStyle(element).opacity,
+            slotX: slot ? Math.round(slot.getBoundingClientRect().x) : Math.round(icon.x),
+            slotOpacity: slot ? getComputedStyle(slot).opacity : '0',
+            iconX: Math.round(icon.x)
+          }
+        })
+      )
+      // Every section has a caret; the fixture's tree may show no parent row.
+      if (glyph === 16) expect(sizes.length).toBeGreaterThan(0)
+      for (const size of sizes) {
+        expect(size.width).toBeGreaterThanOrEqual(32)
+        expect(size.height).toBeGreaterThanOrEqual(32)
+        expect(size.iconWidth).toBe(glyph)
+        expect(size.iconHeight).toBe(glyph)
+        if (glyph === 20) {
+          expect(size.opacity).toBe('1')
+          expect(size.iconX).toBe(size.slotX)
+          expect(size.slotOpacity).toBe('0')
         }
-      })
-    )
-    expect(toggles.length).toBeGreaterThan(0)
-    for (const toggle of toggles) {
-      expect(toggle.width).toBeGreaterThanOrEqual(32)
-      expect(toggle.height).toBeGreaterThanOrEqual(32)
-      expect(toggle.iconWidth).toBe(16)
-      expect(toggle.iconHeight).toBe(16)
+      }
     }
     const route = page.url()
     await currentPage.click()
@@ -247,7 +265,7 @@ test('a page listed in several Sidebar sections marks only the row the user foll
     await expect(treeRow).toBeVisible()
 
     // Favorite through the header so the same page appears in three sections.
-    await page.locator('.pod-page-header').getByRole('button', { name: '☆ 收藏', exact: true }).click()
+    await page.locator('.pod-page-path').getByRole('button', { name: '☆ 收藏', exact: true }).click()
     const favoriteRow = navigation
       .getByRole('region', { name: '收藏', exact: true })
       .getByRole('link', { name: title, exact: true })
@@ -257,14 +275,14 @@ test('a page listed in several Sidebar sections marks only the row the user foll
       // Move the pointer off the Sidebar so hover cannot masquerade as the current wash.
       await page.mouse.move(1000, 600)
       await expect(navigation.locator('a[aria-current="page"]')).toHaveCount(1)
+      // Every row link carries its own fill.
       for (const row of rows) {
-        const surface = row === treeRow ? row.locator('..') : row
         if (row === current) {
           await expect(row).toHaveAttribute('aria-current', 'page')
-          await expect(surface).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+          await expect(row).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
         } else {
           await expect(row).not.toHaveAttribute('aria-current', 'page')
-          await expect(surface).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+          await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
         }
       }
     }
@@ -315,26 +333,26 @@ test('desktop sidebar width persists and a collapsed sidebar can be previewed wi
     await page.goto(pageRoute(state.report_id))
     const handle = page.getByRole('separator', { name: '调整侧栏宽度', exact: true })
     const gap = page.locator('[data-slot="sidebar-gap"]')
-    await expect(handle).toHaveAttribute('aria-valuenow', '236')
+    await expect(handle).toHaveAttribute('aria-valuenow', '258')
     const bounds = (await handle.boundingBox())!
     await page.mouse.move(bounds.x + bounds.width / 2, 400)
     await page.mouse.down()
     await page.mouse.move(bounds.x + bounds.width / 2 + 96, 400, { steps: 8 })
     await page.mouse.up()
-    await expect(handle).toHaveAttribute('aria-valuenow', '332')
-    await expect(gap).toHaveCSS('width', '332px')
-    expect(await page.evaluate(() => localStorage.getItem('ankole.pod.sidebar-width'))).toBe('332')
+    await expect(handle).toHaveAttribute('aria-valuenow', '354')
+    await expect(gap).toHaveCSS('width', '354px')
+    expect(await page.evaluate(() => localStorage.getItem('ankole.pod.sidebar-width'))).toBe('354')
 
     await page.reload()
-    await expect(handle).toHaveAttribute('aria-valuenow', '332')
-    await expect(gap).toHaveCSS('width', '332px')
+    await expect(handle).toHaveAttribute('aria-valuenow', '354')
+    await expect(gap).toHaveCSS('width', '354px')
     await handle.focus()
     await handle.press('ArrowRight')
-    await expect(handle).toHaveAttribute('aria-valuenow', '348')
+    await expect(handle).toHaveAttribute('aria-valuenow', '370')
     await handle.press('Home')
-    await expect(handle).toHaveAttribute('aria-valuenow', '236')
-    await expect(gap).toHaveCSS('width', '236px')
-    expect(await page.evaluate(() => localStorage.getItem('ankole.pod.sidebar-width'))).toBe('236')
+    await expect(handle).toHaveAttribute('aria-valuenow', '258')
+    await expect(gap).toHaveCSS('width', '258px')
+    expect(await page.evaluate(() => localStorage.getItem('ankole.pod.sidebar-width'))).toBe('258')
 
     const sidebar = page.locator('[data-slot="sidebar"]')
     await page.getByRole('button', { name: '收起侧栏', exact: true }).click()
@@ -353,8 +371,8 @@ test('desktop sidebar width persists and a collapsed sidebar can be previewed wi
 
     await page.locator('.pod-sidebar-hover-rail').hover()
     await expect(preview).toBeVisible()
-    // The toggle left of the sheet's title pins the previewed sidebar open.
-    await page.getByRole('button', { name: '展开侧栏', exact: true }).click()
+    // The toggle in the previewed sidebar's header pins the sidebar open.
+    await preview.getByRole('button', { name: '展开侧栏', exact: true }).click()
     await expect(sidebar).toHaveAttribute('data-state', 'expanded')
     await expect(preview).toHaveCount(0)
     await expect(handle).toBeVisible()

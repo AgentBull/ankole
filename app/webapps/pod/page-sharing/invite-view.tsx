@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@ankole/uikit'
-import { RiCloseLine, RiRobot2Line } from '@remixicon/react'
+import { BotRegular, DismissRegular } from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import type { PageRole, PageSharingDetail, PageType } from '../content-api'
 import { ContentError } from '../content-primitives'
@@ -72,7 +72,7 @@ export function InviteCollaboratorsView({
                     disabled={mutations.pending}
                     onClick={() => model.unstageSubject(key)}
                     className="inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-mini text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed">
-                    <RiCloseLine aria-hidden className="size-3.5" />
+                    <DismissRegular aria-hidden className="size-3.5" />
                   </button>
                 </span>
               )
@@ -141,7 +141,7 @@ export function InviteCollaboratorsView({
 
         {model.hasStagedAgents.value && (
           <div className="flex items-start gap-2 rounded-control bg-muted/55 p-2.5 text-xs leading-4 text-muted-foreground">
-            <RiRobot2Line aria-hidden className="mt-0.5 size-4 shrink-0 text-foreground" />
+            <BotRegular aria-hidden className="mt-0.5 size-4 shrink-0 text-foreground" />
             <span>{t('pod.sharing.agent_hint')}</span>
           </div>
         )}

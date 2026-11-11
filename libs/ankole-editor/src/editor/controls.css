@@ -58,12 +58,6 @@
   pointer-events: none;
 }
 
-/* Block menus share their catalogue geometry; slash owns only its anchor and icon finish. */
-
-:where(.ankole-editor-overlay).slash-menu {
-  position: fixed;
-  z-index: 30;
-}
 :where(.ankole-editor-overlay).mention-menu {
   position: fixed;
   z-index: 32;
@@ -121,17 +115,6 @@
   max-height: 326px;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-:where(.ankole-editor-overlay).mention-menu .mention-group-label {
-  padding: 3px 8px 2px;
-  font-size: 11px;
-  line-height: 15px;
-  font-weight: 500;
-  color: var(--fg-tertiary);
-  user-select: none;
-}
-:where(.ankole-editor-overlay).mention-menu .mention-option + .mention-group-label {
-  margin-top: 4px;
 }
 :where(.ankole-editor-overlay).mention-menu .mention-group-clickable {
   cursor: pointer;
@@ -234,40 +217,12 @@
   height: 18px;
   opacity: 0.7;
 }
-:where(.ankole-editor-overlay).block-menu .block-type-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 7px 8px;
-  width: 100%;
-  text-align: left;
-  border-radius: var(--radius-control);
-  color: var(--foreground);
-  font-size: 14px;
-  line-height: 20px;
-}
-:where(.ankole-editor-overlay).block-menu .block-type-option:hover,
-:where(.ankole-editor-overlay).block-menu .block-type-option[aria-selected='true'],
-:where(.ankole-editor-overlay).block-menu .block-type-option[data-current='true'] {
-  background: var(--layer-hover);
-}
-:where(.ankole-editor-overlay).block-menu .block-type-slot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 22px;
-  height: 22px;
-}
-:where(.ankole-editor-overlay).block-menu .block-type-current {
-  margin-left: auto;
-}
-
-/* Only the slash picker gives block types a raised tile and coloured light. */
+/* Only the slash picker gives block types a raised tile and coloured light. The tile fills the 44px icon box of its
+   row and holds a 24px glyph. */
 :where(.ankole-editor-overlay).slash-menu .block-type-icon {
   --slash-icon-halo: var(--menu-icon-neutral);
-  width: 22px;
-  height: 22px;
+  width: 100%;
+  height: 100%;
   border-radius: var(--radius-control);
   background:
     radial-gradient(
@@ -293,6 +248,10 @@
 :where(.ankole-editor-overlay).slash-menu .block-type-icon[data-block-type='embed'] {
   color: var(--menu-icon-blue);
 }
+:where(.ankole-editor-overlay).slash-menu .block-type-icon svg {
+  width: 24px;
+  height: 24px;
+}
 
 /* Menus share the glyphs, while each surface owns its presentation. */
 :where(.ankole-editor-overlay, .ankole-editor) .block-type-icon {
@@ -307,29 +266,13 @@
   width: 16px;
   height: 16px;
 }
-:where(.ankole-editor-overlay) .menu-label {
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 500;
-  color: var(--fg-secondary);
-  padding: 6px 8px 2px;
-}
-:where(.ankole-editor-overlay) .menu-label:not(:first-child) {
-  margin-top: 6px;
-}
+/* The slash, insert, block, and turn-into menus share one width and one maximum height; the UI Kit draws their rows
+   and group titles. */
 :where(.ankole-editor-overlay).block-menu {
-  transition: none;
-  width: min(272px, calc(100vw - 16px));
-  padding: 4px;
+  width: min(264px, calc(100vw - 16px));
   max-height: min(440px, 60vh, var(--available-height, 100vh));
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-:where(.ankole-editor-overlay).block-menu
-  > :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger']) {
-  min-height: 36px;
-  padding-top: 7px;
-  padding-bottom: 7px;
 }
 :where(.ankole-editor-overlay).block-menu > input {
   width: calc(100% - 16px);
@@ -453,24 +396,6 @@
   color: var(--foreground);
   font-weight: 500;
 }
-:where(.ankole-editor-overlay).link-view-menu {
-  min-width: 164px;
-  padding: 4px;
-}
-:where(.ankole-editor-overlay).link-view-menu [data-slot='dropdown-menu-item'] {
-  gap: 8px;
-  min-height: 32px;
-  font-size: 13px;
-}
-:where(.ankole-editor-overlay).link-view-menu [data-slot='dropdown-menu-item'][data-active='true'] {
-  color: var(--foreground);
-  font-weight: 500;
-}
-:where(.ankole-editor-overlay).link-view-menu .link-view-check {
-  margin-left: auto;
-  color: var(--foreground);
-}
-
 @media (min-width: 1700px) {
   :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
     padding-top: 70px;
@@ -492,12 +417,14 @@
   :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
     padding: 30px 24px 25px;
   }
+  /* On a phone a Heading 1 steps down to the 24px step, below a host's phone-sized page title. */
   :where(.ankole-editor, .ankole-editor-overlay)
     .editor-content
     h1:not(
       :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
     ) {
-    font-size: 26px;
+    font-size: var(--text-400);
+    line-height: var(--text-400--line-height);
   }
   :where(.ankole-editor, .ankole-editor-overlay) .drag-handle {
     display: none !important;

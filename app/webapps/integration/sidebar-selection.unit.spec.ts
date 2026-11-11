@@ -92,24 +92,31 @@ for (const mobile of [false, true]) {
         .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height))
       expect(linkHeights.length).toBe(3)
       expect(linkHeights.every(height => height >= 40)).toBe(true)
-      const toggleSizes = await meta.locator('.pod-tree-toggle').evaluateAll(elements =>
-        elements.map(element => {
-          const bounds = element.getBoundingClientRect()
-          const icon = element.querySelector('svg')!
-          const iconStyle = getComputedStyle(icon)
-          return {
-            width: Number(bounds.width.toFixed(3)),
-            height: Number(bounds.height.toFixed(3)),
-            iconWidth: iconStyle.width,
-            iconHeight: iconStyle.height
-          }
-        })
-      )
-      for (const size of toggleSizes) {
-        expect(size.width).toBeGreaterThanOrEqual(32)
-        expect(size.height).toBeGreaterThanOrEqual(32)
-        expect(size.iconWidth).toBe('16px')
-        expect(size.iconHeight).toBe('16px')
+      // The section's caret is 16px and each branch's arrow is 20px; both sit in a 32px touch box.
+      for (const [toggles, glyph] of [
+        [meta.locator('.pod-nav-section-heading > .pod-tree-toggle'), '16px'],
+        [meta.locator('.pod-tree-row > .pod-tree-toggle'), '20px']
+      ] as const) {
+        const toggleSizes = await toggles.evaluateAll(elements =>
+          elements.map(element => {
+            const bounds = element.getBoundingClientRect()
+            const icon = element.querySelector('svg')!
+            const iconStyle = getComputedStyle(icon)
+            return {
+              width: Number(bounds.width.toFixed(3)),
+              height: Number(bounds.height.toFixed(3)),
+              iconWidth: iconStyle.width,
+              iconHeight: iconStyle.height
+            }
+          })
+        )
+        expect(toggleSizes.length).toBeGreaterThan(0)
+        for (const size of toggleSizes) {
+          expect(size.width).toBeGreaterThanOrEqual(32)
+          expect(size.height).toBeGreaterThanOrEqual(32)
+          expect(size.iconWidth).toBe(glyph)
+          expect(size.iconHeight).toBe(glyph)
+        }
       }
     }
   })

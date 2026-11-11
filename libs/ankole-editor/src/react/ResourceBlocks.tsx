@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { createPortal } from 'react-dom'
 import { Button } from '@ankole/uikit/components/button'
 import { Input } from '@ankole/uikit/components/input'
-import { RiGlobalLine, RiLink } from '@remixicon/react'
+import { GlobeRegular, LinkRegular } from '@ankole/uikit/icons'
 import { Embed, EmbedHref, EmbedRef, embedAttributes, embedChanges, type EmbedPatch } from '../blocks/embed'
 import {
   resourceAttributes,
@@ -376,7 +376,7 @@ export function MediaResourceBlock({
           preview
         ) : src ? (
           <a className="resource-summary" href={src} target="_blank" rel="noopener noreferrer">
-            <RiLink className="resource-symbol" aria-hidden="true" />
+            <LinkRegular className="resource-symbol" aria-hidden="true" />
             <span className="resource-copy">
               <span className="resource-name">{linkSummaryLabel}</span>
               {view === 'card' && (
@@ -737,7 +737,7 @@ export function ExternalEmbedBlock({
                       onError={() => setIconFailed(true)}
                     />
                   ) : (
-                    <RiGlobalLine className="resource-favicon-fallback" aria-hidden="true" />
+                    <GlobeRegular className="resource-favicon-fallback" aria-hidden="true" />
                   )}
                   <small className="resource-url">{attrs.href ?? src}</small>
                 </span>
@@ -747,7 +747,7 @@ export function ExternalEmbedBlock({
             </a>
           ) : (
             <a className="resource-summary" href={src} target="_blank" rel="noopener noreferrer">
-              <RiLink className="resource-symbol" aria-hidden="true" />
+              <LinkRegular className="resource-symbol" aria-hidden="true" />
               <span className="resource-copy">
                 <span className="resource-name">{title}</span>
                 {view === 'card' && (

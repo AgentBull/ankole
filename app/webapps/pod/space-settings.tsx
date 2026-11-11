@@ -1,5 +1,5 @@
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
-import { RiMoreFill } from '@remixicon/react'
+import { MoreHorizontalRegular } from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -43,14 +43,14 @@ export function SpaceSettingsButton({ canManage }: { canManage: boolean }) {
   return canManage ? (
     <Dialog open={open} onOpenChange={next => !saving.current && setOpen(next)}>
       <Button
-        size="icon-sm"
+        size="icon-xs"
         variant="ghost"
         aria-label={t('pod.content.space_settings')}
         onClick={() => {
           mutate.reset()
           setOpen(true)
         }}>
-        <RiMoreFill aria-hidden className="size-4" />
+        <MoreHorizontalRegular className="size-4" />
       </Button>
       <DialogContent
         className="pod-dialog pod-dialog-wide"

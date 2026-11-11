@@ -20,7 +20,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiKey2Line } from '@remixicon/react'
+import { KeyRegular } from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 
@@ -108,7 +108,7 @@ export function PrincipalGroupsListPage() {
       isLoading={groups.isLoading}
       isEmpty={rows.length === 0}
       emptyTitle={t('console.principal_groups.empty_title')}
-      emptyIcon={<RiKey2Line aria-hidden />}
+      emptyIcon={<KeyRegular aria-hidden />}
       emptyDescription={t('console.principal_groups.empty_description')}
       error={groups.error}
       isFiltered={Boolean(query.trim())}

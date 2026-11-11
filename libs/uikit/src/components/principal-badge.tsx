@@ -1,4 +1,4 @@
-import { RiRobot2Line } from '@remixicon/react'
+import { BotRegular } from '../icons'
 import type * as React from 'react'
 
 import { cn } from '../lib/utils'
@@ -49,7 +49,7 @@ export function PrincipalBadge({
         {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
         <AvatarFallback>
           {kind === 'agent' ? (
-            <RiRobot2Line aria-hidden="true" className="size-3.5 text-muted-foreground" />
+            <BotRegular aria-hidden="true" className="size-3.5 text-muted-foreground" />
           ) : (
             principalInitials(displayName)
           )}

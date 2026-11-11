@@ -54,7 +54,7 @@ spreadsheet, Word document, presentation, and file options. Within Brain, creati
   still opens in its editor and downloads with its type.
 
 Users edit Page titles at the top of the canvas. An Applet Page gives its whole
-canvas to the Applet instead: the Page header path shows the title, and the
+canvas to the Applet instead: the Page's path shows the title, and the
 Page's more-actions menu turns that title into a rename field, as the Page tree
 does for its rows. A Page title holds at most 255
 Unicode code points. Title fields shorten excess inserted text at a grapheme
@@ -66,6 +66,20 @@ when the version has the same title, and shortens a different restored title to
 255 code points. Document titles and bodies form a continuous
 writing area, with synchronization status and online participants in the Page
 header.
+
+A document Page sets its icon, title, and body in one 892px column
+(`--spacing-content`), centred in the content card with at least 68px of gutter
+on either side, and its first line sits 68px below the card's top edge. The Page
+icon is a 48px box holding a 40px glyph, and the title sits 12px below it in the
+36px type step, SemiBold on a 54px line; on viewports 760px wide or narrower the
+title steps down to the 30px step. The body starts 12px below the title, or below
+the source-Conversation line when the Page has one. The editor owns the body's
+typography (see Standard typography in `libs/ankole-editor/SPEC.md`): 16px text
+on a 24px line with blocks 12px apart, Heading 1 at 30px Bold, Heading 2 and 3 at
+24px and 20px SemiBold with 24px above them, and the shared code, table, and link
+forms that chat replies use too. A Page mention reads as a link in that text: a
+20px icon, 4px of space, and the title in the text's own weight over a gray-60
+underline.
 
 Page titles have their own draft and title comparison baseline. Document and
 knowledge editors own their XML drafts; file, Base and Applet pages create only
@@ -119,10 +133,13 @@ Document menus use the shared UIKit alumina ceramic material: a translucent
 surface that diffuses background colours, with soft directional lighting, fine
 edges, and a restrained shadow. The dark theme balances translucency with a
 denser tint to keep labels legible. Slash, insertion, conversion, and block actions
-share a 272 px surface and 36 px rows. The block catalogue has one owner for its
-options, search, grouping, and 22 px icon slots. Only the slash state adds raised
-icon tiles with a coloured light for each block type; other states use plain 16 px
-glyphs. Single-line rows and muted group labels separate basic blocks, layouts, and additional content. Search
+share a 264 px surface, and the block catalogue has one owner for its options,
+search, and grouping. The slash menu lays each option on a 60 px row that runs
+from edge to edge, with a 44 px raised tile that carries a coloured light for its
+block type, inside a surface with the tight 4 px radius and a 4 px scrollbar
+thumb. The other menus use the UIKit's 40 px menu rows with plain 16 px glyphs.
+In every menu, the highlighted row and the row under the pointer take the hover
+wash, and 32 px group titles separate basic blocks, layouts, and additional content. Search
 fields, action menus, and the emoji picker share the surface and focus treatment.
 Menu search and link fields select the UIKit
 `overlay` input variant explicitly. Input and InputGroup own their size, focus,
@@ -392,7 +409,7 @@ succeeds idempotently, whereas assigning an existing shortcode to a different
 asset fails with `shortcode_taken`.
 The existing Page `icon` metadata is the durable owner: it holds either the
 emoji or a `metadata/custom-emoji/...` path. Navigation, references, and page
-pickers render that same value; the Page header path is text only. Listing the
+pickers render that same value; the Page's path is text only. Listing the
 picker catalog requires Space view access, uploading to the library requires
 Space edit access, reading an individual `metadata/custom-emoji/...` asset
 requires an active Pod Principal so Guests and Page-scoped Agents can render
@@ -404,7 +421,7 @@ Page detail responses and directory lists attach each caller's effective actions
 from the same permission snapshot. A Page detail response also carries
 `ancestors`: the Pages from the root down to the parent that the caller can read,
 stopping at the nearest unreadable ancestor, read in the same transaction as the
-Page itself. The Page header path renders that list as returned; UI controls gate actions on those bits while
+Page itself. The Page's path renders that list as returned; UI controls gate actions on those bits while
 displaying role names as human summaries. Move pickers list writable Page
 destinations while excluding the moving Page and its descendants, and root
 create, move, and copy options read `can_create_space` and `can_create_private`
@@ -506,7 +523,7 @@ the active digit and pasted digits appear in sequence. These cues follow the
 control state as soon as it changes, while focus stays where the user's action
 puts it. With reduced motion, controls settle directly into the new state.
 
-Clicking the top bar search entry or pressing Command/Control+K opens a
+Clicking the top bar's search button or pressing Command/Control+K opens a
 single quick-navigation menu linking to Pages, Brain knowledge, Chats, and
 content roots without mutating or discarding an unfinished Chat draft. A single
 highlight follows the active result, and the list changes height as results
@@ -549,58 +566,70 @@ can tell identically named Pages apart, alongside consistent per-type Page icons
 across sidebars, pickers, embeds, and Chat messages. Within content lists, `J`
 and `K` move focus while text inputs preserve normal typing and IME keys;
 desktop lists use compact row density and touch layouts expand hit targets.
-Mobile sidebar section links have a minimum height of 40 px across the full link
-target.
+The phone's sidebar sheet sizes its rows and section titles at 40 px, with each
+section link filling its title's height, and makes every button in it at least
+32 px square. Every row in the sheet shows its actions without a hover, every
+parent row shows its arrow in its icon slot inside a 32 px touch box, and each
+nesting level indents 24 px.
 
-The Pod shell opens with a 56 px top bar that spans the window on the page
-background (`--background`), the same surface as the sidebar. The top bar
-carries the Pod's mark (its avatar, or the initials of its name) and name at
-its start, the same pair the account menu shows, linking to the Pod's chat
-home; on a phone only the mark remains. It then carries the search entry in
-its centre and the open route's actions at its end. The search entry is a
-quiet, borderless field up to 240 px wide that names `Search or jump` and its
-`⌘K` / `Ctrl+K` shortcut; on a top bar narrower than 720 px it becomes an icon
-button. The route's actions are
-a Page's actions on a Page, and the participants, invite, copy-link (a share
-icon), and summary buttons in a Conversation. Below the top bar, the sidebar
-(`Home`, `Chat`, and `Work` tabs at its top, while the `Space` and `Private` section
-headings carry the create buttons) sits beside the page (`main`), which fills
-the rest of the window edge to edge with small rounded top corners. On a Page,
-the document column is 832 px wide with at least 68 px on either side, and its
-first line sits 68 px below the page's top edge. Each sheet
-opens with its own 44 px header, and the sidebar toggle starts that header,
-left of the sheet's title, whether the sidebar is open or hidden; a route whose
-sheet has no header shows the toggle at the start of the top bar instead. A
-Conversation's header follows the toggle with its title, which shows no hover
-wash and takes only the width of its text: a long title truncates with an
+The Pod shell paints the window on the ground (`--ground`), which in the light
+theme washes down the window from a cool gray to a warm white and in the dark
+theme is flat black, and opens with a 44 px top bar that spans it with no fill
+and no edge. Above the sidebar column,
+the bar carries the Pod's mark (its avatar, or the initials of its name) at
+20 px, which names the Pod and links to the Pod's chat home, and, while the
+sidebar is hidden or on a phone, the sidebar toggle. Back and forward buttons
+follow at the content card's edge and walk the Pod router's history: Back is
+available after the first navigation inside the Pod, and Forward while the
+browser holds a later entry. The open route's path comes next. At the bar's
+end, 20 px before the window's edge, the people of the open route come before a
+36 px search button that names `Search or jump` and its `⌘K` / `Ctrl+K`
+shortcut, and the open route's actions follow the search button. On a phone the
+bar leaves out the mark and the history buttons, and a Page's path leaves the bar
+for a 44 px row of its own at the top of the Page, so the bar keeps its room for
+the Page's actions and the path keeps the full width of the screen. The route's actions are a Page's actions on a Page, and the
+participants, invite, copy-link (a share icon), and summary buttons in a
+Conversation. Below the top bar, the sidebar (`Home` and `Chat` tabs at its
+top, while the `Space` and `Private` section headings carry the create buttons)
+lets the ground show through beside the content card (`main`): a white card with
+8 px top corners and no edge that keeps 20 px of ground at its end and runs to
+the bottom of the window. While the sidebar is hidden, the card keeps 20 px of
+ground at its start as well. On a Page, the document column is 832 px wide with
+at least 68 px on either side, and its first line sits 68 px below the card's
+top edge. A Conversation opens with its own 44 px header, whose title shows no
+hover wash and takes only the width of its text: a long title truncates with an
 ellipsis and names itself in full in a tooltip, and the rename field grows with
 the text up to the header's free space and scrolls beyond it. The Page link
 follows the title, and the more-actions menu sits at the header's end. That menu opens with
 `Find in conversation` (`⌘F` / `Ctrl+F`), followed by rename, pin, export, and
-delete or leave, and every item carries an icon. On a Page, that header starts with the Page path
-in text only: every path begins at `Pages`, which links to all Pages, then names
-the direct parent and ends with the open Page in full ink beside its favorite
-star. On an Applet Page, a muted link to the Conversation where an Agent created
-the Applet follows the star while the viewer can still open that Conversation,
-and on a narrow header the link keeps only its icon. Any ancestors between
-`Pages` and the direct parent fold into a menu. On a
-phone, `Pages` gives way to the title and every ancestor folds into that menu.
-The path is the Page read's `ancestors`, so an unreadable parent starts the path
-below it. A hairline under the header
-separates it from the scrolling content. The Page's actions sit at the end of
-the top bar: the document's save state and presence, `Assistant` and `Comments` are toggles that stay pressed while their panel is
-open, with `Comments` showing the unread count, and `Share` is the one bordered
-button (displaying a scope icon on live Pages and opening a two-level sharing
-popover across overview, multi-select invite, collaborator management, and
-permission settings subviews; viewers without `node_manage` open a read-only
+delete or leave, and every item carries an icon. On a Page, the top bar's path
+is the Page path in 12 px secondary text with tertiary `/` separators, in text
+only: every path begins at `Pages`, which links to all Pages, then names the
+direct parent and ends with the open Page beside its favorite star; on a phone
+the Page's more-actions menu adds or removes the favorite instead. On an
+Applet Page, a muted link to the Conversation where an Agent created the Applet
+follows the star while the viewer can still open that Conversation, and on a
+narrow top bar the link keeps only its icon. Any ancestors between `Pages` and
+the direct parent fold into a menu behind an ellipsis. On a phone, `Pages` gives
+way to the title and every ancestor folds into that menu. The path is the Page
+read's `ancestors`, so an unreadable parent starts the path below it. The
+Page's people and actions sit at the end of the top bar. A document's save state
+and its collaborators come before the search button: each collaborator shows as
+a 24 px avatar with a dot in their collaboration colour below it, and the save
+state shows as an icon that names itself in words only while the document is
+offline or failing. After the search button, the Page's actions are 36 px icon
+buttons that name themselves in tooltips: `Assistant` and `Comments` are toggles
+that stay pressed while their panel is open, with `Comments` showing the unread
+count, and `Share` displays a scope icon on live Pages and opens a two-level
+sharing popover across overview, multi-select invite, collaborator management,
+and permission settings subviews; viewers without `node_manage` open a read-only
 collaborator overview with link copy, while trashed Pages render a standalone
-Copy link icon button). When the top bar runs short, the search entry narrows
-first and the action labels then give way to their icons. On desktop, an open
-chat or comments panel is a 296 px drawer flush against the Page and the
-window's right edge, divided from the Page by a hairline; the Assistant panel
-can widen to 480 px from its edge separator. The panel's 44 px
-header carries no hairline, and its title starts on the same 18 px edge as the
-Page path. Selects in either header are borderless text with a chevron. The
+Copy link icon button. The more-actions menu ends the bar. On desktop, an open
+chat or comments panel is a 296 px drawer at the content card's end, flush
+against the Page and divided from it by a hairline, and the Page and its drawer
+share the card's top corners; the Assistant panel can widen to 480 px from its
+edge separator. The panel's 44 px header carries no hairline, and its title
+starts 18 px in from the panel's edge. Selects in either header are borderless text with a chevron. The
 chat composer docks at the bottom of the panel before the first message as
 well as after it. The Assistant panel connects only the current member's
 personal assistant, with private task history for the Page and no Agent picker.
@@ -613,65 +642,113 @@ Pages (ordered by `page_user_states.visited_at`) with recent Conversations
 (ordered by the later of `viewer.lastVisitedAt` and `lastActivityAt`) both inline in the sidebar and in `/content/recent`;
 the sidebar retains up to three attention items in decision, relevant unread
 comment, then running-work order. Attention queries include older unfinished
-work outside the ordinary recent page. Chat combines pinned rooms, a collapsed
-Assistant section with active/unread tasks, and existing IM rooms plus callable
-colleagues. Work lists the open work items by status, starting with those that
-need an answer or wait for review, which its badge counts, and links to the
-Work page at `/work` (see [Issues](Issues.md)). Every tab offers New Chat for
-formal members.
+work outside the ordinary recent page. While any work item is in To do or In
+progress, and while the Work page is open, `Home` also shows a
+`Background Agent tasks` row directly above `Shared with me`, which opens the
+Work page at `/work` (see [Issues](Issues.md)). Chat combines pinned rooms, an
+Assistant section that opens on its latest tasks each time Chat opens and keeps
+the active/unread tasks while collapsed, and existing IM rooms plus callable
+colleagues. Every tab offers New Chat for formal members.
 Opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
 the user's navigation context stays stable, and New Chat keeps whichever tab
 is open. `Favorites` renders inline above the
-`Space` and `Private` trees whenever the user has favorited Pages, while the
-account switcher, `Trash`, and `Pod settings` sit in the sidebar footer.
-`Trash` and `Pod settings` are icon buttons that keep their resting look while
-their page is open; the open page announces itself through `aria-current`.
-Every Page row in the `Space` and `Private` trees starts with the Page's icon in
-one fixed slot, so a nested Page's icon and title line up with its siblings
-whether or not it has children. A Page with children uses that icon as its
-expand button: the icon turns into the chevron while the row is hovered or
-focused, and a touch screen, which has no hover, shows the chevron there.
+`Space` and `Private` trees whenever the user has favorited Pages. The sidebar
+ends in a 42 px account row: the Pod's 26 px mark, the Pod name, the Human name,
+and an up-down chevron. Its menu holds the organizations that the browser has
+proved, account settings, `Pod settings` for the Pod's managers, `Trash`, the
+theme, and the ways out.
+Sidebar rows are 32 px high, with a 20 px icon 6 px before a 14 px label, and
+each nesting level indents 20 px; below the sixth level each level indents
+4 px, so a deeply nested title keeps its room. Row icons are Fluent System
+Icons, which the UI kit re-exports as `@ankole/uikit/icons`, and draw in the
+primary colour in every state, with one mark per Page
+type (a document, a spreadsheet file, another file, an Applet, a Base, and a
+knowledge Page) unless the Page has its own emoji or picture; New Chat's plus
+draws in the secondary colour. A Page with children rests on its own icon at its
+siblings' place; while the row is hovered or holds keyboard focus, and while its
+children load, a filled arrow in the secondary colour takes the icon's slot,
+takes the hover wash on its own 20 px box under the pointer, and turns a quarter
+while the Page is open. A screen without hover keeps the arrow in the slot.
+Section titles are 32 px rows of 12 px secondary
+text that start where the rows' icons start. A section's caret follows its title
+and shows while the heading is hovered or focused, whether the section is open
+or closed, and always on a screen without hover.
 The account button shows the Pod name before the Human name; its accessible
 name includes both names in that same order. When the Pod name is empty, the
 button announces the Human name alone with its account menu label.
-The Pod and Console share sidebar controls. In both, the sidebar toggle starts
-the content sheet's header, left of the sheet's title; the Console's sheet
-header names the current navigation section, while its full-width top bar keeps
-the brand and the account actions. Command/Control+B toggles the
+The Pod sidebar's 44 px header row holds the tabs and, at its end, the sidebar
+toggle; a hairline separates that row from New Chat, a plain row that starting a
+conversation never marks as current. While the sidebar is hidden, the toggle
+shows at the start of the top bar instead. In the Console, the sidebar toggle
+starts the content sheet's header, left of the sheet's title; the Console's
+sheet header names the current navigation section, while its full-width top bar
+keeps the brand and the account actions. Command/Control+B toggles the
 sidebar while leaving shortcuts inside editable controls to those controls.
-On desktop, the Pod sidebar starts at its 236 px minimum width and its edge
-separator widens it up to 480 px. Dragging updates the layout immediately and
+On desktop, the Pod sidebar opens at the 258 px design width, which is also its
+minimum, and its edge separator widens it up to 480 px. Dragging updates the layout immediately and
 stores the final width in origin-scoped `localStorage`; Left and Right adjust a
 focused separator by 16 px, while Home and End select the minimum and maximum.
 Every Pod on the same origin restores that device preference. When the desktop
 sidebar is collapsed, hovering the left screen edge opens it as a temporary
 ceramic overlay without changing the collapse preference or moving the page.
 Leaving the overlay closes it, while `Show sidebar` expands it persistently.
-The open sidebar tab shows its icon and label; each other tab shows only its
-icon and names itself in a tooltip. Switching tabs slides the selected fill to
+Docking and hiding the sidebar run on one clock: the column slides its own
+width on the drawer curve, over 240 ms to dock and 200 ms to hide, and the gap
+beside it, the content card's start margin, and the top bar's leading zone
+follow with the same duration and curve, so the card's edge stays on the
+column's edge. The column fades out over the first 120 ms of a hide and fades
+in over 160 ms from 60 ms into a dock, while the top bar's sidebar toggle fades
+and grows in over 160 ms from 100 ms into a hide and fades out within 80 ms of
+a dock. The overlay arrives from 12 px out while it fades in over 180 ms, and it
+fades out where it stands over 140 ms; `Show sidebar` keeps the overlay in place
+with its surface above the card until the card has made room. Nothing moves on
+first paint or while the separator drags, and reduced motion swaps every state
+at once.
+The open sidebar tab is a chip that shows its 24 px icon and 15 px label on the
+selected fill; each other tab shows only its icon and names itself in a tooltip.
+Switching tabs slides the selected fill to
 the new tab. The leading edge arrives first, so the fill briefly stretches
 while the old label closes and blurs away and the new label opens and comes
 into focus. Underlined tab lists use the same motion for their active line.
 The open tab and the current row in the Pod
-and Console sidebars share one mark: the selected fill (brand-10 inside a 0.2 px
-blue hairline), with ink text at the same weight. Both sidebars are white
-columns that end in a faint divider beside the page. Only the Sidebar row the user followed
+and Console sidebars share one mark: the selected fill, which is solid
+deeppurple-20 with no edge in the light theme and gray-90 inside a 0.2 px brand
+hairline in the dark theme, with ink text at the same weight. A hovered row
+takes the half-strength wash of the selected fill, and pressing it lays 5% black
+over that wash in the light theme and 10% white in the dark theme. The Pod
+sidebar has no fill of its own: the window's ground shows through it, and no
+divider separates it from the content card. Only the Sidebar row the user followed
 marks the open Page, so a Page listed under both Recently visited and a tree
 highlights once; a Page opened without a Sidebar row marks its Space or Private
 row instead. The browser history entry records the followed section, so reloads
 and Back/Forward restore the same mark. A link opened in a new tab uses its tree
 row. The section determines both the visible wash and `aria-current`; URL
-matching alone cannot distinguish repeated links. Document row and section
-actions fade in over 140 ms under a fine pointer. Leaving the row hides them
-immediately; keyboard focus and an open menu keep them visible immediately.
-Touch and mobile sidebars show these actions persistently. Chat status and menu
+matching alone cannot distinguish repeated links. A document row's 24 px
+actions show while the row is hovered or focused, on the current row, and while
+their menu is open, and the row's title gives up their room only while they
+show. Section actions fade in over 140 ms under a fine pointer; leaving the
+heading hides them immediately, and keyboard focus and an open menu keep them
+visible immediately. The mobile sidebar shows row and section actions
+persistently, and another screen without hover shows every section's actions
+and the current row's. Chat status and menu
 icons exchange places immediately. When the system forces its own colors, the
 current row takes an outline instead of the wash.
 
-Pointer clicks rotate the Recently visited, Favorites, Space, and Private
-chevrons over 140 ms. Nested tree changes, keyboard activation, preference
-restoration, and drop-driven expansion are immediate. Reduced motion replaces
-the root chevron's rotation with a short opacity recovery on pointer release.
+A section's body, in Home and in Chat, and a Page row's child list open by
+running their height up from zero over 200 ms while their rows fade in, and
+close by running it down over 180 ms while the rows fade out in the first
+100 ms, both on the out curve; the rows below move with the height, the group
+clips its rows only while it moves, and a closed group leaves the DOM. A Page
+row's arrow turns with its list. A row whose children load on first open shows
+the spinner in the arrow's place and opens once its rows arrive. A section or
+row that is already open when the sidebar renders, a row that opens to reveal
+the current Page, and a drop-driven expansion show their state at once. The
+Assistant group in Chat keeps its body while collapsed, because it still lists
+the tasks that need attention. Pointer clicks rotate the Recently visited,
+Favorites, Space, Private, and Chat group chevrons with their body's height;
+keyboard activation and preference restoration turn them at once. Reduced motion
+opens and closes every group at once and replaces the root chevron's rotation
+with a short opacity recovery on pointer release.
 
 On desktop, pointer activation brings Comments, Page chat, and the conversation
 summary into view with an 8 px translation and opacity over 200 ms. Closing
@@ -1269,13 +1346,13 @@ Page title and icon projection; queries still own authorization, membership and
 relationship refreshes.
 
 Public business Pages offer their managers (`node_manage`) a **Learn business
-facts** control in the Page header, so the title flows straight into the body.
-A File Page offers it as well, where it opts in the text extracted from that
-file.
-The control reads **Learn** while learning is off and **Learning** once the
-Page or an ancestor enables it; like the other header buttons, a header narrower
-than 640 px keeps only its icon, and its accessible name stays the full **Learn
-business facts** while learning is off. Its popover holds the switch and
+facts** control among the Page's actions in the top bar, so the title flows
+straight into the body. A File Page offers it as well, where it opts in the
+text extracted from that file. The control is a 36 px icon button at every
+width: an outlined brain while learning is off and a filled brain once the Page
+or an ancestor enables it. Its accessible name reads **Learn business facts**
+while learning is off and **Learning** once it is on, and its tooltip always
+names **Learn business facts**. Its popover holds the switch and
 explains that extracted facts stay visible only to members and Agents who can
 read the Page. The setting updates `metadata.extract_facts` through the ordinary
 Page update operation. Enabling it queues existing documents and eligible
@@ -1553,11 +1630,12 @@ Document participants and selections are ephemeral Phoenix Presence data. The
 server derives participant identity from the authenticated Principal and checks
 Page access before delivering updates. The browser maps selections through its
 pending edits and hides selections from an incompatible revision. The participant
-strip distinguishes viewers and editors. The Page header's participant picker
-shows connection and save status, keeping both visible while the document
-scrolls. In a narrow header, a status icon and participant count replace
-the text and avatar strip; the participant popover shows the full status and
-member list. `PodRealtime` owns connection status and reports it from the channel
+strip distinguishes viewers and editors. The document's people and its
+connection and save status sit in the top bar, so both stay visible while the
+document scrolls. The status is an icon that names itself in words only while
+the document is offline or failing; in a top bar narrower than 860 px, that
+name drops back to the icon and a participant count replaces the avatars. The
+participant popover shows the full status and member list. `PodRealtime` owns connection status and reports it from the channel
 lifecycle. A failed synchronization request displays a retryable error while
 the channel continues to report its actual connection
 status. Reconnecting clients request missing revisions.
@@ -2671,7 +2749,8 @@ Each Applet mounts inside a same-origin iframe at
 document and all subresources—unaffected if the user switches the browser's
 default account elsewhere. The iframe isolates its own DOM, CSS, viewport, and
 import map while sharing the host origin and trust boundary. On an Applet Page,
-the iframe starts directly below the Page header and fills the whole scroll
+the iframe starts at the top of the Page's scroll panel, directly below the top
+bar (on a phone, below the Page's path row), and fills the whole scroll
 panel, so only the Applet's own content scrolls, and its scrollbar sits at the
 sheet's edge. The host pads the Applet's document with the Page's gutters,
 including the centered `1440px` column, so that space scrolls with the content
@@ -3045,7 +3124,8 @@ business JSON payloads verbatim without rewriting strings, and
 persisted `pages/<id>/...` or page-relative file references without embedding
 credentials into stored paths.
 Page Job and event-binding APIs manage
-background work, and the Applet Page header opens a unified **Applet settings**
+background work, and the Applet settings button among the Applet Page's top-bar
+actions opens a unified **Applet settings**
 modal (`Variables`, `Automation`, `Webhooks`, `Run logs`, and `Functions`,
 auto-selecting `Automation` when a URL carries `?automation_job=<id>`).
 `GET /api/v2/pod/pages/:page_id/functions` inspects the current published

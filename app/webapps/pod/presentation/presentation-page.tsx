@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback, cn, Textarea, toast, useIsMobile } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiLockLine } from '@remixicon/react'
+import { LockClosedRegular } from '@ankole/uikit/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { t } from 'i18next'
 import {
@@ -195,7 +195,7 @@ function SlideThumbnailItem({
               })}
               style={{ background: `var(${lockEntry.member.color})` }}
               className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full text-white shadow-xs">
-              <RiLockLine className="size-2.5" />
+              <LockClosedRegular className="size-2.5" />
             </span>
           )}
           {badges.length > 0 && (
@@ -1085,7 +1085,7 @@ function PresentationWorkspace({
                   <span
                     className="flex size-4 items-center justify-center rounded-full text-white"
                     style={{ background: `var(${activeSlideLockHolder.color})` }}>
-                    <RiLockLine className="size-2.5" />
+                    <LockClosedRegular className="size-2.5" />
                   </span>
                   <span>
                     {t('pod.office.locked_by', {

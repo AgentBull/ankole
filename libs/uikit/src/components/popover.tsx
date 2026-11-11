@@ -19,19 +19,28 @@ function PopoverTrigger({ className, ...props }: PopoverPrimitive.Trigger.Props)
   )
 }
 
+/**
+ * The ceramic surface of a popover, placed beside its trigger, or beside `anchor` when the popover opens without
+ * one, such as a prompt that belongs to a field.
+ */
 function PopoverContent({
   className,
   align = 'center',
   alignOffset = 0,
+  anchor,
   collisionPadding,
   side = 'bottom',
   sideOffset = 4,
   ...props
 }: PopoverPrimitive.Popup.Props &
-  Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'collisionPadding' | 'side' | 'sideOffset'>) {
+  Pick<
+    PopoverPrimitive.Positioner.Props,
+    'align' | 'alignOffset' | 'anchor' | 'collisionPadding' | 'side' | 'sideOffset'
+  >) {
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Positioner
+        anchor={anchor}
         align={align}
         alignOffset={alignOffset}
         collisionPadding={collisionPadding}

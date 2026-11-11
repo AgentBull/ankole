@@ -137,7 +137,7 @@ function manualChunks(moduleID: string): string | undefined {
   if (
     moduleID.includes('/@base-ui/') ||
     moduleID.includes('/@floating-ui/') ||
-    moduleID.includes('/@remixicon/react/') ||
+    moduleID.includes('/@fluentui/react-icons/') ||
     packageName === '@tanstack/react-form' ||
     packageName === '@tanstack/form-core' ||
     packageName === '@tanstack/react-store' ||

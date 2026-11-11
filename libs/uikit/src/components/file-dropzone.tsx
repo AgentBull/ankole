@@ -1,6 +1,6 @@
 'use client'
 
-import { RiCloseLine, RiFileTextLine, RiUploadCloud2Line } from '@remixicon/react'
+import { CloudArrowUpRegular, DismissRegular, DocumentTextRegular } from '../icons'
 import * as React from 'react'
 
 import { cn } from '../lib/utils'
@@ -206,7 +206,7 @@ export function FileDropzone({
           className="sr-only"
           tabIndex={-1}
         />
-        <RiUploadCloud2Line aria-hidden="true" className="size-6 text-muted-foreground" />
+        <CloudArrowUpRegular aria-hidden="true" className="size-6 text-muted-foreground" />
         <div className="grid gap-0.5">
           <p className="text-sm font-medium text-foreground">{label}</p>
           {description != null && (
@@ -241,7 +241,7 @@ export function FileDropzone({
               key={`${file.name}:${file.size}:${index}`}
               className="flex items-center justify-between gap-2 rounded-control border border-border bg-background px-2.5 py-1.5 text-xs">
               <span className="flex min-w-0 items-center gap-2">
-                <RiFileTextLine aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                <DocumentTextRegular aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                 <span className="truncate font-medium text-foreground">{file.name}</span>
                 <span className="shrink-0 text-muted-foreground tabular-nums">{formatFileSize(file.size)}</span>
               </span>
@@ -253,7 +253,7 @@ export function FileDropzone({
                   className="touch-target"
                   aria-label={removeFileLabel(file.name)}
                   onClick={() => onRemoveFile(index)}>
-                  <RiCloseLine aria-hidden="true" className="size-3.5" />
+                  <DismissRegular aria-hidden="true" className="size-3.5" />
                 </Button>
               )}
             </li>

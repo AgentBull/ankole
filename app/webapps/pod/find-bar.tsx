@@ -1,5 +1,5 @@
 import { Button, Input } from '@ankole/uikit'
-import { RiArrowDownSLine, RiArrowUpSLine, RiCloseLine } from '@remixicon/react'
+import { ChevronDownRegular, ChevronUpRegular, DismissRegular } from '@ankole/uikit/icons'
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -606,7 +606,7 @@ export function PageFindBar({
         disabled={!count}
         aria-label={t('pod.content.find_previous')}
         onClick={() => search(-1)}>
-        <RiArrowUpSLine aria-hidden />
+        <ChevronUpRegular aria-hidden />
       </Button>
       <Button
         size="icon-xs"
@@ -614,10 +614,10 @@ export function PageFindBar({
         disabled={!count}
         aria-label={t('pod.content.find_next')}
         onClick={() => search(1)}>
-        <RiArrowDownSLine aria-hidden />
+        <ChevronDownRegular aria-hidden />
       </Button>
       <Button size="icon-xs" variant="ghost" aria-label={t('pod.content.find_close')} onClick={onClose}>
-        <RiCloseLine aria-hidden />
+        <DismissRegular aria-hidden />
       </Button>
     </div>
   )

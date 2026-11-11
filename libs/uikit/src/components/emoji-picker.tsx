@@ -1,19 +1,19 @@
 'use client'
 
 import {
-  RiBasketballLine,
-  RiBearSmileLine,
-  RiBusLine,
-  RiCloseLine,
-  RiCupLine,
-  RiEmotionLine,
-  RiFlagLine,
-  RiMusic2Line,
-  RiSearchLine,
-  RiSparklingLine,
-  RiTimeLine,
-  RiTShirtLine
-} from '@remixicon/react'
+  AnimalCatRegular,
+  ClockRegular,
+  DismissRegular,
+  DrinkCoffeeRegular,
+  EmojiRegular,
+  FlagRegular,
+  MusicNote2Regular,
+  SearchRegular,
+  ShirtRegular,
+  SparkleRegular,
+  SportBasketballRegular,
+  VehicleBusRegular
+} from '../icons'
 import {
   Categories,
   CategoryNav,
@@ -52,16 +52,16 @@ const emojiDataLoaders = {
 } satisfies Record<string, EmojiDataLoader>
 
 const categoryIcons: CategoryIcons = {
-  [Categories.SUGGESTED]: <RiTimeLine aria-hidden className="size-4" />,
-  [Categories.SMILEYS_PEOPLE]: <RiEmotionLine aria-hidden className="size-4" />,
-  [Categories.ANIMALS_NATURE]: <RiBearSmileLine aria-hidden className="size-4" />,
-  [Categories.FOOD_DRINK]: <RiCupLine aria-hidden className="size-4" />,
-  [Categories.TRAVEL_PLACES]: <RiBusLine aria-hidden className="size-4" />,
-  [Categories.ACTIVITIES]: <RiBasketballLine aria-hidden className="size-4" />,
-  [Categories.OBJECTS]: <RiTShirtLine aria-hidden className="size-4" />,
-  [Categories.SYMBOLS]: <RiMusic2Line aria-hidden className="size-4" />,
-  [Categories.FLAGS]: <RiFlagLine aria-hidden className="size-4" />,
-  [Categories.CUSTOM]: <RiSparklingLine aria-hidden className="size-4" />
+  [Categories.SUGGESTED]: <ClockRegular aria-hidden className="size-4" />,
+  [Categories.SMILEYS_PEOPLE]: <EmojiRegular aria-hidden className="size-4" />,
+  [Categories.ANIMALS_NATURE]: <AnimalCatRegular aria-hidden className="size-4" />,
+  [Categories.FOOD_DRINK]: <DrinkCoffeeRegular aria-hidden className="size-4" />,
+  [Categories.TRAVEL_PLACES]: <VehicleBusRegular aria-hidden className="size-4" />,
+  [Categories.ACTIVITIES]: <SportBasketballRegular aria-hidden className="size-4" />,
+  [Categories.OBJECTS]: <ShirtRegular aria-hidden className="size-4" />,
+  [Categories.SYMBOLS]: <MusicNote2Regular aria-hidden className="size-4" />,
+  [Categories.FLAGS]: <FlagRegular aria-hidden className="size-4" />,
+  [Categories.CUSTOM]: <SparkleRegular aria-hidden className="size-4" />
 }
 
 function SkinToneButton({ tone, children: _glyph, className, ...props }: SkinToneButtonRenderProps) {
@@ -85,7 +85,7 @@ function EmojiPickerSearch({ clearLabel = 'Clear' }: { clearLabel?: string }) {
     <div data-epr-part="search" className="ankole-emoji-picker-search">
       <InputGroup variant="overlay" className="overflow-hidden pr-1 pl-2.5">
         <InputGroupAddon align="inline-start" className="py-0">
-          <RiSearchLine aria-hidden className="size-4 text-fg-tertiary" />
+          <SearchRegular aria-hidden className="size-4 text-fg-tertiary" />
         </InputGroupAddon>
         <SearchInput
           data-slot="input-group-control"
@@ -94,7 +94,7 @@ function EmojiPickerSearch({ clearLabel = 'Clear' }: { clearLabel?: string }) {
         <InputGroupAddon align="inline-end" className="gap-0.5 py-0">
           {search.length > 0 && (
             <InputGroupButton size="icon-xs" aria-label={clearLabel} data-epr-part="search-clear" onClick={clear}>
-              <RiCloseLine aria-hidden />
+              <DismissRegular aria-hidden />
             </InputGroupButton>
           )}
           <SkinTone className="ankole-emoji-picker-skin-tone" />

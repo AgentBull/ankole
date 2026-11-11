@@ -1,4 +1,4 @@
-import { Button, cn, Input, toast } from '@ankole/uikit'
+import { Button, cn, Input, Popover, PopoverContent, toast } from '@ankole/uikit'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -26,6 +26,7 @@ export function PageRenameField({
   const [value, setValue] = useState(() => sanitizeRenameValue(page.title))
   const expectedTitle = useRef(page.title)
   const [conflictingTitle, setConflictingTitle] = useState<string | null>(null)
+  const field = useRef<HTMLInputElement>(null)
   const finished = useRef(false)
   const finish = () => {
     finished.current = true
@@ -72,9 +73,12 @@ export function PageRenameField({
     finished.current = true
     rename.mutate(title)
   }
+  // A title conflict asks its question in a popover below the field, so the question shows in full wherever the field
+  // sits, such as in a sidebar row or in the top bar's path, and the field keeps its focus.
   return (
-    <span className="flex min-w-0 flex-1 flex-col">
+    <span className="flex min-w-0 flex-1">
       <Input
+        ref={field}
         autoFocus
         variant="inline"
         className={cn('pod-tree-rename', className)}
@@ -96,17 +100,24 @@ export function PageRenameField({
           }
         }}
       />
-      {conflictingTitle !== null && (
-        <span role="alert" className="flex flex-wrap gap-1 text-xs">
-          <span>{t('pod.document_title.current', { title: conflictingTitle })}</span>
-          <Button size="xs" variant="ghost" onClick={finish}>
-            {t('pod.document_title.use_current')}
-          </Button>
-          <Button size="xs" variant="ghost" disabled={rename.isPending} onClick={() => submit(true)}>
-            {t('pod.document_title.save_draft')}
-          </Button>
-        </span>
-      )}
+      <Popover open={conflictingTitle !== null}>
+        <PopoverContent
+          anchor={field}
+          align="start"
+          initialFocus={false}
+          finalFocus={false}
+          className="w-auto max-w-80 gap-2 p-3">
+          <span role="alert">{t('pod.document_title.current', { title: conflictingTitle ?? '' })}</span>
+          <span className="flex flex-wrap gap-1">
+            <Button size="xs" variant="ghost" onClick={finish}>
+              {t('pod.document_title.use_current')}
+            </Button>
+            <Button size="xs" variant="ghost" disabled={rename.isPending} onClick={() => submit(true)}>
+              {t('pod.document_title.save_draft')}
+            </Button>
+          </span>
+        </PopoverContent>
+      </Popover>
     </span>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { RiAddLine, RiUploadCloud2Line } from '@remixicon/react'
+import { AddRegular, CloudArrowUpRegular } from '../icons'
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import { composingKey } from '../lib/keyboard'
 import { cn } from '../lib/utils'
@@ -184,7 +184,7 @@ function PictureDropzone({
           className="flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 border-0 bg-transparent text-inherit outline-none focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
           disabled={busy}
           onClick={() => input.current?.click()}>
-          <RiUploadCloud2Line aria-hidden className="size-6 text-fg-tertiary" />
+          <CloudArrowUpRegular aria-hidden className="size-6 text-fg-tertiary" />
           <span className="text-sm leading-5 text-foreground">{labels.uploadDropzone}</span>
           <span className="text-xs leading-4 text-fg-tertiary">{labels.uploadFormats}</span>
         </button>
@@ -349,7 +349,7 @@ function PictureGrid({
           aria-label={labels.upload}
           title={labels.upload}
           onClick={() => pictures.upload.onOpenChange(true)}>
-          <RiAddLine aria-hidden className="size-5" />
+          <AddRegular aria-hidden className="size-5" />
         </button>
       )}
     </div>

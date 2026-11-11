@@ -19,7 +19,7 @@ import {
   Input
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiAddLine, RiArrowDownSLine } from '@remixicon/react'
+import { AddRegular, ChevronDownRegular } from '@ankole/uikit/icons'
 import { useRef, useState, type ReactNode } from 'react'
 import type { SheetInfo } from '../state/spreadsheet-grid'
 import type { SpreadsheetSession } from '../state/spreadsheet-collaboration'
@@ -32,8 +32,8 @@ export const WORKSPACE_ATTRIBUTE = 'data-spreadsheet-workspace'
 
 const TAB_COLORS = [
   '--color-red-60',
-  '--color-orange-50',
-  '--color-yellow-30',
+  '--color-orange-60',
+  '--color-yellow-60',
   '--color-green-60',
   '--color-teal-60',
   '--color-cyan-60',
@@ -110,7 +110,7 @@ export function SpreadsheetSheetTabs({ model }: { model: SpreadsheetSession }) {
               if (typeof op?.sheet_id === 'number') model.showSheet(op.sheet_id)
             })
           }>
-          <RiAddLine />
+          <AddRegular />
         </Button>
       )}
       {visible.map(sheet => {
@@ -184,7 +184,7 @@ export function SpreadsheetSheetTabs({ model }: { model: SpreadsheetSession }) {
                       title={t('pod.spreadsheet.sheet_actions', { sheet: sheet.name })}
                     />
                   }>
-                  <RiArrowDownSLine />
+                  <ChevronDownRegular />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-52">
                   {actions(sheet)}

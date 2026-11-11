@@ -27,6 +27,10 @@
       "types": "./src/viz/*.ts",
       "import": "./src/viz/*.ts"
     },
+    "./icons": {
+      "types": "./src/icons/index.ts",
+      "import": "./src/icons/index.ts"
+    },
     "./emoji.css": "./src/assets/fonts/fluent-emoji/FluentEmojiColor.css",
     "./styles.css": "./src/styles.css"
   },
@@ -47,7 +51,7 @@
     "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "3.2.1",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "3.0.0",
     "@base-ui/react": "1.9.0",
-    "@remixicon/react": "4.9.0",
+    "@fluentui/react-icons": "2.0.345",
     "@tanstack/react-virtual": "3.14.26",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

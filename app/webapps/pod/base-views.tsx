@@ -49,7 +49,7 @@ import { RecordFormModel } from './state/record-form'
 import type { ConfiguredView, ViewConfig } from './state/view-config'
 import { requestErrorMessage } from '../common/request-errors'
 import { contentError } from './content-errors'
-import { RiAddLine, RiDeleteBinLine, RiExpandDiagonalLine } from '@remixicon/react'
+import { AddRegular, ArrowMaximizeRegular, DeleteRegular } from '@ankole/uikit/icons'
 import { fieldIcons, fieldTypes } from './base-field-types'
 import { ChartView } from './base-chart-view'
 
@@ -253,7 +253,7 @@ function GridView(props: ViewProps) {
                               title={t('pod.content.record_details')}
                               aria-label={t('pod.content.record_details')}
                               onClick={() => setDetailID(record.id)}>
-                              <RiExpandDiagonalLine aria-hidden="true" />
+                              <ArrowMaximizeRegular aria-hidden="true" />
                             </Button>
                           </div>
                         ) : (
@@ -300,7 +300,7 @@ function GridView(props: ViewProps) {
                         .catch(error => toast.error(requestErrorMessage(contentError(error))))
                         .finally(() => setAddingRow(false))
                     }}>
-                    <RiAddLine aria-hidden="true" />
+                    <AddRegular aria-hidden="true" />
                     {t('pod.content.add_row', { defaultValue: 'New row' })}
                   </Button>
                 </TableCell>
@@ -493,7 +493,7 @@ function RecordDeleteButton({
           setError(undefined)
           setOpen(true)
         }}>
-        <RiDeleteBinLine aria-hidden="true" />
+        <DeleteRegular aria-hidden="true" />
         <span className="sr-only">{t('pod.content.delete')}</span>
       </Button>
       <DialogContent
@@ -738,7 +738,7 @@ function KanbanColumn({
                   .catch(setError)
                   .finally(() => setCreating(false))
               }}>
-              <RiAddLine aria-hidden="true" />
+              <AddRegular aria-hidden="true" />
             </Button>
           )}
         </div>

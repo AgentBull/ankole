@@ -12,14 +12,14 @@ import {
   useIsMobile
 } from '@ankole/uikit'
 import {
-  RiCloseLine,
-  RiCodeSSlashLine,
-  RiFileList3Line,
-  RiFlashlightLine,
-  RiLinksLine,
-  RiSettings3Line,
-  RiTerminalBoxLine
-} from '@remixicon/react'
+  CodeRegular,
+  DismissRegular,
+  DocumentBulletListRegular,
+  FlashRegular,
+  LinkMultipleRegular,
+  SettingsRegular,
+  WindowConsoleRegular
+} from '@ankole/uikit/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -228,7 +228,7 @@ export function AppletSettingsDialog({
           {
             value: 'environment' as const,
             label: t('pod.applet_settings.tab_environment'),
-            icon: <RiTerminalBoxLine aria-hidden className="size-4" />,
+            icon: <WindowConsoleRegular aria-hidden className="size-4" />,
             badgeCount: missingCount
           }
         ]
@@ -236,22 +236,22 @@ export function AppletSettingsDialog({
     {
       value: 'automation',
       label: t('pod.applet_settings.tab_automation'),
-      icon: <RiFlashlightLine aria-hidden className="size-4" />
+      icon: <FlashRegular aria-hidden className="size-4" />
     },
     {
       value: 'webhooks',
       label: t('pod.applet_settings.tab_webhooks'),
-      icon: <RiLinksLine aria-hidden className="size-4" />
+      icon: <LinkMultipleRegular aria-hidden className="size-4" />
     },
     {
       value: 'logs',
       label: t('pod.applet_settings.tab_logs'),
-      icon: <RiFileList3Line aria-hidden className="size-4" />
+      icon: <DocumentBulletListRegular aria-hidden className="size-4" />
     },
     {
       value: 'functions',
       label: t('pod.applet_settings.tab_functions'),
-      icon: <RiCodeSSlashLine aria-hidden className="size-4" />
+      icon: <CodeRegular aria-hidden className="size-4" />
     }
   ]
 
@@ -264,7 +264,7 @@ export function AppletSettingsDialog({
         showCloseButton={false}>
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3.5">
           <div className="flex min-w-0 items-center gap-2.5">
-            <RiSettings3Line aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            <SettingsRegular aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <DialogTitle className="p-0!">{t('pod.applet_settings.title')}</DialogTitle>
             <span aria-hidden className="text-muted-foreground">
               ·
@@ -279,7 +279,7 @@ export function AppletSettingsDialog({
             variant="ghost"
             aria-label={t('common.close')}
             onClick={() => onOpenChange(false)}>
-            <RiCloseLine aria-hidden />
+            <DismissRegular aria-hidden />
           </Button>
         </header>
 
@@ -445,7 +445,8 @@ export function AppletSettingsControl({ detail }: { detail: PageDetail }) {
       ) : null}
       <Button
         variant="ghost"
-        size="sm"
+        size="icon-lg"
+        className={missingCount > 0 ? 'w-auto' : undefined}
         title={t('pod.applet_settings.button')}
         aria-describedby={missingCount > 0 ? badgeDescId : undefined}
         onClick={() => {
@@ -461,8 +462,8 @@ export function AppletSettingsControl({ detail }: { detail: PageDetail }) {
           setRequestedJobSelection(undefined)
           setOpen(true)
         }}>
-        <RiSettings3Line aria-hidden className="size-4" />
-        <span className="@max-[640px]:sr-only">{t('pod.applet_settings.button')}</span>
+        <SettingsRegular aria-hidden />
+        <span className="sr-only">{t('pod.applet_settings.button')}</span>
         {missingCount > 0 ? (
           <Badge variant="warning" aria-hidden className="tabular-nums">
             {missingCount}

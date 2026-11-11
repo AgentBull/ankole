@@ -18,7 +18,7 @@ import {
 } from '@ankole/uikit'
 import type { EditorHost, MentionItem, MentionTarget } from '@ankole/block-editor/editor'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiCheckLine, RiFileCopyLine, RiLockLine, RiRobot2Line, RiWindowLine } from '@remixicon/react'
+import { BotRegular, CheckmarkRegular, CopyRegular, LockClosedRegular, WindowRegular } from '@ankole/uikit/icons'
 import { QueryClientProvider, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import type { i18n as I18nInstance } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
@@ -91,7 +91,7 @@ function PrincipalAvatar({
         disabled && 'text-fg-tertiary',
         className
       )}>
-      {isAgent ? <RiRobot2Line className="size-[62%]" /> : initial}
+      {isAgent ? <BotRegular className="size-[62%]" /> : initial}
     </span>
   )
 }
@@ -135,7 +135,7 @@ function InlinePageMention({
       <Tooltip>
         <TooltipTrigger
           render={<span className="pod-mention-page pod-mention-restricted" data-mention-access="restricted" />}>
-          <RiLockLine aria-hidden className="pod-mention-page-icon" />
+          <LockClosedRegular aria-hidden className="pod-mention-page-icon" />
           <span>{t('pod.mention.restricted_page')}</span>
         </TooltipTrigger>
         <TooltipContent>{t('pod.mention.restricted_page_hint')}</TooltipContent>
@@ -211,7 +211,7 @@ function InlinePageMention({
         {embedPage && !trashed && (pageType === 'base' || pageType === 'file' || pageType === 'applet') && (
           <div className="pt-0.5">
             <Button type="button" variant="outline" size="xs" onClick={() => embedPage(id)}>
-              <RiWindowLine aria-hidden />
+              <WindowRegular aria-hidden />
               {t('pod.mention.switch_to_embed')}
             </Button>
           </div>
@@ -250,7 +250,7 @@ function InlinePrincipalMention({
   if (resolved.access === 'restricted') {
     return (
       <span className="pod-mention-principal pod-mention-restricted" data-mention-access="restricted">
-        <RiLockLine aria-hidden className="pod-mention-principal-lock" />
+        <LockClosedRegular aria-hidden className="pod-mention-principal-lock" />
         <span>@{t('pod.mention.restricted_principal')}</span>
       </span>
     )
@@ -328,7 +328,7 @@ function InlinePrincipalMention({
         {copyValue && (
           <div>
             <Button type="button" variant="outline" size="xs" onClick={() => void copyContact()}>
-              {copied ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
+              {copied ? <CheckmarkRegular aria-hidden /> : <CopyRegular aria-hidden />}
               {copied ? t('pod.mention.copied') : t(isAgent ? 'pod.mention.copy_uid' : 'pod.mention.copy_email')}
             </Button>
           </div>

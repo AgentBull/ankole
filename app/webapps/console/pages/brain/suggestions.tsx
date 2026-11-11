@@ -19,7 +19,7 @@ import {
   toast,
   Spinner
 } from '@ankole/uikit'
-import { RiLightbulbLine } from '@remixicon/react'
+import { LightbulbRegular } from '@ankole/uikit/icons'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -111,7 +111,7 @@ export function BrainSuggestionsPage() {
         count={rows.length}
         emptyTitle={t('console.brain.suggestions_empty_title')}
         emptyDescription={t('console.brain.suggestions_empty_description')}
-        emptyIcon={<RiLightbulbLine aria-hidden />}
+        emptyIcon={<LightbulbRegular aria-hidden />}
         pagination={suggestions}
         isFiltered={status !== 'pending'}
         onClearFilters={() => setStatus('pending')}

@@ -21,7 +21,7 @@ import {
   TableHeader,
   toast
 } from '@ankole/uikit'
-import { RiBroadcastLine, RiPauseCircleLine, RiPlayCircleLine } from '@remixicon/react'
+import { LiveRegular, PauseCircleRegular, PlayCircleRegular } from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 
@@ -143,7 +143,7 @@ export function SignalsListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t(showDisabled ? 'console.signals.empty_title' : 'console.signals.empty_active_title')}
-      emptyIcon={<RiBroadcastLine aria-hidden />}
+      emptyIcon={<LiveRegular aria-hidden />}
       emptyDescription={t(
         showDisabled ? 'console.signals.empty_description' : 'console.signals.empty_active_description'
       )}
@@ -211,7 +211,7 @@ export function SignalsListPage() {
                 ? []
                 : [
                     {
-                      icon: <RiPlayCircleLine />,
+                      icon: <PlayCircleRegular />,
                       label: t('common.enable'),
                       pending: enableBinding.isPending,
                       onAction: () =>
@@ -237,7 +237,7 @@ export function SignalsListPage() {
                     title: t('console.signals.disable_title'),
                     description: t('console.signals.disable_description', { name: binding.name }),
                     confirmLabel: t('common.disable'),
-                    icon: <RiPauseCircleLine />
+                    icon: <PauseCircleRegular />
                   }
                 : undefined
             }

@@ -1,5 +1,5 @@
 import { Badge, cn } from '@ankole/uikit'
-import { RiCheckboxCircleLine, RiCloseCircleLine, RiFlashlightLine, RiSubtractLine } from '@remixicon/react'
+import { CheckmarkCircleRegular, DismissCircleRegular, FlashRegular, SubtractRegular } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import type { PageSharingExplain } from '../content-api'
 
@@ -25,7 +25,7 @@ function stageStatusText(status: string, t: ReturnType<typeof useTranslation>['t
 
 export function AccessWaterfallView({ explain, compact = false }: { explain: PageSharingExplain; compact?: boolean }) {
   const { t } = useTranslation()
-  const VerdictIcon = explain.allowed ? RiCheckboxCircleLine : RiCloseCircleLine
+  const VerdictIcon = explain.allowed ? CheckmarkCircleRegular : DismissCircleRegular
 
   return (
     <div className="grid gap-2.5" data-testid="access-waterfall">
@@ -64,12 +64,12 @@ export function AccessWaterfallView({ explain, compact = false }: { explain: Pag
         {explain.stages.map((stage, index) => {
           const StageIcon =
             stage.status === 'pass'
-              ? RiCheckboxCircleLine
+              ? CheckmarkCircleRegular
               : stage.status === 'fail'
-                ? RiCloseCircleLine
+                ? DismissCircleRegular
                 : stage.status === 'short_circuit'
-                  ? RiFlashlightLine
-                  : RiSubtractLine
+                  ? FlashRegular
+                  : SubtractRegular
           const badgeVariant =
             stage.status === 'fail' ? 'destructive' : stage.status === 'pass' ? 'secondary' : 'outline'
           const title = t(STAGE_LABEL_KEYS[stage.id] ?? stage.id, { defaultValue: stage.id })

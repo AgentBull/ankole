@@ -47,10 +47,6 @@ export type InspectorTarget =
       fromSummary?: boolean
     }
 
-/** A token count is null when no round of the group reported it. */
-export type ExecutionUsage = NonNullable<ExecutionSummary['usage']>
-export type ExecutionModelUsage = ExecutionUsage['models'][number]
-
 export type ClarifyPrompt = Pick<
   ConversationDetail['pendingInteractions'][number],
   'tool_call_id' | 'interaction_id' | 'question' | 'choices' | 'allow_free_text' | 'fields'
@@ -153,6 +149,9 @@ export type TimelineMessage = Omit<ConversationMessage, 'richContent'> & {
     }
   } | null
 }
+
+/** A delegation as the reply of its turn shows it: the request, the colleague's answer, and whether it is live. */
+export type PlacedDelegation = { request: TimelineMessage; reply?: TimelineMessage; live: boolean }
 
 export type TimelineLiveStream = {
   agentUID: string

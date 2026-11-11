@@ -1,4 +1,4 @@
-import { RiFlashlightLine } from '@remixicon/react'
+import { FlashRegular } from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import type { Ref, RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -93,7 +93,7 @@ export function SlashCommandPicker({
             id: `skill:${skill.slug}`,
             content: (
               <>
-                <RiFlashlightLine aria-hidden className="size-3.5 shrink-0 text-primary" />
+                <FlashRegular aria-hidden className="size-3.5 shrink-0 text-primary" />
                 <span className="truncate font-medium">{skill.name}</span>
                 <span className="font-mono text-xs text-fg-tertiary">/{skill.slug}</span>
                 {skill.agent_uid ? (

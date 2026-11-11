@@ -1,7 +1,7 @@
 import { Link, useConsoleTenant } from './tenant-context'
 
 import { Button, Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from '@ankole/uikit'
-import { RiArrowLeftLine, RiRefreshLine } from '@remixicon/react'
+import { ArrowClockwiseRegular, ArrowLeftRegular } from '@ankole/uikit/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { Helmet } from 'react-helmet-async'
@@ -37,7 +37,7 @@ export function BackLink({ label, to }: { label?: string; to: string }) {
     <Link
       {...linkTarget(to)}
       className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-      <RiArrowLeftLine className="size-4" aria-hidden />
+      <ArrowLeftRegular className="size-4" aria-hidden />
       {label ?? t('common.back')}
     </Link>
   )
@@ -125,7 +125,7 @@ export function RefreshButton() {
           />
         }
         onClick={refresh}>
-        <RiRefreshLine className={cn(refreshing && 'animate-spin')} />
+        <ArrowClockwiseRegular className={cn(refreshing && 'animate-spin')} />
       </TooltipTrigger>
       <TooltipContent>{refreshLabel}</TooltipContent>
     </Tooltip>

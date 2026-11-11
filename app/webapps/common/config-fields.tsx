@@ -16,7 +16,7 @@ import {
   Switch,
   Textarea
 } from '@ankole/uikit'
-import { RiArrowDownSLine } from '@remixicon/react'
+import { ChevronDownRegular } from '@ankole/uikit/icons'
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   isRecord,
@@ -70,7 +70,7 @@ export function ConfigFields({
             <span>{advancedLabel}</span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
               {showAdvancedCount ? advancedFields.length : null}
-              <RiArrowDownSLine className="size-4 transition-transform group-aria-expanded:rotate-180" aria-hidden />
+              <ChevronDownRegular className="size-4 transition-transform group-aria-expanded:rotate-180" aria-hidden />
             </span>
           </CollapsibleTrigger>
           <CollapsibleContent>

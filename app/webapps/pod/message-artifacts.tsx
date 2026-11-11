@@ -1,18 +1,43 @@
 import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
-import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, Input } from '@ankole/uikit'
+import {
+  Button,
+  buttonVariants,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+  FileTypeMark,
+  Input,
+  ReferenceCard
+} from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, type ComponentProps, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
 import { podKeys, type ConversationAttachment } from './api'
-import { limitPageTitle, pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
+import {
+  cachedPageMap,
+  limitPageTitle,
+  pageAPI,
+  pageQuery,
+  pageSearchQuery,
+  type Page,
+  type PageDetail
+} from './content-api'
 import { pageCreated } from './state/navigation-cache'
 import { ContentError, InlineLoading } from './content-primitives'
 import { PagePicker } from './page-picker'
 import { MessageAttachments } from './chat-attachments'
 import { PageIcon } from './page-icon'
-import { RiSaveLine } from '@remixicon/react'
+import {
+  AppsRegular,
+  ArrowDownloadRegular,
+  BookOpenRegular,
+  DatabaseRegular,
+  DocumentTextRegular,
+  type IconComponent
+} from '@ankole/uikit/icons'
 
 type Message = ConversationMessage
 
@@ -20,7 +45,7 @@ export function MessageArtifacts({ message, conversationID }: { message: Message
   const pages = message.links.filter(link => link.kind === 'page' && !message.text.includes(`ankole:page/${link.id}`))
   if (!message.attachments.length && !pages.length) return null
   return (
-    <div className="mt-2 space-y-2 text-sm">
+    <div className="pod-chat-attachments">
       <MessageAttachments
         conversationID={conversationID}
         messageID={message.id}
@@ -32,7 +57,7 @@ export function MessageArtifacts({ message, conversationID }: { message: Message
         }
       />
       {!!pages.length && (
-        <ul className="space-y-1">
+        <ul className="pod-chat-page-references">
           {pages.map(link => (
             <li key={link.id}>
               <MessagePageReference id={link.id} />
@@ -46,7 +71,6 @@ export function MessageArtifacts({ message, conversationID }: { message: Message
 
 export function MessagePageReference({ id }: { id: string }) {
   const { t } = useTranslation()
-  const pageHref = usePageHref()
   const query = useQuery(pageQuery(id))
   const page = usePageMetadata(query.data?.page)
   if (query.error) return <span className="text-fg-tertiary">{t('pod.content.cannot_display')}</span>
@@ -57,11 +81,67 @@ export function MessagePageReference({ id }: { id: string }) {
       </span>
     )
   }
+  return <PageReferenceCard id={id} page={page} title={page.title || t('pod.content.untitled')} />
+}
+
+type PageMarkSource = Pick<Page, 'type' | 'icon' | 'system_key'> & { title?: string }
+
+const pageTypeMarks: Partial<Record<Page['type'], IconComponent>> = {
+  doc: DocumentTextRegular,
+  knowledge: BookOpenRegular,
+  base: DatabaseRegular,
+  applet: AppsRegular
+}
+
+/**
+ * The 20px mark of a Page in a reference card. A Page keeps its own icon wherever it appears, so an icon the Page
+ * carries comes first; otherwise the card shows its type's mark, and a file Page shows its file's type mark.
+ * A Page whose details Pod has not read yet shows the document mark.
+ */
+function PageMark({ page }: { page?: PageMarkSource }) {
+  if (page && (page.icon || page.system_key === 'ankole_brain')) {
+    return <PageIcon page={page} className="pod-page-mark" />
+  }
+  if (page?.type === 'file') return <FileTypeMark fileName={page.title} />
+  const Icon = (page && pageTypeMarks[page.type]) || DocumentTextRegular
+  return <Icon aria-hidden />
+}
+
+/**
+ * The Page details Pod has already read, from the Page itself or from navigation, kept current with its title and
+ * icon. It never asks the server, so a reference does not add a request of its own.
+ */
+function useKnownPage(id: string): PageMarkSource | undefined {
+  const client = useQueryClient()
+  const { data } = useQuery({ ...pageQuery(id), enabled: false })
+  return usePageMetadata(data?.page ?? cachedPageMap(client).get(id))
+}
+
+/**
+ * A reference to a Page as the UI kit's reference card, wherever it stands: in prose, under the message that saved
+ * it, and in the summary. It links to the Page; the title is the caller's, such as the Page's title or the text of a
+ * Markdown link. Without the caller's `page`, the mark comes from the Page details Pod has already read.
+ */
+export function PageReferenceCard({
+  id,
+  title,
+  page,
+  ...props
+}: Omit<ComponentProps<typeof ReferenceCard>, 'mark' | 'render' | 'title' | 'children'> & {
+  id: string
+  title: ReactNode
+  page?: PageMarkSource
+}) {
+  const pageHref = usePageHref()
+  const known = useKnownPage(id)
+  const source = page ?? known
   return (
-    <Link className="link pod-object-reference" to={pageHref(id, page.title)}>
-      <PageIcon page={page} />
-      <span>{page.title || t('pod.content.untitled')}</span>
-    </Link>
+    <ReferenceCard
+      {...props}
+      mark={<PageMark page={source} />}
+      render={<Link to={pageHref(id, source?.title ?? (typeof title === 'string' ? title : undefined))} />}>
+      {title}
+    </ReferenceCard>
   )
 }
 
@@ -129,10 +209,15 @@ function SaveAttachmentButton({
   const cannotSave =
     save.isPending || !pages.data || !validParent || (parent === 'private' && !pages.data.principal_uid)
   if (saved) {
+    const savedTitle = saved.title || t('pod.content.untitled')
+    // The saved Page also joins the Pages under the message; here the card keeps a way to it in its action's place.
     return (
-      <Link className="link pod-chat-saved-page" to={pageHref(saved.id, saved.title)}>
+      <Link
+        className={buttonVariants({ variant: 'ghost', size: 'icon-xs' })}
+        aria-label={savedTitle}
+        title={savedTitle}
+        to={pageHref(saved.id, saved.title)}>
         <PageIcon page={saved} />
-        {saved.title || t('pod.content.untitled')}
       </Link>
     )
   }
@@ -142,6 +227,7 @@ function SaveAttachmentButton({
       <Button
         size="icon-xs"
         variant="ghost"
+        className="text-fg-tertiary"
         aria-label={saveLabel}
         title={saveLabel}
         onClick={() => {
@@ -149,7 +235,7 @@ function SaveAttachmentButton({
           setTitle(attachmentLabel)
           setOpen(true)
         }}>
-        <RiSaveLine aria-hidden />
+        <ArrowDownloadRegular aria-hidden className="size-4" />
       </Button>
       <DialogContent
         className="pod-dialog"

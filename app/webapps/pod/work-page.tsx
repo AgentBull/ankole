@@ -1,29 +1,63 @@
-import { Badge, Button, Tabs, TabsList, TabsTrigger, useSidebar } from '@ankole/uikit'
 import {
-  RiAddLine,
-  RiDeleteBinLine,
-  RiFlashlightLine,
-  RiPauseLine,
-  RiPlayLine,
-  RiRepeatLine,
-  RiStopCircleLine
-} from '@remixicon/react'
+  Badge,
+  Board,
+  BoardCard,
+  BoardCardActions,
+  BoardCardAside,
+  BoardCardFooter,
+  BoardCardHeader,
+  BoardCardTitle,
+  BoardColumn,
+  BoardColumnHeader,
+  BoardPresence,
+  Button,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  useSidebar,
+  type BoardTone
+} from '@ankole/uikit'
+import {
+  CheckmarkCircleFilled,
+  CheckmarkCircleRegular,
+  CircleHalfFillRegular,
+  CircleRegular,
+  FilterRegular,
+  RecordRegular,
+  RecordStopRegular,
+  type IconComponent
+} from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useRef, useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { podLocation } from '../common/browser-context'
 import { formatDateTime, formatRelativeTime } from '../common/date-time'
+import { ErrorBoundary } from '../common/error-boundary'
 import { useSearchParams } from '../common/router'
-import { changePodScheduledWork, stopConversationExecution, updatePodIssue } from './api/generated/sdk.gen'
+import { stopConversationExecution, updatePodIssue } from './api/generated/sdk.gen'
 import { ChatAvatar } from './chat/chat-avatar'
-import { ExecutionStatusMark, RunningElapsed, executionStatusLabelKey } from './chat/execution-status'
+import { ExecutionStatusMark, executionStatusLabelKey, executionStatusTone } from './chat/execution-status'
 import { executionProgressLabel } from './chat/linked-execution-card'
 import { ContentError, ContentSkeleton } from './content-primitives'
-import { IssueCreateDialog } from './issue-create-dialog'
+import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import { scheduledWorkQuery, workItemsQuery, workKeys, workStatuses, type WorkItem, type WorkStatus } from './work-api'
+import { WorkDetailPanel, type WorkRun } from './work-detail-panel'
 
-const IssuePanel = lazy(() => import('./issue-panel').then(module => ({ default: module.IssuePanel })))
+/** Opens a card beside the board, on the card's lead run. */
+type Open = (item: WorkItem, trigger: HTMLElement | null, event: PanelInputEvent) => void
 
-type Open = (id: string, trigger?: HTMLElement | null) => void
+const runKey = (run: WorkRun | null) => (run ? `${run.kind}:${run.id}` : null)
+
+function parseRun(value: string | null): WorkRun | null {
+  const [kind, id] = value?.split(':') ?? []
+  return (kind === 'background_agent_job' || kind === 'workflow') && id ? { kind, id } : null
+}
 
 /**
  * The step that a column asks of a card dropped on it. Only three moves are a person's to make: start an Issue
@@ -38,100 +72,190 @@ function stepTo(item: WorkItem, column: WorkStatus): 'started' | 'done' | undefi
   return undefined
 }
 
-/** The Work page: the background work that the viewer handed to Agents, by where it stands. */
+/**
+ * The Work page: the background work that the viewer handed to Agents, by where it stands. A card opens beside the
+ * board in the room layout of Chat, where the board keeps a narrow column and the run inspector takes the rest.
+ */
 export function WorkRoute() {
   const { t } = useTranslation()
   const { isMobile: mobile } = useSidebar()
   const [search, setSearch] = useSearchParams()
-  const layout = search.get('layout') === 'list' ? 'list' : 'board'
   const selected = search.get('issue')
-  const label = search.get('label')
-  // The dialog opens empty, or for a sub-Issue of the open Issue.
-  const [creating, setCreating] = useState<false | { parent?: { id: string; title: string } }>(false)
+  const run = parseRun(search.get('run'))
+  const agents = search.getAll('agent')
   const returnFocus = useRef<HTMLElement | null>(null)
-  const open = (id: string | null, trigger?: HTMLElement | null) => {
-    if (trigger) returnFocus.current = trigger
+  const motion = usePanelMotion(!!selected)
+  const show = (id: string | null, next: WorkRun | null, event?: PanelInputEvent) => {
+    motion.prepare(!!id, event)
     setSearch(current => {
       if (id) current.set('issue', id)
       else current.delete('issue')
+      if (id && next) current.set('run', runKey(next)!)
+      else current.delete('run')
       return current
     })
   }
+  const close = (event?: PanelInputEvent) => {
+    show(null, null, event)
+    if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true })
+  }
+  const open: Open = (item, trigger, event) => {
+    const lead = leadRun(item)
+    const next = lead ? { kind: lead.kind, id: lead.id } : null
+    // As in Chat, opening the card that is already open closes it.
+    if (selected === item.id && runKey(next) === runKey(run)) {
+      close(event)
+      return
+    }
+    returnFocus.current = trigger
+    show(item.id, next, event)
+  }
+  const panel = (variant: 'panel' | 'sheet', id: string) => (
+    <WorkDetailPanel
+      id={id}
+      run={run}
+      variant={variant}
+      finalFocus={returnFocus}
+      close={close}
+      select={next => show(id, next)}
+    />
+  )
   return (
-    <div className="flex h-full min-h-0">
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 pt-2 md:px-10">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="title-page min-w-0 truncate">{t('pod.sidebar.tabs.work')}</h1>
-          <div className="flex items-center gap-2">
-            <Tabs
-              value={layout}
-              onValueChange={value =>
+    <div className="pod-chat-room-body h-full">
+      <section className="pod-chat-room-main overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col px-6 pt-2 @3xl:px-10">
+          <div className="mb-4 flex min-w-0 items-center gap-2">
+            <h1 className="title-page min-w-0 truncate">{t('pod.work.title')}</h1>
+            <WorkFilter
+              selected={agents}
+              onChange={next =>
                 setSearch(current => {
-                  if (value === 'list') current.set('layout', 'list')
-                  else current.delete('layout')
+                  current.delete('agent')
+                  for (const uid of next) current.append('agent', uid)
                   return current
                 })
-              }>
-              <TabsList aria-label={t('pod.work.layout')}>
-                <TabsTrigger value="board">{t('pod.work.board')}</TabsTrigger>
-                <TabsTrigger value="list">{t('pod.work.list')}</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <Button size="sm" onClick={() => setCreating({})}>
-              <RiAddLine aria-hidden />
-              {t('pod.work.new_issue')}
-            </Button>
+              }
+            />
+            <WorkingAgents />
+          </div>
+          <div className="@container min-h-0 flex-1 space-y-8 overflow-auto pb-6">
+            <WorkItems selected={selected} agents={agents} open={open} />
+            <ScheduledWork />
           </div>
         </div>
-        <div className="min-h-0 flex-1 space-y-8 overflow-auto pb-6">
-          <WorkItems
-            layout={layout}
-            selected={selected}
-            open={open}
-            label={label}
-            filter={next =>
-              setSearch(current => {
-                if (next) current.set('label', next)
-                else current.delete('label')
-                return current
-              })
-            }
-          />
-          <ScheduledWork open={open} />
-        </div>
       </section>
-      <Suspense fallback={null}>
-        <IssuePanel
-          id={selected}
-          mobile={mobile}
-          close={() => open(null)}
-          returnFocus={returnFocus}
-          newSubIssue={item => setCreating({ parent: { id: item.id, title: item.title } })}
-        />
-      </Suspense>
-      <IssueCreateDialog
-        open={!!creating}
-        onOpenChange={next => !next && setCreating(false)}
-        parent={creating ? creating.parent : undefined}
-        onCreated={item => open(item.id)}
-      />
+      {mobile ? (
+        selected && panel('sheet', selected)
+      ) : (
+        <PodPanelPresence animate={motion.animate}>
+          {selected && (
+            <ErrorBoundary
+              key="detail"
+              variant="panel"
+              className="m-3 w-96 shrink-0 self-start"
+              resetKeys={[selected, runKey(run)]}>
+              {panel('panel', selected)}
+            </ErrorBoundary>
+          )}
+        </PodPanelPresence>
+      )}
     </div>
   )
 }
 
-function WorkItems({
-  layout,
-  selected,
-  open,
-  label,
-  filter
-}: {
-  layout: 'board' | 'list'
-  selected: string | null
-  open: Open
-  label: string | null
-  filter(label: string | null): void
-}) {
+// Each column marks where its work stands with a status icon in that status's hue.
+const columns: Record<WorkStatus, { icon: IconComponent; tone: BoardTone }> = {
+  todo: { icon: CircleRegular, tone: 'gray' },
+  working: { icon: CircleHalfFillRegular, tone: 'blue' },
+  waiting: { icon: RecordRegular, tone: 'amber' },
+  review: { icon: CheckmarkCircleRegular, tone: 'purple' },
+  done: { icon: CheckmarkCircleFilled, tone: 'green' }
+}
+
+/** The live run that a card leads with and opens: the latest one. */
+function leadRun(item: WorkItem) {
+  return item.runs.reduce<WorkItem['runs'][number] | undefined>(
+    (newest, run) => (!newest || run.createdAt > newest.createdAt ? run : newest),
+    undefined
+  )
+}
+
+/** The Agents filter of the board. The page keeps the chosen Agents in its `agent` search parameters. */
+function WorkFilter({ selected, onChange }: { selected: string[]; onChange(next: string[]): void }) {
+  const { t } = useTranslation()
+  const items = useQuery(workItemsQuery)
+  const agents = [
+    ...new Map((items.data ?? []).flatMap(item => (item.agent ? [[item.agent.uid, item.agent.name] as const] : [])))
+  ]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button size={selected.length ? 'sm' : 'icon-sm'} variant="ghost" />}
+        aria-label={t('pod.work.filter')}
+        title={t('pod.work.filter')}>
+        <FilterRegular aria-hidden />
+        {selected.length > 0 && (
+          <Badge size="sm" variant="info">
+            {selected.length}
+          </Badge>
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-56">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>{t('pod.work.filter_agent')}</DropdownMenuLabel>
+          {agents.length ? (
+            agents.map(([uid, name]) => (
+              <DropdownMenuCheckboxItem
+                key={uid}
+                checked={selected.includes(uid)}
+                onCheckedChange={checked =>
+                  onChange(checked ? [...selected, uid] : selected.filter(chosen => chosen !== uid))
+                }>
+                <ChatAvatar name={name} agent size="xs" />
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+              </DropdownMenuCheckboxItem>
+            ))
+          ) : (
+            <DropdownMenuItem disabled>{t('pod.work.filter_none')}</DropdownMenuItem>
+          )}
+        </DropdownMenuGroup>
+        {selected.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onChange([])}>{t('pod.work.filter_clear')}</DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** The Agents whose background work is running now, as the board's header names them. */
+function WorkingAgents() {
+  const { t } = useTranslation()
+  const items = useQuery(workItemsQuery)
+  const agents = [
+    ...new Map(
+      (items.data ?? []).flatMap(item =>
+        item.agent && item.runs.some(run => executionStatusTone(run.status) === 'running')
+          ? [[item.agent.uid, item.agent.name] as const]
+          : []
+      )
+    )
+  ]
+  if (!agents.length) return null
+  return (
+    <BoardPresence
+      className="ms-auto"
+      avatars={agents.slice(0, 3).map(([uid, name]) => (
+        <ChatAvatar key={uid} name={name} agent size="xs" />
+      ))}>
+      {t('pod.work.agents_working', { count: agents.length })}
+    </BoardPresence>
+  )
+}
+
+function WorkItems({ selected, agents, open }: { selected: string | null; agents: string[]; open: Open }) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const items = useQuery(workItemsQuery)
@@ -153,37 +277,12 @@ function WorkItems({
   })
   if (items.isPending) return <ContentSkeleton variant="list" rows={6} />
   if (items.error && !items.data) return <ContentError error={items.error} retry={() => void items.refetch()} />
-  const all = items.data ?? []
-  if (!all.length) return <p className="py-10 text-center text-sm text-fg-tertiary">{t('pod.work.empty')}</p>
-  const labels = [...new Set(all.flatMap(item => item.labels))].sort((a, b) => a.localeCompare(b))
-  const rows = label ? all.filter(item => item.labels.includes(label)) : all
+  if (!items.data?.length) return <p className="py-10 text-center text-sm text-fg-tertiary">{t('pod.work.empty')}</p>
+  const rows = agents.length ? items.data.filter(item => item.agent && agents.includes(item.agent.uid)) : items.data
   return (
     <>
       <ContentError error={move.error || items.error} />
-      {labels.length > 0 && (
-        <div role="group" aria-label={t('pod.work.label_filter')} className="flex flex-wrap gap-1.5">
-          {[null, ...labels].map(value => (
-            <Button
-              key={value ?? ''}
-              size="xs"
-              variant={label === value ? 'default' : 'outline'}
-              aria-pressed={label === value}
-              onClick={() => filter(value)}>
-              {value ?? t('pod.work.all_labels')}
-            </Button>
-          ))}
-        </div>
-      )}
-      {layout === 'list' ? (
-        <WorkList items={rows} selected={selected} open={open} />
-      ) : (
-        <WorkBoard
-          items={rows}
-          selected={selected}
-          open={open}
-          move={(item, column) => move.mutate({ item, column })}
-        />
-      )}
+      <WorkBoard items={rows} selected={selected} open={open} move={(item, column) => move.mutate({ item, column })} />
     </>
   )
 }
@@ -204,15 +303,17 @@ function WorkBoard({
   const [dragged, setDragged] = useState<WorkItem>()
   const [over, setOver] = useState<WorkStatus>()
   return (
-    <div className="flex min-h-64 items-start gap-3 pb-2">
+    <Board className="min-h-64 pb-2">
       {workStatuses.map(status => {
         const column = items.filter(item => item.status === status)
         const accepts = !!dragged && !!stepTo(dragged, status)
+        const label = t(`pod.work.status.${status}`)
+        const { icon: Icon, tone } = columns[status]
         return (
-          <section
+          <BoardColumn
             key={status}
-            aria-label={t(`pod.work.status.${status}`)}
-            className={`min-h-24 min-w-52 flex-1 basis-0 space-y-2 rounded-control bg-muted/40 p-3 transition-colors ${over === status ? 'bg-accent/60 ring-2 ring-primary/40' : ''}`}
+            dropTarget={over === status}
+            aria-label={label}
             onDragOver={event => {
               if (!accepts) return
               event.preventDefault()
@@ -226,10 +327,9 @@ function WorkBoard({
               setOver(undefined)
               if (dragged && accepts) move(dragged, status)
             }}>
-            <h2 className="flex items-center gap-2 text-[13px] font-medium">
-              {t(`pod.work.status.${status}`)}
-              <span className="text-fg-tertiary tabular-nums">{column.length}</span>
-            </h2>
+            <BoardColumnHeader icon={<Icon />} tone={tone} count={column.length}>
+              {label}
+            </BoardColumnHeader>
             {column.map(item => (
               <WorkCard
                 key={item.id}
@@ -242,16 +342,17 @@ function WorkBoard({
                 }}
               />
             ))}
-          </section>
+          </BoardColumn>
         )
       })}
-    </div>
+    </Board>
   )
 }
 
 /**
- * One work item on the board. Each live Background Agent Job or Workflow shows the mark, the status, the progress,
- * and the running time that its card shows in the room, laid out for a narrow column.
+ * One work item on the board, in three rows. The first names the kind of its lead run and that run's progress, and
+ * shows how the run stands with its Stop action; the second is the title; the third is the Agent and when the work
+ * last moved.
  */
 function WorkCard({
   item,
@@ -265,23 +366,34 @@ function WorkCard({
   onDrag(dragging: boolean): void
 }) {
   const { t, i18n } = useTranslation()
-  const title = useRef<HTMLButtonElement>(null)
-  const stoppable = item.runs.find(run => run.stoppable)
+  const title = useRef<HTMLElement | null>(null)
+  const lead = leadRun(item)
+  const status = lead && executionStatusLabelKey(lead.status)
+  const stoppable = lead?.stoppable ? lead : item.runs.find(run => run.stoppable)
   const client = useQueryClient()
   const stop = useMutation({
     mutationFn: (run: WorkItem['runs'][number]) =>
       stopConversationExecution({ path: { id: item.id, kind: run.kind, run_id: Number(run.id) } }),
     onSuccess: () => void client.invalidateQueries({ queryKey: workKeys.all })
   })
+  // How far the lead run has come, else what kind of run it is; a card without a live run names an Issue.
+  const facts = lead
+    ? [
+        executionProgressLabel(lead, t) ??
+          t(lead.kind === 'workflow' ? 'pod.chat_timeline.workflow' : 'pod.chat_timeline.background_work'),
+        item.runs.length > 1 ? `+${item.runs.length - 1}` : undefined
+      ]
+    : [item.tracked ? t('pod.work.issue') : undefined]
   return (
-    <article
+    <BoardCard
+      selected={active}
       draggable={item.tracked}
       aria-current={active ? 'true' : undefined}
-      className={`cursor-pointer rounded-control border bg-background p-3 text-[13px] leading-5 ${active ? 'border-primary' : 'border-border'}`}
+      className="cursor-pointer"
       onClick={event => {
-        // The whole card opens the room; its own controls keep their click.
+        // The whole card opens its work; its own controls keep their click.
         if ((event.target as HTMLElement | null)?.closest('button')) return
-        open(item.id, title.current)
+        open(item, title.current, event.nativeEvent)
       }}
       onDragStart={event => {
         event.dataTransfer.effectAllowed = 'move'
@@ -289,139 +401,56 @@ function WorkCard({
         onDrag(true)
       }}
       onDragEnd={() => onDrag(false)}>
-      {item.parent && (
-        <p className="mb-0.5 truncate text-xs text-fg-tertiary">
-          {t('pod.work.parent_label', { title: item.parent.title || t('pod.content.untitled') })}
-        </p>
-      )}
-      <button
-        ref={title}
-        type="button"
-        className="line-clamp-3 w-full rounded-mini text-left font-medium break-words hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-        onClick={event => open(item.id, event.currentTarget)}>
+      <BoardCardHeader>
+        <span className="min-w-0 truncate">{facts.filter(Boolean).join(' · ')}</span>
+        {lead && (
+          <BoardCardAside>
+            <ExecutionStatusMark status={lead.status} />
+            {status ? t(status) : lead.status}
+            {stoppable && (
+              <BoardCardActions>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  disabled={stop.isPending}
+                  aria-label={`${t('pod.chat_timeline.execution_stop_action')} ${stoppable.title}`}
+                  title={t(
+                    stop.isPending ? 'pod.chat_timeline.execution_stopping' : 'pod.chat_timeline.execution_stop_action'
+                  )}
+                  onClick={() => stop.mutate(stoppable)}>
+                  <RecordStopRegular aria-hidden />
+                </Button>
+              </BoardCardActions>
+            )}
+          </BoardCardAside>
+        )}
+      </BoardCardHeader>
+      <BoardCardTitle
+        ref={node => {
+          title.current = node
+        }}
+        render={<button type="button" />}
+        onClick={event => open(item, event.currentTarget, event.nativeEvent)}>
         {item.title || t('pod.content.untitled')}
-      </button>
-      {item.labels.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {item.labels.map(label => (
-            <Badge key={label} size="sm">
-              {label}
-            </Badge>
-          ))}
-        </div>
-      )}
-      {(item.children || item.repeat) && (
-        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-fg-secondary tabular-nums">
-          {item.children && t('pod.work.sub_issues', item.children)}
-          {item.repeat && (
-            <span className="inline-flex items-center gap-1" title={t('pod.work.repeats')}>
-              <RiRepeatLine aria-label={t('pod.work.repeats')} className="size-3.5" />
-              {item.repeat.status === 'paused'
-                ? t('pod.work.paused')
-                : item.repeat.dueAt &&
-                  t('pod.work.next_run', { time: formatDateTime(item.repeat.dueAt, i18n.language) })}
-            </span>
-          )}
-        </p>
-      )}
-      {item.runs.map(run => {
-        const status = executionStatusLabelKey(run.status)
-        return (
-          <div
-            key={`${run.kind}:${run.id}`}
-            className="mt-2 flex gap-2 rounded-control border border-border px-2 py-1.5">
-            <span className="flex h-5 shrink-0 items-center">
-              <ExecutionStatusMark status={run.status} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="line-clamp-2 break-words">{run.title}</p>
-              <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-fg-tertiary tabular-nums">
-                <span>{[status && t(status), executionProgressLabel(run, t)].filter(Boolean).join(' · ')}</span>
-                <RunningElapsed
-                  createdAt={run.createdAt}
-                  startedAt={run.startedAt}
-                  completedAt={run.completedAt}
-                  updatedAt={run.updatedAt}
-                  status={run.status}
-                />
-              </p>
-            </div>
-          </div>
-        )
-      })}
-      {(item.agent || stoppable) && (
-        <div className="mt-2 flex min-h-6 items-center gap-2 text-xs text-fg-secondary">
-          {item.agent && (
-            <>
-              <ChatAvatar name={item.agent.name} agent className="size-5" />
-              <span className="min-w-0 flex-1 truncate">{item.agent.name}</span>
-            </>
-          )}
-          {item.squad.length > 0 && (
-            <span className="flex shrink-0 -space-x-1" aria-label={t('pod.work.squad')}>
-              {item.squad.map(member => (
-                <span key={member.uid} title={member.name}>
-                  <ChatAvatar name={member.name} agent className="size-5 ring-2 ring-background" />
-                </span>
-              ))}
-            </span>
-          )}
-          {stoppable && (
-            <Button
-              size="xs"
-              variant="ghost"
-              className="ml-auto"
-              disabled={stop.isPending}
-              aria-label={`${t('pod.chat_timeline.execution_stop_action')} ${stoppable.title}`}
-              onClick={() => stop.mutate(stoppable)}>
-              <RiStopCircleLine aria-hidden />
-              {t(stop.isPending ? 'pod.chat_timeline.execution_stopping' : 'pod.chat_timeline.execution_stop_action')}
-            </Button>
-          )}
-        </div>
-      )}
+      </BoardCardTitle>
+      <BoardCardFooter>
+        {item.agent && (
+          <>
+            <ChatAvatar name={item.agent.name} agent size="xs" />
+            <span className="min-w-0 truncate">{item.agent.name}</span>
+          </>
+        )}
+        <BoardCardAside>{formatRelativeTime(item.lastActivityAt, i18n.language)}</BoardCardAside>
+      </BoardCardFooter>
       <ContentError error={stop.error} />
-    </article>
+    </BoardCard>
   )
 }
 
-function WorkList({ items, selected, open }: { items: WorkItem[]; selected: string | null; open: Open }) {
+/** The recurring rules and pending checkbacks of the viewer's rooms. Each row opens the room that manages it. */
+function ScheduledWork() {
   const { t, i18n } = useTranslation()
-  return (
-    <ul className="grid gap-0.5">
-      {items.map(item => (
-        <li key={item.id}>
-          <button
-            type="button"
-            aria-current={selected === item.id ? 'true' : undefined}
-            className="flex min-h-9 w-full items-center gap-3 rounded-control px-3 py-1 text-left text-[13px] leading-5 hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring aria-[current=true]:bg-accent"
-            onClick={event => open(item.id, event.currentTarget)}>
-            <span className="min-w-0 flex-1 truncate">{item.title || t('pod.content.untitled')}</span>
-            <span className="w-24 shrink-0 text-xs text-fg-secondary">{t(`pod.work.status.${item.status}`)}</span>
-            <span className="hidden w-40 shrink-0 truncate text-xs text-fg-secondary md:block">{item.agent?.name}</span>
-            <span className="hidden w-20 shrink-0 text-right text-xs text-fg-tertiary lg:block">
-              {formatRelativeTime(item.lastActivityAt, i18n.language)}
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-/**
- * The recurring rules and pending checkbacks of the viewer's rooms. Each row opens the room that owns it, and a
- * rule that runs on the viewer's authority can be paused, resumed, run now, or removed here.
- */
-function ScheduledWork({ open }: { open: Open }) {
-  const { t, i18n } = useTranslation()
-  const client = useQueryClient()
   const schedules = useQuery(scheduledWorkQuery)
-  const change = useMutation({
-    mutationFn: ({ id, change }: { id: string; change: 'pause' | 'resume' | 'run' | 'remove' }) =>
-      changePodScheduledWork({ path: { id }, body: { data: { change } } }),
-    onSettled: () => void client.invalidateQueries({ queryKey: workKeys.all })
-  })
   if (schedules.error && !schedules.data) {
     return <ContentError error={schedules.error} retry={() => void schedules.refetch()} />
   }
@@ -432,66 +461,32 @@ function ScheduledWork({ open }: { open: Open }) {
         {t('pod.work.scheduled')}
         <span className="text-fg-tertiary tabular-nums">{schedules.data.length}</span>
       </h2>
-      <ContentError error={change.error} />
       <ul className="grid gap-0.5">
-        {schedules.data.map(row => {
-          const name = row.title || row.conversationTitle || t('pod.content.untitled')
-          const busy = change.isPending && change.variables.id === row.id
-          return (
-            <li key={`${row.kind}:${row.id}`} className="flex items-center gap-1">
-              <button
-                type="button"
-                className="flex min-h-9 min-w-0 flex-1 items-center gap-3 rounded-control px-3 py-1 text-left text-[13px] leading-5 hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-                onClick={event => open(row.conversationID, event.currentTarget)}>
-                <span className="w-24 shrink-0 text-xs text-fg-tertiary">
-                  {t(`pod.work.schedule_kind.${row.kind}`)}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{name}</span>
-                <span className="hidden w-40 shrink-0 truncate text-xs text-fg-secondary md:block">
-                  {row.agentName}
-                </span>
-                <span className="w-44 shrink-0 text-xs text-fg-secondary">
-                  {row.status === 'paused'
-                    ? t('pod.work.paused')
-                    : row.dueAt
-                      ? t('pod.work.next_run', { time: formatDateTime(row.dueAt, i18n.language) })
-                      : ''}
-                </span>
-              </button>
-              {row.kind === 'cron' && row.manageable && (
-                <span className="flex shrink-0 items-center">
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    disabled={busy}
-                    aria-label={`${t(row.status === 'paused' ? 'pod.work.resume' : 'pod.work.pause')} ${name}`}
-                    title={t(row.status === 'paused' ? 'pod.work.resume' : 'pod.work.pause')}
-                    onClick={() => change.mutate({ id: row.id, change: row.status === 'paused' ? 'resume' : 'pause' })}>
-                    {row.status === 'paused' ? <RiPlayLine aria-hidden /> : <RiPauseLine aria-hidden />}
-                  </Button>
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    disabled={busy}
-                    aria-label={`${t('pod.work.run_now')} ${name}`}
-                    title={t('pod.work.run_now')}
-                    onClick={() => change.mutate({ id: row.id, change: 'run' })}>
-                    <RiFlashlightLine aria-hidden />
-                  </Button>
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    disabled={busy}
-                    aria-label={`${t('pod.work.remove_schedule')} ${name}`}
-                    title={t('pod.work.remove_schedule')}
-                    onClick={() => change.mutate({ id: row.id, change: 'remove' })}>
-                    <RiDeleteBinLine aria-hidden />
-                  </Button>
-                </span>
-              )}
-            </li>
-          )
-        })}
+        {schedules.data.map(row => (
+          <li key={`${row.kind}:${row.id}`}>
+            {/* A schedule changes only through its Agent, so the row opens the conversation that manages it. */}
+            <Link
+              to={podLocation(`/conversations/${row.conversationID}`).pathname}
+              className="flex min-h-9 w-full items-center gap-3 rounded-control px-3 py-1 text-left text-[13px] leading-5 text-inherit no-underline hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
+              <span className="hidden w-24 shrink-0 text-xs text-fg-tertiary @md:block">
+                {t(`pod.work.schedule_kind.${row.kind}`)}
+              </span>
+              <span className="min-w-0 flex-1 truncate">
+                {row.title || row.conversationTitle || t('pod.content.untitled')}
+              </span>
+              <span className="hidden w-40 shrink-0 truncate text-xs text-fg-secondary @2xl:block">
+                {row.agentName}
+              </span>
+              <span className="shrink-0 text-xs text-fg-secondary @md:w-44">
+                {row.status === 'paused'
+                  ? t('pod.work.paused')
+                  : row.dueAt
+                    ? t('pod.work.next_run', { time: formatDateTime(row.dueAt, i18n.language) })
+                    : ''}
+              </span>
+            </Link>
+          </li>
+        ))}
       </ul>
     </section>
   )

@@ -396,3 +396,22 @@ test('ExecutionInspectorPanel renders completed Workflow outcomeText even when t
     client.clear()
   }
 })
+
+test('ToolRunView states how long a finished step took once that reaches a second', () => {
+  const step = (id: string, status: string, duration_ms: number): ExecutionStep => ({
+    id,
+    tool: 'web_search',
+    title: `Search ${id}`,
+    status,
+    duration_ms
+  })
+  const html = render(
+    <ToolRunView
+      steps={[step('slow', 'completed', 4210), step('fast', 'completed', 180), step('live', 'running', 9000)]}
+    />
+  )
+
+  // Only the slow finished step carries a time: a fast step and a running step show none.
+  expect(html.match(/pod-chat-tool-duration/g)).toHaveLength(1)
+  expect(html).toContain('<span class="pod-chat-tool-duration">4.2s</span>')
+})

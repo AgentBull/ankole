@@ -6,10 +6,10 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Markdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
-import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import { MARKDOWN_SYNTAX_PLUGINS } from '../../common/markdown-syntax'
 import { cjkAutolinks } from './cjk-autolinks'
-import { repairGeneratedMarkdown } from './repair-generated-markdown'
+import { MATH_OPTIONS, repairGeneratedMarkdown } from './repair-generated-markdown'
 
 interface GoldenCase {
   name: string
@@ -28,8 +28,8 @@ const PARSE_OPTIONS = (() => {
     fromMarkdownExtensions?: NonNullable<Parameters<typeof fromMarkdown>[1]>['mdastExtensions']
   } = {}
   const processor = { data: () => data }
-  remarkGfm.call(processor as never)
-  remarkMath.call(processor as never)
+  for (const plugin of MARKDOWN_SYNTAX_PLUGINS) (plugin as () => void).call(processor)
+  remarkMath.call(processor as never, MATH_OPTIONS)
   return {
     extensions: data.micromarkExtensions ?? [],
     mdastExtensions: data.fromMarkdownExtensions ?? []
@@ -57,12 +57,17 @@ describe('repairGeneratedMarkdown', () => {
   })
 
   test('renders repaired strong, literal tilde, preserved double-tilde, and intact KaTeX math for agent replies', () => {
-    const input = '结果：\\n\\n- **金额： **203\\n- 波动 ~50%~ 对比 ~~旧方案~~，公式 $\\nabla \\cdot E \\neq 0$'
+    const input = '结果：\\n\\n- **金额： **203\\n- 波动 ~50%~ 对比 ~~旧方案~~，公式 $$\\nabla \\cdot E \\neq 0$$'
     const html = renderToStaticMarkup(
       createElement(
         Markdown,
         {
-          remarkPlugins: [remarkGfm, remarkMath, repairGeneratedMarkdown, cjkAutolinks],
+          remarkPlugins: [
+            ...MARKDOWN_SYNTAX_PLUGINS,
+            [remarkMath, MATH_OPTIONS],
+            repairGeneratedMarkdown,
+            cjkAutolinks
+          ],
           rehypePlugins: [rehypeKatex]
         },
         input

@@ -1,5 +1,5 @@
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, toast } from '@ankole/uikit'
-import { RiCheckLine } from '@remixicon/react'
+import { CheckmarkRegular } from '@ankole/uikit/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -172,7 +172,7 @@ export function CheckAccessView({
                         }
                       )
                   }}>
-                  <RiCheckLine aria-hidden className="size-4" />
+                  <CheckmarkRegular aria-hidden className="size-4" />
                   <span>{t('pod.sharing.grant_view_now')}</span>
                 </Button>
               </div>

@@ -1,5 +1,5 @@
 import { Badge } from '@ankole/uikit'
-import { RiChat3Line, RiGroupLine } from '@remixicon/react'
+import { ChatRegular, PeopleRegular } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import type { podConversations } from '../api/generated/sdk.gen'
@@ -61,10 +61,10 @@ export function ConversationGlyph({ room, size = 'sm' }: { room: RoomRow; size?:
       </span>
     )
   }
-  const Icon = room.conversationKind === 'group' ? RiGroupLine : RiChat3Line
+  const Icon = room.conversationKind === 'group' ? PeopleRegular : ChatRegular
   return (
     <span className="pod-conversation-glyph" data-size={size}>
-      <Icon aria-hidden />
+      <Icon />
     </span>
   )
 }

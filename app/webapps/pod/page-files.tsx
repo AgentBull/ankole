@@ -10,7 +10,7 @@ import {
 import { formatFileBytes } from '../common/file-format'
 import { useTranslation } from 'react-i18next'
 import { Button, buttonVariants, cn, Spinner } from '@ankole/uikit'
-import { RiUploadCloud2Line } from '@remixicon/react'
+import { CloudArrowUpRegular } from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -244,7 +244,7 @@ export function FilePage({
             dragOver ? 'border-primary bg-accent/50' : 'border-border hover:border-border-strong hover:bg-accent/30',
             !canUpload && 'pointer-events-none opacity-60'
           )}>
-          <RiUploadCloud2Line aria-hidden className="size-6 text-fg-tertiary" />
+          <CloudArrowUpRegular aria-hidden className="size-6 text-fg-tertiary" />
           <p className="text-sm text-fg-secondary">{t('pod.content.upload_a_file_to_preview_and_download_it_here')}</p>
         </div>
       ) : (

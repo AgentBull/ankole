@@ -1,4 +1,10 @@
-import { RiCheckLine, RiCloseCircleLine, RiQuestionLine, RiStopCircleLine, RiTimeLine } from '@remixicon/react'
+import {
+  CheckmarkRegular,
+  ClockRegular,
+  DismissCircleRegular,
+  QuestionCircleRegular,
+  RecordStopRegular
+} from '@ankole/uikit/icons'
 import { Spinner } from '@ankole/uikit'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -65,14 +71,14 @@ export function ExecutionStatusMark({ status }: { status?: string | null }) {
   }
   const Icon =
     tone === 'waiting'
-      ? RiQuestionLine
+      ? QuestionCircleRegular
       : tone === 'sleeping'
-        ? RiTimeLine
+        ? ClockRegular
         : tone === 'failed'
-          ? RiCloseCircleLine
+          ? DismissCircleRegular
           : tone === 'stopped'
-            ? RiStopCircleLine
-            : RiCheckLine
+            ? RecordStopRegular
+            : CheckmarkRegular
   return <Icon className="pod-chat-exec-status-icon" data-tone={tone} aria-hidden />
 }
 

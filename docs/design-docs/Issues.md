@@ -134,9 +134,9 @@ repeating Issue is in `todo`, changing its description also changes the rule's
 task.
 
 The Human whose authority a rule runs on pauses, resumes, runs now, or removes
-it from Work. The Agent in the room manages the same rule with its schedule
-tools, because the room's Session is the rule's owner Session. Removing the
-rule leaves an ordinary Issue.
+it with `PATCH /issues/scheduled/:id`. The Agent in the room manages the same
+rule with its schedule tools, because the room's Session is the rule's owner
+Session. Removing the rule leaves an ordinary Issue.
 
 ## Sub-Issues
 
@@ -222,32 +222,45 @@ The Pod JSON:API serves work items to the current Human under
 - `PATCH /issues/scheduled/:id` pauses, resumes, runs now, or removes a cron
   rule that runs on the Human's authority.
 
-The Pod sidebar has a Work tab beside Home and Chat. The tab is the person's
-inbox for background work: its badge counts the work items that need an answer
-or wait for review, and it lists the open work items by status, starting with
-those two, with the marks that a conversation row uses in Chat. The Work page
-shows the work items as a board with the columns To do, In progress, Needs you,
-In review, and Done, or as a list, filtered by one label when the person picks
-it, and shows the schedules below them with pause, resume, run, and remove for
-the rules that run on the person's authority. A card shows the parent's title,
-the room's title, the labels, the sub-Issue count, the next run of a repeating
-Issue, each live run with the mark, status, progress, and running time that its
-card shows in the conversation, the Agent and the Squad, and a Stop action for a
-run that can be stopped. Only the moves that a person
-decides are available by dragging: a `todo` card to In progress starts the
-Issue, a `todo` or `review` card to Done accepts it, and a `done` card to In
-review or To do reopens it.
+The Home tab of the Pod sidebar links to the Work page with a row titled
+Background Agent tasks, directly above Shared with me. The row shows while
+at least one work item is in To do or In progress, and while the Work page is
+open. The Work page shows the work items as a board with the columns To do, In
+progress, Needs you, In review, and Done, and shows the schedules below it.
+The columns share the page's width and wrap onto another row when all five do
+not fit, so the board never scrolls sideways. Issues reach the board from the
+conversations of the Chat list in which a Background Agent Job or Workflow
+starts, and from callers of `POST /issues`. Those callers also give an Issue
+its labels, its parent, its Squad, and its repeating rule; `PATCH /issues/:id`
+replaces the labels, and `PATCH /issues/scheduled/:id` changes a schedule. The
+board is built from the UIKit `Board` components. Each column is a quiet
+surface headed by the status's icon in its hue, the status, and the card
+count. A card has three rows: what its latest live run has done (the plan or
+Workflow progress, else the step count, else the run's kind, with the number
+of other live runs) and how that run stands, then the title, then the Agent
+and when the work last moved. A card's Stop action shows while the card is
+hovered or holds focus. The page header names the Agents whose runs are
+running, and its Filter menu limits the cards to the chosen Agents, which the
+`agent` search parameters keep. Only the moves that a person decides are
+available by dragging: a `todo` card to In progress starts the Issue, a `todo`
+or `review` card to Done accepts it, and a `done` card to In review or To do
+reopens it.
 
-Selecting a work item opens its room beside the board, as the Page Assistant
-opens a conversation beside a Page. The panel's header names the status, offers
-the one step that applies (Start, Mark done, or Reopen), and creates a
-sub-Issue. A line under the header links the parent, counts the sub-Issues,
-edits the labels, and shows the next run of a repeating Issue with pause,
-resume, and run for the person whose authority it runs on. For an Issue in
-`todo`, the panel shows the title, the Agent, and the request for editing in
-place of the room, because the room has received nothing yet. The Work queries
-refresh on the Pod's `conversations_changed` event, which follows every
-committed message, run status, and Issue change.
+Selecting a work item opens it beside the board in the room layout of Chat:
+the board keeps a 300 px column, and the panel takes the rest of the page with
+the open and close motion of a conversation's side panel. On a phone, the panel
+opens as a sheet. The panel is the execution inspector that a conversation
+opens for a run, with the run's plan, steps, and result, its Stop action, and,
+for a Background Agent Job, the message box that answers or steers it. It shows
+the card's latest live run, else the room's latest run from the conversation
+detail, and the `issue` and `run` search parameters name the open item and run,
+including a predecessor or successor Job that the person opens from the
+inspector. The inspector's header adds the one Issue step that applies (Start,
+Mark done, or Reopen) and a link to the room. For an Issue in `todo`, the panel
+shows the title, the Agent, and the request for editing, because the room has
+received nothing yet. A schedule row opens the room that manages the schedule.
+The Work queries refresh on the Pod's `conversations_changed` event, which
+follows every committed message, run status, and Issue change.
 
 ## Tests required for changes
 

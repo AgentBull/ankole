@@ -1,18 +1,18 @@
 import { useQuery, Link } from '../tenant-context'
 import { listIdentityProvidersOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { IDLE_REFRESH_MS, LIST_REFRESH_MS } from '../refresh-intervals'
-import { Button, buttonVariants, Skeleton, cn } from '@ankole/uikit'
+import { Button, buttonVariants, RollingNumber, Skeleton, cn } from '@ankole/uikit'
 import {
-  RiAlertLine,
-  RiArrowRightLine,
-  RiChat3Line,
-  RiCloseCircleLine,
-  RiGitBranchLine,
-  RiListCheck3,
-  RiRobot2Line,
-  RiServerLine,
-  RiSparkling2Line
-} from '@remixicon/react'
+  ArrowRightRegular,
+  BotRegular,
+  BranchRegular,
+  ChatRegular,
+  DismissCircleRegular,
+  ServerRegular,
+  SparkleRegular,
+  TaskListLtrRegular,
+  WarningRegular
+} from '@ankole/uikit/icons'
 import { useQuery as useBaseQuery, useQueryErrorResetBoundary } from '@tanstack/react-query'
 import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -40,10 +40,10 @@ import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstac
 import { aiGatewayProviders } from '../state/provider-settings'
 
 const NEXT_STEP_ICONS: Record<ReadinessStep['key'], ComponentType<{ className?: string }>> = {
-  provider: RiSparkling2Line,
-  agent: RiRobot2Line,
-  profiles: RiListCheck3,
-  worker: RiServerLine
+  provider: SparkleRegular,
+  agent: BotRegular,
+  profiles: TaskListLtrRegular,
+  worker: ServerRegular
 }
 
 export function HomePage() {
@@ -172,7 +172,7 @@ export function HomePage() {
 
       <section aria-label={t('console.home.overview')} className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricTile
-          icon={RiRobot2Line}
+          icon={BotRegular}
           label={t('console.nav.agents')}
           to="/agents"
           loading={agents.isLoading}
@@ -181,7 +181,7 @@ export function HomePage() {
           detail={t('console.home.of_total', { total: agentRows.length })}
         />
         <MetricTile
-          icon={RiServerLine}
+          icon={ServerRegular}
           label={t('console.home.ready_workers')}
           to="/workers"
           loading={workers.isLoading}
@@ -190,7 +190,7 @@ export function HomePage() {
           detail={t('console.home.of_total', { total: workerRows.length })}
         />
         <MetricTile
-          icon={RiGitBranchLine}
+          icon={BranchRegular}
           label={t('console.home.running_jobs')}
           to="/background-agent-jobs"
           loading={jobHealth.isLoading}
@@ -199,7 +199,7 @@ export function HomePage() {
           detail={t('console.home.queued_jobs', { count: jobHealth.data?.queued_count ?? 0 })}
         />
         <MetricTile
-          icon={RiSparkling2Line}
+          icon={SparkleRegular}
           label={t('console.home.enabled_providers')}
           to="/providers"
           loading={providers.isLoading}
@@ -215,7 +215,7 @@ export function HomePage() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Panel
-          icon={RiGitBranchLine}
+          icon={BranchRegular}
           title={t('console.home.recent_jobs')}
           to="/background-agent-jobs"
           linkLabel={t('console.home.view_all')}>
@@ -253,7 +253,7 @@ export function HomePage() {
         </Panel>
 
         <Panel
-          icon={RiChat3Line}
+          icon={ChatRegular}
           title={t('console.home.recent_conversations')}
           to="/conversations"
           linkLabel={t('console.home.view_all')}>
@@ -406,9 +406,9 @@ function AlertRow({ alert }: { alert: Alert }) {
       )}>
       <div className="flex min-w-0 gap-3">
         {alert.tone === 'danger' ? (
-          <RiCloseCircleLine className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+          <DismissCircleRegular className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
         ) : (
-          <RiAlertLine className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+          <WarningRegular className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
         )}
         <div className="grid min-w-0 gap-1">
           <p className="text-sm font-semibold text-foreground">{alert.title}</p>
@@ -453,7 +453,7 @@ function MetricTile({
       ) : loading ? (
         <Skeleton className="h-9 w-16" />
       ) : (
-        <span className="text-3xl font-semibold tabular-nums text-foreground">{value}</span>
+        <RollingNumber value={value} className="text-3xl font-semibold text-foreground" />
       )}
       <span className="text-xs text-muted-foreground">{detail}</span>
     </Link>
@@ -486,7 +486,7 @@ function Panel({
           aria-label={`${linkLabel} — ${title}`}
           className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           {linkLabel}
-          <RiArrowRightLine className="size-4" aria-hidden />
+          <ArrowRightRegular className="size-4" aria-hidden />
         </Link>
       </header>
       {children}

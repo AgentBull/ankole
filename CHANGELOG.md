@@ -1,5 +1,160 @@
 # Changelog
 
+## Version 2.0.0-alpha.134 (2026-11-12)
+
+- Realign the shared design tokens with the Ankole Base Styles library. The hue
+  colour steps (`--color-red-*` through `--color-magenta-*`) take the library's
+  values, and nine hue families join them: `deeppurple`, `rose`, `amber`,
+  `orchid`, `royalblue`, `manatee`, `navy`, `lime`, and `pampas`. A step number
+  orders one hue from light to dark and no longer promises the same contrast
+  in every hue, so an Applet that colours text with a hue step must pick the
+  step by its contrast. `--background-tertiary` is gray-40, and
+  `--background-quaternary` is removed. In the light theme, hovered, pressed,
+  and selected rows, tabs, and toggles take the library's deeppurple-20 wash and
+  fill, and a selected item draws no edge. The theme adds
+  `--border-quaternary`, a blue-to-brand gradient in the light theme that
+  works as an image rather than a border colour, and `--ground` is an image in
+  both themes. Dark dialogs, menus, and the modal overlay take the library's
+  deep purple surfaces. The theme adds the library's type scale as `text-25`
+  to `text-800` utilities and tokens for the drag, overlay, divider, and
+  skeleton roles.
+- Rebuild the Pod shell on the Ankole layout design. The window rests on a
+  ground under a 44 px top bar, and in the light theme that ground washes from
+  a cool gray to a warm white. The open route is a white card beside a 258 px
+  sidebar. The top bar carries back and forward buttons, the open
+  Page's path with its favorite star and source conversation, a search button
+  that opens the same `⌘K` / `Ctrl+K` menu, and the Page's actions as icon
+  buttons with tooltips. The sidebar toggle sits at the end of the sidebar's
+  header row. `Trash` and `Pod settings` move from the foot of the sidebar
+  into the account menu. On a phone, a Page's path takes a row of its own
+  below the bar, and the Page's more-actions menu adds or removes the
+  favorite. The Console's sidebar takes the same row height and toggle size.
+- Redraw the Pod sidebar's rows. Every row starts with a 20 px icon in one
+  slot. A Page with children shows its expand arrow in that slot while the row
+  is hovered or holds keyboard focus, so its icon and title line up with its
+  siblings. A section title shows its caret only while the title is hovered or
+  holds keyboard focus. Docking and hiding the sidebar move the column and the
+  content card together, and sections and a Page's children open and close
+  with a height motion.
+- Open the Chat tab's Personal assistant group on its five latest tasks each
+  time the tab opens.
+- Fix an Agent's avatar, which drew a round edge inside its rounded square. An
+  avatar's picture, initials, and edge take the avatar's own corners.
+- Draw every icon with Fluent System Icons in place of Remix Icon. The UI kit
+  re-exports the icons that the product uses as `@ankole/uikit/icons`, under
+  Fluent's own component names.
+- Set documents and conversations in one 892 px content column with 12 px
+  between blocks and more room above headings. A document's text is 16 px on a
+  24 px line, and its title is 36 px under its icon. A conversation's text is
+  14 px on a 26 px line in the regular weight, a bold phrase in it takes the
+  Medium weight, and a reply's headings step down with the text: 24 px, then
+  20, 18, 16, and 14 px. Quotes, to-dos, callouts, code blocks, bookmark
+  cards, and tables take the design's sizes and colours in documents and in
+  chat replies alike.
+- Keep a dollar amount such as `$300` as plain text in a chat message. Math
+  renders between double dollar signs.
+- Parse bold, italic, and strikethrough that touch Chinese, Japanese, or
+  Korean punctuation. A phrase such as `**验收：**选择` used to keep its
+  asterisks, because CommonMark closes emphasis after punctuation only before
+  a space; chat messages and the Console's Markdown now follow the
+  CJK-friendly rules, and text in other scripts reads as before.
+- Redraw Pod Chat on the content design. A message opens with a 32 px round
+  avatar and its author's name, and an Agent's work summary opens from a
+  caret. The objects inside a message are one family of outlined cards with a
+  20 px mark, a 14 px title, and 12 px meta, so that no card outweighs the
+  text around it. A Page reference is a chip on the line of the text that
+  names it, with the Page's mark, its title, and a chevron. Files, sent or
+  still in the composer, are one-row cards with a type mark, the name, the
+  type and size, and a download or remove button. Run cards, delegations,
+  Clarify and Action Cards, and next-step cards share the same card; a card
+  keeps its warning edge only while its decision waits. A delegation card
+  stands under the reply of the turn that sent it, after the reply's work
+  steps and text; it shows the start of the colleague's answer as source text
+  and opens its exchange when clicked. A table's copy button shows inside the
+  table's corner while the pointer is over the table, and each column keeps
+  room for four characters. The timeline scrolls only up and down: in a narrow
+  chat column, such as the one beside the inspector, a card's text wraps or
+  truncates inside the card. Tool steps are rows with one set of status marks, and
+  tool output, terminals, and diffs stand in the same block as code. The
+  execution inspector, the conversation summary, and the file preview share
+  one header.
+- Remove model usage from a reply's work summary in Pod Chat. The summary no
+  longer names the model and its tokens after "Work steps" or lists each
+  model's rounds and token counts under the steps, and a reply that used no
+  tool and summarized no thinking no longer shows a "Model usage" line. The
+  execution record still carries the usage, and the Console's model usage
+  pages still report it.
+- Redraw the Pod Chat composer as a translucent panel above a 36 px toolbar
+  that holds the attach, mention, and command buttons, the recipient and model
+  selectors, and a send pill that turns brand-coloured once the draft can be
+  sent. In the light theme the panel's edge runs from blue to the brand
+  colour, and the panel rests 17 px above the bottom of the card. While an Agent works, a Stop pill stands before Send, and a narrow
+  composer truncates or leaves out the selectors so that nothing overlaps.
+  The mention and command list and the composer's menus open on the
+  composer's own surface.
+- Redraw the editor's slash menu with 60 px rows and 44 px tiles, and give the
+  mention menu, the link menu, and the Pod's command menu the same group
+  titles, hover wash, and thin scrollbar.
+- Fix dividers that never showed, such as the two dividers in the spreadsheet
+  toolbar. When renaming a Page meets a title conflict, the question opens as
+  a popover under the rename field.
+- Show what an action is doing on the control itself. A running button turns
+  its icon into a spinner, keeps keyboard focus, and ignores further clicks.
+  Copy buttons draw a check in place, loading placeholders share one sweep of
+  light, and a chosen radio button's dot arrives with a short motion.
+- Make the email code form answer each attempt. The form moves between its
+  email step and its code step in place. A rejected code empties the field,
+  marks it, and returns focus to it; an accepted code keeps the form busy until
+  the browser leaves.
+- Show more of an Agent's work in Pod Chat. A finished work step states how
+  long it took once that reaches a second. A pressed Stop button shows that
+  the request is on its way. On an Action Card, the pressed decision button
+  shows the wait and the outcome fades in.
+- Move the time of a Pod Chat message into the message's action row, which
+  sits directly under the message and 12 px above the next one. A reply's row
+  offers select, quote, and copy before its other actions and states its time
+  last; your own message states its time first. The latest reply always shows
+  its actions and time; an earlier message shows them on hover or keyboard
+  focus without moving the timeline. A message from the last 24 hours shows
+  only its hour and minute.
+- In the Console, Save keeps keyboard focus while it saves, Load more shows
+  that it is fetching, the figures on the home page roll when they change, and
+  the webhook URL and OIDC client secret copy buttons confirm in place.
+- All of these motions respect the device's reduced motion preference.
+- Move the Pod's Work board out of the sidebar's tabs. While any work item
+  is in To do or In progress, the Home tab shows a Background Agent
+  tasks row directly above Shared with me, and the row opens the board under
+  the same title. The board is the page's only layout, and the page no longer
+  offers New issue, so Issues come from the conversations in which a
+  Background Agent Job or Workflow starts and from `POST /api/v2/pod/issues`.
+  When the page is too narrow for all five columns, such as beside an open
+  Issue, the columns wrap onto another row instead of scrolling sideways.
+- Remove from Pod's interface the Work controls that 2.0.0-alpha.123 added:
+  the Issue panel, the label filter on the board, the schedule buttons, the
+  sub-issue and Squad fields, and the Work tab's badge. The Work board does
+  not show an Issue's labels, parent, sub-issues, Squad, or repeating rule.
+  Ankole keeps all of them: set them with `POST /api/v2/pod/issues`, replace
+  an Issue's labels with `PATCH /api/v2/pod/issues/:id`, and pause, resume,
+  run, or remove a schedule with `PATCH /api/v2/pod/issues/scheduled/:id`.
+- Open a work item on the Work board in the same side panel that a
+  conversation uses for a task. The board narrows to a column while the panel
+  slides in, and the panel shows the run's plan, steps, and result with its
+  Stop, steering, and answer controls, beside the Issue's Start, Mark done, or
+  Reopen step and a link to the conversation. A scheduled task opens its
+  conversation.
+- Redraw the Work board. Each column sits on a quiet surface under the
+  status's icon, its name, and its card count. A card shows what its latest
+  live run has done and how it stands, then the title, then the Agent and
+  when the work last moved; its Stop button appears while you point at the
+  card or move focus into it. The header names the Agents that are working
+  now, and a Filter button shows only the cards of the Agents that you choose.
+  UIKit adds the `Board` components that draw this layout.
+- Turn the gradient edge of the Pod Chat composer slowly, once every eight
+  seconds, while its text field has focus. The edge rests at the angle it
+  reached when focus leaves, and it keeps still when the device asks for
+  reduced motion. The edge's colours are the `--composer-edge-stops` token,
+  which takes the stops of the new `--border-quaternary-stops` token on light.
+
 ## Version 2.0.0-alpha.133 (2026-11-12)
 
 - Read and edit Word documents (`.docx`, `.docm`) and presentations (`.pptx`)

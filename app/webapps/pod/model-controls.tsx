@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Button } from '@ankole/uikit'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Button, cn } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import { podModelProfiles, podModelSelection, setPodModelSelection } from './api/generated/sdk.gen'
 import { podKeys } from './api'
@@ -16,6 +16,8 @@ type ModelControlsProps = {
   activeSignalID?: string | null
   disabled?: boolean
   inline?: boolean
+  /** Classes for the inline group, such as when a narrow toolbar leaves the group out. */
+  className?: string
   open?: boolean
   onOpenChange?(open: boolean): void
 }
@@ -29,6 +31,7 @@ export function ModelControls({
   activeSignalID,
   disabled,
   inline = false,
+  className,
   open,
   onOpenChange
 }: ModelControlsProps) {
@@ -76,7 +79,9 @@ export function ModelControls({
     <div
       role="group"
       aria-label={t('pod.chat.model')}
-      className={inline ? 'flex min-w-0 flex-wrap items-center gap-1.5' : 'min-w-0'}>
+      // Inline in a toolbar, the group narrows with the selector and stops at the selector's own minimum, so the
+      // selector's arrow never runs under the controls that follow it.
+      className={cn(inline ? 'flex min-w-8 items-center gap-1.5' : 'min-w-0', className)}>
       <Select
         value={profile ?? '__agent_default__'}
         onValueChange={value => value && choose(value)}
@@ -87,7 +92,7 @@ export function ModelControls({
         }}
         disabled={disabled || selection.isPending || selection.isError || save.isPending}>
         <SelectTrigger
-          size="sm"
+          size={inline ? 'toolbar' : 'sm'}
           variant={inline ? 'ghost' : 'field'}
           aria-label={t('pod.chat.model')}
           title={label}
@@ -110,6 +115,7 @@ export function ModelControls({
           )}
         </SelectTrigger>
         <SelectContent
+          surface={inline ? 'composer' : 'ceramic'}
           side={inline ? 'top' : 'bottom'}
           align={inline ? 'start' : 'center'}
           className={inline ? 'pod-chat-composer-menu' : undefined}>
@@ -130,12 +136,14 @@ export function ModelControls({
         </SelectContent>
       </Select>
       {requiresQueue && (
-        <p className={inline ? 'text-xs text-muted-foreground' : 'mt-1 text-xs text-muted-foreground'}>
+        <p className={inline ? 'min-w-0 truncate text-xs text-muted-foreground' : 'mt-1 text-xs text-muted-foreground'}>
           {t('pod.chat.model_for_next_reply')}
         </p>
       )}
       {(save.isError || selection.isError) && (
-        <p role="alert" className={inline ? 'text-xs text-destructive' : 'mt-1 text-xs text-destructive'}>
+        <p
+          role="alert"
+          className={inline ? 'min-w-0 truncate text-xs text-destructive' : 'mt-1 text-xs text-destructive'}>
           {t('pod.chat.model_save_failed')}
         </p>
       )}

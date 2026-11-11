@@ -1,7 +1,7 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { downloadBlob } from '../../common/browser-files'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, toast } from '@ankole/uikit'
-import { RiAlertLine, RiCheckLine, RiDownloadLine, RiFileCopyLine, RiImageLine } from '@remixicon/react'
+import { ArrowDownloadRegular, CheckmarkRegular, CopyRegular, ImageRegular, WarningRegular } from '@ankole/uikit/icons'
 
 import { useTranslation } from 'react-i18next'
 import type { ConversationMessage } from '../api'
@@ -50,7 +50,7 @@ export function SelectShareLightbox({
           <div
             role="alert"
             className="flex items-start gap-2 rounded border border-border bg-layer-01 p-4 text-sm text-fg-secondary">
-            <RiAlertLine className="mt-0.5 size-4 shrink-0 text-status-warning" aria-hidden />
+            <WarningRegular className="mt-0.5 size-4 shrink-0 text-status-warning" aria-hidden />
             <span>{error}</span>
           </div>
         )}
@@ -61,7 +61,7 @@ export function SelectShareLightbox({
             data-testid="share-card-needs-pagination"
             className="flex flex-col gap-2 rounded border border-border bg-layer-01 p-4 text-sm text-fg-primary">
             <div className="flex items-start gap-2 font-medium">
-              <RiAlertLine className="mt-0.5 size-4 shrink-0 text-status-warning" aria-hidden />
+              <WarningRegular className="mt-0.5 size-4 shrink-0 text-status-warning" aria-hidden />
               <span>
                 {t('pod.chat_timeline.share_card_too_tall_title', {
                   defaultValue: 'Selected excerpt exceeds single-image canvas limits'
@@ -102,11 +102,11 @@ export function SelectShareLightbox({
                 toast.error(t('pod.chat.copy_failed'))
               }
             }}>
-            {copiedKind === 'markdown' ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
+            {copiedKind === 'markdown' ? <CheckmarkRegular aria-hidden /> : <CopyRegular aria-hidden />}
             {t('pod.chat_timeline.copy_markdown', { defaultValue: 'Copy Markdown' })}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => downloadMarkdownString(markdown, filenameBase)}>
-            <RiDownloadLine aria-hidden />
+            <ArrowDownloadRegular aria-hidden />
             {t('pod.chat_timeline.download_markdown', { defaultValue: 'Download .md' })}
           </Button>
           {result?.kind === 'ok' && (
@@ -120,7 +120,7 @@ export function SelectShareLightbox({
                     `${filenameBase.replace(/[/\\:*?"<>|]/g, '_') || 'conversation-excerpt'}.png`
                   )
                 }}>
-                <RiDownloadLine aria-hidden />
+                <ArrowDownloadRegular aria-hidden />
                 {t('pod.chat_timeline.download_png', { defaultValue: 'Download PNG' })}
               </Button>
               {typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write && (
@@ -137,7 +137,7 @@ export function SelectShareLightbox({
                       toast.error(t('pod.chat.copy_failed'))
                     }
                   }}>
-                  {copiedKind === 'image' ? <RiCheckLine aria-hidden /> : <RiImageLine aria-hidden />}
+                  {copiedKind === 'image' ? <CheckmarkRegular aria-hidden /> : <ImageRegular aria-hidden />}
                   {t('pod.chat_timeline.copy_png', { defaultValue: 'Copy PNG' })}
                 </Button>
               )}

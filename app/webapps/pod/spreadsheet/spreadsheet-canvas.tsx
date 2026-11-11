@@ -18,7 +18,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiArrowDownSLine } from '@remixicon/react'
+import { ChevronDownRegular } from '@ankole/uikit/icons'
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
 import { acceptsReference, formulaReferences, isFormula, referenceText, splice } from '../state/spreadsheet-formula'
 import {
@@ -89,10 +89,10 @@ const ICON_COLORS = ['#DA1E28', '#F1C21B', '#24A148']
 const REFERENCE_COLORS = [
   '--color-blue-60',
   '--color-red-60',
-  '--color-green-60',
+  '--color-green-70',
   '--color-purple-60',
-  '--color-orange-50',
-  '--color-teal-60'
+  '--color-orange-70',
+  '--color-teal-80'
 ]
 
 /** A cell with the style the grid paints it in: a table's or a conditional format's look when it has one. */
@@ -2288,7 +2288,7 @@ export function SpreadsheetCanvas({
                   title={t('pod.spreadsheet.fill_options')}
                 />
               }>
-              <RiArrowDownSLine />
+              <ChevronDownRegular />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" aria-label={t('pod.spreadsheet.fill_options')}>
               <DropdownMenuItem onClick={() => void refill('copy')}>{t('pod.spreadsheet.fill_copy')}</DropdownMenuItem>

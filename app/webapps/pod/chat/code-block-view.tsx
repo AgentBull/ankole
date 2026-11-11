@@ -1,6 +1,6 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
-import { Button, cn, toast } from '@ankole/uikit'
-import { RiCheckLine, RiFileCopyLine, RiTextWrap } from '@remixicon/react'
+import { Button, CopyIcon, cn, toast } from '@ankole/uikit'
+import { TextWrapRegular } from '@ankole/uikit/icons'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -52,7 +52,7 @@ export function CodeBlockView({ code, language }: { code: string; language?: str
             title={t('pod.chat_timeline.wrap_code')}
             aria-label={t('pod.chat_timeline.wrap_code')}
             onClick={() => setWrap(!wrap)}>
-            <RiTextWrap aria-hidden />
+            <TextWrapRegular aria-hidden />
           </Button>
           <Button
             variant="ghost"
@@ -65,7 +65,7 @@ export function CodeBlockView({ code, language }: { code: string; language?: str
                 toast.error(t('pod.chat.copy_failed'))
               }
             }}>
-            {copied ? <RiCheckLine aria-hidden /> : <RiFileCopyLine aria-hidden />}
+            <CopyIcon copied={copied} className="size-3.5" />
             {t(copied ? 'pod.chat_timeline.copied' : 'pod.chat.copy_code')}
           </Button>
         </div>

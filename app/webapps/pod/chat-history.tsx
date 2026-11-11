@@ -189,8 +189,10 @@ export function useChatReading(
     const observer = new ResizeObserver(() => callbacks.current.restore())
     observer.observe(scroll)
     observer.observe(content)
+    // Every scroll, including the timeline's own move to the latest message, records the position, so leaving
+    // records nothing. A record on leaving would catch a timeline that has not reached its first position yet,
+    // such as the one that React mounts, leaves, and mounts again in development, and would open the room at the top.
     return () => {
-      callbacks.current.capture()
       observer.disconnect()
       scroll.removeEventListener('scroll', onScroll)
     }

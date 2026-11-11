@@ -129,7 +129,7 @@ test('a document title saves while focused and continues directly into its body'
       await info.attach(`title-body-gap-${viewport.width}`, { body: `${gap}px`, contentType: 'text/plain' })
 
       const header = page.locator('.pod-page-actions')
-      const presence = header.locator('[data-document-presence]')
+      const presence = page.locator('[data-document-presence]')
       await expect(presence.locator('[data-sync-status=saved]')).toBeVisible()
       const people = presence.getByRole('button', { name: '1 人在线', exact: true })
       await expect(people).toBeInViewport({ ratio: 1 })
