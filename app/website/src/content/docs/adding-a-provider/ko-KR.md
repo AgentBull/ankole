@@ -94,7 +94,7 @@ end
 
 | 필드 | 의미 |
 |---|---|
-| `kind` | `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate` 중 하나 |
+| `kind` | `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate`, `:decision_model` 중 하나 |
 | `upstream` | 전송 형식. `kind`에 따라 결정되며 `:language_model`은 `:sse`, 나머지는 모두 `:json` |
 | `api_resolver` | 인코딩과 네트워크 전송을 담당하는 Rust 측 리졸버 atom(예: `:openai_responses`) |
 | `prepare` | 전송할 요청 구조체를 조립하는 Elixir 함수 이름 |
@@ -102,7 +102,9 @@ end
 | `supports_parallel_tool_calls?` | 업스트림 Provider가 병렬 도구 호출을 지원하는지 여부 |
 | `supports_native_image_generation?` | 별도의 호스팅된 `image_generate` 프로필 없이 LLM이 공용 이미지 도구를 직접 실행할 수 있는지 여부 |
 
-여섯 가지 Capability 종류는 런타임 외부 이름에 다음과 같이 대응합니다. `language_model`은 `"llm"`, `embedding_model`은 `"embedding"`, `rerank_model`은 `"rerank"`로 매핑되며, 나머지 웹 및 이미지 관련 세 종류는 이름을 그대로 사용합니다. LLM만 제공하는 Provider는 `language_model`만 선언하면 되고, LLM과 임베딩을 함께 제공한다면 두 블록을 모두 선언합니다.
+일곱 가지 Capability 종류는 런타임 외부 이름에 다음과 같이 대응합니다. `language_model`은 `"llm"`, `embedding_model`은 `"embedding"`, `rerank_model`은 `"rerank"`, `decision_model`은 `"decision"`으로 매핑되며, 나머지 웹 및 이미지 관련 세 종류는 이름을 그대로 사용합니다. LLM만 제공하는 Provider는 `language_model`만 선언하면 되고, LLM과 임베딩을 함께 제공한다면 두 블록을 모두 선언합니다.
+
+`image_generate`를 선언하는 Provider는 선택 콜백 `image_endpoint/3`도 구현합니다. 이 콜백은 모델, `image_generation` 도구 옵션, 참조 이미지 수를 받아 모델이 요청을 처리할 수 있으면 `{:ok, endpoint}`, Provider가 해당 모델을 제공하지 않으면 `{:error, :unknown_model}`, 모델이 지원하지 않는 옵션이 있으면 그 옵션을 지목해 `{:error, {:unsupported_field, field}}`를 반환합니다. OpenRouter와 AgentBull Cloud는 예외로, AIGateway가 각자의 이미지 모델 카탈로그를 직접 읽습니다.
 
 ## prepare 함수
 

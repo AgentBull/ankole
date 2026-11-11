@@ -17,6 +17,7 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
+  alias Ankole.AIGateway.Decisions
   alias Ankole.AIGateway.ImageRequests
   alias Ankole.AIGateway.Models
   alias Ankole.AIGateway.Observability
@@ -258,6 +259,7 @@ defmodule Ankole.AIGateway do
 
       {:ok, upstream_response} = result when is_map(hosted_attempt) ->
         :ok = ImageGeneration.record_credential_usage(hosted_attempt, upstream_response)
+        :ok = ImageGeneration.record_usage(hosted_attempt, runtime, upstream_response, opts)
         result
 
       result ->
@@ -636,8 +638,9 @@ defmodule Ankole.AIGateway do
   def create_rerank(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
-  Creates one generated or edited image through AIGateway, respecting the
-  Principal's `provider_hosted.image_generate` toggle.
+  Creates one generated or edited image through the image provider that the
+  request's `model` selects. With `respect_provider_hosted?: true`, the
+  Principal's `provider_hosted.image_generate` toggle chooses the executor.
   """
   @spec create_image(String.t(), map(), keyword()) ::
           {:ok, gateway_response()} | {:error, term()}
@@ -652,6 +655,16 @@ defmodule Ankole.AIGateway do
           {:ok, gateway_response()} | {:error, term()}
   def create_web_search(subject_uid, request, opts \\ []) do
     WebSearch.create_web_search(subject_uid, request, opts, &create_response/3)
+  end
+
+  @doc """
+  Answers typed questions about a state with probabilities, through the
+  `decision` profile or, when it is not configured, the `light` language model.
+  """
+  @spec create_decision(String.t(), map(), keyword()) ::
+          {:ok, gateway_response()} | {:error, term()}
+  def create_decision(subject_uid, request, opts \\ []) do
+    Decisions.create_decision(subject_uid, request, opts, &create_response/3)
   end
 
   @doc """

@@ -101,11 +101,15 @@ fn web_search_normalizes_parallel_results() {
         )
         .unwrap();
 
-    assert_eq!(body["success"], true);
-    assert_eq!(body["query"], "Ankole");
-    assert_eq!(body["results"][0]["title"], "Ankole docs");
-    assert_eq!(body["results"][0]["snippet"], "AIGateway\nWeb Search");
-    assert_eq!(body["results"][0]["published_at"], "2026-07-04");
+    assert_eq!(
+        body,
+        json!({"items": [{
+            "title": "Ankole docs",
+            "url": "https://example.com/ankole",
+            "description": "AIGateway\nWeb Search",
+            "published_at": "2026-07-04"
+        }]})
+    );
 }
 
 #[test]
@@ -136,11 +140,12 @@ fn web_search_normalizes_jina_results() {
         )
         .unwrap();
 
-    assert_eq!(body["success"], true);
-    assert_eq!(body["query"], "Ankole");
-    assert_eq!(body["results"][0]["title"], "Ankole docs");
-    assert_eq!(body["results"][0]["snippet"], "RuntimeFabric and AIGateway");
-    assert_eq!(body["results"][0]["published_at"], "2026-07-04");
+    assert_eq!(body["items"][0]["title"], "Ankole docs");
+    assert_eq!(
+        body["items"][0]["description"],
+        "RuntimeFabric and AIGateway"
+    );
+    assert_eq!(body["items"][0]["published_at"], "2026-07-04");
 }
 
 #[test]
@@ -177,4 +182,64 @@ fn jina_reader_web_fetch_normalizes_data_content() {
     assert_eq!(body["results"][0]["url"], "https://example.com/page");
     assert_eq!(body["results"][0]["title"], "Example");
     assert_eq!(body["results"][0]["text"], "# Example\nBody");
+}
+
+#[test]
+fn cloudflare_web_search_builds_gateway_body_and_caps_the_limit() {
+    let resolver = APIResolver::new(
+        APIResolverKind::CloudflareWebSearch,
+        ResponseContext {
+            model: "default".to_string(),
+            // The provider row names the gateway; the caller's field is ignored.
+            request: json!({"query": "ankole web search", "limit": 25, "gateway_id": "other"}),
+            provider_options: json!({"provider": "exa", "gateway_id": "default"}),
+            stream: None,
+            include_model: false,
+            ..ResponseContext::default()
+        },
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+
+    assert_eq!(
+        body,
+        json!({
+            "query": "ankole web search",
+            "limit": 10,
+            "provider": "exa",
+            "options": {"gateway": {"id": "default"}}
+        })
+    );
+}
+
+#[test]
+fn cloudflare_web_search_reads_bare_and_enveloped_results() {
+    let item = json!({
+        "url": "https://example.com/ankole",
+        "title": "Ankole docs",
+        "description": "RuntimeFabric and AIGateway"
+    });
+    let bodies = [
+        json!({"items": [item], "metadata": {"query": "Ankole", "requestId": "r1", "latencyMs": 612}}),
+        json!({"success": true, "errors": [], "result": {"items": [item]}}),
+    ];
+
+    for upstream in bodies {
+        let mut resolver = APIResolver::new(
+            APIResolverKind::CloudflareWebSearch,
+            ResponseContext {
+                model: "default".to_string(),
+                request: json!({"query": "Ankole"}),
+                provider_options: json!({}),
+                stream: None,
+                include_model: false,
+                ..ResponseContext::default()
+            },
+        );
+
+        assert_eq!(
+            resolver.normalize_body(200, upstream).unwrap(),
+            json!({"items": [item]})
+        );
+    }
 }

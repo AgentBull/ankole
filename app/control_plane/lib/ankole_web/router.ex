@@ -184,6 +184,8 @@ defmodule AnkoleWeb.Router do
     post "/rerank", AIGatewayController, :rerank
     post "/web_search", AIGatewayController, :web_search
     post "/web_fetch", AIGatewayController, :web_fetch
+    post "/decisions", AIGatewayController, :decisions
+    post "/images", AIGatewayController, :images
   end
 
   # Capability URL ingress for external task receipts. The token in the path is

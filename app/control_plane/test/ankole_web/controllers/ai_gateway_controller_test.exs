@@ -873,10 +873,22 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert %{
-             "success" => true,
-             "query" => "ankole web",
-             "results" => [%{"title" => "Ankole Web", "snippet" => "AIGateway web search"}]
+             "items" => [
+               %{
+                 "title" => "Ankole Web",
+                 "url" => "https://example.com/ankole",
+                 "description" => "AIGateway web search"
+               } = item
+             ],
+             "metadata" => %{
+               "query" => "ankole web",
+               "latency_ms" => latency_ms,
+               "request_id" => _
+             }
            } = json_response(conn, 200)
+
+    assert is_integer(latency_ms) and latency_ms >= 0
+    refute Map.has_key?(item, "position")
 
     assert_receive {:gateway_request, search_request}
     assert search_request.path == "v1/search"
@@ -1091,9 +1103,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert %{
-             "success" => true,
-             "query" => "ankole web",
-             "results" => [%{"title" => "Ankole Search", "snippet" => "Jina search result body"}]
+             "items" => [
+               %{"title" => "Ankole Search", "description" => "Jina search result body"}
+             ],
+             "metadata" => %{"query" => "ankole web"}
            } = json_response(conn, 200)
 
     assert_receive {:gateway_request, search_request}
@@ -1170,17 +1183,16 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert %{
-             "success" => true,
-             "query" => "ankole web",
-             "results" => [
+             "items" => [
                %{
                  "title" => "Ankole Cloud Search",
                  "url" => "https://example.com/ankole",
-                 "snippet" => "AgentBull Cloud search result",
+                 "description" => "AgentBull Cloud search result",
                  "published_at" => "2026-08-11T00:00:00Z",
                  "score" => 0.9
                }
-             ]
+             ],
+             "metadata" => %{"query" => "ankole web"}
            } = json_response(conn, 200)
 
     assert_receive {:gateway_request, search_request}

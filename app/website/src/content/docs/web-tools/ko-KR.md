@@ -53,6 +53,7 @@ Control Plane Plugin을 통해 추가 Provider 종류를 확장할 수 있으며
 | **Bright Data SERP** | 아니요 | SERP API 기반으로 동작하며 Zone 지정이 필요하고 국가, 언어, Google 도메인 선택 가능 | 검색 국가·언어 및 지역화된 검색 결과를 세밀하게 제어해야 할 때 |
 | **Jina Search** | 아니요 | 국가·위치·언어·페이지 번호·캐시·검색 엔진 옵션 지원 | 지역 지정, 페이지네이션, 캐시 제어가 필요한 직접 웹 검색을 원할 때 |
 | **AgentBull Cloud** | 예 | 웹 검색·페이지 추출과 모델 기능(`llm`, `embedding`, `rerank`, `image_generate`)을 하나로 묶어 제공하며 출처 제한, 기간 필터, 캐시 우회 지원 | 단일 API 키로 모델과 웹 도구를 통합 관리하거나 명시적인 도메인·기간 필터가 필요할 때 |
+| **Cloudflare** | 아니요 | 계정의 AI Gateway를 통해 Cloudflare Web Search를 실행하며 검색 엔진(`ceramic`, `exa`, `linkup`)을 선택할 수 있고 검색당 최대 10개의 결과를 반환 | 이미 Cloudflare AI Gateway로 AI 사용 요금을 통합 정산하고 있을 때 |
 
 Parallel이나 AgentBull Cloud 인스턴스는 하나만 등록해 `web_search`와 `web_fetch` 양쪽에 동시에 할당할 수 있습니다.
 

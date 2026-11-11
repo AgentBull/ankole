@@ -17,7 +17,8 @@ defmodule Ankole.AIGateway.ProviderDSL do
     :rerank_model,
     :web_search,
     :web_fetch,
-    :image_generate
+    :image_generate,
+    :decision_model
   ]
 
   @doc false
@@ -102,6 +103,9 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   @doc "Declares the provider's image-generation capability."
   defmacro image_generate(do: block), do: capability(:image_generate, block)
+
+  @doc "Declares the provider's decision-model capability."
+  defmacro decision_model(do: block), do: capability(:decision_model, block)
 
   @doc """
   Declares the Rust API protocol resolver used for this capability.

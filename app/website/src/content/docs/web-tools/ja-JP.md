@@ -53,6 +53,7 @@ Control Plane Plugin によってさらに Provider 種別を追加すること�
 | **Bright Data SERP** | いいえ | SERP API を使用。Zone 指定が必須で、国・言語・Google ドメインを細かく指定可能 | 検索リージョンや言語、ローカライズされた検索結果を厳密に制御したいとき |
 | **Jina Search** | いいえ | リージョン、ロケーション、言語、ページ番号、キャッシュ、検索エンジンの指定に対応 | 地域指定、ページネーション、キャッシュ制御を伴う直接的な Web 検索を行いたいとき |
 | **AgentBull Cloud** | はい | 検索・ページ抽出に加えてモデル機能（`llm`、`embedding`、`rerank`、`image_generate`）も統合。対象ドメイン範囲、期間指定、キャッシュ回避に対応 | Web ツールと各種モデルを単一の API キーに集約したいとき、またはドメインや期間を絞った検索が必要なとき |
+| **Cloudflare** | いいえ | アカウントの AI Gateway 経由で Cloudflare Web Search を実行。検索エンジン（`ceramic`、`exa`、`linkup`）を選択でき、1 回の検索で返る結果は最大 10 件 | AI の利用料金をすでに Cloudflare AI Gateway でまとめているとき |
 
 Parallel または AgentBull Cloud を使う場合は、1 つの Provider インスタンスを `web_search` と `web_fetch` の両方にそのまま割り当てられます。
 

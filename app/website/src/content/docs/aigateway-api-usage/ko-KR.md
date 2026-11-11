@@ -60,6 +60,8 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST /rerank` | 문서 재정렬(rerank) |
 | `POST /web_search` | 웹 검색 |
 | `POST /web_fetch` | 웹 페이지 본문 가져오기 |
+| `POST /decisions` | 유형 지정 질문에 확률과 함께 답변 |
+| `POST /images` | 이미지 생성 또는 편집 |
 
 각 엔드포인트의 상세 규격은 [AIGateway](../ai-gateway/) 개념 문서와 관련 User guide 문서에서 확인할 수 있습니다.
 

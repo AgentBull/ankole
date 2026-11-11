@@ -25,7 +25,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
   @profiles ~w(
     primary light heavy coding vision_fallback web_search web_fetch image_generate
   )
-  @pod_profiles @profiles ++ ["rerank"]
+  @pod_profiles @profiles ++ ["rerank", "decision"]
   @provider_hosted_capabilities ~w(web_search image_generate)
   @provider_hosted_defaults %{
     "web_search" => true,
@@ -113,7 +113,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
     end
   end
 
-  @doc "Reads one Pod effective slot for any Principal, including Agent rerank calls."
+  @doc "Reads one Pod effective slot for any Principal, including Agent rerank and decision calls."
   @spec get_pod_model_profile(String.t(), profile()) :: {:ok, map()} | {:error, term()}
   def get_pod_model_profile(subject_uid, profile) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
@@ -762,7 +762,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
       else: :ok
   end
 
-  defp capability_for_default("rerank"), do: "rerank"
+  defp capability_for_default(profile) when profile in ["rerank", "decision"], do: profile
   defp capability_for_default(profile), do: capability_for_profile(profile)
 
   defp normalize_pod_profile(profile) when is_binary(profile) do

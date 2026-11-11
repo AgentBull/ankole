@@ -53,6 +53,7 @@ Agent 可先通过 `web_search` 检索公开网页，再通过 `web_fetch` 提�
 | **Bright Data SERP** | 否 | 调用 SERP API 检索结果；必填 Zone 名称，支持精细指定国家/地区、界面语言与 Google 区域域名 | 需要严格控制搜索地域、语种或获取本地化搜索结果 |
 | **Jina Search** | 否 | 支持指定国家/地区、地理位置、语言、分页页码、缓存开关及底层搜索引擎 | 需要直接网页搜索，并精细控制地域、翻页或缓存行为 |
 | **AgentBull Cloud** | 是 | 一站式聚合网页搜索、正文提取与多种模型能力（`llm`、`embedding`、`rerank`、`image_generate`）；支持限定站点范围、时间窗口及跳过缓存 | 希望凭一把聚合 API Key 同时搞定联网工具与模型调用，或需按域名与时间精确过滤 |
+| **Cloudflare** | 否 | 通过账号下的 AI Gateway 调用 Cloudflare Web Search；可选择搜索引擎（`ceramic`、`exa` 或 `linkup`），单次最多返回 10 条结果 | 已经通过 Cloudflare AI Gateway 统一结算 AI 用量 |
 
 若选用 Parallel 或 AgentBull Cloud，只需添加一次提供商实例，即可同时绑定给 `web_search` 与 `web_fetch` 两个槽位。
 

@@ -1,9 +1,13 @@
 defmodule Ankole.AIGateway.UsageLedger do
   @moduledoc """
-  Append-only token ledger for Agent and control-plane LLM calls.
+  Append-only usage ledger for Agent and control-plane provider calls.
 
   The ledger is the single per-round fact table of model usage. Each row keeps
   the counts that the Provider reported and leaves an unreported count `nil`.
+  A row names its capability: a language-model round counts tokens, and a
+  generated image or a decision records what the call produced. Token quota
+  windows, the usage of one Signal, and the Console summary read
+  language-model rows only.
   Explicit subject credentials determine the origin before internal caller
   labels. Only Agent and Codex rows count toward Agent token quota windows;
   Brain, Applet, OIDC Human, and automatic compaction rows remain ledger-only.
@@ -44,6 +48,52 @@ defmodule Ankole.AIGateway.UsageLedger do
   def record(_runtime, _subject_type, _round, _opts), do: :ok
 
   @doc """
+  Records one completed call of an image or decision provider.
+
+  `result` carries the Provider's `usage`. An image call records `quantity`
+  generated images, one by default. `request_context` attributes the call to
+  the work that made it when the runtime does not carry that context itself.
+  """
+  @spec record_capability(map() | nil, String.t() | nil, map(), keyword()) :: :ok
+  def record_capability(runtime, subject_type, result, opts \\ [])
+
+  def record_capability(%{"capability" => capability} = runtime, subject_type, result, opts)
+      when capability in ["image_generate", "decision"] and is_map(result) do
+    runtime =
+      case Keyword.get(opts, :request_context) do
+        %{} = request_context -> Map.put(runtime, "request_context", request_context)
+        _missing -> runtime
+      end
+
+    case origin(runtime, subject_type, Keyword.get(opts, :caller)) do
+      nil ->
+        :ok
+
+      origin ->
+        usage = Map.get(result, "usage") || %{}
+        insert(runtime, result, usage, origin, capability_use(capability, usage, opts))
+    end
+  end
+
+  def record_capability(_runtime, _subject_type, _result, _opts), do: :ok
+
+  defp capability_use("decision", _usage, _opts), do: %{capability: :decision}
+
+  defp capability_use("image_generate", usage, opts) do
+    %{
+      capability: :image_generate,
+      unit: :image,
+      quantity: Keyword.get(opts, :quantity, 1),
+      provider_cost: provider_cost(usage)
+    }
+  end
+
+  defp provider_cost(%{"cost" => cost}) when is_number(cost) and cost >= 0,
+    do: Decimal.new("#{cost}")
+
+  defp provider_cost(_usage), do: nil
+
+  @doc """
   Returns the work attribution of a request context, without its transport and
   model hints, for a side call that must be counted for the same work.
   """
@@ -64,7 +114,7 @@ defmodule Ankole.AIGateway.UsageLedger do
       UsageRecord
       |> Ash.Query.filter(
         subject_uid == ^subject_uid and inserted_at >= ^window_started_at and
-          origin in [:agent, :codex]
+          origin in [:agent, :codex] and capability == :llm
       )
       |> Ankole.Ash.aggregate!([
         {:input, :sum, field: :input_tokens, default: 0},
@@ -84,7 +134,7 @@ defmodule Ankole.AIGateway.UsageLedger do
   @spec turn_usage(String.t() | nil) :: map() | nil
   def turn_usage(signal_id) when is_binary(signal_id) do
     UsageRecord
-    |> Ash.Query.filter(signal_id == ^signal_id)
+    |> Ash.Query.filter(signal_id == ^signal_id and capability == :llm)
     |> Ash.Query.sort(id: :asc)
     |> Ankole.Ash.read!()
     |> case do
@@ -157,10 +207,15 @@ defmodule Ankole.AIGateway.UsageLedger do
     end
   end
 
-  defp window_page(query, since, nil), do: Ash.Query.filter(query, inserted_at >= ^since)
+  defp window_page(query, since, nil),
+    do: Ash.Query.filter(query, capability == :llm and inserted_at >= ^since)
 
-  defp window_page(query, _since, %{inserted_at: at, id: id}),
-    do: Ash.Query.filter(query, inserted_at > ^at or (inserted_at == ^at and id > ^id))
+  defp window_page(query, _since, %{inserted_at: at, id: id}) do
+    Ash.Query.filter(
+      query,
+      capability == :llm and (inserted_at > ^at or (inserted_at == ^at and id > ^id))
+    )
+  end
 
   defp add_to(groups, group, key, row),
     do: update_in(groups, [group, Access.key(key, empty_totals())], &add_round(&1, row))
@@ -248,7 +303,7 @@ defmodule Ankole.AIGateway.UsageLedger do
 
   defp counted_round(_round), do: nil
 
-  defp insert(runtime, response, usage, origin) do
+  defp insert(runtime, response, usage, origin, capability_use \\ %{}) do
     request_context = Map.get(runtime, "request_context") || %{}
     counts = Usage.counts(usage)
     requested_model = Map.get(runtime, "model")
@@ -273,7 +328,7 @@ defmodule Ankole.AIGateway.UsageLedger do
       attempt: non_negative_integer(Map.get(request_context, "attempts"))
     }
 
-    write(attrs)
+    write(Map.merge(attrs, capability_use))
   end
 
   # A profile selector names its profile in the runtime. A caller that sends the
@@ -337,7 +392,7 @@ defmodule Ankole.AIGateway.UsageLedger do
   defp write_failed(attrs, reason) do
     Logging.warning(
       "ai_gateway.usage_ledger.write_failed",
-      "LLM usage row not recorded",
+      "Usage row not recorded",
       %{subject_uid: attrs.subject_uid, reason: reason}
     )
 

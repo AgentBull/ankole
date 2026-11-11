@@ -222,7 +222,7 @@ exports a default route table typed with import type { Routes } from
 The runtime provides Node builtins, temporary /tmp files, fetch, process.env merged from
 Site -> Pod -> applet.env.json defaults -> Applet environment overrides (applet.env.json accepts
 flat string defaults or {default?, required?, secret?, description?} declarations), and
-AnkoleRuntime base, file, ai ({generateText, generateImage}), web ({search, fetch}), mcp, signals
+AnkoleRuntime base, file, ai ({generateText, generateImage, decide}), web ({search, fetch}), mcp, signals
 and HttpError. GET handlers cannot write or call ai.generateImage. Use file.read(path, {sha256})
 to read the listed version or receive a manifest_changed conflict.
 Use notifications.post for native room alerts. Use approvals.request/list/get/decide for

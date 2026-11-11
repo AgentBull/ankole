@@ -111,13 +111,13 @@ defmodule Ankole.Sessions.Tools.Web do
              run.agent_uid,
              Map.put(args, "model", "web_search.default")
            ) do
-      results = response.body["results"] || []
+      items = response.body["items"] || []
 
       text =
-        results
+        items
         |> Enum.with_index(1)
-        |> Enum.map_join("\n\n", fn {result, index} ->
-          ["#{index}. #{result["title"] || "(untitled)"}", result["url"], result["snippet"]]
+        |> Enum.map_join("\n\n", fn {item, index} ->
+          ["#{index}. #{item["title"] || "(untitled)"}", item["url"], item["description"]]
           |> Enum.reject(&(&1 in [nil, ""]))
           |> Enum.join("\n")
         end)

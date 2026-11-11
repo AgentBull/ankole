@@ -10,7 +10,8 @@ const slots = [
   'web_search',
   'web_fetch',
   'image_generate',
-  'rerank'
+  'rerank',
+  'decision'
 ]
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -196,7 +197,7 @@ async function fixture(page: Page, options: { initialURL?: string; unconfiguredS
           {
             provider_kind: 'openrouter',
             settings: [],
-            capabilities: ['llm', 'web_search', 'web_fetch', 'image_generate', 'rerank']
+            capabilities: ['llm', 'web_search', 'web_fetch', 'image_generate', 'rerank', 'decision']
           }
         ]
       }
@@ -207,7 +208,7 @@ async function fixture(page: Page, options: { initialURL?: string; unconfiguredS
     options.initialURL ?? `/model-profiles?defaults_scope=tenant&system_principal=ankole_brain&data_tenant=${TENANT_ID}`
   await page.goto(initialURL)
   if (initialURL.includes('system_principal=ankole_brain')) {
-    await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(9)
+    await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(10)
   }
   return {
     writes,
@@ -282,15 +283,15 @@ test('Pod defaults tab keeps scope tabs mounted when no tenant is selected and b
 
   await expect(page).toHaveURL(/defaults_scope=tenant/)
   await expect(page.getByRole('tab', { name: 'Pod defaults', exact: true })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(9)
+  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(10)
   expect(server.defaultRequests).toContainEqual({ scope: 'tenant', tenant: TENANT_ID })
 })
 
-test('system editors expose all nine slots, save independently, and restore inheritance', async ({ page }) => {
+test('system editors expose all ten slots, save independently, and restore inheritance', async ({ page }) => {
   const server = await fixture(page)
   const brain = page.getByRole('region', { name: 'ankole_brain', exact: true })
   const applet = page.getByRole('region', { name: 'system', exact: true })
-  await expect(applet.locator('form')).toHaveCount(9)
+  await expect(applet.locator('form')).toHaveCount(10)
   await expect(brain.getByRole('switch')).toHaveCount(0)
   await expect(applet.getByRole('switch')).toHaveCount(0)
   const light = brain.locator('form').filter({ has: page.getByRole('button', { name: /^Lightweight model/ }) })

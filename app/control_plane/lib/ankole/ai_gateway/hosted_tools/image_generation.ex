@@ -17,6 +17,7 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.UsageLedger
   alias Ankole.Logging
 
   @allowed_fields ~w(
@@ -150,6 +151,45 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   end
 
   def record_credential_usage(_attempt, _response_or_event), do: :ok
+
+  @doc false
+  @spec record_usage(map() | nil, map() | nil, map(), keyword()) :: :ok
+  def record_usage(%{context: context}, main_runtime, response_or_event, opts)
+      when is_map(context) and is_map(response_or_event) do
+    case generated_image_count(response_or_event) do
+      0 ->
+        :ok
+
+      count ->
+        # The image runtime carries no request context of its own, so the row
+        # takes the attribution of the Response that asked for the images.
+        UsageLedger.record_capability(
+          CredentialAttempts.runtime(context),
+          Keyword.get(opts, :subject_type),
+          %{"usage" => hosted_image_usage(response_or_event) || %{}},
+          caller: Keyword.get(opts, :caller),
+          quantity: count,
+          request_context: Map.get(main_runtime || %{}, "request_context") || %{}
+        )
+    end
+  end
+
+  def record_usage(_attempt, _main_runtime, _response_or_event, _opts), do: :ok
+
+  defp generated_image_count(%{body: %{} = body}), do: generated_image_count(body)
+  defp generated_image_count(%{"body" => %{} = body}), do: generated_image_count(body)
+
+  defp generated_image_count(%{"response" => %{} = response}),
+    do: generated_image_count(response)
+
+  defp generated_image_count(%{"output" => output}) when is_list(output) do
+    Enum.count(
+      output,
+      &match?(%{"type" => "image_generation_call", "status" => "completed"}, &1)
+    )
+  end
+
+  defp generated_image_count(_response_or_event), do: 0
 
   @doc false
   @spec failure_log_fields(map() | nil, term()) :: map()

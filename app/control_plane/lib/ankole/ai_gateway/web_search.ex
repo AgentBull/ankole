@@ -1,6 +1,10 @@
 defmodule Ankole.AIGateway.WebSearch do
   @moduledoc """
   Standalone and native-Responses web search execution and citation projection.
+
+  Both paths answer with `items` and `metadata`. Each item carries `url`,
+  `title`, and `description`, plus `published_at` and `score` when the provider
+  reports them.
   """
 
   alias Ankole.AIGateway.ModelProfiles
@@ -11,6 +15,7 @@ defmodule Ankole.AIGateway.WebSearch do
   alias Ankole.Attrs
 
   @native_instructions "Search the web for the user's query and summarize the top relevant sources with inline URL citations."
+  @max_query_chars 1024
 
   @spec create_web_search(
           String.t(),
@@ -34,12 +39,17 @@ defmodule Ankole.AIGateway.WebSearch do
     do: {:error, :invalid_request_body}
 
   defp create_standalone(subject_uid, request, opts) do
+    started_at = System.monotonic_time()
+
     with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "web_search", request),
          :ok <- validate_request(request),
          {:ok, prepared_request} <- Providers.build_web_search_request(runtime, request),
          {:ok, upstream_response} <-
            RequestExecution.execute_prepared_request(runtime, prepared_request, opts) do
-      {:ok, RequestExecution.gateway_response(200, Map.fetch!(upstream_response, :body), runtime)}
+      items = Map.get(Map.fetch!(upstream_response, :body), "items") || []
+
+      {:ok,
+       RequestExecution.gateway_response(200, search_body(items, request, started_at), runtime)}
     end
   end
 
@@ -62,6 +72,7 @@ defmodule Ankole.AIGateway.WebSearch do
   end
 
   defp execute_native(subject_uid, request, opts, create_response_fun) do
+    started_at = System.monotonic_time()
     query = String.trim(Map.fetch!(request, "query"))
     limit = Map.get(request, "limit") || 5
 
@@ -78,17 +89,8 @@ defmodule Ankole.AIGateway.WebSearch do
     with {:ok, response} <- create_response_fun.(subject_uid, responses_request, opts) do
       case response.body["status"] do
         "completed" ->
-          results = extract_native_results(response.body, limit)
-
-          {:ok,
-           %{
-             response
-             | body: %{
-                 "success" => true,
-                 "query" => query,
-                 "results" => results
-               }
-           }}
+          items = extract_native_results(response.body, limit)
+          {:ok, %{response | body: search_body(items, request, started_at)}}
 
         _other ->
           {:error,
@@ -96,6 +98,22 @@ defmodule Ankole.AIGateway.WebSearch do
             Map.take(response.body, ["status", "incomplete_details", "error", "usage"])}}
       end
     end
+  end
+
+  # `request_id` is the HTTP request ID, so it is present only for a call that
+  # arrived over HTTP.
+  defp search_body(items, request, started_at) do
+    latency_ms =
+      System.convert_time_unit(System.monotonic_time() - started_at, :native, :millisecond)
+
+    metadata =
+      Attrs.put_present(
+        %{"query" => String.trim(Map.fetch!(request, "query")), "latency_ms" => latency_ms},
+        "request_id",
+        Logger.metadata()[:request_id]
+      )
+
+    %{"items" => items, "metadata" => metadata}
   end
 
   @doc false
@@ -118,7 +136,7 @@ defmodule Ankole.AIGateway.WebSearch do
               %{
                 "url" => url,
                 "title" => source["title"],
-                "snippet" => source["snippet"] || source["description"],
+                "description" => source["snippet"] || source["description"],
                 "published_at" => source["published_at"] || source["publish_date"]
               }
             ]
@@ -147,7 +165,7 @@ defmodule Ankole.AIGateway.WebSearch do
               %{
                 "url" => url,
                 "title" => citation["title"],
-                "snippet" => citation_snippet(text, citation),
+                "description" => citation_snippet(text, citation),
                 "published_at" => nil
               }
             ]
@@ -173,7 +191,7 @@ defmodule Ankole.AIGateway.WebSearch do
           merged = %{
             "url" => url,
             "title" => existing["title"] || entry["title"],
-            "snippet" => existing["snippet"] || entry["snippet"],
+            "description" => existing["description"] || entry["description"],
             "published_at" => existing["published_at"] || entry["published_at"]
           }
 
@@ -186,17 +204,18 @@ defmodule Ankole.AIGateway.WebSearch do
     order_rev
     |> Enum.reverse()
     |> Enum.take(limit)
-    |> Enum.with_index(1)
-    |> Enum.map(fn {url, position} ->
+    |> Enum.map(fn url ->
       entry = Map.fetch!(by_url, url)
 
-      %{
-        "url" => url,
-        "title" => entry["title"] || url,
-        "snippet" => entry["snippet"] || "",
-        "position" => position,
-        "published_at" => entry["published_at"]
-      }
+      Attrs.put_present(
+        %{
+          "url" => url,
+          "title" => entry["title"] || url,
+          "description" => entry["description"] || ""
+        },
+        "published_at",
+        entry["published_at"]
+      )
     end)
   end
 
@@ -234,7 +253,7 @@ defmodule Ankole.AIGateway.WebSearch do
       not non_empty_string?(Map.get(request, "query")) ->
         {:error, :missing_query}
 
-      String.length(String.trim(Map.get(request, "query"))) > 500 ->
+      String.length(String.trim(Map.get(request, "query"))) > @max_query_chars ->
         {:error, :invalid_query}
 
       not valid_limit?(Map.get(request, "limit")) ->

@@ -24,6 +24,8 @@ order: 24
 4. 选择图像提供商与具体模型并保存。
 5. 回到聊天渠道，向 Agent 发送明确的图像生成请求。
 
+有三类 Provider 可以承接 `image_generate` 档案。**OpenRouter** 和 **AgentBull Cloud** 提供各自目录中的图片模型。**Cloudflare** 提供 FLUX.1 [schnell]（`@cf/black-forest-labs/flux-1-schnell`）和 Black Forest Labs 系列模型（例如 `black-forest-labs/flux-2-pro-preview`）：前者只能根据提示词生成图片，后者还支持指定尺寸、输出格式和最多八张参考图。使用 Cloudflare 时，在模型字段中直接输入模型 ID。
+
 计费与用量统计彼此独立：主模型的 Token 用量计入主提供商凭据，图像生成的 Token 用量则计入实际执行出图的凭据；即使中途发生凭据池轮换，账目也不会混淆。
 
 ## 把要求写成一份视觉说明

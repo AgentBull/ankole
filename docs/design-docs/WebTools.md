@@ -40,9 +40,19 @@ its browser runtime.
 
 Both foreground and Codex Job tool catalogs accept a single nonempty `query`
 without advertising a character cap in the model-visible JSON Schema; AIGateway
-rejects trimmed queries longer than 500 characters before calling the upstream
+rejects trimmed queries longer than 1,024 characters before calling the upstream
 provider. Callers can also pass an optional `limit` from `1` through `100`
 (default `5`).
+
+`POST /web_search` answers with `items` and `metadata`, whichever provider or
+Provider-hosted path ran the search. Each item carries `url`, `title`, and
+`description`, plus `published_at` and `score` when the provider reports them;
+the order of `items` is the rank. `metadata` carries the trimmed `query`, the
+`latency_ms` that AIGateway measured, and, for a call that arrived over HTTP,
+the `request_id` of that HTTP request. The `cloudflare` provider kind runs
+Cloudflare Web Search through the AI Gateway named by the provider row's
+`gateway_id`, sends the row's `engine` option as Cloudflare's `provider` field,
+and returns at most 10 items because Cloudflare caps a search at 10 results.
 
 When a search provider is configured, `web_search` dispatches the query to the
 provider selected by AIGateway and returns result titles, URLs, and short

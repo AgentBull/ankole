@@ -72,6 +72,7 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             | :web_search
             | :web_fetch
             | :image_generate
+            | :decision_model
 
     @typedoc """
     Capability metadata used to route a public model capability to provider
@@ -136,4 +137,5 @@ defmodule Ankole.AIGateway.ProviderDefinition do
   def capability_name(:web_search), do: "web_search"
   def capability_name(:web_fetch), do: "web_fetch"
   def capability_name(:image_generate), do: "image_generate"
+  def capability_name(:decision_model), do: "decision"
 end

@@ -1,5 +1,47 @@
 # Changelog
 
+## Version 2.0.0-alpha.111 (2026-11-11)
+
+- Change the response of `POST /api/v1/ai-gateway/web_search`. AIGateway
+  returns `items` and `metadata` in place of `success`, `query`, and `results`.
+  Each item carries `url`, `title`, and `description` (formerly `snippet`),
+  plus `published_at` and `score` when the provider reports them; the order of
+  `items` replaces `position`. `metadata` carries `query`, `latency_ms`, and
+  the HTTP `request_id`. A query can now have 1,024 characters instead of 500.
+  Callers of the HTTP endpoint must read the new fields; the `web_search` tool
+  and `AnkoleRuntime.web.search` return what they returned before.
+- Add `POST /api/v1/ai-gateway/decisions`, which answers `noul`, `choice`, and
+  `score` questions about a state and returns a probability with every answer.
+  The new Pod and Site `decision` model profile selects a decision model. When
+  the profile is not configured, the caller's `light` language model answers;
+  its probabilities are its own estimates and are not calibrated. Applet
+  backends ask the same questions through `AnkoleRuntime.ai.decide`.
+- Add the `cloudflare` provider kind. One provider row, configured with an API
+  token, an Account ID, and a Gateway ID, serves `web_search` through
+  Cloudflare Web Search, the `decision` profile through decision models such
+  as `@cf/cloudflare/clef` and `typesafe/jev`, and the `image_generate` profile
+  through FLUX.1 [schnell] and the Black Forest Labs models such as
+  `black-forest-labs/flux-2-pro-preview`, which also edit up to eight
+  reference images.
+- Add `POST /api/v1/ai-gateway/images`, which generates or edits one image
+  through the image provider that the request's `model` selects and returns it
+  as `data[0].b64_json` with its `media_type`.
+- Let a provider kind that has no image catalog serve the `image_generate`
+  profile. OpenRouter and AgentBull Cloud keep reading their catalogs; any
+  other provider module names the endpoint for each image model through the
+  `image_endpoint/3` callback. AIGateway downloads the image that a Black
+  Forest Labs model on Cloudflare returns as a link.
+- Record generated images and decision-model calls in the usage ledger. Each
+  `ai_gateway_usage_records` row gains `capability`, and a row for generated
+  images also carries `unit`, `quantity`, and the `provider_cost` that the
+  provider reports. Agent token quotas, per-turn usage, and the Console Model
+  usage page keep counting language-model rounds only. Rows written before the
+  upgrade are language-model rows.
+- Fix Console forms losing text that arrives without a key press. When a field
+  showed a validation error, the first paste from the context menu, autofill,
+  or drag-and-drop left the field empty; the field now keeps the text and
+  clears the error.
+
 ## Version 2.0.0-alpha.110 (2026-11-11)
 
 - Connect your own devices in Pod account settings and choose one when

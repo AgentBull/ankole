@@ -26,7 +26,8 @@ defmodule Ankole.AIGateway.Providers do
     :rerank_model,
     :web_search,
     :web_fetch,
-    :image_generate
+    :image_generate,
+    :decision_model
   ]
   @cache_key {__MODULE__, :registry}
 
@@ -43,7 +44,8 @@ defmodule Ankole.AIGateway.Providers do
     Ankole.AIGateway.Providers.BrightDataSERP,
     Ankole.AIGateway.Providers.AgentBullCloud,
     Ankole.AIGateway.Providers.JinaSearch,
-    Ankole.AIGateway.Providers.JinaReader
+    Ankole.AIGateway.Providers.JinaReader,
+    Ankole.AIGateway.Providers.Cloudflare
   ]
 
   @type definition :: ProviderDefinition.t()
@@ -434,11 +436,19 @@ defmodule Ankole.AIGateway.Providers do
     do: build_prepared_request(runtime, :web_fetch, request, [])
 
   @doc """
-  Builds an OpenRouter image-generation request for HostedResponsesExecutor.
+  Builds a prepared decision-model request for UniversalAIClient.
+  """
+  @spec build_decision_request(map(), map()) :: {:ok, map()} | {:error, term()}
+  def build_decision_request(runtime, request),
+    do: build_prepared_request(runtime, :decision_model, request, [])
 
-  Image generation is an internal AIGateway capability. It is not exposed as a
-  worker function tool and is only composed into a Responses request by the
-  hosted-tool preparation path.
+  @doc """
+  Builds a prepared image-generation request for the provider that serves the
+  `image_generate` capability.
+
+  The hosted-tool preparation path composes the request into a Responses
+  request for HostedResponsesExecutor, and a direct image request sends it by
+  itself. Image generation is not exposed as a worker function tool.
   """
   @spec build_image_generate_request(map(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}

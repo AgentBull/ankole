@@ -49,6 +49,8 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST` | `/rerank` | HTTP | 문서 재정렬(rerank) |
 | `POST` | `/web_search` | HTTP | 웹 검색 |
 | `POST` | `/web_fetch` | HTTP | 웹 페이지 본문 가져오기 |
+| `POST` | `/decisions` | HTTP | 상태에 대한 유형 지정 질문에 확률과 함께 답변 |
+| `POST` | `/images` | HTTP | 이미지 한 장 생성 또는 편집 |
 | `GET/POST/DELETE` | `/files`, `/files/:id`, `/files/:id/content` | HTTP | 파일 업로드, 조회, 다운로드, 삭제 |
 
 이 인터페이스의 중심은 `POST /responses`입니다. 실제 모델 턴을 수행하며, 전송 프로토콜과 상태 보존 여부에 따라 동작이 분기하는 유일한 경로입니다.
@@ -85,8 +87,8 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 AIGateway는 업스트림 API를 호출하기 전에 **Console → Model Profiles**에서 구성하는 3계층 희소 **모델 프로필(Model Profile)** 상속 체인(`Site -> Pod -> Agent/System`)에 따라 모델 셀렉터를 해석합니다.
 
-- **Site, Pod 및 `system` Principal(`ankole_brain`, `system`)**은 9개의 고정 슬롯을 제공합니다. 5개는 언어 모델 슬롯(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)이고 4개는 전용 capability 슬롯(`web_search`, `web_fetch`, `image_generate`, `rerank`)입니다.
-- **Agent**는 `rerank`를 제외한 8개 기본 슬롯과 사용자 지정 언어 모델 별칭을 제공하며, 비워 둔 슬롯은 Pod와 Site 기본값을 자동으로 상속합니다.
+- **Site, Pod 및 `system` Principal(`ankole_brain`, `system`)**은 10개의 고정 슬롯을 제공합니다. 5개는 언어 모델 슬롯(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)이고 5개는 전용 capability 슬롯(`web_search`, `web_fetch`, `image_generate`, `rerank`, `decision`)입니다.
+- **Agent**는 `rerank`와 `decision`을 제외한 8개 기본 슬롯과 사용자 지정 언어 모델 별칭을 제공하며, 비워 둔 슬롯은 Pod와 Site 기본값을 자동으로 상속합니다.
 - **슬롯 간 폴백**은 `coding -> heavy -> primary` 및 `light -> primary` 순서로 해석되므로 Site나 Pod에 `primary`만 구성해도 Agent와 Brain이 바로 동작하며, 필요한 경우에만 Pod·Agent·`system` Principal 단위로 개별 재정의할 수 있습니다.
 
 권한이 허용된 관리자와 내부 호출자는 명시적 `provider_id/model` 셀렉터도 직접 지정할 수 있습니다. `GET /models`를 호출하면 현재 주체가 사용할 수 있는 셀렉터 목록이 반환되며, OpenRouter 스타일의 검색 필터(`q`, `context`, `min_price`, `max_price`, `sort`, 모달리티 필터)를 선택적으로 전달할 수 있습니다.
@@ -132,6 +134,10 @@ AIGateway는 업스트림 API를 호출하기 전에 **Console → Model Profile
 동일한 주체와 bearer 토큰으로 보조 AI 엔드포인트들도 호출할 수 있습니다. `POST /web_search`는 길이 제한이 있는 `query`를 받아 검색 결과를 반환하고, `POST /web_fetch`는 1~5개의 공개 HTTPS URL을 받아 본문 콘텐츠를 추출해 반환합니다. 두 엔드포인트에서는 `web_search.default`와 `web_fetch.default` 셀렉터를 지정할 수 있으며, 이 경우 AIGateway가 호출한 Agent의 현재 프로필 설정을 자동으로 찾아 연결합니다.
 
 `POST /embeddings`는 문자열, 토큰 배열, 구조화된 입력 블록을 받아 임베딩을 생성하며 명시적인 `provider_id/model` 셀렉터를 요구합니다(예컨대 `Ankole.Brain`은 임베딩 생성 시 [AppConfigure](../app-configuration/)의 사이트 단위 설정 `brain.embedding_model`을 읽습니다). `POST /rerank`는 비어 있지 않은 문서 배열과 양의 정수 `top_n`을 받아 재정렬 결과를 반환하며, 명시적 `provider_id/model` 셀렉터 또는 `default` / `rerank.default`를 허용합니다(`ankole_brain`은 자신의 유효 `rerank` 모델 프로필을 해석하고, Agent 및 Human 호출은 Pod/Site `rerank` 프로필을 해석합니다. 검색 파이프라인의 상세 동작은 [Brain](../brain/)을 참조하세요). 한편 Pod Applet 내부의 `ctx.ai` 호출은 내장 `system` Principal 명의로 `Ankole.AIGateway`를 통해 stateless 방식으로 실행되며, 유효 Pod/Site 언어 모델 프로필(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)을 사용하므로 포그라운드 Agent의 토큰 할당량을 소모하지 않습니다.
+
+`POST /web_search`는 1,024자 이하의 `query`와 선택 항목인 `limit`(1~100, 기본값 5)를 받아 `items`와 `metadata`를 반환합니다. 각 결과에는 `url`, `title`, `description`이 들어 있으며, Provider가 제공하면 `published_at`과 `score`도 함께 담깁니다. `metadata`에는 `query`, 게이트웨이에서 걸린 시간 `latency_ms`, HTTP 요청의 `request_id`가 들어 있습니다. `POST /decisions`는 주어진 `state`에 대해 유형이 지정된 질문에 답합니다. 요청 하나에 1~64개의 `questions`를 담을 수 있고, 각 질문은 `noul`(예/아니요), `choice`(2~255개의 이름 있는 선택지 중 하나), `score`(2~10단계의 순서 있는 등급) 중 하나이며, 이미지는 장당 4 MiB 이하로 최대 4장까지 첨부할 수 있습니다. 응답은 질문마다 확률이 포함된 답과 함께 답한 `model`, 토큰 `usage`를 반환합니다. `default` / `decision.default` 셀렉터는 Pod/Site의 `decision` 프로필로 해석됩니다. 이 프로필이 설정되어 있지 않으면 호출자의 `light` 언어 모델이 대신 답하며, 언어 모델이 내놓는 값은 스스로 보고한 확신도이므로 이 확률은 보정되지 않습니다. 또한 언어 모델이 답할 때는 요청 하나에 선택지와 등급을 합쳐 500개까지만 담을 수 있습니다.
+
+`POST /images`는 대화 밖에서 이미지 한 장을 생성하거나 편집합니다. 요청에는 `model`(`image_generate.default`, `default` 또는 명시적인 `provider_id/model`), `prompt`, 선택 항목인 참조 이미지 `images`와 `mask`, 그리고 `size`, `quality`, `output_format` 같은 `image_generation` 도구 옵션을 담습니다. 요청은 선택한 이미지 Provider로 바로 전달됩니다. OpenRouter와 AgentBull Cloud는 각자의 카탈로그에 있는 이미지 모델을, Cloudflare는 FLUX.1 [schnell]과 Black Forest Labs 모델을 제공합니다. 응답은 `created`, 이미지를 `b64_json`과 `media_type`으로 담은 `data` 한 건, 그리고 Provider의 `usage`를 반환합니다. AIGateway는 생성한 이미지와 결정 모델 호출을 한 건씩 사용량 원장에 기록하며, Agent 토큰 할당량과 Console의 모델 사용량 페이지는 언어 모델 라운드만 집계합니다.
 
 파일 관리 역시 일급 API로 제공됩니다. `POST /files`로 업로드하고, `GET /files`로 목록을 조회하며, `GET /files/:id`와 `GET /files/:id/content`로 메타데이터와 파일 바이트를 읽고, `DELETE /files/:id`로 삭제합니다. 모든 파일 작업은 호출 주체(subject) 범위로 격리됩니다.
 

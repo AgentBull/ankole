@@ -1,16 +1,20 @@
 defmodule Ankole.AIGateway.ImageModelCatalog do
   @moduledoc """
-  Definitive OpenRouter image-model and endpoint capability catalog.
+  Selects the endpoint that serves an image model.
 
-  This catalog is deliberately separate from language-model metadata. Image
-  requests are rejected when no fresh or stale definitive endpoint can satisfy
-  every requested public field.
+  OpenRouter and AgentBull Cloud publish a definitive image-model and endpoint
+  capability catalog, which this module reads and caches. Any other provider
+  kind describes its own endpoints through
+  `c:Ankole.AIGateway.Provider.image_endpoint/3`. This catalog is deliberately
+  separate from language-model metadata. Image requests are rejected when no
+  endpoint can satisfy every requested public field.
   """
 
   alias Ankole.AIGateway.ModelMetadata.Cache
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
+  alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Providers.AgentBullCloud
   alias Ankole.AIGateway.Providers.OpenRouter
   alias Ankole.AIGateway.UniversalAIRequest
@@ -40,13 +44,67 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
 
   @spec select_endpoint(map(), String.t(), map(), non_neg_integer(), keyword()) ::
           {:ok, selection()} | {:error, OpenAIError.t()}
-  def select_endpoint(runtime, requested_model, tool, reference_count, opts \\ []) do
-    with :ok <- require_openrouter(runtime, opts),
-         {:ok, model} <- normalize_model(requested_model, opts),
+  def select_endpoint(runtime, requested_model, tool, reference_count, opts \\ [])
+
+  def select_endpoint(
+        %{"provider_kind" => kind} = runtime,
+        requested_model,
+        tool,
+        reference_count,
+        opts
+      )
+      when kind in ["openrouter", "agentbull_cloud"] do
+    with {:ok, model} <- normalize_model(requested_model, opts),
          {:ok, source} <- source(runtime, opts),
          {:ok, endpoints} <- load_model_endpoints(runtime, source, model, opts),
          {:ok, matching} <- satisfying_endpoints(endpoints, tool, reference_count, opts) do
       {:ok, build_selection(model, matching)}
+    end
+  end
+
+  # A provider that declares its own endpoints serves one route, which the
+  # selection names after the provider kind.
+  def select_endpoint(runtime, requested_model, tool, reference_count, opts) do
+    kind = Map.get(runtime, "provider_kind")
+
+    with {:ok, %{module: module}} <- Providers.fetch(kind),
+         true <- Code.ensure_loaded?(module) and function_exported?(module, :image_endpoint, 3),
+         model when is_binary(model) <- requested_model,
+         {:ok, endpoint} <- module.image_endpoint(String.trim(model), tool, reference_count) do
+      {:ok,
+       %{
+         model: String.trim(model),
+         endpoint: endpoint,
+         provider_tag: kind,
+         provider_tags: [kind],
+         provider_slug: kind,
+         provider_slugs: [kind],
+         supports_streaming: false
+       }}
+    else
+      {:error, {:unsupported_field, field}} ->
+        {:error,
+         OpenAIError.invalid(
+           tool_param(opts, field),
+           "unsupported_value",
+           "Unsupported value for this image model."
+         )}
+
+      {:error, :unknown_model} ->
+        {:error,
+         OpenAIError.invalid(
+           tool_param(opts, "model"),
+           "model_not_found",
+           "The requested image model does not exist."
+         )}
+
+      _no_image_endpoints ->
+        {:error,
+         OpenAIError.invalid(
+           tool_param(opts, "model"),
+           "unsupported_value",
+           "The configured image_generate provider does not support image generation."
+         )}
     end
   end
 
@@ -125,19 +183,6 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
        tool_param(opts, "model"),
        "invalid_type",
        "Image model must be a string."
-     )}
-  end
-
-  defp require_openrouter(%{"provider_kind" => kind}, _opts)
-       when kind in ["openrouter", "agentbull_cloud"],
-       do: :ok
-
-  defp require_openrouter(_runtime, opts) do
-    {:error,
-     OpenAIError.invalid(
-       tool_param(opts, "model"),
-       "unsupported_value",
-       "The configured image_generate provider does not support image generation."
      )}
   end
 

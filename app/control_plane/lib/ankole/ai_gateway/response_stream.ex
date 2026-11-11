@@ -1667,6 +1667,15 @@ defmodule Ankole.AIGateway.ResponseStream do
       :ok = ImageGeneration.record_credential_usage(state.hosted_credential_attempt, event)
 
       :ok =
+        ImageGeneration.record_usage(
+          state.hosted_credential_attempt,
+          CredentialAttempts.runtime(state.attempt_context),
+          event,
+          subject_type: state.subject_type,
+          caller: Map.get(state, :caller)
+        )
+
+      :ok =
         UsageLedger.record(
           CredentialAttempts.runtime(state.attempt_context),
           state.subject_type,

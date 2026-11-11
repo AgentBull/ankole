@@ -62,6 +62,30 @@ export type GenerateTextResult = {
   finishReason: 'stop' | 'length'
   usage: { inputTokens: number; outputTokens: number }
 }
+export type DecisionQuestion =
+  | { type: 'noul'; instructions: unknown; criteria?: { true?: unknown; false?: unknown } }
+  | { type: 'choice'; instructions: unknown; criteria: Record<string, unknown> }
+  | { type: 'score'; instructions: unknown; criteria: unknown[] }
+export type DecisionAnswer =
+  | { type: 'noul'; noul: number }
+  | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
+  | {
+      type: 'score'
+      score: number
+      legend: Record<string, unknown>
+      probabilities: Record<string, number>
+      confidence: number
+    }
+export type DecideOptions = {
+  state: unknown
+  questions: Record<string, DecisionQuestion>
+  images?: string[]
+}
+export type DecideResult = {
+  model: string
+  answers: Record<string, DecisionAnswer>
+  usage: { inputTokens: number; outputTokens: number }
+}
 export type WebSearchOptions = {
   query: string
   limit?: number
@@ -249,6 +273,7 @@ export type RuntimeCapabilities = {
   ai: {
     generateText(options: GenerateTextOptions): Promise<GenerateTextResult>
     generateImage(options: GenerateImageOptions): Promise<GenerateImageResult>
+    decide(options: DecideOptions): Promise<DecideResult>
   }
   web: {
     search(options: WebSearchOptions): Promise<WebSearchResult>

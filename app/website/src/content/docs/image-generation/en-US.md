@@ -24,6 +24,8 @@ To configure the hosted path:
 4. Select the image Provider and model, then save the profile.
 5. Return to chat and send an image request to verify the setup.
 
+Three Provider kinds serve the `image_generate` profile. **OpenRouter** and **AgentBull Cloud** offer the image models in their catalogs. **Cloudflare** offers FLUX.1 [schnell] (`@cf/black-forest-labs/flux-1-schnell`), which only turns a prompt into an image, and the Black Forest Labs models such as `black-forest-labs/flux-2-pro-preview`, which also accept a size, an output format, and up to eight reference images; type the model ID into the model field.
+
 AIGateway attributes language-model token usage to the main provider credential, while attributing image-generation usage to whichever credential actually generated the image—even after a credential-pool rotation.
 
 ## Write a short visual brief

@@ -61,6 +61,7 @@ defmodule Ankole.AIGateway.CreateImageTest do
                  "quality" => "high",
                  "output_format" => "png"
                },
+               respect_provider_hosted?: true,
                caller: "pod_applet"
              )
 
@@ -119,6 +120,7 @@ defmodule Ankole.AIGateway.CreateImageTest do
 
     assert {:error, :model_profile_not_configured} =
              AIGateway.create_image(agent.uid, %{"prompt" => "Draw a lighthouse"},
+               respect_provider_hosted?: true,
                caller: "pod_applet"
              )
 
@@ -201,6 +203,7 @@ defmodule Ankole.AIGateway.CreateImageTest do
                  "size" => "1024x1024",
                  "quality" => "medium"
                },
+               respect_provider_hosted?: true,
                caller: "pod_applet"
              )
 
@@ -310,7 +313,7 @@ defmodule Ankole.AIGateway.CreateImageTest do
              })
 
     # Default provider_hosted.web_search == true -> uses primary's native Responses web_search
-    assert {:ok, %{body: %{"results" => [native_hit]}}} =
+    assert {:ok, %{body: %{"items" => [native_hit], "metadata" => %{"query" => "ankole docs"}}}} =
              AIGateway.create_web_search(
                agent.uid,
                %{"model" => "web_search.default", "query" => "ankole docs", "limit" => 3},
@@ -323,13 +326,14 @@ defmodule Ankole.AIGateway.CreateImageTest do
     assert native_body["tool_choice"] == "required"
     assert native_hit["url"] == "https://example.com/native-doc"
     assert native_hit["title"] == "Native Search Doc"
-    assert native_hit["snippet"] == "Hosted search excerpt"
+    assert native_hit["description"] == "Hosted search excerpt"
+    refute Map.has_key?(native_hit, "published_at")
 
     # Flip provider_hosted.web_search == false -> uses standalone web_search profile
     assert {:ok, _} =
              ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"web_search" => false})
 
-    assert {:ok, %{body: %{"results" => [standalone_hit]}}} =
+    assert {:ok, %{body: %{"items" => [standalone_hit]}}} =
              AIGateway.create_web_search(
                agent.uid,
                %{"model" => "web_search.default", "query" => "ankole docs", "limit" => 3},
@@ -340,5 +344,6 @@ defmodule Ankole.AIGateway.CreateImageTest do
     assert_receive {:standalone_search_req, _}
     assert standalone_hit["url"] == "https://example.com/standalone-doc"
     assert standalone_hit["title"] == "Standalone Search Doc"
+    assert standalone_hit["description"] == "Standalone search excerpt"
   end
 end

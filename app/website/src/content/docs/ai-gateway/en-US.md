@@ -49,6 +49,8 @@ All routes live under `/api/v1/ai-gateway`, and the transport that each endpoint
 | `POST` | `/rerank` | HTTP | Rerank documents |
 | `POST` | `/web_search` | HTTP | Search the web |
 | `POST` | `/web_fetch` | HTTP | Fetch web pages |
+| `POST` | `/decisions` | HTTP | Answer typed questions about a state with probabilities |
+| `POST` | `/images` | HTTP | Generate or edit one image |
 | `GET/POST/DELETE` | `/files`, `/files/:id`, `/files/:id/content` | HTTP | Upload, read, and delete files |
 
 `POST /responses` sits at the center of the surface: it drives model turns and is the only endpoint that branches on both transport and statefulness.
@@ -85,8 +87,8 @@ Compaction replaces a long stored history with a compact checkpoint without losi
 
 Before making any upstream call, AIGateway resolves the model selector through 3-tier sparse **Model Profile** inheritance (`Site -> Pod -> Agent/System`), configured in **Console → Model Profiles**:
 
-- **Site, Pod, and `system` Principals (`ankole_brain`, `system`)** expose nine fixed slots: five language-model slots (`primary`, `light`, `heavy`, `coding`, and `vision_fallback`) and four capability slots (`web_search`, `web_fetch`, `image_generate`, and `rerank`).
-- **Agents** expose the eight built-in slots other than `rerank`, plus any custom language-model aliases configured on the Agent, inheriting unset slots from Pod and Site defaults.
+- **Site, Pod, and `system` Principals (`ankole_brain`, `system`)** expose ten fixed slots: five language-model slots (`primary`, `light`, `heavy`, `coding`, and `vision_fallback`) and five capability slots (`web_search`, `web_fetch`, `image_generate`, `rerank`, and `decision`).
+- **Agents** expose the eight built-in slots other than `rerank` and `decision`, plus any custom language-model aliases configured on the Agent, inheriting unset slots from Pod and Site defaults.
 - **Cross-slot fallbacks** resolve `coding -> heavy -> primary` and `light -> primary`, so a Pod with `primary` configured can run Agents and Brain workflows immediately while allowing targeted per-Pod, per-Agent, or `system` Principal overrides.
 
 Administrators and explicit internal callers can also address concrete `provider_id/model` selectors where permitted. Call `GET /models` to list every selector that the current subject can resolve, with optional OpenRouter-style query filters (`q`, `context`, `min_price`, `max_price`, `sort`, and modality filters).
@@ -132,6 +134,10 @@ Both execution paths emit identical stream events and persist generated images i
 The same Principal identity and bearer token authorize AIGateway's remaining endpoints. `POST /web_search` accepts a length-bounded `query` and returns provider-backed search results, while `POST /web_fetch` fetches content from one to five public HTTPS URLs; both accept `web_search.default` and `web_fetch.default` to resolve the calling Agent's configured profiles.
 
 `POST /embeddings` accepts strings, token arrays, or structured input blocks with an explicit `provider_id/model` selector—for example, `Ankole.Brain` reads the site-level `brain.embedding_model` key from [AppConfigure](../app-configuration/) when generating embeddings. `POST /rerank` reranks a non-empty document array using a positive integer `top_n`, accepting either an explicit `provider_id/model` selector or `default` / `rerank.default` (`ankole_brain` resolves its effective `rerank` Model Profile, while Agent and Human calls resolve the Pod/Site `rerank` profile; see [Brain](../brain/) for retrieval details). Meanwhile, Pod Applet `ctx.ai` calls run statelessly through `Ankole.AIGateway` under the built-in `system` Principal, resolving effective Pod/Site language-model profiles (`primary`, `light`, `heavy`, `coding`, `vision_fallback`) without consuming any foreground Agent's token quota.
+
+`POST /web_search` takes a `query` of up to 1,024 characters and an optional `limit` from 1 to 100 (default 5). It returns `items`, each with `url`, `title`, and `description` plus `published_at` and `score` when the Provider reports them, and `metadata` with the `query`, the gateway's `latency_ms`, and the HTTP `request_id`. `POST /decisions` answers typed questions about a `state`. A request carries 1 to 64 `questions`, each a `noul` (yes or no), a `choice` among 2 to 255 named options, or a `score` on 2 to 10 ordered levels, and may attach up to four images of at most 4 MiB each. The response returns one answer per question with its probabilities, the `model` that answered, and token `usage`. The `default` / `decision.default` selector resolves the Pod/Site `decision` profile; when that profile is not configured, the caller's `light` language model answers instead. A language model reports its own confidence, so those probabilities are not calibrated, and it accepts at most 500 choice options and score levels in one request.
+
+`POST /images` generates or edits one image outside a conversation. The request carries `model` (`image_generate.default`, `default`, or an explicit `provider_id/model`), a `prompt`, optional reference `images` and a `mask`, and the `image_generation` tool options such as `size`, `quality`, and `output_format`. The request goes straight to that image Provider, which is OpenRouter or AgentBull Cloud for the image models in their catalogs, or Cloudflare for FLUX.1 [schnell] and the Black Forest Labs models. The response returns `created`, `data` with one entry that holds the image as `b64_json` together with its `media_type`, and the Provider's `usage`. AIGateway records each generated image and each decision-model call in the usage ledger; Agent token quotas and the Console Model usage page count language-model rounds only.
 
 File endpoints are likewise scoped to the authenticated subject: `POST /files` uploads a file, `GET /files` lists uploaded files, `GET /files/:id` and `GET /files/:id/content` fetch metadata and raw bytes, and `DELETE /files/:id` deletes a file.
 

@@ -1,5 +1,5 @@
 defmodule Ankole.Pod.Applets.AI do
-  @moduledoc "Stateless Applet text and image generation through Pod model profiles."
+  @moduledoc "Stateless Applet text generation, image generation, and decisions through Pod model profiles."
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Artifacts
@@ -16,6 +16,52 @@ defmodule Ankole.Pod.Applets.AI do
     prompt images mask action size quality background outputFormat
     outputCompression moderation inputFidelity saveTo
   )
+
+  @doc """
+  Answers typed questions about a state through the Pod `decision` profile, or
+  through the `light` profile when no decision model is configured.
+  """
+  def decide(%Ankole.AuthZ.Actor{} = actor, options) do
+    with {:ok, principal} <-
+           Access.write(actor.turn_authority, fn ->
+             Access.principal(actor)
+           end) do
+      do_decide(principal, options)
+    end
+  end
+
+  defp do_decide(principal, options) do
+    with [] <- Map.keys(options) -- ~w(state questions images),
+         {:ok, %{body: body}} <-
+           AIGateway.create_decision(
+             principal.uid,
+             Map.put(options, "model", "decision.default"),
+             caller: "pod_applet",
+             request_context: human_context(principal)
+           ) do
+      {:ok,
+       %{
+         model: body["model"],
+         answers: body["answers"],
+         usage: %{
+           inputTokens: body["usage"]["input_tokens"] || 0,
+           outputTokens: body["usage"]["output_tokens"] || 0
+         }
+       }}
+    else
+      # A rejected request names the field at fault, so the Applet author can fix it.
+      {:error, %OpenAIError{status: 400, message: message}} ->
+        {:error, %{status: 400, code: "invalid_request", message: message, details: nil}}
+
+      {:error, reason} ->
+        {:error,
+         %{status: status(reason), code: code(reason), message: code(reason), details: nil}}
+
+      _unknown_options ->
+        {:error,
+         %{status: 400, code: "invalid_request", message: "invalid_request", details: nil}}
+    end
+  end
 
   def generate_text(%Ankole.AuthZ.Actor{} = actor, options) do
     with {:ok, principal} <-
@@ -123,6 +169,7 @@ defmodule Ankole.Pod.Applets.AI do
 
   defp create_gateway_image(principal, gateway_req) do
     case AIGateway.create_image(principal.uid, gateway_req,
+           respect_provider_hosted?: true,
            caller: "pod_applet",
            request_context: human_context(principal)
          ) do

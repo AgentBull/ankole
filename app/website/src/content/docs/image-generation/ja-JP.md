@@ -24,6 +24,8 @@ Hosted パスを使う手順は次のとおりです。
 4. 画像生成に使う Provider とモデルを選択し、プロファイルを保存します。
 5. チャット画面に戻り、具体的な画像生成リクエストを送信します。
 
+`image_generate` プロファイルに割り当てられる Provider は 3 種類あります。**OpenRouter** と **AgentBull Cloud** はそれぞれのカタログにある画像モデルを提供します。**Cloudflare** は FLUX.1 [schnell]（`@cf/black-forest-labs/flux-1-schnell`）と、`black-forest-labs/flux-2-pro-preview` などの Black Forest Labs モデルを提供します。前者はプロンプトから画像を生成するだけですが、後者はサイズ、出力形式、最大 8 枚の参照画像も指定できます。Cloudflare を使う場合は、モデル欄にモデル ID を直接入力してください。
+
 なお、通常のモデルトークン（model-token）の使用量はメイン Provider の認証情報に記録され、画像トークン（image-token）の使用量は実際に画像を生成した認証情報に記録されます。これは認証情報プールのローテーションが発生した後も同様です。
 
 ## 短いビジュアルブリーフを書く

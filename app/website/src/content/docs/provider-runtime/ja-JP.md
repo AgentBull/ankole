@@ -13,7 +13,7 @@ Resolver、Provider モジュール、Kernel は、それぞれ明確に 1 つ�
 
 `Ankole.AIGateway.Resolver` は、リクエストの `model` フィールドを具体的な Provider ランタイムマップへ変換します。この段階で、`primary` や `web_search.default`、あるいは明示的な `provider_id/model` といった呼び出し元（subject）向けのセレクターが、実際の Provider ID、Provider 種別（kind）、上流モデル名、および解決済みのランタイム設定へと展開されます。
 
-Agent には 8 種類の組み込みモデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate`）があり、このうち `coding` は管理画面上の Background Agent Jobs プロファイルが API や永続化層で使用する内部名です。未設定のスロットは **Console → Model Profiles** で `Site -> Pod -> Agent` の順にスパース継承され、Site・Pod・`system` Principal（`ankole_brain`、`system`）にはさらに 9 つ目の組み込みスロットとして `rerank` が用意されています。
+Agent には 8 種類の組み込みモデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate`）があり、このうち `coding` は管理画面上の Background Agent Jobs プロファイルが API や永続化層で使用する内部名です。未設定のスロットは **Console → Model Profiles** で `Site -> Pod -> Agent` の順にスパース継承され、Site・Pod・`system` Principal（`ankole_brain`、`system`）にはさらに `rerank` と `decision` の 2 つの組み込みスロットが用意されています。
 
 Embedding は Agent プロファイルには含まれないため、AIGateway から直接呼び出す際は明示的な `provider_id/model` セレクターを指定し、Brain では [AppConfigure](../app-configuration/) の `brain.embedding_model` からサイト全体で共有する Embedding モデルを読み取ります。一方 Rerank については、`ankole_brain` が実効 `rerank` スロット（`Site -> Pod -> ankole_brain`）を解決し、Agent や Human からの Rerank 呼び出しには Pod の `rerank` スロットが使われます。検索精度や挙動への影響は [Brain](../brain/) を参照してください。
 

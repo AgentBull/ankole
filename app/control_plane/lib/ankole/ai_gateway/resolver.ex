@@ -18,8 +18,9 @@ defmodule Ankole.AIGateway.Resolver do
   Resolves the request `model` field for one Principal subject and capability.
 
   LLM aliases use named profiles such as `primary`. Embedding accepts only
-  explicit `provider_id/model` selectors; other capabilities, including rerank, accept
-  `default` or their explicit default bindings such as `web_search.default`.
+  explicit `provider_id/model` selectors; other capabilities, including rerank and
+  decision, accept `default` or their explicit default bindings such as
+  `web_search.default`.
   """
   @spec resolve_request_model(String.t(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -56,7 +57,7 @@ defmodule Ankole.AIGateway.Resolver do
   end
 
   defp resolve_model(subject_uid, capability, selector, request)
-       when capability in ["web_search", "web_fetch", "image_generate", "rerank"] do
+       when capability in ["web_search", "web_fetch", "image_generate", "rerank", "decision"] do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
         resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)
@@ -85,11 +86,13 @@ defmodule Ankole.AIGateway.Resolver do
   # Profile resolution keeps encrypted provider options in the control plane.
   # Workers get only AIGateway API keys and never receive upstream provider
   # secrets.
-  defp resolve_profile_model(subject_uid, "rerank", selector, "rerank", request) do
+  # Rerank and decision are Pod/Site slots, which an Agent cannot override.
+  defp resolve_profile_model(subject_uid, capability, selector, capability, request)
+       when capability in ["rerank", "decision"] do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, principal} <- Principals.get_principal(subject_uid),
-         {:ok, profile} <- rerank_profile(principal) do
-      build_runtime(subject_uid, "rerank", selector, profile, request)
+         {:ok, profile} <- pod_slot_profile(principal, capability) do
+      build_runtime(subject_uid, capability, selector, profile, request)
     end
   end
 
@@ -105,10 +108,11 @@ defmodule Ankole.AIGateway.Resolver do
     end
   end
 
-  defp rerank_profile(%{type: :system, uid: uid}),
-    do: ModelProfiles.get_model_profile(uid, "rerank")
+  defp pod_slot_profile(%{type: :system, uid: uid}, profile),
+    do: ModelProfiles.get_model_profile(uid, profile)
 
-  defp rerank_profile(%{uid: uid}), do: ModelProfiles.get_pod_model_profile(uid, "rerank")
+  defp pod_slot_profile(%{uid: uid}, profile),
+    do: ModelProfiles.get_pod_model_profile(uid, profile)
 
   defp resolve_provider_model(subject_uid, capability, selector, provider_id, model, request) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid) do

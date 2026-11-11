@@ -17,6 +17,9 @@ pub(super) struct JinaSearchWebSearch;
 #[derive(Debug)]
 pub(super) struct JinaReaderWebFetch;
 
+#[derive(Debug)]
+pub(super) struct CloudflareWebSearch;
+
 impl APIProtocol for ParallelWebSearch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(parallel_search_body(context))
@@ -24,11 +27,11 @@ impl APIProtocol for ParallelWebSearch {
 
     fn on_provider_body(
         &mut self,
-        context: &ResponseContext,
+        _context: &ResponseContext,
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        normalize_parallel_search_body(context, status, body)
+        normalize_parallel_search_body(status, body)
     }
 }
 
@@ -54,11 +57,11 @@ impl APIProtocol for BrightDataSerpWebSearch {
 
     fn on_provider_body(
         &mut self,
-        context: &ResponseContext,
+        _context: &ResponseContext,
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        normalize_bright_data_search_body(context, status, body)
+        normalize_bright_data_search_body(status, body)
     }
 }
 
@@ -69,11 +72,11 @@ impl APIProtocol for AgentBullWebSearch {
 
     fn on_provider_body(
         &mut self,
-        context: &ResponseContext,
+        _context: &ResponseContext,
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        normalize_agentbull_search_body(context, status, body)
+        normalize_agentbull_search_body(status, body)
     }
 }
 
@@ -84,11 +87,11 @@ impl APIProtocol for JinaSearchWebSearch {
 
     fn on_provider_body(
         &mut self,
-        context: &ResponseContext,
+        _context: &ResponseContext,
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        normalize_jina_search_body(context, status, body)
+        normalize_jina_search_body(status, body)
     }
 }
 
@@ -104,6 +107,21 @@ impl APIProtocol for JinaReaderWebFetch {
         body: Value,
     ) -> Result<Value, StreamError> {
         normalize_jina_reader_extract_body(context, status, body)
+    }
+}
+
+impl APIProtocol for CloudflareWebSearch {
+    fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
+        Ok(cloudflare_search_body(context))
+    }
+
+    fn on_provider_body(
+        &mut self,
+        _context: &ResponseContext,
+        status: u16,
+        body: Value,
+    ) -> Result<Value, StreamError> {
+        normalize_cloudflare_search_body(status, body)
     }
 }
 
@@ -225,6 +243,27 @@ fn jina_search_body(context: &ResponseContext) -> Map<String, Value> {
     body
 }
 
+fn cloudflare_search_body(context: &ResponseContext) -> Map<String, Value> {
+    let request = context.resolved_provider_request_object();
+    let mut body = Map::new();
+
+    body.insert(
+        "query".to_string(),
+        json!(request_string(&request, "query")),
+    );
+    // Cloudflare returns at most 10 results per request.
+    body.insert("limit".to_string(), json!(request_limit(&request).min(10)));
+    maybe_put_from(&mut body, &request, "provider");
+    // The gateway belongs to the provider row, so a field of the same name in
+    // the caller's request does not replace it.
+    let gateway_id = request_string(&provider_options_object(context), "gateway_id");
+    body.insert(
+        "options".to_string(),
+        json!({"gateway": {"id": gateway_id}}),
+    );
+    body
+}
+
 fn jina_reader_extract_body(context: &ResponseContext) -> Map<String, Value> {
     let request = context.resolved_provider_request_object();
     let url = request
@@ -253,13 +292,8 @@ fn jina_reader_extract_body(context: &ResponseContext) -> Map<String, Value> {
     body
 }
 
-fn normalize_parallel_search_body(
-    context: &ResponseContext,
-    status: u16,
-    body: Value,
-) -> Result<Value, StreamError> {
+fn normalize_parallel_search_body(status: u16, body: Value) -> Result<Value, StreamError> {
     normalize_search_body(
-        context,
         status,
         body,
         "Parallel search",
@@ -268,13 +302,8 @@ fn normalize_parallel_search_body(
     )
 }
 
-fn normalize_bright_data_search_body(
-    context: &ResponseContext,
-    status: u16,
-    body: Value,
-) -> Result<Value, StreamError> {
+fn normalize_bright_data_search_body(status: u16, body: Value) -> Result<Value, StreamError> {
     normalize_search_body(
-        context,
         status,
         body,
         "Bright Data SERP",
@@ -283,13 +312,8 @@ fn normalize_bright_data_search_body(
     )
 }
 
-fn normalize_agentbull_search_body(
-    context: &ResponseContext,
-    status: u16,
-    body: Value,
-) -> Result<Value, StreamError> {
+fn normalize_agentbull_search_body(status: u16, body: Value) -> Result<Value, StreamError> {
     normalize_search_body(
-        context,
         status,
         body,
         "AgentBull search",
@@ -298,19 +322,37 @@ fn normalize_agentbull_search_body(
     )
 }
 
-fn normalize_jina_search_body(
-    context: &ResponseContext,
-    status: u16,
-    body: Value,
-) -> Result<Value, StreamError> {
+fn normalize_jina_search_body(status: u16, body: Value) -> Result<Value, StreamError> {
     normalize_search_body(
-        context,
         status,
         body,
         "Jina Search",
         &["results", "data", "items"],
         normalize_jina_search_result,
     )
+}
+
+fn normalize_cloudflare_search_body(status: u16, body: Value) -> Result<Value, StreamError> {
+    let object = provider_object_body(status, body, "Cloudflare Web Search")?;
+    let payload = cloudflare_result(object);
+
+    normalize_search_body(
+        status,
+        payload,
+        "Cloudflare Web Search",
+        &["items"],
+        normalize_cloudflare_result,
+    )
+}
+
+/// Returns the payload of a Cloudflare REST response, which can arrive bare
+/// or inside the API's `result` envelope.
+pub(super) fn cloudflare_result(object: Value) -> Value {
+    let wrapped = object
+        .get("result")
+        .filter(|result| result.is_object())
+        .cloned();
+    wrapped.unwrap_or(object)
 }
 
 fn normalize_parallel_extract_body(status: u16, body: Value) -> Result<Value, StreamError> {
@@ -364,37 +406,22 @@ fn normalize_jina_reader_extract_body(
 }
 
 fn normalize_search_body(
-    context: &ResponseContext,
     status: u16,
     body: Value,
     label: &'static str,
     result_keys: &[&str],
-    normalize: fn(usize, &Value) -> Value,
+    normalize: fn(&Value) -> Value,
 ) -> Result<Value, StreamError> {
     let object = provider_object_body(status, body, label)?;
-    let results = result_keys
+    let items: Vec<Value> = result_keys
         .iter()
         .find_map(|key| object.get(*key))
         .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| normalize(index, item))
-                .collect()
-        })
+        .map(|items| items.iter().map(normalize).collect())
         .unwrap_or_default();
 
-    Ok(search_response(context, results))
-}
-
-fn search_response(context: &ResponseContext, results: Vec<Value>) -> Value {
-    let request = context.resolved_provider_request_object();
-    json!({
-        "success": true,
-        "query": request_string(&request, "query"),
-        "results": results
-    })
+    // AIGateway adds `metadata` after the call, where it knows the latency.
+    Ok(json!({ "items": items }))
 }
 
 fn extract_response(results: Vec<Value>) -> Value {
@@ -404,16 +431,15 @@ fn extract_response(results: Vec<Value>) -> Value {
     })
 }
 
-fn normalize_parallel_search_result(index: usize, item: &Value) -> Value {
+fn normalize_parallel_search_result(item: &Value) -> Value {
     let Some(map) = item.as_object() else {
-        return search_result(index, "", "", value_to_text(item), None);
+        return search_result("", "", value_to_text(item), None);
     };
     let snippet = excerpts_text(map.get("excerpts").unwrap_or(&Value::Null))
         .or_else(|| map.get("snippet").map(value_to_text))
         .unwrap_or_default();
 
     search_result(
-        index,
         map.get("title").and_then(Value::as_str).unwrap_or_default(),
         map.get("url").and_then(Value::as_str).unwrap_or_default(),
         snippet,
@@ -423,15 +449,11 @@ fn normalize_parallel_search_result(index: usize, item: &Value) -> Value {
     )
 }
 
-fn normalize_bright_data_result(index: usize, item: &Value) -> Value {
+fn normalize_bright_data_result(item: &Value) -> Value {
     let Some(map) = item.as_object() else {
-        return search_result(index, "", "", value_to_text(item), None);
+        return search_result("", "", value_to_text(item), None);
     };
-    let position = integer_value(map.get("position").unwrap_or(&Value::Null))
-        .or_else(|| integer_value(map.get("rank").unwrap_or(&Value::Null)))
-        .unwrap_or((index + 1) as i64);
-    let mut result = search_result(
-        index,
+    search_result(
         map.get("title").and_then(Value::as_str).unwrap_or_default(),
         map.get("link")
             .or_else(|| map.get("url"))
@@ -442,19 +464,14 @@ fn normalize_bright_data_result(index: usize, item: &Value) -> Value {
             .map(value_to_text)
             .unwrap_or_default(),
         map.get("date").and_then(Value::as_str),
-    );
-    if let Value::Object(result) = &mut result {
-        result.insert("position".to_string(), json!(position));
-    }
-    result
+    )
 }
 
-fn normalize_agentbull_result(index: usize, item: &Value) -> Value {
+fn normalize_agentbull_result(item: &Value) -> Value {
     let Some(map) = item.as_object() else {
-        return search_result(index, "", "", value_to_text(item), None);
+        return search_result("", "", value_to_text(item), None);
     };
     let mut result = search_result(
-        index,
         map.get("title").and_then(Value::as_str).unwrap_or_default(),
         map.get("url").and_then(Value::as_str).unwrap_or_default(),
         map.get("snippet").map(value_to_text).unwrap_or_default(),
@@ -466,9 +483,26 @@ fn normalize_agentbull_result(index: usize, item: &Value) -> Value {
     result
 }
 
-fn normalize_jina_search_result(index: usize, item: &Value) -> Value {
+fn normalize_cloudflare_result(item: &Value) -> Value {
     let Some(map) = item.as_object() else {
-        return search_result(index, "", "", value_to_text(item), None);
+        return search_result("", "", value_to_text(item), None);
+    };
+
+    search_result(
+        map.get("title").and_then(Value::as_str).unwrap_or_default(),
+        map.get("url").and_then(Value::as_str).unwrap_or_default(),
+        map.get("description")
+            .map(value_to_text)
+            .unwrap_or_default(),
+        map.get("publishedAt")
+            .or_else(|| map.get("published_at"))
+            .and_then(Value::as_str),
+    )
+}
+
+fn normalize_jina_search_result(item: &Value) -> Value {
+    let Some(map) = item.as_object() else {
+        return search_result("", "", value_to_text(item), None);
     };
     let snippet = map
         .get("snippet")
@@ -479,7 +513,6 @@ fn normalize_jina_search_result(index: usize, item: &Value) -> Value {
         .unwrap_or_default();
 
     search_result(
-        index,
         map.get("title").and_then(Value::as_str).unwrap_or_default(),
         map.get("url")
             .or_else(|| map.get("link"))
@@ -494,17 +527,15 @@ fn normalize_jina_search_result(index: usize, item: &Value) -> Value {
 }
 
 fn search_result(
-    index: usize,
     title: &str,
     url: &str,
-    snippet: impl Into<String>,
+    description: impl Into<String>,
     published_at: Option<&str>,
 ) -> Value {
     let mut result = Map::new();
     result.insert("title".to_string(), json!(title));
     result.insert("url".to_string(), json!(url));
-    result.insert("snippet".to_string(), json!(snippet.into()));
-    result.insert("position".to_string(), json!(index + 1));
+    result.insert("description".to_string(), json!(description.into()));
     if let Some(published_at) = published_at.filter(|value| !value.is_empty()) {
         result.insert("published_at".to_string(), json!(published_at));
     }

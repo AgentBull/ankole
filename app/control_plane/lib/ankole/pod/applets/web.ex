@@ -6,7 +6,7 @@ defmodule Ankole.Pod.Applets.Web do
 
   @default_search_limit 5
   @max_search_limit 100
-  @max_query_chars 500
+  @max_query_chars 1024
   @default_max_chars 40_000
   @max_fetch_chars 200_000
   @max_fetch_urls 5
@@ -32,21 +32,21 @@ defmodule Ankole.Pod.Applets.Web do
              request_context: human_context(principal)
            ) do
       results =
-        (body["results"] || [])
+        (body["items"] || [])
         |> Enum.take(limit)
         |> Enum.with_index(1)
         |> Enum.map(fn {item, idx} ->
           %{
             title: item["title"] || item["url"] || "",
             url: item["url"] || "",
-            snippet: item["snippet"] || "",
-            position: item["position"] || idx
+            snippet: item["description"] || "",
+            position: idx
           }
           |> maybe_put(:publishedAt, item["published_at"])
           |> maybe_put(:score, item["score"])
         end)
 
-      {:ok, %{query: body["query"] || query, results: results}}
+      {:ok, %{query: query, results: results}}
     else
       {:error, reason} -> {:error, search_error(reason)}
     end

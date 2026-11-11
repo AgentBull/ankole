@@ -18,8 +18,8 @@ control plane checks the Agent's quota before settling the Job failure.
 ## What Counts
 
 AIGateway records every classified LLM provider round in
-`ai_gateway_usage_records`, but only rows whose origin is `agent` or `codex`
-count toward an Agent's quota window. Agent credentials therefore cover every
+`ai_gateway_usage_records`, but only language-model rows whose origin is
+`agent` or `codex` count toward an Agent's quota window. Agent credentials therefore cover every
 model call in a control-plane Session—including scheduled, Workflow, and ambient
 runs—as well as Background Agent Jobs. If an Agent request starts compaction
 through a `compaction_trigger` item, that compaction keeps the Agent or Codex
@@ -85,6 +85,9 @@ enforced by a plugin.
 | `signal_id` | The Signal that started that Turn; NULL when unknown |
 | `job_id` | The Background Agent Job that made the round; NULL for other work |
 | `attempt` | The attempt number of that Job; NULL for other work |
+| `capability` | What the round served: `llm`, `image_generate`, or `decision`; only `llm` rows enter quota windows, per-turn usage, and the Console summary |
+| `unit`, `quantity` | What a round other than a language-model round produced, such as `image` and the number of generated images; NULL for `llm` and `decision` rows |
+| `provider_cost` | The cost that the Provider reported for a round other than a language-model round; NULL when not reported |
 | `inserted_at` | Record time; the window query uses it |
 
 PostgreSQL uses an index on `(subject_uid, inserted_at)` to compute the window
@@ -127,8 +130,9 @@ window_start  = period_start_at + floor((now − period_start_at) / period_lengt
 window_end    = window_start + period_length
 ```
 
-An Agent's usage for the current window is the sum of its ledger rows with
-`inserted_at` at or after `window_start` and at or after the Agent's creation.
+An Agent's usage for the current window is the sum of its language-model
+ledger rows with `inserted_at` at or after `window_start` and at or after the
+Agent's creation.
 A deleted Agent's rows keep its uid, so a later Agent that reuses the uid starts
 without them. Operators can set `period_start_at` in
 the future; Ankole computes and counts the window preceding a future start time

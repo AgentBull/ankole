@@ -158,7 +158,8 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
       }),
       ai: Object.freeze({
         generateText: (options: unknown) => invoke('ai.generateText', [options]),
-        generateImage: (options: unknown) => invoke('ai.generateImage', [options])
+        generateImage: (options: unknown) => invoke('ai.generateImage', [options]),
+        decide: (options: unknown) => invoke('ai.decide', [options])
       }),
       web: Object.freeze({
         search: (options: unknown) => invoke('web.search', [options]),

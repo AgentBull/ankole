@@ -60,6 +60,8 @@ Calls over stateless HTTP or SSE cannot include the stateful fields `previous_re
 | `POST /rerank` | Rerank documents |
 | `POST /web_search` | Search the web |
 | `POST /web_fetch` | Fetch web pages |
+| `POST /decisions` | Answer typed questions with probabilities |
+| `POST /images` | Generate or edit an image |
 
 Each endpoint is documented in detail on the [AIGateway](../ai-gateway/) page and the corresponding User-guide feature page.
 

@@ -3114,6 +3114,17 @@ business write:
   decision. A changed request or decision returns HTTP 409 `approval_conflict`.
   `request`, `decide`, `notifications.post`, and `brain.writeTake` require a
   writable route or Action. Review decisions require the reviewer in the browser.
+- **`ai.decide`**: Accepts `state`, `questions`, and optional `images` as base64
+  data URLs, and rejects any other option with `400 invalid_request`. The call
+  resolves AIGateway's `decision.default` selector under the selected ordinary
+  or `admin` execution Principal (mirrored on `AnkoleRuntime.admin.ai`), so the
+  `decision` profile answers it, or the `light` profile when no decision model
+  is configured (see
+  [AIGateway](AIGateway.md#answer-typed-questions-with-a-decision-model)). It
+  returns `model`, `answers`, and `usage` with `inputTokens` and
+  `outputTokens`. A request that AIGateway rejects returns `400
+  invalid_request` with AIGateway's message, which names the field at fault.
+  `GET` and `read_only` routes can call it.
 - **`ai.generateText` and `ai.generateImage`**: Configuration, authorization, and
   usage attribution follow the selected ordinary or `admin` execution Principal
   (mirrored on `AnkoleRuntime.admin.ai`). `ai.generateText` accepts a built-in
@@ -3135,7 +3146,7 @@ business write:
   failures return `502`.
 - **`web.search` and `web.fetch`**: Route through `AIGateway` under the selected
   ordinary or `admin` execution Principal (mirrored on
-  `AnkoleRuntime.admin.web`). `web.search` accepts a non-empty `query` (up to 500
+  `AnkoleRuntime.admin.web`). `web.search` accepts a non-empty `query` (up to 1,024
   characters) and `limit` (`1..100`, default `5`), honoring the Principal's
   `provider_hosted.web_search` toggle via `respect_provider_hosted?: true`.
   `web.fetch` accepts `1..5` `https://` URLs under kernel URL safety checks and

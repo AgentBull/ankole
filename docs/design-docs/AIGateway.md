@@ -51,7 +51,7 @@ end of an Agent turn.
 
 ## Select a Model for Each Kind of Work
 
-AIGateway exposes six capability kinds:
+AIGateway exposes seven capability kinds:
 
 - `llm`
 - `embedding`
@@ -59,14 +59,15 @@ AIGateway exposes six capability kinds:
 - `web_search`
 - `web_fetch`
 - `image_generate`
+- `decision`
 
 `Ankole.AIGateway.ModelProfiles` owns model and capability configuration at
 three layers: Site defaults, Pod overrides, and sparse subject overrides. Agents
 store overrides in `agents.options`; registered system Principals store them in
 AppConfigure under `system:<uid>`. Site, Pod, and system Principals expose
 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`,
-`web_fetch`, `image_generate`, and `rerank`; Agents expose the same slots except
-`rerank`. Pod and Site rows live in AppConfigure under
+`web_fetch`, `image_generate`, `rerank`, and `decision`; Agents expose the same
+slots except `rerank` and `decision`. Pod and Site rows live in AppConfigure under
 `ai_gateway.model_profiles.<slot>` and `ai_gateway.provider_hosted.<capability>`.
 Deleting a row restores inheritance; storing `nil` is invalid because only a
 missing row may advance fallback to the next layer.
@@ -102,23 +103,25 @@ control-plane compaction can run without an Agent binding. Brain executes as
 `ankole_brain` and reads its effective `light`, `heavy`, `web_fetch`, and `rerank`
 slots. This includes reranking during Agent-initiated recall. The `default` and
 `rerank.default` capability selectors resolve a system Principal's effective
-rerank slot; Agent and Human rerank calls use the Pod slot. Pod Applets execute
+rerank slot; Agent and Human rerank calls use the Pod slot. The `default` and
+`decision.default` selectors resolve the `decision` slot by the same rule. Pod Applets execute
 as `system`, accept only built-in LLM slots, and do not consult a creator Agent
 or its quota. OIDC-bound external requests use their explicit model binding.
 
 Provider-hosted switches inherit from Pod and Site for system Principals;
-system overrides accept only the nine fixed slots, with no custom aliases.
+system overrides accept only the ten fixed slots, with no custom aliases.
 Without subject overrides, every effective slot matches the Pod configuration.
 
 Alongside fixed profiles, an Agent can store custom LLM profiles in
 `agents.options["ai_agent"]["models"]`. Each custom name matches
 `[a-z][a-z0-9_-]{0,63}`, avoids the eight Agent fixed slots, is immutable, and
-has a non-empty description. The name `rerank` is a valid custom LLM alias; it
-does not collide with the Pod/Site rerank capability, whose default selectors
-are `default` and `rerank.default`. OIDC Clients use the same custom-alias
+has a non-empty description. The names `rerank` and `decision` are valid custom
+LLM aliases; they do not collide with the Pod/Site rerank and decision
+capabilities, whose default selectors are `default`, `rerank.default`, and
+`decision.default`. OIDC Clients use the same custom-alias
 contract and still resolve external Human requests through the Client's model
 binding. Custom aliases never configure embedding, rerank, web search, web
-fetch, or image generation.
+fetch, image generation, or decisions.
 
 The Console's `/model-profiles` page edits Pod and Site defaults through
 `/api/v2/model-profiles`, including rerank and Provider-hosted switches. Agent
@@ -641,6 +644,8 @@ All runtime endpoints mount under `/api/v1/ai-gateway`:
 - `POST /rerank`
 - `POST /web_search`
 - `POST /web_fetch`
+- `POST /decisions`
+- `POST /images`
 
 ## Identify Every Caller
 
@@ -696,10 +701,20 @@ the quota check. At the exact points where AIGateway records credential usage,
 it appends one row to `ai_gateway_usage_records` for each counted provider
 round.
 
+Every row names its `capability`. Besides language-model rounds, the ledger
+records the images that an `image_generate` provider generated, for a direct
+image request or for a hosted Response, as one row with `unit` `image` and the
+number of images in `quantity`, and it records each call of a decision model
+with the token counts that the model reported. `provider_cost` holds the cost
+of such a round when the Provider reports one. An image that the
+language-model provider generates natively stays inside that provider's
+language-model round. Token quota windows, the usage of one Signal, and the
+Console Model usage page read language-model rows only.
+
 Applet backend calls to `AnkoleRuntime.ai.generateText`,
-`AnkoleRuntime.ai.generateImage`, `AnkoleRuntime.web.search`, and
-`AnkoleRuntime.web.fetch` run in-process under the selected ordinary or `admin`
-execution Principal (`caller: "pod_applet"`). Human Principals resolve the
+`AnkoleRuntime.ai.generateImage`, `AnkoleRuntime.ai.decide`,
+`AnkoleRuntime.web.search`, and `AnkoleRuntime.web.fetch` run in-process under
+the selected ordinary or `admin` execution Principal (`caller: "pod_applet"`). Human Principals resolve the
 tenant's `system` model profiles, whereas Agent Principals resolve that Agent's
 model profiles; both attribute usage to the executing Principal (`origin:
 "applet"`) in `ai_gateway_usage_records` without spending interactive Agent
@@ -707,6 +722,7 @@ token quota. `generateText` resolves only built-in LLM slots (rejecting
 raw `provider/model` selectors and falling back from a missing `light` profile to
 `primary`), validates reasoning effort against the resolved model, and returns
 generated text, `stop`/`length` finish reason, and input/output token counts.
+With `respect_provider_hosted?: true`, which an Applet call passes,
 `create_image/3` matches Agent image-generation routing without persisting binary
 rows to `ai_gateway_artifacts` (`persist_artifacts?: false`): when
 `provider_hosted.image_generate` is `true`, AIGateway requires `primary` to
@@ -714,8 +730,8 @@ support native Responses image generation and executes a stateless `Responses`
 call (`tool_choice: %{"type" => "image_generation"}`), returning
 `model_profile_not_configured` if `primary` lacks native support; when
 `provider_hosted.image_generate` is `false`, AIGateway resolves the
-`image_generate` profile directly through `ImageModelCatalog` and executes a
-non-streaming `/images` request without invoking the `primary` LLM. `create_web_search/3`
+`image_generate` profile directly through `ImageModelCatalog` and sends one
+non-streaming request to the image provider without invoking the `primary` LLM. `create_web_search/3`
 with `respect_provider_hosted?: true` likewise routes through `primary`'s native
 `web_search` tool when `provider_hosted.web_search` is `true` and through the
 standalone `web_search` profile when `false`. Upstream provider errors map to
@@ -1583,6 +1599,55 @@ AIGateway validates fit with the local checkpoint estimator over the fixed
 notice, retained client Tool Search pairs, selected tail, and current input—returning
 `context_overflow` if no valid cut fits.
 
+## Answer Typed Questions with a Decision Model
+
+`POST /decisions` answers typed questions about a `state` and returns a
+probability with every answer, so calling code can route, escalate, or defer
+on a threshold. `Ankole.AIGateway.Decisions` owns the request contract:
+
+- `state` is required and holds any JSON value, including `null`.
+- `questions` maps 1 to 64 question ids to questions. An id has 1 to 100
+  letters, digits, or the characters `_`, `.`, and `-`. Every question carries
+  `instructions` and one of three types: a `noul` asks yes or no and can
+  describe `true` and `false` in `criteria`; a `choice` lists 2 to 255 named
+  options in `criteria`; a `score` lists 2 to 10 levels in `criteria`, lowest
+  first.
+- `images` optionally lists up to four PNG, JPEG, or WebP images of at most
+  4 MiB each. The caller writes an image as a base64 data URL or as an object
+  with `content_type` and `base64`, and AIGateway sends every image to the
+  model as a data URL.
+
+The response carries `model`, `answers`, and `usage` with `input_tokens` and
+`output_tokens`. A `noul` answer holds `noul`, the probability of yes. A
+`choice` answer holds the picked `choice`, the `probabilities` of every option,
+and `confidence`. A `score` answer holds `score`, the probability-weighted
+level, together with `legend`, the `probabilities` of every level, and
+`confidence`.
+
+The `default` and `decision.default` selectors resolve the Pod or Site
+`decision` profile, and an explicit `provider_id/model` selector names a
+decision model directly. The `cloudflare` provider kind serves the capability:
+Workers AI models such as `@cf/cloudflare/clef` receive the fields at the top
+level of their own run path, while partner models such as `typesafe/jev`
+receive them inside `input` on the unified run path and accept no `images`.
+
+When the `decision` profile is not configured, AIGateway sends one stateless
+Responses request to the caller's `light` language model, constrained by a
+strict JSON Schema, and reports that model in `model`. The language model
+returns one answer and its own confidence per question, from which AIGateway
+derives the probabilities: a `noul` reports the confidence of yes; the other
+options of a `choice` share the remaining probability equally; the levels next
+to the picked level of a `score` share it. The picked option or level keeps at
+least an even share, so it is never less probable than the others. These
+probabilities are the language model's own estimates and are not calibrated,
+so a threshold tuned on a decision model does not carry over. The request
+counts as an ordinary language-model request for usage records and for an
+Agent's token quota. A reply that does not satisfy the schema fails with
+`invalid_decision_output`. The schema lists every choice option and score
+level, and providers cap the size of a schema, so a request that a language
+model answers can carry at most 500 options and levels in total; AIGateway
+rejects a larger one with `400 invalid_value`.
+
 ## Store Vision Files and Generated Images
 
 `ai_gateway_artifacts` stores uploaded vision files (`purpose=vision`, up to
@@ -1615,6 +1680,37 @@ caller, validating up front that `output_compression` is set only when
   `image_generate` profile (filtering out ineligible provider endpoints, showing
   the main LLM only the executor's hidden function, and returning an explicit
   unsupported-value error if neither native nor fallback execution exists).
+
+A provider kind serves `image_generate` when it can name the endpoint for an
+image model. For an `openrouter` or `agentbull_cloud` row, `ImageModelCatalog`
+reads the provider's image-model and endpoint catalog. Any other kind
+implements the Provider callback `image_endpoint/3`, which accepts a model
+together with the tool options that the model can serve and otherwise names
+the model or the option at fault. The `cloudflare` kind serves
+`@cf/black-forest-labs/flux-1-schnell`,
+which takes only a prompt, and the `black-forest-labs/*` models, which also
+take `size`, `output_format`, and up to eight reference images. The request
+option `steps` reaches FLUX.1 [schnell], and `seed` and `safety_tolerance`
+reach the Black Forest Labs models; an option whose value is `auto` asks for
+nothing. A Black Forest Labs model answers with a signed link in place of the
+image bytes. The Rust kernel downloads that link without the provider
+credential and returns the bytes with the image type that they identify, so
+both execution paths receive the same result. The kernel follows a link only
+in a Cloudflare image response and refuses one that points at a
+cloud-metadata address. A download that fails ends the request without a
+credential rotation or a second generation, because the provider has already
+billed the image.
+
+`POST /images` generates or edits one image outside a Responses request. The
+request carries `model`, `prompt`, optional reference `images` and a `mask`,
+the `image_generation` tool options (`action`, `size`, `quality`, `background`,
+`output_format`, `output_compression`, `moderation`, and `input_fidelity`), and
+optional `provider_options`. `model` accepts `image_generate.default`,
+`default`, or an explicit `provider_id/model`, and the request always goes to
+that image provider without reading `provider_hosted.image_generate`. The
+response carries `created`, `data` with one entry that holds `b64_json`,
+`media_type`, and `revised_prompt` when the provider revises the prompt, and
+the provider's `usage`.
 
 Before dispatching any Responses or native image call, AIGateway inlines local
 input-image and mask artifact references and restores each stored

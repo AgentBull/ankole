@@ -3,6 +3,7 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use base64_simd::STANDARD;
 use futures_util::FutureExt;
 use futures_util::future::{AbortHandle, Abortable};
 use serde_json::{Value, json};
@@ -11,11 +12,12 @@ use tokio::sync::mpsc;
 use super::stream::{
     decode_raw_response_body, decode_response_body, run_stream, send_aborted_once,
 };
-use crate::common::{KernelError, KernelResult, io_runtime};
+use crate::common::{KernelError, KernelResult, io_runtime, validate_web_url};
 use crate::universal_ai_client::{
     api_resolver, error::StreamError, hosted_responses, request_builder, transport,
 };
 
+use crate::universal_ai_client::spec::{APIResolverKind, UpstreamSpec};
 pub(super) use crate::universal_ai_client::spec::{ModelRequestSpec, RawRequestSpec, StreamSpec};
 
 pub type EventSink = Arc<dyn Fn(StreamEvent) + Send + Sync + 'static>;
@@ -240,7 +242,17 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
     let body = decode_response_body(&response.body)?;
     let mut resolver =
         api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
-    let normalized_body = resolver.normalize_body(response.status, body)?;
+    let mut normalized_body = resolver.normalize_body(response.status, body)?;
+    // Only the Cloudflare image resolver writes `result_url`. In any other
+    // resolver's body the field is the provider's own and stays untouched.
+    if spec.api_resolver == APIResolverKind::CloudflareImages {
+        download_result_url(
+            &upstream,
+            &mut normalized_body,
+            spec.limits.max_response_bytes,
+        )
+        .await?;
+    }
 
     Ok(json!({
         "status": response.status,
@@ -248,6 +260,61 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
         "body": normalized_body,
         "raw_body_bytes": response.body.len(),
     }))
+}
+
+/// A Cloudflare image model can answer with a link to the generated file in
+/// `result_url`. The client downloads it, so every caller receives the bytes
+/// in `result`. The link carries its own signature, so the request sends no
+/// provider credential.
+///
+/// A failed download reports no provider status. The provider has already
+/// generated and billed the image, so the caller must neither rotate the
+/// credential nor send the request again.
+async fn download_result_url(
+    upstream: &UpstreamSpec,
+    body: &mut Value,
+    max_response_bytes: usize,
+) -> Result<(), StreamError> {
+    let Some(url) = body
+        .get("result_url")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        return Ok(());
+    };
+    let failed = |message: String| StreamError::new("transport_failed", "result_download", message);
+    if validate_web_url(&url, &["https", "http"], false).is_err() {
+        return Err(failed(
+            "the result link is not a web URL that the client fetches".to_string(),
+        ));
+    }
+    let mut download = upstream.clone();
+    download.method = "GET".to_string();
+    download.url = url;
+    download.headers = Vec::new();
+    download.body = None;
+
+    let response = transport::send_http_request(&download, max_response_bytes)
+        .await
+        .map_err(|error| failed(error.message))?;
+    if !(200..300).contains(&response.status) {
+        return Err(failed(format!(
+            "result download returned HTTP status {}",
+            response.status
+        )));
+    }
+
+    if let Some(object) = body.as_object_mut() {
+        object.remove("result_url");
+        if let Some(mime_type) = api_resolver::image_mime(&response.body) {
+            object.insert("mime_type".to_string(), json!(mime_type));
+        }
+        object.insert(
+            "result".to_string(),
+            json!(STANDARD.encode_to_string(&response.body)),
+        );
+    }
+    Ok(())
 }
 
 async fn run_raw_request(spec: RawRequestSpec) -> Result<Value, StreamError> {

@@ -1338,21 +1338,24 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       })
 
     body = json_response!(conn, 200)
-    results = Map.get(body, "results", [])
+    items = Map.get(body, "items", [])
 
-    require!(body["success"] == true, "web_search success flag was not true")
-    require!(body["query"] == "Ankole agent operating system", "web_search query mismatch")
-    require!(is_list(results) and results != [], "web_search returned no results")
+    require!(
+      body["metadata"]["query"] == "Ankole agent operating system",
+      "web_search query mismatch"
+    )
 
-    first = List.first(results)
+    require!(is_list(items) and items != [], "web_search returned no items")
+
+    first = List.first(items)
     require!(is_binary(first["title"]) and first["title"] != "", "web_search missing title")
     require!(is_binary(first["url"]) and first["url"] != "", "web_search missing url")
 
     %{
-      count: length(results),
+      count: length(items),
       first_title: first["title"],
       first_url: first["url"],
-      first_snippet_chars: String.length(first["snippet"] || "")
+      first_description_chars: String.length(first["description"] || "")
     }
   end
 

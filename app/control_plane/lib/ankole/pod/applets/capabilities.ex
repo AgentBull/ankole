@@ -236,6 +236,9 @@ defmodule Ankole.Pod.Applets.Capabilities do
   defp dispatch(_page, actor, "ai.generateText", [options]) when is_map(options),
     do: AI.generate_text(actor, options)
 
+  defp dispatch(_page, actor, "ai.decide", [options]) when is_map(options),
+    do: AI.decide(actor, options)
+
   defp dispatch(_page, actor, "web.search", [options]) when is_map(options),
     do: Web.search(actor, options)
 

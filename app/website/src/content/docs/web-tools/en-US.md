@@ -49,6 +49,7 @@ Control Plane Plugins can register additional Provider kinds; the following web 
 | **Bright Data SERP** | No | Backed by a SERP API; requires a Zone and supports country, language, and Google domain targeting | You need strict control over search geography, language, or localized SERPs |
 | **Jina Search** | No | Exposes region, location, language, pagination, cache, and search-engine parameters | You want direct web search with fine-grained region, pagination, or cache controls |
 | **AgentBull Cloud** | Yes | Unifies search and page extraction with model capabilities (`llm`, `embedding`, `rerank`, `image_generate`), supporting source scopes, time ranges, and cache bypass | You prefer a single API key across models and web tools, or need source and recency filtering |
+| **Cloudflare** | No | Runs Cloudflare Web Search through the account's AI Gateway; lets you pick the search engine (`ceramic`, `exa`, or `linkup`) and returns at most 10 results per search | You already bill AI usage through Cloudflare AI Gateway |
 
 You can bind a single **Parallel** or **AgentBull Cloud** Provider instance to both `web_search` and `web_fetch`. By contrast, **Jina Search** and **Jina Reader** are distinct Provider kinds—create one instance of each and bind them to their respective profiles, even when both share the same Jina API key.
 

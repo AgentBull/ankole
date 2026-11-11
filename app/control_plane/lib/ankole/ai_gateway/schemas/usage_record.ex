@@ -1,9 +1,15 @@
 defmodule Ankole.AIGateway.Schemas.UsageRecord do
   @moduledoc """
-  One immutable row per counted provider round of an LLM request. A hosted
-  composite Response is one row: the kernel runs its main-model and image
-  rounds internally and reports one aggregate, from which the row keeps the
-  language-model usage alone.
+  One immutable row per counted provider round. `capability` names what the
+  round served. A language-model round of a hosted composite Response is one
+  row: the kernel runs its main-model and image rounds internally and reports
+  one aggregate, from which the row keeps the language-model usage alone. The
+  images that the image provider generated for that Response are a second row,
+  whose `capability` is `image_generate`.
+
+  A round that is not a language-model round records what it produced in
+  `unit` and `quantity`, such as one image, and the cost in `provider_cost`
+  when the Provider reports one.
 
   A token count is `nil` when the Provider did not report it, and 0 only when
   the Provider reported zero. `model` is the requested `provider_id/model`;
@@ -34,6 +40,9 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
       check_constraint(:reasoning_tokens, "ai_gateway_usage_records_reasoning_tokens_check")
       check_constraint(:job_id, "ai_gateway_usage_records_job_id_check")
       check_constraint(:attempt, "ai_gateway_usage_records_attempt_check")
+      check_constraint(:capability, "ai_gateway_usage_records_capability_check")
+      check_constraint(:quantity, "ai_gateway_usage_records_quantity_check")
+      check_constraint(:provider_cost, "ai_gateway_usage_records_provider_cost_check")
     end
   end
 
@@ -65,6 +74,16 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
     attribute(:signal_id, :uuid)
     attribute(:job_id, :integer, constraints: [min: 1])
     attribute(:attempt, :integer, constraints: [min: 0])
+
+    attribute(:capability, :atom,
+      allow_nil?: false,
+      default: :llm,
+      constraints: [one_of: [:llm, :image_generate, :decision]]
+    )
+
+    attribute(:unit, :atom, constraints: [one_of: [:image]])
+    attribute(:quantity, :integer, constraints: [min: 0])
+    attribute(:provider_cost, :decimal, constraints: [min: 0])
     create_timestamp(:inserted_at, type: :utc_datetime_usec)
   end
 
@@ -88,7 +107,11 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
         :session_id,
         :signal_id,
         :job_id,
-        :attempt
+        :attempt,
+        :capability,
+        :unit,
+        :quantity,
+        :provider_cost
       ])
 
       validate(fn changeset, _context ->

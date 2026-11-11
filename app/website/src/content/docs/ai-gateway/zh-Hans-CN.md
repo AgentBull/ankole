@@ -49,6 +49,8 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST` | `/rerank` | HTTP | 对文档列表重新排序 |
 | `POST` | `/web_search` | HTTP | 搜索公开网页 |
 | `POST` | `/web_fetch` | HTTP | 抓取网页正文 |
+| `POST` | `/decisions` | HTTP | 针对一份状态回答带类型的问题，并给出概率 |
+| `POST` | `/images` | HTTP | 生成或编辑一张图片 |
 | `GET/POST/DELETE` | `/files`、`/files/:id`、`/files/:id/content` | HTTP | 上传、读取与删除文件 |
 
 `POST /responses` 是整个网关的核心端点，负责承载模型推理回合，也是唯一会按传输方式与状态持久性分流的路由。
@@ -85,8 +87,8 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 在发起任何上游请求之前，AIGateway 会通过三层稀疏**模型档案（Model Profile）**继承链（`Site -> Pod -> Agent/System`，在 **Console → Model Profiles** 中配置）将模型选择符解析到真实的 Provider 绑定：
 
-- **站点（Site）、Pod 与 `system` 主体（`ankole_brain`、`system`）**提供九个固定槽位：五个语言模型槽位（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）与四个独立能力槽位（`web_search`、`web_fetch`、`image_generate`、`rerank`）。
-- **Agent** 提供除 `rerank` 外的八个内置槽位，并支持配置自定义语言模型别名；未单独覆盖的槽位会自动继承 Pod 与站点默认值。
+- **站点（Site）、Pod 与 `system` 主体（`ankole_brain`、`system`）**提供十个固定槽位：五个语言模型槽位（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）与五个独立能力槽位（`web_search`、`web_fetch`、`image_generate`、`rerank`、`decision`）。
+- **Agent** 提供除 `rerank` 与 `decision` 外的八个内置槽位，并支持配置自定义语言模型别名；未单独覆盖的槽位会自动继承 Pod 与站点默认值。
 - **跨槽位回退链**按 `coding -> heavy -> primary` 与 `light -> primary` 解析，因此只需在站点或 Pod 层配置好 `primary`，Agent 与企业大脑即可直接运行，再按需为特定 Pod、Agent 或 `system` 主体单独指定模型覆盖。
 
 在权限允许的场景下，管理员与显式内部调用也可直接传入 `provider_id/model` 选择符。调用 `GET /models` 可列出当前主体能够解析的全部模型，并支持可选的 OpenRouter 风格筛选参数（`q`、`context`、`min_price`、`max_price`、`sort` 及模态过滤）。
@@ -130,6 +132,10 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 同一套主体身份与访问令牌也可调用周边能力端点。`POST /web_search` 接收带长度上限的查询词 `query`，返回由 Provider 提供的网页搜索结果；`POST /web_fetch` 接收 1 至 5 个公网 HTTPS URL，返回提取后的网页内容。这两类调用支持传入 `web_search.default` 与 `web_fetch.default`，由 AIGateway 自动解析当前 Agent 对应的模型档案。
 
 `POST /embeddings` 接受纯文本、Token 数组或结构化输入分块，并要求显式传入 `provider_id/model` 选择符——例如 `Ankole.Brain` 在生成向量嵌入时会读取 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model`。`POST /rerank` 接收非空文档数组与正整数 `top_n` 并对文档重排，既支持显式传入 `provider_id/model`，也支持传入 `default` 或 `rerank.default`（`ankole_brain` 会解析其自身生效的 `rerank` 模型档案，Agent 与人类调用则解析当前 Pod/站点的 `rerank` 档案；完整的知识检索机制见 [Brain](../brain/)）。与此同时，Pod Applet 的 `ctx.ai` 调用以内置 `system` 主体身份通过 `Ankole.AIGateway` 无状态执行，解析 Pod/站点生效的语言模型档案（`primary`、`light`、`heavy`、`coding`、`vision_fallback`），不会占用任何前台 Agent 的 Token 配额。
+
+`POST /web_search` 接收不超过 1,024 个字符的 `query` 和可选的 `limit`（1 到 100，默认 5），返回 `items` 与 `metadata`。每个结果包含 `url`、`title` 和 `description`，Provider 提供时还带有 `published_at` 与 `score`；`metadata` 给出 `query`、网关侧耗时 `latency_ms` 和 HTTP 请求的 `request_id`。`POST /decisions` 针对一份 `state` 回答带类型的问题：一次请求携带 1 到 64 个 `questions`，每个问题是 `noul`（是或否）、`choice`（从 2 到 255 个具名选项中选一个）或 `score`（在 2 到 10 个有序等级上打分），还可以附带最多四张图片，每张不超过 4 MiB。响应为每个问题返回带概率的答案，并给出作答的 `model` 与 token `usage`。`default` / `decision.default` 选择符解析 Pod/Site 的 `decision` 档案；未配置该档案时，改由调用方的 `light` 语言模型作答。语言模型给出的是自述置信度，因此这些概率未经校准；由语言模型作答时，一次请求的选项与等级合计不能超过 500 个。
+
+`POST /images` 在对话之外生成或编辑一张图片。请求携带 `model`（`image_generate.default`、`default` 或显式的 `provider_id/model`）、`prompt`、可选的参考图 `images` 与 `mask`，以及 `size`、`quality`、`output_format` 等 `image_generation` 工具选项。请求直接发往所选的图片 Provider：OpenRouter 和 AgentBull Cloud 提供各自目录中的图片模型，Cloudflare 提供 FLUX.1 [schnell] 和 Black Forest Labs 系列模型。响应返回 `created`、`data`（其中一项以 `b64_json` 给出图片并附带 `media_type`）以及 Provider 的 `usage`。AIGateway 会把每次生成的图片和每次决策模型调用记入用量台账；Agent 的 token 配额和 Console 的模型用量页面只统计语言模型轮次。
 
 文件管理同样作为一等公民提供：`POST /files` 上传文件、`GET /files` 列出文件、`GET /files/:id` 与 `GET /files/:id/content` 读取元数据与文件内容字节、`DELETE /files/:id` 删除文件。所有文件操作均严格按调用主体隔离范围。
 

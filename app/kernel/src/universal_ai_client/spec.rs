@@ -32,6 +32,9 @@ pub enum APIResolverKind {
     AgentbullWebSearch,
     JinaSearchWebSearch,
     JinaReaderWebFetch,
+    CloudflareWebSearch,
+    CloudflareDecision,
+    CloudflareImages,
 }
 
 impl APIResolverKind {
@@ -57,6 +60,9 @@ impl APIResolverKind {
             Self::AgentbullWebSearch => "agentbull_web_search",
             Self::JinaSearchWebSearch => "jina_search_web_search",
             Self::JinaReaderWebFetch => "jina_reader_web_fetch",
+            Self::CloudflareWebSearch => "cloudflare_web_search",
+            Self::CloudflareDecision => "cloudflare_decision",
+            Self::CloudflareImages => "cloudflare_images",
         }
     }
 }

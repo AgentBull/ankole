@@ -60,6 +60,8 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST /rerank` | 对文档列表重排序 |
 | `POST /web_search` | 搜索公开网页 |
 | `POST /web_fetch` | 抓取网页正文 |
+| `POST /decisions` | 回答带类型的问题并给出概率 |
+| `POST /images` | 生成或编辑图片 |
 
 各端点的详细参数说明请参阅 [AIGateway](../ai-gateway/) 及用户指南中的对应功能页。
 

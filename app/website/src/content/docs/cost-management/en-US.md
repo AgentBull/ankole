@@ -9,7 +9,7 @@ Model tokens account for most of Ankole's operational cost, so control-plane set
 
 ## Lever 1: model-profile tiers
 
-Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/System`) in **Console → Model Profiles**. Each Agent exposes eight built-in slots—five language-model slots plus `web_search`, `web_fetch`, and `image_generate`—while Site, Pod, and `system` Principals (`ankole_brain` and `system`) add a ninth `rerank` slot. Unset slots inherit from Pod and Site defaults, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`.
+Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/System`) in **Console → Model Profiles**. Each Agent exposes eight built-in slots—five language-model slots plus `web_search`, `web_fetch`, and `image_generate`—while Site, Pod, and `system` Principals (`ankole_brain` and `system`) add the `rerank` and `decision` slots. Unset slots inherit from Pod and Site defaults, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`.
 
 | Slot | When it runs | Cost impact |
 |---|---|---|
@@ -21,6 +21,7 @@ Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/
 | `web_search`, `web_fetch` | Web tools | See Lever 3 |
 | `image_generate` | Image generation | High cost per call; bind only when needed |
 | `rerank` (Site / Pod / `system`) | Brain recall reranking and `/rerank` defaults | Keep bound to a fast, low-cost reranker |
+| `decision` (Site / Pod / `system`) | `/decisions` answers with probabilities | Bind a decision model; left unset, the `light` model answers |
 
 Control-plane subsystem calls run under built-in `system` Principals so background maintenance and Applets never consume a foreground Agent's token quota:
 

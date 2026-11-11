@@ -26,7 +26,14 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
        %{"model" => "blocked/model", "query" => "hello", "documents" => ["one"]}},
       {"/api/v1/ai-gateway/web_search", %{"model" => "blocked/model", "query" => "hello"}},
       {"/api/v1/ai-gateway/web_fetch",
-       %{"model" => "blocked/model", "urls" => ["https://example.com"]}}
+       %{"model" => "blocked/model", "urls" => ["https://example.com"]}},
+      {"/api/v1/ai-gateway/images", %{"model" => "blocked/model", "prompt" => "hello"}},
+      {"/api/v1/ai-gateway/decisions",
+       %{
+         "model" => "blocked/model",
+         "state" => "hello",
+         "questions" => %{"urgent" => %{"type" => "noul", "instructions" => "Urgent?"}}
+       }}
     ]
 
     for {path, body} <- requests do

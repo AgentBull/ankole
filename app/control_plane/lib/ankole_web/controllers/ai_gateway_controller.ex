@@ -11,6 +11,7 @@ defmodule AnkoleWeb.AIGatewayController do
   alias Ankole.AIGateway
   alias Ankole.Sessions.CodexModelBinding
   alias Ankole.AIGateway.CodexModels
+  alias Ankole.AIGateway.ImageRequests
   alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.OIDC.Grant
@@ -87,6 +88,38 @@ defmodule AnkoleWeb.AIGatewayController do
 
     case AIGateway.create_web_search(subject_uid, request) do
       {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  # A decision can run on the caller's `light` language model, so it carries the
+  # same caller facts as a Responses request.
+  def decisions(conn, _params) do
+    request = conn.body_params || %{}
+    subject_uid = conn.assigns.current_ai_gateway_subject_uid
+
+    opts = [
+      subject_type: conn.assigns.current_ai_gateway_subject_type,
+      request_context: RequestContext.from_headers(conn.req_headers, "http")
+    ]
+
+    case AIGateway.create_decision(subject_uid, request, opts) do
+      {:ok, %{body: body}} -> json(conn, body)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def images(conn, _params) do
+    request = conn.body_params || %{}
+    subject_uid = conn.assigns.current_ai_gateway_subject_uid
+
+    opts = [
+      subject_type: conn.assigns.current_ai_gateway_subject_type,
+      request_context: RequestContext.from_headers(conn.req_headers, "http")
+    ]
+
+    case AIGateway.create_image(subject_uid, request, opts) do
+      {:ok, %{body: body}} -> json(conn, ImageRequests.public_body(body))
       {:error, reason} -> error(conn, reason)
     end
   end

@@ -55,6 +55,8 @@ describe('ModelProfilesModel', () => {
   test('reads Pod-only rerank and resolved capability metadata without deriving fallback', () => {
     expect(POD_PROFILE_NAMES).toContain('rerank')
     expect(PROFILE_NAMES).not.toContain('rerank')
+    expect(POD_PROFILE_NAMES).toContain('decision')
+    expect(PROFILE_NAMES).not.toContain('decision')
 
     expect(
       resolvedProfileValue({

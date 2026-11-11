@@ -3,7 +3,9 @@
 mod anthropic;
 mod anthropic_v2026;
 mod aws_bedrock_converse;
+mod cloudflare_images;
 mod conversion_policy;
+mod decision;
 mod embeddings;
 mod encrypted_fields;
 mod images;

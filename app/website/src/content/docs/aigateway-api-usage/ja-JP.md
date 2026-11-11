@@ -60,6 +60,8 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST /rerank` | ドキュメントを再ランク付け |
 | `POST /web_search` | Web を検索 |
 | `POST /web_fetch` | Web ページを取得 |
+| `POST /decisions` | 型付きの質問に確率付きで回答 |
+| `POST /images` | 画像を生成または編集 |
 
 各エンドポイントの詳細については、[AIGateway](../ai-gateway/) の概念ページおよび対応するユーザーガイドの各機能ページを参照してください。
 

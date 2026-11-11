@@ -179,7 +179,7 @@ AppConfigure reads and accepts:
   default.
 
 System scopes (`system:<uid>`) accept registered system Principal UIDs and the
-nine fixed `ai_gateway.model_profiles.<slot>` keys. `ModelProfiles` merges those
+ten fixed `ai_gateway.model_profiles.<slot>` keys. `ModelProfiles` merges those
 system overrides—or, for an Agent, the per-Agent overrides stored in
 `agents.options["ai_agent"]`—with `tenant:<id>` and `global` AppConfigure rows.
 Provider-hosted switches and custom aliases have no `system:<uid>` layer.

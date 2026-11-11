@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::*;
-use crate::universal_ai_client::spec::StreamSpec;
+use crate::universal_ai_client::spec::{ModelRequestSpec, StreamSpec};
 use crate::universal_ai_client::wire::tests::eventstream_frame;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
@@ -870,6 +870,97 @@ fn bedrock_eventstream(frames: &[Vec<u8>]) -> (Vec<Value>, StreamEvent) {
             event => return (events, event),
         }
     }
+}
+
+/// Answers one model request with `body` and reports whether the client then
+/// sent a second request.
+fn serve_once_and_watch(listener: StdTCPListener, body: Value) -> mpsc::Receiver<bool> {
+    let (second_tx, second_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut buffer = [0_u8; 4096];
+        let mut request = Vec::new();
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = socket.read(&mut buffer).unwrap();
+            request.extend_from_slice(&buffer[..read]);
+        }
+        let body = body.to_string();
+        write!(
+            socket,
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
+        drop(socket);
+
+        listener.set_nonblocking(true).unwrap();
+        let until = Instant::now() + Duration::from_millis(300);
+        let mut second = false;
+        while !second && Instant::now() < until {
+            second = listener.accept().is_ok();
+            thread::sleep(Duration::from_millis(10));
+        }
+        second_tx.send(second).unwrap();
+    });
+    second_rx
+}
+
+fn model_request_spec(api_resolver: &str, address: std::net::SocketAddr) -> ModelRequestSpec {
+    let spec = serde_json::json!({
+        "api_resolver": api_resolver,
+        "upstream": {
+            "method": "POST",
+            "url": format!("http://{address}/run"),
+            "headers": [["content-type", "application/json"]],
+            "timeout": {"connect_ms": 2_000, "first_byte_ms": 2_000, "idle_ms": 2_000, "total_ms": 5_000},
+            "transport": {}
+        },
+        "response_context": {"model": "test-model", "request": {}}
+    });
+    ModelRequestSpec::from_json(&spec.to_string()).unwrap()
+}
+
+#[tokio::test]
+async fn a_result_link_from_another_resolver_is_not_fetched() {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let link = format!("http://{address}/files/out.png");
+    let second_request = serve_once_and_watch(
+        listener,
+        serde_json::json!({"id": "resp_1", "status": "completed", "output": [], "result_url": link}),
+    );
+
+    let response = run_model_request_once(model_request_spec("openai_responses", address))
+        .await
+        .unwrap();
+
+    assert_eq!(response["body"]["result_url"], link);
+    assert!(response["body"].get("result").is_none());
+    assert!(!second_request.recv().unwrap());
+}
+
+#[tokio::test]
+async fn a_cloudflare_image_link_to_a_metadata_address_is_not_fetched() {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let second_request = serve_once_and_watch(
+        listener,
+        serde_json::json!({"result": {"image": "http://169.254.169.254/latest/meta-data/"}}),
+    );
+
+    let error = run_model_request_once(model_request_spec("cloudflare_images", address))
+        .await
+        .unwrap_err();
+
+    // A failed download names no provider status, so the caller neither
+    // rotates the credential nor repeats the billed request.
+    assert_eq!(
+        (error.code.as_str(), error.stage, error.provider_status),
+        ("transport_failed", "result_download", None)
+    );
+    assert!(error.message.contains("result link"));
+    assert!(!second_request.recv().unwrap());
 }
 
 fn chunk_event(event_rx: &mpsc::Receiver<StreamEvent>) -> Value {

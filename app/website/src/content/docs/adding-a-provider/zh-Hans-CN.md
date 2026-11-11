@@ -94,7 +94,7 @@ end
 
 | 字段 | 含义 |
 |---|---|
-| `kind` | 能力种类，取值为 `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate` 之一 |
+| `kind` | 能力种类，取值为 `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate`、`:decision_model` 之一 |
 | `upstream` | 上游传输形态，由 `kind` 自动决定：`:language_model` 为 `:sse`，其余种类均为 `:json` |
 | `api_resolver` | Rust 侧负责协议编码与网络传输的解析器标识（atom，如 `:openai_responses`） |
 | `prepare` | 负责组装请求的 Elixir 函数名 |
@@ -102,7 +102,9 @@ end
 | `supports_parallel_tool_calls?` | 该 Provider 是否支持并行工具调用 |
 | `supports_native_image_generation?` | 未单独配置托管 `image_generate` 档案时，该大语言模型能否直接执行通用图像生成工具 |
 
-上述六种能力在运行时分别映射为以下外部名称：`language_model` → `"llm"`、`embedding_model` → `"embedding"`、`rerank_model` → `"rerank"`，其余三种网页与图像能力名称保持不变。仅提供大语言模型的 Provider 只需声明 `language_model`；同时提供大语言模型和向量嵌入服务的 Provider 则将两者一并声明。
+上述七种能力在运行时分别映射为以下外部名称：`language_model` → `"llm"`、`embedding_model` → `"embedding"`、`rerank_model` → `"rerank"`、`decision_model` → `"decision"`，其余三种网页与图像能力名称保持不变。仅提供大语言模型的 Provider 只需声明 `language_model`；同时提供大语言模型和向量嵌入服务的 Provider 则将两者一并声明。
+
+声明了 `image_generate` 的 Provider 还需实现可选回调 `image_endpoint/3`。该回调接收模型、`image_generation` 工具选项和参考图数量：模型能够承接请求时返回 `{:ok, endpoint}`，Provider 不提供该模型时返回 `{:error, :unknown_model}`，模型无法满足某个选项时返回 `{:error, {:unsupported_field, field}}` 并指出该选项。OpenRouter 和 AgentBull Cloud 是例外，AIGateway 直接读取它们的图片模型目录。
 
 ## prepare 函数
 

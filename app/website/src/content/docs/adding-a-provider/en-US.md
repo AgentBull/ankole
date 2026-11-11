@@ -94,7 +94,7 @@ end
 
 | Field | Meaning |
 |---|---|
-| `kind` | one of `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate` |
+| `kind` | one of `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate`, `:decision_model` |
 | `upstream` | the wire shape, set from `kind`: `:sse` for `:language_model` and `:json` for every other kind |
 | `api_resolver` | the Rust-side resolver atom (e.g. `:openai_responses`) that owns encoding and transport |
 | `prepare` | the Elixir function that builds the prepared request |
@@ -102,7 +102,9 @@ end
 | `supports_parallel_tool_calls?` | whether the provider accepts parallel tool calls |
 | `supports_native_image_generation?` | whether an LLM can execute the public image tool without a hosted `image_generate` profile |
 
-The six capability kinds map to the external names that the runtime uses: `language_model` → `"llm"`, `embedding_model` → `"embedding"`, `rerank_model` → `"rerank"`, while `web_search`, `web_fetch`, and `image_generate` keep the same names. Declare only the capabilities that the upstream service actually offers—for instance, an LLM-only provider declares just `language_model`, whereas a provider serving both chat and embeddings declares `language_model` and `embedding_model`.
+The seven capability kinds map to the external names that the runtime uses: `language_model` → `"llm"`, `embedding_model` → `"embedding"`, `rerank_model` → `"rerank"`, `decision_model` → `"decision"`, while `web_search`, `web_fetch`, and `image_generate` keep the same names. Declare only the capabilities that the upstream service actually offers—for instance, an LLM-only provider declares just `language_model`, whereas a provider serving both chat and embeddings declares `language_model` and `embedding_model`.
+
+A provider that declares `image_generate` also implements the optional `image_endpoint/3` callback, which receives the model, the `image_generation` tool options, and the number of reference images. It returns `{:ok, endpoint}` when the model can serve the request, `{:error, :unknown_model}` for a model that the provider does not offer, or `{:error, {:unsupported_field, field}}` to name the option that the model cannot honor. OpenRouter and AgentBull Cloud are the exceptions: AIGateway reads their image catalogs instead.
 
 ## The prepare function
 

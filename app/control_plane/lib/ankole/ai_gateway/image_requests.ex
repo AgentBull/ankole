@@ -1,6 +1,12 @@
 defmodule Ankole.AIGateway.ImageRequests do
   @moduledoc """
   Direct and native-Responses image generation requests through AIGateway.
+
+  A request carries a `prompt`, optional reference `images` and a `mask`, and
+  the `image_generation` tool options. By default the request's `model`
+  selects the image provider. With `respect_provider_hosted?: true`, the
+  Principal's `provider_hosted.image_generate` switch decides instead between
+  the language-model provider's native tool and the `image_generate` profile.
   """
 
   alias Ankole.AIGateway.Artifacts
@@ -12,6 +18,7 @@ defmodule Ankole.AIGateway.ImageRequests do
   alias Ankole.AIGateway.RequestExecution
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.UsageLedger
   alias Ankole.Attrs
 
   @spec create_image(
@@ -23,6 +30,7 @@ defmodule Ankole.AIGateway.ImageRequests do
   def create_image(subject_uid, request, opts, create_response_fun)
       when is_map(request) and is_function(create_response_fun, 3) do
     request = Attrs.normalize_external_attrs(request)
+    {respect_hosted?, opts} = Keyword.pop(opts, :respect_provider_hosted?, false)
 
     with :ok <- reject_unknown_fields(request),
          {:ok, prompt} <- validate_prompt(request),
@@ -30,21 +38,47 @@ defmodule Ankole.AIGateway.ImageRequests do
          {:ok, mask} <- validate_mask(request),
          tool = ImageGeneration.build_direct_tool(request, mask),
          :ok <- ImageGeneration.validate_direct_tool(tool, images),
-         {:ok, hosted_caps} <- ModelProfiles.provider_hosted_capabilities(subject_uid) do
+         {:ok, hosted?} <- provider_hosted?(subject_uid, respect_hosted?) do
       content_items =
         [%{"type" => "input_text", "text" => prompt}] ++
           Enum.map(images, &%{"type" => "input_image", "image_url" => &1})
 
-      if Map.get(hosted_caps, "image_generate", true) do
-        execute_native(subject_uid, tool, content_items, opts, create_response_fun)
-      else
-        execute_direct(subject_uid, prompt, tool, content_items, opts)
+      cond do
+        hosted? ->
+          execute_native(subject_uid, tool, content_items, opts, create_response_fun)
+
+        respect_hosted? ->
+          selector = %{"model" => "image_generate.default"}
+          execute_direct(subject_uid, selector, prompt, tool, content_items, opts)
+
+        true ->
+          execute_direct(subject_uid, request, prompt, tool, content_items, opts)
       end
     end
   end
 
   def create_image(_subject_uid, _request, _opts, _create_response_fun),
     do: {:error, :invalid_request_body}
+
+  @doc "Projects a generated image to the response body of `POST /images`."
+  @spec public_body(map()) :: map()
+  def public_body(body) when is_map(body) do
+    image =
+      Attrs.put_present(
+        %{"b64_json" => body["b64_json"], "media_type" => body["mime_type"]},
+        "revised_prompt",
+        body["revised_prompt"]
+      )
+
+    %{"created" => System.os_time(:second), "data" => [image], "usage" => body["usage"]}
+  end
+
+  defp provider_hosted?(_subject_uid, false), do: {:ok, false}
+
+  defp provider_hosted?(subject_uid, true) do
+    with {:ok, hosted_caps} <- ModelProfiles.provider_hosted_capabilities(subject_uid),
+         do: {:ok, Map.get(hosted_caps, "image_generate", true)}
+  end
 
   defp execute_native(subject_uid, tool, content_items, opts, create_response_fun) do
     with {:ok, primary_runtime} <-
@@ -73,12 +107,9 @@ defmodule Ankole.AIGateway.ImageRequests do
     end
   end
 
-  defp execute_direct(subject_uid, prompt, tool, content_items, opts) do
+  defp execute_direct(subject_uid, selector, prompt, tool, content_items, opts) do
     with :ok <- ResponsesPreparation.ensure_token_quota(subject_uid, opts),
-         {:ok, runtime} <-
-           Resolver.resolve_request_model(subject_uid, "image_generate", %{
-             "model" => "image_generate.default"
-           }),
+         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "image_generate", selector),
          {:ok, selected_runtime, prepared_request} <-
            ImageGeneration.prepare_direct_request(
              subject_uid,
@@ -90,6 +121,14 @@ defmodule Ankole.AIGateway.ImageRequests do
          {:ok, upstream_response} <-
            execute_direct_upstream(selected_runtime, prepared_request, opts),
          {:ok, image_body} <- normalize_direct_body(Map.fetch!(upstream_response, :body)) do
+      :ok =
+        UsageLedger.record_capability(
+          selected_runtime,
+          Keyword.get(opts, :subject_type),
+          image_body,
+          opts
+        )
+
       {:ok, RequestExecution.gateway_response(200, image_body, selected_runtime)}
     end
   end
@@ -108,7 +147,8 @@ defmodule Ankole.AIGateway.ImageRequests do
   end
 
   defp reject_unknown_fields(request) do
-    allowed_fields = ["prompt", "images", "mask" | ImageGeneration.direct_tool_fields()]
+    allowed_fields =
+      ~w(model provider_options prompt images mask) ++ ImageGeneration.direct_tool_fields()
 
     case Map.keys(request) -- allowed_fields do
       [] ->

@@ -602,6 +602,109 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
            end)
   end
 
+  test "hosted image fallback runs a Cloudflare image model and downloads the linked image" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn request ->
+        case {request.method, request.path} do
+          {:get, "api/v1/models"} ->
+            {:json, 200, %{"data" => []}}
+
+          {:post, "api/v1/chat/completions"} ->
+            main_model_response(request.body)
+
+          {:post, "accounts/acct-1/ai/run"} ->
+            send(test_pid, {:image_request, request.body})
+
+            {:json, 200,
+             %{
+               "state" => "Completed",
+               "result" => %{"image" => "http://#{request.headers["host"]}/files/lake.png"}
+             }}
+
+          {:get, "files/lake.png"} ->
+            send(test_pid, {:image_download, request.headers})
+            {:raw, 200, "application/octet-stream", Base.decode64!(@png_base64)}
+        end
+      end)
+
+    suffix = System.unique_integer([:positive])
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-main-#{suffix}",
+               provider_kind: "openrouter",
+               base_url: "#{base_url}/api/v1",
+               connection_options: %{"transport" => %{}},
+               credential_pool: %{"entries" => [%{"label" => "Main", "api_key" => "sk-main"}]}
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "cloudflare-image-#{suffix}",
+               provider_kind: "cloudflare",
+               base_url: base_url,
+               connection_options: %{"account_id" => "acct-1", "transport" => %{}},
+               credential_pool: %{"entries" => [%{"label" => "Image", "api_key" => "cf-token"}]}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-main-#{suffix}",
+               model: "test/main-model"
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "image_generate", %{
+               provider_id: "cloudflare-image-#{suffix}",
+               model: "black-forest-labs/flux-2-pro-preview"
+             })
+
+    assert {:ok, %{body: response}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => "Generate a quiet lake at night.",
+                 "tools" => [%{"type" => "image_generation", "size" => "1024x768"}],
+                 "tool_choice" => %{"type" => "image_generation"}
+               },
+               subject_type: "agent"
+             )
+
+    assert response["status"] == "completed"
+
+    assert [%{"type" => "image_generation_call", "result" => @png_base64} = image, _message] =
+             response["output"]
+
+    assert {:ok, artifact} = Artifacts.get_generated_image(agent.uid, image["id"], payload?: true)
+    assert artifact.mime_type == "image/png"
+
+    assert_receive {:image_request, image_request}
+
+    assert image_request == %{
+             "model" => "black-forest-labs/flux-2-pro-preview",
+             "input" => %{
+               "prompt" => "A moonlit lake in a calm, cinematic style",
+               "width" => 1024,
+               "height" => 768
+             }
+           }
+
+    # The link is signed, so the download carries no provider credential.
+    assert_receive {:image_download, headers}
+    refute Map.has_key?(headers, "authorization")
+
+    # The language-model rounds and the generated image are separate ledger rows.
+    rows = Ankole.Repo.all(Ankole.AIGateway.Schemas.UsageRecord)
+    assert rows |> Enum.map(& &1.capability) |> Enum.sort() == [:image_generate, :llm]
+    image_row = Enum.find(rows, &(&1.capability == :image_generate))
+    assert {image_row.unit, image_row.quantity, image_row.origin} == {:image, 1, :agent}
+    assert image_row.model == "cloudflare-image-#{suffix}/black-forest-labs/flux-2-pro-preview"
+  end
+
   test "non-stream hosted image failure does not replay after Provider output" do
     %{principal: agent} = agent_fixture()
     test_pid = self()

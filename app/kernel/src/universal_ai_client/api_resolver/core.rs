@@ -194,6 +194,9 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::AgentbullWebSearch => Box::new(AgentBullWebSearch),
         APIResolverKind::JinaSearchWebSearch => Box::new(JinaSearchWebSearch),
         APIResolverKind::JinaReaderWebFetch => Box::new(JinaReaderWebFetch),
+        APIResolverKind::CloudflareWebSearch => Box::new(CloudflareWebSearch),
+        APIResolverKind::CloudflareDecision => Box::new(CloudflareDecision),
+        APIResolverKind::CloudflareImages => Box::new(CloudflareImages),
     }
 }
 
