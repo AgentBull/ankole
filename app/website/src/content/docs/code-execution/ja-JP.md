@@ -11,9 +11,9 @@ Agent は、通常の会話の中でシェルコマンドを実行したりフ�
 
 ## shell コマンド
 
-Agent は `app/agent_computer/src/tools/computer/command-tool.ts` で実装された `command` ツールを通じてシェルコマンドを実行します。各コマンドは Worker の実行ユーザー権限で独立したプロセスグループとして起動され、Worker 自体の認証情報を除外したクリーンな環境変数セットが渡されます。キャンセルやタイムアウトが発生した際は、プロセスグループ全体がまとめて終了します。フォアグラウンド実行の既定タイムアウトは 180 秒であり、作業ディレクトリは必ず Agent Home 配下でなければなりません。なお、[browser](../browser-automation/) デーモン、Codex app-serverも同じユーザー権限で動作するため、Worker に特別なカーネル特権は不要です。
+Agent は `app/agent_computer/src/tools/computer/command-tool.ts` で実装された `command` ツールを通じてシェルコマンドを実行します。各コマンドは Worker の実行ユーザー権限で独立したプロセスグループとして起動され、Worker 自体の認証情報を除外したクリーンな環境変数セットが渡されます。キャンセルやタイムアウトが発生した際は、プロセスグループ全体がまとめて終了します。フォアグラウンド実行の既定タイムアウトは 180 秒であり、作業ディレクトリには Agent Home またはその実行の Drive ビューを指定できます。なお、[browser](../browser-automation/) デーモン、Codex app-serverも同じユーザー権限で動作し、これらの子プロセスに昇格したカーネル権限は不要です。マウント処理は信頼された supervisor が担当します。
 
-実行ユーザーは `sudo` 権限を持たない `uid 1000` です。Agent Home へのファイル書き込み、ユーザー領域へのパッケージ追加、子プロセスの起動は自由に行えますが、OS レベルのシステムパッケージを追加することはできません。同一 Agent 内の Session と Job は同じファイル領域を共有し、異なる Agent 間はコンテナインスタンス単位で完全に分離されます。また、Worker 自体はデータベース接続やオブジェクトストアの認証情報を保持しません。
+実行ユーザーは `sudo` 権限を持たない `uid 1000` です。Agent Home へのファイル書き込み、ユーザー領域へのパッケージ追加、子プロセスの起動は自由に行えますが、OS レベルのシステムパッケージを追加することはできません。同一 Agent 内の Session と Job は同じファイル領域を共有し、異なる Agent 間はコンテナインスタンス単位で完全に分離されます。また、control plane の Worker 起動契約には、control-plane データベースや Files のオブジェクトストア用のブートストラップ認証情報は含まれません。
 
 ## ファイル読み取りと apply_patch
 
@@ -24,11 +24,11 @@ Agent は `app/agent_computer/src/tools/computer/command-tool.ts` で実装さ�
 
 メイン Agent は AIGateway を通じて生のパッチテキストを `custom_tool_call` として送信し、Worker がそれを `/usr/local/bin/apply_patch` にあるネイティブの Codex バイナリへ渡して適用します。Background Agent Job でも AIGateway のモデルカードから同じフリーフォームツール定義を受け取り、同じネイティブバイナリを使用します。
 
-この共通化により、通常の会話と Background Agent Job の両方でファイル編集プロトコルが 1 つに統一されています。対象ファイルの内容と一致しないパッチはネイティブツール側で安全に失敗し、エラー内容がそのままモデルへ返されます。手早いファイル検索にはシェルコマンドが便利ですが、ファイルの書き換えには `apply_patch` を使用します。
+この共通化により、通常の会話と Background Agent Job の両方でファイル編集プロトコルが 1 つに統一されています。対象ファイルの内容と一致しないパッチはネイティブツール側で安全に失敗し、エラー内容がそのままモデルへ返されます。検索や一覧取得には専用の `grep`、`find`、`ls` ツールを、読み取りには `read_file` を、編集には `apply_patch` を使用します。
 
 ## /workspace ファイルシステム
 
-Agent Home は `/workspace` にマウントされる永続ストレージであり、`/agents/<agent_uid>` は `/workspace` を指すシンボリックリンクです。パス検証では先にシンボリックリンクを解決したうえで、アクセス先が Home の境界内にあることを確認します。ディレクトリ構成は次のとおりです。
+Agent Home は `/workspace` にマウントされる永続ストレージであり、`/agents/<agent_uid>` は `/workspace` を指すシンボリックリンクです。コマンドの作業ディレクトリは、シンボリックリンクを解決してから Agent Home またはその実行の Drive ビュー内にあることを確認します。ディレクトリ構成は次のとおりです。
 
 ```text
 /workspace/

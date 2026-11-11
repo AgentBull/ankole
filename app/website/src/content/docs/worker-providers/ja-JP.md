@@ -48,7 +48,7 @@ Ankole では用途の異なる 3 つのストレージ領域を明確に使い�
 ### Kubernetes
 
 - Home 用ストレージには `storage.claimTemplate`（専用 PVC）または `storage.sharedClaim`（共有 PVC）を選択します。複数ノードから共有 PVC を使う場合は `ReadWriteMany` が必要です。専用ブロックストレージを使う場合は `ReadWriteOnce`（CSI ドライバーが対応していれば `ReadWriteOncePod`）を指定できます。キャッシュには別のブロック PVC または `emptyDir` を使用します。
-- コンテナ内の信頼された Worker 親プロセスは `root` で起動し、モデルが実行するコマンド類は `uid 1000` で動作します。そのため、Worker Pod と削除ヘルパー Pod には Pod Security Standards の `baseline` レベルが必要であり、`restricted` プロファイルでは動作しません。
+- 信頼された Worker 親プロセスは、FUSE マウントに必要な `SYS_ADMIN` を持つ `root` で起動し、モデルのコマンドは `uid 1000` に降格して実行します。Worker Pod とストレージ削除用ヘルパー Pod の Namespace では Pod Security の `privileged` プロファイルを許可する必要があります。FUSE デバイスプラグインを導入し、特権コンテナ・ホスト Namespace・`hostPath` ボリュームを禁止する Helm chart の Worker ServiceAccount 用 admission policy を使用してください。[Helm ガイド](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md)を参照してください。ストレージ削除用のヘルパー Pod も `root` で起動します。
 - Home ボリュームは、`root` による書き込みと `uid 1000` への `chown` を許可するか、あるいは最初からすべてのアクセスを `uid 1000` にマッピングしている必要があります。ID マッピングなしの標準的な root-squash NFS はこの要件を満たせません。
 - コントロールプレーンの ServiceAccount には、Pod、Secret、PVC、および削除ヘルパーを操作する RBAC 権限が必要です。リモートクラスタの kubeconfig を指定する場合は 3 つの `endpoints` すべてを明示する必要があり、ローカル用の `ownerConfigMap` は使えません。また、作成後に in-cluster 接続とリモート kubeconfig 接続を切り替えることはできません。
 - 新しく追加されるクラスタノードには Worker イメージを事前に pull しておいてください（Ankole のイメージ準備処理が Kubernetes ノード上の pull を代行することはありません）。また、Pod 停止時は通常の削除完了を待ち、ノード障害時に強制削除や `--grace-period=0` で回避しないでください。
@@ -64,7 +64,7 @@ Ankole では用途の異なる 3 つのストレージ領域を明確に使い�
 
 - 同一リージョンの専用 Drive を Home として使用します。作成後に `teamId`、`projectId`、`region`、`driveSizeGiB` を変更することはできません。
 - 対象プロジェクトの VCR に `linux/amd64` イメージをプッシュし、その digest を指定します。`cpus` には `1` または `2`〜`32` の偶数を指定でき、メモリは vCPU あたり `2048 MiB` が割り当てられます。
-- `sessionTimeoutSeconds` の既定値は `86400`（24 時間）です。トライアルアカウントなど上限が 45 分に制限されている環境では `2700` 以下に設定し、契約プランの実際の上限を超えないようにしてください（詳しくは [Vercel Sandbox の制限ドキュメント](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)を参照）。サンドボックス削除後も Drive 上の Home は残りますが、ローカルキャッシュは消去されます。
+- `sessionTimeoutSeconds` の既定値は `86400`（24 時間）です。Hobby など上限が 45 分に制限されている環境では `2700` 以下に設定し、契約プランの実際の上限を超えないようにしてください（詳しくは [Vercel Sandbox の制限ドキュメント](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)を参照）。サンドボックス削除後も Drive 上の Home は残りますが、ローカルキャッシュは消去されます。
 
 ### AWS Lambda MicroVMs
 

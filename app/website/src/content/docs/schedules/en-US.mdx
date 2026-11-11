@@ -29,18 +29,18 @@ conversation. Use Asia/Shanghai. Run it once now so I can confirm the content
 and delivery location.
 ```
 
-<DocsKnowledgeNote label="💡 Did you know?">A schedule returns its result through a <strong>signal routing rule</strong> that the system creates and maintains automatically.</DocsKnowledgeNote>
+<DocsKnowledgeNote label="💡 Did you know?">Each Agent-directed Cron rule runs in its own Session and delivers the final result to its configured conversations.</DocsKnowledgeNote>
 
 ### Advanced: create a schedule in the Console
 
 Before creating a schedule in the Console, exchange at least one message with the Agent in the target chat channel to verify that its routing rule can send and receive messages.
 
 1. Open **Schedules** in the Console.
-2. Select the Agent and the conversation to continue; if the conversation does not appear in the dropdown, paste its conversation ID directly.
+2. Select the Agent and the Session that owns the schedule; if it does not appear in the dropdown, enter its Session ID.
 3. Open the **Cron** tab and select **New schedule**.
 4. Choose the delivery routing rule and give the schedule a clear name.
-5. Select the schedule kind and configure its timing.
-6. Enter the delivery channel ID, and specify a thread ID only if every run should reply inside a single topic or thread.
+5. Enter the self-contained task, select the schedule kind, and configure its timing.
+6. Select the delivery conversation or enter its Ankole Conversation ID. Specify a provider thread ID only if every external-chat reply belongs in one topic or thread.
 7. Save the schedule and click **Run now** to confirm both the task output and the delivery destination before leaving it to run unattended.
 
 ### Select a time rule
@@ -53,13 +53,13 @@ Use **Cron (expression)** for calendar schedules, such as 09:00 on weekdays. Exp
 
 This expression fires at 09:00 Monday through Friday, evaluated in the timezone stored on the schedule rather than the browser's or Worker's local timezone.
 
-Use **Every (interval)** for tasks that repeat on a fixed elapsed duration—such as every 30 minutes—when calendar alignment does not matter. Specify the interval in milliseconds, with the anchor timestamp defining the start of the interval grid.
+Use **Every (interval)** for tasks that repeat on a fixed elapsed duration—such as every 30 minutes—when calendar alignment does not matter. Enter the interval and select seconds, minutes, hours, or days. The anchor timestamp defines the start of the interval grid.
 
 ### Task and delivery
 
-By default, a schedule wakes an existing conversation so the Agent picks up with its established context. Because the Agent already loads its persona and standing rules, the scheduled prompt only needs to state what each run should do—do not copy the Agent's `AGENTS.md` or style instructions into the schedule prompt.
+Each Agent-directed Cron rule runs in its own Session, separate from the conversation where it was created. Write a self-contained task that includes the context each run needs; the Cron Session does not inherit the originating Session's transcript. The Agent still loads its persona and standing rules, so you do not need to copy its `AGENTS.md` or style instructions into the task.
 
-Set the delivery channel (and optional thread ID) to the identifiers reported by your Channel Provider, and always test a new schedule with **Run now** so a working prompt never posts silently to the wrong room.
+Select the delivery conversation or enter its Ankole Conversation ID. For an external chat, also select its routing rule and optionally specify the provider thread ID. Test the destination with **Run now**.
 
 ### Pause, resume, and remove
 
@@ -74,7 +74,7 @@ Select any schedule to inspect its recent run history. If an expected report doe
 
 A Checkback is a one-time delayed follow-up that an Agent schedules mid-task—for example, "check the deployment status again in 30 minutes." When the timer expires, Ankole wakes the originating conversation so the Agent can pick up right where it left off.
 
-Checkback serves a similar goal to <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw's heartbeat</a>: both allow an Agent to act later without waiting for a human to send another message. Unlike a fixed-cadence heartbeat—which wakes the model repeatedly just to check whether anything needs attention—Checkback follows a push model: the Agent schedules a single wake-up only when there is something specific to follow up on, avoiding idle polling turns and saving tokens.
+The Agent books a Checkback for a specific follow-up. The control plane dispatches the one-time wake-up when it is due; waiting for that deadline does not require repeated model turns.
 
 In chat, tell the Agent when to check back, what condition to inspect, and whether to stay quiet when nothing has changed:
 
@@ -98,7 +98,7 @@ Agent-created Cron and Checkback sources can also route to an Applet Job through
 - **The schedule did not fire:** Confirm that the schedule is active rather than paused, and verify its Cron expression, timezone, and computed next-run timestamp.
 - **The schedule fired, but nothing appeared in chat:** Check the schedule's run history, then verify that the signal routing rule, target channel, and Agent are all enabled.
 - **Runs happen several hours early or late:** Replace any fixed UTC offset with the proper IANA timezone name, and check your deployment's default timezone setting.
-- **Replies land in the wrong channel or thread:** Update the delivery channel or thread ID, then verify the fix immediately with **Run now**.
+- **Replies land in the wrong channel or thread:** Update the delivery conversation or provider thread ID, then verify the fix with **Run now**.
 - **A Checkback never fired:** Check the **Checkbacks** tab to see whether it is still pending, and verify both its due time and the routing rule for the originating conversation.
 
 See [Schedule troubleshooting](../faq/) for detailed error codes and recovery steps.

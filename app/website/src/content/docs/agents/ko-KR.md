@@ -55,6 +55,8 @@ Agent의 모델 프로필은 **Console → Model Profiles**에서 구성하는 3
 - 전용 이미지 생성 provider를 사용하려면 `image_generate`를 구성합니다.
 - 백그라운드 작업(`coding`)에 별도의 provider나 모델을 쓰려면 **Background Agent Jobs** 프로필을 구성합니다(비워 두면 `heavy -> primary`로 폴백합니다). ChatGPT 구독 연결도 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 통해 동일한 방식으로 선택할 수 있습니다.
 
+별도 `web_search` 또는 `image_generate` 프로필을 쓰려면 해당 provider-hosted 스위치도 꺼야 합니다. 프로필을 연결하는 것만으로 스위치가 바뀌지는 않습니다. 두 스위치는 기본적으로 켜져 있으며 Site → Pod → Agent 순서로 설정을 상속합니다.
+
 모델을 고르거나 직접 입력하려면 먼저 Provider부터 선택해야 하며, context length 입력란 역시 Provider를 선택한 뒤에 활성화됩니다. context length를 비워 두면 해당 Provider와 모델의 기본값을 따릅니다. Agent 슬롯 재정의를 삭제하면 다시 Pod 및 Site 기본값을 상속합니다.
 
 고급 설정 영역에는 선택한 Provider에서 선언한 옵션만 나타납니다. **Reasoning summary**는 Responses API 기반 모델에만 적용되며, **Answer detail**은 응답의 기본 상세 수준을 지정하고, **Service tier**는 해당 model profile의 요청 등급을 재정의합니다. 선택 가능한 값은 Provider, 계정 등급, 모델에 따라 다르며 비워 두면 Provider 기본값이 적용됩니다.
@@ -96,7 +98,7 @@ Agent를 비활성화하면 새 작업을 수락하지 않고 목록에 "비활�
 1. Agent가 활성(Active) 상태인지 확인합니다.
 2. Agent에 유효한 `primary` 모델 프로필이 해석되고 있는지(Site/Pod 기본값 또는 Agent 재정의), 그리고 연결된 LLM Provider가 정상 작동하는지 확인합니다.
 3. 외부 채널을 사용 중이라면 시그널 라우팅 규칙이 이 Agent를 가리키고 있는지 확인합니다.
-4. **Console → Workers**에서 해당 Agent의 Worker가 `ready` 상태이거나 오류 없이 시작 중인지 확인합니다.
+4. 컴퓨터 작업이 필요한 턴이라면 **Console → Workers**에서 Worker가 `ready` 상태이거나 오류 없이 시작 중인지 확인합니다. 단순 질문에는 실행 중인 Worker가 필요하지 않습니다.
 5. **Console → Conversations**에서 메시지가 실제로 유입되었는지, 실행 로그에 구체적인 오류 원인이 기록되어 있는지 확인합니다.
 
 채널별 상세 점검 항목은 [Quick start troubleshooting](../quickstart/#agent-not-replying)을 참조하세요.

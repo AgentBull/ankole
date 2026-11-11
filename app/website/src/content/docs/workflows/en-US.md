@@ -18,7 +18,7 @@ When launched from a chat conversation, the Workflow returns a `run_id` immediat
 | A long, stateful task needing files, a workspace, steering messages, or mid-run user input | [Background Agent Job](../background-jobs/) | Owns a durable Codex thread that can pause, accept steering, and resume. |
 | A scheduled or webhook-triggered deterministic check | [Automation Job](../automation-jobs/) | Runs an Applet Action in Function Runtime without a model turn whenever open-ended judgment is unnecessary. |
 
-A Workflow is neither a general-purpose DAG engine, a cron scheduler, nor an event bus: it cannot block on external webhooks or prompt you mid-run. Whenever a task needs to adapt its plan interactively after starting, use a Background Agent Job instead.
+A Workflow uses a fixed orchestration program, and its subagents cannot subscribe to external webhooks or call `clarify` directly. A subagent that needs a decision from the Main Agent can call `sleep` with `attention: true` and receive a task message. Use a Background Agent Job when the work needs an editable workspace and an interactive execution thread.
 
 ## Ask the Agent to start a Workflow
 
@@ -76,7 +76,7 @@ If the control plane restarts mid-run, Ankole replays the fixed program against 
 
 Every `agent()` call runs in its own isolated control-plane conversation (`wf_task:<call_id>`) without occupying an Agent Worker slot. Each subagent receives the Agent's identity and `AGENTS.md` plus its task prompt, and never sees the parent chat transcript or sibling task outputs unless the orchestration script passes them explicitly in a downstream prompt.
 
-Subagents can invoke Web tools and—when Brain is enabled—the read-only `recall` and `get_page` tools. They have no direct shell, file, MCP, Skill, Brain-write, or schedule tools, and cannot launch nested Workflows (orchestration depth is strictly `1`).
+Subagents can invoke Web tools and—when Brain is enabled—the read-only `recall` and `entity` tools. They have no direct shell, file, MCP, Skill, Brain-write, or schedule tools, and cannot launch nested Workflows (orchestration depth is strictly `1`).
 
 When a subagent needs workspace execution or multi-hour work, it can delegate [Background Agent Jobs](../background-jobs/) (`create_background_job`, `show_background_job_details`, `send_message_to_background_job`, `stop_background_job`) and call `sleep` (for `1` minute up to `48` hours, up to `16` sleeps per subagent call) to hibernate without holding a concurrency slot until a delegated Job lifecycle event, an owner message, or its sleep deadline wakes it. Passing `attention: true` to `sleep` notifies the Main Agent so it can read the task's sleep `note` and reply. Once its work is complete, the subagent finishes by calling `submit_result`.
 
@@ -123,6 +123,6 @@ Because every subagent attempt executes a full language-model turn—and may inv
 | Durable memo budget | — | `6 MiB` |
 | Final aggregate result | — | `1 MiB` |
 
-Administrators can adjust the first three concurrency and call defaults in [AppConfigure](../app-configuration/) within their hard ceilings, and per-run options can only lower—never exceed—those instance limits. Workflows enforce no single batch-wide token or currency cap; instead, each subagent turn obeys the Agent's standard iteration, output-token, and inactivity limits (see [Cost management](../cost-management/)).
+Administrators can adjust the first three concurrency and call defaults in [AppConfigure](../app-configuration/) within their hard ceilings, and valid per-run concurrency and call-count requests are capped at the configured limits when stored; values outside the hard ranges are rejected. Workflows enforce no single batch-wide token or currency cap; instead, each subagent turn obeys the Agent's standard iteration, output-token, and inactivity limits (see [Cost management](../cost-management/)).
 
 If a Workflow hits a payload or memo size cap, lower the fanout, return tighter per-task summaries, or partition the input across multiple Workflows. Because program code and `args` are immutable once started, launch a fresh Workflow run whenever you need to revise the script or inputs.

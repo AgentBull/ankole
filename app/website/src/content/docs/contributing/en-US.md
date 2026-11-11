@@ -11,7 +11,7 @@ Ankole's contribution rules are enforced directly by code review and by the chan
 
 ## The two documents that own the rules
 
-- **[`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)** — project-wide engineering rules: scope and authorization, changelog discipline, smallest correct change, worse-is-better design priorities (simplicity > correctness > consistency > completeness), objective fidelity, and subsystem boundaries. Read this to understand *how* to design and implement a change.
+- **[`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)** — project-wide engineering rules: scope and authorization, changelog discipline, smallest correct change, Worse is Better within the intended user experience and operating requirements, objective fidelity, and subsystem boundaries. Read this to understand *how* to design and implement a change.
 - **[`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)** — the practical contribution workflow: six-step local setup, Feishu end-to-end acceptance, troubleshooting order, repository map, verification gates, and changelog/PR mechanics. Read this to know *what steps to run* to land a change.
 
 Each file is the single source of truth for its domain; nothing in the website docs overrides them.
@@ -36,7 +36,7 @@ Read `AGENTS.md` before writing code. Six principles come up on nearly every rev
 - **Scope and authorization.** Requests to explain, diagnose, or plan are strictly read-only; only an implementation request authorizes code edits, and expanding scope requires explicit sign-off.
 - **The changelog is for users and operators.** Every commit that changes product behavior adds one `CHANGELOG.md` version describing what users or operators will notice; documentation-only commits add none.
 - **Smallest correct change.** Favor the smallest change that follows the architecture, preserves contracts that the system guarantees, and stays easy to read—modest local duplication beats premature abstraction.
-- **Worse is better.** Prioritize simplicity ahead of uniform abstractions or theoretical completeness; narrow the contract or reject unsupported cases explicitly rather than adding fragile fallbacks.
+- **Worse is better.** Choose the simplest implementation that meets the intended user experience and operating requirements. For peripheral unsupported cases, a narrow contract, explicit rejection, or manual recovery can be appropriate.
 - **Objective fidelity.** Deliver the exact outcome requested through the real production boundary—a green unit test or mocked demo is never a substitute.
 - **Subsystem boundaries.** PostgreSQL owns durable domain facts; the Elixir control plane owns durable state, supervision, and commit authority; the Rust kernel provides stateless native primitives; the Bun Agent Computer Worker runs per-Agent tools and workspaces; and `Function Runtime` (`app/function_runtime/`) runs stateless Applet backend and deterministic program isolates. Keep cross-boundary changes aligned with those owners.
 
@@ -44,11 +44,11 @@ Read `AGENTS.md` before writing code. Six principles come up on nearly every rev
 
 Every product-changing commit is gated by `CHANGELOG.md`—the rule that first-time PRs miss most often:
 
-- Commits that touch only documentation or `CHANGELOG.md` itself add no version entry. Every other commit adds **exactly one** new version section in root `CHANGELOG.md`, and a single version never spans multiple commits.
+- Commits that touch only root `*.md` files, `docs/`, `app/website/`, or `CHANGELOG.md` add no version entry. Every other commit on `main` adds or updates one pending version section at the top of root `CHANGELOG.md`. If an uncommitted version header already exists, add your entry there. Changes confined to `internals/` with no FOSS impact use `internals/CHANGELOG.md`.
 - Describe what an operator or end user notices on upgrade: new capabilities, behavioral changes, removals, user-visible bug fixes, and any required operator actions. Omit internal refactors, tests, docs, tooling, and dependency bumps—if a commit has no user-visible effect, write `Internal changes only.`
 - Follow `MAJOR.MINOR.PATCH`: default to `PATCH`, bump `MINOR` for a brand-new product capability or a breaking change requiring operator action, and leave `MAJOR` or pre-release tags to maintainer decisions.
 
-Root `CHANGELOG.md` is the sole release-notes and versioning source: once a `main` build passes verification across all three co-versioned runtime images (`ankole-control-plane`, `ankole-agent-computer`, and `ankole-function-runtime`), CI tags those images with the top changelog version and publishes the immutable GitHub Release directly from that section. Write the changelog entry as part of your change, not as an afterthought.
+Root `CHANGELOG.md` is the FOSS release-notes and versioning source: once a `main` build passes verification across all three co-versioned runtime images (`ankole-control-plane`, `ankole-agent-computer`, and `ankole-function-runtime`), CI tags those images with the top changelog version and publishes the immutable GitHub Release directly from that section. Write the changelog entry as part of your change, not as an afterthought.
 
 ## Run the right checks
 

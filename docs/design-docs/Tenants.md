@@ -412,8 +412,9 @@ Requests to unknown or unavailable tenant hosts fail closed. Once loaded, an
 open browser tab pins both its authentication reference and tenant on API calls
 and realtime sockets—ignoring conflicting tenant hints and keeping its pinned
 account even if another tab switches the default browser account. Browser-group
-and account-proof cookies are shared across Pod subdomains, while login ceremonies
-start directly on the target Pod host.
+and account-proof cookies are shared across Pod subdomains. Login shells use
+the build's canonical sign-in host: the target Pod host in FOSS and the accounts
+host in SaaS. Enterprise SSO authorization and callbacks use the target Pod host.
 
 Any active Human in a tenant can sign in via that tenant's enabled identity
 providers and participate in Conversations without needing `siteadmin`; Console

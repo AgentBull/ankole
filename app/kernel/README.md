@@ -58,7 +58,7 @@ The current modules are:
   UTF-16 document diffs. The full round-trip chain from XML to the editor
   document and back shares its test corpus with the block editor.
 
-Six workspace crates sit beside the root crate, because the root crate's own
+Six Office crates sit beside the root crate, because the root crate's own
 dependencies do not build for WebAssembly:
 
 - `spreadsheet/` (`ankole_spreadsheet`) - host-neutral spreadsheet documents

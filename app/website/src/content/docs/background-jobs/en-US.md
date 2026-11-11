@@ -56,7 +56,7 @@ Mention whether the task needs a repository, document set, or installed tool, an
 
 ## Select the model provider
 
-Every Job routes model calls through AIGateway. When a Job is created, Ankole snapshots the Agent's effective **Background Agent Jobs** model profile, falling back to the Agent's `heavy` profile if **Background Agent Jobs** is left blank.
+Every Job routes model calls through AIGateway. At the first execution admission, Ankole snapshots the Agent's effective **Background Agent Jobs** model profile, falling back to the Agent's `heavy` profile if **Background Agent Jobs** is left blank.
 
 To run Jobs with a ChatGPT subscription, first configure a [ChatGPT subscription provider](../chatgpt-subscription-provider/), then open **Console → Agents**, locate **Background Agent Jobs** under the Agent's model profiles, and choose that provider along with an entitled model, reasoning effort, and Fast Mode. AIGateway's credential pool automatically selects and rotates accounts.
 

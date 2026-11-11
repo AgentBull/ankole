@@ -6,9 +6,9 @@ max_running_per_agent = "한 Agent가 동시에 실행할 수 있는 Background 
 
 
 [app_configure.descriptions.ai_agent]
-inactivity_timeout_ms = "Agent Computer 모델/프로바이더 비활동 타임아웃(밀리초)입니다. 실행 중인 도구는 자체 라이프사이클을 소유하며, 0이면 워치독이 비활성화됩니다."
-max_iterations = "하나의 Agent Computer 턴 실행에 대한 최대 논리적 모델 반복 횟수입니다."
-max_output_tokens = "하나의 모델 응답에 대한 선택적 Agent Computer 최대 출력 토큰 수입니다. nil이면 명시적 요청 상한이 없음을 의미합니다."
+inactivity_timeout_ms = "Session turn의 모델/프로바이더 무응답 제한 시간(밀리초)입니다. 실행 중인 도구는 자체 라이프사이클을 관리하며, 0이면 워치독이 비활성화됩니다."
+max_iterations = "한 Session turn에서 허용하는 최대 논리적 모델 반복 횟수입니다."
+max_output_tokens = "한 모델 응답의 최대 출력 토큰 수(선택 사항)입니다. nil이면 명시적 요청 상한이 없음을 의미합니다."
 
 [app_configure.descriptions.ai_agent.library]
 agent_plugin_defaults = "각 Agent Plugin에 대해 Agent가 상속받는 기본 활성화 설정입니다."
@@ -45,8 +45,8 @@ enabled_ids = "다음 Ankole 프로세스 시작 시 활성화할 Plugin id입�
 "*" = "머신이 관리하는 Graph 변경 알림 구독 상태입니다."
 
 [app_configure.descriptions.principals.identity_providers]
-active = "관리자 인증에 사용할 수 있는 Identity Provider 설정입니다."
-directory_full_sync_interval_minutes = "주기적 전체 디렉터리 동기화 등록 시도 사이의 간격(분)입니다."
+active = "이 테넌트의 로그인과 디렉터리 동기화에 사용하는 Identity Provider 설정입니다."
+directory_full_sync_interval_minutes = "주기적으로 전체 디렉터리 동기화를 대기열에 추가하는 간격(분)입니다."
 
 [app_configure.descriptions.principals.identity_providers.dingtalk]
 "*" = "암호화된 DingTalk Identity Provider 설정입니다."
@@ -93,6 +93,80 @@ timezone = "워크스페이스 예약 작업의 시간대입니다. 설정하지
 max_agent_calls_per_run = "한 번의 Workflow 실행에서 만들 수 있는 Agent 호출 상한."
 max_concurrency_per_run = "한 번의 Workflow 실행이 요청할 수 있는 작업 동시성 상한."
 max_running_per_agent = "Agent 하나가 동시에 실행할 수 있는 Workflow 작업 상한."
+
+[app_configure.descriptions.tenants]
+privileged_tenant_id = "siteadmin 그룹이 이 Site를 관리하는 테넌트의 ID입니다."
+
+[app_configure.descriptions.pod]
+allow_external_guests = "초대된 외부 게스트가 공유 Pod 페이지에 접근할 수 있도록 허용합니다."
+ot_replay_window = "OT 재생을 위해 보관하는 최근 문서 변경 배치 수입니다."
+ocr_existing_scans = "업로드할 때 OCR 모델로 읽지 않은 스캔 PDF 페이지를 OCR 모델로 보냅니다. OCR 프로바이더는 페이지마다 요금을 부과합니다."
+
+[app_configure.descriptions.pod.applet]
+limits = "Applet 호출 제한입니다. timeout_ms와 heap_mb를 지정하며, Capability 대기 시간과 외부 메모리도 포함합니다."
+action_limits = "Applet Action 슬라이스별 제한입니다. timeout_ms와 heap_mb를 지정하며, Capability 대기 시간도 포함합니다."
+action_runtime_url = "백그라운드 Action 전용 Function Runtime의 오리진(선택 사항)입니다. Site의 런타임 자격 증명을 사용하며, 비워 두면 공유 배포를 사용합니다."
+
+[app_configure.descriptions.pod.base]
+limits = "Base 쿼리 및 레코드 제한입니다. query_rows, record_bytes, group_count, statement_timeout_ms를 지정합니다."
+
+[app_configure.descriptions.pod.office]
+limits = "Office 페이지 제한입니다. max_file_bytes는 온라인 편집 파일 크기, compaction_idle_seconds, compaction_op_threshold, compaction_structural_threshold는 편집 내용을 파일에 반영하는 조건을 지정합니다."
+
+[app_configure.descriptions.principals]
+pod_login_policy = "Pod 멤버의 로그인 및 초대 정책입니다."
+
+[app_configure.descriptions.drive]
+vfs_max_upload_bytes = "Drive VFS 업로드 한 건의 최대 바이트 수입니다. 0이면 오브젝트 스토어의 제한을 사용합니다."
+trash_retention_days = "삭제된 Drive 노드를 자동으로 영구 삭제하기 전까지 보관하는 일수입니다. 0이면 이 설정을 변경할 때까지 보관합니다."
+
+[app_configure.descriptions.signals.telegram.bindings]
+"*" = "암호화된 Telegram Bot 바인딩 설정입니다."
+
+[app_configure.descriptions.signals.whatsapp.bindings]
+"*" = "암호화된 WhatsApp Cloud API 바인딩 설정입니다."
+
+[app_configure.descriptions.connectors.database]
+limits = "데이터베이스 커넥터의 쿼리 예산입니다. statement_timeout_ms, lock_timeout_ms, max_rows, max_result_bytes, max_scanned_bytes(ClickHouse), max_export_rows, probe_count, catalog_tables, profile_tables, sample_rows를 지정합니다."
+
+[app_configure.descriptions.signals.line.bindings]
+"*" = "암호화된 LINE 채널 바인딩 설정입니다."
+
+[app_configure.descriptions.signals.discord.bindings]
+"*" = "암호화된 Discord Bot 바인딩 설정입니다."
+
+[app_configure.descriptions.signals.lark.binding_configs]
+"*" = "바인딩이 소유하는 암호화된 Feishu / Lark 채팅 설정입니다."
+
+[app_configure.descriptions.signals.email.bindings]
+"*" = "암호화된 이메일 사서함 바인딩 설정입니다."
+
+[app_configure.descriptions.signals.wecom.bindings]
+"*" = "암호화된 WeCom 채팅 바인딩 설정입니다."
+
+[app_configure.descriptions.principals.identity_providers.wecom]
+"*" = "암호화된 WeCom Identity Provider 설정입니다."
+
+[app_configure.descriptions.ai_gateway.model_profiles]
+primary = "Pod 또는 Site의 primary 모델 프로필 재정의입니다."
+light = "Pod 또는 Site의 light 모델 프로필 재정의입니다."
+heavy = "Pod 또는 Site의 heavy 모델 프로필 재정의입니다."
+coding = "Pod 또는 Site의 coding 모델 프로필 재정의입니다."
+vision_fallback = "Pod 또는 Site의 vision_fallback 모델 프로필 재정의입니다."
+web_search = "Pod 또는 Site의 web_search 모델 프로필 재정의입니다."
+web_fetch = "Pod 또는 Site의 web_fetch 모델 프로필 재정의입니다."
+image_generate = "Pod 또는 Site의 image_generate 모델 프로필 재정의입니다."
+rerank = "Pod 또는 Site의 rerank 모델 프로필 재정의입니다."
+decision = "Pod 또는 Site의 decision 모델 프로필 재정의입니다."
+speech = "Pod 또는 Site의 speech 모델 프로필 재정의입니다."
+transcription = "Pod 또는 Site의 transcription 모델 프로필 재정의입니다."
+ocr = "Pod 또는 Site의 ocr 모델 프로필 재정의입니다."
+video = "Pod 또는 Site의 video 모델 프로필 재정의입니다."
+music = "Pod 또는 Site의 music 모델 프로필 재정의입니다."
+
+[app_configure.descriptions.ai_gateway.provider_hosted]
+web_search = "web_search를 언어 모델 Provider가 직접 실행할지 여부입니다."
+image_generate = "image_generate를 언어 모델 Provider가 직접 실행할지 여부입니다."
 
 [auth]
 register_document_title = "로그인 또는 가입 · Ankole"
@@ -155,7 +229,7 @@ member_name = "표시 이름"
 add_email = "다른 로그인 추가"
 sign_out_all = "모두 로그아웃"
 pending_space = "참여 대기 · {$name}"
-personal_email_notice = "계속 사용할 개인 스페이스에는 개인 이메일을 사용하세요. 회사는 업무 이메일을 다른 사람에게 재할당할 수 있습니다. 각 스페이스는 멤버를 개별 관리합니다."
+personal_email_notice = "계속 사용할 스페이스에는 개인 이메일을 사용하세요. 회사는 업무 이메일을 다른 사람에게 재할당할 수 있습니다. 각 스페이스는 멤버를 개별 관리합니다."
 
 [authn.email]
 footer = "자동 발송된 보안 안내 메일 · 회신 불가"
@@ -711,13 +785,13 @@ alert_failed_jobs_action = "작업 확인"
 alert_failed_jobs_description = "작업을 열면 기록된 오류를 확인할 수 있습니다."
 alert_failed_jobs_title = "최근 Background Agent Job {$count}개가 실패했습니다"
 alert_no_identity_action = "프로바이더 추가"
-alert_no_identity_description = "활성화된 Identity Provider를 통해서만 이 콘솔에 로그인할 수 있습니다."
+alert_no_identity_description = "조직 계정으로 로그인할 수 있도록 Identity Provider를 활성화하세요."
 alert_no_identity_title = "활성화된 Identity Provider가 없습니다"
 alert_no_provider_action = "프로바이더 추가"
 alert_no_provider_description = "사용 가능한 자격 증명이 있는 LLM Provider가 활성화되어야 Agent가 모델을 호출할 수 있습니다."
 alert_no_provider_title = "사용 가능한 LLM Provider가 없습니다"
 alert_worker_failing_action = "Worker 검사"
-alert_worker_failing_description = "준비되지 않는 Worker에 대해 백엔드가 문제를 보고했습니다. 해당 Agent는 작업할 수 없습니다."
+alert_worker_failing_description = "Worker가 준비되지 않습니다. 해당 Agent는 컴퓨터가 필요한 작업을 실행할 수 없습니다."
 alert_worker_failing_title = "Worker {$count}대가 준비되지 않습니다"
 attention = "주의 필요"
 enabled_providers = "활성화된 프로바이더"
@@ -1139,10 +1213,10 @@ webhooks = "Webhooks"
 model_profile = "모델 프로필"
 model = "모델"
 checkpoint_badge = "체크포인트"
-search = "주제 UID, 이름 또는 세션 키로 검색"
+search = "주체 UID, 이름 또는 세션 키로 검색"
 title = "대화"
 name = "이름"
-subject = "주제"
+subject = "주체"
 key = "대화 키"
 status = "상태"
 tool_badge = "도구"
@@ -1243,7 +1317,7 @@ empty_description = "Background Agent Job은 대기, 진행, 완료 상태를 �
 empty_title = "Background Agent Job이 없습니다"
 error = "오류"
 files_changed = "변경된 파일"
-integrity_redacted = "편집됨"
+integrity_redacted = "민감 정보 가림"
 integrity_truncated = "잘림"
 message_count = "메시지 {$count}개"
 model_profile = "모델 프로필"
@@ -1610,8 +1684,8 @@ editor_description = "이 구성 값을 편집합니다."
 empty_title = "설정 없음"
 encrypted_value_hint = "저장된 secret을 유지하려면 마스크를 그대로 두세요. 원문 문자열을 입력하거나 구조화 데이터에는 유효한 JSON 객체 또는 배열을 입력하세요."
 format_json = "JSON 형식화"
-group_observability = "LLM observability"
-group_observability_description = "AIGateway 모델 요청을 위한 선택적 프로세스 전체 OpenTelemetry trace export입니다."
+group_observability = "LLM 관측 가능성"
+group_observability_description = "필요에 따라 AIGateway 모델 요청의 OpenTelemetry 트레이스를 프로세스 전체에서 내보냅니다."
 group_kind = "키 {$count}개"
 group_save_failed = "{$key}이(가) 저장되지 않았습니다: {$reason}. 이 그룹의 앞선 키들은 이미 저장되어 있습니다."
 group_saved = "키 {$count}개를 저장했습니다."
@@ -1624,28 +1698,28 @@ managed_elsewhere = "다른 곳에서 관리됨"
 managed_group = "인스턴스가 소유한 키 {$count}개(읽기 전용)"
 not_found = "이 AppConfigure 키를 찾을 수 없습니다."
 observability_add_header = "header 추가"
-observability_enabled = "Trace export"
-observability_enabled_hint = "다음 control-plane 재시작 후 프로세스 전체 OpenTelemetry trace를 export합니다. 기본값은 꺼짐입니다."
-observability_endpoint = "Base OTLP/HTTP endpoint"
-observability_endpoint_hint = "receiver의 base endpoint를 입력하세요. Ankole이 /v1/traces를 추가합니다."
+observability_enabled = "트레이스 내보내기"
+observability_enabled_hint = "다음 컨트롤 플레인 재시작 후 프로세스 전체의 OpenTelemetry 트레이스를 내보냅니다. 기본값은 꺼짐입니다."
+observability_endpoint = "OTLP/HTTP 기본 엔드포인트"
+observability_endpoint_hint = "수신 서버의 기본 엔드포인트를 입력하세요. Ankole이 /v1/traces를 추가합니다."
 observability_error_endpoint_invalid = "credentials, query 또는 fragment가 없는 HTTP나 HTTPS endpoint를 입력하세요."
-observability_error_endpoint_required = "Trace export를 활성화하기 전에 base OTLP/HTTP endpoint를 입력하세요."
+observability_error_endpoint_required = "트레이스 내보내기를 활성화하기 전에 OTLP/HTTP 기본 엔드포인트를 입력하세요."
 observability_error_endpoint_signal_path = "/v1/traces가 없는 base endpoint를 입력하세요. 이 path는 Ankole이 추가합니다."
 observability_error_header_duplicate = "각 header 이름은 고유해야 합니다. 대소문자를 구분하지 않습니다."
 observability_error_header_name_required = "각 header의 이름을 입력하세요."
-observability_error_provider_required = "Trace export를 활성화하기 전에 trace Provider를 선택하세요."
+observability_error_provider_required = "트레이스 내보내기를 활성화하기 전에 트레이스 Provider를 선택하세요."
 observability_header_name = "Header {$number} 이름"
 observability_header_name_placeholder = "Header 이름"
 observability_header_value = "Header {$number} 값"
 observability_headers = "인증 headers"
 observability_headers_empty = "구성된 header가 없습니다. receiver에 인증이 필요할 때 추가하세요."
 observability_headers_hint_langfuse = "Authorization: Basic <base64(public-key:secret-key)> 및 x-langfuse-ingestion-version: 4를 추가하세요."
-observability_headers_hint_langsmith = "x-api-key를 추가하세요. Langsmith-Project는 선택 사항입니다."
+observability_headers_hint_langsmith = "x-api-key를 추가하세요. Agent 기반 워크스페이스에는 Langsmith-Agent-Id와 Langsmith-Agent-Environment도 추가하세요. Project 기반 워크스페이스에서는 대신 Langsmith-Project를 사용하세요."
 observability_headers_hint_opentelemetry = "선택한 OTLP receiver에 필요한 headers만 추가하세요."
 observability_headers_invalid = "저장된 인증 headers가 string map이 아닙니다. 저장하기 전에 교체하세요."
 observability_headers_masked = "명시적으로 표시하기 전까지 저장된 header 이름과 값은 숨겨집니다."
-observability_provider = "Trace Provider"
-observability_provider_hint = "AIGateway 및 Worker span의 receiver mapping을 선택합니다. 모든 span은 같은 OTLP exporter를 사용합니다."
+observability_provider = "트레이스 Provider"
+observability_provider_hint = "AIGateway와 Worker의 span을 수신 서버에 맞게 매핑하는 방법을 선택합니다. 모든 span은 같은 OTLP 익스포터를 사용합니다."
 observability_provider_langfuse = "Langfuse"
 observability_provider_langsmith = "LangSmith"
 observability_provider_opentelemetry = "OpenTelemetry(일반)"
@@ -1696,12 +1770,12 @@ json_select_key = "키 선택"
 json_show_less = "간략히 표시"
 json_update_failed = "값을 업데이트할 수 없습니다."
 locale_hint = "이 Ankole 인스턴스에 포함된 언어를 선택하세요."
-locale_title = "인스턴스 언어"
+locale_title = "워크스페이스 언어"
 timezone_current_time = "이 시간대의 현재 날짜 및 시간"
 timezone_empty = "일치하는 시간대가 없습니다. 사용하려면 IANA 시간대 ID를 입력하세요."
 timezone_hint = "IANA 시간대 ID를 검색합니다. 오프셋은 현재 날짜 기준으로 표시되며 일광 절약 시간에 따라 달라질 수 있습니다."
 timezone_placeholder = "검색, 예: Asia/Shanghai"
-timezone_title = "인스턴스 시간대"
+timezone_title = "예약 작업 시간대"
 timezone_use = "{$timezone} 사용"
 unsaved = "저장되지 않은 변경 사항"
 valid_json = "유효한 JSON"
@@ -1776,7 +1850,7 @@ limit_per_channel = "전체 SMTP 채널 최대 횟수"
 limit_query_rows = "최대 쿼리 행 수"
 limit_record_bytes = "최대 레코드 크기(바이트)"
 limit_group_count = "최대 그룹 수"
-limit_statement_timeout_ms = "문장 시간 제한(밀리초)"
+limit_statement_timeout_ms = "SQL 실행 제한 시간(밀리초)"
 limit_timeout_ms = "실행 시간 제한(밀리초)"
 limit_heap_mb = "힙 제한(MB)"
 limit_max_file_bytes = "편집 가능한 최대 파일(바이트)"
@@ -2091,7 +2165,7 @@ result = "결과"
 
 [console.workers]
 agent = "Agent"
-empty_description = "각 Agent에는 Worker가 하나 있습니다. Agent를 만들면 처음 필요할 때 Worker가 시작됩니다."
+empty_description = "각 Agent에는 Worker가 하나 있습니다. Ankole은 Agent를 만들 때 백그라운드에서 Worker를 시작하며, 유휴 상태로 회수한 뒤에는 Worker가 필요한 작업이 생기면 다시 시작합니다."
 empty_title = "Worker가 없음"
 last_heartbeat = "마지막 하트비트"
 load = "부하"
@@ -2481,7 +2555,7 @@ memory_whoknows = "주제별 전문가 찾는 중"
 notify_on_change = "오류, 차단 또는 변경 사항이 있을 때만 알림"
 processing = "요청 처리 중"
 quiet_success = "일상적인 성공에는 알리지 않고 오류나 변경 사항이 있을 때만 알림"
-report_check_result = "확인 결과가 나올 때 보고합니다"
+report_check_result = "정해진 시각에 확인 결과를 보고합니다"
 schedule_after_day = "{$value}일 후"
 schedule_after_hour = "{$value}시간 후"
 schedule_after_millisecond = "{$value}밀리초 후"
@@ -3676,7 +3750,7 @@ record_conflict = "레코드가 변경되었습니다. 다시 불러온 후 삭�
 record_exists = "이 레코드는 이미 존재합니다. 양식을 닫고 저장된 레코드를 확인하세요."
 schema_conflict = "필드 또는 보기 정의가 변경되었습니다. 초안은 유지됩니다. 정의를 다시 불러오세요."
 conversion_failed = "변환할 수 없는 기존 값이 있습니다. 원래 정의를 유지하거나 잘못된 값을 비우도록 확인하세요."
-local_table_changed = "테이블가 변경되었습니다. 구조를 다시 불러온 후 다시 시도하세요."
+local_table_changed = "테이블이 변경되었습니다. 구조를 다시 불러온 후 다시 시도하세요."
 validation_failed = "요청 내용이 올바르지 않습니다. 값을 확인한 후 다시 시도하세요."
 revision_conflict = "페이지가 변경되었습니다. 초안 또는 선택한 파일은 유지됩니다. 최신 버전을 불러온 후 다시 시도하세요."
 sharing_conflict = "다른 사용자가 공유 설정을 변경했습니다. 초안은 유지됩니다. 최신 설정을 확인한 후 저장 여부를 결정하세요."
@@ -3688,14 +3762,14 @@ file_too_large = "파일이 업로드 크기 제한을 초과했습니다. 더 �
 invalid_file = "파일이 올바르지 않아 저장할 수 없습니다."
 invalid_path = "파일 경로가 올바르지 않습니다."
 missing_file = "업로드할 파일을 선택하세요."
-invalid_query = "쿼리 설정이 올바르지 않습니다. 필터, 정렬 및 그룹 필드을 확인하세요."
+invalid_query = "쿼리 설정이 올바르지 않습니다. 필터, 정렬 및 그룹 필드를 확인하세요."
 group_limit = "그룹 수가 제한을 초과했습니다. 필터 범위를 좁히거나 그룹 설정을 변경하세요."
 record_size_limit = "레코드가 크기 제한을 초과했습니다. 텍스트나 관계 항목을 줄인 후 다시 시도하세요."
 invalid_request = "요청 내용이 올바르지 않습니다. 값을 확인한 후 다시 시도하세요."
 query_limit = "쿼리 결과가 제한을 초과했습니다. 필터 범위를 좁힌 후 다시 시도하세요."
 record_limit = "테이블의 레코드 수가 제한에 도달했습니다."
-invalid_formula = "수식이 올바르지 않습니다. 식과 참조 필드을 확인하세요."
-unknown_formula_field = "수식이 참조하는 필드이 없습니다. 필드을 다시 선택하세요."
+invalid_formula = "수식이 올바르지 않습니다. 식과 참조 필드를 확인하세요."
+unknown_formula_field = "수식이 참조하는 필드가 없습니다. 필드를 다시 선택하세요."
 unauthenticated = "세션이 더 이상 유효하지 않습니다. 다시 로그인하세요."
 guest_forbidden_in_private = "외부 게스트는 개인 페이지에 접근할 수 없습니다."
 invalid_page_type = "이 페이지의 파일 형식이 바뀌었습니다. 페이지를 새로 고치세요."
@@ -3887,7 +3961,7 @@ formula_bar = "셀 내용"
 active_cell = "활성 셀"
 active_cell_value = "{$cell}: {$value}"
 version_history = "버전 기록"
-version_history_description = "버전을 복원하기 전에 현재 파일을 먼저 버전으로 저장하므로 내용이 사라지지 않습니다."
+version_history_description = "버전을 복원하기 전에 현재 파일을 버전 기록에 먼저 저장합니다."
 versions = "버전"
 version_restored = "버전을 복원했습니다. 열려 있는 모든 편집기가 다시 불러옵니다."
 restore_version = "복원"
@@ -4165,7 +4239,7 @@ sync_retrying = "아직 저장되지 않음. 다시 시도 중…"
 view_only = "읽기 전용"
 collaborators = "이 파일을 보거나 편집 중인 멤버"
 version_history = "버전 기록"
-version_history_description = "이전 버전을 복원하기 전에 현재 파일을 먼저 버전으로 저장하므로 내용이 유실되지 않습니다."
+version_history_description = "버전을 복원하기 전에 현재 파일을 버전 기록에 먼저 저장합니다."
 versions = "버전"
 version_restored = "버전을 복원했습니다. 열려 있는 모든 편집기가 다시 불러옵니다."
 restore_version = "복원"

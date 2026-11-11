@@ -14,7 +14,7 @@ Rust Kernel は Control Plane 向けのネイティブライブラリです。El
 - **`common/`**：AEAD 暗号化・復号、鍵導出、エンコード、ハッシュ計算、UUIDv7 識別子生成、JWT ヘルパー、電話番号の正規化、Reciprocal Rank Fusion、トークン数の見積もり、および URL・IP に対する SSRF 検証を行います。
 - **`authz/`**：明示的なスナップショットにもとづく権限評価、CEL 式の検証と条件評価、リソースパターンの照合を行います。評価に必要なデータは、[Principal と AuthZ](../principal-authz/) で解説されているとおり Control Plane から渡されます。
 - **`universal_ai_client/`**：上流 Provider との HTTP SSE / EventStream および WebSocket 通信、レスポンスの正規化、下流向け JSON テキストチャンクのエンコード、デマンドクレジット制御、キャンセル処理、タイムアウト管理を担います。
-- **`object_store/`**：ローカルディレクトリまたは S3 互換バケットをバックエンドとするファイルサービスのストレージ層を提供します。
+- **`object_store/`**：OpenDAL 経由のファイルストレージを提供し、`fs`、`s3`、`gcs`、`azblob`、`oss`、`cos`、`tos`、`postgresql`、`d1`、`sftp`、`webdav` に対応します。
 - **`page_document/`**：Pod ページの XML ツリー検証、Wordgard 変更セットの適用、および UTF-16 差分の計算を行います。
 - **`page_document/knowledge/`** と **`markdown.rs`**：知識ページの XML と OKF Markdown を情報を失わずに相互変換し、汎用の Markdown 構文解析を行います。
 - **`model_image.rs`**：モデル向け画像のデコード、リサイズ、フォーマット変換を行います。

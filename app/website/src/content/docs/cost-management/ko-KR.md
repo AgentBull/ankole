@@ -30,17 +30,17 @@ Ankole에서 발생하는 지출의 대부분은 모델 토큰 비용이며, 통
 | `video`(Site / Pod / `system`) | `/videos`의 동영상 생성 | 동영상 모델 연결 필요. 비워 두면 동영상 요청이 실패. 제공업체가 생성마다 과금 |
 | `music`(Site / Pod / `system`) | `/audio/music`의 음악 생성 | 음악 모델 연결 필요. 비워 두면 음악 요청이 실패. 제공업체가 생성마다 과금 |
 
-컨트롤 플레인 서브시스템의 모델 호출은 내장 `system` Principal 명의로 실행되므로 백그라운드 유지보수나 Applet이 포그라운드 Agent의 토큰 할당량을 소모하지 않습니다.
+Company Brain 유지보수와 Pod Applet 호출은 실행 주체가 다릅니다.
 
 - **`ankole_brain`**: 모든 Company Brain 모델 호출을 실행하고 사용량을 `ankole_brain`에 기록합니다. 대화 및 Source 사실 추출에는 `light`(미설정 시 `primary`), Dreaming과 Skill 교훈 재검토에는 `heavy`(미설정 시 `primary`), URL Source 가져오기에는 `web_fetch`, 회상 재순위화에는 `rerank` 프로필을 해석하며, 임베딩 생성에는 [AppConfigure](../app-configuration/)의 사이트 단위 `brain.embedding_model` 키를 읽습니다. Brain 유지보수 예산을 포그라운드 Agent와 분리하고 싶다면 **Console → Model Profiles**에서 `ankole_brain`의 각 슬롯을 개별 재정의할 수 있으며, **Brain → 상태** 화면에서 프로필 준비 상태를 확인할 수 있습니다(자세한 동작은 [Brain](../brain/) 참조).
-- **`system`(Pod Applet `ctx.ai`)**: 무상태 Pod Applet `ctx.ai` 호출을 `system` Principal로 실행하며 유효 Pod/Site 언어 모델 프로필(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)을 사용합니다.
+- **Pod Applet `ctx.ai`**: 일반 호출은 현재 호출자, admin capability는 Applet 소유자 명의로 실행합니다. AIGateway는 해당 주체의 프로필을 해석하고 사용량을 기록합니다. Applet에서 시작한 호출은 Agent 토큰 할당량 집계에 포함되지 않습니다.
 
 가장 효과가 큰 두 가지 절감 조치는 다음과 같습니다.
 
 - **Site 또는 Pod 수준에서 `light`에 저렴한 모델을 연결하세요.** `light`는 비워 두면 `primary`로 폴백하며, 대량 보조 경로와 `ankole_brain` 사실 추출을 모두 담당합니다. 기본 계층에서 경량 모델을 지정해 두면 이를 상속하는 모든 Agent와 `ankole_brain`의 비용이 함께 절감됩니다.
 - **`primary`는 균형 잡힌 등급에서 시작하고, 꼭 필요한 전문 Agent만 상향하세요.** 유독 비용이 많이 나오는 Agent를 살펴보면 실제 맡은 업무에 비해 과도하게 무거운 모델이 `primary`에 연결된 경우가 많습니다. 결과 품질상 상위 모델이 꼭 필요한 전문 Agent에만 `primary`나 `heavy`를 재정의하세요.
 
-Pod나 Agent가 쓰지 않는 선택적 capability 슬롯은 비워 두세요. 예를 들어 `vision_fallback`을 비워 두면 해당 경로로는 호출 자체가 일어나지 않습니다. 다만 `image_generate` 프로필은 비워 두더라도 주 프로바이더가 네이티브 이미지 생성을 지원한다고 선언하면 해당 기능을 사용할 수 있습니다. Background Agent Jobs(`coding`) 역시 비워 두면 AIGateway를 통해 `heavy -> primary` 순서로 폴백하여 실행되므로, 백그라운드 작업에 전용 코딩 모델이나 구독 풀을 지정하고 싶을 때 `coding` 슬롯을 구성하세요.
+Agent 재정의를 바꾸기 전에 Site와 Pod에서 상속된 실효 프로필을 확인하세요. 실효 `vision_fallback` 프로필이 비어 있으면 이미지 입력 폴백을 사용할 수 없습니다. 이미지 생성의 **모델의 Provider가 실행**이 켜져 있으면 메인 Provider의 네이티브 기능을 사용하고 전용 프로필은 무시합니다. `image_generate`를 사용하려면 이 스위치를 끄세요. Background Agent Jobs(`coding`) 역시 비워 두면 AIGateway를 통해 `heavy -> primary` 순서로 폴백하여 실행되므로, 백그라운드 작업에 전용 코딩 모델이나 구독 풀을 지정하고 싶을 때 `coding` 슬롯을 구성하세요.
 
 ## 레버 2: reasoning effort
 
@@ -52,7 +52,7 @@ Codex 추론 강도 설정을 지원하는 프로바이더에서 `model_reasonin
 
 `web_search`와 `web_fetch`는 각각 독립된 프로필이며 호출할 때마다 비용이 발생합니다. 다음 두 가지 원칙으로 관리하세요.
 
-- **웹 접근이 필요 없는 Agent에서는 바인딩을 해제하세요.** 사내 데이터만 다루는 어시스턴트에는 `web_search`를 연결하지 않는 편이 좋습니다. 프로필이 연결되어 있으면 모델은 언제든 해당 도구를 호출할 수 있는 것으로 간주합니다.
+- **선택된 검색 경로를 확인하세요.** 웹 검색은 기본적으로 **모델의 Provider가 실행**이 켜져 있습니다. 전용 `web_search` 프로필을 쓰려면 이 스위치를 끄세요. 프로필 연결을 해제하는 것만으로 네이티브 검색이 비활성화되지는 않으므로, 불필요한 호출은 Agent의 작업 지시로 줄이세요.
 - **확인할 URL을 이미 알고 있다면 `web_search` 대신 `web_fetch`를 사용하세요.** 정해진 주소를 바로 가져오면 호출 한 번으로 끝나지만, 검색을 실행하면 검색 호출 비용에 더해 결과 페이지를 읽으려는 후속 `web_fetch` 호출까지 연달아 붙습니다.
 
 참고로 `agent_workers.rendered_fetch_idle_ttl_ms` AppConfigure 키는 렌더링 기반 `web_fetch`에 쓰이는 유휴 브라우저 사이드카 라우트를 정리하기까지의 대기 시간(idle timeout)을 제어할 뿐, URL 응답 캐시로 동작하지는 않습니다.
@@ -64,7 +64,7 @@ Codex 추론 강도 설정을 지원하는 프로바이더에서 `model_reasonin
 | 키 | 제어 대상 |
 |---|---|
 | `ai_agent.max_iterations` | 턴당 에이전트 루프의 최대 반복(iteration) 횟수 |
-| `ai_agent.max_output_tokens` | 턴당 최대 출력 토큰 수 |
+| `ai_agent.max_output_tokens` | 모델 응답 한 번의 최대 출력 토큰 수 |
 | `ai_agent.inactivity_timeout_ms` | 무응답 상태인 턴을 회수하기까지의 유휴 허용 시간 |
 | `sessions.wake_recycle` | 콜드 웨이크 모델 대화 회전 정책(`min_cold_gap_seconds`: `3600`, `min_context_tokens`: `128000`, `im_max_idle_seconds`: `259200`) |
 
@@ -92,12 +92,12 @@ Workflow 전체를 묶는 별도의 일괄 토큰 한도나 금액 예산은 없
 
 | 상한 | 값 | 효과 |
 |---|---|---|
-| `max_execution_attempts` | 5 | 최대 5회 시도 후 `failed` 처리 |
+| `max_execution_attempts` | 5 | 실행 실패가 5회에 도달하면 `failed` 처리 |
 | `max_consecutive_turn_failures` | 5 | 작업을 중단하기 전 허용하는 연속 턴 실패 횟수 |
 | `max_running_per_agent` | 3 (기본값) | Agent당 동시 실행 Job 상한. 테넌트별로 `background_agent_jobs.max_running_per_agent`(`1..64`)에서 조정 가능 |
 | retry delay | ~30s | 재시도 사이의 최소 대기 간격 |
 
-일시적인 오류로 다섯 번 연속 실패하는 작업은 다섯 번 실행한 만큼의 토큰을 소비합니다. 일반적인 상황에서는 기본 상한만으로도 과도한 재시도를 막을 수 있으며, 설정 오류는 즉시 실패 처리된 뒤 멈춥니다. 특히 눈여겨볼 항목은 세 번째인 `max_running_per_agent`입니다. 한 Agent가 세 개의 Job을 동시에 돌리면 세 개의 모델 루프가 한꺼번에 토큰을 소비합니다. 그만한 병렬 처리가 필요하지 않다면 상한 값을 낮추거나 페르소나에 “한 번에 하나의 작업만 진행하라”고 명시하는 편이 훨씬 경제적입니다.
+일시적인 실행 오류는 실행 실패가 누적 5회에 도달할 때까지 재시도할 수 있으며 설정 오류는 즉시 실패 처리합니다. 시작이나 재개를 위한 claim은 별도로 집계하고 총 25회로 제한합니다. 자격 증명 풀의 backpressure는 실행 실패 예산을 소비하지 않습니다. claim마다 완전한 모델 실행이나 같은 양의 토큰 사용이 발생하는 것은 아닙니다. 동시 실행 수인 `max_running_per_agent`도 확인하세요. 한 Agent가 세 개의 Job을 동시에 돌리면 세 개의 모델 루프가 한꺼번에 토큰을 소비합니다. 그만한 병렬 처리가 필요하지 않다면 상한 값을 낮추거나 페르소나에 “한 번에 하나의 작업만 진행하라”고 명시하는 편이 훨씬 경제적입니다.
 
 ## 레버 7: Agent별 token quota
 
@@ -113,16 +113,14 @@ Workflow 전체를 묶는 별도의 일괄 토큰 한도나 금액 예산은 없
 
 - `GET /api/v2/ai-gateway/conversations`를 조회하면 최근 턴들이 수행한 모델 호출 내역을 볼 수 있습니다. 어떤 프로필이 선택되었는지, 몇 번 호출되었는지, 어느 프로바이더로 나갔는지를 바로 파악할 수 있어 비용 원인이 `primary`(호출량 과다), `heavy`(소수의 고비용 호출), `web_search`(다수의 소액 검색 호출) 중 어디에 있는지 가장 빠르게 가려낼 수 있습니다.
 - Workflow 상태는 메인 Agent에게 조회를 요청하세요. 생성된 task 수를 보면 전체 팬아웃 규모와 실패한 호출 비중을 파악할 수 있습니다(별도의 Workflow 전용 콘솔 화면이나 run당 금액 합산 기능은 제공되지 않습니다).
-- `GET /api/v2/background-agent-jobs`에서는 각 Job의 `attempts` 횟수를 확인할 수 있습니다. `attempts: 5`로 표시된 Job은 재시도를 포함해 다섯 번 실행된 작업입니다.
+- `GET /api/v2/background-agent-jobs`의 `attempts`는 claim 횟수입니다. 실제 토큰 비용은 기록된 모델 호출로 확인하세요.
 - 구조화된 컨트롤 플레인 로그에는 프로바이더 호출 이벤트 이름과 세부 필드가 기록되므로, 로그 수집 시스템에서 프로바이더별·Agent별로 손쉽게 집계할 수 있습니다.
 
 결국 올바른 해법은 막연히 “Agent 사용을 줄이는 것”이 아니라, “특정 Agent의 업무 특성에 맞지 않게 잡혀 있는 레버를 찾아 바로잡는 것”입니다.
 
-## 실제 사례
+## 가상 사례
 
-한 배포 환경에서 일주일 만에 청구 금액이 두 배로 뛴 사례가 있었습니다. conversations 내역을 확인해 보니 `primary` 호출 수는 평소와 같았지만 `web_search` 호출이 10배로 급증해 있었습니다. 원인은 `may_intervene`가 켜진 팀 어시스턴트 Agent가 채널에 올라오는 모든 메시지마다 웹 검색을 돌리기 시작한 데 있었습니다. 이때 필요한 조치는 토큰 상한 조정이 아니라 페르소나 수정(“사용자가 사실 확인 질문을 했을 때만 검색하라”)이었습니다. 높은 청구 금액은 모델의 판단 기준이 잘못 잡혔다는 신호였고, 그 판단 기준을 정의하는 곳이 바로 페르소나이기 때문입니다.
-
-비용 문제의 상당수는 이 패턴을 따릅니다. 겉으로는 요금 문제처럼 보이지만 실제로는 Agent의 행동 방식 문제인 경우가 많으며, 행동을 교정하는 수단은 토큰 한도가 아니라 페르소나와 바인딩 정책입니다.
+한 주의 토큰 사용량이 두 배로 늘었다고 가정해 보겠습니다. 대화 내역 API에서 `primary` 호출 수는 그대로인데 `may_intervene`를 쓰는 팀 어시스턴트의 `web_search` 호출이 10배로 늘었습니다. 이때는 “사용자가 사실 확인 질문을 했을 때만 검색하라”는 Agent 지시나 Signal Binding의 개입 정책을 조정할 수 있습니다. 변경 후 호출 내역에서 불필요한 검색이 줄었는지 확인하세요.
 
 ## 비용 관리가 아닌 것
 

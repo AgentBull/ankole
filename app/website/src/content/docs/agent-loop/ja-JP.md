@@ -5,7 +5,7 @@ section: Developer guide
 order: 117
 ---
 
-メインの Agent ループは、Elixir control plane の `Ankole.Sessions` 内で動作し、実行セッションごとに 1 つの `:gen_statem` Driver が処理を進めます。通常の質疑応答や control plane 側で完結するツールには Worker は不要であり、環境ツールや Codex が必要になった時点で初めて Agent の Worker が起動されます。
+メインの Agent ループは、Elixir control plane の `Ankole.Sessions` 内で動作し、実行セッションごとに 1 つの `:gen_statem` Driver が処理を進めます。通常の質疑応答や control plane 側で完結するツールには Worker は不要であり、環境ツールや Codex Job は必要に応じて Worker を要求します。Agent の作成時にも初回起動がバックグラウンドでキューに入ります。詳しくは [Agent Computer Worker](../agent-computer-worker/) を参照してください。
 
 ## 1 ラウンドの永続ステップ
 

@@ -11,7 +11,7 @@ Deep Research goes far beyond searching a few web pages and summarizing snippets
 
 ## Before you start
 
-Complete [Quick start](../quickstart/) and verify that your Agent replies in chat, then configure the `web_search` and `web_fetch` model profiles if the Agent will search public web pages.
+Complete [Quick start](../quickstart/) and verify that your Agent replies in chat, then verify that it can search and read public web pages if the research needs them. See [Web tools](../web-tools/) for model Provider and dedicated profile settings.
 
 Every Job routes model calls through AIGateway. To draw on ChatGPT subscription capacity, set up a [ChatGPT subscription provider](../chatgpt-subscription-provider/) and bind it under **Console → Agents → Background Agent Jobs**.
 
@@ -30,9 +30,9 @@ a report with links. Ask me before you expand the scope or use paid data.
 
 ### Clarification before creation
 
-Rather than launching a 60-minute run from a single ambiguous sentence, the Agent interviews you briefly before creating the Job to settle any open research choices: your goal and intended use, success criteria, scope and time cutoff, evidence rules, and output deliverable. After looking up whatever context the environment already supplies, the Agent asks one question at a time alongside its recommended default, creating the Job only once you confirm.
+Before creating the Job, the Agent establishes your research goal, success criteria, scope and time cutoff, evidence rules, and deliverable from the request, conversation, and available context. It asks only about decisions that affect the conclusion, authorization, or scope and that it cannot settle itself. It asks one question at a time with a recommended answer and waits for your reply. When your request is already explicit and within an existing authorization, the Agent states its assumptions and creates the Job without another confirmation round.
 
-Spending two minutes upfront saves an hour of wasted collection and analysis down the wrong path. If you want to skip the interview, say `"Stop asking, create the Job directly, and decide the rest yourself"`—the Agent will state the assumptions that it made on your behalf, note what it left to the Job, and start immediately.
+You can also ask the Agent to create the Job without further clarification. It will state its assumptions, what the Job should treat as given, and the choices left to the Job, then start immediately.
 
 ### What a good request contains
 
@@ -93,7 +93,7 @@ If mid-run evidence reveals that the initial framing itself was flawed—a misid
 
 Playbooks are Markdown method specifications under `playbooks/` in the Job workspace, seeded from the `deep-research` Agent Plugin's workspace template. Each Playbook declares upfront when it applies; during planning, the Job scans `playbooks/` and loads any matching method.
 
-More than stylistic tips, a Playbook can override the default analysis, verification, and reporting workflow—for instance, replacing single-pass verification with ACH's three-pass progressive disclosure. Because methodology lives in plain workspace files rather than model weights or hardcoded Elixir/TypeScript, teams can evolve or add methods freely. Two general Playbooks ship built in.
+More than stylistic tips, a Playbook can override the default analysis, verification, and reporting workflow—for instance, replacing single-pass verification with ACH's three-pass progressive disclosure. Because methodology lives in plain workspace files rather than model weights or hardcoded Elixir/TypeScript, teams can evolve or add methods freely. Four Playbooks ship built in: `ach`, `analogical-foresight`, `academic-verify`, and `scientific-research`. The latter two trace academic claims to source data and address scientific or mathematical questions through computation and primary literature.
 
 ### ach: Analysis of Competing Hypotheses
 
@@ -109,7 +109,7 @@ bun tools/ach_check.ts
 
 `ach_check.ts` catches structural omissions and missing or unsafe source paths, leaving substantive judgment—whether hypotheses are sound, sources prove claims, or cell labels hold up—to the model and to you.
 
-**The comparison uses diagnosticity, not the quantity of support.** Across each row, the Job asks how expected that item would be *if each hypothesis were true*—assigning one of six relations (`expected`, `compatible`, `tension`, `contradicts`, `unknown`, or `not applicable`) with a concise rationale. Reading across rows before reading down columns highlights diagnostic power: evidence compatible with every hypothesis may matter contextually while doing nothing to separate rival explanations.
+**The comparison uses diagnosticity, not the quantity of support.** Across each row, the Job asks how expected that item would be *if each hypothesis were true*—assigning one of six relations (`expected`, `compatible`, `tension`, `contradicts`, `unknown`, or `not_applicable`) with a concise rationale. Reading across rows before reading down columns highlights diagnostic power: evidence compatible with every hypothesis may matter contextually while doing nothing to separate rival explanations.
 
 **Dependence and channel coverage.** Syndicated articles trace back to one origin, and multiple metrics from a single event or dataset do not count as independent confirmation. Even subtler is channel coverage: rival hypotheses leave footprints in different places, so failing to search the channel where a hypothesis would appear measures your search blind spots rather than the world. Every hypothesis therefore names its expected observable channels, and the Job either searches them or logs an explicit coverage gap.
 
@@ -166,7 +166,7 @@ Whenever the Job needs a decision from you, it posts the question in the origina
 
 ## Read the result
 
-When the Job finishes, the foreground Agent reviews the report before presenting it to you: if an open gap undermines your stated goal and the Agent already holds the missing context (or can ask you for a quick decision), it feeds that context back and resumes the Job rather than handing over an unusable draft.
+When the Job finishes, the foreground Agent delivers the result the Job has verified. In a Pod conversation, the default is an editable Pod Page link; other channels receive the Markdown report unless you requested a different format. If the result states a gap or limitation that defeats your confirmed research purpose, the Agent tells you and resumes the Job when it can supply missing information or a decision from you.
 
 When reviewing the final report, verify that cited sources back the conclusions, cutoff dates held, facts stay distinct from inference, and uncertainties are stated plainly. Every report is written to stand on its own without requiring external scratch files, though you can always ask the Agent to pull a specific `sources/` note or explain any row's rationale in `competing-hypotheses.yaml`.
 
@@ -184,7 +184,7 @@ Ankole Deep Research builds on ideas from recent open research—each achieving 
 
 **Independence comes from information control, not from self-audit.** Rather than asking a model to critique its own reasoning trace—which inherits the same priors that produced the draft—Ankole withholds conversation history and `research-state.md` from the verifier, and under ACH requires the verifier to reconstruct hypotheses and diagnostic evidence from `sources/` alone before ever seeing `competing-hypotheses.yaml` or the report, preventing conclusion anchoring.
 
-**Persistence sits in the Job lifecycle, not only outside the context window.** Like FS-Researcher, Ankole persists structured `sources/` notes on disk to scale past prompt limits, and pairs that workspace with a full Background Agent Job lifecycle—leases, Worker crash recovery, mid-run steering messages, and slot-free `waiting_on_user` pauses—so runs survive Worker replacements as well as context compaction. Ankole also avoids splitting collection and writing into disconnected librarian/writer roles (since rigorous synthesis requires the full reasoning chain), instead assigning one owner per data source during collection and reserving strict context isolation for the verifier.
+**Persistence sits in the Job lifecycle, not only outside the context window.** Like FS-Researcher, Ankole persists structured `sources/` notes on disk to scale past prompt limits, and pairs that workspace with a full Background Agent Job lifecycle—leases, Worker crash recovery, mid-run steering messages, and slot-free `waiting_on_user` pauses—so runs survive Worker replacements as well as context compaction. Ankole also avoids splitting collection and writing into disconnected librarian/writer roles (since rigorous synthesis requires the full reasoning chain), instead assigning one owner per data source during collection and starting every support thread without inherited history or private research state. Collectors receive a bounded collection brief and report facts; the lead owns the conclusions.
 
 **An analogy must give a falsifiable transfer chain.** Building on ADR's finding that models default to surface similarity unless guided toward causal mechanism alignment, Ankole's `analogical-foresight` Playbook enforces a complete transfer chain plus two enterprise safeguards: auditing cross-case dependence (so shared shocks, narratives, or metrics are never mistaken for independent confirmation) and requiring a concrete target-side observable so every analogy can be tested against reality rather than merely sounding persuasive.
 

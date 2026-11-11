@@ -54,7 +54,7 @@ Ankole never interprets files inside a template as a Plugin activation contract.
 
 ### Built-in Packages
 
-Ankole ships seven built-in Agent Plugins:
+Ankole ships 21 built-in Agent Plugins:
 
 | ID | Member Skills | Shipped default |
 | --- | --- | --- |
@@ -62,9 +62,23 @@ Ankole ships seven built-in Agent Plugins:
 | `office` | `docx`, `xlsx`, `pptx` | Enabled |
 | `deep-research` | `create-deep-research` | Enabled |
 | `brain` | `brain-learning`, `resolve-before-asking`, `idea-lineage`, `applied-reading` | Enabled |
-| `github` | `github` | Enabled |
+| `github` | `github` | Disabled |
 | `linear` | `linear` | Enabled |
 | `methodology` | `eli5` | Enabled |
+| `postgresql` | `postgresql` | Enabled |
+| `mysql` | `mysql` | Enabled |
+| `clickhouse` | `clickhouse` | Enabled |
+| `calendly` | `calendly` | Enabled |
+| `figma` | `figma` | Enabled |
+| `gitlab` | `gitlab` | Enabled |
+| `google_analytics` | `google-analytics` | Enabled |
+| `googlecalendar` | `googlecalendar` | Enabled |
+| `salesforce` | `salesforce` | Enabled |
+| `sentry` | `sentry` | Enabled |
+| `stripe` | `stripe` | Enabled |
+| `trello` | `trello` | Enabled |
+| `typeform` | `typeform` | Enabled |
+| `zendesk` | `zendesk` | Enabled |
 
 Member Skills live exclusively inside their parent Agent Plugin, while
 standalone Skills live under `app/library/skills`. Three packages have notable
@@ -228,8 +242,8 @@ per-Agent Skill bindings in `agent_skills`. Authorized Pod members manage custom
 and shipped Skill packages, `enabled_for_all`, and `agent_skills` bindings in
 Pod under **Meta Ankole -> Skills** (`/api/v2/pod/meta/skills`), while Agent
 Plugin defaults live in `AppConfigure` under
-`ai_agent.library.agent_plugin_defaults` (`global`, `tenant:<id>`, and
-`agent:<uid>`).
+`ai_agent.library.agent_plugin_defaults` (`global` and `tenant:<id>`).
+Per-Agent choices use the Library-owned `agent_plugin_overrides` table.
 
 The Console API exposes Agent Plugin defaults, tenant Skill enablement, and
 per-Agent effective capabilities through six JSON:API endpoints
@@ -255,7 +269,7 @@ changes to active tenants. Tenant-wide Skill writes (`PUT
 through detail links.
 
 Per-Agent Agent Plugin writes accept `{ "data": { "enabled": boolean | null } }`
-(where `null` clears the `agent:<uid>` override and restores inheritance), while
+(where `null` clears the Agent's stored override and restores inheritance), while
 per-Agent Skill writes accept `{ "data": { "enabled": boolean } }` and add or
 remove a positive `agent_skills` binding. Each capability row reports three
 boolean fields:
@@ -339,9 +353,9 @@ The devkit validates and applies the selected database migrations before startin
 Phoenix. Developers restart `bun dev` to apply migrations added during a running
 session.
 
-The public build compiles 16 Control Plane Plugins (`amazon-ai-providers`,
+The public build compiles 18 Control Plane Plugins (`amazon-ai-providers`,
 `china-market-ai-providers`, and `vercel-worker-provider` as optional Plugins,
-plus 13 `activation: :always`
+plus 15 `activation: :always`
 identity, messaging, and Connector adapters), while six enterprise IM and
 directory Plugins (`dingtalk-adapter`, `google-workspace-adapter`,
 `lark-adapter`, `microsoft365-adapter`, `slack-adapter`, and `wecom-adapter`)
@@ -624,9 +638,7 @@ then declaration order. Returning `:ok` allows the commit to proceed, while
 returning `{:error, reason}` rolls back the enclosing transaction.
 
 `Ankole.Plugins.Hook.points/0` defines the supported hook points:
-`:create_agent`, `:create_invitation`, `:enable_signal_binding`,
-`:enable_identity_provider`, `:store_file`, `:commit_files`, `:create_pod_page`,
-`:restore_pod_page`, `:insert_base_records`, and `:admit_compute`. Each hook
+`:create_agent`, `:create_invitation`, and `:enable_signal_binding`. Each hook
 receives the domain attributes at that transaction boundary, runs under the
 domain's established lock order, and may inspect the current tenant while the
 host manages activation and dispatch. To let active Plugins enforce compute
@@ -693,10 +705,10 @@ Inbound and outbound responsibilities split across dedicated adapter modules:
   into the single `Ankole.Signals.accept_in_tx/1` intake. While the adapter
   supplies `provider_conversation_id` and `provider_message_id`, Conversations
   assigns the public UUIDs `conversation_id` and `message_id`.
-- **Delivery (`deliver_module` and `reply_preview_module`)**: `deliver_module`
+- **Delivery (`deliver_module` and `preview_module`)**: `deliver_module`
   implements `Ankole.Conversations.Delivery.Adapter` (`deliver/1` for one
   persisted provider intent, plus `reconcile/1` when `outbound_reconciliation`
-  is declared), and `reply_preview_module` implements optional live reply
+  is declared), and `preview_module` implements optional live reply
   previews. Delivery owns retry attempts and provider confirmation; adapters
   never create public Agent Messages before the upstream provider confirms a
   send.
@@ -746,5 +758,5 @@ declaring neither a delivery module nor an IM sender policy. See
 - Have `AgentCodexRuntime` install and trust all same-release Agent Plugins before the first Job thread starts, keeping global Codex entries set to `enabled = false`.
 - Gate each Job's Plugin member Skills strictly through its projected Skill selection and Ankole's Skill index and `skill_view` loader.
 - Use `workspace_template_id` solely to seed initial files when first creating a Job Workspace.
-- Activate every compiled Control Plane Plugin while first-run setup is incomplete, require a restart for activation changes once setup completes, and keep newly added Control Plane Plugins inactive on existing installations until an operator enables them.
+- Activate every compiled Control Plane Plugin while first-run setup is incomplete, require a restart for activation changes once setup completes, and keep newly added optional Control Plane Plugins inactive on existing installations until an operator enables them.
 - Keep all durable business and configuration state in its owning subsystem.

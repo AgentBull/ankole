@@ -13,7 +13,7 @@ Ankole におけるあらゆる操作（人間のサインイン、Agent によ�
 
 Principal は、人間、Agent、システムサービスに共通する永続的な責任主体です。各 Principal は単一のテナントに所属し、`(tenant_id, uid)` で一意に識別されます（`uid` は `alex.smith` や `research-analyst` など、そのテナント内で一意な意味のある小文字名です）。`principals` テーブルの各行は、`type`（`:human`、`:agent`、`:system`）、`status`（`:active` または `:disabled`）、さらに `:human` の場合は `:member` または `:guest` の `membership`（`:agent` と `:system` では `nil`）を保持します。
 
-人間の Principal には、1 つの `HumanUser` 行、0 個以上のサイトスコープの `SiteCredential` 行（`principal_site_credentials`。検証済み Email OTP アドレスなど）、および 0 個以上のテナントスコープの `ExternalIdentity` 行（`principal_external_identities`。Identity Provider から連携された外部 ID）が紐付きます。Agent の Principal にはサブタイプ `:personal_assistant`（有効な内部 Human `member` ごとに `<owner_uid>_assistant` として 1:1 で自動作成）または `:ai_colleague`（共有の専門 Agent）を持つ 1 つの `Agent` 行が紐付きます。また、System Principal は Ankole の固定内部サービスレジストリで定義される `system`（Pod Applet のステートレスな `ctx.ai` と内部ランタイム処理）および `ankole_brain`（Company Brain の抽出、Dreaming、Skill 教訓の再確認、URL Source 取得、rerank）であり、サインインや UID リネームは行えず Worker も持ちません。すべての主体を単一のテーブルに集約することで監査ログ・grant・グループメンバーシップの追跡が一本化され、さらに監査付きのテナント内 UID リネーム（Human 向け `POST /api/v2/principals/:uid/rename`、および稼働中 Worker のない無効化済み Agent 向け `POST /api/v2/agents/:uid/rename`）によって grant・グループメンバーシップ・Brain のパスやメンション・Base 参照がアトミックに書き換えられます。
+人間の Principal には、1 つの `HumanUser` 行、0 個以上のサイトスコープの `SiteCredential` 行（`principal_site_credentials`。検証済み Email OTP アドレスなど）、および 0 個以上のテナントスコープの `ExternalIdentity` 行（`principal_external_identities`。Identity Provider から連携された外部 ID）が紐付きます。Agent の Principal にはサブタイプ `:personal_assistant`（有効な内部 Human `member` ごとに `<owner_uid>_assistant` として 1:1 で自動作成）または `:ai_colleague`（共有の専門 Agent）を持つ 1 つの `Agent` 行が紐付きます。また、System Principal は Ankole の固定内部サービスレジストリで定義される `system`（内部ランタイム処理）および `ankole_brain`（Company Brain の抽出、Dreaming、Skill 教訓の再確認、URL Source 取得、rerank）であり、サインインや UID リネームは行えず Worker も持ちません。すべての主体を単一のテーブルに集約することで監査ログ・grant・グループメンバーシップの追跡が一本化され、さらに監査付きのテナント内 UID リネーム（Human 向け `POST /api/v2/principals/:uid/rename`、および稼働中 Worker のない無効化済み Agent 向け `POST /api/v2/agents/:uid/rename`）によって grant・グループメンバーシップ・Brain のパスやメンション・Base 参照がアトミックに書き換えられます。
 
 人間の `membership` はテナント内の協業範囲を制御します。内部の `member` は computed group である `all_humans` に含まれますが、外部の `guest` は明示的な Pod ページ共有または Agent grant がなければアクセスできず、組み込み管理者グループ（`siteadmin` や `pod_admin`）への参加や Private ルートも持たず、Brain の `world` スコープも付与されません。
 
@@ -66,7 +66,7 @@ Principal group は名前付きの集合であり、Principal はグループを
 
 ランタイムの主要な境界すべてで AuthZ が検査されるため、Agent が会話やプロンプトの工夫でこの制限を迂回することはできません。
 
-- **AIGateway：** 検証済みトークンから呼び出しごとの subject を解決し、その subject の grant で利用可能なモデルセレクターと Provider を判定します。
+- **AIGateway：** Agent または OIDC Human の認証情報を検証し、現在の subject と、OIDC リクエストでは Client ポリシーを確認します。モデルセレクターは対応するモデルプロファイルまたは Client の binding から解決します。
 - **ツールの準備とディスパッチ**では、実行する Agent が有効であること、ツールが宣言済みのカタログに含まれること、引数と指示が有効であることを確認します。ツールの所有モジュールは Agent の権限で対象リソースを検査します。
 - **セッション Driver と Worker：** 実行セッションの Driver はコミット前に永続 fence を検証し、Worker からの Job 操作では永続 Job attempt fence と認証済み接続の Identity を検証します。
 - **管理コンソール API：** Site Console（`/api/v2`）および Pod 管理（`/api/v2/pod/admin`）の操作には、検証済みのブラウザーセッション証明、CSRF 保護、および有効な `site_console:**` または `tenant_console:**` grant が必須です。

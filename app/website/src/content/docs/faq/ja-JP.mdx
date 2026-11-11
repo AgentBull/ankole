@@ -63,7 +63,7 @@ export const commonIssues = [
     cause: 'Console での直接会話まで失敗する場合は、特定のチャットプラットフォームのイベント権限ではなく、共通の下流経路（LLM Provider、Agent の model profile、または Worker）に原因がある可能性が高いです。',
     resolution: [
       'LLM Provider が有効化されており、認証情報とモデル名が正しく機能するか確認してください。',
-      '対象 Agent に primary・light・heavy の各 profile が設定されていること、また Console → Workers でその Agent の Worker にエラー理由が表示されていないことを確認してください。',
+      '対象 Agent の primary profile が有効で、利用する profile が正しく解決できることを確認してください。Console → Workers で、その Agent の Worker にエラーが出ていないかも確認します。',
       'まず Console 上で実際のモデルとの会話を 1 往復成功させてから、チャットプラットフォーム側の確認に戻ってください。'
     ],
     links: [
@@ -74,10 +74,10 @@ export const commonIssues = [
   {
     question: 'スケジュールが予定時刻に実行されませんでした。最初に何を確認すべきですか？',
     symptom: 'スケジュール自体は登録されているのに、想定した時刻に起動しない、または次回実行予定時刻が想定とずれている。',
-    cause: 'スケジュールが無効になっているか、インスタンスのタイムゾーンや cron 式の指定が誤っているか、あるいはトリガー時刻に control plane が停止していた可能性があります。',
+    cause: 'スケジュールが無効になっているか、スケジュールのタイムゾーンや cron 式の指定が誤っているか、あるいはトリガー時刻に control plane が停止していた可能性があります。',
     resolution: [
       '対象のスケジュールを開き、有効になっていることと、画面に表示されている次回実行時刻を確認してください。',
-      'インスタンスのタイムゾーンと cron 式を見直してください。cron 式を頭の中で計算するのではなく、Console が算出して表示している次回時刻を基準に確認します。',
+      'スケジュールのタイムゾーンと cron 式を見直してください。cron 式を頭の中で計算するのではなく、Console が算出して表示している次回時刻を基準に確認します。',
       '[Run now] を実行してみてください。これで正常に動けば時刻・cron 設定の問題であり、失敗する場合は実行記録（run record）を確認します。'
     ],
     links: [
@@ -320,7 +320,7 @@ export const identityTabs = [
         resolution: [
           'WeCom 管理コンソールで Contacts API 同期を有効にし、その専用 secret を Ankole の Identity Provider 設定に入力してください。',
           'Contacts 同期の専用 secret 側にも信頼 IP を登録してください。',
-          'WeCom はリアルタイムのディレクトリ変更イベントを配信しないため、組織変更後は手動でフル同期を実行するか、次回の定期同期を待ってください。'
+          'この IdP アダプターはリアルタイムのディレクトリ変更イベントを購読しないため、組織変更後は手動でフル同期を実行するか、次回の定期同期を待ってください。'
         ],
         links: [
           { href: '../quickstart/#identity-providers', label: 'Quick start で WeCom IdP を設定する' }

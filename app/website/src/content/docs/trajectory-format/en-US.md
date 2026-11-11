@@ -7,7 +7,7 @@ order: 121
 
 Ankole records Agent execution history in two distinct stores tailored to two kinds of work: AIGateway stores conversation messages (the live transcript that a stateful Responses conversation produces), while Background Agent Jobs store turn trajectories (the per-turn execution log of a durable background job). This page explains both storage schemas, canonical ChatML projection, and how Ankole strips wire-protocol internals before showing history to a model, building on [AIGateway](../ai-gateway/) and [Background Agent Jobs](../background-agent-jobs/).
 
-Models never inspect raw database rows directly. Instead, both stores project into a sanitized, model-visible representation that strips internal UUIDs and wire-protocol fields in favor of turn-local call aliases—so the model sees `"call_1 → result of call_1"` while PostgreSQL retains the full audit record.
+Models receive projections of stored history. When the Main Agent inspects a Background Agent Job, the trajectory projection removes internal message IDs and replaces tool-call IDs with local aliases such as `call_1`, while PostgreSQL retains the audit record.
 
 Note that an AIGateway conversation represents a single Session's model transcript and is distinct from the shared participant Conversation and Messages owned by `Ankole.Conversations`. Shared channel history can supply background context at turn boundaries, but never replaces the Session's AIGateway response chain or tool journal.
 

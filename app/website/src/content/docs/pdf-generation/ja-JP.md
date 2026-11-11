@@ -12,7 +12,7 @@ order: 306
 ## 必要なもの
 
 - **`pdf` Skill が有効であること。** デフォルトで有効（`default_enabled: true`）になっているため、明示的に無効化しないかぎりすべての Agent で利用できます。詳しくは [Skills](../skills/) を参照してください。
-- **Worker イメージ。** Agent Computer Worker イメージには、Pandoc、2 種類の PDF エンジン（Typst と LaTeX）、Poppler、QPDF があらかじめ組み込まれています。追加のインストール作業は不要です。
+- **Worker イメージ。** Agent Computer Worker イメージには、Pandoc、2 種類の PDF エンジン（WeasyPrint と Typst）、Poppler、QPDF があらかじめ組み込まれています。追加のインストール作業は不要です。
 - **`primary` モデルプロファイルがバインドされていること。** Agent が原稿（Markdown や文書構造）を作成し、Skill のツールチェーンがそれを PDF へレンダリングします。
 
 ## skill が行うこと

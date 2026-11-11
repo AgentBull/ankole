@@ -61,7 +61,7 @@ Signal は宛先 Session を直接指定できるほか、会話の参加関係�
 
 ### Sessions が作業を実行・復旧する
 
-`Ankole.Sessions` は待機キュー、Admission、Driver、Run、ツール、コールドウェイク時の会話ローテーション、障害復旧を管理します。各 Session は同時に 1 つの Run だけを実行し、開始のたびに Admission がテナント・Agent 状態・人間の作業権限・認可・トークンクォータを検証します。
+`Ankole.Sessions` は待機キュー、Admission、Driver、Run、ツール、コールドウェイク時の会話ローテーション、障害復旧を管理します。各 Session は同時に 1 つの Run だけを実行し、開始のたびに Admission がテナント・Agent 状態・人間の作業権限・認可を検証します。トークンクォータは AIGateway がモデル呼び出しの直前に毎回確認します。
 
 各 Agent は会話内で固有の Session を持ち、Agent のサブタイプに応じて権限モデルが分かれます。
 
@@ -100,7 +100,7 @@ Deep Research はこの基盤の上に構築されており、Agent Plugin が `
 
 AIGateway は上流 AI プロバイダーと実行主体を切り離し、パーソナルアシスタント、AI 同僚、Background Agent Jobs、Brain、Pod Applet、外部 OIDC クライアントに対して LLM・embedding・rerank・画像生成・Web Search・Web Fetch の統一境界を提供します。
 
-`Ankole.AIGateway.ModelProfiles` は 3 層のスパース継承（`Site -> Pod -> Agent/System`）とスロット間フォールバック（`coding -> heavy -> primary`、`light -> primary`）でモデルを解決します。登録済みの `system` Principal はフォアグラウンド Agent のトークンクォータを一切消費せずに内部処理を実行します。`ankole_brain` は Brain の抽出（`light`）・Dreaming と教訓レビュー（`heavy`、未設定時は `primary`）・URL Source 取得（`web_fetch`）・想起時の再ランキング（`rerank`）を担い、`system` は Pod / Site 既定値で Pod Applet のステートレスな `ctx.ai` 呼び出しを実行し、サイト設定 `brain.embedding_model` が共有ベクトルインデックスを司ります。運用者は **Console → Model Profiles** で Site・Pod・`system` Principal のプロファイルを管理し、Provider 認証情報はすべてコントロールプレーン内で暗号化保管されます。
+`Ankole.AIGateway.ModelProfiles` は 3 層のスパース継承（`Site -> Pod -> Agent/System`）とスロット間フォールバック（`coding -> heavy -> primary`、`light -> primary`）でモデルを解決します。登録済みの `system` Principal はフォアグラウンド Agent のトークンクォータを一切消費せずに内部処理を実行します。`ankole_brain` は Brain の抽出（`light`）・Dreaming と教訓レビュー（`heavy`、未設定時は `primary`）・URL Source 取得（`web_fetch`）・想起時の再ランキング（`rerank`）を担い、サイト設定 `brain.embedding_model` が共有ベクトルインデックスを司ります。Pod Applet のステートレスな `ctx.ai` 呼び出しは、選択された実行 Principal を使用します。Human は Pod/Site の言語モデル既定値を、Agent はその Agent の有効な言語モデルプロファイルを解決します。これらの呼び出しは対話型 Agent のトークンクォータを消費しません。運用者は **Console → Model Profiles** で Site・Pod・`system` Principal のプロファイルを管理し、Provider 認証情報はすべてコントロールプレーン内で暗号化保管されます。
 
 AIGateway は単発のステートレス呼び出しと継続可能な WebSocket モデルセッションの両方を扱い、リクエスト変換、ストリーム正規化、ツール結果、コンテキスト圧縮、使用量記録、最終コミットを担います。ツール数が多い場合は Tool Search や Programmatic Tool Calling（PTC）を利用でき、AIGateway と Workflow はステートレスな `ankole-function-runtime` の isolate（`POST /v1/program/run`）で決定論的 TypeScript プログラムを実行します。ChatGPT サブスクリプションなどの OAuth プールを含む複数認証情報プールにも対応し、クールダウン・リトライ・使用量は個々の認証情報単位で管理されます。詳しくは [AIGateway](../ai-gateway/) と [LLM Provider の追加](../adding-a-provider/) を参照してください。
 

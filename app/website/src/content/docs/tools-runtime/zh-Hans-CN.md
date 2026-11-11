@@ -26,7 +26,7 @@ Driver 会依照各工具声明的并发属性安排并行或顺序调用。凡�
 
 ## Workflow 任务工具
 
-Workflow 子任务仅能使用经过严格裁剪的工具子集：联网检索抓取、用于委派与轮询子任务的后台 Agent 任务操作、`sleep` 休眠等待以及 `submit_result` 结果提交；托管 Brain 能力也仅开放只读的 `recall` 与 `get_page`。子任务不具备沙箱文件操作、Shell 终端、Skill 加载、定时计划或嵌套发起新 Workflow 的工具权限。
+Workflow 子任务仅能使用经过严格裁剪的工具子集：联网检索抓取、用于委派与轮询子任务的后台 Agent 任务操作、`sleep` 休眠等待以及 `submit_result` 结果提交；托管 Brain 能力也仅开放只读的 `recall` 与 `entity`。子任务不具备沙箱文件操作、Shell 终端、Skill 加载、定时计划或嵌套发起新 Workflow 的工具权限。
 
 调用 `submit_result` 时，系统会对照任务创建时持久化保存的结果 Schema 严格校验返回值：若校验未通过，模型可根据报错修正后重新提交；一旦校验通过并获采纳，该子任务即告完结。注意，在正式提交最终结果前，必须先等待或结清名下所有仍在运行中的委派后台任务。详见 [Workflow](../workflows/)。
 

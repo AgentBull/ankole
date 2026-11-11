@@ -57,7 +57,7 @@ Ask me here before you expand the scope or use a paid data source.
 
 ## 모델 provider 선택
 
-모든 백그라운드 Job은 AIGateway를 거쳐 모델을 호출합니다. Job을 생성할 때 Ankole은 해당 Agent에 설정된 유효 **Background Agent Jobs** 모델 프로필을 기록하며, 이 프로필이 비어 있으면 Agent의 `heavy` 프로필을 기본값으로 사용합니다.
+모든 백그라운드 Job은 AIGateway를 거쳐 모델을 호출합니다. 첫 실행 승인(execution admission) 시점에 Ankole은 해당 Agent에 설정된 유효 **Background Agent Jobs** 모델 프로필을 기록하며, 이 프로필이 비어 있으면 Agent의 `heavy` 프로필을 기본값으로 사용합니다.
 
 ChatGPT 구독 계정을 연결해 쓰려면 먼저 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 등록하세요. 그다음 Console에서 **Agents** 페이지를 열고 해당 Agent의 모델 프로필 중 **Background Agent Jobs** 항목에서 방금 만든 provider와 지원 모델, reasoning effort, Fast Mode 여부를 선택하면 됩니다. 여러 계정이 등록된 경우 provider의 자격 증명 풀이 알아서 계정을 선택하고 순환 사용합니다.
 

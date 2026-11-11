@@ -114,7 +114,7 @@
 
 | 功能 | OpenBot | Ankole | 关键差异 |
 | --- | --- | --- | --- |
-| 个人记忆 | 手工事实、Bot 形成、应用导入；编辑、确认、暂停、遗忘；标明来源 | 以个人/对话为来源的 Brain claim 与 ambient context pack；没有同等的个人记忆清单页 | OpenBot 的个人记忆管理更直接。[O9][A6] |
+| 个人记忆 | 手工事实、Bot 形成、应用导入；按来源支持编辑、确认、暂停、遗忘，Intelligence 记忆仅可编辑与遗忘；标明来源 | 以个人/对话为来源的 Brain claim 与 ambient context pack；没有同等的个人记忆清单页 | OpenBot 的个人记忆管理更直接。[O9][A6] |
 | 记忆可见范围 | 手工事实到所有 Bot；Bot 形成的记忆仍受形成 Bot 和来源应用约束 | 按请求人 ∩ Agent，严格房间还 ∩ 所有接收者；source 与 subject 权限独立 | Ankole 的披露边界更细，尤其适合组织知识。[O1][A6] |
 | 自动学习 | Intelligence 收集完成会话与 Recorder 轨迹，提议 Skill；审批后发布；可按 Bot 分配容器 | Dreaming 从失败/人工干预 Job 证据提炼 Skill lessons；租约、复核、撤销与再次投递 | OpenBot 学完整流程，Ankole 学带证据的局部经验。[O9][A17] |
 | 录制教学 | 浏览器扩展录制操作步骤、叙述并进入个人学习空间 | 没有操作录制器；可由人直接编辑 Skill 或 lesson | OpenBot 独有。[O9][O17] |
@@ -172,7 +172,7 @@
 | 身份认证 | Google、Microsoft、Okta、运行时 SAML/OIDC，按邮箱域路由；SCIM | 邮件 OTP、企业 OIDC、内置 OIDC server、邀请、多账户、逐标签页身份固定、登出与撤销 | Ankole 的浏览器会话模型更复杂，支持一个浏览器多个身份和多个 tenant。[O15][A19] |
 | 人员与组织 | People promote/demote/remove；角色、组、能力覆盖；SCIM 离岗撤销 | Human/Agent/system Principal、group、grant、guest/member、offboarding、目录同步和访问版本 | Ankole 统一人与 Agent 的身份和权限。[O19][A15] |
 | 凭据 | write-only vault、网站登录密码、外部 Agent auth、IdP secret | Provider/Connector/Applet/WorkerEnv 分层加密，按需解密权限，Worker 只获短 scoped token | Ankole 更强调控制面长期持有秘密，执行体只获短期凭据。[O10][A16][A20] |
-| Console | Admin 四组：What Bots can reach/do、Who can get in、What happened | Site Console 五组：Work、Capabilities、Connections、Platform，另有首页 readiness | 两者管理面都完整，但对象不同。[O2][A14] |
+| Console | Admin 四组：What Bots can reach/do、Who can get in、What happened | Site Console 四组：Work、Capabilities、Connections、Platform，另有首页 readiness | 两者管理面都完整，但对象不同。[O2][A14] |
 | Console 主要资源 | Credentials、Boundaries、Approvals、Computers、Plugins、Providers、Skills、Learning、Check-ins、Components、Playground、People、Permissions、IdP、Audit、What-if | Agents、Drive、Conversations、Background Jobs、Automation Jobs、Schedules、Webhooks、Library、Brain、Worker Envs、Model Profiles、Usage、Providers、Worker Providers、Signals、Identity、OIDC、Workers、Tenants、Access、Settings | 附录 A 给出逐项路由覆盖，避免只看导航首页。[O2][A14] |
 | 个人设置 | General、Notifications、Approvals、Browsers、Learning、Setup、Passwords、This computer、Components gallery；个人版另有 Keys/Skills/Computer/Activity | 个人资料与登录方式、Connectors、退出；Pod 管理有 Space、成员、Agents、邀请、IdP、Worker 环境 | OpenBot 给普通用户更多行为偏好；Ankole 区分个人账户与 Pod 管理。[O2][A19] |
 
@@ -258,7 +258,7 @@ Ankole 则区分：
 
 ### 4.8 记忆与学习是否可控
 
-OpenBot 用户可编辑、确认、暂停和遗忘个人记忆；自动学习从会话和 Recorder 进入 Learning container，提议 Skill 后由人或管理员审核。分享个人 Skill 也有独立授权。限制是 Recorder 产生的录像不能从 OpenBot 删除，移除人员也不会删除这些录像。[O9]
+OpenBot 用户可编辑和遗忘个人记忆；由 OpenBot 管理的记忆另可确认、暂停，Intelligence 记忆没有这两个操作。自动学习从会话和 Recorder 进入 Learning container，提议 Skill 后由人或管理员审核。分享个人 Skill 也有独立授权。限制是 Recorder 产生的录像不能从 OpenBot 删除，移除人员也不会删除这些录像。[O9]
 
 Ankole 的 Brain 同时保存文档、事实、关系、时间线和 Take；来源与主体分离，因此公开实体不会自动公开私有证据。Skill lesson 是另一条学习路径：只从具有人工干预、非零命令或本地工具失败的 Job 证据中提炼，要求至少两个 Job 或一个含人工输入的 Job，带 7 天租约和复核。[A6][A17]
 
@@ -424,7 +424,7 @@ Ankole 区分无权限、加载失败、无数据、已删除、离线和冲突�
 
 ### 8.3 Ankole 主要证据
 
-路径均为当前工作区相对路径；行号对应本次快照。
+路径均为仓库相对路径；行号对应第 1 节列出的 Ankole 源码快照及当时工作区。
 
 | 编号 | 源码位置 |
 | --- | --- |

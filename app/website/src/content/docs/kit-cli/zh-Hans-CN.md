@@ -13,7 +13,7 @@ order: 200
 
 | 命令 | 用途 |
 |---|---|
-| `kit env-setup` | 安装开发 Ankole 所需的主机工具链，包括系统构建软件包、Docker、Rust、Elixir/Erlang 工具链及固定版本的 Bun。附加 `--print` 时仅打印安装命令而不实际执行。 |
+| `kit env-setup` | 安装开发 Ankole 所需的主机工具链，包括系统构建软件包、Docker、Rust、Elixir/Erlang 工具链及固定版本的 Bun。附加 `--dry-run` 时仅打印安装命令而不实际执行。 |
 | `kit is-ci` | 在 CI 环境中以状态码 `0` 退出，否则返回 `1`，供按 CI 环境分支处理的脚本调用。 |
 | `kit is-dev` | 在开发环境中以状态码 `0` 退出，否则返回 `1`。 |
 
@@ -60,10 +60,11 @@ order: 200
 | `kit analyze unused` | 检测并报告未使用的代码。对应脚本别名为 `bun run analyze:unused`。 |
 | `kit analyze structure` | 检查并报告仓库目录与模块结构。对应脚本别名为 `bun run analyze:structure`。 |
 | `kit analyze cycles` | 检测并报告循环依赖。对应脚本别名为 `bun run analyze:cycles`。 |
+| `kit pin-base-image [revision]` | 将 `app/agent_computer/base-image.lock` 更新为 CI 已发布、且 `Dockerfile.base` 与 `HEAD` 一致的祖先提交对应的基础镜像；默认提交为 `HEAD`，写入前会核验已发布镜像。 |
 
 ## worker 测试运行器
 
-`kit agent-computer-test` 会在标准 Worker 容器运行时内执行 Agent Computer Worker 包的测试套件，确保测试在与真实回合一致的环境中运行。可通过 `--suite` 指定 `unit` 或 `integration`，也可通过 `--image` 直接指定现成的 Agent Computer Worker Docker 镜像以跳过构建步骤。
+`kit agent-computer-test` 会在标准 Worker 容器运行时内执行 Agent Computer Worker 包的测试套件，确保测试在与真实回合一致的环境中运行。可通过 `--suite` 指定 `unit`、`integration` 或 `image`，也可通过 `--image` 直接指定现成的 Agent Computer Worker Docker 镜像以跳过构建步骤。
 
 ## 发现更多
 

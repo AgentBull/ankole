@@ -11,7 +11,7 @@ Session은 단일 Agent의 실행 단위로 `{agent_uid, session_id}` 키로 식
 
 ## 단일 writer
 
-DynamicSupervisor가 일시적인(transient) `:gen_statem` Driver 프로세스를 띄우고, `:global` 레지스트리가 각 Session 키마다 Erlang 클러스터 전체에서 유일한 이름을 부여합니다. 영구 workspace 행의 `epoch` 값이 쓰기 펜스(fence) 역할을 합니다. 새 Driver가 Session을 인수할 때 `epoch`를 올리고 이후 모든 Driver 트랜잭션이 행 잠금 안에서 이를 검증하므로, 네트워크 분리(split-brain) 이후 뒤처진 이전 Driver는 결과를 커밋할 수 없습니다.
+DynamicSupervisor가 임시(`:temporary`) `:gen_statem` Driver 프로세스를 띄우고, `:global` 레지스트리가 각 Session 키마다 Erlang 클러스터 전체에서 유일한 이름을 부여합니다. 영구 workspace 행의 `epoch` 값이 쓰기 펜스(fence) 역할을 합니다. 새 Driver가 Session을 인수할 때 `epoch`를 올리고 이후 모든 Driver 트랜잭션이 행 잠금 안에서 이를 검증하므로, 네트워크 분리(split-brain) 이후 뒤처진 이전 Driver는 결과를 커밋할 수 없습니다.
 
 ## 영구 입력과 모델 기록
 
@@ -23,13 +23,13 @@ Signal 완료 처리와 최종 답장 전송 의도는 하나의 트랜잭션으
 
 ## 콜드 복귀 모델 대화 순환
 
-대화 접수 시점(`Ankole.Sessions.WakeRecycle`, `sessions.wake_recycle`로 설정)에 이전 AIGateway 모델 대화가 최소 한 번 이상의 Response를 완료했고, (a) 유휴 시간이 `min_cold_gap_seconds`(기본값 `3,600`초, 상위 프롬프트 캐시 만료 시점 이후) 이상이면서 누적 입력 컨텍스트가 `min_context_tokens`(기본값 `128,000` 토큰) 이상이거나, (b) 외부 IM 대화가 `im_max_idle_seconds`(기본값 `259,200`초 / 72시간) 이상 유휴 상태였다면 Ankole은 접수 트랜잭션 안에서 활성 모델 대화를 후속 브랜치로 자동 전환합니다.
+대화 접수 시점(`Ankole.Sessions.WakeRecycle`, `sessions.wake_recycle`로 설정)에 이전 AIGateway 모델 대화가 최소 한 번 이상의 Response를 완료했고, (a) 유휴 시간이 `min_cold_gap_seconds`(기본값 `3,600`초) 이상이면서 누적 입력 컨텍스트가 `min_context_tokens`(기본값 `128,000` 토큰) 이상이거나, (b) 외부 IM 대화가 `im_max_idle_seconds`(기본값 `259,200`초 / 72시간) 이상 유휴 상태였다면 Ankole은 접수 트랜잭션 안에서 활성 모델 대화를 후속 브랜치로 자동 전환합니다.
 
 명시적 초기화(`command.new`), 대화형 카드 응답·콜백, 백그라운드 콜백 Signal(`background_agent_job.*` 및 `workflow.run.*`), 진행 중이거나 대기 중인 `BackgroundAgentJob`·`Workflow.Run` 또는 다른 실행 중 Signal이 있는 Session, 그리고 장애 재시도(`last_attempt_at != nil`)에서는 순환을 건너뜁니다. 순환 시 미해결 `InteractionState`와 `ActionCard` 체크포인트는 후속 브랜치로 이관하고 공개 `conversation_messages`는 그대로 보존하며, 후속 브랜치의 첫 모델 요청 직전에 `Sessions.WakeBriefing`이 최대 `8,000` `o200k_base` 토큰 한도의 결정론적 `<wake-briefing>` 블록(`<brain-memory>`, `<recent-messages>`, `<recent-actions>`, `<objects-in-play>`)을 주입합니다.
 
 ## Worker와 작업 식별자
 
-환경 도구나 Codex 실행에 컴퓨터 환경이 필요해지면 그때 해당 Agent의 Worker를 요청합니다. 일반 환경 작업은 Agent·Session·Signal 범위로 묶인 `RunRef`를 식별자로 쓰고, Codex 실행의 `JobTurnRef`에는 Job ID와 attempt 번호까지 함께 담깁니다. 이처럼 각 작업이 고유한 영속 식별자를 가지므로, Driver가 교체되더라도 진행 중인 Worker 작업을 그대로 인계받을 수 있습니다.
+Agent 생성 시에는 백그라운드에서 최초 Worker 기동을 요청합니다. Session 실행 중에는 환경 도구나 Codex에 컴퓨터가 필요할 때 Worker를 요청하며, 단순 질문은 유휴 해제된 Worker를 다시 깨우지 않습니다. 일반 환경 작업은 Agent·Session·Signal 범위로 묶인 `RunRef`를 식별자로 쓰고, Codex 실행의 `JobTurnRef`에는 Job ID와 attempt 번호까지 함께 담깁니다. 이처럼 각 작업이 고유한 영속 식별자를 가지므로, Driver가 교체되더라도 진행 중인 Worker 작업을 그대로 인계받을 수 있습니다.
 
 RuntimeFabric은 Worker당 하나의 Phoenix Channel을 유지하고 Phoenix Tracker로 클러스터 노드 간 연결 위치를 추적합니다. 또한 Worker의 `generation`과 `incarnation` 값을 검증해 이미 교체된 구버전 연결 경로에서 오는 메시지는 거부하며, 각 Worker는 오직 하나의 Agent에만 연결됩니다.
 

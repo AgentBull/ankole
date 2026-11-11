@@ -7,7 +7,7 @@ order: 126
 
 AIGateway 不仅是内部 Worker 调用的模型边界，也是一套可直接供外部应用、企业业务系统和各类 SDK 调用的 REST API。本页作为 [AIGateway](../ai-gateway/) 架构文档的实战补充，通过完整请求示例说明外部调用方如何完成鉴权、选择调用模式并访问常用端点。
 
-AIGateway API 遵循 OpenResponses 规范，并按调用主体严格隔离数据与权限。调用方只需在请求中出示 Bearer Token（Agent 令牌或 OIDC 人类令牌），发送 OpenResponses 格式的请求，即可接收 JSON 响应或事件流；上游 Provider 的密钥凭证始终保存在控制面内，不会暴露给调用方。
+AIGateway 按调用主体隔离数据与权限，调用方须出示 Agent 或 OIDC 人类 Bearer Token。Responses API 接受 OpenResponses 格式的请求，并返回 JSON 或事件流；媒体与文件端点使用各自的 Schema 和 Content-Type。上游 Provider 凭据保存在控制面内。
 
 ## 鉴权
 
@@ -40,7 +40,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "总结这段对话。", "store": false }'
 ```
 
-如需流式接收生成内容，在请求体中加入 `"stream": true"`，同一端点即切换为 Server-Sent Events（SSE）流：
+如需流式接收生成内容，在请求体中加入 `"stream": true`，同一端点即切换为 Server-Sent Events（SSE）流：
 
 ```bash
 curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
@@ -49,7 +49,7 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "起草一份发布说明。", "stream": true }'
 ```
 
-无状态 HTTP 与 SSE 请求均拒绝有状态字段（`previous_response_id`、`conversation`、`store`）；如需跨回合持久化续接对话，请改走 WebSocket 端点。
+无状态 HTTP 与 SSE 拒绝 `previous_response_id`、`conversation`，以及值不为 `false` 的 `store`。可以省略 `store`，也可以显式设置 `store: false`；如需跨回合持久化续接对话，请使用 WebSocket 端点。
 
 ## 其它端点
 

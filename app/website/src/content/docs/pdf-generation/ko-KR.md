@@ -12,7 +12,7 @@ order: 306
 ## 필요한 것
 
 - **활성화된 `pdf` skill.** 기본값이 `default_enabled: true`이므로 별도로 재정의하지 않는 한 모든 Agent에서 켜져 있습니다. 자세한 내용은 [Skills](../skills/)를 참조하세요.
-- **Worker 이미지.** Agent Computer Worker 이미지에는 Pandoc, 두 가지 PDF 엔진(Typst, LaTeX), Poppler, QPDF가 기본 설치되어 있으므로 별도로 설치할 필요가 없습니다.
+- **Worker 이미지.** Agent Computer Worker 이미지에는 Pandoc, 두 가지 PDF 엔진(WeasyPrint, Typst), Poppler, QPDF가 기본 설치되어 있으므로 별도로 설치할 필요가 없습니다.
 - **바인딩된 `primary` 모델 프로필.** Agent가 원본 콘텐츠(Markdown 또는 문서 구조)를 작성하면, 이후 도구 체인으로 PDF 렌더링을 수행합니다.
 
 ## skill이 하는 일

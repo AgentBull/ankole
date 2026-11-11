@@ -294,7 +294,7 @@ Agent Computer:
 - creates and manages the Job Workspace directory and temporary runtime files
 - combines the Job's frozen runtime projection with live credentials and
   mutable Skill files
-- acquires a lease on the shared per-Agent `AgentCodexRuntime`
+- acquires a lease on the shared execution-view `AgentCodexRuntime`
 - filters Background-eligible Skills and Skill-owned MCP servers
 - starts or resumes the Job's Codex root thread and routes child threads to the
   owning Job
@@ -468,13 +468,17 @@ non-Git directory on persistent Home across Worker replacements). Sibling Job
 workspaces organize work cleanly without acting as a security sandbox against
 other files owned by the same Agent under `/workspace`.
 
-The runner configures three paths for Codex:
+A managed Worker with a Drive execution view configures three paths for Codex:
 
 ```text
 HOME=/workspace
-CODEX_HOME=/workspace/.codex
-CODEX_SQLITE_HOME=/var/cache/ankole/codex
+CODEX_HOME=/workspace/.codex/scopes/<execution-view-key>
+CODEX_SQLITE_HOME=/var/cache/ankole/codex/scopes/<execution-view-key>
 ```
+
+A paired-device Runner uses its own Agent Home, with `CODEX_HOME` at
+`<Agent Home>/.codex` and its configured SQLite directory, without a
+`scopes/<execution-view-key>` suffix.
 
 Both `HOME` and Codex session JSONL files under `CODEX_HOME` live on persistent
 storage, while `CODEX_SQLITE_HOME` is an ephemeral local cache that Codex
@@ -487,7 +491,8 @@ marketplace path appears.
 
 ### Shared `app-server` Lifecycle and Thread Ownership
 
-Each Worker runs at most one Codex `app-server` process for its Agent via
+Each Worker shares a Codex `app-server` per Drive execution view, or per Agent
+when a paired-device Runner has no Drive view, via
 `AgentCodexRuntimeManager`, starting on the first Job lease, shutting down
 cleanly (closing stdin, waiting a bounded grace period before `SIGKILL`, and
 reaping the child with no idle TTL) when the last lease releases, and guarding
@@ -512,7 +517,8 @@ threads assigned via `subAgentActivity`:
   failed resume while keeping child tombstones permanently closed).
 
 Before the first Job thread starts, `AgentCodexRuntime` serializes one-time
-Agent-wide setup: it refreshes same-release Plugin packages, installs them via
+setup for that execution view: it refreshes same-release Plugin packages,
+installs them via
 `plugin/install`, trusts Hooks, and disables every global Plugin entry. Once
 setup completes, concurrent Job turns run without mutating shared Plugin or user
 config state or exposing native Skill directories to Codex. Instead, Ankole
@@ -578,7 +584,6 @@ not exist, and AIGateway-hosted Response tools never enter this registry).
 | `read_file` | The Worker's file reader against the real Job workspace and Drive view | Always; includes reading the complete page files returned by `web_fetch` |
 | `skill_view` | `Ankole.Sessions.Tools.Skill` through `tools.read` | Always |
 | `recall` | `Ankole.Sessions.Tools.Brain` through `tools.read` | The turn start carries its declaration in `request_context.brain_tools`, which the control plane fills while `brain.enabled` is true |
-| `get_page` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
 | `entity` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
 | `whoknows` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
 | `delta` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
@@ -695,8 +700,8 @@ discovery (`.agents/skills` and `skills/list`) never manages Ankole Skills.
 Agent Plugins follow the standard `.codex-plugin/plugin.json` manifest, and any
 bundled `workspace-template` initializes the Job Workspace once at creation.
 
-Before starting the first Job thread on a Worker, `AgentCodexRuntime` runs
-Agent-wide Plugin setup:
+Before starting the first Job thread in an execution view, `AgentCodexRuntime`
+runs Plugin setup:
 
 1. Refresh local package directories for every trusted same-release Plugin.
 2. Install each package through Codex `plugin/install`.
@@ -884,7 +889,7 @@ Job permanently on its third stall.
 
 ### Persistent thread files
 
-Codex persists each thread under `/workspace/.codex/sessions/` (containing
+Codex persists each thread under `$CODEX_HOME/sessions/` (containing
 conversation items, reasoning traces, and compaction markers in `.jsonl` or
 `.jsonl.zst`, both readable without the ephemeral SQLite cache; the Worker never
 archives these files).

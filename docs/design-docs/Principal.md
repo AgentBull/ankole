@@ -191,11 +191,11 @@ identifiers for reuse.
 - `created_by`: optional typed `ActorRef`.
 - `inserted_at` and `updated_at`.
 
-Runtime documents and settings—`AGENTS.md` and `DESIGN.md` contracts and Skills
-in `Ankole.AIAgent.Library`, Brain memory, model profiles, and token
-quotas—live in their respective subsystems rather than on the `agents` or
-`principals` row (aside from per-Agent model profile overrides under
-`agents.options["ai_agent"]`).
+Runtime documents—`AGENTS.md` and `DESIGN.md` contracts and Skills in
+`Ankole.AIAgent.Library`—and Brain memory live in their respective subsystems
+rather than on the `agents` or `principals` row. Per-Agent model profiles,
+provider-hosted switches, and token quota configuration are stored under
+`agents.options["ai_agent"]` and managed by their respective owners.
 
 ### System Principals
 
@@ -561,10 +561,9 @@ and `Ankole.AuthZ.Authorizer` enforces each action's permission declaration.
 Operators inspect and manage Human offboarding at `/api/v2/principals/:uid/access`—covering
 active restrictions, permission review, audit history, affected scheduled/background
 work, and cleanup outcomes. Mutating access requires a reason and an idempotent
-operation ID; restoring a disabled Human requires verified identity, cleared
-restrictions, and a matching permission-review fingerprint (which covers
-reachable Userset grants alongside potential conditional and computed-group
-permissions, while ignoring unrelated Private Page grants). Finally,
+operation ID. Restoring a disabled Human clears restrictions only when their
+recovery requirements are met and records the administrator's audit reason;
+the restored Human uses their current grants and memberships. Finally,
 `/api/v2/work-access-reviews` records explicit Human or service reauthorization
 for stopped work without automatically replaying it.
 

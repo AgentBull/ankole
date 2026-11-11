@@ -63,7 +63,7 @@ export const commonIssues = [
     cause: 'When Console chat fails too, the fault lies in the shared downstream path—the LLM Provider, Agent model profiles, or Worker—rather than an individual chat platform’s event permissions.',
     resolution: [
       'Confirm that the LLM Provider is enabled and that its API credential and model names are valid.',
-      'Verify that the Agent has primary, light, and heavy profiles bound and that Console → Workers reports no failure on the Agent\'s Worker.',
+      'Verify that the Agent has a valid primary profile and that its selected profiles resolve correctly. Check Console → Workers for failures on the Agent\'s Worker.',
       'Complete one end-to-end conversation in the Console first, then return to your chat-platform tab below.'
     ],
     links: [
@@ -74,10 +74,10 @@ export const commonIssues = [
   {
     question: 'A schedule did not run on time. What should I check first?',
     symptom: 'The schedule exists, but it did not fire at the expected time or displays an unexpected next-run timestamp.',
-    cause: 'Either the schedule is disabled, the instance timezone or cron expression is misconfigured, or the control plane was not running at the scheduled trigger time.',
+    cause: 'Either the schedule is disabled, the schedule timezone or cron expression is misconfigured, or the control plane was not running at the scheduled trigger time.',
     resolution: [
       'Open the schedule, verify that it is enabled, and check the next-run timestamp displayed in the Console.',
-      'Verify both the instance timezone and cron expression, relying on the Console’s computed next-run timestamp rather than mental math.',
+      'Verify both the schedule timezone and cron expression, relying on the Console’s computed next-run timestamp rather than mental math.',
       'Click Run now: if the manual run succeeds, fix the schedule timing; if it fails, inspect the run record.'
     ],
     links: [

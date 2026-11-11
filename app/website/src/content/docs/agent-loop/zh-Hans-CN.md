@@ -5,7 +5,7 @@ section: Developer guide
 order: 117
 ---
 
-主 Agent 循环运行在 Elixir 控制面的 `Ankole.Sessions` 模块中，每个执行会话由一个独立的 `:gen_statem` 状态机进程（Driver）推进。纯文本问答与控制面内置工具无需启动 Worker；只有当会话首次调用电脑环境工具或启动 Codex 任务时，系统才会按需拉起该 Agent 的 Worker 实例。
+主 Agent 循环运行在 Elixir 控制面的 `Ankole.Sessions` 模块中，每个执行会话由一个独立的 `:gen_statem` 状态机进程（Driver）推进。纯文本问答与控制面内置工具无需启动 Worker；环境工具与 Codex 任务会按需请求 Worker；创建 Agent 时也会在后台安排首次启动，详见 [Agent Computer Worker](../agent-computer-worker/)。
 
 ## 一轮的持久步骤
 

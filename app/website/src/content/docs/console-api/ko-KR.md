@@ -52,7 +52,7 @@ Console 및 사이트 관리 작업의 전체 명세는 `/api/v2/openapi.json`�
 | `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 에이전트 모델 프로필 재정의 또는 사용자 지정 프로필 삭제 |
 | `PUT` | `/api/v2/agents/:agent_uid/provider-hosted` | 단일 에이전트의 provider-hosted 기능 스위치 재정의 설정 |
 
-모든 프로바이더 자격 증명은 에이전트 컨테이너가 아닌 컨트롤 플레인 내부에 암호화된 풀 멤버로 보관됩니다. 모델 프로필은 사이트 기본값 → Pod 기본값 → 에이전트 또는 시스템 서비스 Principal 재정의(`ankole_brain`은 Brain 추출·Dreaming·임베딩·리랭크 호출용, `system`은 Pod Applet 모델 호출 및 내부 작업용) 계층으로 해석되며, 런타임에 AIGateway가 정상 상태인 풀 멤버를 골라 호출합니다. API 응답 프로젝션에는 마스킹된 안전한 계정 정보와 상태(health), 속도 제한 수치, 누적 사용량만 포함됩니다.
+모든 프로바이더 자격 증명은 에이전트 컨테이너가 아닌 컨트롤 플레인 내부에 암호화된 풀 멤버로 보관됩니다. 모델 프로필은 사이트 기본값 → Pod 기본값 → 에이전트 또는 시스템 서비스 Principal 재정의(`ankole_brain`은 Brain 추출·Dreaming·URL 가져오기·리랭크 호출용, `system`은 내부 작업용) 계층으로 해석되며, 런타임에 AIGateway가 정상 상태인 풀 멤버를 골라 호출합니다. API 응답 프로젝션에는 마스킹된 안전한 계정 정보와 상태(health), 속도 제한 수치, 누적 사용량만 포함됩니다.
 
 ### Agent와 그 능력
 

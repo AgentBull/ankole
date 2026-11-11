@@ -53,9 +53,10 @@ The ledger starts empty at deployment.
 A Provider does not always report usage. The ledger then records the round with
 `NULL` token counts, and the quota window adds nothing for it, so an Agent can
 use more tokens than its quota shows when its Provider omits usage. This is a
-known limitation: Ankole does not estimate unreported counts. The per-turn
-usage in the Pod work history and the Console Model usage page show how many
-rounds went unreported.
+known limitation: Ankole does not estimate unreported counts.
+Clients of the Pod API can compare `rounds` with `reported_rounds` in the
+per-turn `execution.usage` record. The Console Model usage page also shows
+reported rounds against total rounds.
 
 The quota acts as a soft limit: AIGateway checks accumulated usage before
 dispatching a request and rejects the request when usage is already at or above
@@ -173,7 +174,7 @@ error object:
   "type": "usage_limit_reached",
   "message": "The Agent has used its token quota for the current period.",
   "retryable": false,
-  "resets_at": 1757980800,
+  "resets_at": 1789516800,
   "details_json": {
     "used_tokens": 1200000,
     "limit_tokens": 1000000,

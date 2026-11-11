@@ -56,7 +56,7 @@ Everything in docx §Requirements for Outputs applies. On top of that, academic 
 
 - **Abstract is block-style.** NO `firstLineIndent`. Use `spaceAfter=12pt` for paragraph separation. If `view issues` reports "body paragraph missing first-line indent" on an Abstract paragraph, it's a false positive — ignore.
 - **Bibliography uses hanging indent.** Each entry is one paragraph with `indent=720 hangingIndent=720` (left indent 0.5", first-line reversed by same amount). First line flush left; wraps indent under author name.
-- **Figure captions go BELOW the figure.** Table captions go ABOVE the table. This is the single rule most non-academics get wrong — APA, Chicago, IEEE, MLA all agree on it.
+- **Caption placement follows the selected style.** APA places a figure number and title above the image and any notes below it. Other venues may require a caption below the figure. Check the venue rather than applying one position to every style.
 - **Citation round-trip.** Every in-text citation key must resolve to an entry in the reference list. Delivery Gate 4 verifies.
 - **SEQ presence.** Any paper with numbered figures or tables must carry live `SEQ Figure` / `SEQ Table` fields (not hardcoded "Figure 1" text that drifts when you insert a new figure mid-document). Delivery Gate 5 verifies.
 
@@ -70,16 +70,18 @@ Academic section numbers are **part of the heading text**, not computed via list
 
 | Style | H1 format | H2 format | Example |
 |---|---|---|---|
-| **APA 7** | **UNNUMBERED centered bold** | Unnumbered left-aligned bold | `Introduction` / `Methods` (centered) |
+| **APA 7** | **UNNUMBERED centered bold** | Unnumbered left-aligned bold | `Method` / `Results` (centered) |
 | **Chicago** | `"N. Title"` left-aligned | `"N.M Title"` | `1. Introduction`, `2.1 Policy Formation` |
 | **IEEE** | `"N. TITLE"` ALL CAPS + Roman numerals | `A. Subtitle` title case | `I. INTRODUCTION`, `II. RELATED WORK`, `A. Datasets` |
 | **MLA 9** | Unnumbered left-aligned bold | Same | `Literature Review` (no prefix) |
 
-APA 7 L1 headings are **centered, bold, unnumbered**; L2 are flush-left bold; L3 flush-left bold italic; L4/L5 run-in. Do NOT prefix APA headings with `1. / 2.` — that is Chicago/IEEE convention. IEEE wants ALL CAPS with Roman numerals (`I. INTRODUCTION`); inside each section, use `A./B./C.` sub-headings (title case). Arabic-numbered body sections are Chicago-style only.
+APA 7 L1 headings are **centered, bold, unnumbered**; L2 are flush-left bold; L3 flush-left bold italic; L4/L5 run-in. The paper title introduces the opening text; do not add an `Introduction` heading. Do NOT prefix APA headings with `1. / 2.` — that is Chicago/IEEE convention. IEEE wants ALL CAPS with Roman numerals (`I. INTRODUCTION`); inside each section, use `A./B./C.` sub-headings (title case). Arabic-numbered body sections are Chicago-style only.
 
 **Exception for all four**: References / Bibliography / Works Cited / Acknowledgments are unnumbered regardless of style — omit the `N.` prefix.
 
-## Quick Start — minimal APA paper
+## Quick Start — command skeleton
+
+This abbreviated example demonstrates the commands. Apply the selected venue's page, heading, and citation rules before delivery.
 
 ```bash
 FILE="paper.docx"
@@ -101,7 +103,7 @@ officecli close "$FILE"
 officecli validate "$FILE"
 ```
 
-Ten-line skeleton. Real papers grow by adding more body paragraphs, more bibliography entries (each with the same `indent=720 hangingIndent=720` pair), figures / tables with captions, and a TOC if there are 3+ Heading1s. The Quick Start validates clean; the sections below elaborate each dimension.
+Command skeleton. Real papers grow by adding more body paragraphs, more bibliography entries (each with the same `indent=720 hangingIndent=720` pair), figures / tables with captions, and a TOC if there are 3+ Heading1s. The Quick Start validates clean; the sections below elaborate each dimension.
 
 ## Citation style recipes
 
@@ -137,10 +139,7 @@ QA: `officecli query "$FILE" 'paragraph[hangingIndent]'` returns every reference
 ### Chicago 17 — Notes-Bibliography (humanities — history, philosophy, religion)
 
 - In-text: superscript footnote number; full citation in the first footnote (`Timothy Brook, The Troubled Empire (Cambridge, MA: Harvard UP, 2010), 142.`); **shortened form** thereafter (`Brook, Troubled Empire, 150.`).
-- **Repeat-citation rule (Chicago 17, op. cit. deprecated):**
-  - **Immediately-consecutive** citation of **the same source, same page** → `Ibid.`
-  - **Immediately-consecutive, different page** of same source → `Ibid., 22.`
-  - Non-consecutive repeat → **shortened form** (`Brook, Troubled Empire, 150.`), NOT `op. cit.`. Chicago 17 drops `op. cit.` — use shortened form every time except for immediate repeats.
+- **Repeat citations in Chicago 17:** prefer a shortened citation such as `Brook, Troubled Empire, 150.`, including for consecutive notes. Chicago 17 discourages `ibid.` in favor of shortened citations; do not require it for immediate repeats. Avoid `op. cit.`.
 - Bibliography at end, **alphabetical by first author's surname** ("Brook, Timothy."), hanging indent. Footnote body renders at the viewer's footnote default (typically 10pt); bibliography entries 12pt. (The `footnote` element exposes only `text` — size is not settable per-footnote; trust renderer defaults.)
 - Typical split for primary-source-heavy papers: `Primary Sources` and `Secondary Sources` as two Heading2s under a single `Bibliography` Heading1. Book titles italic in both footnotes and bibliography.
 - Chicago also has an Author-Date variant used in the sciences — if the venue specifies Chicago Author-Date, fall back to the APA recipe and change only the punctuation (no comma between author and year: `(Smith 2024)`).
@@ -254,10 +253,10 @@ officecli set "$FILE" / --prop recalcFields=seq
 It counts `SEQ Figure` / `SEQ Table` fields in body document order and writes the real cached values (`Figure 1 / Figure 2 / Figure 3`), flipping `evaluated` true. Re-run it after inserting a caption mid-document so the numbers stay in sync. (Heading-relative `\s` and SEQ inside headers/footers defer to Word's own recompute — see `help docx document`.) Verify: `officecli view "$FILE" text` shows distinct ascending numbers.
 
 ```bash
-# Figure with caption BELOW the image. Caption = "Figure <seq>: title" + optional bookmark for cross-ref.
+# Example for a venue that requires a caption BELOW the image. Caption = "Figure <seq>: title" + optional bookmark for cross-ref.
 officecli add "$FILE" /body --type picture --prop src=arch.png --prop width=5in
 officecli set "$FILE" "/body/p[last()]/r[last()]" --prop alt="Model architecture: attention over time-series sensors"
-# Caption paragraph (below the figure, per academic convention)
+# Caption paragraph (below the figure when the selected venue requires it)
 officecli add "$FILE" /body --type paragraph --prop text="Figure " --prop style=Caption --prop size=10pt --prop italic=true --prop align=center
 officecli add "$FILE" "/body/p[last()]" --type field --prop fieldType=seq --prop identifier=Figure
 officecli add "$FILE" "/body/p[last()]" --type run --prop text=": Attention-based anomaly detection model."
@@ -319,7 +318,7 @@ Every academic paper ends with a reference list. The name of the section depends
 # Section heading — same as body Heading1 (excluded from body numbering by convention)
 officecli add "$FILE" /body --type paragraph --prop text="References" --prop style=Heading1 --prop size=20pt --prop bold=true --prop spaceBefore=18pt --prop spaceAfter=12pt
 # Each entry: hanging indent 720 twips (0.5"), with indent=720 as the partner (first line flush, wraps indented)
-officecli add "$FILE" /body --type paragraph --prop text="Smith, J. (2024). Remote work and cohesion. Journal of Applied Psychology, 109(3), 412-430." --prop size=12pt --prop lineSpacing=2x --prop indent=720 --prop hangingIndent=720
+officecli add "$FILE" /body --type paragraph --prop text="Yin, J., Liden, R. C., Wayne, S. J., Wu, Y., Liu, L. A., Guo, R., & Gu, J. (2024). How are newcomer proactive behaviors received by leaders and peers? A relational perspective. Journal of Applied Psychology, 109(2), 283-292." --prop size=12pt --prop lineSpacing=2x --prop indent=720 --prop hangingIndent=720
 # DOI hyperlink on its own run appended to the entry paragraph
 officecli add "$FILE" "/body/p[last()]" --type hyperlink --prop url="https://doi.org/10.1037/apl0001123" --prop text="https://doi.org/10.1037/apl0001123"
 ```
@@ -475,7 +474,7 @@ Academic-specific:
 - **SEQ caption numbers are filled by `set / --prop recalcFields=seq`** (run once after all captions exist), not by per-field raw-set patching. A pre-recalc SEQ field shows the `#OCLI_NOTEVAL!` sentinel in `view text`.
 - **Hanging-indent canonical form is `indent=720 hangingIndent=720`.** Not `ind.firstLine=-720`. The dotted form emits `<w:ind>` after `<w:jc>` and fails schema on emit.
 - **Footnote reference runs show as empty strings in `view annotated`.** The `<w:footnoteReference>` XML element has no visible text on the reference side; the note body lives in `/footnotes/footnote[N]`. Confirm with `officecli query "$FILE" 'footnote'`, not by eyeballing `view text`.
-- **Caption placement:** Table caption ABOVE the table; Figure caption BELOW the figure. Every major style (APA, Chicago, IEEE, MLA) agrees. Putting a Table caption below the table is an academic-style error, not a rendering issue — `validate` will not catch it.
+- **Caption placement:** Follow the selected style. In APA, figure numbers and titles sit above the image, with notes below it. Do not treat the below-figure example as a rule for every venue; `validate` checks schema, not citation-style compliance.
 - **TOC cached rendering / shell-escape:** → see docx §Table of Contents and §Shell escape.
 
 ## Renderer quirks (cross-viewer)

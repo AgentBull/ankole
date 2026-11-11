@@ -151,7 +151,7 @@ end
 
 凡需交由运维人员在运行期查看或调整的参数，均应通过 `app_config_definitions/0` 或 `app_config_patterns/0` 注册进 `AppConfigure`；操作系统环境变量仅限用于存放数据库尚未连通前就必须读取的底层启动引导参数。
 
-若需对核心领域写操作（包括 `:create_agent`、`:create_invitation`、`:enable_signal_binding`、`:enable_identity_provider`、`:store_file`、`:commit_files`、`:create_pod_page`、`:restore_pod_page`、`:insert_base_records` 与 `:admit_compute`）附加同步准入拦截或商业配额核验，可通过 `hooks/0` 挂载钩子模块：每个钩子实现 `Ankole.Plugins.Hook.before_commit_in_tx/2`，直接在调用方所处的数据库写事务内部同步返回 `:ok` 或 `{:error, reason}`（一旦返回错误元组，整个外层领域事务将立即原子回滚）。
+若需对核心领域写操作（包括 `:create_agent`、`:create_invitation`、`:enable_signal_binding`）附加同步准入拦截或商业配额核验，可通过 `hooks/0` 挂载钩子模块：每个钩子实现 `Ankole.Plugins.Hook.before_commit_in_tx/2`，直接在调用方所处的数据库写事务内部同步返回 `:ok` 或 `{:error, reason}`（一旦返回错误元组，整个外层领域事务将立即原子回滚）。
 
 `children/0` 则返回标准的 OTP Child Spec 列表：插件自有的外部长连接客户端与后台定期对账进程都必须纳入该插件自身的监督树下托管，随插件激活一同拉起，并在插件被停用后的下一次控制面启动时不再拉起。
 

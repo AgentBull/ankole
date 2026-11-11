@@ -13,7 +13,7 @@ order: 106
 
 人员、Agent 与系统服务共享同一套持久、可问责的主体模型。每个 Principal 严格归属于单个租户，并以 `(tenant_id, uid)` 作为唯一标识，其中 `uid` 是租户内唯一、语义清晰的小写名称（例如 `alex.smith` 或 `research-analyst`）。`principals` 表记录了主体的类型 `type`（`:human`、`:agent` 或 `:system`）、状态 `status`（`:active` 或 `:disabled`），以及仅针对 `:human` 生效的成员身份 `membership`（`:member` 或 `:guest`，`:agent` 与 `:system` 固定为 `nil`）。
 
-在关联关系上，一个人员主体对应一条 `HumanUser` 记录、零至多条站点级 `SiteCredential` 记录（存于 `principal_site_credentials`，如通过校验的邮箱验证码地址），以及零至多条租户级 `ExternalIdentity` 记录（存于 `principal_external_identities`，来自外部联邦身份源）；一个 Agent 主体对应一条 `Agent` 记录，子类型为 `:personal_assistant`（为每位启用态内部人类成员按 1:1 开通，初始 UID 为 `<owner_uid>_assistant`）或 `:ai_colleague`（共享专业岗位 Agent）。系统主体来自 Ankole 封闭维护的内部服务注册表——`system`（无状态 Pod Applet `ctx.ai` 与内部运行时操作）与 `ankole_brain`（企业大脑事实抽取、Dreaming、技能教训复审、URL Source 抓取与重排）——不支持登录、不可重命名，也不运行 Worker。所有类型的主体收敛在同一张核心表中，使审计日志、授权规则与权限组成员关系完全统一；同时，面向人员主体（`POST /api/v2/principals/:uid/rename`）和已停用且无活跃 Worker 的 Agent 主体（`POST /api/v2/agents/:uid/rename`）的留痕租户内重命名操作会在单事务内原子重写权限授权、组成员关系、Brain 路径与提及引用以及多维表关联。
+在关联关系上，一个人员主体对应一条 `HumanUser` 记录、零至多条站点级 `SiteCredential` 记录（存于 `principal_site_credentials`，如通过校验的邮箱验证码地址），以及零至多条租户级 `ExternalIdentity` 记录（存于 `principal_external_identities`，来自外部联邦身份源）；一个 Agent 主体对应一条 `Agent` 记录，子类型为 `:personal_assistant`（为每位启用态内部人类成员按 1:1 开通，初始 UID 为 `<owner_uid>_assistant`）或 `:ai_colleague`（共享专业岗位 Agent）。系统主体来自 Ankole 封闭维护的内部服务注册表——`system`（内部运行时操作）与 `ankole_brain`（企业大脑事实抽取、Dreaming、技能教训复审、URL Source 抓取与重排）——不支持登录、不可重命名，也不运行 Worker。所有类型的主体收敛在同一张核心表中，使审计日志、授权规则与权限组成员关系完全统一；同时，面向人员主体（`POST /api/v2/principals/:uid/rename`）和已停用且无活跃 Worker 的 Agent 主体（`POST /api/v2/agents/:uid/rename`）的留痕租户内重命名操作会在单事务内原子重写权限授权、组成员关系、Brain 路径与提及引用以及多维表关联。
 
 人员的 `membership` 属性界定了租户内的协作边界：内部成员（`member`）会自动纳入计算式权限组 `all_humans`；外部访客（`guest`）则必须获得显式的 Pod 页面共享或 Agent 授权才能访问对应资源，且不可加入内置管理员组（`siteadmin` 或 `pod_admin`）、没有 Private 根目录，也不会获得 Brain 的 `world` 范围。
 
@@ -66,7 +66,7 @@ order: 106
 
 AuthZ 之所以无法被 Agent 绕过，是因为运行时在每一道关键入口都部署了硬性校验：
 
-- **AIGateway 边缘**：根据经过验证的访问令牌解析调用方主体，并严格依据该主体的授权规则决定允许访问的模型选择符与上游提供商。
+- **AIGateway 边缘**：验证 Agent 或 OIDC Human 凭据并检查当前主体；OIDC 请求还须通过 Client 策略校验。模型选择符由对应的模型档案或 Client 绑定解析。
 - **工具装配与派发**：执行 Agent 必须处于启用状态，工具必须在其声明的目录中，参数和指令也必须有效。工具所属模块按该 Agent 的身份校验实际访问的资源。
 - **会话与后台任务提交**：会话 Driver 在持久化提交前校验租约栅栏（fence）；Worker 上报 Job 操作时，控制面同样会核验持久化的 Job Attempt 栅栏与已认证连接身份。
 - **管理控制台接口**：调用站点控制台（`/api/v2`）与 Pod 管理接口（`/api/v2/pod/admin`）时，必须同时具备经验证的浏览器凭证、有效的 CSRF 令牌，以及当前生效的 `site_console:**` 或 `tenant_console:**` 授权。

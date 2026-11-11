@@ -32,9 +32,9 @@ order: 304
 
 ## kernel 작동 방식
 
-`jupyter-live-kernel` skill은 백그라운드 Job(`ankole-runtime: background_job`) 환경에서 동작합니다. Worker에서 Jupyter kernel이 시작되면 Agent는 skill이 안내하는 도구를 통해 셀 단위로 코드를 전송합니다. 각 셀은 동일한 kernel 메모리 위에서 실행되므로, 첫 번째 셀에서 정의한 변수를 다섯 번째 셀에서 그대로 참조할 수 있습니다.
+`jupyter-live-kernel` skill은 `ankole-runtime: main`을 선언하므로 Agent가 대화 중에 직접 사용할 수 있습니다. Session 또는 Job workspace에서 Jupyter 서버를 시작하고 로컬 Unix 소켓으로 셀을 전송합니다. 각 셀은 같은 실행 중인 kernel을 공유하므로 첫 번째 셀의 변수를 다섯 번째 셀에서도 참조할 수 있습니다.
 
-kernel은 해당 백그라운드 Job이 실행되는 동안에만 유지됩니다. Job이 종료되면 kernel 프로세스도 함께 내려가며 메모리 상태 역시 사라지므로, 영구 저장소가 아니라 실행 중 임시 상태로 이해해야 합니다.
+반복 작업에서는 Agent가 추적 가능한 셸 세션으로 서버를 유지하고 작업이 끝나면 중지합니다. 배치 작업은 한 번의 호출에서 서버 시작, 분석, 산출물 확인, 정리를 마칩니다. kernel 메모리는 임시 프로세스 상태이므로 보존할 결과는 파일에 저장하세요.
 
 ## 작업 예시
 
@@ -43,7 +43,7 @@ kernel은 해당 백그라운드 Job이 실행되는 동안에만 유지됩니�
 1. `jupyter-live-kernel` skill이 활성화되어 있는지 확인합니다(기본 활성화).
 2. Agent를 생성하고 `AGENTS.md`에 `"When a CSV appears in the channel, load it into a DataFrame, inspect the schema and summary statistics, identify anomalies, and report findings with a plot."`을 작성합니다.
 3. 채널에 CSV 파일을 첨부하거나, Console에서 Agent 드라이브에 파일을 업로드한 뒤 해당 경로를 알려 줍니다.
-4. 요청을 받은 Agent는 작업을 백그라운드 Job에 위임해 kernel을 시작하고, CSV를 불러와 반복적으로 데이터를 점검한 뒤 플롯과 함께 분석 결과를 보고합니다.
+4. 요청을 받은 Agent는 워크스페이스에서 kernel을 시작하고, CSV를 불러와 반복적으로 데이터를 점검한 뒤 플롯과 함께 분석 결과를 보고합니다.
 
 ## 이 가이드가 아닌 것
 

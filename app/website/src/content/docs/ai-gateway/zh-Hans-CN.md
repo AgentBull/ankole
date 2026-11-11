@@ -22,7 +22,7 @@ AIGateway 是 Ankole 实例统一的 AI 调用边界。外部应用、企业业�
 - **Agent Token**：为某个已启用 Agent 主体签发的 AIGateway API Key。调用范围严格限定在该 Agent 生效的模型档案与选择符内，`subject_type = "agent"`。
 - **OIDC 人类令牌**：由声明了 `ai_gateway.write` 作用域的 OIDC 客户端为活跃人类用户（Human）签发。请求只能使用该客户端公开的模型别名，`subject_type = "oidc_human"`。
 
-控制面第一方服务（承载企业大脑任务的 `ankole_brain`，以及承载无状态 Pod Applet `ctx.ai` 调用的 `system`）则在 BEAM 进程内直接调用 `Ankole.AIGateway`，无需签发外部 Bearer Token，用量分别记入对应的 `system` 主体 UID 名下。
+控制面第一方服务（如承载企业大脑任务的 `ankole_brain`）则在 BEAM 进程内直接调用 `Ankole.AIGateway`，无需签发外部 Bearer Token，用量分别记入对应的 `system` 主体 UID 名下。
 
 获取 OIDC 人类令牌的流程：先在控制台中创建带有 `ai_gateway.write` 作用域的 OIDC 客户端，配置允许访问的权限组与模型别名，再通过授权码加 PKCE 流程完成登录；若需长期调用，可申请 `offline_access` 并配合轮换式 Refresh Token 使用。发起调用的人类用户必须属于客户端允许的权限组，且只能使用客户端配置的模型别名，不得直接传入原始的 `provider_id/model` 选择符。
 
@@ -32,7 +32,7 @@ AIGateway 是 Ankole 实例统一的 AI 调用边界。外部应用、企业业�
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"model":"main","input":"总结当前未关闭的告警。"}'
+  -d '{"model":"primary","input":"总结当前未关闭的告警。"}'
 ```
 
 ## 端点
@@ -68,10 +68,10 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"model":"main","input":"起草一份发布说明。","stream":true}'
+  -d '{"model":"primary","input":"起草一份发布说明。","stream":true}'
 ```
 
-无状态 HTTP 与 SSE 共守一条硬性规则：一律拒绝 `previous_response_id`、`conversation` 和 `store` 等有状态字段。凡是需要跨回合续接上下文的请求，都必须改走 WebSocket。若在普通 HTTP 或 SSE 请求中携带上述有状态字段，接口会返回 `400`（`code: "stateful_responses_require_websocket"`），并在错误消息中指明具体违规字段。
+无状态 HTTP 与 SSE 拒绝 `previous_response_id`、`conversation`，以及值不为 `false` 的 `store`。可以省略 `store`，也可以显式设置 `store: false`。跨回合续接上下文须使用 WebSocket；通过 HTTP 或 SSE 发送被禁止的字段时，接口返回 `400`（`code: "stateful_responses_require_websocket"`），并指明具体字段。
 
 ## WebSocket 上的有状态响应
 
@@ -115,7 +115,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 ## 错误形态
 
-错误响应统一采用兼容 OpenAI 的 JSON 信封结构 `{"error": {"code", "message"}}`，HTTP 状态码与故障类别一一对应。调用方建议提前针对以下状态码做好处理：
+错误响应统一采用兼容 OpenAI 的 JSON 信封结构 `{"error": {"code": "...", "message": "..."}}`，HTTP 状态码与故障类别一一对应。调用方建议提前针对以下状态码做好处理：
 
 - `400`：请求体校验失败，例如缺少 `model` 或 `input`、`limit` / `top_n` 取值不合法、在普通 HTTP 请求中传入有状态字段，或压缩输入格式有误；`code` 字段会指明具体原因。
 - `401`：Bearer Token 缺失或验证未通过。
@@ -130,13 +130,13 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 当 `/responses` 请求声明启用 `programmatic_tool_calling` 工具时，AIGateway 会根据当前可用工具描述符自动生成 `program` 工具。每次执行 `programmatic_tool_call` 时，网关都会通过 `Ankole.FunctionRuntime.ProgramRunner` 在 `ankole-function-runtime` 的无状态隔离实例中运行确定性的 TypeScript 程序，并在嵌套工具调用边界处暂停，由 AIGateway 统一维护对话历史、执行顺序与取消操作。
 
-`image_generation` 是公共 Responses 工具，具备两条执行路径：当调用主体配置了 `image_generate` 档案时，AIGateway 使用该档案绑定的独立 Provider 与模型执行生图；未配置该档案时，只有当前主语言模型的 Provider 声明支持原生图像生成，AIGateway 才会将该工具透传给主模型。若两条路径均不具备，请求会在准备阶段直接失败，不会模拟伪造工具。两条路径使用完全一致的公共流式事件与图像持久化逻辑，模型推理用量与生图用量则分别记入实际产出对应内容的凭据名下。
+`image_generation` 是公共 Responses 工具，具备两条执行路径：主语言模型的 Provider 使用 Responses 协议且支持原生图像生成时，AIGateway 直接向它传递工具，不解析 `image_generate` 档案；否则使用调用主体的 `image_generate` 档案。两条路径均不可用时，请求在准备阶段失败。两条路径使用完全一致的公共流式事件与图像持久化逻辑，模型推理用量与生图用量则分别记入实际产出对应内容的凭据名下。
 
 ## web 工具、文件，以及其他能力
 
 同一套主体身份与访问令牌也可调用周边能力端点。`POST /web_search` 接收带长度上限的查询词 `query`，返回由 Provider 提供的网页搜索结果；`POST /web_fetch` 接收 1 至 5 个公网 HTTPS URL，返回提取后的网页内容。这两类调用支持传入 `web_search.default` 与 `web_fetch.default`，由 AIGateway 自动解析当前 Agent 对应的模型档案。
 
-`POST /embeddings` 接受纯文本、Token 数组或结构化输入分块，并要求显式传入 `provider_id/model` 选择符——例如 `Ankole.Brain` 在生成向量嵌入时会读取 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model`。`POST /rerank` 接收非空文档数组与正整数 `top_n` 并对文档重排，既支持显式传入 `provider_id/model`，也支持传入 `default` 或 `rerank.default`（`ankole_brain` 会解析其自身生效的 `rerank` 模型档案，Agent 与人类调用则解析当前 Pod/站点的 `rerank` 档案；完整的知识检索机制见 [Brain](../brain/)）。与此同时，Pod Applet 的 `ctx.ai` 调用以内置 `system` 主体身份通过 `Ankole.AIGateway` 无状态执行，解析 Pod/站点生效的语言模型档案（`primary`、`light`、`heavy`、`coding`、`vision_fallback`），不会占用任何前台 Agent 的 Token 配额。
+`POST /embeddings` 接受纯文本、Token 数组或结构化输入分块，并要求显式传入 `provider_id/model` 选择符——例如 `Ankole.Brain` 在生成向量嵌入时会读取 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model`。`POST /rerank` 接收非空文档数组与正整数 `top_n` 并对文档重排，既支持显式传入 `provider_id/model`，也支持传入 `default` 或 `rerank.default`（`ankole_brain` 会解析其自身生效的 `rerank` 模型档案，Agent 与人类调用则解析当前 Pod/站点的 `rerank` 档案；完整的知识检索机制见 [Brain](../brain/)）。与此同时，Pod Applet 的 `ctx.ai` 调用通过 `Ankole.Pod.Applets.Gateway`，以所选执行主体的身份无状态执行。解析语言模型档案（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）时，Human 使用 Pod/站点生效的默认配置，Agent 使用自身生效的配置。用量记入执行主体名下，不消耗交互式 Agent 的 Token 配额。
 
 `POST /web_search` 接收不超过 1,024 个字符的 `query` 和可选的 `limit`（1 到 100，默认 5），返回 `items` 与 `metadata`。每个结果包含 `url`、`title` 和 `description`，Provider 提供时还带有 `published_at` 与 `score`；`metadata` 给出 `query`、网关侧耗时 `latency_ms` 和 HTTP 请求的 `request_id`。`POST /decisions` 针对一份 `state` 回答带类型的问题：一次请求携带 1 到 64 个 `questions`，每个问题是 `noul`（是或否）、`choice`（从 2 到 255 个具名选项中选一个）或 `score`（在 2 到 10 个有序等级上打分），还可以附带最多四张图片，每张不超过 4 MiB。响应为每个问题返回带概率的答案，并给出作答的 `model` 与 token `usage`。`default` / `decision.default` 选择符解析 Pod/Site 的 `decision` 档案；未配置该档案时，改由调用方的 `light` 语言模型作答。语言模型给出的是自述置信度，因此这些概率未经校准；由语言模型作答时，一次请求的选项与等级合计不能超过 500 个。
 
@@ -154,7 +154,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 ## AIGateway 不是什么
 
-AIGateway 不是公开免鉴权的转发代理，也不是供客户端上传厂商 API Key 的透传通道——所有上游凭证都安全保存在控制面内。同时，它也不是异步作业队列或长任务调度器；长时间运行的 Agent 工作归 Sessions 和后台 Agent 任务管理。AIGateway 只守好请求与响应边界：一次请求进入，一个响应或事件流返回，在网关内完成选择符解析，把凭证严密留在控制面内部。
+AIGateway 不是公开免鉴权的转发代理，也不是供客户端上传厂商 API Key 的透传通道——所有上游凭证都安全保存在控制面内。多步骤 Agent 工作由 Sessions 和后台 Agent 任务管理。AIGateway 负责模型与媒体调用，也处理返回 `202`、供调用方后续轮询的异步媒体作业；选择符解析与 Provider 凭据保管均在控制面内完成。
 
 ## 下一步
 

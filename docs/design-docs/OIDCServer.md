@@ -74,7 +74,7 @@ constraints:
 
 ## Console Client Management
 
-Tenant administrators manage OIDC Clients in the Console via
+Site administrators manage each tenant's OIDC Clients in the Console via
 `/api/v2/oidc-clients`. Calling `GET /api/v2/oidc-clients/login-sources` lists
 both the tenant's identity providers and the registered site login sources
 available for a Client's sign-in policy.

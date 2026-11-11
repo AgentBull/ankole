@@ -11,13 +11,13 @@ Because main-conversation and Workflow model calls run directly in the control p
 
 Each Session Driver releases its PostgreSQL connection while waiting on a model call or Worker tool, keeping model concurrency, upstream provider quotas, Worker slots, and database query concurrency independent of one another. Size the combined `Ankole.Repo` and `Ankole.Pod.BaseRepo` connection pools across all control-plane replicas so they stay comfortably below each PostgreSQL server's `max_connections` budget, leaving headroom for administrative and maintenance sessions.
 
-In single-database deployments where `BASE_DB_URLS` is unset, `Ankole.Pod.BaseRepo` opens its own 10-connection pool to `DATABASE_URL` alongside `Ankole.Repo`'s 10-connection pool—totaling `20` pool connections per control-plane replica. When `BASE_DB_URLS` points to dedicated shard databases, size each shard server's `max_connections` for `replicas × ankole_pool_size`. Always measure actual pool checkout wait times before raising pool sizes.
+In FOSS production deployments where `BASE_DB_URLS` is unset, `Ankole.Pod.BaseRepo` opens its own 10-connection pool to `DATABASE_URL` alongside `Ankole.Repo`'s 10-connection pool—totaling `20` pool connections per control-plane replica. When `BASE_DB_URLS` points to dedicated shard databases, size each shard server's `max_connections` for `replicas × ankole_pool_size`. Always measure actual pool checkout wait times before raising pool sizes.
 
 | Knob | Default | What it caps |
 |---|---|---|
-| `ANKOLE_MAX_CONCURRENT_SLOTS` | `12` in deployment seeds (`9` when unset) | Open environment workspaces and active Codex turns on a single Agent's Worker |
+| `ANKOLE_MAX_CONCURRENT_SLOTS` | `12` | Open environment workspaces and active Codex turns on a single Agent's Worker |
 | `POOL_SIZE` (`ANKOLE_DATABASE_POOL_SIZE` in Compose/Helm) | `10` | Connections per replica in the `Ankole.Repo` pool for the control-plane database |
-| `BASE_DB_URLS` (`ankole_pool_size`) | `10` per shard (`2` in dev/test) | Connections per replica in each `Ankole.Pod.BaseRepo` pool for a Base shard |
+| `BASE_DB_URLS` (`ankole_pool_size`) | `10` in FOSS production, `5` in SaaS production, `2` in dev/test | Connections per replica in each `Ankole.Pod.BaseRepo` pool for a Base shard |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | `max_connections` on the bundled PostgreSQL server |
 | `background_agent_jobs.max_running_per_agent` | `3` | Concurrently running Background Agent Jobs per Agent (tenant-scoped) |
 | `idleReleaseAfter` | `15m` across all six providers (`never` disables idle stop) | How long a Worker stays idle before the control plane stops it to free CPU and memory |

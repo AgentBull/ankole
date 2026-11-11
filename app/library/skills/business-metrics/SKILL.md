@@ -11,6 +11,10 @@ tags: [Metrics, Data, Base, Database, Brain]
 
 This Skill owns how an Agent answers a question whose answer is a number from business data, and how the organization's metric definitions (口径) are kept in Brain. A wrong number that looks right is the worst outcome. Report only numbers that a server-side query returned in this turn, and cite how you got them.
 
+The main runtime owns `write_object` and `remember`. In a Background Agent Job,
+use the available Brain read tools and return proposed definitions and durable
+findings to the main Agent for those writes.
+
 ## Know the three sources
 
 - **Brain** holds meaning. `metrics/<name>` objects are metric definitions with a published, versioned executable spec. `datasets/<name>` objects describe a Base table or an external table: business meaning, grain, keys, joins, and which column identifies which Brain entity. Read them with the `brain` tool (`recall`, `entity`). An alias in the user's message already gives you a pointer to the matching object.
@@ -59,7 +63,7 @@ End every numeric answer with the evidence it rests on: the metric or dataset ob
 
 - A `datasets/` object declares `source` (`{kind: base, table_id}` or `{kind: connector, connection, schema?, table}`), `grain`, optional `primary_key`, `business_key`, `entity_key` (`{key, entity_type, namespace}`), and `joins_to` (`{dataset, keys: [{from, to}], cardinality}`). Without `source` it is a draft.
 - A `metrics/` object declares `aliases`, `dataset`, `grain`, `unit`, `numerator`, optional `denominator`, `time_field`, `parameters` (`{name, type, required?, default?}`), and `addible_dimensions`. A Base dataset uses `spec`: the `base.aggregate` JSON with `{"$param": name}` placeholders. A connector dataset uses `sql` with positional parameters plus `columns`, the source columns it reads. Connector SQL owns its own grouping; requested dimensions are only checked against the allowlist. Write inclusions, exclusions, and a counterexample in the body.
-- Save with the `brain` tool `write_object`. An invalid definition is rejected with `invalid_metric_definition` or `invalid_dataset_definition` and the failing key. When you or the requester cannot edit Brain directly, the tool returns an Action Card; an authorized person approves it, and the next question uses state 1. A changed executable definition publishes a new revision; to withdraw a metric, set `status: retired`.
+- Save with the `brain` tool `write_object`. An invalid definition is rejected with `invalid_metric_definition` or `invalid_dataset_definition` and the failing key. When you or the requester cannot edit Brain directly, the tool returns an Action Card proposal. Call `propose_action_card` with that proposal in a native Pod conversation so an authorized person can approve it; the next question then uses state 1. A changed executable definition publishes a new revision; to withdraw a metric, set `status: retired`.
 - Entity objects declare row keys with `identifiers` (for example `{erp.supplier_id: S-0042}`) so results can point back to the entity.
 - When a person corrects a metric, revise its object at once; Brain stores the change as a new revision and keeps the history.
 - Record a business finding that came from data with `remember`: the entity as subject, the query and data timestamp in the context. Record findings that matter for decisions, not raw rows.

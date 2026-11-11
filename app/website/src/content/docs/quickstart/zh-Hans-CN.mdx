@@ -517,7 +517,7 @@ export const deploymentTabs = [
               code: 'bun dev'
             }
           ],
-          body: ['请保持该终端运行，在浏览器打开 http://localhost:4000，输入开发服务打印的激活码。']
+          body: ['请保持该终端运行，在浏览器打开 http://ankole.localhost:4000，输入开发服务打印的激活码。']
         }
       ]
     },
@@ -541,7 +541,7 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'bun run services:status',
-                'curl -I http://localhost:4000/',
+                'curl -I http://ankole.localhost:4000/',
                 'docker ps -a --filter label=ankole.installation=dev'
               ].join('\n')
             },
@@ -849,7 +849,7 @@ export const identityTabs = [
         {
           title: '确认实时通知地址可访问',
           body: [
-            '开启“实时同步通讯录变更”时，“Ankole 公网地址”必须是有效的公网 HTTPS 地址。Ankole 会在该域名下暴露 /webhooks/v1/entra-id/entra-id-main/directory 回调接口，并自动创建与续订 Graph 订阅。'
+            '开启“实时同步通讯录变更”时，“Ankole 公网地址”必须是有效的公网 HTTPS 地址。Ankole 会用当前租户 ID 自动构造 /webhooks/v1/entra-id/<tenant_id>.entra-id-main/directory 回调地址，并创建与续订 Graph 订阅，无需手写完整路径。'
           ],
           links: [
             {
@@ -972,7 +972,7 @@ export const identityTabs = [
     },
     advanced: {
       title: '域名边界、同步节奏与服务账号',
-      summary: 'Google Workspace 仅支持全量同步，不推送实时目录变更事件。',
+      summary: 'Ankole Google Workspace 适配器仅支持全量同步，不接收实时目录变更事件。',
       steps: [
         {
           title: '严格填写允许登录的 Workspace 域名',
@@ -1315,12 +1315,12 @@ export const identityTabs = [
     },
     advanced: {
       title: '同步节奏、可信 IP 与只做登录',
-      summary: '企业微信不推送实时目录事件，人员变动依靠定时或手动全量同步更新。',
+      summary: 'Ankole 企业微信适配器通过定时或手动全量同步更新通讯录。',
       steps: [
         {
           title: '目录变动后触发全量同步',
           body: [
-            '企业微信不会向 Ankole 主动推送通讯录变更；企业内新增员工或调整部门架构后，可在 Console → 身份源提供商中手动运行一次全量同步，或等待下一轮周期同步。'
+            'Ankole 企业微信适配器通过全量同步获取通讯录变更。企业内新增员工或调整部门架构后，可在 Console → 身份源提供商中手动运行一次全量同步，或等待下一轮周期同步。'
           ]
         },
         {
@@ -1567,6 +1567,18 @@ export const channelTabs = [
           ]
         },
         {
+          title: '启用 Teams 渠道并安装应用',
+          body: [
+            '在 Azure Bot → Channels 中启用 Microsoft Teams。创建 Teams 应用，将同一个 Microsoft App ID 填为 bot ID，并按需选择 personal、team 或 groupchat 范围；随后发布或上传应用包，将其安装到测试用户或团队。'
+          ],
+          links: [
+            {
+              label: '将 Azure Bot 连接至 Teams',
+              href: 'https://learn.microsoft.com/en-us/azure/bot-service/channel-connect-teams'
+            }
+          ]
+        },
+        {
           title: '准备 Console 字段',
           fields: [
             {
@@ -1588,7 +1600,7 @@ export const channelTabs = [
         {
           title: '让 Bot Framework 应用服务多个 Entra 租户',
           body: [
-            '先确认 Azure Bot 资源的注册类型允许跨多个 Entra 租户使用，再将 botTenancy 设为 multi_tenant，此时 Ankole 会向 botframework.com 请求机器人令牌。注意这里的 multi_tenant 仅指微软侧的应用注册类型，不会改变 Ankole 实例自身的租户隔离边界。'
+            '若使用已有的多租户 Azure Bot，可将 botTenancy 设为 multi_tenant，此时 Ankole 会向 botframework.com 请求机器人令牌。Microsoft 允许已有的多租户 Bot 继续运行，但新建 Bot 须选择其他受支持的注册类型；接入 Ankole 时请选择 single_tenant。这里的注册类型不会改变 Ankole 实例自身的租户隔离边界。'
           ]
         },
         {
@@ -1871,8 +1883,8 @@ export const channelTabs = [
     alert: {
       title: '企业微信是平台限制最多的聊天渠道',
       body: [
-        '群聊中 Agent 仅能收到明确 @ 机器人的消息；图片、语音、文件与视频仅在单聊中投递，且语音仅提供平台转写后的文本。已发出的消息不支持撤回、二次编辑或添加表情回应。Agent 无法主动向新用户发起会话——用户必须先在该会话内向机器人发过消息，且收到消息后的普通回复窗口为 24 小时。流式回复仅在被动回复用户时可用（单条上限 10 分钟，超长回答自动分段），主动推送与群发限频约为每会话每分钟 30 条；交互卡片在用户点击后仅有 5 秒更新窗口；通讯录亦无实时变更推送。',
-        '以上限制均源于企业微信平台接口规范，Ankole 无法绕过，长期记忆也只能从实际收到的消息片段中积累上下文。条件允许时，建议优先选用飞书 / Lark、Slack、Teams 或钉钉。'
+        '群聊中 Agent 仅能收到明确 @ 机器人的消息；图片、语音、文件与视频仅在单聊中投递，且语音仅提供平台转写后的文本。已发出的消息不支持撤回、二次编辑或添加表情回应。Agent 无法主动发起全新会话，用户须先在该会话内向机器人发过消息。收到消息后，回复锚点有效期为 24 小时；过期后，Ankole 仍可向已激活的会话主动发送文字与卡片，但无法发送媒体附件。流式回复仅在被动回复用户时可用（单条上限 10 分钟，超长回答自动分段），主动推送与群发限频约为每会话每分钟 30 条；交互卡片在用户点击后仅有 5 秒更新窗口；Ankole 企业微信适配器通过全量同步更新通讯录。',
+        '以上是 Ankole 企业微信适配器当前提供的能力。长期记忆从 Agent 实际收到的消息中积累上下文。条件允许时，建议优先选用飞书 / Lark、Slack、Teams 或钉钉。'
       ]
     },
     prerequisites: [
@@ -2058,7 +2070,7 @@ export const channelTabs = [
           body: [
             '在 Bot 页面的 Privileged Gateway Intents 区域开启 Message Content Intent。若未开启，Discord 投递的未 @ 机器人服务器消息正文将为空，Agent 只能读到私信和直接提及它的消息，observe_all 与 may_intervene 均无法感知频道讨论。Ankole 建立连接前会读取应用标志位，仅当应用已具备该 Intent 时才会发起请求。'
           ],
-          caution: '无需开启 Server Members Intent 和 Presence Intent。当机器人加入超过 100 个服务器时，应用须通过 Discord 官方验证才能保留 Message Content Intent。'
+          caution: '无需开启 Server Members Intent 和 Presence Intent。当应用在所有服务器中可触达的独立用户达到 10,000 人时，须申请特权 Intent 访问权限；获批后须每年重新申请。'
         },
         {
           title: '将机器人邀请进服务器',
@@ -2154,7 +2166,7 @@ export const channelTabs = [
         {
           title: '创建 Messaging API Channel 并获取凭证',
           body: [
-            '登录 LINE Developers Console，在所属 Provider 下新建一个 Messaging API Channel：从 Basic settings 页面复制 Channel ID 与 Channel secret，再切换到 Messaging API 标签页签发一个长期有效的 Channel access token。'
+            '先在 LINE Official Account Manager 中创建官方账号，启用 Messaging API 并选择所属 Provider，平台会自动生成 Channel。随后在 LINE Developers Console 打开该 Channel，从 Basic settings 复制 Channel ID 与 Channel secret，再到 Messaging API 标签页签发长期有效的 Channel access token。'
           ]
         },
         {
@@ -2178,7 +2190,7 @@ export const channelTabs = [
         {
           title: '关闭预设自动回复，仅交由机器人应答',
           body: [
-            '在 LINE Official Account Manager 中打开 Response settings，将应答模式设为 Bot，并关闭自动回复与加好友欢迎消息，以免官方账号在 Agent 回复之外另行发送预设话术。若需接入群聊，请在 LINE Developers Console 中开启 Allow bot to join group chats。'
+            '在 LINE Official Account Manager 中打开 Response settings，关闭自动回复与加好友欢迎消息，以免与 Agent 回复重复，并保持 Webhook 启用。若需接入群聊，请在 LINE Developers Console 中开启 Allow bot to join group chats。'
           ]
         },
         {
@@ -2245,10 +2257,10 @@ export const channelTabs = [
     summary:
       'WhatsApp 通过 Cloud API Webhook 向 Ankole 推送消息，要求实例具备带可信证书的公网 HTTPS 地址。虽然 WhatsApp 属于消费级 IM，但只要发信人的手机号已登记在某个已知主体名下，无需管理员手动操作即可自动完成映射。',
     alert: {
-      title: 'WhatsApp 平台限制了部分 Ankole 功能',
+      title: 'WhatsApp 接入的功能范围',
       body: [
-        'Meta 会在用户发出最后一条消息或点击交互按钮满 24 小时后关闭客服窗口。窗口关闭后发出的消息（如定时报告）会明确报错停止，无法送达用户；待用户再次发信重开窗口后，运维人员可在信号路由页面点击重试补发。此外，群聊接入、付费模板消息、消息编辑、消息撤回以及实时进度预览均不支持。',
-        '以上限制均来自 Meta 平台本身，Ankole 无法绕过。'
+        'Ankole 会在用户最后一次发信或点击有效交互按钮满 23 小时 55 分钟时停止投递，为 24 小时客服窗口预留 5 分钟余量。待用户再次发信后，运维人员可在信号路由页面重试此前停止的回复。当前适配器支持一对一单聊，尚不支持群聊、模板消息、消息编辑、消息撤回或实时进度预览。',
+        '以上说明的是当前 WhatsApp 适配器的支持范围。'
       ]
     },
     prerequisites: [
@@ -2343,7 +2355,7 @@ export const channelTabs = [
         {
           title: '遵守 24 小时客服窗口规则',
           body: [
-            'Ankole 在每次发信前都会检查会话窗口状态：若距离用户最后一次发信或点击按钮已超过 24 小时，投递会直接以 customer_service_window_closed 停止，不会向 Meta 发出无效请求（开启新窗口所需的付费模板消息目前不在支持范围内）。待用户再次发来消息重开窗口后，可在信号路由页面点击「重试」补发此前拦下的回复。'
+            'Ankole 在每次发信前都会检查会话窗口状态：距离用户最后一次发信或点击有效按钮满 23 小时 55 分钟时，投递便以 customer_service_window_closed 停止，不再向 Meta 发出请求，为 24 小时窗口预留 5 分钟余量。当前适配器不支持模板消息。待用户再次发信后，可在信号路由页面点击「重试」补发此前停止的回复。'
           ]
         },
         {
@@ -2505,7 +2517,7 @@ export const signalAdvanced = {
 | **对话（Conversation）** | 人与 Agent 共同参与的交流空间；原生对话发言以 Ankole 为准，外部平台对话发言以宿主平台为准 | 对话 |
 | **消息（Message）** | 在对话中正式提交、对参与者可见的发言记录 | 消息 |
 | **信号（Signal）** | 由对话发言、定时触发、外部事件或子任务完成所生成并持久接纳的输入刺激 | 信号 |
-| **执行会话（Session）** | 持有专属信号队列与可恢复执行进度的运行上下文，严格限定在单个对话内 | 执行会话 |
+| **执行会话（Session）** | 持有专属信号队列与可恢复执行进度的运行上下文，可用于对话、定时任务、后台任务或工作流任务 | 执行会话 |
 | **投递（Delivery）** | 向外部对话发送回复时的持久化投递意图、尝试记录与最终回执 | 投递 |
 | **信号路由规则（Signal Binding）** | 定义将哪个信号源收到的消息或事件转交给哪位 Agent 处理的绑定规则 | 路由规则 |
 | **大语言模型提供商（LLM Provider）** | 保存模型接口地址、访问凭证及可用模型列表的配置 | 模型提供商 |
@@ -2526,6 +2538,8 @@ export const signalAdvanced = {
 ## 1. 部署 Ankole
 
 单机部署推荐使用 Docker Compose，企业级集群环境推荐使用 Kubernetes；源码安装仅用于本地功能开发与故障调试。
+
+租户页面使用 `<tenant-slug>.<site-host>`（例如 `team.ankole.example.com`）。公网部署时，请为每个租户主机名配置 DNS、HTTPS 证书与代理或 Ingress 规则，使其指向同一控制面。下方 Compose 的 Caddy 配置与 Helm 的 Ingress 示例仅覆盖站点主机名。
 
 Worker 部署标识（installation）长度须为 1–20 个字符，仅支持小写字母、数字和连字符（`-`），且首尾字符必须为字母或数字（例如 `e2e-1011b01`）。Docker Compose 通过 `ANKOLE_WORKER_INSTALLATION` 设置（默认为 `ankole`）；Helm 通过 `worker.installation` 设置（留空时默认采用 Release 名称）。请在首次启动前确定该标识，上线后保持不变——底层 Worker 实例命名与持久 Home 存储路径均与该标识绑定。
 
@@ -2657,7 +2671,7 @@ Ankole 专为企业私有化部署设计。一套站点可承载多个租户；�
 4. 信号路由规则处于启用状态，且指向正确的目标 Agent。
 5. 目标 Agent 能解析出有效的 `primary` 模型档案（来自 **Console → Model Profiles** 的站点/Pod 默认值或 Agent 覆盖配置）。
 6. 模型提供商的 API 凭证与模型名称真实有效。
-7. 在 **Console → 工作节点** 中，该 Agent 对应的 Worker 状态显示为“就绪”；若未就绪，页面会直接展示底层平台返回的具体原因。
+7. 若本轮需要环境工具或 Codex 任务，在 **Console → 工作节点** 中检查对应 Worker 的状态及启动失败原因。创建 Agent 时会请求启动一次 Worker；空闲释放后，纯问答与控制面工具无需等待 Worker 就绪。
 
 使用 Docker Compose 部署时，可运行 `docker compose logs -f control-plane` 查看控制面实时日志；如需查看 Worker 日志，先运行 `docker ps -a --filter label=ankole.installation=ankole` 列出 Worker 容器，再执行 `docker logs CONTAINER_NAME` 查看目标容器。使用 Kubernetes 部署时，分别查看控制面 Pod 与对应 Worker Pod 的日志即可。排查问题时请仅截取相关报错行，切勿打印环境变量或任何敏感密钥。
 

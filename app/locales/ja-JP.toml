@@ -6,9 +6,9 @@ max_running_per_agent = "1 つの Agent が同時に実行できる Background A
 
 
 [app_configure.descriptions.ai_agent]
-inactivity_timeout_ms = "Agent Computer のモデル／プロバイダー無応答タイムアウト（ミリ秒）。実行中のツールは自身のライフサイクルを持ちます。0 を指定するとウォッチドッグを無効にします。"
-max_iterations = "1 回の Agent Computer ターン実行における論理モデル反復の最大回数。"
-max_output_tokens = "1 回のモデル応答に対する Agent Computer の最大出力トークン数（省略可）。nil は明示的な上限がないことを意味します。"
+inactivity_timeout_ms = "Session turn のモデル／プロバイダー無応答タイムアウト（ミリ秒）。実行中のツールは自身のライフサイクルを持ちます。0 を指定するとウォッチドッグを無効にします。"
+max_iterations = "1 回の Session turn における論理モデル反復の最大回数。"
+max_output_tokens = "1 回のモデル応答に対する最大出力トークン数（省略可）。nil は明示的なリクエスト上限がないことを意味します。"
 
 [app_configure.descriptions.ai_agent.library]
 agent_plugin_defaults = "各 Agent Plugin について Agent が継承する既定の有効化設定。"
@@ -45,8 +45,8 @@ enabled_ids = "次回の Ankole プロセス起動時に有効化する Plugin �
 "*" = "マシン管理される Graph 変更通知サブスクリプションの状態。"
 
 [app_configure.descriptions.principals.identity_providers]
-active = "管理者認証に使用できる Identity Provider の設定。"
-directory_full_sync_interval_minutes = "定期的なディレクトリ完全同期の実行間隔（分）。"
+active = "このテナントのサインインとディレクトリ同期に使う Identity Provider の設定。"
+directory_full_sync_interval_minutes = "ディレクトリの完全同期を定期的にキューへ追加する間隔（分）。"
 
 [app_configure.descriptions.principals.identity_providers.dingtalk]
 "*" = "暗号化された DingTalk Identity Provider の設定。"
@@ -93,6 +93,80 @@ timezone = "ワークスペースのスケジュール用タイムゾーン。�
 max_agent_calls_per_run = "1 回の Workflow 実行で作成できる Agent 呼び出しの上限。"
 max_concurrency_per_run = "1 回の Workflow 実行が要求できるタスク並列数の上限。"
 max_running_per_agent = "1 つの Agent が同時に実行できる Workflow タスクの上限。"
+
+[app_configure.descriptions.tenants]
+privileged_tenant_id = "siteadmin グループがこの Site を管理するテナントの ID。"
+
+[app_configure.descriptions.pod]
+allow_external_guests = "招待された外部ゲストが、共有された Pod ページにアクセスできるようにします。"
+ot_replay_window = "OT リプレイのために保持する、直近のドキュメント変更バッチ数。"
+ocr_existing_scans = "アップロード時に OCR モデルで読み取らなかったスキャン PDF のページを OCR モデルに送ります。OCR プロバイダーはページごとに課金します。"
+
+[app_configure.descriptions.pod.applet]
+limits = "Applet 呼び出しの上限。timeout_ms と heap_mb を指定します。Capability の待機時間と外部メモリも対象に含みます。"
+action_limits = "Applet Action のスライスごとの上限。timeout_ms と heap_mb を指定し、Capability の待機時間も対象に含みます。"
+action_runtime_url = "バックグラウンド Action 専用の Function Runtime のオリジン（省略可）。Site のランタイム認証情報を使います。空欄の場合は共有デプロイメントを使います。"
+
+[app_configure.descriptions.pod.base]
+limits = "Base のクエリとレコードの上限。query_rows、record_bytes、group_count、statement_timeout_ms を指定します。"
+
+[app_configure.descriptions.pod.office]
+limits = "Office ページの上限。max_file_bytes はオンライン編集のファイルサイズ、compaction_idle_seconds、compaction_op_threshold、compaction_structural_threshold は編集内容をファイルに書き戻す条件を指定します。"
+
+[app_configure.descriptions.principals]
+pod_login_policy = "Pod メンバーのサインインと招待に関するポリシー。"
+
+[app_configure.descriptions.drive]
+vfs_max_upload_bytes = "Drive VFS へのアップロード 1 件あたりの最大バイト数。0 の場合はオブジェクトストアの上限を使います。"
+trash_retention_days = "削除した Drive ノードを自動で完全削除するまでの保持日数。0 の場合は、この設定を変更するまで保持します。"
+
+[app_configure.descriptions.signals.telegram.bindings]
+"*" = "暗号化された Telegram Bot のバインディング設定。"
+
+[app_configure.descriptions.signals.whatsapp.bindings]
+"*" = "暗号化された WhatsApp Cloud API のバインディング設定。"
+
+[app_configure.descriptions.connectors.database]
+limits = "データベースコネクターのクエリ予算。statement_timeout_ms、lock_timeout_ms、max_rows、max_result_bytes、max_scanned_bytes（ClickHouse）、max_export_rows、probe_count、catalog_tables、profile_tables、sample_rows を指定します。"
+
+[app_configure.descriptions.signals.line.bindings]
+"*" = "暗号化された LINE チャネルのバインディング設定。"
+
+[app_configure.descriptions.signals.discord.bindings]
+"*" = "暗号化された Discord Bot のバインディング設定。"
+
+[app_configure.descriptions.signals.lark.binding_configs]
+"*" = "バインディングが所有する、暗号化された Feishu / Lark チャット設定。"
+
+[app_configure.descriptions.signals.email.bindings]
+"*" = "暗号化されたメールボックスのバインディング設定。"
+
+[app_configure.descriptions.signals.wecom.bindings]
+"*" = "暗号化された WeCom チャットのバインディング設定。"
+
+[app_configure.descriptions.principals.identity_providers.wecom]
+"*" = "暗号化された WeCom Identity Provider の設定。"
+
+[app_configure.descriptions.ai_gateway.model_profiles]
+primary = "Pod または Site の primary モデルプロファイルの上書き。"
+light = "Pod または Site の light モデルプロファイルの上書き。"
+heavy = "Pod または Site の heavy モデルプロファイルの上書き。"
+coding = "Pod または Site の coding モデルプロファイルの上書き。"
+vision_fallback = "Pod または Site の vision_fallback モデルプロファイルの上書き。"
+web_search = "Pod または Site の web_search モデルプロファイルの上書き。"
+web_fetch = "Pod または Site の web_fetch モデルプロファイルの上書き。"
+image_generate = "Pod または Site の image_generate モデルプロファイルの上書き。"
+rerank = "Pod または Site の rerank モデルプロファイルの上書き。"
+decision = "Pod または Site の decision モデルプロファイルの上書き。"
+speech = "Pod または Site の speech モデルプロファイルの上書き。"
+transcription = "Pod または Site の transcription モデルプロファイルの上書き。"
+ocr = "Pod または Site の ocr モデルプロファイルの上書き。"
+video = "Pod または Site の video モデルプロファイルの上書き。"
+music = "Pod または Site の music モデルプロファイルの上書き。"
+
+[app_configure.descriptions.ai_gateway.provider_hosted]
+web_search = "web_search を言語モデルの Provider 側で実行するかどうか。"
+image_generate = "image_generate を言語モデルの Provider 側で実行するかどうか。"
 
 [auth]
 register_document_title = "サインインまたは登録 · Ankole"
@@ -155,7 +229,7 @@ member_name = "表示名"
 add_email = "別のサインインを追加"
 sign_out_all = "すべてサインアウト"
 pending_space = "未参加 · {$name}"
-personal_email_notice = "長期利用する個人スペースには個人のメールを使ってください。勤務先は業務メールを再割り当てできます。各スペースがメンバーを管理します。"
+personal_email_notice = "長期利用するスペースには個人のメールを使ってください。勤務先は業務メールを再割り当てできます。各スペースがメンバーを管理します。"
 
 [authn.email]
 footer = "自動送信されたセキュリティ通知 · 返信不要"
@@ -711,13 +785,13 @@ alert_failed_jobs_action = "ジョブを確認"
 alert_failed_jobs_description = "ジョブを開くと、記録されたエラーを確認できます。"
 alert_failed_jobs_title = "最近の Background Agent Job の {$count} 件が失敗しました"
 alert_no_identity_action = "プロバイダーを追加"
-alert_no_identity_description = "有効化された Identity Provider 経由でなければ、このコンソールにサインインできる人はいません。"
+alert_no_identity_description = "組織のアカウントでサインインできるように、Identity Provider を有効にしてください。"
 alert_no_identity_title = "Identity Provider が有効化されていません"
 alert_no_provider_action = "プロバイダーを追加"
 alert_no_provider_description = "利用可能な認証情報を持つ LLM Provider が有効になっている必要があります。これにより、Agent はモデルを呼び出せます。"
 alert_no_provider_title = "利用可能な LLM Provider がありません"
 alert_worker_failing_action = "worker を検査"
-alert_worker_failing_description = "準備完了にならない Worker についてバックエンドが問題を報告しています。その Agent は作業できません。"
+alert_worker_failing_description = "Worker が準備完了になりません。この Agent はコンピューターを必要とするタスクを実行できません。"
 alert_worker_failing_title = "{$count} 台の Worker が準備完了になりません"
 attention = "対応が必要"
 enabled_providers = "有効化されたプロバイダー"
@@ -1243,7 +1317,7 @@ empty_description = "Background Agent Job は、queued、active、completed の�
 empty_title = "Background Agent Job がありません"
 error = "エラー"
 files_changed = "変更されたファイル"
-integrity_redacted = "編集済み"
+integrity_redacted = "機密情報をマスク済み"
 integrity_truncated = "切り詰め"
 message_count = "{$count} 件のメッセージ"
 model_profile = "モデルプロファイル"
@@ -1610,8 +1684,8 @@ editor_description = "この設定値を編集します。"
 empty_title = "設定がありません"
 encrypted_value_hint = "保存済みの secret を維持するにはマスクをそのままにします。任意の文字列を入力するか、構造化データには有効な JSON オブジェクトまたは配列を入力します。"
 format_json = "JSON を整形"
-group_observability = "LLM observability"
-group_observability_description = "AIGateway モデル要求用の任意のプロセス全体 OpenTelemetry trace export。"
+group_observability = "LLM の可観測性"
+group_observability_description = "AIGateway のモデルリクエストについて、プロセス全体の OpenTelemetry トレースを必要に応じてエクスポートします。"
 group_kind = "{$count} キー"
 group_save_failed = "{$key} を保存できませんでした: {$reason}。このグループの前のキーは保存済みです。"
 group_saved = "{$count} キーを保存しました。"
@@ -1624,28 +1698,28 @@ managed_elsewhere = "別の場所で管理"
 managed_group = "インスタンスが所有する {$count} キー（読み取り専用）"
 not_found = "この AppConfigure キーは見つかりませんでした。"
 observability_add_header = "header を追加"
-observability_enabled = "Trace export"
-observability_enabled_hint = "次の control-plane 再起動後にプロセス全体の OpenTelemetry trace を export します。既定では無効です。"
-observability_endpoint = "Base OTLP/HTTP endpoint"
-observability_endpoint_hint = "receiver の base endpoint を入力します。Ankole が /v1/traces を追加します。"
+observability_enabled = "トレースのエクスポート"
+observability_enabled_hint = "次回コントロールプレーンを再起動した後、プロセス全体の OpenTelemetry トレースをエクスポートします。既定では無効です。"
+observability_endpoint = "OTLP/HTTP のベースエンドポイント"
+observability_endpoint_hint = "受信先のベースエンドポイントを入力します。Ankole が /v1/traces を追加します。"
 observability_error_endpoint_invalid = "credentials、query、fragment を含まない HTTP または HTTPS endpoint を入力してください。"
-observability_error_endpoint_required = "Trace export を有効にする前に base OTLP/HTTP endpoint を入力してください。"
+observability_error_endpoint_required = "トレースのエクスポートを有効にする前に、OTLP/HTTP のベースエンドポイントを入力してください。"
 observability_error_endpoint_signal_path = "/v1/traces を含まない base endpoint を入力してください。この path は Ankole が追加します。"
 observability_error_header_duplicate = "各 header 名は一意である必要があります。大文字と小文字は区別しません。"
 observability_error_header_name_required = "各 header の名前を入力してください。"
-observability_error_provider_required = "Trace export を有効にする前に trace Provider を選択してください。"
+observability_error_provider_required = "トレースのエクスポートを有効にする前に、トレースの Provider を選択してください。"
 observability_header_name = "Header {$number} の名前"
 observability_header_name_placeholder = "Header 名"
 observability_header_value = "Header {$number} の値"
 observability_headers = "認証 headers"
 observability_headers_empty = "Header は設定されていません。receiver が認証を必要とする場合に追加してください。"
 observability_headers_hint_langfuse = "Authorization: Basic <base64(public-key:secret-key)> と x-langfuse-ingestion-version: 4 を追加します。"
-observability_headers_hint_langsmith = "x-api-key を追加します。Langsmith-Project は任意です。"
+observability_headers_hint_langsmith = "x-api-key を追加します。Agent ベースのワークスペースでは Langsmith-Agent-Id と Langsmith-Agent-Environment も追加します。Project ベースでは代わりに Langsmith-Project を使います。"
 observability_headers_hint_opentelemetry = "選択した OTLP receiver に必要な headers のみを追加します。"
 observability_headers_invalid = "保存済みの認証 headers は string map ではありません。保存前に置き換えてください。"
 observability_headers_masked = "明示的に表示するまで、保存済みの header 名と値は非表示です。"
-observability_provider = "Trace Provider"
-observability_provider_hint = "AIGateway と Worker span の receiver mapping を選択します。すべての span は同じ OTLP exporter を使います。"
+observability_provider = "トレースの Provider"
+observability_provider_hint = "AIGateway と Worker の span を受信先に合わせて対応付ける方法を選択します。すべての span は同じ OTLP エクスポーターを使います。"
 observability_provider_langfuse = "Langfuse"
 observability_provider_langsmith = "LangSmith"
 observability_provider_opentelemetry = "OpenTelemetry（汎用）"
@@ -1696,12 +1770,12 @@ json_select_key = "キーを選択"
 json_show_less = "省略表示"
 json_update_failed = "値を更新できませんでした。"
 locale_hint = "この Ankole インスタンスに含まれる言語を選択します。"
-locale_title = "インスタンス言語"
+locale_title = "ワークスペースの言語"
 timezone_current_time = "このゾーンでの現在の日時"
 timezone_empty = "一致するタイムゾーンがありません。使用する IANA タイムゾーン ID を入力してください。"
 timezone_hint = "IANA タイムゾーン ID を検索します。オフセットは現在の日付に基づき、夏時間で変わる場合があります。"
 timezone_placeholder = "検索（例: Asia/Shanghai）"
-timezone_title = "インスタンスタイムゾーン"
+timezone_title = "スケジュールのタイムゾーン"
 timezone_use = "{$timezone} を使用"
 unsaved = "未保存の変更"
 valid_json = "有効な JSON"
@@ -2090,7 +2164,7 @@ result = "結果"
 
 [console.workers]
 agent = "Agent"
-empty_description = "各 Agent には Worker が 1 台あります。Agent を作成すると、最初に必要になったときに Worker が起動します。"
+empty_description = "各 Agent には Worker が 1 台あります。Ankole は Agent の作成時に Worker をバックグラウンドで起動し、アイドル状態で解放した後は、Worker が必要なタスクに応じて再起動します。"
 empty_title = "Worker がありません"
 last_heartbeat = "最終ハートビート"
 load = "負荷"
@@ -2893,7 +2967,7 @@ context_page = "現在のページ"
 choose_chat = "アシスタントとのチャットを選択"
 open_chat = "チャット画面で開く"
 close = "アシスタントを閉じる"
-wrong_page = "このチャットは別のページに属しています。このアシスタントとのチャットを選択するか、新しいチャットを開始してください。"
+wrong_page = "このチャットは別のページに属しています。このページのチャットを選択するか、新しいチャットを開始してください。"
 
 [pod.chat.errors]
 invalid_form_answer = "強調表示された項目を修正してから、もう一度送信してください。"
@@ -3886,7 +3960,7 @@ formula_bar = "セルの内容"
 active_cell = "アクティブセル"
 active_cell_value = "{$cell}：{$value}"
 version_history = "バージョン履歴"
-version_history_description = "バージョンを復元する前に現在のファイルをバージョンとして保存するため、内容は失われません。"
+version_history_description = "バージョンを復元する前に、現在のファイルをバージョン履歴に保存します。"
 versions = "バージョン"
 version_restored = "バージョンを復元しました。開いているすべてのエディターが読み込み直します。"
 restore_version = "復元"
@@ -4164,7 +4238,7 @@ sync_retrying = "未保存です。再試行中…"
 view_only = "閲覧のみ"
 collaborators = "このファイルを表示または編集中のメンバー"
 version_history = "バージョン履歴"
-version_history_description = "バージョンを復元する前に、現在のファイルもバージョンとして保存されるため、内容は失われません。"
+version_history_description = "バージョンを復元する前に、現在のファイルをバージョン履歴に保存します。"
 versions = "履歴"
 version_restored = "バージョンを復元しました。開いているエディターはすべて再読み込みされます。"
 restore_version = "復元"

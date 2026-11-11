@@ -22,7 +22,7 @@ Every HTTP and WebSocket endpoint under `/api/v1/ai-gateway` runs through the `:
 - **Agent token** — an AIGateway API key whose subject is an active Agent Principal; calls are scoped to that Agent's effective Model Profiles and selectors, with `subject_type = "agent"`.
 - **OIDC Human token** — issued to an active Human by an OIDC Client granted `ai_gateway.write`; calls resolve against that Client's model aliases, with `subject_type = "oidc_human"`.
 
-First-party control-plane services (`ankole_brain` for Company Brain workloads and `system` for stateless Pod Applet `ctx.ai` calls) invoke `Ankole.AIGateway` directly inside the BEAM without external bearer tokens, recording usage under their respective `system` Principal UIDs.
+First-party control-plane services (such as `ankole_brain` for Company Brain workloads) invoke `Ankole.AIGateway` directly inside the BEAM without external bearer tokens, recording usage under their respective `system` Principal UIDs.
 
 To obtain an OIDC Human token, create an OIDC Client in the Console with the `ai_gateway.write` scope, configure its allowed groups and model aliases, and sign in using Authorization Code with PKCE (request `offline_access` to receive a rotating Refresh Token for long-lived sessions). The Human must belong to an allowed group and may use only the Client's configured model aliases; raw `provider_id/model` selectors are rejected.
 
@@ -32,7 +32,7 @@ If a request omits the token or presents one that cannot be verified, the plug r
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"model":"main","input":"Summarize the open incidents."}'
+  -d '{"model":"primary","input":"Summarize the open incidents."}'
 ```
 
 ## The endpoints
@@ -68,10 +68,10 @@ A stateless call follows a single request/response cycle: the caller sends the c
 curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"model":"main","input":"Draft a release note.","stream":true}'
+  -d '{"model":"primary","input":"Draft a release note.","stream":true}'
 ```
 
-Stateless HTTP and SSE share one strict rule: neither accepts the stateful fields `previous_response_id`, `conversation`, or `store`. Any caller that needs multi-turn state continuation must use the WebSocket endpoint instead; sending a stateful field over HTTP or SSE returns `400` with `code: "stateful_responses_require_websocket"` and a message naming the offending field.
+Stateless HTTP and SSE reject `previous_response_id`, `conversation`, and any `store` value other than `false`. You may omit `store` or set `store: false`. Use the WebSocket endpoint for multi-turn state continuation; a forbidden stateful field over HTTP or SSE returns `400` with `code: "stateful_responses_require_websocket"` and a message naming the field.
 
 ## Stateful responses over WebSocket
 
@@ -115,7 +115,7 @@ Requesting a capability that the bound provider does not support returns `422 un
 
 ## Error shapes
 
-Errors return an OpenAI-compatible JSON envelope (`{"error": {"code", "message"}}`) paired with an HTTP status matching the failure class:
+Errors return an OpenAI-compatible JSON envelope (`{"error": {"code": "...", "message": "..."}}`) paired with an HTTP status matching the failure class:
 
 - `400` — request validation failed (missing `model` or `input`, invalid `limit` or `top_n`, a stateful field sent over HTTP, or malformed compaction input); `code` identifies the offending field or rule.
 - `401` — the bearer token is missing or cannot be verified.
@@ -130,7 +130,7 @@ When the upstream response includes an `error.message`, AIGateway forwards that 
 
 When a `/responses` request enables the `programmatic_tool_calling` tool, AIGateway synthesizes a `program` tool from eligible tool descriptors. It executes each `programmatic_tool_call` as a deterministic TypeScript program inside a stateless isolate on `ankole-function-runtime` via `Ankole.FunctionRuntime.ProgramRunner`, suspending at nested tool boundaries while AIGateway retains ownership of history, ordering, and cancellation.
 
-`image_generation` is a public Responses tool with two execution paths. When the subject has an `image_generate` profile configured, AIGateway runs the tool through that dedicated provider and model. Otherwise, AIGateway forwards the tool to the main language-model provider only when its capability declares native image generation; if neither path is available, AIGateway fails request preparation instead of simulating the tool.
+`image_generation` is a public Responses tool with two execution paths. When the main language-model provider supports native image generation on the Responses wire, AIGateway forwards the tool to it without resolving an `image_generate` profile. Otherwise, AIGateway uses the subject's `image_generate` profile; if neither path is available, request preparation fails.
 
 Both execution paths emit identical stream events and persist generated images in the same way, attributing model usage and image usage separately to whichever credential produced each output.
 
@@ -138,7 +138,7 @@ Both execution paths emit identical stream events and persist generated images i
 
 The same Principal identity and bearer token authorize AIGateway's remaining endpoints. `POST /web_search` accepts a length-bounded `query` and returns provider-backed search results, while `POST /web_fetch` fetches content from one to five public HTTPS URLs; both accept `web_search.default` and `web_fetch.default` to resolve the calling Agent's configured profiles.
 
-`POST /embeddings` accepts strings, token arrays, or structured input blocks with an explicit `provider_id/model` selector—for example, `Ankole.Brain` reads the site-level `brain.embedding_model` key from [AppConfigure](../app-configuration/) when generating embeddings. `POST /rerank` reranks a non-empty document array using a positive integer `top_n`, accepting either an explicit `provider_id/model` selector or `default` / `rerank.default` (`ankole_brain` resolves its effective `rerank` Model Profile, while Agent and Human calls resolve the Pod/Site `rerank` profile; see [Brain](../brain/) for retrieval details). Meanwhile, Pod Applet `ctx.ai` calls run statelessly through `Ankole.AIGateway` under the built-in `system` Principal, resolving effective Pod/Site language-model profiles (`primary`, `light`, `heavy`, `coding`, `vision_fallback`) without consuming any foreground Agent's token quota.
+`POST /embeddings` accepts strings, token arrays, or structured input blocks with an explicit `provider_id/model` selector—for example, `Ankole.Brain` reads the site-level `brain.embedding_model` key from [AppConfigure](../app-configuration/) when generating embeddings. `POST /rerank` reranks a non-empty document array using a positive integer `top_n`, accepting either an explicit `provider_id/model` selector or `default` / `rerank.default` (`ankole_brain` resolves its effective `rerank` Model Profile, while Agent and Human calls resolve the Pod/Site `rerank` profile; see [Brain](../brain/) for retrieval details). Meanwhile, Pod Applet `ctx.ai` calls run statelessly through `Ankole.Pod.Applets.Gateway` as the selected execution Principal. For language-model profiles (`primary`, `light`, `heavy`, `coding`, `vision_fallback`), Human execution resolves effective Pod/Site defaults and Agent execution resolves that Agent's effective configuration. Usage is attributed to the execution Principal without consuming interactive Agent token quota.
 
 `POST /web_search` takes a `query` of up to 1,024 characters and an optional `limit` from 1 to 100 (default 5). It returns `items`, each with `url`, `title`, and `description` plus `published_at` and `score` when the Provider reports them, and `metadata` with the `query`, the gateway's `latency_ms`, and the HTTP `request_id`. `POST /decisions` answers typed questions about a `state`. A request carries 1 to 64 `questions`, each a `noul` (yes or no), a `choice` among 2 to 255 named options, or a `score` on 2 to 10 ordered levels, and may attach up to four images of at most 4 MiB each. The response returns one answer per question with its probabilities, the `model` that answered, and token `usage`. The `default` / `decision.default` selector resolves the Pod/Site `decision` profile; when that profile is not configured, the caller's `light` language model answers instead. A language model reports its own confidence, so those probabilities are not calibrated, and it accepts at most 500 choice options and score levels in one request.
 
@@ -156,7 +156,7 @@ File endpoints are likewise scoped to the authenticated subject: `POST /files` u
 
 ## What AIGateway is not
 
-AIGateway is not an open, unauthenticated proxy, nor do callers pass upstream provider keys in requests—all provider credentials stay inside the control plane. It is also not a background queue or job runner; multi-step autonomous execution belongs to Sessions and Background Agent Jobs. AIGateway is strictly the synchronous and streaming request/response boundary: one authenticated request in, one response or stream out, with selectors resolved and credentials kept server-side.
+AIGateway is not an open, unauthenticated proxy, nor do callers pass upstream provider keys in requests—all provider credentials stay inside the control plane. Multi-step autonomous execution belongs to Sessions and Background Agent Jobs. AIGateway owns model and media calls, including asynchronous media jobs that return `202` for later polling, while resolving selectors and keeping provider credentials server-side.
 
 ## Next steps
 

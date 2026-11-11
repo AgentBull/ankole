@@ -7,7 +7,7 @@ order: 126
 
 AIGateway serves both internal Agent turns and external applications, enterprise systems, and HTTP clients over one REST and streaming surface. Complementing the [AIGateway](../ai-gateway/) architecture reference, this guide covers authentication, call modes, and practical `curl` examples.
 
-Every AIGateway endpoint is **OpenResponses-compatible and Principal-scoped**: callers present a bearer token (Agent or OIDC Human), send an OpenResponses-shaped request, and receive either a JSON body or an event stream. Upstream provider credentials stay strictly inside the control plane and are never exposed to callers.
+AIGateway calls are **Principal-scoped** and require an Agent or OIDC Human bearer token. The Responses API accepts OpenResponses-shaped requests and returns JSON or an event stream; media and file endpoints use their own schemas and content types. Upstream provider credentials stay inside the control plane.
 
 ## Authentication
 
@@ -49,7 +49,7 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "Draft a release note.", "stream": true }'
 ```
 
-Calls over stateless HTTP or SSE cannot include the stateful fields `previous_response_id`, `conversation`, or `store`; connect over the `/responses` WebSocket endpoint whenever you need multi-turn continuation.
+Stateless HTTP and SSE reject `previous_response_id`, `conversation`, and any `store` value other than `false`. You may omit `store` or set `store: false`; use the `/responses` WebSocket endpoint for multi-turn continuation.
 
 ## Other endpoints
 

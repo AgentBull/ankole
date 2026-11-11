@@ -71,6 +71,7 @@ When input exceeds any of these limits, the package raises an error instead of t
 | `pre` | Block | Text and `comment` wrappers | `lang`, `meta`: any value. `wrap`: `true`. | Comment wrappers preserve literal code whitespace; other inline elements are invalid. |
 | `math` | Block | Text | — | The text is the LaTeX source of a display formula. |
 | `mermaid` | Block | Text and `comment` wrappers | `view`: `both`, `code`, or `diagram`, default `both`. `theme`: `auto`, `light`, or `dark`, default `auto`. | The text is Mermaid source rendered as a diagram. |
+| `infographic` | Block | Text and `comment` wrappers | `view`: `both`, `code`, or `diagram`, default `both`. `theme`: `auto`, `light`, or `dark`, default `auto`. | The text is AntV Infographic source rendered as a diagram. |
 | `hr` | Block | Empty | — | — |
 | `table` | Block | Only `tr` | `widths`: comma-separated pixel widths from 1 to 9999. `layout`: `full`. | Widths follow logical column order. |
 | `tr` | Block | Only `th` and `td` | — | Only in `table` |
@@ -83,7 +84,7 @@ When input exceeds any of these limits, the package raises an error instead of t
 | `mention` | Inline | Empty | Exactly one of `page` (canonical lowercase UUID) or `principal` (non-empty ASCII UID without whitespace) | Host-resolved inline reference; `N` strips any enclosing `a`. |
 | `br` | Inline | Empty | — | — |
 | `span` | Inline | Inline | `style`: `color`, `background-color`, and `text-transform` declarations | — |
-| `comment` | Inline | Inline | `ids`: space-separated lowercase UUIDv7 thread IDs, required | IDs normalize to a sorted unique set; no other attributes. Inside `pre` and `mermaid`, descendants contain only text and comment wrappers. |
+| `comment` | Inline | Inline | `ids`: space-separated lowercase UUIDv7 thread IDs, required | IDs normalize to a sorted unique set; no other attributes. Inside `pre`, `mermaid`, and `infographic`, descendants contain only text and comment wrappers. |
 | `strong`, `em`, `s`, `u`, `mark`, `sub`, `sup`, `code` | Inline | Inline | — | — |
 
 If a known element carries attributes outside the vocabulary, the package preserves them unchanged and reports each one as a warning (section 6.4). Likewise, the package preserves unknown elements and all of their attributes unchanged and reports each unknown element as a warning.
@@ -146,7 +147,7 @@ The content categories below correspond to the **Content** column in section 2. 
 - Inside an element with "Block" or "Only …" content, text consisting solely of spaces, tabs, CR, and LF is layout whitespace and `N` removes it; any other direct text is an error.
 - Inside an element with "Only …" content, any child element outside that allowed set is an error.
 - Inside an element with "Block" content, a direct child that is a known inline element is an error.
-- An element with "Text" content (`pre`) may contain only text, and an element with "Empty" content may have no child nodes.
+- An element with "Text" content may contain only text; `pre`, `mermaid`, and `infographic` also accept `comment` wrappers around text. An element with "Empty" content may have no child nodes.
 - `N` removes any `ul` or `ol` that has zero list items.
 - A `block` without attributes and with fewer than two children becomes its sole child, or an empty paragraph when it has no children. A wrapper with unknown attributes stays so those attributes survive a round trip.
 - A `columns` row without attributes drops columns with no blocks or unknown attributes. A column containing an empty paragraph remains editable. If one column remains, its blocks replace the row unless the column has unknown attributes; if none remain, the row is removed. Unknown wrapper attributes are preserved.
@@ -220,6 +221,7 @@ Rebuild rules:
 | Fenced code block | `pre`. The first word of the info string becomes `lang`, and the remainder becomes `meta`. |
 | `$$` formula block | `math`. The formula must occupy its own paragraph, and the text between the delimiters becomes the LaTeX source. Single-line `$$…$$` stays inline math and is rejected. |
 | Mermaid fence | `mermaid`. The info string is exactly `mermaid` with no meta, and the fence body becomes the Mermaid source. |
+| Infographic fence | In Document pages, `infographic`. The info string is exactly `infographic` with no meta, and the fence body becomes the AntV Infographic source. |
 | GFM table | `table` > `tr` > `th` (header row) or `td`. Column alignment sets `align` on every cell in that column, and each cell wraps its inline content in a single `p`. |
 | `*x*`, `_x_` | `em` |
 | `**x**`, `__x__` | `strong` |
@@ -256,7 +258,7 @@ Where a tag appears determines whether the parser treats it as block or inline:
    Otherwise, the parser reads its body as block content.
 7. When `pre` is written with block tags, its body must be either empty or a single fenced code block. The parser merges the `<pre>` tag's attributes with the fence's `lang` and `meta`, raising an error if either attribute is specified in both places.
 8. When `math` is written with block tags, its body must be empty or a single `$$` formula block. The tag may carry attributes that the `$$` syntax cannot express.
-9. When `mermaid` is written with block tags, its body must be empty or a single `mermaid` fence. The tag may carry `view` and `theme` that the fence cannot express.
+9. When `mermaid` or `infographic` is written with block tags, its body must be empty or a single fence with the matching language. The tag may carry `view` and `theme` that the fence cannot express.
 
 ### 4.4 Lenient forms
 
@@ -290,6 +292,7 @@ Block elements:
 | `pre` | Carries only `lang` and `meta` (no `wrap`); `lang` contains no whitespace, `` ` ``, `&`, or `\`; `meta` is present only when `lang` is also present; and `meta` has no line breaks, `` ` ``, `&`, `\`, or leading/trailing whitespace. | Block `<pre …>` tags carrying all attributes, wrapping an info-free code fence. |
 | `math` | Has no attributes. | Block `<math …>` tags wrapping a `$$` formula block. |
 | `mermaid` | Has no attributes. | Block `<mermaid …>` tags wrapping a `mermaid` fence. |
+| `infographic` | Has no attributes. | Block `<infographic …>` tags wrapping an `infographic` fence. |
 | `hr` | Has no attributes. | `<hr … />` |
 | `table` | Neither the table nor its rows have attributes; the first row has only `th` cells and subsequent rows have only `td` cells; every row has the same cell count; every cell in a column shares the same `align` (excluding `justify`) and has no other attributes; every cell contains a single attribute-free `p` whose text has no leading or trailing whitespace; and no attribute value inside a cell contains `\|`. | Block tags. Rows in which every cell contains a single shorthand-eligible paragraph print one cell per line; other rows print cells as block tags as well. |
 | Other block elements | — | Block tags when all children are non-inline elements, `<name … />` when empty, or a single-line tag otherwise. |
@@ -495,6 +498,7 @@ The editing engine lives in `src/core` as a maintained fork of Wordgard within t
 | `pre` | Code block, with `lang`, `meta`, and `wrap` as marks and line breaks represented as line-break nodes. |
 | `math` | Formula block whose parameter is the LaTeX source. |
 | `mermaid` | Mermaid source block with `view` and `theme` marks; line breaks are line-break nodes. |
+| `infographic` | AntV Infographic source block with `view` and `theme` marks; line breaks are line-break nodes. |
 | `hr` | Divider |
 | `table`, `tr`, `th`, `td` | Table, row, header cell, and cell. Cells are containers, with `colspan`, `rowspan`, `align`, and `background` stored as marks on the cell. The table carries `widths` and `layout` marks. |
 | `callout` | Callout container; each child block is imported recursively. |
@@ -725,7 +729,9 @@ In the block menu, `转换为` (Turn into) supports paragraphs, headings, code b
 | --- | --- | --- | --- |
 | `initial` | `string \| DocumentElement` | `''` | Read once when mounting the editor instance. |
 | `kind` | `'doc' \| 'knowledge'` | `'doc'` | Selects the full document vocabulary or the knowledge subset. Stable for an editor instance. |
-| `onReady` | `(editor) => void \| (() => void)` | — | Called after the editor mounts; if it returns a cleanup function, that function runs on unmount. |
+| `host` | `EditorHost` | — | Host integration hooks from section 8.1. Stable for an editor instance; changing the host requires a new editor key. |
+| `resolvedCommentIDs` | `readonly string[]` | `[]` | Thread IDs whose anchors have no passive highlight or ordinary click target; the document marks stay intact. |
+| `onReady` | `(editor, handle) => void \| (() => void)` | — | Called after the editor mounts with the editor and its `EditorHandle`; if it returns a cleanup function, that function runs on unmount. |
 | `onChange` | `() => void` | — | Called synchronously (with no arguments) whenever an accepted update changes the page. |
 | `onError` | `(error: unknown) => void` | — | Called when an edit is rejected while keeping the current document intact; if omitted, the component renders an inline error banner. |
 | `readOnly` | `boolean` | `false` | Disables editing; see details below. |
@@ -749,7 +755,7 @@ When `readOnly` is `true`:
 
 When the page is editable, the empty page and an empty paragraph at the caret display the host's placeholder without inserting document text or shifting the caret. The editor exposes the same string through `aria-placeholder`.
 
-Because `onChange` can fire before the DOM reflects the update, reading layout inside `onChange` measures the previous render. Inside the editor React context, `useEditor()` returns the editor instance, and `useEditorState(select?)` returns the rendered editor state (or `select(state)`), re-rendering after the editor flushes its DOM so components can safely measure layout. When the state has not changed, `select` must return a referentially or structurally equal value.
+Because `onChange` can fire before the DOM reflects the update, reading layout inside `onChange` measures the previous render. Inside the editor React context, the exported `useEditor()` hook returns the editor instance. The package's internal `useEditorState(select?)` hook returns the rendered editor state (or `select(state)`), re-rendering after the editor flushes its DOM so components can safely measure layout. When the state has not changed, `select` must return a referentially or structurally equal value.
 
 User interface controls:
 
@@ -832,7 +838,7 @@ Insert and slash menu options appear in this order:
 | Undo, redo | ⌘Z, ⌘Shift+Z (plus Ctrl+Y for redo on non-Apple platforms) |
 | Hard line break, exit a code or Mermaid block into a new paragraph below, or insert a new paragraph above a whole-block selection | Shift+Enter |
 | Indent or outdent (changes parent-child structure in lists and ordinary blocks; existing `indent` attributes remain editable; indents selected code lines; keeps focus in editable documents when a block is already at its limit) | Tab, Shift+Tab anywhere in the block |
-| Move to the next or previous table cell (places caret at end of cell text, skips empty rows, and exits the table from the first/last cell) | Tab, Shift+Tab |
+| Move to the next or previous table cell (places caret at end of cell text and skips empty rows); Tab in the last editable cell appends a row, and Shift+Tab in the first cell exits the table | Tab, Shift+Tab |
 
 Inside a code block, Tab inserts one leading tab on every line touched by the selection, or the current line when the caret is collapsed. A selection ending at the next line's start includes that line. Shift+Tab removes one leading tab or up to two leading spaces on those lines. Both ends of the selection stay beside their text, including a backward selection, and each command is one undo step.
 
@@ -880,8 +886,8 @@ Whenever `apply` throws, the current document remains untouched. Revision number
 | Entry point | Exports |
 | --- | --- |
 | `@ankole/block-editor` | `BlockEditor`, `useEditor`, and type `EditorHandle` |
-| `@ankole/block-editor/document` | `parseMarkdown`, `printMarkdown`, `parseXml`, `printXml`, `resourceContent`, `resourceText` |
-| `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `remoteSelections`, `insertEmbed`, `commitMention`, `insertMention`, `mentionField`, `insertImage`, `insertResource`, `toggleFormat`, `undo`, `commentSelection`, `trackCommentSelection`, `commentRanges`, `revealComment`, `EditorSelection`, and types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `LinkMetadata`, `MentionTarget`, `MentionCategory`, `MentionSession`, `MentionItem`, `MentionQueryResult`, `MountMentionOptions`, `ResourceAttributes`, `ResourceKind`, `PageChanges`, `RemoteSelection`, `CommentSelection`, `CommentRange` |
+| `@ankole/block-editor/document` | `parseMarkdown`, `printMarkdown`, `parseXml`, `printXml`, `resourceContent`, `resourceText`, `validateKnowledge` |
+| `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `pageDocument`, `replaceTree`, `foldedHeadings`, `headingSections`, `toggleHeading`, `pasteTextAtDocumentStart`, `splitPastedDocumentTitle`, `remoteSelections`, `insertEmbed`, `commitMention`, `insertMention`, `mentionField`, `insertImage`, `insertResource`, `toggleFormat`, `undo`, `commentSelection`, `trackCommentSelection`, `commentRanges`, `revealComment`, `EditorSelection`, and types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `LinkMetadata`, `MentionTarget`, `MentionCategory`, `MentionSession`, `MentionItem`, `MentionQueryResult`, `MountMentionOptions`, `ResourceAttributes`, `ResourceKind`, `PageChanges`, `RemoteSelection`, `CommentSelection`, `CommentRange` |
 | `@ankole/block-editor/reader` | `KnowledgeReader` and type `KnowledgeReaderProps` |
 | `@ankole/block-editor/styles.css` | Styles scoped to the editor and its overlays |
 
@@ -938,7 +944,7 @@ Before committing any document transaction to editor state, revision counters, o
 - The root workspace pins `mdast-util-gfm-strikethrough` to `2.0.1` so strikethrough parses reliably across punctuation and tag boundaries when followed by text; external consumers must use `2.0.1` or a newer release carrying that fix.
 - `react` and `react-dom` `19.3.1` are peer dependencies that the host and editor must share as singletons, whereas `style-mod` and `@marijn/find-cluster-break` are direct dependencies used by the editing engine. Any host rendering `BlockEditor` with UI Kit styles must also depend directly on `"@ankole/uikit": "workspace:*"` and the React peer dependencies.
 - Host stylesheets must import `@ankole/uikit/styles.css` before `@ankole/block-editor/styles.css`. Editor rules are scoped strictly under `.ankole-editor` and `.ankole-editor-overlay` and never style `html`, `body`, or `#root`.
-- `mdast-util-to-markdown` `2.2.1` prevents a literal preceding backslash from escaping a character reference emitted at a formatting boundary; the property tests in `test/generated.test.ts` cover the boundary.
+- `mdast-util-to-markdown` `2.2.3` prevents a literal preceding backslash from escaping a character reference emitted at a formatting boundary; the property tests in `test/generated.test.ts` cover the boundary.
 
 ### 8.3 Block definitions
 
@@ -954,7 +960,7 @@ Custom block types with dedicated editor nodes implement `BlockDefinition`:
 | `read(node, { children })` | Converts an editor node back into a page-tree element (`children` reads child blocks) |
 | `insert` | Menu descriptor: `title`, `detail`, `glyph`, optional `turnInto` flag (when the block can convert the text block at the caret), and `insert(editor)` |
 
-To register a block type, add its `BlockDefinition` to `blocks` in `src/blocks/index.ts` and declare its element kind, content model, and attributes in `src/document/vocabulary.ts`; the Markdown and XML codecs require no changes. `callout`, `embed`, `media`, `math`, and `mermaid` use `BlockDefinition`.
+To register a block type, add its `BlockDefinition` to `blocks` in `src/blocks/index.ts` and declare its element kind, content model, and attributes in `src/document/vocabulary.ts`; the Markdown and XML codecs require no changes. `callout`, `embed`, `media`, `math`, `mermaid`, and `infographic` use `BlockDefinition`.
 
 ## 9. Example host
 
@@ -979,7 +985,7 @@ In the full playground:
 
 ### 10.1 Browsers
 
-JavaScript and CSS build targets are `chrome126`, `firefox153`, and `safari17`.
+JavaScript and CSS build targets are `chrome132`, `firefox160`, and `safari18`.
 
 | Scope | Requirement | Automated check |
 | --- | --- | --- |

@@ -11,7 +11,7 @@ Every audit surface in Ankole rests on **durable PostgreSQL tables or structured
 
 ## AuthZ grants, human access, and invitations
 
-Every permission grant lives as a durable row in `permission_grants`. Each grant attaches to one `principal_uid`, one `group_id`, or one Userset page audience (`source_page_id` and `source_action`), while Pod ACL grants anchor to `pages` rows via `target_page_id` and `target_scope`. On each row, `resource_pattern`, `action`, and `condition` specify what the grant permits, and timestamps record when the row was created and last updated. Because `permission_grants` itself is the authoritative record, Ankole maintains no separate grant-audit table.
+Every permission grant lives as a durable row in `permission_grants`. Each grant attaches to one `principal_uid`, one `group_id`, or one Userset page audience (`source_node_id` and `source_action`), while Pod ACL grants anchor to `pages` rows via `target_node_id` and `target_scope`. On each row, `resource_pattern`, `action`, and `condition` specify what the grant permits, and timestamps record when the row was created and last updated. Because `permission_grants` itself is the authoritative record, Ankole maintains no separate grant-audit table.
 
 Account-access transitions and workspace invitations likewise commit durable rows in PostgreSQL:
 
@@ -19,7 +19,7 @@ Account-access transitions and workspace invitations likewise commit durable row
 - `human_access_restrictions` stores active restrictions alongside their `:suspended` or `:offboarded` disposition and reason.
 - `pod_invitations` records Pod workspace invitations, membership kind (`member` or `guest`), usage counter (`used_count`), and creator (`created_by_principal_uid`).
 
-Inspect active Principal and group grants through `GET /api/v2/principals/:uid/grants` and `GET /api/v2/principal-groups/:name/grants`. While Ankole enforces only the rows currently present in `permission_grants`, grants that were added and later revoked remain preserved in PostgreSQL point-in-time recovery history.
+Inspect active Principal and group grants through `GET /api/v2/principals/:uid/grants` and `GET /api/v2/principal-groups/:name/grants`. Ankole enforces the rows currently present in `permission_grants`; this table does not retain revoked grants. If you configured PostgreSQL point-in-time recovery and retained the relevant backups and WAL, you can restore a separate database copy to inspect earlier rules.
 
 ## The structured control-plane logs
 
@@ -44,10 +44,10 @@ Real audit questions usually span multiple surfaces:
 
 | Question | Where to look |
 |---|---|
-| "Who gave this agent or page audience permission to do Y?" | `permission_grants` + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
+| "What permissions does this Agent or page audience currently have?" | `permission_grants` + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
 | "Why was a human account suspended, offboarded, or invited?" | `human_access_events`, `human_access_restrictions`, and `pod_invitations` |
 | "What did the agent do on this turn?" | `/api/v2/ai-gateway/conversations/:id/messages` |
-| "Did the schedule fire?" | `/api/v2/cron-schedules/:id/runs` |
+| "Did the schedule fire?" | `/api/v2/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs` |
 | "Was a job's failure retried?" | `/api/v2/background-agent-jobs/:id` (`attempts`, `error`) |
 | "What did the worker log at that time?" | structured control-plane logs |
 

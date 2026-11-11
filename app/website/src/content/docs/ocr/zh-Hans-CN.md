@@ -19,7 +19,7 @@ order: 25
 
 ## 普通 CPU 也能运行的先进识别能力
 
-Ankole 内置了业界领先且原生支持 CPU 推理的 [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) 检测与识别模型。在 PP-OCRv6 模型系列中，Medium 档位专注于更高识别精度；根据 PaddleOCR 官方评测，相比 PP-OCRv5_server，其文字检测精度提升 4.6%，文字识别精度提升 5.1%。
+Ankole 内置了支持 CPU 推理的 [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) 检测与识别模型。在 PP-OCRv6 模型系列中，Medium 档位专注于更高识别精度；根据 PaddleOCR 内部多场景基准评测，相比 PP-OCRv5_server，其文字检测 Hmean 提升 4.6 个百分点，文字识别准确率提升 5.1 个百分点。
 
 单个模型即可覆盖 50 种语言，包括简体中文、繁体中文、英文、日文以及 46 种拉丁语系语言；不仅适用于常规文档扫描件，也能准确识别屏幕截图、街头招牌、商品标签和数码显示屏等真实场景中的文字。
 

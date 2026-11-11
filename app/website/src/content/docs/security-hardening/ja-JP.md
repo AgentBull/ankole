@@ -16,18 +16,20 @@ Ankole のセキュリティ設計を貫く基本原則は、**「デフォル�
 - **1 Agent につき 1 Principal、1 つの明確な役割にする。** カスタマーサクセス担当の Agent とコード開発担当の Agent には別々の Principal を割り当ててください。そうしておけば、万が一片方が侵害されても、もう片方の権限まで奪われる事態を防げます。
 - **業務遂行に必要な最小限の grant だけを付与する。** 全チャネルへの書き込み権限よりも特定チャネルの読み取り権限の方が安全であり、ワイルドカードよりも特定のリソースパターンに絞った grant の方が影響範囲を抑えられます。詳しくは [Principal and AuthZ](../principal-authz/) を参照してください。
 - **ディレクトリのグループを同期し、グループ単位で権限を付与する。** 企業ディレクトリと同期された AuthZ グループに対して grant を設定しておけば、チーム単位で権限を管理でき、メンバーの異動や退職時にも個別の grant を探して編集することなく、元ディレクトリの所属変更だけで自動的に権限を失効させられます。
-- **一時停止（Suspend）とオフボーディング（Offboard）を明確に使い分ける。** Principal には物理削除アクションがありません。**一時停止（`disposition: :suspended`）** はセッション、トークン、進行中の作業を即座に失効させつつ、復帰時に権限を戻せるよう個人用の `SiteCredential` を保持します。**オフボーディング（`disposition: :offboarded`）** はセッション、トークン、作業を失効させたうえで、他と共有されていない `SiteCredential` や Pod のメール紐付けも解放します。メンバーが組織を離れる際は必ずオフボーディングを選択してください。
+- **一時停止（Suspend）とオフボーディング（Offboard）を明確に使い分ける。** Human Principal には物理削除アクションがありません。**一時停止（`disposition: :suspended`）** はセッションとトークンを即座に失効させ、以降の実行を停止しつつ、復帰時に権限を戻せるよう個人用の `SiteCredential` を保持します。**オフボーディング（`disposition: :offboarded`）** はセッションとトークンを失効させ、以降の実行を停止したうえで、他と共有されていない `SiteCredential` や Pod のメール紐付けも解放します。メンバーが組織を離れる際は必ずオフボーディングを選択してください。
 
 権限の監査には `/api/v2/permission-grants` と `/api/v2/principals/:uid/grants` エンドポイントを利用できます。定期的に棚卸しを行いましょう。設定当初は妥当だった grant も、運用の変化に伴って過剰な権限（権限ドリフト）になっていることがあります。
 
 ## 面 2:Agent が使う credential
 
-GitHub、Lark/Feishu、Slack、Linear、およびリモート Skill MCP（`streamable_http`）などの外部連携には、まず **Pod → Connections**（`Ankole.Connectors`）の利用を優先してください。上流の OAuth トークンやアプリ認証情報は control plane 内で暗号化保持されたまま Worker コンテナへは渡されず、control plane が MCP リクエストを中継したり、`GIT_ASKPASS` のような turn 限定の一時ヘルパーを注入したりします。Worker 内のカスタム CLI やスクリプトで直接必要になる API キーに限って Console の **Environment variables**（`WorkerEnv`）でシークレット保存を有効にして登録し、対象範囲を絞って定期的にローテーションしてください。
+GitHub、Lark/Feishu、Slack、Linear などの外部連携には、まず **Pod → Connections**（`Ankole.Connectors`）の利用を優先してください。上流の OAuth トークンやアプリ認証情報は control plane 内で暗号化保持されたまま Worker コンテナへは渡されず、control plane が MCP リクエストを中継したり、`GIT_ASKPASS` のような turn 限定の一時ヘルパーを注入したりします。Worker 内のカスタム CLI やスクリプトで直接必要になる API キーは Console の **Environment variables**（`WorkerEnv`）でシークレット保存を有効にして登録し、対象範囲を絞って定期的にローテーションしてください。
 
 - **保存済みの値をむやみに再表示しない。** 認証情報をローテーションする際は、古い値を開いて確認するのではなく、新しい値をそのまま上書き入力してください。詳しくは [Environment variables](../worker-env/) を参照してください。
 - **可能なかぎりシークレットを Agent 単位にスコープする。** グローバルスコープのシークレットは全 Agent に渡されますが、Agent 単位のシークレットは対象の 1 体だけに渡されます。複数の Agent で本当に共有する必要がある場合を除き、Agent 単位での設定を優先してください。
 - **予約済みの環境変数名を上書きしない。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、`ANKOLE_` で始まる変数名、および [Environment variables](../worker-env/) に記載されている予約名は Console から設定できません。この保護制限を迂回しようとしないでください。
-- **ブートストラップシークレットを定期的にローテーションする。** `ANKOLE_SECRET_BASE` は暗号化キーの導出元となり、`ANKOLE_FUNCTION_RUNTIME_TOKEN` はコントロールプレーンと `ankole-function-runtime` 間の内部通信を認証します。ブートストラップシークレットのローテーションにはデプロイの再起動が必要ですが、特に `ANKOLE_SECRET_BASE` が漏えいした場合の影響範囲はインスタンス全体に及びます。なお、Worker 接続用の認証情報はブートストラップシークレットではなく、オペレーターが手動設定するものでもありません。コントロールプレーンが Worker の世代（generation）ごとにランダムな認証情報を自動生成し、認証照合には保存したダイジェスト値を使い、同一世代の再起動に必要な値は暗号化して保持します。
+- **暗号化の起点となるシークレットを保管する。** `ANKOLE_SECRET_BASE` は、その値で暗号化したデータと一緒にバックアップしてください。値を変えて再起動しても保存済みシークレットは再暗号化されないため、元の値を使うか、別途データを移行する必要があります。`ANKOLE_FUNCTION_RUNTIME_TOKEN` をローテーションするときは、コントロールプレーンと `ankole-function-runtime` の両方を更新し、両サービスを再起動します。なお、Worker 接続用の認証情報はブートストラップシークレットではなく、オペレーターが手動設定するものでもありません。コントロールプレーンが Worker の世代（generation）ごとにランダムな認証情報を自動生成し、認証照合には保存したダイジェスト値を使い、同一世代の再起動に必要な値は暗号化して保持します。
+
+リモート Skill MCP サーバー（`streamable_http`）の bearer token は、宣言した `bearer_token_env_var` の名前で **Environment variables** に登録します。制御プレーンがプロキシ要求に使い、Worker のスナップショットからは除外します。
 
 ## 面 3:SSRF と model 制御の fetch
 
@@ -44,7 +46,7 @@ GitHub、Lark/Feishu、Slack、Linear、およびリモート Skill MCP（`strea
 各チャットアダプターや Identity Provider は、連携用の認証情報（`appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID の `appPassword`、Google Workspace の `serviceAccountKey` など）を保持しています。定期的なローテーションに加え、漏えいの疑いがある場合はただちに更新してください。
 
 - **先に外部 Provider 側でローテーションし、続けて Ankole 側を更新する。** 外部 Provider の管理コンソールで新しい認証情報を発行して古いものを失効させ、その直後に Ankole 側の設定を更新してください。順番を逆にして、Ankole 側だけ書き換えたまま Provider 側で古い認証情報を有効なまま残すと、悪用可能な隙を残すことになります。
-- **プラットフォームやコネクターの認証情報を WorkerEnv に入れない。** 再利用可能な外部サービス連携は **Pod → Connections** で管理し、チャットチャネルや Identity Provider の認証情報はそれぞれの専用 Console ページで管理・ローテーションします。**Environment variables**（`WorkerEnv`）は Worker ローカルの CLI やスクリプト用シークレットに限定してください。
+- **チャットチャネル、Identity Provider、コネクターの認証情報を WorkerEnv に入れない。** 再利用可能な外部サービス連携は **Pod → Connections** で管理し、チャットチャネルや Identity Provider の認証情報はそれぞれの専用 Console ページで管理・ローテーションします。リモート Skill MCP の bearer token は、前述の環境変数の手順に従って登録してください。
 - **ディレクトリ同期用の認証情報も同じ重要度で扱う。** Google Workspace の `serviceAccountKey` と `adminEmail` や、Microsoft Graph 連携用の Entra ID アプリ認証情報は、組織ディレクトリ全体を読み取れる強い権限を持っています。チャットボットのトークンと同等以上に厳重にローテーションを管理してください。
 
 ## 面 5:最小限のネットワーク入り口
@@ -54,7 +56,7 @@ Ankole の運用にはいくつかの通信経路が必要ですが、すべて�
 - **常時接続型のアダプターなら外向き通信だけで完結する。** Lark、Slack、DingTalk は Ankole 側から外向きの WebSocket / Stream 接続を張るため、外部から到達可能な受信エンドポイントを公開する必要はありません。これらのチャネルだけを使う場合は、インスタンスをプライベートネットワーク内に閉じたまま運用してください。
 - **Teams や Webhook を使う場合は公開エンドポイントのスコープを絞る。** Bot Framework や `/webhooks/v1/...` の受信パスには外部から到達できる必要があります。リバースプロキシや Ingress 側で公開パスを対象エンドポイントのみに限定し（可能であれば送信元 IP も制限し）、ペイロードの正当性は各アダプター自身の認証機構（Bot Framework JWT や Graph の `clientState` など）で検証させます。
 - **Webhook 委譲 URL は認証情報と同等に秘匿する。** Agent が外部システムのイベント検知を待ち受ける場合、`/webhooks/v1/event-callbacks/*` への到達性が必要になります。Ingress、プロキシ、CDN、アプリケーションログに URL のフルパスが残らないようマスクしてください。なお、この URL が許可するのは wake-up トリガーの投入だけなので、重要な操作を実行する前には必ず Agent 側で外部システムの現在状態を再確認させる必要があります。
-- **管理 Console 自体はインターネットに直接公開しない。** 管理ネットワーク内や VPN の背後に配置してください。Bearer 認証によって未認証アクセスはブロックされますが、管理画面そのものをパブリックインターネットへ露出させる理由はどこにもありません。
+- **管理 Console 自体はインターネットに直接公開しない。** 管理ネットワーク内や VPN の背後に配置してください。ブラウザーセッションによる認証で未認証アクセスはブロックされますが、管理画面そのものをパブリックインターネットへ露出させる理由はどこにもありません。
 
 ## 面 6:Worker コンテナ、Function Runtime、コントロールプレーン
 

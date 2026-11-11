@@ -32,9 +32,9 @@ order: 304
 
 ## kernel 如何工作
 
-`jupyter-live-kernel` Skill 以常驻后台任务的形式运行（`ankole-runtime: background_job`）。任务启动后会在 Worker 内拉起一个 Jupyter Kernel，Agent 随后通过该 Skill 提供的工具依次发送代码单元格。每个单元格都在同一份内存状态中执行——例如在第 1 个单元格中定义的变量，到了第 5 个单元格依然可以直接引用。
+`jupyter-live-kernel` Skill 声明 `ankole-runtime: main`，Agent 可以在对话中直接使用。它在 Session 或 Job 工作区启动 Jupyter Server，通过本地 Unix Socket 发送代码单元格。各单元格共用同一个运行中的 Kernel，因此第 1 个单元格定义的变量在第 5 个单元格仍可引用。
 
-在后台任务运行期间，Kernel 会一直保持存活；一旦任务结束，Kernel 随之停止，内存中的临时执行状态也会一并释放，不会持久化保存。
+需要多轮分析时，Agent 通过可追踪的 Shell session 保持服务运行，并在工作结束时停止；批处理则在一次调用内完成服务启动、分析、产物核验与清理。Kernel 内存是临时进程状态，需要保留的结果应保存为文件。
 
 ## 一个完整示例
 
@@ -43,7 +43,7 @@ order: 304
 1. 确认 `jupyter-live-kernel` Skill 已启用（默认开启）。
 2. 创建 Agent 并编写 `AGENTS.md`：“当频道中出现 CSV 文件时，将其加载进 DataFrame，检查字段结构与汇总统计量，识别异常值，并配图汇报分析结论。”
 3. 在频道中直接上传 CSV 附件，或在 Console 中将其上传至 Agent 云盘并在对话中给出路径。
-4. 收到请求后，Agent 会将工作委派给后台任务，启动 Kernel 加载 CSV，经过多轮交互检查与图表生成后，将分析结果发回频道。
+4. 收到请求后，Agent 会在工作区启动 Kernel 加载 CSV，经过多轮交互检查与图表生成后，将分析结果发回频道。
 
 ## 本指南不是什么
 

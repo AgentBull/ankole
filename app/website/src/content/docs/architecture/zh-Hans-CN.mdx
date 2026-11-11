@@ -61,7 +61,7 @@ Signal 可显式指定目标 Session，也可通过对话参与关系或信号�
 
 ### Sessions 执行并恢复工作
 
-`Ankole.Sessions` 统一执掌输入队列、准入控制（Admission）、Driver、Run、内置工具、冷唤醒轮转与故障恢复。同一 Session 在同一时刻只运行一个 Run；每次启动前，Admission 都会核验租户状态、Agent 状态、人类工作授权、访问权限与 Token 配额。
+`Ankole.Sessions` 统一执掌输入队列、准入控制（Admission）、Driver、Run、内置工具、冷唤醒轮转与故障恢复。同一 Session 在同一时刻只运行一个 Run；每次启动前，Admission 都会核验租户状态、Agent 状态、人类工作授权与访问权限。AIGateway 在每次模型调用前检查 Token 配额。
 
 每个 Agent 在对话中拥有独立的 Session，其执行权限取决于 Agent 子类型：
 
@@ -100,7 +100,7 @@ Deep Research 直接构建在这套原语之上：由 Agent Plugin 提供 `works
 
 AIGateway 将上游 AI 服务与调用方解耦，使个人助理、AI 同事、后台 Agent 任务、Brain、Pod 小应用与外部 OIDC 客户端共享同一个 LLM、Embedding、Rerank、图像生成、Web Search 与 Web Fetch 边界。
 
-`Ankole.AIGateway.ModelProfiles` 采用三层稀疏继承（`Site -> Pod -> Agent/System`）并结合跨槽位回退（`coding -> heavy -> primary` 与 `light -> primary`）解析模型。内置 `system` 服务主体负责运行内部模型任务，绝不占用任何前台 Agent 的 Token 配额：其中 `ankole_brain` 执行 Brain 抽取（`light`）、Dreaming 与教训复核（`heavy`，缺省回退 `primary`）、URL Source 抓取（`web_fetch`）及召回重排（`rerank`）；`system` 基于 Pod/Site 默认配置执行无状态的 Pod 小应用 `ctx.ai` 调用；站点级 `brain.embedding_model` 则统一驱动共享向量索引。运维人员在 **Console → Model Profiles** 集中配置站点、Pod 与 `system` 主体的模型配置，所有上游 Provider 凭证均加密保存在控制面内。
+`Ankole.AIGateway.ModelProfiles` 采用三层稀疏继承（`Site -> Pod -> Agent/System`）并结合跨槽位回退（`coding -> heavy -> primary` 与 `light -> primary`）解析模型。内置 `system` 服务主体负责运行内部模型任务，绝不占用任何前台 Agent 的 Token 配额：其中 `ankole_brain` 执行 Brain 抽取（`light`）、Dreaming 与教训复核（`heavy`，缺省回退 `primary`）、URL Source 抓取（`web_fetch`）及召回重排（`rerank`）；站点级 `brain.embedding_model` 则统一驱动共享向量索引。Pod Applet 的无状态 `ctx.ai` 调用使用所选执行主体：Human 解析 Pod/站点的语言模型默认配置，Agent 解析自身生效的语言模型档案。这些调用不消耗交互式 Agent 的 Token 配额。运维人员在 **Console → Model Profiles** 集中配置站点、Pod 与 `system` 主体的模型配置，所有上游 Provider 凭证均加密保存在控制面内。
 
 AIGateway 同时支持无状态请求与可跨轮续接的 WebSocket 模型会话，统一处理协议转换、流式归一化、工具回执、上下文压缩、用量计量与结果提交。面对大规模工具集时，模型可通过 Tool Search 动态检索工具，或通过程序化工具调用（PTC）一次性提交编排脚本；AIGateway 与 Workflow 均在无状态 `ankole-function-runtime` 隔离实例（`POST /v1/program/run`）中运行这些确定性 TypeScript 程序。单个 Provider 还可配置多凭证池（含 ChatGPT 订阅账号等 OAuth 池），按单把凭证独立追踪冷却、重试与用量。详见 [AIGateway](../ai-gateway/) 与 [添加 LLM Provider](../adding-a-provider/)。
 

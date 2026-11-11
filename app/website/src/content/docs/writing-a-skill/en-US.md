@@ -151,7 +151,7 @@ Each subsystem defines the extra fields required on its adapter map: chat adapte
 
 Expose operator-tunable runtime settings through `app_config_definitions/0` or `app_config_patterns/0`, reserving OS environment variables strictly for bootstrap secrets needed before PostgreSQL is reachable.
 
-Use `hooks/0` to run synchronous admission or quota checks inside domain transactions (`:create_agent`, `:create_invitation`, `:enable_signal_binding`, `:enable_identity_provider`, `:store_file`, `:commit_files`, `:create_pod_page`, `:restore_pod_page`, `:insert_base_records`, `:admit_compute`). Each hook module implements `Ankole.Plugins.Hook.before_commit_in_tx/2`, returning `:ok` or `{:error, reason}` inside the caller's database transaction.
+Use `hooks/0` to run synchronous admission or quota checks inside domain transactions (`:create_agent`, `:create_invitation`, `:enable_signal_binding`). Each hook module implements `Ankole.Plugins.Hook.before_commit_in_tx/2`, returning `:ok` or `{:error, reason}` inside the caller's database transaction.
 
 Return standard OTP child specs from `children/0` to place long-lived sockets and reconcilers under the Plugin supervisor; Ankole starts them when the Plugin activates at boot and stops launching them on the next restart after disablement.
 

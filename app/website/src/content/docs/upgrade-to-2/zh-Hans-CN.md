@@ -93,7 +93,12 @@ kubectl label namespace ankole pod-security.kubernetes.io/enforce=privileged --o
 3. 确认外置或集群内置数据库已升级至 **PostgreSQL 18+**（搭配 `pg_search` `0.26.4` 与 `vector` 扩展）。若采用了 `secrets.existingSecret`（如 `ankole-bootstrap`），在执行 `helm upgrade` 前请确保该 Secret 中除原有的 `ANKOLE_SECRET_BASE` 与 `DATABASE_URL` 外，已补齐 `RELEASE_COOKIE` 与 `ANKOLE_FUNCTION_RUNTIME_TOKEN`：
 
 ```sh
-kubectl -n ankole patch secret ankole-bootstrap --type merge -p "$(printf '{"stringData":{"RELEASE_COOKIE":"%s","ANKOLE_FUNCTION_RUNTIME_TOKEN":"%s"}}' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)")"
+kubectl -n ankole get secret ankole-bootstrap \
+  -o go-template='{{if not (index .data "RELEASE_COOKIE")}}RELEASE_COOKIE{{"\n"}}{{end}}{{if not (index .data "ANKOLE_FUNCTION_RUNTIME_TOKEN")}}ANKOLE_FUNCTION_RUNTIME_TOKEN{{"\n"}}{{end}}' |
+while IFS= read -r secret_name; do
+  kubectl -n ankole patch secret ankole-bootstrap --type merge \
+    -p "$(printf '{"stringData":{"%s":"%s"}}' "$secret_name" "$(openssl rand -hex 32)")"
+done
 ```
 
    （注意：仅针对 `ankole-bootstrap` 中尚不存在的键执行补齐，切勿覆盖已有值。）

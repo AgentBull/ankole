@@ -13,7 +13,7 @@
 - 通用的飞书 / Lark HTTP 客户端
 - 自动获取并缓存 `tenant_access_token` 与 `app_access_token`
 - 提供企业自建应用、应用商店应用及 OIDC `user_access_token` 认证辅助函数
-- 托管 OIDC `user_access_token`，支持使用刷新令牌自动续期
+- 提供 OIDC `user_access_token` 的获取与刷新辅助函数
 - 支持通过 `body`、`query`、`path_params` 与自定义请求头构建弱类型请求
 - 提供分块表单（Multipart）上传与二进制下载辅助函数
 - 支持 Webhook 报文解密、签名校验，以及可选的 `Plug` 适配器
@@ -41,7 +41,7 @@ client =
 {:ok, resp} =
   FeishuOpenAPI.get(client, "contact/v3/users/:user_id",
     path_params: %{user_id: "ou_xxx"},
-    query: [user_id_type: "user_id"]
+    query: [user_id_type: "open_id"]
   )
 
 resp["code"] == 0
@@ -53,7 +53,7 @@ resp["data"]
 ```elixir
 {:ok, resp} =
   FeishuOpenAPI.post(client, "im/v1/messages",
-    query: [receive_id_type: "user_id"],
+    query: [receive_id_type: "open_id"],
     body: %{
       receive_id: "ou_xxx",
       msg_type: "text",

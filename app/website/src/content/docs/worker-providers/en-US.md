@@ -46,7 +46,7 @@ All six providers default to `idleReleaseAfter: 15m` (or `never` to disable idle
 ### Kubernetes
 
 - Configure Home with either `storage.claimTemplate` (per-Agent PVC) or `storage.sharedClaim` (shared PVC). Multi-node shared Home requires `ReadWriteMany`, whereas per-Agent block PVCs can use `ReadWriteOnce` (or `ReadWriteOncePod` when supported by your CSI driver). Back the cache with a separate block PVC or node `emptyDir`.
-- Trusted Worker entrypoints start as `root` before dropping model commands to `uid 1000`, so Worker Pods and helper Pods that clean up storage require at least the `baseline` Pod Security standard and cannot run under `restricted`.
+- Trusted Worker entrypoints start as `root` with `SYS_ADMIN` for FUSE mounts before dropping model commands to `uid 1000`. Worker Pods and storage-cleanup helper Pods require the namespace to allow the `privileged` Pod Security profile. Install the FUSE device plugin and use the Helm chart's Worker ServiceAccount admission policy, which forbids privileged containers, host namespaces, and `hostPath` volumes; see the [Helm deployment guide](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md). Storage-cleanup helper Pods also start as `root`.
 - Home storage must either allow container `root` to write and `chown` files to `uid 1000`, or map all client access to `uid 1000`—default root-squash NFS without `uid 1000` mapping will fail.
 - Grant the control plane namespace RBAC for Pods, Secrets, PVCs, and cleanup helper Pods. Remote `kubeconfig` pools must specify all three `endpoints` explicitly, cannot use in-cluster `ownerConfigMap`, and cannot switch between in-cluster auth and remote `kubeconfig` after creation.
 - Pre-pull the Worker image onto new cluster nodes, as Ankole's image-preparation step does not pre-pull images on Kubernetes, and always wait for graceful Pod termination rather than force-deleting Pods on unreachable nodes.
@@ -62,7 +62,7 @@ All six providers default to `idleReleaseAfter: 15m` (or `never` to disable idle
 
 - Provisions a private Vercel Drive per Agent in the same region; `teamId`, `projectId`, `region`, and `driveSizeGiB` cannot change after creation.
 - Push a `linux/amd64` Worker image to your project's VCR registry and pin its digest. `cpus` accepts `1` or any even integer from `2` through `32`, requesting `2048 MiB` of RAM per vCPU.
-- `sessionTimeoutSeconds` defaults to `86400` (`24` hours); lower it to `2700` on accounts capped at 45 minutes (including trial accounts) so it never exceeds your plan ceiling—see [Vercel session limits](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence). Deleting a sandbox preserves the Agent's Drive while clearing the ephemeral instance cache.
+- `sessionTimeoutSeconds` defaults to `86400` (`24` hours); lower it to `2700` on accounts capped at 45 minutes (such as Hobby) so it never exceeds your plan ceiling—see [Vercel session limits](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence). Deleting a sandbox preserves the Agent's Drive while clearing the ephemeral instance cache.
 
 ### AWS Lambda MicroVMs
 

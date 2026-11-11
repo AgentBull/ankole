@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 대신 Agent Computer 내부의 셸 명령어로 제공됩니다. Agent는 `kubectl`을 다루듯 셸에서 이 명령어들을 실행하며, `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`, `jobs`), `ankole-files`, `ankole-browser`, 웹훅 엔드포인트 관리 명령이 모두 이 방식을 따릅니다.
+Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 대신 Agent Computer 내부의 셸 명령어로 제공됩니다. Agent는 `kubectl`을 다루듯 셸에서 이 명령어들을 실행하며, `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`, `jobs.*`), `ankole-files`, `ankole-browser`, 웹훅 엔드포인트 관리 명령이 모두 이 방식을 따릅니다.
 
 이 문서에서는 어떤 기능을 CLI 형태로 설계해야 하는지, 그리고 별도의 도구 등록이나 Skill 인덱스 항목, 시스템 프롬프트 상주 설명 없이도 Agent가 적시에 기능을 발견하고 정확히 사용할 수 있게 만드는 단계적 노출(disclosure) 구조를 설명합니다.
 
@@ -23,7 +23,7 @@ Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 
 
 도구 스키마 등록과 Skill 상시 인덱싱을 대신하는 세 가지 설계 원칙은 다음과 같습니다.
 
-**`--help` 출력 자체가 정식 계약 문서입니다.** CLI의 `--help` 출력에는 해당 기능의 목적, 신뢰 경계, 보장 범위, 완결된 사용 예시까지 Agent가 올바르게 호출하는 데 필요한 모든 정보가 담깁니다. 실행 바이너리 안에 함께 패키징되므로 실제 동작 버전과 설명이 항상 일치하며 외부 문서처럼 코드와 어긋나지 않습니다. 사전 배경지식이 없는 호출자가 읽더라도 바로 이해할 수 있도록 단순 나열식 절차보다 목표와 제약 조건을 명확히 서술하세요. 좋은 작성 기준으로는 `create-webhook-cli --help`를 참고할 수 있습니다.
+**`--help` 출력 자체가 정식 계약 문서입니다.** CLI의 `--help` 출력에는 해당 기능의 목적, 신뢰 경계, 보장 범위, 완결된 사용 예시까지 Agent가 올바르게 호출하는 데 필요한 모든 정보가 담깁니다. 도움말은 실행 바이너리와 함께 배포되므로 호출자는 해당 구현 버전에 포함된 설명을 읽을 수 있습니다. 사전 배경지식이 없는 호출자가 읽더라도 바로 이해할 수 있도록 단순 나열식 절차보다 목표와 제약 조건을 명확히 서술하세요. 좋은 작성 기준으로는 `create-webhook-cli --help`를 참고할 수 있습니다.
 
 **관련 의사결정 지점에 한 문장짜리 포인터를 배치합니다.** Agent는 인접한 결정을 내리는 표면(유관 도구의 설명문, 특정 외부 시스템을 연동하는 Skill 본문, 또는 다른 관련 CLI의 `--help` 출력)에 놓인 짧은 안내 문장 하나를 보고 이 CLI의 존재를 발견합니다. 각 포인터는 특정 선택을 강요하지 않고 “어떤 조건일 때 이 기능이 관련되며 어디서 상세 사용법(`--help`)을 확인할 수 있는지”만 담백하게 안내합니다. CLI 형태로 제공하는 모든 기능은 관련 업무 경로에서 Agent가 반드시 거치게 되는 표면에 최소 하나 이상의 포인터를 두어야 합니다.
 
@@ -31,7 +31,7 @@ Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 
 
 ## Automation Jobs
 
-Automation Job은 Function Runtime에서 게시된 Applet Action을 실행합니다. Agent는 `ankole-pod applet`으로 Applet을 빌드·게시하고, `ankole-pod jobs`로 Action 조회, Job 생성·설정, 일정과 Webhook 관리, Run 확인을 수행합니다. 사용 전에 `ankole-pod --help`를 읽으세요.
+Automation Job은 Function Runtime에서 게시된 Applet Action을 실행합니다. Agent는 `ankole-pod applet`으로 Applet을 빌드·게시하고, `ankole-pod` (`jobs.*`)로 Action 조회, Job 생성·설정, 일정과 Webhook 관리, Run 확인을 수행합니다. 사용 전에 `ankole-pod --help`를 읽으세요.
 
 서버는 `{routes, actions}`를 내보냅니다. Action은 처리 함수, 멱등성, 동시 실행 정책을 선언하고 `ctx.signal`과 `ctx.job.config`를 읽으며 `ctx.state`에 상태를 저장합니다. `continueSlice()`로 같은 Run을 나누어 실행할 수 있습니다. 외부 호출은 `AnkoleRuntime.mcp`, 팀 권한은 `AnkoleRuntime.admin.mcp`를 사용합니다.
 

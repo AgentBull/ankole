@@ -5,7 +5,9 @@ section: Guides
 order: 320
 ---
 
-ディザスタリカバリでは、コントロールプレーンの PostgreSQL データベース、専用の Pod Base シャードデータベース（`BASE_DB_URLS` を構成している場合）、ファイルストア、永続 Agent Home、`ankole-function-runtime`、および元のデプロイ用秘密情報を、1 つの整合したデプロイメントとしてまとめて復元します。保全対象のデータと整合バックアップの手順については、[バックアップガイド](../backup-and-restore/)を参照してください。
+ディザスタリカバリでは、コントロールプレーンの PostgreSQL データベース、独立した Pod Base シャードデータベース、ファイルストア、永続 Agent Home、`ankole-function-runtime`、および元のデプロイ用秘密情報を、1 つの整合したデプロイメントとしてまとめて復元します。保全対象のデータと整合バックアップの手順については、[バックアップガイド](../backup-and-restore/)を参照してください。
+
+復旧前に、実際の Base データベース構成を確認してください。`BASE_DB_URLS` が未設定の場合、dev/test では 4 シャード、SaaS production では 8 シャードを自動構成し、FOSS production では `DATABASE_URL` を共有します。既定値で構成したものも含め、独立したすべてのシャードを復元対象にします。
 
 ## 復旧前
 
@@ -16,7 +18,7 @@ order: 320
 ## 復旧手順
 
 1. コントロールプレーンを停止した状態で代替インフラを準備し、provider の配置、`BASE_DB_URLS` のシャード ID（`ankole_sharding`）、および永続ストレージ構成を元の環境と揃えます。あわせて同一リリースのステートレスな `ankole-function-runtime` サービスを準備し、空の volume が自動作成される前に Docker Home volume を復元しておきます。
-2. [バックアップとリストア](../backup-and-restore/)の順序に従い、コントロールプレーンの PostgreSQL、`BASE_DB_URLS` のすべての専用 Base シャードデータベース（構成時）、対応するファイルストア、およびすべての永続 Home を復元します。専用 Base シャードをポイントインタイムリカバリ（PITR）で復元する場合は、コントロールプレーン側で記録された物理 Base テーブルがシャード側で欠落しないよう、**すべての Base シャードデータベースの復旧タイムスタンプをコントロールプレーンデータベースの復旧タイムスタンプ以上（`>=`）**に設定してください。その際、PostgreSQL のロケール・照合順序および `public._ankole_shard` のシャード ID に加え、Agent UID、volume 名、ファイルの所有者と権限もそのまま維持します。
+2. [バックアップとリストア](../backup-and-restore/)の順序に従い、コントロールプレーンの PostgreSQL、実際の構成に含まれるすべての独立した Base シャードデータベース、対応するファイルストア、およびすべての永続 Home を復元します。専用 Base シャードをポイントインタイムリカバリ（PITR）で復元する場合は、コントロールプレーン側で記録された物理 Base テーブルがシャード側で欠落しないよう、**すべての Base シャードデータベースの復旧タイムスタンプをコントロールプレーンデータベースの復旧タイムスタンプ以上（`>=`）**に設定してください。その際、PostgreSQL のロケール・照合順序および `public._ankole_shard` のシャード ID に加え、Agent UID、volume 名、ファイルの所有者と権限もそのまま維持します。
 3. シークレットマネージャーから元の `ANKOLE_SECRET_BASE` を復元します。この値は、provider の秘密情報と未確定 generation の認証情報を復号するために不可欠です。紛失していた場合は直ちに作業を止め、別途認証情報の復旧計画を立ててください。新しい provider 認証情報を再入力するだけでは、既存 generation の認証情報は復元できません。
 4. 残りの起動用秘密情報と接続先（`DATABASE_URL`、専用シャード利用時の `BASE_DB_URLS`、`ANKOLE_FUNCTION_RUNTIME_URL`、および共有トークン `ANKOLE_FUNCTION_RUNTIME_TOKEN`）を設定したうえで、`ankole-function-runtime` とコントロールプレーンを起動し、通常の調整（reconciliation）処理に実際のプラットフォーム状態を確認させます。見かけ上のステータスを正常に見せるために、generation やインスタンス参照を手動で消去しないでください。結果が未確定のものは `starting` または `deleting` に留まり、原因は `last_error` に記録されます。
 5. 復元した Agent を有効化し、既知の Home ファイル、ドライブまたは Pod ファイル、Pod Base テーブルを読み取れることを確認したうえで、Background Job を再開して実際の Turn を実行します。トラフィックを切り替える前に、旧デプロイメントが停止したままであることを改めて確認してください。

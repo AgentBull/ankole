@@ -5,7 +5,7 @@ section: User guide
 order: 33
 ---
 
-Agents use `web_search` to discover public web pages and `web_fetch` to read specific URLs. While `web_search` requires an external Provider, `web_fetch` falls back to the Worker's built-in rendered page reader whenever no `web_fetch` Provider is configured.
+Agents use `web_search` to discover public web pages and `web_fetch` to read specific URLs. With Provider-hosted web search enabled, Ankole uses the current model Provider's native search when the model supports it. To use a separate search Provider, disable Provider-hosted `web_search` and bind the `web_search` profile. `web_fetch` falls back to the Worker's built-in rendered page reader when no `web_fetch` Provider is configured.
 
 ## Select the correct tool
 
@@ -28,7 +28,9 @@ Browser automation is provided by the `browser` Skill (`ankole-runtime: backgrou
 
 You can configure multiple instances of the same Provider kind—for example, two Bright Data SERP instances targeting different countries or serving separate Agents.
 
-### Assign Providers to an Agent
+### Assign separate Providers to an Agent
+
+Disable Provider-hosted `web_search` for the target Agent or its inherited default before using the separate search profile. Binding or clearing a profile does not change that switch.
 
 1. Open **Console → Agents** and select the Agent.
 2. Under **Model profiles**, locate `web_search` and choose a search-capable Provider.
@@ -88,7 +90,7 @@ For straightforward search, public documentation reading, and multi-source synth
 
 Verify these points in order:
 
-1. Check that the Agent has the required profiles bound (`web_search` always requires an enabled Provider, whereas `web_fetch` falls back to the Worker reader when unbound).
+1. Check the selected search path: Provider-hosted search requires native support in the current model; with that switch off, `web_search` requires an enabled search Provider. `web_fetch` falls back to the Worker reader when unbound.
 2. Confirm that the chosen Provider kind supports that capability.
 3. Verify that the Provider is enabled and its API key and required settings (such as a Bright Data Zone) are valid.
 4. Start a fresh conversation if you updated the Agent's profiles after the current chat began.

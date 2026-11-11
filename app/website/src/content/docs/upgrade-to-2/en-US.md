@@ -93,7 +93,12 @@ kubectl label namespace ankole pod-security.kubernetes.io/enforce=privileged --o
 3. Confirm that your external or bundled database runs **PostgreSQL 18+** (`pg_search` `0.26.4` and `vector`). If you use `secrets.existingSecret` (`ankole-bootstrap`), patch it so `RELEASE_COOKIE` and `ANKOLE_FUNCTION_RUNTIME_TOKEN` exist alongside `ANKOLE_SECRET_BASE` and `DATABASE_URL` before running `helm upgrade`:
 
 ```sh
-kubectl -n ankole patch secret ankole-bootstrap --type merge -p "$(printf '{"stringData":{"RELEASE_COOKIE":"%s","ANKOLE_FUNCTION_RUNTIME_TOKEN":"%s"}}' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)")"
+kubectl -n ankole get secret ankole-bootstrap \
+  -o go-template='{{if not (index .data "RELEASE_COOKIE")}}RELEASE_COOKIE{{"\n"}}{{end}}{{if not (index .data "ANKOLE_FUNCTION_RUNTIME_TOKEN")}}ANKOLE_FUNCTION_RUNTIME_TOKEN{{"\n"}}{{end}}' |
+while IFS= read -r secret_name; do
+  kubectl -n ankole patch secret ankole-bootstrap --type merge \
+    -p "$(printf '{"stringData":{"%s":"%s"}}' "$secret_name" "$(openssl rand -hex 32)")"
+done
 ```
 
    (Patch only keys that are not already present in `ankole-bootstrap`.)

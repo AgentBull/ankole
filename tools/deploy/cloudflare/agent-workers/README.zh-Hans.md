@@ -3,7 +3,9 @@
 [English](README.md)
 
 本适配器供 Ankole 的 Cloudflare `WorkerProvider` 调用。每个 Agent 对应一个 `AgentWorker`
-Durable Object 和一个 R2 前缀（`agents/<agent_uid>/`）：Durable Object 负责管理该 Agent 的容器实例并记录最近一次完成的目录备份（`DirectoryBackup`），适配器注册表则按运行方（Provider）筛选 Agent。
+Durable Object 和一个 R2 前缀（`agents/<storage-name>/`）。控制面根据安装标识和 `(tenant_id, uid)`
+的 hash 生成存储名称。Durable Object 负责管理该 Agent 的容器实例并记录最近一次完成的目录备份
+（`DirectoryBackup`），适配器注册表则按运行方（Provider）筛选 Agent。
 
 ## 前提条件
 

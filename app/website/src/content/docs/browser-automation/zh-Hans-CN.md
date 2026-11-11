@@ -33,7 +33,7 @@ Ankole 的浏览器自动化能力封装在内置的 `browser` Skill 中（源�
 1. **租户默认开关**：保持默认启用时，当前租户下的所有 Agent 均可按需调用浏览器。
 2. **单 Agent 独立覆盖**：可针对不需要访问网页交互的特定 Agent 单独关闭，也可在租户整体默认关闭的前提下只为少数指定 Agent 单独放行。
 
-这两层开关均通过 Console 的能力库路由配置，详见 [Console API 参考](../console-api/)。每次读取某个 Agent 的 `library-capabilities` 接口时，控制面都会触发一次实时 Skill 同步，确保返回的是与当前文件系统对账后的最新状态，而非陈旧快照。
+这两层开关均通过 Console 的能力库路由配置，详见 [Console API 参考](../console-api/)。读取某个 Agent 的 `library-capabilities` 时，控制面按 [Agent 能力库](../agent-library/) 的更新规则同步随附 Skill、保留本地编辑，再返回该 Agent 当前生效的能力目录状态。
 
 ## 运行时注入了什么
 
@@ -68,7 +68,7 @@ Agent 只需调用 `ankole-browser` CLI 即可透明使用上述环境。底层�
 
 ## 运维不该碰的东西
 
-浏览器相关的底层环境变量（包括 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY` 与 `ANKOLE_BROWSER_RUNNER`）均由 Worker 镜像在构建与启动时固定注入，不属于运维可调参数，且系统禁止在 Console 的“环境变量”页面中覆盖这些同名键。如果业务上确实需要调整浏览器的操作策略或行为准则，请通过定制 Skill 指令来实现。
+浏览器相关的底层环境变量（包括 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY` 与 `ANKOLE_BROWSER_RUNNER`）均由 Worker 镜像与运行时设置，不属于运维可调参数，且系统禁止在 Console 的“环境变量”页面中覆盖这些同名键。如果业务上确实需要调整浏览器的操作策略或行为准则，请通过定制 Skill 指令来实现。
 
 ## 下一步
 

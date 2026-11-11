@@ -18,9 +18,7 @@ order: 318
 | Cloudflare R2 | `s3` | S3 API 端点、区域设为 `auto`、R2 凭据 |
 | 其他 S3 兼容服务 | `s3` | 服务端点地址、签名区域和凭据，上线前需验证实际兼容性 |
 
-若要运行多个控制面副本，各副本必须连接同一套远程共享存储，并使用完全一致的后端地址与根路径；当 `files.store: fs` 且副本数大于 1 时，官方 Helm Chart 会直接拒绝渲染模板。同时，将对象存储切换为 S3 并不会解除部分 WorkerProvider 对控制面单副本的限制。
-
-由于定时触发、聊天渠道长连接和调度器状态加载等控制面单例进程均在单节点上运行，生产部署请将 `controlPlane.replicaCount` 保持为 `1`。远程共享存储只是多副本的必要条件之一，仅靠切换存储并不能直接开启多副本，详见 [控制面副本说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)。
+运行多个控制面副本时，各副本必须连接相同的远程共享后端和根路径，并组成 Distributed Erlang cluster。Worker 还须能够直达 Pod IP，不能配置 `endpoints.relayOrigin`。官方 Helm Chart 会配置集群发现，并在多副本下拒绝 `files.store: fs` 或提供商的 `endpoints.relayOrigin`。聊天长连接会跨节点协调归属，Oban 共用任务队列。部署与升级要求见[控制面副本说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)。
 
 ## 环境变量
 

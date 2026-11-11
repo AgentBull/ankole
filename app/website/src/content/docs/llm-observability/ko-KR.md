@@ -49,7 +49,7 @@ Turn 바깥에서 직접 호출한 AIGateway 요청에는 `principal:<authentica
 
 1. **Console → AppConfigure → LLM observability**를 열고 Trace Provider에서 **LangSmith**를 선택합니다.
 2. 리전에 맞는 기본 엔드포인트를 입력합니다. GCP US는 `https://api.smith.langchain.com/otel`, GCP EU는 `https://eu.api.smith.langchain.com/otel`, GCP APAC는 `https://apac.api.smith.langchain.com/otel`, AWS US는 `https://aws.api.smith.langchain.com/otel`이며, 자체 호스팅 환경은 `https://<langsmith-api-host>/api/v1/otel`을 사용합니다.
-3. 인증 헤더에 `x-api-key`를 추가하고, 필요에 따라 `Langsmith-Project`도 함께 지정합니다(생략하면 `default` 프로젝트로 전송됩니다).
+3. `x-api-key`를 추가합니다. Agent-based workspace에서는 등록된 Agent의 `Langsmith-Agent-Id`와 `Langsmith-Agent-Environment`(`local`, `development`, `staging`, `production` 중 하나)를 모두 설정합니다. Project-based workspace(자체 호스팅 포함)는 두 헤더 대신 `Langsmith-Project: <project-name>`을 사용합니다. 두 방식의 헤더를 함께 보내면 안 됩니다.
 4. **Trace export**를 켜고 설정을 저장한 뒤 control plane을 다시 시작합니다.
 
 AIGateway Response가 특정 conversation에 속해 있으면, `langsmith` 프로바이더는 해당 conversation ID를 LangSmith 공식 속성인 `langsmith.trace.session_id`에 기록하는 동시에 `session.id`와 `gen_ai.conversation.id`에도 함께 남깁니다.
@@ -68,6 +68,6 @@ AIGateway Response가 특정 conversation에 속해 있으면, `langsmith` 프�
 
 VictoriaTraces에 최종 전송되는 경로는 `/insert/opentelemetry/v1/traces`가 됩니다. VictoriaTraces 자체에는 테넌트 인가 기능이 없으므로, 신뢰할 수 없는 네트워크 구간에서는 vmauth 같은 인증 프록시를 앞단에 두십시오. 자세한 내용은 [VictoriaTraces OTLP documentation](https://docs.victoriametrics.com/victoriatraces/data-ingestion/opentelemetry/)을 참조하십시오.
 
-Grafana Cloud 토큰에는 `traces:write` 권한이 필요합니다. 자세한 설정 방법은 [Honeycomb OTLP documentation](https://docs.honeycomb.io/send-data/opentelemetry)과 [Grafana Cloud OTLP documentation](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/)을 확인하십시오. Trace Provider 선택에 따른 벤더 속성 보강은 Turn 루트 span과 AIGateway LLM span에만 적용되며, Worker 도구 span과 그 밖의 control plane span은 벤더 중립적인 속성 그대로 동일한 수신 시스템에 함께 전송됩니다.
+Honeycomb Classic 환경에서는 `x-honeycomb-dataset` 헤더도 필요합니다. Grafana Cloud 토큰에는 `traces:write` 권한이 필요합니다. 자세한 설정 방법은 [Honeycomb OTLP documentation](https://docs.honeycomb.io/send-data/opentelemetry)과 [Grafana Cloud OTLP documentation](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/)을 확인하십시오. Trace Provider 선택에 따른 벤더 속성 보강은 Turn 루트 span과 AIGateway LLM span에만 적용되며, Worker 도구 span과 그 밖의 control plane span은 벤더 중립적인 속성 그대로 동일한 수신 시스템에 함께 전송됩니다.
 
-트레이스 설정은 control plane이 시작될 때 한 번만 읽어들입니다. 내보내기를 끄려면 `observability.traces.enabled`를 `false`로 바꾼 뒤 control plane을 재시작하십시오. 이때 `OTEL_TRACES_EXPORTER`나 `OTEL_EXPORTER_OTLP_*` 환경 변수로 Ankole을 설정하지 마십시오. Ankole은 OpenTelemetry가 기동되기 전, 그리고 AppConfigure의 엔드포인트와 헤더를 적용하기 전에 해당 환경 변수들을 모두 제거하며 오직 AppConfigure 설정으로만 exporter를 관리합니다.
+트레이스 설정은 control plane이 시작될 때 한 번만 읽어들입니다. 내보내기는 best effort이며 실패해도 Agent Turn이나 AIGateway 응답에 영향을 주지 않습니다. 실패한 배치를 영속 outbox에 저장해 재전송하지는 않습니다. 내보내기를 끄려면 `observability.traces.enabled`를 `false`로 바꾼 뒤 control plane을 재시작하십시오. 이때 `OTEL_TRACES_EXPORTER`나 `OTEL_EXPORTER_OTLP_*` 환경 변수로 Ankole을 설정하지 마십시오. Ankole은 OpenTelemetry가 기동되기 전, 그리고 AppConfigure의 엔드포인트와 헤더를 적용하기 전에 해당 환경 변수들을 모두 제거하며 오직 AppConfigure 설정으로만 exporter를 관리합니다.

@@ -30,21 +30,22 @@ Control Plane Plugins はリリースビルドにコンパイルされるファ�
 - **`display_name/0`**、**`description/0`** — 管理画面表示用のローカライズ済みテキストマップを返します。
 - **`app_config_definitions/0`**、**`app_config_patterns/0`** — プラグインが追加する `Ankole.AppConfigure` キーおよびパターン定義を返します。
 - **`adapter_declarations/0`** — プラグインを各サブシステム契約へ接続するためのアトムキー付き宣言リストを返します。ブラウザー設定フォーム向けのスキーマ定義には `Ankole.Plugins.ConfigField` を使用します。
-- **`hooks/0`** — 同期トランザクションフック `[{hook_point, module}]` のリストを返します。各モジュールは宣言されたフックポイント（`:create_agent`、`:create_invitation`、`:enable_signal_binding`、`:enable_identity_provider`、`:store_file`、`:commit_files`、`:create_pod_page`、`:restore_pod_page`、`:insert_base_records`、`:admit_compute`）に対して `Ankole.Plugins.Hook.before_commit_in_tx/2` を実装し、`{:error, reason}` を返すことで呼び出し元のデータベーストランザクションをロールバックできます。
+- **`hooks/0`** — 同期トランザクションフック `[{hook_point, module}]` のリストを返します。各モジュールは宣言されたフックポイント（`:create_agent`、`:create_invitation`、`:enable_signal_binding`）に対して `Ankole.Plugins.Hook.before_commit_in_tx/2` を実装し、`{:error, reason}` を返すことで呼び出し元のデータベーストランザクションをロールバックできます。
 - **`children/0`** — プラグインランタイムのスーパーバイザー配下で起動する `Supervisor.child_spec()` のリストを返します。
 
 起動時には `Ankole.Plugins.Spec.from_module/1` がこれらを読み取って検証済みの `Spec` を組み立てます。構造上の不備、プラグイン ID の重複、またはサブシステム契約の検証エラーが見つかった場合、アプリケーションは該当モジュールを明示したうえで起動を停止します。
 
 ## サブシステム契約とサイト拡張ポイント
 
-Control Plane Plugins は 6 種類のサブシステムアダプター契約（`Ankole.Plugins.Contracts` および `Ankole.Connectors.Registry`）を宣言でき、起動時の `validate` に加えてアクティブ状態の反映（`refresh`）や無効化防止ガード（`veto_disable`）を組み合わせます。
+Control Plane Plugins は 7 種類のサブシステムアダプター契約（`Ankole.Plugins.Contracts` および `Ankole.Connectors.Registry`）を宣言でき、起動時の `validate` に加えてアクティブ状態の反映（`refresh`）や無効化防止ガード（`veto_disable`）を組み合わせます。
 
 - **`signals.adapter`** — `Ankole.Signals.Adapters` で検証されるメッセージング・イベントアダプターを宣言し、Signal Bindings および Conversations の配信で利用できるようにします。
 - **`signals.webhook_handler`** — `/webhooks/v1/:handler_id/:instance_id/:kind` で受け付ける HTTP Webhook ハンドラーを宣言します（`Ankole.Signals.WebhookHandlers` が検証）。
 - **`principals.identity_provider`** — エンタープライズ Identity Provider およびディレクトリ同期アダプターを宣言します（`Ankole.IdentityProviders` が検証し、テナントの Identity Provider 設定が残っている間は `veto_disable` で無効化を拒否します）。
 - **`ai_gateway.provider`** — `Ankole.AIGateway.Providers` で検証されるモデルプロバイダーアダプターを宣言し、`refresh` によってアクティブな宣言を AI Gateway に公開します。
 - **`agent_workers.provider_kind`** — Agent Worker のインフラ種別（`Ankole.AgentWorkers.ProviderKind`）を宣言し、起動時に検証したうえで `refresh` により発見済み・アクティブな仕様を公開します。
-- **`connectors.connector`** — `Ankole.Connectors` が提供する統合プラットフォームコネクターを宣言し、共有アプリケーション認証情報（`authConfigId`）、個人 OAuth フロー、外部イベントトリガー、内部 MCP ツールキット（`ToolSpec`）を提供します。`lark-adapter`、`github-adapter`、`linear-adapter` が実装しており、このうち `github-adapter` と `linear-adapter` は `activation: :always` を宣言しています。
+- **`connectors.connector`** — `Ankole.Connectors` が提供する統合プラットフォームコネクターを宣言し、共有アプリケーション認証情報（`authConfigId`）、個人 OAuth フロー、外部イベントトリガー、内部 MCP ツールキット（`ToolSpec`）を提供します。`lark-adapter`、`github-adapter`、`linear-adapter`、`cloud-connectors-adapter` が実装しており、後の 3 つは `activation: :always` を宣言しています。
+- **`connectors.cloud_provider`** — Ankole Cloud サービスのアダプターを宣言します。`Ankole.Connectors.CloudProvider` が検証し、コネクターの検出、OAuth、ツール実行、イベントトリガーの照合に使用します。
 
 さらにサイトビルド全体では、ファーストパーティ拡張向けにコンパイル時・サイトスコープの拡張ポイントも用意されています。
 

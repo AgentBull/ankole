@@ -656,7 +656,7 @@ least `im_max_idle_seconds` (default `259,200` seconds / 72 hours):
   rather than per-turn workspace epochs.
 
 Workers are stateless, rebuildable compute, whereas Session workspace IDs are
-durable integers that survive provider restarts. In Runtime Fabric protocol v10,
+durable integers that survive provider restarts. In RuntimeFabric protocol v12,
 the execution key is named `SessionKey`, the run reference field is `session`,
 accepted stimuli are `Signal`, and an accountable `ActorRef` identifies the
 responsible Principal. File provenance records reference public Conversation and

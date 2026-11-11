@@ -6,9 +6,9 @@ max_running_per_agent = "Maximum concurrently running BackgroundAgentJobs per Ag
 
 
 [app_configure.descriptions.ai_agent]
-inactivity_timeout_ms = "Agent Computer model/provider inactivity timeout in milliseconds. Running tools own their lifecycle; 0 disables the watchdog."
-max_iterations = "Maximum logical model iterations for one Agent Computer turn execution."
-max_output_tokens = "Optional Agent Computer max output tokens for one model response. nil means no explicit request cap."
+inactivity_timeout_ms = "Session turn model/provider inactivity timeout in milliseconds. Running tools own their lifecycle; 0 disables the watchdog."
+max_iterations = "Maximum logical model iterations for one Session turn."
+max_output_tokens = "Optional maximum output tokens for one model response. nil means no explicit request cap."
 
 [app_configure.descriptions.ai_agent.library]
 agent_plugin_defaults = "Default enablement inherited by Agents for each Agent Plugin."
@@ -45,7 +45,7 @@ enabled_ids = "Plugin ids enabled on the next Ankole process start."
 "*" = "Machine-managed Graph change-notification subscription state."
 
 [app_configure.descriptions.principals.identity_providers]
-active = "Identity Provider configurations available for admin authentication."
+active = "Identity-provider configurations for sign-in and directory sync in this tenant."
 directory_full_sync_interval_minutes = "Minutes between periodic full directory sync enqueue attempts."
 
 [app_configure.descriptions.principals.identity_providers.dingtalk]
@@ -715,13 +715,13 @@ alert_failed_jobs_title = """
 one {{{$count} recent background Agent Job failed}}
 *   {{{$count} recent background Agent Jobs failed}}"""
 alert_no_identity_action = "Add a provider"
-alert_no_identity_description = "Nobody can sign in to this console except through an enabled identity provider."
+alert_no_identity_description = "Enable an identity provider to let people sign in with their organization accounts."
 alert_no_identity_title = "No identity provider is enabled"
 alert_no_provider_action = "Add a provider"
 alert_no_provider_description = "Agents cannot call a model until an enabled LLM provider has a usable credential."
 alert_no_provider_title = "No usable LLM provider"
 alert_worker_failing_action = "Inspect workers"
-alert_worker_failing_description = "The backend reports a problem for a Worker that does not become ready, so its Agent cannot work."
+alert_worker_failing_description = "A Worker cannot become ready. Its Agent cannot run tasks that need its computer."
 alert_worker_failing_title = """
 .input {$count :number}
 .match $count
@@ -1692,7 +1692,7 @@ observability_header_value = "Header {$number} value"
 observability_headers = "Authentication headers"
 observability_headers_empty = "No headers are configured. Add one when the receiver requires authentication."
 observability_headers_hint_langfuse = "Add Authorization: Basic <base64(public-key:secret-key)> and x-langfuse-ingestion-version: 4."
-observability_headers_hint_langsmith = "Add x-api-key. Langsmith-Project is optional."
+observability_headers_hint_langsmith = "Add x-api-key. For an agent-based workspace, also add Langsmith-Agent-Id and Langsmith-Agent-Environment; for a project-based workspace, use Langsmith-Project instead."
 observability_headers_hint_opentelemetry = "Add only the headers required by the selected OTLP receiver."
 observability_headers_invalid = "The stored authentication headers are not a string map. Replace them before saving."
 observability_headers_masked = "Stored header names and values stay hidden until you explicitly reveal them."
@@ -1748,12 +1748,12 @@ json_select_key = "Select a key"
 json_show_less = "Show less"
 json_update_failed = "Could not update the value."
 locale_hint = "Select a language that is included in this Ankole instance."
-locale_title = "Instance language"
+locale_title = "Workspace language"
 timezone_current_time = "Current date and time in this zone"
 timezone_empty = "No matching timezone. Enter an IANA timezone ID to use it."
 timezone_hint = "Search IANA timezone IDs. Offsets are shown for the current date and may change with daylight saving time."
 timezone_placeholder = "Search, for example Asia/Shanghai"
-timezone_title = "Instance timezone"
+timezone_title = "Schedule timezone"
 timezone_use = "Use {$timezone}"
 unsaved = "Unsaved changes"
 valid_json = "Valid JSON"
@@ -2146,7 +2146,7 @@ result = "Result"
 
 [console.workers]
 agent = "Agent"
-empty_description = "Each Agent has one Worker. Create an Agent; its Worker starts when the Agent first needs it."
+empty_description = "Each Agent has one Worker. Creating an Agent starts its Worker in the background; after idle release, tasks that need it start it again."
 empty_title = "No Workers"
 last_heartbeat = "Last heartbeat"
 load = "Load"
@@ -3966,7 +3966,7 @@ formula_bar = "Cell contents"
 active_cell = "Active cell"
 active_cell_value = "{$cell}: {$value}"
 version_history = "Version history"
-version_history_description = "Restoring a version saves the current file as a version first, so nothing is lost."
+version_history_description = "Restoring a version first saves the current file in version history."
 versions = "Versions"
 version_restored = "The version was restored. Every open editor reloads it."
 restore_version = "Restore"
@@ -4244,7 +4244,7 @@ sync_retrying = "Not saved yet. Retrying…"
 view_only = "View only"
 collaborators = "People viewing or editing this file"
 version_history = "Version history"
-version_history_description = "Restoring a version saves the current file as a version first, so nothing is lost."
+version_history_description = "Restoring a version first saves the current file in version history."
 versions = "Versions"
 version_restored = "The version was restored. Every open editor reloads it."
 restore_version = "Restore"
@@ -5878,3 +5878,77 @@ all_colleagues_bound = "All owned AI colleagues are bound to this device."
 binding_status_connected = "Connected"
 binding_status_draining = "Draining"
 binding_status_offline = "Offline"
+
+[app_configure.descriptions.tenants]
+"privileged_tenant_id" = "ID of the tenant whose siteadmin group administers this site."
+
+[app_configure.descriptions.pod]
+"allow_external_guests" = "Allows invited external guests to access shared Pod pages."
+"ot_replay_window" = "Number of recent document change batches retained for OT replay."
+"ocr_existing_scans" = "Sends the scanned PDF pages that no OCR model read at upload to the OCR model. The OCR provider charges for every page."
+
+[app_configure.descriptions.pod.applet]
+"limits" = "Applet invocation limits: timeout_ms and heap_mb. Includes capability wait time and external memory."
+"action_limits" = "Applet Action slice limits: timeout_ms and heap_mb, including capability wait time."
+"action_runtime_url" = "Optional dedicated Function Runtime origin for background Actions. Uses the site's runtime credential; empty uses the shared deployment."
+
+[app_configure.descriptions.pod.base]
+"limits" = "Base query and record limits: query_rows, record_bytes, group_count, and statement_timeout_ms."
+
+[app_configure.descriptions.pod.office]
+"limits" = "Office page limits: max_file_bytes for online editing, and compaction_idle_seconds, compaction_op_threshold, and compaction_structural_threshold for writing edits into the file."
+
+[app_configure.descriptions.principals]
+"pod_login_policy" = "Pod member login and invitation policy."
+
+[app_configure.descriptions.drive]
+"vfs_max_upload_bytes" = "Maximum bytes per Drive VFS upload; 0 uses the object store limit."
+"trash_retention_days" = "Days to retain deleted Drive nodes before automatic purge; 0 keeps them until this changes."
+
+[app_configure.descriptions.signals.telegram.bindings]
+"*" = "Encrypted Telegram bot binding configuration."
+
+[app_configure.descriptions.signals.whatsapp.bindings]
+"*" = "Encrypted WhatsApp Cloud API binding configuration."
+
+[app_configure.descriptions.connectors.database]
+"limits" = "Database connector budgets: statement_timeout_ms, lock_timeout_ms, max_rows, max_result_bytes, max_scanned_bytes (ClickHouse), max_export_rows, probe_count, catalog_tables, profile_tables, and sample_rows."
+
+[app_configure.descriptions.signals.line.bindings]
+"*" = "Encrypted LINE channel binding configuration."
+
+[app_configure.descriptions.signals.discord.bindings]
+"*" = "Encrypted Discord bot binding configuration."
+
+[app_configure.descriptions.signals.lark.binding_configs]
+"*" = "Encrypted binding-owned Feishu / Lark chat configuration."
+
+[app_configure.descriptions.signals.email.bindings]
+"*" = "Encrypted email mailbox binding configuration."
+
+[app_configure.descriptions.signals.wecom.bindings]
+"*" = "Encrypted WeCom chat binding configuration."
+
+[app_configure.descriptions.principals.identity_providers.wecom]
+"*" = "Encrypted WeCom identity-provider configuration."
+
+[app_configure.descriptions.ai_gateway.model_profiles]
+"primary" = "Pod or Site primary model profile override."
+"light" = "Pod or Site light model profile override."
+"heavy" = "Pod or Site heavy model profile override."
+"coding" = "Pod or Site coding model profile override."
+"vision_fallback" = "Pod or Site vision_fallback model profile override."
+"web_search" = "Pod or Site web_search model profile override."
+"web_fetch" = "Pod or Site web_fetch model profile override."
+"image_generate" = "Pod or Site image_generate model profile override."
+"rerank" = "Pod or Site rerank model profile override."
+"decision" = "Pod or Site decision model profile override."
+"speech" = "Pod or Site speech model profile override."
+"transcription" = "Pod or Site transcription model profile override."
+"ocr" = "Pod or Site ocr model profile override."
+"video" = "Pod or Site video model profile override."
+"music" = "Pod or Site music model profile override."
+
+[app_configure.descriptions.ai_gateway.provider_hosted]
+"web_search" = "Whether web_search stays hosted by the language-model Provider."
+"image_generate" = "Whether image_generate stays hosted by the language-model Provider."

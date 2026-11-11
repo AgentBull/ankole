@@ -55,6 +55,8 @@ Agents resolve Model Profiles through 3-tier sparse inheritance (`Agent -> Pod -
 - Configure `image_generate` when the Agent must create images through a dedicated image provider.
 - Configure **Background Agent Jobs** (`coding`) when Jobs need a separate provider or model (unset `coding` falls back through `heavy -> primary`). To run Jobs through a ChatGPT subscription, select its [ChatGPT subscription provider](../chatgpt-subscription-provider/) here.
 
+For separate `web_search` or `image_generate` profiles, also turn off the corresponding provider-hosted switch. Binding a profile alone does not change that switch. Both switches default to enabled and inherit Site → Pod → Agent settings.
+
 Select the Provider first to unlock the model selector and the context-length field; leave the context length empty to use the Provider and model default. Deleting an Agent slot override restores inheritance from the Pod and Site defaults.
 
 Under **Advanced settings**, the Console displays only options declared by the selected Provider. **Reasoning summary** applies only to the Responses API, **Answer detail** sets the default response verbosity, and **Service tier** overrides the request priority tier for this profile. Supported values depend on the Provider, account, and model—leave these fields blank to use the Provider defaults.
@@ -96,7 +98,7 @@ Check these items in order:
 1. The Agent is enabled.
 2. An effective `primary` Model Profile resolves for the Agent (via Site/Pod defaults or Agent overrides), and its LLM Provider is healthy.
 3. For external channels, a signal routing rule points to this Agent.
-4. **Console → Workers** shows the Agent's Worker as ready, or starting without a failure reason.
+4. If the turn needs computer work, **Console → Workers** shows the Agent's Worker as ready, or starting without a failure reason. Pure questions do not require a running Worker.
 5. **Console → Conversations** recorded the message—inspect any error attached to the turn.
 
 For channel-specific checks, see [Quick start troubleshooting](../quickstart/#if-the-agent-does-not-reply).

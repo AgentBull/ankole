@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-在 Ankole 中，有一部分平台能力并不是作为每轮必带的模型工具（Tool）暴露给大模型，而是直接封装为 Agent Computer Worker 内的 Shell 命令行程序（CLI）。Agent 就像日常调用 `kubectl` 一样，直接在终端里运行它们——内置的 `ankole-pod`（涵盖 `pages.*`、`base.*`、`applet build|publish|pull` 与 `jobs`）、`ankole-files`、`ankole-browser` 以及 Webhook 端点管理命令，全部采用这种交付形态。
+在 Ankole 中，有一部分平台能力并不是作为每轮必带的模型工具（Tool）暴露给大模型，而是直接封装为 Agent Computer Worker 内的 Shell 命令行程序（CLI）。Agent 就像日常调用 `kubectl` 一样，直接在终端里运行它们——内置的 `ankole-pod`（涵盖 `pages.*`、`base.*`、`applet build|publish|pull` 与 `jobs.*`）、`ankole-files`、`ankole-browser` 以及 Webhook 端点管理命令，全部采用这种交付形态。
 
 本页说明什么样的能力适合做成 CLI，以及如何在不注册模型工具、不塞入全局 Skill 索引、也不膨胀系统提示词的前提下，让 Agent 依然能够精准发现并正确调用这些命令。
 
@@ -24,7 +24,7 @@ order: 114
 为了让 Agent 无需全局工具表也能顺畅使用 CLI，我们用三条渐进式披露准则替代传统的工具注册与全局索引：
 
 **1. `--help` 本身就是权威契约文档。**
-CLI 输出的 `--help` 帮助信息直接承载 Agent 正确调用该能力所需的全部上下文：这项命令解决什么问题、背后的安全与信任模型、持久性与幂等保证，以及一次完整的端到端调用示例。由于帮助文本直接随二进制同库编译发布，始终与代码实际行为保持严格同版本，绝不会像外部独立文档那样逐渐脱节。编写 `--help` 时应面向零背景知识的读者，重点讲清目标与边界约束，而非罗列死板的机械步骤（可参考 `create-webhook-cli --help` 的写法）。
+CLI 输出的 `--help` 帮助信息直接承载 Agent 正确调用该能力所需的全部上下文：这项命令解决什么问题、背后的安全与信任模型、持久性与幂等保证，以及一次完整的端到端调用示例。帮助文本随二进制一起发布，调用方读取的是该实现版本随附的说明。编写 `--help` 时应面向零背景知识的读者，重点讲清目标与边界约束，而非罗列死板的机械步骤（可参考 `create-webhook-cli --help` 的写法）。
 
 **2. 把一句话指针放在必经的决策面上。**
 Agent 之所以能“想起来”有这个命令，靠的是埋在相邻决策节点上的一句话指针——它可以放在某个相邻工具的描述里、某个对接特定外部系统的 Skill 里，或是另一个关联 CLI 的 `--help` 末尾。每条指针只客观点明“在什么场景下需要用到该能力”以及“运行哪条 `--help` 查看详情”，绝不强行诱导模型调用。凡是做成 CLI 的能力，都必须在通往该场景的必经入口处至少留有一条指针：让这项能力派上用场的那条业务路径，天然就决定了应该把指针放在哪里。
@@ -34,7 +34,7 @@ Agent 之所以能“想起来”有这个命令，靠的是埋在相邻决策�
 
 ## 自动化任务
 
-自动化任务在 Function Runtime 中运行已发布的 Applet Action。Agent 使用 `ankole-pod applet` 构建并发布 Applet，再通过 `ankole-pod jobs` 查看 Action、创建或配置任务、管理定时与回调端点、检查运行记录。调用前应阅读 `ankole-pod --help`。
+自动化任务在 Function Runtime 中运行已发布的 Applet Action。Agent 使用 `ankole-pod applet` 构建并发布 Applet，再通过 `ankole-pod` (`jobs.*`) 查看 Action、创建或配置任务、管理定时与回调端点、检查运行记录。调用前应阅读 `ankole-pod --help`。
 
 Applet 服务端导出 `{routes, actions}`。Action 声明处理函数、幂等性和并发策略，通过 `ctx.signal`、`ctx.job.config` 读取输入和配置，通过 `ctx.state` 保存游标，并可用 `continueSlice()` 在同一次运行中分段执行。外部调用使用 `AnkoleRuntime.mcp`；团队名义使用 `AnkoleRuntime.admin.mcp`。
 

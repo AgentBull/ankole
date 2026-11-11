@@ -179,8 +179,8 @@ provider options, optional context length, and whether the provider supports
 parallel tool calls. Subsequent retries of that Job reuse the frozen snapshot,
 whereas a newly created or respawned Job resolves the latest profile at its own
 first execution admission. The model binding omits the hosted `brain` tool:
-Codex Jobs call `recall` and `get_page` over the read-tool bridge on the Worker
-so each tool name has a single executor (see
+Codex Jobs call Brain read tools such as `recall` and `entity` over the
+read-tool bridge on the Worker so each tool name has a single executor (see
 [BackgroundAgentJob.md](BackgroundAgentJob.md#code-mode-tool-registry)).
 
 The snapshot also captures input modalities. If the primary model is text-only,
@@ -418,9 +418,9 @@ Each row in `ai_gateway_providers` stores:
 A provider row pools credentials for a single `provider_kind` and never fails
 over across different provider kinds. As a built-in convenience,
 `Ankole.AIGateway.Providers.AgentBullCloud` (`:agentbull_cloud`, defaulting to
-`https://cloudapis.agentbull.com`) implements all six `ProviderDSL` capabilities
-(`language_model`, `embedding_model`, `rerank_model`, `web_search`, `web_fetch`,
-and `image_generate`) so an operator can connect AIGateway to AgentBull Cloud
+`https://cloudapis.agentbull.com/v1`) implements five `ProviderDSL` capabilities
+(`language_model`, `embedding_model`, `rerank_model`, `web_search`, and
+`image_generate`) so an operator can connect AIGateway to AgentBull Cloud
 with a single API key kept inside the control plane (MCP-backed Skills call
 remote MCP servers and Connector Toolkits through the `Ankole.Connectors`
 control-plane gateway using short-lived Turn tokens rather than reading upstream
@@ -831,10 +831,12 @@ Applet backend calls to `AnkoleRuntime.ai.generateText`,
 `AnkoleRuntime.ai.ocr`,
 `AnkoleRuntime.web.search`, and `AnkoleRuntime.web.fetch` run in-process through
 `Ankole.Pod.Applets.Gateway` under the selected ordinary or `admin` execution
-Principal (`caller: "pod_applet"`). Human Principals resolve the Pod's effective
-model profiles, whereas Agent Principals resolve that Agent's model profiles;
-both attribute usage to the executing Principal (`origin: "applet"`) in
-`ai_gateway_usage_records` without spending interactive Agent token quota. `generateText` resolves only built-in LLM slots (rejecting
+Principal (`caller: "pod_applet"`). For language-model slots, Human Principals
+use the Pod's effective profiles and Agent Principals use their own effective
+profiles. Other capabilities follow their endpoint's profile-resolution rules.
+All calls attribute usage to the executing Principal (`origin: "applet"`) in
+`ai_gateway_usage_records` without spending interactive Agent token quota.
+`generateText` resolves only built-in LLM slots (rejecting
 raw `provider/model` selectors and falling back from a missing `light` profile to
 `primary`), validates reasoning effort against the resolved model, and returns
 generated text, `stop`/`length` finish reason, and input/output token counts.
@@ -1372,8 +1374,9 @@ Strict resource caps bound internal loops before they can amplify cost:
 ## Recall and Write Memory inside a Response
 
 Callers enable Brain memory tools by declaring `{"type": "brain"}` (with an
-optional `operations` filter; Background Agent Jobs and Workflow tasks restrict
-`operations` to `recall` and `get_page`). AIGateway expands that hosted tool
+optional `operations` filter; Workflow tasks restrict `operations` to `recall`
+and `entity`, while Background Agent Jobs use the Worker read-tool bridge).
+AIGateway expands that hosted tool
 into root provider functions for `remember`, `recall`, `entity`, `whoknows`,
 `synthesize`, `delta`, `write_object`, and `metric_query`—reserving all eight
 names so any colliding caller tool is rejected—using schemas and executors owned
@@ -1635,8 +1638,8 @@ be written (for example, because the summarizer fails), the request runs on the
 full history, and AIGateway neither truncates the history nor reports a context
 overflow.
 
-Under this single protocol, `ai_gateway.compaction.upstream` (a tenant setting
-inheriting the site default) chooses between two backends:
+Under this single protocol, the site-wide `ai_gateway.compaction.upstream`
+setting chooses between two backends:
 
 1. **Local summarizer (`upstream: false`, default)**: summarizes history using
    the Agent's `light` profile (falling back to `primary` if `light` is unset,

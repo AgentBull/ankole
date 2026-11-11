@@ -102,7 +102,7 @@ stateDiagram-v2
 
 When a `BackgroundAgentJob` or `Workflow` finishes executing, the Conversation still contains no public reply until the main Session wakes up and relays the outcome (see [BackgroundAgentJob](BackgroundAgentJob.md) and [Workflow](Workflow.md)). If that wakeup `Signal` exhausts retries and enters `dead_letter`, Ankole posts a fallback system notice synthesized from the result stored on the `Signal`. Explicitly stopping the task suppresses both the wakeup relay and the fallback notice.
 
-If a queued Background Agent Job never acquires a ready Worker within its queue deadline, Ankole marks the Job failed before execution ever begins. Once an operator suspends the tenant, queued tasks cannot start, while already running tasks finish their active execution. After a Workflow task calls `sleep`, PostgreSQL holds its progress in committed receipts, so Ankole resumes the task when its deadline arrives even if the tenant is suspended. While a Background Agent Job is waiting for user input (`waiting_on_user`), Worker inactivity timeouts do not mark the Job failed.
+If a queued Background Agent Job never acquires a ready Worker within its queue deadline, Ankole marks the Job failed before execution ever begins. Once an operator suspends the tenant, queued tasks cannot start, while already running tasks finish their active execution. After a Workflow task calls `sleep`, PostgreSQL holds its progress in committed receipts. A wake starts a new execution attempt and must pass current tenant and Human admission checks. While a Background Agent Job is waiting for user input (`waiting_on_user`), Worker inactivity timeouts do not mark the Job failed.
 
 Both automatic continuations after completion and manual respawns create a fresh Job row rather than reopening the finished row. If a follow-up message cannot be delivered while a Job is waiting for user input, Ankole emits a separate wakeup notice while keeping the Job in `Waiting for user`. The main Session attaches any output files explicitly during its parent turn.
 
@@ -153,7 +153,7 @@ stateDiagram-v2
     s6 --> s9: Main Session misses wakeup
     s6 --> s11: Main Session relays outcome
     s4 --> s10: Job asks user a question
-    s7 --> s4: Sleep deadline reached, resumes
+    s7 --> s4: Sleep deadline reached, resumes [when Tenant active]
     s7 --> s6: Fails while sleeping
     s7 --> s8: Caller or operator stops task
     s10 --> s4: User answers [when Tenant active]
@@ -349,7 +349,7 @@ An external sign-in ceremony completes only when three conditions hold together:
 
 ## A Human Account
 
-When an operator suspends a Human account (`suspended` disposition of `disabled`), Ankole retains its bound addresses and contact identifiers so restoring the account reactivates the same Principal with its permissions intact (see [Human Offboarding](HumanOffboarding.md) and [Principal](Principal.md)). When a Human offboards, Ankole releases those addresses and contact identifiers: looking up a released address does not resolve to the departed Human, an offboarded account cannot be restored, and anyone who later claims that address receives a new Principal identity.
+When an operator suspends a Human account (`suspended` disposition of `disabled`), Ankole retains its bound addresses and contact identifiers so restoring the account reactivates the same Principal with its permissions intact (see [Human Offboarding](HumanOffboarding.md) and [Principal](Principal.md)). When a Human offboards, Ankole releases those addresses and contact identifiers: looking up a released address does not resolve to the departed Human, and a new employee with different provider subject IDs receives a new Principal identity. An administrator can explicitly restore the departed Human when every active restriction meets its recovery requirements; released credentials still require fresh verification.
 
 Work that has already passed admission continues to completion after either suspension or offboarding, whereas neither a suspended nor an offboarded Human can start new work. When an operator deletes a tenant, Ankole offboards the Humans in that tenant, halts their unstarted work in other tenants, and allows already admitted attempts to finish (see [Tenants](Tenants.md)).
 
@@ -373,6 +373,9 @@ stateDiagram-v2
   s8: Suspended, prior work finished
   [*] --> s0
   s0 --> s1: Human offboards
+  s1 --> s0: Operator restores eligible Human
+  s5 --> s3: Operator restores eligible Human
+  s7 --> s4: Operator restores eligible Human
   s0 --> s2: Operator suspends Human
   s0 --> s3: Start new work
   s2 --> s0: Operator restores Human
@@ -528,18 +531,18 @@ stateDiagram-v2
   s2: Plugins and queues ready
   s3: Gateway and runtimes ready
   s4: Sessions and delivery ready
-  s5: Identity sync ready
-  s6: Cluster discovery complete
+  s5: Startup sync tasks started
+  s6: Cluster discovery started
   s7: All subsystems ready, public endpoint closed
   s8: Accepting external traffic
   [*] --> s0
-  s0 --> s1: Next supervision group starts
+  s0 --> s6: Start cluster discovery
+  s6 --> s1: Next supervision group starts
   s1 --> s2: Next supervision group starts
   s2 --> s3: Next supervision group starts
   s3 --> s4: Next supervision group starts
   s4 --> s5: Next supervision group starts
-  s5 --> s6: Next supervision group starts
-  s6 --> s7: Next supervision group starts
+  s5 --> s7: Next supervision group starts
   s7 --> s8: Open public endpoint
   class s0 blue
   class s1 blue
@@ -552,4 +555,4 @@ stateDiagram-v2
   class s8 teal
 ```
 
-The actual OTP supervision tree subdivides these stages further: PostgreSQL (`Repo`), the Base shard cluster, and `PubSub` start before `AppConfigure`; observability, initial setup bootstrap, `Oban`, and plugins start before `AIGateway` and `FunctionRuntime`; outbound Delivery, `AgentWorkers`, `Sessions`, and `Workflow` start before the public endpoint opens; and optional startup syncs for external identity providers and the Skill library also finish before the public endpoint opens. Once the public endpoint is open, every backing subsystem is already running.
+The actual OTP supervision tree subdivides these stages further: PostgreSQL (`Repo`), the Base shard cluster, and `PubSub` start before `AppConfigure`; observability, initial setup bootstrap, `Oban`, and plugins start before `AIGateway` and `FunctionRuntime`; outbound Delivery, `AgentWorkers`, `Sessions`, and `Workflow` start before the public endpoint opens; and optional startup sync tasks for external identity providers and the Skill library start before the public endpoint opens. Their background work can continue after the endpoint starts accepting traffic. Once the public endpoint is open, every backing subsystem is already running.

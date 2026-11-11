@@ -43,18 +43,20 @@ Choose **Addressed messages only** whenever a group wants strictly on-demand que
 
 ## Choose what happens to unknown senders
 
-Ankole maps each chat sender to a known Principal automatically whenever possible: accounts imported via directory sync or SSO match by platform user ID, and new chat accounts match when the platform reports a verified email address or mobile number already owned by an existing account. Because that lookup is best effort, someone outside your company directory—or an Email OTP (`SiteCredential`) user whose chat handle is not linked—will not match automatically.
+Ankole first looks for an active Human Principal already linked to the sender's stable platform user ID. Directory sync, SSO login, or an administrator can establish that link. Under the default **Manual review** policy, an email address or mobile number observed in a chat profile does not create a link to an existing account; an Email OTP (`SiteCredential`) login alone does not link that user's chat account either.
 
 Use **When account auto-mapping fails** to control how Ankole handles unmapped senders:
 
 | Option | Behavior |
 |---|---|
 | **Manual review** (default) | Ankole queues the sender under **Identity → Pending mappings** in the Console. Until an administrator links the sender there, messages that address the Agent receive a single standard reply asking the sender to contact an administrator, and nothing enters conversation context or Brain learning. |
-| **Create a standalone account** | Ankole provisions a standalone account immediately and lets the sender talk to the Agent—useful for public or community channels. However, if the sender's platform identifier already matches an existing account (such as an Email OTP `SiteCredential` address or a verified Pod `email` identity), Ankole withholds automatic creation and routes the sender to manual review so an administrator can confirm whether they are the same person. |
+| **Create a standalone account** | Ankole resolves or creates an account and lets the sender talk to the Agent—useful for public or community channels. On the first binding to that provider, an attested email can link the sender to one active Human whose profile email, verified personal login email, or directory contact alias matches, provided that Human has no binding to the provider and has not completed offboarding. Otherwise, Ankole creates a standalone account from the platform identifier. Ambiguous email matches or an occupied account identifier prevent admission; an administrator must link the identity explicitly. |
 
-Ankole always ignores unaddressed group chatter from unmapped senders.
+Ankole ignores unaddressed group chatter from senders awaiting manual review.
 
-On consumer chat platforms such as Telegram, Discord, and LINE, every new sender starts out unmapped because those platforms have no enterprise directory and do not expose verified emails or phone numbers—keep **Manual review** enabled and bind each person's account once. WhatsApp provides the sender's verified phone number, so anyone whose Ankole account already owns that mobile number maps automatically. Conversely, Ankole never matches inbound email senders against unlinked profile emails or `SiteCredential` login addresses alone, because an unauthenticated `From` header proves nothing; only an explicit Pod `email` identity binding (populated by directory sync for employees, or added here by an administrator for external contacts) admits an email sender. On Lark and Feishu, external cross-tenant group members carry no internal employee ID, so they also go through manual binding or standalone account creation. Administrators can pre-link accounts on this Console page before a user ever sends a message—for example, to bind an Email OTP (`SiteCredential`) user to their chat account ahead of time.
+On Telegram, Discord, LINE, and WhatsApp, a sender with no existing platform binding starts out unmapped. Keep **Manual review** enabled and bind each person's account once when you want to admit known users only. A WhatsApp phone number does not by itself link the sender to an existing Human's mobile number.
+
+The Email channel uses the sender address in its own `email` namespace: it matches an explicit `email` identity binding or the active Human's recorded contact email. Directory sync or upstream sign-in can establish email bindings for employees, and an administrator can add bindings for external contacts on this Console page. An Email OTP login address alone is not an Email channel binding. On Lark and Feishu, external cross-tenant group members have no internal employee ID, so use manual binding or the standalone-account policy. Administrators can pre-link accounts before a user sends their first message—for example, to bind an Email OTP (`SiteCredential`) user to their chat account ahead of time.
 
 ## How chat conversations become Brain knowledge
 

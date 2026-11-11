@@ -5,7 +5,7 @@ section: Developer guide
 order: 117
 ---
 
-The main Agent loop runs in `Ankole.Sessions` inside the Elixir control plane, where each Session is driven by a single `:gen_statem` Driver process. Pure Q&A turns and control-plane tools execute directly in Elixir without a Worker, whereas environment tools and Codex Jobs start the Agent's Worker on demand.
+The main Agent loop runs in `Ankole.Sessions` inside the Elixir control plane, where each Session is driven by a single `:gen_statem` Driver process. Pure Q&A turns and control-plane tools execute directly in Elixir without a Worker, whereas environment tools and Codex Jobs request the Agent's Worker on demand. Agent creation also queues an initial Worker warmup; see [Agent Computer Worker](../agent-computer-worker/).
 
 ## One durable round
 

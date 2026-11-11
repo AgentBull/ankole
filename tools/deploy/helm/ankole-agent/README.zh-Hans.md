@@ -138,6 +138,10 @@ ingress:
 设为 `ankole` 可使 PostgreSQL Service 名称固定为 `ankole-postgresql`，从而与引导
 Secret 中的 `DATABASE_URL` 保持一致。
 
+成员通过 `https://<tenant-slug>.ankole.example.com` 访问所属租户。请为每个租户域名配置
+DNS、受信任的 TLS 证书与指向同一控制面 Service 的 Ingress 规则。上方示例配置了站点域名，
+成员登录前须补充租户域名。
+
 执行安装：
 
 ```sh
@@ -234,8 +238,8 @@ kubectl -n ankole logs deployment/ankole-control-plane \
 ```
 
 在浏览器中打开 `https://ankole.example.com/setup`，输入激活码，选择所需的
-Control Plane Plugin，并配置管理员身份提供商。由于生产镜像启用了安全 Cookie，浏览器
-初始化流程必须通过 HTTPS 访问。
+Control Plane Plugin，并配置无密码管理员登录方式：通过 SMTP 发送 6 位邮箱验证码，或接入企业
+OIDC SSO。由于生产镜像启用了安全 Cookie，浏览器初始化流程必须通过 HTTPS 访问。
 
 完成初始化后，即可在 Console 中配置模型提供商、模型档案、Agent Library 能力、Agent、
 聊天渠道绑定及 WorkerEnv 密钥。切勿将模型提供商的 API 密钥直接写入 Helm 配置。
@@ -388,11 +392,12 @@ mv "$backup_path.partial" "$backup_path"
 客户端须支持 PostgreSQL 18 归档格式；此外，`-l` 参数仅校验归档目录索引，不能替代在独立数据库上
 执行的完整恢复演练。
 
-未配置 `secrets.baseDBURLs`（或 `secrets.existingSecret` 中的 `BASE_DB_URLS`）时，物理
-Base 数据表存放在 `DATABASE_URL` 指向的主库内按租户隔离的 `t_<tenant_hex>` Schema 中，上述
-`ankole` 导出归档即可一并涵盖。若通过 `secrets.baseDBURLs` 或 `BASE_DB_URLS` 配置了独立
-的物理 Base 分片库，必须将全部 PostgreSQL 分片库与控制面数据库同步导出备份；对独立数据库实例
-执行时间点恢复（PITR）时，各分片库的恢复时间点不得早于控制面库。
+请按运行中站点的有效 Base 拓扑建立备份清单，包括 `secrets.baseDBURLs`、`BASE_DB_URLS`
+显式配置的分片与 edition 默认提供的分片。单库拓扑（生产 FOSS 的默认方案）将物理 Base 表存放在
+`DATABASE_URL` 指向的库内，按租户隔离为 `t_<tenant_hex>` Schema，控制面导出归档即可涵盖。
+若有效拓扑使用独立 Base 数据库，须将全部分片库与控制面库一并备份。对独立数据库实例执行时间点
+恢复（PITR）时，各分片库的恢复时间点不得早于控制面库。详见
+[Base 存储分配](../../../../docs/design-docs/Tenants.md#base-storage-placement)。
 
 如果 `kubectl exec` 在传输过程中截断了导出流，请保留现场诊断信息，设置环境变量
 `KUBECTL_REMOTE_COMMAND_WEBSOCKETS=false` 后重新导出并校验归档，切勿将截断的文件当作有效备份。

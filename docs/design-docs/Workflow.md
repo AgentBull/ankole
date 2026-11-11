@@ -88,7 +88,7 @@ Worker slot and consumes neither per-run nor per-Agent concurrency; its required
 is waiting on.
 
 Each `sleep` schedules a durable deadline Signal (`workflow.task.wakeup`) at
-`now + wake_after_ms`, clamped between 1 minute and 48 hours. Any earlier ready
+`now + wake_after_ms`; `wake_after_ms` must be between 1 minute and 48 hours. Any earlier ready
 Signal on the task Session wakes the task ahead of that deadline—such as an
 owner `workflow.task.message` or a lifecycle event from a `BackgroundAgentJob`
 that the task created. Claiming a wake passes through the standard dispatch

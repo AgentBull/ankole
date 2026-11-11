@@ -9,20 +9,20 @@ order: 24
 
 ## 选择执行路径
 
-公共 `image_generation` 工具支持两条执行路径：
+公共 `image_generation` 工具的执行路径由 `image_generate` 模型档案卡片中的**由模型的 Provider 执行**开关决定：
 
-- **Hosted 路径：**配置 Agent 的 `image_generate` 模型档案。AIGateway 会调用该档案指定的独立提供商与模型生成图片，再将结果交回主模型。
-- **原生路径：**不配置 `image_generate` 档案，改由声明支持原生图像生成的主提供商直接处理（OpenAI 与 ChatGPT 订阅均支持此路径）。此时，AIGateway 会将公共工具直接透传给主提供商。
+- **原生路径：**开关开启时，由主语言模型的 Provider 在自己的回合中生成图片。OpenAI 与 ChatGPT 订阅支持此路径，专用的 `image_generate` 档案不参与调用。
+- **Hosted 路径：**开关关闭时，AIGateway 使用专用 `image_generate` 提供商与模型生成图片，再将结果交回主模型。
 
-由此可见，`image_generate` 控制的是路由方式，而非功能总开关。如果既未配置 `image_generate` 档案，主提供商也未声明支持原生图像生成，AIGateway 就会返回明确的配置错误。
+该开关默认开启，并按 Site、Pod、Agent 逐层继承。原生模式下，若主提供商不支持生图，该 Agent 就没有生图能力。Hosted 模式下必须解析到兼容的专用模型，清空档案不会切换到原生路径。
 
 按以下步骤配置 Hosted 路径：
 
 1. 在 Console 的 **LLM Provider** 页面中，添加提供目标图像模型的提供商。
 2. 打开**智能体**页面，选择目标 Agent。
-3. 在模型档案中找到 `image_generate`。
+3. 在 `image_generate` 下关闭**由模型的 Provider 执行**。
 4. 选择图像提供商与具体模型并保存。
-5. 回到聊天渠道，向 Agent 发送明确的图像生成请求。
+5. 回到聊天渠道，发送图像生成请求验证配置。
 
 有三类 Provider 可以承接 `image_generate` 档案。**OpenRouter** 和 **AgentBull Cloud** 提供各自目录中的图片模型。**Cloudflare** 提供 FLUX.1 [schnell]（`@cf/black-forest-labs/flux-1-schnell`）和 Black Forest Labs 系列模型（例如 `black-forest-labs/flux-2-pro-preview`）：前者只能根据提示词生成图片，后者还支持指定尺寸、输出格式和最多八张参考图。使用 Cloudflare 时，在模型字段中直接输入模型 ID。
 
@@ -66,7 +66,7 @@ order: 24
 
 ## 没有生成图片时
 
-- **Agent 只回复了文字**：先确认客户端或 Agent 已开放 `image_generation` 工具，再检查是否已配置 `image_generate` 档案，或主提供商是否支持原生图像生成。
+- **Agent 只回复了文字**：确认客户端或 Agent 已开放 `image_generation` 工具。**由模型的 Provider 执行**开启时检查主提供商的原生生图能力，关闭时检查专用 `image_generate` 档案。
 - **找不到可选模型**：当前已添加的提供商未提供图像生成模型，请添加支持该能力的提供商。
 - **要求不受支持**：改用能力匹配的模型，或删去当前模型不支持的尺寸、格式、透明背景、参考图及编辑要求。
 - **生成了图片，但内容不合预期**：通常并非配置问题，建议回到同一会话，明确指出需要修改和保留的部分。

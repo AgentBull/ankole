@@ -9,13 +9,13 @@ order: 319
 
 ## 容量的 owner
 
-在等待模型响应或工具返回结果期间，Driver 会主动归还数据库连接；模型并发度、提供商配额、Worker 槽位与数据库查询并发分属四套彼此独立的配额上限。规划数据库容量时，所有控制面副本上的 `Ankole.Repo` 与 `Ankole.Pod.BaseRepo` 连接池总和必须低于目标 PostgreSQL 实例的连接数预算，并为日常运维与后台维护预留余量。在未配置 `BASE_DB_URLS` 的单库部署模式下，每个控制面副本除了为 `Ankole.Repo` 建立 10 个连接的连接池外，还会为 `Ankole.Pod.BaseRepo` 向同一个 `DATABASE_URL` 额外建立一个含 10 个连接的独立连接池（即单副本共占用 `20` 个连接池连接）。若通过 `BASE_DB_URLS` 指向独立的分片数据库，则应按 `副本数 × ankole_pool_size` 估算每个分片实例所需的 `max_connections`。调大连接池之前，请先观察是否确实出现了连接池借出（checkout）排队等待。
+在等待模型响应或工具返回结果期间，Driver 会主动归还数据库连接；模型并发度、提供商配额、Worker 槽位与数据库查询并发分属四套彼此独立的配额上限。规划数据库容量时，所有控制面副本上的 `Ankole.Repo` 与 `Ankole.Pod.BaseRepo` 连接池总和必须低于目标 PostgreSQL 实例的连接数预算，并为日常运维与后台维护预留余量。在 FOSS 生产环境中未配置 `BASE_DB_URLS` 时，每个控制面副本除了为 `Ankole.Repo` 建立 10 个连接的连接池外，还会为 `Ankole.Pod.BaseRepo` 向同一个 `DATABASE_URL` 额外建立一个含 10 个连接的独立连接池（即单副本共占用 `20` 个连接池连接）。若通过 `BASE_DB_URLS` 指向独立的分片数据库，则应按 `副本数 × ankole_pool_size` 估算每个分片实例所需的 `max_connections`。调大连接池之前，请先观察是否确实出现了连接池借出（checkout）排队等待。
 
 | 配置项 | 默认值 | 限制对象 |
 |---|---|---|
-| `ANKOLE_MAX_CONCURRENT_SLOTS` | 部署种子中为 12（未设置时为 9） | 单个 Agent 同时打开的环境工作区与运行中的 Codex 回合总数 |
+| `ANKOLE_MAX_CONCURRENT_SLOTS` | 12 | 单个 Agent 同时打开的环境工作区与运行中的 Codex 回合总数 |
 | `POOL_SIZE`（Compose/Helm 中为 `ANKOLE_DATABASE_POOL_SIZE`） | 10 | 每个控制面副本的 `Ankole.Repo` 数据库连接池大小 |
-| `BASE_DB_URLS`（`ankole_pool_size`） | 每分片 10（dev/test 环境为 `2`） | 每个控制面副本上各 `Ankole.Pod.BaseRepo` Base 分片的连接池大小 |
+| `BASE_DB_URLS`（`ankole_pool_size`） | FOSS 生产环境为 10、SaaS 生产环境为 5、dev/test 为 2 | 每个控制面副本上各 `Ankole.Pod.BaseRepo` Base 分片的连接池大小 |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | 300 | 内置 PostgreSQL 实例的 `max_connections` 上限 |
 | `background_agent_jobs.max_running_per_agent` | 3 | 单个 Agent 允许并发运行的 Background Agent Job 上限（租户级） |
 | `idleReleaseAfter` | 全部六种提供商默认均为 `15m`（设为 `never` 可禁用空闲停止） | Worker 空闲多久后自动停止并释放 CPU 与内存 |

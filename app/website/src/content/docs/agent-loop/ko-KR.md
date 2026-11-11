@@ -5,7 +5,7 @@ section: Developer guide
 order: 117
 ---
 
-주 Agent loop는 Elixir control plane의 `Ankole.Sessions`에서 실행되며, 각 실행 세션은 단일 `:gen_statem` Driver 프로세스가 전담해 진행합니다. 단순 질의응답이나 control plane 도구 호출에는 Worker가 필요하지 않으며, 환경 도구나 Codex 실행을 위해 컴퓨터 환경이 처음 필요해질 때만 해당 Agent의 Worker를 기동합니다.
+주 Agent loop는 Elixir control plane의 `Ankole.Sessions`에서 실행되며, 각 실행 세션은 단일 `:gen_statem` Driver 프로세스가 전담해 진행합니다. 단순 질의응답이나 control plane 도구 호출에는 Worker가 필요하지 않으며, 환경 도구나 Codex Job은 필요할 때 Worker를 요청합니다. Agent를 생성할 때도 최초 기동이 백그라운드 대기열에 들어갑니다. [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.
 
 ## 한 라운드의 영구 단계
 

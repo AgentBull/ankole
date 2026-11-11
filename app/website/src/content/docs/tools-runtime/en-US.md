@@ -26,7 +26,7 @@ The Driver dispatches calls in parallel or sequentially according to each tool's
 
 ## Workflow task tools
 
-Workflow subagents receive a deliberately narrow tool catalog: web tools, the Background Agent Job tools for delegation and inspection, `sleep`, `submit_result`, and—when Brain is enabled—read-only `recall` and `get_page`. They never receive computer, shell, Skill, schedule, or nested Workflow tools.
+Workflow subagents receive a deliberately narrow tool catalog: web tools, the Background Agent Job tools for delegation and inspection, `sleep`, `submit_result`, and—when Brain is enabled—read-only `recall` and `entity`. They never receive computer, shell, Skill, schedule, or nested Workflow tools.
 
 When a subagent calls `submit_result`, Ankole validates the payload against the task's persisted result schema: if validation fails, the task stays active so the subagent can submit a fixed payload; once validation succeeds, Ankole completes the task. Before submitting, a task must wait for or stop any live Background Agent Jobs that it delegated. See [Workflows](../workflows/).
 

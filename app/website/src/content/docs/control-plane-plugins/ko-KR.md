@@ -30,21 +30,22 @@ Control Plane Plugins는 릴리스에 함께 컴파일되는 퍼스트파티 Eli
 - **`display_name/0`**, **`description/0`** — 운영자 화면에 표시할 다국어 텍스트 맵입니다.
 - **`app_config_definitions/0`**, **`app_config_patterns/0`** — 플러그인이 제공하는 `Ankole.AppConfigure` 키 및 패턴 정의입니다.
 - **`adapter_declarations/0`** — 플러그인을 서브시스템 계약에 연결하는 애텀 키 선언 목록이며, 브라우저 설정 폼 스키마를 정의할 때는 `Ankole.Plugins.ConfigField`를 사용합니다.
-- **`hooks/0`** — 동기식 도메인 트랜잭션 훅 `[{hook_point, module}]` 목록입니다. 각 모듈은 선언된 훅 지점(`:create_agent`, `:create_invitation`, `:enable_signal_binding`, `:enable_identity_provider`, `:store_file`, `:commit_files`, `:create_pod_page`, `:restore_pod_page`, `:insert_base_records`, `:admit_compute`)에서 `Ankole.Plugins.Hook.before_commit_in_tx/2`를 구현하며, `{:error, reason}`을 반환해 호출 측 트랜잭션을 롤백시킬 수 있습니다.
+- **`hooks/0`** — 동기식 도메인 트랜잭션 훅 `[{hook_point, module}]` 목록입니다. 각 모듈은 선언된 훅 지점(`:create_agent`, `:create_invitation`, `:enable_signal_binding`)에서 `Ankole.Plugins.Hook.before_commit_in_tx/2`를 구현하며, `{:error, reason}`을 반환해 호출 측 트랜잭션을 롤백시킬 수 있습니다.
 - **`children/0`** — 플러그인 런타임 슈퍼바이저 아래에서 시작할 `Supervisor.child_spec()` 목록입니다.
 
 부팅 시 `Ankole.Plugins.Spec.from_module/1`이 이 콜백들을 읽어 검증된 `Spec`을 생성합니다. 형태 검증 실패, 중복 ID, 계약 검증 오류가 하나라도 있으면 Ankole은 원인이 된 모듈을 명시하고 애플리케이션 부팅을 즉시 중단합니다.
 
 ## 서브시스템 계약 및 사이트 확장 지점
 
-Control Plane Plugins는 여섯 가지 서브시스템 어댑터 계약(`Ankole.Plugins.Contracts` 및 `Ankole.Connectors.Registry`)을 선언하며, 부팅 시점의 `validate` 검증과 선택적인 `refresh` 게시 및 `veto_disable` 트랜잭션 가드를 결합합니다.
+Control Plane Plugins는 일곱 가지 서브시스템 어댑터 계약(`Ankole.Plugins.Contracts` 및 `Ankole.Connectors.Registry`)을 선언하며, 부팅 시점의 `validate` 검증과 선택적인 `refresh` 게시 및 `veto_disable` 트랜잭션 가드를 결합합니다.
 
 - **`signals.adapter`** — 메시징·이벤트 어댑터를 선언합니다. `Ankole.Signals.Adapters`가 이를 검증하며, 검증을 통과한 어댑터는 Signal Bindings와 Conversations 전달에서 사용할 수 있습니다.
 - **`signals.webhook_handler`** — `/webhooks/v1/:handler_id/:instance_id/:kind` 엔드포인트용 HTTP 웹훅 핸들러를 선언하며, `Ankole.Signals.WebhookHandlers`가 검증합니다.
 - **`principals.identity_provider`** — 엔터프라이즈 Identity Provider 및 디렉터리 동기화 어댑터를 선언합니다. `Ankole.IdentityProviders`가 검증하며, 테넌트 Identity Provider 설정이 의존하고 있는 동안 `veto_disable`로 비활성화를 차단합니다.
 - **`ai_gateway.provider`** — 모델 프로바이더 어댑터를 선언합니다. `Ankole.AIGateway.Providers`가 이를 검증하고 `refresh`를 통해 활성 선언을 AI Gateway에 게시합니다.
 - **`agent_workers.provider_kind`** — Agent Worker 인프라 종류(`Ankole.AgentWorkers.ProviderKind`)를 선언하며, 부팅 시 사양을 검증하고 `refresh`를 통해 발견된 사양과 활성 사양을 게시합니다.
-- **`connectors.connector`** — `Ankole.Connectors`가 제공하는 통합 플랫폼 커넥터를 선언하여 공유 애플리케이션 자격 증명(`authConfigId`), 개인 OAuth 흐름, 외부 이벤트 트리거, 내부 MCP 툴킷(`ToolSpec`)을 노출합니다. `lark-adapter`, `github-adapter`, `linear-adapter`가 이를 구현하며, 그중 `github-adapter`와 `linear-adapter`는 `activation: :always`를 사용합니다.
+- **`connectors.connector`** — `Ankole.Connectors`가 제공하는 통합 플랫폼 커넥터를 선언하여 공유 애플리케이션 자격 증명(`authConfigId`), 개인 OAuth 흐름, 외부 이벤트 트리거, 내부 MCP 툴킷(`ToolSpec`)을 노출합니다. `lark-adapter`, `github-adapter`, `linear-adapter`, `cloud-connectors-adapter`가 이를 구현하며, 뒤의 세 플러그인은 `activation: :always`를 사용합니다.
+- **`connectors.cloud_provider`** — Ankole Cloud 서비스 어댑터를 선언합니다. `Ankole.Connectors.CloudProvider`가 검증하며 커넥터 검색, OAuth, 도구 실행 및 이벤트 트리거 조정에 사용합니다.
 
 이 밖에도 사이트 빌드 전반에서 퍼스트파티 확장은 다음과 같은 컴파일 타임·사이트 범위 확장 지점을 함께 활용합니다.
 

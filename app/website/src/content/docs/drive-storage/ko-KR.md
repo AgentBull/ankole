@@ -18,9 +18,7 @@ order: 318
 | Cloudflare R2 | `s3` | S3 API 엔드포인트, 리전 `auto`, R2 자격 증명 |
 | 기타 S3 호환 서비스 | `s3` | 엔드포인트, 서명 리전, 자격 증명, 사전 호환성 검증 |
 
-컨트롤 플레인 복제본을 여러 개 실행해야 할 때는 공유 원격 저장소를 선택하고 모든 복제본의 백엔드 위치와 루트 경로를 일치시키세요. 공식 Helm 차트에서는 `files.store: fs`일 때 복제본을 둘 이상 설정하면 배포를 거부합니다. 또한 드라이브를 S3에 두더라도 개별 WorkerProvider가 갖는 복제본 제약까지 사라지지는 않습니다.
-
-현재는 예약 작업 실행, 채팅 연결 유지, 스케줄러 하이드레이션 같은 컨트롤 플레인 싱글턴 프로세스가 단일 노드 기준으로 동작하므로 `controlPlane.replicaCount: 1`로 유지하세요. 공유 원격 저장소는 다중 복제본 구성의 필요조건일 뿐, 그 자체만으로 다중 복제본 운영을 보장하지는 않습니다. 자세한 내용은 [컨트롤 플레인 복제본 안내](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)를 참조하세요.
+여러 control plane 복제본을 실행하려면 모든 복제본이 같은 공유 원격 backend와 root를 사용하고 Distributed Erlang 클러스터를 구성해야 합니다. Worker에서 Pod IP로 직접 접근할 수 있어야 하며 `endpoints.relayOrigin`은 지정할 수 없습니다. 공식 Helm 차트는 클러스터 검색을 구성하고, 복제본이 둘 이상일 때 `files.store: fs` 또는 provider의 `endpoints.relayOrigin`을 거부합니다. 채팅 연결은 노드 간에 담당을 조정하고 Oban은 작업 큐를 공유합니다. 구성과 업그레이드 요건은 [컨트롤 플레인 복제본 안내](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)를 참조하세요.
 
 ## 환경 변수
 

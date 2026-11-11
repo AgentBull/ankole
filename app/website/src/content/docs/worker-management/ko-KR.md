@@ -22,7 +22,7 @@ order: 52
 
 ## Agent마다 Worker 하나
 
-새 Agent를 만들 때는 선택한 프로바이더 정보와 Worker 메타데이터 행만 저장할 뿐 실제 인스턴스를 즉시 띄우지는 않습니다. 이후 대화형 환경 도구나 Background Agent Job(`Codex`) 실행이 실제로 요청될 때 비로소 control plane이 Worker를 기동합니다. 일반 채팅 대화와 Workflow 모델 호출은 control plane에서 직접 처리되고, Automation Job은 게시된 Applet Action을 `ankole-function-runtime`에서 실행하므로 Worker를 띄우지 않고 진행됩니다.
+새 Agent를 만들면 프로바이더 정보와 Worker 행을 저장하고 백그라운드에서 최초 Worker 기동을 요청합니다. 생성 요청은 인스턴스의 준비 완료를 기다리지 않습니다. 유휴 해제 후에는 대화형 환경 도구나 Background Agent Job(`Codex`)에 컴퓨터가 필요할 때 Worker를 다시 요청합니다. 일반 채팅과 Workflow 모델 호출은 control plane에서, Automation Job의 게시된 Applet Action은 `ankole-function-runtime`에서 실행되므로 이 경로에는 Worker 재기동이 필요하지 않습니다.
 
 같은 Agent 안에서 실행되는 여러 Session과 Job은 동일한 컴퓨터와 Home을 공유하되 `/workspace` 내부의 서로 다른 하위 workspace 디렉터리를 사용합니다. 열려 있는 환경 workspace 하나와 실행 중인 Codex turn 하나는 각각 Worker slot을 1개씩 차지하며, 단일 Worker의 전체 슬롯 용량은 `ANKOLE_MAX_CONCURRENT_SLOTS`로 결정됩니다. 새 `WorkerProvider`를 추가하거나 다른 Agent를 더 만든다고 해서 특정 Agent의 Worker slot 수나 별도 설정인 Background Agent Job 동시 실행 한도가 늘어나지는 않습니다.
 
@@ -65,7 +65,7 @@ Vercel의 `sessionTimeoutSeconds`는 사용 중인 계정의 허용 한도 안�
 - 메모리 보존형 일시 중지를 지원하는 provider는 유휴 상태가 되면 Worker를 일시 중지하고, 나머지 provider는 인스턴스를 삭제하되 영구 스토리지와 구성된 캐시 볼륨은 남겨 둡니다.
 - 컨테이너 이미지나 인스턴스 사양을 바꾸면 Worker가 유휴 상태가 될 때 교체되며, 프로토콜 버전이 바뀌면 즉시 교체됩니다. 이전 설정으로 일시 중지되어 있던 인스턴스는 새 작업을 받기 전에 먼저 새 설정으로 교체됩니다.
 - `agent_workers.ready_timeout_seconds`의 기본값은 `600`초입니다. 이미 연결이 관측된 적 있는 인스턴스에 대해서만 재구축을 수행하며, 생성 결과가 아직 불확실한 인스턴스를 임의로 종료된 것으로 간주하지 않습니다.
-- Agent를 삭제하면 먼저 모든 실행 인스턴스가 완전히 내려간 것을 확인한 뒤 Home과 캐시 스토리지를 지우고, 맨 마지막에 Worker 메타데이터 행을 삭제합니다. Agent UID는 서버가 매번 새로 발급하며 절대 재사용하지 않습니다.
+- Agent를 삭제하면 먼저 모든 실행 인스턴스가 완전히 내려간 것을 확인한 뒤 Home과 캐시 스토리지를 지우고, 맨 마지막에 Worker 메타데이터 행을 삭제합니다.
 
 ## 준비되지 않은 Worker 확인
 

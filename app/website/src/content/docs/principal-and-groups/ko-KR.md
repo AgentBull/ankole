@@ -18,7 +18,7 @@ Identity Provider에서 디렉터리 동기화(directory sync)를 켜면 외부 
 
 외부 디렉터리에 상위·하위 부서 계층이 있으면 하위 부서 소속 인원은 상위 부서 group의 멤버로도 함께 포함됩니다. 따라서 상위 부서에 grant를 부여하면 하위 부서 구성원에게도 동일한 권한이 적용됩니다.
 
-Identity Provider를 저장하면 첫 전체 동기화(full sync)가 바로 시작되고, 이후 기본적으로 6시간마다 전체 동기화가 다시 실행됩니다. 증분 동기화(incremental sync)를 지원하는 Provider라면 다음 전체 동기화 전이라도 사용자 및 조직 변경분이 실시간에 가깝게 반영됩니다.
+활성 Identity Provider가 전체 동기화를 지원하고 디렉터리 동기화가 켜져 있으면 설정 저장 시 최초 동기화 Job을 큐에 추가합니다. 주기적 전체 동기화의 큐 추가 시도 간격은 기본 15분이며, 실제 실행 시점은 Oban 큐 상황에 따라 달라집니다. 증분 동기화를 지원하는 Provider는 전체 동기화 사이에도 사용자와 조직 변경을 전달할 수 있습니다.
 
 디렉터리를 즉시 새로 고치려면 **Console → Identity Providers**에서 대상 Provider를 선택한 뒤 **전체 동기화 실행**을 누르세요. 동기화가 끝나면 **Access → Principals**와 **Access → Permission groups**에서 반영 결과를 확인할 수 있습니다.
 
@@ -34,7 +34,7 @@ directory group의 기준 원본(source of truth)은 외부 identity 시스템�
 
 - **Human** principal은 Identity Provider 로그인 및 디렉터리 동기화, 패스워드리스 이메일 OTP(`SiteCredential`), Pod 초대 링크(`/join/:token`), 또는 관리자 사전 생성을 통해 만들어집니다. 각 human principal은 테넌트 안에서 `member` 또는 `guest` 중 하나의 `membership`을 가집니다. 내부 구성원인 `member`는 내장 computed group인 `all_humans`에 자동 포함됩니다. 반면 외부 협력자인 `guest`는 명시적인 Pod 페이지 공유나 Agent grant가 있어야만 접근할 수 있으며, 내장 관리자 그룹(`siteadmin`, `pod_admin`) 참여나 Private space 사용이 제한되고 Brain의 `world` 범위 지식도 제공받지 않습니다(외부 게스트 허용 여부와 Pod 접근 정책은 `pod.allow_external_guests`로 제어합니다).
 - **Agent** principal은 두 가지 하위 유형으로 나뉩니다. **개인 어시스턴트(`personal_assistant`)**는 활성 내부 Human `member`마다 첫 사용 시 1:1로 자동 프로비저닝되어(`<owner_uid>_assistant`) Drive 및 Pod 협업 리소스에서 소유자의 권한을 투영하고, **AI 동료(`ai_colleague`)**는 공유 전문 역할을 위해 운영자가 생성하며 Agent 자신의 Principal grant로 동작합니다.
-- **System** principal은 Ankole의 닫힌 내부 서비스 레지스트리에 등록된 `system`(무상태 Pod Applet `ctx.ai` 및 내부 런타임 작업)과 `ankole_brain`(Company Brain 사실 추출, Dreaming, Skill 교훈 재검토, URL Source 수집, 리랭크)입니다. System principal은 로그인하거나 이름을 바꿀 수 없으며 Worker도 실행하지 않습니다.
+- **System** principal은 Ankole의 닫힌 내부 서비스 레지스트리에 등록된 `system`(내부 런타임 작업)과 `ankole_brain`(Company Brain 사실 추출, Dreaming, Skill 교훈 재검토, URL Source 수집, 리랭크)입니다. System principal은 로그인하거나 이름을 바꿀 수 없으며 Worker도 실행하지 않습니다.
 
 Principal 이름이나 행 오른쪽의 **상세 보기**를 누르면 소속 group과 직접 부여된 grant를 모두 볼 수 있습니다. Principal의 `type`은 불변이지만, 관리자는 Human Principal(`POST /api/v2/principals/:uid/rename`)과 비활성화 후 실행 중·일시 중지된 Worker 인스턴스를 제거한 Agent Principal(`POST /api/v2/agents/:uid/rename`)에 대해 감사 기록이 남는 테넌트 내 UID 이름 변경을 수행할 수 있으며, 이때 권한 grant·그룹 멤버십·Brain 경로 및 멘션·Base 참조가 원자적으로 함께 갱신됩니다. 접근 권한을 점검할 때는 직접 grant뿐 아니라 소속 group도 반드시 함께 확인하세요. 직접 grant가 없더라도 group 멤버십을 통해 권한을 부여받았을 수 있습니다.
 

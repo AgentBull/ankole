@@ -14,7 +14,7 @@ Rust Kernel 是控制面的底层原生库，由 Elixir 通过 Rustler 加载调
 - **`common/`**：提供 AEAD 加密、密钥派生、编码转换、哈希计算、UUIDv7 标识符生成、JWT 工具、电话号码规范化、倒数秩融合（RRF）、Token 估算以及 URL/IP SSRF 校验。
 - **`authz/`**：基于控制面传入的显式快照执行权限求值、CEL 表达式校验与条件求值，以及资源模式匹配；相关权限数据由控制面按 [Principal 与 AuthZ](../principal-authz/) 所述模型提供。
 - **`universal_ai_client/`**：负责上游 HTTP SSE/EventStream 与 WebSocket 传输、响应格式归一化、下游 JSON 文本分块编码，以及需求额度（demand）、取消和超时控制。
-- **`object_store/`**：基于本地目录或 S3 兼容存储桶提供底层文件存取支持。
+- **`object_store/`**：通过 OpenDAL 提供文件存取，支持 `fs`、`s3`、`gcs`、`azblob`、`oss`、`cos`、`tos`、`postgresql`、`d1`、`sftp` 与 `webdav`。
 - **`page_document/`**：负责 Pod 页面的 XML 树校验、Wordgard 变更集应用及 UTF-16 差异计算。
 - **`page_document/knowledge/`** 与 **`markdown.rs`**：负责知识页 XML 与 OKF Markdown 的无损互转，以及通用 Markdown 语法解析。
 - **`model_image.rs`**：提供模型图像的解码、缩放与格式转换。

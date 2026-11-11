@@ -65,7 +65,7 @@ Unlike Agent Plugins, a Control Plane Plugin never enters an Agent's prompt cont
 
 A Control Plane Plugin can extend every layer of the control plane:
 
-- Subsystem adapters (`signals.adapter`, `principals.identity_provider`, `ai_gateway.provider`, `agent_workers.provider`) and supervised OTP processes (`children/0`)
+- Subsystem adapters (`signals.adapter`, `principals.identity_provider`, `ai_gateway.provider`, `agent_workers.provider_kind`) and supervised OTP processes (`children/0`)
 - Outer HTTP edge plugs and scoped JSON:API extension routes
 - Synchronous hooks inside domain transactions (`hooks/0` via `Ankole.Plugins.Hook`)
 - Declarative `AppConfigure` schemas (`ConfigFields`) and typed Web UI Slots (`entries.json` `overrides`)

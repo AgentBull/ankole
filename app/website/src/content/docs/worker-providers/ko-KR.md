@@ -46,7 +46,7 @@ Vercel 백엔드를 쓰려면 `vercel-worker-provider` Control Plane Plugin이 �
 ### Kubernetes
 
 - Home 스토리지로 `storage.claimTemplate` 또는 `storage.sharedClaim` 중 하나를 선택합니다. 여러 노드에 걸쳐 공유 PVC를 쓸 때는 `ReadWriteMany`가 필요하고, Agent별 전용 블록 볼륨을 쓸 때는 `ReadWriteOnce`(또는 CSI 드라이버가 지원하는 `ReadWriteOncePod`)를 사용할 수 있습니다. 캐시는 별도의 블록 PVC나 노드 로컬 `emptyDir`로 구성하세요.
-- 신뢰된 초기 Worker 엔트리 프로세스는 root로 시작한 뒤 모델이 실행하는 하위 명령을 `uid 1000`으로 내려 실행합니다. 따라서 Worker Pod와 스토리지 삭제용 helper Pod 모두 Kubernetes Pod Security의 `baseline` 수준이 필요하며 `restricted` 정책에서는 동작하지 않습니다.
+- 신뢰된 Worker 부모 프로세스는 FUSE 마운트에 필요한 `SYS_ADMIN`을 가진 `root`로 시작하고 모델 명령은 `uid 1000`으로 내려 실행합니다. Worker Pod와 스토리지 삭제용 helper Pod의 네임스페이스는 Pod Security의 `privileged` 프로필을 허용해야 합니다. FUSE 디바이스 플러그인을 설치하고 특권 컨테이너·호스트 네임스페이스·`hostPath` 볼륨을 금지하는 Helm 차트의 Worker ServiceAccount admission policy를 사용하세요. [Helm 가이드](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md)를 참고하세요. 스토리지 삭제용 helper Pod도 `root`로 시작합니다.
 - Home 파일시스템은 root 쓰기와 `uid 1000`으로의 소유권 변경(`chown`)을 허용하거나, 처음부터 모든 접근을 `uid 1000`으로 매핑해야 합니다. 별도 ID 매핑 없이 기본 root-squash가 걸린 NFS는 이 요건을 충족하지 못합니다.
 - 제어 플레인에 Pod, Secret, PVC 및 삭제용 helper 관리를 위한 RBAC 권한이 필요합니다. 원격 클러스터용 kubeconfig를 쓰는 경우에는 세 가지 `endpoints` 주소를 모두 명시해야 하며 로컬 클러스터 전용인 `ownerConfigMap`은 사용할 수 없습니다. 한번 생성한 뒤에는 in-cluster 모드와 원격 kubeconfig 모드를 서로 전환할 수 없습니다.
 - 신규 노드에 Worker 이미지를 미리 pull해 두는 것이 좋습니다(이미지 준비 확인 단계가 Kubernetes의 이미지 pull 자체를 대신하지는 않습니다). 장애 발생 시에도 Pod가 정상 종료될 때까지 기다려야 하며, 강제 삭제나 유예 시간 `0` 설정으로 노드 장애를 우회하지 마세요.
@@ -62,7 +62,7 @@ Vercel 백엔드를 쓰려면 `vercel-worker-provider` Control Plane Plugin이 �
 
 - 동일한 리전의 전용 Drive를 각 Agent의 Home으로 마운트합니다. 생성 후에는 `teamId`, `projectId`, `region`, `driveSizeGiB`를 변경할 수 없습니다.
 - 프로젝트 VCR에 `linux/amd64` 이미지를 올리고 정확한 대상 digest를 지정하세요. `cpus`는 `1` 또는 `2`~`32` 사이의 짝수만 허용되며 메모리는 vCPU당 `2048` MiB로 배정됩니다.
-- `sessionTimeoutSeconds` 기본값은 `86400`(24시간)입니다. 계정 한도가 45분인 요금제(동일 한도가 적용되는 체험판 계정 포함)에서는 값을 `2700`으로 낮추어 설정해야 하며, 계정의 실제 상한을 넘는 값은 거부됩니다. 자세한 정책은 [Vercel 샌드박스 수명 안내](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)를 참조하세요. 샌드박스가 삭제되어도 전용 Drive는 보존되고 인스턴스 로컬 캐시만 초기화됩니다.
+- `sessionTimeoutSeconds` 기본값은 `86400`(24시간)입니다. Hobby 등 계정 한도가 45분인 요금제에서는 값을 `2700`으로 낮추어 설정해야 하며, 계정의 실제 상한을 넘는 값은 거부됩니다. 자세한 정책은 [Vercel 샌드박스 수명 안내](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)를 참조하세요. 샌드박스가 삭제되어도 전용 Drive는 보존되고 인스턴스 로컬 캐시만 초기화됩니다.
 
 ### AWS Lambda MicroVMs
 

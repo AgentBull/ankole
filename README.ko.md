@@ -139,9 +139,9 @@ Ankole 런타임은 다섯 부분으로 구성됩니다:
 
 - **Control Plane**(Elixir, Phoenix, OTP): 영구 상태, 슈퍼비전, 커밋 권한을 보유하며 Pod 워크스페이스, `Meta Ankole`(`Library` 및 `Company Brain`), Principal 및 AuthZ, `Connectors`(자격 증명 보관함 및 무상태 MCP 게이트웨이), 설정, Conversations, Signals, Schedule, `AutomationJobs`(게시된 Applet Actions 오케스트레이션), Sessions, Background Agent Jobs, Workflow, AIGateway를 실행합니다.
 - **Function Runtime**(`ankole-function-runtime`): Pod Applet 백엔드 라우트, **게시된 Applet Actions**, 결정론적 TypeScript(`PTC` 및 `Workflow`) 프로그램을 무상태 Edge Runtime 격리 인스턴스에서 실행하며 Control Plane 호스트 및 MCP 브리지를 통해 통신합니다(영구 상태나 원본 비밀 키를 보관하지 않음).
-- **Agent Computer Worker**(Bun과 TypeScript, Agent마다 하나의 Linux 컨테이너): 명령, 브라우저, Codex, 로컬 MCP 서버, Skill을 실행하며 권한이 부여된 Pod 페이지와 파일을 `/drive`에 FUSE 마운트하고 Turn마다 Control Plane을 통해 Git 인증을 수행합니다. 컴퓨터가 필요한 작업에만 Docker, Kubernetes 또는 클라우드 플랫폼에 Worker를 생성합니다.
+- **Agent Computer Worker**(Bun과 TypeScript, Agent마다 하나의 Linux 컨테이너): 명령, 브라우저, Codex, 로컬 MCP 서버, Skill을 실행하며 권한이 부여된 Pod 페이지와 파일을 `/drive`에 FUSE 마운트하고 Turn마다 Control Plane을 통해 Git 인증을 수행합니다. Agent를 생성하면 Docker, Kubernetes 또는 클라우드 플랫폼에서 Worker가 백그라운드로 시작됩니다. 유휴 상태로 해제된 뒤에는 컴퓨터가 필요한 작업에만 Worker를 다시 시작합니다.
 - **Kernel**(Rust, Rustler 및 Node-API로 로드): 암호화, 테넌트 범위 UID 및 단축 URL, CEL 권한 평가, Page XML / OKF Markdown / WebDAV VFS 코덱, UTF-16 페이지 diff, AI 전송을 제공합니다.
-- **PostgreSQL 18+ 및 통합 Drive 저장소**: PostgreSQL이 Control Plane의 영속 도메인 데이터와 물리 샤딩된 Base 테이블(`BASE_DB_URLS`)을 저장합니다. 통합 Drive 오브젝트 저장소는 Pod 파일, 빌드된 Applet 번들, 첨부 파일을 보관하며, 각 Agent의 `/workspace`(Agent Home)는 컨테이너 교체 뒤에도 유지되고 `/var/cache/ankole` 캐시는 언제든 재구축할 수 있습니다.
+- **PostgreSQL 18+ 및 통합 Drive 저장소**: PostgreSQL이 Control Plane의 영속 도메인 데이터와 물리 샤딩된 Base 테이블(`BASE_DB_URLS`)을 저장합니다. 통합 Drive 오브젝트 저장소는 Pod 파일, 빌드된 Applet 번들, 첨부 파일을 보관하며, 각 Agent의 `/workspace`(Agent Home)는 제공자가 관리하는 저장소에 보관되며 [영속성 보장 범위는 제공자마다 다르고](docs/TradeoffsAndKnownLimits.md#worker-storage-durability-and-single-writer-fencing) `/var/cache/ankole` 캐시는 언제든 재구축할 수 있습니다.
 
 <details>
 <summary>아키텍처 다이어그램</summary>

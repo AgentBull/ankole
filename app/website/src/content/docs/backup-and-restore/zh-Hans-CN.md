@@ -5,19 +5,21 @@ section: Guides
 order: 315
 ---
 
-一次完整有效的备份必须同时涵盖以下四部分：PostgreSQL（包含控制面数据库以及 `BASE_DB_URLS` 配置的全部物理 Base 分片数据库）、对象存储（控制面文件存储）、每个 Agent 的持久 Home 目录，以及单独保存在密钥管理系统中的部署配置与主密钥。其中，Worker 容器实例、`ankole-function-runtime` 服务和 `/var/cache/ankole` 本地缓存均可随时重建，而数据库、对象存储与持久 Home 则必须通过备份还原。
+一次完整有效的备份必须同时涵盖以下四部分：PostgreSQL（包含控制面数据库以及实际部署拓扑中的全部物理 Base 分片数据库）、对象存储（控制面文件存储）、每个 Agent 的持久 Home 目录，以及单独保存在密钥管理系统中的部署配置与主密钥。其中，Worker 容器实例、`ankole-function-runtime` 服务和 `/var/cache/ankole` 本地缓存均可随时重建，而数据库、对象存储与持久 Home 则必须通过备份还原。
 
 ## 备份内容
 
 | 数据类别 | 包含内容 | 备份方式与来源 |
 |---|---|---|
 | 控制面 PostgreSQL | 主体身份、Session、后台 Job、Pod 与统一云盘（`pages`）元数据及文档、Brain 知识库、Skill 清单/绑定与 Agent 契约（`Ankole.AIAgent.Library`）、Provider 与连接器（`Connectors`）配置、加密凭据、generation 标识与存储引用 | 执行 `pg_dump -Fc` 或启用时间点恢复（PITR） |
-| 物理 Base 分片库（`BASE_DB_URLS`） | 各租户物理 Base 表的行数据（配置了 `BASE_DB_URLS` 时必须与控制面数据库一并备份全部物理分片库；未配置 `BASE_DB_URLS` 的单库部署中，Base 表直接位于控制面库内，单次 `pg_dump` 即可原子导出） | 对每个分片数据库分别执行 `pg_dump -Fc` 或启用 PITR |
+| 物理 Base 分片库（`BASE_DB_URLS`） | 各租户物理 Base 表的行数据。必须备份全部分片库；只有 Base 与控制面共用数据库时，单次 `pg_dump` 才能原子导出两者 | 对每个分片数据库分别执行 `pg_dump -Fc` 或启用 PITR |
 | 对象存储（文件存储） | 统一云盘文件对象（`file_objects`）、Pod 与 Applet 文件（`pod_files`，含文档与 Base 附件、已编译的 Applet 产物包及自定义表情）、Skill 随附二进制文件（`skill_files`）、冻结的聊天消息与投递附件 | Docker Compose 的 `files_data` 卷、Kubernetes 文件存储 PVC 或 S3 兼容存储桶 |
 | Agent Home | 工作区文件、用户自行安装的软件、`/workspace/.codex` 下的线程文件 | 各 Worker Provider 对应的独享数据卷、共享目录、云盘、EFS 或 Cloudflare R2 备份 |
 | 部署配置与密钥 | `ANKOLE_SECRET_BASE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`、`BASE_DB_URLS` 及其他启动凭据 | 独立的企业密钥管理系统 |
 
 请注意，容器镜像与 `/var/cache/ankole` 属于可丢弃重建的缓存，但 Agent Home 绝非缓存。使用 Docker 本地卷存放 Home 时，数据绑定在单台宿主机磁盘上，备份后务必异机拷贝留存；使用 Cloudflare 后端时，数据库备份中必须包含与 R2 快照对应的最新 `storage_ref`，若强制杀停实例，可能会丢失最近一次 R2 同步之后的增量写入。
+
+未设置 `BASE_DB_URLS` 时，生产环境的 FOSS 使用 `DATABASE_URL` 存放 Base 表；开发与测试环境默认使用 4 个独立 Base 数据库，生产环境的 SaaS 默认使用 8 个。选择备份数据库前，先确认实际生效的分片拓扑，不能仅凭环境变量未设置就判断为单库部署。
 
 ## 取得一致备份
 
@@ -26,7 +28,7 @@ order: 315
 1. 暂停外部流量入口与定时调度任务，在控制台中停用各 Agent，等待在途任务自然收尾。在接下来关闭 Worker 的过程中，**请保持控制面进程处于运行状态**。
 2. 调用各计算平台的正常停机或销毁接口关闭所有 Worker 实例（含处于暂停状态的实例）。切勿使用 `docker kill` 强制杀容器、切勿在 Kubernetes 中使用 `--grace-period=0` 强制删除 Pod，也不要在控制台中删除 Agent。等待控制面观测到所有实例均已退出并将最新的存储引用落盘（Cloudflare 后端须确认目录备份已同步完成）；若仍有未结清的实例创建请求，须等其收敛完毕后再进入下一步。
 3. 停止控制面服务。注意：仅停止控制面并不会自动终止由外部平台独立托管的 Worker 实例，因此在进入下一步前，请再次确认没有任何残留的 Worker 进程仍在向 Home 目录写入数据。
-4. 保持 PostgreSQL 运行并导出数据库：单库部署（未设置 `BASE_DB_URLS`）只需执行一次 `pg_dump` 即可原子导出控制面与 Base 表；多分片部署（设置了 `BASE_DB_URLS`）则须同时备份控制面数据库与每一个物理 Base 分片库。趁所有写入进程均已停止，同步备份对象存储与全部 Agent 的持久 Home，完整保留原有卷名、分片标识、Provider 配置、Agent UID、文件属主（uid 1000）及目录权限。
+4. 保持 PostgreSQL 运行并导出数据库：Base 与控制面共用数据库时，单次 `pg_dump` 可原子导出两者；使用独立分片库时，则须备份控制面数据库与每一个物理 Base 分片库。趁所有写入进程均已停止，同步备份对象存储与全部 Agent 的持久 Home，完整保留原有卷名、分片标识、Provider 配置、Agent UID、文件属主（uid 1000）及目录权限。
 5. 备份完成后，重新启动控制面、启用各 Agent，并抽查已知的 Home 工作区文件与云盘文件是否正常可读。
 
 Docker Compose 环境下的数据库导出命令示例：
@@ -47,7 +49,7 @@ docker compose exec -T postgresql \
   pg_restore -U ankole -d ankole --clean --if-exists < ankole-backup.dump
 ```
 
-若部署配置了 `BASE_DB_URLS`，请一并还原每一个物理 Base 分片数据库。对多分片部署执行时间点恢复（PITR）时，**每个 Base 分片数据库的恢复目标时间戳都必须晚于或等于（`>=`）控制面数据库的恢复目标时间戳**，以防控制面元数据引用尚不存在的分片表结构或行记录。
+请按实际部署拓扑，一并还原每一个物理 Base 分片数据库。对多分片部署执行时间点恢复（PITR）时，**每个 Base 分片数据库的恢复目标时间戳都必须晚于或等于（`>=`）控制面数据库的恢复目标时间戳**，以防控制面元数据引用尚不存在的分片表结构或行记录。
 
 在重新拉起控制面之前，先将配套的对象存储、全部持久 Home、Worker Provider 存储位置、`BASE_DB_URLS`、`ANKOLE_FUNCTION_RUNTIME_TOKEN` 以及原环境的 `ANKOLE_SECRET_BASE` 全部就位。`ANKOLE_SECRET_BASE` 用于解密数据库中保存的各类 Provider 密钥及未结清 generation 的重试凭据——切勿重新生成一把新密钥来凑数，否则已加密的凭据将全部无法解密。
 

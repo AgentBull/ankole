@@ -122,11 +122,7 @@ GenServer, which verifies every window before incrementing counters atomically.
 When the table reaches capacity, the GenServer evicts expired entries while
 keeping valid populated keys and verification checks working. Because PostgreSQL
 owns each challenge's per-ceremony attempt budget, a node restart can clear the
-in-memory rate windows without resetting any challenge's attempt count. When
-`authn.email.send_limits` configures `site_resend_cooldown_seconds`,
-`Ankole.Authn` enforces that per-email resend interval across unverified `site`
-login challenges; verifying a `site` challenge clears the cooldown for that
-challenge so the user can immediately start a reauthentication ceremony.
+in-memory rate windows without resetting any challenge's attempt count.
 
 For browser rendering, the Auth HTML shell embeds public feature-flag decisions
 in its `ankole-features` meta element—evaluating flags in the site context for

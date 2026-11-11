@@ -5,7 +5,7 @@ Thank you for contributing to Ankole! This guide walks both human contributors a
 > [!WARNING]
 > Ankole is under active development. Public APIs do not yet carry a backwards-compatibility contract, so interfaces and subsystem boundaries can change between releases.
 
-A **site** is one complete Ankole deployment. A single site can host multiple **tenants**, each owning its own people, Agents, Company Brain, and external integrations. Site operators manage shared providers and cluster infrastructure through the site administration Console. SaaS serves it at `site-admin-console.<domain>/`; single-domain FOSS deployments use `/site-admin-console` (or the custom absolute path configured in `ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup). Active Human users sign in on their tenant's subdomain (locally, `http://<tenant-slug>.ankole.localhost:4000/`) through that tenant's configured identity providers, or initiate login from an OIDC application.
+A **site** is one complete Ankole deployment. A single site can host multiple **tenants**, each owning its own people, Agents, Company Brain, and external integrations. Site operators manage shared providers and cluster infrastructure through the site administration Console. SaaS serves it at `site-admin-console.<domain>/`; single-domain FOSS deployments use `/site-admin-console` (or the custom absolute path configured in `ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup). Active Human users sign in on their tenant's subdomain (locally, `http://<tenant-slug>.ankole.localhost:4000/`) with email verification or that tenant's configured identity providers, or initiate login from an OIDC application.
 
 ## Source builds
 
@@ -229,7 +229,7 @@ ANKOLE_EDITION=saas bun dev
 
 The SaaS root is `http://ankole.localhost:4000`, sign-in is on
 `http://accounts.ankole.localhost:4000`, and site administration is on
-`http://console.ankole.localhost:4000/site-admin-console`. Both editions use the
+`http://site-admin-console.ankole.localhost:4000/`. Both editions use the
 standard Worker image. The devkit reads `.env.dev`, `.env.dev.local`, and
 `.env.local` from `app/control_plane`, in that order; OS variables take
 precedence.
@@ -420,7 +420,7 @@ Create runtime resources in this order because each later resource references an
 1. **Provider.** Open Providers, choose the service you actually use, and enter a stable Provider ID, API key, endpoint if required, and model information. Save it and confirm it is available.
 2. **Agent.** Open Agents and set a meaningful tenant-scoped `uid`, display name, role, owner, and Worker provider. Configure the `primary`, `light`, and `heavy` model profiles either as Site or Pod defaults under Default Model Profiles (inherited by Agents) or as per-Agent overrides; one provider and model can temporarily serve all three.
 3. **Signal binding.** Open Signals, select the Agent and Feishu/Lark adapter, use `lark-main` as the binding name, choose the saved Feishu connection in **Connection**, and save to enable the binding.
-4. **Worker.** Open Workers and confirm that the Agent has the selected Worker provider and no error. Its initial state is Absent. Environment tools or Codex start the Worker when required; pure questions and control-plane tools do not.
+4. **Worker.** Open Workers and confirm that the Agent has the selected Worker provider and no error. Creating the Agent requests an initial background start. After idle release, environment tools or Codex start the Worker when required; pure questions and control-plane tools do not.
 
 For a first group-chat smoke test, use `addressed_only`. It responds only when the bot is explicitly mentioned and needs fewer Feishu permissions than the full-message modes.
 
@@ -452,10 +452,10 @@ Feishu event -> long connection -> Signal binding -> conversation driver -> AIGa
 
 The setup passes only when Feishu shows `LOCAL_OK` from the configured agent and the `bun dev` terminal has no provider, permission, event, or worker error for that turn.
 
-For a new Agent, confirm that this pure question leaves the Worker Absent.
-Then ask the Agent to use `command` to print `LOCAL_TOOL_OK`. Confirm that its
-computer starts and the tool result reaches the reply. This checks the Worker
-path as well as the control-plane model path.
+After the idle Worker stops, send another pure question and confirm that the
+Worker stays Absent. Then ask the Agent to use `command` to print
+`LOCAL_TOOL_OK`. Confirm that its computer starts and the tool result reaches
+the reply. This checks the Worker path as well as the control-plane model path.
 
 Seeing the page, database, or worker alone is not an end-to-end result. If this message does not complete, report the first boundary that failed.
 
@@ -526,7 +526,7 @@ Check these boundaries in order:
 3. Message, CardKit, event, and callback permissions are active.
 4. The Signal binding is enabled and points to the intended agent.
 5. The agent has usable model profiles and the provider credentials are valid.
-6. The Agent's Worker is Ready; otherwise the Workers page shows the backend's reason.
+6. For a request that uses environment tools or Codex, confirm that the Agent's Worker is Ready. If it is not, inspect the backend's reason on the Workers page.
 
 Inspect recent Worker output without dumping its environment:
 
@@ -913,11 +913,13 @@ Because these suites take longer than unit tests, run the specific mode that cov
   tools/e2e/run --real-llm --only=pod_content_real_llm
   ```
 
+  Across these four stories, a Human uses browser Chat to generate a report, typed Base sales table, formula, and Applet, submits a sale through the published Applet, requests an edit via Page Chat without re-stating the Page ID, revokes Agent access, and deletes the Conversation while verifying its Pages survive; a second story builds and exercises a pure frontend SPA and verifies that an Agent with space `edit` access (in Main or a Job) can move Pages while preserving subpage permissions; the research story invokes the built-in research Skill into a linked editable Page; and `pod_applet_backend` has an Agent build and update a sample-reservation Applet, verifying caller-attributed `POST` writes and retained rejected inputs (always asserting saved database state rather than trusting Job completion text alone).
+
 - **Shared knowledge in real work (`knowledge_unification`)**: A Human edits a Skill manifest and its reference file in Meta Ankole and asks the real model to save a proposal using its case reference and budget rule. After the Human changes the manifest rule, a new conversation updates the same proposal. The browser opens each delivered page link and verifies the saved content after reload:
   ```bash
   tools/e2e/run --real-llm --only=knowledge_unification
   ```
-  Across these four stories, a Human uses browser Chat to generate a report, typed Base sales table, formula, and Applet, submits a sale through the published Applet, requests an edit via Page Chat without re-stating the Page ID, revokes Agent access, and deletes the Conversation while verifying its Pages survive; a second story builds and exercises a pure frontend SPA and verifies that an Agent with space `edit` access (in Main or a Job) can move Pages while preserving subpage permissions; the research story invokes the built-in research Skill into a linked editable Page; and `pod_applet_backend` has an Agent build and update a sample-reservation Applet, verifying caller-attributed `POST` writes and retained rejected inputs (always asserting saved database state rather than trusting Job completion text alone).
+
 - **Assistant delegation and colleague continuity (`pod_superagent_real_llm`)**: Uses production browser bundles and real models to review a private contract through the personal assistant. The assistant grants the colleague access to the contract without replacing existing collaborators; the colleague reads its own private rule page, asks the Human a question in the original conversation, and returns the review. The Human then follows up in the colleague's stable direct message and the contract's comments, with assertions on the same review facts across all three entry points:
   ```bash
   tools/e2e/run --real-llm --only=pod_superagent_real_llm

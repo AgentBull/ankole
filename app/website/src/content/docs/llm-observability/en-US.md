@@ -98,9 +98,10 @@ This setup follows the [LangSmith OpenTelemetry guide](https://docs.langchain.co
    | Header name | Header value |
    |---|---|
    | `x-api-key` | `<langsmith-api-key>` |
-   | `Langsmith-Project` | `<project-name>` |
+   | `Langsmith-Agent-Id` | `<registered-agent-id>` |
+   | `Langsmith-Agent-Environment` | `local`, `development`, `staging`, or `production` |
 
-   `Langsmith-Project` is optional; when you omit it, LangSmith routes traces to the `default` project. Whenever an AIGateway Response belongs to a conversation, `langsmith` mode copies that conversation ID into `langsmith.trace.session_id` while preserving `session.id` and `gen_ai.conversation.id`.
+   The two agent headers above route to a registered agent in an agent-based workspace. In project-based workspaces, including self-hosted LangSmith, use `Langsmith-Project: <project-name>` instead. Send both agent headers or neither, and never combine them with `Langsmith-Project`. Whenever an AIGateway Response belongs to a conversation, `langsmith` mode copies that conversation ID into `langsmith.trace.session_id` while preserving `session.id` and `gen_ai.conversation.id`.
 
 4. Turn on **Trace export**, save, restart the control plane, and run an AIGateway request to verify ingestion.
 

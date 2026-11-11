@@ -79,7 +79,7 @@ Control Plane Plugin は OpenAI Plugin とは別物であり、Agent のプロ�
 
 Control Plane Plugin は、プラットフォーム全体にわたって次の拡張ポイントを提供できます。
 
-- サブシステムアダプター（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider`）および監視下の OTP プロセス（`children/0`）
+- サブシステムアダプター（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider_kind`）および監視下の OTP プロセス（`children/0`）
 - 外側の HTTP エッジ `Plug` とスコープ付きの拡張 JSON:API ルート
 - 同期ドメイントランザクションフック `hooks/0`（`Ankole.Plugins.Hook`）
 - 宣言的な `AppConfigure` 設定フィールド（`ConfigFields`）と型付き Web UI スロット（`entries.json` の `overrides`）

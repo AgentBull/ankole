@@ -22,7 +22,7 @@ order: 52
 
 ## Agent ごとに 1 台の Worker
 
-Agent を作成した時点では、選択したプロバイダーと Worker レコードが保存されるだけで、まだ実インスタンスは起動しません。対話型の環境ツールまたは Background Agent Job（`Codex`）が実際に必要になったタイミングで、コントロールプレーンがオンデマンドで Worker を立ち上げます。通常のチャット応答や Workflow のモデル呼び出しはコントロールプレーン側で完結し、Automation Job は公開済み Applet Action を `ankole-function-runtime` 内で実行するため、いずれも Worker を起動せずに進行します。
+Agent を作成すると、選択したプロバイダーと Worker レコードを保存し、バックグラウンドで初回の Worker 起動を要求します。作成リクエストはインスタンスの準備完了を待ちません。アイドル解放後は、対話型の環境ツールまたは Background Agent Job（`Codex`）が必要になったときに再び Worker を要求します。通常のチャット応答や Workflow のモデル呼び出しはコントロールプレーン、Automation Job の公開済み Applet Action は `ankole-function-runtime` で実行され、Worker の再起動は必要ありません。
 
 同一 Agent 内の複数 Session や Job は、同じ Worker インスタンスと Home を共有しつつ、`/workspace` 配下の個別のワークスペースディレクトリを使って動作します。開いている環境ワークスペースと実行中の Codex Turn はそれぞれ Worker スロットを 1 つ消費し、その上限は `ANKOLE_MAX_CONCURRENT_SLOTS` で決まります。なお、`WorkerProvider` を増やしたり別の Agent を追加したりしても、既存 Agent 1 体あたりの Worker スロット数や Background Agent Job の同時実行上限が増えるわけではありません。
 
@@ -65,7 +65,7 @@ Vercel の `sessionTimeoutSeconds` は利用アカウントの上限時間内に
 - メモリ保持型の休止に対応したプロバイダーではアイドル状態の Worker を休止させ、それ以外のプロバイダーでは永続ストレージと設定済みキャッシュボリュームを残してインスタンスだけを削除します。
 - コンテナイメージやインスタンススペックの変更は Worker がアイドルになったタイミングで新しい世代へ入れ替わりますが、プロトコルバージョンの変更時は即座に入れ替わります。また、古い構成のまま休止していたインスタンスは、次の作業を再開する前に入れ替えられます。
 - `agent_workers.ready_timeout_seconds` の既定値は `600` 秒です。一度でも稼働を観測できたインスタンスだけを再構築対象とし、作成結果がまだ確定していないリクエストを勝手に終了扱いにすることはありません。
-- Agent を削除すると、稼働中インスタンスの完全終了を確認したうえで Home とキャッシュを消去し、最後にデータベース上の Worker レコードを削除します。なお、Agent UID はサーバー側で自動採番され、削除後に同じ UID が再利用されることはありません。
+- Agent を削除すると、稼働中インスタンスの完全終了を確認したうえで Home とキャッシュを消去し、最後にデータベース上の Worker レコードを削除します。
 
 ## 未準備の Worker を調べる
 

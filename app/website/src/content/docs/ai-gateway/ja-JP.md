@@ -22,7 +22,7 @@ AIGateway は呼び出し元と上流 provider の間に位置します。外部
 - **agent token** — 有効な Agent Principal を主体とする AIGateway API キーです。呼び出し対象はその Agent の有効なモデルプロファイルとセレクターに限定され、`subject_type = "agent"` として扱われます。
 - **OIDC Human token** — `ai_gateway.write` スコープを持つ OIDC Client から有効な Human に対して発行されるトークンです。その Client に許可されたモデルエイリアスのみを使用でき、`subject_type = "oidc_human"` として扱われます。
 
-一方、control plane 内部のファーストパーティサービス（Company Brain の処理を担う `ankole_brain`、および Pod Applet のステートレスな `ctx.ai` 呼び出しを担う `system`）は外部 bearer token を発行せず BEAM プロセス内で直接 `Ankole.AIGateway` を呼び出し、それぞれの `system` Principal UID に使用量を記録します。
+一方、control plane 内部のファーストパーティサービス（Company Brain の処理を担う `ankole_brain` など）は外部 bearer token を発行せず BEAM プロセス内で直接 `Ankole.AIGateway` を呼び出し、それぞれの `system` Principal UID に使用量を記録します。
 
 OIDC Human token を取得するには、Console で `ai_gateway.write` スコープを持つ OIDC Client を作成し、許可するグループとモデルエイリアスを設定したうえで、Authorization Code + PKCE フローでログインします。長期間利用する場合は `offline_access` を要求し、ローテーション式の Refresh Token を使用してください。利用する人間は許可されたグループに所属している必要があり、指定できるのはその Client のモデルエイリアスのみです（`provider_id/model` 形式の直接指定はできません）。
 
@@ -32,7 +32,7 @@ OIDC Human token を取得するには、Console で `ai_gateway.write` スコ�
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"model":"main","input":"Summarize the open incidents."}'
+  -d '{"model":"primary","input":"Summarize the open incidents."}'
 ```
 
 ## endpoint
@@ -68,10 +68,10 @@ stateless な呼び出しは「1 リクエスト・1 レスポンス」で完結
 curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"model":"main","input":"Draft a release note.","stream":true}'
+  -d '{"model":"primary","input":"Draft a release note.","stream":true}'
 ```
 
-HTTP および SSE による stateless 呼び出しでは、stateful 用のフィールドである `previous_response_id`、`conversation`、`store` は一切使用できません。ターンをまたいで会話を継続したい場合は、必ず WebSocket 経路を使用してください。HTTP または SSE のリクエストにこれらのフィールドを含めると、`code: "stateful_responses_require_websocket"` と該当フィールド名を示すエラーメッセージとともに `400` が返されます。
+HTTP と SSE の stateless 呼び出しでは、`previous_response_id`、`conversation`、および `false` 以外の `store` を拒否します。`store` は省略するか `store: false` を指定できます。ターンをまたいで会話を継続する場合は WebSocket を使用してください。禁止されたフィールドを HTTP または SSE で送ると、`code: "stateful_responses_require_websocket"` と該当フィールド名を含む `400` が返されます。
 
 ## WebSocket 上の stateful response
 
@@ -115,7 +115,7 @@ AIGateway は上流へのリクエストを行う前に、**Console → Model Pr
 
 ## エラーの形状
 
-エラーレスポンスは OpenAI 互換のエンベロープ形式（`{"error": {"code", "message"}}`）で返され、HTTP ステータスコードがエラーの種別を表します。実装時に考慮すべき主なステータスコードは次のとおりです。
+エラーレスポンスは OpenAI 互換のエンベロープ形式（`{"error": {"code": "...", "message": "..."}}`）で返され、HTTP ステータスコードがエラーの種別を表します。実装時に考慮すべき主なステータスコードは次のとおりです。
 
 - `400` — リクエストボディのバリデーションエラーです（`model` や `input` の欠落、不正な `limit` や `top_n`、HTTP 経由での stateful フィールド指定、不正な形式の compaction 入力など）。問題のあったフィールドは `code` で示されます。
 - `401` — bearer token が指定されていないか、検証に失敗しました。
@@ -130,7 +130,7 @@ AIGateway は上流へのリクエストを行う前に、**Console → Model Pr
 
 `/responses` へのリクエストで `programmatic_tool_calling` ツールが宣言されている場合、AIGateway は対象ツールの定義から `program` ツールを自動合成します。各 `programmatic_tool_call` では、`Ankole.FunctionRuntime.ProgramRunner` を通じて `ankole-function-runtime` 上のステートレスな isolate 内で決定論的な TypeScript プログラムが実行されます。ネストされたツール呼び出しの境界ごとに一時停止しつつ、履歴管理・実行順序・キャンセル処理はすべて AIGateway が制御します。
 
-公開 Responses ツールの 1 つである `image_generation` には 2 つの実行経路があります。認証主体に `image_generate` プロファイルが設定されている場合、AIGateway はその専用 provider とモデルを使って画像生成を実行します。プロファイルが未設定の場合は、メインの言語モデル provider がネイティブ画像生成をサポートしているときに限り、ツール定義を上流へそのまま渡します。どちらの経路も利用できない場合は、擬似的にエミュレートするのではなくリクエスト準備の段階でエラーにします。
+公開 Responses ツールの `image_generation` には 2 つの実行経路があります。メインの言語モデル provider が Responses 形式でネイティブ画像生成に対応する場合は、`image_generate` プロファイルを解決せず、その provider にツールを渡します。対応しない場合は認証主体の `image_generate` プロファイルを使い、どちらの経路も利用できなければリクエスト準備時にエラーを返します。
 
 いずれの経路でも、公開されるストリームイベントの形式と生成画像の保存方式は共通です。モデルのトークン使用量と画像生成の使用量は、それぞれの処理を実行した認証情報に個別に記録されます。
 
@@ -138,7 +138,7 @@ AIGateway は上流へのリクエストを行う前に、**Console → Model Pr
 
 同じ認証主体とトークンを使って、周辺の AI 機能もそのまま呼び出せます。`POST /web_search` は文字数上限付きの `query` を受け取って検索結果を返し、`POST /web_fetch` は 1〜5 件の公開 HTTPS URL を受け取ってページ本文を返します。これらのエンドポイントでは `web_search.default` や `web_fetch.default` を指定でき、AIGateway が現在の Agent プロファイルを自動的に解決します。
 
-`POST /embeddings` はテキスト、トークン配列、または構造化入力ブロックを受け付け、`provider_id/model` 形式による明示的なセレクター指定が必要です（たとえば `Ankole.Brain` は embedding 生成時に [AppConfigure](../app-configuration/) のサイト設定 `brain.embedding_model` を読み取ります）。`POST /rerank` は空でないドキュメント配列と正の整数 `top_n` を受け取って再ランク付けを行い、明示的な `provider_id/model` セレクターまたは `default` / `rerank.default` を受け付けます（`ankole_brain` は自身の有効な `rerank` モデルプロファイルを解決し、Agent や Human の呼び出しは Pod/Site の `rerank` プロファイルを解決します。検索の詳細は [Brain](../brain/) を参照してください）。一方、Pod Applet の `ctx.ai` 呼び出しは組み込みの `system` Principal のもとで `Ankole.AIGateway` を経由してステートレスに実行され、Pod/Site の有効な言語モデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）を使用するため、フォアグラウンド Agent のトークンクォータを消費しません。
+`POST /embeddings` はテキスト、トークン配列、または構造化入力ブロックを受け付け、`provider_id/model` 形式による明示的なセレクター指定が必要です（たとえば `Ankole.Brain` は embedding 生成時に [AppConfigure](../app-configuration/) のサイト設定 `brain.embedding_model` を読み取ります）。`POST /rerank` は空でないドキュメント配列と正の整数 `top_n` を受け取って再ランク付けを行い、明示的な `provider_id/model` セレクターまたは `default` / `rerank.default` を受け付けます（`ankole_brain` は自身の有効な `rerank` モデルプロファイルを解決し、Agent や Human の呼び出しは Pod/Site の `rerank` プロファイルを解決します。検索の詳細は [Brain](../brain/) を参照してください）。一方、Pod Applet の `ctx.ai` 呼び出しは、`Ankole.Pod.Applets.Gateway` を経由し、選択された実行 Principal としてステートレスに実行されます。言語モデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）の解決では、Human は有効な Pod/Site の既定値を、Agent はその Agent の有効な設定を使用します。使用量は実行 Principal に記録され、対話型 Agent のトークンクォータは消費しません。
 
 `POST /web_search` は 1,024 文字以内の `query` と、任意の `limit`（1〜100、既定値 5）を受け取り、`items` と `metadata` を返します。各結果には `url`、`title`、`description` が含まれ、Provider が返した場合は `published_at` と `score` も付きます。`metadata` には `query`、ゲートウェイ側の所要時間 `latency_ms`、HTTP リクエストの `request_id` が入ります。`POST /decisions` は、与えられた `state` について型付きの質問に回答します。1 回のリクエストには 1〜64 個の `questions` を指定でき、各質問は `noul`（はい／いいえ）、`choice`（2〜255 個の名前付き選択肢から 1 つ）、`score`（2〜10 段階の順序付きレベル）のいずれかです。画像は 1 枚あたり 4 MiB 以内で、4 枚まで添付できます。レスポンスは質問ごとに確率付きの回答を返し、回答した `model` とトークンの `usage` も含みます。`default` / `decision.default` セレクターは Pod/Site の `decision` プロファイルに解決されます。このプロファイルが未設定の場合は、呼び出し元の `light` 言語モデルが代わりに回答します。言語モデルが返すのは自己申告の確信度であるため、この確率は較正されていません。また、言語モデルが回答する場合、1 回のリクエストに指定できる選択肢とレベルは合計 500 個までです。
 
@@ -156,7 +156,7 @@ AIGateway は上流へのリクエストを行う前に、**Console → Model Pr
 
 ## AIGateway ではないもの
 
-AIGateway は認証不要の公開プロキシではありません。また、呼び出し元から上流 provider の API キーを渡す場所でもありません（認証情報はすべて control plane 側で保管します）。さらに、ジョブキューやバックグラウンドランナーでもありません。長時間にわたる Agent の作業は Sessions や Background Agent Job が担当します。AIGateway はあくまでリクエスト／レスポンスの境界であり、「1 つの呼び出しを受け取り、セレクターを解決し、認証情報を外部に出さずに 1 つのレスポンスまたはストリームを返す」ことに徹しています。
+AIGateway は認証不要の公開プロキシではありません。また、呼び出し元から上流 provider の API キーを渡す場所でもありません（認証情報はすべて control plane 側で保管します）。複数ステップにわたる Agent の作業は Sessions や Background Agent Job が担当します。AIGateway はモデルとメディアの呼び出しを管理し、後でポーリングするために `202` を返す非同期メディアジョブも扱います。セレクターの解決と provider 認証情報の保管は control plane 内で行います。
 
 ## 次のステップ
 

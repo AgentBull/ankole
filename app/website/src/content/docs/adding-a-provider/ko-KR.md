@@ -11,11 +11,13 @@ AIGateway Provider는 Ankole이 LLM, 임베딩 모델, 웹 검색 API 같은 업
 
 ## Provider DSL
 
-Provider 모듈에서는 `Ankole.AIGateway.ProviderDSL`을 불러온 뒤 간결한 블록형 DSL로 사양을 선언합니다. 이 DSL은 메타데이터와 지원 Capability만 기술하며 요청 본문 필드는 의도적으로 다루지 않습니다. 실제 요청 본문은 같은 모듈 안에 일반 Elixir 함수로 작성하는 prepare 함수에서 구성합니다.
+Provider 모듈에서는 `Ankole.AIGateway.ProviderDSL`을 불러온 뒤 간결한 블록형 DSL로 사양을 선언합니다. 이 DSL은 메타데이터와 지원 Capability만 기술하며 요청 본문 필드는 의도적으로 다루지 않습니다. 같은 모듈 안에 일반 Elixir 함수로 작성하는 prepare 함수는 엔드포인트, 헤더, 요청 옵션을 지정하고, 선택한 Rust 리졸버가 업스트림 요청 본문을 구성합니다.
 
 ```elixir
 defmodule Ankole.AIGateway.Providers.MyProvider do
   use Ankole.AIGateway.ProviderDSL
+
+  alias Ankole.AIGateway.UniversalAIRequest
 
   provider :my_provider do
     label(%{"default" => "My Provider"})
@@ -31,7 +33,9 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
   end
 
   def prepare_language_model(context) do
-    # normal Elixir — build the prepared request from the context
+    context
+    |> UniversalAIRequest.new("responses", :openai_responses)
+    |> UniversalAIRequest.bearer_auth()
   end
 end
 ```
@@ -114,15 +118,14 @@ TypeSafe, Microsoft Foundry, OpenRouter의 SystemOne 엔드포인트는 `:system
 prepare 함수는 Capability의 `prepare` 필드에 지정된 이름으로 Provider 모듈 안에 작성하는 일반 Elixir 함수입니다. 해석이 끝난 설정, 모델 요청, Agent 컨텍스트가 담긴 `PrepareContext`를 인자로 받아 `UniversalAIClient`가 전송할 `UniversalAIRequest`를 반환합니다.
 
 ```elixir
-def prepare_language_model(%PrepareContext{} = context) do
-  %UniversalAIRequest{}
-  |> put_url(context.settings.base_url, "/responses")
-  |> put_auth("Bearer", context.settings.api_key)
-  |> put_body(context.request)
+def prepare_language_model(context) do
+  context
+  |> UniversalAIRequest.new("responses", :openai_responses)
+  |> UniversalAIRequest.bearer_auth()
 end
 ```
 
-URL 조립, 인증 헤더, 요청 본문 구조, 특정 업스트림 API의 고유 규칙처럼 Provider마다 달라지는 처리는 모두 이 함수에 집중됩니다. 즉, 실제 변환 작업은 prepare 함수가 수행하고 DSL 선언은 레지스트리가 이 함수를 찾아 라우팅할 수 있게 해 줍니다. 자격 증명 재시도는 이 함수 바깥에서 이루어집니다. 전송이 실패해 재시도가 필요하면 컨트롤 플레인이 풀에서 다른 자격 증명을 고른 뒤 prepare 함수를 다시 호출해 새 요청을 만들고, 커널에 단일 전송을 다시 요청합니다.
+prepare 함수는 엔드포인트, 인증 헤더, Provider별 요청 옵션을 지정합니다. 선택한 Rust 리졸버가 공개 요청과 이 옵션으로 업스트림 요청 본문을 인코딩합니다. DSL 선언은 레지스트리가 Provider를 찾아 라우팅할 수 있게 해 줍니다. 자격 증명 재시도는 이 함수 바깥에서 이루어집니다. 전송이 실패해 재시도가 필요하면 컨트롤 플레인이 풀에서 다른 자격 증명을 고른 뒤 prepare 함수를 다시 호출해 새 요청을 만들고, 커널에 단일 전송을 다시 요청합니다.
 
 ## Provider 등록
 

@@ -17,6 +17,8 @@ provider モジュールでは `Ankole.AIGateway.ProviderDSL` を使い、簡潔
 defmodule Ankole.AIGateway.Providers.MyProvider do
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.UniversalAIRequest
+
   provider :my_provider do
     label(%{"default" => "My Provider"})
     base_url("https://api.example.com/v1")
@@ -31,7 +33,9 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
   end
 
   def prepare_language_model(context) do
-    # normal Elixir — build the prepared request from the context
+    context
+    |> UniversalAIRequest.new("responses", :openai_responses)
+    |> UniversalAIRequest.bearer_auth()
   end
 end
 ```
@@ -114,15 +118,14 @@ TypeSafe、Microsoft Foundry、OpenRouter の SystemOne エンドポイントに
 prepare 関数は provider モジュール内に定義する通常の Elixir 関数で、関数名は capability の `prepare` フィールドで指定します。引数として `PrepareContext`（解決済みの settings、モデルリクエスト、Agent のコンテキスト）を受け取り、`UniversalAIClient` が送信可能な形式のリクエストを返します。
 
 ```elixir
-def prepare_language_model(%PrepareContext{} = context) do
-  %UniversalAIRequest{}
-  |> put_url(context.settings.base_url, "/responses")
-  |> put_auth("Bearer", context.settings.api_key)
-  |> put_body(context.request)
+def prepare_language_model(context) do
+  context
+  |> UniversalAIRequest.new("responses", :openai_responses)
+  |> UniversalAIRequest.bearer_auth()
 end
 ```
 
-URL の組み立て、認証ヘッダーの付与、リクエストボディの整形など、上流 API ごとの仕様の違いはすべてこの関数で吸収します。つまり provider 固有の実処理は prepare 関数に集約されており、DSL の宣言はその関数をどのように検出しルーティングするかを定義します。なお、認証情報の切り替えを伴うリトライ処理はこの関数の外で行われます。リトライが必要な場合、control plane がプール内の別メンバーを選び直してリクエストを再構築し、kernel に新しい通信試行を 1 回実行させます。
+prepare 関数はエンドポイント、認証ヘッダー、provider 固有のリクエストオプションを指定します。選択した Rust resolver が公開リクエストとこれらのオプションから上流のリクエストボディをエンコードします。DSL の宣言は、provider の検出とルーティングを定義します。なお、認証情報の切り替えを伴うリトライ処理はこの関数の外で行われます。リトライが必要な場合、control plane がプール内の別メンバーを選び直してリクエストを再構築し、kernel に新しい通信試行を 1 回実行させます。
 
 ## provider を登録する
 

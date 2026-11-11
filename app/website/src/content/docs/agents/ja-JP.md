@@ -57,6 +57,8 @@ Agent のモデルプロファイルは、**Console → Model Profiles** で構�
 - 専用の画像生成 Provider を使う場合は、`image_generate` を設定します。
 - Background Agent Job（`coding`）で別の provider やモデルを使いたい場合は **Background Agent Jobs** を設定します（未設定時は `heavy -> primary` にフォールバックします）。ChatGPT サブスクリプションも、[ChatGPT サブスクリプション provider](../chatgpt-subscription-provider/) を通じて同じ手順で選択できます。
 
+独立した `web_search` または `image_generate` プロファイルを使う場合は、対応する provider-hosted スイッチもオフにします。プロファイルの紐付けだけではスイッチは変わりません。両スイッチは既定でオンとなり、Site → Pod → Agent の順で設定を継承します。
+
 モデルを選択・入力する前に、まず Provider を選択してください。Provider を選ぶと context length 欄も入力できるようになります。空欄のままにした場合は、Provider とモデルの既定値が使われます。Agent 側の上書きを削除すると、再び Pod・Site 既定値の継承に戻ります。
 
 詳細設定（Advanced）には、選択した Provider がサポートするオプションだけが表示されます。**Reasoning summary** は Responses API でのみ有効です。**Answer detail** は応答の既定の詳細度を指定し、**Service tier** はこのモデルプロファイルにおけるリクエスト tier を上書きします。指定可能な値は Provider、アカウント、モデルによって異なり、空欄の場合は Provider の既定値が使われます。
@@ -98,7 +100,7 @@ Agent から返信が返らないときは、次の項目を順番に確認し�
 1. 対象の Agent が有効になっていること。
 2. Agent に有効な `primary` モデルプロファイルが解決されており（Site/Pod 既定値または Agent 上書き）、LLM Provider が正常に利用できる状態にあること。
 3. 外部チャネル経由の場合は、Signal routing ルールが対象の Agent を正しく指していること。
-4. **Console → Workers** で、Agent の Worker が `ready` 状態であるか、エラーなく起動処理中であること。
+4. コンピュータ上の作業が必要な場合は、**Console → Workers** で Worker が `ready` 状態、またはエラーなく起動中であること。通常の質疑応答には稼働中の Worker は不要です。
 5. **Console → Conversations** に該当メッセージが記録されているか、また原因を示すエラーが表示されていないか確認すること。
 
 チャネル別の確認ポイントについては、[Quick start のトラブルシューティング](../quickstart/#agent-not-replying) を参照してください。

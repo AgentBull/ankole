@@ -58,7 +58,7 @@ Workflow 与后台 Agent 任务都能帮主 Agent 分担工作，但各自适用
 
 ## 选择模型 Provider
 
-所有后台任务均通过 AIGateway 统一发起模型调用。创建任务时，Ankole 会锁定当下为该 Agent 配置的“后台 Agent 任务”专属模型档案；若该档案留空，则自动回退沿用该 Agent 的 `heavy` 档案。
+所有后台任务均通过 AIGateway 统一发起模型调用。首次准入执行（Admission）时，Ankole 会锁定当下为该 Agent 配置的“后台 Agent 任务”专属模型档案；若该档案留空，则自动回退沿用该 Agent 的 `heavy` 档案。
 
 如果希望后台任务使用 ChatGPT 订阅额度，请先按指南添加 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/)，随后前往 **Console → 智能体**，在目标 Agent 的模型档案区域找到**后台 Agent 任务**，选定该订阅 Provider 以及账号有权访问的模型、推理强度与快速模式（Fast Mode）。若池中绑定了多个订阅账号，Provider 凭据池会自动完成账号挑选与轮换。
 

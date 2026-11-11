@@ -11,11 +11,13 @@ Keep one core boundary in mind from the start: the Elixir provider module prepar
 
 ## The provider DSL
 
-To define a provider, `use Ankole.AIGateway.ProviderDSL` and open a block-structured `provider` declaration. Rather than modeling request-body fields in the DSL, you declare static metadata and capabilities in the `provider` block and construct the request payload in plain Elixir inside the same module:
+To define a provider, `use Ankole.AIGateway.ProviderDSL` and open a block-structured `provider` declaration. Rather than modeling request-body fields in the DSL, you declare static metadata and capabilities in the `provider` block and prepare the endpoint, headers, and request options in plain Elixir inside the same module. The selected Rust resolver constructs the upstream payload:
 
 ```elixir
 defmodule Ankole.AIGateway.Providers.MyProvider do
   use Ankole.AIGateway.ProviderDSL
+
+  alias Ankole.AIGateway.UniversalAIRequest
 
   provider :my_provider do
     label(%{"default" => "My Provider"})
@@ -31,7 +33,9 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
   end
 
   def prepare_language_model(context) do
-    # normal Elixir — build the prepared request from the context
+    context
+    |> UniversalAIRequest.new("responses", :openai_responses)
+    |> UniversalAIRequest.bearer_auth()
   end
 end
 ```
@@ -114,15 +118,14 @@ A provider that declares `image_generate` also implements the optional `image_en
 The prepare function is normal Elixir code in the provider module, referenced by the capability's `prepare` field. AIGateway passes it a `PrepareContext` (containing the resolved settings, the model request, and the Agent's context) and expects back a prepared `%UniversalAIRequest{}` for `UniversalAIClient` to send:
 
 ```elixir
-def prepare_language_model(%PrepareContext{} = context) do
-  %UniversalAIRequest{}
-  |> put_url(context.settings.base_url, "/responses")
-  |> put_auth("Bearer", context.settings.api_key)
-  |> put_body(context.request)
+def prepare_language_model(context) do
+  context
+  |> UniversalAIRequest.new("responses", :openai_responses)
+  |> UniversalAIRequest.bearer_auth()
 end
 ```
 
-All provider-specific rules live here: URL construction, authentication headers, request-body shaping, and upstream API conventions. While the DSL makes the provider discoverable and routable, the prepare function performs the actual request translation. Credential failover also stays outside this function: if an attempt fails on a credential error, the control plane selects another pool member, calls `prepare` again to rebuild the request, and asks the Rust kernel to make one fresh transport attempt.
+The prepare function selects the endpoint, authentication headers, and provider-specific request options. The selected Rust resolver encodes the request body from the public request and those options. The DSL makes the provider discoverable and routable. Credential failover also stays outside this function: if an attempt fails on a credential error, the control plane selects another pool member, calls `prepare` again to rebuild the request, and asks the Rust kernel to make one fresh transport attempt.
 
 ## Register the provider
 

@@ -18,8 +18,8 @@ page tools and record a specific fact or judgment with `remember`.
 | One public web page, article, paper, or post | Read it with the available web tools, then save the relevant material and its source link in a knowledge page |
 | Several specific pages | Read the pages that matter and save their evidence with clear source attribution |
 | A whole site, feed, or archive | Select the specific pages that answer the request, or use a background research job to collect them; do not claim a site-wide import |
-| A book or local text file | Read the text in a Background Agent Job, then save the requested material or conclusions in knowledge pages |
-| A PDF, EPUB, or image | A Background Agent Job with the `pdf` or `ocr` Skill extracts the text; save the useful source material and `remember` the conclusions that matter |
+| A book, EPUB, or local text file | Read the text in a Background Agent Job, then save the requested material or conclusions in knowledge pages |
+| A PDF or image | A Background Agent Job with the `pdf` or `ocr` Skill extracts the text; save the useful source material and `remember` the conclusions that matter |
 | An audio or video recording | Use an available transcription tool; if none is available, ask for the transcript or notes and route those as text |
 | A meeting transcript or notes | Read the transcript, then `remember` each decision and commitment that matters, with the spoken words as provenance; save a page when the person wants a durable document |
 | Text pasted into this conversation | Conversations are learned automatically; do not duplicate the transcript merely to make it searchable |
@@ -73,8 +73,10 @@ keeping — typed, spoken, or in a transcribed voice note:
   edit, then submit the complete Markdown through `pod_save_page` with `id`,
   `base_revision`, and `markdown`. A revision conflict means read again and
   reconcile the change.
-- For a new Brain object, `write_object` takes `category`, `title`, and complete
-  `markdown`. For a child of an existing knowledge object, `pod_create_page`
+- For a new Brain object, `write_object` takes `category`, `title`, complete
+  `markdown`, and `base_revision: 0`. To revise one, pass its `object_id`,
+  complete `markdown`, and last-read `base_revision`. For a child of an existing
+  knowledge object, `pod_create_page`
   takes `parent_id`, `title`, and complete `markdown`. Keep the returned `id` for later reads and writes. Link related
   pages using Markdown links whose target is `ankole:page/` followed by the
   actual page UUID, so graph traversal can follow their identities.

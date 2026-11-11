@@ -47,7 +47,7 @@ Before reproducing an issue, note the approximate timestamp, Agent, chat channel
 
 ```json
 {
-  "severity": "warning",
+  "severity": "WARNING",
   "event": "signals.webhook.dispatch_failed",
   "message": "provider webhook dispatch failed",
   "handler_id": "lark",

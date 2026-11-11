@@ -98,9 +98,10 @@ Langfuse 支持按触发者身份对 Trace 分组，Ankole 按以下规则写入
    | 请求头名称 | 请求头值 |
    |---|---|
    | `x-api-key` | `<langsmith-api-key>` |
-   | `Langsmith-Project` | `<project-name>` |
+   | `Langsmith-Agent-Id` | `<registered-agent-id>` |
+   | `Langsmith-Agent-Environment` | `local`、`development`、`staging` 或 `production` |
 
-   其中 `Langsmith-Project` 为可选项，省略时 Trace 会归入 `default` 项目。当某次 AIGateway 响应归属于特定对话时，`langsmith` 模式会将对话 ID 写入 LangSmith 官方约定的 `langsmith.trace.session_id`，同时保留 `session.id` 与 `gen_ai.conversation.id`。
+   上表两个 Agent 请求头适用于 Agent-based workspace，目标 Agent 须事先注册。Project-based workspace（包括自托管 LangSmith）改用 `Langsmith-Project: <project-name>`。两个 Agent 请求头必须成对设置，不能与 `Langsmith-Project` 混用。当某次 AIGateway 响应归属于特定对话时，`langsmith` 模式会将对话 ID 写入 LangSmith 官方约定的 `langsmith.trace.session_id`，同时保留 `session.id` 与 `gen_ai.conversation.id`。
 
 4. 开启 **Trace 导出**并保存，随后重启控制面并发起一次 AIGateway 请求以验证连通性。
 

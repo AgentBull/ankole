@@ -11,9 +11,9 @@ Every Agent command executes on that Agent's dedicated computer: an isolated Wor
 
 ## Shell commands
 
-Foreground turns execute shell commands through the `command` tool (`app/agent_computer/src/tools/computer/command-tool.ts`). Each command spawns in its own process group under the Worker user (`uid` `1000`, without `sudo`) with a clean environment stripped of the Worker credential, a working directory inside Agent Home, and a default 180-second foreground timeout—cancelling or timing out terminates the entire process group. The [browser](../browser-automation/) daemon and Codex app-server likewise run as the Worker user without requiring elevated kernel privileges.
+Foreground turns execute shell commands through the `command` tool (`app/agent_computer/src/tools/computer/command-tool.ts`). Each command spawns in its own process group under the Worker user (`uid` `1000`, without `sudo`) with a clean environment stripped of the Worker credential, a working directory inside Agent Home or this execution's Drive view, and a default 180-second foreground timeout—cancelling or timing out terminates the entire process group. The [browser](../browser-automation/) daemon and Codex app-server likewise run as the Worker user without requiring elevated kernel privileges.
 
-Running as `uid` `1000` allows commands to write inside Agent Home, install user-space packages, and spawn subprocesses, while preventing system-level OS package installation. Sessions and Jobs belonging to one Agent share `/workspace`, while container boundaries isolate different Agents, and Workers hold neither database connections nor object-store credentials.
+Running as `uid` `1000` allows commands to write inside Agent Home, install user-space packages, and spawn subprocesses, while preventing system-level OS package installation. Sessions and Jobs belonging to one Agent share `/workspace`, while container boundaries isolate different Agents, and the control-plane Worker launch contract does not include bootstrap credentials for the control-plane database or Files object store.
 
 ## File reads and apply_patch
 
@@ -24,11 +24,11 @@ Alongside shell execution, the Worker provides two dedicated file tools:
 
 During foreground turns, the main Agent sends raw patches through AIGateway as a `custom_tool_call`, which the Worker passes to the native Codex binary at `/usr/local/bin/apply_patch`; Background Agent Jobs receive the same freeform tool from the AIGateway model card and invoke the same binary.
 
-Sharing one native binary keeps interactive turns and Background Agent Jobs on a single edit protocol: if a patch fails to match, the native binary rejects it cleanly and returns the error to the model. Use shell commands for quick searches and `apply_patch` for file edits.
+Sharing one native binary keeps interactive turns and Background Agent Jobs on a single edit protocol: if a patch fails to match, the native binary rejects it cleanly and returns the error to the model. Use the dedicated `grep`, `find`, and `ls` tools to search or list files, `read_file` to read them, and `apply_patch` to edit them.
 
 ## The /workspace filesystem
 
-Each Agent's persistent Home directory mounts at `/workspace`, with `/agents/<agent_uid>` symlinked to `/workspace`. Path checks resolve all symbolic links before enforcing the Home boundary. Its layout is:
+Each Agent's persistent Home directory mounts at `/workspace`, with `/agents/<agent_uid>` symlinked to `/workspace`. Command working-directory checks resolve symbolic links and allow Agent Home or this execution's Drive view. Its layout is:
 
 ```text
 /workspace/

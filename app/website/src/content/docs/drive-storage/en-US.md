@@ -18,7 +18,7 @@ Object storage is configured once at site bootstrap and shared across all tenant
 | Cloudflare R2 | `s3` | S3 API endpoint, region `auto`, and R2 credentials |
 | Other S3-compatible services | `s3` | Service endpoint, signing region, credentials, and compatibility checks |
 
-Running multiple control-plane replicas requires shared remote storage pointed at the exact same backend location and root on every replica—the official Helm chart rejects `files.store: fs` whenever replica count exceeds one. Even with S3 storage, however, individual WorkerProviders may impose their own replica constraints, and `controlPlane.replicaCount` must stay at `1` today because singleton processes (schedule firing, chat connections, and scheduler hydration) run on a single node. Shared remote storage is therefore a prerequisite for multi-replica topologies rather than sufficient on its own; see [Control-plane replicas](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas).
+Running multiple control-plane replicas requires the same shared remote backend location and root on every replica, plus a Distributed Erlang cluster and direct Worker-to-Pod-IP reachability without `endpoints.relayOrigin`. The official Helm chart configures cluster discovery and rejects `files.store: fs` or a provider `endpoints.relayOrigin` when the control plane has more than one replica. Chat connections coordinate their owner across nodes, and Oban shares the job queues. See [Control-plane replicas](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas) for topology and upgrade requirements.
 
 ## Environment variables
 

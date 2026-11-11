@@ -28,9 +28,10 @@ Both targets deploy the same production architecture:
   separately from its rebuildable cache.
 - RuntimeFabric connects the control plane and Workers over a private network.
 
-By default, these manifests pin the `2.0.0-alpha.24` pre-release control-plane
-image—which embeds its matching Worker image reference—alongside a pinned
-PostgreSQL image digest. Always pair deployment manifests with images from the
+By default, these manifests pin the control-plane and Function Runtime images
+to the `2.0.0-alpha.24` pre-release. The control-plane image embeds its matching
+Worker image reference, and PostgreSQL is pinned by image digest. Always pair
+deployment manifests with images from the
 same release: `main-latest` tracks full releases (including release candidates)
 and `canary` tracks alpha and beta builds, so either moving tag can lag behind
 the manifests on `main`.

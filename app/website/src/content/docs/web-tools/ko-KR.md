@@ -5,7 +5,7 @@ section: User guide
 order: 33
 ---
 
-Agent는 `web_search`로 공개 웹 페이지를 검색하고 `web_fetch`로 선택한 페이지 본문을 읽어 옵니다. `web_search`를 쓰려면 반드시 지원 Provider를 연결해야 하지만, `web_fetch`는 별도 Provider를 구성하지 않아도 Worker에 내장된 렌더링 폴백으로 동작할 수 있습니다.
+Agent는 `web_search`로 공개 웹 페이지를 검색하고 `web_fetch`로 선택한 페이지 본문을 읽어 옵니다. Provider-hosted 웹 검색이 켜져 있으면 현재 모델이 지원하는 Provider의 네이티브 검색을 사용합니다. 별도 검색 Provider를 쓰려면 Provider-hosted `web_search`를 끄고 `web_search` 프로필을 연결하세요. `web_fetch`는 별도 Provider를 구성하지 않아도 Worker에 내장된 렌더링 폴백으로 동작할 수 있습니다.
 
 ## 올바른 tool 선택
 
@@ -30,7 +30,9 @@ Agent는 `web_search`로 공개 웹 페이지를 검색하고 `web_fetch`로 선
 
 동일한 Provider 종류로 여러 인스턴스를 등록할 수도 있습니다. 예를 들어 Bright Data SERP 인스턴스를 두 개 만들어 검색 국가를 다르게 지정하거나 서로 다른 Agent에 분리해 할당할 수 있습니다.
 
-### Agent에 Provider 할당
+### Agent에 별도 Provider 할당
+
+독립 검색 프로필을 쓰기 전에 대상 Agent 또는 상속하는 기본 설정에서 Provider-hosted `web_search`를 끄세요. 프로필을 연결하거나 비우는 것만으로는 이 스위치가 바뀌지 않습니다.
 
 1. **Console → Agents**를 열고 대상 Agent를 선택합니다.
 2. **Model profiles**에서 `web_search`를 찾아 검색 기능을 지원하는 Provider를 지정합니다.
@@ -96,7 +98,7 @@ Worker에 내장된 렌더링 폴백은 외부 Provider가 아니므로 Console�
 
 다음 항목을 순서대로 점검하세요.
 
-1. 대상 Agent에 작업에 필요한 프로필이 연결되어 있는지 확인합니다(`web_search`는 반드시 Provider 지정이 필요합니다).
+1. 검색 실행 경로를 확인합니다. Provider-hosted 검색에는 현재 모델의 네이티브 지원이 필요하며, 이 스위치를 끈 경우 `web_search`에 활성 검색 Provider를 연결해야 합니다.
 2. `web_fetch`에 별도 Provider가 지정되어 있지 않다면 Worker가 정상 기동되어 내장 렌더링 폴백을 수행할 수 있는지 확인합니다.
 3. 연결한 Provider 종류가 해당 Capability를 지원하는지 확인합니다.
 4. Provider가 활성 상태이고 API 키 및 필수 설정값이 유효한지 확인합니다.

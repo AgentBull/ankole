@@ -439,8 +439,10 @@ its entire subtree from normal authorization (see
 
 Agent tool dispatch uses the executing Agent's declared tool catalog and active
 Principal status. WorkAccess validates the retained Human status and access
-version when present; resource owners then apply that Agent's grants. Human
-resource conditions do not constrain a valid delegated call.
+version when present. For business resources, owners evaluate the personal
+assistant owner's grants or the AI colleague's own grants; management resources
+use the executing Agent's grants. The retained Human instruction does not add
+another resource subject.
 
 ## Create the First Administrator
 

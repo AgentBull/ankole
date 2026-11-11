@@ -32,9 +32,9 @@ As the Skill's `SKILL.md` notes: "Prefer a one-shot Python process for stateless
 
 ## How the kernel works
 
-The `jupyter-live-kernel` Skill declares `ankole-runtime: background_job`, so it runs inside a Background Agent Job. When invoked, it starts a Jupyter kernel on the Agent's Worker, and the Agent evaluates code cells sequentially through the Skill's helper tools. Every cell runs against the same in-memory kernel process, so variables defined in cell 1 remain available in cell 5.
+The `jupyter-live-kernel` Skill declares `ankole-runtime: main`, so the Agent can use it directly in a conversation. It starts a Jupyter server in the Session or Job workspace and sends cells through a local Unix socket. Cells share the same live kernel, so variables defined in cell 1 remain available in cell 5.
 
-The kernel stays alive for the duration of the Background Agent Job. Once the Job finishes, the Worker stops the kernel and discards its in-memory variables—treat kernel memory as ephemeral execution state rather than durable storage.
+The Agent keeps the server in a tracked shell session for iterative work and stops it when the work ends. A batch script starts the server, runs the analysis, verifies the artifact, and cleans up in one call. Kernel memory is temporary process state; save results to files to preserve them.
 
 ## A worked example
 
@@ -43,7 +43,7 @@ To set up an Agent that analyzes CSV files posted in a team channel:
 1. Confirm that the `jupyter-live-kernel` Skill is enabled (it is on by default).
 2. Create the Agent and write its `AGENTS.md`: "When a CSV appears in the channel, load it into a DataFrame, inspect the schema and summary statistics, identify anomalies, and report findings with a plot."
 3. Attach a CSV directly in the chat channel, or upload it to the Agent's drive in the Console and share its file path.
-4. The Agent delegates the analysis to a Background Agent Job, starts the Jupyter kernel, loads the CSV, explores the data across cells, renders a plot, and posts the summary back to the channel.
+4. The Agent starts the Jupyter kernel in its workspace, loads the CSV, explores the data across cells, renders a plot, and posts the summary back to the channel.
 
 ## What this guide is not
 

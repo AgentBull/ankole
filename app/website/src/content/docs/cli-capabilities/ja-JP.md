@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Ankole の機能の中には、モデルに直接公開するツール定義ではなく、Agent Computer 上のシェルコマンド（CLI）として提供されているものがあります。Agent は `kubectl` を使うのと同じ感覚でシェルからこれらを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`、`jobs`）、`ankole-files`、`ankole-browser`、および Webhook エンドポイント操作コマンドはいずれもこの形態をとっています。
+Ankole の機能の中には、モデルに直接公開するツール定義ではなく、Agent Computer 上のシェルコマンド（CLI）として提供されているものがあります。Agent は `kubectl` を使うのと同じ感覚でシェルからこれらを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`、`jobs.*`）、`ankole-files`、`ankole-browser`、および Webhook エンドポイント操作コマンドはいずれもこの形態をとっています。
 
 このページでは、どのような機能を CLI として実装すべきかという基準と、ツール登録・Skill インデックス・システムプロンプトへの常駐記述なしに Agent が機能を正確に見つけて使えるようにする「段階的開示アーキテクチャ」について説明します。
 
@@ -23,7 +23,7 @@ Ankole の機能の中には、モデルに直接公開するツール定義で�
 
 ツール登録や Skill インデックスの代わりに、次の 3 つのルールで発見性と正確性を担保します。
 
-**1. `--help` 自体を正式な仕様書にする。** CLI の `--help` 出力には、その機能を正しく使うために Agent が知るべき情報をすべて盛り込みます（機能の概要、信頼モデル、動作保証、そのまま参考にできる完全な実行例）。バイナリと一緒に配布されるため、実際の挙動とドキュメントのバージョンが常に一致し、別管理のドキュメントのように実装と乖離することがありません。前提知識のない読み手を想定し、細かな内部手順ではなく「目的と制約」を明確に記述してください。実装例としては `create-webhook-cli --help` が参考になります。
+**1. `--help` 自体を正式な仕様書にする。** CLI の `--help` 出力には、その機能を正しく使うために Agent が知るべき情報をすべて盛り込みます（機能の概要、信頼モデル、動作保証、そのまま参考にできる完全な実行例）。ヘルプはバイナリと一緒に配布されるため、呼び出し元はその実装バージョンに同梱された説明を読めます。前提知識のない読み手を想定し、細かな内部手順ではなく「目的と制約」を明確に記述してください。実装例としては `create-webhook-cli --help` が参考になります。
 
 **2. 意思決定の分岐点に一文のポインタを置く。** Agent がその機能の必要性に気づけるよう、関連する判断を行う場所（隣接ツールの説明文、特定の外部サービス連携 Skill、あるいは別 CLI の `--help` など）に一文だけの案内ポインタを置きます。各ポインタには、特定の手法へ誘導する表現は入れず、「どのような条件のときに関係するか」と「どの `--help` を読めばよいか」だけを中立に記します。CLI 形態で提供するすべての機能には、関連タスクの途中で Agent が必ず通る箇所に最低 1 つのポインタが必要です。つまり、「どういう場面でその機能が意味を持つか」という経路そのものから、ポインタを置くべき場所が自ずと決まります。
 
@@ -31,7 +31,7 @@ Ankole の機能の中には、モデルに直接公開するツール定義で�
 
 ## Automation Jobs
 
-Automation Job は Function Runtime で公開済み Applet Action を実行します。Agent は `ankole-pod applet` で Applet をビルド・公開し、`ankole-pod jobs` で Action の確認、Job の作成・設定、スケジュールと Webhook の管理、Run の確認を行います。使用前に `ankole-pod --help` を参照してください。
+Automation Job は Function Runtime で公開済み Applet Action を実行します。Agent は `ankole-pod applet` で Applet をビルド・公開し、`ankole-pod` (`jobs.*`) で Action の確認、Job の作成・設定、スケジュールと Webhook の管理、Run の確認を行います。使用前に `ankole-pod --help` を参照してください。
 
 サーバーは `{routes, actions}` を公開します。Action がハンドラー、冪等性、同時実行方針を宣言し、`ctx.signal` と `ctx.job.config` を読み、`ctx.state` で状態を保存します。`continueSlice()` で同じ Run の処理を分割できます。外部呼び出しは `AnkoleRuntime.mcp`、チーム権限では `AnkoleRuntime.admin.mcp` を使います。
 

@@ -18,7 +18,7 @@
 - 控制面按需为每个 Agent 创建独立的 Agent Computer Worker 容器，其中持久化 Agent Home 与可重建缓存分开存放，删除容器实例后仍保留 Agent Home；
 - RuntimeFabric 在私有网络中连接控制面与各 Worker。
 
-默认配置固定使用预发布版控制面 `2.0.0-alpha.24`（控制面镜像内置配套的 Worker 镜像引用）以及固定的 PostgreSQL 镜像摘要（digest）。部署时请确保配置文件与镜像来自同一发布版本：`main-latest` 跟踪正式版及候选发布版，`canary` 跟踪 alpha 与 beta 预发布版，因此浮动标签指向的版本可能早于 `main` 分支上的部署文件。
+默认配置将控制面与 Function Runtime 镜像固定为预发布版 `2.0.0-alpha.24`。控制面镜像内置配套的 Worker 镜像引用，PostgreSQL 则通过镜像摘要（digest）固定。部署时请确保配置文件与镜像来自同一发布版本：`main-latest` 跟踪正式版及候选发布版，`canary` 跟踪 alpha 与 beta 预发布版，因此浮动标签指向的版本可能早于 `main` 分支上的部署文件。
 
 每个 Worker 容器是单个 Agent 专属的运行环境，也是其唯一的隔离边界，不同 Agent 之间绝不共用 Worker。启用 `/drive` FUSE 挂载时（Docker 下配置 `/dev/fuse` 与 `SYS_ADMIN`，Kubernetes 下配置 `smarter-devices/fuse` 与 `SYS_ADMIN` 并由 Chart 的 `ValidatingAdmissionPolicy` 严格约束），仅容器内的 `root` 监管进程在私有挂载命名空间内持有挂载权限，随后会将业务子进程（`uid 1000`）降权至空的 Linux 能力集（capability set）。为按需创建和销毁这些容器，控制面需要具备容器编排权限——在 Docker Compose 下挂载 Docker 套接字（socket），在 Kubernetes 下绑定命名空间内的 `Role`。
 

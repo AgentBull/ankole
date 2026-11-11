@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Several Ankole capabilities ship as shell commands inside the Agent Computer rather than as model-visible tools, so Agents invoke them from the shell just like `kubectl`. `ankole-pod` (`pages.*`, `base.*`, `applet build|publish|pull`, `jobs`), `ankole-files`, `ankole-browser`, and webhook endpoint commands all follow this pattern.
+Several Ankole capabilities ship as shell commands inside the Agent Computer rather than as model-visible tools, so Agents invoke them from the shell just like `kubectl`. `ankole-pod` (`pages.*`, `base.*`, `applet build|publish|pull`, `jobs.*`), `ankole-files`, `ankole-browser`, and webhook endpoint commands all follow this pattern.
 
 This page explains when to package a capability as a CLI and how Ankole's progressive disclosure pattern makes it discoverable and accurate without adding a JSON tool schema, a Skill catalog entry, or permanent system-prompt text.
 
@@ -23,7 +23,7 @@ Every model-visible tool consumes prompt tokens on every turn, whereas a CLI con
 
 Three conventions replace up-front tool registration and Skill indexing:
 
-**`--help` is the contract document.** Calling `--help` prints everything that an Agent needs to use the command safely: what it does, its trust and security boundaries, its durability guarantees, and what a complete workflow looks like. Because `--help` ships inside the binary itself, it stays version-locked to the implementation and cannot drift like external prose. Write `--help` for a caller with zero prior context, emphasizing goals and invariants over rigid step-by-step recipes; `create-webhook-cli --help` is the canonical example.
+**`--help` is the contract document.** Calling `--help` prints everything that an Agent needs to use the command safely: what it does, its trust and security boundaries, its durability guarantees, and what a complete workflow looks like. Because `--help` ships inside the binary itself, callers receive the help text packaged with that implementation version. Write `--help` for a caller with zero prior context, emphasizing goals and invariants over rigid step-by-step recipes; `create-webhook-cli --help` is the canonical example.
 
 **Pointers sit on the decision surfaces.** Agents discover the CLI through concise one-sentence pointers placed right where they make the adjacent decision—inside a related tool description, an external-system Skill, or another CLI's `--help`. Each pointer states when the capability applies and which `--help` command to read next, without biasing the Agent's choice. Every CLI capability must have at least one pointer on a surface that the Agent inevitably visits along that workflow.
 
@@ -31,7 +31,7 @@ Three conventions replace up-front tool registration and Skill indexing:
 
 ## Automation jobs
 
-Automation Jobs run published Applet Actions in Function Runtime. The Agent builds and publishes the Applet with `ankole-pod applet`, then uses `ankole-pod jobs` to discover Actions, create or configure Jobs, manage schedules and webhook endpoints, and inspect Runs. Read `ankole-pod --help` before invoking these commands.
+Automation Jobs run published Applet Actions in Function Runtime. The Agent builds and publishes the Applet with `ankole-pod applet`, then uses `ankole-pod` (`jobs.*`) to discover Actions, create or configure Jobs, manage schedules and webhook endpoints, and inspect Runs. Read `ankole-pod --help` before invoking these commands.
 
 An Applet server exports `{routes, actions}`. Each Action declares its handler, idempotency and concurrency policy. The handler reads `ctx.signal` and `ctx.job.config`, persists cursors through `ctx.state`, and can continue within a bounded Run using `continueSlice()`. External calls use `AnkoleRuntime.mcp`, or `AnkoleRuntime.admin.mcp` for team authority.
 

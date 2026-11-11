@@ -5,13 +5,13 @@ section: Developer guide
 order: 108
 ---
 
-Agent Computer Worker は、個々の Agent に割り当てられる専用コンピュータ環境です。Agent の作成時点では、選択された provider と `absent` 状態の Worker レコードだけが保存され、環境ツールや Codex が初めて必要になったタイミングで control plane が実体を起動します。通常の質疑応答や control plane 側で完結するツールの実行には、Worker は必要ありません。
+Agent Computer Worker は、個々の Agent に割り当てられる専用コンピュータ環境です。Agent の作成時に、Ankole は provider の紐付けと `absent` 状態の Worker レコードを保存し、初回起動をバックグラウンドでキューに入れます。初回起動が完了し、アイドル状態の Worker が解放された後は、環境ツールや Codex Job の要求に応じて起動します。通常の質疑応答や control plane 内のツールは Worker を待たずに実行できます。
 
 ## 実行と所有権
 
 Bun ベースの Worker は、シェルコマンド、ファイル操作やブラウザ操作のツール、Skills、MCP 呼び出し、および Codex Job を実行します。一方、メインの Agent ループ、入力完了やツール実行結果のコミット、最終返信の確定は control plane の `Ankole.Sessions` が担当し、永続 Response チェーンと hosted ツールは AIGateway が管理します。
 
-起動時、control plane は Worker に対して `WORKER_ID`、RuntimeFabric の URL、世代（generation）ごとの認証情報、およびストレージ設定を渡します。Worker は担当する 1 つの Agent の処理だけを行い、子プロセスの環境変数からは認証情報を除外し、データベースにも直接接続しません。`root` スーパーバイザー（`ankole-worker-supervisor` と `root` 専用の `ankole-rclone` デーモン）が `/dev/fuse` と `SYS_ADMIN` を保持するのは各実行のプライベートマウント・PID 名前空間を組み立てる間だけであり、コマンドや Codex の子プロセスはすべて空の Linux ケーパビリティ（`NoNewPrivs`、`sudo` なし）を持つ `uid 1000` / `gid 1000` へ降格して実行されます。
+起動時、control plane は Worker に対して `WORKER_ID`、RuntimeFabric の URL、世代（generation）ごとの認証情報、およびストレージ設定を渡します。Worker は担当する 1 つの Agent の処理だけを行い、子プロセスの環境変数からは認証情報を除外し、データベースにも直接接続しません。`root` スーパーバイザー（`ankole-worker-supervisor` と `root` 専用の `ankole-rclone` デーモン）が `/dev/fuse` と `SYS_ADMIN` を保持する目的は各実行のプライベートマウント・PID 名前空間の構築であり、コマンドや Codex の子プロセスはすべて空の Linux ケーパビリティ（`NoNewPrivs`、`sudo` なし）を持つ `uid 1000` / `gid 1000` へ降格して実行されます。
 
 ## WorkerProvider とライブ接続
 

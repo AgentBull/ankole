@@ -28,7 +28,7 @@ Which NAICS code fits stripe.com?
 Its capabilities span five areas:
 
 - **Reading the live web** — search, single-page scraping to Markdown or HTML, page image inventories, and domain sitemaps, with automatic bot-detection bypass and proxy escalation so pages that reject plain HTTP fetches usually succeed.
-- **Whole-site collection** — synchronous crawls of up to 500 pages, or asynchronous batch jobs of up to 25,000 URLs for jobs too large to block on.
+- **Whole-site collection** — synchronous crawls of up to 500 pages, or asynchronous batch jobs of up to 100,000 URLs for jobs too large to block on.
 - **Schema-shaped extraction** — supply a JSON Schema and receive data directly in that shape instead of prose that the Agent has to parse a second time.
 - **Brand and design** — company profiles (logos, brand colors, social links, industry, address, stock listing) resolved from a domain, company name, work email, ticker, card descriptor, or page URL, plus site design systems, font lists, rendered screenshots, and NAICS or SIC codes.
 - **Change monitoring** — scheduled monitors that re-check a page, sitemap, or structured extraction at a fixed interval and record diffs, with optional webhook delivery.
@@ -37,7 +37,7 @@ Its capabilities span five areas:
 
 ### 1. Get an API key
 
-Sign up at [context.dev](https://context.dev) and generate an API key (prefixed with `ctxt_secret_`). Context.dev's free tier includes 500 credits—plenty to verify your setup and run initial tasks.
+Sign up at [context.dev](https://context.dev) and generate an API key (prefixed with `ctxt_secret_`). Context.dev's free tier includes 1,000 credits per month; your account dashboard shows its effective allowance.
 
 ### 2. Store the key as an environment variable
 
@@ -69,12 +69,12 @@ Rather than registering Context.dev tools directly in every model prompt, the Ag
 
 ## Credits and cost
 
-Context.dev bills in credits according to the operation:
+Context.dev bills in credits according to the operation. Check [its pricing page](https://www.context.dev/pricing) for current rates and option charges:
 
 | Work | Credits |
 | --- | --- |
 | Scrape one page to Markdown or HTML, one sitemap, one image inventory, one parsed file | 1 |
-| Web search | 1 for each result, and the smallest result set is 10 |
+| Web search | 1 per 10 results; result count defaults to 10 and accepts 1–100; content options add charges |
 | Crawl | 1 for each page |
 | Screenshot, font list | 5 |
 | Brand profile, design system, structured extraction, NAICS, SIC | 10 |

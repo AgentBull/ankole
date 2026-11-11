@@ -5,7 +5,7 @@ section: User guide
 order: 33
 ---
 
-Agent は公開 Web ページを探すときに `web_search` を使い、見つけたページの本文を読み取るときに `web_fetch` を使います。`web_search` を利用するには対応する Provider の設定が必須ですが、`web_fetch` については Provider が未設定でも Worker 組み込みのレンダリングフォールバックを利用できます。
+Agent は公開 Web ページを探すときに `web_search` を使い、見つけたページの本文を読み取るときに `web_fetch` を使います。Provider-hosted の Web 検索が有効な場合は、現在のモデルが対応していれば、その Provider のネイティブ検索を使います。別の検索 Provider を使う場合は、Provider-hosted の `web_search` を無効にして `web_search` プロファイルを設定してください。`web_fetch` は Provider が未設定でも Worker 組み込みのレンダリングフォールバックを利用できます。
 
 ## 正しいツールを選ぶ
 
@@ -30,7 +30,9 @@ Agent は公開 Web ページを探すときに `web_search` を使い、見つ�
 
 同じ Provider 種別から複数のインスタンスを作成することも可能です。たとえば Bright Data SERP のインスタンスを 2 つ登録し、検索リージョンを使い分けたり、Agent ごとに別々のアカウントを割り当てたりできます。
 
-### Provider の Agent への割り当て
+### 別の Provider を Agent に割り当てる
+
+独立した検索プロファイルを使う前に、対象 Agent または継承元の既定設定で Provider-hosted の `web_search` を無効にします。プロファイルの設定や解除だけでは、このスイッチは変わりません。
 
 1. **Console → Agents** を開き、対象の Agent を選択します。
 2. **Model profiles** の中から `web_search` を探し、検索に対応した Provider を選択します。
@@ -98,7 +100,7 @@ Parallel または AgentBull Cloud を使う場合は、1 つの Provider イン
 
 上から順に次の点を確認してください。
 
-1. 対象の Agent に必要なプロファイルが設定されているか（特に `web_search` には Provider の割り当てが必須です）。
+1. 検索の実行経路を確認します。Provider-hosted 検索には現在のモデルのネイティブ対応が必要です。無効にした場合は、`web_search` に有効な検索 Provider を割り当てます。
 2. `web_fetch` に Provider を設定していない場合、Worker 側で組み込みレンダリングフォールバックが利用できる状態にあるか。
 3. 選択した Provider 種別が、使いたい機能（検索または読み取り）に対応しているか。
 4. Provider が有効化されており、API キーや必須項目に誤りがないか。

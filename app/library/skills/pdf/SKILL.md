@@ -66,7 +66,7 @@ an engine default can silently drop CJK glyphs. WeasyPrint accepts the ASCII
 alias `ChillJinshuSong`; Typst matches the family name inside the font file, so
 it needs `寒蝉锦书宋`.
 
-For HTML input, convert with `pandoc --standalone --from markdown+raw_html --to
+For Markdown with embedded HTML, convert with `pandoc --standalone --from markdown+raw_html --to
 html5 --css <stylesheet>` first, then print that HTML through the same engine.
 
 For charts, financial K-lines, network graphs, infographics, and Mermaid
@@ -84,7 +84,7 @@ pages as images. Reading every page image costs far more context than it returns
 and forces conversation compaction. Run these checks first:
 
 ```bash
-pdfinfo report.pdf                       # page count, page size, embedded fonts
+pdfinfo report.pdf                       # page count and page size
 qpdf --check report.pdf                  # file structure
 pdftotext -layout report.pdf out.txt     # text must agree with the source document
 tr -cd '\f' < out.txt | wc -c            # form feeds must equal the page count
