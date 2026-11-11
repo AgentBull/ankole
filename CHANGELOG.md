@@ -1,5 +1,19 @@
 # Changelog
 
+## Version 2.0.0-alpha.113 (2026-11-11)
+
+- Keep an Agent computer's Drive working when a control-plane Pod is replaced.
+  A Worker mounted Drive at the address of the Pod that configured the mount,
+  so after a rollout or a node replacement every command on that Worker waited
+  up to seven minutes and then failed with `mount: /drive/Skills: ... Connection
+  refused` until the Worker itself was replaced. A Worker whose provider sets no
+  `endpoints.relayOrigin` now mounts Drive at the HTTP origin of its
+  RuntimeFabric endpoint, which the Helm chart points at the control-plane
+  Service. If a proxy fronts `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` or a
+  provider's `endpoints.runtimeFabricUrl`, it must also forward `/api/v1/vfs/`,
+  including WebDAV methods such as `PROPFIND`, to the control plane. Workers
+  started by an earlier release keep their old mounts until they are replaced.
+
 ## Version 2.0.0-alpha.112 (2026-11-11)
 
 - Internal changes only.

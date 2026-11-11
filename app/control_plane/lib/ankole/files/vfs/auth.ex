@@ -13,18 +13,17 @@ defmodule Ankole.Files.Vfs.Auth do
   end
 
   defp mounted_config(agent_uid, signal_id) do
+    # A Drive mount outlives the request that configured it, and every
+    # control-plane node serves the DAV path, so the endpoint must not name the
+    # node that issues it.
     with {:ok, config} <- issue(agent_uid, %{"signal_id" => signal_id}),
-         {:ok, endpoints} <- AgentWorkers.Providers.connection_endpoints(agent_uid) do
+         {:ok, endpoints} <- AgentWorkers.Providers.connection_endpoints(agent_uid),
+         {:ok, origin} <- AgentWorkers.Providers.control_plane_origin(endpoints) do
       {:ok,
        struct(
          Ankole.RuntimeFabric.V1.DriveVfsConfig,
          Map.merge(config, %{
-           endpoint:
-             String.trim_trailing(
-               endpoints["relayOrigin"] || Ankole.WorkerFiles.Relay.origin(),
-               "/"
-             ) <>
-               "/api/v1/vfs/dav",
+           endpoint: origin <> "/api/v1/vfs/dav",
            conversation_id: config.conversation_id || ""
          })
        )}

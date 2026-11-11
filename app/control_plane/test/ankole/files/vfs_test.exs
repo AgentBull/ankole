@@ -1140,6 +1140,42 @@ defmodule Ankole.Files.VfsTest do
     assert request(ctx, "GET", "AgentDrive/fuse/random.bin").resp_body == "01XYZ56789"
   end
 
+  test "a Drive mount addresses the load-balanced control plane, not the node that issues it",
+       ctx do
+    worker = from(w in Ankole.AgentWorkers.AgentWorker, where: w.agent_uid == ^ctx.agent.uid)
+    node_origin = Application.get_env(:ankole, :runtime_fabric_internal_origin)
+    Application.put_env(:ankole, :runtime_fabric_internal_origin, "http://10.0.0.7:4000")
+
+    on_exit(fn ->
+      if node_origin,
+        do: Application.put_env(:ankole, :runtime_fabric_internal_origin, node_origin),
+        else: Application.delete_env(:ankole, :runtime_fabric_internal_origin)
+    end)
+
+    endpoint = fn endpoints ->
+      Repo.update_all(worker,
+        set: [
+          capacity: %{"available_slots" => 4, "max_slots" => 4, "drive_vfs" => true},
+          instance_settings: %{"endpoints" => endpoints}
+        ]
+      )
+
+      {:ok, config} = Auth.runtime_config(ctx.agent.uid, nil)
+      config.endpoint
+    end
+
+    assert Ankole.WorkerFiles.Relay.origin() == "http://10.0.0.7:4000"
+    assert endpoint.(%{}) == "http://127.0.0.1:4002/api/v1/vfs/dav"
+
+    assert endpoint.(%{"runtimeFabricUrl" => "wss://ankole.example.test/runtime-fabric/worker"}) ==
+             "https://ankole.example.test/api/v1/vfs/dav"
+
+    assert endpoint.(%{
+             "runtimeFabricUrl" => "wss://ankole.example.test/runtime-fabric/worker",
+             "relayOrigin" => "https://relay.example.test/"
+           }) == "https://relay.example.test/api/v1/vfs/dav"
+  end
+
   defp dav_requests(acc) do
     receive do
       {:dav_request, method, path} -> dav_requests([{method, path} | acc])

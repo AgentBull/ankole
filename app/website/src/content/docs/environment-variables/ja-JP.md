@@ -75,7 +75,7 @@ Helm chart の `values.yaml` では、これらに対応する設定キーとし
 | 変数 | 意味 |
 |---|---|
 | `ANKOLE_AGENT_COMPUTER_IMAGE` | control plane のリリースに対応する Worker イメージ |
-| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | 既定の RuntimeFabric WebSocket URL |
+| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | 既定の RuntimeFabric WebSocket URL。プロバイダーに `endpoints.runtimeFabricUrl` の指定がない Worker がこの URL に接続します。プロバイダーが `endpoints.relayOrigin` を指定していない限り、Worker は接続先の RuntimeFabric URL と同じ HTTP オリジンの `/api/v1/vfs/` を通じてドライブもマウントするため、そのオリジンからコントロールプレーンのすべてのレプリカに到達できる必要があります |
 | `ANKOLE_WORKER_INSTALLATION` | デプロイメント識別ラベル（既定値：`ankole`） |
 | `ANKOLE_WORKER_PROVIDERS_FILE` | 任意の provider 初期投入（seed）用 YAML。初回読み込みと既存 Agent への割り当てが同一トランザクションで実行されます |
 

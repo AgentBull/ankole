@@ -75,7 +75,7 @@ order: 202
 | 变量 | 含义 |
 |---|---|
 | `ANKOLE_AGENT_COMPUTER_IMAGE` | 与当前控制面版本配套的目标 Worker 镜像 |
-| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | 默认的 RuntimeFabric WebSocket 地址 |
+| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | 默认的 RuntimeFabric WebSocket 地址，提供商未配置 `endpoints.runtimeFabricUrl` 的 Worker 连接这个地址。只要提供商没有配置 `endpoints.relayOrigin`，Worker 还会通过自己所连 RuntimeFabric 地址对应的 HTTP 源访问 `/api/v1/vfs/` 来挂载云盘，因此这个源必须能到达每一个控制面副本 |
 | `ANKOLE_WORKER_INSTALLATION` | 部署实例标识，默认为 `ankole` |
 | `ANKOLE_WORKER_PROVIDERS_FILE` | 可选的 WorkerProvider 种子 YAML 文件路径；首次导入时会与存量 Agent 的提供商指派在同一事务内完成 |
 
