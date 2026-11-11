@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.117 (2026-11-11)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.116 (2026-11-11)
 
 - Fix long conversations that stopped answering with
