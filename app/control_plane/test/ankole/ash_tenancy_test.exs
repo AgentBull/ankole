@@ -148,6 +148,30 @@ defmodule Ankole.AshTenancyTest do
     assert tenant_id == other.id
   end
 
+  test "site operations clear the caller's process tenant and restore it" do
+    other = create_tenant()
+    other_id = other.id
+    %{principal: principal} = Ankole.PrincipalsFixtures.human_fixture()
+    actor = Ankole.AuthZ.Actor.new(principal)
+
+    Repo.with_tenant(other_id, fn ->
+      assert {:ok, %{tenant: nil, input_tenant: nil, context_tenant: nil}} =
+               Ankole.Ash.run_action(SiteOperationProbe, :site_probe, %{})
+
+      assert Repo.tenant_id() == other_id
+
+      assert {:ok, %{tenant: nil}} =
+               Ankole.Ash.run_action_authorized(site_operation_input(), actor)
+
+      assert Repo.tenant_id() == other_id
+
+      assert {:ok, %{tenant: ^other_id, input_tenant: ^other_id, context_tenant: ^other_id}} =
+               Ankole.Ash.run_action(TenantOperationProbe, :tenant_probe, %{})
+
+      assert Repo.tenant_id() == other_id
+    end)
+  end
+
   defp site_operation_input(tenant \\ nil),
     do:
       Ash.ActionInput.for_action(
