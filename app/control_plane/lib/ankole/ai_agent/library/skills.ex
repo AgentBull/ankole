@@ -505,24 +505,7 @@ defmodule Ankole.AIAgent.Library.Skills do
         {:error, :private_skill}
       else
         Repo.transact_top_level(
-          fn ->
-            case lock(skill.id) do
-              {:ok, locked} ->
-                cond do
-                  is_binary(locked.agent_uid) ->
-                    {:error, :private_skill}
-
-                  locked.enabled_for_all ->
-                    {:error, :skill_enabled_for_all}
-
-                  true ->
-                    with {:ok, _} <- bind_in_tx(locked.id, uid, enabled), do: {:ok, locked}
-                end
-
-              error ->
-                error
-            end
-          end,
+          fn -> bind_shared_skill(skill.id, uid, enabled) end,
           after_commit: fn result ->
             RuntimeCapabilityChanges.notify_agent(uid, {:skill, slug})
             result
@@ -532,6 +515,21 @@ defmodule Ankole.AIAgent.Library.Skills do
     else
       false -> {:error, :not_found}
       error -> error
+    end
+  end
+
+  defp bind_shared_skill(skill_id, uid, enabled) do
+    with {:ok, locked} <- lock(skill_id) do
+      cond do
+        is_binary(locked.agent_uid) ->
+          {:error, :private_skill}
+
+        locked.enabled_for_all ->
+          {:error, :skill_enabled_for_all}
+
+        true ->
+          with {:ok, _} <- bind_in_tx(locked.id, uid, enabled), do: {:ok, locked}
+      end
     end
   end
 
@@ -582,72 +580,80 @@ defmodule Ankole.AIAgent.Library.Skills do
     bind_agent_uid = payload["bind_agent_uid"]
 
     if preconditions["expected_missing"] == true do
-      with :ok <- authorize_card_create(actor, target_agent_uid, bind_agent_uid),
-           {:ok, slug} <- validate_custom_slug(slug),
-           {:ok, content} <- parse(payload["markdown"]) do
-        case get(slug) do
-          {:ok, _existing} ->
-            {:stale, "A Skill with slug \"#{slug}\" was created after this card was drafted."}
-
-          {:error, :not_found} ->
-            with {:ok, created} <-
-                   Ankole.Ash.create(
-                     Skill,
-                     :create,
-                     Map.merge(content, %{
-                       slug: slug,
-                       source_kind: :custom,
-                       enabled_for_all: false,
-                       agent_uid: target_agent_uid,
-                       created_by: actor.principal.uid
-                     })
-                   ),
-                 {:ok, _} <-
-                   if(is_nil(target_agent_uid) and is_binary(bind_agent_uid),
-                     do: bind_in_tx(created.id, bind_agent_uid, true),
-                     else: {:ok, :skipped}
-                   ) do
-              {:ok, created, skill_commit_effects(created, target_agent_uid || bind_agent_uid)}
-            end
-        end
-      end
+      create_from_action_card(actor, payload, slug, target_agent_uid, bind_agent_uid)
     else
-      skill_id = preconditions["skill_id"]
-      expected_revision = preconditions["expected_revision"]
+      update_from_action_card(actor, payload, preconditions, target_agent_uid, bind_agent_uid)
+    end
+  end
 
-      with {:ok, locked} <- lock(skill_id),
-           :ok <- Management.skill(actor, locked, "update"),
-           :ok <-
-             if(is_nil(locked.agent_uid) and is_binary(bind_agent_uid),
-               do: Management.binding(actor, bind_agent_uid),
-               else: :ok
-             ) do
-        if locked.source_kind == :custom and locked.revision == expected_revision and
-             locked.agent_uid == target_agent_uid do
-          with {:ok, content} <- parse(payload["markdown"]),
-               {:ok, saved} <-
-                 Ankole.Ash.update(
-                   locked,
-                   :save,
-                   Map.merge(content, %{slug: locked.slug, base_revision: locked.revision})
+  defp create_from_action_card(actor, payload, slug, target_agent_uid, bind_agent_uid) do
+    with :ok <- authorize_card_create(actor, target_agent_uid, bind_agent_uid),
+         {:ok, slug} <- validate_custom_slug(slug),
+         {:ok, content} <- parse(payload["markdown"]) do
+      case get(slug) do
+        {:ok, _existing} ->
+          {:stale, "A Skill with slug \"#{slug}\" was created after this card was drafted."}
+
+        {:error, :not_found} ->
+          with {:ok, created} <-
+                 Ankole.Ash.create(
+                   Skill,
+                   :create,
+                   Map.merge(content, %{
+                     slug: slug,
+                     source_kind: :custom,
+                     enabled_for_all: false,
+                     agent_uid: target_agent_uid,
+                     created_by: actor.principal.uid
+                   })
                  ),
                {:ok, _} <-
-                 if(is_nil(saved.agent_uid) and is_binary(bind_agent_uid),
-                   do: bind_in_tx(saved.id, bind_agent_uid, true),
+                 if(is_nil(target_agent_uid) and is_binary(bind_agent_uid),
+                   do: bind_in_tx(created.id, bind_agent_uid, true),
                    else: {:ok, :skipped}
                  ) do
-            {:ok, saved, skill_commit_effects(saved, target_agent_uid || bind_agent_uid)}
+            {:ok, created, skill_commit_effects(created, target_agent_uid || bind_agent_uid)}
           end
-        else
-          {:stale, "Skill \"#{locked.slug}\" changed after this card was drafted."}
+      end
+    end
+  end
+
+  defp update_from_action_card(actor, payload, preconditions, target_agent_uid, bind_agent_uid) do
+    skill_id = preconditions["skill_id"]
+    expected_revision = preconditions["expected_revision"]
+
+    with {:ok, locked} <- lock(skill_id),
+         :ok <- Management.skill(actor, locked, "update"),
+         :ok <-
+           if(is_nil(locked.agent_uid) and is_binary(bind_agent_uid),
+             do: Management.binding(actor, bind_agent_uid),
+             else: :ok
+           ) do
+      if locked.source_kind == :custom and locked.revision == expected_revision and
+           locked.agent_uid == target_agent_uid do
+        with {:ok, content} <- parse(payload["markdown"]),
+             {:ok, saved} <-
+               Ankole.Ash.update(
+                 locked,
+                 :save,
+                 Map.merge(content, %{slug: locked.slug, base_revision: locked.revision})
+               ),
+             {:ok, _} <-
+               if(is_nil(saved.agent_uid) and is_binary(bind_agent_uid),
+                 do: bind_in_tx(saved.id, bind_agent_uid, true),
+                 else: {:ok, :skipped}
+               ) do
+          {:ok, saved, skill_commit_effects(saved, target_agent_uid || bind_agent_uid)}
         end
       else
-        {:error, :not_found} ->
-          {:stale, "Target Skill was deleted after this card was drafted."}
-
-        error ->
-          error
+        {:stale, "Skill \"#{locked.slug}\" changed after this card was drafted."}
       end
+    else
+      {:error, :not_found} ->
+        {:stale, "Target Skill was deleted after this card was drafted."}
+
+      error ->
+        error
     end
   end
 

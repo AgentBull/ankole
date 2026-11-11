@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.130 (2026-11-11)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.129 (2026-11-11)
 
 - Fix Squads after an AI colleague is renamed. Renaming an Agent left its old

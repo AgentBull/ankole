@@ -528,60 +528,72 @@ defmodule Ankole.Brain.Browser.Actions do
     dm_conversation_ids =
       Ankole.Conversations.dm_conversation_ids_for_human(uid, conversation_ids)
 
-    Enum.map(claims, fn claim ->
-      subject = claim.subject_page_id && Map.get(subjects_by_id, claim.subject_page_id)
-      source = Map.get(sources_by_id, claim.source_node_id)
+    ctx = %{
+      uid: uid,
+      private_scope_id: private_scope_id,
+      principal_ref: principal_ref,
+      subjects_by_id: subjects_by_id,
+      sources_by_id: sources_by_id,
+      dm_conversation_ids: dm_conversation_ids
+    }
 
-      personal_source? =
-        claim.source_node_id == private_scope_id or
-          (not is_nil(source) and
-             (source.private_owner_uid == uid or
-                (is_binary(source.conversation_id) and
-                   MapSet.member?(dm_conversation_ids, source.conversation_id))))
+    Enum.map(claims, &serialize_claim(&1, ctx))
+  end
 
-      source_title =
-        cond do
-          claim.source_node_id == private_scope_id ->
-            nil
+  defp serialize_claim(claim, ctx) do
+    subject = claim.subject_page_id && Map.get(ctx.subjects_by_id, claim.subject_page_id)
+    source = Map.get(ctx.sources_by_id, claim.source_node_id)
+    eligible? = claim.author == ctx.principal_ref or not is_nil(source)
 
-          not is_nil(source) and
-              (not is_nil(source.private_owner_uid) or not is_nil(source.conversation_id)) ->
-            nil
+    can_edit =
+      eligible? and is_nil(claim.superseded_by) and
+        (claim.claim_type == :fact or is_nil(claim.resolved_at))
 
-          source ->
-            source.title || source.name
+    %{
+      id: claim.id,
+      claim_type: Atom.to_string(claim.claim_type),
+      claim: claim.claim,
+      kind: claim.kind,
+      holder: claim.holder,
+      source_node_id: claim.source_node_id,
+      source_title: claim_source_title(claim, source, ctx.private_scope_id),
+      subject_page_id: if(subject, do: subject.id),
+      subject_title: subject && subject.title,
+      subject_slug: subject && subject.slug,
+      bucket: if(personal_claim_source?(claim, source, ctx), do: "personal", else: "workspace"),
+      notability: claim.notability,
+      confidence: claim.confidence,
+      weight: claim.weight,
+      provenance: claim.provenance,
+      created_at: claim.created_at,
+      can_edit: can_edit,
+      can_forget: eligible?
+    }
+  end
 
-          true ->
-            nil
-        end
+  defp personal_claim_source?(claim, source, ctx) do
+    claim.source_node_id == ctx.private_scope_id or
+      (not is_nil(source) and
+         (source.private_owner_uid == ctx.uid or
+            (is_binary(source.conversation_id) and
+               MapSet.member?(ctx.dm_conversation_ids, source.conversation_id))))
+  end
 
-      eligible? = claim.author == principal_ref or not is_nil(source)
+  defp claim_source_title(claim, source, private_scope_id) do
+    cond do
+      claim.source_node_id == private_scope_id ->
+        nil
 
-      can_edit =
-        eligible? and is_nil(claim.superseded_by) and
-          (claim.claim_type == :fact or is_nil(claim.resolved_at))
+      not is_nil(source) and
+          (not is_nil(source.private_owner_uid) or not is_nil(source.conversation_id)) ->
+        nil
 
-      %{
-        id: claim.id,
-        claim_type: Atom.to_string(claim.claim_type),
-        claim: claim.claim,
-        kind: claim.kind,
-        holder: claim.holder,
-        source_node_id: claim.source_node_id,
-        source_title: source_title,
-        subject_page_id: if(subject, do: subject.id),
-        subject_title: subject && subject.title,
-        subject_slug: subject && subject.slug,
-        bucket: if(personal_source?, do: "personal", else: "workspace"),
-        notability: claim.notability,
-        confidence: claim.confidence,
-        weight: claim.weight,
-        provenance: claim.provenance,
-        created_at: claim.created_at,
-        can_edit: can_edit,
-        can_forget: eligible?
-      }
-    end)
+      source ->
+        source.title || source.name
+
+      true ->
+        nil
+    end
   end
 
   defp graph(actor) do
