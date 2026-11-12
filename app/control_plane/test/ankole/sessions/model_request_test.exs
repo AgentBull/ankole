@@ -4,6 +4,7 @@ defmodule Ankole.Sessions.ModelRequestTest do
   alias Ankole.Sessions.Presentation
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tool
+  alias Ankole.Sessions.ToolArguments
   alias Ankole.Sessions.Tools
   alias Ankole.Signals.Signal
 
@@ -42,21 +43,25 @@ defmodule Ankole.Sessions.ModelRequestTest do
     refute Map.has_key?(Model.request(%{run() | kind: :main}), "text")
   end
 
-  test "reply_attachment sends compatible parameters and still requires exactly one file selector" do
-    [declaration] = Presentation.declarations()
-    tool = Tool.new(declaration, Presentation)
-    run = %{run() | kind: :main, tools: [tool]}
+  test "function parameters reach the provider without root combinators while calls still follow the declaration" do
+    [attachment] = Presentation.declarations()
+    [message] = Tools.Message.declarations()
+    attachment_tool = Tool.new(attachment, Presentation)
+    message_tool = Tool.new(message, Tools.Message)
+    run = %{run() | kind: :main, tools: [attachment_tool, message_tool]}
 
-    assert [%{"name" => "reply_attachment", "parameters" => parameters, "strict" => false}] =
-             Model.request(run)["tools"]
+    assert [
+             %{"name" => "reply_attachment", "parameters" => attachment_wire, "strict" => false},
+             %{"name" => "send_message", "parameters" => message_wire}
+           ] = Model.request(run)["tools"]
 
-    assert %{
-             "type" => "object",
-             "properties" => %{"node_id" => %{}, "path" => %{}},
-             "additionalProperties" => false
-           } = parameters
+    assert attachment_wire == Map.delete(attachment["parameters"], "oneOf")
+    assert message_wire == message["parameters"]
+    assert %{"oneOf" => [_, _]} = message_wire["properties"]["destination"]
 
-    refute Map.has_key?(parameters, "oneOf")
+    for args <- [%{"node_id" => "node"}, %{"path" => "/drive/report.txt"}] do
+      assert {:ok, ^args} = ToolArguments.validate(attachment_tool.schema["parameters"], args)
+    end
 
     for args <- [%{}, %{"node_id" => "node", "path" => "/drive/report.txt"}] do
       call = %{"name" => "reply_attachment", "arguments" => Ankole.JSON.encode!(args)}

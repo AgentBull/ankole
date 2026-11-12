@@ -338,7 +338,14 @@ to `strict: false` unless the tool explicitly sets `strict`, because the
 Responses API treats an omitted `strict` flag as strict mode—which forces the
 model to populate every declared property—and Session tools declare optional
 parameters that the model must be allowed to omit. Custom (freeform) tools have
-no `strict` field and pass through unchanged. When the run's tool catalog
+no `strict` field and pass through unchanged. When `Sessions.Model` sends the
+catalog, `ToolCatalog.wire/1` removes any root `oneOf`, `anyOf`, `allOf`,
+`enum`, `const`, or `not` from function parameters for every provider, because
+Azure OpenAI Chat Completions rejects a function schema that carries one at its
+root. The declaration keeps such a constraint for validation: `Tools.prepare/2`
+checks every control-plane tool call against the full declaration, and the tool
+description states the same rule for the model, as `reply_attachment` does for
+its exactly-one-selector requirement. When the run's tool catalog
 contains deferred declarations (`defer_loading: true` on low-frequency setup
 tools such as `list_background_job_devices` and `set_channel_standing_orders`),
 `Sessions.Model` appends `{"type": "tool_search", "execution": "server"}` so

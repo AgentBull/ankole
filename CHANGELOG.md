@@ -2,8 +2,18 @@
 
 ## Version 2.0.0-alpha.136 (2026-11-12)
 
-- Fix an attachment tool parameter definition that caused Azure OpenAI to
-  reject Agent requests, including conversations without attachments.
+- Let Agents render `stat` metric cards (one value with an optional unit,
+  comparison, and trend) and `quantile_band` charts (a median line inside a
+  shaded range such as p5–p95) with `ankole-viz chart` and `AnkoleChart`.
+- Correct product copy in English, Simplified Chinese, Japanese, and Korean,
+  and refresh the guidance in the bundled Library Skills and Playbooks.
+- Fix Azure OpenAI Chat Completions rejecting every Agent request with
+  `invalid_function_parameters`, including conversations without attachments.
+  Ankole sends function tool parameters without a top-level `oneOf`, `anyOf`,
+  `allOf`, `enum`, `const`, or `not`, and still enforces those constraints
+  before running the tool. Azure serves GPT-6.1 Sol function tools only on the
+  Responses endpoint, so set the provider's `endpoint_kind` to `responses` for
+  that model.
 
 ## Version 2.0.0-alpha.135 (2026-11-12)
 

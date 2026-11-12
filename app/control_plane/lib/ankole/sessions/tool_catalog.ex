@@ -1,7 +1,6 @@
 defmodule Ankole.Sessions.ToolCatalog do
   @moduledoc "Builds the tool contract for the current run from its owning declarations."
 
-  alias Ankole.Sessions.Presentation
   alias Ankole.Sessions.Tool
   alias Ankole.Sessions.Tools
 
@@ -24,7 +23,7 @@ defmodule Ankole.Sessions.ToolCatalog do
           Tools.Skill,
           Tools.Web,
           Ankole.Sessions.Scheduled,
-          Presentation,
+          Ankole.Sessions.Presentation,
           Tools.Peers,
           Tools.RelatedContext,
           Tools.Pod,
@@ -66,14 +65,17 @@ defmodule Ankole.Sessions.ToolCatalog do
 
   defp maybe_allow_programmatic_worker_tool(declaration), do: declaration
 
-  def wire(tools), do: Enum.map(tools, &wire_schema/1)
+  # Azure OpenAI Chat Completions rejects a function whose parameters carry one
+  # of these keys at the root. Every provider receives the plain object schema,
+  # while Tools.prepare/2 still validates each call against the full declaration.
+  @provider_rejected_root_keys ~w(oneOf anyOf allOf enum const not)
 
-  # Some providers reject root oneOf in function parameters. Tools.prepare/2
-  # still validates the original attachment schema before running the tool.
-  defp wire_schema(%Tool{name: "reply_attachment", executor: Presentation, schema: schema}),
-    do: update_in(schema["parameters"], &Map.delete(&1, "oneOf"))
+  def wire(tools), do: Enum.map(tools, &wire_schema(&1.schema))
 
-  defp wire_schema(%Tool{schema: schema}), do: schema
+  defp wire_schema(%{"parameters" => %{} = parameters} = schema),
+    do: %{schema | "parameters" => Map.drop(parameters, @provider_rejected_root_keys)}
+
+  defp wire_schema(schema), do: schema
 
   def find(run, call) do
     Enum.find(run.tools, fn tool ->
