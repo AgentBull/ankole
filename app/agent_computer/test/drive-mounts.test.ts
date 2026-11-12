@@ -5,6 +5,7 @@ import { realpath as fsRealpath } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
 import { DriveMounts, type DriveMountsOptions, parseMountPointsUnder } from '../src/drive/mounts'
+import { DriveControlTimeoutError } from '../src/drive/rclone-control'
 import { DriveVfsConfigSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 
 type FakeRcdOptions = {
@@ -263,8 +264,12 @@ describe('DriveMounts FUSE lifecycle and recovery', () => {
       mountInfoPath
     })
 
-    // First attempt aborts at 60ms while rcd is still mounting `chat_<view>`.
-    await expect(mounts.acquire(sampleConfig('token-initial'))).rejects.toThrow(/aborted|Timeout/i)
+    // First attempt aborts at 60ms while rcd is still mounting `chat_<view>`,
+    // and names the rclone call that missed its deadline.
+    const timedOut = await mounts.acquire(sampleConfig('token-initial')).catch(error => error)
+    expect(timedOut).toBeInstanceOf(DriveControlTimeoutError)
+    expect(timedOut).toMatchObject({ code: 'drive_control_timeout', retryable: true })
+    expect(timedOut.message).toBe('Drive did not answer rclone mount/mount before its deadline.')
 
     // Retry immediately: `mount/listmounts` waits on rcd's `mountMu`, sees the
     // finished `chat_<view>` mount, refreshes its token, and adopts it cleanly.
@@ -393,7 +398,7 @@ describe('DriveMounts FUSE lifecycle and recovery', () => {
       mountInfoPath: join(dir, 'mountinfo')
     })
 
-    await expect(mounts.acquire(sampleConfig())).rejects.toThrow(/aborted|Timeout/i)
+    await expect(mounts.acquire(sampleConfig())).rejects.toThrow(DriveControlTimeoutError)
     await Bun.sleep(80)
     expect(rcd.liveMounts.has(chatPath)).toBe(true)
 
@@ -490,7 +495,7 @@ describe('DriveMounts FUSE lifecycle and recovery', () => {
         }
       })
 
-      await expect(mounts.acquire(sampleConfig('token-1'))).rejects.toThrow(/aborted|Timeout/i)
+      await expect(mounts.acquire(sampleConfig('token-1'))).rejects.toThrow(DriveControlTimeoutError)
       // Wait until background mount finishes (70ms from start -> ~35ms more), then arm realpath pause for orphan cleanup.
       await Bun.sleep(45)
       expect(rcd.liveMounts.has(chatPath)).toBe(true)
@@ -555,7 +560,7 @@ describe('DriveMounts FUSE lifecycle and recovery', () => {
         }
       })
 
-      await expect(mounts.acquire(sampleConfig('token-1'))).rejects.toThrow(/aborted|Timeout/i)
+      await expect(mounts.acquire(sampleConfig('token-1'))).rejects.toThrow(DriveControlTimeoutError)
       await Bun.sleep(45)
       expect(rcd.liveMounts.has(chatPath)).toBe(true)
 
@@ -609,14 +614,14 @@ describe('DriveMounts FUSE lifecycle and recovery', () => {
     })
 
     // Attempt 1 times out on chat_<view> mount/mount, marking the slot uncertain and arming orphan cleanup.
-    await expect(mounts.acquire(sampleConfig('token-1'))).rejects.toThrow(/aborted|Timeout/i)
+    await expect(mounts.acquire(sampleConfig('token-1'))).rejects.toThrow(DriveControlTimeoutError)
     await Bun.sleep(50)
     expect(rcd.liveMounts.has(chatPath)).toBe(true)
 
     // Attempt 2 arrives before orphanIdleTimeoutMs fires, and fails on mount/listmounts timeout for chat_<view>.
     // Note: scope_s1 is already live in its slot, so the first listmounts call during Attempt 2 is for chat_<view>!
     stallNextListMounts = true
-    await expect(mounts.acquire(sampleConfig('token-2'))).rejects.toThrow(/aborted|Timeout/i)
+    await expect(mounts.acquire(sampleConfig('token-2'))).rejects.toThrow(DriveControlTimeoutError)
 
     // No further acquire() calls arrive; the slot must still reap the orphaned chat_<view> mount.
     await Bun.sleep(170)

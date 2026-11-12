@@ -30,6 +30,13 @@
   verbosity, which those requests copied into the upstream body unchanged, and
   Google AI Studio language profiles no longer show embedding options. Saving
   such a profile again removes an option it held from before.
+- Fix Background Jobs that failed after one minute with `The operation was
+  aborted` while another Job of the same Agent was running. A long-running Job
+  kept a copy of other conversations' Drive mounts, so reclaiming one of them
+  held the Worker's Drive mount lock until that Job ended and new Jobs could not
+  mount Drive. Each execution now keeps only its own Drive mounts, an unmount no
+  longer blocks other mounts, and a Drive call that misses its deadline fails
+  as a retryable `drive_control_timeout` that names the call.
 
 ## Version 2.0.0-alpha.137 (2026-11-12)
 

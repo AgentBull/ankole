@@ -907,3 +907,48 @@ diff --git a/vfs/read_write.go b/vfs/read_write.go
  	}
  	if release {
  		// Do the writing with fh.mu unlocked
+diff --git a/cmd/mountlib/rc.go b/cmd/mountlib/rc.go
+index 884e912..de8087c 100644
+--- a/cmd/mountlib/rc.go
++++ b/cmd/mountlib/rc.go
+@@ -165,7 +165,10 @@ func mountRc(ctx context.Context, in rc.Params) (out rc.Params, err error) {
+ 		}
+ 		mountMu.Lock()
+ 		defer mountMu.Unlock()
+-		delete(liveMounts, actualMountPoint)
++		// A later mount may already own this mount point.
++		if liveMounts[actualMountPoint] == mnt {
++			delete(liveMounts, actualMountPoint)
++		}
+ 	}()
+ 	// Add mount to list if mount point was successfully created
+ 	liveMounts[actualMountPoint] = mnt
+@@ -203,16 +206,26 @@ func unMountRc(_ context.Context, in rc.Params) (out rc.Params, err error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	// Unmount outside mountMu: after the kernel accepts the unmount, go-fuse
++	// waits until no mount namespace still holds the connection, and other
++	// mount calls must not queue behind that wait.
+ 	mountMu.Lock()
+-	defer mountMu.Unlock()
+ 	mountInfo, found := liveMounts[mountPoint]
++	if found {
++		delete(liveMounts, mountPoint)
++	}
++	mountMu.Unlock()
+ 	if !found {
+ 		return nil, errors.New("mount not found")
+ 	}
+ 	if err = mountInfo.Unmount(); err != nil {
++		mountMu.Lock()
++		if _, taken := liveMounts[mountPoint]; !taken {
++			liveMounts[mountPoint] = mountInfo
++		}
++		mountMu.Unlock()
+ 		return nil, err
+ 	}
+-	delete(liveMounts, mountPoint)
+ 	return nil, nil
+ }
+ 

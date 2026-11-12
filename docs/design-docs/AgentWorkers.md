@@ -970,7 +970,15 @@ before mounting fresh, and unmounts active drives (`mount/unmountall` followed
 by a kernel unmount sweep and socket cleanup) during Worker shutdown.
 Commands and long-lived Codex processes enter a private mount and PID namespace,
 bind their shared roots, conversation root, and recovery directory, then drop to
-uid/gid 1000 with empty capabilities. Browser file URLs cannot open `/drive` or
+uid/gid 1000 with empty capabilities. The new namespace starts as a copy of every
+Worker mount, so the launcher lazily detaches the other views' mounts under
+`/run/ankole-drives`: a copy would keep that view's FUSE connection open, and the
+Worker's unmount of it would wait for the long-lived process to exit.
+`ankole-rclone` removes a mount from its live list before it unmounts it and
+restores the entry when the unmount fails, so a slow unmount never holds the
+global mount lock that `mount/mount` and `mount/listmounts` need. A control call
+that misses its deadline fails the Turn with the retryable
+`drive_control_timeout` error, which names the rclone call. Browser file URLs cannot open `/drive` or
 `/drive-recovery`. Builtin file operations resolve the same view asynchronously,
 with a 15-second deadline, so a slow FUSE request does not block heartbeats.
 

@@ -1,9 +1,9 @@
-import { request } from 'node:http'
 import { chmod, chown, mkdir, readFile, realpath as fsRealpath, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { DriveVfsConfig } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { isRootWorker } from '../common/agent-user'
 import { scopedPath, visibleDrivePath } from './paths'
+import { rcOnSocket, type RcCall } from './rclone-control'
 
 const defaultRoot = '/run/ankole-drives'
 const defaultCache = '/var/cache/ankole/rclone'
@@ -13,7 +13,6 @@ const defaultIdleTimeoutMs = 15 * 60_000
 const defaultRetryIdleTimeoutMs = 60_000
 
 type WriteResult = { Path: string; NodeID: string; Failure: string; Recovery: string }
-type RcCall = <T>(method: string, body: Record<string, unknown>, signal?: AbortSignal) => Promise<T>
 type Mount = {
   key: string
   path: string
@@ -78,43 +77,6 @@ class MountSlot {
 
 function isMountNotFoundError(error: unknown): boolean {
   return /mount not found/i.test(error instanceof Error ? error.message : String(error))
-}
-
-function rcOnSocket<T>(
-  socketPath: string,
-  method: string,
-  body: Record<string, unknown>,
-  signal = AbortSignal.timeout(15_000)
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const req = request(
-      {
-        socketPath,
-        path: `/${method}`,
-        method: 'POST',
-        signal,
-        headers: { 'content-type': 'application/json' }
-      },
-      response => {
-        const chunks: Buffer[] = []
-        response.on('data', chunk => chunks.push(chunk))
-        response.on('error', reject)
-        response.on('end', () => {
-          try {
-            const raw = Buffer.concat(chunks).toString()
-            const result = raw ? JSON.parse(raw) : {}
-            if (response.statusCode !== 200) {
-              reject(new Error(result.error || `rclone ${method}: HTTP ${response.statusCode}`))
-            } else resolve(result as T)
-          } catch (error) {
-            reject(error)
-          }
-        })
-      }
-    )
-    req.on('error', reject)
-    req.end(JSON.stringify(body))
-  })
 }
 
 const defaultRc: RcCall = (method, body, signal) => rcOnSocket(defaultSocket, method, body, signal)
@@ -521,8 +483,10 @@ export class DriveMounts {
         const path = slot.path
         await mkdir(path, { recursive: true, mode: 0o700 })
         const resolvedPath = await this.cfg.realpath(path).catch(() => path)
-        // `mount/listmounts` acquires rclone's global `mountMu`, so any earlier
-        // `mount/mount` or `mount/unmount` that outlived its HTTP client timeout settles before we inspect.
+        // `mount/listmounts` acquires rclone's global `mountMu`, so an earlier
+        // `mount/mount` that outlived its HTTP client timeout settles before we
+        // inspect. An earlier `mount/unmount` removes its mount from the list
+        // before it waits for the kernel, so a pending unmount is not adopted.
         const { mountPoints } = await this.rc<{ mountPoints?: Array<{ Fs: string; MountPoint: string }> }>(
           'mount/listmounts',
           {},

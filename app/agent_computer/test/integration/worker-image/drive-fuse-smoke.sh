@@ -265,3 +265,23 @@ flush()
 assert 'Corrected' in bad.read_text()
 print('FUSE POSIX files, SQLite, atomic save, open-handle directory rename, symlinks, Base import reset, export, field PATCH and rejected-draft retry passed')
 PY
+# An execution namespace keeps only its own view's Drive mounts. A copy of
+# another view's mount would keep that FUSE connection open after the Worker
+# unmounts it.
+drives=/run/ankole-drives
+mkdir -p "$drives/scope_own" "$drives/library_own" "$drives/scope_other" /drive /drive-recovery
+for key in scope_own library_own scope_other; do mount -t tmpfs tmpfs "$drives/$key"; done
+mkdir -p "$drives/scope_own/Public" "$drives/library_own/Skills"
+touch "$drives/library_own/AGENTS.md" "$drives/library_own/DESIGN.md"
+view_mounts=$(unshare --mount --pid --fork --mount-proc --propagation private \
+  /usr/local/libexec/ankole-drive-view "$drives/scope_own" - /recovery "$drives/library_own" cat /proc/self/mountinfo)
+grep -q " $drives/scope_own " <<<"$view_mounts"
+grep -q " $drives/library_own " <<<"$view_mounts"
+grep -q ' /drive/Public ' <<<"$view_mounts"
+if grep -q " $drives/scope_other " <<<"$view_mounts"; then
+  echo 'the execution namespace kept another view of Drive mounted' >&2
+  exit 1
+fi
+grep -q " $drives/scope_other " /proc/self/mountinfo
+for key in scope_other library_own scope_own; do umount "$drives/$key"; done
+echo 'Drive execution view keeps only its own mounts'

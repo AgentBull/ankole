@@ -30,4 +30,19 @@ if [ -d /drive/Brain ]; then
   mount -o remount,bind,ro /drive/Brain
 fi
 mount --bind "$recovery" /drive-recovery
+# The unshared namespace starts with a copy of every Worker mount, including
+# the Drive mounts of other views. A copy keeps that view's FUSE connection
+# open, so the Worker's unmount of it would wait for this process tree to exit
+# while rclone holds its global mount lock. Keep only this view's mounts.
+# shortcut: mount keys are hex names, so mountinfo needs no octal unescaping.
+awk -v root="$(dirname "$scope")/" -v scope="$scope" -v chat="$chat" -v library="$library" '
+  index($5, root) != 1 { next }
+  $5 == scope || index($5, scope "/") == 1 { next }
+  $5 == chat || index($5, chat "/") == 1 { next }
+  $5 == library || index($5, library "/") == 1 { next }
+  { print $5 }
+' /proc/self/mountinfo | sort -r | while read -r foreign; do
+  # A parent detached earlier in this loop already removed its children.
+  umount -l "$foreign" 2>/dev/null || :
+done
 exec "$@"
