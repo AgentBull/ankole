@@ -112,6 +112,28 @@ export function requestSettings(kind: AIGatewayProviderKindItem | undefined, cap
   )
 }
 
+/**
+ * Narrows a model profile's request settings to the selected model. The model
+ * catalog lists the reasoning-effort levels that the model accepts: an empty
+ * list hides the setting because the model does not reason, and a missing list
+ * keeps every level of the provider kind.
+ */
+export function settingsForModel(
+  settings: ProviderSetting[],
+  catalog: AIGatewayModelCatalogEntry[],
+  providerID: string,
+  model: string
+): ProviderSetting[] {
+  const levels = catalog.find(entry => entry.provider_id === providerID && entry.model === model)?.reasoning_efforts
+  if (levels == null) return settings
+
+  return settings.flatMap(setting => {
+    if (setting.key !== 'reasoningEffort') return [setting]
+    const options = setting.options.filter(option => levels.includes(option))
+    return options.length > 0 ? [{ ...setting, options }] : []
+  })
+}
+
 function settingsForScope(
   kind: AIGatewayProviderKindItem | undefined,
   scope: 'connection' | 'credential' | 'request'

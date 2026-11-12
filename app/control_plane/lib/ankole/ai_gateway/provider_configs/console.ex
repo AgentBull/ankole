@@ -32,7 +32,10 @@ defmodule Ankole.AIGateway.ProviderConfigs.Console do
     name: [type: :string, allow_nil?: false],
     description: [type: :string, allow_nil?: false],
     capability: [type: :string, allow_nil?: false],
-    image_input: [type: :boolean, allow_nil?: false]
+    image_input: [type: :boolean, allow_nil?: false],
+    # The reasoning-effort levels the model accepts; nil means every level of
+    # the provider kind, and an empty list means the model does not reason.
+    reasoning_efforts: [type: {:array, :string}]
   ]
 
   @setting_fields [

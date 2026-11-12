@@ -294,7 +294,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert request.upstream.method == "GET"
     assert request.upstream.url == "wss://compatible.test/v1/responses"
     assert request.response_context.stream == true
-    assert request.response_context.provider_options["service_tier"] == "fast"
+    assert request.response_context.provider_options["service_tier"] == "priority"
 
     assert request.response_context.request["metadata"] == %{
              "signal_id" => "hosted-websocket-event"

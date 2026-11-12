@@ -31,13 +31,28 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     setting(:reasoningEffort,
       type: :select,
       options: ReasoningEffort.Levels.values(@reasoning_effort_map),
-      scope: :request
+      scope: :request,
+      capabilities: [:language_model]
     )
 
-    setting(:taskType, scope: :request, advanced: true)
-    setting(:title, scope: :request, advanced: true)
-    setting(:outputDimensionality, type: :integer, scope: :request, advanced: true)
-    setting(:autoTruncate, type: :boolean, scope: :request, advanced: true)
+    # Google reads these embedding fields only on embedContent requests; the
+    # chat body would carry them as unknown fields.
+    setting(:taskType, scope: :request, advanced: true, capabilities: [:embedding_model])
+    setting(:title, scope: :request, advanced: true, capabilities: [:embedding_model])
+
+    setting(:outputDimensionality,
+      type: :integer,
+      scope: :request,
+      advanced: true,
+      capabilities: [:embedding_model]
+    )
+
+    setting(:autoTruncate,
+      type: :boolean,
+      scope: :request,
+      advanced: true,
+      capabilities: [:embedding_model]
+    )
 
     language_model do
       api_resolver(:openai_chat_completions)
@@ -51,6 +66,9 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     end
   end
 
+  @doc "Returns the reasoning-effort target and value map of this provider's language-model requests."
+  def reasoning_effort_options, do: [target: :reasoning_effort, map: @reasoning_effort_map]
+
   @doc """
   Builds a Google AI Studio OpenAI-compatible chat request.
 
@@ -63,10 +81,7 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
     |> UniversalAIRequest.put_new_header("x-goog-api-client", "ankole-ai-gateway/0.1")
     |> UniversalAIRequest.bearer_auth()
-    |> ReasoningEffort.put_provider_options(ctx,
-      target: :reasoning_effort,
-      map: @reasoning_effort_map
-    )
+    |> ReasoningEffort.put_provider_options(ctx, reasoning_effort_options())
   end
 
   @doc """

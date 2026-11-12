@@ -285,9 +285,16 @@ replayed history items before assembling the next upstream request. OpenAI Chat
 Completions rejects the Responses-only options
 `reasoningSummary`, `truncation`, and `contextManagement` with
 `unsupported_provider_option`. Claude accepts the `reasoningEffort` values
-`low`, `medium`, `high`, and `xhigh`, and sends `xhigh` as `max`.
+`low`, `medium`, `high`, `xhigh`, and `max` and sends them under the same
+names. A Claude profile that sets `speed` to `fast` also sends the
+`fast-mode-2026-02-01` beta flag, because Anthropic serves fast mode on Claude
+Opus 5 and Opus 4.8 only behind that flag; the operator's own `anthropic_beta`
+flags come first.
 
-A request carries a reasoning effort only when the packaged `llm_db` model
+Ankole's public `reasoningEffort` levels are `none`, `minimal`, `low`,
+`medium`, `high`, `xhigh`, and `max`, the values that OpenAI accepts, and a
+provider whose upstream takes fewer of them maps a subset. A request carries a
+reasoning effort only when the packaged `llm_db` model
 metadata allows it, because upstreams reject an effort for a model that does
 not reason. When neither the model profile nor the request chooses a value, a
 model that the metadata marks as reasoning gets `high`, provided that `high`
@@ -295,9 +302,20 @@ is one of its listed effort levels. A Claude model qualifies only when the
 metadata lists effort levels. A chosen value is rejected with a
 `reasoning_effort` error when the metadata marks the model as not reasoning or
 does not list the value. A model that the metadata does not describe gets only a
-chosen value. OpenRouter, ChatGPT Subscription, and Volcengine Ark own their
+chosen value. `llm_db` describes Azure deployments of OpenAI models without
+their effort levels, so an Azure OpenAI model reads the levels of the OpenAI
+model with the same id. OpenRouter, ChatGPT Subscription, and Volcengine Ark own their
 model catalogs, so their models get `high` when nothing chooses a value. This
 check reads only local metadata and adds no upstream request.
+
+Console offers each model profile only the levels that the selected model
+accepts. The Console model catalog reports them per model as
+`reasoning_efforts`, computed by `ReasoningEffort.model_levels/2` from the same
+metadata and provider value map that the request check uses; the ChatGPT
+Subscription catalog adds the levels that the Codex model list names. An empty
+list hides the setting because the model does not reason, and a missing list
+offers every level of the provider kind, as for a deployment name that no
+metadata describes.
 
 Only `credential` settings may set `encrypted: true`; `ProviderDSL` rejects
 `encrypted` in `connection` or `request` scopes at compile/declaration time.
@@ -305,7 +323,18 @@ Only `credential` settings may set `encrypted: true`; `ProviderDSL` rejects
 settings can list suggested values while still accepting custom strings—for
 example, `chatgpt_subscription`, Azure OpenAI, OpenAI, and `openai_compatible`
 use an open string setting for `serviceTier`, suggesting `fast` and `flex`,
-accepting custom provider tiers, and omitting `service_tier` when blank.
+accepting custom provider tiers, and omitting `service_tier` when blank. These
+providers send `fast` as OpenAI's `priority` tier and pass every other value
+unchanged. `truncation` and `promptCacheRetention` are `select` settings with
+OpenAI's values `auto`/`disabled` and `in_memory`/`24h`.
+
+An `azure_openai` row defaults `endpoint_kind` to `responses`, because current
+OpenAI reasoning models such as gpt-6.1-sol reject function tools with
+reasoning on Chat Completions, and every Agent request carries tools. An
+operator who serves a model that speaks only Chat Completions selects
+`chat_completions` on the row. Azure reads the request body's `model` as a
+deployment name, so a row that names a `deployment` sends it as the body
+`model` whenever the request path does not carry the deployment.
 
 For Azure OpenAI Chat Completions, AIGateway maps `max_output_tokens` (and its
 `max_tokens` alias) to `max_completion_tokens` by default, because Azure

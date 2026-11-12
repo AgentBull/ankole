@@ -12,8 +12,7 @@ export const CODEX_MODEL_REASONING_EFFORTS = [
   'medium',
   'high',
   'xhigh',
-  'max',
-  'ultra'
+  'max'
 ] as const
 
 export type CodexModelReasoningEffort = (typeof CODEX_MODEL_REASONING_EFFORTS)[number]

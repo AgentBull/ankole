@@ -44,7 +44,7 @@ Agent 재정의를 바꾸기 전에 Site와 Pod에서 상속된 실효 프로필
 
 ## 레버 2: reasoning effort
 
-Codex 추론 강도 설정을 지원하는 프로바이더에서 `model_reasoning_effort`는 `minimal | low | medium | high | xhigh | max | ultra`의 7단계로 조절할 수 있습니다. 단계를 낮추면 응답이 빠르고 저렴해지며, 단계를 높이면 까다로운 문제에서 더 정교한 결과를 얻는 대신 토큰 비용이 늘어납니다. 기본값은 `high`입니다.
+Codex 추론 강도 설정을 지원하는 프로바이더에서 `model_reasoning_effort`는 `minimal | low | medium | high | xhigh | max`의 6단계로 조절할 수 있습니다. Console에는 선택한 모델이 지원하는 단계만 표시됩니다. 단계를 낮추면 응답이 빠르고 저렴해지며, 단계를 높이면 까다로운 문제에서 더 정교한 결과를 얻는 대신 토큰 비용이 늘어납니다. 기본값은 `high`입니다.
 
 이 설정은 모델 자체를 교체하는 것보다 훨씬 세밀하게 비용을 조절할 수 있는 수단입니다. `medium`으로도 충분한 일상 업무를 처리하는 Agent에 `high`를 그대로 두면 체감 품질 차이는 거의 없는데 비용만 더 지출하게 됩니다. 각 Agent의 `primary` 프로필에서 실제 업무 난도에 맞게 단계를 낮추고, 깊은 종합 추론을 맡는 특정 Agent에만 높은 단계를 부여하세요. 모든 Agent에 일괄로 높여 두는 것은 피해야 합니다.
 

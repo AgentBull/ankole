@@ -9,13 +9,12 @@ defmodule Ankole.AIGateway.Providers.Claude do
   alias Ankole.AIGateway.UniversalAIRequest
 
   @anthropic_version "2023-06-01"
-  # Anthropic `output_config.effort` accepts low, medium, high, xhigh, and max.
-  @reasoning_effort_map %{
-    "low" => "low",
-    "medium" => "medium",
-    "high" => "high",
-    "xhigh" => "max"
-  }
+  # Anthropic `output_config.effort` uses Ankole's public names from low through
+  # max. The model metadata decides which of them each model accepts.
+  @reasoning_effort_map Map.new(~w(low medium high xhigh max), &{&1, &1})
+  # Fast mode on Claude Opus 5 and Opus 4.8 is a research preview that Anthropic
+  # serves only with this beta flag.
+  @fast_mode_beta "fast-mode-2026-02-01"
 
   provider :claude do
     label(%{"default" => "Claude", "zh-Hans-CN" => "Claude"})
@@ -42,7 +41,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
       scope: :request
     )
 
-    setting(:speed, scope: :request, advanced: true)
+    setting(:speed, type: :select, options: ~w(fast), scope: :request, advanced: true)
     setting(:inferenceGeo, scope: :request, advanced: true)
 
     language_model do
@@ -51,6 +50,9 @@ defmodule Ankole.AIGateway.Providers.Claude do
       supports_parallel_tool_calls()
     end
   end
+
+  @doc "Returns the reasoning-effort target and value map of this provider's language-model requests."
+  def reasoning_effort_options, do: [target: :output_config, map: @reasoning_effort_map]
 
   @doc """
   Builds an Anthropic Messages request.
@@ -63,12 +65,9 @@ defmodule Ankole.AIGateway.Providers.Claude do
     ctx
     |> UniversalAIRequest.new(ctx.settings[:messages_path] || "v1/messages", :anthropic_messages)
     |> UniversalAIRequest.put_new_setting_header("anthropic-version", :anthropic_version)
-    |> maybe_put_beta(ctx.settings[:anthropic_beta])
+    |> maybe_put_beta(anthropic_betas(ctx))
     |> put_auth(ctx)
-    |> ReasoningEffort.put_provider_options(ctx,
-      target: :output_config,
-      map: @reasoning_effort_map
-    )
+    |> ReasoningEffort.put_provider_options(ctx, reasoning_effort_options())
     |> UniversalAIRequest.rename_provider_option("inferenceGeo", "inference_geo")
     |> put_default_cache_control(ctx)
   end
@@ -133,11 +132,29 @@ defmodule Ankole.AIGateway.Providers.Claude do
 
   # Anthropic beta headers are comma-separated even when the Console stores them
   # as a list for easier editing.
-  defp maybe_put_beta(headers, value) when is_binary(value) and value != "",
-    do: UniversalAIRequest.put_header(headers, "anthropic-beta", value)
+  defp maybe_put_beta(headers, []), do: headers
 
-  defp maybe_put_beta(headers, values) when is_list(values),
+  defp maybe_put_beta(headers, values),
     do: UniversalAIRequest.put_header(headers, "anthropic-beta", Enum.join(values, ","))
 
-  defp maybe_put_beta(headers, _value), do: headers
+  # The operator's own beta flags come first; a fast request adds the fast-mode
+  # flag when the operator has not listed it.
+  defp anthropic_betas(ctx) do
+    configured = beta_list(ctx.settings[:anthropic_beta])
+    options = Ankole.Attrs.normalize_external_attrs(ctx.provider_options || %{})
+
+    if options["speed"] == "fast" and @fast_mode_beta not in configured,
+      do: configured ++ [@fast_mode_beta],
+      else: configured
+  end
+
+  defp beta_list(value) when is_binary(value),
+    do:
+      value
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+  defp beta_list(values) when is_list(values), do: Enum.flat_map(values, &beta_list/1)
+  defp beta_list(_value), do: []
 end

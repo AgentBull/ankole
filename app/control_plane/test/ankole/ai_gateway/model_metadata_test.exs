@@ -89,6 +89,30 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
            ]
   end
 
+  test "Azure OpenAI models read the effort levels of the OpenAI model with the same id" do
+    assert {:ok, azure} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "azure-metadata-source",
+               provider_kind: "azure_openai",
+               base_url: "https://example.services.ai.azure.com/openai/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "azure-key"}]
+               }
+             })
+
+    assert {:ok, metadata} = ModelMetadata.model_metadata(azure, "gpt-6.1-sol")
+
+    assert metadata["reasoning"] == %{
+             "enabled" => true,
+             "effort" => ~w(low medium high xhigh max)
+           }
+
+    assert {:ok, models} = ModelMetadata.list_provider_model_metadata(azure)
+
+    assert %{"reasoning" => %{"effort" => ~w(low medium high xhigh max)}} =
+             Enum.find(models, &(&1["id"] == "gpt-6.1-sol"))
+  end
+
   test "china-market provider metadata uses explicit aliases and static sources" do
     assert {:ok, xiaomi} =
              ProviderConfigs.create_provider(%{
@@ -322,7 +346,11 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
                "visibility" => "list",
                "supported_in_api" => true,
                "context_window" => 400_000,
-               "input_modalities" => ["text", "image"]
+               "input_modalities" => ["text", "image"],
+               "supported_reasoning_levels" => [
+                 %{"effort" => "low", "description" => "Fast responses"},
+                 %{"effort" => "high", "description" => "Deep reasoning"}
+               ]
              },
              %{
                "slug" => "hidden-model",
@@ -357,6 +385,7 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
     assert metadata["context_length"] == 400_000
     assert get_in(metadata, ["architecture", "input_modalities"]) == ["text", "image"]
     assert get_in(metadata, ["architecture", "output_modalities"]) == ["text"]
+    assert metadata["reasoning"] == %{"enabled" => true, "effort" => ["low", "high"]}
 
     assert {:ok, [%{"id" => "gpt-5.6-sol"}]} =
              ModelMetadata.list_provider_model_metadata(provider, opts)

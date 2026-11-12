@@ -44,33 +44,62 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     setting(:reasoningEffort,
       type: :select,
       options: ReasoningEffort.Levels.values(),
-      scope: :request
+      scope: :request,
+      capabilities: [:language_model]
     )
 
     setting(:reasoningSummary,
       type: :select,
       options: OpenAIRequestOptions.reasoning_summary_values(),
       scope: :request,
-      advanced: true
+      advanced: true,
+      capabilities: [:language_model]
     )
 
-    setting(:promptCacheKey, scope: :request, advanced: true)
-    setting(:promptCacheRetention, scope: :request, advanced: true)
-    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
+    setting(:promptCacheKey, scope: :request, advanced: true, capabilities: [:language_model])
+
+    setting(:promptCacheRetention,
+      type: :select,
+      options: OpenAIRequestOptions.prompt_cache_retention_values(),
+      scope: :request,
+      advanced: true,
+      capabilities: [:language_model]
+    )
+
+    setting(:serviceTier,
+      options: OpenAIRequestOptions.service_tier_values(),
+      scope: :request,
+      advanced: true,
+      capabilities: [:language_model]
+    )
 
     setting(:textVerbosity,
       type: :select,
       options: OpenAIRequestOptions.text_verbosity_values(),
-      scope: :request
+      scope: :request,
+      capabilities: [:language_model]
     )
 
-    setting(:truncation, scope: :request, advanced: true)
-    setting(:contextManagement, type: :map, scope: :request, advanced: true)
+    setting(:truncation,
+      type: :select,
+      options: OpenAIRequestOptions.truncation_values(),
+      scope: :request,
+      advanced: true,
+      capabilities: [:language_model]
+    )
+
+    setting(:contextManagement,
+      type: :map,
+      scope: :request,
+      advanced: true,
+      capabilities: [:language_model]
+    )
+
     setting(:provider, type: :map, scope: :request, advanced: true)
 
-    setting(:sources, scope: :request)
-    setting(:timeRange, scope: :request)
-    setting(:skip_cache, scope: :request)
+    setting(:sources, scope: :request, capabilities: [:web_search])
+    setting(:timeRange, scope: :request, capabilities: [:web_search])
+    setting(:skip_cache, scope: :request, capabilities: [:web_search])
 
     language_model do
       api_resolver(:openai_responses)

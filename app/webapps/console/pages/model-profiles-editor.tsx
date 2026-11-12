@@ -278,6 +278,7 @@ export function ProfileEditor({
       draft: model.snapshot(profile),
       providers,
       providerKinds,
+      modelCatalog,
       t
     })
     if (!built.ok) {

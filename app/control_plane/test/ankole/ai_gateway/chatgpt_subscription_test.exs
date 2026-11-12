@@ -117,7 +117,7 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionTest do
     refute Map.has_key?(headers, "connection")
     assert spec.response_context.request["tools"] == nil
     assert spec.response_context.request["parallel_tool_calls"] == false
-    assert spec.response_context.provider_options["service_tier"] == "fast"
+    assert spec.response_context.provider_options["service_tier"] == "priority"
   end
 
   test "identity uses provider overrides, then inbound values, then the Codex default pair" do

@@ -75,12 +75,35 @@ defmodule Ankole.AIGateway.ReasoningEffort do
     end
   end
 
+  @doc """
+  Returns the public levels that one model accepts, for a picker to offer.
+
+  `reasoning` is the model's packaged reasoning metadata, and `opts` takes the
+  same `:target` and `:map` that the provider passes when it builds a request.
+  The result is `nil` when the metadata does not narrow the levels, so the
+  picker offers every level of the provider, and `[]` when the model does not
+  reason.
+  """
+  @spec model_levels(map() | :provider_catalog | nil, keyword()) :: [String.t()] | nil
+  def model_levels(reasoning, opts) do
+    map = Keyword.get(opts, :map)
+
+    case reasoning_support(reasoning, Keyword.fetch!(opts, :target)) do
+      {:supported, [_ | _] = values} -> model_values(values, map)
+      :unsupported -> []
+      _any_level -> nil
+    end
+  end
+
+  defp model_support(runtime, target),
+    do: runtime |> ModelMetadata.runtime_reasoning() |> reasoning_support(target)
+
   # Anthropic accepts `output_config.effort` only on models that list effort
   # levels; a model that thinks without them rejects the field. A provider with
   # its own catalog keeps the earlier `high` default: OpenRouter routes
   # `reasoning` per model, and the ChatGPT and Ark catalogs list reasoning models.
-  defp model_support(runtime, target) do
-    case ModelMetadata.runtime_reasoning(runtime) do
+  defp reasoning_support(reasoning, target) do
+    case reasoning do
       :provider_catalog -> {:supported, nil}
       nil -> :unknown
       %{"enabled" => true, "effort" => [_ | _] = values} -> {:supported, values}

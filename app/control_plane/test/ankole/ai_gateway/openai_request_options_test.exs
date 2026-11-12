@@ -3,10 +3,12 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
 
   alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.Providers.AgentBullCloud
   alias Ankole.AIGateway.Providers.AzureOpenAI
   alias Ankole.AIGateway.PrepareContext
   alias Ankole.AIGateway.Providers.ChatGPTSubscription
   alias Ankole.AIGateway.Providers.Claude
+  alias Ankole.AIGateway.Providers.GoogleAIStudioOpenAI
   alias Ankole.AIGateway.Providers.OpenAI
   alias Ankole.AIGateway.Providers.OpenAICompatible
   alias Ankole.AIGateway.Providers.OpenRouter
@@ -95,6 +97,32 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
              Providers.validate_runtime_provider_options("openai", %{
                "textVerbosity" => "verbose"
              })
+
+    for provider <- [AzureOpenAI, OpenAI] do
+      assert setting(provider, :truncation) == {:select, ~w(auto disabled), true}
+    end
+
+    assert setting(OpenAI, :promptCacheRetention) == {:select, ~w(in_memory 24h), true}
+
+    assert {:error,
+            {:provider_options,
+             {:invalid_value, "promptCacheRetention", "1h", ["in_memory", "24h"]}}} =
+             Providers.validate_runtime_provider_options("openai", %{
+               "promptCacheRetention" => "1h"
+             })
+  end
+
+  test "sends the fast service tier as OpenAI's priority tier" do
+    assert OpenAIRequestOptions.put_service_tier(%{"serviceTier" => "fast"}) ==
+             %{"service_tier" => "priority"}
+
+    assert OpenAIRequestOptions.put_service_tier(%{"serviceTier" => "flex"}) ==
+             %{"service_tier" => "flex"}
+
+    assert OpenAIRequestOptions.put_service_tier(%{"serviceTier" => "provider-native-tier"}) ==
+             %{"service_tier" => "provider-native-tier"}
+
+    assert OpenAIRequestOptions.put_service_tier(%{"user" => "u"}) == %{"user" => "u"}
   end
 
   test "maps Responses output controls into nested native objects" do
@@ -117,7 +145,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
 
     assert options == %{
              "reasoning" => %{"effort" => "high", "summary" => "detailed"},
-             "service_tier" => "fast",
+             "service_tier" => "priority",
              "text" => %{"verbosity" => "low"},
              "prompt_cache_key" => "route-a",
              "prompt_cache_options" => %{"mode" => "explicit"},
@@ -196,7 +224,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
                Providers.validate_runtime_provider_options(provider_kind, %{option => true})
     end
 
-    assert {:select, ~w(low medium high xhigh), false} = setting(Claude, :reasoningEffort)
+    assert {:select, ~w(low medium high xhigh max), false} = setting(Claude, :reasoningEffort)
 
     claude =
       prepared(Claude, %{"inferenceGeo" => "us", "speed" => "fast", "reasoningEffort" => "low"})
@@ -204,8 +232,12 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
     assert claude.provider_options == %{
              "inference_geo" => "us",
              "speed" => "fast",
-             "output_config" => %{"effort" => "low"}
+             "output_config" => %{"effort" => "low"},
+             "cache_control" => %{"type" => "ephemeral"}
            }
+
+    assert {"anthropic-beta", "fast-mode-2026-02-01"} in claude.headers
+    refute Enum.any?(prepared(Claude, %{}).headers, &(elem(&1, 0) == "anthropic-beta"))
 
     openrouter =
       prepared(OpenRouter, %{"textVerbosity" => "low", "reasoningEffort" => "medium"})
@@ -214,6 +246,106 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
              "verbosity" => "low",
              "reasoning" => %{"effort" => "medium"}
            }
+  end
+
+  test "a fast Claude request keeps the operator's beta flags first" do
+    {:ok, ctx} =
+      PrepareContext.build(
+        Claude.provider_definition(),
+        :language_model,
+        %{
+          "model" => "claude-opus-5",
+          "connection_options" => %{
+            "api_key" => "fixture",
+            "anthropic_beta" => "context-1m-2025-08-07, fast-mode-2026-02-01"
+          },
+          "provider_options" => %{"speed" => "fast"}
+        },
+        %{"input" => "hello"}
+      )
+
+    assert {"anthropic-beta", "context-1m-2025-08-07,fast-mode-2026-02-01"} in Claude.prepare_language_model(
+             ctx
+           ).headers
+  end
+
+  test "Azure OpenAI defaults to the Responses endpoint" do
+    assert setting(AzureOpenAI, :endpoint_kind) ==
+             {:select, ~w(responses chat_completions), false}
+
+    assert Providers.responses_endpoint?("azure_openai", %{})
+    assert Providers.responses_endpoint?("azure_openai", %{"endpoint_kind" => "responses"})
+    refute Providers.responses_endpoint?("azure_openai", %{"endpoint_kind" => "chat_completions"})
+    refute Providers.responses_endpoint?("openai_compatible", %{})
+
+    {:ok, ctx} =
+      PrepareContext.build(
+        AzureOpenAI.provider_definition(),
+        :language_model,
+        %{
+          "model" => "gpt-6.1-sol",
+          "connection_options" => %{
+            "base_url" => "https://resource.services.ai.azure.com/openai/v1",
+            "api_key" => "fixture"
+          }
+        },
+        %{"input" => "hello"}
+      )
+
+    assert %UniversalAIRequest{path: "responses", api_resolver: :openai_responses} =
+             AzureOpenAI.prepare_language_model(ctx)
+
+    # A deployment-style resource speaks Responses on the resource path, and
+    # Azure reads the body model as the configured deployment name.
+    {:ok, deployment_ctx} =
+      PrepareContext.build(
+        AzureOpenAI.provider_definition(),
+        :language_model,
+        %{
+          "model" => "gpt-6.1-sol",
+          "connection_options" => %{
+            "base_url" => "https://resource.openai.azure.com",
+            "deployment" => "sol-prod",
+            "api_key" => "fixture"
+          }
+        },
+        %{"input" => "hello"}
+      )
+
+    prepared = AzureOpenAI.prepare_language_model(deployment_ctx)
+    assert prepared.path == "openai/responses?api-version=2025-04-01-preview"
+    assert prepared.include_model
+    assert prepared.ctx.model == "sol-prod"
+  end
+
+  test "request settings are offered only on the profiles of the capabilities that read them" do
+    capabilities = fn module, key ->
+      Enum.find(module.provider_definition().settings, &(&1.key == key)).capabilities
+    end
+
+    assert capabilities.(OpenRouter, :reasoningEffort) == [:language_model]
+    assert capabilities.(OpenRouter, :textVerbosity) == [:language_model]
+
+    assert capabilities.(OpenRouter, :user) == [
+             :language_model,
+             :embedding_model,
+             :rerank_model,
+             :image_generate
+           ]
+
+    for key <- [:taskType, :title, :outputDimensionality, :autoTruncate] do
+      assert capabilities.(GoogleAIStudioOpenAI, key) == [:embedding_model]
+    end
+
+    assert capabilities.(GoogleAIStudioOpenAI, :reasoningEffort) == [:language_model]
+
+    for key <- [:sources, :timeRange, :skip_cache] do
+      assert capabilities.(AgentBullCloud, key) == [:web_search]
+    end
+
+    for key <- [:reasoningEffort, :serviceTier, :textVerbosity, :truncation] do
+      assert capabilities.(AgentBullCloud, key) == [:language_model]
+    end
   end
 
   test "maps Decisions options and rejects language-only controls" do

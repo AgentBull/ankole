@@ -99,7 +99,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["store"] == false
     assert request.body["reasoning"] == %{"effort" => "minimal"}
     refute Map.has_key?(request.body, "reasoningEffort")
-    assert request.body["service_tier"] == "fast"
+    assert request.body["service_tier"] == "priority"
     assert request.body["prompt_cache_key"] == "cache-a"
 
     assert body["id"] =~ ~r/^tmp_resp_[0-9a-f-]{36}$/
@@ -2139,7 +2139,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.headers["anthropic-version"] == "2023-06-01"
     assert request.body["model"] == "anthropic/claude-sonnet-4.5"
     assert request.body["max_tokens"] == 32
-    assert request.body["output_config"] == %{"effort" => "max"}
+    assert request.body["output_config"] == %{"effort" => "xhigh"}
     refute Map.has_key?(request.body, "effort")
 
     assert body["model"] == "anthropic/claude-sonnet-4.5"
@@ -2266,6 +2266,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                connection_options: %{
                  "api_version" => "2025-04-01-preview",
                  "deployment" => "gpt-deployment",
+                 "endpoint_kind" => "chat_completions",
                  "transport" => %{}
                }
              })
@@ -2287,7 +2288,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(request.headers, "authorization")
     refute Map.has_key?(request.body, "model")
     assert request.body["reasoning_effort"] == "high"
-    assert request.body["service_tier"] == "fast"
+    assert request.body["service_tier"] == "priority"
     assert request.body["verbosity"] == "low"
     refute Map.has_key?(request.body, "reasoningEffort")
     refute Map.has_key?(request.body, "textVerbosity")
@@ -2304,6 +2305,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                connection_options: %{
                  "api_version" => "2025-04-01-preview",
                  "deployment" => "gpt-deployment",
+                 "endpoint_kind" => "chat_completions",
                  "transport" => %{}
                }
              })

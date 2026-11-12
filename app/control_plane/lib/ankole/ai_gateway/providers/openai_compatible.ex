@@ -41,7 +41,12 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       scope: :request
     )
 
-    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
+    setting(:serviceTier,
+      options: OpenAIRequestOptions.service_tier_values(),
+      scope: :request,
+      advanced: true
+    )
+
     setting(:textVerbosity, scope: :request)
 
     language_model do

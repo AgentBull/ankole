@@ -44,7 +44,7 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 
 ## 杠杆 2：reasoning effort
 
-对于支持调节思考深度（Codex Reasoning Effort）的 Provider，`model_reasoning_effort` 提供了从浅到深共七档精细调节：`minimal | low | medium | high | xhigh | max | ultra`（默认值为 `high`）。档位越低，响应越快、推理 Token 消耗越少；档位越高，面对复杂难题时推演越周密，但开销也成倍增加。
+对于支持调节思考深度（Codex Reasoning Effort）的 Provider，`model_reasoning_effort` 提供了从浅到深共六档精细调节：`minimal | low | medium | high | xhigh | max`（默认值为 `high`）。Console 只列出所选模型支持的档位。档位越低，响应越快、推理 Token 消耗越少；档位越高，面对复杂难题时推演越周密，但开销也成倍增加。
 
 这是比直接降级换模型更平滑的控费旋钮：如果一个负责常规问答的 Agent 把 `primary` 挂在 `high` 档，往往白白多烧了大量内部思考 Token，对最终回复质量却毫无肉眼可见的提升。建议将日常型 Agent 的 `primary` 推理强度调至 `medium` 等匹配实际难度的档位，只为少数真正承担高难度综合研判的专家型 Agent 保留高档位，切忌全员一刀切拉高。
 

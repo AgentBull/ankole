@@ -1,5 +1,36 @@
 # Changelog
 
+## Version 2.0.0-alpha.138 (2026-11-12)
+
+- Send Azure OpenAI requests to the Responses endpoint by default. This fixes
+  the `Function tools with reasoning_effort are not supported` error that
+  GPT-6.1 Sol and other reasoning models returned on every Agent request.
+  Upgrading moves every existing Azure OpenAI connection that still uses the
+  former Chat Completions default to Responses, and a connection that names a
+  deployment sends that deployment as the request's model. An operator who
+  serves a deployment that speaks only Chat Completions selects
+  `chat_completions` again in the connection settings.
+- Offer only the reasoning-effort levels that the selected model accepts in each
+  model profile, including Azure OpenAI deployments of OpenAI models and
+  ChatGPT subscription models, and hide the setting for a model that does not
+  reason. The `ultra` level is removed because no upstream accepts it, and saved
+  profiles that chose it now use `max`.
+- Send Claude's `xhigh` and `max` efforts under their own names, where `xhigh`
+  used to run as `max`. Claude Opus 4.6 and Sonnet 4.6 have no `xhigh`, so
+  profiles that chose it for those models must switch to `high` or `max`. A
+  Claude profile with fast `speed` also sends the beta flag that fast mode on
+  Claude Opus 5 and Opus 4.8 requires.
+- Request OpenAI's `priority` tier for the `fast` service tier. The upstream
+  used to receive `fast`, which Azure OpenAI silently served at the default
+  tier. `truncation` and `promptCacheRetention` now offer only the values that
+  OpenAI accepts.
+- Offer each model profile only the options that its capability reads.
+  Embedding, rerank, image, and web search profiles on OpenRouter and AgentBull
+  Cloud no longer show language-model options such as reasoning effort or
+  verbosity, which those requests copied into the upstream body unchanged, and
+  Google AI Studio language profiles no longer show embedding options. Saving
+  such a profile again removes an option it held from before.
+
 ## Version 2.0.0-alpha.137 (2026-11-12)
 
 - Show the signed-in person's own avatar in the Pod sidebar's account row

@@ -11,6 +11,12 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
 
   @reasoning_summary_values ~w(auto concise detailed)
   @text_verbosity_values ~w(low medium high)
+  @truncation_values ~w(auto disabled)
+  @prompt_cache_retention_values ~w(in_memory 24h)
+  # Ankole suggests the tier names that Codex shows. OpenAI calls the fast tier
+  # `priority`, and Azure serves an unknown tier at the default tier without
+  # saying so. A custom tier passes through unchanged.
+  @service_tier_wire_values %{"fast" => "priority", "flex" => "flex"}
   # OpenAI Chat Completions rejects these Responses request fields.
   @responses_only_options ~w(reasoningSummary truncation contextManagement)
   @decisions_unsupported_options ~w(
@@ -27,6 +33,33 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
   @doc "Returns the text verbosity values accepted by OpenAI."
   @spec text_verbosity_values() :: [String.t()]
   def text_verbosity_values, do: @text_verbosity_values
+
+  @doc "Returns the truncation values accepted by OpenAI Responses."
+  @spec truncation_values() :: [String.t()]
+  def truncation_values, do: @truncation_values
+
+  @doc "Returns the prompt-cache retention values accepted by OpenAI."
+  @spec prompt_cache_retention_values() :: [String.t()]
+  def prompt_cache_retention_values, do: @prompt_cache_retention_values
+
+  @doc "Returns the service tier names that Console suggests."
+  @spec service_tier_values() :: [String.t()]
+  def service_tier_values, do: @service_tier_wire_values |> Map.keys() |> Enum.sort()
+
+  @doc """
+  Moves the public `serviceTier` option to OpenAI's `service_tier` field and
+  value.
+  """
+  @spec put_service_tier(map()) :: map()
+  def put_service_tier(options) when is_map(options) do
+    case Map.pop(options, "serviceTier") do
+      {nil, options} ->
+        options
+
+      {tier, options} ->
+        Map.put(options, "service_tier", Map.get(@service_tier_wire_values, tier, tier))
+    end
+  end
 
   @doc "Writes the public options to their provider-native request locations."
   @spec put_provider_options(UniversalAIRequest.t() | {:error, term()}, endpoint(), map()) ::
@@ -86,7 +119,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
   # OpenAI endpoints accept these shared request fields under their snake_case names.
   defp rename_common_options(options) do
     options
-    |> rename_option("serviceTier", "service_tier")
+    |> put_service_tier()
     |> rename_option("promptCacheKey", "prompt_cache_key")
     |> rename_option("promptCacheOptions", "prompt_cache_options")
     |> rename_option("promptCacheRetention", "prompt_cache_retention")

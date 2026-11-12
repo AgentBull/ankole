@@ -219,7 +219,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
     models =
       provider_atom
       |> LLMDB.models()
-      |> Enum.map(&from_llm_db_model/1)
+      |> Enum.map(&from_llm_db_model(&1, provider_atom))
 
     {:ok, models}
   end
@@ -283,7 +283,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
   defp source_model(%Provider{}, {:llm_db, provider_atom}, model_id, _opts) do
     case LLMDB.model(provider_atom, model_id) do
       {:ok, model} ->
-        {:ok, from_llm_db_model(model)}
+        {:ok, from_llm_db_model(model, provider_atom)}
 
       {:error, :not_found} ->
         with [model] <-
@@ -291,7 +291,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
                |> LLMDB.models()
                |> Enum.filter(fn model -> model_id in (model.aliases || []) end)
                |> Enum.take(1) do
-          {:ok, from_llm_db_model(model)}
+          {:ok, from_llm_db_model(model, provider_atom)}
         else
           _models -> {:error, :model_metadata_not_found}
         end
@@ -512,8 +512,24 @@ defmodule Ankole.AIGateway.ModelMetadata do
       "context_length" => context_length,
       "max_completion_tokens" => nil
     })
+    |> Map.put("reasoning", codex_reasoning(model["supported_reasoning_levels"]))
     |> ensure_openrouter_defaults()
   end
+
+  # The Codex catalog lists each model's reasoning presets as objects that
+  # carry an `effort` value.
+  defp codex_reasoning(levels) when is_list(levels) do
+    case Enum.flat_map(levels, &codex_effort/1) do
+      [] -> nil
+      efforts -> %{"enabled" => true, "effort" => efforts}
+    end
+  end
+
+  defp codex_reasoning(_levels), do: nil
+
+  defp codex_effort(%{"effort" => effort}) when is_binary(effort), do: [effort]
+  defp codex_effort(effort) when is_binary(effort), do: [effort]
+  defp codex_effort(_level), do: []
 
   defp from_openrouter_model(model) when is_map(model) do
     model = Ankole.Attrs.normalize_external_attrs(model)
@@ -556,7 +572,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
     |> ensure_openrouter_defaults()
   end
 
-  defp from_llm_db_model(%LLMDB.Model{} = model) do
+  defp from_llm_db_model(%LLMDB.Model{} = model, provider_atom) do
     id = model.id
     context_length = get_integer(model.limits, :context) || get_integer(model.limits, :input) || 0
     max_completion_tokens = get_integer(model.limits, :output)
@@ -576,7 +592,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
       "max_completion_tokens" => max_completion_tokens
     })
     |> Map.put("supported_parameters", supported_parameters_from_llm_db(model))
-    |> Map.put("reasoning", reasoning_from_llm_db(model))
+    |> Map.put("reasoning", reasoning_from_llm_db(model, provider_atom))
     |> Map.put("knowledge_cutoff", model.knowledge)
     |> Map.put("expiration_date", llm_db_expiration_date(model))
     |> Map.put("links", llm_db_links(model))
@@ -747,6 +763,22 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp reasoning_from_llm_db(_model), do: nil
+
+  # llm_db describes Azure deployments of OpenAI models without their effort
+  # levels. Azure serves the same models, so it reads the levels of the OpenAI
+  # model with the same id.
+  defp reasoning_from_llm_db(%LLMDB.Model{} = model, :azure) do
+    with %{"enabled" => true, "effort" => nil} <- reasoning_from_llm_db(model),
+         {:ok, openai_model} <- LLMDB.model(:openai, model.id),
+         %{"enabled" => true, "effort" => [_ | _]} = openai_reasoning <-
+           reasoning_from_llm_db(openai_model) do
+      openai_reasoning
+    else
+      _missing -> reasoning_from_llm_db(model)
+    end
+  end
+
+  defp reasoning_from_llm_db(model, _provider_atom), do: reasoning_from_llm_db(model)
 
   defp llm_db_effort(%{effort: %{supported: true, values: [_ | _] = values}}),
     do: Enum.map(values, &to_string/1)

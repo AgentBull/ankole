@@ -50,9 +50,21 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
 
     setting(:promptCacheKey, scope: :request, advanced: true)
     setting(:promptCacheOptions, type: :map, scope: :request, advanced: true)
-    setting(:promptCacheRetention, scope: :request, advanced: true)
+
+    setting(:promptCacheRetention,
+      type: :select,
+      options: OpenAIRequestOptions.prompt_cache_retention_values(),
+      scope: :request,
+      advanced: true
+    )
+
     setting(:safetyIdentifier, scope: :request, advanced: true)
-    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
+
+    setting(:serviceTier,
+      options: OpenAIRequestOptions.service_tier_values(),
+      scope: :request,
+      advanced: true
+    )
 
     setting(:textVerbosity,
       type: :select,
@@ -60,7 +72,13 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       scope: :request
     )
 
-    setting(:truncation, scope: :request, advanced: true)
+    setting(:truncation,
+      type: :select,
+      options: OpenAIRequestOptions.truncation_values(),
+      scope: :request,
+      advanced: true
+    )
+
     setting(:contextManagement, type: :map, scope: :request, advanced: true)
 
     language_model do

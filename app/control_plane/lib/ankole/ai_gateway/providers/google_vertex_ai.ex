@@ -63,6 +63,9 @@ defmodule Ankole.AIGateway.Providers.GoogleVertexAI do
     end
   end
 
+  @doc "Returns the reasoning-effort target and value map of this provider's language-model requests."
+  def reasoning_effort_options, do: [target: :reasoning_effort, map: @reasoning_effort_map]
+
   @doc """
   Builds a Vertex AI Chat Completions request.
 
@@ -83,10 +86,7 @@ defmodule Ankole.AIGateway.Providers.GoogleVertexAI do
       )
       |> UniversalAIRequest.put_new_header("x-goog-api-client", "ankole-ai-gateway/0.1")
       |> UniversalAIRequest.bearer_auth(access_token)
-      |> ReasoningEffort.put_provider_options(ctx,
-        target: :reasoning_effort,
-        map: @reasoning_effort_map
-      )
+      |> ReasoningEffort.put_provider_options(ctx, reasoning_effort_options())
       |> put_safety_settings(ctx.settings[:safety_threshold])
     end
   end

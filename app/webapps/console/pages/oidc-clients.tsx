@@ -68,7 +68,7 @@ import {
   rotateOidcClientSecretMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { PrincipalGroupRecord } from './principal-groups'
-import type { AIGatewayProviderKindItem } from '../state/provider-settings'
+import type { AIGatewayModelCatalogEntry, AIGatewayProviderKindItem } from '../state/provider-settings'
 import type { ModelProfileWriteRequest } from '../state/model-profiles-model'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { ConfirmDeleteButton, EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
@@ -308,7 +308,13 @@ export function OIDCClientEditorPage() {
     }
 
     const builtAliases = aiGatewayEnabled
-      ? buildModelAliases(draft.modelAliases, providers.data ?? [], providerKinds.data?.provider_kinds ?? [], t)
+      ? buildModelAliases(
+          draft.modelAliases,
+          providers.data ?? [],
+          providerKinds.data?.provider_kinds ?? [],
+          modelCatalog.data?.models ?? [],
+          t
+        )
       : ({ ok: true, value: {} } as const)
 
     if (!builtAliases.ok) {
@@ -803,6 +809,7 @@ export function buildModelAliases(
   aliases: ClientModelAliasDraft[],
   providers: AIGatewayProviderItem[],
   providerKinds: AIGatewayProviderKindItem[],
+  modelCatalog: AIGatewayModelCatalogEntry[],
   t: ReturnType<typeof useTranslation>['t']
 ): ModelAliasesBuildResult {
   const names = new Set<string>()
@@ -819,6 +826,7 @@ export function buildModelAliases(
       draft: alias.profile,
       providers,
       providerKinds,
+      modelCatalog,
       t,
       includeDescription: true
     })

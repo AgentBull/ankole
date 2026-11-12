@@ -26,8 +26,10 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     setting(:app_title, default: @default_title, advanced: true)
 
     # The speech and transcription requests send their own fields only, and a
-    # decision request rejects the three language-model options, so their model
-    # profiles do not offer these options.
+    # decision request rejects these options, so their model profiles do not
+    # offer them. Embedding, rerank, and image requests copy their options into
+    # the body unchanged, so only the language model reads reasoning effort and
+    # verbosity, which its prepare function maps to OpenRouter's field names.
     @option_capabilities [:language_model, :embedding_model, :rerank_model, :image_generate]
 
     setting(:user, scope: :request, advanced: true, capabilities: @option_capabilities)
@@ -36,10 +38,10 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       type: :select,
       options: ReasoningEffort.Levels.values(),
       scope: :request,
-      capabilities: @option_capabilities
+      capabilities: [:language_model]
     )
 
-    setting(:textVerbosity, scope: :request, capabilities: @option_capabilities)
+    setting(:textVerbosity, scope: :request, capabilities: [:language_model])
 
     # OpenRouter provider routing preferences (`order`, `only`, `ignore`,
     # `allow_fallbacks`, `require_parameters`, ...). The map goes to the request

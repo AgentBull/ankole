@@ -185,6 +185,7 @@ function NewCustomModelProfileEditor({
       draft,
       providers,
       providerKinds,
+      modelCatalog,
       t,
       includeDescription: true
     })
@@ -299,6 +300,7 @@ function StoredCustomModelProfileEditor({
       draft: model.snapshot(),
       providers,
       providerKinds,
+      modelCatalog,
       t,
       includeDescription: true
     })

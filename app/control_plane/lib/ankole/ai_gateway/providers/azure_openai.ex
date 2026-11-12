@@ -15,7 +15,13 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
     label(%{"default" => "Azure OpenAI", "zh-Hans-CN" => "Azure OpenAI"})
 
     setting(:api_key, encrypted: true, scope: :credential)
-    setting(:endpoint_kind, default: "chat_completions")
+
+    setting(:endpoint_kind,
+      type: :select,
+      default: "responses",
+      options: ~w(responses chat_completions)
+    )
+
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
     setting(:api_version, default: "2025-04-01-preview", advanced: true)
@@ -49,7 +55,11 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       advanced: true
     )
 
-    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
+    setting(:serviceTier,
+      options: OpenAIRequestOptions.service_tier_values(),
+      scope: :request,
+      advanced: true
+    )
 
     setting(:textVerbosity,
       type: :select,
@@ -57,7 +67,12 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       scope: :request
     )
 
-    setting(:truncation, scope: :request, advanced: true)
+    setting(:truncation,
+      type: :select,
+      options: OpenAIRequestOptions.truncation_values(),
+      scope: :request,
+      advanced: true
+    )
 
     language_model do
       api_resolver(:openai_chat_completions)
@@ -98,6 +113,10 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       end
 
     with {:ok, path, include_model?} <- azure_response_path(ctx.runtime, responses?, options) do
+      # Azure reads the body `model` as a deployment name, so a configured
+      # deployment names the model wherever the path does not carry it.
+      ctx = if include_model?, do: %{ctx | model: options["deployment"] || ctx.model}, else: ctx
+
       ctx
       |> UniversalAIRequest.new(path, Providers.openai_family_api_resolver(responses?),
         include_model: include_model?

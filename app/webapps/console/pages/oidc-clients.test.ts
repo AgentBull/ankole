@@ -40,6 +40,7 @@ describe('OIDC Client editor', () => {
         ],
         [provider('openai-main', 'openai')],
         [kind('openai', ['llm'])],
+        [],
         t
       )
     ).toEqual({
@@ -74,6 +75,7 @@ describe('OIDC Client editor', () => {
       ],
       [provider('openai-main', 'openai')],
       [kind('openai', ['llm'])],
+      [],
       t
     )
 

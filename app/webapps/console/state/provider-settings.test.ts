@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import type {
   AIGatewayCredentialPoolEntry,
+  AIGatewayModelCatalogEntry,
   AIGatewayProviderKindItem,
   ProviderSetting as AIGatewayProviderSetting
 } from './provider-settings'
@@ -12,7 +13,8 @@ import {
   decryptedCredentialFieldText,
   entryHasSecretField,
   requestSettings,
-  secretCredentialSettings
+  secretCredentialSettings,
+  settingsForModel
 } from './provider-settings'
 
 function providerKind(providerKind: string): AIGatewayProviderKindItem {
@@ -58,7 +60,50 @@ function providerSetting(key: string, overrides: Partial<AIGatewayProviderSettin
   }
 }
 
+function catalogEntry(model: string, reasoningEfforts: string[] | null): AIGatewayModelCatalogEntry {
+  return {
+    capability: 'llm',
+    description: '',
+    image_input: false,
+    model,
+    name: model,
+    provider_id: 'openai-main',
+    reasoning_efforts: reasoningEfforts
+  }
+}
+
 describe('provider settings', () => {
+  test('narrows the reasoning-effort picker to the levels the selected model accepts', () => {
+    const settings = requestSettings(providerKind('openai'), 'llm')
+    const catalog = [
+      catalogEntry('gpt-sol', ['low', 'medium', 'high', 'xhigh', 'max']),
+      catalogEntry('gpt-plain', []),
+      catalogEntry('gpt-unknown', null)
+    ]
+    const effort = (model: string) =>
+      settingsForModel(settings, catalog, 'openai-main', model).find(setting => setting.key === 'reasoningEffort')
+
+    expect(effort('gpt-sol')?.options).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(effort('gpt-plain')).toBeUndefined()
+    expect(effort('gpt-unknown')?.options).toEqual(['none', 'minimal', 'low', 'medium', 'high', 'xhigh'])
+    expect(effort('custom-deployment')?.options).toEqual(['none', 'minimal', 'low', 'medium', 'high', 'xhigh'])
+    expect(settingsForModel(settings, catalog, 'other-provider', 'gpt-plain')).toEqual(settings)
+  })
+
+  test('drops a stored effort on save when the selected model does not reason', () => {
+    const settings = settingsForModel(
+      requestSettings(providerKind('openai'), 'llm'),
+      [catalogEntry('gpt-plain', [])],
+      'openai-main',
+      'gpt-plain'
+    )
+
+    expect(buildSettingOptions(settings, { reasoningEffort: 'high' }, (field, error) => `${field}:${error}`)).toEqual({
+      ok: true,
+      value: {}
+    })
+  })
+
   test('selects only connection-scope settings in DSL order for the connection form', () => {
     const kind = providerKind('openai')
 

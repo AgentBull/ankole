@@ -12,6 +12,7 @@ defmodule Ankole.AIGateway.Models do
   alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.ReasoningEffort
 
   @doc """
   Lists model selectors visible to one subject.
@@ -60,6 +61,7 @@ defmodule Ankole.AIGateway.Models do
   def console_catalog do
     Enum.flat_map(ProviderConfigs.list_active_providers(), fn provider ->
       {:ok, models} = ModelMetadata.list_provider_model_metadata(provider)
+      effort_options = reasoning_effort_options(provider.provider_kind)
 
       Enum.map(models, fn metadata ->
         metadata = ModelMetadata.openrouter_entry(metadata, metadata["id"], metadata["id"])
@@ -70,10 +72,20 @@ defmodule Ankole.AIGateway.Models do
           name: metadata["name"],
           description: metadata["description"],
           capability: ModelMetadata.capability(metadata),
-          image_input: "image" in metadata["architecture"]["input_modalities"]
+          image_input: "image" in metadata["architecture"]["input_modalities"],
+          reasoning_efforts: ReasoningEffort.model_levels(metadata["reasoning"], effort_options)
         }
       end)
     end)
+  end
+
+  defp reasoning_effort_options(provider_kind) do
+    with {:ok, definition} <- Providers.fetch(provider_kind),
+         true <- function_exported?(definition.module, :reasoning_effort_options, 0) do
+      definition.module.reasoning_effort_options()
+    else
+      _default -> [target: :reasoning]
+    end
   end
 
   defp explicit_provider_entries do

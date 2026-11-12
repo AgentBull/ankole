@@ -42,7 +42,7 @@ Check the effective optional profiles inherited from Site and Pod before changin
 
 ## Lever 2: reasoning effort
 
-For providers that support Codex reasoning effort, `model_reasoning_effort` offers seven levels: `minimal | low | medium | high | xhigh | max | ultra` (defaulting to `high`). Lower effort reduces both latency and token spend, whereas higher effort improves difficult synthesis at higher token cost.
+For providers that support Codex reasoning effort, `model_reasoning_effort` offers six levels: `minimal | low | medium | high | xhigh | max` (defaulting to `high`). Console lists only the levels that the selected model accepts. Lower effort reduces both latency and token spend, whereas higher effort improves difficult synthesis at higher token cost.
 
 Before moving an Agent's `primary` profile to a larger model, try tuning `model_reasoning_effort` first, reserving `high` and above for Agents that tackle complex synthesis rather than routine operational turns.
 

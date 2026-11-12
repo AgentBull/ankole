@@ -34,6 +34,7 @@ import { ProviderSettingField, providerSettingLabel } from './provider-setting-f
 import {
   buildSettingOptions,
   requestSettings,
+  settingsForModel,
   settingValidationMessage,
   type ProviderSetting
 } from '../state/provider-settings'
@@ -113,7 +114,12 @@ export function ModelProfileEditorCard({
     ...profileProviders.map(provider => provider.provider_id),
     ...(providerID && !profileProviders.some(provider => provider.provider_id === providerID) ? [providerID] : [])
   ]
-  const optionSettings = requestSettings(selectedKind, profileCapability(profile))
+  const optionSettings = settingsForModel(
+    requestSettings(selectedKind, profileCapability(profile)),
+    modelCatalog,
+    providerID,
+    draft.model
+  )
   const basicOptionSettings = optionSettings.filter(setting => !setting.advanced)
   const advancedOptionSettings = optionSettings.filter(setting => setting.advanced)
   const configurableModel = profileUsesConfigurableModel(profile)
@@ -379,6 +385,7 @@ export function buildModelProfileWriteRequest({
   draft,
   providers,
   providerKinds,
+  modelCatalog,
   t,
   includeDescription = false
 }: {
@@ -386,6 +393,8 @@ export function buildModelProfileWriteRequest({
   draft: ProfileDraft
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
+  /** Narrows the request settings to the selected model, as the editor card shows them. */
+  modelCatalog: AIGatewayModelCatalogEntry[]
   t: TFunction
   includeDescription?: boolean
 }): { ok: true; body: ModelProfileWriteRequest } | { ok: false; error: string } {
@@ -411,7 +420,12 @@ export function buildModelProfileWriteRequest({
   }
 
   const builtOptions = buildSettingOptions(
-    requestSettings(selectedKind, profileCapability(profile)),
+    settingsForModel(
+      requestSettings(selectedKind, profileCapability(profile)),
+      modelCatalog,
+      draft.providerID,
+      draft.model
+    ),
     draft.providerOptions,
     settingValidationMessage,
     key => providerSettingLabel(t, key)

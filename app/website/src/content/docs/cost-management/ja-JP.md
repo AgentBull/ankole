@@ -44,7 +44,7 @@ Agent の上書きを変更する前に、Site と Pod から継承した実効�
 
 ## レバー 2: reasoning effort
 
-Codex の推論強度（`model_reasoning_effort`）に対応する Provider では、`minimal | low | medium | high | xhigh | max | ultra` の 7 段階で推論トークン量を調整できます。段階を下げるほど低コストかつ高速になり、上げるほど難問への精度が高まる代わりに消費が増えます（既定値は `high` です）。
+Codex の推論強度（`model_reasoning_effort`）に対応する Provider では、`minimal | low | medium | high | xhigh | max` の 6 段階で推論トークン量を調整できます。Console には、選択したモデルが受け付ける段階だけが表示されます。段階を下げるほど低コストかつ高速になり、上げるほど難問への精度が高まる代わりに消費が増えます（既定値は `high` です）。
 
 モデル自体を変更するよりも細かく効くレバーです。たとえば通常の業務応答で `medium` で十分な Agent が既定の `high` のまま動いていると、体感品質は変わらないまま推論トークンだけを余分に消費します。全 Agent を一律に引き上げるのではなく、まず `primary` プロファイルを業務難度に見合った段階へ下げ、複雑な統合判断を担う特定の Agent だけを高めに設定してください。
 

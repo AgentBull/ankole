@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
   use Ankole.AIGateway.ProviderDSL
 
   alias Ankole.AIGateway.ChatGPTProtocol
+  alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -46,7 +47,11 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
       scope: :request
     )
 
-    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
+    setting(:serviceTier,
+      options: OpenAIRequestOptions.service_tier_values(),
+      scope: :request,
+      advanced: true
+    )
 
     language_model do
       api_resolver(:openai_responses)
@@ -79,8 +84,9 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
         end
 
       request
-      |> UniversalAIRequest.put_provider_options(provider_options)
-      |> UniversalAIRequest.rename_provider_option("serviceTier", "service_tier")
+      |> UniversalAIRequest.put_provider_options(
+        OpenAIRequestOptions.put_service_tier(provider_options)
+      )
       |> UniversalAIRequest.rename_provider_option("promptCacheKey", "prompt_cache_key")
       |> put_protocol_headers(ctx, protocol, websocket?)
       |> UniversalAIRequest.bearer_auth(ctx.settings[:access_token])

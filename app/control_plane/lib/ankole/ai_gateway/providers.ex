@@ -349,21 +349,22 @@ defmodule Ankole.AIGateway.Providers do
   @doc """
   Returns whether one provider connection speaks the OpenAI Responses wire.
 
-  This is the only owner of the per-kind endpoint defaults: `openai` defaults
-  to Responses, `azure_openai` and `openai_compatible` default to Chat
-  Completions because that is the most common generic shape, and
+  This is the only owner of the per-kind endpoint defaults: `openai` and
+  `azure_openai` default to Responses, because current OpenAI reasoning models
+  accept function tools with reasoning only there, `openai_compatible` defaults
+  to Chat Completions because that is the most common generic shape, and
   `chatgpt_subscription` always speaks Responses. A missing or unknown
   `endpoint_kind` connection option falls back to the kind's default.
   """
   @spec responses_endpoint?(String.t(), map()) :: boolean()
   def responses_endpoint?("chatgpt_subscription", _connection_options), do: true
 
-  def responses_endpoint?("openai", connection_options) do
+  def responses_endpoint?(provider_kind, connection_options)
+      when provider_kind in ["openai", "azure_openai"] do
     Map.get(connection_options, "endpoint_kind") != "chat_completions"
   end
 
-  def responses_endpoint?(provider_kind, connection_options)
-      when provider_kind in ["openai_compatible", "azure_openai"] do
+  def responses_endpoint?("openai_compatible", connection_options) do
     Map.get(connection_options, "endpoint_kind") == "responses"
   end
 

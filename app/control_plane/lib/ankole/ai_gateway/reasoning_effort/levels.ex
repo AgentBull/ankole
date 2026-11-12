@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.ReasoningEffort.Levels do
   runtime cycle of `Ankole.AIGateway.ReasoningEffort` and model metadata.
   """
 
-  @values ~w(none minimal low medium high xhigh max ultra)
+  @values ~w(none minimal low medium high xhigh max)
 
   @doc "Returns the canonical levels accepted by Ankole, optionally narrowed by a provider map."
   @spec values(map() | nil) :: [String.t()]

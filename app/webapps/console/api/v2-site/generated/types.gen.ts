@@ -358,6 +358,7 @@ export type ListAiGatewayModelsResponses = {
       model: string
       name: string
       provider_id: string
+      reasoning_efforts?: Array<string> | null
     }>
   }
 }
