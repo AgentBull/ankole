@@ -65,7 +65,17 @@ defmodule Ankole.Sessions.ToolCatalog do
 
   defp maybe_allow_programmatic_worker_tool(declaration), do: declaration
 
-  def wire(tools), do: Enum.map(tools, & &1.schema)
+  # Azure OpenAI Chat Completions rejects a function whose parameters carry one
+  # of these keys at the root. Every provider receives the plain object schema,
+  # while Tools.prepare/2 still validates each call against the full declaration.
+  @provider_rejected_root_keys ~w(oneOf anyOf allOf enum const not)
+
+  def wire(tools), do: Enum.map(tools, &wire_schema(&1.schema))
+
+  defp wire_schema(%{"parameters" => %{} = parameters} = schema),
+    do: %{schema | "parameters" => Map.drop(parameters, @provider_rejected_root_keys)}
+
+  defp wire_schema(schema), do: schema
 
   def find(run, call) do
     Enum.find(run.tools, fn tool ->

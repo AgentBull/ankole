@@ -1,8 +1,11 @@
 defmodule Ankole.Sessions.ModelRequestTest do
   use ExUnit.Case, async: true
   alias Ankole.Sessions.Model
+  alias Ankole.Sessions.Presentation
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tool
+  alias Ankole.Sessions.ToolArguments
+  alias Ankole.Sessions.Tools
   alias Ankole.Signals.Signal
 
   test "a scheduled round with client tools does not force JSON" do
@@ -38,6 +41,32 @@ defmodule Ankole.Sessions.ModelRequestTest do
 
   test "an ordinary round without tools has no scheduled result schema" do
     refute Map.has_key?(Model.request(%{run() | kind: :main}), "text")
+  end
+
+  test "function parameters reach the provider without root combinators while calls still follow the declaration" do
+    [attachment] = Presentation.declarations()
+    [message] = Tools.Message.declarations()
+    attachment_tool = Tool.new(attachment, Presentation)
+    message_tool = Tool.new(message, Tools.Message)
+    run = %{run() | kind: :main, tools: [attachment_tool, message_tool]}
+
+    assert [
+             %{"name" => "reply_attachment", "parameters" => attachment_wire, "strict" => false},
+             %{"name" => "send_message", "parameters" => message_wire}
+           ] = Model.request(run)["tools"]
+
+    assert attachment_wire == Map.delete(attachment["parameters"], "oneOf")
+    assert message_wire == message["parameters"]
+    assert %{"oneOf" => [_, _]} = message_wire["properties"]["destination"]
+
+    for args <- [%{"node_id" => "node"}, %{"path" => "/drive/report.txt"}] do
+      assert {:ok, ^args} = ToolArguments.validate(attachment_tool.schema["parameters"], args)
+    end
+
+    for args <- [%{}, %{"node_id" => "node", "path" => "/drive/report.txt"}] do
+      call = %{"name" => "reply_attachment", "arguments" => Ankole.JSON.encode!(args)}
+      assert {:error, %{failure_kind: "invalid_arguments"}} = Tools.prepare(run, call)
+    end
   end
 
   test "appends server tool_search and programmatic_tool_calling when catalog declares deferred and programmatic tools" do

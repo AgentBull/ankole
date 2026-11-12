@@ -132,6 +132,16 @@ defmodule Ankole.Sessions.ProgrammaticToolCallingTest do
     assert %{"type" => "programmatic_tool_calling"} in request["tools"]
   end
 
+  test "the chat request sends no function parameters with a root combinator", %{run: run} do
+    tools = Model.request(run)["tools"]
+    assert Enum.any?(tools, &(&1["name"] == "reply_attachment"))
+
+    for %{"parameters" => %{} = parameters} = tool <- tools do
+      assert Map.take(parameters, ~w(oneOf anyOf allOf enum const not)) == %{},
+             "#{tool["name"]} sends a root combinator"
+    end
+  end
+
   test "Tools.prepare enforces allowed_callers against programmatic caller scope", %{run: run} do
     program_caller = %{"type" => "program", "caller_id" => "prog_guard"}
 
