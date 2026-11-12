@@ -50,25 +50,30 @@ export type InlineEditControls = {
 }
 
 /**
- * Who wrote a message: a 32px round avatar, which Agents and people share, and the name. Your own messages and a
- * message that continues the same author's last one keep the name only for assistive technology. The message
- * states its time in its action row, not on this line.
+ * Who wrote a message: a 32px round avatar, which Agents and people share, and the name. An Agent without an uploaded
+ * avatar shows the bot mark instead of initials. Your own messages and a message that continues the same author's
+ * last one keep the name only for assistive technology. The message states its time in its action row, not on this
+ * line.
  */
 export function MessageIdentity({
   name,
   archived = false,
   avatarURL,
+  agent = false,
   quiet = false
 }: {
   name: string
   archived?: boolean
   avatarURL?: string | null
+  agent?: boolean
   quiet?: boolean
 }) {
   const { t } = useTranslation()
   return (
     <header className="pod-chat-message-identity" data-quiet={quiet || undefined}>
-      {!quiet && <ChatAvatar name={name} src={avatarURL} size="default" className="pod-chat-message-avatar" />}
+      {!quiet && (
+        <ChatAvatar name={name} src={avatarURL} agent={agent} size="default" className="pod-chat-message-avatar" />
+      )}
       <strong className={quiet ? 'sr-only' : undefined}>{name}</strong>
       {archived && <span className="pod-chat-archived">{t('pod.chat_timeline.archived')}</span>}
     </header>
@@ -160,6 +165,7 @@ export const MessageView = memo(function MessageView({
   const savedPages = usePagesMetadata(message?.savedPages ?? NO_SAVED_PAGES)
   const rich = message?.richContent
   const human = message?.authorType === 'human'
+  const agent = !!live || message?.authorType === 'agent'
   const name = message ? message.authorDisplayName : live?.agentName || t('pod.chat_timeline.agent')
   const onRetry = message && retryable && onRegenerateMessage ? () => onRegenerateMessage(message) : undefined
   const onEdit = message && canEdit && onEditMessage ? () => onEditMessage(message) : undefined
@@ -170,7 +176,7 @@ export const MessageView = memo(function MessageView({
     const label = timelineEventLabel(message, t, i18n.language)
     return (
       <div className="pod-chat-timeline-event">
-        <ChatAvatar name={name} src={avatarURL} size="xs" className="pod-chat-notice-avatar" />
+        <ChatAvatar name={name} src={avatarURL} agent={agent} size="xs" className="pod-chat-notice-avatar" />
         <p title={label}>{label}</p>
         <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString(i18n.language)}>
           {messageTime(message.createdAt, i18n.language)}
@@ -233,6 +239,7 @@ export const MessageView = memo(function MessageView({
         name={name}
         archived={message?.authorArchived}
         avatarURL={avatarURL}
+        agent={agent}
         quiet={!!message && (own || continued || !!rich?.peer_agent_uid)}
       />
       {message && editingInline && detail && inlineEdit ? (
@@ -288,12 +295,7 @@ export const MessageView = memo(function MessageView({
             <>
               {text && (!connectorAuth || text !== `Connect ${connectorAuth.display_name} to continue.`) && (
                 <div className={human ? 'pod-chat-human-text' : undefined}>
-                  <ChatMarkdown
-                    text={text}
-                    generated={!!live || message?.authorType === 'agent'}
-                    streaming={!!live}
-                    onReply={onReply}
-                  />
+                  <ChatMarkdown text={text} generated={agent} streaming={!!live} onReply={onReply} />
                 </div>
               )}
               {connectorAuth && <ConnectorAuthCardView prompt={connectorAuth} />}

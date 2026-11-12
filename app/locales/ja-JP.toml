@@ -5130,6 +5130,7 @@ listeners = "応答可能な Agent"
 mention_outside = "@{ $name } はこの会話に参加していません。"
 dismiss = "閉じる"
 resize_chat = "ページ会話の幅を調整"
+resize_inspector = "バックグラウンド作業パネルの幅を調整"
 
 [app_configure.descriptions.agent_workers]
 ready_timeout_seconds = "存在を確認した Worker が準備完了にならない場合、インスタンスとキャッシュを再作成するまでの秒数。"

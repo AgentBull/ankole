@@ -471,7 +471,9 @@ test('Applet settings puts each Job tab heading first and explains a missing Act
   await expect(contributorDialog.getByRole('button', { name: 'New Job', exact: true })).toHaveCount(0)
 })
 
-test('AccountMenu renders each Space avatar from its own Pod origin and authenticationRef', async ({ page }) => {
+test('AccountMenu shows the person in its trigger and each Space avatar in its menu, each from its own Pod origin and authenticationRef', async ({
+  page
+}) => {
   await page.setViewportSize({ width: 1365, height: 900 })
   await installDocumentIdentity(page, HARBOR_ID, 'auth-harbor')
 
@@ -481,6 +483,7 @@ test('AccountMenu renders each Space avatar from its own Pod origin and authenti
         authenticated: true,
         principalUID: 'alice',
         displayName: 'Alice Reviewer',
+        avatarURL: '/api/v2/pod/avatars/member%3Aalice?v=alice-v1',
         canManagePod: false,
         tenant: {
           id: HARBOR_ID,
@@ -558,7 +561,7 @@ test('AccountMenu renders each Space avatar from its own Pod origin and authenti
   const trigger = page.locator('button.pod-account-trigger')
   await expect(trigger.locator('img')).toHaveAttribute(
     'src',
-    'https://harbor.pod.example/api/v2/pod/avatars/space?v=harbor-v1&authentication_ref=auth-harbor'
+    'https://harbor.pod.example/api/v2/pod/avatars/member%3Aalice?v=alice-v1&authentication_ref=auth-harbor'
   )
 
   await trigger.click()

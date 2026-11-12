@@ -533,8 +533,9 @@
   font-size: 12px;
   color: var(--fg-secondary);
 }
-/* A room's right sidebar (its summary, an execution, or a file) takes everything right of a 300px chat column, so the
-   chat narrows into a message column beside it. The sidebar enters and leaves by sliding its right margin (see
+/* A room's right sidebar is its summary, an execution, or a file. A file's preview takes everything right of a 300px
+   chat column, so the chat narrows into a message column beside it; the summary and an execution keep their own
+   widths (below). The sidebar enters and leaves by sliding its right margin (see
    `PodPanelSurface`), and the chat column narrows and widens over that same motion. The room body and the chat column
    are size containers, so the sidebar sizes against the room and the messages lay out against their own column. */
 .pod-chat-room-body {
@@ -561,6 +562,22 @@
   min-height: 0;
   border-left: 1px solid var(--border);
   background: var(--background);
+}
+/* The background-work inspector is a column of the viewer's chosen width, 440px until they drag its left edge, and
+   the chat keeps the rest of the room, never less than its 300px column. */
+.pod-chat-room-body > .pod-chat-inspector-split {
+  width: clamp(320px, var(--pod-chat-inspector-width), calc(100cqw - var(--pod-chat-split-width)));
+}
+.pod-chat-inspector-resize {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  bottom: 0;
+  left: -6px;
+}
+body:has(.pod-chat-inspector-resize[data-resizing]) {
+  cursor: col-resize;
+  user-select: none;
 }
 /* The 300px chat column beside a sidebar uses the page chat's tighter insets. */
 @container (max-width: 480px) {
@@ -1448,7 +1465,8 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-/* Agents and people share one avatar beside a message: 32px and round, with initials in the 12px step. */
+/* Agents and people share one avatar beside a message: 32px and round, with initials in the 12px step. Declared
+   after the Agent mark, this rule keeps an Agent's avatar round here. */
 .pod-chat-message-avatar {
   display: inline-flex;
   flex: 0 0 32px;
@@ -1633,10 +1651,14 @@
 .pod-chat-timeline-event:hover time {
   opacity: 1;
 }
+/* A notice line keeps the round avatar of the message beside it, for an Agent as for a person. */
 .pod-chat-notice-avatar.pod-chat-avatar {
   width: 20px;
   height: 20px;
   border: 0;
+  border-radius: 50%;
+  background: var(--muted);
+  color: var(--fg-secondary);
   font-size: var(--text-25);
   line-height: var(--text-25--line-height);
   font-weight: 500;
@@ -3151,8 +3173,12 @@ summary.pod-chat-block-card-header:hover {
   display: flex;
   flex-direction: column;
 }
-/* A room too narrow for a 300px chat column beside a usable sidebar lays the sidebar over the chat instead. */
+/* A room too narrow for a 300px chat column beside a usable sidebar lays the sidebar over the chat instead, at a
+   fixed width that no edge resizes. */
 @container (max-width: 760px) {
+  .pod-chat-inspector-resize {
+    display: none;
+  }
   .pod-chat-room-body > .pod-chat-side-panel {
     position: absolute;
     top: 0;
@@ -3509,11 +3535,11 @@ summary.pod-chat-block-card-header:hover {
   font-size: var(--text-50);
   line-height: var(--text-50--line-height);
 }
+/* The inspector's composer is the chat's composer, floating over the foot of the inspector with the insets that the
+   chat's composer keeps in a narrow column. */
 .pod-chat-inspector-composer {
   flex-shrink: 0;
-  border-top: 1px solid var(--border);
-  padding: 10px 12px max(12px, env(safe-area-inset-bottom));
-  background: var(--background);
+  padding: 10px 12px max(14px, env(safe-area-inset-bottom));
 }
 .pod-chat-inspector-composer-error {
   margin: 0 0 6px;

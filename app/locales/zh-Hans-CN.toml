@@ -5057,6 +5057,7 @@ listeners = "允许主动回应的 Agent"
 mention_outside = "@{ $name } 不在当前会话中。"
 dismiss = "忽略"
 resize_chat = "调整页面会话宽度"
+resize_inspector = "调整后台任务面板宽度"
 
 [app_configure.descriptions.agent_workers]
 ready_timeout_seconds = "已观察到实例的 Worker 连续多少秒未就绪后，重建实例与缓存。"

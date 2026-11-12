@@ -93,27 +93,6 @@ body:has(.pod-shell) [data-slot='dialog-footer'] {
   top: var(--spacing-top-bar);
   bottom: 0;
   left: calc(var(--sidebar-width) - 6px);
-  width: 12px;
-  cursor: col-resize;
-  touch-action: none;
-  outline: none;
-}
-
-.pod-sidebar-resize-handle::after {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 5px;
-  width: 2px;
-  border-radius: 1px;
-  background: transparent;
-  content: '';
-}
-
-.pod-sidebar-resize-handle:hover::after,
-.pod-sidebar-resize-handle:focus-visible::after,
-.pod-sidebar-resize-handle[data-resizing]::after {
-  background: var(--border-strong);
 }
 
 /* While a resize drags the column's edge, the column, the card beside it, and the top bar's mark zone follow the

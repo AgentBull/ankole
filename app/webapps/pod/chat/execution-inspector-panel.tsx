@@ -1,5 +1,18 @@
 import { uuidV4 } from '@agentbull/active-support'
-import { Button, Sheet, SheetContent, SheetTitle, useReducedMotion, Spinner } from '@ankole/uikit'
+import {
+  Button,
+  InputGroup,
+  InputGroupActions,
+  InputGroupAddon,
+  InputGroupSend,
+  InputGroupStop,
+  InputGroupTextarea,
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  useReducedMotion,
+  Spinner
+} from '@ankole/uikit'
 import {
   ArrowDownRegular,
   ArrowLeftRegular,
@@ -11,10 +24,23 @@ import {
   DismissRegular,
   QuestionCircleRegular,
   RecordStopRegular,
+  SendRegular,
+  StopFilled,
   TextBulletListTreeRegular
 } from '@ankole/uikit/icons'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type RefObject
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { chatError, podKeys } from '../api'
@@ -27,6 +53,12 @@ import { ContentError } from '../content-primitives'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from '../panel-motion'
 import { refreshConversationQueries } from '../query-cache'
 import { requestErrorMessage } from '../../common/request-errors'
+import {
+  CHAT_COLUMN_MIN_WIDTH,
+  CHAT_INSPECTOR_MIN_WIDTH,
+  ChatInspectorLayoutModel
+} from '../state/chat-inspector-layout'
+import { shouldSendOnEnter } from '../state/chat'
 import { ChatMarkdown } from './chat-markdown'
 import {
   ExecutionStatusMark,
@@ -94,6 +126,7 @@ export function ExecutionInspectorPanel({
       onBackToSummary={target.fromSummary ? onBackToSummary : undefined}
       onSwitchTarget={onSwitchTarget}
       actions={actions}
+      autoFocus={variant === 'panel'}
     />
   )
 
@@ -122,9 +155,8 @@ export function ExecutionInspectorPanel({
   }
 
   return (
-    <PodPanelSurface
+    <InspectorSplitSurface
       aria-label={surfaceLabel}
-      className="pod-chat-side-panel pod-chat-inspector-panel"
       onKeyDown={event => {
         if (
           event.key === 'Escape' &&
@@ -139,7 +171,126 @@ export function ExecutionInspectorPanel({
         }
       }}>
       {body}
+    </InspectorSplitSurface>
+  )
+}
+
+/**
+ * The panel beside a room's chat: a column of the viewer's chosen width whose left edge resizes it. The surface owns
+ * the width, so a drag re-renders the surface and its edge but not the inspector inside it.
+ */
+function InspectorSplitSurface({
+  children,
+  ...props
+}: Omit<ComponentProps<typeof PodPanelSurface>, 'className' | 'children'> & { children: ReactNode }) {
+  useSignals()
+  const layout = useModel(ChatInspectorLayoutModel)
+  return (
+    <PodPanelSurface
+      {...props}
+      className="pod-chat-side-panel pod-chat-inspector-panel pod-chat-inspector-split"
+      style={{ '--pod-chat-inspector-width': `${layout.width.value}px` } as CSSProperties}>
+      <InspectorResizeHandle layout={layout} />
+      {children}
     </PodPanelSurface>
+  )
+}
+
+/**
+ * The inspector's left edge. Dragging it left widens the inspector and narrows the chat, and the arrow keys, Home,
+ * and End resize it from the keyboard. The inspector stays between its minimum and the room's width less the chat
+ * column's minimum, and the width it ends at is the one the next inspector opens with.
+ */
+function InspectorResizeHandle({ layout }: { layout: InstanceType<typeof ChatInspectorLayoutModel> }) {
+  useSignals()
+  const { t } = useTranslation()
+  const handle = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null)
+  // The widest the inspector can be: the room's width less the chat column's minimum, followed as the room resizes.
+  const [widest, setWidest] = useState<number>(CHAT_INSPECTOR_MIN_WIDTH)
+
+  useEffect(() => {
+    const room = handle.current?.closest<HTMLElement>('.pod-chat-room-body')
+    if (!room) return
+    const observer = new ResizeObserver(() =>
+      setWidest(Math.max(CHAT_INSPECTOR_MIN_WIDTH, room.clientWidth - CHAT_COLUMN_MIN_WIDTH))
+    )
+    observer.observe(room)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (drag.current) layout.commitWidth(layout.width.peek())
+    },
+    [layout]
+  )
+
+  const finishResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return
+    drag.current = null
+    layout.commitWidth(layout.width.peek())
+    delete event.currentTarget.dataset.resizing
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-label={t('pod.chat_room.resize_inspector')}
+      aria-orientation="vertical"
+      aria-valuemin={CHAT_INSPECTOR_MIN_WIDTH}
+      aria-valuemax={widest}
+      aria-valuenow={Math.min(layout.width.value, widest)}
+      tabIndex={0}
+      ref={handle}
+      className="pod-chat-inspector-resize resize-edge"
+      onKeyDown={event => {
+        const current = event.currentTarget.parentElement?.offsetWidth ?? layout.width.peek()
+        let next: number
+        switch (event.key) {
+          case 'ArrowLeft':
+            next = current + 16
+            break
+          case 'ArrowRight':
+            next = current - 16
+            break
+          case 'Home':
+            next = CHAT_INSPECTOR_MIN_WIDTH
+            break
+          case 'End':
+            next = widest
+            break
+          default:
+            return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        layout.commitWidth(Math.min(next, widest))
+      }}
+      onPointerDown={event => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        event.currentTarget.focus({ preventScroll: true })
+        event.currentTarget.setPointerCapture(event.pointerId)
+        event.currentTarget.dataset.resizing = ''
+        drag.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startWidth: event.currentTarget.parentElement?.offsetWidth ?? layout.width.peek()
+        }
+      }}
+      onPointerMove={event => {
+        const current = drag.current
+        if (current?.pointerId !== event.pointerId) return
+        layout.previewWidth(Math.min(widest, current.startWidth + current.startX - event.clientX))
+      }}
+      onPointerUp={finishResize}
+      onPointerCancel={finishResize}
+      onLostPointerCapture={finishResize}
+    />
   )
 }
 
@@ -150,7 +301,8 @@ function InspectorContent({
   onClose,
   onBackToSummary,
   onSwitchTarget,
-  actions
+  actions,
+  autoFocus
 }: {
   conversationID: string
   target: InspectorTarget
@@ -159,6 +311,7 @@ function InspectorContent({
   onBackToSummary?: (event?: PanelInputEvent) => void
   onSwitchTarget: (next: InspectorTarget) => void
   actions?: ReactNode
+  autoFocus: boolean
 }) {
   const { t } = useTranslation()
   if (target.type === 'peer') {
@@ -213,6 +366,7 @@ function InspectorContent({
       onBackToSummary={onBackToSummary}
       onSwitchTarget={onSwitchTarget}
       actions={actions}
+      autoFocus={autoFocus}
     />
   )
 }
@@ -224,7 +378,8 @@ function ExecutionInspectorBody({
   onClose,
   onBackToSummary,
   onSwitchTarget,
-  actions
+  actions,
+  autoFocus
 }: {
   conversationID: string
   target: Extract<InspectorTarget, { type: 'execution' }>
@@ -233,6 +388,7 @@ function ExecutionInspectorBody({
   onBackToSummary?: (event?: PanelInputEvent) => void
   onSwitchTarget: (next: InspectorTarget) => void
   actions?: ReactNode
+  autoFocus: boolean
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -241,7 +397,6 @@ function ExecutionInspectorBody({
   const [taskExpanded, setTaskExpanded] = useState(false)
   const [draft, setDraft] = useState('')
   const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({})
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const query = useInfiniteQuery({
     queryKey: [...podKeys.detail(conversationID), 'execution', target.kind, target.runID],
@@ -308,13 +463,6 @@ function ExecutionInspectorBody({
     }
   })
 
-  useEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 140)}px`
-  }, [draft])
-
   const orderedPages =
     target.kind === 'background_agent_job' ? [...(query.data?.pages ?? [])].reverse() : (query.data?.pages ?? [])
   const allItems = orderedPages.flatMap(page => page.items)
@@ -363,6 +511,7 @@ function ExecutionInspectorBody({
         : t('pod.chat_timeline.execution_followup_placeholder')
 
   const childThreads = threads.filter(thread => !thread.isLead)
+  const composerShown = target.kind === 'background_agent_job' && canMessage
 
   return (
     <div className="pod-chat-inspector-inner" data-status={executionStatusTone(status)}>
@@ -381,7 +530,7 @@ function ExecutionInspectorBody({
           <h2 className="pod-chat-inspector-title" title={title}>
             {title}
           </h2>
-          {stoppable && (
+          {stoppable && !composerShown && (
             <Button size="xs" variant="ghost" disabled={stopMutation.isPending} onClick={() => stopMutation.mutate()}>
               <RecordStopRegular aria-hidden />
               {t(
@@ -599,16 +748,18 @@ function ExecutionInspectorBody({
         )}
       </div>
 
-      {target.kind === 'background_agent_job' && canMessage && (
+      {composerShown && (
         <footer className="pod-chat-inspector-composer">
-          <JobQuickReplyComposer
+          <JobComposer
             value={draft}
             onChange={setDraft}
             onSubmit={submitText}
             placeholder={placeholder}
             submitting={sendMutation.isPending}
             error={sendMutation.error ? requestErrorMessage(chatError(sendMutation.error)) : undefined}
-            textareaRef={textareaRef}
+            autoFocus={autoFocus}
+            onStop={stoppable ? () => stopMutation.mutate() : undefined}
+            stopping={stopMutation.isPending}
           />
         </footer>
       )}
@@ -622,8 +773,7 @@ export function JobQuickReplyComposer({
   onSubmit,
   placeholder,
   submitting,
-  error,
-  textareaRef
+  error
 }: {
   value: string
   onChange: (value: string) => void
@@ -631,7 +781,6 @@ export function JobQuickReplyComposer({
   placeholder: string
   submitting: boolean
   error?: string
-  textareaRef?: RefObject<HTMLTextAreaElement | null>
 }) {
   const { t } = useTranslation()
   return (
@@ -648,7 +797,6 @@ export function JobQuickReplyComposer({
           onSubmit(value)
         }}>
         <textarea
-          ref={textareaRef}
           rows={1}
           value={value}
           placeholder={placeholder}
@@ -672,6 +820,137 @@ export function JobQuickReplyComposer({
         </Button>
       </form>
     </>
+  )
+}
+
+/**
+ * The composer at the foot of a background job's inspector. It is the chat's composer, on the same surface and with
+ * the same text area, toolbar, and send and stop pills, and it sends what it holds to the job: Enter sends, Shift+Enter
+ * starts a new line, and an input method's Enter that confirms a composition never sends. While the job runs, the stop
+ * pill before the send pill stops it. `autoFocus` puts the caret in the composer as the inspector opens, so the viewer
+ * can follow up straight away.
+ */
+function JobComposer({
+  value,
+  onChange,
+  onSubmit,
+  placeholder,
+  submitting,
+  error,
+  autoFocus = false,
+  onStop,
+  stopping = false
+}: {
+  value: string
+  onChange: (value: string) => void
+  onSubmit: (text: string) => void
+  placeholder: string
+  submitting: boolean
+  error?: string
+  autoFocus?: boolean
+  onStop?: () => void
+  stopping?: boolean
+}) {
+  const { t } = useTranslation()
+  const textarea = useRef<HTMLTextAreaElement>(null)
+  const composing = useRef(false)
+  const lastCompositionEndAt = useRef<number | null>(null)
+  useEffect(() => {
+    if (autoFocus) textarea.current?.focus({ preventScroll: true })
+  }, [autoFocus])
+  const ready = !!value.trim() && !submitting
+  return (
+    <div className="pod-chat-composer-shell">
+      {error && (
+        <p role="alert" className="pod-chat-inspector-composer-error">
+          {error}
+        </p>
+      )}
+      <form
+        className="pod-chat-composer"
+        onSubmit={event => {
+          event.preventDefault()
+          onSubmit(value)
+        }}>
+        <InputGroup
+          variant="composer"
+          className="@container/composer"
+          onClick={event => {
+            const target = event.target
+            if (
+              target === event.currentTarget ||
+              (target instanceof HTMLElement &&
+                target.matches('.pod-chat-composer-editor, [data-slot="input-group-addon"]'))
+            ) {
+              if (window.getSelection()?.isCollapsed !== false) textarea.current?.focus({ preventScroll: true })
+            }
+          }}>
+          <div className="pod-chat-composer-editor">
+            <InputGroupTextarea
+              ref={textarea}
+              rows={1}
+              value={value}
+              placeholder={placeholder}
+              aria-label={placeholder}
+              onChange={event => onChange(event.target.value)}
+              onCompositionStart={() => {
+                composing.current = true
+              }}
+              onCompositionEnd={event => {
+                composing.current = false
+                lastCompositionEndAt.current = event.nativeEvent.timeStamp
+              }}
+              onBlur={() => {
+                composing.current = false
+                lastCompositionEndAt.current = null
+              }}
+              onKeyDown={event => {
+                if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+                if (
+                  !shouldSendOnEnter({
+                    key: event.key,
+                    shiftKey: event.shiftKey,
+                    ctrlKey: event.ctrlKey,
+                    metaKey: event.metaKey,
+                    isComposing: event.nativeEvent.isComposing,
+                    keyCode: event.nativeEvent.keyCode
+                  })
+                ) {
+                  return
+                }
+                event.preventDefault()
+                // Safari reports the Enter that confirms a composition just after the composition ends.
+                const justEndedComposition =
+                  lastCompositionEndAt.current !== null &&
+                  Math.abs(event.nativeEvent.timeStamp - lastCompositionEndAt.current) < 50
+                if (!event.ctrlKey && !event.metaKey && justEndedComposition) return
+                onSubmit(value)
+              }}
+            />
+          </div>
+          <InputGroupAddon align="block-end">
+            <InputGroupActions>
+              {onStop && (
+                <InputGroupStop
+                  aria-label={t('pod.chat_timeline.execution_stop_action')}
+                  title={t('pod.chat_timeline.execution_stop_action')}
+                  loading={stopping}
+                  onClick={onStop}>
+                  <StopFilled aria-hidden />
+                </InputGroupStop>
+              )}
+              <InputGroupSend
+                ready={ready}
+                disabled={!ready}
+                aria-busy={submitting || undefined}
+                aria-label={t('pod.chat_timeline.execution_send_action')}>
+                <SendRegular aria-hidden />
+              </InputGroupSend>
+            </InputGroupActions>
+          </InputGroupAddon>
+        </InputGroup>
+      </form>
+    </div>
   )
 }
 

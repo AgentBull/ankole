@@ -46,10 +46,10 @@ import { currentProfileAvatarContext, profileAvatarURL, type ProfileAvatarContex
 const initial = avatarInitials
 
 /**
- * The Pod's mark: its uploaded avatar, or the initials of its name, as an `Avatar` of the given size. The sidebar's
- * footer row sizes the mark it holds.
+ * A profile mark for a Pod or a person: the uploaded avatar, or the initials of the name, as an `Avatar` of the given
+ * size. The sidebar's footer row sizes the mark it holds.
  */
-export function SpaceMark({
+export function ProfileMark({
   name,
   avatarURL,
   context,
@@ -91,9 +91,9 @@ export function sessionAvatarContext(data: BrowserSessionResponse | undefined): 
 }
 
 /**
- * The sidebar's account row: the Pod's mark and name with the signed-in person's name. Its menu holds the
- * organizations that this browser has proved, the person's settings, the Pod's settings and its Trash, the theme,
- * and the way out. `extra` adds build-specific items, such as a SaaS account center.
+ * The sidebar's account row: the signed-in person's avatar beside the Pod's name and the person's name. Its menu
+ * holds the organizations that this browser has proved, the person's settings, the Pod's settings and its Trash, the
+ * theme, and the way out. `extra` adds build-specific items, such as a SaaS account center.
  */
 export function AccountMenu({ extra }: { extra?: ReactNode }) {
   const { t, i18n } = useTranslation()
@@ -150,7 +150,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
           </>
         ) : (
           <>
-            <SpaceMark name={tenantName || name} avatarURL={data?.tenant?.avatarURL} context={currentAvatarContext} />
+            <ProfileMark name={name} avatarURL={data?.avatarURL} context={currentAvatarContext} />
             <SidebarFooterLabel className="pod-account-text">
               <span>{tenantName || name}</span>
               {tenantName && <small>{name}</small>}
@@ -177,7 +177,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
                   disabled={activate.isPending}
                   aria-current={selected ? 'true' : undefined}
                   onClick={() => (selected ? undefined : activate.mutate(account))}>
-                  <SpaceMark
+                  <ProfileMark
                     name={account.tenant.displayName}
                     avatarURL={account.tenant.avatarURL}
                     context={{ podURL: account.podURL, authenticationRef: account.authenticationRef }}

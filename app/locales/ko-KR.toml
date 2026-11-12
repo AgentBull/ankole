@@ -5131,6 +5131,7 @@ listeners = "자율 응답 Agent"
 mention_outside = "@{ $name }님이 이 대화에 없습니다."
 dismiss = "닫기"
 resize_chat = "페이지 대화 너비 조절"
+resize_inspector = "백그라운드 작업 패널 너비 조절"
 
 [app_configure.descriptions.agent_workers]
 ready_timeout_seconds = "존재가 확인된 Worker가 준비되지 않은 경우 인스턴스와 캐시를 다시 만들기까지의 초입니다."

@@ -17,7 +17,7 @@ import { useQuery } from '@tanstack/react-query'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import { authenticationRef, podID, podLocation } from '../common/browser-context'
 import { isApplePlatform } from '../common/platform'
-import { SpaceMark, sessionAvatarContext } from './account-menu'
+import { ProfileMark, sessionAvatarContext } from './account-menu'
 import { usePodCommandMenu } from './command-menu'
 
 type TopBarSlot = HTMLElement | null
@@ -127,7 +127,7 @@ function PodMark() {
       aria-label={name}
       title={name}
       className={buttonVariants({ variant: 'ghost', size: 'icon-lg', className: 'max-md:hidden' })}>
-      <SpaceMark
+      <ProfileMark
         name={name}
         avatarURL={session.data?.tenant?.avatarURL}
         context={sessionAvatarContext(session.data)}

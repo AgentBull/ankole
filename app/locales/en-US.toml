@@ -5175,6 +5175,7 @@ listeners = "Agents allowed to join in"
 mention_outside = "@{ $name } is not in this conversation."
 dismiss = "Dismiss"
 resize_chat = "Resize page chat"
+resize_inspector = "Resize background work panel"
 
 [app_configure.descriptions.agent_workers]
 ready_timeout_seconds = "Seconds an observed Worker may stay not ready before its instance and cache are rebuilt."

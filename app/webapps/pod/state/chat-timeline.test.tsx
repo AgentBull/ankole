@@ -1113,6 +1113,56 @@ test('a live reply and the committed message that replaces it render the same tr
   }
 })
 
+test('an Agent without an uploaded avatar shows the bot mark beside its message, never its owner’s initials', () => {
+  const client = new QueryClient()
+  const message = (authorType: 'agent' | 'human', authorDisplayName: string) =>
+    ({
+      id: `${authorType}-message`,
+      seq: 1,
+      kind: 'message',
+      authorType,
+      authorUID: authorType === 'agent' ? 'xiaoming.pa' : 'xiaoming',
+      authorDisplayName,
+      authorArchived: false,
+      text: 'Done.',
+      createdAt: '2026-11-12T04:00:00Z',
+      replyToMessageID: null,
+      mentions: [],
+      savedPages: [],
+      links: [],
+      attachments: [],
+      richContent: null
+    }) as unknown as TimelineMessage
+  // What the 32px avatar beside the message shows in place of a picture.
+  const avatar = (html: string) =>
+    html.match(/pod-chat-message-avatar[^>]*><span data-slot="avatar-fallback"[^>]*>(.*?)<\/span><\/span>/s)?.[1] ?? ''
+  try {
+    const view = (item: TimelineMessage) =>
+      render(
+        <QueryClientProvider client={client}>
+          <MessageView
+            model={new ChatModel()}
+            message={item}
+            conversationID="room"
+            linkedRuns={[]}
+            onJumpToSource={() => {}}
+            keyboardActive={false}
+            showActions={false}
+            own={false}
+          />
+        </QueryClientProvider>
+      )
+    const agent = avatar(view(message('agent', '王小明的助理')))
+    expect(agent).toContain('<svg')
+    expect(agent).not.toContain('王')
+    const person = avatar(view(message('human', '王小明')))
+    expect(person).toContain('王')
+    expect(person).not.toContain('<svg')
+  } finally {
+    client.clear()
+  }
+})
+
 test('first-class memory, web, and read-only ankole-pod steps fold while writes and mcporter stay expanded', () => {
   const steps = [
     {
