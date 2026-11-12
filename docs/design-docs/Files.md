@@ -393,10 +393,13 @@ runtime command is `ankole-pod chat attachment get <conversation-id>
 <message-id> <position> --to <local-path>`. Saving an attachment creates a node
 referencing the same object.
 
-`reply_attachment` accepts either `node_id` or a local Drive `path`;
-`send_message` accepts attachment node IDs and Drive paths. For paths, the Worker
-resolves the execution's symlinks and flushes those files before returning their
-authoritative node IDs. This wait happens outside the tool-receipt transaction.
+`reply_attachment` requires exactly one of `node_id` and a local Drive `path`.
+Ankole explains this requirement in the model's tool description and enforces
+it before executing the tool, so providers that reject a top-level `oneOf`
+can still use the attachment tool. `send_message` accepts attachment node IDs
+and Drive paths. For paths, the Worker resolves the execution's symlinks and
+flushes those files before returning their authoritative node IDs. This wait
+happens outside the tool-receipt transaction.
 The control plane authorizes node view and captures the current completed object. Pending, failed and unknown Delivery intents retain relational object
 references. Confirmed delivery transfers that hold to the public Message in the
 same transaction; expired references are cleared while presentation metadata is

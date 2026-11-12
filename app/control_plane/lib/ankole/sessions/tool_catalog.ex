@@ -1,6 +1,7 @@
 defmodule Ankole.Sessions.ToolCatalog do
   @moduledoc "Builds the tool contract for the current run from its owning declarations."
 
+  alias Ankole.Sessions.Presentation
   alias Ankole.Sessions.Tool
   alias Ankole.Sessions.Tools
 
@@ -23,7 +24,7 @@ defmodule Ankole.Sessions.ToolCatalog do
           Tools.Skill,
           Tools.Web,
           Ankole.Sessions.Scheduled,
-          Ankole.Sessions.Presentation,
+          Presentation,
           Tools.Peers,
           Tools.RelatedContext,
           Tools.Pod,
@@ -65,7 +66,14 @@ defmodule Ankole.Sessions.ToolCatalog do
 
   defp maybe_allow_programmatic_worker_tool(declaration), do: declaration
 
-  def wire(tools), do: Enum.map(tools, & &1.schema)
+  def wire(tools), do: Enum.map(tools, &wire_schema/1)
+
+  # Some providers reject root oneOf in function parameters. Tools.prepare/2
+  # still validates the original attachment schema before running the tool.
+  defp wire_schema(%Tool{name: "reply_attachment", executor: Presentation, schema: schema}),
+    do: update_in(schema["parameters"], &Map.delete(&1, "oneOf"))
+
+  defp wire_schema(%Tool{schema: schema}), do: schema
 
   def find(run, call) do
     Enum.find(run.tools, fn tool ->

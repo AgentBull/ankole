@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 2.0.0-alpha.136 (2026-11-12)
+
+- Fix an attachment tool parameter definition that caused Azure OpenAI to
+  reject Agent requests, including conversations without attachments.
+
 ## Version 2.0.0-alpha.135 (2026-11-12)
 
 - Let a Pod member bind owned AI colleagues to paired devices and see each

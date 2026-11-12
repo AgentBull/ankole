@@ -1,8 +1,10 @@
 defmodule Ankole.Sessions.ModelRequestTest do
   use ExUnit.Case, async: true
   alias Ankole.Sessions.Model
+  alias Ankole.Sessions.Presentation
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tool
+  alias Ankole.Sessions.Tools
   alias Ankole.Signals.Signal
 
   test "a scheduled round with client tools does not force JSON" do
@@ -38,6 +40,28 @@ defmodule Ankole.Sessions.ModelRequestTest do
 
   test "an ordinary round without tools has no scheduled result schema" do
     refute Map.has_key?(Model.request(%{run() | kind: :main}), "text")
+  end
+
+  test "reply_attachment sends compatible parameters and still requires exactly one file selector" do
+    [declaration] = Presentation.declarations()
+    tool = Tool.new(declaration, Presentation)
+    run = %{run() | kind: :main, tools: [tool]}
+
+    assert [%{"name" => "reply_attachment", "parameters" => parameters, "strict" => false}] =
+             Model.request(run)["tools"]
+
+    assert %{
+             "type" => "object",
+             "properties" => %{"node_id" => %{}, "path" => %{}},
+             "additionalProperties" => false
+           } = parameters
+
+    refute Map.has_key?(parameters, "oneOf")
+
+    for args <- [%{}, %{"node_id" => "node", "path" => "/drive/report.txt"}] do
+      call = %{"name" => "reply_attachment", "arguments" => Ankole.JSON.encode!(args)}
+      assert {:error, %{failure_kind: "invalid_arguments"}} = Tools.prepare(run, call)
+    end
   end
 
   test "appends server tool_search and programmatic_tool_calling when catalog declares deferred and programmatic tools" do

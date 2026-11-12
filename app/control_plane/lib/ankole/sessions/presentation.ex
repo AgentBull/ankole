@@ -28,7 +28,7 @@ defmodule Ankole.Sessions.Presentation do
         "activity" => "attachment_prepare",
         "visible_delivery" => true,
         "description" =>
-          "Queue a Drive node for delivery with the final reply. Pass a /drive path to flush it and select the saved bytes, or pass an existing node_id. On Workers without Drive mounts, save local files with ankole-files put first. A file in a conversation root can only be delivered to that conversation. Success records the selected bytes for delivery; it does not confirm that the provider received them.",
+          "Queue a Drive node for delivery with the final reply. Provide exactly one selector: an existing node_id, or a /drive path to flush and select the saved bytes. On Workers without Drive mounts, save local files with ankole-files put first. A file in a conversation root can only be delivered to that conversation. Success records the selected bytes for delivery; it does not confirm that the provider received them.",
         "parameters" => %{
           "type" => "object",
           "properties" => %{
