@@ -102,7 +102,7 @@ test('profileAvatarURL binds each Space avatar to its own Pod origin and authent
   ).toBe('https://cdn.example.com/avatar.png')
 })
 
-test('AccountMenu trigger resolves the active Space avatar against its own podURL and authenticationRef', async () => {
+test("AccountMenu trigger shows the signed-in person's avatar from their own Pod account, not the Space's", async () => {
   await loadLocale('en-US')
   const harborID = '00112233-4455-6677-8899-aabbccddeeff'
   const beaconID = '11223344-5566-7788-99aa-bbccddeeff00'
@@ -113,6 +113,7 @@ test('AccountMenu trigger resolves the active Space avatar against its own podUR
     authenticated: true,
     canManagePod: false,
     displayName: 'Alice Reviewer',
+    avatarURL: '/api/v2/pod/avatars/member%3Aalice?v=alice-v1',
     principalUID: 'alice',
     tenant: {
       id: harborID,
@@ -126,6 +127,7 @@ test('AccountMenu trigger resolves the active Space avatar against its own podUR
         podURL: 'https://harbor.pod.example',
         principalUID: 'alice',
         displayName: 'Alice Reviewer',
+        avatarURL: '/api/v2/pod/avatars/member%3Aalice?v=alice-v1',
         providerID: 'email_otp',
         tenant: {
           id: harborID,
@@ -174,7 +176,7 @@ test('AccountMenu trigger resolves the active Space avatar against its own podUR
       .transform(new Response(html))
       .text()
     expect(sources).toEqual([
-      'https://harbor.pod.example/api/v2/pod/avatars/space?v=harbor-v1&authentication_ref=auth-harbor'
+      'https://harbor.pod.example/api/v2/pod/avatars/member%3Aalice?v=alice-v1&authentication_ref=auth-harbor'
     ])
   } finally {
     podSpy.mockRestore()

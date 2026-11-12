@@ -331,7 +331,7 @@ function SidebarResizeHandle({ layout }: { layout: InstanceType<typeof SidebarLa
       aria-valuemax={POD_SIDEBAR_MAX_WIDTH}
       aria-valuenow={width}
       tabIndex={0}
-      className="pod-sidebar-resize-handle"
+      className="pod-sidebar-resize-handle resize-edge"
       onKeyDown={resizeWithKeyboard}
       onPointerDown={event => {
         if (event.button !== 0) return

@@ -654,8 +654,9 @@ Opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
 the user's navigation context stays stable, and New Chat keeps whichever tab
 is open. `Favorites` renders inline above the
 `Space` and `Private` trees whenever the user has favorited Pages. The sidebar
-ends in a 42 px account row: the Pod's 26 px mark, the Pod name, the Human name,
-and an up-down chevron. Its menu holds the organizations that the browser has
+ends in a 42 px account row: the signed-in Human's 26 px avatar (their uploaded
+picture, or the initials of their name), the Pod name, the Human name, and an
+up-down chevron. Its menu holds the organizations that the browser has
 proved, account settings, `Pod settings` for the Pod's managers, `Trash`, the
 theme, and the ways out.
 Sidebar rows are 32 px high, with a 20 px icon 6 px before a 14 px label, and

@@ -473,6 +473,33 @@
   }
 }
 
+/* The draggable edge of a resizable column: a 12px strip over the column's border that shows a 2px line while the
+   pointer is over it, while it has keyboard focus, and while a drag holds it (`data-resizing`). The caller places
+   the strip and gives it a positioned box. */
+@utility resize-edge {
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+
+  &::after {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 5px;
+    width: 2px;
+    border-radius: 1px;
+    background: transparent;
+    content: '';
+  }
+
+  &:hover::after,
+  &:focus-visible::after,
+  &[data-resizing]::after {
+    background: var(--border-strong);
+  }
+}
+
 /* Expands a compact control's hit area to at least 44×44 CSS pixels on touch screens without changing layout. */
 @utility touch-target {
   @media (pointer: coarse) {

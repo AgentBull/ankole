@@ -647,12 +647,16 @@ colleague exchange, or an attachment preview; opening one replaces the other.
 All three open under the same header: a 44 px band whose title, 14 px medium
 text on a 26 px line, starts 18 px from the edge, and whose controls end 12 px
 from the edge. The summary is a 296 px drawer beside the full chat. On desktop
-an execution or a file takes everything right of a 300 px chat column instead: the sidebar
-slides in from the room's right edge while the chat narrows into that column
-over the same motion, and it slides back out while the chat widens again. A room
-narrower than 760 px lays the sidebar over the chat instead, and phones and the
-Page assistant panel open executions in a slide-over sheet and attachments in a
-dialog:
+an execution opens as a 440 px column beside the chat, and a file takes
+everything right of a 300 px chat column. Either sidebar slides in from the
+room's right edge while the chat narrows over the same motion, and it slides
+back out while the chat widens again. The Human resizes an execution's column by
+dragging its left edge, or with the arrow keys, Home, and End while that edge has
+focus, anywhere from 320 px to the room's width less a 300 px chat column, and
+the browser keeps that width for the next execution the Human opens. A room
+narrower than 760 px lays the sidebar over the chat instead, at a fixed 440 px,
+and phones and the Page assistant panel open executions in a slide-over sheet
+and attachments in a dialog:
 
 - **Summary drawer:** lists participating Agents (with active models and
   per-Agent `may_intervene` toggles in group rooms; direct rooms always address
@@ -696,7 +700,10 @@ and a sending message's state are 12 px on a 20 px line in tertiary ink. A
 reply source and a quoted passage, like the composer's quote, take the
 document's quote form in the 14 px step (`content-quote` in the UI kit). A
 message names its author beside a 32 px round avatar, which Agents and people
-share, 12 px from the name. The message's first line sits 2 px under that row,
+share, 12 px from the name. Without an uploaded picture, a person's avatar shows
+the initials of their name and an Agent's shows the bot mark, because an
+Agent's name, such as a personal assistant's, often begins with its owner's
+name. The message's first line sits 2 px under that row,
 and its work summary 6 px under it: a 24 px filled caret that turns a quarter
 while the summary is open, 4 px from its label. An event notice shows its
 author's 20 px avatar.
@@ -882,7 +889,12 @@ In the timeline, compact event notices sit alongside attributed messages:
   back to a slide-over sheet on phones and in the Page assistant panel)
   with narrative progress, collapsible tool groups, subthread filters, inline
   Stop controls, and a composer for steering, answering pending questions, or
-  continuing a finished Background Job. The inspector is a narrow panel, so its
+  continuing a finished Background Job. That composer is the chat's composer,
+  with the same surface, text area, and Stop and Send pills: Enter sends,
+  Shift+Enter starts a new line, an input method's confirming Enter never sends,
+  and the caret moves into the composer when the inspector opens beside the
+  chat. It sends text, which is what the job's message contract carries. The
+  inspector is a narrow panel, so its
   text is 14 px on a 26 px line and its labels and status are 12 px, all 18 px
   from the panel's edge; the task's brief, its plan, and its result are block
   cards.

@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.137 (2026-11-12)
+
+- Show the signed-in person's own avatar in the Pod sidebar's account row
+  instead of the organization's mark, and show a bot mark for an AI colleague
+  without an uploaded avatar in Chat instead of initials that repeated its
+  owner's name.
+- Open a Background Job or Workflow beside the chat as a narrow 440 px panel
+  while the chat keeps the rest of the room. Drag the panel's edge, or use the
+  arrow keys, Home, and End on it, to resize the panel and the chat; the browser
+  remembers the width. The panel's composer now matches the chat composer, with
+  Stop and Send pills, Enter to send, and Shift+Enter for a new line, and it
+  takes focus when the panel opens.
+
 ## Version 2.0.0-alpha.136 (2026-11-12)
 
 - Let Agents render `stat` metric cards (one value with an optional unit,

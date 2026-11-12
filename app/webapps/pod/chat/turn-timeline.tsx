@@ -511,7 +511,7 @@ export function TurnTimeline({
                   <article
                     className="pod-chat-timeline-message pod-chat-agent-message"
                     data-pending-interaction={question.interaction_id}>
-                    <MessageIdentity name={asker} avatarURL={agent?.avatarURL} quiet={!agent} />
+                    <MessageIdentity name={asker} avatarURL={agent?.avatarURL} agent quiet={!agent} />
                     <ChoiceCard
                       prompt={question}
                       interaction={question}
