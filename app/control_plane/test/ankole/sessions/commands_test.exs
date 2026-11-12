@@ -698,7 +698,11 @@ defmodule Ankole.Sessions.CommandsTest do
       )
 
     assert old_prompt =~ "ankole-pod chat attachment get"
-    assert old_prompt =~ "The workspace is a temporary working directory."
+    assert old_prompt =~ "Your Drive is mounted at /drive."
+
+    assert old_prompt =~ "When the input environment shows drive_mount: unavailable"
+    assert old_context.drive_mount == :unknown
+
     refute old_prompt =~ "This is a private conversation with the other person."
     assert {:ok, _} = Run.finalize(old, :silent)
 

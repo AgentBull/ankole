@@ -44,6 +44,41 @@ defmodule Ankole.Sessions.InputTest do
     assert String.ends_with?(text, "</external_event>")
   end
 
+  test "only a ready Worker without a Drive mount puts drive_mount into the input environment" do
+    event = %Ankole.Signals.Signal{
+      producer: :external,
+      id: Ecto.UUID.generate(),
+      type: "com.example.changed",
+      source: "https://example.test",
+      occurred_at: DateTime.utc_now(:microsecond),
+      data: %{"text" => "changed"}
+    }
+
+    run = fn kind, drive_mount ->
+      %{
+        kind: kind,
+        agent_uid: "agent-1",
+        signal_id: event.id,
+        event: event,
+        spec: %{request_context: %{}},
+        context: %{conversation: %{timezone: "UTC"}, drive_mount: drive_mount}
+      }
+    end
+
+    for kind <- [:main, :scheduled, :workflow_task] do
+      [%{"content" => [environment, _event]}] = Input.messages(run.(kind, :unavailable), event)
+      assert environment["text"] =~ "<agent_environment_info>"
+      assert environment["text"] =~ "drive_mount: unavailable"
+    end
+
+    # Before a ready Worker reports its capacity, the mount is unknown: the
+    # Worker that opens the turn may still mount Drive.
+    for drive_mount <- [:mounted, :unknown] do
+      [%{"content" => [only]}] = Input.messages(run.(:main, drive_mount), event)
+      refute only["text"] =~ "drive_mount"
+    end
+  end
+
   test "internal input does not present its routing key as an IM binding" do
     event = %Ankole.Signals.Signal{
       producer: :kernel,

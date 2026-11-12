@@ -84,13 +84,19 @@ defmodule Ankole.Sessions.NativeConversationTest do
     event = %{run.event | data: Map.put(run.event.data, "optional_reply", true)}
     silent = %{run | event: event, outcome: :loop_finished, model_response: %{content: []}}
 
-    assert Ankole.Sessions.Main.instructions(silent) =~ "You are listening to a shared room."
+    assert JSON.encode!(Ankole.Sessions.Main.input(silent)) =~
+             "You are listening to a shared room."
+
+    refute Ankole.Sessions.Main.instructions(silent) =~ "shared room"
     assert Ankole.Sessions.Main.repair(silent, "") == nil
     assert {:finalize, %{outcome: :silent}} = Ankole.Sessions.Main.finish(silent)
 
     for untrusted <- [%{event | producer: :external}, %{event | type: "com.example.message"}] do
       ordinary = %{silent | event: untrusted}
-      refute Ankole.Sessions.Main.instructions(ordinary) =~ "You are listening to a shared room."
+
+      refute JSON.encode!(Ankole.Sessions.Main.input(ordinary)) =~
+               "You are listening to a shared room."
+
       assert {_repair, ^ordinary} = Ankole.Sessions.Main.repair(ordinary, "")
       assert {:finalize, %{outcome: :loop_finished}} = Ankole.Sessions.Main.finish(ordinary)
     end
@@ -155,6 +161,15 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     listening = %{context.event | data: Map.put(context.event.data, "optional_reply", true)}
     assert Ankole.Sessions.Prompt.Input.standing_orders(listening) == room.ambient_standing_orders
+
+    # The listening note sits directly above the message it describes, below
+    # the standing orders.
+    assert [orders, note, message] =
+             Ankole.Sessions.Main.input(%{run | event: listening, delivered_event: listening})
+
+    assert Ankole.JSON.encode!(orders) =~ "<conversation_standing_orders>"
+    assert Ankole.JSON.encode!(note) =~ "You are listening to a shared room."
+    refute Ankole.JSON.encode!(message) =~ "You are listening to a shared room."
 
     assert {:ok, _} =
              Conversations.manage_participants(actor, context.id, %{
@@ -542,7 +557,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
              )
 
     assert Ankole.Sessions.Main.instructions(run) =~
-             "deliver it with reply_attachment using node_id"
+             "before delivering it with reply_attachment"
   end
 
   test "attachment-only completion commits a native message through the real run owner",

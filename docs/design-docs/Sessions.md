@@ -363,6 +363,25 @@ opaque to the model platform, so a `signal_id` supplied on an OIDC request
 cannot borrow another execution's authorization or memory scope. Codex Jobs
 carry their runtime binding at the authenticated execution edge.
 
+Every turn of one conversation sends the same `prompt_cache_key`, and the
+provider reuses a cached prefix only while the tool list and instructions stay
+identical. Ankole therefore builds one tool list and one instruction text for
+every Main and scheduled turn of a conversation: the instructions carry only
+facts about the conversation itself, and Ankole places facts and guidance that
+belong to one turn in that turn's input. The input environment of a scheduled
+turn carries its `schedule_*` fields. When the ready Worker of a turn reports no
+Drive mount, the input environment carries `drive_mount: unavailable`; the
+instructions always describe the mounted Drive and its fallback, because a
+Worker that has not yet reported its capacity may still mount Drive. Ankole
+places a short note directly above a colleague's returned result, an event at
+the six-hop delegation limit, and a shared-room message that does not address
+the Agent. The channel of the conversation decides its reply rule: an Agent
+peer exchange receives the peer-exchange rule, any other channel receives the
+chat reply length of about 150 Chinese characters or 100 English words with
+longer content saved as a Pod Page and linked from the reply, and a Session
+without a channel receives neither. Ambient turns add their route block and
+authority-filtered tools, so they keep a prefix of their own.
+
 Prior to sending a request, the runtime snapshots a bounded window of unread
 public statements from the conversation, and the outgoing AIGateway request
 atomically records `conversation_read.max_seq` and `message_ids` (the
@@ -410,8 +429,9 @@ for colleagues explicitly mentioned in the current input. They dispatch work
 without asking the Human to select tools, preserve the original request and
 canonical Page links, and return useful conclusions to the origin. When a
 colleague's role matches a domain review, the assistant delegates early and
-lets that colleague retrieve and apply its role knowledge. Ordinary IM
-conclusions stay within about 100 words; long deliverables belong in Pages.
+lets that colleague retrieve and apply its role knowledge. Its chat replies
+follow the reply length set in the instructions, and long deliverables belong
+in Pages.
 While a colleague works or waits for a decision, the assistant handles unrelated
 requests in the same conversation and preserves the pending question. It sends
 new instructions through the peer tool and addresses visible replies to the Human.

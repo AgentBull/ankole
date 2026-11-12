@@ -31,6 +31,8 @@ defmodule Ankole.Sessions.Prompt do
   @image_policy "\nImages created in this turn with the hosted image_generation tool are attached to the final reply automatically. Available image inputs use turn-local img_N references, not local file paths. Do not search for or call reply_attachment on the generated image itself."
   @skills_intro "You have access to the following skills. Skills are task-specific instructions and references.\nBefore performing a task or subtask you are already going to do, call `skill_view(name)` only if a listed skill covers that task, then follow the loaded instructions. If the user asks to inspect, view, choose, recommend, or identify an available skill, the index is only a routing aid: pick the relevant listed skill and call `skill_view(name)` before answering. Otherwise continue without a skill."
   @skill_save_policy ~s[When you work out a non-trivial reusable workflow or receive a durable workflow correction from the user, or when the user asks to save a workflow as a Skill, propose saving or updating a `SKILL.md` package via `propose_action_card` (`action_kind: "library.skill.save"`, defaulting `target` to `"personal"` unless the user asks for a shared workspace/colleague Skill).]
+  @peer_exchange_policy "You are working in an asynchronous peer exchange. Reply normally to return your result to the requester. Do not call send_to_agent to answer the sender. When a human decision is needed, call clarify directly with the single most important unresolved question; the question goes to the original conversation."
+  @chat_reply_policy "Keep the body of a chat reply within about 150 Chinese characters or 100 English words, and lead with the conclusion and the next step. Long text is hard to read and revisit in a chat window, so put tables, multi-part analysis, and other long content in a Pod Page and reply with its link. Page content and Page comment replies can carry structured detail."
   @background_skill_note "Entries marked [background task] must run in a BackgroundAgentJob. Create one with create_background_job, name the Skill in its self-contained task, and do not execute the Skill inline."
 
   @doc "Renders only the current causal native Human statement, without attached content."
@@ -92,7 +94,7 @@ defmodule Ankole.Sessions.Prompt do
     [
       "You are #{name}, an Ankole Agent executing one isolated Workflow task.",
       identity,
-      Map.get(run.context, :drive_instructions, ""),
+      drive_instructions(),
       "<workflow_task_contract>",
       "Run id: #{task["run_id"]}",
       "Call id: #{task["call_id"]}",
@@ -145,8 +147,29 @@ defmodule Ankole.Sessions.Prompt do
         else: ""
       ),
       if(available?(opts, "propose_action_card"), do: @skill_save_policy, else: ""),
+      reply_policy(context.conversation),
       runtime_context(opts)
     ])
+  end
+
+  @doc """
+  Checks whether a Session conversation is an Agent peer exchange.
+
+  A peer exchange carries Agent-to-Agent handoffs rather than chat that a Human
+  reads, so its instructions replace the chat reply rule with the peer exchange
+  rule. The fact belongs to the conversation, so every turn shares it.
+  """
+  def peer_exchange?(%{origin_channel: %{access_scope: :agent_peer}}), do: true
+  def peer_exchange?(_conversation), do: false
+
+  # A Human reads the replies of any other channel as chat. A Session without
+  # a channel has no chat reader, so it gets neither rule.
+  defp reply_policy(conversation) do
+    cond do
+      peer_exchange?(conversation) -> @peer_exchange_policy
+      is_map(Map.get(conversation, :origin_channel)) -> @chat_reply_policy
+      true -> ""
+    end
   end
 
   defp block(name, assigns \\ []),
@@ -181,11 +204,7 @@ defmodule Ankole.Sessions.Prompt do
       "Current workspace: #{AgentHomePaths.session_workspace(opts.workspace_id)}",
       drive_context(conversation.origin_channel),
       pod_instructions(conversation),
-      if(Map.get(opts.context, :drive_instructions, "") != "",
-        do: opts.context.drive_instructions,
-        else:
-          "The workspace is a temporary working directory. Save files that must be kept or delivered in your private drive with ankole-files put. Use its nodeId when attaching a file."
-      ),
+      drive_instructions(),
       "Other conversations' workspaces (/workspace/sessions/<other-id>) belong to other people. Do not read or write them.",
       if(match?(%{kind: "im_dm"}, conversation.origin_channel),
         do:
@@ -200,6 +219,19 @@ defmodule Ankole.Sessions.Prompt do
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n")
+  end
+
+  @doc """
+  The Drive contract in conversation and Workflow task instructions.
+
+  Whether the Worker of a turn mounts Drive changes between turns of one
+  conversation, so the instructions always describe the mount together with
+  its fallback, and the input environment of a turn whose ready Worker reports
+  no mount carries `drive_mount: unavailable`.
+  """
+  def drive_instructions do
+    mounted_drive_instructions() <>
+      "\nWhen the input environment shows drive_mount: unavailable, or /drive is missing when you use it, this turn has no Drive mount. The workspace is then a temporary working directory: save files that must be kept or delivered in your private drive with ankole-files put, and use its node_id when attaching a file."
   end
 
   @doc "The filesystem contract shared by the main Agent and native Job runtimes."
