@@ -1,5 +1,7 @@
 import { Renderer as SVGRenderer } from '@antv/g-svg'
 import { corelib, extend, graphlib, plotlib, Runtime, type G2Spec } from '@antv/g2'
+import { formatFallbackNumeric, toFiniteNumber } from './format'
+import { statChartParts, statTrendGlyph, type StatTrendDirection } from './stat-summary'
 import {
   assignSeriesColors,
   pickReadableDataLabelInk,
@@ -11,6 +13,8 @@ import {
   type VizThemeMode,
   type VizThemePalette
 } from './theme'
+
+export { resolveStatTrend, type StatTrendDirection } from './stat-summary'
 
 const BASE_CORELIB = corelib()
 
@@ -42,8 +46,15 @@ export type StatisticalChartTier2Type =
   | 'sunburst'
   | 'sankey'
   | 'wordcloud'
+  | 'quantile_band'
 
-export type StatisticalChartType = StatisticalChartTier1Type | StatisticalChartTier2Type
+/**
+ * Single-value summaries. A `stat` chart renders one metric from the first data row: its
+ * value, an optional unit, and an optional comparison with a trend.
+ */
+export type StatisticalSummaryType = 'stat'
+
+export type StatisticalChartType = StatisticalChartTier1Type | StatisticalChartTier2Type | StatisticalSummaryType
 
 export type StatisticalStackMode = 'grouped' | 'stacked' | 'percent'
 
@@ -72,6 +83,20 @@ export interface StatisticalChartSpec {
   valueField?: string
   sourceField?: string
   targetField?: string
+  /** Lower bound of the shaded band of a `quantile_band` chart, for example p5. */
+  bandLowField?: string
+  /** Upper bound of the shaded band of a `quantile_band` chart, for example p95. */
+  bandHighField?: string
+  /** Legend and tooltip name of the band, for example `p5–p95`. */
+  bandLabel?: string
+  /** Unit shown beside the value of a `stat` chart, for example `ms`. */
+  unit?: string
+  /** Row field with the comparison value of a `stat` chart, for example `+12.4%`. */
+  comparisonField?: string
+  /** Row field with an explicit `stat` trend (`up`, `down`, or `neutral`). */
+  trendField?: string
+  /** Row field with the formatted value of a `stat` chart, used instead of a number format. */
+  formattedValueField?: string
   xTitle?: string
   yTitle?: string
   secondaryYTitle?: string
@@ -127,15 +152,6 @@ function formatPercentageShare(share: number): string {
   return `${pct.toFixed(1).replace(/\.0$/, '')}%`
 }
 
-function formatFallbackNumeric(raw: unknown): string {
-  const num = toFiniteNumber(raw)
-  if (num !== null) {
-    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(num)
-  }
-  if (raw === null || raw === undefined || raw === '') return '—'
-  return String(raw)
-}
-
 function formatRowMetricText(
   row: Record<string, unknown>,
   rawField: string,
@@ -152,13 +168,129 @@ function formatRowMetricText(
   return baseText
 }
 
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
+/** Picks the readable foreground color for a `stat` trend from the resolved palette. */
+function statTrendForeground(trend: StatTrendDirection, palette: VizThemePalette): string {
+  if (trend === 'up') return palette.upForeground
+  if (trend === 'down') return palette.downForeground
+  return palette.fgSecondary
+}
+
+/** Builds one positioned G2 text mark for a `stat` card. */
+function statTextMark(text: string, style: Record<string, unknown>, animate: boolean): Record<string, unknown> {
+  return {
+    type: 'text',
+    tooltip: false,
+    style: { text, ...style },
+    ...(animate ? {} : { animate: false })
   }
-  return null
+}
+
+/**
+ * Lays out the single metric of a `stat` chart as positioned text marks. The marks follow the
+ * resolved viz palette, so light/dark themes and `cn` market conventions need no extra work.
+ */
+function buildStatChartMarks(
+  spec: StatisticalChartSpec,
+  palette: VizThemePalette,
+  animate: boolean
+): Record<string, unknown>[] {
+  const { valueText, unit, comparisonText, trend } = statChartParts(spec)
+  const monoFamily = palette.fontMono || palette.fontSans
+
+  const marks: Record<string, unknown>[] = []
+
+  if (spec.title) {
+    marks.push(
+      statTextMark(
+        spec.title,
+        {
+          x: '8%',
+          y: '12%',
+          textAlign: 'left',
+          textBaseline: 'middle',
+          fontSize: 12,
+          fontWeight: 500,
+          fontFamily: palette.fontSans,
+          fill: palette.fgSecondary
+        },
+        animate
+      )
+    )
+  }
+
+  if (spec.subtitle) {
+    marks.push(
+      statTextMark(
+        spec.subtitle,
+        {
+          x: '8%',
+          y: '24%',
+          textAlign: 'left',
+          textBaseline: 'middle',
+          fontSize: 11,
+          fontFamily: palette.fontSans,
+          fill: palette.fgTertiary
+        },
+        animate
+      )
+    )
+  }
+
+  marks.push(
+    statTextMark(
+      valueText,
+      {
+        x: '8%',
+        y: '52%',
+        textAlign: 'left',
+        textBaseline: 'middle',
+        fontSize: 30,
+        fontWeight: 600,
+        fontFamily: monoFamily,
+        fill: palette.foreground
+      },
+      animate
+    )
+  )
+
+  if (unit) {
+    marks.push(
+      statTextMark(
+        unit,
+        {
+          x: '92%',
+          y: '52%',
+          textAlign: 'right',
+          textBaseline: 'middle',
+          fontSize: 14,
+          fontFamily: monoFamily,
+          fill: palette.fgSecondary
+        },
+        animate
+      )
+    )
+  }
+
+  if (comparisonText) {
+    marks.push(
+      statTextMark(
+        `${statTrendGlyph(trend)} ${comparisonText}`,
+        {
+          x: '8%',
+          y: '82%',
+          textAlign: 'left',
+          textBaseline: 'middle',
+          fontSize: 12,
+          fontWeight: 500,
+          fontFamily: monoFamily,
+          fill: statTrendForeground(trend, palette)
+        },
+        animate
+      )
+    )
+  }
+
+  return marks
 }
 
 /**
@@ -715,7 +847,7 @@ export function prepareStatisticalChartSpec(
     spec.showLegend ?? Boolean(seriesField || ['pie', 'donut', 'funnel', 'wordcloud'].includes(spec.type))
 
   const titleConfig =
-    spec.title || spec.subtitle
+    spec.type !== 'stat' && (spec.title || spec.subtitle)
       ? {
           title: spec.title,
           subtitle: spec.subtitle ?? undefined,
@@ -1415,9 +1547,96 @@ export function prepareStatisticalChartSpec(
       }
       break
     }
+
+    case 'quantile_band': {
+      const lowField = spec.bandLowField
+      const highField = spec.bandHighField
+      const hasBand = Boolean(lowField && highField)
+      const bandName = spec.bandLabel ?? (lowField && highField ? `${lowField}–${highField}` : (spec.yTitle ?? yField))
+
+      const quantileTooltip = tooltipDisabled
+        ? false
+        : {
+            title: (d: Record<string, unknown>) => String(d[xField] ?? ''),
+            items: [
+              ...(hasBand
+                ? [
+                    (d: Record<string, unknown>) => ({
+                      name: seriesField ? `${String(d[seriesField] ?? '')} · ${bandName}` : bandName,
+                      value: `${formatFallbackNumeric(d[lowField!])} – ${formatFallbackNumeric(d[highField!])}`
+                    })
+                  ]
+                : []),
+              (d: Record<string, unknown>) => ({
+                name: seriesField
+                  ? `${String(d[seriesField] ?? '')} · ${spec.yTitle ?? yField}`
+                  : (spec.yTitle ?? yField),
+                value: formatRowMetricText(d, yField, spec.formattedYField)
+              })
+            ]
+          }
+
+      const quantileChildren: Record<string, unknown>[] = []
+
+      if (hasBand) {
+        quantileChildren.push({
+          type: 'area',
+          encode: {
+            x: xField,
+            y: highField,
+            y1: lowField,
+            ...(seriesField ? { color: seriesField } : {}),
+            ...(spec.smooth ? { shape: 'smooth' } : {})
+          },
+          style: {
+            fillOpacity: seriesField ? 0.14 : 0.16,
+            ...(seriesField ? {} : { fill: palette.categorical[0] })
+          },
+          tooltip: false,
+          ...(animateEnabled === false ? { animate: false } : {})
+        })
+      }
+
+      quantileChildren.push({
+        type: 'line',
+        encode: {
+          x: xField,
+          y: activeYField,
+          ...(seriesField ? { color: seriesField } : {}),
+          ...(spec.smooth ? { shape: 'smooth' } : {})
+        },
+        style: {
+          lineWidth: 2,
+          lineCap: 'round',
+          lineJoin: 'round',
+          ...(seriesField ? {} : { stroke: palette.categoricalStrokes[0] })
+        },
+        ...(quantileTooltip !== false ? { tooltip: quantileTooltip } : {}),
+        ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
+        ...(animateEnabled === false ? { animate: false } : {})
+      })
+
+      primaryNode = {
+        type: 'view',
+        data: normalizedRows,
+        scale: scaleConfig,
+        axis: { x: xAxisConfig, y: yAxisConfig },
+        children: quantileChildren
+      }
+      break
+    }
+
+    case 'stat': {
+      primaryNode = {
+        type: 'view',
+        padding: 0,
+        children: buildStatChartMarks(spec, palette, animateEnabled !== false)
+      }
+      break
+    }
   }
 
-  const refLineNodes = (spec.referenceLines ?? []).map(refLine => ({
+  const refLineNodes = (spec.type === 'stat' ? [] : (spec.referenceLines ?? [])).map(refLine => ({
     type: refLine.axis === 'x' ? 'lineX' : 'lineY',
     data: [refLine.value],
     tooltip: false,

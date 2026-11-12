@@ -1,5 +1,6 @@
 import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { cn } from '../lib/utils'
+import { describeStatChart } from '../viz/stat-summary'
 import type { MountedStatisticalChart, PercentFallbackReason, StatisticalChartSpec } from '../viz/statistical'
 
 export type {
@@ -11,7 +12,8 @@ export type {
   StatisticalChartTier2Type,
   StatisticalChartType,
   StatisticalReferenceLine,
-  StatisticalStackMode
+  StatisticalStackMode,
+  StatisticalSummaryType
 } from '../viz/statistical'
 
 export interface AnkoleChartSummaryTable {
@@ -321,7 +323,11 @@ export function AnkoleChart({
       })
   }, [spec, themeRevision])
 
-  const accessibleLabel = ariaLabel ?? spec.title ?? `${spec.type} chart`
+  const accessibleLabel =
+    ariaLabel ??
+    (spec.type === 'stat'
+      ? describeStatChart(spec) || spec.title || 'Metric card'
+      : (spec.title ?? `${spec.type} chart`))
   const fileStem = sanitizeDownloadStem(exportFilename ?? ariaLabel ?? spec.title)
   const showExportControls = allowExport && !isEmptyData
 

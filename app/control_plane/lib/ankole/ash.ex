@@ -23,16 +23,28 @@ defmodule Ankole.Ash do
   def read_one_authorized(query, %Ankole.AuthZ.Actor{} = actor, opts \\ []),
     do: read_one(query, Keyword.merge(opts, actor: actor, authorize?: true))
 
+  @doc """
+  Runs a generic action for an authenticated actor in the resource's declared scope.
+
+  A tenant resource runs in the process tenant and a site resource runs without
+  one. A tenant supplied through `opts` or carried by `input` must match that
+  scope; the accepted input is normalized to it before execution.
+  """
   def run_action_authorized(
-        %Ash.ActionInput{} = input,
+        %Ash.ActionInput{resource: resource} = input,
         %Ankole.AuthZ.Actor{} = actor,
         opts \\ []
-      ),
-      do:
-        Ash.run_action(
-          input,
-          Keyword.merge(opts, actor: actor, authorize?: true, tenant: Ankole.Repo.tenant_id())
-        )
+      ) do
+    tenant = action_tenant(resource)
+    assert_tenant!(Keyword.get(opts, :tenant, tenant), tenant)
+    assert_tenant!(input.tenant || tenant, tenant)
+
+    in_declared_scope(resource, fn ->
+      input
+      |> Ash.ActionInput.set_tenant(tenant)
+      |> Ash.run_action(Keyword.merge(opts, actor: actor, authorize?: true, tenant: tenant))
+    end)
+  end
 
   def for_create(resource, action, attrs, opts \\ []),
     do: Ash.Changeset.for_create(resource, action, attrs, options(resource, opts))
@@ -164,18 +176,42 @@ defmodule Ankole.Ash do
   end
 
   def run_action(resource, action, args, opts \\ []) do
-    tenant = Ankole.Repo.tenant_id()
+    tenant = action_tenant(resource)
 
-    if Keyword.get(opts, :tenant, tenant) != tenant,
-      do: raise(ArgumentError, "action tenant does not match the selected resource scope")
+    assert_tenant!(Keyword.get(opts, :tenant, tenant), tenant)
 
     options = Keyword.merge([tenant: tenant, authorize?: false], opts)
 
-    resource
-    |> Ash.ActionInput.for_action(action, args, options)
-    |> Ash.run_action(options)
-    |> Ankole.Errors.boundary_result()
+    in_declared_scope(resource, fn ->
+      resource
+      |> Ash.ActionInput.for_action(action, args, options)
+      |> Ash.run_action(options)
+      |> Ankole.Errors.boundary_result()
+    end)
   end
+
+  # A site action runs without a caller tenant, so a repository call inside it
+  # cannot inherit one; tenant actions keep the process context.
+  defp in_declared_scope(resource, fun) do
+    if site_resource?(resource), do: Ankole.Repo.without_tenant(fun), else: fun.()
+  end
+
+  defp site_resource?(resource) do
+    Code.ensure_loaded?(resource) and function_exported?(resource, :__tenancy__, 0) and
+      resource.__tenancy__() == :site
+  end
+
+  # Site operations run without a tenant; tenant resources keep reading the
+  # process tenant exactly as before.
+  defp action_tenant(resource),
+    do: if(site_resource?(resource), do: nil, else: Ankole.Repo.tenant_id())
+
+  # A caller-supplied tenant must match the declared scope; site operations
+  # never inherit a tenant from their input or from the process.
+  defp assert_tenant!(tenant, tenant), do: :ok
+
+  defp assert_tenant!(_supplied, _declared),
+    do: raise(ArgumentError, "action tenant does not match the selected resource scope")
 
   def bulk_create(inputs, resource, action, opts \\ []),
     do: Ash.bulk_create(inputs, resource, action, bulk_options(resource, opts))
@@ -382,8 +418,7 @@ defmodule Ankole.Ash do
         :site -> nil
       end
 
-    if Keyword.get(opts, :tenant, tenant) != tenant,
-      do: raise(ArgumentError, "action tenant does not match the selected resource scope")
+    assert_tenant!(Keyword.get(opts, :tenant, tenant), tenant)
 
     Keyword.merge([tenant: tenant, authorize?: false], opts)
   end

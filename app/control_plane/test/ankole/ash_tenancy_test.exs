@@ -3,7 +3,7 @@ defmodule Ankole.AshTenancyTest do
 
   alias Ecto.Adapters.SQL
 
-  alias TenantIsolationFixture.{Probe, SiteProbe}
+  alias TenantIsolationFixture.{Probe, SiteOperationProbe, SiteProbe, TenantOperationProbe}
 
   setup do
     SQL.query!(Repo, """
@@ -72,6 +72,124 @@ defmodule Ankole.AshTenancyTest do
 
     assert [%{value: "audit"}] = Repo.without_tenant(fn -> Ankole.Ash.read!(SiteProbe) end)
   end
+
+  test "site operation resources run without a tenant and reject a forged tenant" do
+    assert SiteOperationProbe.__tenancy__() == :site
+    assert TenantOperationProbe.__tenancy__() == :tenant
+
+    assert {:ok, %{tenant: nil, input_tenant: nil, context_tenant: nil}} =
+             Repo.without_tenant(fn ->
+               Ankole.Ash.run_action(SiteOperationProbe, :site_probe, %{})
+             end)
+
+    other = create_tenant()
+
+    assert_raise ArgumentError, ~r/action tenant/, fn ->
+      Repo.without_tenant(fn ->
+        Ankole.Ash.run_action(SiteOperationProbe, :site_probe, %{}, tenant: other.id)
+      end)
+    end
+
+    assert {:ok, %{tenant: tenant_id, input_tenant: tenant_id, context_tenant: tenant_id}} =
+             Repo.with_tenant(other.id, fn ->
+               Ankole.Ash.run_action(TenantOperationProbe, :tenant_probe, %{})
+             end)
+
+    assert tenant_id == other.id
+  end
+
+  test "site operation resources authorize through the site console scope without a tenant" do
+    %{principal: principal} = Ankole.PrincipalsFixtures.human_fixture()
+    actor = Ankole.AuthZ.Actor.new(principal)
+
+    assert {:ok, %{tenant: nil}} =
+             Repo.without_tenant(fn ->
+               Ankole.Ash.run_action(SiteOperationProbe, :site_probe, %{},
+                 actor: actor,
+                 authorize?: true
+               )
+             end)
+
+    Repo.without_tenant(fn ->
+      assert :ok = Ankole.AuthZ.Checks.ActorGuardrail.check(actor, :site_console)
+
+      assert {:error, :forbidden} =
+               Ankole.AuthZ.Checks.ActorGuardrail.check(actor, :tenant_console)
+    end)
+  end
+
+  test "authorized site operations reject a supplied tenant and normalize the input tenant" do
+    %{principal: principal} = Ankole.PrincipalsFixtures.human_fixture()
+    actor = Ankole.AuthZ.Actor.new(principal)
+    other = create_tenant()
+
+    assert {:ok, %{tenant: nil, input_tenant: nil, context_tenant: nil}} =
+             Repo.without_tenant(fn ->
+               Ankole.Ash.run_action_authorized(site_operation_input(), actor)
+             end)
+
+    assert_raise ArgumentError, ~r/action tenant/, fn ->
+      Repo.without_tenant(fn ->
+        Ankole.Ash.run_action_authorized(site_operation_input(), actor, tenant: other.id)
+      end)
+    end
+
+    assert_raise ArgumentError, ~r/action tenant/, fn ->
+      Repo.without_tenant(fn ->
+        Ankole.Ash.run_action_authorized(site_operation_input(other.id), actor)
+      end)
+    end
+
+    assert {:ok, %{tenant: tenant_id, input_tenant: tenant_id, context_tenant: tenant_id}} =
+             Repo.with_tenant(other.id, fn ->
+               Ankole.Ash.run_action_authorized(tenant_operation_input(), actor)
+             end)
+
+    assert tenant_id == other.id
+  end
+
+  test "site operations clear the caller's process tenant and restore it" do
+    other = create_tenant()
+    other_id = other.id
+    %{principal: principal} = Ankole.PrincipalsFixtures.human_fixture()
+    actor = Ankole.AuthZ.Actor.new(principal)
+
+    Repo.with_tenant(other_id, fn ->
+      assert {:ok, %{tenant: nil, input_tenant: nil, context_tenant: nil}} =
+               Ankole.Ash.run_action(SiteOperationProbe, :site_probe, %{})
+
+      assert Repo.tenant_id() == other_id
+
+      assert {:ok, %{tenant: nil}} =
+               Ankole.Ash.run_action_authorized(site_operation_input(), actor)
+
+      assert Repo.tenant_id() == other_id
+
+      assert {:ok, %{tenant: ^other_id, input_tenant: ^other_id, context_tenant: ^other_id}} =
+               Ankole.Ash.run_action(TenantOperationProbe, :tenant_probe, %{})
+
+      assert Repo.tenant_id() == other_id
+    end)
+  end
+
+  defp site_operation_input(tenant \\ nil),
+    do:
+      Ash.ActionInput.for_action(
+        SiteOperationProbe,
+        :site_probe,
+        %{},
+        tenant: tenant,
+        authorize?: false
+      )
+
+  defp tenant_operation_input,
+    do:
+      Ash.ActionInput.for_action(
+        TenantOperationProbe,
+        :tenant_probe,
+        %{},
+        authorize?: false
+      )
 
   test "atomic row updates run as one statement or in the caller's transaction" do
     {:ok, row} = Ankole.Ash.create(Probe, :upsert_global, %{global_key: "atomic transaction"})

@@ -193,10 +193,35 @@ query source recursively:
 
 Tenant-owned Ash resources configure attribute tenancy with `global? false`,
 while site-owned resources operate at site scope without a process tenant.
-`Ankole.Ash` and domain code interfaces (`Ankole.Ash.default_options/0`) pass
-the calling process's `Ankole.Repo` tenant into Ash, which populates the tenant
-attribute; because `Ankole.Repo` independently scopes every SQL read and write,
-a forged Ash `:tenant` option can never read or mutate another tenant's rows.
+For tenant-owned resources, `Ankole.Ash` passes the calling process's
+`Ankole.Repo` tenant into Ash, which populates the tenant attribute. Domain code
+interfaces read the same process tenant through `Ankole.Ash.default_options/0`.
+For schema-backed reads and writes, `Ankole.Repo` enforces tenant ownership
+independently of Ash's `:tenant` option. Repo does not rewrite raw SQL or Ecto
+SQL fragments. The owning domain supplies any required tenant predicates.
+
+`Ankole.Ash.OperationResource` declares stateless generic actions. Its `tenancy`
+option defaults to `:tenant` and also accepts `:site`; other values raise
+`ArgumentError` at compile time. `Ankole.Ash.run_action/4` and
+`run_action_authorized/3` select the execution scope from the resource's
+declaration. Tenant actions use the calling process's tenant and context. Site
+actions use `tenant: nil` and execute inside `Repo.without_tenant/1`, so
+repository calls inside the action also run without an inherited tenant.
+Repo restores the caller's context when the site action returns or raises.
+
+Both entry points reject a `tenant:` option that does not match the selected
+scope with `ArgumentError`. `run_action_authorized/3` also rejects an
+`Ash.ActionInput` carrying an incompatible tenant, then normalizes accepted
+inputs with `Ash.ActionInput.set_tenant/2`. Site actions accept only `nil` for
+the tenant option and `input.tenant`. A tenant action's input may omit its
+tenant; the wrapper fills it from the calling process.
+
+`run_action/4` defaults to `authorize?: false`; callers can enable authorization
+with `authorize?: true`. `run_action_authorized/3` requires an
+`Ankole.AuthZ.Actor` and always sets `authorize?: true`. When enabled, the
+resource's declared [AuthZ scope and rules](AuthZ.md#ash-actors-and-execution)
+determine authorization independently of its execution tenancy.
+
 Cross-tenant Ash reads use dedicated global read actions inside an explicit
 `Repo.across_tenants` block opened by `Ankole.Ash.read_across_tenants!/2` (if
 invoked inside a tenant context, `Ankole.Repo` still restricts results to that

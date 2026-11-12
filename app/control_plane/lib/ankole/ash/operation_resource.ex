@@ -1,7 +1,18 @@
 defmodule Ankole.Ash.OperationResource do
-  @moduledoc "Declares typed, stateless operations at an API boundary."
+  @moduledoc """
+  Declares typed, stateless operations at an API boundary.
+
+  An operation is tenant-scoped by default. An operation that serves the site
+  administration API declares `tenancy: :site`: it runs without a tenant, and
+  the site console scope authorizes it. Existing operation callers keep the
+  default `tenancy: :tenant`.
+  """
   defmacro __using__(opts) do
     opts = Ankole.Ash.Resource.runtime_authorizers(opts, __CALLER__)
+    {tenancy, opts} = Keyword.pop(opts, :tenancy, :tenant)
+
+    unless tenancy in [:tenant, :site],
+      do: raise(ArgumentError, "operation tenancy must be :tenant or :site")
 
     quote do
       use Ash.Resource,
@@ -15,7 +26,7 @@ defmodule Ankole.Ash.OperationResource do
             )
           )
 
-      def __tenancy__, do: :tenant
+      def __tenancy__, do: unquote(tenancy)
 
       import Ankole.Ash.Resource, only: [struct_constraints: 1]
 

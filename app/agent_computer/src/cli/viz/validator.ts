@@ -28,7 +28,9 @@ export const STATISTICAL_CHART_TYPES = [
   'treemap',
   'sunburst',
   'sankey',
-  'wordcloud'
+  'wordcloud',
+  'stat',
+  'quantile_band'
 ] as const satisfies readonly StatisticalChartType[]
 
 const BUSINESS_DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -66,6 +68,7 @@ const StatisticalSpecEnvelopeSchema = z
     stackMode: z.enum(['grouped', 'stacked', 'percent']).optional(),
     title: z.string().optional(),
     subtitle: z.string().optional(),
+    unit: z.string().optional(),
     showLegend: z.boolean().optional(),
     width: z.number().positive().optional(),
     height: z.number().positive().optional()
@@ -110,6 +113,10 @@ export function validateAndNormalizeChartSpec(
     } else if (type === 'sankey') {
       if (!Array.isArray(data.links) || data.links.length === 0) {
         return { ok: false, errors: ['data: sankey object data must contain a non-empty links array.'] }
+      }
+    } else if (type === 'stat') {
+      if (Object.keys(data).length === 0) {
+        return { ok: false, errors: ['data: stat object data must not be empty.'] }
       }
     } else {
       return { ok: false, errors: [`data: chart type "${type}" requires a non-empty data array.`] }
