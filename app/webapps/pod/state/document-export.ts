@@ -5,7 +5,7 @@ import i18n from '../../common/i18n'
 import { InternalAPIError } from '../../common/internal-api-client'
 import { fileURL, metadataFileURL, pageAPI, pageQuery } from '../content-api'
 import { podFiles } from '../api/generated/sdk.gen'
-import { isCustomEmojiIcon } from '../page-icon-value'
+import { isCustomEmojiIcon, pageIcon } from '../page-icon-value'
 import {
   documentAssets,
   documentEmbedIDs,
@@ -94,7 +94,8 @@ export async function loadDocumentPrincipals(
 }
 
 function documentHeading(title: string, icon?: string | null) {
-  return [icon && !isCustomEmojiIcon(icon) ? icon : '', title].filter(Boolean).join(' ')
+  const shown = pageIcon(icon)
+  return [shown && !isCustomEmojiIcon(shown) ? shown : '', title].filter(Boolean).join(' ')
 }
 
 export function documentMarkdownForExport(

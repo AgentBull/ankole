@@ -531,6 +531,16 @@ defmodule Ankole.Pod.RPCBrokerTest do
                request("pages.update", %{id: page.id, icon: "📄"}),
                ctx.ctx
              )
+
+    assert {:error, %{"code" => "invalid_icon", "message" => message}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.update", %{id: page.id, icon: "演示数据"}),
+               ctx.ctx
+             )
+
+    assert message =~ "exactly one emoji"
+    assert {:ok, %{icon: "📄"}} = Pages.fetch(page.id)
   end
 
   for type <- [:knowledge, :file] do
@@ -1066,6 +1076,34 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert content.plain_text =~ "187 CNY"
     assert content.plain_text =~ "PILOT-42"
     assert content.content =~ "<strong>187 CNY</strong>"
+
+    for icon <- ["演示数据", 42] do
+      assert {:error, %{"code" => "invalid_icon", "message" => message}} =
+               RPCBroker.handle_write(
+                 ctx.ref,
+                 request("pages.create", %{
+                   type: "doc",
+                   parent_id: parent.id,
+                   title: "Demo",
+                   icon: icon
+                 }),
+                 ctx.ctx
+               )
+
+      assert message =~ "exactly one emoji"
+    end
+
+    assert {:ok, %{"result" => %{"icon" => "📊"}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.create", %{
+                 type: "doc",
+                 parent_id: parent.id,
+                 title: "Demo",
+                 icon: "📊"
+               }),
+               ctx.ctx
+             )
   end
 
   test "knowledge RPC accepts the CLI's streamed Markdown body", ctx do

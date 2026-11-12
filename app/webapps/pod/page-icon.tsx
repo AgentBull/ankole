@@ -26,7 +26,7 @@ import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { contentKeys, metadataFileURL, pageAPI, type Page } from './content-api'
 import { ContentError } from './content-primitives'
-import { isCustomEmojiIcon } from './page-icon-value'
+import { isCustomEmojiIcon, pageIcon } from './page-icon-value'
 import { customEmojiLibrary, uploadCustomEmoji } from './native-transfers'
 import { InternalAPIError } from '../common/internal-api-client'
 import { updatePageMetadata } from './state/navigation-cache'
@@ -63,8 +63,8 @@ export function PageIcon({
   if (page.system_key === 'ankole_brain') {
     return <img src="/images/logo.svg" alt="" draggable={false} className={classes} />
   }
-  if (isCustomEmojiIcon(page.icon) && failedIcon !== page.icon) {
-    const icon = page.icon
+  const icon = pageIcon(page.icon)
+  if (isCustomEmojiIcon(icon) && failedIcon !== icon) {
     return (
       <img
         src={metadataFileURL(icon)}
@@ -75,10 +75,10 @@ export function PageIcon({
       />
     )
   }
-  if (page.icon && !isCustomEmojiIcon(page.icon)) {
+  if (icon && !isCustomEmojiIcon(icon)) {
     return (
       <span aria-hidden className={cn(classes, 'ankole-fluent-emoji')}>
-        {page.icon}
+        {icon}
       </span>
     )
   }
@@ -206,8 +206,9 @@ export function PageIconPicker({ page: sourcePage, editable }: { page: Page; edi
   })
 
   const busy = update.isPending || upload.isPending
+  const icon = pageIcon(page.icon)
 
-  if (!editable) return page.icon ? <PageIcon page={page} className="pod-page-title-icon" /> : null
+  if (!editable) return icon ? <PageIcon page={page} className="pod-page-title-icon" /> : null
 
   const uploadError = upload.isError
     ? upload.error instanceof InternalAPIError && upload.error.status === 413
@@ -232,9 +233,9 @@ export function PageIconPicker({ page: sourcePage, editable }: { page: Page; edi
         render={
           <Button
             variant="ghost"
-            className={page.icon ? 'pod-page-title-icon' : 'pod-page-add-icon'}
-            aria-label={t(page.icon ? 'pod.content.change_icon' : 'pod.content.add_icon')}>
-            {page.icon ? (
+            className={icon ? 'pod-page-title-icon' : 'pod-page-add-icon'}
+            aria-label={t(icon ? 'pod.content.change_icon' : 'pod.content.add_icon')}>
+            {icon ? (
               <PageIcon page={page} />
             ) : (
               <>
@@ -251,7 +252,7 @@ export function PageIconPicker({ page: sourcePage, editable }: { page: Page; edi
         aria-label={t('pod.content.page_icon')}
         className="pod-icon-picker">
         <IconPicker
-          activeIcon={page.icon}
+          activeIcon={icon}
           emoji={{
             labels: emojiPickerLabels(),
             locale: i18n.language,
@@ -259,9 +260,9 @@ export function PageIconPicker({ page: sourcePage, editable }: { page: Page; edi
               if (!busy) update.mutate(emoji)
             }
           }}
-          defaultTab={isCustomEmojiIcon(page.icon) ? 'picture' : 'emoji'}
+          defaultTab={isCustomEmojiIcon(icon) ? 'picture' : 'emoji'}
           labels={iconPickerLabels()}
-          onRemove={page.icon && !busy ? () => update.mutate(null) : undefined}
+          onRemove={icon && !busy ? () => update.mutate(null) : undefined}
           pictures={{
             items: (library.data?.custom_emojis ?? []).map(picture => ({
               id: picture.path,

@@ -64,6 +64,39 @@ defmodule Ankole.Pod.PagesTest do
     assert {:ok, %{title: ^legacy, icon: "📌"}} = Pages.update(actor, page.id, %{icon: "📌"})
   end
 
+  test "a Page icon is one emoji or a custom emoji path, and other text is rejected", ctx do
+    actor = actor_fixture(ctx.owner)
+
+    for icon <- ["演示数据", "演", "A", "0", "★", "♪", "🧠🧠", "📊 Demo", 42] do
+      assert {:error, :invalid_icon} = Pages.create(actor, %{title: "Rejected", icon: icon})
+    end
+
+    assert {:ok, page} = Pages.create(actor, %{title: "Dashboard", icon: "📊"})
+
+    for icon <- ["👩🏽‍💻", "🇧🇷", "0️⃣", "❤️", "☺", "©", "metadata/custom-emoji/aa/:ankole:"] do
+      assert {:ok, %{icon: ^icon}} = Pages.update(actor, page.id, %{icon: icon})
+    end
+
+    assert {:error, :invalid_icon} = Pages.update(actor, page.id, %{icon: "演示数据"})
+    assert {:ok, %{icon: "metadata/custom-emoji/aa/:ankole:"}} = Pages.fetch(page.id)
+    assert {:ok, %{icon: nil}} = Pages.update(actor, page.id, %{icon: nil})
+    assert {:ok, _} = Pages.update(actor, page.id, %{icon: "📊"})
+    assert {:ok, %{icon: nil}} = Pages.update(actor, page.id, %{icon: ""})
+
+    # A word stored as the icon stays while a write omits the icon or sends that word back unchanged.
+    Ankole.Repo.query!("UPDATE pages SET icon = '演示数据' WHERE id = $1", [Ecto.UUID.dump!(page.id)])
+
+    assert {:ok, %{title: "Renamed", icon: "演示数据"}} =
+             Pages.update(actor, page.id, %{title: "Renamed", expected_title: "Dashboard"})
+
+    assert {:ok, %{title: "Echoed", icon: "演示数据"}} =
+             Pages.update(actor, page.id, %{
+               title: "Echoed",
+               expected_title: "Renamed",
+               icon: "演示数据"
+             })
+  end
+
   test "moving the first Space page into Private establishes its owner's access", ctx do
     actor = actor_fixture(ctx.owner.uid)
     assert {:ok, []} = Pages.list(actor, %{scope: "private"})

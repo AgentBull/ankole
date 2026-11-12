@@ -203,6 +203,16 @@ defmodule Ankole.Pod.Serialization do
       details: nil
     }
 
+  def error(:invalid_icon),
+    do: %{
+      code: "invalid_icon",
+      message:
+        "A Page icon must be exactly one emoji, such as 📊, or a metadata/custom-emoji/... path " <>
+          "from the Pod's custom emoji library. Send null to remove the icon, and put labels such as " <>
+          "\"Demo data\" in the title or content.",
+      details: nil
+    }
+
   def error(:invalid_url),
     do: %{
       code: "invalid_url",

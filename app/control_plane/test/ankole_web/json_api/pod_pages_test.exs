@@ -71,6 +71,31 @@ defmodule AnkoleWeb.JSONAPI.PodPagesTest do
     assert metadata["page"]["title"] == "Current title"
     assert metadata["page"]["icon"] == "📄"
     assert metadata["page"]["children_view"]["collapsed"]
+
+    rejected =
+      owner
+      |> recycle_json()
+      |> patch("/api/v2/pod/pages/#{page.id}", %{data: %{icon: "演示数据"}})
+      |> json_response(422)
+
+    assert [%{"code" => "invalid_icon", "detail" => detail}] = rejected["errors"]
+    assert detail =~ "exactly one emoji"
+    assert {:ok, %{icon: "📄"}} = Ankole.Pod.Pages.fetch(page.id)
+
+    assert [%{"code" => "invalid_icon"}] =
+             owner
+             |> recycle_json()
+             |> post("/api/v2/pod/pages", %{data: %{title: "Demo", icon: "演示数据"}})
+             |> json_response(422)
+             |> Map.fetch!("errors")
+
+    removed =
+      owner
+      |> recycle_json()
+      |> patch("/api/v2/pod/pages/#{page.id}", %{data: %{icon: nil}})
+      |> json_response(200)
+
+    assert removed["page"]["icon"] == nil
   end
 
   test "embed deletion accepts one batch and trashes every direct child", %{conn: conn} do

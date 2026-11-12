@@ -1,5 +1,20 @@
 # Changelog
 
+## Version 2.0.0-alpha.140 (2026-11-12)
+
+- Fix Page references in Chat drawing a Page's icon over its title when an
+  Agent had set the icon to a word instead of one emoji. Pod now shows the
+  Page's type mark for such an icon in Chat, the sidebar, and page pickers, and
+  the title line offers to add an icon.
+- Reject a Page icon that is not exactly one emoji or a custom emoji from the
+  Pod library. When a Page is created or updated with any other icon, from the
+  browser or through `ankole-pod pages.create` and `pages.update`, the request
+  fails with `invalid_icon` and a message that asks for one emoji and suggests
+  putting labels such as "Demo data" in the title or content. `null` or an
+  empty string removes the icon, an update that sends the stored icon back
+  unchanged still succeeds, and the `ankole-pod` help states the one-emoji
+  rule.
+
 ## Version 2.0.0-alpha.139 (2026-11-12)
 
 - Keep an Agent's prompt cache across every turn of one conversation. Check

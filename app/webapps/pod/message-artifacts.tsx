@@ -30,6 +30,7 @@ import { ContentError, InlineLoading } from './content-primitives'
 import { PagePicker } from './page-picker'
 import { MessageAttachments } from './chat-attachments'
 import { PageIcon } from './page-icon'
+import { pageIcon } from './page-icon-value'
 import {
   AppsRegular,
   ArrowDownloadRegular,
@@ -99,7 +100,7 @@ const pageTypeMarks: Partial<Record<Page['type'], IconComponent>> = {
  * A Page whose details Pod has not read yet shows the document mark.
  */
 function PageMark({ page }: { page?: PageMarkSource }) {
-  if (page && (page.icon || page.system_key === 'ankole_brain')) {
+  if (page && (pageIcon(page.icon) || page.system_key === 'ankole_brain')) {
     return <PageIcon page={page} className="pod-page-mark" />
   }
   if (page?.type === 'file') return <FileTypeMark fileName={page.title} />
