@@ -5,15 +5,7 @@ import type { TurnStart } from '../../lanes/session_lane'
 import { type JsonObject as JSONObject } from '@agentbull/active-support'
 
 /** Reasoning effort values accepted from the frozen model projection. */
-export const CODEX_MODEL_REASONING_EFFORTS = [
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max'
-] as const
+export const CODEX_MODEL_REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 export type CodexModelReasoningEffort = (typeof CODEX_MODEL_REASONING_EFFORTS)[number]
 
