@@ -4,6 +4,7 @@ import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } fr
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
+import { contentKeys } from '../content-api'
 import MarkdownRenderer from './markdown-renderer'
 
 beforeAll(async () => {
@@ -127,6 +128,43 @@ test('a Page reference stands in its text as the reference card, without room ag
     expect(cards.every(card => card.includes('surface-outline') && card.includes('translate="no"'))).toBe(true)
     expect(html).toMatch(/data-slot="reference-card-title"[^>]*>Q4 路线图<\/span>/)
     expect(html).toContain('<span>旧页面</span>')
+  } finally {
+    client.clear()
+  }
+})
+
+test('a Page reference shows the type mark for a stored icon that is a word rather than an emoji', async () => {
+  const worded = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
+  const emoji = '16fd2706-8baf-433b-82eb-8c7fada847da'
+  const text = `[运营看板](ankole:page/${worded}) · [路线审查](ankole:page/${emoji})`
+  const client = new QueryClient()
+  client.setQueryData(contentKeys.page(worded), {
+    page: { id: worded, type: 'applet', title: '运营看板', icon: '演示数据' },
+    ancestors: []
+  })
+  client.setQueryData(contentKeys.page(emoji), {
+    page: { id: emoji, type: 'doc', title: '路线审查', icon: '🧭' },
+    ancestors: []
+  })
+  const root = createRootRoute({ component: () => <MarkdownRenderer text={text} generated /> })
+  const router = createRouter({
+    routeTree: root,
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+    parseSearch: parseRouterSearch,
+    stringifySearch: stringifyRouterSearch
+  })
+  await router.load()
+  try {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+    const cards = html.split('pod-chat-inline-reference').slice(1)
+    expect(cards).toHaveLength(2)
+    expect(html).not.toContain('演示数据')
+    expect(cards[0]).toContain('<svg')
+    expect(cards[1]).toMatch(/ankole-fluent-emoji[^>]*>🧭<\/span>/)
   } finally {
     client.clear()
   }

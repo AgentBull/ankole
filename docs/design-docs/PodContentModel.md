@@ -410,7 +410,19 @@ succeeds idempotently, whereas assigning an existing shortcode to a different
 asset fails with `shortcode_taken`.
 The existing Page `icon` metadata is the durable owner: it holds either the
 emoji or a `metadata/custom-emoji/...` path. Navigation, references, and page
-pickers render that same value; the Page's path is text only. Listing the
+pickers render that same value; the Page's path is text only. When a caller
+creates or updates a Page, from the browser or as an Agent, Ankole accepts an
+icon of exactly one emoji grapheme, a `metadata/custom-emoji/...` path, or
+`null`, and treats an empty string as `null`. Ankole rejects any other text
+with `invalid_icon` and tells the caller to put a label in the title or
+content instead. When a caller omits the icon or sends the stored value
+unchanged, Ankole keeps that value. A version restore writes the snapshot's
+recorded icon without this check, so a stored icon can be any text, and Pod
+therefore renders a value that is neither one emoji nor a custom-emoji path as
+no icon: navigation and references show the Page's type mark, the version
+preview and Markdown export leave the icon out of the heading, the version
+comparison treats the value as no icon, and the title line offers to add one.
+Listing the
 picker catalog requires Space view access, uploading to the library requires
 Space edit access, reading an individual `metadata/custom-emoji/...` asset
 requires an active Pod Principal so Guests and Page-scoped Agents can render

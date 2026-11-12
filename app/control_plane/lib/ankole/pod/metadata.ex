@@ -19,6 +19,9 @@ defmodule Ankole.Pod.Metadata do
 
   def max_emoji_bytes, do: @max_emoji_bytes
 
+  @doc "Whether a Page icon names a file in the shared custom-emoji library."
+  def custom_emoji_path?(icon) when is_binary(icon), do: String.starts_with?(icon, @custom_emoji)
+
   @doc "Lists the shared custom emojis and whether the caller may add one."
   def custom_emojis(%Ankole.AuthZ.Actor{} = actor) do
     with {:ok, bits} <- Access.space_bits(actor),

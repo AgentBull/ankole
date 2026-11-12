@@ -9,6 +9,7 @@ import { contentKeys, fileURL } from './content-api'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { createMentionHostAdapters } from './document-mentions'
 import { PageIcon } from './page-icon'
+import { pageIcon } from './page-icon-value'
 import { loadDocumentReferences } from './state/document-export'
 import { documentReferenceIDs } from './state/document-tools'
 import { documentChanges, documentComparisonSource } from './state/document-history'
@@ -23,6 +24,8 @@ export function DocumentHistoryPreview(props: Props) {
 
 function DocumentComparison({ pageID, version, current }: Props) {
   const { t } = useTranslation()
+  // The comparison follows the icons the Page shows, so a stored word that renders as no icon reads as no icon.
+  const iconChanged = pageIcon(version.icon) !== pageIcon(current.icon)
   const changes = useMemo(
     () =>
       documentChanges(
@@ -38,7 +41,7 @@ function DocumentComparison({ pageID, version, current }: Props) {
         <span className="text-destructive">− {t('pod.document.removed_content')}</span>
         <span className="text-success">+ {t('pod.document.added_content')}</span>
       </div>
-      {version.icon !== current.icon && (
+      {iconChanged && (
         <div className="flex items-center gap-3 text-sm">
           <span>{t('pod.document.icon_changed')}</span>
           <PageIcon page={{ type: 'doc', icon: version.icon }} className="size-6 text-[22px]" />
@@ -46,7 +49,7 @@ function DocumentComparison({ pageID, version, current }: Props) {
           <PageIcon page={{ type: 'doc', icon: current.icon }} className="size-6 text-[22px]" />
         </div>
       )}
-      {changes.every(change => change.kind === 'unchanged') && version.icon === current.icon ? (
+      {changes.every(change => change.kind === 'unchanged') && !iconChanged ? (
         <p>{t('pod.document.no_changes')}</p>
       ) : (
         <div className="overflow-hidden rounded border border-border font-mono text-sm">

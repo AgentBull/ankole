@@ -49,7 +49,7 @@ defmodule Ankole.Pod.DocumentInsightsTest do
              %{name: "Body editor", role: :previously_edited}
            ] = insights.contributors
 
-    assert {:ok, _} = Pages.update(ctx.renamer, ctx.page.id, %{icon: "emoji:📝"})
+    assert {:ok, _} = Pages.update(ctx.renamer, ctx.page.id, %{icon: "📝"})
     assert length(Repo.get!(PageContent, ctx.page.id).contributors) == 3
 
     assert Repo.get!(PageContent, ctx.page.id).updated_by ==

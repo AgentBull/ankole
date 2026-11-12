@@ -10,6 +10,7 @@ import { contentKeys, pageAPI, pageHistoryQuery, pageSnapshotQuery, type PageDet
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { DocumentHistoryPreview } from './document-history-preview'
 import { PageIcon } from './page-icon'
+import { pageIcon } from './page-icon-value'
 import { isRealtimeAccessDenied } from './realtime'
 import { downloadDocument, downloadKnowledge } from './state/document-export'
 import { versionTime } from './state/document-history'
@@ -116,7 +117,7 @@ export function DocumentHistory({
               {preview && !entry.error && (
                 <>
                   <div className="pod-page-heading">
-                    {preview.icon && (
+                    {pageIcon(preview.icon) && (
                       <div className="pod-page-title-icon">
                         <PageIcon page={{ type: 'doc', icon: preview.icon }} />
                       </div>

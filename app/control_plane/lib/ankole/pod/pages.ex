@@ -150,6 +150,7 @@ defmodule Ankole.Pod.Pages do
          {:ok, _} <- Nodes.authorize_child_create(actor, parent),
          {:ok, metadata} <- Ankole.Brain.Namespace.object_metadata(parent, attrs),
          {:ok, source} <- source_message(actor, Ankole.Attrs.get(attrs, :saved_from_message_id)),
+         {:ok, icon} <- caller_icon(attrs, nil),
          {:ok, children_view} <-
            normalize_children_view(Ankole.Attrs.get(attrs, :children_view, %{})) do
       title = Ankole.Attrs.get(attrs, :title, "") |> Ankole.Files.Path.strip_bidi_and_controls()
@@ -167,7 +168,7 @@ defmodule Ankole.Pod.Pages do
                  owner_uid: if(kind in [:applet, "applet"], do: uid),
                  created_by: ActorRef.from_principal(principal),
                  title: title,
-                 icon: Ankole.Attrs.get(attrs, :icon),
+                 icon: icon,
                  position: position,
                  saved_from_message_id: source && source.id,
                  children_view: children_view,
@@ -275,19 +276,16 @@ defmodule Ankole.Pod.Pages do
     with {:ok, page} <- lock(id),
          {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_edit"),
          :ok <- check_title_base(page, attrs),
+         {:ok, icon} <- caller_icon(attrs, page.icon),
          {:ok, learning_changes} <- page_learning_changes(actor, page, attrs),
          {:ok, children_view} <- merge_children_view(page.children_view, attrs) do
-      changes =
-        Map.new([:title, :icon], fn key ->
-          value = Ankole.Attrs.get(attrs, key, Map.get(page, key))
+      title =
+        case Ankole.Attrs.get(attrs, :title, page.title) do
+          title when is_binary(title) -> Ankole.Files.Path.strip_bidi_and_controls(title)
+          title -> title
+        end
 
-          value =
-            if key == :title and is_binary(value),
-              do: Ankole.Files.Path.strip_bidi_and_controls(value),
-              else: value
-
-          {key, value}
-        end)
+      changes = %{title: title, icon: icon}
 
       identity_edited? =
         Enum.any?(changes, fn {key, value} -> Map.fetch!(page, key) != value end)
@@ -381,6 +379,38 @@ defmodule Ankole.Pod.Pages do
              do: :ok
     end
   end
+
+  # An emoji code point other than a digit, `#`, or `*`, which are emoji only inside a keycap; a code point that Unicode
+  # reserves for future pictographs and these tables do not name yet; or a keycap mark. Pod's browser code applies the
+  # same pattern, so both agree on every emoji the Pod picker offers even when they ship different Unicode versions.
+  @emoji ~r/(?![0-9#*])\p{Emoji}|(?=\p{Extended_Pictographic})\p{Cn}|\x{20E3}/u
+
+  # A caller sets a Page icon to one emoji or to a path in the shared custom-emoji library, and clears it with `nil`
+  # or an empty string. A version restore writes a snapshot's recorded icon without this check, so a stored icon can be
+  # any text. When the caller omits the icon or sends the stored value unchanged, Ankole keeps that value, so a caller
+  # that writes back the Page it read is not rejected for an icon it did not choose.
+  defp caller_icon(attrs, current) do
+    case Ankole.Attrs.get(attrs, :icon, :missing) do
+      :missing ->
+        {:ok, current}
+
+      ^current ->
+        {:ok, current}
+
+      icon when icon in [nil, ""] ->
+        {:ok, nil}
+
+      icon when is_binary(icon) ->
+        if Ankole.Pod.Metadata.custom_emoji_path?(icon) or emoji?(icon),
+          do: {:ok, icon},
+          else: {:error, :invalid_icon}
+
+      _icon ->
+        {:error, :invalid_icon}
+    end
+  end
+
+  defp emoji?(icon), do: match?([_], String.graphemes(icon)) and Regex.match?(@emoji, icon)
 
   defp check_title_base(page, attrs) do
     if Ankole.Attrs.get(attrs, :title, :missing) == :missing or

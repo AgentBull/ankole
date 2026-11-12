@@ -73,9 +73,12 @@ Read operations:
 Write operations:
   pages.update_sharing {id, upserts?, removes?} — incrementally change sharing; use target_scope: "self" for one page
   pages.set_sharing {id, sharing_version, inherit_permissions?, grants?} — requires manage access
-  pages.create     {type: file|doc|knowledge|base|applet, title, parent_id?, private_owner_uid?, markdown?}
-    Knowledge pages require parent_id and markdown, including YAML frontmatter when present.
+  pages.create     {type: file|doc|knowledge|base|applet, title, parent_id?, private_owner_uid?, markdown?, icon?}
+    Knowledge pages require parent_id and markdown, including YAML frontmatter when present. pages.create
+    ignores icon for a Knowledge page; set it afterward with pages.update.
   pages.update     {id, title?, expected_title?, icon?} — expected_title is required whenever title is supplied
+    In pages.create and pages.update, icon is exactly one emoji, such as "📊"; send null to remove it.
+    Any other text fails with invalid_icon, so put a label such as "Demo data" in the title or content.
   pages.move       {id, parent_id?, private_owner_uid?}
   pages.delete     {id} — moves the subtree into the trash
   pages.restore    {id}

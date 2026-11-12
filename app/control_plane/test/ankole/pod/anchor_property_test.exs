@@ -204,7 +204,7 @@ defmodule Ankole.Pod.AnchorPropertyTest do
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
         private_owner_uid: owner.uid,
         title: "Confidential source",
-        icon: "lock"
+        icon: "🔒"
       })
 
     {:ok, target} =
@@ -232,7 +232,7 @@ defmodule Ankole.Pod.AnchorPropertyTest do
              Pages.sharing(Ankole.PrincipalsFixtures.actor_fixture(manager.uid), target.id)
 
     assert Enum.find(sharing.grants, &(&1.kind == :userset)).source_page ==
-             %{id: source.id, accessible: true, title: "Confidential source", icon: "lock"}
+             %{id: source.id, accessible: true, title: "Confidential source", icon: "🔒"}
   end
 
   test "lazy children cursor orders equal positions without omissions or duplicates" do
