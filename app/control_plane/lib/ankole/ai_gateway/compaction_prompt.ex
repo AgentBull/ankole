@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.CompactionPrompt do
   @compaction_focus_instructions """
   Capture the intent, decisions, and any errors and their fixes that are necessary to understand the current state. Preserve verbatim — never paraphrase — file paths, function and identifier names, error messages, command lines, and IDs/UUIDs; when the latest task is unfinished, quote its exact instruction so work resumes without drift.
 
-  User messages from the summarized span are preserved verbatim alongside this summary; reference them briefly instead of quoting them at length. Do not restate instruction or environment scaffolding blocks (for example content wrapped in tags such as <environment_context> or <INSTRUCTIONS>); clients re-inject those separately.
+  User messages from the summarized span are preserved verbatim alongside this summary; reference them briefly instead of quoting them at length. Do not restate instruction or environment scaffolding blocks (for example content wrapped in tags such as <environment_context>, <agent_environment_info>, or <INSTRUCTIONS>); clients re-inject those separately.
   """
 
   @recent_context_instruction """
@@ -18,7 +18,7 @@ defmodule Ankole.AIGateway.CompactionPrompt do
   """
 
   @summarization_system_prompt """
-  You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.
+  You are a context summarization assistant. Your task is to read a conversation between people and an AI agent that uses tools, then produce a structured summary following the exact format specified.
 
   Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.
   """

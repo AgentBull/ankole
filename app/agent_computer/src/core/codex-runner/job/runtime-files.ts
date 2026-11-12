@@ -22,7 +22,7 @@ export function renderCodexJobAgents(input: {
 
 export function codexJobDriveContext(): string {
   return [
-    'The Job workspace is a temporary working directory. Save files that must be kept or delivered in your private Drive with ankole-files put and return the resulting nodeId to the caller.',
+    'The Job workspace is a temporary working directory. Save files that must be kept or delivered in your private Drive with ankole-files put and return the resulting node_id to the caller.',
     'Download received attachments with the ankole-pod chat attachment get command included in the conversation context. That command reads the bytes selected by the original message.',
     'Other conversations have separate Worker workspaces. Access to shared Drive nodes uses your own Principal permissions.'
   ].join('\n')

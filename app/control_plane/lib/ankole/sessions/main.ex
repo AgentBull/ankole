@@ -5,29 +5,34 @@ defmodule Ankole.Sessions.Main do
   alias Ankole.Sessions.Commands
   alias Ankole.Conversations.ModelPreferences
 
-  def instructions(run) do
-    peer =
-      run.event.conversation_id && Ankole.Conversations.peer_exchange(run.event.conversation_id)
+  # Every turn of a conversation shares one prompt-cache key, so the
+  # instructions carry only facts about the conversation itself. Guidance for
+  # one kind of event travels with that turn's input instead.
+  # The note sits directly above the event it describes, after any standing
+  # orders that precede that event.
+  def input(run) do
+    case turn_note(run) do
+      nil -> super(run)
+      note -> List.insert_at(super(run), -2, Ankole.Sessions.Run.user(note))
+    end
+  end
 
+  defp turn_note(run) do
     cond do
-      peer ->
-        super(run) <>
-          "\n\nYou are working in an asynchronous peer exchange. Reply normally to return your result to the requester. Do not call send_to_agent to answer the sender. When a human decision is needed, call clarify directly with the single most important unresolved question; the question goes to the original conversation."
+      Ankole.Sessions.Prompt.peer_exchange?(run.context.conversation) ->
+        nil
 
       run.event.type == "agent.peer_message" and Map.get(run.event.data, "peer_hop_count", 0) >= 6 ->
-        super(run) <>
-          "\n\nThis delegation chain has reached its six-hop limit. Report the current result and any unresolved decision to the human here. Do not start another delegation until the human provides a new instruction."
+        "This delegation chain has reached its six-hop limit. Report the current result and any unresolved decision to the human here. Do not start another delegation until the human provides a new instruction."
 
       run.event.type == "agent.peer_message" ->
-        super(run) <>
-          "\n\nAn AI colleague has returned a result. Integrate it into a useful conclusion for the human in this conversation, preserving canonical page links. You may finish silently if this is only an acknowledgment or adds no useful information."
+        "An AI colleague has returned the result below. Integrate it into a useful conclusion for the human in this conversation, preserving canonical page links. You may finish silently if it is only an acknowledgment or adds no useful information."
 
       optional_reply?(run) ->
-        super(run) <>
-          "\n\nYou are listening to a shared room. This message does not address you. Reply only when your contribution helps the discussion. You can finish with no visible reply."
+        "You are listening to a shared room. The message below does not address you. Reply only when your contribution helps the discussion; you can finish with no visible reply unless a later message addresses you."
 
       true ->
-        super(run)
+        nil
     end
   end
 

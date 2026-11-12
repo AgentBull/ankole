@@ -312,8 +312,14 @@ five fields:
 - `context_summary` (optional, up to `8,000` characters)
 - `quiet_success` (boolean, default `false`)
 
-Scheduled turns—and never ordinary turns—expose the
-`finish_scheduled(outcome, reply)` termination tool:
+Scheduled turns end through the `finish_scheduled(outcome, reply)` termination
+tool. Ankole declares the same tool on Main turns as well, so the Main and
+scheduled turns of one conversation share one tool list and one instruction
+prefix under its prompt-cache key (see
+[Sessions](Sessions.md#prepare-a-model-request)). On a Main turn the tool
+rejects the call with a standard tool error, and the turn continues. The
+instructions state the completion rule once and key it to the
+`schedule_turn_mode` field in the input environment of the newest message:
 
 - For a user-visible update, the model calls `outcome: "reply"` with a non-empty
   `reply` string. Whenever a check fails, observes changed state, or needs human

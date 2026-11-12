@@ -198,6 +198,19 @@ defmodule Ankole.Sessions.ScheduleToolTest do
     assert Ankole.AutomationJobs.get_run_record(action.id).status == :succeeded
   end
 
+  test "an ordinary turn declares finish_scheduled but rejects the call without ending the turn",
+       %{run: run} do
+    assert run.kind == :main
+    assert Enum.any?(run.tools, &(&1.name == "finish_scheduled"))
+
+    result =
+      invoke(run, "finish_scheduled", %{"outcome" => "reply", "reply" => "Done."}, "ordinary")
+
+    assert result.is_error
+    assert result.output =~ "finish_scheduled ends only a scheduled turn."
+    refute Ankole.Sessions.ToolResult.ends_turn?(result)
+  end
+
   defp invoke(run, name, args, id) do
     call = %{
       "type" => "function_call",

@@ -19,6 +19,7 @@ defmodule Ankole.Conversations.ExternalTarget do
           required(:kind) => String.t() | nil,
           required(:label) => String.t() | nil,
           required(:page_id) => String.t() | nil,
+          required(:access_scope) => :participants | :anchor_page | :agent_peer | nil,
           required(:signal_origin?) => boolean()
         }
 
@@ -53,6 +54,7 @@ defmodule Ankole.Conversations.ExternalTarget do
          kind: kind,
          label: channel_label(kind, conversation, channel, peer_names),
          page_id: if(channel, do: channel.page_id),
+         access_scope: if(channel, do: channel.native_access_scope),
          signal_origin?: signal_origin?(conversation)
        }}
     end

@@ -30,6 +30,8 @@ defmodule Ankole.Sessions.Context do
          {:ok, request_context} <- Ankole.Brain.RequestContext.build(agent_uid, metadata),
          {:ok, %{"skills" => skills, "agent_plugins" => agent_plugins}} <-
            Library.runtime_catalog_for_agent(agent_uid, request_context: request_context) do
+      drive_mount = drive_mount(agent_uid)
+
       {:ok,
        %{
          agent: agent,
@@ -37,16 +39,22 @@ defmodule Ankole.Sessions.Context do
          documents: documents,
          skills: skills,
          agent_plugins: agent_plugins,
+         drive_mount: drive_mount,
          drive_instructions:
-           if(
-             match?(
-               {:ok, %{capacity: %{"drive_vfs" => true}}},
-               Ankole.AgentWorkers.get_agent_worker(agent_uid)
-             ),
-             do: Prompt.mounted_drive_instructions(),
-             else: ""
-           )
+           if(drive_mount == :mounted, do: Prompt.mounted_drive_instructions(), else: "")
        }}
+    end
+  end
+
+  # A Worker advertises `drive_vfs` only after a real mount probe, and settling
+  # a Worker clears its capacity. Before this turn reaches a ready Worker, the
+  # mount is unknown rather than unavailable: the Worker that opens the turn
+  # may still mount Drive.
+  defp drive_mount(agent_uid) do
+    case Ankole.AgentWorkers.get_agent_worker(agent_uid) do
+      {:ok, %{capacity: %{"drive_vfs" => true}}} -> :mounted
+      {:ok, %{capacity: %{"drive_vfs" => false}}} -> :unavailable
+      _no_ready_worker -> :unknown
     end
   end
 

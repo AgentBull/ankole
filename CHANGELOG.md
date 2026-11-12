@@ -1,5 +1,23 @@
 # Changelog
 
+## Version 2.0.0-alpha.139 (2026-11-12)
+
+- Keep an Agent's prompt cache across every turn of one conversation. Check
+  back and cron wakeups, the turn after them, a colleague's returned result,
+  and a turn whose Worker has not mounted Drive used to change the model
+  instructions or tool list and resend the whole conversation uncached; those
+  turns now reuse the cache and answer sooner at lower token cost.
+- Stop telling the Agent that Drive is unavailable when a turn starts before
+  its Worker is ready. The Agent now uses `/drive` unless the ready Worker
+  reports no mount.
+- Apply the chat reply length to Pod conversations as well as IM: about 150
+  Chinese characters or 100 English words, with longer content saved as a Pod
+  Page and linked from the reply. Agent peer exchanges keep their own reply
+  rule.
+- Remove contradictory file delivery instructions: `reply_attachment` takes a
+  `/drive` path or a `node_id`, and the instructions no longer mention a
+  scheduled response format that no longer exists.
+
 ## Version 2.0.0-alpha.138 (2026-11-12)
 
 - Send Azure OpenAI requests to the Responses endpoint by default. This fixes

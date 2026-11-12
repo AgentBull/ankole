@@ -51,11 +51,6 @@ defmodule Ankole.Sessions.Scheduled do
   def nudge?, do: false
   def repair(_run, _text), do: nil
 
-  def instructions(run) do
-    super(run) <>
-      "\nFinish this scheduled turn by calling finish_scheduled. Use outcome reply with the final visible text. Use silent_success with a null reply only when silent_success_allowed is true and the check succeeded without anything useful to report."
-  end
-
   def failure(reason)
       when reason in [
              :invalid_scheduled_reply,
@@ -72,15 +67,19 @@ defmodule Ankole.Sessions.Scheduled do
 
   def failure(reason), do: super(reason)
 
+  # Ordinary turns declare finish_scheduled too: every turn of a conversation
+  # shares one prompt-cache key, and a tool that appears only on scheduled turns
+  # would change the cached prefix on every wakeup and again on the next
+  # ordinary turn. Only a scheduled turn accepts the call.
   def declarations do
     [
       %{
         "type" => "function",
         "name" => "finish_scheduled",
-        "run_kinds" => ["scheduled"],
+        "run_kinds" => ["main", "scheduled"],
         "ends_run" => true,
         "description" =>
-          "End this scheduled turn. Use reply for a visible result, a failed or blocked check, required human action, or a material change. Use silent_success only when this schedule allows quiet success and no update is useful.",
+          "End a scheduled turn. Use reply for a visible result, a failed or blocked check, required human action, or a material change. Use silent_success only when this schedule allows quiet success and no update is useful. Only a scheduled turn accepts this call.",
         "execution_mode" => "sequential",
         "executor" => __MODULE__,
         "parameters" => %{
@@ -98,8 +97,13 @@ defmodule Ankole.Sessions.Scheduled do
 
   def normalize("finish_scheduled", args), do: args
 
-  def prepare_in_tx(run, call, args),
+  def prepare_in_tx(%{kind: :scheduled} = run, call, args),
     do: {:ok, [], fn -> commit_tool_in_tx(run, call, args) end}
+
+  def prepare_in_tx(_run, _call, _args),
+    do:
+      {:error,
+       "finish_scheduled ends only a scheduled turn. This turn is not scheduled; end it with an ordinary reply."}
 
   defp commit_tool_in_tx(run, _call, args) do
     case {args["outcome"], args["reply"]} do

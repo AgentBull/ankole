@@ -1921,6 +1921,49 @@ defmodule Ankole.ScheduleTest do
                :absent
     end
 
+    test "a checkback wakeup keeps the instructions and tools of its ordinary turn" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "mock", :ignore, "mock-provider")
+
+      {:ok, %{signal: source}} =
+        emit_entry(agent.uid, "mock", group_entry(%{explicit: true}), now: @base_time)
+
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: source.human_uid,
+          resource_pattern: "agent:#{agent.uid}:tool:check_back_later",
+          action: "invoke"
+        })
+
+      ordinary = admit_input(source, @base_time)
+
+      {ordinary, created} =
+        execute_tool(ordinary, "check_back_later", %{
+          "action" => "create",
+          "reason" => "Follow up",
+          "check" => "Read the status",
+          "schedule" => %{"after" => %{"value" => 1, "unit" => "minute"}}
+        })
+
+      refute created.is_error
+      assert {:ok, _} = Run.finalize(ordinary, :stopped)
+
+      [event] = Repo.all(from(e in ScheduledEvent, where: e.kind == "check_back_later"))
+      key = %{agent_uid: agent.uid, session_id: event.session_id}
+      if Ankole.Sessions.driver_pid(key) == :undefined, do: Ankole.SessionsCase.stub_driver(key)
+      {:ok, %{signal: wakeup}} = Schedule.fire_due_event(event.id, now: event.due_at)
+      scheduled = admit_input(wakeup, event.due_at)
+
+      assert scheduled.kind == :scheduled
+      assert scheduled.conversation.id == ordinary.conversation.id
+
+      assert Run.type(scheduled).instructions(scheduled) ==
+               Run.type(ordinary).instructions(ordinary)
+
+      assert ToolCatalog.wire(scheduled.tools) == ToolCatalog.wire(ordinary.tools)
+      assert Enum.any?(scheduled.tools, &(&1.name == "finish_scheduled"))
+    end
+
     test "mock IM dashboard cron fires through Oban and posts service lines" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "mock-provider", :ignore, "mock-provider")

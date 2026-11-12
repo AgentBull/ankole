@@ -116,53 +116,42 @@ defmodule Ankole.Sessions.Prompt.Input do
     channel =
       event.conversation_id && Ankole.Conversations.get_conversation!(event.conversation_id)
 
-    bandwidth =
-      if channel && channel.native_access_scope != :agent_peer &&
-           event.type != "pod.page_comment.addressed",
-         do: [
-           "In IM conversations, keep ordinary conclusions within 100 words. Save long reports to Pod pages and send their links. Page content and comment replies can provide structured detail."
-         ],
-         else: []
+    case channel && Ankole.Principals.get_agent_record!(run.agent_uid) do
+      %{type: :personal_assistant, owner_principal_uid: uid} ->
+        human = Ankole.Principals.get_principal_record!(uid)
 
-    directory =
-      case channel && Ankole.Principals.get_agent_record!(run.agent_uid) do
-        %{type: :personal_assistant, owner_principal_uid: uid} ->
-          human = Ankole.Principals.get_principal_record!(uid)
+        mentions =
+          case facts do
+            {message, _, _} ->
+              Enum.map(message.mentions, & &1["uid"])
 
-          mentions =
-            case facts do
-              {message, _, _} ->
-                Enum.map(message.mentions, & &1["uid"])
+            _ ->
+              case event.conversation_id && Ankole.Issues.Queries.fetch(event.conversation_id) do
+                {:ok, %{squad_uids: uids}} -> uids
+                _ -> []
+              end
+          end
 
-              _ ->
-                case event.conversation_id && Ankole.Issues.Queries.fetch(event.conversation_id) do
-                  {:ok, %{squad_uids: uids}} -> uids
-                  _ -> []
-                end
-            end
+        colleagues =
+          Ankole.Conversations.agents(Ankole.AuthZ.Actor.new(human))
+          |> Enum.map(fn principal ->
+            role = principal.agent.role || ""
 
-          colleagues =
-            Ankole.Conversations.agents(Ankole.AuthZ.Actor.new(human))
-            |> Enum.map(fn principal ->
-              role = principal.agent.role || ""
+            %{
+              uid: principal.uid,
+              name: principal.display_name,
+              role: if(principal.uid in mentions, do: role, else: String.slice(role, 0, 120))
+            }
+          end)
 
-              %{
-                uid: principal.uid,
-                name: principal.display_name,
-                role: if(principal.uid in mentions, do: role, else: String.slice(role, 0, 120))
-              }
-            end)
+        [
+          "Available colleagues (full role for explicitly mentioned colleagues): " <>
+            Delimiters.wrap(:context, Delimiters.quoted_context(JSON.encode!(colleagues)))
+        ]
 
-          [
-            "Available colleagues (full role for explicitly mentioned colleagues): " <>
-              Delimiters.wrap(:context, Delimiters.quoted_context(JSON.encode!(colleagues)))
-          ]
-
-        _ ->
-          []
-      end
-
-    bandwidth ++ directory
+      _ ->
+        []
+    end
   end
 
   defp stimulus_text(_run, %Ankole.Signals.Signal{producer: :external}, payload, _facts),
@@ -1077,7 +1066,18 @@ defmodule Ankole.Sessions.Prompt.Input do
 
   def ui_blocks_hint(_conversation), do: nil
 
-  defp turn_environment(%{kind: :scheduled} = run) do
+  defp turn_environment(run), do: schedule_environment(run) ++ drive_environment(run)
+
+  # The instructions describe the mounted Drive on every turn so that one
+  # conversation keeps a single instruction prefix. A turn whose ready Worker
+  # reports no mount states that fact here instead.
+  defp drive_environment(%{kind: kind, context: %{drive_mount: :unavailable}})
+       when kind in [:main, :ambient, :scheduled, :workflow_task],
+       do: ["drive_mount: unavailable"]
+
+  defp drive_environment(_run), do: []
+
+  defp schedule_environment(%{kind: :scheduled} = run) do
     context = run.spec.request_context
     origin = context["schedule_origin"] || %{}
     payload = origin["payload"] || %{}
@@ -1097,7 +1097,7 @@ defmodule Ankole.Sessions.Prompt.Input do
     )
   end
 
-  defp turn_environment(_), do: []
+  defp schedule_environment(_run), do: []
 
   defp environment_block(lines) do
     safe = Enum.map(lines, &Delimiters.environment_line/1)
