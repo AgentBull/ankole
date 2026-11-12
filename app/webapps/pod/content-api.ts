@@ -1,8 +1,13 @@
 import type { PodFileTarget } from '@ankole/applet-sdk/types'
 import { pageMetadata } from './state/page-metadata'
 import type { InfiniteData, QueryClient, QueryCacheNotifyEvent } from '@tanstack/react-query'
-import { authenticationRef, podID } from '../common/browser-context'
+import { authenticationRef, podID, podPublicOrigin, principalUID } from '../common/browser-context'
 import { createClientConfig } from '../common/internal-api-client'
+import {
+  peekCachedPodRecentSearches,
+  readCachedPodRecentSearches,
+  writeCachedPodRecentSearches
+} from '../common/pod-local-cache'
 
 import type {
   PodPageType,
@@ -337,7 +342,23 @@ export const pageSearchQuery = (query: string, options: PageSearchOptions = {}) 
 })
 export const recentSearchesQuery = (limit = 8) => ({
   queryKey: contentKeys.recentSearches(limit),
-  queryFn: ({ signal }: { signal: AbortSignal }) => pageAPI.recentSearches(limit, signal),
+  placeholderData: () => {
+    const cached = peekCachedPodRecentSearches(podID(), principalUID())
+    return cached ? { queries: cached.slice(0, limit) } : undefined
+  },
+  queryFn: async ({ signal }: { signal: AbortSignal }) => {
+    const currentPodID = podID()
+    const currentPrincipalUID = principalUID()
+    try {
+      const response = await pageAPI.recentSearches(limit, signal)
+      void writeCachedPodRecentSearches(currentPodID, currentPrincipalUID, response.queries)
+      return response
+    } catch (error) {
+      const cached = await readCachedPodRecentSearches(currentPodID, currentPrincipalUID)
+      if (cached.length > 0) return { queries: cached.slice(0, limit) }
+      throw error
+    }
+  },
   staleTime: 15_000
 })
 export const pageChildrenQuery = (scope: 'space' | 'private', parentID?: string) => ({
@@ -539,7 +560,7 @@ function normalizePodContentCandidate(source: string): string {
   if (typeof window !== 'undefined' && (source.startsWith('http://') || source.startsWith('https://'))) {
     try {
       const parsed = new URL(source)
-      if (parsed.origin === window.location.origin) {
+      if (parsed.origin === window.location.origin || parsed.origin === podPublicOrigin()) {
         return `${parsed.pathname}${parsed.search}${parsed.hash}`
       }
     } catch {

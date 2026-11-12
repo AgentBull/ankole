@@ -50,6 +50,8 @@ defmodule Ankole.OIDC do
   end
 
   defdelegate actor_for_session(id, principal, ip), to: Ankole.OIDC.Sessions
+  defdelegate ensure_desktop_client(), to: Ankole.OIDC.DesktopClient, as: :ensure
+  defdelegate desktop_redirect_uri(), to: Ankole.OIDC.DesktopClient, as: :redirect_uri
 
   resources do
     resource(Ankole.OIDC.Client)

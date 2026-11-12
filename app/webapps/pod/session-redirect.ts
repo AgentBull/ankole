@@ -1,5 +1,6 @@
 import type { MutationCacheNotifyEvent, QueryCacheNotifyEvent, QueryClient } from '@tanstack/react-query'
 import { InternalAPIError } from '../common/internal-api-client'
+import { getPodRuntimeBootstrap } from '../common/pod-bootstrap'
 import { requestErrorCode } from '../common/request-errors'
 import { isAppletRouteError } from './applet-routes'
 
@@ -33,6 +34,11 @@ export function watchPodSession(
     if (!isMissingPodSession(event.action.error)) return
     // One navigation is enough; each repeat would show the unsaved-draft prompt again.
     redirecting = true
+    const runtime = getPodRuntimeBootstrap()
+    if (runtime?.mode === 'desktop') {
+      runtime.onSessionExpired?.()
+      return
+    }
     const path = location.pathname + location.search
     location.assign(path === '/' ? '/sessions/new' : `/sessions/new?${new URLSearchParams({ return_to: path })}`)
   }

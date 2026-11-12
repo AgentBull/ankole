@@ -39,7 +39,9 @@ defmodule AnkoleWeb.JSONAPI.Context do
       browser_reference: AnkoleWeb.Session.browser_reference(conn),
       client_ip: to_string(:inet.ntoa(conn.remote_ip)),
       pod_origin: origin,
-      authentication_ref: AnkoleWeb.Session.authentication_reference(conn)
+      authentication_ref: AnkoleWeb.Session.authentication_reference(conn),
+      oidc_session: conn.assigns[:oidc_session],
+      oidc_claims: conn.assigns[:oidc_claims]
     }
   end
 

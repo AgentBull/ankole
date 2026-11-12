@@ -30,7 +30,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { podKeys, type ConversationDetail } from '../api'
 import { linkTarget } from '../../common/router'
-import { podLocation } from '../../common/browser-context'
+import { podLocation, podPublicOrigin } from '../../common/browser-context'
 import { usePageHref } from '../use-page-metadata'
 import { AgentName, agentLabel, conversationPath } from './conversation-row'
 import { ParticipantsPopover } from './participants-popover'
@@ -267,7 +267,7 @@ export function RoomHeader({
               aria-label={t('pod.chat_room.copy_link')}
               title={t('pod.chat_room.copy_link')}
               onClick={() => {
-                void navigator.clipboard.writeText(new URL(conversationPath(room), location.origin).href).then(
+                void navigator.clipboard.writeText(new URL(conversationPath(room), podPublicOrigin()).href).then(
                   () => toast.success(t('pod.chat_room.link_copied')),
                   () => toast.error(t('pod.chat_room.copy_failed'))
                 )

@@ -1,6 +1,7 @@
 import { batch, signal, type ReadonlySignal, type Signal } from '@preact/signals-react'
 import type { QueryClient } from '@tanstack/react-query'
 import type { MentionTarget } from '@ankole/block-editor/editor'
+import { podPublicOrigin } from '../../common/browser-context'
 import i18n from '../../common/i18n'
 import { podPagePathnameID } from '../../common/pod-url'
 import {
@@ -330,7 +331,7 @@ export function revalidateMentions(client: QueryClient): void {
 }
 
 export function matchPodPageUrl(rawUrl: string, currentOrigin?: string): string | null {
-  const origin = currentOrigin ?? (typeof window !== 'undefined' ? window.location.origin : '')
+  const origin = currentOrigin ?? (typeof window !== 'undefined' ? podPublicOrigin() : '')
   if (!origin) return null
   let parsed: URL
   try {

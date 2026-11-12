@@ -5,6 +5,46 @@ defmodule AnkoleWeb.PodMetadataController do
 
   alias Ankole.Pod.Metadata
 
+  def bootstrap(conn, _params) do
+    tenant = conn.assigns.current_tenant
+    principal = conn.assigns.current_principal
+
+    authentication_ref =
+      case conn.assigns[:oidc_session] do
+        %Ankole.OIDC.Session{} ->
+          "oauth"
+
+        _ ->
+          case AnkoleWeb.Session.authentication_reference(conn) do
+            %{} = ref -> Ankole.BrowserSessions.encode_reference(ref)
+            _ -> "current"
+          end
+      end
+
+    locale =
+      case Ankole.I18n.configured_default_locale() do
+        {:ok, configured} when is_binary(configured) -> configured
+        _ -> "en-US"
+      end
+
+    json(conn, %{
+      version: Ankole.Version.current(),
+      podOrigin: AnkoleWeb.PodURL.origin(conn, tenant),
+      siteOrigin: AnkoleWeb.PodURL.site_origin(conn),
+      tenantId: tenant.id,
+      tenantSlug: tenant.slug,
+      tenantDisplayName: tenant.display_name || tenant.slug,
+      tenantAvatarUrl: tenant.avatar_url,
+      principalUid: principal.uid,
+      principalDisplayName: principal.display_name || principal.uid,
+      principalAvatarUrl: principal.avatar_url,
+      authenticationRef: authentication_ref,
+      activePlugins: Ankole.Plugins.list_active() |> Enum.map(& &1.id),
+      features: Ankole.Features.client_snapshot(),
+      locale: locale
+    })
+  end
+
   def custom_emojis(conn, _params) do
     respond(conn, Metadata.custom_emojis(conn.assigns.authz_actor))
   end

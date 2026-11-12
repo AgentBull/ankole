@@ -24,7 +24,7 @@ import type { i18n as I18nInstance } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { I18nextProvider, useTranslation } from 'react-i18next'
-import { principalUID } from '../common/browser-context'
+import { podPublicOrigin, principalUID } from '../common/browser-context'
 import { rootErrorOptions } from '../common/error-boundary'
 import { avatarInitials } from './avatar-initials'
 import { pageAPI, type Page } from './content-api'
@@ -480,7 +480,7 @@ export function createMentionHostAdapters({
       const title =
         rawTitle != null ? rawTitle.trim() || i18n.t('pod.content.untitled', { lng: i18n.language }) : undefined
       const relativeHref = pageHref(pageId, snap?.access === 'trashed' || restricted ? '' : rawTitle)
-      const href = typeof window !== 'undefined' ? new URL(relativeHref, window.location.origin).href : relativeHref
+      const href = typeof window !== 'undefined' ? new URL(relativeHref, podPublicOrigin()).href : relativeHref
       return { href, ...(title ? { title } : {}) }
     },
     canEmbedPage: pageId => {

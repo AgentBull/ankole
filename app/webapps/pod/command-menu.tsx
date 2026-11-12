@@ -1,5 +1,15 @@
 import { knownPageTitle, usePageHref, usePagesMetadata } from './use-page-metadata'
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject
+} from 'react'
 import { useDebouncedValue } from '../common/use-debounced-value'
 import {
   Button,
@@ -67,6 +77,7 @@ import { PageIcon } from './page-icon'
 import { HighlightedBdiLabel, HighlightedText, SearchSnippet } from './search-highlight'
 import { buildSearchResultHref, formatSearchTargetBadge, normalizeSearchQuery } from './search-targets'
 import { pageAncestors, pagePathAncestors } from './state/page-location'
+import { pageMetadata } from './state/page-metadata'
 import { useChatDrafts } from './chat-drafts'
 import { ChatAvatar } from './chat/chat-avatar'
 import { AgentName, ConversationGlyph, ConversationTitle, conversationLabel } from './chat/conversation-row'
@@ -104,7 +115,7 @@ export function usePodCommandMenu() {
   return open
 }
 
-function resolvePodTarget(href: string): { to: string; search?: Record<string, string>; url: string } {
+export function resolvePodTarget(href: string): { to: string; search?: Record<string, string>; url: string } {
   const qIndex = href.indexOf('?')
   const rawPathname = qIndex >= 0 ? href.slice(0, qIndex) : href
   const rawQuery = qIndex >= 0 ? Object.fromEntries(new URLSearchParams(href.slice(qIndex + 1))) : {}
@@ -151,11 +162,9 @@ export function PodCommandMenu({
   returnFocus: RefObject<HTMLElement | null>
 }) {
   const { t } = useTranslation()
-  const client = useQueryClient()
   const drafts = useChatDrafts()
   const navigate = useNavigate()
   const pathname = useLocation({ select: loc => loc.pathname })
-  const pageHref = usePageHref()
   const { setOpenMobile } = useSidebar()
 
   const [query, setQuery] = useState('')
@@ -164,6 +173,131 @@ export function PodCommandMenu({
   const [inCurrentPage, setInCurrentPage] = useState(false)
   const [activeValue, setActiveValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const selected = useRef(false)
+
+  useEffect(() => {
+    if (open) selected.current = false
+  }, [open])
+
+  const resetMenuState = () => {
+    setQuery('')
+    setTitleOnly(false)
+    setSort('best')
+    setInCurrentPage(false)
+    setActiveValue('')
+  }
+
+  const label = t('pod.command.open')
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next, details) => {
+        if (!next && details.reason === 'escape-key' && details.event.target === inputRef.current && query) {
+          details.cancel()
+          setQuery('')
+          setActiveValue('')
+          return
+        }
+        if (!next) resetMenuState()
+        onOpenChange(next)
+      }}>
+      <DialogContent
+        className="pod-dialog-wide pod-command-dialog pod-command-dialog-split transition-none duration-0 data-starting-style:scale-100 data-starting-style:opacity-100 data-ending-style:scale-100 data-ending-style:opacity-100"
+        showCloseButton={false}
+        closeLabel={t('common.close')}
+        finalFocus={() => {
+          if (selected.current) return false
+          if (returnFocus.current?.isConnected) return returnFocus.current
+          return (
+            [...document.querySelectorAll<HTMLElement>('[data-sidebar="trigger"]')].find(
+              element => element.getClientRects().length > 0
+            ) ?? null
+          )
+        }}>
+        <DialogTitle className="sr-only">{label}</DialogTitle>
+        <PodCommandSurface
+          open={open}
+          pathname={pathname}
+          query={query}
+          onQueryChange={setQuery}
+          titleOnly={titleOnly}
+          onTitleOnlyChange={setTitleOnly}
+          sort={sort}
+          onSortChange={setSort}
+          inCurrentPage={inCurrentPage}
+          onInCurrentPageChange={setInCurrentPage}
+          activeValue={activeValue}
+          onActiveValueChange={setActiveValue}
+          inputRef={inputRef}
+          onSelectTarget={(href, state) => {
+            if (state?.focusComposer) drafts.startNew()
+            selected.current = true
+            resetMenuState()
+            onOpenChange(false)
+            setOpenMobile(false)
+            const target = resolvePodTarget(href)
+            return navigate({
+              to: target.to,
+              ...(target.search ? { search: target.search as never } : {}),
+              state: state as never
+            })
+          }}
+          onOpenNewWindow={url => {
+            window.open(url, '_blank', 'noopener,noreferrer')
+            selected.current = true
+            resetMenuState()
+            onOpenChange(false)
+            setOpenMobile(false)
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function PodCommandSurface({
+  open,
+  pathname = '/',
+  query,
+  onQueryChange,
+  titleOnly,
+  onTitleOnlyChange,
+  sort,
+  onSortChange,
+  inCurrentPage,
+  onInCurrentPageChange,
+  activeValue,
+  onActiveValueChange,
+  inputRef,
+  onSelectTarget,
+  onOpenNewWindow
+}: {
+  open: boolean
+  pathname?: string
+  query: string
+  onQueryChange(next: string): void
+  titleOnly: boolean
+  onTitleOnlyChange: (next: boolean | ((prev: boolean) => boolean)) => void
+  sort: PageSearchSort
+  onSortChange(next: PageSearchSort): void
+  inCurrentPage: boolean
+  onInCurrentPageChange: (next: boolean | ((prev: boolean) => boolean)) => void
+  activeValue: string
+  onActiveValueChange(next: string): void
+  inputRef: RefObject<HTMLInputElement | null>
+  onSelectTarget(href: string, state?: PodCommandNavigationState): unknown
+  onOpenNewWindow?(url: string): void
+}) {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const pageHref = usePageHref()
+  const metadataStore = pageMetadata(client)
+  const metadataRevision = useSyncExternalStore(
+    listener => metadataStore.subscribe(listener),
+    () => metadataStore.collection.size,
+    () => 0
+  )
 
   const currentPageID = useMemo(() => podPagePathnameID(pathname), [pathname])
   const currentPageTitle = currentPageID ? knownPageTitle(client, currentPageID) : undefined
@@ -206,10 +340,38 @@ export function PodCommandMenu({
 
   const serverReady = trimmedQuery === settledQuery.trim() && pages.data !== undefined
   const optimisticPages = useMemo<Page[]>(() => {
+    void metadataRevision
     if (!open || !trimmedQuery || serverReady) return []
     const normalizedNeedle = normalizeSearchQuery(trimmedQuery)
     const knownMap = cachedPageMap(client)
-    return cachedPages(client)
+    const candidates: Page[] = [...cachedPages(client)]
+    if (!scopePageID) {
+      for (const item of metadataStore.values()) {
+        if (knownMap.has(item.id) || !item.title) continue
+        const pageType: Page['type'] | undefined =
+          item.type === 'doc' ||
+          item.type === 'knowledge' ||
+          item.type === 'base' ||
+          item.type === 'applet' ||
+          item.type === 'file'
+            ? item.type
+            : item.type === undefined
+              ? 'doc'
+              : undefined
+        if (!pageType) continue
+        candidates.push({
+          id: item.id,
+          name: item.id,
+          title: item.title,
+          icon: item.icon,
+          type: pageType,
+          inherit_permissions: true,
+          metadata: {},
+          updated_at: item.updated_at
+        })
+      }
+    }
+    return candidates
       .filter(page => {
         if (page.deleted_at || page.purge_started_at || page.is_root) return false
         if (page.system_key === 'ankole_brain_sources') return false
@@ -227,7 +389,7 @@ export function PodCommandMenu({
         return (b.updated_at ?? '').localeCompare(a.updated_at ?? '')
       })
       .slice(0, 15)
-  }, [client, open, scopePageID, serverReady, trimmedQuery])
+  }, [client, metadataRevision, metadataStore, open, scopePageID, serverReady, trimmedQuery])
 
   const rawPageList = serverReady
     ? (pages.data?.pages ?? [])
@@ -273,32 +435,9 @@ export function PodCommandMenu({
     enabled: open
   })
 
-  const selected = useRef(false)
-  useEffect(() => {
-    if (open) selected.current = false
-  }, [open])
-
-  const resetMenuState = () => {
-    setQuery('')
-    setTitleOnly(false)
-    setSort('best')
-    setInCurrentPage(false)
-    setActiveValue('')
-  }
-
   const choose = (href: string, state?: PodCommandNavigationState, recordQueryText?: string) => {
     if (recordQueryText) recordSearch(recordQueryText, pageResults.length)
-    if (state?.focusComposer) drafts.startNew()
-    selected.current = true
-    resetMenuState()
-    onOpenChange(false)
-    setOpenMobile(false)
-    const target = resolvePodTarget(href)
-    return navigate({
-      to: target.to,
-      ...(target.search ? { search: target.search as never } : {}),
-      state: state as never
-    })
+    return onSelectTarget(href, state)
   }
 
   const { groups, entries, firstPageEntry } = useMemo(() => {
@@ -596,417 +735,380 @@ export function PodCommandMenu({
   const apple = isApplePlatform()
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next, details) => {
-        if (!next && details.reason === 'escape-key' && details.event.target === inputRef.current && query) {
-          details.cancel()
-          setQuery('')
-          setActiveValue('')
-          return
-        }
-        if (!next) resetMenuState()
-        onOpenChange(next)
-      }}>
-      <DialogContent
-        className="pod-dialog-wide pod-command-dialog pod-command-dialog-split transition-none duration-0 data-starting-style:scale-100 data-starting-style:opacity-100 data-ending-style:scale-100 data-ending-style:opacity-100"
-        showCloseButton={false}
-        closeLabel={t('common.close')}
-        finalFocus={() => {
-          if (selected.current) return false
-          if (returnFocus.current?.isConnected) return returnFocus.current
-          return (
-            [...document.querySelectorAll<HTMLElement>('[data-sidebar="trigger"]')].find(
-              element => element.getClientRects().length > 0
-            ) ?? null
-          )
-        }}>
-        <DialogTitle className="sr-only">{label}</DialogTitle>
-        <ErrorBoundary variant="panel" className="m-3" resetKeys={[open]}>
-          <Command
-            label={label}
-            loop
-            vimBindings={false}
-            shouldFilter={false}
-            value={effectiveActiveValue}
-            onValueChange={setActiveValue}
-            onKeyDownCapture={event => {
-              if (isImeComposingKey(event)) {
-                if (event.key === 'Enter') event.stopPropagation()
-                return
+    <>
+      <ErrorBoundary variant="panel" className="m-3" resetKeys={[open]}>
+        <Command
+          label={label}
+          loop
+          vimBindings={false}
+          shouldFilter={false}
+          value={effectiveActiveValue}
+          onValueChange={onActiveValueChange}
+          onKeyDownCapture={event => {
+            if (isImeComposingKey(event)) {
+              if (event.key === 'Enter') event.stopPropagation()
+              return
+            }
+            if (isCommandInteractiveTarget(event.target)) return
+            if (
+              event.target === inputRef.current &&
+              (apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) &&
+              !event.altKey &&
+              !event.shiftKey &&
+              !event.repeat &&
+              /^[1-5]$/.test(event.key)
+            ) {
+              const value = shortcutCommands[Number(event.key) - 1]
+              const entry = entries.find(item => item.value === value)
+              if (entry?.kind === 'nav') {
+                event.preventDefault()
+                event.stopPropagation()
+                void choose(entry.href, entry.state)
               }
-              if (isCommandInteractiveTarget(event.target)) return
-              if (
-                event.target === inputRef.current &&
-                (apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) &&
-                !event.altKey &&
-                !event.shiftKey &&
-                !event.repeat &&
-                /^[1-5]$/.test(event.key)
-              ) {
-                const value = shortcutCommands[Number(event.key) - 1]
-                const entry = entries.find(item => item.value === value)
-                if (entry?.kind === 'nav') {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  void choose(entry.href, entry.state)
-                }
-                return
+              return
+            }
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              const url = effectiveActiveEntry && 'url' in effectiveActiveEntry ? effectiveActiveEntry.url : undefined
+              if (url && onOpenNewWindow) {
+                event.preventDefault()
+                event.stopPropagation()
+                if (trimmedQuery) recordSearch(trimmedQuery, pageResults.length)
+                onOpenNewWindow(url)
               }
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                const url = effectiveActiveEntry && 'url' in effectiveActiveEntry ? effectiveActiveEntry.url : undefined
-                if (url) {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  if (trimmedQuery) recordSearch(trimmedQuery, pageResults.length)
-                  window.open(url, '_blank', 'noopener,noreferrer')
-                  selected.current = true
-                  resetMenuState()
-                  onOpenChange(false)
-                  setOpenMobile(false)
-                }
-              }
-            }}>
-            <CommandInput
-              ref={inputRef}
-              aria-label={label}
-              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-              placeholder={t('pod.command.placeholder')}
-              value={query}
-              onValueChange={next => {
-                setQuery(next)
-                setActiveValue('')
-              }}
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              autoFocus
-            />
+            }
+          }}>
+          <CommandInput
+            ref={inputRef}
+            aria-label={label}
+            aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+            placeholder={t('pod.command.placeholder')}
+            value={query}
+            onValueChange={next => {
+              onQueryChange(next)
+              onActiveValueChange('')
+            }}
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            autoFocus
+          />
 
-            <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-divider-overlay px-1.5 py-1">
-              <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-divider-overlay px-1.5 py-1">
+            <div className="flex flex-wrap items-center gap-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={titleOnly ? 'outline' : 'ghost'}
+                aria-pressed={titleOnly}
+                className="px-2 text-xs"
+                onClick={() => onTitleOnlyChange(prev => !prev)}>
+                {t('pod.command.title_only')}
+              </Button>
+              {currentPageID && (
                 <Button
                   type="button"
                   size="sm"
-                  variant={titleOnly ? 'outline' : 'ghost'}
-                  aria-pressed={titleOnly}
-                  className="px-2 text-xs"
-                  onClick={() => setTitleOnly(prev => !prev)}>
-                  {t('pod.command.title_only')}
-                </Button>
-                {currentPageID && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={inCurrentPage ? 'outline' : 'ghost'}
-                    aria-pressed={inCurrentPage}
-                    className="max-w-48 truncate px-2 text-xs"
-                    onClick={() => setInCurrentPage(prev => !prev)}>
-                    {currentPageTitle
-                      ? t('pod.command.in_page_chip', { title: currentPageTitle })
-                      : t('pod.command.search_in_current_page')}
-                  </Button>
-                )}
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t('pod.command.sort_label')}
-                      className="gap-1 px-2 text-xs"
-                    />
-                  }>
-                  <span>
-                    {sort === 'updated_desc'
-                      ? t('pod.command.sort_updated_desc')
-                      : sort === 'updated_asc'
-                        ? t('pod.command.sort_updated_asc')
-                        : sort === 'created_desc'
-                          ? t('pod.command.sort_created_desc')
-                          : sort === 'created_asc'
-                            ? t('pod.command.sort_created_asc')
-                            : t('pod.command.sort_best')}
-                  </span>
-                  <ChevronDownRegular aria-hidden className="size-3.5 text-fg-tertiary" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuRadioGroup value={sort} onValueChange={next => setSort(next as PageSearchSort)}>
-                    <DropdownMenuRadioItem value="best">{t('pod.command.sort_best')}</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="updated_desc">
-                      {t('pod.command.sort_updated_desc')}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="updated_asc">
-                      {t('pod.command.sort_updated_asc')}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="created_desc">
-                      {t('pod.command.sort_created_desc')}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="created_asc">
-                      {t('pod.command.sort_created_asc')}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className="grid min-h-0 md:grid-cols-[minmax(0,1fr)_minmax(0,300px)]">
-              <CommandList label={label} aria-busy={isSearching} className="min-w-0">
-                <CommandHighlight />
-                <CommandEmpty>{t(isSearching ? 'pod.content.loading' : 'pod.content.no_matches')}</CommandEmpty>
-
-                {groups.map(group => {
-                  switch (group.kind) {
-                    case 'recent-search':
-                      return (
-                        <CommandGroup
-                          key="recent-search"
-                          heading={
-                            // The group title is a flex row, so its content stretches to put the action at the end.
-                            <span className="flex flex-1 items-center justify-between gap-2">
-                              <span>{t('pod.command.recent_searches')}</span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="xs"
-                                onClick={event => {
-                                  event.preventDefault()
-                                  event.stopPropagation()
-                                  clearRecents.mutate()
-                                }}>
-                                {t('pod.command.clear_recent_searches')}
-                              </Button>
-                            </span>
-                          }>
-                          {group.entries.map(({ value, keywords, entry }) => (
-                            <CommandItem
-                              key={entry.id}
-                              value={value}
-                              keywords={keywords}
-                              onSelect={() => {
-                                setQuery(entry.query)
-                                setActiveValue('')
-                              }}>
-                              <HistoryRegular aria-hidden className="text-fg-tertiary" />
-                              <span className="min-w-0 flex-1 truncate">{entry.query}</span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-xs"
-                                aria-label={t('pod.command.remove_recent_search', { query: entry.query })}
-                                onClick={event => {
-                                  event.preventDefault()
-                                  event.stopPropagation()
-                                  deleteRecent.mutate(entry.id)
-                                }}>
-                                {/* The row gives 16px to every icon without a size class, so this icon names the
-                                    button's 14px size. */}
-                                <DismissRegular aria-hidden className="size-3.5" />
-                              </Button>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      )
-
-                    case 'page':
-                      return (
-                        <CommandGroup key="page" heading={group.heading}>
-                          {group.entries.map(item => {
-                            const targetBadge = formatSearchTargetBadge(item.match?.primary_target, t)
-                            return (
-                              <CommandItem
-                                key={item.page.id}
-                                value={item.value}
-                                keywords={item.keywords}
-                                onSelect={() => void choose(item.href, undefined, item.recordQuery)}>
-                                <PageIcon page={item.page} />
-                                <span className="min-w-0 flex-1 space-y-0.5">
-                                  <span className="flex items-center gap-1.5">
-                                    <HighlightedBdiLabel
-                                      className="min-w-0 flex-1"
-                                      value={item.page.title}
-                                      fallback={t('pod.content.untitled')}
-                                      query={trimmedQuery}
-                                    />
-                                    {targetBadge && (
-                                      <span className="max-w-36 shrink-0 truncate rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
-                                        {targetBadge}
-                                      </span>
-                                    )}
-                                  </span>
-                                  {item.parentPath && (
-                                    <span className="block truncate text-xs text-fg-tertiary">{item.parentPath}</span>
-                                  )}
-                                  {trimmedQuery && item.match?.snippet && item.match.snippet.segments.length > 0 && (
-                                    <SearchSnippet snippet={item.match.snippet} />
-                                  )}
-                                </span>
-                                <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[item.page.type]}</span>
-                              </CommandItem>
-                            )
-                          })}
-                        </CommandGroup>
-                      )
-
-                    case 'nav':
-                      return (
-                        <CommandGroup key="nav" heading={group.heading}>
-                          {group.entries.map(item => {
-                            const Icon = item.icon
-                            const shortcut = shortcutCommands.indexOf(item.value) + 1
-                            return (
-                              <CommandItem
-                                key={item.value}
-                                value={item.value}
-                                keywords={item.keywords}
-                                aria-keyshortcuts={shortcut ? `${apple ? 'Meta' : 'Control'}+${shortcut}` : undefined}
-                                onSelect={() => void choose(item.href, item.state)}>
-                                <Icon aria-hidden />
-                                {item.label}
-                                {shortcut > 0 && (
-                                  <CommandShortcut aria-hidden className="hidden sm:inline-flex">
-                                    <Kbd>
-                                      {apple ? '⌘' : 'Ctrl+'}
-                                      {shortcut}
-                                    </Kbd>
-                                  </CommandShortcut>
-                                )}
-                              </CommandItem>
-                            )
-                          })}
-                        </CommandGroup>
-                      )
-
-                    case 'colleague':
-                      return (
-                        <CommandGroup key="colleague" heading={group.heading}>
-                          {group.entries.map(item => (
-                            <CommandItem
-                              key={item.agent.uid}
-                              value={item.value}
-                              keywords={item.keywords}
-                              onSelect={() => void choose(item.href)}>
-                              <span className="pod-conversation-glyph">
-                                <ChatAvatar name={item.agent.displayName} src={item.agent.avatarURL} agent />
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate">
-                                  <AgentName agent={item.agent} />
-                                </span>
-                                {item.agent.role && (
-                                  <span className="block truncate text-xs text-fg-tertiary">{item.agent.role}</span>
-                                )}
-                              </span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      )
-
-                    case 'skill':
-                      return (
-                        <CommandGroup key="skill" heading={group.heading}>
-                          {group.entries.map(item => (
-                            <CommandItem
-                              key={item.skill.id}
-                              value={item.value}
-                              keywords={item.keywords}
-                              onSelect={() => void choose(item.href)}>
-                              <PuzzlePieceRegular aria-hidden className="text-fg-tertiary" />
-                              <span className="min-w-0 flex-1">
-                                <span className="flex items-center gap-1.5">
-                                  <span className="truncate font-medium">
-                                    <HighlightedText text={item.skill.name} query={trimmedQuery} />
-                                  </span>
-                                  <code className="shrink-0 rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
-                                    /{item.skill.slug}
-                                  </code>
-                                </span>
-                                {item.skill.description && (
-                                  <span className="block truncate text-xs text-fg-tertiary">
-                                    <HighlightedText text={item.skill.description} query={trimmedQuery} />
-                                  </span>
-                                )}
-                              </span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      )
-
-                    case 'chat':
-                      return (
-                        <CommandGroup key="chat" heading={group.heading}>
-                          {group.entries.map(item => (
-                            <CommandItem
-                              key={item.conversation.id}
-                              value={item.value}
-                              keywords={item.keywords}
-                              onSelect={() => void choose(item.href, item.state, item.recordQuery)}>
-                              <ConversationGlyph room={item.conversation} />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate">
-                                  <ConversationTitle room={item.conversation} />
-                                </span>
-                                {item.conversation.searchMatch && (
-                                  <span className="block truncate text-xs text-fg-secondary">
-                                    <HighlightedText
-                                      text={item.conversation.searchMatch.excerpt}
-                                      query={trimmedQuery}
-                                    />
-                                  </span>
-                                )}
-                              </span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      )
-                  }
-                })}
-              </CommandList>
-
-              <CommandMenuPreview
-                open={open}
-                activeEntry={effectiveActiveEntry}
-                fallbackPageEntry={firstPageEntry}
-                pagesMap={pagesMap}
-                trimmedQuery={trimmedQuery}
-                isSearching={isSearching}
-                onChoose={choose}
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-overlay px-2 pt-1.5 text-[11px] text-fg-tertiary">
-              <div className="flex items-center gap-3">
-                <span>{t('pod.command.hint_navigate')}</span>
-                <span className="hidden md:inline">
-                  {t('pod.command.hint_group', { modifier: apple ? '⌥' : 'Alt+' })}
-                </span>
-                <span>{t('pod.command.hint_open')}</span>
-                <span className="hidden sm:inline">{t('pod.command.hint_new_tab')}</span>
-              </div>
-              {trimmedQuery && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  onClick={() => void choose(openFullSearchHref, undefined, trimmedQuery)}>
-                  {t('pod.command.view_all_results')}
-                  <ArrowUpRightRegular aria-hidden data-icon="inline-end" />
+                  variant={inCurrentPage ? 'outline' : 'ghost'}
+                  aria-pressed={inCurrentPage}
+                  className="max-w-48 truncate px-2 text-xs"
+                  onClick={() => onInCurrentPageChange(prev => !prev)}>
+                  {currentPageTitle
+                    ? t('pod.command.in_page_chip', { title: currentPageTitle })
+                    : t('pod.command.search_in_current_page')}
                 </Button>
               )}
             </div>
-          </Command>
-        </ErrorBoundary>
-        {(pages.isPending || conversations.isPending) && <InlineLoading className="px-3 text-xs" />}
-        <ContentError
-          error={pages.error || conversations.error}
-          retry={() => {
-            void pages.refetch()
-            void conversations.refetch()
-          }}
-        />
-      </DialogContent>
-    </Dialog>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    aria-label={t('pod.command.sort_label')}
+                    className="gap-1 px-2 text-xs"
+                  />
+                }>
+                <span>
+                  {sort === 'updated_desc'
+                    ? t('pod.command.sort_updated_desc')
+                    : sort === 'updated_asc'
+                      ? t('pod.command.sort_updated_asc')
+                      : sort === 'created_desc'
+                        ? t('pod.command.sort_created_desc')
+                        : sort === 'created_asc'
+                          ? t('pod.command.sort_created_asc')
+                          : t('pod.command.sort_best')}
+                </span>
+                <ChevronDownRegular aria-hidden className="size-3.5 text-fg-tertiary" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup value={sort} onValueChange={next => onSortChange(next as PageSearchSort)}>
+                  <DropdownMenuRadioItem value="best">{t('pod.command.sort_best')}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="updated_desc">
+                    {t('pod.command.sort_updated_desc')}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="updated_asc">{t('pod.command.sort_updated_asc')}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="created_desc">
+                    {t('pod.command.sort_created_desc')}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="created_asc">{t('pod.command.sort_created_asc')}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="grid min-h-0 md:grid-cols-[minmax(0,1fr)_minmax(0,300px)]">
+            <CommandList label={label} aria-busy={isSearching} className="min-w-0">
+              <CommandHighlight />
+              <CommandEmpty>{t(isSearching ? 'pod.content.loading' : 'pod.content.no_matches')}</CommandEmpty>
+
+              {groups.map(group => {
+                switch (group.kind) {
+                  case 'recent-search':
+                    return (
+                      <CommandGroup
+                        key="recent-search"
+                        heading={
+                          // The group title is a flex row, so its content stretches to put the action at the end.
+                          <span className="flex flex-1 items-center justify-between gap-2">
+                            <span>{t('pod.command.recent_searches')}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              onClick={event => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                clearRecents.mutate()
+                              }}>
+                              {t('pod.command.clear_recent_searches')}
+                            </Button>
+                          </span>
+                        }>
+                        {group.entries.map(({ value, keywords, entry }) => (
+                          <CommandItem
+                            key={entry.id}
+                            value={value}
+                            keywords={keywords}
+                            onSelect={() => {
+                              onQueryChange(entry.query)
+                              onActiveValueChange('')
+                            }}>
+                            <HistoryRegular aria-hidden className="text-fg-tertiary" />
+                            <span className="min-w-0 flex-1 truncate">{entry.query}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label={t('pod.command.remove_recent_search', { query: entry.query })}
+                              onClick={event => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                deleteRecent.mutate(entry.id)
+                              }}>
+                              {/* The row gives 16px to every icon without a size class, so this icon names the
+                                    button's 14px size. */}
+                              <DismissRegular aria-hidden className="size-3.5" />
+                            </Button>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )
+
+                  case 'page':
+                    return (
+                      <CommandGroup key="page" heading={group.heading}>
+                        {group.entries.map(item => {
+                          const targetBadge = formatSearchTargetBadge(item.match?.primary_target, t)
+                          return (
+                            <CommandItem
+                              key={item.page.id}
+                              value={item.value}
+                              keywords={item.keywords}
+                              onSelect={() => void choose(item.href, undefined, item.recordQuery)}>
+                              <PageIcon page={item.page} />
+                              <span className="min-w-0 flex-1 space-y-0.5">
+                                <span className="flex items-center gap-1.5">
+                                  <HighlightedBdiLabel
+                                    className="min-w-0 flex-1"
+                                    value={item.page.title}
+                                    fallback={t('pod.content.untitled')}
+                                    query={trimmedQuery}
+                                  />
+                                  {targetBadge && (
+                                    <span className="max-w-36 shrink-0 truncate rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
+                                      {targetBadge}
+                                    </span>
+                                  )}
+                                </span>
+                                {item.parentPath && (
+                                  <span className="block truncate text-xs text-fg-tertiary">{item.parentPath}</span>
+                                )}
+                                {trimmedQuery && item.match?.snippet && item.match.snippet.segments.length > 0 && (
+                                  <SearchSnippet snippet={item.match.snippet} />
+                                )}
+                              </span>
+                              <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[item.page.type]}</span>
+                            </CommandItem>
+                          )
+                        })}
+                      </CommandGroup>
+                    )
+
+                  case 'nav':
+                    return (
+                      <CommandGroup key="nav" heading={group.heading}>
+                        {group.entries.map(item => {
+                          const Icon = item.icon
+                          const shortcut = shortcutCommands.indexOf(item.value) + 1
+                          return (
+                            <CommandItem
+                              key={item.value}
+                              value={item.value}
+                              keywords={item.keywords}
+                              aria-keyshortcuts={shortcut ? `${apple ? 'Meta' : 'Control'}+${shortcut}` : undefined}
+                              onSelect={() => void choose(item.href, item.state)}>
+                              <Icon aria-hidden />
+                              {item.label}
+                              {shortcut > 0 && (
+                                <CommandShortcut aria-hidden className="hidden sm:inline-flex">
+                                  <Kbd>
+                                    {apple ? '⌘' : 'Ctrl+'}
+                                    {shortcut}
+                                  </Kbd>
+                                </CommandShortcut>
+                              )}
+                            </CommandItem>
+                          )
+                        })}
+                      </CommandGroup>
+                    )
+
+                  case 'colleague':
+                    return (
+                      <CommandGroup key="colleague" heading={group.heading}>
+                        {group.entries.map(item => (
+                          <CommandItem
+                            key={item.agent.uid}
+                            value={item.value}
+                            keywords={item.keywords}
+                            onSelect={() => void choose(item.href)}>
+                            <span className="pod-conversation-glyph">
+                              <ChatAvatar name={item.agent.displayName} src={item.agent.avatarURL} agent />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate">
+                                <AgentName agent={item.agent} />
+                              </span>
+                              {item.agent.role && (
+                                <span className="block truncate text-xs text-fg-tertiary">{item.agent.role}</span>
+                              )}
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )
+
+                  case 'skill':
+                    return (
+                      <CommandGroup key="skill" heading={group.heading}>
+                        {group.entries.map(item => (
+                          <CommandItem
+                            key={item.skill.id}
+                            value={item.value}
+                            keywords={item.keywords}
+                            onSelect={() => void choose(item.href)}>
+                            <PuzzlePieceRegular aria-hidden className="text-fg-tertiary" />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-1.5">
+                                <span className="truncate font-medium">
+                                  <HighlightedText text={item.skill.name} query={trimmedQuery} />
+                                </span>
+                                <code className="shrink-0 rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+                                  /{item.skill.slug}
+                                </code>
+                              </span>
+                              {item.skill.description && (
+                                <span className="block truncate text-xs text-fg-tertiary">
+                                  <HighlightedText text={item.skill.description} query={trimmedQuery} />
+                                </span>
+                              )}
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )
+
+                  case 'chat':
+                    return (
+                      <CommandGroup key="chat" heading={group.heading}>
+                        {group.entries.map(item => (
+                          <CommandItem
+                            key={item.conversation.id}
+                            value={item.value}
+                            keywords={item.keywords}
+                            onSelect={() => void choose(item.href, item.state, item.recordQuery)}>
+                            <ConversationGlyph room={item.conversation} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate">
+                                <ConversationTitle room={item.conversation} />
+                              </span>
+                              {item.conversation.searchMatch && (
+                                <span className="block truncate text-xs text-fg-secondary">
+                                  <HighlightedText text={item.conversation.searchMatch.excerpt} query={trimmedQuery} />
+                                </span>
+                              )}
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )
+                }
+              })}
+            </CommandList>
+
+            <CommandMenuPreview
+              open={open}
+              activeEntry={effectiveActiveEntry}
+              fallbackPageEntry={firstPageEntry}
+              pagesMap={pagesMap}
+              trimmedQuery={trimmedQuery}
+              isSearching={isSearching}
+              onChoose={choose}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-overlay px-2 pt-1.5 text-[11px] text-fg-tertiary">
+            <div className="flex items-center gap-3">
+              <span>{t('pod.command.hint_navigate')}</span>
+              <span className="hidden md:inline">
+                {t('pod.command.hint_group', { modifier: apple ? '⌥' : 'Alt+' })}
+              </span>
+              <span>{t('pod.command.hint_open')}</span>
+              <span className="hidden sm:inline">{t('pod.command.hint_new_tab')}</span>
+            </div>
+            {trimmedQuery && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => void choose(openFullSearchHref, undefined, trimmedQuery)}>
+                {t('pod.command.view_all_results')}
+                <ArrowUpRightRegular aria-hidden data-icon="inline-end" />
+              </Button>
+            )}
+          </div>
+        </Command>
+      </ErrorBoundary>
+      {(pages.isPending || conversations.isPending) && <InlineLoading className="px-3 text-xs" />}
+      <ContentError
+        error={pages.error || conversations.error}
+        retry={() => {
+          void pages.refetch()
+          void conversations.refetch()
+        }}
+      />
+    </>
   )
 }

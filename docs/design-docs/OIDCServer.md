@@ -59,8 +59,14 @@ constraints:
   claims permitted by the granted scopes.
 - An RP granted `offline_access` can refresh tokens for up to 30 days, and each
   successful refresh rotates the refresh token.
-- An authorized RP can request the `ai_gateway.write` scope, whereas Agents
-  authenticate to the AI Gateway with their own 30-day Agent tokens.
+- An authorized RP can request the `pod` scope (which adds the `ankole.pod`
+  audience for Pod APIs, Applet frames, and realtime sockets) or the
+  `ai_gateway.write` scope, whereas Agents authenticate to the AI Gateway with
+  their own 30-day Agent tokens.
+- On a tenant Pod host, `GET /.well-known/ankole-desktop` idempotently
+  provisions the tenant's deterministic `Ankole Desktop` public PKCE Client
+  (`ankole://oauth/callback`) and publishes its discovery metadata, returning
+  `403` when a tenant administrator disables that Client.
 - Whenever a Client presents a credential, Ankole immediately enforces session
   revocation, Human access-version bumps, disabled Humans, suspended tenants,
   disabled Clients, and narrowed Client scopes.
@@ -264,6 +270,27 @@ tokens, Ankole runs the same shared verifier; for refresh tokens, it looks up
 an unconsumed, unexpired token in a live family and checks its OIDC session
 against current Human status and `PodLoginPolicy`. If a Client attempts to
 introspect a token belonging to another Client, Ankole returns `active: false`.
+
+### First-party desktop Client and Pod access tokens
+
+`Ankole.OIDC.DesktopClient` owns the per-tenant OAuth registration for the
+native desktop application. For each tenant, it derives a
+deterministic UUIDv8 `client_id` from `["ankole.oidc.desktop_client:", tenant_id]` and
+creates a public PKCE Client named `Ankole Desktop` with redirect URI
+`ankole://oauth/callback` and scopes `openid`, `profile`, `email`, `pod`, and
+`offline_access`. When the desktop client queries
+`GET /.well-known/ankole-desktop` on a Pod host, `AnkoleWeb.OIDCController`
+calls `Ankole.OIDC.ensure_desktop_client/0`: if the Client does not exist yet,
+Ankole inserts it idempotently; if an administrator has disabled the Client in
+the Console, the endpoint returns `403 desktop_client_disabled` without
+re-enabling it.
+
+When a token grant includes the `pod` scope, `Ankole.OIDC.Tokens` adds the
+`ankole.pod` audience to the signed RS256 `at+jwt` access token. On Pod API,
+bootstrap, session, and Applet frame routes, `Ankole.OIDC.Tokens.verify_pod_access/1`
+verifies the token signature, `ankole.pod` audience, `pod` scope, live Client,
+unrevoked OIDC session, active Human Principal, and current `PodLoginPolicy`
+before constructing the `Ankole.AuthZ.Actor` for the request.
 
 ## Keys, issuer, and rolling deployment
 

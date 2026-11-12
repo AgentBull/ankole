@@ -16,6 +16,7 @@ import { Link, useRouter } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import { authenticationRef, podID, podLocation } from '../common/browser-context'
+import { getPodRuntimeBootstrap, subscribePodRuntimeBootstrap } from '../common/pod-bootstrap'
 import { isApplePlatform } from '../common/platform'
 import { ProfileMark, sessionAvatarContext } from './account-menu'
 import { usePodCommandMenu } from './command-menu'
@@ -64,15 +65,15 @@ export function PodTopBar() {
   const search = t('pod.command.open')
 
   return (
-    <TopBar className="@container">
-      <TopBarLeading>
+    <TopBar data-tauri-drag-region="" className="@container">
+      <TopBarLeading data-tauri-drag-region="" className="pod-top-bar-leading">
         <PodMark />
         {/* The leading zone hides the toggle while the sidebar is docked. */}
         <SidebarTrigger size="icon-lg" label={t('pod.sidebar.expand')} />
       </TopBarLeading>
       <PodHistory />
-      <TopBarTitle ref={setTitle} />
-      <TopBarActions>
+      <TopBarTitle ref={setTitle} data-tauri-drag-region="" />
+      <TopBarActions data-tauri-drag-region="">
         <div ref={setPeople} className="contents" />
         <div className="flex items-center">
           <Button
@@ -114,12 +115,13 @@ export function PodTopBarActions({ children }: { children: ReactNode }) {
  * phone the bar leaves the mark out, so the open route's path keeps room beside its actions.
  */
 function PodMark() {
+  const runtime = useSyncExternalStore(subscribePodRuntimeBootstrap, getPodRuntimeBootstrap, () => undefined)
   const session = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+    queryKey: ['pod-session', authenticationRef() ?? runtime?.principalUid ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
     staleTime: 60_000
   })
-  const name = session.data?.tenant?.displayName
+  const name = session.data?.tenant?.displayName ?? runtime?.tenantDisplayName
   if (!name) return null
   return (
     <Link
@@ -129,7 +131,7 @@ function PodMark() {
       className={buttonVariants({ variant: 'ghost', size: 'icon-lg', className: 'max-md:hidden' })}>
       <ProfileMark
         name={name}
-        avatarURL={session.data?.tenant?.avatarURL}
+        avatarURL={session.data?.tenant?.avatarURL ?? runtime?.tenantAvatarUrl}
         context={sessionAvatarContext(session.data)}
         size="xs"
       />

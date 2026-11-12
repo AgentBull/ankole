@@ -51,7 +51,7 @@ import { defaultConfig, localizedText, setPath } from '../common/config-fields'
 import { executeEnvVarBatchImport, type EnvVarSaveInput, type ParsedDotEnvItem } from './env-vars-dotenv'
 import { EnvVarsEditor } from './env-vars-editor'
 import { ContentError } from './content-primitives'
-import { authenticationRef, podID, principalUID, replacePrincipalUID } from '../common/browser-context'
+import { authenticationRef, podID, podPublicOrigin, principalUID, replacePrincipalUID } from '../common/browser-context'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { availableLocaleIDs, loadLocale, nativeLocaleLabel } from '../common/i18n'
 import * as api from './api/generated/sdk.gen'
@@ -1159,7 +1159,7 @@ function Providers({ model }: { model: Model }) {
     model.config.value = defaultConfig(item.fields)
     model.preservedSecrets.value = []
   }
-  const callbackURL = `${window.location.origin}/sessions/oidc/${encodeURIComponent(model.providerID.value)}/callback`
+  const callbackURL = `${podPublicOrigin()}/sessions/oidc/${encodeURIComponent(model.providerID.value)}/callback`
   const copyCallbackURL = () => {
     void navigator.clipboard.writeText(callbackURL).then(
       () => {

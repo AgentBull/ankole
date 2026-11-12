@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { podLocation } from '../common/browser-context'
 import { conversationEventsURL, podKeys, type ConversationDetail, type PodActivity } from './api'
+import { openPodEventStream, type PodEventStream } from '../common/pod-bootstrap'
 import type { ChatModel } from './state/chat'
 import { hasUnsentChatWork } from './state/chat-drafts'
 import { refreshConversationQueries } from './query-cache'
@@ -19,18 +20,14 @@ export function useConversationEvents(
   exitRef.current = onExitConversation
   useEffect(() => {
     if (!id) return
-    return subscribeConversationEvents(new EventSource(conversationEventsURL(id)), id, model, client, () => {
+    return subscribeConversationEvents(openPodEventStream(conversationEventsURL(id)), id, model, client, () => {
       if (exitRef.current) exitRef.current()
       else void navigate({ to: podLocation('/').pathname })
     })
   }, [client, id, model, navigate])
 }
 
-export type ConversationEventStream = Pick<EventTarget, 'addEventListener'> & {
-  close: () => void
-  onopen: ((this: EventSource, ev: Event) => unknown) | null
-  onerror: ((this: EventSource, ev: Event) => unknown) | null
-}
+export type ConversationEventStream = PodEventStream
 
 export function subscribeConversationEvents(
   events: ConversationEventStream,

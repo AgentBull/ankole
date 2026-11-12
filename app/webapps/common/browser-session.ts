@@ -1,4 +1,5 @@
 import { authenticationRef, podID, principalUID } from './browser-context'
+import { clearPodLocalCache } from './pod-local-cache'
 import { deleteAuthSession, deleteBrowserAuthentication } from './api/generated/sdk.gen'
 import { registeredSessionHeaders } from './internal-api-client'
 
@@ -46,6 +47,7 @@ export function clearPodSessionDrafts(scope?: { podId?: string | null; principal
   }
   removeMatchingKeys(local, prefixes)
   removeMatchingKeys(session, prefixes)
+  void clearPodLocalCache(scope)
 }
 
 export function dataTenantID(): string | null {

@@ -20,7 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useEffectEvent, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { podLocation } from '../../common/browser-context'
+import { podLocation, podPublicOrigin } from '../../common/browser-context'
 import { usePageHref } from '../use-page-metadata'
 import { useDebouncedValue } from '../../common/use-debounced-value'
 import { agentsQuery, podKeys, type ConversationDetail } from '../api'
@@ -70,7 +70,7 @@ export function NewGroupDialog({
         queue.inputs.flatMap(input => input.links.filter(link => link.kind === 'page').map(link => link.id))
       )
     ])
-  ].map(id => ({ id, url: new URL(pageHref(id), window.location.origin).href }))
+  ].map(id => ({ id, url: new URL(pageHref(id), podPublicOrigin()).href }))
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [candidates, setCandidates] = useState<Member[]>([])

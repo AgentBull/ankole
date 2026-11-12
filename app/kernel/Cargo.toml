@@ -65,6 +65,12 @@ nif = [
 # Do not combine with nif.
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "web_proxy"]
 web_proxy = ["dep:tokio"]
+desktop_http = [
+  "dep:bytes",
+  "dep:reqwest",
+  "dep:rustls",
+  "dep:tokio",
+]
 markdown = ["dep:comrak", "dep:serde_yaml_ng"]
 file_text = ["dep:lopdf", "dep:zip"]
 object_store = [

@@ -5,6 +5,7 @@ import { BuildingRegular, LinkRegular, LockClosedRegular } from '@ankole/uikit/i
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useState } from 'react'
+import { podPublicOrigin } from '../common/browser-context'
 import type { Page } from './content-api'
 import { ContentError, InlineLoading } from './content-primitives'
 import { useResolvePageHref } from './use-page-metadata'
@@ -188,7 +189,7 @@ export function useCopyPageLink(pageID: string, title?: string | null) {
   const copy = async () => {
     try {
       const href = await resolvePageHref(pageID, title)
-      await navigator.clipboard.writeText(new URL(href, window.location.origin).href)
+      await navigator.clipboard.writeText(new URL(href, podPublicOrigin()).href)
       toast.success(translate('pod.content.page_link_copied'))
     } catch {
       toast.error(translate('pod.content.could_not_copy_the_link_copy_it_from_the_browser'))

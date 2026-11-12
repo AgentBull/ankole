@@ -1,4 +1,5 @@
-import { authenticationRef } from '../common/browser-context'
+import { authenticationRef, isDesktopRuntime } from '../common/browser-context'
+import { getPodRuntimeBootstrap } from '../common/pod-bootstrap'
 import { createClientConfig, postFormWithProgress } from '../common/internal-api-client'
 import type { ConversationAttachment } from './api'
 import { identityQuery } from './content-api'
@@ -47,7 +48,11 @@ export type ProfileAvatarContext = {
 
 export function currentProfileAvatarContext(): ProfileAvatarContext {
   return {
-    podURL: typeof window !== 'undefined' ? window.location.origin : undefined,
+    podURL: isDesktopRuntime()
+      ? getPodRuntimeBootstrap()?.podOrigin
+      : typeof window !== 'undefined' && window.location.origin && window.location.origin !== 'null'
+        ? window.location.origin
+        : undefined,
     authenticationRef: authenticationRef()
   }
 }
@@ -57,13 +62,24 @@ export function profileAvatarURL(source: string | null | undefined, context: Pro
   const [path, query = ''] = source.split('?', 2)
   const params = new URLSearchParams(query)
   params.delete('authentication_ref')
-  if (context.authenticationRef) {
+  if (context.authenticationRef && context.authenticationRef !== 'oauth' && !isDesktopRuntime()) {
     params.set('authentication_ref', context.authenticationRef)
   }
   const suffix = params.size > 0 ? `?${params}` : ''
   const relative = `${path}${suffix}`
-  if (!context.podURL) return relative
-  return `${new URL(context.podURL).origin}${relative}`
+  if (!context.podURL || context.podURL === 'null') return relative
+  let targetOrigin: string
+  try {
+    targetOrigin = new URL(context.podURL).origin
+  } catch {
+    return relative
+  }
+  if (!targetOrigin || targetOrigin === 'null') return relative
+  if (isDesktopRuntime()) {
+    const activeOrigin = getPodRuntimeBootstrap()?.podOrigin
+    if (!activeOrigin || targetOrigin === new URL(activeOrigin).origin) return relative
+  }
+  return `${targetOrigin}${relative}`
 }
 
 export function uploadAttachment(

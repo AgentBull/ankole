@@ -339,6 +339,73 @@ defmodule AnkoleWeb.BrowserAuth do
   end
 
   defp perform_session(conn, _params) do
+    case Plug.Conn.get_req_header(conn, "authorization") do
+      [] ->
+        perform_cookie_session(conn)
+
+      ["Bearer " <> token] when token != "" ->
+        perform_bearer_session(conn, token)
+
+      _invalid ->
+        BrowserAPI.error(401, "unauthenticated")
+    end
+  end
+
+  defp perform_bearer_session(conn, token) do
+    with {:ok, requested_tenant} <- WebSession.request_tenant(conn),
+         {:ok, %{client: client, session: session}} <- Ankole.OIDC.Tokens.verify_pod_access(token),
+         true <- is_nil(requested_tenant) or requested_tenant == client.tenant_id,
+         {:ok, tenant} <- Ankole.Tenants.get(client.tenant_id),
+         true <- Ankole.Tenants.accepting_work?(tenant),
+         {:ok, %{type: :human, status: :active} = principal} <-
+           Ankole.Repo.with_tenant(tenant.id, fn ->
+             Ankole.Principals.get_principal(session.principal_uid)
+           end) do
+      uid = principal.uid
+
+      account = %{
+        authenticationRef: "oauth",
+        principalUID: uid,
+        displayName: principal.display_name || uid,
+        avatarURL: principal.avatar_url,
+        providerID: session.provider_id,
+        providerName: provider_name(tenant.id, session.provider_id),
+        tenant: %{
+          id: tenant.id,
+          slug: tenant.slug,
+          displayName: tenant.display_name || tenant.slug,
+          avatarURL: tenant.avatar_url
+        },
+        podURL: AnkoleWeb.PodURL.origin(conn, tenant) <> "/"
+      }
+
+      can_manage_pod =
+        Ankole.Repo.with_tenant(tenant.id, fn -> AuthZ.pod_admin?(uid) end)
+
+      console_url =
+        if {:ok, tenant.id} == Ankole.Tenants.privileged_id() and
+             Ankole.Repo.with_tenant(tenant.id, fn -> AuthZ.site_admin?(uid) end),
+           do: AnkoleWeb.SiteAdminConsole.url(conn)
+
+      BrowserAPI.ok(conn, %{
+        authenticated: true,
+        principalUID: uid,
+        providerID: session.provider_id,
+        displayName: account.displayName,
+        avatarURL: account.avatarURL,
+        tenant: account.tenant,
+        canManagePod: can_manage_pod,
+        consoleURL: console_url,
+        accounts: [account],
+        pendingAccounts: [],
+        siteAuthentications: []
+      })
+    else
+      _ -> BrowserAPI.error(401, "unauthenticated")
+    end
+  end
+
+  defp perform_cookie_session(conn) do
     references = WebSession.authentication_references(conn)
 
     if references != [] and not WebSession.invalid_authentication_selection?(conn) do

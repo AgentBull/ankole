@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { ActionRun } from '@ankole/applet-sdk/types'
 import { useTranslation } from 'react-i18next'
+import { podPublicOrigin } from '../common/browser-context'
 import { Link } from '@tanstack/react-router'
 import { Choice as ChoiceControl, ContentError, ContentSkeleton, InlineLoading } from './content-primitives'
 import { contentKeys, podFileURL, podRequest, type PageDetail } from './content-api'
@@ -1258,7 +1259,7 @@ function Webhooks({
                   await sources.webhooks.update(editing.id, { label: input.label, expires_at: input.expires_at })
                 } else {
                   const result = await sources.webhooks.create(input)
-                  setCallback(new URL(result.callback_path, window.location.origin).href)
+                  setCallback(new URL(result.callback_path, podPublicOrigin()).href)
                   setCopied(false)
                 }
                 setEditing(undefined)

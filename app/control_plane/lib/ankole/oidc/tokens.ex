@@ -6,10 +6,12 @@ defmodule Ankole.OIDC.Tokens do
   @access_ttl_seconds 30 * 60
   @userinfo_audience "ankole.oidc_userinfo"
   @ai_gateway_audience "ankole.ai_gateway"
+  @pod_audience "ankole.pod"
   @access_token_use "access"
 
   def userinfo_audience, do: @userinfo_audience
   def ai_gateway_audience, do: @ai_gateway_audience
+  def pod_audience, do: @pod_audience
 
   @spec mint_access(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, %{token: String.t(), expires_at: integer(), inserted_at: DateTime.t()}}
@@ -51,6 +53,16 @@ defmodule Ankole.OIDC.Tokens do
          do: access_context(claims)
   end
 
+  @spec verify_pod_access(String.t()) :: {:ok, map()} | {:error, term()}
+  def verify_pod_access(token) when is_binary(token) and token != "" do
+    with {:ok, %{claims: claims} = context} <- verify_access_context(token, @pod_audience),
+         :ok <- require_scope(claims, "pod") do
+      {:ok, context}
+    end
+  end
+
+  def verify_pod_access(_token), do: {:error, :invalid_token}
+
   @doc """
   Validates OIDC access-token claims after `Attesto.Token` verifies the token.
 
@@ -84,10 +96,15 @@ defmodule Ankole.OIDC.Tokens do
   end
 
   defp audiences(scope) do
-    if "ai_gateway.write" in String.split(scope, " ", trim: true),
-      do: [@userinfo_audience, @ai_gateway_audience],
-      else: [@userinfo_audience]
+    scopes = String.split(scope, " ", trim: true)
+
+    [@userinfo_audience]
+    |> maybe_append_audience("ai_gateway.write" in scopes, @ai_gateway_audience)
+    |> maybe_append_audience("pod" in scopes, @pod_audience)
   end
+
+  defp maybe_append_audience(list, true, audience), do: list ++ [audience]
+  defp maybe_append_audience(list, false, _audience), do: list
 
   defp require_scope(%{"scope" => scope}, required) when is_binary(scope) do
     if required in String.split(scope, " ", trim: true),

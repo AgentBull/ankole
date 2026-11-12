@@ -1,5 +1,5 @@
 import i18n from '../common/i18n'
-import { authenticationRef, podID } from '../common/browser-context'
+import { authenticationRef, podID, principalUID } from '../common/browser-context'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
 import { mergeMessageWindow } from './state/message-history'
@@ -174,7 +174,7 @@ export function conversationNotFound(error: unknown): boolean {
 }
 
 function contextKey() {
-  return ['pod', authenticationRef() ?? 'anonymous', podID() ?? 'unselected'] as const
+  return ['pod', authenticationRef() ?? principalUID() ?? 'anonymous', podID() ?? 'unselected'] as const
 }
 
 export function chatError(error: unknown): unknown {

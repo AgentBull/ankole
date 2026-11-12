@@ -5,6 +5,14 @@ import type { EphemeralChannel, PresenceMember } from '@ankole/applet-sdk/types'
 import { identityQuery } from './content-api'
 import { podRealtimeToken, podVersions } from './api/generated/sdk.gen'
 import { InternalAPIError } from '../common/internal-api-client'
+import { getPodRuntimeBootstrap } from '../common/pod-bootstrap'
+
+export function podSocketEndpoint(podOrigin = getPodRuntimeBootstrap()?.podOrigin): string {
+  if (!podOrigin) return '/pod/socket'
+  const url = new URL('/pod/socket', podOrigin)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString().replace(/\/$/, '')
+}
 
 export type TopicConnection = 'connecting' | 'connected' | 'disconnected'
 
@@ -78,7 +86,11 @@ export class PodRealtime {
         if (this.disposed) throw new Error(t('pod.content.the_realtime_connection_is_closed'))
         this.token = result.token
         this.principal = result.principal
-        const socket = new Socket('/pod/socket', { params: () => ({ token: this.token, ...identityQuery() }) })
+        const transport = getPodRuntimeBootstrap()?.webSocketTransport
+        const socket = new Socket(podSocketEndpoint(), {
+          ...(transport ? { transport } : {}),
+          params: () => ({ token: this.token, ...identityQuery() })
+        })
         socket.onOpen(() => {
           void this.verify()
         })

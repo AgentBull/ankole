@@ -30,14 +30,15 @@ import {
   WeatherSunnyRegular
 } from '@ankole/uikit/icons'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState, type ComponentProps, type ReactNode } from 'react'
+import { useState, useSyncExternalStore, type ComponentProps, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { activateBrowserAccount, browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 type BrowserAccount = BrowserSessionResponse['accounts'][number] | BrowserSessionResponse['pendingAccounts'][number]
 import { authenticationRef, podID, podLocation } from '../common/browser-context'
-import { endAccountSession, endBrowserSession } from '../common/browser-session'
+import { clearPodSessionDrafts, endAccountSession, endBrowserSession } from '../common/browser-session'
+import { getPodRuntimeBootstrap, isDesktopRuntime, subscribePodRuntimeBootstrap } from '../common/pod-bootstrap'
 import { signInMethodLabel } from '../common/sign-in-method'
 import { requestErrorMessage } from '../common/request-errors'
 import { avatarInitials } from './avatar-initials'
@@ -100,8 +101,11 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { resolvedTheme, setTheme } = useTheme()
+  const runtime = useSyncExternalStore(subscribePodRuntimeBootstrap, getPodRuntimeBootstrap, () => undefined)
+  const desktopMode = isDesktopRuntime() && !!runtime
+  const desktopWorkspaces = runtime?.workspaces ?? []
   const session = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+    queryKey: ['pod-session', authenticationRef() ?? runtime?.principalUid ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
     staleTime: 60_000
   })
@@ -117,16 +121,37 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const signOut = useMutation({
-    mutationFn: endAccountSession,
-    onSettled: () => window.location.assign('/sessions/new')
+    mutationFn: async () => {
+      if (desktopMode && runtime) {
+        clearPodSessionDrafts({ podId: podID(), principalUid: session.data?.principalUID ?? runtime.principalUid })
+        await runtime.onSignOutWorkspace?.(runtime.workspaceKey)
+        return
+      }
+      await endAccountSession()
+    },
+    onSettled: () => {
+      if (!desktopMode) window.location.assign('/sessions/new')
+    }
   })
   const signOutAll = useMutation({
-    mutationFn: endBrowserSession,
-    onSuccess: () => window.location.assign('/sessions/logged-out')
+    mutationFn: async () => {
+      if (desktopMode && runtime) {
+        clearPodSessionDrafts()
+        await runtime.onSignOutAllWorkspaces?.()
+        return
+      }
+      await endBrowserSession()
+    },
+    onSuccess: () => {
+      if (!desktopMode) window.location.assign('/sessions/logged-out')
+    }
   })
   const data = session.data
-  const name = data?.displayName ?? (session.isPending ? t('pod.content.loading') : t('pod.sidebar.account'))
-  const tenantName = data?.tenant?.displayName ?? ''
+  const name =
+    data?.displayName ??
+    runtime?.principalDisplayName ??
+    (session.isPending ? t('pod.content.loading') : t('pod.sidebar.account'))
+  const tenantName = data?.tenant?.displayName ?? runtime?.tenantDisplayName ?? ''
   const current = (account: BrowserAccount) =>
     account.tenant.id === podID() && account.principalUID === data?.principalUID
   const currentAvatarContext = sessionAvatarContext(data)
@@ -141,7 +166,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
             ? t('pod.sidebar.account_menu', { name, tenant: tenantName })
             : t('pod.sidebar.account_menu_name', { name })
         }>
-        {session.isPending ? (
+        {session.isPending && !runtime?.tenantDisplayName ? (
           <>
             <Skeleton aria-hidden className="size-6.5 shrink-0 rounded-full" />
             <SidebarFooterLabel className="pod-account-text">
@@ -165,7 +190,35 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
         sideOffset={6}
         className="pod-account-menu w-[max(var(--anchor-width),240px)]">
         {session.error && <DropdownMenuLabel role="alert">{requestErrorMessage(session.error)}</DropdownMenuLabel>}
-        {data?.accounts?.length ? (
+        {desktopMode && desktopWorkspaces.length > 0 ? (
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{t('pod.sidebar.accounts')}</DropdownMenuLabel>
+            {desktopWorkspaces.map(workspace => {
+              const selected = workspace.workspaceKey === runtime?.workspaceKey
+              return (
+                <DropdownMenuItem
+                  key={workspace.workspaceKey}
+                  className="pod-account-option min-h-10"
+                  aria-current={selected ? 'true' : undefined}
+                  onClick={() => (selected ? undefined : void runtime?.onSwitchWorkspace?.(workspace.workspaceKey))}>
+                  <ProfileMark
+                    name={workspace.tenantDisplayName}
+                    avatarURL={workspace.tenantAvatarUrl}
+                    context={selected ? currentAvatarContext : { podURL: workspace.podOrigin }}
+                    size="xs"
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col text-65 leading-4 font-medium">
+                    <span className="truncate">{workspace.tenantDisplayName}</span>
+                    <small className="truncate text-50 font-normal text-fg-tertiary">
+                      {workspace.tenantSlug} · {workspace.principalDisplayName}
+                    </small>
+                  </span>
+                  {selected && <CheckmarkRegular aria-hidden className="ml-auto" />}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuGroup>
+        ) : data?.accounts?.length ? (
           <DropdownMenuGroup>
             <DropdownMenuLabel>{t('pod.sidebar.accounts')}</DropdownMenuLabel>
             {data.accounts.map(account => {
@@ -201,15 +254,16 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
             })}
           </DropdownMenuGroup>
         ) : null}
-        {data?.pendingAccounts.map(account => (
-          <DropdownMenuItem
-            key={`${account.authenticationRef}:${account.tenant.id}`}
-            disabled={activate.isPending}
-            onClick={() => activate.mutate(account)}>
-            {t('auth.pending_space', { name: account.tenant.displayName })}
-            {account.requiresSSO && <small>{t('auth.sso_required')}</small>}
-          </DropdownMenuItem>
-        ))}
+        {!desktopMode &&
+          data?.pendingAccounts.map(account => (
+            <DropdownMenuItem
+              key={`${account.authenticationRef}:${account.tenant.id}`}
+              disabled={activate.isPending}
+              onClick={() => activate.mutate(account)}>
+              {t('auth.pending_space', { name: account.tenant.displayName })}
+              {account.requiresSSO && <small>{t('auth.sso_required')}</small>}
+            </DropdownMenuItem>
+          ))}
         <DropdownMenuItem onClick={() => void navigate({ to: '/me' })}>
           <PersonRegular aria-hidden />
           {t('pod.account.title')}
@@ -224,12 +278,26 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
           <DeleteRegular aria-hidden />
           {t('pod.content.trash')}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => window.location.assign(`/sessions/new?switch=1&return_to=${returnTo}`)}>
+        <DropdownMenuItem
+          onClick={() => {
+            if (desktopMode && runtime?.onAddWorkspace) {
+              void runtime.onAddWorkspace()
+              return
+            }
+            window.location.assign(`/sessions/new?switch=1&return_to=${returnTo}`)
+          }}>
           <AddRegular aria-hidden />
           {t('pod.sidebar.add_account')}
         </DropdownMenuItem>
         {data?.consoleURL && (
-          <DropdownMenuItem onClick={() => window.open(data.consoleURL!, '_blank', 'noopener')}>
+          <DropdownMenuItem
+            onClick={() => {
+              if (desktopMode && runtime?.onOpenExternal) {
+                void runtime.onOpenExternal(data.consoleURL!)
+                return
+              }
+              window.open(data.consoleURL!, '_blank', 'noopener')
+            }}>
             <OpenRegular aria-hidden />
             {t('pod.sidebar.site_console')}
           </DropdownMenuItem>
@@ -254,7 +322,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
           <SignOutRegular aria-hidden />
           {tenantName ? t('pod.sidebar.sign_out_name', { name: tenantName }) : t('pod.sidebar.sign_out')}
         </DropdownMenuItem>
-        {(data?.accounts.length ?? 0) > 1 && (
+        {(desktopMode ? desktopWorkspaces.length > 1 : (data?.accounts.length ?? 0) > 1) && (
           <DropdownMenuItem disabled={signOutAll.isPending} onClick={() => signOutAll.mutate()}>
             <SignOutRegular aria-hidden />
             {t('auth.sign_out_all')}

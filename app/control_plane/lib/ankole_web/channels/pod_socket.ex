@@ -1,5 +1,5 @@
 defmodule AnkoleWeb.PodSocket do
-  @moduledoc "One authenticated realtime connection for a browser's Pod tab."
+  @moduledoc "One authenticated realtime connection for a Pod browser tab or desktop client."
   use Phoenix.Socket
   channel "content", AnkoleWeb.PodContentChannel
   channel "page:*", AnkoleWeb.PodPageChannel
@@ -7,9 +7,28 @@ defmodule AnkoleWeb.PodSocket do
   channel "applet:*", AnkoleWeb.PodRoomChannel
   channel "run:*", AnkoleWeb.PodRoomChannel
 
+  def token(%{
+        assigns:
+          %{current_principal_uid: uid, oidc_session: %Ankole.OIDC.Session{} = session} = assigns
+      }) do
+    token(uid, %{
+      oidc_session_id: session.id,
+      client_id: session.client_id,
+      scope: get_in(assigns, [:oidc_claims, "scope"]) || "openid pod"
+    })
+  end
+
   def token(conn),
     do:
       token(conn.assigns.current_principal_uid, AnkoleWeb.Session.authentication_reference(conn))
+
+  def token(uid, %{oidc_session_id: _, client_id: _, scope: _} = oidc) do
+    Phoenix.Token.sign(AnkoleWeb.Endpoint, "pod-socket", %{
+      tenant_id: Ankole.Repo.tenant_id!(),
+      uid: uid,
+      oidc: oidc
+    })
+  end
 
   def token(uid, authentication) do
     Phoenix.Token.sign(AnkoleWeb.Endpoint, "pod-socket", %{
@@ -20,20 +39,23 @@ defmodule AnkoleWeb.PodSocket do
   end
 
   @doc """
-  Validates browser WebSocket `Origin` headers against the canonical tenant Pod
-  origin configured on `AnkoleWeb.Endpoint`, before `Plug.RewriteOn` rewrites
-  proxy-terminated TLS schemes on the raw HTTP upgrade connection.
+  Validates browser and desktop WebView `Origin` headers against the canonical
+  tenant Pod origin configured on `AnkoleWeb.Endpoint`, before `Plug.RewriteOn`
+  rewrites proxy-terminated TLS schemes on the raw HTTP upgrade connection.
   """
   @spec check_origin?(URI.t()) :: boolean()
   def check_origin?(%URI{} = uri) do
-    case AnkoleWeb.Endpoint.config(:check_origin) do
-      false ->
+    cond do
+      AnkoleWeb.Endpoint.config(:check_origin) == false ->
         true
 
-      origins when is_list(origins) ->
-        Enum.any?(origins, &origin_matches?(uri, URI.parse(&1)))
+      desktop_webview_origin?(uri) ->
+        true
 
-      _default ->
+      is_list(AnkoleWeb.Endpoint.config(:check_origin)) ->
+        Enum.any?(AnkoleWeb.Endpoint.config(:check_origin), &origin_matches?(uri, URI.parse(&1)))
+
+      true ->
         with {:ok, {:pod, tenant_id}} <- AnkoleWeb.Plugs.RequestHost.classify_uri(uri),
              {:ok, tenant} <- Ankole.Tenants.get(tenant_id) do
           origin_matches?(uri, URI.parse(AnkoleWeb.PodURL.tenant_origin(tenant)))
@@ -42,6 +64,15 @@ defmodule AnkoleWeb.PodSocket do
         end
     end
   end
+
+  defp desktop_webview_origin?(%URI{scheme: "tauri", host: host}) when is_binary(host),
+    do: String.downcase(host) == "localhost"
+
+  defp desktop_webview_origin?(%URI{scheme: scheme, host: host, port: port})
+       when scheme in ["http", "https"] and is_binary(host),
+       do: String.downcase(host) == "tauri.localhost" and port in [nil, 80, 443]
+
+  defp desktop_webview_origin?(_uri), do: false
 
   defp origin_matches?(%URI{} = uri, %URI{} = allowed) do
     is_binary(uri.host) and
@@ -75,6 +106,17 @@ defmodule AnkoleWeb.PodSocket do
     %{"surface" => "pod_browser", "ip" => ip |> :inet.ntoa() |> to_string()}
   end
 
+  def actor(%{oidc: %{oidc_session_id: sid}} = attrs, context) do
+    Ankole.Repo.with_tenant(attrs.tenant_id, fn ->
+      with {:ok, principal} <- Ankole.Principals.get_principal(attrs.uid),
+           {:ok, actor} <- Ankole.OIDC.actor_for_session(sid, principal, context["ip"]) do
+        {:ok, actor}
+      else
+        _ -> {:error, :forbidden}
+      end
+    end)
+  end
+
   def actor(attrs, context) do
     Ankole.Repo.with_tenant(attrs.tenant_id, fn ->
       with %{} = authentication <-
@@ -89,6 +131,16 @@ defmodule AnkoleWeb.PodSocket do
                 context["ip"]
               )},
            else: (_ -> {:error, :forbidden})
+    end)
+  end
+
+  def active?(%{oidc: %{oidc_session_id: sid, client_id: client_id, scope: scope}} = attrs) do
+    Ankole.Repo.with_tenant(attrs.tenant_id, fn ->
+      with {:ok, _session} <- Ankole.OIDC.Sessions.validate(sid, client_id, attrs.uid, scope),
+           {:ok, principal} <- Ankole.Principals.get_principal(attrs.uid),
+           {:ok, _} <- Ankole.Pod.Access.principal(Ankole.AuthZ.Actor.new(principal)),
+           do: true,
+           else: (_ -> false)
     end)
   end
 

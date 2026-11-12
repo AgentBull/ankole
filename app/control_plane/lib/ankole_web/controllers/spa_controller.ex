@@ -232,6 +232,54 @@ defmodule AnkoleWeb.SpaController do
     end
   end
 
+  def pod_manifest(conn, _params) do
+    with true <- setup_completed?(),
+         {:ok, tenant_id} <- entry_tenant(conn),
+         :ok <- Ankole.Repo.put_tenant_id(tenant_id),
+         {:ok, tenant} <- Ankole.Tenants.get(tenant_id) do
+      name = tenant.display_name || tenant.slug || "Ankole"
+
+      manifest = %{
+        id: "/",
+        name: name,
+        short_name: name,
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        background_color: "#ffffff",
+        theme_color: "#ffffff",
+        lang: pod_locale(),
+        icons: [
+          %{
+            src: ~p"/images/pwa-192.png",
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "any"
+          },
+          %{
+            src: ~p"/images/pwa-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable"
+          },
+          %{
+            src: ~p"/images/logo.svg",
+            sizes: "any",
+            type: "image/svg+xml",
+            purpose: "any"
+          }
+        ]
+      }
+
+      conn
+      |> put_resp_header("cache-control", "private, no-store")
+      |> put_resp_content_type("application/manifest+json")
+      |> send_resp(200, Ankole.JSON.encode!(manifest))
+    else
+      _ -> send_resp(conn, 404, "Pod not found")
+    end
+  end
+
   defp put_pod_target(conn) do
     with {:ok, id} <- entry_tenant(conn),
          do: Ankole.Repo.put_tenant_id(id)
@@ -347,6 +395,7 @@ defmodule AnkoleWeb.SpaController do
       "    <link rel=\"icon\" href=\"",
       html_escape(~p"/favicon.ico"),
       "\" sizes=\"48x48\">\n",
+      pod_manifest_link(entry),
       "    <title>",
       html_escape(title),
       "</title>\n",
@@ -432,6 +481,16 @@ defmodule AnkoleWeb.SpaController do
   end
 
   defp console_path_meta(_entry), do: []
+
+  defp pod_manifest_link(entry) when entry in ["pod", "saas-pod"] do
+    [
+      "    <link rel=\"manifest\" href=\"",
+      html_escape(~p"/pod/manifest.webmanifest"),
+      "\" crossorigin=\"use-credentials\">\n"
+    ]
+  end
+
+  defp pod_manifest_link(_entry), do: []
 
   defp dev_mailbox_meta do
     if @dev_routes and Ankole.Authn.Mailer.local_mailbox?() do

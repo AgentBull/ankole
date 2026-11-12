@@ -110,6 +110,8 @@ defmodule AnkoleWeb.Session do
     end)
   end
 
+  def authentication_reference(%{assigns: %{oidc_session: %{}}}), do: nil
+
   def authentication_reference(%{assigns: %{pod_authentication: identity}, private: private})
       when not is_map_key(private, :browser_authentication_ref) do
     %{"id" => identity["authentication_id"], "revision" => identity["authentication_revision"]}

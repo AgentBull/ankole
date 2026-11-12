@@ -33,7 +33,7 @@ import {
   setPath,
   type ConfigFieldDefinition
 } from '../common/config-fields'
-import { authenticationRef, podID } from '../common/browser-context'
+import { authenticationRef, podID, podPublicOrigin } from '../common/browser-context'
 import { localReturnPath } from '../common/pod-url'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import * as api from './api/generated/sdk.gen'
@@ -58,7 +58,7 @@ export function Connectors() {
   const model = useModel(ConnectorsModel)
   const params = new URLSearchParams(window.location.search)
   const isPopup = params.get('popup') === '1'
-  const originalTaskPath = localReturnPath(params.get('intent'), window.location.origin)
+  const originalTaskPath = localReturnPath(params.get('intent'), podPublicOrigin())
   const automation = connectorAutomationContext(params)
   const session = useQuery({
     queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],

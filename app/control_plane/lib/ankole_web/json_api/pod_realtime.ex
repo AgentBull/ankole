@@ -38,10 +38,23 @@ defmodule AnkoleWeb.JSONAPI.PodRealtime do
       )
 
       run(fn input, context ->
+        credential =
+          case input.context[:oidc_session] do
+            %Ankole.OIDC.Session{} = session ->
+              %{
+                oidc_session_id: session.id,
+                client_id: session.client_id,
+                scope: get_in(input.context, [:oidc_claims, "scope"]) || "openid pod"
+              }
+
+            _ ->
+              input.context.authentication_ref
+          end
+
         Ankole.Pod.Access.principal(context.actor)
         |> Ankole.Pod.APIError.result(fn principal ->
           %{
-            token: AnkoleWeb.PodSocket.token(principal.uid, input.context.authentication_ref),
+            token: AnkoleWeb.PodSocket.token(principal.uid, credential),
             principal: %{uid: principal.uid, name: principal.display_name}
           }
         end)

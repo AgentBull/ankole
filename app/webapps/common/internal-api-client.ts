@@ -1,5 +1,5 @@
 import { arrayPath, deepString, recordValue, safeJsonParse, stringArg } from '@agentbull/active-support'
-import { identityHeaders } from './browser-context'
+import { identityHeaders, isDesktopRuntime } from './browser-context'
 import type { CreateClientConfig } from './api/generated/client.gen'
 
 /**
@@ -85,7 +85,11 @@ export const createClientConfig: CreateClientConfig = config => ({
 
 function sessionHeaders(): Record<string, string> {
   const lang = typeof document !== 'undefined' ? document.documentElement?.lang?.trim() : undefined
-  return { 'x-csrf-token': csrfToken(), ...(lang ? { 'accept-language': lang } : {}), ...identityHeaders() }
+  return {
+    ...(isDesktopRuntime() ? {} : { 'x-csrf-token': csrfToken() }),
+    ...(lang ? { 'accept-language': lang } : {}),
+    ...identityHeaders()
+  }
 }
 
 /**

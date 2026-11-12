@@ -14,6 +14,7 @@ import {
   ArrowDownloadRegular,
   CopyRegular,
   DataHistogramRegular,
+  DocumentPdfRegular,
   HistoryRegular,
   MarkdownRegular,
   NumberSymbolRegular,
@@ -24,6 +25,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
+import { getPodRuntimeBootstrap, isDesktopRuntime } from '../common/pod-bootstrap'
 import { requestErrorMessage } from '../common/request-errors'
 import { type PageDetail } from './content-api'
 import { contentError } from './content-errors'
@@ -104,6 +106,19 @@ export function DocumentMenuItems({
       toast.dismiss(pending)
     }
   }
+  const runtime = isDesktopRuntime() ? getPodRuntimeBootstrap() : undefined
+  const exportPDF = runtime?.onExportPDF
+    ? async () => {
+        const pending = toast.loading(t('pod.document.preparing_export'))
+        try {
+          await runtime.onExportPDF!(title.value || detail.page.title)
+        } catch (error) {
+          toast.error(requestErrorMessage(contentError(error)))
+        } finally {
+          toast.dismiss(pending)
+        }
+      }
+    : undefined
   return (
     <>
       <DropdownMenuSeparator />
@@ -142,6 +157,12 @@ export function DocumentMenuItems({
             <MarkdownRegular aria-hidden />
             Markdown
           </DropdownMenuItem>
+          {exportPDF && (
+            <DropdownMenuItem onClick={() => void exportPDF()}>
+              <DocumentPdfRegular aria-hidden />
+              PDF
+            </DropdownMenuItem>
+          )}
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSub>

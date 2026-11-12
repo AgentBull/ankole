@@ -1,7 +1,7 @@
 import { t } from 'i18next'
 import type { AppletRuntime, AppletTheme } from '@ankole/applet-sdk'
 import { InternalAPIError } from '../common/internal-api-client'
-import { authenticationRef, principalUID } from '../common/browser-context'
+import { authenticationRef, isDesktopRuntime, principalUID } from '../common/browser-context'
 import { createAppletRoutes } from './applet-routes'
 
 export function readDocumentTheme(
@@ -87,7 +87,7 @@ function appletStorage(storage: Storage, principal: string, pageID: string): Sto
 }
 
 function appletFrameURL(pageID: string, revision: number) {
-  const reference = authenticationRef()
+  const reference = authenticationRef() ?? (isDesktopRuntime() ? 'oauth' : undefined)
   if (!reference) throw new Error('The applet requires this document’s authenticated session')
   return `/pod/applet-frame/${encodeURIComponent(reference)}/${encodeURIComponent(pageID)}/${revision}/index.html`
 }

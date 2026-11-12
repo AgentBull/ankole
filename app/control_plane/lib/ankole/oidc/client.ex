@@ -18,7 +18,7 @@ defmodule Ankole.OIDC.Client do
     allow(:console_delete, resource: "site_console:oidc_client:{id}", action: "delete")
   end
 
-  @scopes ~w(openid profile email offline_access ai_gateway.write)
+  @scopes ~w(openid profile email offline_access ai_gateway.write pod)
   @lists [:redirect_uris, :scopes, :allowed_identity_provider_ids, :post_logout_redirect_uris]
   @fields [
     :name,

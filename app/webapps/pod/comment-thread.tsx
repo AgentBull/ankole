@@ -16,6 +16,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MarkdownBody } from '../common/markdown-body'
+import { podPublicOrigin } from '../common/browser-context'
 import { podLocation } from '../common/pod-url'
 import { agentsQuery, type PodAgent } from './api'
 import { useResolvePageHref } from './use-page-metadata'
@@ -217,7 +218,7 @@ function CommentEntry({
               onClick={async () => {
                 try {
                   const target = podLocation(await resolvePageHref(pageID), { commentId: threadID })
-                  await navigator.clipboard.writeText(new URL(target.pathname + target.search, location.origin).href)
+                  await navigator.clipboard.writeText(new URL(target.pathname + target.search, podPublicOrigin()).href)
                   toast.success(t('pod.document.comment_link_copied'))
                 } catch {
                   toast.error(t('pod.content.could_not_copy_the_link_copy_it_from_the_browser'))

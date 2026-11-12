@@ -19,7 +19,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useDebouncedValue } from '../../common/use-debounced-value'
 import { useTranslation } from 'react-i18next'
-import { podLocation } from '../../common/browser-context'
+import { podLocation, podPublicOrigin } from '../../common/browser-context'
 import { agentsQuery, type ConversationDetail } from '../api'
 import { podChatTeammates } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
@@ -93,7 +93,7 @@ export function SharePopover({
               variant="ghost"
               onClick={() => {
                 void navigator.clipboard
-                  .writeText(new URL(podLocation(`/conversations/${room.id}`).pathname, window.location.origin).href)
+                  .writeText(new URL(podLocation(`/conversations/${room.id}`).pathname, podPublicOrigin()).href)
                   .then(
                     () => toast.success(t('pod.chat_room.link_copied')),
                     () => toast.error(t('pod.chat_room.copy_failed'))

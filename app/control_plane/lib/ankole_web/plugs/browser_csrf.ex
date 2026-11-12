@@ -9,6 +9,14 @@ defmodule AnkoleWeb.Plugs.BrowserCSRF do
 
   @impl Plug
   def call(conn, fallback) do
+    if bearer_pod_request?(conn) do
+      conn
+    else
+      verify_browser_csrf(conn, fallback)
+    end
+  end
+
+  defp verify_browser_csrf(conn, fallback) do
     case WebSession.csrf_state(conn) do
       state when is_binary(state) ->
         Plug.CSRFProtection.delete_csrf_token()
@@ -29,6 +37,17 @@ defmodule AnkoleWeb.Plugs.BrowserCSRF do
 
         Plug.CSRFProtection.call(conn, fallback)
     end
+  end
+
+  # OIDC Bearer requests to Pod APIs do not read browser cookies and never fall
+  # back to cookie authentication in RequirePodSession or BrowserAuth.
+  defp bearer_pod_request?(conn) do
+    match?(["Bearer " <> token] when token != "", get_req_header(conn, "authorization")) and
+      (String.starts_with?(conn.request_path, [
+         "/api/v2/pod/",
+         "/api/v2/saas-pod/",
+         "/pod/applet-frame/"
+       ]) or (conn.method == "GET" and conn.request_path == "/api/v2/browser/session"))
   end
 
   defp protected?(conn),

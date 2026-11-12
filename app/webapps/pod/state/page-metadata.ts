@@ -1,11 +1,13 @@
 import { BasicIndex, createCollection, type SyncConfig } from '@tanstack/db'
 import type { QueryClient } from '@tanstack/react-query'
-import { authenticationRef, podID } from '../../common/browser-context'
+import { authenticationRef, podID, principalUID } from '../../common/browser-context'
+import { readCachedPodPages, readCachedPodRecentSearches, writeCachedPodPages } from '../../common/pod-local-cache'
 
 export type PageMetadata = {
   id: string
   title?: string
   icon?: string | null
+  type?: string
   updated_at?: string | null
 }
 
@@ -18,7 +20,7 @@ function isOlderSnapshot(incoming?: string | null, existing?: string | null): bo
 }
 
 /** The shared display fields of Pages read in this Pod session. Query owns requests and membership. */
-export function createPageMetadata() {
+export function createPageMetadata(persistence?: { podId?: string | null; principalUid?: string | null }) {
   let sync!: Parameters<SyncConfig<PageMetadata, string>['sync']>[0]
   let disposed = false
   let version = 0
@@ -37,9 +39,10 @@ export function createPageMetadata() {
   })
   collection.createIndex(page => page.id, { indexType: BasicIndex })
 
-  function receive(pages: readonly PageMetadata[], readVersion = version, fromRead = false) {
+  function receive(pages: readonly PageMetadata[], readVersion = version, fromRead = false, persist = true) {
     if (disposed) return
     let wrote = false
+    const writtenEntries: PageMetadata[] = []
     sync.begin()
     for (const page of new Map(pages.map(page => [page.id, page])).values()) {
       // A read already in flight when a rename/icon write completed cannot undo that write.
@@ -51,25 +54,44 @@ export function createPageMetadata() {
         id: page.id,
         title: page.title ?? previous?.title,
         icon: hasIcon ? page.icon : previous?.icon,
+        type: page.type ?? previous?.type,
         updated_at: page.updated_at !== undefined ? page.updated_at : previous?.updated_at
       }
       if (
         previous &&
         previous.title === next.title &&
         previous.icon === next.icon &&
+        previous.type === next.type &&
         previous.updated_at === next.updated_at
       ) {
         continue
       }
       sync.write({ type: previous ? 'update' : 'insert', value: next })
+      writtenEntries.push(next)
       wrote = true
     }
     sync.commit()
-    if (wrote) for (const listener of listeners) listener()
+    if (wrote) {
+      if (persist && persistence?.podId && persistence.principalUid) {
+        void writeCachedPodPages(persistence.podId, persistence.principalUid, writtenEntries)
+      }
+      for (const listener of listeners) listener()
+    }
+  }
+
+  if (persistence?.podId && persistence.principalUid) {
+    const hydrateVersion = version
+    void readCachedPodPages(persistence.podId, persistence.principalUid).then(entries => {
+      if (entries.length > 0) receive(entries, hydrateVersion, true, false)
+    })
+    void readCachedPodRecentSearches(persistence.podId, persistence.principalUid)
   }
 
   return {
     collection,
+    values(): PageMetadata[] {
+      return [...collection.values()]
+    },
     subscribe(listener: () => void): () => void {
       listeners.add(listener)
       return () => {
@@ -84,6 +106,7 @@ export function createPageMetadata() {
           id: page.id,
           ...(page.title !== undefined ? { title: page.title } : {}),
           ...('icon' in page && page.icon !== undefined ? { icon: page.icon } : {}),
+          ...(page.type !== undefined ? { type: page.type } : {}),
           ...(page.updated_at !== undefined ? { updated_at: page.updated_at } : {})
         })),
         readVersion,
@@ -93,13 +116,14 @@ export function createPageMetadata() {
     },
     update(patch: PageMetadata) {
       const hasIcon = 'icon' in patch && patch.icon !== undefined
-      if (patch.title === undefined && !hasIcon && patch.updated_at === undefined) return
+      if (patch.title === undefined && !hasIcon && patch.type === undefined && patch.updated_at === undefined) return
       changed.set(patch.id, ++version)
       receive([
         {
           id: patch.id,
           ...(patch.title !== undefined ? { title: patch.title } : {}),
           ...(hasIcon ? { icon: patch.icon } : {}),
+          ...(patch.type !== undefined ? { type: patch.type } : {}),
           ...(patch.updated_at !== undefined ? { updated_at: patch.updated_at } : {})
         }
       ])
@@ -116,11 +140,16 @@ export function createPageMetadata() {
 const stores = new WeakMap<QueryClient, { scope: string; metadata: ReturnType<typeof createPageMetadata> }>()
 
 export function pageMetadata(client: QueryClient) {
-  const scope = JSON.stringify([authenticationRef(), podID()])
+  const currentPodID = podID()
+  const currentPrincipalUID = principalUID()
+  const scope = JSON.stringify([authenticationRef() ?? currentPrincipalUID, currentPodID])
   let store = stores.get(client)
   if (!store || store.scope !== scope) {
     store?.metadata.dispose()
-    store = { scope, metadata: createPageMetadata() }
+    store = {
+      scope,
+      metadata: createPageMetadata({ podId: currentPodID, principalUid: currentPrincipalUID })
+    }
     stores.set(client, store)
   }
   return store.metadata

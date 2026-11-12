@@ -1,3 +1,4 @@
+import { podPublicOrigin } from '../../common/browser-context'
 import { downloadBlob } from '../../common/browser-files'
 import type { QueryClient } from '@tanstack/react-query'
 import { podPagePath, resolvePodPagePath } from '../../common/pod-url'
@@ -26,7 +27,7 @@ export async function loadDocumentReferences(
   return new Map<string, DocumentReference>(
     await Promise.all(
       refs.map(async ref => {
-        const fallbackHref = new URL(podPagePath(ref), window.location.origin).href
+        const fallbackHref = new URL(podPagePath(ref), podPublicOrigin()).href
         try {
           // Recheck access when copying; a stale cached title must not survive a read denial.
           const { page } = await client.fetchQuery({ ...pageQuery(ref), staleTime: 0 })
@@ -36,7 +37,7 @@ export async function loadDocumentReferences(
               { href: fallbackHref, title: i18n.t('pod.document.reference_unavailable'), restricted: true }
             ] as const
           }
-          const href = new URL(await resolvePodPagePath(ref, page.title), window.location.origin).href
+          const href = new URL(await resolvePodPagePath(ref, page.title), podPublicOrigin()).href
           return [
             ref,
             {
@@ -133,7 +134,7 @@ function readerAssetURL(pageID: string, source: string) {
 }
 
 function readerURL(path: string) {
-  const url = new URL(path, window.location.origin)
+  const url = new URL(path, podPublicOrigin())
   url.searchParams.delete('authentication_ref')
   return url.href
 }
@@ -199,7 +200,9 @@ export async function downloadDocument(
   }
 
   const tryAddFile = async (url: string, name: string): Promise<string | undefined> => {
-    const response = await fetch(new URL(url, window.location.origin).href, { credentials: 'same-origin' })
+    const fetchTarget =
+      typeof window !== 'undefined' && window.location.href ? new URL(url, window.location.href).href : url
+    const response = await fetch(fetchTarget, { credentials: 'same-origin' })
     if (response.status === 403 || response.status === 404) return undefined
     if (!response.ok) throw new InternalAPIError(response.status, response.statusText, {})
     const safeName = name.replace(/[\\/:*?"<>|\p{Cc}\s]+/gu, '-').replace(/^\.+/, '') || 'attachment'

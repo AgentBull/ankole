@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { SidebarInset, SidebarProvider, TooltipProvider } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import {
+  createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
@@ -23,18 +24,20 @@ import { PodSidebar } from './sidebar'
 import { ContentListRoute } from './content-list'
 import { ContentProvider } from './content-context'
 import { ContentError, ContentLoading, ContentSkeleton } from './content-primitives'
-import { ChatDraftProvider } from './chat-drafts'
+import { ChatDraftProvider, useChatDrafts } from './chat-drafts'
 import { podKeys, type ConversationDetail, type PodAgent } from './api'
 import { contentKeys, pageQuery, type PageDetail } from './content-api'
 import { prefetchBase } from './base-api'
 import { RealtimeRequestError } from './realtime'
+import { podPublicOrigin } from '../common/browser-context'
+import { isDesktopRuntime } from '../common/pod-bootstrap'
 import { podLocation, podPagePath, podPagePathnameID, podPageRouteID, podRouteID } from '../common/pod-url'
 import { parseRouterSearch, stringifyRouterSearch, useSearchParams } from '../common/router'
 import { uuidShorten } from '../common/uuid-url'
 import { knownPageTitle } from './use-page-metadata'
 import { StandaloneActionCardDialog } from './chat/standalone-action-card-dialog'
 import { StandaloneInteractionDialog } from './chat/standalone-interaction-dialog'
-import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
+import { PodCommandContext, PodCommandMenu, resolvePodTarget, type PodCommandNavigationState } from './command-menu'
 import { SidebarLayoutModel } from './state/sidebar-layout'
 import { PodTopBar, PodTopBarProvider } from './top-bar'
 import { watchPodSession } from './session-redirect'
@@ -93,7 +96,7 @@ const routeFeedback = {
 const LazyChatRoute = lazyRouteComponent(() => import('./chat-page'), 'ChatRoute')
 const LazyPageRoute = lazyRouteComponent(() => import('./page-workspace'), 'PageRoute')
 
-export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
+export function PodApp({ slots = {}, initialHref }: { slots?: PodAppSlots; initialHref?: string } = {}) {
   validateSlotIDs(slots.settingsTabs ?? [], podSettingsSections)
   const client = useQueryClient()
   useEffect(() => watchPodSession(client), [client])
@@ -241,8 +244,15 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
       })
     ])
 
+    const desktopOrigin = isDesktopRuntime() ? podPublicOrigin() : undefined
     return createRouter({
       routeTree,
+      ...(isDesktopRuntime()
+        ? {
+            history: createMemoryHistory({ initialEntries: [initialHref || '/'] }),
+            origin: /^https?:\/\//i.test(desktopOrigin ?? '') ? desktopOrigin : 'http://localhost'
+          }
+        : {}),
       defaultPreload: 'intent',
       defaultPreloadDelay: 250,
       defaultPreloadStaleTime: 0,
@@ -269,7 +279,7 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
         }
       }
     })
-  }, [client])
+  }, [client, initialHref])
   return (
     <PodSlotsContext value={slots}>
       <ContentProvider>
@@ -360,6 +370,39 @@ function PodShell() {
     structuralSharing: true
   })
   const navigate = useNavigate()
+  const drafts = useChatDrafts()
+  useEffect(() => {
+    if (!isDesktopRuntime()) return
+    const applyNavigation = (href: string, state?: PodCommandNavigationState) => {
+      if (state?.focusComposer) drafts.startNew()
+      const target = resolvePodTarget(href)
+      void navigate({
+        to: target.to,
+        ...(target.search ? { search: target.search as never } : {}),
+        state: state as never
+      })
+    }
+    const onCustomNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ href?: string; state?: PodCommandNavigationState }>).detail
+      if (detail?.href) applyNavigation(detail.href, detail.state)
+    }
+    window.addEventListener('ankole:desktop-navigate', onCustomNavigate)
+    let channel: BroadcastChannel | undefined
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel('ankole-pod-desktop')
+      channel.onmessage = (
+        event: MessageEvent<{ type?: string; href?: string; state?: PodCommandNavigationState }>
+      ) => {
+        if (event.data?.type === 'navigate' && event.data.href) {
+          applyNavigation(event.data.href, event.data.state)
+        }
+      }
+    }
+    return () => {
+      window.removeEventListener('ankole:desktop-navigate', onCustomNavigate)
+      channel?.close()
+    }
+  }, [drafts, navigate])
   const [searchParams, setSearchParams] = useSearchParams()
   const actionCardID = searchParams.get('actionCard')?.trim() || undefined
   const interactionID = searchParams.get('interaction')?.trim() || undefined
@@ -491,7 +534,7 @@ function PodShell() {
             style={{ '--sidebar-width': `${sidebarLayout.width.value}px` } as CSSProperties}>
             {/* The top bar spans the window; the sidebar and the content card sit below it. */}
             <PodTopBar />
-            <div className="relative flex min-h-0 flex-1">
+            <div className="pod-shell-body relative flex min-h-0 flex-1">
               <ErrorBoundary
                 variant="panel"
                 className="fixed bottom-3 left-3 z-50 w-(--sidebar-width) max-w-[calc(100vw-1.5rem)] md:static md:m-2 md:shrink-0 md:self-start"

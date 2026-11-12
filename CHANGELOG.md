@@ -1,5 +1,20 @@
 # Changelog
 
+## Version 2.0.0-alpha.142 (2026-11-13)
+
+- Support OAuth 2.0 public PKCE clients (`token_endpoint_auth_method` `"none"`,
+  `S256`, and custom-scheme redirect URIs) and the `pod` scope in OIDC. On a Pod
+  host, `GET /.well-known/ankole-desktop` provisions the tenant's `Ankole
+  Desktop` public Client (`ankole://oauth/callback`) and publishes its OAuth
+  endpoints, returning `403` when an administrator disables that Client in
+  Console. Access tokens granted `pod` carry the `ankole.pod` audience and
+  authenticate `/api/v2/pod/*`, `GET /api/v2/pod/bootstrap`, `POST
+  /api/v2/pod/realtime-token`, `GET /api/v2/browser/session`,
+  `/pod/applet-frame/oauth/*`, and `PodSocket` alongside browser cookie
+  sessions.
+- Serve a Web App Manifest with 192px and 512px icons at `GET
+  /pod/manifest.webmanifest` so browsers can install a Pod as a standalone app.
+
 ## Version 2.0.0-alpha.141 (2026-11-12)
 
 - Add a model provider in one step. The new-provider form asks for the API key

@@ -56,6 +56,12 @@ defmodule AnkoleWeb.Router do
     plug :require_pod_session
   end
 
+  pipeline :pod_manifest do
+    plug :fetch_session
+    plug :put_secure_browser_headers
+    plug :private_response
+  end
+
   pipeline :data_context do
     plug :put_data_context
   end
@@ -100,6 +106,7 @@ defmodule AnkoleWeb.Router do
 
     get "/oauth/connectors/callback", ConnectorController, :callback
     get "/.well-known/openid-configuration", OIDCController, :discovery
+    get "/.well-known/ankole-desktop", OIDCController, :desktop_discovery
     get "/.well-known/jwks.json", OIDCController, :jwks
     get "/oauth/authorize", OIDCController, :authorize
     get "/oauth/authorize/resume", OIDCController, :resume_authorize
@@ -116,6 +123,7 @@ defmodule AnkoleWeb.Router do
   scope "/api/v2/pod", AnkoleWeb do
     pipe_through :pod_api
 
+    get "/bootstrap", PodMetadataController, :bootstrap
     get "/pages/:id/files/content", PodFileController, :download
     post "/pages/:id/files", PodFileController, :upload
     post "/file-pages", PodFileController, :create
@@ -232,6 +240,12 @@ defmodule AnkoleWeb.Router do
     get "/pod/applet-frame/:authentication_ref/:id/:revision/*path",
         PodAppletFrameController,
         :show
+  end
+
+  scope "/", AnkoleWeb do
+    pipe_through :pod_manifest
+
+    get "/pod/manifest.webmanifest", SpaController, :pod_manifest
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own

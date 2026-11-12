@@ -26,6 +26,9 @@ pub mod common;
 #[cfg(feature = "web_proxy")]
 pub mod web_proxy;
 
+#[cfg(feature = "desktop_http")]
+pub mod desktop_http;
+
 #[cfg(any(test, feature = "nif"))]
 pub mod authz;
 

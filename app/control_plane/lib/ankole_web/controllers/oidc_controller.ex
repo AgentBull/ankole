@@ -14,6 +14,83 @@ defmodule AnkoleWeb.OIDCController do
 
   def discovery(conn, _params), do: json(conn, OIDC.discovery_metadata())
 
+  def desktop_discovery(conn, params) do
+    with {:ok, true} <- Ankole.Setup.Config.completed?(),
+         {:ok, tenant} <- resolve_desktop_tenant(conn, params),
+         {:ok, client} <- Ankole.Repo.with_tenant(tenant.id, &OIDC.ensure_desktop_client/0) do
+      pod_origin = AnkoleWeb.PodURL.origin(conn, tenant)
+
+      conn
+      |> no_store()
+      |> json(%{
+        issuer: Ankole.OIDC.Config.issuer(),
+        tenant_id: tenant.id,
+        tenant_slug: tenant.slug,
+        display_name: tenant.display_name || tenant.slug,
+        avatar_url: tenant.avatar_url,
+        pod_origin: pod_origin,
+        site_origin: AnkoleWeb.PodURL.site_origin(conn),
+        authorization_endpoint: pod_origin <> "/oauth/authorize",
+        token_endpoint: pod_origin <> "/oauth/token",
+        userinfo_endpoint: pod_origin <> "/oauth/userinfo",
+        client_id: client.id,
+        redirect_uri: OIDC.desktop_redirect_uri(),
+        scopes_supported:
+          Enum.filter(client.scopes, &(&1 in ~w(openid profile email offline_access pod)))
+      })
+    else
+      {:ok, false} ->
+        oauth_json_error(
+          conn,
+          503,
+          "temporarily_unavailable",
+          "installation setup is incomplete"
+        )
+
+      {:error, :desktop_client_disabled} ->
+        oauth_json_error(
+          conn,
+          403,
+          "desktop_client_disabled",
+          "desktop sign-in is disabled for this Pod"
+        )
+
+      {:error, :tenant_suspended} ->
+        oauth_json_error(conn, 403, "access_denied", "Pod is unavailable")
+
+      _ ->
+        oauth_json_error(conn, 404, "pod_not_found", "Pod workspace was not found")
+    end
+  end
+
+  defp resolve_desktop_tenant(conn, params) do
+    slug = if is_binary(params["slug"]), do: String.trim(params["slug"]), else: ""
+
+    cond do
+      match?({:pod, _}, conn.assigns[:host_context]) ->
+        {:pod, tenant_id} = conn.assigns.host_context
+
+        with {:ok, tenant} <- Ankole.Tenants.get(tenant_id),
+             true <-
+               Ankole.Tenants.accepting_work?(tenant) and (slug == "" or tenant.slug == slug),
+             do: {:ok, tenant},
+             else: (_ -> {:error, :not_found})
+
+      slug != "" ->
+        Ankole.Tenants.active_by_slug(slug)
+
+      is_nil(Application.get_env(:ankole, :host_policy)) and
+          is_nil(AnkoleWeb.Plugs.RequestHost.classifier()) ->
+        with {:ok, tenant} <- Ankole.Tenants.privileged(),
+             true <- Ankole.Tenants.accepting_work?(tenant),
+             do: {:ok, tenant},
+             else: (_ -> {:error, :not_found})
+
+      true ->
+        {:error, :not_found}
+    end
+  end
+
   def jwks(conn, _params), do: json(conn, Attesto.JWKS.from_config(OIDC.attesto_config()))
 
   def authorize(conn, params) do

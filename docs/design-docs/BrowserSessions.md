@@ -214,6 +214,24 @@ resolved tenant to the request; JSON:API uses those assignments to construct its
 context. CSRF verification reads the selected authentication once, and the Pod
 identity check uses the same Human record for access-version and login-policy
 validation. Each new request verifies current server state.
+
+Alongside browser cookie proofs, `AnkoleWeb.Plugs.RequirePodSession`,
+`AnkoleWeb.BrowserAuth.perform_session/2`, and `AnkoleWeb.PodSocket` accept OIDC
+`Bearer` access tokens carrying the `pod` scope and `ankole.pod` audience for
+the native desktop client. On desktop requests, the Tauri custom-protocol
+gateway (`tauri://localhost` on macOS and Linux; `http://tauri.localhost` or
+`https://tauri.localhost` on Windows) strips cookies and injects
+`Authorization: Bearer <token>` on `/api/v2/pod/*`, `/api/v2/saas-pod/*`,
+`/api/v2/pod/bootstrap`, `GET /api/v2/browser/session`, and
+`/pod/applet-frame/oauth/:id/:revision/*path`, while `PodSocket` accepts the
+desktop WebView origin and verifies short-lived socket tokens bound to the live
+OIDC session. Whenever an incoming request carries an `Authorization` header,
+`RequirePodSession` evaluates only that Bearer token—rejecting invalid or
+expired tokens with `401 unauthorized` rather than falling back to ambient
+browser cookies—and `BrowserCSRF` skips cookie CSRF checks because cross-site
+browser navigation cannot attach `Authorization` headers. For standalone browser
+installations, `AnkoleWeb.SpaController` serves `GET /pod/manifest.webmanifest`
+and links that manifest on the `pod` and `saas-pod` shells.
 Conversation endpoints verify either
 participant membership or, for a Page-anchored thread, `node_view` permission on
 its anchor Page. Console API endpoints and native Console file transfers verify

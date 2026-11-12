@@ -4,7 +4,9 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import type { TFunction } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { podPublicOrigin } from '../../common/browser-context'
 import { agentsQuery, conversationEventsURL, podKeys, type PodActivity } from '../api'
+import { openPodEventStream } from '../../common/pod-bootstrap'
 import { podPeerExchange, stopPodPeerExchange } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
 import { MessagePageReference } from '../message-artifacts'
@@ -250,9 +252,9 @@ function PeerLog({
     getNextPageParam: page => page.nextCursor ?? undefined
   })
   useEffect(() => {
-    const url = new URL(conversationEventsURL(peer.exchange_id), window.location.origin)
+    const url = new URL(conversationEventsURL(peer.exchange_id), podPublicOrigin())
     url.searchParams.set('originConversationID', conversationID)
-    const events = new EventSource(url)
+    const events = openPodEventStream(url)
     const reload = () => {
       void client.invalidateQueries({ queryKey: [...podKeys.detail(conversationID), 'peer', peer.exchange_id] })
     }
