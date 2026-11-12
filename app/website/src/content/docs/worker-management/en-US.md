@@ -22,7 +22,7 @@ A `WorkerProvider` tells the control plane how to provision compute on your chos
 
 ## One Agent, one Worker
 
-Creating an Agent persists its provider binding and Worker record without booting a container or VM immediately. Instead, the control plane starts the Worker on demand as soon as an interactive environment tool or Background Agent Job (`Codex`) needs a computer, while pure conversational and Workflow model calls run in the control plane and Automation Jobs execute published Applet Actions inside `ankole-function-runtime` without touching a Worker.
+Creating an Agent persists its provider binding and Worker record and requests an initial Worker startup in the background. The creation request does not wait for the instance to become ready. After idle release, an interactive environment tool or Background Agent Job (`Codex`) requests the computer again. Pure conversational and Workflow model calls run in the control plane, while Automation Jobs execute published Applet Actions inside `ankole-function-runtime`; those paths do not require a Worker wake-up.
 
 Concurrent Sessions and Jobs belonging to the same Agent share that Agent's Worker while isolating their files under separate workspace subdirectories in `/workspace`. Each open environment workspace or active Codex turn occupies one slot up to `ANKOLE_MAX_CONCURRENT_SLOTS`—adding more `WorkerProvider`s or creating additional Agents does not expand an existing Agent's Worker slots or its per-Agent Background Agent Job cap.
 
@@ -65,7 +65,7 @@ Persistent Home (`/workspace`, including Codex threads under `/workspace/.codex`
 - Memory-preserving providers (`lambda` and `function_compute`) suspend or pause idle Workers in place, whereas other providers delete the compute instance while keeping persistent Home and any dedicated cache volume.
 - Updating the Worker image or instance settings replaces Workers once they go idle; bumping the RuntimeFabric protocol version replaces Workers immediately and replaces stale paused instances instead of resuming them.
 - `agent_workers.ready_timeout_seconds` (`600` seconds by default) triggers a rebuild when an already-observed platform instance fails to connect in time, without overriding an uncertain initial create.
-- Deleting an Agent waits for all Worker instances to terminate, wipes both Home and cache storage, and finally removes the Worker row; Ankole generates fresh server-side Agent UIDs and never reuses deleted UIDs.
+- Deleting an Agent waits for all Worker instances to terminate, wipes both Home and cache storage, and finally removes the Worker row.
 
 ## Diagnose a waiting Worker
 

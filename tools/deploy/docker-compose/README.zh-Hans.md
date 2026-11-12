@@ -64,6 +64,8 @@ docker compose cp \
 
 生产环境的初始化流程使用带 `Secure` 标记的 Cookie，浏览器仅在受信任的 HTTPS 连接下才会发送该 Cookie。
 
+成员通过 `https://<tenant-slug>.<ANKOLE_HOST>` 访问所属租户。请为每个租户域名配置 DNS、受信任的 TLS 证书与指向同一控制面的代理规则。随附的 `Caddyfile` 仅配置了 `ANKOLE_HOST`，成员登录前须在 Caddy 或上游代理中补充租户域名。
+
 `worker-providers.yaml` 定义了初始的本地 Docker 运行方（Worker Provider），包含容器网络、环境变量、停止宽限期与空闲回收策略。默认配置未限制 CPU 与内存，因此单个 Worker 容器可使用整机的全部资源。如需限制单个 Worker 的配额，可在 `config` 下补充 `cpus` 与 `memoryMiB`：
 
 ```yaml
@@ -106,7 +108,7 @@ Function Runtime 与控制面共用 `ankole_functions` 网桥，可通过该网�
 
 每个 Worker 容器命名为 `ankole-ankole-<hash>-<generation>`，附带标签 `ankole.installation=ankole`、`ankole.provider=docker` 与 `ankole.agent-uid=<Agent UID>`。容器接入 `ankole_workers` 网络，可访问控制面及公网（用于无头浏览器、网页抓取与软件包安装），但无法触达仅挂在 `ankole_backend` 内部网络上的 PostgreSQL。在云主机上同样请将元数据跳数限制设为 `1` 或拦截容器访问 `169.254.169.254`，防止 Worker 读取宿主机的云实例凭据。这些容器不归 Compose 托管，而是由控制面直接创建和销毁，并在控制台的 Workers 页面展示实时状态。
 
-默认情况下，空闲的 Worker 容器会保持运行。若在运行方 YAML 中设置 `idleReleaseAfter`（如 `15m`），控制面会在空闲超时后销毁容器，同时保留 Agent Home 卷与缓存卷；当该 Agent 再次需要执行任务时，新拉起的容器会重新挂回这两个卷。重建 Worker 仅删除缓存卷；删除 Agent 时，控制面会在其所有容器完全退出后删除这两个卷。
+默认的提供商种子设置了 `idleReleaseAfter: 15m`。空闲达到该时长后，控制面会销毁 Worker 容器，同时保留 Agent Home 卷与缓存卷；当任务再次需要 Worker 时，新容器会重新挂回这两个卷。重建 Worker 仅删除缓存卷；删除 Agent 时，控制面会在其所有容器完全退出后删除这两个卷。
 
 安装标识 `ANKOLE_WORKER_INSTALLATION`（默认 `ankole`）会拼入 Worker 容器名、Agent 卷名及容器标签中，长度须为 1–20 个字符，仅允许小写字母、数字和连字符，且首尾必须为字母或数字（例如 `e2e-1011b01`）。首次启动后切勿修改该值：一旦更改，控制面会新建空白的 Agent Home 卷，且无法识别仍在运行的旧容器，从而可能为同一个 Agent 重复启动第二个 Worker。
 
@@ -116,7 +118,7 @@ Function Runtime 与控制面共用 `ankole_functions` 网桥，可通过该网�
 
 PostgreSQL 容器采用 `C.utf8` 区域设置，使全新空卷初始化为 `UTF8` 编码。升级镜像或修改配置不会转换已有数据库的编码：升级前请先检查 `SHOW server_encoding`，若旧库仍为 `SQL_ASCII`，请按[数据库备份、转换与恢复流程](../../devkit/postgres-for-ankole/README.md)迁移，切勿直接修改系统表编码标记。
 
-对于受控生产环境，建议在 `.env` 中将 `ANKOLE_CONTROL_PLANE_IMAGE` 固定为不可变的 `sha256` 摘要（这会一并锁定配套的 Worker 镜像），也可同时固定 `ANKOLE_POSTGRESQL_IMAGE`。每次升级前请先核对 `.env` 中的这两项覆盖配置，因为 `.env` 的优先级高于新版 `compose.yaml` 中的默认值。
+对于受控生产环境，建议在 `.env` 中将 `ANKOLE_CONTROL_PLANE_IMAGE` 固定为不可变的 `sha256` 摘要（这会一并锁定配套的 Worker 镜像），并将 `ANKOLE_FUNCTION_RUNTIME_IMAGE` 固定为同一发布版本的摘要；也可同时固定 `ANKOLE_POSTGRESQL_IMAGE`。每次升级前请先核对这些镜像变量，因为 `.env` 的优先级高于新版 `compose.yaml` 中的默认值。
 
 若从早期未配置 `RELEASE_COOKIE` 的部署升级，请先向 `.env` 补充该变量（缺少 `RELEASE_COOKIE` 时，`docker compose` 会直接报错退出并提示该变量名）：
 
@@ -169,7 +171,7 @@ docker compose exec -T postgresql \
   > "ankole-$(date +%Y%m%d).dump"
 ```
 
-未配置 `BASE_DB_URLS` 时（默认方案），物理 Base 数据表存放在 `ankole` 主库内按租户隔离的 `t_<tenant_hex>` Schema 中，上述单次 `pg_dump` 即可完整涵盖。若通过 `BASE_DB_URLS` 配置了物理 Base 分片库（无论是在内置 PostgreSQL 实例中新建的独立数据库，还是外部独立的 PostgreSQL 服务），都必须将全部 Base 分片库与 `ankole` 控制面库一并导出备份；对独立数据库实例执行时间点恢复（PITR）时，各分片库的恢复时间点不得早于控制面库。
+请按运行中站点的有效 Base 拓扑建立备份清单，包括所选 edition 默认提供的分片。单库拓扑（生产 FOSS 的默认方案）将物理 Base 数据表存放在 `ankole` 内按租户隔离的 `t_<tenant_hex>` Schema 中，单次 `pg_dump` 即可涵盖。若有效拓扑使用独立 Base 数据库，无论这些库位于内置 PostgreSQL 实例还是外部服务，都须将全部 Base 分片库与 `ankole` 控制面库一并备份。对独立数据库实例执行时间点恢复（PITR）时，各分片库的恢复时间点不得早于控制面库。详见 [Base 存储分配](../../../docs/design-docs/Tenants.md#base-storage-placement)。
 
 在 Ankole 停止状态下，通过卷快照或文件系统级备份保存 `ankole_files_data` 卷。PostgreSQL 数据位于 `ankole_postgresql_data` 中，并记录着 `ankole_files_data` 内所有云盘文件的索引引用，因此两者必须成对备份、成对恢复。同时请备份所有名为 `ankole-<installation>-<Agent hash>` 的 Agent Home 卷（以 `-cache` 结尾的缓存卷无需备份），并定期在独立主机上演练数据库、共享文件存储与 Agent Home 的联合恢复。
 

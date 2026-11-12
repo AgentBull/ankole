@@ -16,18 +16,20 @@ Ankole 开箱即具备主体与 AuthZ 鉴权、敏感配置加密、单 Agent �
 - **一职一 Agent，身份严格隔离。** 例如对外客服 Agent 与内部研发编码 Agent 应分别使用独立主体，防止单一 Agent 被诱导或攻破后波及另一类业务。
 - **只授予履行职责所必需的最小权限。** 只读单个频道远比可写全部频道安全，精确的资源路径也远比宽泛通配符稳妥，详见 [主体与 AuthZ](../principal-authz/)。
 - **优先同步外部目录组并按组授权。** 将身份源的部门或用户组同步为 AuthZ 目录组后按组分配权限；人员转岗或离职时，只需在源头企业通讯录中移出群组即可自动收回权限，避免手工逐条清理残留授权。
-- **严格区分账户暂停（Suspend）与离职清退（Offboard）。** 系统不提供物理删除主体的操作：**暂停（`disposition: :suspended`）** 会立即吊销会话、令牌与在途任务，但保留个人 `SiteCredential` 凭证以便日后复职恢复；**离职清退（`disposition: :offboarded`）** 除吊销会话、令牌与任务外，还会彻底释放未共享的 `SiteCredential` 及 Pod 邮箱身份绑定——员工正式离开组织时，务必执行离职清退。
+- **严格区分账户暂停（Suspend）与离职清退（Offboard）。** 系统不提供物理删除人类主体的操作：**暂停（`disposition: :suspended`）** 会立即吊销会话和令牌，并阻止后续执行，但保留个人 `SiteCredential` 凭证以便日后复职恢复；**离职清退（`disposition: :offboarded`）** 除吊销会话和令牌、阻止后续执行外，还会彻底释放未共享的 `SiteCredential` 及 Pod 邮箱身份绑定——员工正式离开组织时，务必执行离职清退。
 
 可通过 `/api/v2/permission-grants` 与 `/api/v2/principals/:uid/grants` 接口导出并核查现存授权。建议定期复盘，防止早期合理的授权随着业务职责变迁而演变为过度授权。
 
 ## 面 2：Agent 使用的凭据
 
-接入 GitHub、飞书/Lark、Slack、Linear 以及远程 Skill MCP（`streamable_http`）等外部服务时，请优先使用 **Pod → 连接**（`Ankole.Connectors`）：上游 OAuth 与应用令牌全程加密保存在控制面内，绝不下发至 Worker 容器，控制面会代为转发 MCP 请求或按回合注入临时凭据助手（如 `GIT_ASKPASS`）。对于必须在 Worker 容器本地命令行或脚本中读取的自定义 API 密钥，再存入 Console 的**环境变量**（`WorkerEnv`）页面并开启加密存储，同时缩小可见范围并坚持定期轮换。
+接入 GitHub、飞书/Lark、Slack、Linear 等外部服务时，请优先使用 **Pod → 连接**（`Ankole.Connectors`）：上游 OAuth 与应用令牌全程加密保存在控制面内，绝不下发至 Worker 容器，控制面会代为转发 MCP 请求或按回合注入临时凭据助手（如 `GIT_ASKPASS`）。对于必须在 Worker 容器本地命令行或脚本中读取的自定义 API 密钥，使用 Console 的**环境变量**（`WorkerEnv`）页面并开启加密存储，同时缩小可见范围并坚持定期轮换。
 
 - **尽量只写不读。** 轮换密钥时直接覆盖填入新值即可，避免为了核对而反复在界面上解密查看旧值。具体操作见 [环境变量](../worker-env/)。
 - **优先配置 Agent 级专属变量。** 全局环境变量会对实例内的每一个 Agent 暴露，而 Agent 级变量仅注入指定的单个 Agent；除非某份凭据确实需要全员共用，否则一律按单个 Agent 限定作用域。
 - **严禁覆盖系统保留变量名。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、所有以 `ANKOLE_` 开头的变量名，以及 [环境变量](../worker-env/) 中列出的其他保留名称均禁止在 Console 中自定义覆盖，请勿尝试绕过该限制。
-- **定期轮换底层引导密钥。** `ANKOLE_SECRET_BASE` 用于派生主加密密钥，`ANKOLE_FUNCTION_RUNTIME_TOKEN` 用于控制面与 `ankole-function-runtime` 之间的内部通信鉴权；轮换这类引导密钥后需重启整套部署，其中 `ANKOLE_SECRET_BASE` 一旦泄露将危及整个实例。至于 Worker 连接凭据则不属于引导密钥，无需人工配置：控制面会为每一代 Worker 实例（Generation）动态生成随机凭据、仅用哈希摘要核验身份，并加密保存重启同一代实例所需的重试令牌。
+- **妥善保管引导加密密钥。** 将 `ANKOLE_SECRET_BASE` 与使用它加密的数据一同备份。直接更换该值并重启不会重新加密已存储的密钥，现有密文仍需要原值或单独的数据迁移。轮换 `ANKOLE_FUNCTION_RUNTIME_TOKEN` 时，应同步更新控制面与 `ankole-function-runtime`，并重启这两个服务。至于 Worker 连接凭据则不属于引导密钥，无需人工配置：控制面会为每一代 Worker 实例（Generation）动态生成随机凭据、仅用哈希摘要核验身份，并加密保存重启同一代实例所需的重试令牌。
+
+远程 Skill MCP 服务（`streamable_http`）的 bearer token 应按声明的 `bearer_token_env_var` 名称存入**环境变量**。控制面读取该值以代理请求，并从 Worker 快照中排除它。
 
 ## 面 3：SSRF 与模型控制的抓取
 
@@ -43,8 +45,8 @@ Ankole 开箱即具备主体与 AuthZ 鉴权、敏感配置加密、单 Agent �
 
 每个已接入的聊天渠道与身份源提供商都保存着外部平台凭证（如 `appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID 的 `appPassword`、Google Workspace 的 `serviceAccountKey` 等）。请建立定期轮换机制；一旦怀疑存在泄露风险，须立即应急轮换。
 
-- **先在上游平台吊销旧密钥，再更新 Ankole 配置。** 请先在外部提供商控制台签发新密钥并作废旧密钥，随后将新值填入对应适配器的 AppConfigure 配置中。操作顺序至关重要：若只更新了 Ankole 配置却任由旧密钥在上游平台继续有效，攻击者仍可利用该时间窗盗用身份。
-- **按凭证用途放对存储位置，勿将平台与连接器凭据写入 WorkerEnv。** 可复用的外部服务连接在 **Pod → 连接**中托管，聊天渠道与身份源提供商自身的接入凭证在各自专属的 Console 配置页中管理与轮换，**环境变量**（`WorkerEnv`）仅用于存放必须在 Worker 本地脚本或命令行中使用的密钥。
+- **先在上游平台吊销旧密钥，再更新 Ankole 配置。** 请先在外部提供商控制台签发新密钥并作废旧密钥，随后在对应渠道或身份源的 Console 配置页填入新值。操作顺序至关重要：若只更新了 Ankole 配置却任由旧密钥在上游平台继续有效，攻击者仍可利用该时间窗盗用身份。
+- **按凭证用途放对存储位置，勿将聊天渠道、身份源与连接器凭据写入 WorkerEnv。** 可复用的外部服务连接在 **Pod → 连接**中托管，聊天渠道与身份源提供商自身的接入凭证在各自专属的 Console 配置页中管理与轮换，远程 Skill MCP bearer token 按前述环境变量方式配置。
 - **同等重视目录同步凭证。** Google Workspace 的 `serviceAccountKey` 与 `adminEmail`、用于读取 Microsoft Graph 的 Entra ID 应用凭证等，都具备读取全公司组织架构与人员名单的权限，轮换周期与保管要求应与聊天渠道密钥同等严格。
 
 ## 面 5：最小网络入口
@@ -54,7 +56,7 @@ Ankole 只需要按实际启用的接入方式开放极少数入站端口，绝�
 - **长连接聊天渠道仅需出站网络。** 飞书/Lark、Slack 与钉钉均支持由控制面主动向外建立 WebSocket/Stream 长连接，无需暴露任何公网入站端点；若仅使用这类渠道，可将整套实例完全收敛在内网中。
 - **Teams 与 Webhook 入口需按源收敛。** Microsoft Bot Framework 及 `/webhooks/v1/...` 回调入口确需外部可达；建议在反向代理或网关层限制仅允许预期上游平台访问（支持源 IP 白名单的优先按 IP 放行），再叠加适配器内置的协议级验签（如 Bot Framework JWT、Graph `clientState`）。
 - **将 Webhook 委托 URL 视同敏感凭据保护。** 当 Agent 将事件监测委托给外部系统时，`/webhooks/v1/event-callbacks/*` 必须对外部发送方可达，其中路径末尾的随机令牌本身就是唤醒凭证。请在 Ingress、反向代理、CDN 及应用访问日志中对完整 URL 路径做脱敏处理。由于该 URL 仅能授权“唤醒会话”，Agent 被唤醒后在执行任何有实质业务影响的操作前，仍须主动查询外部系统核实最新状态。
-- **切勿将 Console 管理后台直接暴露到公网。** 尽管 Console 接口设有 Bearer 认证拦截未授权访问，管理后台仍应部署在企业办公内网或 VPN 之后，没有理由向整个公网敞开管理入口。
+- **切勿将 Console 管理后台直接暴露到公网。** 尽管 Console 接口通过浏览器会话认证拦截未授权访问，管理后台仍应部署在企业办公内网或 VPN 之后，没有理由向整个公网敞开管理入口。
 
 ## 面 6：Worker 容器、Function Runtime 与控制面
 

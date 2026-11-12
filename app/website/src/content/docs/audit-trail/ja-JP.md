@@ -11,7 +11,7 @@ order: 125
 
 ## AuthZ の付与、人間のアクセス変更、招待の記録
 
-すべての権限付与は `permission_grants` テーブルに永続レコードとして保存されます。各レコードは 1 つの `principal_uid`、1 つの `group_id`、または Userset のページ対象者（`source_page_id` と `source_action`）に紐付き、Pod ACL の付与では `target_page_id` と `target_scope` を通じて `pages` テーブルのレコードを基点とします。何を許可するかは `resource_pattern`、`action`、`condition` で表され、作成日時と最終更新日時がタイムスタンプに記録されます。権限付与のための別建ての監査ログはなく、`permission_grants` テーブルそのものが監査記録を兼ねています。
+すべての権限付与は `permission_grants` テーブルに永続レコードとして保存されます。各レコードは 1 つの `principal_uid`、1 つの `group_id`、または Userset のページ対象者（`source_node_id` と `source_action`）に紐付き、Pod ACL の付与では `target_node_id` と `target_scope` を通じて `pages` テーブルのレコードを基点とします。何を許可するかは `resource_pattern`、`action`、`condition` で表され、作成日時と最終更新日時がタイムスタンプに記録されます。権限付与のための別建ての監査ログはなく、`permission_grants` テーブルそのものが監査記録を兼ねています。
 
 人間アカウントのライフサイクル変更やワークスペースへの招待についても、PostgreSQL に永続レコードが残ります。
 
@@ -19,7 +19,7 @@ order: 125
 - `human_access_restrictions`: `:suspended`（一時停止）または `:offboarded`（退職・オフボード）の処分種別（disposition）と理由を持つ、現在有効なアクセス制限を保持します。
 - `pod_invitations`: Pod ワークスペースへの招待、メンバーシップ種別（`member` または `guest`）、使用回数（`used_count`）、および作成者（`created_by_principal_uid`）を記録します。
 
-Principal やグループに対する現在の権限付与は、`GET /api/v2/principals/:uid/grants` および `GET /api/v2/principal-groups/:name/grants` から確認できます。一度付与された後に削除された権限を過去にさかのぼって調べる場合は、PostgreSQL のポイントインタイムリカバリ（PITR）履歴を参照します。なお、現在テーブル上に存在するレコードが、まさに今システムで強制されている権限そのものです。
+Principal やグループに対する現在の権限付与は、`GET /api/v2/principals/:uid/grants` および `GET /api/v2/principal-groups/:name/grants` から確認できます。現在テーブルにあるレコードが実行時の権限ルールであり、取り消された付与の履歴はこのテーブルに残りません。運用者が PostgreSQL のポイントインタイムリカバリ（PITR）を設定し、該当期間のバックアップと WAL を保持している場合は、別のデータベースコピーを復元して過去のルールを確認できます。
 
 ## control-plane の構造化ログ
 
@@ -44,10 +44,10 @@ control plane は一貫したフォーマットの構造化ログを出力しま
 
 | 問い | 確認先 |
 |---|---|
-| 「誰がこの Agent またはページ対象者に Y の権限を与えたのか？」 | `permission_grants` + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
+| 「この Agent またはページ対象者には現在どの権限があるか？」 | `permission_grants` + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
 | 「なぜこの人間アカウントが一時停止・オフボード・招待されたのか？」 | `human_access_events`、`human_access_restrictions`、`pod_invitations` |
 | 「この Turn で Agent は具体的に何をしたのか？」 | `/api/v2/ai-gateway/conversations/:id/messages` |
-| 「スケジュールは予定どおり発火したか？」 | `/api/v2/cron-schedules/:id/runs` |
+| 「スケジュールは予定どおり発火したか？」 | `/api/v2/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs` |
 | 「失敗したジョブはリトライされたか？」 | `/api/v2/background-agent-jobs/:id`（`attempts`、`error`） |
 | 「その時点で Worker や control plane は何をログに出していたか？」 | control plane の構造化ログ |
 

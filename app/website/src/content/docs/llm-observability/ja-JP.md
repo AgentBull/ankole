@@ -49,7 +49,7 @@ Turn に属さない直接の AIGateway リクエストでは、`principal:<auth
 
 1. **Console → AppConfigure → LLM observability** を開き、Trace Provider で **LangSmith** を選択します。
 2. 利用リージョンに対応するベースエンドポイントを設定します。GCP US は `https://api.smith.langchain.com/otel`、GCP EU は `https://eu.api.smith.langchain.com/otel`、GCP APAC は `https://apac.api.smith.langchain.com/otel`、AWS US は `https://aws.api.smith.langchain.com/otel`、セルフホスト環境は `https://<langsmith-api-host>/api/v1/otel` です。
-3. 認証ヘッダーに `x-api-key` を追加します。必要に応じて `Langsmith-Project` も追加してください（省略した場合は `default` プロジェクトに送信されます）。
+3. `x-api-key` を追加します。Agent-based workspace では、登録済み Agent の `Langsmith-Agent-Id` と `Langsmith-Agent-Environment`（`local`、`development`、`staging`、`production` のいずれか）を両方設定します。Project-based workspace（セルフホスト版を含む）では、この 2 つの代わりに `Langsmith-Project: <project-name>` を使います。両方式のヘッダーを混在させないでください。
 4. **Trace export** を有効化して保存し、コントロールプレーンを再起動します。
 
 AIGateway の Response が特定の会話に紐付いている場合、`langsmith` プロバイダーはその会話 ID を LangSmith 公式の `langsmith.trace.session_id` 属性に設定するとともに、`session.id` と `gen_ai.conversation.id` にも同じ値を保持します。
@@ -69,6 +69,6 @@ Console のフォーム画面から設定する際は、表の Headers 列にあ
 
 VictoriaTraces へ送信される最終的なパスは `/insert/opentelemetry/v1/traces` になります。VictoriaTraces 単体にはテナント認可機能がないため、信頼できないネットワークを経由する場合は vmauth などの認証プロキシを前段に配置してください。詳しくは [VictoriaTraces OTLP documentation](https://docs.victoriametrics.com/victoriatraces/data-ingestion/opentelemetry/) を参照してください。
 
-Grafana Cloud のトークンには `traces:write` スコープが必要です。詳しくは [Honeycomb OTLP documentation](https://docs.honeycomb.io/send-data/opentelemetry) および [Grafana Cloud OTLP documentation](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/) を参照してください。なお、Trace Provider の選択によって属性が追加されるのは Turn ルートスパンと AIGateway LLM スパンのみです。Worker のツールスパンやコントロールプレーン内のその他のスパンはベンダー中立のまま、設定された同じレシーバーへ送信されます。
+Honeycomb Classic 環境では `x-honeycomb-dataset` ヘッダーも必要です。Grafana Cloud のトークンには `traces:write` スコープが必要です。詳しくは [Honeycomb OTLP documentation](https://docs.honeycomb.io/send-data/opentelemetry) および [Grafana Cloud OTLP documentation](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/) を参照してください。なお、Trace Provider の選択によって属性が追加されるのは Turn ルートスパンと AIGateway LLM スパンのみです。Worker のツールスパンやコントロールプレーン内のその他のスパンはベンダー中立のまま、設定された同じレシーバーへ送信されます。
 
-トレース設定の変更は、コントロールプレーンの起動時に 1 回だけ読み込まれます。エクスポートを無効にする場合は、`observability.traces.enabled` を `false` に変更してからコントロールプレーンを再起動してください。また、環境変数の `OTEL_TRACES_EXPORTER` や `OTEL_EXPORTER_OTLP_*` を使って Ankole を設定しないでください。Ankole は OpenTelemetry の起動前および AppConfigure のエンドポイント・ヘッダー適用前にこれらの環境変数を消去し、AppConfigure 側で一元管理します。
+トレース設定の変更は、コントロールプレーンの起動時に 1 回だけ読み込まれます。エクスポートは best effort で、失敗しても Agent Turn や AIGateway の応答には影響しません。失敗したバッチを永続 outbox に保存して再送する仕組みはありません。エクスポートを無効にする場合は、`observability.traces.enabled` を `false` に変更してからコントロールプレーンを再起動してください。また、環境変数の `OTEL_TRACES_EXPORTER` や `OTEL_EXPORTER_OTLP_*` を使って Ankole を設定しないでください。Ankole は OpenTelemetry の起動前および AppConfigure のエンドポイント・ヘッダー適用前にこれらの環境変数を消去し、AppConfigure 側で一元管理します。

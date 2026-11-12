@@ -5,7 +5,7 @@ section: Developer guide
 order: 108
 ---
 
-Agent Computer Worker는 개별 Agent에게 할당되는 전용 컴퓨터 환경입니다. Agent를 처음 생성할 때는 선택한 provider와 아직 시작되지 않은(`absent`) Worker 행만 데이터베이스에 기록되며, 이후 환경 도구나 Codex 실행이 처음으로 필요해질 때 control plane이 인스턴스를 기동합니다. 단순 질의응답이나 control plane 도구 호출은 Worker 없이도 바로 처리됩니다.
+Agent Computer Worker는 개별 Agent에게 할당되는 전용 컴퓨터 환경입니다. Agent를 생성하면 Ankole은 provider 연결과 `absent` 상태의 Worker 행을 저장하고 최초 기동을 백그라운드 대기열에 넣습니다. 최초 기동이 완료되고 유휴 Worker가 해제된 뒤에는 환경 도구나 Codex Job 요청에 따라 다시 기동합니다. 단순 질의응답과 control plane 도구는 Worker를 기다리지 않고 실행됩니다.
 
 ## 실행과 소유권
 

@@ -28,7 +28,7 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 - **`waiting_on_user`** — paused for human input; releases its running slot until a later turn resumes it.
 - **`succeeded`**, **`failed`**, **`stopped`** — terminal states with no live execution.
 
-Every status change passes through `transition_allowed?/2`, preventing a `queued` job from jumping straight to `succeeded` without passing through `running` and preventing any transition out of a terminal status. Nothing in application code may bypass this table.
+The `Ankole.BackgroundAgentJobs.Schemas.Job` Ash state machine defines the allowed transitions. Worker completion requires a `running` Job; the operator's `external_complete` action can complete a `queued`, `running`, or `waiting_on_user` Job. Terminal Jobs cannot transition to another status.
 
 ## Wakeup: reporting back to the owner
 
@@ -54,16 +54,18 @@ A new job can also continue from an earlier completed job rather than its own pa
 
 ## Recovery across worker failure
 
-Because job state lives in PostgreSQL, losing a Worker is a routine recovery event rather than data loss. Each job receives a bounded retry budget—at most five execution attempts and at most five consecutive turn failures—and if an attempt fails before starting cleanly, `requeue_unstarted_attempt` decrements the attempt counter and returns the job to `queued` (clearing `started_at` on attempt 1 so it looks freshly queued).
+PostgreSQL preserves Job state across Worker failures, while the persistent Home preserves its workspace and Codex thread. Each Job allows at most five execution failures, 25 total slot claims, and five consecutive turn failures. Claiming a fresh slot increments `attempts`; adopting a running attempt does not. Infrastructure interruptions return retryable work to `queued` without charging an execution failure, while retaining the consumed claim count.
 
 Two transactional claim paths handle dispatch and continuation:
 
-- **`claim_attempt_in_tx`** — claims a `queued` job for a new execution attempt.
-- **`claim_continuation_in_tx`** — claims a paused job to continue after input arrives.
+- **`claim_attempt_in_tx`** claims a `queued` Job for a new execution attempt.
+- **`claim_continuation_in_tx`** claims a Job to continue after input arrives.
 
-Both acquire the Agent's slot lock first and then lock the job row `FOR UPDATE` in that fixed order, eliminating deadlocks between concurrent dispatchers for the same Agent. Exhausting the retry budget moves the job to `failed`, while operator cancellation moves it to `stopped`. Retries back off up to 30 seconds so transient upstream glitches do not hammer providers.
+Both lock the Agent's capacity before the Job row. Exhausting a retry budget moves the Job to `failed`; operator cancellation moves it to `stopped`.
 
-When an attempt hits AIGateway quota exhaustion with a known future recovery timestamp, Ankole returns the Job to `queued`, releases its Worker assignment, and schedules dispatch for that timestamp—keeping the acquired attempt counted so repeated quota hits stay bounded within the five-attempt budget. If the recovery timestamp is missing or already past, Ankole uses the standard bounded retry delay instead of immediate dispatch.
+`Ankole.Sessions.TurnErrorClassifier` selects the retry delay. Infrastructure interruptions use a 15, 30, 60, 120, then 300-second ladder without consuming the execution-failure budget. Retryable execution and provider-capacity failures use 60, 600, 1,800, 3,600, then 7,200 seconds and consume that budget. Terminal rejections fail immediately.
+
+When AIGateway reports credential-pool exhaustion with a future recovery timestamp, Ankole returns the Job to `queued`, releases its Worker assignment, and schedules dispatch for that timestamp without charging an execution failure. The acquired claim still counts toward the 25-claim limit. A missing or past recovery timestamp uses the ordinary execution retry ladder and charges an execution failure.
 
 ## Dispatch and the agent's plugins
 

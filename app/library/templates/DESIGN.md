@@ -294,7 +294,7 @@ The Agent Computer preinstalls exactly three families, each one TrueType and eac
 one covering Latin and Simplified Chinese. Artifacts use these local fonts and
 never load webfonts:
 
-- **IBM Plex Sans SC** — all UI and document text. The worker maps generic sans and `IBM Plex Sans` requests to it, so either name works; the web console uses its variable CN build for `zh`.
+- **IBM Plex Sans SC** — all UI and document text. The worker maps generic sans and `IBM Plex Sans` requests to it, so either name works; the web console loads the bundled `AgentBullSansGB` face.
 - **IBMPlexMonoSCHalf** — code, identifiers, logs, and technical data. It merges IBM Plex Mono with Simplified Chinese at half-width metrics. The worker maps `IBM Plex Mono` to it, but a tool that matches family names directly, such as Typst, needs the exact name `IBMPlexMonoSCHalf`.
 - **ChillJinshuSong（寒蝉锦书宋）** — the serif voice for pull quotes, covers, and long-form editorial or print work. Its real family name is `寒蝉锦书宋`; the worker maps the ASCII name `ChillJinshuSong` to it for CSS, and Typst needs the Chinese name.
 - **Fluent Emoji Color** — emoji in every medium. It sits behind all three text families, so an emoji renders in color without naming the family.

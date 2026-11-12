@@ -21,7 +21,7 @@ conversation history only when the control plane commits a message.
 | AIGateway | Model Responses, live model events, and model conversation history |
 | Principal and AuthZ | Human and Agent identity, tenant ownership, and work authorization |
 
-`Ankole.Conversations` persists public state across four tenant-scoped tables:
+`Ankole.Conversations` persists public state across six tenant-scoped tables:
 
 | Table | Stored facts |
 | --- | --- |
@@ -498,8 +498,9 @@ deleting the Page or revoking `node_view` revokes access to those conversations.
 
 Ankole retains the addressing Human's `WorkAccess` identity across child tasks
 and checks that authority when admitting work. Drive and Pod resource operations
-authorize the executing Agent's Principal as their single subject; another
-participant's permissions never widen that Agent's access. Content writes also
+authorize the executing Agent through AuthZ: a personal assistant uses its
+Human owner's business grants, and an AI colleague uses its own grants. Another
+participant's permissions do not widen that authority. Content writes also
 require the current read revision. In Pod rooms, generated documents and research reports
 default to editable Pod Pages unless the user explicitly asks for a downloadable
 file format, whereas external channels follow their own file-delivery rules.
@@ -1322,11 +1323,13 @@ independent work and end its turn while the exchange continues.
 
 When an Agent needs a Human to authorize a high-privilege mutation that exceeds
 the Agent's own grants, calling `propose_action_card` drafts an `ActionCard` row
-(`conversation_action_cards`, lock rank `11`) for one of seven typed actions:
+(`conversation_action_cards`, lock rank `11`) for one of eight typed actions:
 `brain.object.create`, `pod.knowledge.save`, `pod.page.set_sharing`, `pod.page.delete`,
-`pod.page.restore`, `pod.base.delete_table`, or `conversation.add_participants`. Drafting requires the
-Agent to hold `node_view` on the target node (or participate in the target
-native room for `conversation.add_participants`), snapshots optimistic
+`pod.page.restore`, `pod.base.delete_table`, `conversation.add_participants`, or
+`library.skill.save`. Page actions require the Agent to hold `node_view` on the
+target node; participant additions require participation in the native room. A
+Skill card captures the complete draft and its personal or workspace scope,
+with the existing Skill ID and revision when updating. Drafting snapshots optimistic
 preconditions (`expected_sharing_version`, `expected_updated_at` +
 `expected_deleted` + `expected_revision`, `expected_name` +
 `expected_schema_version` + `expected_data_version` + `expected_updated_at`, or
@@ -1353,8 +1356,9 @@ channels) acquires outer locks in strict rank order before touching the card row
 (`9`/`10`), `Conversations`, `conversation_action_cards` (`11`), `Signals`
 (`11`), and `pages` / Base (`12`). Under those locks,
 `Ankole.Conversations.ActionCards` verifies the confirming Human's live
-Principal permission (`node_manage`, `node_edit`, `:delete_table`, or room
-invite authority) and captured preconditions. For deletion and restoration, it
+Principal permission (`node_manage`, `node_edit`, `:delete_table`, room
+invite authority, or the Library's Skill management authority) and captured
+preconditions. For deletion and restoration, it
 reads the target Page and Base versions after acquiring their write locks, so a
 concurrent writer that commits while confirmation waits invalidates the card:
 
@@ -1506,8 +1510,8 @@ For external IM conversations, the authorization snapshot includes the resolved
 DM peer and the current members of the conversation's Principal Group, as well
 as observing Agents. Group membership changes take effect through the same
 Principal/AuthZ projection used for disclosure.
-Membership does not grant node manage access; an Agent reads and changes nodes
-under its own Principal permissions.
+Membership does not grant node manage access. AuthZ evaluates node operations
+against the personal assistant's Human owner or the AI colleague itself.
 
 Pod shows each Message attachment as a file card. Selecting the card opens the
 attachment preview, which owns **Download original** and **Open in new tab**.

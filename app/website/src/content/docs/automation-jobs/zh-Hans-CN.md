@@ -14,7 +14,7 @@ order: 22
 3. 添加定时计划、创建回调端点，或关联外部事件源。定时支持 Cron 表达式和固定间隔；外部事件源来自租户已配置的连接。
 4. 手动运行一次定时计划，或发送测试回调，再打开对应的运行记录，检查输入和结果。
 
-Agent 可通过 `ankole-pod jobs` 完成相同操作，具体命令以 `ankole-pod --help` 为准。Applet 界面可使用 `@ankole/applet-sdk` 的 `useAppletJobs()` 和 `useJobSources(jobID)`。
+Agent 可通过 `ankole-pod` (`jobs.*`) 完成相同操作，具体命令以 `ankole-pod --help` 为准。Applet 界面可使用 `@ankole/applet-sdk` 的 `useAppletJobs()` 和 `useJobSources(jobID)`。
 
 ## 个人与团队执行名义
 

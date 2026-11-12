@@ -59,7 +59,7 @@ List first and read `get-change` only for the changes that matter. A change payl
 
 ## Batches
 
-A batch scrapes up to 25,000 supplied URLs, or crawls a large site, as an asynchronous job. Use it when a synchronous `web-scrape-markdown` or `web-crawl` would be too large.
+A batch scrapes up to 100,000 supplied URLs, or crawls a large site, as an asynchronous job. Use it when a synchronous `web-scrape-markdown` or `web-crawl` would be too large.
 
 ### submit-batch
 

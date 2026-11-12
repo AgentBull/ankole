@@ -33,7 +33,7 @@ Ankole의 브라우저 자동화는 `app/library/skills/browser/SKILL.md`에 정
 1. **테넌트 기본값** — 기본 배포 상태(`default_enabled: true`)를 유지하면 해당 테넌트의 모든 Agent가 브라우저를 사용할 수 있습니다.
 2. **Agent별 재정의** — 브라우저 접근을 막아야 하는 특정 Agent에서만 개별 비활성화하거나, 반대로 테넌트 기본값을 꺼 둔 상태에서 꼭 필요한 Agent에만 선택적으로 켤 수 있습니다.
 
-두 설정 모두 [Console API 참조](../console-api/)에 안내된 Console의 library-capability 라우트를 통해 제어합니다. 특정 Agent의 `library-capabilities`를 조회하면 파일시스템과 레지스트리가 즉시 동기화되므로 오래된 스냅샷이 아닌 최신 상태가 반영됩니다.
+두 설정 모두 [Console API 참조](../console-api/)에 안내된 Console의 library-capability 라우트를 통해 제어합니다. 특정 Agent의 `library-capabilities`를 조회하면 [Agent Library](../agent-library/)의 갱신 규칙에 따라 기본 제공 Skill을 동기화하고 로컬 편집을 보존한 뒤 해당 Agent의 유효 카탈로그 상태를 반환합니다.
 
 ## runtime이 주입하는 것
 
@@ -68,7 +68,7 @@ Ankole의 브라우저 자동화는 `app/library/skills/browser/SKILL.md`에 정
 
 ## 운영자가 건드리지 않는 것
 
-`ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_RUNNER`를 비롯한 브라우저 내부 환경 변수는 워커 이미지가 직접 설정합니다. Console의 **Environment variables** 화면에서 이 예약 변수들을 임의로 덮어쓸 수 없으며, 브라우저 활용 방식 자체를 조정해야 할 때는 Skill 지침을 수정하세요.
+`ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_RUNNER`를 비롯한 브라우저 내부 환경 변수는 워커 이미지와 런타임이 설정합니다. Console의 **Environment variables** 화면에서 이 예약 변수들을 임의로 덮어쓸 수 없으며, 브라우저 활용 방식 자체를 조정해야 할 때는 Skill 지침을 수정하세요.
 
 ## 다음 단계
 

@@ -194,12 +194,13 @@ For TSV, add `"format":"tsv"` to the import item's `props`. For another anchor, 
 ```python
 # gen_batch.py — produces batch chunks of 80 value-set ops each
 import csv, json
+from openpyxl.utils import get_column_letter
 ops = []
 with open("data.csv") as f:
     reader = csv.reader(f)
     for r, row in enumerate(reader, start=1):
         for c, val in enumerate(row):
-            col = chr(ord('A') + c)
+            col = get_column_letter(c + 1)
             ops.append({"command":"set","path":f"/Data/{col}{r}",
                         "props":{"value": val}})
 for i in range(0, len(ops), 80):

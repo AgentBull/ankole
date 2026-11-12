@@ -22,7 +22,7 @@ provide structs and macro imports to the target compiler:
 
 ```sh
 cd app/control_plane
-MIX_ENV=test mix compile
+ANKOLE_EDITION=foss MIX_ENV=test mix compile
 ```
 
 Then run the verification commands from `tools/formal/`:

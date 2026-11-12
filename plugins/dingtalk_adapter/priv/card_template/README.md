@@ -38,7 +38,7 @@ Platform can vary across DingTalk releases).
 | Variable (变量名) | Type | Content that Ankole writes |
 |---|---|---|
 | `state` | text | Status line: shows the live tool label or `输入中` while running, then `已完成` / `出错` / `已停止` / `等待输入`. Once a long reply rolls over to a continuation card, the closed card displays `回答继续于下一张卡片`. |
-| `answer` | **streaming Markdown** | The reply body, updated via `PUT /v1.0/card/streaming` with `isFull: true`. This is the only variable updated at streaming cadence. |
+| `answer` | **streaming Markdown** | The reply body, updated via `PUT /v1.0/card/streaming` with `isFull: true`. Ankole streams updates to this variable as the reply grows. |
 | `thought` | Markdown, collapsed section | Transient reasoning draft while the turn is running; streamed on its own key and cleared at completion or refresh. Render it inside a collapsed section. |
 | `plan` | text | `执行计划 · completed/total` header followed by one `- [ ] item` line per step |
 | `activity` | text, collapsed section | Active tool calls, formatted as one `- … label` line per entry and cleared at completion |

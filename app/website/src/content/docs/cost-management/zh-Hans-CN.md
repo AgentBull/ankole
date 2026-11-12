@@ -30,17 +30,17 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 | `video`（Site / Pod / `system`） | `/videos` 生成视频 | 绑定视频模型；留空时视频请求会失败。服务商按每次生成收费 |
 | `music`（Site / Pod / `system`） | `/audio/music` 生成音乐 | 绑定音乐模型；留空时音乐请求会失败。服务商按每次生成收费 |
 
-控制面内部子系统的模型调用统一归属内置 `system` 主体执行，后台治理与小应用调用绝不会挤占任何前台 Agent 的 Token 配额：
+企业大脑维护与 Pod Applet 调用分别按各自的执行主体归属：
 
 - **`ankole_brain`**：承载企业大脑（Company Brain）的全部模型调用并将用量记入 `ankole_brain` 名下——其中 `light`（回退 `primary`）用于从对话与文档 Source 中抽取事实，`heavy`（回退 `primary`）用于离线 Dreaming 归纳与技能教训复审，`web_fetch` 用于抓取网页 URL Source 正文，`rerank` 用于知识召回重排，同时从 [AppConfigure](../app-configuration/) 读取站点级的 `brain.embedding_model`。若希望将后台知识治理与前台对话预算解耦，可直接在 **Console → Model Profiles** 中单独覆盖 `ankole_brain` 的各档槽位；管理员也可在 **Brain → 健康**页面核查各档案就绪状态，详见 [Brain](../brain/)。
-- **`system`（Pod Applet `ctx.ai`）**：以内置 `system` 主体无状态执行 Pod 小应用的 `ctx.ai` 调用，解析当前 Pod/站点生效的内置语言模型档案（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）。
+- **Pod Applet `ctx.ai`**：普通调用以当前调用方执行，管理能力以 Applet 所有者执行。AIGateway 解析该主体适用的模型档案并记录使用量；Applet 来源的调用不计入 Agent Token 配额窗口。
 
 在模型分档上，有两条立竿见影的省钱铁律：
 
 - **在站点或 Pod 层给 `light` 配一款便宜好用的小模型**：`light` 未配置时会回退至 `primary`，且同时承接高频辅助调用与 `ankole_brain` 的日常事实抽取；在默认层绑好低成本模型，所有继承默认值的 Agent 与企业大脑都会同步受益。
 - **`primary` 默认够用即可，不必盲目拉满顶配**：很多让人觉得“烧钱”的 Agent，往往只是因为在 `primary` 槽位绑了远超日常任务难度的重型模型。建议先从性价比均衡的主力模型起步，仅为少数回答质量确实吃紧的专家岗位单独上调 `primary` 或 `heavy`。
 
-对于当前 Pod 或 Agent 不需要用到的可选能力槽位（如 `vision_fallback`），保持留空即可杜绝误调用。`image_generate` 留空时，若当前主模型的 Provider 声明支持原生生图，请求仍可走主模型原生路径。后台 Agent 任务（`coding`）留空时则会沿 `heavy -> primary` 自动回退执行；当希望长时编码或调研任务改走专用编码模型或订阅池时，再单独配置 `coding` 槽位即可。
+修改 Agent 覆盖项前，先检查从 Site 与 Pod 继承后的有效档案。有效 `vision_fallback` 档案为空时，才没有对应的图像输入回退能力。图像生成的**由模型的 Provider 执行**开启时，使用主提供商的原生能力，专用档案不参与调用；关闭该开关才使用 `image_generate`。后台 Agent 任务（`coding`）留空时则会沿 `heavy -> primary` 自动回退执行；当希望长时编码或调研任务改走专用编码模型或订阅池时，再单独配置 `coding` 槽位即可。
 
 ## 杠杆 2：reasoning effort
 
@@ -52,7 +52,7 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 
 `web_search` 与 `web_fetch` 是两个按调用次数计费的独立档案槽位，可从两方面收敛开销：
 
-- **纯内网办公型 Agent 直接解绑联网档案**：只要槽位配上了模型，就相当于发出了允许联网检索的通行证；对只需查阅内部知识库和业务系统的助手，直接留空这两个槽位即可从根源杜绝公网搜索开销。
+- **先确认搜索执行路径**：网页搜索默认开启**由模型的 Provider 执行**。关闭该开关才使用专用 `web_search` 档案；解绑档案本身不会禁用原生搜索。通过 Agent 的任务指令减少不必要的调用。
 - **已知确切网址时优先走 `web_fetch` 而非 `web_search`**：直接抓取已知 URL 只产生一次确定调用；而先搜再看往往意味着一次搜索调用外加模型随后自主发起的好几次网页抓取。
 
 顺带一提，租户级配置键 `agent_workers.rendered_fetch_idle_ttl_ms` 控制的是动态渲染版 `web_fetch` 浏览器边车实例在空闲多久后自动回收释放——它管的是容器计算内存回收，并非网页响应缓存时长。
@@ -92,12 +92,12 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 
 | 限制项 | 设定值 | 控费效果 |
 |---|---|---|
-| `max_execution_attempts` | `5` | 单个后台任务在彻底转入 `failed` 前最多执行 5 次尝试 |
+| `max_execution_attempts` | `5` | 累计 5 次执行失败后转入 `failed` |
 | `max_consecutive_turn_failures` | `5` | 连续 5 个回合失败后立即终止放弃 |
 | `max_running_per_agent` | `3`（默认） | 单个 Agent 允许同时运行的后台任务数上限，支持按租户通过 `background_agent_jobs.max_running_per_agent`（`1..64`）调整 |
 | 重试退避延迟 | 约 `30` 秒 | 相邻两次重试之间的最短冷却间隔 |
 
-如果一个大任务每次跑一半就因外部环境抖动报错、连跑满 5 次尝试，就会实打实花掉 5 份 Token。绝大多数情况下，静态配置错误会在开头快速报错终止；真正需要留意的是第 3 项并发上限：一个跑满 3 个并发后台任务的 Agent，相当于同时全速运转着 3 条独立的大模型长循环。如果业务上并不急于三线并进，不妨将该上限调小，或在 Agent 长期设定中约定“同一时间只专心推进一项后台调研”，实际开销会平稳得多。
+临时执行错误可重试，累计 5 次执行失败后终止；配置错误则立即失败。开始或恢复一次执行所需的 claim 单独计数，总上限为 25 次。凭据池背压不计入执行失败预算，claim 次数也不能直接换算为完整模型执行次数或 Token 开销。还须留意并发上限：一个跑满 3 个并发后台任务的 Agent，相当于同时全速运转着 3 条独立的大模型长循环。如果业务上并不急于三线并进，不妨将该上限调小，或在 Agent 长期设定中约定“同一时间只专心推进一项后台调研”，实际开销会平稳得多。
 
 ## 杠杆 7：按 Agent 的 token 额度
 
@@ -113,7 +113,7 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 
 - **查 `GET /api/v2/ai-gateway/conversations`**：查看近期各回合的模型调用明细——具体命中了哪个模型档案、调了多少次、走了哪个上游 Provider。这是判断钱究竟花在了 `primary`（日常量大）、`heavy`（少量重型调用）还是 `web_search`（高频零碎搜索）上最直接的办法。
 - **在对话中让主 Agent 核查近期 Workflow**：通过子任务计数即可看清并发扇出规模与失败重试比例（注：Console 不设单独的 Workflow 账单页或按美元折算的单次汇总）。
-- **查 `GET /api/v2/background-agent-jobs`**：检查后台任务的 `attempts` 字段——看到 `attempts: 5` 就意味着这项任务因反复重试消耗了五轮开销。
+- **查 `GET /api/v2/background-agent-jobs`**：`attempts` 表示 claim 次数；实际 Token 开销须结合已记录的模型调用核实。
 - **聚合控制面结构化日志**：每条上游 Provider 请求日志均带有规范的事件名与维度字段，可在外部日志分析平台中按 Provider 与 Agent 维度汇总排行。
 
 排查清楚后你会发现，真正的解法从来不是一刀切让大家少用 Agent，而是精准修正某个与实际岗位需求错配的配置参数。

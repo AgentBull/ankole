@@ -26,7 +26,7 @@ Agent は、Ankole Agent Harness 内で継続的に稼働する作業主体で�
 
 ロールには「Research Analyst」や「Customer Support」など、担当業務の短い要約を入力します。具体的な行動規範・責務とビジュアルデザイン規則は、**Meta Ankole → Agents** にある 2 つの規約ドキュメント（`AGENTS.md` と `DESIGN.md`）で定義します。
 
-`WorkerProvider` では、Agent が使用する [WorkerProvider](../worker-providers/) を指定します。指定を省略した場合はサイトの既定 provider が使われますが、既定 provider が存在しない場合は作成に失敗します（保存後の変更はできません）。同じ provider を共有する Agent 同士であっても、それぞれ専用の Worker インスタンス、`/drive` FUSE マウント、永続 `/workspace` Home が割り当てられます。Agent を保存した時点ではインスタンスは起動せず、コンピュータ上での作業が実際に必要になった段階で control plane がオンデマンドで起動します。
+`WorkerProvider` では、Agent が使用する [WorkerProvider](../worker-providers/) を指定します。指定を省略した場合はサイトの既定 provider が使われますが、既定 provider が存在しない場合は作成に失敗します（保存後の変更はできません）。同じ provider を共有する Agent 同士であっても、それぞれ専用の Worker インスタンス、`/drive` FUSE マウント、永続 `/workspace` Home が割り当てられます。Agent を保存すると、初回の Worker 起動がバックグラウンドでキューに入ります。初回起動が完了し、アイドル状態の Worker が解放された後は、コンピュータ上の作業が必要なときに control plane が再び起動します。
 
 ## 所有者と group memory の開示を設定する
 
@@ -56,6 +56,8 @@ Agent のモデルプロファイルは、**Console → Model Profiles** で構�
 - Pod 既定値とは異なる Web 検索・閲覧設定が必要な場合は、`web_search` と `web_fetch` を設定します。
 - 専用の画像生成 Provider を使う場合は、`image_generate` を設定します。
 - Background Agent Job（`coding`）で別の provider やモデルを使いたい場合は **Background Agent Jobs** を設定します（未設定時は `heavy -> primary` にフォールバックします）。ChatGPT サブスクリプションも、[ChatGPT サブスクリプション provider](../chatgpt-subscription-provider/) を通じて同じ手順で選択できます。
+
+独立した `web_search` または `image_generate` プロファイルを使う場合は、対応する provider-hosted スイッチもオフにします。プロファイルの紐付けだけではスイッチは変わりません。両スイッチは既定でオンとなり、Site → Pod → Agent の順で設定を継承します。
 
 モデルを選択・入力する前に、まず Provider を選択してください。Provider を選ぶと context length 欄も入力できるようになります。空欄のままにした場合は、Provider とモデルの既定値が使われます。Agent 側の上書きを削除すると、再び Pod・Site 既定値の継承に戻ります。
 
@@ -98,7 +100,7 @@ Agent から返信が返らないときは、次の項目を順番に確認し�
 1. 対象の Agent が有効になっていること。
 2. Agent に有効な `primary` モデルプロファイルが解決されており（Site/Pod 既定値または Agent 上書き）、LLM Provider が正常に利用できる状態にあること。
 3. 外部チャネル経由の場合は、Signal routing ルールが対象の Agent を正しく指していること。
-4. **Console → Workers** で、Agent の Worker が `ready` 状態であるか、エラーなく起動処理中であること。
+4. コンピュータ上の作業が必要な場合は、**Console → Workers** で Worker が `ready` 状態、またはエラーなく起動中であること。通常の質疑応答には稼働中の Worker は不要です。
 5. **Console → Conversations** に該当メッセージが記録されているか、また原因を示すエラーが表示されていないか確認すること。
 
 チャネル別の確認ポイントについては、[Quick start のトラブルシューティング](../quickstart/#agent-not-replying) を参照してください。

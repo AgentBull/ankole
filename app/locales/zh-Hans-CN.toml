@@ -7,8 +7,8 @@ max_running_per_agent = "单个 Agent 可同时运行的 Background Agent Job �
 
 
 [app_configure.descriptions.ai_agent]
-inactivity_timeout_ms = "会话等待模型或 Provider 活动的超时时间（毫秒）。运行中的工具自行管理生命周期；设为 0 关闭看门狗。"
-max_iterations = "单次会话执行允许的最大逻辑模型迭代次数。"
+inactivity_timeout_ms = "单个 Session turn 等待模型或 Provider 活动的超时时间（毫秒）。运行中的工具自行管理生命周期；设为 0 关闭看门狗。"
+max_iterations = "单个 Session turn 允许的最大逻辑模型迭代次数。"
 max_output_tokens = "单次模型响应的最大输出 token 数；nil 表示不显式限制。"
 
 [app_configure.descriptions.ai_agent.library]
@@ -46,7 +46,7 @@ enabled_ids = "下次 Ankole 进程启动时启用的 Control Plane Plugin ID。
 "*" = "由系统管理的 Microsoft Graph 变更通知订阅状态。"
 
 [app_configure.descriptions.principals.identity_providers]
-active = "可用于管理员身份认证的身份源提供商。"
+active = "本租户用于登录与目录同步的身份源提供商配置。"
 directory_full_sync_interval_minutes = "两次定期完整目录同步入队尝试之间的分钟数。"
 
 [app_configure.descriptions.principals.identity_providers.dingtalk]
@@ -155,8 +155,8 @@ space_name = "空间名称"
 member_name = "个人显示名"
 add_email = "添加其他登录身份"
 sign_out_all = "全部退出"
-pending_space = "待加入（New）· {$name}"
-personal_email_notice = "长期使用的私人空间应绑定个人邮箱。企业邮箱可能被雇主回收并分配给他人，各空间独立管理成员身份。"
+pending_space = "待加入 · {$name}"
+personal_email_notice = "对于打算长期使用的空间，请使用个人邮箱。雇主可能把企业邮箱重新分配给他人。各空间独立管理成员身份。"
 
 [authn.email]
 footer = "系统安全邮件 · 请勿直接回复"
@@ -712,13 +712,13 @@ alert_failed_jobs_action = "查看任务"
 alert_failed_jobs_description = "打开任务可以读到它记录的错误。"
 alert_failed_jobs_title = "最近有 {$count} 个后台 Agent 任务失败"
 alert_no_identity_action = "添加身份源提供商"
-alert_no_identity_description = "没有启用的身份源提供商，其他人无法登录本控制台。"
+alert_no_identity_description = "如需使用企业账号登录，请配置并启用身份源提供商。"
 alert_no_identity_title = "没有启用任何身份源提供商"
 alert_no_provider_action = "添加模型提供商"
 alert_no_provider_description = "至少有一个已启用的 LLM 提供商带有可用凭据，Agent 才能调用模型。"
 alert_no_provider_title = "没有可用的 LLM 提供商"
 alert_worker_failing_action = "查看工作节点"
-alert_worker_failing_description = "后端报告有 Worker 无法就绪，对应的 Agent 无法工作。"
+alert_worker_failing_description = "有 Worker 无法就绪，对应 Agent 无法执行需要电脑的任务。"
 alert_worker_failing_title = "有 {$count} 个 Worker 无法就绪"
 attention = "需要处理"
 enabled_providers = "已启用模型提供商"
@@ -1641,7 +1641,7 @@ observability_header_value = "第 {$number} 个请求头值"
 observability_headers = "认证请求头"
 observability_headers_empty = "当前没有请求头。接收端需要认证时再添加。"
 observability_headers_hint_langfuse = "添加 Authorization: Basic <base64(public-key:secret-key)> 和 x-langfuse-ingestion-version: 4。"
-observability_headers_hint_langsmith = "添加 x-api-key；Langsmith-Project 可选。"
+observability_headers_hint_langsmith = "添加 x-api-key。使用 Agent 型工作区时，还需添加 Langsmith-Agent-Id 和 Langsmith-Agent-Environment；使用 Project 型工作区时，改用 Langsmith-Project。"
 observability_headers_hint_opentelemetry = "只添加所选 OTLP 接收端要求的请求头。"
 observability_headers_invalid = "已保存的认证请求头不是字符串 map；请替换后再保存。"
 observability_headers_masked = "只有显式查看后才会显示已保存的请求头名称和值。"
@@ -1697,12 +1697,12 @@ json_select_key = "选择键"
 json_show_less = "收起"
 json_update_failed = "无法更新该值。"
 locale_hint = "选择当前 Ankole 实例中包含的语言。"
-locale_title = "实例语言"
+locale_title = "空间语言"
 timezone_current_time = "该时区当前的日期和时间"
 timezone_empty = "没有匹配的时区；可输入一个 IANA 时区 ID 后使用。"
 timezone_hint = "搜索 IANA 时区 ID。这里显示当前日期对应的 UTC 偏移；实行夏令时的地区会随日期变化。"
 timezone_placeholder = "搜索，例如 Asia/Shanghai"
-timezone_title = "实例时区"
+timezone_title = "调度时区"
 timezone_use = "使用 {$timezone}"
 unsaved = "有未保存修改"
 valid_json = "JSON 有效"
@@ -2091,7 +2091,7 @@ result = "结果"
 
 [console.workers]
 agent = "Agent"
-empty_description = "每个 Agent 有一个 Worker。创建 Agent 后，它第一次需要时 Worker 会自动启动。"
+empty_description = "每个 Agent 有一个 Worker。创建 Agent 时会在后台启动 Worker；空闲回收后，需要 Worker 的任务会再次启动它。"
 empty_title = "暂无工作节点"
 last_heartbeat = "最近心跳"
 load = "负载"
@@ -3887,7 +3887,7 @@ formula_bar = "单元格内容"
 active_cell = "当前单元格"
 active_cell_value = "{$cell}：{$value}"
 version_history = "版本历史"
-version_history_description = "恢复某个版本前，系统会先把当前文件保存为一个版本，因此不会丢失任何内容。"
+version_history_description = "恢复某个版本前，系统会先把当前文件保存到版本历史中。"
 versions = "版本"
 version_restored = "已恢复该版本，所有打开的编辑器都会重新加载。"
 restore_version = "恢复"
@@ -4165,7 +4165,7 @@ sync_retrying = "尚未保存，正在重试…"
 view_only = "仅可查看"
 collaborators = "正在查看或编辑此文件的成员"
 version_history = "版本历史"
-version_history_description = "恢复某个版本前，系统会先把当前文件保存为一个版本，因此不会丢失任何内容。"
+version_history_description = "恢复某个版本前，系统会先把当前文件保存到版本历史中。"
 versions = "版本"
 version_restored = "已恢复该版本，所有打开的编辑器都会重新加载。"
 restore_version = "恢复"
@@ -5740,3 +5740,77 @@ all_colleagues_bound = "名下所有 AI 同事均已绑定到此设备。"
 binding_status_connected = "已连接"
 binding_status_draining = "排空中"
 binding_status_offline = "未连接"
+
+[app_configure.descriptions.tenants]
+"privileged_tenant_id" = "负责管理本站点的 siteadmin 组所属租户的 ID。"
+
+[app_configure.descriptions.pod]
+"allow_external_guests" = "允许受邀外部访客访问与其共享的 Pod 页面。"
+"ot_replay_window" = "为 OT 重放保留的最近文档变更批次数。"
+"ocr_existing_scans" = "将上传时未经过 OCR 的扫描 PDF 页面送至 OCR 模型识别。OCR 服务商会对每一页收费。"
+
+[app_configure.descriptions.pod.applet]
+"limits" = "Applet 单次调用的限制，包含 timeout_ms 和 heap_mb，计入能力调用的等待时间与外部内存。"
+"action_limits" = "Applet Action 单个分片的限制，包含 timeout_ms 和 heap_mb，并计入能力调用的等待时间。"
+"action_runtime_url" = "可选的后台 Action 专用 Function Runtime origin，使用站点的 runtime 凭据；留空时使用共享部署。"
+
+[app_configure.descriptions.pod.base]
+"limits" = "Base 查询与记录限制，包含 query_rows、record_bytes、group_count 和 statement_timeout_ms。"
+
+[app_configure.descriptions.pod.office]
+"limits" = "Office 页面在线编辑文件的大小上限为 max_file_bytes；compaction_idle_seconds、compaction_op_threshold 和 compaction_structural_threshold 决定何时把编辑写入文件。"
+
+[app_configure.descriptions.principals]
+"pod_login_policy" = "Pod 成员的登录与邀请策略。"
+
+[app_configure.descriptions.drive]
+"vfs_max_upload_bytes" = "单次 Drive VFS 上传的最大字节数；设为 0 时使用对象存储的上限。"
+"trash_retention_days" = "已删除 Drive 节点在自动清理前保留的天数；设为 0 时保留，直到修改此设置。"
+
+[app_configure.descriptions.signals.telegram.bindings]
+"*" = "加密的 Telegram Bot 绑定配置。"
+
+[app_configure.descriptions.signals.whatsapp.bindings]
+"*" = "加密的 WhatsApp Cloud API 绑定配置。"
+
+[app_configure.descriptions.connectors.database]
+"limits" = "数据库连接器预算，包含 statement_timeout_ms、lock_timeout_ms、max_rows、max_result_bytes、max_scanned_bytes（适用于 ClickHouse）、max_export_rows、probe_count、catalog_tables、profile_tables 和 sample_rows。"
+
+[app_configure.descriptions.signals.line.bindings]
+"*" = "加密的 LINE 渠道绑定配置。"
+
+[app_configure.descriptions.signals.discord.bindings]
+"*" = "加密的 Discord Bot 绑定配置。"
+
+[app_configure.descriptions.signals.lark.binding_configs]
+"*" = "由绑定持有的加密飞书 / Lark 聊天配置。"
+
+[app_configure.descriptions.signals.email.bindings]
+"*" = "加密的电子邮箱绑定配置。"
+
+[app_configure.descriptions.signals.wecom.bindings]
+"*" = "加密的企业微信聊天绑定配置。"
+
+[app_configure.descriptions.principals.identity_providers.wecom]
+"*" = "加密的企业微信身份源提供商配置。"
+
+[app_configure.descriptions.ai_gateway.model_profiles]
+"primary" = "Pod 或 Site 的 primary 模型档案覆盖配置。"
+"light" = "Pod 或 Site 的 light 模型档案覆盖配置。"
+"heavy" = "Pod 或 Site 的 heavy 模型档案覆盖配置。"
+"coding" = "Pod 或 Site 的 coding 模型档案覆盖配置。"
+"vision_fallback" = "Pod 或 Site 的 vision_fallback 模型档案覆盖配置。"
+"web_search" = "Pod 或 Site 的 web_search 模型档案覆盖配置。"
+"web_fetch" = "Pod 或 Site 的 web_fetch 模型档案覆盖配置。"
+"image_generate" = "Pod 或 Site 的 image_generate 模型档案覆盖配置。"
+"rerank" = "Pod 或 Site 的 rerank 模型档案覆盖配置。"
+"decision" = "Pod 或 Site 的 decision 模型档案覆盖配置。"
+"speech" = "Pod 或 Site 的 speech 模型档案覆盖配置。"
+"transcription" = "Pod 或 Site 的 transcription 模型档案覆盖配置。"
+"ocr" = "Pod 或 Site 的 ocr 模型档案覆盖配置。"
+"video" = "Pod 或 Site 的 video 模型档案覆盖配置。"
+"music" = "Pod 或 Site 的 music 模型档案覆盖配置。"
+
+[app_configure.descriptions.ai_gateway.provider_hosted]
+"web_search" = "是否由语言模型 Provider 执行 web_search。"
+"image_generate" = "是否由语言模型 Provider 执行 image_generate。"

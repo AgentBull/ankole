@@ -93,7 +93,12 @@ kubectl label namespace ankole pod-security.kubernetes.io/enforce=privileged --o
 3. 외부 또는 번들 데이터베이스가 **PostgreSQL 18+**(`pg_search` `0.26.4` 및 `vector`)인지 확인합니다. `secrets.existingSecret`(`ankole-bootstrap`)을 사용하는 경우에는 `helm upgrade`를 실행하기 전에 기존 `ANKOLE_SECRET_BASE`, `DATABASE_URL`과 더불어 `RELEASE_COOKIE`와 `ANKOLE_FUNCTION_RUNTIME_TOKEN` 키가 시크릿에 들어 있는지 확인하고 누락된 키를 추가하세요.
 
 ```sh
-kubectl -n ankole patch secret ankole-bootstrap --type merge -p "$(printf '{"stringData":{"RELEASE_COOKIE":"%s","ANKOLE_FUNCTION_RUNTIME_TOKEN":"%s"}}' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)")"
+kubectl -n ankole get secret ankole-bootstrap \
+  -o go-template='{{if not (index .data "RELEASE_COOKIE")}}RELEASE_COOKIE{{"\n"}}{{end}}{{if not (index .data "ANKOLE_FUNCTION_RUNTIME_TOKEN")}}ANKOLE_FUNCTION_RUNTIME_TOKEN{{"\n"}}{{end}}' |
+while IFS= read -r secret_name; do
+  kubectl -n ankole patch secret ankole-bootstrap --type merge \
+    -p "$(printf '{"stringData":{"%s":"%s"}}' "$secret_name" "$(openssl rand -hex 32)")"
+done
 ```
 
    (아직 `ankole-bootstrap`에 없는 키만 패치하세요.)

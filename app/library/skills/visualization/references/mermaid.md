@@ -2,7 +2,7 @@
 
 Use ` ```mermaid ` across Pod `:doc` pages, `:knowledge` pages, and Chat replies—or `ankole-viz mermaid` for offline SVG/PNG files—whenever depicting branching workflows, request/response sequences, state machines, or entity-relationship schemas.
 
-## Supported diagram families (`pele` 1.12)
+## Supported diagram families (`pele` 1.13)
 
 Stick to diagram types backed by deterministic layout and zero external runtime scripts:
 

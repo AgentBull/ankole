@@ -19,7 +19,7 @@ Read this receipt and list the merchant, date, items, tax, and total.
 
 ## 一般的な CPU で動く高度な認識
 
-Ankole は、CPU 環境向けに最適化された高精度な検出・認識モデルである [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) を採用しています。`medium` は PP-OCRv6 ファミリーの中で認識精度を重視したモデルであり、PaddleOCR の評価では PP-OCRv5_server と比較してテキスト検出（text detection）が 4.6%、テキスト認識（text recognition）が 5.1% 向上しています。
+Ankole は、CPU 環境向けに最適化された高精度な検出・認識モデルである [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) を採用しています。`medium` は PP-OCRv6 ファミリーの中で認識精度を重視したモデルであり、PaddleOCR の社内マルチシナリオベンチマークでは、PP-OCRv5_server と比べて検出の Hmean が 4.6 ポイント、認識精度が 5.1 ポイント向上しています。
 
 単一のモデルで 50 言語（簡体字中国語、繁体字中国語、英語、日本語、および 46 のラテン文字系言語）に対応しており、スキャン文書だけでなく、スクリーンショット、看板、商品ラベル、デジタル表示器など実世界の多様な画像内テキストを読み取れます。
 

@@ -5,7 +5,7 @@ section: User guide
 order: 33
 ---
 
-Agent 可先通过 `web_search` 检索公开网页，再通过 `web_fetch` 提取目标页面的正文内容。其中，`web_search` 必须绑定外部提供商；`web_fetch` 则优先调用已绑定的提供商，若未配置也可自动回退至 Worker 内置的网页渲染提取器。
+Agent 可先通过 `web_search` 检索公开网页，再通过 `web_fetch` 提取目标页面的正文内容。启用 Provider-hosted 网页搜索时，若当前模型支持原生搜索，Ankole 会使用该模型提供商的搜索能力。若要使用独立搜索提供商，应关闭 Provider-hosted `web_search`，再绑定 `web_search` 档案。`web_fetch` 优先调用已绑定的提供商，未配置时可回退至 Worker 内置的网页渲染提取器。
 
 ## 先选择正确的工具
 
@@ -30,7 +30,9 @@ Agent 可先通过 `web_search` 检索公开网页，再通过 `web_fetch` 提�
 
 同一种提供商类型下可创建多个独立实例——例如，你可以针对不同目标国家或业务线分别建立两个 Bright Data SERP 实例，再按需分配给不同的 Agent。
 
-### 分配给 Agent
+### 将独立提供商分配给 Agent
+
+使用独立搜索档案前，应在目标 Agent 或其继承的默认设置中关闭 Provider-hosted `web_search`。绑定或清空档案本身不会改变这个开关。
 
 1. 打开 **Console → 智能体** 页面，点开目标 Agent。
 2. 在**模型档案**区域找到 `web_search`，选择一个支持网页搜索的提供商实例。
@@ -98,7 +100,7 @@ Worker 内置的渲染回退机制属于底层兜底能力而非独立提供商�
 
 请按以下顺序逐项排查：
 
-1. 目标 Agent 是否已配妥所需的模型档案（其中 `web_search` 必须显式指定提供商）；
+1. 检查搜索执行路径：Provider-hosted 搜索要求当前模型支持原生搜索；关闭该开关时，`web_search` 必须绑定已启用的搜索提供商；
 2. 若 `web_fetch` 留空未绑定提供商，当前 Agent 的 Worker 是否正常运行并具备内置渲染回退能力；
 3. 所绑定的提供商实例是否确实声明支持该项能力；
 4. 该提供商是否处于启用状态，API Key 与各项必填参数是否真实有效；

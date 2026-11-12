@@ -52,7 +52,7 @@ Console 的配置管理、聚合状态视图及可审计的密钥读取操作统
 | `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 删除指定的 Agent 档案覆盖或自定义模型档案 |
 | `PUT` | `/api/v2/agents/:agent_uid/provider-hosted` | 设置单个 Agent 的 Provider 托管能力覆盖开关 |
 
-上游 Provider 的密钥以加密池成员的形式保存在控制面内，绝不会注入 Agent 运行环境。模型档案按“站点默认值 → Pod 默认值 → Agent 或系统服务主体覆盖值”分层解析（其中 `ankole_brain` 用于 Brain 知识提取、Dreaming、向量嵌入与重排，`system` 用于 Pod Applet 模型调用及租户内部运维任务），运行时由 AIGateway 在该 Provider 的凭据池内自动挑选健康成员；接口响应仅返回脱敏后的账号标识、健康状态、配额窗口与用量统计。
+上游 Provider 的密钥以加密池成员的形式保存在控制面内，绝不会注入 Agent 运行环境。模型档案按“站点默认值 → Pod 默认值 → Agent 或系统服务主体覆盖值”分层解析（其中 `ankole_brain` 用于 Brain 知识提取、Dreaming、URL 抓取与重排，`system` 用于租户内部运维任务），运行时由 AIGateway 在该 Provider 的凭据池内自动挑选健康成员；接口响应仅返回脱敏后的账号标识、健康状态、配额窗口与用量统计。
 
 ### agent 及其能力
 

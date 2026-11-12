@@ -60,7 +60,7 @@ All `xlsx` requirements apply (→ see xlsx §Requirements for Outputs). Dashboa
 
 ## Quick Start
 
-Minimal viable dashboard: 12-month revenue CSV → 4 KPIs + 1 line chart + activeTab + fullCalcOnLoad. Adapt the numbers, don't copy-paste blind. Broken into phases so a single failed phase is obvious.
+Minimal dashboard command skeleton: 12-month revenue CSV → 1 KPI + 1 line chart + activeTab + fullCalcOnLoad. Adapt the numbers, don't copy-paste blind. Broken into phases so a single failed phase is obvious.
 
 **Phase 1 — Data sheet: create, import, format.**
 
@@ -197,7 +197,7 @@ A card is a label cell + a value cell. The label is small gray (font.size=9, fon
 
 ### Chart width budget by title length
 
-At the `dashboard` preset's default title font, the chart plot-box width (in column units) must stay ahead of the title string, or the title clips mid-word. Rule of thumb: `chart.width ≥ ceil(title.length × 0.18)`. A 35-character title ("Department: Year-End Headcount vs Attrition Rate") needs `width ≥ 7`; be safer and use 10–12. If the anchor cannot be widened, shorten the title to ≤ 25 characters — clipped titles in a board-ready deliverable are indefensible.
+At the `dashboard` preset's default title font, the chart plot-box width (in column units) must stay ahead of the title string, or the title clips mid-word. Rule of thumb: `chart.width ≥ ceil(title.length × 0.18)`. A 48-character title ("Department: Year-End Headcount vs Attrition Rate") needs `width ≥ 9`; be safer and use 10–12. If the anchor cannot be widened, shorten the title to ≤ 25 characters — clipped titles in a board-ready deliverable are indefensible.
 
 `officecli get chart[N]` exposes numeric `width` (e.g. `width=480pt`) alongside `anchor` (e.g. `"A6:K21"`) at `.data.results[0].format`. Either is usable for Gate 2 — derive column span from anchor letters (A→K = 10 cols) when you need a column-unit budget.
 

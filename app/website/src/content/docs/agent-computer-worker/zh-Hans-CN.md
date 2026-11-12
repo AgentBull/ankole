@@ -5,7 +5,7 @@ section: Developer guide
 order: 108
 ---
 
-Agent Computer Worker 是每个 Agent 专属的隔离运行环境，相当于它自己的电脑。创建 Agent 时，系统仅记录 Worker Provider 绑定关系并写入一条状态为 `absent` 的 Worker 记录；直到首次调用环境工具或执行 Codex 任务时，控制面才会按需拉起实例。纯文本问答与控制面内置工具不依赖 Worker。
+Agent Computer Worker 是每个 Agent 专属的隔离运行环境，相当于它自己的电脑。创建 Agent 时，Ankole 记录 Worker Provider 绑定关系、写入状态为 `absent` 的 Worker 记录，并在后台安排首次启动。首次启动完成、空闲 Worker 被释放后，系统再按环境工具或 Codex 任务的实际需求唤醒 Worker。纯文本问答与控制面内置工具无需等待 Worker。
 
 ## 执行与归属
 

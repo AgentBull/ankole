@@ -7,7 +7,7 @@ order: 126
 
 AIGateway는 내부 Worker만 호출하는 전용 통로가 아니라 외부 애플리케이션, 사내 시스템, SDK에서도 직접 호출할 수 있는 REST API입니다. 이 문서는 외부 호출자를 위한 실무 가이드로서 엔드포인트 구조, 인증 방식, 두 가지 호출 모드와 실제 호출 예시를 다룹니다. [AIGateway](../ai-gateway/) 개념 문서를 보완하여 실제 API 사용법에 초점을 맞춥니다.
 
-가장 먼저 기억할 핵심 원칙은 AIGateway API가 **OpenResponses 호환 규격을 따르며 Principal 단위로 권한 범위가 제한된다**는 점입니다. 호출자가 bearer 토큰(Agent 토큰 또는 OIDC Human 토큰)과 함께 OpenResponses 형식의 요청을 보내면 JSON 본문이나 스트림 응답을 돌려받습니다. 업스트림 provider 자격 증명은 control plane이 전담 보관하므로 호출자에게 노출되지 않습니다.
+AIGateway 호출은 **Principal 단위로 범위가 제한**되며 Agent 또는 OIDC Human bearer 토큰이 필요합니다. Responses API는 OpenResponses 형식의 요청을 받아 JSON 또는 이벤트 스트림을 반환합니다. 미디어와 파일 엔드포인트는 각각의 스키마와 Content-Type을 사용합니다. 업스트림 provider 자격 증명은 control plane에 보관됩니다.
 
 ## 인증
 
@@ -49,7 +49,7 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "Draft a release note.", "stream": true }'
 ```
 
-상태비저장 HTTP 및 SSE 경로로 상태보존용 필드(`previous_response_id`, `conversation`, `store`)를 전달하면 요청이 거부됩니다. 여러 턴에 걸쳐 대화를 이어 가려면 WebSocket 경로를 사용하세요.
+상태비저장 HTTP와 SSE는 `previous_response_id`, `conversation`, `false` 이외의 `store` 값을 거부합니다. `store`는 생략하거나 `store: false`로 지정할 수 있습니다. 여러 턴에 걸쳐 대화를 이어 가려면 WebSocket을 사용하세요.
 
 ## 기타 endpoint
 

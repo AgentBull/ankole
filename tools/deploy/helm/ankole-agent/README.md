@@ -152,6 +152,11 @@ Replace the host, Ingress settings, and StorageClass names for your cluster.
 Setting `fullnameOverride` to `ankole` keeps the PostgreSQL Service named
 `ankole-postgresql` so that it matches `DATABASE_URL` in the Secret.
 
+Members use `https://<tenant-slug>.ankole.example.com`. Configure DNS, trusted
+TLS, and additional Ingress host rules for each tenant hostname, routing them
+to the same control-plane Service. The example above configures the site host;
+add tenant hostnames before members sign in.
+
 Install the chart:
 
 ```sh
@@ -244,7 +249,8 @@ kubectl -n ankole logs deployment/ankole-control-plane \
 ```
 
 Open `https://ankole.example.com/setup`, enter the activation code, select the
-Control Plane Plugins, and configure the identity provider for administrators.
+Control Plane Plugins, and configure passwordless administrator sign-in through
+6-digit SMTP Email OTP or enterprise OIDC SSO.
 Because the production image sets secure cookies, the browser setup flow
 requires HTTPS.
 
@@ -454,14 +460,15 @@ host using a client version that supports PostgreSQL 18 archives. Because
 `pg_restore -l` only inspects the archive table of contents, still run full
 restore drills against a separate database.
 
-When `secrets.baseDBURLs` (or `BASE_DB_URLS` in `secrets.existingSecret`) is
-unset, physical Base tables live in per-tenant `t_<tenant_hex>` schemas inside
-`DATABASE_URL` and are included in that `ankole` dump. When dedicated physical
-Base shards are configured through `secrets.baseDBURLs` or `BASE_DB_URLS`, back
-up every configured PostgreSQL shard database alongside the control-plane
-database (and during point-in-time recovery across independent PostgreSQL
-instances, recover each shard to a timestamp at or ahead of the control-plane
-recovery target).
+Inventory the running site's effective Base topology, including explicit
+`secrets.baseDBURLs` or `BASE_DB_URLS` entries and edition defaults. In the
+single-database topology (the production FOSS default), physical Base tables
+live in per-tenant `t_<tenant_hex>` schemas inside `DATABASE_URL` and are
+included in the control-plane dump. For a topology with separate Base
+databases, back up every shard alongside the control-plane database. During
+point-in-time recovery across independent PostgreSQL instances, recover each
+shard to a timestamp at or ahead of the control-plane recovery target. See
+[Base storage placement](../../../../docs/design-docs/Tenants.md#base-storage-placement).
 
 If `kubectl exec` truncates the stream, preserve the diagnostic output, set
 `KUBECTL_REMOTE_COMMAND_WEBSOCKETS=false`, and re-run both the export and the

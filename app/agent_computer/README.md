@@ -88,8 +88,8 @@ ANKOLE_WORKER_STORAGE=<mounted or adapter>
 At startup, the Worker validates the endpoint, copies the credential into its
 in-memory configuration, and removes that credential from the environment that
 child processes inherit. Once connected, the authenticated channel identifies
-the Agent for every request. Lambda launch hooks receive only the five keys in
-the runtime contract.
+the Agent for every request. Lambda launch hooks accept only these runtime fields plus
+`ANKOLE_WORKER_STORAGE_NAME` and `ANKOLE_WORKER_NFS_SOURCE` for NFS storage.
 
 In the container image, built-in Skills live under
 `ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library`. Internal images also include
@@ -109,8 +109,9 @@ Each Agent has persistent Home storage mounted at `/workspace`:
   planned stop; see the
   [adapter's storage limits](../../tools/deploy/cloudflare/agent-workers/README.md#storage-and-replacement).
 
-Across all providers, Agent Home is preserved when the provider deletes an
-instance, updates its image, or rebuilds its cache.
+Providers preserve Agent Home across planned instance replacements, image
+updates, and cache rebuilds. Cloudflare restores the latest Home snapshot; an
+abrupt platform stop can lose writes made since that snapshot.
 
 ```text
 /workspace/

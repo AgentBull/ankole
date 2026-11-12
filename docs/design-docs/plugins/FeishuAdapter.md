@@ -134,10 +134,10 @@ The WebSocket client manages reconnects, keepalive pings, frame reassembly, and
 event dispatch, acknowledging frames only after their handlers finish (provider
 redeliveries are safe because control-plane writes are idempotent). One
 connection dispatches at most 64 frames at a time and leaves any further frame
-unacknowledged, so Feishu redelivers it after the burst. In a
-multi-node cluster, operators must pin each application connection to a single
-node because the local process registry does not arbitrate connection ownership
-across nodes.
+unacknowledged, so Feishu redelivers it after the burst. Across connected
+control-plane nodes, `ConnectionLifecycle.Cluster` coordinates one owner per
+connection with `:global` locks and registration. Peer nodes take over when the
+owner enters graceful HTTP drain or disconnects.
 
 ## Receive Messages and Actions
 

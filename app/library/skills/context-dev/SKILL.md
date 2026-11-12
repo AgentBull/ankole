@@ -28,7 +28,7 @@ Ankole already owns most of this work. Use the built-in owner when it applies:
 Route to Context.dev for the work those owners do not cover:
 
 - A page that refuses an ordinary fetch, or that shows its content only after a wait or a click.
-- A site inventory, a whole-site crawl, or an asynchronous batch of up to 25,000 URLs.
+- A site inventory, a whole-site crawl, or an asynchronous batch of up to 100,000 URLs.
 - A page or site that must answer in a caller-defined JSON Schema.
 - A company profile, design system, font list, page screenshot, or NAICS or SIC code.
 - A page, sitemap, or extraction that must be watched on a schedule.
@@ -62,14 +62,14 @@ Ankole generates `MCPORTER_CONFIG` for each Main turn or Background Agent Job ex
 
 ### Web reading
 
-- `web-search`: Search the live web. 1 credit for each result, and `numResults` starts at 10, so one search costs at least 10 credits. `markdownOptions.enabled: true` also scrapes each hit in the same call.
+- `web-search`: Search the live web, from 1 credit per 10 results. `numResults` accepts 1–100 and defaults to 10. `markdownOptions.enabled: true` also scrapes each hit in the same call and adds 1 credit per result with Markdown.
 - `web-scrape-markdown`: Turn one known URL into clean Markdown. 1 credit, or 2 with `actions`. This is the default page reader.
 - `web-scrape-html`: Return rendered raw HTML. 1 credit, or 2 with `actions`. Use it only when DOM structure, attributes, or scripts are the answer.
 - `web-scrape-images`: List the image assets of one page. 1 credit, 2 with `actions`, 5 when any `enrichment` flag is set.
 - `web-scrape-sitemap`: Discover the URLs of a domain. 1 credit. It returns URLs only, never page bodies, so use it before you decide what to read.
 - `web-crawl`: Follow internal links from one URL and return Markdown for each page in one synchronous call. 1 credit for each page, `maxPages` at most 500. Set `maxPages` to what you will read.
 - `web-extract`: Crawl the relevant pages and return data shaped by a JSON Schema. 10 credits, `maxPages` at most 50.
-- `parse-document`: Convert base64 file bytes to Markdown. 1 credit, 5 when OCR adds text, and the decoded file must be 25 MiB or smaller. Ankole reads PDF, image, DOCX, PPTX, and XLSX files locally through its own Skills, so reach for this tool only for a format they do not read, such as `.doc`, `.rtf`, or `.srt`.
+- `parse-document`: Convert base64 file bytes to Markdown. 1 credit, 5 when OCR adds text, and the decoded file must be 50 MiB or smaller. Ankole reads PDF, image, DOCX, PPTX, and XLSX files locally through its own Skills, so reach for this tool only for a format they do not read, such as `.doc`, `.rtf`, or `.srt`.
 
 Read [references/web-reading.md](references/web-reading.md) before you compose any of these calls.
 
@@ -112,7 +112,7 @@ Treat a submission as non-idempotent. After a timeout or an unclear error, list 
 
 1. Pass a bare domain, such as `stripe.com`, where the tool asks for `domain`. Pass a full `http` or `https` URL where the tool asks for `url` or `directUrl`.
 2. A cached answer returns in under a second. A cold answer takes about 7 seconds at p50 and can reach a minute, so raise `timeoutMS` toward its 300000 ms maximum for a first look at a slow site, and keep the mcporter `--timeout` above it.
-3. `[N entries omitted]` or `...[truncated]` means the business result is incomplete. Do not analyze it and do not advance a cursor. Ask again with fewer pages, fewer results, or a narrower range.
+3. `_context_mcp.truncated: true`, `[N entries omitted]`, or `...[truncated]` means the business result is incomplete. Do not analyze it and do not advance a cursor. Ask again with fewer pages, fewer results, or a narrower range.
 4. Follow `next_cursor` while the response says more results exist. A page can close early to stay under its size limit, so trust the cursor instead of counting records.
 5. Any field can be absent. Check the fields you need before you build an answer on them.
 6. Report the URL or domain you read, the tool you called, and any page that failed or was skipped.
@@ -123,7 +123,8 @@ Treat a submission as non-idempotent. After a timeout or an unclear error, list 
 | --- | --- | --- |
 | 400 | Malformed input, `WEBSITE_ACCESS_ERROR` for an unreachable or blocked site, or `NOT_FOUND` for no brand match | Fix the input, or report the site as unreadable. `NOT_FOUND` is free |
 | 401 | `CONTEXT_DEV_API_KEY` is missing or wrong | Report the variable name and ask the operator to set it in Console |
-| 403 | `FORBIDDEN` for a paid-plan feature, or `USAGE_EXCEEDED` | Report the plan or quota limit. Browser `actions` need a paid plan |
+| 402 | `USAGE_EXCEEDED` | Report the account credit limit; wait until the account can cover the operation before retrying |
+| 403 | `PAID_PLAN_REQUIRED` for a paid-plan feature | Report the feature entitlement limit. Browser `actions` need a paid plan |
 | 408 | Cold answer or `timeoutMS` exceeded | Raise `timeoutMS`, or narrow the request |
 | 422 | Free or disposable address on an email lookup | Skip enrichment for that address |
 | 429 | Rate limit | Wait, then retry with growing delays |

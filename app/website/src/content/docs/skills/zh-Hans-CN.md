@@ -29,7 +29,7 @@ Ankole Agent Plugin 是 <a href="https://developers.openai.com/plugins" target="
 
 模板中可预先放入定制的 `AGENTS.md`、标准目录层级、调研方法论、自动化校验脚本、Playbook 手册及其他支撑文件。这样一来，后台任务拿到的是一个可随时读写落盘、故障后也可无缝断点恢复的结构化工程目录，而非每轮对话临时拼接的零散提示词。
 
-业界领先水平的 [Deep Research](../deep-research-job/) 便是这一机制的典型代表：先由主对话 Agent 与用户澄清研究目标，随后拉起初始化了 `deep-research` 工作区模板的后台任务。模板已提前备妥研究阶段划分、原始证据归档目录、交叉分析框架与引文核验脚本，使后台任务能够在同一工作区内持续搜集信源、迭代推演并最终成稿。
+Ankole 的 [Deep Research](../deep-research-job/) 便是这一机制的典型代表：先由主对话 Agent 与用户澄清研究目标，随后拉起初始化了 `deep-research` 工作区模板的后台任务。模板已提前备妥研究阶段划分、原始证据归档目录、交叉分析框架与引文核验脚本，使后台任务能够在同一工作区内持续搜集信源、迭代推演并最终成稿。
 
 注意，开启包含工作区模板的 Agent Plugin 并不会改动既有会话，也不会自动拉起后台任务；只有当新创建的任务明确选用该模板时，系统才会用它初始化对应的任务工作区。
 
@@ -71,7 +71,7 @@ Control Plane Plugin 与 OpenAI Plugin 毫无关系，既不进入任何 Agent �
 
 一个 Control Plane Plugin 可以跨前后端同时注入以下平台级扩展点：
 
-- 子系统驱动适配器（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider`）以及受监督的常驻 OTP 进程（`children/0`）；
+- 子系统驱动适配器（`signals.adapter`、`principals.identity_provider`、`ai_gateway.provider`、`agent_workers.provider_kind`）以及受监督的常驻 OTP 进程（`children/0`）；
 - 外层 HTTP 前置 `Plug` 与双作用域扩展 JSON:API 路由；
 - 同步领域写事务钩子 `hooks/0`（基于 `Ankole.Plugins.Hook`）；
 - 声明式 `AppConfigure` 配置表单字段（`ConfigFields`）与前端强类型 Web UI 替换插槽（`entries.json` 中的 `overrides`）。

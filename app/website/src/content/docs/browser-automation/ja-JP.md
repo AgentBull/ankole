@@ -33,7 +33,7 @@ Ankole のブラウザ自動化は、`app/library/skills/browser/SKILL.md` に�
 1. **テナントの既定値**: 出荷時は `default_enabled: true` です。テナント内のすべての Agent でブラウザ利用を許可する場合はそのままにします。
 2. **Agent 単位の上書き**: ブラウザ操作を許可したくない特定の Agent だけ無効化したり、逆にテナント既定値をオフにしたうえで必要な Agent だけ有効化したりできます。
 
-どちらの設定も、Console の library-capabilities 系ルートから変更できます（詳しくは [Console API リファレンス](../console-api/) を参照してください）。なお、Agent の `library-capabilities` を読み取るとその場で Skill の同期が走るため、古いスナップショットではなく現在のファイルシステムと照合された最新のレジストリ状態が返されます。
+どちらの設定も、Console の library-capabilities 系ルートから変更できます（詳しくは [Console API リファレンス](../console-api/) を参照してください）。Agent の `library-capabilities` を読み取ると、[Agent Library](../agent-library/) の更新規則に従って同梱 Skill を同期し、ローカル編集を保持したうえで、その Agent の有効なカタログ状態を返します。
 
 ## runtime が注入するもの
 
@@ -68,7 +68,7 @@ Agent はこれらを意識することなく `ankole-browser` CLI を呼び出�
 
 ## オペレーターが触らないもの
 
-Worker イメージには、`ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY`、`ANKOLE_BROWSER_RUNNER` といったブラウザ制御用の環境変数があらかじめ組み込まれています。これらの変数名を Console の **Environment variables** で上書きすることはできません。ブラウザ操作の手順や振る舞いをカスタマイズしたい場合は、Skill 側の定義を調整してください。
+Worker イメージと runtime が、`ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY`、`ANKOLE_BROWSER_RUNNER` といったブラウザ制御用の環境変数を設定します。これらの変数名を Console の **Environment variables** で上書きすることはできません。ブラウザ操作の手順や振る舞いをカスタマイズしたい場合は、Skill 側の定義を調整してください。
 
 ## 次のステップ
 

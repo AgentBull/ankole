@@ -11,11 +11,13 @@ Ankole 通过 AIGateway Provider 与各类上游 AI 服务（大语言模型、�
 
 ## provider DSL
 
-Provider 模块通过 `use Ankole.AIGateway.ProviderDSL` 引入一套精简的块状 DSL 来完成声明。这套 DSL 只登记元数据与能力映射，刻意不涉及具体的请求体字段——请求体的构造直接由同一模块内的普通 Elixir `prepare` 函数实现。
+Provider 模块通过 `use Ankole.AIGateway.ProviderDSL` 引入一套精简的块状 DSL 来完成声明。这套 DSL 登记元数据与能力映射。同一模块内的普通 Elixir `prepare` 函数负责选择端点、请求头和请求选项，再由选定的 Rust 解析器构造上游请求体。
 
 ```elixir
 defmodule Ankole.AIGateway.Providers.MyProvider do
   use Ankole.AIGateway.ProviderDSL
+
+  alias Ankole.AIGateway.UniversalAIRequest
 
   provider :my_provider do
     label(%{"default" => "My Provider"})
@@ -31,7 +33,9 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
   end
 
   def prepare_language_model(context) do
-    # 普通 Elixir 代码：根据 context 组装待发送的请求
+    context
+    |> UniversalAIRequest.new("responses", :openai_responses)
+    |> UniversalAIRequest.bearer_auth()
   end
 end
 ```
@@ -114,15 +118,14 @@ TypeSafe、Microsoft Foundry 和 OpenRouter 的 SystemOne 端点使用 `:systemo
 `prepare` 函数是编写在 Provider 模块中的普通 Elixir 函数，函数名由 `Capability` 的 `prepare` 字段指定。该函数接收 `PrepareContext`（内含解析合并后的配置项、模型请求参数及 Agent 上下文），返回组装完毕的 `UniversalAIRequest`，交由 `UniversalAIClient` 执行网络发送：
 
 ```elixir
-def prepare_language_model(%PrepareContext{} = context) do
-  %UniversalAIRequest{}
-  |> put_url(context.settings.base_url, "/responses")
-  |> put_auth("Bearer", context.settings.api_key)
-  |> put_body(context.request)
+def prepare_language_model(context) do
+  context
+  |> UniversalAIRequest.new("responses", :openai_responses)
+  |> UniversalAIRequest.bearer_auth()
 end
 ```
 
-不同上游厂商的接口差异全部收敛在这里处理，包括 URL 拼接、鉴权请求头、请求体格式转换以及特定上游 API 的兼容规则。可以说，`prepare` 函数承担了 Provider 的实质工作，而 DSL 声明则决定了这套逻辑如何被系统发现和路由。另外，凭据故障切换不在 `prepare` 函数内处理：一旦传输失败，控制面可以从凭据池中改选其他成员，重新调用 `prepare` 组装请求，再让 Rust 内核发起一次新的传输尝试。
+`prepare` 函数负责选择端点、鉴权请求头和 Provider 特有的请求选项。选定的 Rust 解析器根据公开请求与这些选项编码上游请求体；DSL 声明负责 Provider 的发现和路由。另外，凭据故障切换不在 `prepare` 函数内处理：一旦传输失败，控制面可以从凭据池中改选其他成员，重新调用 `prepare` 组装请求，再让 Rust 内核发起一次新的传输尝试。
 
 ## 注册 provider
 

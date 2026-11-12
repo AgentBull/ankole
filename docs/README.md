@@ -50,13 +50,13 @@ Native Pod messages flow through Conversations and Signals into Sessions just li
 - **Elixir control plane (`app/control_plane/`)**: Runs on Phoenix and OTP. It owns PostgreSQL transactions, supervises background workers, protects encrypted provider credentials, and serves Ankole's HTTP and WebSocket APIs.
 - **Rust kernel (`app/kernel/`)**: Supplies stateless native primitives for cryptography, AuthZ CEL evaluation, Markdown parsing, Page XML and OKF Markdown codecs, WebDAV/VFS codecs, UTF-16 page diffing, AI provider HTTP/WebSocket transport, image transcoding, read-only SQL inspection, SSRF-checked web proxying, and object storage. It never decides or persists workflow state.
 - **Function Runtime (`ankole-function-runtime`)**: Runs stateless Supabase Edge Runtime isolates for Pod Applet backends, published Applet Actions (`AutomationJobs`) calling host MCP tools via `AnkoleRuntime.mcp`, and deterministic PTC or Workflow TypeScript programs, holding no durable state of its own.
-- **Agent Computer (`app/agent_computer/`)**: Runs as a Bun process inside each Agent's dedicated Worker container, executing environment tools and supervising Codex sessions. Its Agent Home directory (`/workspace`) persists across container replacements, while local process state is rebuildable; it never writes directly to control-plane tables.
+- **Agent Computer (`app/agent_computer/`)**: Runs as a Bun process inside each Agent's dedicated Worker container, executing environment tools and supervising Codex sessions. Its Agent Home directory (`/workspace`) uses provider-managed storage, while local process state is rebuildable; it never writes directly to control-plane tables.
 
 Live traffic travels over **RuntimeFabric**, whereas completed decisions and state transitions live in **PostgreSQL**. During crash recovery, Ankole reconstructs state strictly from PostgreSQL rather than replaying transient Worker channel traffic.
 
 ## Agent Filesystem
 
-Each Agent's persistent Home directory is mounted at `/workspace` on storage that survives Worker restarts, instance replacements, and image upgrades:
+Each Agent's Home directory is mounted at `/workspace` on provider-managed storage. Providers preserve Home across planned Worker replacements and image upgrades. Cloudflare restores its latest snapshot, so an abrupt platform stop can lose later writes. See [Worker storage limits](TradeoffsAndKnownLimits.md#worker-storage-durability-and-single-writer-fencing). Home contains:
 
 - `AGENTS.md` and `DESIGN.md` — read-only composed Agent contracts refreshed at the start of each Turn
 - `.codex/` — Codex configuration, effective `AGENTS.md`, and persistent thread history
@@ -249,8 +249,6 @@ tools/e2e/run --real-llm
 | [I18n](design-docs/I18n.md) | Locale resolution and shared translation catalogs |
 | [Logger](design-docs/Logger.md) | Structured JSON and console log formatting |
 | [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) | Deliberate non-goals, trust boundaries, and failure recovery limits |
-| [Auto Ontology source research](research/auto-ontology-source-analysis.md) | Research findings and proposed integration with native Base queries |
-| [Ankole 2.0 structured data and Brain](research/ankole-2-structured-data-brain.md) | Research proposal for external OLTP, OLAP, data lakes, shared semantics, and Agent/Applet queries |
 
 Messaging and identity adapter protocol specifications, together with the [Database Connectors](design-docs/plugins/DatabaseConnectors.md) specification, live under `design-docs/plugins/`, while the `github-adapter` and `linear-adapter` Connector specifications live in [Connectors](design-docs/Connectors.md).
 

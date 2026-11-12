@@ -52,7 +52,7 @@ Agent を稼働させるには背後のモデル接続が不可欠です。運�
 | `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Agent のプロファイル上書きまたはカスタムプロファイルを削除 |
 | `PUT` | `/api/v2/agents/:agent_uid/provider-hosted` | 特定の Agent に対する provider-hosted 機能の上書きを設定 |
 
-Provider の認証情報は暗号化されたプールメンバーとして control plane 内にのみ保管され、Agent の実行環境へ渡されることはありません。モデルプロファイルは「サイト既定値 → Pod 既定値 → Agent またはシステムサービス Principal の上書き（`ankole_brain` は Brain の抽出・Dreaming・埋め込み・リランク用、`system` は Pod Applet のモデル呼び出しや内部処理用）」の階層で解決され、AIGateway がその provider 内の正常なメンバーを選択します。API のレスポンスには安全なアカウント識別情報、ヘルス状態、レート制限情報、使用量だけが含まれます。
+Provider の認証情報は暗号化されたプールメンバーとして control plane 内にのみ保管され、Agent の実行環境へ渡されることはありません。モデルプロファイルは「サイト既定値 → Pod 既定値 → Agent またはシステムサービス Principal の上書き（`ankole_brain` は Brain の抽出・Dreaming・URL 取得・リランク用、`system` は内部処理用）」の階層で解決され、AIGateway がその provider 内の正常なメンバーを選択します。API のレスポンスには安全なアカウント識別情報、ヘルス状態、レート制限情報、使用量だけが含まれます。
 
 ### Agent とその能力
 

@@ -14,7 +14,7 @@ Automation Job은 게시된 Applet의 Action을 Function Runtime에서 실행합
 3. 일정, 콜백 엔드포인트, 외부 이벤트 소스를 추가합니다. 일정은 Cron과 고정 간격을 지원합니다.
 4. 일정을 수동 실행하거나 테스트 콜백을 보낸 뒤 Run의 입력과 결과를 확인합니다.
 
-Agent도 `ankole-pod jobs`로 같은 작업을 수행합니다. 명령 규약은 `ankole-pod --help`를 확인하세요. Applet 화면에서는 `@ankole/applet-sdk`의 `useAppletJobs()`와 `useJobSources(jobID)`를 사용할 수 있습니다.
+Agent도 `ankole-pod` (`jobs.*`)로 같은 작업을 수행합니다. 명령 규약은 `ankole-pod --help`를 확인하세요. Applet 화면에서는 `@ankole/applet-sdk`의 `useAppletJobs()`와 `useJobSources(jobID)`를 사용할 수 있습니다.
 
 ## 실행 권한
 

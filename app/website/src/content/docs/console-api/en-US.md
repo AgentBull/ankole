@@ -52,7 +52,7 @@ Every active Agent needs at least one model behind it, wired through AIGateway's
 | `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Delete an Agent profile override or custom profile |
 | `PUT` | `/api/v2/agents/:agent_uid/provider-hosted` | Set provider-hosted capability overrides for one Agent |
 
-Provider credentials stay encrypted as pool members inside the control plane—never inside an Agent's Worker environment. Model profiles layer Site defaults, Pod defaults, and per-Agent or system-service Principal overrides (`ankole_brain` for Brain extraction, Dreaming, embeddings, and rerank; `system` for Pod Applet model calls and internal tenant operations), leaving AIGateway to pick a healthy pool member while API read projections expose only non-secret account metadata, health state, rate-limit status, and usage totals.
+Provider credentials stay encrypted as pool members inside the control plane—never inside an Agent's Worker environment. Model profiles layer Site defaults, Pod defaults, and per-Agent or system-service Principal overrides (`ankole_brain` for Brain extraction, Dreaming, URL fetching, and rerank; `system` for internal tenant operations), leaving AIGateway to pick a healthy pool member while API read projections expose only non-secret account metadata, health state, rate-limit status, and usage totals.
 
 ### Agents and their capabilities
 

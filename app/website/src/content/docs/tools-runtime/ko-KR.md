@@ -24,7 +24,7 @@ Driver는 도구 선언에 따라 병렬 또는 순차 실행을 스케줄링합
 
 ## Workflow 작업 도구
 
-Workflow 서브에이전트 작업에 제공되는 도구는 Web 도구, 작업 위임 및 상태 확인용 Background Agent Job 도구, `sleep`, `submit_result`로 제한됩니다. Hosted Brain이 활성화된 경우에도 읽기 전용인 `recall`과 `get_page`만 허용되며, 컴퓨터·셸 도구, Skill, 스케줄, 하위 Workflow 생성 도구는 제공되지 않습니다.
+Workflow 서브에이전트 작업에 제공되는 도구는 Web 도구, 작업 위임 및 상태 확인용 Background Agent Job 도구, `sleep`, `submit_result`로 제한됩니다. Hosted Brain이 활성화된 경우에도 읽기 전용인 `recall`과 `entity`만 허용되며, 컴퓨터·셸 도구, Skill, 스케줄, 하위 Workflow 생성 도구는 제공되지 않습니다.
 
 `submit_result` 호출 시에는 미리 저장된 결과 스키마로 제출 값을 검증합니다. 검증에 실패하면 서브에이전트가 값을 수정해 다시 제출할 수 있고, 통과하면 해당 작업이 종료됩니다. 단, 결과를 제출하기 전에 위임해 둔 실행 중 Background Agent Job을 먼저 정리해야 합니다. 자세한 내용은 [Workflows](../workflows/)를 참조하세요.
 

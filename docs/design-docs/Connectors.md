@@ -520,7 +520,8 @@ the first option, and an update without a choice keeps the current grants. The
 connection projection's `access` field reads the choice back from those grants.
 Every tool call and every `run_read_query/5` call checks membership, the
 connection's active status, and this grant before reading credentials. An
-Agent, including a personal assistant, uses its own grants.
+AI colleague uses its own grants; a personal assistant uses its Human owner's
+business grants.
 
 Connectors caches each database connection's catalog in
 `connector_db_catalog_tables` and `connector_db_catalog_columns`. The cache is

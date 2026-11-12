@@ -204,12 +204,14 @@ while checking global enablement, without advancing the package revision or
 invalidating another member's editor draft.
 Skills and Agent contracts store current state without revision history.
 
-A Skill is enabled when `enabled_for_all` is true or the Agent has a positive
-binding. A Skill belonging to an Agent Plugin also requires that plugin to be
-enabled. Global enablement locks individual switches without deleting their
-bindings; turning it off restores those individual choices. Custom packages
-start disabled. Shipped packages initialize global enablement from their package
-declaration. Their slugs are stable and their packages cannot be deleted.
+A Workspace Skill is enabled when `enabled_for_all` is true or the Agent has a
+positive binding. A Skill belonging to an Agent Plugin also requires that Plugin
+to be enabled. A Personal Skill belongs to one personal assistant and is enabled
+only for that assistant, without a binding row or an all-Agents switch. Global
+enablement locks individual Workspace Skill switches without deleting their
+bindings; turning it off restores those individual choices. Custom Workspace
+packages start disabled. Shipped packages initialize global enablement from their
+package declaration. Their slugs are stable and their packages cannot be deleted.
 
 The control plane reconciles a shipped package only while its manifest and
 managed files match the last upstream content. It preserves additional local
@@ -239,7 +241,7 @@ does not change the Agent's skills or contracts. `skill_view` returns the manife
 body and the Agent's delivered lessons; it reads references only when explicitly
 requested. Reference files are not appended to the manifest automatically.
 
-Background Jobs retain the skill slugs admitted at creation. Restore and retry
+Background Jobs retain the Skill slugs captured at first execution admission. Restore and retry
 intersect that set with the Agent's current enabled packages and plugin gates.
 Only that intersection is materialized under
 `/workspace/.ankole/turn-skills/<signal-id>/<skill-name>` and admitted to

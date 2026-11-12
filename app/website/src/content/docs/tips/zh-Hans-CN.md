@@ -66,13 +66,13 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 1. 查询 `/api/v2/ai-gateway/conversations` 查看该回合最近的模型请求记录——若请求耗时极长仍未返回，说明瓶颈在上游模型提供商。
 2. 查看对应 Worker 容器或 Pod 日志，确认是否有长耗时命令或外部工具正在运行——慢工具在界面上看起来就像回合停滞。
-3. 确认回合确实彻底卡死后，可先尝试向该 Agent 会话发送运行中引导消息（Steer），或等待其触发闲置超时；若需取消后台 Agent 任务，请调用 `POST /api/v2/background-agent-jobs/:id/cancel`（该接口会等待当前正在执行的单轮动作安全收尾后再退出）。
+3. 确认回合确实彻底卡死后，可先尝试向该 Agent 会话发送运行中引导消息（Steer），或等待其触发闲置超时；若需取消后台 Agent 任务，请调用 `POST /api/v2/background-agent-jobs/:id/cancel`（该接口先记录停止状态，再请求中断正在执行的回合）。
 
 盲目强行中断在途执行，往往是导致外部系统留下“改了一半”的残缺副作用的根源。
 
 ## 安静地禁用 binding
 
-调用 `DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` 执行的是**软停用**而非物理删除，底层配置与关联关系均完整保留。遇到凭证紧急轮换、节假日静默或线上故障止血，希望让某个频道里的 Agent 暂时“闭麦”但又不想丢失原有路由配置时，可直接停用该绑定，事后通过 `PATCH` 接口即可一键恢复启用。
+调用 `DELETE /api/v2/signal-bindings/:id` 执行的是**软停用**而非物理删除，底层配置与关联关系均完整保留。遇到凭证紧急轮换、节假日静默或线上故障止血，希望让某个频道里的 Agent 暂时“闭麦”但又不想丢失原有路由配置时，可直接停用该绑定，事后通过 `PATCH` 接口即可一键恢复启用。
 
 ## 每次升级前都备份
 

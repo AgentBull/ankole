@@ -1,9 +1,10 @@
 Ankole is installed.
 
 The site administration Console is mounted at {{ .Values.controlPlane.siteAdminConsolePath }}.
-Normal users enter through their tenant's OIDC application. The legacy /console
-path returns 404. Change controlPlane.siteAdminConsolePath before starting Pods
-when the site needs a different operator entry point.
+Members sign in on their tenant's host with the configured Email OTP or
+enterprise SSO provider, or start sign-in from an OIDC application. Change
+controlPlane.siteAdminConsolePath before starting Pods when the site needs a
+different operator entry point.
 
 {{- if .Values.ingress.enabled }}
 
@@ -40,5 +41,5 @@ Worker Pods have no controller. `kubectl drain --force` permits their eviction;
 keep a positive termination grace period and wait for deletion to complete.
 {{- end }}
 
-Pin the control-plane and Worker image digests from the same release before
-an upgrade. Back up PostgreSQL, Agent Home storage, and the file store.
+Pin the control-plane, Worker, and Function Runtime image digests from the
+same release before an upgrade. Back up PostgreSQL, Agent Home storage, and the file store.

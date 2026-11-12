@@ -3,10 +3,11 @@
 [简体中文](README.zh-Hans.md)
 
 This adapter backs Ankole's Cloudflare `WorkerProvider`. Each Agent maps to one
-`AgentWorker` Durable Object and one R2 prefix (`agents/<agent_uid>/`): the
-Durable Object manages that Agent's container instance and records the latest
-completed `DirectoryBackup`, while the adapter registry filters Agents by
-provider.
+`AgentWorker` Durable Object and one R2 prefix (`agents/<storage-name>/`). The
+control plane derives the storage name from the installation label and a hash
+of `(tenant_id, uid)`. The Durable Object manages that Agent's container instance
+and records the latest completed `DirectoryBackup`, while the adapter registry
+filters Agents by provider.
 
 ## Requirements
 

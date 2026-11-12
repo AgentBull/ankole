@@ -56,7 +56,7 @@ https://<host>/webhooks/v1/teams/<appID>/messages
 Microsoft Graph posts Entra ID change notifications to:
 
 ```text
-https://<host>/webhooks/v1/entra-id/<provider_id>/directory
+https://<host>/webhooks/v1/entra-id/<tenant_id>.<provider_id>/directory
 ```
 
 Before loading any binding, the Teams handler verifies the Bot Framework JWT:

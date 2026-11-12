@@ -517,7 +517,7 @@ Control-plane Drivers execute `check_back_later` (`create`, `list`, `get`,
 ## Rules
 
 - Persist every user-affecting schedule in PostgreSQL; use Oban strictly to trigger due checks, keeping at most one pending `FireCron` job at `next_fire_at` per active rule.
-- Store only historical fires in automatic cron run lists, never re-fire a `fired` or `failed` slot, and emit at most one `Signal` or `AutomationJob` run per scheduled event.
+- Store only historical fires in automatic cron run lists, never re-fire a `fired` or `failed` slot, and emit at most one `Signal` or `AutomationJob` run per scheduled event and Binding.
 - Execute every cron fire in its derived `cron:<schedule_id>` Session (never in `owner_session_id`), keeping the complete standing prompt in `payload.task` for direct-Agent rules and running one Agent turn regardless of target count.
 - Restrict Agent schedule tools to the current turn's route, and restrict cron-originated turns to inspecting or pausing their own rule.
 - Cancel pending checkbacks whenever their source provider entry is canceled or removed.

@@ -5,7 +5,7 @@ section: User guide
 order: 41
 ---
 
-ChatGPT 구독 연결은 다른 업스트림과 동일한 방식으로 동작하는 일반 AIGateway provider입니다. 일반 대화용 프로필과 Background Agent Job용 프로필을 포함해 어떤 모델 프로필에서든 이 provider 행과 사용할 모델을 지정할 수 있습니다.
+ChatGPT 구독 연결은 다른 업스트림과 동일한 방식으로 동작하는 일반 AIGateway provider입니다. 일반 대화용 프로필과 Background Agent Job용 프로필을 포함해 어떤 언어 모델 프로필에서든 이 provider 행과 사용할 모델을 지정할 수 있습니다.
 
 각 provider 행은 자체 자격 증명 풀(credential pool)을 보유합니다. control plane이 개별 계정 토큰을 암호화해 보관하고 OAuth 토큰을 자동 갱신하며, 매 요청마다 사용 가능한 풀 멤버를 선택해 호출합니다. Agent Computer에는 전용 AIGateway 엔드포인트와 AIGateway 접근 키만 전달될 뿐 ChatGPT 원본 refresh token은 절대 전달되지 않습니다.
 
@@ -51,6 +51,6 @@ ChatGPT 구독 연결은 다른 업스트림과 동일한 방식으로 동작하
 4. 필요에 따라 reasoning effort와 Fast Mode 옵션을 지정합니다.
 5. 프로필을 저장합니다.
 
-이후 모든 모델 호출은 AIGateway를 거쳐 실행됩니다. AIGateway는 상태 보존형(stateful) 대화 스레드를 가능한 한 동일한 계정에 고정해 이어 가고, 재시도 가능한 오류가 발생하면 풀 안의 다른 정상 계정으로 자동 전환하되 다른 provider로 임의 우회(fallback)하지는 않습니다. 만약 풀의 모든 계정이 사용 불가능한 상태라면 일반 대화 호출에는 가장 빠른 복구 예정 시각과 함께 속도 제한 오류가 반환되며, Background Agent Job은 가장 먼저 복구되는 풀 멤버의 쿨다운 해제 시각까지 `queued` 상태로 대기합니다.
+이후 모든 모델 호출은 AIGateway를 거쳐 실행됩니다. AIGateway는 상태 보존형(stateful) 대화 스레드를 가능한 한 동일한 계정에 고정해 이어 가고, 재시도 가능한 오류가 발생하면 풀 안의 다른 정상 계정으로 자동 전환하되 다른 provider로 임의 우회(fallback)하지는 않습니다. 풀의 모든 계정이 쿨다운 중이고 복구 시각을 알 수 있으면 대화형 호출은 가장 이른 복구 시각을 담은 rate-limit 오류를 반환하며, Background Agent Job은 그 시각까지 `queued`로 돌아가 대기합니다. 복구 시각을 알 수 없으면 Job은 일반적인 횟수 제한 재시도 정책을 따릅니다. [Background Agent Jobs](../background-agent-jobs/)를 참조하세요.
 
 백그라운드 작업의 생성, 진행 제어, 문제 해결 방법은 [Background Agent Jobs](../background-jobs/)를 참조하세요.

@@ -24,7 +24,7 @@ Ankole models two Agent subtypes under `Ankole.Principals`:
 
 The role provides a short summary of the Agent's work—such as “Research Analyst” or “Customer Support”—while two composable contracts in **Meta Ankole → Agents** (`AGENTS.md` and `DESIGN.md`) govern its behavior, responsibilities, and visual design system.
 
-The `WorkerProvider` assigns the Agent to a [WorkerProvider](../worker-providers/) target. If an API request omits the provider, Ankole uses the site default—or rejects creation when no site default exists—and once saved, the `WorkerProvider` binding cannot be changed. Even when multiple Agents share a provider, each Agent gets a separate Worker instance, `/drive` FUSE workspace mounts, and its own persistent `/workspace` Home directory. Saving a new Agent does not start an instance right away; the control plane boots the Worker on demand when a turn requires computer work.
+The `WorkerProvider` assigns the Agent to a [WorkerProvider](../worker-providers/) target. If an API request omits the provider, Ankole uses the site default—or rejects creation when no site default exists—and once saved, the `WorkerProvider` binding cannot be changed. Even when multiple Agents share a provider, each Agent gets a separate Worker instance, `/drive` FUSE workspace mounts, and its own persistent `/workspace` Home directory. Saving a new Agent queues its initial Worker start in the background. After that first start completes and the idle Worker is released, the control plane starts it again when a turn requires computer work.
 
 ## Set ownership and group disclosure
 
@@ -54,6 +54,8 @@ Agents resolve Model Profiles through 3-tier sparse inheritance (`Agent -> Pod -
 - Configure `web_search` and `web_fetch` when this Agent needs web access that differs from the Pod default.
 - Configure `image_generate` when the Agent must create images through a dedicated image provider.
 - Configure **Background Agent Jobs** (`coding`) when Jobs need a separate provider or model (unset `coding` falls back through `heavy -> primary`). To run Jobs through a ChatGPT subscription, select its [ChatGPT subscription provider](../chatgpt-subscription-provider/) here.
+
+For separate `web_search` or `image_generate` profiles, also turn off the corresponding provider-hosted switch. Binding a profile alone does not change that switch. Both switches default to enabled and inherit Site → Pod → Agent settings.
 
 Select the Provider first to unlock the model selector and the context-length field; leave the context length empty to use the Provider and model default. Deleting an Agent slot override restores inheritance from the Pod and Site defaults.
 
@@ -96,7 +98,7 @@ Check these items in order:
 1. The Agent is enabled.
 2. An effective `primary` Model Profile resolves for the Agent (via Site/Pod defaults or Agent overrides), and its LLM Provider is healthy.
 3. For external channels, a signal routing rule points to this Agent.
-4. **Console → Workers** shows the Agent's Worker as ready, or starting without a failure reason.
+4. If the turn needs computer work, **Console → Workers** shows the Agent's Worker as ready, or starting without a failure reason. Pure questions do not require a running Worker.
 5. **Console → Conversations** recorded the message—inspect any error attached to the turn.
 
 For channel-specific checks, see [Quick start troubleshooting](../quickstart/#if-the-agent-does-not-reply).

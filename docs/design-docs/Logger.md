@@ -199,7 +199,7 @@ have to parse identifiers out of prose.
 ## Record Errors
 
 Pass exception values under `error`, and represent domain failures with a
-stable structured reason. `Ankole.Logging.failure_fields/1` extracts an atom
+stable structured reason. `Ankole.Logging.failure_fields/3` extracts an atom
 reason or the leading atom of a domain error tuple, while exceptions include
 their type and a stacktrace with function arities (argument counts). When an
 unexpected failure reaches the Console, Ankole logs it at `ERROR` severity and

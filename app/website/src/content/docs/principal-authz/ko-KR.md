@@ -13,7 +13,7 @@ order: 106
 
 Principal은 사람, Agent, 시스템 서비스가 공통으로 사용하는 영속적 책임 주체입니다. 모든 Principal은 정확히 하나의 테넌트에 소속되며 `(tenant_id, uid)`로 식별됩니다(여기서 `uid`는 `alex.smith`나 `research-analyst`처럼 해당 테넌트 안에서 고유하고 의미가 드러나는 소문자 이름입니다). `principals` 테이블 행에서 `type`은 `:human`, `:agent`, `:system` 중 하나이고 `status`는 `:active` 또는 `:disabled`이며, `:human` 주체는 `:member` 또는 `:guest` 값을 갖는 `membership` 필드를 가집니다(`:agent`와 `:system`은 `nil`).
 
-사람(`:human`) Principal에는 `HumanUser` 행 하나와 0개 이상의 사이트 범위 `SiteCredential` 행(`principal_site_credentials`, 검증된 이메일 OTP 주소 등), 그리고 0개 이상의 테넌트 범위 `ExternalIdentity` 행(`principal_external_identities`, 외부 Identity Provider에서 연동된 계정)이 연결됩니다. Agent Principal에는 `:personal_assistant`(활성 내부 Human `member`마다 `<owner_uid>_assistant`로 1:1 프로비저닝) 또는 `:ai_colleague`(공유 전문 Agent) 하위 유형을 가진 `Agent` 행 하나가 연결됩니다. System Principal은 Ankole의 닫힌 내부 서비스 레지스트리에 등록된 `system`(무상태 Pod Applet `ctx.ai` 및 내부 런타임 작업)과 `ankole_brain`(Company Brain 사실 추출, Dreaming, Skill 교훈 재검토, URL Source 수집, 리랭크)이며, 로그인하거나 이름을 바꿀 수 없고 Worker도 호스팅하지 않습니다. 모든 행위 주체를 단일 테이블로 통합해 감사 로그, grant, 그룹 멤버십이 일관되게 추적되며, 감사 기록이 남는 테넌트 내 UID 이름 변경(`POST /api/v2/principals/:uid/rename` 및 활성 Worker가 없는 비활성 Agent용 `POST /api/v2/agents/:uid/rename`)을 실행하면 grant·그룹 멤버십·Brain 경로 및 멘션·Base 참조가 원자적으로 함께 갱신됩니다.
+사람(`:human`) Principal에는 `HumanUser` 행 하나와 0개 이상의 사이트 범위 `SiteCredential` 행(`principal_site_credentials`, 검증된 이메일 OTP 주소 등), 그리고 0개 이상의 테넌트 범위 `ExternalIdentity` 행(`principal_external_identities`, 외부 Identity Provider에서 연동된 계정)이 연결됩니다. Agent Principal에는 `:personal_assistant`(활성 내부 Human `member`마다 `<owner_uid>_assistant`로 1:1 프로비저닝) 또는 `:ai_colleague`(공유 전문 Agent) 하위 유형을 가진 `Agent` 행 하나가 연결됩니다. System Principal은 Ankole의 닫힌 내부 서비스 레지스트리에 등록된 `system`(내부 런타임 작업)과 `ankole_brain`(Company Brain 사실 추출, Dreaming, Skill 교훈 재검토, URL Source 수집, 리랭크)이며, 로그인하거나 이름을 바꿀 수 없고 Worker도 호스팅하지 않습니다. 모든 행위 주체를 단일 테이블로 통합해 감사 로그, grant, 그룹 멤버십이 일관되게 추적되며, 감사 기록이 남는 테넌트 내 UID 이름 변경(`POST /api/v2/principals/:uid/rename` 및 활성 Worker가 없는 비활성 Agent용 `POST /api/v2/agents/:uid/rename`)을 실행하면 grant·그룹 멤버십·Brain 경로 및 멘션·Base 참조가 원자적으로 함께 갱신됩니다.
 
 사람 Principal의 `membership` 구분은 테넌트 내 협업 범위를 결정합니다. 내부 구성원인 `member`는 계산형 그룹인 `all_humans`에 포함되지만, 외부 참여자인 `guest`는 명시적인 Pod 페이지 공유나 Agent grant가 있어야만 접근할 수 있고 내장 관리자 그룹(`siteadmin`, `pod_admin`) 참여나 Private 루트를 소유할 수 없으며 Brain의 `world` 범위 지식도 조회할 수 없습니다.
 
@@ -66,7 +66,7 @@ AuthZ가 단순한 권고가 아니라 실질적인 강제력을 갖는 이유�
 
 주요 실행 경계마다 런타임이 직접 AuthZ를 호출해 검증하므로, Agent가 프롬프트나 도구 호출만으로 권한 검사를 우회할 수는 없습니다.
 
-- AIGateway는 검증된 토큰에서 호출 주체(subject)를 식별하고, 그 주체의 grant 범위 안에서만 모델 selector와 provider에 접근하도록 제한합니다.
+- AIGateway는 Agent 또는 OIDC Human 자격 증명을 인증하고 현재 subject와, OIDC 요청일 때는 Client 정책을 확인합니다. 모델 selector는 해당 모델 프로필 또는 Client binding으로 해석합니다.
 - **도구 준비 및 디스패치**에서는 실행 Agent의 활성 상태, 선언된 도구 목록, 인수와 지시의 유효성을 확인합니다. 도구 소유 모듈은 해당 Agent의 권한으로 실제 리소스를 검사합니다.
 - 실행 세션 Driver는 결과를 커밋하기 전에 영속 펜스(fence)를 검증하고, Worker에서 올라오는 Job 작업 역시 영속 Job attempt 펜스와 인증된 연결 신원을 대조합니다.
 - Site Console(`/api/v2`) 및 Pod 관리(`/api/v2/pod/admin`) 요청에는 검증된 브라우저 인증 증명, CSRF 보호, 현재 유효한 `site_console:**` 또는 `tenant_console:**` grant가 모두 필요합니다.

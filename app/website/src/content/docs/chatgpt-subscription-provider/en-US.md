@@ -5,7 +5,7 @@ section: User guide
 order: 41
 ---
 
-A ChatGPT subscription integrates into AIGateway as a standard provider, so any model profile—including interactive conversations and Background Agent Jobs—can point to it by selecting the provider row and an entitled model.
+A ChatGPT subscription integrates into AIGateway as a standard provider, so any language-model profile—including interactive conversations and Background Agent Jobs—can point to it by selecting the provider row and an entitled model.
 
 Each provider row manages an encrypted credential pool inside the control plane, automatically refreshing OAuth tokens and selecting a healthy account for each request. An Agent Computer Worker receives only its AIGateway endpoint and AIGateway key—never a ChatGPT refresh token.
 
@@ -51,6 +51,6 @@ When an account hits rate limits and enters `exhausted`, AIGateway automatically
 4. Configure reasoning effort and Fast Mode as needed.
 5. Save the profile.
 
-All requests flow through AIGateway, which pins a stateful thread to the same account when possible, rotates to another healthy pool member on retryable upstream errors, and never crosses over to a different provider. If every member in the pool is cooling down, interactive calls return a rate-limit error with the earliest recovery timestamp, while Background Agent Jobs return to `queued` until the earliest pool member recovers.
+All requests flow through AIGateway, which pins a stateful thread to the same account when possible, rotates to another healthy pool member on retryable upstream errors, and never crosses over to a different provider. If every member in the pool is cooling down and its recovery time is known, interactive calls return a rate-limit error with the earliest recovery timestamp, while Background Agent Jobs return to `queued` until that time. If no recovery time is available, Jobs use the ordinary bounded retry policy; see [Background Agent Jobs](../background-agent-jobs/).
 
 See [Background Agent Jobs](../background-jobs/) for Job creation, control, and troubleshooting.

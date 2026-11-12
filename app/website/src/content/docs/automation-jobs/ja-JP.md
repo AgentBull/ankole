@@ -14,7 +14,7 @@ Automation Job は、公開済み Applet の Action を Function Runtime で実�
 3. スケジュール、コールバック URL、外部イベントソースを追加します。スケジュールは Cron と一定間隔に対応します。
 4. 手動実行またはテスト通知を送り、Run の入力と結果を確認します。
 
-Agent も `ankole-pod jobs` から同じ操作を行えます。コマンドの詳細は `ankole-pod --help` を参照してください。Applet の画面では `@ankole/applet-sdk` の `useAppletJobs()` と `useJobSources(jobID)` を利用できます。
+Agent も `ankole-pod` (`jobs.*`) から同じ操作を行えます。コマンドの詳細は `ankole-pod --help` を参照してください。Applet の画面では `@ankole/applet-sdk` の `useAppletJobs()` と `useJobSources(jobID)` を利用できます。
 
 ## 実行する主体
 

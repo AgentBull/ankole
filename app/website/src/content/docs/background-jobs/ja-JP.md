@@ -58,7 +58,7 @@ Ask me here before you expand the scope or use a paid data source.
 
 ## モデル provider を選択する
 
-すべての Job は AIGateway 経由でモデルを呼び出します。Job の作成時に、その時点で有効な **Background Agent Jobs** モデルプロファイルが記録されます（未設定の場合は、その Agent の `heavy` プロファイルにフォールバックします）。
+すべての Job は AIGateway 経由でモデルを呼び出します。初回の実行受け入れ（execution admission）時に、その時点で有効な **Background Agent Jobs** モデルプロファイルが記録されます（未設定の場合は、その Agent の `heavy` プロファイルにフォールバックします）。
 
 ChatGPT サブスクリプションを利用したい場合は、まず [ChatGPT subscription provider](../chatgpt-subscription-provider/) を登録します。その後 Console で **Agents** を開き、対象 Agent のモデルプロファイル欄にある **Background Agent Jobs** でその provider、使用モデル、推論強度（reasoning effort）、および Fast Mode を選択してください。複数アカウントを登録している場合は、provider の認証情報プールが自動でアカウントの選択とローテーションを行います。
 

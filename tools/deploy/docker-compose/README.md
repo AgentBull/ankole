@@ -102,6 +102,11 @@ docker compose cp \
 Because production setup cookies carry the `Secure` attribute, browsers accept
 them only over trusted HTTPS.
 
+Members use `https://<tenant-slug>.<ANKOLE_HOST>`. Configure DNS, trusted TLS,
+and proxy routing for each tenant hostname to reach the same control plane.
+The supplied `Caddyfile` serves `ANKOLE_HOST`; add the tenant hostnames to your
+Caddy or upstream proxy configuration before members sign in.
+
 `worker-providers.yaml` seeds the initial Docker Worker provider—configuring its
 Docker network, environment variables, stop grace period, and idle release
 policy. By default it sets no CPU or memory cap, allowing each Worker container
@@ -177,11 +182,11 @@ block `169.254.169.254` from containers so a Worker cannot read host IAM
 credentials. Compose itself does not track Worker containers; the control plane
 manages their lifecycle, and the Console's Workers page displays their status.
 
-By default, idle Workers remain running. Setting `idleReleaseAfter` (such as
-`15m`) in the Worker provider YAML causes the control plane to remove idle
-containers while keeping both the Agent Home and cache volumes; the next time
-the Agent needs a Worker, a fresh container reattaches both volumes. Rebuilding
-a Worker deletes only the cache volume, whereas deleting an Agent removes both
+The default provider seed sets `idleReleaseAfter: 15m`. After that idle period,
+the control plane removes the Worker container while keeping both the Agent
+Home and cache volumes. The next task that needs a Worker starts a fresh
+container and reattaches both volumes. Rebuilding a Worker deletes only the cache
+volume, whereas deleting an Agent removes both
 volumes after all of its containers have exited.
 
 `ANKOLE_WORKER_INSTALLATION` (default `ankole`) prefixes Worker container names,
@@ -208,10 +213,11 @@ database: check `SHOW server_encoding`, and if an existing database uses
 rather than altering metadata in place.
 
 For reproducible production rollouts, pin `ANKOLE_CONTROL_PLANE_IMAGE` in `.env`
-to an immutable `sha256` digest (which also pins the matching Worker image), and
-optionally pin `ANKOLE_POSTGRESQL_IMAGE`. Before upgrading, review `.env` for
-both variables, because `.env` overrides take precedence over updated defaults
-in `compose.yaml`.
+to an immutable `sha256` digest (which also pins the matching Worker image),
+and pin `ANKOLE_FUNCTION_RUNTIME_IMAGE` to the matching release digest. You can
+also pin `ANKOLE_POSTGRESQL_IMAGE`. Before upgrading, review these image
+variables in `.env`, because its overrides take precedence over updated
+defaults in `compose.yaml`.
 
 If you are upgrading an older deployment whose `.env` lacks `RELEASE_COOKIE`,
 append one before running `docker compose` (otherwise Compose aborts immediately
@@ -306,14 +312,14 @@ docker compose exec -T postgresql \
   > "ankole-$(date +%Y%m%d).dump"
 ```
 
-When `BASE_DB_URLS` is unset (the default), physical Base tables live in
-per-tenant `t_<tenant_hex>` schemas inside the `ankole` database and are
-captured by that single `pg_dump`. If you configure `BASE_DB_URLS`—whether
-pointing at separate shard databases on the bundled PostgreSQL container or at
-external PostgreSQL servers—dump and back up every configured Base shard
-database alongside `ankole` (when using point-in-time recovery across
-independent PostgreSQL instances, recover each shard to a timestamp at or ahead
-of the control-plane recovery target).
+Inventory the running site's effective Base topology, including shards selected
+by edition defaults. In the single-database topology (the production FOSS
+default), physical Base tables live in per-tenant `t_<tenant_hex>` schemas in
+`ankole`, so one `pg_dump` includes them. If the topology uses separate Base
+databases on the bundled PostgreSQL container or on external servers, dump every
+Base shard alongside `ankole`. For point-in-time recovery across independent
+PostgreSQL instances, recover each shard to a timestamp at or ahead of the
+control-plane recovery target. See [Base storage placement](../../../docs/design-docs/Tenants.md#base-storage-placement).
 
 With Ankole stopped, snapshot or back up `ankole_files_data` alongside
 `ankole_postgresql_data`—PostgreSQL holds the authoritative index of files in

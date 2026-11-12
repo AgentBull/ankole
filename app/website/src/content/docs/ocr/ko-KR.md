@@ -19,7 +19,7 @@ Read this receipt and list the merchant, date, items, tax, and total.
 
 ## 일반 CPU에서의 고급 인식
 
-Ankole은 일반 CPU에서도 높은 정확도로 동작하는 최신 [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) 검출·인식 모델을 사용합니다. PP-OCRv6 제품군 가운데 정확도에 중점을 둔 medium 티어 모델로, PaddleOCR 공식 평가 기준 `PP-OCRv5_server` 대비 텍스트 검출은 4.6%, 텍스트 인식은 5.1% 향상되었습니다.
+Ankole은 CPU에서 동작하는 [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) 검출·인식 모델을 사용합니다. PP-OCRv6 제품군 가운데 정확도에 중점을 둔 medium 티어 모델로, PaddleOCR의 자체 다중 시나리오 벤치마크에서 `PP-OCRv5_server` 대비 검출 Hmean은 4.6%p, 인식 정확도는 5.1%p 향상되었습니다.
 
 단일 모델로 간체·번체 중국어, 영어, 일본어 및 라틴 문자 기반 46개 언어를 합쳐 총 50개 언어를 인식합니다. 일반 스캔 문서와 스크린샷은 물론 간판, 제품 라벨, 디지털 디스플레이처럼 일상 장면에서 촬영한 사진 속 글자도 처리할 수 있습니다.
 

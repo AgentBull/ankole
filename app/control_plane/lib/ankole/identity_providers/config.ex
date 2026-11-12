@@ -34,7 +34,8 @@ defmodule Ankole.IdentityProviders.Config do
       # Hand-editing the raw activation list in the Console can strand an admin outside every
       # working login path.
       console_writable: false,
-      description: "Identity provider instances available to admin authentication."
+      description:
+        "Identity-provider configurations for sign-in and directory sync in this tenant."
     )
   end
 

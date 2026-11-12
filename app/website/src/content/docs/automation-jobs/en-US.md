@@ -14,7 +14,7 @@ An Automation Job runs a published Applet Action in Function Runtime. It handles
 3. Add a schedule, create a callback endpoint, or connect an external event source. Schedules support calendar expressions and fixed intervals. External sources come from the tenant's configured connections.
 4. Run a schedule once, or send a test callback, then open the resulting Run to verify its input and result.
 
-The Agent can perform the same operations through `ankole-pod jobs`; read `ankole-pod --help` for the current command contract. Applet interfaces can use `useAppletJobs()` and `useJobSources(jobID)` from `@ankole/applet-sdk`.
+The Agent can perform the same operations through `ankole-pod` (`jobs.*`); read `ankole-pod --help` for the current command contract. Applet interfaces can use `useAppletJobs()` and `useJobSources(jobID)` from `@ankole/applet-sdk`.
 
 ## Personal and team execution
 

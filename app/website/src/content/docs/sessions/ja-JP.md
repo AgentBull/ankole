@@ -23,13 +23,13 @@ Signal は永続化された受信トレイ（inbox）として機能し、AIGat
 
 ## コールド復帰時のモデル会話ローテーション
 
-会話のアドミッション時（`Ankole.Sessions.WakeRecycle`、`sessions.wake_recycle` で設定）、先行する AIGateway モデル会話が 1 回以上の Response を完了しており、（a）前回の Response 完了からのアイドル時間が `min_cold_gap_seconds`（既定 `3,600` 秒、上流のプロンプトキャッシュ失効後）に達しかつ累積入力コンテキストが `min_context_tokens`（既定 `128,000` トークン）以上である場合、または（b）外部 IM 会話が `im_max_idle_seconds`（既定 `259,200` 秒 / 72 時間）以上アイドルだった場合、Ankole はアドミッショントランザクション内でモデル会話を後続ブランチへ自動的にローテーションします。
+会話のアドミッション時（`Ankole.Sessions.WakeRecycle`、`sessions.wake_recycle` で設定）、先行する AIGateway モデル会話が 1 回以上の Response を完了しており、（a）前回の Response 完了からのアイドル時間が `min_cold_gap_seconds`（既定 `3,600` 秒）に達しかつ累積入力コンテキストが `min_context_tokens`（既定 `128,000` トークン）以上である場合、または（b）外部 IM 会話が `im_max_idle_seconds`（既定 `259,200` 秒 / 72 時間）以上アイドルだった場合、Ankole はアドミッショントランザクション内でモデル会話を後続ブランチへ自動的にローテーションします。
 
 明示的なリセット（`command.new`）、対話カードの回答・コールバック、バックグラウンドコールバック Signal（`background_agent_job.*` や `workflow.run.*`）、進行中または待機中の `BackgroundAgentJob`・`Workflow.Run` や他の実行中 Signal を持つ Session、およびクラッシュ後の再試行（`last_attempt_at != nil`）はローテーション対象から除外されます。ローテーション時には未解決の `InteractionState` と `ActionCard` チェックポイントを引き継ぎつつ公開の `conversation_messages` はそのまま維持し、後続ブランチの最初のモデルリクエストの前に `Sessions.WakeBriefing` が上限 `8,000` `o200k_base` トークンの決定論的な `<wake-briefing>` ブロック（`<brain-memory>`、`<recent-messages>`、`<recent-actions>`、`<objects-in-play>`）を注入します。
 
 ## Worker と操作の識別子
 
-環境ツールや Codex の実行で計算環境が必要になると、その Agent 専用の Worker が要求されます。環境ワークスペース上の操作には Agent・Session・Signal に対応する `RunRef` が使われ、Codex の `JobTurnRef` にはさらに Job と attempt の識別情報も含まれます。すべての操作に固有の識別子が付与されているため、Driver が入れ替わった際にも実行中の作業を安全に引き継げます。
+Agent 作成時には、初回の Worker 起動がバックグラウンドで要求されます。Session の実行中は環境ツールや Codex が必要なときに Worker を要求し、単なる質問ではアイドル解放済みの Worker を再起動しません。環境ワークスペース上の操作には Agent・Session・Signal に対応する `RunRef` が使われ、Codex の `JobTurnRef` にはさらに Job と attempt の識別情報も含まれます。すべての操作に固有の識別子が付与されているため、Driver が入れ替わった際にも実行中の作業を安全に引き継げます。
 
 通信面では、RuntimeFabric が Worker ごとに 1 本の Phoenix Channel を張り、Phoenix Tracker がクラスタノード間の接続先を解決します。接続時には Worker の `generation` と `incarnation` が検証されるため、古い世代のルートは拒否されます。各 Worker は常に単一の Agent に専属で紐付いています。
 

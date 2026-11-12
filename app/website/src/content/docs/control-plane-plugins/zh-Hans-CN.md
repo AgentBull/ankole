@@ -30,21 +30,22 @@ Control Plane Plugins 用于通过受信任的第一方 Elixir/OTP 代码扩展 
 - **`display_name/0`**、**`description/0`**：供管理控制台展示的多语言标题与简介映射。
 - **`app_config_definitions/0`**、**`app_config_patterns/0`**：声明由该插件管理的 `Ankole.AppConfigure` 静态键与动态键模式定义。
 - **`adapter_declarations/0`**：以原子键分组声明各子系统适配器列表，并使用 `Ankole.Plugins.ConfigField` 描述浏览器端配置表单的字段结构。
-- **`hooks/0`**：返回形如 `[{hook_point, module}]` 的同步领域事务钩子列表。钩子模块针对已开放的钩子挂载点（`:create_agent`、`:create_invitation`、`:enable_signal_binding`、`:enable_identity_provider`、`:store_file`、`:commit_files`、`:create_pod_page`、`:restore_pod_page`、`:insert_base_records`、`:admit_compute`）实现 `Ankole.Plugins.Hook.before_commit_in_tx/2` 回调，在宿主业务事务正式提交前同步执行校验；一旦返回 `{:error, reason}`，整个调用方业务事务便会立即回滚。
+- **`hooks/0`**：返回形如 `[{hook_point, module}]` 的同步领域事务钩子列表。钩子模块针对已开放的钩子挂载点（`:create_agent`、`:create_invitation`、`:enable_signal_binding`）实现 `Ankole.Plugins.Hook.before_commit_in_tx/2` 回调，在宿主业务事务正式提交前同步执行校验；一旦返回 `{:error, reason}`，整个调用方业务事务便会立即回滚。
 - **`children/0`**：返回交由插件运行时监督树统一拉起和监管的 `Supervisor.child_spec()` 列表。
 
 控制面启动期间，`Ankole.Plugins.Spec.from_module/1` 会读取上述全部回调并构造出经过严格校验的 `Spec` 结构体。一旦检测到字段结构有误、插件 ID 重复或违背任一子系统契约，应用启动流程会当即中止报错，并明确指出问题所在的模块名。
 
 ## 子系统契约与站点级扩展点
 
-Control Plane Plugins 支持声明 6 类子系统适配器契约（由 `Ankole.Plugins.Contracts` 与 `Ankole.Connectors.Registry` 管理），结合启动期静态校验（`validate`）、运行时快照刷新（`refresh`）与停用前安全拦截（`veto_disable`）：
+Control Plane Plugins 支持声明 7 类子系统适配器契约（由 `Ankole.Plugins.Contracts` 与 `Ankole.Connectors.Registry` 管理），结合启动期静态校验（`validate`）、运行时快照刷新（`refresh`）与停用前安全拦截（`veto_disable`）：
 
 - **`signals.adapter`**：声明外部消息渠道或事件源适配器，由 `Ankole.Signals.Adapters` 校验，供信号路由规则（Signal Bindings）与 Conversations 消息投递调用。
 - **`signals.webhook_handler`**：为 `/webhooks/v1/:handler_id/:instance_id/:kind` 入口注册 HTTP Webhook 接收处理器，由 `Ankole.Signals.WebhookHandlers` 校验。
 - **`principals.identity_provider`**：声明企业身份源（IdP）单点登录与通讯录同步适配器，由 `Ankole.IdentityProviders` 校验，并通过 `veto_disable` 在仍有租户依赖该身份源时拦截禁用操作。
 - **`ai_gateway.provider`**：声明上游模型提供商适配器，由 `Ankole.AIGateway.Providers` 校验，并通过 `refresh` 将已激活的 Provider 定义同步至 AI Gateway 注册表。
 - **`agent_workers.provider_kind`**：声明底层 Agent Worker 计算提供方类型（`Ankole.AgentWorkers.ProviderKind`），在启动期完成契约校验并通过 `refresh` 发布已发现与已激活的提供方规格。
-- **`connectors.connector`**：声明由 `Ankole.Connectors` 承载的统一平台连接器——提供共享应用凭据（`authConfigId`）、成员个人 OAuth 授权流、外部事件触发器以及控制面内部 MCP 工具包（`ToolSpec`）。目前由 `lark-adapter`、`github-adapter` 与 `linear-adapter` 实现（其中 `github-adapter` 与 `linear-adapter` 声明为 `activation: :always`）。
+- **`connectors.connector`**：声明由 `Ankole.Connectors` 承载的统一平台连接器——提供共享应用凭据（`authConfigId`）、成员个人 OAuth 授权流、外部事件触发器以及控制面内部 MCP 工具包（`ToolSpec`）。由 `lark-adapter`、`github-adapter`、`linear-adapter` 和 `cloud-connectors-adapter` 实现，后三者声明为 `activation: :always`。
+- **`connectors.cloud_provider`**：声明由 `Ankole.Connectors.CloudProvider` 校验的 Ankole Cloud 服务适配器，用于发现连接器、OAuth、工具执行与事件触发器协调。
 
 在此之外，第一方站点级构建还可通过以下编译期扩展点深度定制产品面：
 

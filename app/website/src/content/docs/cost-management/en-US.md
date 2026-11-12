@@ -28,17 +28,17 @@ Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/
 | `video` (Site / Pod / `system`) | `/videos` generates videos | Bind a video model; left unset, video requests fail. The provider charges for each generation |
 | `music` (Site / Pod / `system`) | `/audio/music` generates music | Bind a music model; left unset, music requests fail. The provider charges for each generation |
 
-Control-plane subsystem calls run under built-in `system` Principals so background maintenance and Applets never consume a foreground Agent's token quota:
+Company Brain maintenance and Pod Applet calls have different execution subjects:
 
 - **`ankole_brain`**: Executes all Company Brain model calls and records usage under `ankole_brain`—resolving `light` (fallback `primary`) for conversation and Source extraction, `heavy` (fallback `primary`) for Dreaming and Skill lesson review, `web_fetch` for URL Sources, and `rerank` for recall reranking, plus the site-level `brain.embedding_model` key in [AppConfigure](../app-configuration/). Override any slot for `ankole_brain` in **Console → Model Profiles** whenever Brain maintenance should run on a separate budget tier from foreground Agents; **Brain → Health** reports profile readiness (see [Brain](../brain/)).
-- **`system` (Pod Applet `ctx.ai`)**: Executes stateless Pod Applet `ctx.ai` calls under the `system` Principal using effective Pod/Site built-in language-model profiles (`primary`, `light`, `heavy`, `coding`, `vision_fallback`).
+- **Pod Applet `ctx.ai`**: Ordinary calls run as the current caller; the admin capability runs as the Applet owner. AIGateway resolves the applicable profiles and records the call for that subject. Applet-origin calls do not enter Agent token-quota windows.
 
 Two profile adjustments save the most spend:
 
 - **Bind `light` to a low-cost model at the Site or Pod level.** Because `light` falls back to `primary` when unset and handles high-volume paths (including `ankole_brain` extraction), binding a dedicated low-cost model immediately lowers bulk spend across every inheriting Agent and `ankole_brain`.
 - **Size `primary` for normal turns.** Start with a balanced model for `primary` and override `primary` or `heavy` only on specialist Agents whose task quality demands a larger tier.
 
-Unbind optional capability slots that a Pod or Agent does not need so unused paths like `vision_fallback` cannot incur calls. Even if you leave `image_generate` empty, an Agent can still generate images natively whenever its main provider declares that capability. Similarly, when `coding` is unset, Background Agent Jobs fall back through `heavy -> primary` on AIGateway; configure `coding` whenever Jobs should use a dedicated coding model or subscription pool.
+Check the effective optional profiles inherited from Site and Pod before changing Agent overrides. Vision fallback is unavailable when the effective `vision_fallback` profile is empty. When **Use the model's provider** is on for image generation, the main provider's native capability is used and the dedicated profile is ignored. Turn that switch off to use `image_generate`. Similarly, when `coding` is unset, Background Agent Jobs fall back through `heavy -> primary` on AIGateway; configure `coding` whenever Jobs should use a dedicated coding model or subscription pool.
 
 ## Lever 2: reasoning effort
 
@@ -50,7 +50,7 @@ Before moving an Agent's `primary` profile to a larger model, try tuning `model_
 
 `web_search` and `web_fetch` are independent profiles that bill per call:
 
-- **Unbind unused web slots.** Leave `web_search` unbound on internal-only Agents so the model cannot invoke external search.
+- **Check the selected search path.** Web search defaults to **Use the model's provider**. Turn that switch off to use the dedicated `web_search` profile; unbinding that profile does not disable native search. Limit unnecessary calls through the Agent's task instructions.
 - **Prefer `web_fetch` over `web_search` when you already know the URL.** Fetching a known URL takes a single call, whereas searching incurs a search call plus follow-up fetches.
 
 The `agent_workers.rendered_fetch_idle_ttl_ms` [AppConfigure](../app-configuration/) key sets the idle timeout before the Worker releases an idle browser-sidecar route used for rendered `web_fetch` calls. Adjusting this key controls how long the Worker retains browser memory rather than caching URL responses.
@@ -62,7 +62,7 @@ Tenant-scoped (`scope: :tenant`) [AppConfigure](../app-configuration/) keys cap 
 | Key | What it controls |
 |---|---|
 | `ai_agent.max_iterations` | Agent-loop model iterations per turn |
-| `ai_agent.max_output_tokens` | Output token cap per turn |
+| `ai_agent.max_output_tokens` | Output token cap per model response |
 | `ai_agent.inactivity_timeout_ms` | Maximum idle time before an inactive turn is reaped |
 | `sessions.wake_recycle` | Cold-wake conversation rotation policy (`min_cold_gap_seconds`: `3600`, `min_context_tokens`: `128000`, `im_max_idle_seconds`: `259200`) |
 
@@ -90,12 +90,12 @@ Background Agent Jobs consume tokens across execution attempts and concurrent sl
 
 | Cap | Value | Effect |
 |---|---|---|
-| `max_execution_attempts` | 5 | Maximum execution attempts before a job transitions to `failed` |
+| `max_execution_attempts` | 5 | Execution failures before a job transitions to `failed` |
 | `max_consecutive_turn_failures` | 5 | Consecutive turn failures before a job stops |
 | `max_running_per_agent` | 3 (default) | Concurrent running jobs per Agent, configurable per tenant via `background_agent_jobs.max_running_per_agent` (`1..64`) |
 | retry delay | ~30s | Minimum delay between retry attempts |
 
-If a job hits transient failures, Ankole retries it up to five times—consuming tokens on each attempt—whereas configuration errors fail immediately without retrying. Lower `background_agent_jobs.max_running_per_agent` (or instruct the Agent in its persona to run one job at a time) whenever a tenant does not need three concurrent background model loops per Agent.
+Ankole can retry transient execution failures until the Job reaches five execution failures; configuration errors fail immediately. A claim starts or resumes an attempt, and the separate total-claims cap is 25. Credential-pool backpressure does not consume the execution-failure budget. Claims do not each imply a complete model run or the same token cost. Lower `background_agent_jobs.max_running_per_agent` (or instruct the Agent in its persona to run one job at a time) whenever a tenant does not need three concurrent background model loops per Agent.
 
 ## Lever 7: per-Agent token quota
 
@@ -109,7 +109,7 @@ Before changing models or concurrency, check which Agent, conversation, Workflow
 
 - `GET /api/v2/ai-gateway/conversations` lists recent model calls, resolved profiles, call counts, and providers so you can distinguish high-volume `primary` traffic, expensive `heavy` calls, and frequent `web_search` calls.
 - Ask the main Agent to inspect its Workflow run directly; task counts show total fanout and failed attempts (Ankole does not expose a separate Workflow Console page or per-run currency total).
-- `GET /api/v2/background-agent-jobs` reports job `attempts` so you can spot jobs that burned multiple retry runs.
+- `GET /api/v2/background-agent-jobs` reports Job `attempts`, the claim count. Inspect the recorded model calls to determine the actual token cost.
 - Structured control-plane logs emit provider call events tagged with Agent and provider fields for aggregation in your log store.
 
 ## Worked example

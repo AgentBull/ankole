@@ -33,7 +33,7 @@ Because `browser` is a Skill rather than a standalone tool flag, you manage it t
 1. **Tenant default** — `browser` defaults to `default_enabled: true` in the tenant's Agent Library catalog; keep it enabled to make browser automation available across the tenant.
 2. **Per-Agent override** — disable `browser` for specific Agents that must never run Chromium, or enable it selectively when the tenant default is turned off.
 
-Operators configure both layers through the Console's library-capability endpoints (see the [Console API reference](../console-api/)). Fetching an Agent's `library-capabilities` triggers an immediate skill sync so the response always reflects the current filesystem and catalog state.
+Operators configure both layers through the Console's library-capability endpoints (see the [Console API reference](../console-api/)). Fetching an Agent's `library-capabilities` synchronizes shipped Skills according to the [Agent Library](../agent-library/) update rules, preserves local edits, and returns the Agent's effective catalog state.
 
 ## What the runtime injects
 
@@ -68,7 +68,7 @@ Crucially, `ankole-browser run` never spawns a second browser—it attaches to t
 
 ## What the operator does not touch
 
-The Worker image sets internal browser environment variables—including `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, and `ANKOLE_BROWSER_RUNNER`—and Ankole blocks overriding those names under **Console → Environment variables**. Edit the Skill itself if you need custom browser behavior.
+The Worker image and runtime set internal browser environment variables—including `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, and `ANKOLE_BROWSER_RUNNER`—and Ankole blocks overriding those names under **Console → Environment variables**. Edit the Skill itself if you need custom browser behavior.
 
 ## Next steps
 

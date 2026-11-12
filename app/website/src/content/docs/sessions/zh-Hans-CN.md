@@ -5,13 +5,13 @@ section: Developer guide
 order: 103
 ---
 
-Session 是单个 Agent 的基本执行单元，以 `{agent_uid, session_id}` 作为复合主键。同一个 Agent 名下的多个执行会话可以并行运行，每个执行会话均由 `Ankole.Sessions` 中的独立 Driver 进程负责推进。
+Session 是单个 Agent 的基本执行单元，以 `{agent_uid, session_id}` 作为标识键。同一个 Agent 名下的多个执行会话可以并行运行，每个执行会话均由 `Ankole.Sessions` 中的独立 Driver 进程负责推进。
 
 共享的多方聊天消息保存在 Conversation 中；参与同一场对话的各个 Agent 分别持有各自独立的 Session，而执行会话所需的模型上下文历史则由 AIGateway 负责存储。此外，通用业务 Signal 也可以不关联任何 Conversation，直接投递至目标 Session。
 
 ## 单写者
 
-`DynamicSupervisor` 会按需拉起临时的 `:gen_statem` Driver 进程，并通过 `:global` 在整个 Erlang 集群范围内为每个 Session 主键注册唯一名称。持久化工作区记录上的 `epoch` 字段充当单写者隔离栅栏：每次新准入都会递增 `epoch`，而 Driver 在提交事务时会持有该行锁并核对 `epoch`——一旦发生网络分区（脑裂），滞后的旧 Driver 将因栅栏失效而无法提交任何写入。
+`DynamicSupervisor` 会按需拉起临时的 `:gen_statem` Driver 进程，并通过 `:global` 在整个 Erlang 集群范围内为每个 Session 标识键注册唯一名称。持久化工作区记录上的 `epoch` 字段充当单写者隔离栅栏：每次新准入都会递增 `epoch`，而 Driver 在提交事务时会持有该行锁并核对 `epoch`——一旦发生网络分区（脑裂），滞后的旧 Driver 将因栅栏失效而无法提交任何写入。
 
 ## 持久输入与模型历史
 
@@ -23,13 +23,13 @@ Signal 的完结状态会随最终对外回复意图一并原子提交。即便�
 
 ## 冷唤醒模型对话轮转
 
-在对话信号准入时（`Ankole.Sessions.WakeRecycle`，由 `sessions.wake_recycle` 配置），只要前序模型对话已完成至少一次 Response，且满足（a）静置时长达到 `min_cold_gap_seconds`（默认 `3,600` 秒，即上游提示词缓存已过期）同时累计输入上下文达到 `min_context_tokens`（默认 `128,000` Token），或（b）外部 IM 会话连续静置达到 `im_max_idle_seconds`（默认 `259,200` 秒 / 72 小时），Ankole 便会在准入事务内自动终结旧 AIGateway 模型对话并切换至后继分支。
+在对话信号准入时（`Ankole.Sessions.WakeRecycle`，由 `sessions.wake_recycle` 配置），只要前序模型对话已完成至少一次 Response，且满足（a）静置时长达到 `min_cold_gap_seconds`（默认 `3,600` 秒）同时累计输入上下文达到 `min_context_tokens`（默认 `128,000` Token），或（b）外部 IM 会话连续静置达到 `im_max_idle_seconds`（默认 `259,200` 秒 / 72 小时），Ankole 便会在准入事务内自动终结旧 AIGateway 模型对话并切换至后继分支。
 
 轮转逻辑会跳过显式重置（`command.new`）、交互卡片回调与作答、后台任务回调信号（`background_agent_job.*` 与 `workflow.run.*`）、仍存在活跃或等待态 `BackgroundAgentJob` / `Workflow.Run` 或其他运行中 Signal 的 Session，以及崩溃重试（`last_attempt_at != nil`）。切换时会自动继承未决的 `InteractionState` 与 `ActionCard` 检查点，保持公开的 `conversation_messages` 原封不动，并在后继分支发起首次模型请求前由 `Sessions.WakeBriefing` 注入上限为 `8,000` `o200k_base` Token 的确定性 `<wake-briefing>` 摘要块（涵盖 `<brain-memory>`、`<recent-messages>`、`<recent-actions>` 与 `<objects-in-play>`）。
 
 ## Worker 与操作标识
 
-仅当环境工具或 Codex 任务确实需要沙箱计算环境时，控制面才会按需分配该 Agent 专属的 Worker。常规环境工具调用采用按 Agent、Session 与 Signal 三元组划定的 `RunRef` 标识；Codex 任务则采用额外包含 Job 与 Attempt 维度的 `JobTurnRef` 标识。由于每项远端操作都具备独立的幂等标识，即使控制面发生 Driver 切换，新 Driver 也能无缝接管 Worker 上仍在运行的在途任务。
+Agent 创建时会在后台请求初次启动 Worker。执行 Session 时，环境工具或 Codex 任务需要电脑才会请求 Worker；普通问答不会重新唤醒空闲回收后的 Worker。常规环境工具调用采用按 Agent、Session 与 Signal 三元组划定的 `RunRef` 标识；Codex 任务则采用额外包含 Job 与 Attempt 维度的 `JobTurnRef` 标识。由于每项远端操作都具备独立的幂等标识，即使控制面发生 Driver 切换，新 Driver 也能无缝接管 Worker 上仍在运行的在途任务。
 
 RuntimeFabric 为每个活跃 Worker 维护一条专属的 Phoenix Channel，并借助 Phoenix Tracker 实现跨集群节点寻址。连接握手时，系统会校验 Worker 的代数（generation）与实例化身号（incarnation）以拦截陈旧路由；每个 Worker 实例始终严格绑定唯一的 Agent。
 

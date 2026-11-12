@@ -16,18 +16,20 @@ Ankole 보안 모델의 기본 원칙은 **최소 권한으로 시작해 명확�
 - **Agent당 하나의 Principal, 하나의 명확한 역할.** 고객 지원 Agent와 코딩 Agent는 서로 다른 Principal로 분리해야 합니다. 그래야 한쪽이 침해되더라도 피해가 다른 역할로 번지지 않습니다.
 - **업무 수행에 꼭 필요한 최소 권한만 부여하세요.** 전체 채널 쓰기 권한보다 특정 채널 읽기 권한이 안전하고, 와일드카드보다 구체적인 resource pattern이 안전합니다. 자세한 구조는 [Principal and AuthZ](../principal-authz/)를 참조하세요.
 - **디렉터리 그룹을 동기화해 그룹 단위로 권한을 부여하세요.** 동기화된 AuthZ 그룹을 기준으로 권한을 걸어 두면, 퇴사자가 발생했을 때 개별 grant를 일일이 수정하지 않고 사내 디렉터리에서 그룹 멤버십을 해제하는 것만으로 권한을 회수할 수 있습니다.
-- **일시 중지(Suspend)와 퇴사 처리(Offboard)를 정확히 구분해 사용하세요.** Principal은 삭제하지 않습니다. **일시 중지(`disposition: :suspended`)** 는 세션, 토큰, 진행 중인 후속 작업을 즉시 차단하되 복직 시 복구할 수 있도록 개인 `SiteCredential`을 남겨 둡니다. 반면 **퇴사 처리(`disposition: :offboarded`)** 는 세션·토큰·작업 차단에 더해 공유되지 않은 `SiteCredential`과 Pod 이메일 바인딩까지 모두 해제하므로, 구성원이 조직을 떠날 때는 반드시 퇴사 처리를 실행해야 합니다.
+- **일시 중지(Suspend)와 퇴사 처리(Offboard)를 정확히 구분해 사용하세요.** Human Principal은 삭제하지 않습니다. **일시 중지(`disposition: :suspended`)** 는 세션과 토큰을 즉시 폐기하고 이후 실행을 차단하되 복직 시 복구할 수 있도록 개인 `SiteCredential`을 남겨 둡니다. 반면 **퇴사 처리(`disposition: :offboarded`)** 는 세션과 토큰 폐기 및 이후 실행 차단에 더해 공유되지 않은 `SiteCredential`과 Pod 이메일 바인딩까지 모두 해제하므로, 구성원이 조직을 떠날 때는 반드시 퇴사 처리를 실행해야 합니다.
 
 권한 감사는 `/api/v2/permission-grants`와 `/api/v2/principals/:uid/grants` 엔드포인트로 수행할 수 있습니다. 처음 부여할 때는 적절했던 권한도 시간이 지나며 과도해질(drift) 수 있으니 주기적으로 점검하세요.
 
 ## 표면 2: Agent가 사용하는 자격 증명
 
-GitHub, Lark/Feishu, Slack, Linear 및 원격 Skill MCP(`streamable_http`) 연동에는 먼저 **Pod → Connections**(`Ankole.Connectors`)를 사용하세요. 상위 OAuth 및 앱 토큰이 Worker 컨테이너로 전달되지 않고 컨트롤 플레인 내부에만 암호화되어 보관되며, 컨트롤 플레인이 MCP 요청을 대리 전달하거나 `GIT_ASKPASS` 같은 턴 범위 단기 헬퍼를 주입합니다. Worker 내부의 커스텀 CLI나 스크립트에서 직접 읽어야 하는 API 키에 한해서만 Console의 **Environment variables**(`WorkerEnv`)에서 secret 저장 옵션을 켜 보관하고, 접근 대상을 좁혀 주기적으로 교체(회전)하세요.
+GitHub, Lark/Feishu, Slack, Linear 연동에는 먼저 **Pod → Connections**(`Ankole.Connectors`)를 사용하세요. 상위 OAuth 및 앱 토큰이 Worker 컨테이너로 전달되지 않고 컨트롤 플레인 내부에만 암호화되어 보관되며, 컨트롤 플레인이 MCP 요청을 대리 전달하거나 `GIT_ASKPASS` 같은 턴 범위 단기 헬퍼를 주입합니다. Worker 내부의 커스텀 CLI나 스크립트에서 직접 읽어야 하는 API 키는 Console의 **Environment variables**(`WorkerEnv`)에서 secret 저장 옵션을 켜 보관하고, 접근 대상을 좁혀 주기적으로 교체(회전)하세요.
 
 - **저장된 값을 불필요하게 평문으로 열어 보지 마세요.** 자격 증명을 교체할 때는 기존 값을 먼저 조회하지 말고 새 값을 바로 덮어써 저장하면 됩니다. 자세한 내용은 [Environment variables](../worker-env/)를 참조하세요.
 - **가능하면 시크릿 범위를 개별 Agent로 한정하세요.** 사이트나 테넌트 전역 시크릿은 소속된 모든 Agent에 전달되지만, Agent별 시크릿은 해당 Agent 하나에만 전달됩니다. 여러 Agent가 실제로 공유해야 하는 자격 증명이 아니라면 Agent 단위 설정을 우선하세요.
 - **예약된 환경 변수 이름을 덮어쓰지 마세요.** `PATH`, `HOME`, `WORKER_ID`, `DATABASE_URL`, `ANKOLE_` 접두사 변수 및 [Environment variables](../worker-env/)에 안내된 예약 이름은 Console에서 설정할 수 없으며, 이 제약을 우회하려 해서는 안 됩니다.
-- **부트스트랩 시크릿도 주기적으로 교체하세요.** `ANKOLE_SECRET_BASE`는 저장소 암호화 키를 파생하는 루트 시크릿이고, `ANKOLE_FUNCTION_RUNTIME_TOKEN`은 control plane과 `ankole-function-runtime` 사이의 내부 통신을 인증합니다. 부트스트랩 시크릿 교체에는 배포 재시작이 수반되며, 특히 `ANKOLE_SECRET_BASE`가 유출되면 인스턴스 전체가 영향권에 들어갑니다. 반면 Worker 자격 증명은 운영자가 설정하는 부트스트랩 시크릿이 아닙니다. control plane이 Worker generation마다 무작위 자격 증명을 발급해 인증용 다이제스트만 저장하고, 동일 generation 기동 재시도에 필요한 값은 암호화해 관리합니다.
+- **암호화의 기준이 되는 시크릿을 보관하세요.** `ANKOLE_SECRET_BASE`는 해당 값으로 암호화한 데이터와 함께 백업하세요. 값을 바꾸고 재시작해도 저장된 시크릿이 다시 암호화되지 않으므로 원래 값을 사용하거나 별도로 데이터를 마이그레이션해야 합니다. `ANKOLE_FUNCTION_RUNTIME_TOKEN`을 교체할 때는 control plane과 `ankole-function-runtime` 양쪽을 갱신하고 두 서비스를 재시작하세요. 반면 Worker 자격 증명은 운영자가 설정하는 부트스트랩 시크릿이 아닙니다. control plane이 Worker generation마다 무작위 자격 증명을 발급해 인증용 다이제스트만 저장하고, 동일 generation 기동 재시도에 필요한 값은 암호화해 관리합니다.
+
+원격 Skill MCP 서버(`streamable_http`)의 bearer token은 선언한 `bearer_token_env_var` 이름으로 **Environment variables**에 저장합니다. 제어면이 프록시 요청에 사용하며 Worker 스냅샷에서는 제외합니다.
 
 ## 표면 3: SSRF 및 model이 제어하는 fetch
 
@@ -43,8 +45,8 @@ GitHub, Lark/Feishu, Slack, Linear 및 원격 Skill MCP(`streamable_http`) 연�
 
 각 채팅 어댑터와 Identity Provider는 고유 자격 증명(`appID`/`appSecret`, `botToken`/`appToken`, `clientId`/`clientSecret`, Entra ID `appPassword`, Google Workspace `serviceAccountKey`)을 사용합니다. 정기 일정에 따라, 그리고 유출이 조금이라도 의심될 때는 즉시 교체하세요.
 
-- **외부 공급자 콘솔에서 먼저 교체한 뒤 Ankole 설정을 갱신하세요.** 공급자 측에서 새 키를 발급하고 이전 자격 증명을 폐기한 다음 새 값을 어댑터의 AppConfigure에 반영해야 합니다. Ankole에서만 바꾸고 공급자 측에 이전 키를 살려 두면 그대로 공격 노출 구간이 남습니다.
-- **플랫폼 및 커넥터 자격 증명을 WorkerEnv에 넣지 마세요.** 재사용 가능한 외부 서비스 연동은 **Pod → Connections**에서 관리하고, 채팅 채널과 Identity Provider 자격 증명은 각각의 전용 Console 설정 페이지에서 관리하며, **Environment variables**(`WorkerEnv`)는 Worker 로컬 CLI나 스크립트 시크릿에만 사용하세요.
+- **외부 공급자 콘솔에서 먼저 교체한 뒤 Ankole 설정을 갱신하세요.** 공급자 측에서 새 키를 발급하고 이전 자격 증명을 폐기한 다음 새 값을 해당 채널이나 Identity Provider의 Console 설정 페이지에 반영해야 합니다. Ankole에서만 바꾸고 공급자 측에 이전 키를 살려 두면 그대로 공격 노출 구간이 남습니다.
+- **채팅 채널, Identity Provider, 커넥터 자격 증명을 WorkerEnv에 넣지 마세요.** 재사용 가능한 외부 서비스 연동은 **Pod → Connections**에서 관리하고, 채팅 채널과 Identity Provider 자격 증명은 각각의 전용 Console 설정 페이지에서 관리하며, 원격 Skill MCP bearer token은 앞서 설명한 환경 변수 설정을 따르세요.
 - **디렉터리 동기화용 자격 증명도 동일한 수준으로 관리하세요.** Google Workspace의 `serviceAccountKey` 및 `adminEmail`, Microsoft Graph 조회용 Entra ID 앱 자격 증명은 전사 조직도를 읽을 수 있는 민감한 권한을 가집니다. 채팅 봇 토큰과 똑같은 주기와 보안 기준으로 교체하세요.
 
 ## 표면 5: 최소 네트워크 인그레스

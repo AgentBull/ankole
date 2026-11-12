@@ -22,7 +22,7 @@ order: 52
 
 ## 每个 Agent 一台 Worker
 
-新建 Agent 时，系统仅在数据库中写入提供商绑定关系与初始 Worker 记录，并不会当场拉起底层计算实例；只有当交互式环境工具或后台 Agent 任务（`BackgroundAgentJob` / Codex）真正需要沙箱电脑时，控制面才会按需唤醒或创建该 Agent 的 Worker。纯文本对话与 Workflow 编排的模型调用直接在控制面内完成，自动化任务（Automation Job）则在无状态 `ankole-function-runtime` 中执行已发布的 Applet Action，均无需启动 Worker。
+新建 Agent 时，系统保存提供商绑定与 Worker 记录，并在后台请求初次启动 Worker；创建请求不等待实例就绪。空闲回收后，交互式环境工具或后台 Agent 任务（`BackgroundAgentJob` / Codex）需要电脑时才会再次请求 Worker。普通对话与 Workflow 模型调用在控制面运行，自动化任务在 `ankole-function-runtime` 中执行已发布的 Applet Action，这些路径不要求重新唤醒 Worker。
 
 同一个 Agent 名下的多个 Session 与后台任务各自使用独立的工作区子目录，但共享同一台 Worker 实例及 `/workspace` 主目录。每个打开的环境工作区与每个正在运行的 Codex 回合各占用 1 个 Worker 并发槽位，单台 Worker 的槽位上限由 `ANKOLE_MAX_CONCURRENT_SLOTS` 决定。单纯新建更多 `WorkerProvider` 或添加其他 Agent，并不会扩充既有单个 Agent 的 Worker 槽位容量，也不会放宽其独立的后台任务并发上限。
 
@@ -65,7 +65,7 @@ order: 52
 - **按平台特性回收算力**：支持内存快照挂起的平台（如 Lambda、函数计算）会将空闲 Worker 置为暂停态，其余平台则直接销毁计算实例，同时完整保留持久化主目录与已配置的独立缓存卷。
 - **平滑滚动替换**：更新容器镜像或实例规格参数后，存量 Worker 会在进入空闲态后再行替换；若遇到底层通信协议版本升级则立即强制替换；处于挂起态的旧配置实例在承接新任务前也会先完成替换。
 - **就绪超时重建保护**：`agent_workers.ready_timeout_seconds` 默认为 `600` 秒，仅针对底层平台已明确可观测到的卡死实例触发重建，绝不会擅自强行结清平台侧结果仍不确定的创建请求。
-- **有序清理已删 Agent**：删除某个 Agent 时，控制面会先等待其底层计算实例彻底销毁退出，随后清理持久化主目录与缓存存储，最后才删除数据库中的 Worker 行记录。Agent UID 由服务端全局唯一生成，删除后永不复用。
+- **有序清理已删 Agent**：删除某个 Agent 时，控制面会先等待其底层计算实例彻底销毁退出，随后清理持久化主目录与缓存存储，最后才删除数据库中的 Worker 行记录。
 
 ## 排查未就绪的 Worker
 

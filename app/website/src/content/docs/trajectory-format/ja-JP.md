@@ -7,7 +7,7 @@ order: 121
 
 Ankole は、Agent の実行履歴を作業の性質に応じて 2 つの異なるストアに記録します。通常のステートフルな Responses 会話のライブトランスクリプトは AIGateway が「会話メッセージ」として保存し、永続 Background Agent Job の Turn ごとの実行記録は Background Agent Jobs が「ターン軌跡（trajectory）」として保存します。このページでは、両者の保存構造、正規化された ChatML 形式、およびプロトコル固有の内部情報を除去するモデル向けプロジェクションの仕組みを解説します。前提となる設計については、[AIGateway](../ai-gateway/) および [Background Agent Jobs](../background-agent-jobs/) を参照してください。
 
-ここで最も重要な設計原則は、**モデルがデータベース上の生の保存行を直接見ることは決してない**という点です。どちらの保存形式も、モデルに渡す際にはプロトコル固有の内部 ID が取り除かれ、その Turn 内だけで有効な呼び出しエイリアスに置き換えられた「モデル可視形式」へと投影されます。その結果、モデルが目にするのは内部 UUID やワイヤプロトコルの生フィールドではなく、「ツール呼び出し 1 → ツール結果 1」という対応関係だけになります。つまり、保存形式は永続性と監査のためにあり、プロジェクション形式はモデル推論のためにあります。
+モデルには保存済みの履歴を投影して渡します。メイン Agent が Background Agent Job を調べる際は、軌跡の投影で内部メッセージ ID を除去し、ツール呼び出し ID を `call_1` などの局所的な別名に置き換えます。監査用の記録は PostgreSQL に保持します。
 
 なお、本ページで扱う「AIGateway conversation」は Session ごとのモデル推論履歴を指しており、`Ankole.Conversations` が管理する参加者間の共有 Conversation / Message とは別物です。共有の会話履歴は直近の背景文脈を補うために参照されますが、保存済みのモデル応答チェーンやツール実行記録を置き換えるものではありません。
 
@@ -46,7 +46,7 @@ Background Agent Job は、Turn ごとの実行過程を `background_agent_job_t
 
 なお、ツール実行結果メッセージの `metadata` には `execution_mechanism` が記録されます。モデル Provider 側で実行されたホスト型ツールには `provider_hosted`、Codex から呼び出された Ankole の動的ツールには `local_dynamic` が入るため、表示名が同じツールであっても実行経路を明確に区別できます。
 
-Background Agent Job の軌跡が AIGateway の会話メッセージと別構造になっているのは、軌跡の所有者が会話ではなく Job 自身だからです。Job の各 Turn は独立した実行スレッドとして進み、依頼元の会話には途中の軌跡行ではなく最終的な結果イベントだけが返されます。
+Background Agent Job の軌跡が AIGateway の会話メッセージと別構造になっているのは、軌跡の所有者が会話ではなく Job 自身だからです。Job は自身の永続 Codex スレッドで複数の Turn を継続し、依頼元の会話には途中の軌跡行ではなく結果や状態変化のイベントを返します。
 
 ## モデル可視プロジェクション
 

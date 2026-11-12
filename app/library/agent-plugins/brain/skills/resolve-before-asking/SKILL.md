@@ -18,6 +18,10 @@ their attention on a question the system can answer itself.
 - You are about to present an entity as unknown or unidentified.
 - You are composing a list of people and leaving any as "unknown".
 
+In a Background Agent Job, Brain exposes read tools. Use those tools and
+`ankole-pod pages.read` for the lookup, then return unresolved synthesis needs
+and confirmed findings to the main Agent for `synthesize` or `remember`.
+
 ## The lookup chain
 
 Run in order. Stop at the first clear answer.

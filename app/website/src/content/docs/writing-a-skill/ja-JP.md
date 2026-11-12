@@ -151,7 +151,7 @@ end
 
 運用者が稼働中に変更できる設定項目には、`app_config_definitions/0` または `app_config_patterns/0` を使用します。OS の環境変数は、PostgreSQL に接続できるようになる前のブートストラップ段階で必須となる値にだけ限定してください。
 
-主要なドメイントランザクション（`:create_agent`、`:create_invitation`、`:enable_signal_binding`、`:enable_identity_provider`、`:store_file`、`:commit_files`、`:create_pod_page`、`:restore_pod_page`、`:insert_base_records`、`:admit_compute`）に対して同期的な受付検査やクォータ制限を組み込みたい場合は、`hooks/0` を使用します。各フックモジュールは `Ankole.Plugins.Hook.before_commit_in_tx/2` を実装し、呼び出し元と同一のトランザクション内で `:ok` または `{:error, reason}` を返します（エラーを返すとトランザクション全体がロールバックされます）。
+主要なドメイントランザクション（`:create_agent`、`:create_invitation`、`:enable_signal_binding`）に対して同期的な受付検査やクォータ制限を組み込みたい場合は、`hooks/0` を使用します。各フックモジュールは `Ankole.Plugins.Hook.before_commit_in_tx/2` を実装し、呼び出し元と同一のトランザクション内で `:ok` または `{:error, reason}` を返します（エラーを返すとトランザクション全体がロールバックされます）。
 
 常駐プロセスが必要な場合は、`children/0` から標準の OTP child specification を返します。外部接続や Reconciler はプラグイン専用の Supervisor 配下にぶら下がり、プラグインが有効化された起動時に立ち上がり、無効化後の次回起動時には起動されなくなります。
 

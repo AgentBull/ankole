@@ -75,7 +75,7 @@ Control Plane Plugin은 OpenAI Plugin이 아니며 Agent의 프롬프트 컨텍�
 
 하나의 Control Plane Plugin은 스택 전반에 걸쳐 다음과 같은 확장 지점을 제공할 수 있습니다.
 
-- 서브시스템 어댑터(`signals.adapter`, `principals.identity_provider`, `ai_gateway.provider`, `agent_workers.provider`) 및 감독 대상 OTP 프로세스(`children/0`)
+- 서브시스템 어댑터(`signals.adapter`, `principals.identity_provider`, `ai_gateway.provider`, `agent_workers.provider_kind`) 및 감독 대상 OTP 프로세스(`children/0`)
 - 외곽 HTTP 엣지 `Plug` 및 범위가 분리된 확장 JSON:API 라우트
 - 동기식 도메인 트랜잭션 훅 `hooks/0`(`Ankole.Plugins.Hook`)
 - 선언적 `AppConfigure` 설정 필드(`ConfigFields`) 및 타입 안전 Web UI 슬롯(`entries.json`의 `overrides`)

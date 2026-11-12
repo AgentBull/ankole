@@ -13,7 +13,7 @@ Ankole은 조직을 위한 Agent를 실행합니다. Agent의 작업은 대화 �
 
 ### 발언과 작업을 별도로 기록합니다
 
-대화 기록에는 참여자에게 표시되는 발언만 저장하고, 작업 로그에는 모델 호출과 도구 실행 결과를 저장합니다. 대화에 참여하는 각 Agent는 고유한 실행 세션과 모델 상태를 유지하며, 대화 참여자는 모두 그 작업 내역을 열람할 수 있습니다. 하나의 실행 세션이 여러 대화를 넘나들지는 않습니다.
+대화 기록에는 참여자에게 표시되는 발언만 저장하고, 작업 로그에는 모델 호출과 도구 실행 결과를 저장합니다. 대화에 참여하는 각 Agent는 고유한 실행 세션과 모델 상태를 유지하며, Agent의 응답은 대화 참여자에게 공유됩니다. 하나의 실행 세션이 여러 대화를 넘나들지는 않습니다.
 
 각 Agent는 대화마다 독립된 Session을 가지며 출력은 대화 참여자에게 공유됩니다. 대화형 턴, 사람의 메시지로 시작하는 `may_intervene`, 예약 작업과 서비스 트리거 모두 실행 Agent의 권한으로 리소스에 접근합니다. 공유 대화방의 일반 Agent 메시지는 다른 Agent를 깨우지 않으며, 명시적인 Agent 간 위임은 `personal_assistant`가 소유자의 동결된 Human `WorkAccess` 아래에서 `send_to_agent`로 격리된 `agent_peer` 교환을 열어 `ai_colleague`에게 작업을 맡기는 방식으로 진행됩니다. 이때 동료 Agent의 `Clarify` 질문이나 `ActionCard`는 원래 대화방에 제로홉(zero-hop)으로 직접 투영되어 사람의 응답이 동료 Agent를 곧바로 깨웁니다. 사람의 재직 상태와 지시 버전은 위임의 유효성을 계속 검증하지만, 사람과 Agent의 리소스 권한을 교차 적용하지 않습니다.
 
@@ -46,7 +46,7 @@ AIGateway는 내부 Agent와 외부 클라이언트 모두에 상태 유지형(s
 | 항목 | deepseek-harness | pi durable | qm | Ankole |
 | --- | --- | --- | --- | --- |
 | 기록 모델 | 추가 전용 `SessionEvent` 로그에서 모델 기록을 파생합니다. [소스][D-session] | 불변 entries와 task 및 문서 업데이트를 원자적으로 커밋합니다. [명세][P-spec] | PostgreSQL `session_entries`. Slack과 Web UI가 동일한 기록을 표시합니다. [저장][Q-session], [설계][Q-spec] | 대화 발언과 모델 작업 로그를 분리합니다 |
-| 공유 컨텍스트 | Agent / Session 기록과 플러그인이 정의한 투영을 사용합니다. [소스][D-session] | 호스트가 메시지 유형과 앱 정책을 정의합니다. [소스][P-guide] | 해당 턴의 모든 수신자에게 공개 가능한 기록만 담습니다. [소스][Q-audience] | 대화 내 Agent별 실행 세션 분리. 수신자는 공유하되 모델 상태는 독립 유지하며 턴별로 권한 적용 |
+| 공유 컨텍스트 | Agent / Session 기록과 플러그인이 정의한 투영을 사용합니다. [소스][D-session] | 호스트가 메시지 유형과 앱 정책을 정의합니다. [소스][P-guide] | 해당 턴의 모든 수신자에게 공개 가능한 기록만 담습니다. [소스][Q-audience] | 대화 내 Agent별 실행 세션 분리. 발언은 공유하되 모델 상태는 독립 유지하며 턴별로 권한 적용 |
 | 입력 | Agent 입력, 예약 follow-up, 별도 webhook 런타임으로 나뉩니다. [예약][D-schedule], [webhook][D-webhook] | Submission과 영구 inbox를 사용합니다. [소스][P-guide] | cron, webhook, loop 메커니즘이 분리되어 있으며 SPEC에서도 별도 loop 구현의 한계를 지적합니다. [소스][Q-spec] | 모든 출처가 단일 영속 Signal 접수 계약을 사용합니다 |
 | 시간과 외부 트리거 | 영속 알림이 원래 Session으로 돌아갑니다. webhook에는 큐, 재시도, 장애 후 재생, 내장 중복 제거가 없습니다. [예약][D-schedule], [webhook][D-webhook] | 패키지가 submission / task API를 제공하고 외부 트리거는 호스트가 연결합니다. [소스][P-guide] | cron 실행마다 `cron:<id>:fire:<hash>` 세션을 새로 생성합니다. [소스][Q-cron] | 고정된 cron 실행 세션 유지. 외부 Signal을 영속 접수하고 대상 대화에 결과 전달 |
 | 외부 전달 | 예약 전달 대상이 원래 Session으로 제한됩니다. [소스][D-schedule] | 외부 채널 연동은 호스트 앱이 담당합니다. [소스][P-guide] | 영속 전달 기록과 만료 처리를 지원합니다. [소스][Q-delivery] | 대화 호스트 어댑터 제공. 횟수 제한 재시도와 실패·만료·결과 불명확 상태 추적 |

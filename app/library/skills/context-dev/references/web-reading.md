@@ -6,7 +6,7 @@ Search, scrape, crawl, and schema-shaped extraction. Every example is one common
 
 | Question | Tool | Cost |
 | --- | --- | --- |
-| Which pages discuss this? | `web-search` | 1 credit for each result |
+| Which pages discuss this? | `web-search` | From 1 credit per 10 results; page content costs extra |
 | What does this page say? | `web-scrape-markdown` | 1 credit |
 | What markup does this page carry? | `web-scrape-html` | 1 credit |
 | Which images are on this page? | `web-scrape-images` | 1, 2, or 5 credits |
@@ -36,7 +36,7 @@ A sitemap first, then a small set of `web-scrape-markdown` calls, is often cheap
 
 ## web-search
 
-`query` accepts natural language and Google operators. `numResults` is 10–100 and defaults to 10. Narrow the result set with `includeDomains`, `excludeDomains`, and `freshness` (`last_24_hours`, `last_week`, `last_month`, `last_year`). `queryFanout` expands one query into parallel variants for wider recall.
+`query` accepts natural language and Google operators. `numResults` is 1–100 and defaults to 10. Narrow the result set with `includeDomains`, `excludeDomains`, and `freshness` (`last_24_hours`, `last_week`, `last_month`, `last_year`). `queryFanout` currently has no effect.
 
 `markdownOptions` is off by default. When you set `enabled: true`, each result is scraped in the same call and carries the shared rendering axes. Read `markdown.code` on every result before you read `markdown.markdown`: only `SUCCESS` promises text, while `NOT_REQUESTED`, `TIMEOUT`, `WEBSITE_ACCESS_ERROR`, and `ERROR` mean there is none.
 
@@ -51,7 +51,7 @@ Each result carries `url`, `title`, `description`, and `relevance` of `high`, `m
 }
 ```
 
-Scraping every result multiplies the cost by the result count. Search first, choose the pages, then scrape those pages.
+Markdown adds 1 credit for each result with content, on top of the search charge. Search first, choose the pages, then scrape those pages.
 
 ## web-scrape-markdown and web-scrape-html
 
@@ -136,6 +136,6 @@ The response carries `data`, `urls_analyzed`, and `metadata`. Check `urls_analyz
 
 ## parse-document
 
-`fileBase64` holds the file bytes, and the decoded file must be 25 MiB or smaller; a larger body returns `413`. `extension` is a hint such as `pdf`, `docx`, `xlsx`, `pptx`, `html`, `csv`, or `png`. `pdf.start` and `pdf.end` bound an inclusive 1-based page range, and `ocr: true` reads images inside those pages. `ocr: false` also turns off the automatic fallback for a scanned PDF. The call costs 1 credit, and 5 when OCR contributes text.
+`fileBase64` holds the file bytes, and the decoded file must be 50 MiB or smaller; a larger body returns `413`. `extension` is a hint such as `pdf`, `docx`, `xlsx`, `pptx`, `html`, `csv`, or `png`. `pdf.start` and `pdf.end` bound an inclusive 1-based page range, and `ocr: true` reads images inside those pages. `ocr: false` also turns off the automatic fallback for a scanned PDF. The call costs 1 credit, and 5 when OCR contributes text.
 
-Encode the bytes into the argument file, and delete that file after the call. Ankole reads PDF, image, DOCX, PPTX, and XLSX files locally through its own Skills and spends no credit, so this tool earns its cost on a format they do not read, such as `.doc`, `.rtf`, `.srt`, or `.xlsb`.
+Encode the bytes into the argument file, and delete that file after the call. Ankole has its own PDF, image, DOCX, PPTX, and XLSX Skills, which use no Context.dev credits. OCR API or model calls have their own Provider charges. Use this tool for a format those Skills do not read, such as `.doc`, `.rtf`, `.srt`, or `.xlsb`.

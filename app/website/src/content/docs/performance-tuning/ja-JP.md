@@ -11,13 +11,13 @@ order: 319
 
 セッション Driver はモデル応答やツール実行を待機している間、DB コネクションを手放します。モデルの同時実行数、Provider のクォータ、Worker スロット数、DB クエリの同時実行数はそれぞれ独立した制限として機能します。
 
-すべてのコントロールプレーンレプリカにわたる `Ankole.Repo` と `Ankole.Pod.BaseRepo` の接続プール合計が、各 PostgreSQL サーバーの接続上限（`max_connections`）内に収まるよう設計し、管理操作やメンテナンス用の接続枠も余分に確保してください。`BASE_DB_URLS` を設定しない単一データベース構成では、`Ankole.Pod.BaseRepo` が `Ankole.Repo` の 10 接続プールとは別に `DATABASE_URL` に対して 10 接続のプールを開くため、1 レプリカあたり合計 `20` 接続を消費します。一方、`BASE_DB_URLS` で専用のシャードデータベースを指定する場合は、各シャードサーバーの `max_connections` を `レプリカ数 × ankole_pool_size` に見合う値に設定してください。プールサイズを変更する際は、事前にプールチェックアウトの待ち時間を計測してから調整することをおすすめします。
+すべてのコントロールプレーンレプリカにわたる `Ankole.Repo` と `Ankole.Pod.BaseRepo` の接続プール合計が、各 PostgreSQL サーバーの接続上限（`max_connections`）内に収まるよう設計し、管理操作やメンテナンス用の接続枠も余分に確保してください。FOSS 本番環境で `BASE_DB_URLS` を設定しない場合は、`Ankole.Pod.BaseRepo` が `Ankole.Repo` の 10 接続プールとは別に `DATABASE_URL` に対して 10 接続のプールを開くため、1 レプリカあたり合計 `20` 接続を消費します。一方、`BASE_DB_URLS` で専用のシャードデータベースを指定する場合は、各シャードサーバーの `max_connections` を `レプリカ数 × ankole_pool_size` に見合う値に設定してください。プールサイズを変更する際は、事前にプールチェックアウトの待ち時間を計測してから調整することをおすすめします。
 
 | ノブ | 既定 | 上限の対象 |
 |---|---|---|
-| `ANKOLE_MAX_CONCURRENT_SLOTS` | デプロイ seed では 12（未設定時は 9） | 1 Agent あたりの開いている環境ワークスペースと実行中の Codex Turn の合計 |
+| `ANKOLE_MAX_CONCURRENT_SLOTS` | 12 | 1 Agent あたりの開いている環境ワークスペースと実行中の Codex Turn の合計 |
 | `POOL_SIZE`（Compose/Helm では `ANKOLE_DATABASE_POOL_SIZE`） | 10 | レプリカごとの `Ankole.Repo` コントロールプレーン DB 接続プール |
-| `BASE_DB_URLS`（`ankole_pool_size`） | シャードごとに 10（dev/test では `2`） | レプリカごとの各 `Ankole.Pod.BaseRepo` Base シャード接続プール |
+| `BASE_DB_URLS`（`ankole_pool_size`） | FOSS 本番は 10、SaaS 本番は 5、dev/test は 2 | レプリカごとの各 `Ankole.Pod.BaseRepo` Base シャード接続プール |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | 300 | Postgres の `max_connections`（同梱サーバー利用時） |
 | `background_agent_jobs.max_running_per_agent` | 3 | Agent ごとの実行中 Background Agent Job の最大数（テナントスコープ） |
 | `idleReleaseAfter` | 全 6 プロバイダー共通で `15m`（`never` でアイドル停止を無効化） | Worker が停止して CPU とメモリを解放するまでのアイドル時間 |

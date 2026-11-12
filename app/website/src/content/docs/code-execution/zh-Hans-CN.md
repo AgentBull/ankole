@@ -11,9 +11,9 @@ Ankole Agent 既可以在日常对话中直接运行终端命令、读写与修�
 
 ## shell 命令
 
-Agent 通过内置的 `command` 工具执行 Shell 命令（底层由 `app/agent_computer/src/tools/computer/command-tool.ts` 实现）。每条命令都以 Worker 用户身份在独立的进程组内启动，并使用一份剥离了 Worker 平台通信凭据的干净环境变量；一旦收到取消指令或达到超时上限（前台命令默认时限为 180 秒），系统会整组清理整个进程组。所有命令的工作目录都必须位于 Agent Home 边界之内。与此同时，[浏览器自动化](../browser-automation/)守护进程和 Codex `app-server` 也同样以该普通用户身份运行，无需为容器赋予任何特权级内核能力。
+Agent 通过内置的 `command` 工具执行 Shell 命令（底层由 `app/agent_computer/src/tools/computer/command-tool.ts` 实现）。每条命令都以 Worker 用户身份在独立的进程组内启动，并使用一份剥离了 Worker 平台通信凭据的干净环境变量；一旦收到取消指令或达到超时上限（前台命令默认时限为 180 秒），系统会整组清理整个进程组。命令的工作目录可以位于 Agent Home 或本次执行的 Drive 视图内。与此同时，[浏览器自动化](../browser-automation/)守护进程和 Codex `app-server` 也以该普通用户身份运行，这些子进程不需要提权后的内核能力；挂载操作由受信任的 supervisor 负责。
 
-具体而言，所有命令均以 `uid 1000` 运行且不提供 `sudo`：Agent 可以在自己的 Home 目录内读写文件、安装用户态依赖包或派生子进程，但无法改动系统级软件包。同一个 Agent 名下的前台 Session 与后台 Job 可以互访彼此保存在 Home 中的文件，而不同 Agent 之间则由独立的容器实例彻底隔离。此外，Worker 容器既不直连控制面数据库，也不持有底层对象存储桶的密钥。
+具体而言，所有命令均以 `uid 1000` 运行且不提供 `sudo`：Agent 可以在自己的 Home 目录内读写文件、安装用户态依赖包或派生子进程，但无法改动系统级软件包。同一个 Agent 名下的前台 Session 与后台 Job 可以互访彼此保存在 Home 中的文件，而不同 Agent 之间则由独立的容器实例彻底隔离。此外，控制面的 Worker 启动契约不包含控制面数据库或 Files 对象存储的引导凭据。
 
 ## 文件读取与 apply_patch
 
@@ -24,11 +24,11 @@ Agent 通过内置的 `command` 工具执行 Shell 命令（底层由 `app/agent
 
 在前台主 Agent 循环中，模型通过 AIGateway 将原始补丁文本作为 `custom_tool_call` 发出，Worker 收到后直接调用容器内的 `/usr/local/bin/apply_patch` 原生二进制完成修改；而在后台 Agent 任务中，模型同样从 AIGateway 模型能力卡拿到这同一个自由格式工具，并在底层调用同一个原生二进制。
 
-依靠这条统一的底层通路，日常前台对话与长时后台任务得以共用完全一致的文件编辑协议。一旦补丁上下文无法精确匹配目标文件，原生工具会直接报错终止并将原因如实反馈给模型。经验法则是：快速检索定位可用 Shell，修改文件内容统一走 `apply_patch`。
+依靠这条统一的底层通路，日常前台对话与长时后台任务得以共用完全一致的文件编辑协议。一旦补丁上下文无法精确匹配目标文件，原生工具会直接报错终止并将原因如实反馈给模型。检索与列目录使用专用的 `grep`、`find`、`ls` 工具，读取文件使用 `read_file`，编辑文件使用 `apply_patch`。
 
 ## /workspace 文件系统
 
-Agent Home 是挂载在 `/workspace` 下的持久化存储目录。`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接；系统做路径安全校验时会先解析符号链接，再核验目标路径是否仍落在 Home 边界以内。标准目录布局如下：
+Agent Home 是挂载在 `/workspace` 下的持久化存储目录。`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接；系统校验命令工作目录时，先解析符号链接，再确认它位于 Agent Home 或本次执行的 Drive 视图内。标准目录布局如下：
 
 ```text
 /workspace/

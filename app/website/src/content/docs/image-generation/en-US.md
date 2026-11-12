@@ -9,18 +9,18 @@ Enable image generation when an Agent needs to create illustrations, concept art
 
 ## Select the execution path
 
-The public `image_generation` tool supports two execution paths:
+The public `image_generation` tool supports two execution paths, selected by **Use the model's provider** in the `image_generate` model-profile card:
 
-- **Hosted:** When you configure the Agent's `image_generate` profile, AIGateway executes the tool against that dedicated provider and model, then returns the resulting image to the main language model.
-- **Native:** When you leave `image_generate` empty and use a main provider that declares native image generation (such as OpenAI or ChatGPT Subscription), AIGateway passes the public tool directly to that provider.
+- **Native:** With the switch on, the main language-model provider executes image generation inside its own turn. OpenAI and ChatGPT Subscription support this path. The dedicated `image_generate` profile is not used.
+- **Hosted:** With the switch off, AIGateway uses the dedicated `image_generate` provider and model and returns the result to the main model.
 
-Because of this fallback behavior, the `image_generate` profile acts as a routing switch rather than an on/off toggle. If you leave `image_generate` empty and the main provider does not support native image generation, AIGateway rejects calls to the tool with a clear configuration error.
+The switch defaults to on and inherits through Site, Pod, and Agent settings. In native mode, a main provider without native image generation leaves the Agent without that capability. In hosted mode, the dedicated profile must resolve to a compatible model; leaving it empty does not select the native path.
 
 To configure the hosted path:
 
 1. In **LLM Providers** in the Console, add a Provider that offers the image model you want to use.
 2. Open **Agents** and select the target Agent.
-3. Locate `image_generate` under its model profiles.
+3. Under `image_generate`, turn off **Use the model's provider**.
 4. Select the image Provider and model, then save the profile.
 5. Return to chat and send an image request to verify the setup.
 
@@ -67,7 +67,7 @@ If you attach multiple reference images, label them clearly (such as "Image 1" a
 
 ## If no image appears
 
-- **The Agent returns text only:** Confirm that the client or Agent exposes the `image_generation` tool, and check that either `image_generate` is configured or the main Provider supports native image generation.
+- **The Agent returns text only:** Confirm that the client or Agent exposes `image_generation`. With **Use the model's provider** on, check the main Provider's native capability; with it off, check the dedicated `image_generate` profile.
 - **No model is available:** None of your configured LLM Providers offers an image-generation model. Add a Provider that supports image generation.
 - **The request is not supported:** Select a compatible model, or remove options that the current model does not support—such as a specific size, output format, transparent background, reference image, or edit instruction.
 - **An image appears, but its content is wrong:** This usually reflects prompt ambiguity rather than a configuration fault. Reply in the same chat and specify both what to change and what to keep.

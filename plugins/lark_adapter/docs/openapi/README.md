@@ -13,7 +13,7 @@ English | [简体中文](README.zh-Hans.md)
 - Generic HTTP client for both Feishu (`open.feishu.cn`) and Lark (`open.larksuite.com`)
 - Automatic fetching and caching of `tenant_access_token` and `app_access_token`
 - Auth helpers for self-built apps, marketplace apps, and OIDC `user_access_token` flows
-- Managed OIDC `user_access_token` storage with automatic refresh-token rotation
+- OAuth helpers for obtaining and refreshing OIDC `user_access_token` credentials
 - Weakly typed request building with `body`, `query`, `path_params`, and custom headers
 - Multipart upload and binary download helpers
 - Webhook payload decryption and request signature verification, plus an optional `Plug` adapter
@@ -41,7 +41,7 @@ Call an endpoint using the default cached `tenant_access_token`:
 {:ok, resp} =
   FeishuOpenAPI.get(client, "contact/v3/users/:user_id",
     path_params: %{user_id: "ou_xxx"},
-    query: [user_id_type: "user_id"]
+    query: [user_id_type: "open_id"]
   )
 
 resp["code"] == 0
@@ -53,7 +53,7 @@ Send a `POST` request:
 ```elixir
 {:ok, resp} =
   FeishuOpenAPI.post(client, "im/v1/messages",
-    query: [receive_id_type: "user_id"],
+    query: [receive_id_type: "open_id"],
     body: %{
       receive_id: "ou_xxx",
       msg_type: "text",

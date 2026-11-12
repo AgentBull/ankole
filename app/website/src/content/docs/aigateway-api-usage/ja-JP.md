@@ -7,7 +7,7 @@ order: 126
 
 AIGateway は、Worker が内部から呼び出すためだけの境界ではありません。外部アプリケーション、社内システム、各種 SDK から直接利用できる REST API でもあります。このページでは [AIGateway](../ai-gateway/) の概念ページを補完し、外部の呼び出し元向けにエンドポイント、認証方式、呼び出しモード、具体的なリクエスト例を紹介します。
 
-最初に押さえておきたいのは、AIGateway API が **OpenResponses 互換であり、かつ Principal ごとにスコープ分離されている**という点です。呼び出し元は bearer token（Agent 用または OIDC Human 用）を提示して OpenResponses 形式のリクエストを送り、JSON レスポンスまたはストリームを受け取ります。上流 provider の認証情報はすべて control plane が管理するため、呼び出し元が API キーなどに触れることはありません。
+AIGateway の呼び出しは **Principal ごとにスコープ分離**され、Agent または OIDC Human の bearer token が必要です。Responses API は OpenResponses 形式のリクエストを受け取り、JSON またはイベントストリームを返します。メディアやファイルのエンドポイントには、それぞれのスキーマと Content-Type を使います。上流 provider の認証情報は control plane が保管します。
 
 ## 認証
 
@@ -49,7 +49,7 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -d '{ "model": "primary", "input": "Draft a release note.", "stream": true }'
 ```
 
-なお、HTTP および SSE によるステートレス呼び出しでは、ステートフル用のフィールド（`previous_response_id`、`conversation`、`store`）は拒否されます。ターンをまたいで会話を継続したい場合は、WebSocket 経路を使用してください。
+HTTP と SSE のステートレス呼び出しでは、`previous_response_id`、`conversation`、および `false` 以外の `store` を拒否します。`store` は省略するか `store: false` を指定できます。ターンをまたいで会話を継続する場合は WebSocket を使用してください。
 
 ## その他のエンドポイント
 

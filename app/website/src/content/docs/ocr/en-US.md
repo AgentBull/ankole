@@ -19,7 +19,7 @@ Read this receipt and list the merchant, date, items, tax, and total.
 
 ## Advanced recognition on ordinary CPUs
 
-Ankole runs the CPU-capable [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) detection and recognition models—the accuracy-focused tier of the PP-OCRv6 family. In PaddleOCR's benchmarks, PP-OCRv6 medium improves text detection by 4.6% and text recognition by 5.1% over `PP-OCRv5_server`.
+Ankole runs the CPU-capable [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) detection and recognition models—the accuracy-focused tier of the PP-OCRv6 family. On PaddleOCR's in-house multi-scenario benchmark, PP-OCRv6 medium improves detection Hmean by 4.6 percentage points and recognition accuracy by 5.1 percentage points over `PP-OCRv5_server`.
 
 A single model covers 50 languages, including Simplified Chinese, Traditional Chinese, English, Japanese, and 46 Latin-script languages. Beyond flat document scans, it handles text in natural scenes such as screenshots, street signs, product labels, and digital displays.
 

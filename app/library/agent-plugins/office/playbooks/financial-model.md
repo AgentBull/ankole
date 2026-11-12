@@ -90,7 +90,7 @@ Each recipe below is **runnable skeleton, not finance theory**. Substitute numbe
 
 ### Recipe A — 3-statement model (P&L + BS + CF)
 
-**What this recipe produces.** 4 sheets: `Assumptions`, `P&L`, `Balance Sheet`, `Cash Flow`, plus `Summary`. Year columns 2024A · 2025E · 2026E · 2027E. Balance-check row on BS; cash-reconciliation row on CF. Every statement row = formula → Assumptions.
+**What this recipe produces.** Five sheets: `Assumptions`, `P&L`, `Balance Sheet`, `Cash Flow`, and `Summary`. Year columns 2024A · 2025E · 2026E · 2027E. Balance-check row on BS; cash-reconciliation row on CF. Every statement row = formula → Assumptions.
 
 **Build order (MANDATORY).** `Assumptions → P&L → Balance Sheet → Cash Flow → Summary`. Do NOT build BS before P&L — `RetainedEarnings` depends on `NI`. Do NOT build CF before BS — `CF.OpeningCash = prior period CF.EndingCash` self-chain requires BS cash anchored for Y1. The Gate 4 balance check below fails silently if order is wrong.
 
@@ -98,12 +98,12 @@ Each recipe below is **runnable skeleton, not finance theory**. Substitute numbe
 
 ```bash
 officecli add "$FILE" / --type sheet --prop name=Assumptions --prop tabColor=FFC000
-officecli add "$FILE" / --type sheet --prop name=P&L --prop tabColor=4472C4
+officecli add "$FILE" / --type sheet --prop name='P&L' --prop tabColor=4472C4
 officecli add "$FILE" / --type sheet --prop name='Balance Sheet' --prop tabColor=4472C4
 officecli add "$FILE" / --type sheet --prop name='Cash Flow' --prop tabColor=4472C4
 officecli add "$FILE" / --type sheet --prop name=Summary --prop tabColor=70AD47
 officecli set "$FILE" /Assumptions --prop freeze=B2
-officecli set "$FILE" /P&L --prop freeze=B3
+officecli set "$FILE" "/P&L" --prop freeze=B3
 officecli set "$FILE" "/Balance Sheet" --prop freeze=B3
 officecli set "$FILE" "/Cash Flow" --prop freeze=B3
 ```
@@ -156,11 +156,19 @@ Replicate across columns C/D/E. Apply red fill (`fill=FFC7CE`) conditionally via
 
 ```bash
 # (1) Top-line trend (Revenue + EBITDA).
-officecli add "$FILE" /Summary --type chart --prop chartType=column --prop dataRange='P&L!A2:E5' --prop title='Revenue & EBITDA' --prop width=14cm --prop height=8cm
+officecli add "$FILE" /Summary --type chart --prop chartType=column \
+  --prop series1.name=Revenue --prop series1.values="'P&L'!B3:E3" \
+  --prop series1.categories="'P&L'!B2:E2" \
+  --prop series2.name=EBITDA --prop series2.values="'P&L'!B9:E9" \
+  --prop series2.categories="'P&L'!B2:E2" \
+  --prop title='Revenue & EBITDA' --prop width=14cm --prop height=8cm
 # (2) Margin trend (Gross / EBITDA / NI margin).
 officecli add "$FILE" /Summary --type chart --prop chartType=line --prop dataRange='Summary!A10:E13' --prop title='Margin trend' --prop width=14cm --prop height=8cm
 # (3) Cash trajectory (Ending Cash ± Runway).
-officecli add "$FILE" /Summary --type chart --prop chartType=area --prop dataRange='Cash Flow!A19:E19' --prop title='Ending cash' --prop width=14cm --prop height=8cm
+officecli add "$FILE" /Summary --type chart --prop chartType=area \
+  --prop series1.name='Ending cash' --prop series1.values="'Cash Flow'!B19:E19" \
+  --prop series1.categories="'Cash Flow'!B2:E2" \
+  --prop title='Ending cash' --prop width=14cm --prop height=8cm
 ```
 
 **Verification (run all three):**
@@ -196,7 +204,7 @@ EOF
 
 **Step 2 — FCF build (10 years).** Columns B:K = Y1..Y10. Rows: `Revenue` (from growth) / `EBIT` (revenue × margin) / `EBIT × (1 − TaxRate)` (NOPAT) / `+ D&A` / `− CapEx` / `− ΔNWC` / `= FCF`. Use Assumptions-driven ratios (`CapEx = Revenue × CapExRatio`). All cells formulas, black font, `numFmt='$#,##0;($#,##0);"-"'`.
 
-**Step 3 — WACC panel.** On `WACC` sheet, an 8-row panel: `Risk-free rate` / `Equity risk premium` / `Beta` / `Cost of equity` (=Rf + β×ERP) / `Pre-tax debt cost` / `After-tax debt cost` (=×(1−TaxRate)) / `Equity weight` / `Debt weight` / `WACC` (=We×Re + Wd×Rd_after_tax). Inputs blue; derived rows black.
+**Step 3 — WACC panel.** On `WACC` sheet, a nine-row panel: `Risk-free rate` / `Equity risk premium` / `Beta` / `Cost of equity` (=Rf + β×ERP) / `Pre-tax debt cost` / `After-tax debt cost` (=×(1−TaxRate)) / `Equity weight` / `Debt weight` / `WACC` (=We×Re + Wd×Rd_after_tax). Inputs blue; derived rows black.
 
 **Step 4 — Terminal value + NPV + equity bridge.** Row-map: `DCF: B/C 3=TV, 4=PV explicit FCF, 5=PV terminal, 6=EV, 7=Net Debt, 8=Equity Value, 9=Per-Share`; `FCF: row 2 = periods (1..10), row 11 = FCF, B:K = Y1..Y10`. Substitute your rows. Notes column cells use `{"value":"text"}`, never `{"formula":"..."}` — formula-style prose yields `#NAME?` on open (see callout after Recipe C Step 5). On `DCF` sheet:
 
@@ -226,8 +234,8 @@ EOF
 **Step 5 — 2-axis sensitivity grid (WACC × g).** 5×5 grid. Rows = WACC values `7.5% ... 11.5%`, cols = `g` values `1.5% ... 3.5%`. Each cell = one self-contained formula re-running the DCF with the grid's WACC and g substituted. Template:
 
 ```bash
-# Cell D14 (first data cell, grid anchor at C14 = WACC label, C15 = first WACC value)
-# Substitute $D$13 (this cell's g) and $C15 (this cell's WACC) into a replicated EV + equity formula.
+# Cell D15 (first data cell, with g values in row 14 and WACC values in column C)
+# Substitute D$14 (this cell's g) and $C15 (this cell's WACC) into a replicated EV + equity formula.
 cat <<'EOF' | officecli batch "$FILE"
 [
   {"command":"set","path":"/Sensitivity/D15","props":{"formula":"(NPV($C15,FCF!$B$11:$K$11)+(FCF!$K$11*(1+D$14)/($C15-D$14))/(1+$C15)^10+(-NetDebt))/SharesOut","numberformat":"$0.00"}}
@@ -268,15 +276,15 @@ Uses    = Purchase_EV (EntryEBITDA × EntryMultiple) + Transaction_fees (Purchas
 Sources = Senior_TLB + Mezz + Revolver_drawn + Sponsor_equity
 ```
 
-**Sponsor equity — pick one, never both.** (a) **Stated:** `Sponsor_equity = Assumptions!SponsorEquity`, then scale senior/mezz so Sources = Uses (fees absorbed by debt, not a silent plug). (b) **Solved:** `Sponsor_equity = Uses − Senior − Mezz − Revolver − Refinanced`, label "Sponsor Equity (solved)", no standalone Assumptions ref. Hardcoded `SponsorEquity` PLUS a `=Uses − Senior − Mezz` plug guarantees silent fee absorption — stated $140M vs plug $194.67M = $54.67M unaccounted fees, CFO rejection on sight.
+**Sponsor equity — pick one, never both.** (a) **Stated:** `Sponsor_equity = Assumptions!SponsorEquity`, then scale senior/mezz so Sources = Uses (fees absorbed by debt, not a silent plug). (b) **Solved:** `Sponsor_equity = Uses − Senior − Mezz − Revolver`, label "Sponsor Equity (solved)", no standalone Assumptions ref. Hardcoded `SponsorEquity` PLUS a `=Uses − Senior − Mezz` plug guarantees silent fee absorption — stated $140M vs plug $194.67M = $54.67M unaccounted fees, CFO rejection on sight.
 
 ```bash
 # Sources = Uses hard check.
-officecli set "$FILE" /S&U/B12 --prop formula='IF(ABS(SUM(B4:B7)-SUM(B9:B11))<1,"BALANCED","S&U IMBALANCE: "&ROUND(SUM(B4:B7)-SUM(B9:B11),0))' --prop bold=true
+officecli set "$FILE" "/S&U/B12" --prop formula='IF(ABS(SUM(B4:B7)-SUM(B9:B11))<1,"BALANCED","S&U IMBALANCE: "&ROUND(SUM(B4:B7)-SUM(B9:B11),0))' --prop bold=true
 
 # Stated-vs-plug consistency (Gate 4 addendum; only run if you chose pattern (a)).
 STATED=$(officecli get "$FILE" /Assumptions/B12 --json | jq -r '.data.results[0].format.cachedValue // "null"')
-PLUGGED=$(officecli get "$FILE" /S&U/B10 --json | jq -r '.data.results[0].format.cachedValue // "null"')   # B10 = sponsor-equity row on S&U
+PLUGGED=$(officecli get "$FILE" "/S&U/B10" --json | jq -r '.data.results[0].format.cachedValue // "null"')   # B10 = sponsor-equity row on S&U
 DELTA=$(python3 -c "print(abs(float('$STATED') - float('$PLUGGED')))" 2>/dev/null || echo 99999)
 python3 -c "import sys; sys.exit(0 if float('$DELTA') <= 1 else 1)" && echo "S&U sponsor OK (stated=$STATED plug=$PLUGGED)" || { echo "REJECT Gate 4 S&U: stated $STATED ≠ plug $PLUGGED (Δ=$DELTA) — fees silently absorbed"; exit 1; }
 ```
@@ -292,7 +300,7 @@ cat <<'EOF' | officecli batch "$FILE"
   {"command":"set","path":"/Debt/C4","props":{"formula":"B6"}},
   {"command":"set","path":"/Debt/C5","props":{"formula":"-C4*Assumptions!$B$30","numberformat":"$#,##0;($#,##0);\"-\""}},
   {"command":"set","path":"/Debt/C6","props":{"formula":"C4+C5+C7","numberformat":"$#,##0;($#,##0);\"-\""}},
-  {"command":"set","path":"/Debt/C7","props":{"formula":"-MIN(-CF!C20,C4+C5)"}},
+  {"command":"set","path":"/Debt/C7","props":{"formula":"-MIN(MAX(0,CF!C20),MAX(0,C4+C5))"}},
   {"command":"set","path":"/Debt/C8","props":{"formula":"(C4+C6)/2","numberformat":"$#,##0;($#,##0);\"-\""}},
   {"command":"set","path":"/Debt/C9","props":{"formula":"-C8*Assumptions!$B$31","numberformat":"$#,##0;($#,##0);\"-\""}}
 ]
@@ -330,8 +338,14 @@ cat <<'EOF' | officecli batch "$FILE"
   {"command":"set","path":"/Exit/B3","props":{"formula":"'P&L'!F8*Assumptions!$B$25","numberformat":"$#,##0;($#,##0);\"-\""}},
   {"command":"set","path":"/Exit/B4","props":{"formula":"-('Debt'!F6+'Debt'!F13)","font.color":"008000","numberformat":"$#,##0;($#,##0);\"-\""}},
   {"command":"set","path":"/Exit/B5","props":{"formula":"B3+B4","bold":"true","numberformat":"$#,##0;($#,##0);\"-\""}},
-  {"command":"set","path":"/Returns/B3","props":{"formula":"'Exit'!B5/('S&U'!B9)","numberformat":"0.00\"x\""}},
-  {"command":"set","path":"/Returns/B4","props":{"formula":"IRR({-'S&U'!B9,0,0,0,0,'Exit'!B5})","numberformat":"0.0%"}}
+  {"command":"set","path":"/Returns/B3","props":{"formula":"'Exit'!B5/('S&U'!B10)","numberformat":"0.00\"x\""}},
+  {"command":"set","path":"/Returns/B6","props":{"formula":"-'S&U'!B10"}},
+  {"command":"set","path":"/Returns/C6","props":{"formula":"0"}},
+  {"command":"set","path":"/Returns/D6","props":{"formula":"0"}},
+  {"command":"set","path":"/Returns/E6","props":{"formula":"0"}},
+  {"command":"set","path":"/Returns/F6","props":{"formula":"0"}},
+  {"command":"set","path":"/Returns/G6","props":{"formula":"'Exit'!B5"}},
+  {"command":"set","path":"/Returns/B4","props":{"formula":"IRR(B6:G6)","numberformat":"0.0%"}}
 ]
 EOF
 # Classic comments — one --type comment per anchor cell.
@@ -352,7 +366,7 @@ For mid-year dividends or partial exits, use `XIRR({cashflows}, {dates})` instea
 **Verification.**
 
 ```bash
-officecli get "$FILE" /S&U/B12 --json | jq '.data.results[0].format.cachedValue // .data.results[0].text'   # must say BALANCED
+officecli get "$FILE" "/S&U/B12" --json | jq '.data.results[0].format.cachedValue // .data.results[0].text'   # must say BALANCED
 officecli get "$FILE" /Returns/B3 --json | jq '.data.results[0].format.cachedValue'                # MOIC, expect 2.0x-4.0x typical
 officecli get "$FILE" /Returns/B4 --json | jq '.data.results[0].format.cachedValue'                # IRR, expect 0.15-0.30 typical
 # Iterate converged?
@@ -400,7 +414,7 @@ Terse reference — not a finance textbook. If you don't know what these do, pau
 | `MIRR(values, financeRate, reinvestRate)` | `IRR` with sign flips | When cash-flow pattern has 2+ sign changes |
 | `SUMIFS(sumRange, criteriaRange1, criterion1, ...)` | `SUMPRODUCT((...))` array | Clearer intent for conditional sums; either evaluates correctly |
 
-**Evaluator coverage — verify, don't preemptively hardcode.** The CLI evaluator computes the finance functions this Playbook uses — `NPV` / `XNPV` / `IRR` / `XIRR`, array-literal formulas (`IRR({...})`), and `SUMPRODUCT(1/COUNTIF(range,range))` distinct-count — and caches the correct value with `evaluated:true`. There is no `NPV→0` rewrite obligation and no distinct-count `1/N` trap. The honest rule: build the formula you mean, then verify the cached value with a readback (`get ... --json | jq '.data.results[0].format.cachedValue'`). Only if a specific cell genuinely comes back with the `#OCLI_NOTEVAL!` sentinel (formula written before its inputs, or an unsupported function) should you fall back — first re-set non-resident after `close`; if it still won't evaluate, hardcode the computed value with a blue font and a classic comment via `officecli add "$FILE" /Sheet --type comment --prop ref=<cell> --prop text='cached valuation; refreshes on open in Excel — do not edit'`, and disclose in delivery notes.
+**Evaluator coverage — verify, don't preemptively hardcode.** The CLI evaluator computes the finance functions this Playbook uses — `NPV` / `XNPV` / `IRR` / `XIRR`, array-literal formulas (`IRR({...})`), and `SUMPRODUCT(1/COUNTIF(range,range))` distinct-count — and caches the correct value with `evaluated:true`. There is no `NPV→0` rewrite obligation and no distinct-count `1/N` trap. The honest rule: build the formula you mean, then verify the cached value with a readback (`get ... --json | jq '.data.results[0].format.cachedValue'`). Only if a specific cell genuinely comes back with the `#OCLI_NOTEVAL!` sentinel (formula written before its inputs, or an unsupported function) should you fall back — first re-set non-resident after `close`; if it still won't evaluate, hardcode the computed value with a blue font and a classic comment via `officecli add "$FILE" /Sheet --type comment --prop ref=<cell> --prop text='frozen computed valuation; regenerate when inputs change — do not edit'`, and disclose in delivery notes.
 
 ## Circular references & iterative calc
 
@@ -421,7 +435,7 @@ officecli set "$FILE" / --prop calc.iterate=true --prop calc.iterateCount=100 --
 2. **Write downstream** — build all non-circular chains (P&L, CF, Exit, Returns, Summary, grid) non-resident, one heredoc per sheet. Everything caches against the zeroed cells.
 3. **Re-ring** — close all residents, re-set each circular cell with its real formula, one `set` per cell, non-resident.
 
-**Acceptance.** `get /Debt/C7 --json | jq '.data.results[0].format.cachedValue'` returns non-zero non-null. If a cell still deadlocks, leave `=0` + classic comment `"circular; recalculates in Excel on F9"`, flag at delivery. Never paper over with `iterateCount=1000`.
+**Acceptance.** `get /Debt/C7 --json | jq '.data.results[0].format.cachedValue'` returns non-zero non-null. If a cell still deadlocks, leave `=0` + classic comment `"circular formula omitted; restore it in Excel before recalculating"`, and flag the incomplete calculation at delivery. Never paper over with `iterateCount=1000`.
 
 **Do NOT use `iterate` as a band-aid for `#REF!` / divergent values.** Raising `iterateCount` to 1000 hides the bug and ships a plausibly-wrong value; `validate` does not catch it. Break the loop algebraically (e.g. interest on opening balance only, not average).
 

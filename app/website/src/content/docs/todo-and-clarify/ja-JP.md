@@ -33,4 +33,4 @@ Feishu/Lark と Microsoft Teams では、返信カードにフォームがその
 
 ネイティブの Codex Job は、これとは独立した独自の入力要求経路を持っています。人間の判断待ちになった Job は `waiting_on_user` 状態へ遷移して Worker の実行スロットをいったん解放し、オーナーから返信が届いた時点で処理を再開します。このライフサイクル契約の詳細については、[Background Agent Jobs](../background-agent-jobs/) を参照してください。
 
-なお、計画管理や Turn 終了の挙動を Console から切り替える設定フラグはありません。計画の立て方や質問の頻度を調整したい場合は、Agent のシステム指示（`AGENTS.md` / `AGENTS.md`）や有効な能力セットを見直してください。詳しくは [Agents](../agents/) および [Agent loop](../agent-loop/) を参照してください。
+なお、計画管理や Turn 終了の挙動を Console から切り替える設定フラグはありません。計画の立て方や質問の頻度を調整したい場合は、Agent のシステム指示（`AGENTS.md`）や有効な能力セットを見直してください。詳しくは [Agents](../agents/) および [Agent loop](../agent-loop/) を参照してください。

@@ -28,7 +28,7 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 - **`waiting_on_user`**：暂停执行以等待用户或主 Agent 补充信息。此时会主动释放占用的运行槽位，待收到答复后再恢复运行。
 - **`succeeded`**、**`failed`**、**`stopped`**：终态。进入终态的任务不再有任何活跃执行过程。
 
-每一次状态变更都必须通过 `transition_allowed?/2` 校验：处于 `queued` 的任务绝不可能跳过 `running` 直接变为 `succeeded`，而已进入终态的任务也无法再次流转。这张转换表就是系统的硬性契约，业务代码中的任何路径都不得绕过。
+`Ankole.BackgroundAgentJobs.Schemas.Job` 的 Ash 状态机定义允许的状态转换。Worker 只能提交 `running` 任务的完成结果；管理员的 `external_complete` 操作可以完成 `queued`、`running` 或 `waiting_on_user` 任务。进入终态的任务不能再转换到其他状态。
 
 ## 唤醒：向 owner 回报
 
@@ -54,16 +54,18 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 
 ## 跨 worker 故障的恢复
 
-由于任务权威状态持久保存在 PostgreSQL 中，底层 Worker 容器销毁或失联只是一次可自动自愈的运行期事件，不会造成任务丢失。运行时为每个后台任务分配了有界的容错重试预算——最多允许 5 次执行尝试（attempt）、最多容忍连续 5 个回合失败；如果某次尝试在尚未真正启动执行前就因基础设施原因中断，`requeue_unstarted_attempt` 会退还当次尝试计数并将任务放回 `queued`（若是首次尝试还会一并清空 `started_at`，使其恢复为全新待启动状态）。
+Worker 失效后，PostgreSQL 保留任务状态，持久 Home 保留工作区和 Codex 线程。每个任务最多允许 5 次执行失败、25 次槽位认领，以及连续 5 次回合失败。认领新槽位时递增 `attempts`；接管仍在运行的尝试不递增。基础设施中断后，可重试任务回到 `queued`，不消耗执行失败预算，但已认领的次数仍然保留。
 
-调度器通过两条事务认领（claim）路径分别处理两类启动场景：
+调度器通过两条事务认领路径处理启动与续跑：
 
-- **`claim_attempt_in_tx`**：为一次全新的执行尝试认领待运行任务。
-- **`claim_continuation_in_tx`**：在暂停恢复后认领任务以续接原有进度。
+- **`claim_attempt_in_tx`** 为 `queued` 任务认领新的执行尝试。
+- **`claim_continuation_in_tx`** 为收到输入的任务认领续跑尝试。
 
-两条路径都严格按照固定锁顺序先获取该 Agent 的并发槽位锁，再以 `FOR UPDATE` 锁定任务行，确保同一 Agent 下的并发调度器始终以确定性的顺序完成认领而不会死锁。一旦重试次数耗尽，任务便转入 `failed`；收到人工取消指令则转入 `stopped`。相邻两次重试之间固定间隔 30 秒退避延迟，避免瞬时故障期间密集冲击上游模型 Provider。
+两条路径都先锁定 Agent 的容量，再锁定任务行。耗尽重试预算的任务进入 `failed`；管理员取消任务时进入 `stopped`。
 
-如果任务因 AIGateway 凭据池配额耗尽而受阻，且网关给出了明确的未来恢复时间点（`retry_at`），生命周期模块会将任务退回 `queued`、释放当前 Worker 绑定，并按该恢复时间点预约下一次派发。不过，已消耗的当次 attempt 仍会计入 5 次总预算内，防止持续配额故障导致无限重排；若网关未返回恢复时间或时间已过，则直接走常规的 30 秒有界重试路径，不会立即盲目重发。
+`Ankole.Sessions.TurnErrorClassifier` 决定重试间隔。基础设施中断依次等待 15、30、60、120、300 秒，不消耗执行失败预算；可重试的执行失败与 Provider 容量不足依次等待 60、600、1,800、3,600、7,200 秒，并消耗执行失败预算。不可重试的拒绝立即使任务失败。
+
+AIGateway 返回凭据池耗尽及明确的未来恢复时间时，任务退回 `queued`，释放 Worker 绑定，并预约该时间重新派发，不消耗执行失败预算。已认领的当次仍计入 25 次认领上限。恢复时间缺失或已过时，则使用常规执行重试间隔，并消耗一次执行失败预算。
 
 ## 派发与 agent 的插件
 

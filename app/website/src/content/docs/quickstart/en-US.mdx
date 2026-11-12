@@ -527,7 +527,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'Keep this terminal open. Open http://localhost:4000 and use the activation code printed by the development server.'
+            'Keep this terminal open. Open http://ankole.localhost:4000 and use the activation code printed by the development server.'
           ]
         }
       ]
@@ -552,7 +552,7 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'bun run services:status',
-                'curl -I http://localhost:4000/',
+                'curl -I http://ankole.localhost:4000/',
                 'docker ps -a --filter label=ankole.installation=dev'
               ].join('\n')
             },
@@ -862,7 +862,7 @@ export const identityTabs = [
         {
           title: 'Make the notification endpoint reachable',
           body: [
-            'When Sync directory changes is on, Ankole public URL must be a valid public HTTPS address. Ankole creates /webhooks/v1/entra-id/entra-id-main/directory under it and manages the Graph subscriptions.'
+            'When Sync directory changes is on, Ankole public URL must be a valid public HTTPS address. Ankole builds /webhooks/v1/entra-id/<tenant_id>.entra-id-main/directory with the current Ankole tenant ID and manages the Graph subscriptions automatically.'
           ],
           links: [
             {
@@ -986,7 +986,7 @@ export const identityTabs = [
     },
     advanced: {
       title: 'Domain boundary, sync timing, and service accounts',
-      summary: 'Google Workspace supports full sync only. It does not send realtime directory events to this adapter.',
+      summary: 'The Ankole Google Workspace adapter supports full directory sync and does not receive realtime directory events.',
       steps: [
         {
           title: 'Keep Allowed Workspace domains narrow',
@@ -1333,12 +1333,12 @@ export const identityTabs = [
     },
     advanced: {
       title: 'Sync cadence, trusted IPs, and sign-in only',
-      summary: 'WeCom sends no realtime directory events. Changes converge through periodic full sync.',
+      summary: 'The Ankole WeCom adapter updates directory data through periodic or manual full sync.',
       steps: [
         {
           title: 'Run a full sync after directory changes',
           body: [
-            'WeCom does not push directory changes to Ankole. After you add members or change departments, run a full sync in Console → Identity Providers, or wait for the next periodic sync.'
+            'The Ankole WeCom adapter uses full sync for directory changes. After you add members or change departments, run a full sync in Console → Identity Providers, or wait for the next periodic sync.'
           ]
         },
         {
@@ -1589,6 +1589,18 @@ export const channelTabs = [
           ]
         },
         {
+          title: 'Enable the Teams channel and install the app',
+          body: [
+            'In Azure Bot → Channels, enable Microsoft Teams. Create a Teams app that references the same Microsoft App ID as its bot ID, choose the personal, team, or groupchat scopes you need, then publish or upload the app package and install it for the test users or team.'
+          ],
+          links: [
+            {
+              label: 'Connect an Azure Bot to Teams',
+              href: 'https://learn.microsoft.com/en-us/azure/bot-service/channel-connect-teams'
+            }
+          ]
+        },
+        {
           title: 'Collect the Console fields',
           fields: [
             {
@@ -1610,7 +1622,7 @@ export const channelTabs = [
         {
           title: 'Serve several Entra tenants with one Bot Framework app',
           body: [
-            'Set botTenancy to multi_tenant only when the Azure Bot registration allows several Entra tenants. The adapter uses botframework.com for the bot token tenant. This Microsoft app-registration mode does not change the boundary of the Ankole deployment instance.'
+            'For an existing multi-tenant Azure Bot, set botTenancy to multi_tenant; the adapter uses botframework.com for the bot token tenant. Microsoft supports existing multi-tenant bots but requires new bots to use another supported registration type; use single_tenant with Ankole. This Microsoft registration mode does not change Ankole tenant boundaries.'
           ]
         },
         {
@@ -1898,8 +1910,8 @@ export const channelTabs = [
     alert: {
       title: 'WeCom is the most limited chat channel',
       body: [
-        'In a group, the Agent receives only messages that explicitly @-mention the bot. Images, voice, files, and video arrive in direct messages only, and a voice message arrives as the platform transcript only. Sent messages cannot be recalled, edited, or given emoji reactions. The Agent cannot start a fresh conversation: the user must message the bot first, and the reply window after an inbound message is 24 hours. Streaming replies work only when replying to a user, one streaming message must finish within 10 minutes so long answers split, and sends are limited to about 30 messages per minute per conversation. A card button can change only within 5 seconds after a click. There is no realtime directory sync.',
-        'Every limit comes from the platform itself and Ankole cannot work around it. The long-term memory system also builds context only from the message fragments the Agent receives. Prefer Lark/Feishu, Slack, Teams, or DingTalk when possible.'
+        'In a group, the Agent receives only messages that explicitly @-mention the bot. Images, voice, files, and video arrive in direct messages only, and a voice message arrives as the platform transcript only. Sent messages cannot be recalled, edited, or given emoji reactions. The Agent cannot start a fresh conversation: the user must message the bot first. An inbound message provides a reply anchor valid for 24 hours; afterward, Ankole can still send proactive text and cards to that activated conversation, but cannot send media. Streaming replies work only when replying to a user, one streaming message must finish within 10 minutes so long answers split, and sends are limited to about 30 messages per minute per conversation. A card button can change only within 5 seconds after a click. The Ankole WeCom adapter uses full directory sync.',
+        'These are the capabilities available through the Ankole WeCom adapter. The long-term memory system builds context only from the messages the Agent receives. Prefer Lark/Feishu, Slack, Teams, or DingTalk when possible.'
       ]
     },
     prerequisites: [
@@ -2085,7 +2097,7 @@ export const channelTabs = [
           body: [
             'On the Bot page, under Privileged Gateway Intents, turn on Message Content Intent. Without it, Discord delivers a server message that does not mention the bot with empty content, so the Agent reads only direct messages and messages that mention it, and observe_all or may_intervene cannot see the conversation. Ankole reads the application flag before it connects and asks for the intent only when the application has it.'
           ],
-          caution: 'Server Members Intent and Presence Intent are not required. An application in more than 100 servers needs Discord verification before it can keep the message content intent.'
+          caution: 'Server Members Intent and Presence Intent are not required. Apps that reach 10,000 unique users across their servers must apply for privileged intent access; approved apps must reapply annually.'
         },
         {
           title: 'Invite the bot to the server',
@@ -2181,7 +2193,7 @@ export const channelTabs = [
         {
           title: 'Create the Messaging API channel and collect its credentials',
           body: [
-            'In the LINE Developers Console, create a Messaging API channel under your provider. Copy the Channel ID and the Channel secret from Basic settings, and issue a long-lived channel access token on the Messaging API tab.'
+            'Create a LINE Official Account in LINE Official Account Manager, enable Messaging API, and select its provider. Then open the generated channel in LINE Developers Console: copy Channel ID and Channel secret from Basic settings, and issue a long-lived channel access token on the Messaging API tab.'
           ]
         },
         {
@@ -2205,7 +2217,7 @@ export const channelTabs = [
         {
           title: 'Let the bot answer alone',
           body: [
-            'In LINE Official Account Manager, open Response settings. Set the response method to bot, and turn off auto-response and greeting messages, so the account does not answer next to the Agent. For group chats, enable Allow bot to join group chats in the LINE Developers Console.'
+            'In LINE Official Account Manager, open Response settings and turn off auto-response and greeting messages so they do not duplicate Agent replies. Keep the webhook enabled. For group chats, enable Allow bot to join group chats in LINE Developers Console.'
           ]
         },
         {
@@ -2272,10 +2284,10 @@ export const channelTabs = [
     summary:
       'WhatsApp posts Cloud API webhooks to Ankole. A public HTTPS endpoint with a trusted certificate is mandatory. WhatsApp is a consumer IM, but a sender whose phone number already belongs to a known person is mapped without any administrator action.',
     alert: {
-      title: 'WhatsApp limits some Ankole features',
+      title: 'WhatsApp integration limits',
       body: [
-        'Meta closes the customer service window 24 hours after the user’s newest message or button reply. A reply after that, such as a scheduled report, stops with a clear failure and never reaches the user; an operator can retry it from the Signal Routing page after the user writes again. Group chats, template messages, message edits, message deletions, and a live progress preview are not available.',
-        'Every limit comes from the platform itself and Ankole cannot work around it.'
+        'Ankole stops delivery 23 hours and 55 minutes after the user’s newest message or valid button reply, allowing a five-minute margin before the 24-hour customer service window ends. An operator can retry a stopped reply from Signal Routing after the user writes again. The adapter supports one-to-one chats; group chats, template messages, message edits, message deletions, and a live progress preview are outside its supported features.',
+        'These limits describe the WhatsApp adapter’s supported features.'
       ]
     },
     prerequisites: [
@@ -2370,7 +2382,7 @@ export const channelTabs = [
         {
           title: 'Respect the customer service window',
           body: [
-            'Ankole checks the window before every send. A reply more than 24 hours after the user’s newest message or button reply stops with customer_service_window_closed and no request reaches Meta. Paid template messages, the only way to open a new window, are outside the current contract. When the user writes again, use Retry on the Signal Routing page to send the stopped reply.'
+            'Ankole checks the window before every send. At 23 hours and 55 minutes after the user’s newest message or valid button reply, delivery stops with customer_service_window_closed without sending a request to Meta. This reserves a five-minute margin within the 24-hour window. Template messages are unsupported. When the user writes again, use Retry on Signal Routing to send the stopped reply.'
           ]
         },
         {
@@ -2532,7 +2544,7 @@ The table below maps the canonical terms used across Ankole's interfaces and doc
 | **Conversation** | A shared space for people and Agents; native messages use Ankole as their authority, while external messages use their host platform | Conversation |
 | **Message** | A committed record visible to conversation participants | Message |
 | **Signal** | A durable stimulus triggered by a message, schedule, external event, or task completion | Signal |
-| **Session** | An execution context with its own signal queue and recoverable work, scoped within a single Conversation | Session |
+| **Session** | An execution context with its own signal queue and recoverable progress, used for conversations, scheduled work, background jobs, or workflow tasks | Session |
 | **Delivery** | A durable intent, attempt, and result for sending a message to an external conversation | Delivery |
 | **Signal Routing Rule (Signal Binding)** | The rule that routes messages or events from a signal source to a target Agent | Routing rule |
 | **LLM Provider** | A configuration storing a model service endpoint, credentials, and available models | LLM Provider |
@@ -2553,6 +2565,8 @@ You can paste this prompt into Codex, Claude Code, or another terminal-capable c
 ## 1. Deploy Ankole
 
 Choose Docker Compose for single-host deployments, Kubernetes for production cluster deployments, or source installation for local development and debugging.
+
+Tenant pages use `<tenant-slug>.<site-host>` (for example, `team.ankole.example.com`). For a public deployment, configure DNS, HTTPS certificates, and proxy or Ingress routing for every tenant host so it reaches the same control plane. The Compose Caddy and Helm Ingress examples below cover only the site host.
 
 Before starting Ankole for the first time, pick a permanent Worker installation name (`1–20` lowercase letters, digits, or hyphens, starting and ending with an alphanumeric character—for example, `e2e-1011b01`). Set it via `ANKOLE_WORKER_INSTALLATION` in Compose (default `ankole`) or `worker.installation` in Helm (defaulting to the Helm release name), and keep it unchanged afterward because Worker resources and persistent Agent Home paths are keyed to it.
 
@@ -2686,7 +2700,7 @@ Walk through each boundary in order:
 4. The signal routing rule is enabled and targets the intended Agent.
 5. An effective `primary` Model Profile resolves for the Agent (via Site/Pod defaults in **Console → Model Profiles** or Agent overrides).
 6. The LLM Provider credential and model selector are valid.
-7. The Agent's Worker shows as Ready under **Console → Workers** (otherwise, inspect the backend failure reason displayed there).
+7. If the turn needs environment tools or a Codex task, check the Agent’s Worker under **Console → Workers** and inspect any startup failure shown there. Creating an Agent requests an initial Worker start; after idle release, plain Q&A and control-plane tools do not require a Ready Worker.
 
 On Docker Compose, tail `docker compose logs -f control-plane`, list Worker containers with `docker ps -a --filter label=ankole.installation=ankole`, and inspect a specific Worker via `docker logs CONTAINER_NAME`. On Kubernetes, check the control-plane and Worker Pod logs—always reading only the relevant error lines without dumping environment variables or secrets.
 

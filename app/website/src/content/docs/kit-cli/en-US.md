@@ -13,7 +13,7 @@ Implemented as a Bun + TypeScript CLI in `tools/devkit/`, `kit` also backs the c
 
 | Command | What it does |
 |---|---|
-| `kit env-setup` | Install the host toolchain required for Ankole development — system build packages, Docker, Rust, the Elixir/Erlang toolchain, and the pinned Bun version. Add `--print` to inspect the installer commands without executing them. |
+| `kit env-setup` | Install the host toolchain required for Ankole development — system build packages, Docker, Rust, the Elixir/Erlang toolchain, and the pinned Bun version. Add `--dry-run` to inspect the installer commands without executing them. |
 | `kit is-ci` | Exit `0` when running in a CI environment, or `1` otherwise. Used by scripts that branch on CI. |
 | `kit is-dev` | Exit `0` when running in a development environment, or `1` otherwise. |
 
@@ -62,10 +62,11 @@ Whenever you create an Agent, the control plane starts a dedicated Worker contai
 | `kit analyze unused` | Report unused code. Aliased as `bun run analyze:unused`. |
 | `kit analyze structure` | Report repository boundary and structure violations. Aliased as `bun run analyze:structure`. |
 | `kit analyze cycles` | Report module dependency cycles. Aliased as `bun run analyze:cycles`. |
+| `kit pin-base-image [revision]` | Update `app/agent_computer/base-image.lock` to an ancestor revision published by CI whose `Dockerfile.base` matches `HEAD`. The default revision is `HEAD`; the command verifies the published image before writing the lock. |
 
 ## Worker test runner
 
-`kit agent-computer-test` runs the tests for the Agent Computer Worker package inside the canonical Worker container image, ensuring that tests execute in the same runtime environment that a real Agent turn uses. Pass `--suite unit` or `--suite integration` to choose the test suite, and pass `--image <ref>` to test against a prebuilt Worker Docker image instead of building one locally.
+`kit agent-computer-test` runs the tests for the Agent Computer Worker package inside the canonical Worker container image, ensuring that tests execute in the same runtime environment that a real Agent turn uses. Pass `--suite unit`, `--suite integration`, or `--suite image` to choose the test suite, and pass `--image <ref>` to test against a prebuilt Worker Docker image instead of building one locally.
 
 ## Discovering more
 

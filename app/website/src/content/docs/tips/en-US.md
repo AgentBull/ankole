@@ -66,13 +66,13 @@ A turn that appears stuck is almost always waiting on an upstream LLM provider o
 
 1. Inspect `/api/v2/ai-gateway/conversations` for the turn's latest model requests—a long pause there points to upstream provider latency.
 2. Check the Agent's Worker logs for an active shell or browser command, since a slow tool call looks identical to a quiet turn in chat.
-3. Only if the work is genuinely wedged, steer the Session or let its inactivity timeout fire. To stop a Background Agent Job cleanly, call `POST /api/v2/background-agent-jobs/:id/cancel`, which lets any in-flight turn settle safely.
+3. Only if the work is genuinely wedged, steer the Session or let its inactivity timeout fire. To stop a Background Agent Job cleanly, call `POST /api/v2/background-agent-jobs/:id/cancel`, which records the stop and requests interruption of the active turn.
 
 Cancelling turns impulsively is the fastest way to leave external side effects half-finished.
 
 ## Disable a binding quietly
 
-Calling `DELETE /api/v2/agents/:agent_uid/signal-bindings/:binding_name` disables the routing rule instead of erasing it, keeping all credentials and routing settings recoverable. Use it whenever you want to silence an Agent in a channel temporarily—during credential rotation, a holiday freeze, or an incident—and re-enable it later with `PATCH`.
+Calling `DELETE /api/v2/signal-bindings/:id` disables the routing rule instead of erasing it, keeping all credentials and routing settings recoverable. Use it whenever you want to silence an Agent in a channel temporarily—during credential rotation, a holiday freeze, or an incident—and re-enable it later with `PATCH`.
 
 ## Back up before you upgrade, every time
 

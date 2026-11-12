@@ -6,8 +6,9 @@ pages, documents, and business tables through shared domain contracts.
 PostgreSQL is the single source of truth for pages, documents, Base records,
 revisions, permissions, and file references; Worker files, browser caches, and
 channel presence are ephemeral projections rather than durable state. Agents can
-also build and publish Applets as custom interfaces over a Base, where every
-business operation runs under the signed-in Human's permissions.
+also build and publish Applets as custom interfaces over a Base. Ordinary
+interactive operations use the caller's permissions and explicit
+`admin` capabilities use the Page owner's permissions.
 
 ## Browser interactions
 
@@ -427,7 +428,7 @@ destinations while excluding the moving Page and its descendants, and root
 create, move, and copy options read `can_create_space` and `can_create_private`
 from the directory using the exact destination check enforced on write (loading
 those root capabilities even while the sidebar section is collapsed). Base,
-file, and Applet Pages provide child-page navigation in their header—listing
+knowledge, and Applet Pages provide child-page navigation in their header—listing
 visible children, paging additional children via the directory cursor, and
 offering child creation when the Page grants `node_edit`—which lets
 collaborators navigate shared subtrees whose parent Page is hidden from them.
@@ -594,7 +595,7 @@ top, while the `Space` and `Private` section headings carry the create buttons)
 lets the ground show through beside the content card (`main`): a white card with
 8 px top corners and no edge that keeps 20 px of ground at its end and runs to
 the bottom of the window. While the sidebar is hidden, the card keeps 20 px of
-ground at its start as well. On a Page, the document column is 832 px wide with
+ground at its start as well. On a Page, the document column is 892 px wide with
 at least 68 px on either side, and its first line sits 68 px below the card's
 top edge. A Conversation opens with its own 44 px header, whose title shows no
 hover wash and takes only the width of its text: a long title truncates with an
@@ -785,7 +786,8 @@ Assistant tasks and unique colleague DMs share the conversation canvas:
   cancels the active run and pauses all queued inputs across page reloads until
   the user clicks Continue. Editing or regenerating the last turn goes through
   the retry and model-history owners, preserving completed Pod content edits and
-  rejecting mutations to running or superseded turns. Scrolling upward loads
+  permitting eligible single-Agent input edits during execution and rejecting
+  edits superseded by another Human participant. Scrolling upward loads
   older messages in bounded windows into the same remote cache without jumping
   the reading position.
 - **Unconfirmed first sends and scroll memory**: On a Chat's initial send, the
@@ -796,7 +798,7 @@ Assistant tasks and unique colleague DMs share the conversation canvas:
   Chat restores its last visible message and pixel offset in memory (tracked
   separately for narrow Page panels versus full Conversation views), auto-follows
   incoming output when anchored at the bottom or after clicking latest-message,
-  and starts at the newest message on full page reload.
+  and opens at the first unread message when no saved reading position applies.
 - **Model selection**: Model preferences live on the Chat (`null` inherits the
   Agent default). Each accepted input snapshots its resolved logical profile so
   subsequent preference changes affect only future turns; if a follow-up message
@@ -815,8 +817,9 @@ summaries referencing invalid fields surface a repair action.
 Four deliberate product differences separate Ankole from Notion: Base records
 are not Pages and have no per-record trash (deleting records or fields requires
 confirmation); moving a Page—even into Private—retains its direct shares (as
-noted in the move and share dialogs); Agents require explicit Space or Page
-admission; and Applets execute with the signed-in Human's permissions.
+noted in the move and share dialogs); AI colleagues require explicit Space or
+Page admission; and Applet operations use their selected caller or
+Page-owner authority.
 
 For file uploads, selecting a file captures both the file and the manifest's
 current object ID, freezing the picker while the upload is in flight and keeping the
@@ -887,7 +890,8 @@ action mask: `node_view = 1`, `node_contribute = 2`, `node_edit = 4`, and
 
 Current conversation participants receive view, contribute, and edit (`7`) on
 their conversation root. They can create subpages and edit, rename, and trash
-shared files; Page deletion and Trash restoration require manage.
+shared files. Trashing a File Page requires edit; deleting other Page types and
+restoring any Page from Trash require manage.
 
 Page grants live in `permission_grants`, but the general Console grant API
 cannot create, modify, or delete Pod page grants. Tenant creation seeds the
@@ -902,8 +906,9 @@ Access evaluation follows seven core rules:
 - Every Human member and Agent has a private root. Guests cannot access private
   roots. Site Console's Drive administration can manage all spaces; Tenant
   Console grants do not grant private access.
-- Agents use their own current permissions in direct RPC, Workflows, scheduled
-  checkbacks and Background Agent Jobs. The instruction authority still checks
+- Direct RPC, Workflows, scheduled checkbacks and Background Agent Jobs use
+  the personal assistant's Human owner's business grants or the AI colleague's
+  own grants. The instruction authority still checks
   the requesting Human's status and access version when applicable.
 - Disabling inheritance on a Page blocks `container` grants from ancestors while
   keeping local grants on that Page; trashing any ancestor hides its entire
@@ -1238,14 +1243,15 @@ Within the domain:
   when `expected_sharing_version` matches so unchanged rows stay in place and
   managers can preserve or narrow historical grants for disabled Principals,
   legacy Guests when external guest access is turned off, or inactive Private
-  Guests without escalating them. Documents and Base Pages offer `view`,
+  Guests without escalating them. Documents, Files, and Base Pages offer `view`,
   `contribute`, `edit`, and `manage` roles (labeling `contribute` as comment
-  access on Documents and record submission on Bases), while Files and Applets
+  access on Documents and Files and record submission on Bases), while Applets
   offer `view`, `edit`, and `manage`; `container` grants can confer comment and
   record-write access on descendant Pages, and `Sharing` rejects `self`-scoped
-  rules granting only `node_contribute` on Documents or granting
-  `node_contribute` or `node_comment` without `node_edit` or `node_manage` on
-  Files and Applets. Conditional grants, Usersets, and custom bitmasks appear as
+  rules granting `node_contribute` without comment, edit, or manage access on
+  Documents, Knowledge Pages, or Files, or granting `node_contribute` or
+  `node_comment` without edit or manage access on Applets. Conditional grants,
+  Usersets, and custom bitmasks appear as
   read-only advanced rules in permission settings with explicit removal, role
   edits expand to full role bitmasks, payloads supplying both a role and an
   action set must match, and `AuthZ` persists the underlying `permission_grants`
@@ -1722,8 +1728,8 @@ OT protocol, including rebasing edits that were awaiting acknowledgement.
 ### Comments and anchored discussions
 
 `Ankole.Pod.Comments` owns node-scoped root threads and one level of replies
-across both Document (`doc`) and File (`file`) Pages (`page_comments.page_id`
-references `pages`). `node_view` permits reading, while `node_comment`
+across Document (`doc`), Knowledge (`knowledge`), and File (`file`) Pages
+(`page_comments.page_id` references `pages`). `node_view` permits reading, while `node_comment`
 permits posting. Authors can edit or delete their own comments; `node_manage` can
 manage other authors' comments. The root author or a caller with `node_edit` can
 resolve, reopen, or explicitly relocate a thread. Deleting a root with replies
@@ -1744,7 +1750,7 @@ conversation Session inside the same transaction, provided three authorization
 checks all pass: the Human author holds `node_comment` on the node and `chat` on
 `agent:<uid>`, the Agent has a configured `primary` model profile, and the Agent
 holds `node_view` on the node.
-Agents inspect, reply to, and resolve threads under their own Principal
+Agents inspect, reply to, and resolve threads under their effective business
 permissions via `ankole-pod comments {list,show,reply,resolve}`, and
 Agent-authored comments never emit recursive `@agent` wakeups. Asking an Agent
 about selected text without posting a comment goes through Page Chat (see
@@ -2493,7 +2499,10 @@ appear formatted, a cell that holds a picture reads blank, and a vertically
 merged cell repeats on each later row of its range that has other content. The text of one file stops at 512 KiB, and a PDF
 at 500 pages; `metadata.truncated` records that either limit cut the text. PDF
 metadata also carries `extracted_pages` and `textless_pages`, the pages with
-fewer than ten characters of text, such as scanned pages.
+fewer than ten characters of text, such as scanned pages. The kernel caps each
+decompressed PDF stream at 16 MiB and the combined unique content streams of
+visited pages at 64 MiB. When a stream budget prevents extraction, it returns
+`skipped` with reason `pdf_stream_limit_exceeded`.
 
 The Pod's `ocr` model
 ([Read a Document as Markdown](AIGateway.md#read-a-document-as-markdown)) can
@@ -2559,7 +2568,8 @@ with the pages it read.
 Jobs run side by side, and two of them may hold the same bytes: two Pages
 share an object, or the same file arrives on two Pages at once. One job at a
 time sends those bytes to OCR. Before `SyncFileCache` extracts a PDF, it
-takes an advisory lock on the tenant and the file's SHA-256 and looks for
+takes an advisory lock on the tenant and the file's SHA-256, or on the tenant
+and `obj:<object_id>` when no digest is stored, and looks for
 another `SyncFileCache` job in its first attempt that is `executing` and
 whose Oban `meta.reads` names those bytes. When there is none and the job may
 read scans, it writes that mark on its own row and goes on. The transaction
@@ -2622,8 +2632,9 @@ Native Conversation messages carry Page links and verified attachments:
   revoking a participant's personal Chat attachments. Unsent local attachments
   survive panel toggles and route changes (protected by the page-unload guard,
   though a full browser reload before message acceptance requires re-selecting
-  local files). Clicking an image or text attachment opens a read-only modal in
-  Chat backed by the authorized attachment URL—restoring focus and canceling
+  local files). Selecting an attachment opens a read-only preview in the desktop
+  Chat sidebar, or a dialog on phones and in the Page Assistant panel, backed
+  by the authorized attachment URL—restoring focus and canceling
   in-flight fetches on close, keeping download and open-in-new-tab controls, and
   streaming a bounded prefix for text files with a truncation indicator—without
   creating a Page.

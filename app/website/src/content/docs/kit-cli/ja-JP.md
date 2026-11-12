@@ -13,7 +13,7 @@ order: 200
 
 | コマンド | 内容 |
 |---|---|
-| `kit env-setup` | Ankole の開発に必要なホストツールチェーン（システムビルドパッケージ、Docker、Rust、Elixir/Erlang ツールチェーン、バージョン固定された Bun）をインストールします。`--print` を付けると、インストーラーを実行せずコマンド内容だけを表示します。 |
+| `kit env-setup` | Ankole の開発に必要なホストツールチェーン（システムビルドパッケージ、Docker、Rust、Elixir/Erlang ツールチェーン、バージョン固定された Bun）をインストールします。`--dry-run` を付けると、インストーラーを実行せずコマンド内容だけを表示します。 |
 | `kit is-ci` | CI 環境であれば終了コード `0`、それ以外なら `1` を返します。CI かどうかで処理を分岐するスクリプトから利用されます。 |
 | `kit is-dev` | 開発環境であれば終了コード `0`、それ以外なら `1` を返します。 |
 
@@ -62,10 +62,11 @@ order: 200
 | `kit analyze unused` | 未使用のコードを検出して報告します。`bun run analyze:unused` としてラップされています。 |
 | `kit analyze structure` | リポジトリのディレクトリ・モジュール構造を検査して報告します。`bun run analyze:structure` としてラップされています。 |
 | `kit analyze cycles` | 依存関係の循環（サイクル）を検出して報告します。`bun run analyze:cycles` としてラップされています。 |
+| `kit pin-base-image [revision]` | `HEAD` と同じ `Dockerfile.base` を持つ祖先コミットの、CI 公開済みベースイメージへ `app/agent_computer/base-image.lock` を更新します。省略時は `HEAD` を使い、書き込み前に公開済みイメージを検証します。 |
 
 ## Worker テストランナー
 
-`kit agent-computer-test` は、Agent Computer Worker パッケージのテストを標準の Worker コンテナランタイム内で実行するコマンドです。これにより、実際の Turn 実行時と同一の環境でテストを検証できます。`--suite` には `unit` または `integration` を指定でき、`--image` を渡せば新規ビルドを行わずに指定した既存の Agent Computer Worker Docker イメージ上でテストを実行できます。
+`kit agent-computer-test` は、Agent Computer Worker パッケージのテストを標準の Worker コンテナランタイム内で実行するコマンドです。これにより、実際の Turn 実行時と同一の環境でテストを検証できます。`--suite` には `unit`、`integration`、`image` を指定でき、`--image` を渡せば新規ビルドを行わずに指定した既存の Agent Computer Worker Docker イメージ上でテストを実行できます。
 
 ## さらに調べる
 

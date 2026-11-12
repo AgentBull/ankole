@@ -18,7 +18,7 @@ Identity Provider でディレクトリ同期（directory sync）を有効にす
 
 外部ディレクトリに部門の親子階層がある場合、子部門に所属するメンバーは親部門グループのメンバーとしても扱われます。そのため、親部門のグループに対して grant を付与すれば、配下の子部門に属するメンバー全員をまとめてカバーできます。
 
-Identity Provider の設定を保存すると初回の完全同期が開始され、以降はデフォルトで 6 時間ごとに完全同期が実行されます。また、増分同期（incremental sync）に対応している Provider であれば、次回の完全同期を待たずにユーザーや組織の変更が随時反映されます。
+有効な Identity Provider でディレクトリ同期がオンになっており、完全同期に対応している場合、設定の保存時に初回の同期ジョブをキューへ追加します。定期的な完全同期のキュー追加間隔は既定で 15 分です。実際の実行時刻は Oban のキュー状況によります。増分同期に対応する Provider では、完全同期の合間にもユーザーや組織の変更を反映できます。
 
 ディレクトリを今すぐ最新化したい場合は、**Console → Identity Providers** を開いて対象の Provider を選択し、**完全同期を実行** をクリックします。同期が完了したら、**Access → Principals** と **Access → Permission groups** で結果を確認してください。
 
@@ -34,7 +34,7 @@ Identity Provider の設定を保存すると初回の完全同期が開始さ�
 
 - **Human** の Principal は、Identity Provider でのサインインやディレクトリ同期、パスワードレス Email OTP（`SiteCredential`）、Pod 招待リンク（`/join/:token`）、または管理者による事前作成によって生成されます。各 Human Principal はテナント内で `member` または `guest` の `membership` を持ちます。内部メンバー（`member`）は組み込みの computed group である `all_humans` に自動的に含まれます。一方、外部ゲスト（`guest`）は明示的な Pod ページ共有または Agent grant がないかぎりリソースへアクセスできず、組み込み管理者グループ（`siteadmin` や `pod_admin`）への参加や Private space の利用も不可で、Brain の `world` スコープも付与されません（ゲストの受け入れ可否と Pod アクセスは `pod.allow_external_guests` で制御します）。
 - **Agent** の Principal には 2 つのサブタイプがあります。**個人アシスタント（`personal_assistant`）**は有効な内部 Human `member` ごとに初回利用時に 1:1 で自動プロビジョニングされ（初期 UID は `<owner_uid>_assistant`）、Drive や Pod のコラボレーションリソースで所有者の権限を投影します。**AI 同僚（`ai_colleague`）**は共有の専門ロール向けに運用者が作成し、Agent 自身の Principal grant で動作します。
-- **System** の Principal は、Ankole 内部の固定サービスレジストリから提供される `system`（Pod Applet のステートレスな `ctx.ai` 呼び出しや内部ランタイム処理）と `ankole_brain`（Company Brain の知識抽出、Dreaming、Skill 教訓の再確認、URL Source 取得、rerank）です。System Principal はサインインや UID リネームができず、Worker も持ちません。
+- **System** の Principal は、Ankole 内部の固定サービスレジストリから提供される `system`（内部ランタイム処理）と `ankole_brain`（Company Brain の知識抽出、Dreaming、Skill 教訓の再確認、URL Source 取得、rerank）です。System Principal はサインインや UID リネームができず、Worker も持ちません。
 
 Principal の名前、または行末の **詳細を表示** を選択すると、所属グループと直接付与された grant を確認できます。Principal の `type` は不変ですが、Human Principal（`POST /api/v2/principals/:uid/rename`）および無効化済みで実行中・一時停止中 Worker を削除した Agent Principal（`POST /api/v2/agents/:uid/rename`）については、管理者が監査付きのテナント内 UID リネームを実行でき、grant・グループメンバーシップ・Brain のパスやメンション・Base 参照がアトミックに更新されます。アクセス権の有無を調査する際は、直接の grant だけでなく所属グループ経由の grant も必ず確認してください。直接 grant がなくても、グループを通じて権限が付与されている場合があります。
 

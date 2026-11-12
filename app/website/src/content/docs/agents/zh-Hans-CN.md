@@ -24,7 +24,7 @@ order: 13
 
 「角色」字段用于简要概括 Agent 承担的岗位职责（例如「研究分析师」或「客户支持」），而具体的行为准则、职责边界与视觉设计体系则由 **Meta Ankole → Agents** 中的两份可组合契约文档（`AGENTS.md` 与 `DESIGN.md`）管理。
 
-`WorkerProvider` 决定该 Agent 归属的 [WorkerProvider](../worker-providers/) 计算提供方：创建请求未显式指定时自动采用站点默认提供方；若站点未配置默认提供方，创建将直接失败，且保存后不可更改。即使多个 Agent 共用同一提供方，每个 Agent 仍拥有独立的 Worker 实例、`/drive` FUSE 工作区挂载以及持久化的 `/workspace` Home 目录。保存新建 Agent 时不会立即拉起实例，等到回合实际需要执行电脑环境任务时才由控制面按需启动。
+`WorkerProvider` 决定该 Agent 归属的 [WorkerProvider](../worker-providers/) 计算提供方：创建请求未显式指定时自动采用站点默认提供方；若站点未配置默认提供方，创建将直接失败，且保存后不可更改。即使多个 Agent 共用同一提供方，每个 Agent 仍拥有独立的 Worker 实例、`/drive` FUSE 工作区挂载以及持久化的 `/workspace` Home 目录。保存新建 Agent 后，控制面会在后台安排 Worker 首次启动。首次启动完成、空闲 Worker 被释放后，控制面再按回合执行电脑环境任务的实际需求启动它。
 
 ## 设置负责人和群聊披露模式
 
@@ -54,6 +54,8 @@ Agent 的模型档案通过 **Console → Model Profiles** 的三层稀疏继承
 - 当该 Agent 的联网检索权限需与 Pod 默认值区分时，单独配置 `web_search` 和 `web_fetch`。
 - 当该 Agent 需要通过独立生图 Provider 生成图片时，配置 `image_generate`。
 - 当后台 Agent 任务（`coding`）需要使用独立的模型提供商或编码专用模型时单独配置（留空时沿 `heavy -> primary` 自动回退；ChatGPT 订阅额度同样通过 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/) 在此处选择）。
+
+使用独立的 `web_search` 或 `image_generate` 档案时，还须关闭对应的 provider-hosted 开关；仅绑定档案不会改变该开关。两个开关默认开启，按 Site → Pod → Agent 层级继承。
 
 配置覆盖项时，先选择模型提供商，再选择或手动输入模型名称。选定提供商后，表单会显示「上下文长度」字段；留空时自动采用该提供商与模型的默认值。删除某个槽位的覆盖配置后，该槽位会立即恢复继承 Pod 与站点默认值。
 
@@ -96,7 +98,7 @@ Agent 的显示名称、角色定位、`AGENTS.md` 与 `DESIGN.md` 契约、模�
 1. 确认该 Agent 处于「已启用」状态。
 2. 确认该 Agent 能够解析出有效的 `primary` 模型档案（来自站点/Pod 默认值或 Agent 覆盖配置），且关联的 LLM Provider 健康可用。
 3. 若从外部渠道发信，确认信号路由规则已指向当前 Agent。
-4. 打开 **Console → 工作节点**，检查该 Agent 的 Worker 是否处于「就绪」状态，或正在正常启动且无失败原因。
+4. 若当前回合需要电脑环境任务，打开 **Console → 工作节点**，检查 Worker 是否已就绪，或正在正常启动且无失败原因；纯问答无需运行中的 Worker。
 5. 打开 **Console → 会话**，确认刚才的消息是否已进入会话列表，并检查回合附带的报错信息。
 
 针对特定外部聊天渠道的排查方法，请参阅 [快速开始的故障排查部分](../quickstart/#agent-没有回复时)。

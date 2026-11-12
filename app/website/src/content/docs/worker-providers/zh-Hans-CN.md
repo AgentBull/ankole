@@ -46,7 +46,7 @@ order: 317
 ### Kubernetes
 
 - **主目录存储二选一**：在 `storage.claimTemplate`（每 Agent 独享 PVC）与 `storage.sharedClaim`（多 Agent 共用同一 PVC 下的独立子目录）之间二选一。跨宿主机节点挂载共享主目录 PVC 时，底层存储必须支持 `ReadWriteMany`；每 Agent 独享块存储则可选用 `ReadWriteOnce` 或底层 CSI 支持的 `ReadWriteOncePod`。运行缓存须另外单独配置块存储 PVC 或节点 `emptyDir`。
-- **Pod 安全基线要求**：Worker 容器内的受信任引导进程以 `root` 身份启动，随后降权以 `uid 1000` 执行模型命令；因此 Worker Pod 与存储清理辅助（helper）Pod 所在的命名空间需放行 `baseline` Pod Security 级别（无法在强制 `restricted` 策略下运行）。
+- **Pod 安全基线要求**：Worker 的受信任父进程以带有 `SYS_ADMIN` 的 `root` 身份完成 FUSE 挂载，再降权至 `uid 1000` 执行模型命令。Worker Pod 与存储清理辅助 Pod 所在命名空间须允许 `privileged` Pod Security 配置。应安装 FUSE 设备插件，并使用 Helm Chart 针对 Worker ServiceAccount 的 admission policy，禁止特权容器、宿主机命名空间和 `hostPath` 卷；参阅 [Helm 部署说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.zh-Hans.md)。存储清理辅助 Pod 同样以 `root` 启动。
 - **文件系统属主映射**：主目录存储必须允许容器内 `root` 写入并将文件属主移交给 `uid 1000`，或者在存储服务端直接将全部读写访问统一映射为 `uid 1000`——默认开启 `root_squash` 且未做 UID 映射的传统 NFS 无法满足此要求。
 - **RBAC 与集群连接模式**：控制面需具备管理目标命名空间下 Pod、Secret、PVC 及清理辅助 Pod 的 RBAC 权限。若采用远程 `kubeconfig` 连接外部集群，必须在配置中显式填全全部 3 个回连 `endpoints`，且不得启用本地集群专用的 `ownerConfigMap`；节点池创建后不支持在“集群内 ServiceAccount 模式”与“远程 kubeconfig 模式”之间切换。
 - **镜像预拉取与优雅删除**：建议在新扩容的 Kubernetes 节点上预先拉取好 Worker 镜像（控制面的镜像准备阶段不会代为向集群节点分发拉取镜像）。删除异常 Pod 后必须等待 API Server 确认终态，切勿使用零宽限期强制删除来绕过失联节点。
@@ -62,7 +62,7 @@ order: 317
 
 - **同地域持久 Drive**：每个 Agent 的主目录挂载同地域的独享持久 Drive；节点池创建后，`teamId`、`projectId`、`region` 与 `driveSizeGiB` 四个字段即锁定不可更改。
 - **镜像与 CPU/内存配比**：需提前将 `linux/amd64` 架构的 Worker 镜像推送至项目关联的 VCR 镜像仓库并引用准确的镜像 Digest。`cpus` 支持填写 `1` 或 `2` 至 `32` 之间的偶数，适配器会按每 vCPU 搭配 `2048 MiB` 的固定比例申请内存。
-- **对齐账号会话时长上限**：`sessionTimeoutSeconds` 默认为 `86400` 秒（24 小时）；若您名下的 Vercel 账号或试用套餐将会话上限限制为 45 分钟，请务必将该值调低为 `2700`，严禁填入超出账号实际配额的数值，详见 [Vercel 沙箱时长与持久化说明](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)。销毁沙箱会清空实例本地缓存，但持久 Drive 中的主目录数据完好保留。
+- **对齐账号会话时长上限**：`sessionTimeoutSeconds` 默认为 `86400` 秒（24 小时）；若您名下的 Vercel 账号使用 Hobby 等会话上限为 45 分钟的套餐，请务必将该值调低为 `2700`，严禁填入超出账号实际配额的数值，详见 [Vercel 沙箱时长与持久化说明](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)。销毁沙箱会清空实例本地缓存，但持久 Drive 中的主目录数据完好保留。
 
 ### AWS Lambda MicroVMs
 

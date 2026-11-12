@@ -14,7 +14,7 @@ Rust Kernel은 Elixir Control Plane이 Rustler를 통해 로드하는 네이티�
 - **`common/`**: AEAD 암호화, 키 파생, 인코딩, 해싱, UUIDv7 식별자, JWT 도구, 전화번호 정규화, Reciprocal Rank Fusion, 토큰 수 추정, URL/IP SSRF 검증을 제공합니다.
 - **`authz/`**: 명시적 스냅샷 기반의 권한 평가, CEL 문법 검증 및 조건 평가, 리소스 패턴 매칭을 수행합니다. 평가에 필요한 입력 데이터는 [Principal 및 AuthZ](../principal-authz/)에 설명된 대로 Control Plane이 조립해 전달합니다.
 - **`universal_ai_client/`**: 업스트림 HTTP SSE/EventStream 및 WebSocket 통신, 응답 정규화, 다운스트림 JSON 텍스트 청크 인코딩, 수요 크레딧(demand credit), 요청 취소, 타임아웃을 처리합니다.
-- **`object_store/`**: 로컬 디렉터리 또는 S3 호환 버킷을 백엔드로 사용하는 파일 서비스 저장소를 제공합니다.
+- **`object_store/`**: OpenDAL 기반 파일 저장소를 제공하며 `fs`, `s3`, `gcs`, `azblob`, `oss`, `cos`, `tos`, `postgresql`, `d1`, `sftp`, `webdav`를 지원합니다.
 - **`page_document/`**: Pod 페이지 XML 트리 검증, Wordgard 변경 집합 적용, UTF-16 diff 계산을 담당합니다.
 - **`page_document/knowledge/`** 및 **`markdown.rs`**: 지식 페이지 XML과 OKF Markdown을 손실 없이 상호 변환하고, 일반 Markdown 구문을 분석합니다.
 - **`model_image.rs`**: 모델 입력용 이미지의 디코딩, 크기 조정, 포맷 변환을 처리합니다.

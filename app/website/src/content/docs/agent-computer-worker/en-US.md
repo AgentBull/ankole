@@ -5,7 +5,7 @@ section: Developer guide
 order: 108
 ---
 
-Each Agent has its own isolated computer, called an Agent Computer Worker. When you create an Agent, Ankole records its Worker provider binding and initializes the Worker row in an absent state without booting an instance. Pure Q&A turns and control-plane tools run directly in the control plane without a Worker; the control plane starts the Worker on demand the first time a turn invokes an environment tool or starts a Codex Job.
+Each Agent has its own isolated computer, called an Agent Computer Worker. When you create an Agent, Ankole records its Worker provider binding, initializes the Worker row in an absent state, and queues an initial Worker start in the background. After that first start completes and the idle Worker is released, environment tools and Codex Jobs start it on demand. Pure Q&A turns and control-plane tools run without waiting for a Worker.
 
 ## Execution and ownership
 

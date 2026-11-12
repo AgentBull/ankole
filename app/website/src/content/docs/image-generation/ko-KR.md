@@ -9,20 +9,20 @@ Agent가 일러스트레이션, 컨셉 아트, 시각적 초안을 만들어야 
 
 ## 실행 경로 선택
 
-공개 `image_generation` 도구는 다음 두 가지 경로 중 하나로 실행됩니다.
+공개 `image_generation` 도구의 실행 경로는 `image_generate` 모델 프로필 카드의 **모델의 Provider가 실행** 스위치로 선택합니다.
 
-- **Hosted:** Agent의 `image_generate` 프로필을 구성하는 방식입니다. AIGateway가 별도로 지정된 Provider와 모델로 도구를 실행한 뒤, 그 결과를 메인 모델에 반환합니다.
-- **Native:** `image_generate` 프로필을 비워 두고 네이티브 이미지 생성을 지원하는 메인 Provider를 그대로 사용하는 방식입니다. OpenAI와 ChatGPT Subscription이 이 경로를 지원하며, AIGateway는 공개 도구를 해당 메인 Provider로 바로 전달합니다.
+- **Native:** 스위치가 켜져 있으면 주 언어 모델 Provider가 자체 턴 안에서 이미지를 생성합니다. OpenAI와 ChatGPT Subscription이 지원하며, 전용 `image_generate` 프로필은 사용하지 않습니다.
+- **Hosted:** 스위치가 꺼져 있으면 AIGateway가 전용 `image_generate` Provider와 모델을 사용하고 결과를 메인 모델에 반환합니다.
 
-즉, `image_generate` 프로필은 기능 활성화 스위치가 아니라 실행 경로를 결정하는 라우팅 스위치입니다. 이 프로필이 비어 있는데 메인 Provider도 네이티브 이미지 생성을 지원하지 않으면, AIGateway는 명확한 구성 오류를 반환하며 도구 호출을 거부합니다.
+스위치는 기본적으로 켜져 있고 Site, Pod, Agent 설정을 차례로 상속합니다. Native 모드에서 메인 Provider가 이미지 생성을 지원하지 않으면 해당 Agent는 이미지를 생성할 수 없습니다. Hosted 모드에서는 호환되는 전용 모델이 필요하며, 프로필을 비워도 Native 경로로 바뀌지 않습니다.
 
 Hosted 경로를 설정하는 절차는 다음과 같습니다.
 
 1. Console의 **LLM Providers**에서 원하는 이미지 모델을 지원하는 Provider를 추가합니다.
 2. **Agents**를 열고 대상 Agent를 선택합니다.
-3. 모델 프로필에서 `image_generate`를 찾습니다.
+3. `image_generate`의 **모델의 Provider가 실행** 스위치를 끕니다.
 4. 이미지용 Provider와 모델을 선택한 뒤 프로필을 저장합니다.
-5. 채팅으로 돌아가 구체적인 이미지 생성 요청을 보냅니다.
+5. 채팅으로 돌아가 이미지 생성 요청을 보내 확인합니다.
 
 `image_generate` 프로필에 연결할 수 있는 Provider는 세 종류입니다. **OpenRouter**와 **AgentBull Cloud**는 각자의 카탈로그에 있는 이미지 모델을 제공합니다. **Cloudflare**는 FLUX.1 [schnell] (`@cf/black-forest-labs/flux-1-schnell`)과 `black-forest-labs/flux-2-pro-preview` 같은 Black Forest Labs 모델을 제공합니다. 전자는 프롬프트만으로 이미지를 생성하고, 후자는 크기, 출력 형식, 최대 8장의 참조 이미지도 지정할 수 있습니다. Cloudflare를 사용할 때는 모델 필드에 모델 ID를 직접 입력하세요.
 
@@ -67,7 +67,7 @@ lighting, text position, and colors unchanged.
 
 ## 이미지가 나타나지 않는 경우
 
-- **Agent가 텍스트만 반환함:** 클라이언트나 Agent에 `image_generation` 도구가 노출되어 있는지 확인하세요. 이어서 `image_generate` 프로필이 구성되어 있거나 메인 Provider가 네이티브 이미지 생성을 지원하는지 점검합니다.
+- **Agent가 텍스트만 반환함:** `image_generation` 도구가 노출되어 있는지 확인하세요. **모델의 Provider가 실행**이 켜져 있으면 메인 Provider의 지원 여부를, 꺼져 있으면 전용 `image_generate` 프로필을 점검합니다.
 - **선택 가능한 모델이 없음:** 현재 등록된 LLM Providers 중에 이미지 생성 모델을 제공하는 곳이 없는 상태입니다. 해당 기능을 지원하는 Provider를 추가하세요.
 - **지원되지 않는 요청 오류:** 호환되는 다른 모델을 선택하거나, 현재 모델이 지원하지 않는 해상도·포맷·투명 배경·참조 이미지·편집 조건을 요청에서 제외하세요.
 - **이미지는 생성되지만 내용이 의도와 다름:** 대개 설정 문제가 아닙니다. 같은 채팅에서 이어서 대화하며 무엇을 수정하고 무엇을 그대로 둘지 구체적으로 지정하세요.

@@ -11,9 +11,9 @@ Agent는 일반 대화 도중 곧바로 셸 명령을 실행하고 파일을 편
 
 ## 셸 명령
 
-Agent는 `app/agent_computer/src/tools/computer/command-tool.ts`에 구현된 `command` 도구를 통해 셸 명령을 실행합니다. 각 명령은 Worker 자체 자격 증명이 제거된 깨끗한 환경 변수를 받아 독립된 프로세스 그룹에서 실행되며, 명령이 취소되거나 제한 시간을 초과하면 해당 프로세스 그룹 전체가 함께 종료됩니다. 포그라운드 실행 제한 시간의 기본값은 180초이며 작업 디렉터리는 반드시 Agent Home 내부여야 합니다. [브라우저 자동화](../browser-automation/) 데몬과 Codex app-server 역시 동일한 일반 사용자 권한으로 동작하므로 Worker 컨테이너에 별도의 특권 커널 권한을 부여할 필요가 없습니다.
+Agent는 `app/agent_computer/src/tools/computer/command-tool.ts`에 구현된 `command` 도구를 통해 셸 명령을 실행합니다. 각 명령은 Worker 자체 자격 증명이 제거된 깨끗한 환경 변수를 받아 독립된 프로세스 그룹에서 실행되며, 명령이 취소되거나 제한 시간을 초과하면 해당 프로세스 그룹 전체가 함께 종료됩니다. 포그라운드 실행 제한 시간의 기본값은 180초이며 작업 디렉터리는 Agent Home 또는 해당 실행의 Drive 뷰 안에 있어야 합니다. [브라우저 자동화](../browser-automation/) 데몬과 Codex app-server 역시 동일한 일반 사용자 권한으로 동작하며, 이 하위 프로세스에는 상승된 커널 권한이 필요하지 않습니다. 마운트 작업은 신뢰된 supervisor가 담당합니다.
 
-모든 명령은 `sudo` 없이 `uid 1000`으로 실행됩니다. 따라서 Agent Home에 파일을 쓰고 사용자 수준 패키지를 설치하거나 하위 프로세스를 띄울 수는 있지만, 운영체제 시스템 패키지를 전역 설치할 수는 없습니다. 동일한 Agent에 속한 대화 Session과 백그라운드 Job은 같은 Agent Home 파일시스템을 볼 수 있습니다. 다른 Agent와의 격리는 컨테이너 인스턴스 경계가 담당하며, Worker 내부에는 데이터베이스 연결 정보나 객체 스토리지 원본 자격 증명이 존재하지 않습니다.
+모든 명령은 `sudo` 없이 `uid 1000`으로 실행됩니다. 따라서 Agent Home에 파일을 쓰고 사용자 수준 패키지를 설치하거나 하위 프로세스를 띄울 수는 있지만, 운영체제 시스템 패키지를 전역 설치할 수는 없습니다. 동일한 Agent에 속한 대화 Session과 백그라운드 Job은 같은 Agent Home 파일시스템을 볼 수 있습니다. 다른 Agent와의 격리는 컨테이너 인스턴스 경계가 담당하며, control plane의 Worker 시작 계약에는 control-plane 데이터베이스나 Files 객체 스토리지의 부트스트랩 자격 증명이 포함되지 않습니다.
 
 ## 파일 읽기와 apply_patch
 
@@ -24,11 +24,11 @@ Agent는 `app/agent_computer/src/tools/computer/command-tool.ts`에 구현된 `c
 
 Main Agent가 원시 패치 텍스트를 `custom_tool_call` 형태로 AIGateway에 보내면 Worker가 이를 `/usr/local/bin/apply_patch`에 있는 네이티브 Codex 바이너리로 전달해 반영합니다. Background Agent Job 역시 AIGateway 모델 카드에서 동일한 자유 형식 도구 정의를 받아 같은 네이티브 바이너리를 실행합니다.
 
-이처럼 두 경로가 동일한 편집 도구를 공유하므로 일반 대화와 Background Agent Job 어디에서든 일관된 파일 수정 프로토콜이 유지됩니다. 패치 문맥이 현재 파일 내용과 어긋나면 네이티브 바이너리가 적용을 거부하고 구체적인 실패 원인을 모델에 돌려줍니다. 빠른 문자열 검색 등에는 셸 명령을 쓰고, 실제 파일 수정에는 `apply_patch`를 사용하세요.
+이처럼 두 경로가 동일한 편집 도구를 공유하므로 일반 대화와 Background Agent Job 어디에서든 일관된 파일 수정 프로토콜이 유지됩니다. 패치 문맥이 현재 파일 내용과 어긋나면 네이티브 바이너리가 적용을 거부하고 구체적인 실패 원인을 모델에 돌려줍니다. 검색과 목록 조회에는 전용 `grep`, `find`, `ls` 도구를, 읽기에는 `read_file`을, 편집에는 `apply_patch`를 사용하세요.
 
 ## /workspace 파일 시스템
 
-Agent Home은 `/workspace`에 마운트되는 영구 스토리지이며 `/agents/<agent_uid>`는 `/workspace`를 가리키는 심볼릭 링크입니다. 경로 유효성을 검사할 때는 먼저 심볼릭 링크를 실제 경로로 해석한 뒤 Agent Home 경계 안에 속하는지 확인합니다. 기본 디렉터리 구조는 다음과 같습니다.
+Agent Home은 `/workspace`에 마운트되는 영구 스토리지이며 `/agents/<agent_uid>`는 `/workspace`를 가리키는 심볼릭 링크입니다. 명령의 작업 디렉터리는 심볼릭 링크를 해석한 뒤 Agent Home 또는 해당 실행의 Drive 뷰 안에 있는지 확인합니다. 기본 디렉터리 구조는 다음과 같습니다.
 
 ```text
 /workspace/

@@ -14,7 +14,7 @@ The Rust crate under `app/kernel/src` groups its native primitives by domain:
 - **`common/`**: AEAD encryption, key derivation, encodings, hashing, UUIDv7 generation, JWT helpers, phone normalization, reciprocal rank fusion, token estimation, and SSRF checks on URLs and IP addresses.
 - **`authz/`**: permission evaluation over explicit snapshots, CEL validation and condition evaluation, and resource-pattern matching. The control plane assembles and supplies the snapshots described in [Principal and AuthZ](../principal-authz/).
 - **`universal_ai_client/`**: upstream HTTP SSE/EventStream and WebSocket transport, response normalization, encoding for downstream JSON text chunks, demand-based backpressure credit, cancellation, and timeouts.
-- **`object_store/`**: file-service storage backed by either a local directory or an S3-compatible bucket.
+- **`object_store/`**: file-service storage through OpenDAL, supporting `fs`, `s3`, `gcs`, `azblob`, `oss`, `cos`, `tos`, `postgresql`, `d1`, `sftp`, and `webdav`.
 - **`page_document/`**: validating XML trees for Pod pages, applying Wordgard changesets, and computing UTF-16 diffs.
 - **`page_document/knowledge/`** and **`markdown.rs`**: lossless conversion between knowledge Page XML and OKF Markdown, and general Markdown parsing.
 - **`model_image.rs`**: decoding, resizing, and converting images for model requests.

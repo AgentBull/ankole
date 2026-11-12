@@ -5,7 +5,9 @@ section: Guides
 order: 320
 ---
 
-灾难恢复时，必须将控制面 PostgreSQL 主库、独立 Pod Base 分片数据库（配置了 `BASE_DB_URLS` 时）、文件存储、Agent 持久 Home、无状态 `ankole-function-runtime` 服务以及原部署密钥作为一个整体协同还原。需要保留的数据范围与一致性备份流程见[备份指南](../backup-and-restore/)。
+灾难恢复时，必须将控制面 PostgreSQL 主库、独立 Pod Base 分片数据库、文件存储、Agent 持久 Home、无状态 `ankole-function-runtime` 服务以及原部署密钥作为一个整体协同还原。需要保留的数据范围与一致性备份流程见[备份指南](../backup-and-restore/)。
+
+恢复前先列出实际 Base 数据库拓扑。未设置 `BASE_DB_URLS` 时，dev/test 自动配置 4 个 Base 分片，SaaS production 自动配置 8 个，FOSS production 则共用 `DATABASE_URL`。所有独立分片都须纳入恢复，包括按这些默认值配置的分片。
 
 ## 恢复前
 
@@ -16,7 +18,7 @@ order: 320
 ## 恢复流程
 
 1. 准备替代基础设施并保持控制面处于停止状态，沿用原部署的 WorkerProvider 位置、`BASE_DB_URLS` 分片标识（`ankole_sharding`）与持久存储布局。预先部署同版本的无状态 `ankole-function-runtime` 服务；若使用 Docker 本地卷存放 Home，必须在控制面启动前先行恢复卷数据，避免控制面启动时自动创建出空卷。
-2. 按照[备份与还原](../backup-and-restore/)中的顺序，依次恢复控制面 PostgreSQL 主库、`BASE_DB_URLS` 中的全部独立 Base 分片库（若已配置）、配套文件存储与全部持久 Home。对独立 Base 分片库执行时间点恢复（PITR）时，**每个 Base 分片库的恢复时间点都必须 `>=` 控制面主库的恢复时间点**，防止控制面已记录为物理表的 Base 表在分片库中缺失；同时保持分片库与主库一致的排序规则（locale/collation）及 `public._ankole_shard` 分片身份，并保留 Agent UID、卷名、文件属主与权限。
+2. 按照[备份与还原](../backup-and-restore/)中的顺序，依次恢复控制面 PostgreSQL 主库、实际拓扑中的全部独立 Base 分片库、配套文件存储与全部持久 Home。对独立 Base 分片库执行时间点恢复（PITR）时，**每个 Base 分片库的恢复时间点都必须 `>=` 控制面主库的恢复时间点**，防止控制面已记录为物理表的 Base 表在分片库中缺失；同时保持分片库与主库一致的排序规则（locale/collation）及 `public._ankole_shard` 分片身份，并保留 Agent UID、卷名、文件属主与权限。
 3. 从密钥管理系统中恢复原 `ANKOLE_SECRET_BASE`。该密钥用于解密各类 Provider 密钥及未结清实例代次的凭据。一旦该密钥丢失，请先暂停恢复并制定专门的凭据重建方案——仅重新录入 Provider 凭据，无法解开未结清实例代次的凭据。
 4. 配置其余启动密钥与服务地址（包括 `DATABASE_URL`、独立分片场景下的 `BASE_DB_URLS`、`ANKOLE_FUNCTION_RUNTIME_URL` 以及共享的 `ANKOLE_FUNCTION_RUNTIME_TOKEN`），先启动 `ankole-function-runtime`，再启动控制面，由控制面的常规协调流程去核查平台侧的真实实例状态。切勿为了表面状态正常而手动清空实例代次或实例引用；状态未明的实例应继续停留在 `starting` 或 `deleting`，并在 `last_error` 中保留原因。
 5. 启用已恢复的 Agent，逐项验证读取已知的 Home 文件、云盘或 Pod 文件以及 Pod Base 数据表，再恢复一个 Background Job 并跑通一次真实回合。正式切换生产流量前，再次确认旧部署实例处于停止状态。

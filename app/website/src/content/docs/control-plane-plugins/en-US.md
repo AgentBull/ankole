@@ -30,21 +30,22 @@ All remaining callbacks are optional:
 - **`display_name/0`**, **`description/0`**: Localized text maps for operator interfaces.
 - **`app_config_definitions/0`**, **`app_config_patterns/0`**: `Ankole.AppConfigure` keys and pattern definitions owned by the plugin.
 - **`adapter_declarations/0`**: Atom-keyed adapter declarations that connect the plugin to subsystem contracts, using `Ankole.Plugins.ConfigField` schemas to render browser forms.
-- **`hooks/0`**: `[{hook_point, module}]` entries for synchronous, in-transaction domain hooks. Each hook module implements `Ankole.Plugins.Hook.before_commit_in_tx/2` on declared hook points (`:create_agent`, `:create_invitation`, `:enable_signal_binding`, `:enable_identity_provider`, `:store_file`, `:commit_files`, `:create_pod_page`, `:restore_pod_page`, `:insert_base_records`, `:admit_compute`) and can return `{:error, reason}` to roll back the calling transaction.
+- **`hooks/0`**: `[{hook_point, module}]` entries for synchronous, in-transaction domain hooks. Each hook module implements `Ankole.Plugins.Hook.before_commit_in_tx/2` on declared hook points (`:create_agent`, `:create_invitation`, `:enable_signal_binding`) and can return `{:error, reason}` to roll back the calling transaction.
 - **`children/0`**: `Supervisor.child_spec()` entries started under the plugin runtime supervisor.
 
 At startup, `Ankole.Plugins.Spec.from_module/1` reads these callbacks and builds a validated `Spec`. If any module fails shape validation, duplicates an ID, or fails contract validation, Ankole halts startup with an error naming the responsible module.
 
 ## Subsystem contracts and site contribution points
 
-Control Plane Plugins declare adapters across six subsystem contracts (`Ankole.Plugins.Contracts` and `Ankole.Connectors.Registry`), combining startup `validate` checks with optional `refresh` publication callbacks and `veto_disable` transaction guards:
+Control Plane Plugins declare adapters across seven subsystem contracts (`Ankole.Plugins.Contracts` and `Ankole.Connectors.Registry`), combining startup `validate` checks with optional `refresh` publication callbacks and `veto_disable` transaction guards:
 
 - **`signals.adapter`**: Declares a messaging or event adapter validated by `Ankole.Signals.Adapters` for Signal Bindings and Conversations delivery.
 - **`signals.webhook_handler`**: Declares an HTTP webhook handler validated by `Ankole.Signals.WebhookHandlers` for `/webhooks/v1/:handler_id/:instance_id/:kind`.
 - **`principals.identity_provider`**: Declares an enterprise identity and directory adapter validated by `Ankole.IdentityProviders`, guarding plugin disables via `veto_disable` while tenant Identity Provider rows depend on it.
 - **`ai_gateway.provider`**: Declares a model provider adapter validated by `Ankole.AIGateway.Providers`, with a `refresh` callback that publishes active declarations to AI Gateway.
 - **`agent_workers.provider_kind`**: Declares an Agent Worker infrastructure kind (`Ankole.AgentWorkers.ProviderKind`), validating declarations at startup and publishing discovered and active specs via `refresh`.
-- **`connectors.connector`**: Declares a unified platform connector served by `Ankole.Connectors`—contributing shared application credentials (`authConfigId`), personal OAuth flows, external event triggers, and internal MCP Toolkits (`ToolSpec`). Implemented by `lark-adapter`, `github-adapter`, and `linear-adapter` (`github-adapter` and `linear-adapter` set `activation: :always`).
+- **`connectors.connector`**: Declares a unified platform connector served by `Ankole.Connectors`—contributing shared application credentials (`authConfigId`), personal OAuth flows, external event triggers, and internal MCP Toolkits (`ToolSpec`). Implemented by `lark-adapter`, `github-adapter`, `linear-adapter`, and `cloud-connectors-adapter` (the latter three set `activation: :always`).
+- **`connectors.cloud_provider`**: Declares the Ankole Cloud service adapter validated by `Ankole.Connectors.CloudProvider` for connector discovery, OAuth, tool execution, and event-trigger reconciliation.
 
 Beyond runtime adapters, first-party extensions can hook into compile-time, site-scoped contribution points across a site build:
 

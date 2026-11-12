@@ -13,7 +13,7 @@ order: 200
 
 | 명령 | 역할 |
 |---|---|
-| `kit env-setup` | 시스템 빌드 패키지, Docker, Rust, Elixir/Erlang 툴체인, 버전이 고정된(pinned) Bun 등 Ankole 개발에 필요한 호스트 툴체인을 설치합니다. `--print` 옵션을 붙이면 실제 설치를 수행하지 않고 실행할 명령만 출력합니다. |
+| `kit env-setup` | 시스템 빌드 패키지, Docker, Rust, Elixir/Erlang 툴체인, 버전이 고정된(pinned) Bun 등 Ankole 개발에 필요한 호스트 툴체인을 설치합니다. `--dry-run` 옵션을 붙이면 실제 설치를 수행하지 않고 실행할 명령만 출력합니다. |
 | `kit is-ci` | CI 환경에서 실행 중이면 종료 코드 `0`, 아니면 `1`을 반환합니다. CI 여부에 따라 분기하는 스크립트에서 사용합니다. |
 | `kit is-dev` | 개발 환경에서 실행 중이면 종료 코드 `0`, 아니면 `1`을 반환합니다. |
 
@@ -62,10 +62,11 @@ order: 200
 | `kit analyze unused` | 사용되지 않는 코드를 찾아 보고합니다. `bun run analyze:unused`로도 실행할 수 있습니다. |
 | `kit analyze structure` | 저장소 구조 규칙을 검사해 보고합니다. `bun run analyze:structure`로도 실행할 수 있습니다. |
 | `kit analyze cycles` | 순환 의존성(dependency cycle)을 찾아 보고합니다. `bun run analyze:cycles`로도 실행할 수 있습니다. |
+| `kit pin-base-image [revision]` | `HEAD`와 같은 `Dockerfile.base`를 가진 상위 커밋의 CI 게시 베이스 이미지로 `app/agent_computer/base-image.lock`을 갱신합니다. 기본 커밋은 `HEAD`이며 기록 전에 게시 이미지를 확인합니다. |
 
 ## Worker 테스트 실행기
 
-`kit agent-computer-test`는 표준 Worker 컨테이너 런타임 안에서 Agent Computer Worker 패키지 테스트를 실행하므로, 실제 Agent 턴이 동작하는 환경과 동일한 조건에서 검증할 수 있습니다. `--suite` 옵션에는 `unit` 또는 `integration`을 지정할 수 있으며, 이미지를 새로 빌드하는 대신 특정 Docker 이미지를 지정하려면 `--image`를 사용합니다.
+`kit agent-computer-test`는 표준 Worker 컨테이너 런타임 안에서 Agent Computer Worker 패키지 테스트를 실행하므로, 실제 Agent 턴이 동작하는 환경과 동일한 조건에서 검증할 수 있습니다. `--suite` 옵션에는 `unit`, `integration`, `image`를 지정할 수 있으며, 이미지를 새로 빌드하는 대신 특정 Docker 이미지를 지정하려면 `--image`를 사용합니다.
 
 ## 더 알아보기
 

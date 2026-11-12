@@ -139,9 +139,9 @@ Ankole 运行时由五个核心部分组成：
 
 - **控制面**（Elixir、Phoenix 与 OTP）：掌握持久化状态、进程监督树与事务提交权，统筹管理 Pod 工作空间、`Meta Ankole`（`Library` 与企业大脑）、身份与权限（Principal / AuthZ）、连接器保险箱与无状态 MCP 网关（`Connectors`）、系统配置、会话与消息、信号路由、定时计划、`AutomationJobs`（已发布小应用动作编排）、Sessions 主循环、后台长任务、Workflow，以及统一调度上游模型的 AIGateway。
 - **Function Runtime**（`ankole-function-runtime`）：在无状态 Edge Runtime 隔离环境中运行 Pod 小应用的云端后端接口、**已发布的小应用动作（Applet Actions）**与确定性 TypeScript（`PTC` 与 `Workflow`）程序，通过控制面宿主与 MCP 桥接回访业务能力，自身不保存持久化状态或原始密钥。
-- **Agent Computer Worker**（Bun 与 TypeScript，每个 Agent 独占一个 Linux 容器）：承载命令行、浏览器、Codex、本地 MCP 服务与 Skill，通过 `/drive` FUSE 挂载读写授权范围内的空间页面与文件，并按回合经控制面完成 Git 鉴权。仅当任务确实需要电脑环境时，控制面才会在 Docker、Kubernetes 或云平台上按需拉起对应的 Worker。
+- **Agent Computer Worker**（Bun 与 TypeScript，每个 Agent 独占一个 Linux 容器）：承载命令行、浏览器、Codex、本地 MCP 服务与 Skill，通过 `/drive` FUSE 挂载读写授权范围内的空间页面与文件，并按回合经控制面完成 Git 鉴权。创建 Agent 后，控制面会在 Docker、Kubernetes 或云平台上后台启动 Worker。Worker 因空闲被释放后，只有需要电脑环境的任务才会再次启动它。
 - **Kernel**（Rust，经 Rustler 与 Node-API 加载）：提供密码学原语、租户内 UID 与短链接编解码、CEL 权限求值、Page XML / OKF Markdown / WebDAV VFS 编解码、UTF-16 页面差分，以及底层 AI 网络传输。
-- **PostgreSQL 18+ 与统一 Drive 存储**：PostgreSQL 保存全部控制面业务数据与物理分片多维表（`BASE_DB_URLS`）；统一 Drive 对象存储托管 Pod 文件、小应用构建产物与会话附件；每个 Agent 的 `/workspace` 主目录（Agent Home）在容器重建后持久保留，而 `/var/cache/ankole` 缓存目录可随时销毁重建。
+- **PostgreSQL 18+ 与统一 Drive 存储**：PostgreSQL 保存全部控制面业务数据与物理分片多维表（`BASE_DB_URLS`）；统一 Drive 对象存储托管 Pod 文件、小应用构建产物与会话附件；每个 Agent 的 `/workspace` 主目录（Agent Home）使用运行方管理的存储，[持久性边界因运行方而异](docs/TradeoffsAndKnownLimits.md#worker-storage-durability-and-single-writer-fencing)，而 `/var/cache/ankole` 缓存目录可随时销毁重建。
 
 <details>
 <summary>架构图</summary>

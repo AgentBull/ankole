@@ -11,7 +11,7 @@ order: 125
 
 ## AuthZ grant, 사람 접근 변경 및 초대 기록
 
-모든 권한 부여 내역은 `permission_grants` 테이블의 영구 행으로 저장됩니다. 각 grant는 단일 `principal_uid`, 단일 `group_id`, 또는 Userset 페이지 대상(`source_page_id` 및 `source_action`)에 귀속되며, Pod ACL grant는 `target_page_id`와 `target_scope`를 통해 특정 `pages` 행을 기준으로 설정됩니다. 허용 대상과 범위는 `resource_pattern`, `action`, `condition` 컬럼에 명시되고 생성 시각과 최종 수정 시각이 타임스탬프로 남습니다. 별도의 grant 감사 로그 테이블을 따로 두지 않으며, `permission_grants` 테이블 자체가 정본 기록 역할을 합니다.
+모든 권한 부여 내역은 `permission_grants` 테이블의 영구 행으로 저장됩니다. 각 grant는 단일 `principal_uid`, 단일 `group_id`, 또는 Userset 페이지 대상(`source_node_id` 및 `source_action`)에 귀속되며, Pod ACL grant는 `target_node_id`와 `target_scope`를 통해 특정 `pages` 행을 기준으로 설정됩니다. 허용 대상과 범위는 `resource_pattern`, `action`, `condition` 컬럼에 명시되고 생성 시각과 최종 수정 시각이 타임스탬프로 남습니다. 별도의 grant 감사 로그 테이블을 따로 두지 않으며, `permission_grants` 테이블 자체가 정본 기록 역할을 합니다.
 
 사람 계정의 접근 상태 변경과 워크스페이스 초대 이력 역시 PostgreSQL에 영구 행으로 기록됩니다.
 
@@ -19,7 +19,7 @@ order: 125
 - `human_access_restrictions` 테이블에는 `:suspended`(일시 중지) 또는 `:offboarded`(퇴사·오프보딩) 처분(`disposition`)과 제한 사유를 담은 현재 활성 제한 상태가 저장됩니다.
 - `pod_invitations` 테이블에는 Pod 워크스페이스 초대 내역, 멤버십 유형(`member` 또는 `guest`), 누적 사용 횟수(`used_count`), 초대 생성자(`created_by_principal_uid`)가 기록됩니다.
 
-Principal 및 권한 그룹의 현재 grant 목록은 `GET /api/v2/principals/:uid/grants`와 `GET /api/v2/principal-groups/:name/grants`로 조회할 수 있습니다. 현재 테이블에 존재하는 행이 곧 런타임에 강제되는 유효 권한이며, 과거에 부여되었다가 삭제된 이력까지 추적해야 할 때는 PostgreSQL의 시점 복구(PITR) 기록을 활용합니다.
+Principal 및 권한 그룹의 현재 grant 목록은 `GET /api/v2/principals/:uid/grants`와 `GET /api/v2/principal-groups/:name/grants`로 조회할 수 있습니다. 현재 테이블에 있는 행이 런타임 권한 규칙이며, 이 테이블은 취소된 grant의 이력을 보관하지 않습니다. 운영자가 PostgreSQL 시점 복구(PITR)를 구성하고 해당 기간의 백업과 WAL을 보관했다면 별도의 데이터베이스 사본을 복원해 과거 규칙을 확인할 수 있습니다.
 
 ## 구조화된 control-plane log
 
@@ -44,10 +44,10 @@ control plane은 이벤트 이름, 사람이 읽기 쉬운 메시지, 구조화�
 
 | 질문 | 확인할 곳 |
 |---|---|
-| “누가 이 Agent 또는 페이지 대상에게 Y 작업 권한을 부여했는가?” | `permission_grants` 테이블 및 `/api/v2/principals/:uid/grants` · `/api/v2/principal-groups/:name/grants` |
+| “이 Agent 또는 페이지 대상에게 현재 어떤 권한이 있는가?” | `permission_grants` 테이블 및 `/api/v2/principals/:uid/grants` · `/api/v2/principal-groups/:name/grants` |
 | “왜 특정 사용자 계정이 일시 중지·오프보딩되었거나 초대되었는가?” | `human_access_events`, `human_access_restrictions`, `pod_invitations` |
 | “특정 turn에서 Agent가 구체적으로 어떤 호출을 수행했는가?” | `/api/v2/ai-gateway/conversations/:id/messages` |
-| “예약된 스케줄이 정시에 실행되었는가?” | `/api/v2/cron-schedules/:id/runs` |
+| “예약된 스케줄이 정시에 실행되었는가?” | `/api/v2/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs` |
 | “실패한 백그라운드 Job이 몇 번 재시도되었는가?” | `/api/v2/background-agent-jobs/:id`(`attempts`, `error`) |
 | “당시 Worker나 컨트롤 플레인에서 어떤 런타임 로그가 남았는가?” | 구조화된 control-plane 로그 스트림 |
 

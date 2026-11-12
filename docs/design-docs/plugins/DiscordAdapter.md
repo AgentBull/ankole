@@ -102,8 +102,9 @@ adapter maintains no local channel cache.
 
 Because Discord closes the socket with `4014` whenever a bot requests an
 unapproved privileged intent, the adapter sets the `MESSAGE_CONTENT` bit only
-when `GET /applications/@me` confirms `GATEWAY_MESSAGE_CONTENT`. Without that
-flag, Discord strips message text from unmentioned guild messages; the adapter
+when `GET /applications/@me` confirms `GATEWAY_MESSAGE_CONTENT` or
+`GATEWAY_MESSAGE_CONTENT_LIMITED`. Without either flag, Discord strips message
+text from unmentioned guild messages; the adapter
 skips those empty payloads rather than mirroring blank entries, leaving direct
 messages and @-mentioned guild messages working normally. To use `observe_all`
 or `may_intervene` in guild channels, enable **MESSAGE CONTENT INTENT** in the

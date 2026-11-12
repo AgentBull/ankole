@@ -139,9 +139,9 @@ Ankole は 5 つのランタイム要素で構成されます：
 
 - **Control Plane**（Elixir、Phoenix、OTP）：永続状態、スーパービジョン、コミット権限を保持し、Pod ワークスペース、`Meta Ankole`（`Library` と `Company Brain`）、Principal / AuthZ、`Connectors`（資格情報保管庫とステートレス MCP ゲートウェイ）、設定、Conversations、Signals、Schedule、`AutomationJobs`（公開済み Applet Actions のオーケストレーション）、Sessions、Background Agent Jobs、Workflow、AIGateway を動かします。
 - **Function Runtime**（`ankole-function-runtime`）：Pod Applet のバックエンドルート、**公開済み Applet Actions**、および決定論的 TypeScript（`PTC`・`Workflow`）プログラムをステートレスな Edge Runtime 分離環境で実行し、Control Plane のホスト・MCP ブリッジ経由で連携します（永続状態や生の秘密鍵は保持しません）。
-- **Agent Computer Worker**（Bun と TypeScript、Agent ごとに 1 つの Linux コンテナー）：コマンド、ブラウザー、Codex、ローカル MCP サーバー、Skill を実行し、許可された Pod ページやファイルを `/drive` に FUSE マウントして Turn ごとに Control Plane 経由で Git 認証を行います。コンピューターが必要な作業のときだけ Docker、Kubernetes、またはクラウド基盤上で Worker を起動します。
+- **Agent Computer Worker**（Bun と TypeScript、Agent ごとに 1 つの Linux コンテナー）：コマンド、ブラウザー、Codex、ローカル MCP サーバー、Skill を実行し、許可された Pod ページやファイルを `/drive` に FUSE マウントして Turn ごとに Control Plane 経由で Git 認証を行います。Agent の作成後、Docker、Kubernetes、またはクラウド基盤上で Worker をバックグラウンド起動します。アイドル状態の Worker が解放された後は、コンピューターが必要な作業のときだけ再起動します。
 - **Kernel**（Rust、Rustler と Node-API 経由でロード）：暗号処理、テナントスコープの UID と短縮 URL、CEL 権限評価、Page XML / OKF Markdown / WebDAV VFS コーデック、UTF-16 ページ差分、AI 通信を担います。
-- **PostgreSQL 18+ と統合 Drive ストレージ**：PostgreSQL が Control Plane の永続ドメインデータと物理シャード化された Base テーブル（`BASE_DB_URLS`）を保存します。統合 Drive オブジェクトストレージは Pod ファイル、ビルド済み Applet バンドル、添付ファイルを保持し、各 Agent の `/workspace`（Agent Home）はコンテナー置換後も永続化されます（`/var/cache/ankole` は再構築可能）。
+- **PostgreSQL 18+ と統合 Drive ストレージ**：PostgreSQL が Control Plane の永続ドメインデータと物理シャード化された Base テーブル（`BASE_DB_URLS`）を保存します。統合 Drive オブジェクトストレージは Pod ファイル、ビルド済み Applet バンドル、添付ファイルを保持し、各 Agent の `/workspace`（Agent Home）はプロバイダー管理のストレージに保存され、[永続性の保証範囲はプロバイダーによって異なります](docs/TradeoffsAndKnownLimits.md#worker-storage-durability-and-single-writer-fencing)（`/var/cache/ankole` は再構築可能）。
 
 <details>
 <summary>アーキテクチャ図</summary>

@@ -63,7 +63,7 @@ Every Worker connection carries these identifiers:
 
 | Identity | Owner | Changes when |
 | --- | --- | --- |
-| `worker_id` | the Agent UID of the Worker | never |
+| `worker_id` | the Agent UID of the Worker | the Agent is renamed |
 | `runner_id` | the paired device, when the credential names a device binding | a different device is paired |
 | `incarnation_id` | worker process | the worker process restarts |
 | `connection_id` | control plane | the WebSocket reconnects |
@@ -310,7 +310,7 @@ via `ANKOLE_WORKER_ADAPTER_URL` (`adapter`). Because Agent Home is fixed at
 During WebSocket upgrade, the Worker passes its credential as the Phoenix auth
 token in `Sec-WebSocket-Protocol` (never in the URL), validates the endpoint,
 copies the key into process memory, and scrubs it from the environment inherited
-by child processes. The credential's globally unique SHA-256 digest locates an
+by child processes. The credential's globally unique SHA-256 digest locates a
 managed Worker or device binding and its tenant. `RuntimeFabricSocket.connect/3`
 checks `worker_id` against that row's Agent UID and binds the verified tenant,
 generation, Agent UID and optional Runner ID on the socket. Managed admission

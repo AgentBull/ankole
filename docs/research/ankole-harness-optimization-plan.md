@@ -2,13 +2,14 @@
 
 > 关联前置研究：[alma-harness-deep-analysis.md](./alma-harness-deep-analysis.md)  
 > 制定日期：2026-11-11  
+> 时间边界：本文保留制定时的基线、问题判断与实施方案；各 Workstream 的「现状」指当时快照，实施进度与现行 contract 以 [AIGateway](../design-docs/AIGateway.md) 和 [AgentWorkers](../design-docs/AgentWorkers.md) 等 owning specifications 为准。
 > 适用范围：`Ankole.AIGateway`、`Ankole.Sessions`、`AgentComputer`（含前台 `command` 工具与后台 `CodexRunner`）、`FunctionRuntime`（PTC 隔离执行器）
 
 ---
 
 ## 1. 背景与设计哲学转变
 
-[alma-harness-deep-analysis.md](./alma-harness-deep-analysis.md) 对 Alma 参评包、本机实现与 FrontierHarness 公开数据的拆解表明：Harness 的真实差距不来自某一个孤立开关，也不等于单一的缓存命中率（Alma 在 GLM-5.3 上 `cached/input` 高达 `95.1%`，但平均输入膨胀到 `3.311M`、单次通过成本达 \$1.680）。真正拉开差距的是**进入模型窗口的信息密度、工具与意图路由效率、以及长任务在异常与上下文边界上的状态收敛能力**。
+[alma-harness-deep-analysis.md](./alma-harness-deep-analysis.md) 对 Alma 参评包、本机实现与 FrontierHarness 公开数据的拆解列出了多种可能影响表现的机制；缓存命中率也需要结合总输入与实际成本解读（Alma 在 GLM-5.3 上 `cached/input` 高达 `95.1%`，但平均输入膨胀到 `3.311M`、单次通过成本达 \$1.680）。研究提出了三个需要对照实验检验的候选方向：**进入模型窗口的信息密度、工具与意图路由效率，以及长任务在异常与上下文边界上的状态收敛能力**。公开数据与静态阅读尚不足以确定各机制的因果贡献。
 
 将 Alma 的经验转化为 Ankole 的优化路线时，必须在架构与产品设计上完成三个核心认知升级：
 
@@ -20,7 +21,7 @@
    - 工具输出不应作为原始审计日志原样倾倒进上下文，而应作为专为有限注意力模型渲染的视图：在探索性命令上**默认静默剥离低价值噪声与误导性锚点**（如全绿用例刷屏、常规 Merge 节点、实现层过期注释、超大 JSON 的重复样本值），并利用**命令自身的语法特指度**（管道符、精确过滤参数、结构化行读取工具）提供零摩擦的自然逃逸，而非挂免责警告诱发模型强迫症式回读原始日志。
 3. **用 Ankole 原生「决策模型（Decision Model）」替代生成式辅助小模型**
    - Alma 使用生成式小 LLM 做工具预选与命令风险分析，付出了 10–30 秒超时窗口、格式错误与未校准猜测的代价。
-   - Ankole 在 `Ankole.AIGateway.Decisions` 中已具备原生判别式决策模型能力（支持 SystemOne / TypeSafe Jev、Microsoft-Decision-1、OpenAI `/v1/decisions`、Cloudflare `clef`），可在单次前向请求中并发回答最多 64 个类型化问题（`noul` / `choice` / `score`）并返回**校准概率（`0..1`）**。用原生决策模型驱动工具软预挂载、感知滤镜档位切换、风险门控与死循环熔断，能够同时兼顾毫秒级延迟与连续可调的策略阈值。
+   - Ankole 在 `Ankole.AIGateway.Decisions` 中已具备原生判别式决策模型能力（支持 SystemOne / TypeSafe Jev、Microsoft-Decision-1、OpenAI `/v1/decisions`、Cloudflare `clef`），可在一次请求中提交最多 64 个类型化问题（`noul` / `choice` / `score`）并返回 `0..1` 概率。概率的校准程度与请求延迟取决于 Provider 和任务分布，不能由统一接口保证；应按后文的 P50/P95 和任务指标验证，再为工具软预挂载、感知滤镜档位切换、风险门控与死循环熔断设置阈值。
 
 ---
 

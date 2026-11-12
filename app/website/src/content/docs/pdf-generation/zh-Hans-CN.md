@@ -12,7 +12,7 @@ order: 306
 ## 需要什么
 
 - **启用 `pdf` Skill。** 该 Skill 默认开启（`default_enabled: true`），只要未手动关闭，所有 Agent 均可直接使用。详见 [Skills](../skills/)。
-- **准备 Worker 镜像。** 官方 Agent Computer Worker 镜像已预装 Pandoc、两套 PDF 引擎（Typst 与 LaTeX）、Poppler 以及 QPDF，开箱即用，无需另行安装。
+- **准备 Worker 镜像。** 官方 Agent Computer Worker 镜像已预装 Pandoc、两套 PDF 引擎（WeasyPrint 与 Typst）、Poppler 以及 QPDF，开箱即用，无需另行安装。
 - **绑定 `primary` 模型档案。** 由主模型负责撰写源文稿（Markdown 或结构化源文件），再交由工具链渲染为 PDF。
 
 ## skill 做什么

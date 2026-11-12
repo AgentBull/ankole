@@ -26,7 +26,7 @@ Driver は各ツールの宣言に従い、並列または順次でツールを�
 
 ## Workflow タスク
 
-Workflow タスクに提供されるツールカタログは、Web 操作、委譲および状態確認のための Background Agent Job 操作、`sleep`、そして `submit_result` のみに絞られます。また、ホスト型の Brain ツールも `recall` と `get_page` だけに限定され、計算機操作、シェル、Skill、スケジュール、新規 Workflow 作成のツールは公開されません。
+Workflow タスクに提供されるツールカタログは、Web 操作、委譲および状態確認のための Background Agent Job 操作、`sleep`、そして `submit_result` のみに絞られます。また、ホスト型の Brain ツールも `recall` と `entity` だけに限定され、計算機操作、シェル、Skill、スケジュール、新規 Workflow 作成のツールは公開されません。
 
 `submit_result` が呼ばれると、保存済みの結果スキーマに対して出力が検証されます。検証に通らなければエラーが返されてモデルが修正でき、受理された時点でタスク完了となります。なお、結果を提出する前に、委譲中の Background Agent Job をすべて終了させておく必要があります。詳しくは [Workflow](../workflows/) を参照してください。
 

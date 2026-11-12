@@ -11,7 +11,7 @@ order: 125
 
 ## AuthZ 授权、人员访问变更与邀请记录
 
-每一条权限授予都对应 `permission_grants` 表中的一行持久化记录。每行记录归属于单个主体（`principal_uid`）、单个权限组（`group_id`）或某类 Userset 页面受众（`source_page_id` 与 `source_action`）；Pod 页面级的 ACL 授权则通过 `target_page_id` 与 `target_scope` 锚定到具体的 `pages` 表记录。表中的 `resource_pattern`、`action` 和 `condition` 标明允许访问的资源与操作，时间戳记录创建时间与最后修改时间。权限系统不另设旁路审计表——`permission_grants` 表本身就是当前生效规则的权威账本。
+每一条权限授予都对应 `permission_grants` 表中的一行持久化记录。每行记录归属于单个主体（`principal_uid`）、单个权限组（`group_id`）或某类 Userset 页面受众（`source_node_id` 与 `source_action`）；Pod 页面级的 ACL 授权则通过 `target_node_id` 与 `target_scope` 锚定到具体的 `pages` 表记录。表中的 `resource_pattern`、`action` 和 `condition` 标明允许访问的资源与操作，时间戳记录创建时间与最后修改时间。权限系统不另设旁路审计表——`permission_grants` 表本身就是当前生效规则的权威账本。
 
 人员账号的生命周期流转与工作区邀请同样在 PostgreSQL 中留有完整记录：
 
@@ -19,7 +19,7 @@ order: 125
 - `human_access_restrictions`：保存当前正生效的访问限制记录、处置类别（`:suspended` 停用或 `:offboarded` 离职）及具体原因。
 - `pod_invitations`：记录 Pod 工作区邀请链接、目标成员角色（`member` 正式成员或 `guest` 外部访客）、已使用次数（`used_count`）以及邀请创建人（`created_by_principal_uid`）。
 
-日常核查时，可通过 `GET /api/v2/principals/:uid/grants` 和 `GET /api/v2/principal-groups/:name/grants` 接口直接查询指定主体或权限组当前持有的授权。若需追溯曾经授予但后来已被删除的历史权限，可通过 PostgreSQL 的时间点恢复（PITR）归档回查；而当前表中存在的行，即为运行时实际执行的权限规则。
+日常核查时，可通过 `GET /api/v2/principals/:uid/grants` 和 `GET /api/v2/principal-groups/:name/grants` 接口直接查询指定主体或权限组当前持有的授权。当前表中存在的行就是运行时执行的权限规则，表内不保留已撤销授权的历史。若运维人员已配置 PostgreSQL 时间点恢复（PITR），并保留对应时段的备份与 WAL，可恢复一份独立数据库副本来查看过去的规则。
 
 ## 结构化控制面日志
 
@@ -44,10 +44,10 @@ order: 125
 
 | 审计问题 | 查询位置 |
 |---|---|
-| “是谁给这个 Agent 或页面受众授予了执行某项操作的权限？” | `permission_grants` 表 + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
+| “这个 Agent 或页面受众当前有哪些权限？” | `permission_grants` 表 + `/api/v2/principals/:uid/grants` / `/api/v2/principal-groups/:name/grants` |
 | “某个员工账号为什么被停用、标记离职，或是由谁邀请进来的？” | `human_access_events`、`human_access_restrictions` 与 `pod_invitations` 表 |
 | “在那一轮对话里，这个 Agent 具体调用了哪些模型和工具？” | `/api/v2/ai-gateway/conversations/:id/messages` |
-| “某条定时任务当时有没有按时触发？” | `/api/v2/cron-schedules/:id/runs` |
+| “某条定时任务当时有没有按时触发？” | `/api/v2/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs` |
 | “某个后台任务报错后有没有自动重试？” | `/api/v2/background-agent-jobs/:id`（查看 `attempts` 与 `error` 字段） |
 | “事发当时 Worker 容器和通道层报了什么错？” | 控制面结构化日志 |
 

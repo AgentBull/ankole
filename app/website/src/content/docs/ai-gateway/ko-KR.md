@@ -22,7 +22,7 @@ AIGateway는 호출자와 업스트림 provider 사이에 위치합니다. 외�
 - **Agent token** — 활성 Agent Principal을 주체(subject)로 하는 AIGateway API 키입니다. 호출 범위는 해당 Agent의 유효 모델 프로필과 셀렉터로 제한되며 `subject_type = "agent"`로 동작합니다.
 - **OIDC Human token** — `ai_gateway.write` 권한을 가진 OIDC Client가 활성 사용자(Human)에게 발급한 토큰입니다. 해당 Client에 설정된 모델 별칭(model alias)만 호출할 수 있으며 `subject_type = "oidc_human"`으로 동작합니다.
 
-컨트롤 플레인의 퍼스트파티 서비스(Company Brain 작업을 수행하는 `ankole_brain`과 무상태 Pod Applet `ctx.ai` 호출을 수행하는 `system`)는 외부 bearer 토큰을 발급하지 않고 BEAM 프로세스 내부에서 직접 `Ankole.AIGateway`를 호출하며, 사용량은 각 `system` Principal UID로 집계됩니다.
+컨트롤 플레인의 퍼스트파티 서비스(Company Brain 작업을 수행하는 `ankole_brain` 등)는 외부 bearer 토큰을 발급하지 않고 BEAM 프로세스 내부에서 직접 `Ankole.AIGateway`를 호출하며, 사용량은 각 `system` Principal UID로 집계됩니다.
 
 OIDC Human 토큰을 사용하려면 먼저 Console에서 `ai_gateway.write` 스코프를 가진 OIDC Client를 생성하고 허용할 그룹과 모델 별칭을 지정합니다. 이후 사용자는 PKCE를 적용한 Authorization Code 흐름으로 로그인하며, 장기 세션이 필요하면 `offline_access`를 요청해 순환 갱신되는(rotating) Refresh Token을 사용합니다. 사용자는 반드시 허용된 그룹에 속해 있어야 하며 해당 Client에 등록된 모델 별칭만 지정할 수 있고, 원시 `provider_id/model` 형식의 셀렉터는 직접 사용할 수 없습니다.
 
@@ -32,7 +32,7 @@ OIDC Human 토큰을 사용하려면 먼저 Console에서 `ai_gateway.write` 스
 curl https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"model":"main","input":"Summarize the open incidents."}'
+  -d '{"model":"primary","input":"Summarize the open incidents."}'
 ```
 
 ## 엔드포인트
@@ -68,10 +68,10 @@ stateless 호출은 단일 요청-단일 응답으로 완결됩니다. 호출자
 curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"model":"main","input":"Draft a release note.","stream":true}'
+  -d '{"model":"primary","input":"Draft a release note.","stream":true}'
 ```
 
-stateless HTTP와 SSE 경로에는 엄격한 제약이 있습니다. 상태 보존용 필드인 `previous_response_id`, `conversation`, `store`를 포함하면 즉시 거부됩니다. 여러 턴에 걸쳐 대화 상태를 이어 가야 하는 요청은 반드시 WebSocket 경로를 사용해야 합니다. HTTP나 SSE 요청에 stateful 필드를 넣으면 문제가 된 필드 이름과 함께 `code: "stateful_responses_require_websocket"` 오류 및 `400` 상태 코드가 반환됩니다.
+stateless HTTP와 SSE는 `previous_response_id`, `conversation`, `false` 이외의 `store` 값을 거부합니다. `store`는 생략하거나 `store: false`로 지정할 수 있습니다. 여러 턴에 걸쳐 대화를 이어 가려면 WebSocket을 사용하세요. 금지된 필드를 HTTP나 SSE로 보내면 해당 필드 이름과 `code: "stateful_responses_require_websocket"`을 담은 `400` 응답을 반환합니다.
 
 ## WebSocket의 stateful 응답
 
@@ -115,7 +115,7 @@ AIGateway는 업스트림 API를 호출하기 전에 **Console → Model Profile
 
 ## 오류 형태
 
-모든 오류 응답은 `{"error": {"code", "message"}}` 형태의 OpenAI 호환 봉투(envelope) 형식을 따르며, 실패 유형에 맞는 HTTP 상태 코드를 반환합니다. 클라이언트 구현 시 대비해야 할 주요 상태 코드는 다음과 같습니다.
+모든 오류 응답은 `{"error": {"code": "...", "message": "..."}}` 형태의 OpenAI 호환 봉투(envelope) 형식을 따르며, 실패 유형에 맞는 HTTP 상태 코드를 반환합니다. 클라이언트 구현 시 대비해야 할 주요 상태 코드는 다음과 같습니다.
 
 - `400` — 요청 본문 검증 실패입니다. `model` 또는 `input` 누락, 잘못된 `limit`이나 `top_n` 값, 일반 HTTP 요청에 포함된 stateful 필드, 형식이 잘못된 compaction 입력 등이 해당하며 `code`에서 원인 필드를 알려 줍니다.
 - `401` — bearer 토큰이 없거나 유효성을 검증할 수 없습니다.
@@ -130,7 +130,7 @@ AIGateway는 업스트림 API를 호출하기 전에 **Console → Model Profile
 
 `/responses` 요청에서 `programmatic_tool_calling` 도구를 선언하면 AIGateway는 대상 도구 명세들을 묶어 합성된 `program` 도구를 노출합니다. 모델이 `programmatic_tool_call`을 호출하면 AIGateway는 `Ankole.FunctionRuntime.ProgramRunner`를 통해 `ankole-function-runtime`의 stateless isolate에서 결정론적 TypeScript 프로그램을 실행하며, 중첩된 개별 도구 호출 경계에서 일시 중단했다가 재개하면서 실행 기록, 순서 보장, 취소를 직접 관리합니다.
 
-공용 Responses 도구인 `image_generation`은 두 가지 경로 중 하나로 실행됩니다. 호출 주체에 별도의 `image_generate` 프로필이 설정되어 있으면 AIGateway가 해당 전용 provider와 모델을 호출해 이미지를 생성합니다. 별도 프로필이 없는 경우에는 주 언어 모델 provider가 네이티브 이미지 생성을 지원한다고 선언했을 때만 도구를 업스트림으로 전달합니다. 두 경로 모두 사용할 수 없으면 도구를 흉내 내어 처리하는 대신 요청 준비 단계에서 즉시 오류를 반환합니다.
+공용 Responses 도구인 `image_generation`은 두 가지 경로로 실행됩니다. 주 언어 모델 provider가 Responses 형식에서 네이티브 이미지 생성을 지원하면 `image_generate` 프로필을 해석하지 않고 해당 provider에 도구를 전달합니다. 지원하지 않으면 호출 주체의 `image_generate` 프로필을 사용하며, 두 경로 모두 사용할 수 없으면 요청 준비 단계에서 오류를 반환합니다.
 
 어느 경로로 실행되든 동일한 공용 스트림 이벤트가 발행되고 생성된 이미지가 영구 저장되며, 모델 토큰 사용량과 이미지 생성 사용량은 각각 실제로 호출된 자격 증명에 정확히 귀속됩니다.
 
@@ -138,7 +138,7 @@ AIGateway는 업스트림 API를 호출하기 전에 **Console → Model Profile
 
 동일한 주체와 bearer 토큰으로 보조 AI 엔드포인트들도 호출할 수 있습니다. `POST /web_search`는 길이 제한이 있는 `query`를 받아 검색 결과를 반환하고, `POST /web_fetch`는 1~5개의 공개 HTTPS URL을 받아 본문 콘텐츠를 추출해 반환합니다. 두 엔드포인트에서는 `web_search.default`와 `web_fetch.default` 셀렉터를 지정할 수 있으며, 이 경우 AIGateway가 호출한 Agent의 현재 프로필 설정을 자동으로 찾아 연결합니다.
 
-`POST /embeddings`는 문자열, 토큰 배열, 구조화된 입력 블록을 받아 임베딩을 생성하며 명시적인 `provider_id/model` 셀렉터를 요구합니다(예컨대 `Ankole.Brain`은 임베딩 생성 시 [AppConfigure](../app-configuration/)의 사이트 단위 설정 `brain.embedding_model`을 읽습니다). `POST /rerank`는 비어 있지 않은 문서 배열과 양의 정수 `top_n`을 받아 재정렬 결과를 반환하며, 명시적 `provider_id/model` 셀렉터 또는 `default` / `rerank.default`를 허용합니다(`ankole_brain`은 자신의 유효 `rerank` 모델 프로필을 해석하고, Agent 및 Human 호출은 Pod/Site `rerank` 프로필을 해석합니다. 검색 파이프라인의 상세 동작은 [Brain](../brain/)을 참조하세요). 한편 Pod Applet 내부의 `ctx.ai` 호출은 내장 `system` Principal 명의로 `Ankole.AIGateway`를 통해 stateless 방식으로 실행되며, 유효 Pod/Site 언어 모델 프로필(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)을 사용하므로 포그라운드 Agent의 토큰 할당량을 소모하지 않습니다.
+`POST /embeddings`는 문자열, 토큰 배열, 구조화된 입력 블록을 받아 임베딩을 생성하며 명시적인 `provider_id/model` 셀렉터를 요구합니다(예컨대 `Ankole.Brain`은 임베딩 생성 시 [AppConfigure](../app-configuration/)의 사이트 단위 설정 `brain.embedding_model`을 읽습니다). `POST /rerank`는 비어 있지 않은 문서 배열과 양의 정수 `top_n`을 받아 재정렬 결과를 반환하며, 명시적 `provider_id/model` 셀렉터 또는 `default` / `rerank.default`를 허용합니다(`ankole_brain`은 자신의 유효 `rerank` 모델 프로필을 해석하고, Agent 및 Human 호출은 Pod/Site `rerank` 프로필을 해석합니다. 검색 파이프라인의 상세 동작은 [Brain](../brain/)을 참조하세요). 한편 Pod Applet의 `ctx.ai` 호출은 `Ankole.Pod.Applets.Gateway`를 통해 선택된 실행 Principal 명의로 무상태 실행됩니다. 언어 모델 프로필(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)을 해석할 때 Human은 유효한 Pod/Site 기본값을, Agent는 해당 Agent의 유효한 설정을 사용합니다. 사용량은 실행 Principal에 기록되며 대화형 Agent의 토큰 할당량을 소모하지 않습니다.
 
 `POST /web_search`는 1,024자 이하의 `query`와 선택 항목인 `limit`(1~100, 기본값 5)를 받아 `items`와 `metadata`를 반환합니다. 각 결과에는 `url`, `title`, `description`이 들어 있으며, Provider가 제공하면 `published_at`과 `score`도 함께 담깁니다. `metadata`에는 `query`, 게이트웨이에서 걸린 시간 `latency_ms`, HTTP 요청의 `request_id`가 들어 있습니다. `POST /decisions`는 주어진 `state`에 대해 유형이 지정된 질문에 답합니다. 요청 하나에 1~64개의 `questions`를 담을 수 있고, 각 질문은 `noul`(예/아니요), `choice`(2~255개의 이름 있는 선택지 중 하나), `score`(2~10단계의 순서 있는 등급) 중 하나이며, 이미지는 장당 4 MiB 이하로 최대 4장까지 첨부할 수 있습니다. 응답은 질문마다 확률이 포함된 답과 함께 답한 `model`, 토큰 `usage`를 반환합니다. `default` / `decision.default` 셀렉터는 Pod/Site의 `decision` 프로필로 해석됩니다. 이 프로필이 설정되어 있지 않으면 호출자의 `light` 언어 모델이 대신 답하며, 언어 모델이 내놓는 값은 스스로 보고한 확신도이므로 이 확률은 보정되지 않습니다. 또한 언어 모델이 답할 때는 요청 하나에 선택지와 등급을 합쳐 500개까지만 담을 수 있습니다.
 
@@ -156,7 +156,7 @@ AIGateway는 업스트림 API를 호출하기 전에 **Console → Model Profile
 
 ## AIGateway가 아닌 것
 
-AIGateway는 인증 없이 열려 있는 공개 프록시가 아니며, 클라이언트가 직접 업스트림 API 키를 실어 보내는 패스스루 게이트웨이도 아닙니다. 모든 업스트림 자격 증명은 컨트롤 플레인 내부에 머뭅니다. 또한 비동기 작업 큐나 백그라운드 잡 러너도 아니므로, 장시간 이어지는 Agent 업무는 Sessions와 Background Agent Jobs에서 담당합니다. AIGateway는 어디까지나 명확한 요청/응답 경계로서, 요청 하나가 들어오면 셀렉터를 해석하고 자격 증명을 안전하게 보호한 채 단일 응답이나 스트림을 돌려줍니다.
+AIGateway는 인증 없이 열려 있는 공개 프록시가 아니며, 클라이언트가 직접 업스트림 API 키를 실어 보내는 패스스루 게이트웨이도 아닙니다. 모든 업스트림 자격 증명은 컨트롤 플레인 내부에 머뭅니다. 여러 단계에 걸친 Agent 작업은 Sessions와 Background Agent Jobs가 담당합니다. AIGateway는 모델과 미디어 호출을 관리하며, 나중에 폴링하도록 `202`를 반환하는 비동기 미디어 작업도 처리합니다. 셀렉터 해석과 provider 자격 증명 보관은 control plane에서 수행합니다.
 
 ## 다음 단계
 

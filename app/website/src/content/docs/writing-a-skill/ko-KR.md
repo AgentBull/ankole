@@ -151,7 +151,7 @@ end
 
 운영자가 런타임에 조정하는 설정은 `app_config_definitions/0` 또는 `app_config_patterns/0`으로 선언하고, 환경 변수는 PostgreSQL에 연결하기 전 부팅 단계에서 꼭 알아야 하는 초기 정보에만 사용하십시오.
 
-주요 도메인 트랜잭션(`:create_agent`, `:create_invitation`, `:enable_signal_binding`, `:enable_identity_provider`, `:store_file`, `:commit_files`, `:create_pod_page`, `:restore_pod_page`, `:insert_base_records`, `:admit_compute`)에 동기식 승인 검사나 할당량(quota) 검증을 끼워 넣으려면 `hooks/0`을 구현하십시오. 각 훅 모듈은 `Ankole.Plugins.Hook.before_commit_in_tx/2`를 구현해 호출자의 트랜잭션 내부에서 `:ok` 또는 `{:error, reason}`을 반환하며, 오류를 반환하면 전체 트랜잭션이 즉시 롤백됩니다.
+주요 도메인 트랜잭션(`:create_agent`, `:create_invitation`, `:enable_signal_binding`)에 동기식 승인 검사나 할당량(quota) 검증을 끼워 넣으려면 `hooks/0`을 구현하십시오. 각 훅 모듈은 `Ankole.Plugins.Hook.before_commit_in_tx/2`를 구현해 호출자의 트랜잭션 내부에서 `:ok` 또는 `{:error, reason}`을 반환하며, 오류를 반환하면 전체 트랜잭션이 즉시 롤백됩니다.
 
 장기 실행 프로세스가 필요할 때는 `children/0`에서 표준 OTP child specification 목록을 반환해 연결 관리자와 reconciler를 플러그인 supervisor 아래에 두십시오. 해당 프로세스들은 플러그인이 활성화된 상태로 부팅될 때 함께 시작되고, 비활성화 설정 후 다음 재시작 시점부터 기동 대상에서 빠집니다.
 

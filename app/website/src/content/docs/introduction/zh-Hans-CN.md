@@ -14,7 +14,7 @@ order: 1
 ## Ankole 提供的核心能力
 
 - **Pod 数字总部**：团队可在同一空间内协同编写层级文档（Docs）、使用物理分片多维表（Bases）管理业务数据、构建带零模型开销已发布 Action 的 React + TypeScript 小应用（Applets），并在多人 Pod Chat 以及飞书/Lark、钉钉、企业微信、Slack、Microsoft Teams 中无缝协作。
-- **个人助理与 AI 同事**：每位内部成员拥有 1:1 专属**个人助理**（复用成员自身的业务协作权限），同时团队可配置拥有独立主体权限的**专业 AI 同事**，通过隔离的 Peer A2A 会话（`send_to_agent`）接收委派，并在越权写操作时发起 Action Card 人工审批。
+- **个人助理与 AI 同事**：每位内部成员拥有 1:1 专属**个人助理**（复用成员自身的业务协作权限），同时团队可配置拥有独立主体权限的**专业 AI 同事**，通过隔离的 Peer A2A 会话（`send_to_agent`）接收委派，并通过 Action Card 请求人类批准操作。
 - **Meta Ankole（`Brain`、`Skills` 与契约）**：将记录来源、断言、时间、置信度、冲突与受众范围的 **Brain** 本体图谱，与共享 **Skills** 及可组合继承的 `AGENTS.md` / `DESIGN.md` 行为与视觉契约统一纳入同一治理层。
 - **统一连接器与控制面 MCP 网关**：`Ankole.Connectors` 集中管理租户级外部应用凭证、成员个人 OAuth 授权（`/connectors`）以及面向飞书/Lark、GitHub、Linear 和远端 MCP 服务的控制面网关，原始密钥绝不下发至 Worker 或小应用沙箱。
 - **事件驱动与容错长时执行**：聊天消息、定时计划、Webhook 与连接器事件可自动唤醒 Session、后台 Agent 任务或确定性小应用 Action；遇到进程重启时直接从 PostgreSQL 恢复执行。

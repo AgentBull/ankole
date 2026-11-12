@@ -5,21 +5,21 @@ section: Guides
 order: 306
 ---
 
-Producing polished PDFs—reports, proposals, and formatted deliverables—is a common task for enterprise Agents. Ankole's `pdf` Skill handles document rendering through the PDF toolchain installed on each Worker (Pandoc, Typst, LaTeX, Poppler, and QPDF) and runs inside a Background Agent Job.
+Producing polished PDFs—reports, proposals, and formatted deliverables—is a common task for enterprise Agents. Ankole's `pdf` Skill handles document rendering through the PDF toolchain installed on each Worker (Pandoc, WeasyPrint, Typst, Poppler, and QPDF) and runs inside a Background Agent Job.
 
 Rather than exposing a black-box `generate_pdf` model tool, the `pdf` Skill is a **filesystem-and-shell workflow**: the Agent writes structured source files, invokes Pandoc and the PDF engines from the shell according to `SKILL.md`, and inspects the rendered PDF before delivering it.
 
 ## What you need
 
 - **An enabled `pdf` Skill.** Because it ships with `default_enabled: true`, every Agent has it enabled unless you override it. See [Skills](../skills/).
-- **The standard Worker image.** The Agent Computer Worker image comes preinstalled with Pandoc, two PDF engines (Typst and LaTeX), Poppler, and QPDF—no extra setup required.
+- **The standard Worker image.** The Agent Computer Worker image comes preinstalled with Pandoc, two PDF engines (WeasyPrint and Typst), Poppler, and QPDF—no extra setup required.
 - **A bound `primary` model profile.** The Agent drafts the Markdown or document source, and then runs the Worker's CLI toolchain to compile and check the PDF.
 
 ## What the skill does
 
 The `pdf` Skill's `SKILL.md` guides the Agent through three core workflows:
 
-- **Create:** Draft source content (typically Markdown) and compile it to PDF using Pandoc and either Typst or LaTeX, following the Skill's engine-selection, font, and output-path rules.
+- **Create:** Draft source content (typically Markdown) and compile it to PDF using Pandoc and either WeasyPrint or Typst, following the Skill's engine-selection, font, and output-path rules.
 - **Check:** Inspect a compiled PDF—verifying page count, extracted text, and embedded fonts—with Poppler and QPDF before sharing it.
 - **Edit:** Apply targeted text corrections to an existing PDF without regenerating the entire document from scratch.
 

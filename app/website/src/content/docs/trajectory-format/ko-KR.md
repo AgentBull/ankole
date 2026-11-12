@@ -7,7 +7,7 @@ order: 121
 
 Ankole은 실행 성격에 따라 에이전트의 작업 기록을 두 곳에 나누어 저장합니다. AIGateway는 상태 저장형 Responses 대화가 만들어 내는 실시간 전사(대화 메시지)를 저장하고, Background Agent Jobs는 영속 Job 실행의 턴별 기록(턴 궤적)을 저장합니다. 이 문서는 두 저장 구조와 정규 ChatML 형식, 그리고 내부 프로토콜 세부 정보를 걷어 내고 모델에 전달하는 가시 투영(projection) 방식을 설명하며, [AIGateway](../ai-gateway/) 및 [Background Agent Jobs](../background-agent-jobs/) 문서를 바탕으로 합니다.
 
-가장 중요한 원칙은 모델이 데이터베이스의 원시 저장 행을 직접 보지 않는다는 점입니다. 두 저장 형태 모두 내부 프로토콜 식별자를 제거하고 턴 범위의 로컬 별칭으로 치환한 투영본만 모델에 전달합니다. 따라서 모델은 내부 UUID나 와이어 프로토콜 필드 대신 `tool call 1 → tool result 1` 형태의 대응 관계만 보게 됩니다. 즉 원본 행은 영속성과 감사를 위한 형식이고, 투영본은 모델 추론을 위한 형식입니다.
+모델에는 저장된 기록을 투영해 전달합니다. 메인 Agent가 Background Agent Job을 확인할 때는 궤적 투영에서 내부 메시지 ID를 제거하고 도구 호출 ID를 `call_1` 같은 로컬 별칭으로 바꿉니다. 감사용 기록은 PostgreSQL에 보관합니다.
 
 여기서 말하는 AIGateway conversation은 개별 Session의 모델 추론 이력을 뜻하며, `Ankole.Conversations`가 관리하는 공유 Conversation 및 Message와는 별개입니다. 공개 대화 기록은 현재 턴의 배경 맥락을 제공할 뿐, 저장된 모델 응답 체인과 도구 실행 기록을 대체하지 않습니다.
 
@@ -46,7 +46,7 @@ Ankole은 실행 성격에 따라 에이전트의 작업 기록을 두 곳에 �
 
 도구 결과 메시지의 `metadata`에는 실행 경로를 나타내는 `execution_mechanism`이 기록됩니다. 모델 Provider 측에서 직접 실행한 도구에는 `provider_hosted`가, Codex가 호출한 Ankole 동적 도구에는 `local_dynamic`이 기록되므로 표시 이름이 같은 도구라도 이 필드로 실행 주체를 명확히 구분할 수 있습니다.
 
-백그라운드 Job의 궤적은 채팅방 대화가 아니라 해당 Job 자체에 귀속되기 때문에 AIGateway 대화 메시지와 저장소를 분리합니다. 즉 Job의 각 턴은 독립된 자체 스레드로 돌고, 작업을 의뢰한 상위 대화방에는 상세 궤적 대신 최종 요약 결과만 전달됩니다.
+백그라운드 Job의 궤적은 채팅방 대화가 아니라 해당 Job 자체에 귀속되기 때문에 AIGateway 대화 메시지와 저장소를 분리합니다. Job은 자체 영속 Codex 스레드에서 여러 턴을 이어 가며, 작업을 의뢰한 상위 대화방에는 상세 궤적 대신 결과나 상태 변경 이벤트를 전달합니다.
 
 ## 모델 가시 투영
 

@@ -349,7 +349,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'この時点ではまだ Worker Pod は存在しません。Agent を作成して環境が必要になった時点で、control plane が対応する Worker Pod を起動します。'
+            'この時点ではまだ Worker Pod は存在しません。Agent を作成すると、control plane が初回の Worker Pod 起動を要求します。'
           ]
         },
         {
@@ -526,7 +526,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'このターミナルは開いたままにしておきます。ブラウザで http://localhost:4000 を開き、開発サーバーのログに出力された activation code を入力してください。'
+            'このターミナルは開いたままにしておきます。ブラウザで http://ankole.localhost:4000 を開き、開発サーバーのログに出力された activation code を入力してください。'
           ]
         }
       ]
@@ -551,7 +551,7 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'bun run services:status',
-                'curl -I http://localhost:4000/',
+                'curl -I http://ankole.localhost:4000/',
                 'docker ps -a --filter label=ankole.installation=dev'
               ].join('\n')
             },
@@ -861,7 +861,7 @@ export const identityTabs = [
         {
           title: '通知エンドポイントに到達できるようにする',
           body: [
-            'Sync directory changes がオンの場合、Ankole public URL には外部から到達可能な公開 HTTPS アドレスを指定してください。Ankole はその配下の /webhooks/v1/entra-id/entra-id-main/directory で通知を受け取り、Graph サブスクリプションを自動管理します。'
+            'Sync directory changes がオンの場合、Ankole public URL には外部から到達可能な公開 HTTPS アドレスを指定してください。Ankole は現在のテナント ID を使って /webhooks/v1/entra-id/<tenant_id>.entra-id-main/directory を自動構築し、Graph サブスクリプションを管理します。完全なパスを手入力する必要はありません。'
           ],
           links: [
             {
@@ -1332,12 +1332,12 @@ export const identityTabs = [
     },
     advanced: {
       title: '同期の頻度、信頼 IP、サインインのみ',
-      summary: 'WeCom はリアルタイムのディレクトリ変更イベントを配信しないため、組織の変更は定期的なフル同期によって反映されます。',
+      summary: 'Ankole の WeCom アダプターは、定期または手動のフル同期でディレクトリを更新します。',
       steps: [
         {
           title: 'ディレクトリの変更後にフル同期を実行する',
           body: [
-            'WeCom 側からディレクトリの変更がプッシュ通知されることはありません。メンバーの追加や部門変更を行った際は、Console → Identity Providers から手動でフル同期を実行するか、次回の定期同期を待ってください。'
+            'Ankole の WeCom アダプターはフル同期でディレクトリの変更を取得します。メンバーの追加や部門変更を行った際は、Console → Identity Providers から手動でフル同期を実行するか、次回の定期同期を待ってください。'
           ]
         },
         {
@@ -1587,6 +1587,18 @@ export const channelTabs = [
           ]
         },
         {
+          title: 'Teams チャネルを有効にしてアプリをインストールする',
+          body: [
+            'Azure Bot → Channels で Microsoft Teams を有効にします。同じ Microsoft App ID を bot ID として参照する Teams アプリを作成し、必要な personal、team、groupchat スコープを選んでください。アプリパッケージを公開またはアップロードし、テストユーザーやチームにインストールします。'
+          ],
+          links: [
+            {
+              label: 'Azure Bot を Teams に接続する',
+              href: 'https://learn.microsoft.com/en-us/azure/bot-service/channel-connect-teams'
+            }
+          ]
+        },
+        {
           title: 'Console のフィールドを収集する',
           fields: [
             {
@@ -1608,7 +1620,7 @@ export const channelTabs = [
         {
           title: '1 つの Bot Framework アプリで複数の Entra テナントにサービスを提供する',
           body: [
-            'Azure Bot 側がマルチテナント登録になっている場合にのみ、botTenancy を multi_tenant に設定してください（トークン取得先テナントとして botframework.com が使われます）。なお、Microsoft 側のアプリ登録モードを変更しても、Ankole デプロイメントインスタンス自体のテナント境界が変わるわけではありません。'
+            '既存のマルチテナント Azure Bot を使う場合は、botTenancy を multi_tenant に設定します。トークン取得先には botframework.com が使われます。Microsoft は既存のマルチテナント Bot を引き続きサポートしていますが、新規 Bot には別の対応する登録形式が必要です。Ankole への接続には single_tenant を選んでください。この登録形式は Ankole 自体のテナント境界には影響しません。'
           ]
         },
         {
@@ -1896,8 +1908,8 @@ export const channelTabs = [
     alert: {
       title: 'WeCom は最も制約の多いチャットチャンネルです',
       body: [
-        'グループチャットでは bot へ明示的に @メンションしたメッセージしか届きません。画像・音声・ファイル・動画を受信できるのはダイレクトメッセージのみで、音声はプラットフォーム側の文字起こしテキストとしてのみ届きます。送信済みメッセージの取り消し・編集・絵文字リアクションには非対応です。また、Agent から新規会話を開始することはできず、ユーザーが先にメッセージを送ってから 24 時間以内が通常の返信ウィンドウとなります。ストリーミング返信はユーザー発言への応答時のみ利用でき、1 メッセージあたり 10 分の制限があるため長時間の応答は分割され、送信レートも 1 会話あたり毎分約 30 件に制限されます。カードボタンの状態変更はクリック後 5 秒以内のみ可能で、リアルタイムのディレクトリ同期もありません。',
-        'これらはすべて WeCom プラットフォーム自体の仕様による制約であり、Ankole 側で回避することはできません。長期 memory システムも受信できたメッセージ断片からのみ context を構築します。可能な限り Lark/Feishu、Slack、Teams、または DingTalk の利用を優先してください。'
+        'グループチャットでは bot へ明示的に @メンションしたメッセージしか届きません。画像・音声・ファイル・動画を受信できるのはダイレクトメッセージのみで、音声はプラットフォーム側の文字起こしテキストとしてのみ届きます。送信済みメッセージの取り消し・編集・絵文字リアクションには非対応です。Agent から新規会話を開始することはできず、ユーザーが先にメッセージを送る必要があります。受信メッセージの返信アンカーは 24 時間有効です。期限後も、Ankole は有効化済みの会話へテキストやカードを能動送信できますが、メディア添付は送信できません。ストリーミング返信はユーザー発言への応答時のみ利用でき、1 メッセージあたり 10 分の制限があるため長時間の応答は分割され、送信レートも 1 会話あたり毎分約 30 件に制限されます。カードボタンの状態変更はクリック後 5 秒以内のみ可能です。Ankole の WeCom アダプターはフル同期でディレクトリを更新します。',
+        '以上は、Ankole の WeCom アダプターで利用できる機能です。長期メモリは Agent が実際に受信したメッセージからコンテキストを蓄積します。可能な限り Lark/Feishu、Slack、Teams、または DingTalk の利用を優先してください。'
       ]
     },
     prerequisites: [
@@ -2083,7 +2095,7 @@ export const channelTabs = [
           body: [
             'Bot ページの Privileged Gateway Intents で Message Content Intent をオンにします。オフのままだと、bot へのメンションがないサーバーメッセージの本文が空で配信されるため、ダイレクトメッセージと @メンションしか読めなくなり、observe_all や may_intervene でも会話を把握できません。Ankole は接続前にアプリケーションのフラグを確認し、この intent が有効な場合にのみ要求します。'
           ],
-          caution: 'Server Members Intent と Presence Intent は不要です。なお、参加サーバー数が 100 を超えるアプリケーションでは、Message Content Intent を維持するために Discord 側の審査・認証が必要になります。'
+          caution: 'Server Members Intent と Presence Intent は不要です。全サーバーを通じてアプリを利用できるユニークユーザーが 10,000 人に達したら、特権 Intent へのアクセスを申請してください。承認後も毎年の再申請が必要です。'
         },
         {
           title: 'bot をサーバーに招待する',
@@ -2179,7 +2191,7 @@ export const channelTabs = [
         {
           title: 'Messaging API channel を作成し、その credential を収集する',
           body: [
-            'LINE Developers Console で対象プロバイダー配下に Messaging API チャネルを作成します。チャネル基本設定（Basic settings）から Channel ID と Channel secret をコピーし、Messaging API タブで長期のチャネルアクセストークン（channel access token）を発行してください。'
+            'LINE Official Account Manager で公式アカウントを作成し、Messaging API を有効にしてプロバイダーを選びます。自動生成されたチャネルを LINE Developers Console で開き、Basic settings から Channel ID と Channel secret をコピーしてください。Messaging API タブで長期のチャネルアクセストークンを発行します。'
           ]
         },
         {
@@ -2203,7 +2215,7 @@ export const channelTabs = [
         {
           title: 'bot だけが応答するようにする',
           body: [
-            'LINE Official Account Manager の応答設定（Response settings）を開き、応答モードを Bot に設定したうえで、自動応答メッセージとあいさつメッセージをオフにします（Agent の返信と公式アカウントの定型応答が重複するのを防ぐためです）。グループチャットで利用する場合は、LINE Developers Console でグループ・複数人トークへの参加を許可（Allow bot to join group chats）をオンにしてください。'
+            'LINE Official Account Manager の応答設定（Response settings）で、Agent の返信と重複しないよう自動応答メッセージとあいさつメッセージをオフにし、Webhook を有効にしておきます。グループチャットで利用する場合は、LINE Developers Console で Allow bot to join group chats をオンにしてください。'
           ]
         },
         {
@@ -2272,8 +2284,8 @@ export const channelTabs = [
     alert: {
       title: 'WhatsApp では Ankole の一部機能に制約があります',
       body: [
-        'Meta の仕様により、ユーザーの最新メッセージまたはボタン応答から 24 時間が経過するとカスタマーサービスウィンドウが閉じます。ウィンドウ終了後の送信（スケジュールレポートなど）は明確なエラーで停止し、ユーザーには届きません（ユーザーが再度メッセージを送った後、Signal Routing 画面から再試行できます）。また、グループチャット、有料テンプレートメッセージ、メッセージの編集・削除、リアルタイムの進捗表示には対応していません。',
-        'これらはすべて WhatsApp プラットフォーム自体の仕様による制約であり、Ankole 側で回避することはできません。'
+        'Ankole は、ユーザーの最新メッセージまたは有効なボタン応答から 23 時間 55 分で送信を停止し、24 時間のカスタマーサービスウィンドウに 5 分の余裕を設けます。ユーザーから再びメッセージが届いたら、運用担当者は Signal Routing で停止した返信を再試行できます。現在のアダプターは 1 対 1 のチャットに対応し、グループチャット、テンプレートメッセージ、メッセージの編集・削除、リアルタイムの進捗表示には対応していません。',
+        'ここでは、現在の WhatsApp アダプターが対応する機能の範囲を説明しています。'
       ]
     },
     prerequisites: [
@@ -2368,7 +2380,7 @@ export const channelTabs = [
         {
           title: 'カスタマーサービスウィンドウを守る',
           body: [
-            'Ankole は送信のたびに 24 時間ウィンドウを確認します。ユーザーの最新メッセージまたはボタン操作から 24 時間を過ぎていた場合は customer_service_window_closed で停止し、Meta への API リクエストは行いません（閉じたウィンドウを再度開くための有料テンプレートメッセージは対象外です）。ユーザーから再度メッセージが届いた後、Signal Routing ページの「再試行」から保留分の返信を送信してください。'
+            'Ankole は送信のたびにウィンドウを確認します。ユーザーの最新メッセージまたは有効なボタン応答から 23 時間 55 分に達すると、customer_service_window_closed で停止し、Meta へのリクエストは送りません。24 時間のウィンドウに対して 5 分の余裕を設けています。テンプレートメッセージは未対応です。ユーザーから再びメッセージが届いたら、Signal Routing の「再試行」から停止した返信を送信してください。'
           ]
         },
         {
@@ -2530,7 +2542,7 @@ export const signalAdvanced = {
 | **Conversation** | 人と Agent がやり取りする共有の会話空間。ネイティブ会話は Ankole が、外部チャット会話は外部プラットフォーム側が正本を持ちます | Conversation |
 | **Message** | 会話の参加者に表示される確定済みの発言レコード | Message |
 | **Signal** | メッセージ、スケジュール時刻、外部イベント、またはタスク完了から生成される永続的なトリガー信号 | Signal |
-| **Session** | Signal キューと復旧可能な作業状態を持つ実行コンテキスト（複数の Conversation をまたぐことはありません） | Session |
+| **Session** | 独自の Signal キューと復旧可能な進捗を持つ実行コンテキスト。会話、定期実行、バックグラウンドジョブ、ワークフロータスクで使用します | Session |
 | **Delivery** | 外部の会話へメッセージを送出する際の永続的な送信意図・試行・結果の記録 | Delivery |
 | **Signal Routing Rule (Signal Binding)** | Signal の発生元から対象の Agent へメッセージやイベントを振り分けるルール | Routing rule |
 | **LLM Provider** | モデルサービスの接続先エンドポイント、認証情報、利用可能なモデル一覧を保持する設定 | LLM Provider |
@@ -2551,6 +2563,8 @@ export const signalAdvanced = {
 ## 1. Ankole をデプロイする
 
 単一ホストでの運用には Docker Compose、エンタープライズ本番環境には Kubernetes を選択してください。コード変更やデバッグを行う開発環境では、ソースからインストールします。
+
+テナントのページには `<tenant-slug>.<site-host>`（例：`team.ankole.example.com`）を使用します。公開環境では、各テナントのホスト名について DNS、HTTPS 証明書、プロキシまたは Ingress のルーティングを設定し、同じ control plane に接続できるようにしてください。以下の Compose の Caddy 設定と Helm の Ingress 例は、サイトのホスト名のみを対象としています。
 
 Worker の installation 名は、英小文字・数字・ハイフンのみを使った 1〜20 文字（先頭と末尾は英数字、例：`e2e-1011b01`）で指定します。Docker Compose では `ANKOLE_WORKER_INSTALLATION`（既定値 `ankole`）、Helm では `worker.installation`（空の場合は release 名を使用）で設定します。この名前は Worker リソースや永続 Home ストレージの識別に使われるため、初回起動前に決定し、インストール後は変更しないでください。
 
@@ -2681,7 +2695,7 @@ Console で **Signal Routing → New routing rule** を開き、以下の項目�
 4. ルーティングルールが有効（enabled）で、意図した Agent を指していること。
 5. Agent に有効な `primary` モデルプロファイルが解決されていること（**Console → Model Profiles** の Site/Pod 既定値または Agent 上書き）。
 6. LLM Provider の認証情報とモデル指定が有効であること。
-7. **Console → Workers** で対象 Agent の Worker が準備完了になっていること（未完了の場合は、同じ画面にバックエンドからのエラー理由が表示されます）。
+7. 環境ツールや Codex タスクを使うターンでは、**Console → Workers** で対象 Worker の状態と起動エラーを確認してください。Agent 作成時には初回の Worker 起動が要求されます。アイドル時に Worker が解放された後も、通常の質問応答や control plane のツールには準備完了の Worker は不要です。
 
 Docker Compose 環境では、`docker compose logs -f control-plane` で control plane のログを確認し、`docker ps -a --filter label=ankole.installation=ankole` で Worker コンテナを特定して `docker logs CONTAINER_NAME` でログを確認します。Kubernetes 環境では、control plane と Worker の各 Pod ログを確認してください。その際、該当するエラー出力だけを確認し、環境変数一覧や secret をターミナルやチャットに出力しないよう注意してください。
 

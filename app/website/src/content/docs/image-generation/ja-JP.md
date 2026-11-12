@@ -9,20 +9,20 @@ Agent にイラストやコンセプトアート、ビジュアルのたたき�
 
 ## 実行パスを選択する
 
-公開されている `image_generation` ツールには、次の 2 つの実行パスがあります。
+公開 `image_generation` ツールの実行パスは、`image_generate` のモデルプロファイルカードにある **モデルのプロバイダーが実行** で選択します。
 
-- **Hosted:** Agent の `image_generate` プロファイルを設定する方法です。AIGateway がそのプロファイルで指定された別の Provider・モデルでツールを実行し、生成結果をメインモデルへ返します。
-- **Native:** `image_generate` を空欄のままにし、ネイティブ画像生成に対応したメイン Provider を使う方法です。OpenAI と ChatGPT Subscription がこのパスに対応しており、AIGateway は公開ツールをそのままメイン Provider へ引き渡します。
+- **Native:** スイッチがオンの場合、メインの言語モデル Provider が自身のターン内で画像を生成します。OpenAI と ChatGPT Subscription が対応しており、専用の `image_generate` プロファイルは使いません。
+- **Hosted:** スイッチがオフの場合、AIGateway が専用の `image_generate` Provider とモデルを使い、生成結果をメインモデルへ返します。
 
-つまり、`image_generate` プロファイルは機能のオン・オフを切り替えるスイッチではなく、実行先を切り替えるルーティングスイッチとして機能します。`image_generate` が空欄で、かつメイン Provider もネイティブ画像生成を宣言していない場合、AIGateway は設定不足を示す明確なエラーを返してツール呼び出しを拒否します。
+このスイッチは既定でオンになり、Site、Pod、Agent の順に設定を継承します。Native モードでメイン Provider が画像生成に対応していない場合、その Agent では画像生成を利用できません。Hosted モードでは対応する専用モデルが必要であり、プロファイルを空にしても Native パスには切り替わりません。
 
 Hosted パスを使う手順は次のとおりです。
 
 1. Console の **LLM Providers** で、使用したい画像生成モデルに対応する Provider を追加します。
 2. **Agents** を開き、対象の Agent を選択します。
-3. モデルプロファイル一覧から `image_generate` を探します。
+3. `image_generate` の **モデルのプロバイダーが実行** をオフにします。
 4. 画像生成に使う Provider とモデルを選択し、プロファイルを保存します。
-5. チャット画面に戻り、具体的な画像生成リクエストを送信します。
+5. チャット画面に戻り、画像生成リクエストを送信して確認します。
 
 `image_generate` プロファイルに割り当てられる Provider は 3 種類あります。**OpenRouter** と **AgentBull Cloud** はそれぞれのカタログにある画像モデルを提供します。**Cloudflare** は FLUX.1 [schnell]（`@cf/black-forest-labs/flux-1-schnell`）と、`black-forest-labs/flux-2-pro-preview` などの Black Forest Labs モデルを提供します。前者はプロンプトから画像を生成するだけですが、後者はサイズ、出力形式、最大 8 枚の参照画像も指定できます。Cloudflare を使う場合は、モデル欄にモデル ID を直接入力してください。
 
@@ -67,7 +67,7 @@ lighting, text position, and colors unchanged.
 
 ## 画像が表示されない場合
 
-- **Agent がテキストしか返さない:** クライアントまたは Agent 側で `image_generation` ツールが公開されているか確認してください。あわせて、`image_generate` が設定されているか、あるいはメイン Provider がネイティブ画像生成に対応しているかを確認します。
+- **Agent がテキストしか返さない:** `image_generation` が公開されているか確認してください。**モデルのプロバイダーが実行** がオンならメイン Provider の対応状況を、オフなら専用の `image_generate` プロファイルを確認します。
 - **利用可能なモデルがない:** 現在登録されている LLM Provider が画像生成モデルを提供していません。画像生成に対応した Provider を追加してください。
 - **リクエストがサポートされていない:** 条件に対応したモデルを選択し直すか、未対応のサイズ、フォーマット、透過背景、参照画像、編集指定をリクエストから外してください。
 - **画像は表示されるが内容が意図と違う:** 多くの場合、設定の問題ではありません。同じチャットでやり取りを続け、何を変更し、何を維持するかを具体的に指定してください。

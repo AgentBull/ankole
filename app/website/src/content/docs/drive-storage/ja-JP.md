@@ -18,9 +18,7 @@ order: 318
 | Cloudflare R2 | `s3` | S3 API endpoint、region `auto`、R2 認証情報 |
 | 他の S3 互換サービス | `s3` | endpoint、署名 region、認証情報と互換性検証 |
 
-control plane を複数レプリカで運用する場合は、共有リモートストレージを使用し、すべてのレプリカで backend の接続先と root を一致させてください。公式 Helm chart では、`files.store: fs` のまま 2 レプリカ以上を指定するとエラーになります。なお、ドライブを S3 にしても、各 WorkerProvider 側のレプリカ制約が解除されるわけではありません。
-
-また、定期実行のトリガー、チャット接続、scheduler のハイドレーションといった singleton プロセスは単一ノードで動作するため、`controlPlane.replicaCount: 1` を設定します。共有リモートストレージは複数レプリカ構成の前提条件ですが、それだけで複数レプリカ構成が成立するわけではありません。詳しくは[レプリカの説明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)を参照してください。
+複数の control plane レプリカを実行するには、全レプリカで同じ共有リモート backend と root を指定し、Distributed Erlang クラスターを構成する必要があります。Worker から Pod IP へ直接到達できることも必要で、`endpoints.relayOrigin` は指定できません。公式 Helm chart はクラスターの検出を設定し、複数レプリカで `files.store: fs` または provider の `endpoints.relayOrigin` を使うとエラーにします。チャット接続はノード間で担当を調整し、Oban はジョブキューを共有します。構成とアップグレードの要件は[レプリカの説明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)を参照してください。
 
 ## 環境変数
 
