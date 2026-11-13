@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 2.0.0-alpha.151 (2026-11-13)
+
+- Open the Brain graph at its settled layout instead of animating every node
+  into place. Pod used to redraw the whole network on every step of the force
+  layout, which froze the page for seconds on a large Brain; it now computes
+  the layout first and draws the graph once, and hovering or selecting a node
+  restyles the graph in place. Dragging a node in the network layout moves
+  that node alone.
+- Open Pages that contain several tables without a pause. The editor used to
+  recompute the whole document's layout once for every table it showed; it
+  now measures all tables in one pass.
+
 ## Version 2.0.0-alpha.150 (2026-11-13)
 
 - Return to Chat after you leave a room from its header. Pod sometimes stayed

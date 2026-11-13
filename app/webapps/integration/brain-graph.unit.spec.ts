@@ -87,6 +87,31 @@ function mockPodSession(page: Page) {
   )
 }
 
+/** Answers the Pod requests around the Brain page with an empty Pod. */
+function fulfillEmptyPod(route: Route, path: string) {
+  if (path.endsWith('/agents')) {
+    return route.fulfill({
+      json: { agents: [], personalAssistant: null, personalAssistantAvailable: true } satisfies PodAgentsResponse
+    })
+  }
+  if (path.endsWith('/pages/navigation')) {
+    return route.fulfill({ json: { path: [], directories: [] } satisfies PodPageNavigationResponse })
+  }
+  return route.fulfill({
+    json: path.endsWith('/conversations')
+      ? { conversations: [], nextCursor: null }
+      : path.startsWith('/api/v2/pod/pages')
+        ? {
+            pages: [],
+            can_create_space: false,
+            can_create_private: false,
+            can_manage_space: false,
+            next_cursor: null
+          }
+        : []
+  })
+}
+
 async function anchorMetrics(link: Locator) {
   const box = await link.boundingBox()
   expect(box).not.toBeNull()
@@ -116,27 +141,7 @@ test('Brain graph keeps accessible node anchors synchronized across async load, 
       releaseBrain(route)
       return
     }
-    if (path.endsWith('/agents')) {
-      return route.fulfill({
-        json: { agents: [], personalAssistant: null, personalAssistantAvailable: true } satisfies PodAgentsResponse
-      })
-    }
-    if (path.endsWith('/pages/navigation')) {
-      return route.fulfill({ json: { path: [], directories: [] } satisfies PodPageNavigationResponse })
-    }
-    return route.fulfill({
-      json: path.endsWith('/conversations')
-        ? { conversations: [], nextCursor: null }
-        : path.startsWith('/api/v2/pod/pages')
-          ? {
-              pages: [],
-              can_create_space: false,
-              can_create_private: false,
-              can_manage_space: false,
-              next_cursor: null
-            }
-          : []
-    })
+    return fulfillEmptyPod(route, path)
   })
 
   // Mount `/meta/brain` before the graph payload resolves so `AnkoleGraph` binds G6 listeners while `nodes` is empty.
@@ -220,4 +225,85 @@ test('Brain graph keeps accessible node anchors synchronized across async load, 
       return Math.round(current.cx - beforeFilteredPan.cx) <= -45 && Math.round(current.cy - beforeFilteredPan.cy) >= 30
     })
     .toBe(true)
+})
+
+test('Brain network graph opens at rest and keeps its layout when a node is selected', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 })
+  await mockPodSession(page)
+  // Each drawn frame paints every circular node with one `arc` call, so the count tells how many frames a change drew.
+  await page.addInitScript(() => {
+    const scope = window as typeof window & { brainArcCalls: number }
+    scope.brainArcCalls = 0
+    const arc = CanvasRenderingContext2D.prototype.arc
+    CanvasRenderingContext2D.prototype.arc = function (...args: Parameters<typeof arc>) {
+      scope.brainArcCalls++
+      return arc.apply(this, args)
+    }
+  })
+  const nodes = Array.from({ length: 24 }, (_, index) => ({
+    id: `obj-${index}`,
+    title: `Object ${index}`,
+    slug: `notes/object-${index}`,
+    type: 'note',
+    parent_id: 'cat-notes'
+  }))
+  const links = nodes.slice(1).map((node, index) => ({
+    from_page_id: nodes[index]!.id,
+    to_page_id: node.id,
+    link_type: 'references',
+    relation_kind: 'reference'
+  }))
+  await page.route('**/api/v2/pod/**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (!path.endsWith('/meta/brain')) return fulfillEmptyPod(route, path)
+    return route.fulfill({
+      json: {
+        viewer_uid: 'person',
+        assistant_uid: null,
+        categories: [{ id: 'cat-notes', name: 'notes', can_edit: false, entity_type: 'note', primitive: 'concept' }],
+        nodes,
+        links
+      } satisfies MetaBrainResponse
+    })
+  })
+
+  await page.goto('/meta/brain')
+  const graph = page.getByRole('group', { name: 'Knowledge graph', exact: true })
+  await expect(graph.getByRole('link')).toHaveCount(nodes.length, { timeout: 15_000 })
+  const positions = async () =>
+    Promise.all(
+      nodes.map(async node => {
+        const { cx, cy } = await anchorMetrics(graph.getByRole('link', { name: node.title, exact: true }))
+        return [Math.round(cx), Math.round(cy)]
+      })
+    )
+
+  // The anchors take the drawn viewport once the canvas finishes its entrance fade, then stay where the layout put
+  // them; one second without movement means the graph is at rest.
+  let settled = await positions()
+  let quietReads = 0
+  await expect
+    .poll(
+      async () => {
+        const next = await positions()
+        quietReads = JSON.stringify(next) === JSON.stringify(settled) ? quietReads + 1 : 0
+        settled = next
+        return quietReads
+      },
+      { intervals: [250], timeout: 10_000 }
+    )
+    .toBeGreaterThanOrEqual(4)
+
+  // Focusing an anchor selects its node. Selection restyles the network layout in one frame instead of laying the graph
+  // out again over about a hundred animated frames.
+  await page.evaluate(() => {
+    ;(window as typeof window & { brainArcCalls: number }).brainArcCalls = 0
+  })
+  await graph.getByRole('link', { name: 'Object 12', exact: true }).focus()
+  for (let sample = 0; sample < 6; sample++) {
+    await page.waitForTimeout(150)
+    expect(await positions()).toEqual(settled)
+  }
+  const arcCalls = await page.evaluate(() => (window as typeof window & { brainArcCalls: number }).brainArcCalls)
+  expect(arcCalls).toBeLessThanOrEqual(nodes.length * 4)
 })

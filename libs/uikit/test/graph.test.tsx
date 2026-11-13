@@ -8,6 +8,7 @@ import {
   type AnkoleGraphEdge,
   type AnkoleGraphNode
 } from '../src/components/graph'
+import { buildG6GraphSpec } from '../src/viz/graph-layout'
 
 const SAMPLE_NODES: AnkoleGraphNode[] = [
   { id: 'cat:companies', label: 'companies', tier: 'hub', ramp: 'blue' },
@@ -112,5 +113,78 @@ describe('AnkoleGraph', () => {
     )
     expect(filtered.has('obj:cloud')).toBe(false)
     expect(filtered.get('obj:acme')?.x).toBe(450)
+  })
+
+  test('settles the force layout before drawing, so the canvas draws final coordinates once', () => {
+    const topology = computeGraphTopology(SAMPLE_NODES, SAMPLE_EDGES, 'force', 960, 560)
+    expect(computeGraphTopology(SAMPLE_NODES, SAMPLE_EDGES, 'force', 960, 560).initialPositions).toEqual(
+      topology.initialPositions
+    )
+    const points = SAMPLE_NODES.map(node => topology.initialPositions.get(node.id)!)
+    for (const [index, point] of points.entries()) {
+      expect(Number.isFinite(point.x) && Number.isFinite(point.y)).toBe(true)
+      for (const other of points.slice(index + 1)) {
+        expect(Math.hypot(point.x - other.x, point.y - other.y)).toBeGreaterThan(50)
+      }
+    }
+
+    const spec = buildG6GraphSpec({
+      nodes: SAMPLE_NODES,
+      edges: SAMPLE_EDGES,
+      layout: 'force',
+      width: 960,
+      height: 560,
+      palette: resolveCanvasThemePalette(null),
+      topology
+    })
+    expect(spec.layoutOptions).toBeUndefined()
+    expect(spec.behaviors).toContain('drag-element')
+    expect(spec.behaviors).not.toContain('drag-element-force')
+    for (const node of spec.data.nodes) {
+      expect([node.style?.x, node.style?.y]).toEqual([
+        topology.initialPositions.get(node.id)!.x,
+        topology.initialPositions.get(node.id)!.y
+      ])
+    }
+  })
+
+  test('bends edges between the same two nodes apart in either direction', () => {
+    const edges: AnkoleGraphEdge[] = [
+      ...SAMPLE_EDGES,
+      { id: 'e5', source: 'obj:acme', target: 'obj:report', kind: 'relation' },
+      { id: 'e6', source: 'obj:report', target: 'obj:acme', kind: 'relation' },
+      { id: 'e7', source: 'obj:acme', target: 'cat:companies', kind: 'relation' }
+    ]
+    for (const layout of ['force', 'hierarchy'] as const) {
+      const spec = buildG6GraphSpec({
+        nodes: SAMPLE_NODES,
+        edges,
+        layout,
+        width: 960,
+        height: 560,
+        palette: resolveCanvasThemePalette(null),
+        topology: computeGraphTopology(SAMPLE_NODES, edges, layout, 960, 560)
+      })
+      const offsets = Object.fromEntries(spec.data.edges.map(edge => [edge.id, edge.style?.curveOffset]))
+      expect(spec.data.edges.every(edge => edge.type === 'quadratic')).toBe(true)
+      // e1 and e7 join the hub and Acme in opposite directions, so equal offsets bend them to opposite sides.
+      expect(offsets).toEqual({ e1: 24, e7: 24, e2: 0, e3: 0, e5: 48, e6: 48, e4: 0 })
+      expect(spec.transforms).toEqual([])
+    }
+  })
+
+  test('keeps resolving parallel edges while drawing the combo layout, whose combos collapse', () => {
+    const spec = buildG6GraphSpec({
+      nodes: SAMPLE_NODES,
+      edges: SAMPLE_EDGES,
+      combos: [{ id: 'combo:companies', label: 'companies' }],
+      layout: 'combo',
+      width: 960,
+      height: 560,
+      palette: resolveCanvasThemePalette(null),
+      topology: computeGraphTopology(SAMPLE_NODES, SAMPLE_EDGES, 'combo', 960, 560)
+    })
+    expect(spec.transforms).toEqual([{ type: 'process-parallel-edges', key: 'parallel-edges', distance: 24 }])
+    expect(spec.behaviors).toContainEqual({ type: 'collapse-expand', trigger: 'dblclick' })
   })
 })
