@@ -105,12 +105,3 @@ export function podPublicOrigin(): string {
   if (runtimeBootstrap?.podOrigin) return runtimeBootstrap.podOrigin
   return browserOrigin()
 }
-
-export function podSiteOrigin(): string {
-  if (runtimeBootstrap?.siteOrigin) return runtimeBootstrap.siteOrigin
-  if (typeof document !== 'undefined') {
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="ankole-site-origin"]')?.content
-    if (meta) return meta
-  }
-  return browserOrigin()
-}

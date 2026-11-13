@@ -1,14 +1,8 @@
 import { compactRecord } from '@agentbull/active-support'
-import {
-  getPodRuntimeBootstrap,
-  isDesktopRuntime,
-  podPublicOrigin,
-  podSiteOrigin,
-  updatePodRuntimeBootstrap
-} from './pod-bootstrap'
+import { getPodRuntimeBootstrap, isDesktopRuntime, podPublicOrigin, updatePodRuntimeBootstrap } from './pod-bootstrap'
 
 export { podLocation, podRouteID } from './pod-url'
-export { isDesktopRuntime, podPublicOrigin, podSiteOrigin }
+export { isDesktopRuntime, podPublicOrigin }
 
 /** Identity belongs to this document. Changing the browser default cannot change it. */
 export function authenticationRef(): string | undefined {

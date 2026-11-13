@@ -10,12 +10,11 @@ import {
   isDesktopRuntime,
   podID,
   podPublicOrigin,
-  podSiteOrigin,
   principalUID,
   replacePrincipalUID
 } from './browser-context'
 import { InternalAPIError } from './internal-api-client'
-import { setPodRuntimeBootstrap, type PodRuntimeBootstrap } from './pod-bootstrap'
+import { getPodRuntimeBootstrap, setPodRuntimeBootstrap, type PodRuntimeBootstrap } from './pod-bootstrap'
 
 const originalFetch = globalThis.fetch
 const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
@@ -64,7 +63,7 @@ test('desktop runtime bootstrap supplies Pod context, origins, and platform data
   expect(podID()).toBe('01950000-0000-7000-8000-000000000001')
   expect(principalUID()).toBe('alice')
   expect(podPublicOrigin()).toBe('https://acme.ankole.test')
-  expect(podSiteOrigin()).toBe('https://ankole.test')
+  expect(getPodRuntimeBootstrap()?.siteOrigin).toBe('https://ankole.test')
   expect(identityHeaders()).toEqual({
     'x-ankole-pod': '01950000-0000-7000-8000-000000000001'
   })
