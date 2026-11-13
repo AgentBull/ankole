@@ -1,5 +1,22 @@
 # Changelog
 
+## Version 2.0.0-alpha.143 (2026-11-13)
+
+- When the Agent computer cannot start in time, the Agent now stops calling
+  computer tools for the rest of the turn and tells the user what is blocked.
+  It used to retry calls that could not succeed until that turn ended.
+- Trace each Worker acquisition as a `session.worker.acquire` span with its
+  outcome, wait time, and phases, so an operator can see where a slow computer
+  start spends its time.
+- Tell the Agent which tool or id to use next when a background job, Pod Page,
+  related context, or schedule call is refused. Reading the result of an
+  unfinished background job now returns its progress instead of an error.
+- Keep the matches that Drive `grep` and `find` found when some files cannot be
+  read or the 15-second limit is reached.
+- Hand Applet development to a background job from the main Agent. Codex jobs
+  keep tool output small, use `bun` because the computer has no `node`, and
+  read `ankole:page` links with `ankole-pod pages.read`.
+
 ## Version 2.0.0-alpha.142 (2026-11-13)
 
 - Support OAuth 2.0 public PKCE clients (`token_endpoint_auth_method` `"none"`,

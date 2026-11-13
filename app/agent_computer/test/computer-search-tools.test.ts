@@ -386,3 +386,65 @@ it('structured tools expose the same Brain, Skill and contract roots as the exec
   expect(visibleDrivePath(view, resolved)).toBe('/drive/Skills/demo/SKILL.md')
   expect(await resolveScopedDrivePath(view, '/drive/AGENTS.md')).toBe(`${library}/AGENTS.md`)
 })
+
+describe('Drive searches keep the matches they found', () => {
+  function driveSearch(exitCode: number, stdout: string, stderr: string) {
+    const { agentHome, workspaceRoot } = makeHome()
+    const scope = join(agentHome, 'scope')
+    mkdirSync(`${scope}/Public`, { recursive: true })
+    const mount = (path: string) => ({ key: path, path, references: 1, token: '', endpoint: '' })
+    const view = new DriveView(
+      'test',
+      mount(scope),
+      mount(join(agentHome, 'chat')),
+      mount(join(agentHome, 'library')),
+      join(agentHome, 'recovery'),
+      async () => {},
+      () => {}
+    )
+    const finished: CommandFinished = {
+      exitCode,
+      output: async mode => (mode === 'stdout' ? stdout : mode === 'stderr' ? stderr : `${stdout}\n${stderr}`)
+    }
+    const computer: ContainerComputer = {
+      runCommand: async () => finished,
+      readFileWindow: async () => {
+        throw new Error('computer is not part of this test')
+      },
+      readFileBytes: async () => {
+        throw new Error('computer is not part of this test')
+      }
+    }
+    return createGrepTool({ ...searchContext(agentHome, workspaceRoot, computer), driveView: view })
+  }
+
+  it('returns matches with a note when rg could not read some paths', async () => {
+    const grep = driveSearch(2, '/drive/Public/a.md:3:SAP KG\n', 'rg: /drive/Public/locked.md: Permission denied\n')
+    const text = textOf(await grep.execute('partial', { path: '/drive/Public', pattern: 'SAP' }))
+    expect(text).toContain('/drive/Public/a.md:3:SAP KG')
+    expect(text).toContain('[Some paths could not be searched: rg: /drive/Public/locked.md: Permission denied]')
+    expect(text).not.toContain('Error')
+  })
+
+  it('returns the matches found before the time limit', async () => {
+    const grep = driveSearch(124, '/drive/Public/a.md:1:BTP\n', '')
+    const text = textOf(await grep.execute('timeout', { path: '/drive/Public', pattern: 'BTP' }))
+    expect(text).toContain('/drive/Public/a.md:1:BTP')
+    expect(text).toContain('[Search stopped at the 15 s limit; narrow the path or pattern for complete results.]')
+  })
+
+  it('does not mistake an early KILL for the time limit', async () => {
+    const grep = driveSearch(137, '/drive/Public/a.md:1:BTP\n', '')
+    const text = textOf(await grep.execute('killed', { path: '/drive/Public', pattern: 'BTP' }))
+    expect(text).toContain('/drive/Public/a.md:1:BTP')
+    expect(text).toContain('[Some paths could not be searched: rg exited with code 137]')
+    expect(text).not.toContain('15 s limit')
+  })
+
+  it('fails a search that printed no match', async () => {
+    const grep = driveSearch(2, '', 'rg: /drive/Public: Input/output error\n')
+    await expect(grep.execute('failed', { path: '/drive/Public', pattern: 'SAP' })).rejects.toThrow(
+      'Input/output error'
+    )
+  })
+})

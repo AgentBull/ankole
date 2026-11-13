@@ -661,18 +661,51 @@ defmodule Ankole.Sessions.Turn do
 
   defp transition_worker(turn, event, now) do
     {state, effects} = WorkerAcquisition.next(turn.acquisition, event, now)
+    {opened, closed} = observe_worker(turn.acquisition, state)
 
-    Enum.reduce(effects, {%{turn | acquisition: state}, []}, fn effect, {turn, commands} ->
-      {turn, more} = worker_effect(turn, effect)
-      {turn, commands ++ more}
-    end)
+    {turn, commands} =
+      Enum.reduce(effects, {%{turn | acquisition: state}, opened}, fn effect, {turn, commands} ->
+        {turn, more} = worker_effect(turn, effect)
+        {turn, commands ++ more}
+      end)
+
+    {turn, commands ++ closed}
   end
+
+  # One acquisition episode, from leaving idle to ready, unavailable, or an
+  # abandoning round commit, becomes one observed span with its phases.
+  defp observe_worker(previous, current) do
+    cond do
+      acquiring?(current) and not acquiring?(previous) ->
+        {[{:observe_worker, :start}], []}
+
+      acquiring?(previous) and match?({:ready, _}, current) ->
+        {[], [{:observe_worker, {:finish, :ready}}]}
+
+      acquiring?(previous) and match?({:unavailable, _}, current) ->
+        {[], [{:observe_worker, {:finish, elem(current, 1)}}]}
+
+      acquiring?(previous) and not acquiring?(current) ->
+        {[], [{:observe_worker, {:finish, :abandoned}}]}
+
+      true ->
+        {[], []}
+    end
+  end
+
+  defp acquiring?({:opening, _, _}), do: true
+  defp acquiring?({:waiting, _, _}), do: true
+  defp acquiring?(_state), do: false
 
   defp worker_effect(turn, :request), do: {turn, [:request_worker]}
   defp worker_effect(turn, :resolve), do: {turn, [:resolve_worker]}
 
+  # The open marks the point where a Worker was found, so the observed phases
+  # separate a Worker that never arrived from a workspace that never got ready.
   defp worker_effect(turn, {:send_open, row, message}),
-    do: {%{turn | workspace_open_attempted?: true}, [{:open_worker, row, message}]}
+    do:
+      {%{turn | workspace_open_attempted?: true},
+       [{:open_worker, row, message}, {:observe_worker, {:phase, :opening}}]}
 
   defp worker_effect(turn, {:check, row}), do: {turn, [{:check_worker, row}]}
 
@@ -686,7 +719,9 @@ defmodule Ankole.Sessions.Turn do
 
   defp worker_effect(turn, :probe), do: {turn, [:read_worker_sends]}
   defp worker_effect(turn, {:unavailable, reason}), do: fail_worker_waits(turn, reason)
-  defp worker_effect(turn, {:phase, name}), do: {turn, [phase(WorkerAcquisition.phase_key(name))]}
+
+  defp worker_effect(turn, {:phase, name}),
+    do: {turn, [phase(WorkerAcquisition.phase_key(name)), {:observe_worker, {:phase, name}}]}
 
   defp worker_timers(turn, now),
     do:

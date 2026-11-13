@@ -8,6 +8,28 @@ defmodule Ankole.ObservabilityTest do
   alias Ankole.Observability
   alias Ankole.Repo
 
+  require Record
+
+  Record.defrecordp(
+    :span,
+    Record.extract(:span, from_lib: "opentelemetry/include/otel_span.hrl")
+  )
+
+  defmodule DisabledExporter do
+    @moduledoc false
+
+    @behaviour :otel_exporter_traces
+
+    @impl true
+    def init(_config), do: :ignore
+
+    @impl true
+    def export(_spans, _resource, _config), do: :ok
+
+    @impl true
+    def shutdown(_config), do: :ok
+  end
+
   defmodule OTLPReceiver do
     @moduledoc false
 
@@ -31,6 +53,52 @@ defmodule Ankole.ObservabilityTest do
     end)
 
     :ok
+  end
+
+  test "a Worker acquisition span records its phases and outcome without counting as an Agent" do
+    :ok = :otel_batch_processor.set_exporter(:global, :otel_exporter_pid, self())
+    on_exit(fn -> :otel_batch_processor.set_exporter(:global, DisabledExporter, []) end)
+    tracer = :opentelemetry.get_application_tracer(__MODULE__)
+    parent = :otel_tracer.start_span(OpenTelemetry.Ctx.new(), tracer, "turn", %{})
+
+    turn = %{
+      span: parent,
+      provider: nil,
+      attributes: %{"ankole.agent.uid" => "agent-1", "gen_ai.operation.name" => "invoke_agent"}
+    }
+
+    turn
+    |> Observability.start_worker()
+    |> Observability.worker_phase(:starting)
+    |> Observability.worker_phase(:capacity)
+    |> Observability.finish_worker({:timeout, :capacity})
+
+    turn
+    |> Observability.start_worker()
+    |> Observability.finish_worker(:ready)
+
+    assert :ok = :otel_tracer_provider.force_flush()
+
+    assert_receive {:span,
+                    span(name: "session.worker.acquire", attributes: attributes, status: status)},
+                   1_000
+
+    assert_receive {:span,
+                    span(name: "session.worker.acquire", attributes: ready, status: ready_status)},
+                   1_000
+
+    facts = :otel_attributes.map(attributes)
+    assert facts["ankole.agent.uid"] == "agent-1"
+    refute Map.has_key?(facts, "gen_ai.operation.name")
+    assert facts["ankole.worker.outcome"] == "timeout_capacity"
+    assert facts["ankole.worker.phases"] =~ ~r/^starting@\d+ms,capacity@\d+ms$/
+    assert is_integer(facts["ankole.worker.wait_ms"])
+    assert {:status, :error, _message} = status
+    assert :otel_attributes.map(ready)["ankole.worker.outcome"] == "ready"
+    assert {:status, :ok, _message} = ready_status
+
+    assert Observability.start_worker(nil) == nil
+    assert Observability.finish_worker(nil, :ready) == :ok
   end
 
   test "trace export is disabled by default" do

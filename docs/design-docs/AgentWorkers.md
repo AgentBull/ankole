@@ -575,7 +575,12 @@ deadline covering transport receipts and `WorkspaceReady`:
   of the Run (across subsequent model rounds and late workspace replies),
   returning a tool error for newly issued calls and an `interrupted` result for
   adopted calls whose outcome is unknown so the model can respond without the
-  Worker.
+  Worker. A retry in the same Run cannot succeed, even after a message that
+  arrives during the turn joins it, so Ankole's tool error tells the model that
+  computer tools stay unavailable for the rest of the turn and asks it to finish
+  with its other tools and name the blocker. For a transient cause, the error
+  adds that a later message tries to start the computer again after the turn
+  ends.
 - If the Worker is `absent` with a `rejected` error, lacks a provider, or
   belongs to an inactive Agent, acquisition fails immediately without waiting.
   Model- and IM-facing messages use fixed error categories while keeping raw
@@ -1093,6 +1098,13 @@ package-manager chatter, large JSON payloads, verbose `git log` streams, and
 bare source-file `cat` dumps silently without appending truncation disclaimers,
 while `read_file` and `apply_patch` always operate on exact, unmodified file
 bytes.
+
+Agent Computer runs structured `find` and `grep` calls under `/drive` with
+`rg` in the turn's Drive view and a 15-second limit. When `rg` cannot read some
+paths or reaches that limit, Agent Computer returns the matches that `rg`
+already printed together with a note that names the first unreadable path or
+the limit. A cancelled search, or one that fails before printing any match,
+reports an error.
 
 Turn-local CLI bridges enforce a shared Worker-wide cap of 64 concurrent
 requests: each accepted socket has 10 seconds to send its newline-terminated

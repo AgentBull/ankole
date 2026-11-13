@@ -103,7 +103,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
                       "result_offset": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Stable UTF-8 byte offset into the persisted result. Use 0 for the first chunk; omit it to show execution details."
+                        "description": "Stable UTF-8 byte offset into the persisted result of a succeeded job. Use 0 for the first chunk; omit it to show execution details. A job that has not succeeded returns its execution details instead."
                       }
                     },
                     "required": [
@@ -363,11 +363,12 @@ defmodule Ankole.Sessions.Tools.Jobs do
         )
 
       nil ->
-        {:error, :job_not_found}
+        {:error, job_error(:job_not_found)}
 
-      %{job: job} ->
-        {:error,
-         "background agent job #{job.id} has status #{job.status}; only succeeded jobs have output"}
+      # Only a succeeded job has a result; any other job answers a result read
+      # with its execution details, so a progress check costs no failed round.
+      %{job: _job} ->
+        execute(run, call, Map.delete(args, "result_offset"))
     end
   end
 
@@ -400,6 +401,8 @@ defmodule Ankole.Sessions.Tools.Jobs do
       }
 
       {:ok, Tools.result(put_runner_id(details, job))}
+    else
+      {:error, reason} -> {:error, job_error(reason)}
     end
   end
 
@@ -486,10 +489,44 @@ defmodule Ankole.Sessions.Tools.Jobs do
   defp put_runner_id(details, %Job{runner_id: id}), do: Map.put(details, "runner_id", id)
 
   defp project_prepared({:ok, sessions, commit}, project) do
-    {:ok, sessions, fn -> with {:ok, value} <- commit.(), do: project.(value) end}
+    {:ok, sessions,
+     fn ->
+       case commit.() do
+         {:ok, value} -> project.(value)
+         {:error, reason} -> {:error, job_error(reason)}
+       end
+     end}
   end
 
-  defp project_prepared({:error, _} = error, _project), do: error
+  defp project_prepared({:error, reason}, _project), do: {:error, job_error(reason)}
+
+  # Domain reasons reach the model as the next step it can take, so a refused
+  # job call is corrected in one round instead of guessed at from an atom.
+  defp job_error(:job_not_found),
+    do:
+      "No background agent job with this id belongs to this Agent. Find the job with list_background_jobs."
+
+  defp job_error({:background_agent_job_message_status_invalid, status}),
+    do:
+      "This background agent job has status #{status} and accepts no more messages. Continue it with respawn_background_job, passing its id as source_job_id."
+
+  defp job_error({:background_agent_job_not_terminal, status}),
+    do:
+      "This background agent job is still #{status}. Send it a message with send_message_to_background_job instead of respawning it."
+
+  defp job_error(:background_agent_job_runtime_thread_missing),
+    do:
+      "This background agent job ended before its runtime started, so respawn_background_job has nothing to continue. Create a new job with create_background_job and the complete task."
+
+  defp job_error(:background_agent_job_workspace_owner_missing),
+    do:
+      "This background agent job has no workspace that a continuation could reuse. Create a new job with create_background_job and the complete task."
+
+  defp job_error({:background_agent_job_already_respawned, successor_id}),
+    do:
+      "This background agent job was already continued as job #{successor_id}. Send messages to that job, or respawn it once it ends."
+
+  defp job_error(reason), do: reason
 
   @impl true
   def observe(run, wait, steered?, expired?) do
@@ -573,8 +610,8 @@ defmodule Ankole.Sessions.Tools.Jobs do
           :pending
       end
     else
-      {:error, reason} -> {:ready, Tools.error(reason), []}
-      nil -> {:ready, Tools.error(:job_not_found), []}
+      {:error, reason} -> {:ready, Tools.error(job_error(reason)), []}
+      nil -> {:ready, Tools.error(job_error(:job_not_found)), []}
     end
   end
 

@@ -68,8 +68,11 @@ defmodule Ankole.Sessions.Tools.Pod do
 
   def execute(run, call, args) do
     with {:ok, actor, context} <- request_context(run),
-         {:ok, result} <- dispatch(call["name"], actor, context, args),
-         do: {:ok, Ankole.Sessions.Tools.result(Ankole.JSON.plain(result))}
+         {:ok, result} <- dispatch(call["name"], actor, context, args) do
+      {:ok, Ankole.Sessions.Tools.result(Ankole.JSON.plain(result))}
+    else
+      {:error, reason} -> {:error, page_error(reason)}
+    end
   end
 
   def prepare_in_tx(run, call, args) do
@@ -85,10 +88,32 @@ defmodule Ankole.Sessions.Tools.Pod do
               {:ok, page, publish} <- write_in_tx(call["name"], actor, context, args) do
            result = Ankole.Sessions.Tools.result(%{"id" => page.id, "revision" => page.revision})
            {:ok, result, [publish]}
+         else
+           {:error, reason} -> {:error, page_error(reason)}
          end
        end}
     end
   end
+
+  # Page reasons reach the model as the next step it can take, so a refused
+  # call is corrected in one round instead of guessed at from an atom.
+  defp page_error(:not_found),
+    do:
+      "No Page with this id is visible in this conversation. Use an id from pod_list_pages or from a page link in this conversation."
+
+  defp page_error(:invalid_page_domain),
+    do:
+      "pod_create_page creates Brain knowledge objects, so its parent must be an ontology category or knowledge object in the Brain. Create a collaboration document in a Pod space with ankole-pod pages.create and type doc."
+
+  defp page_error(:unknown_brain_category),
+    do:
+      "The parent is not an ontology category or knowledge object in the Brain. Choose a parent from the Brain pages that pod_list_pages lists."
+
+  defp page_error(:invalid_page_type),
+    do:
+      "pod_save_page saves Brain knowledge pages only. Change a Pod document with ankole-pod pages.write."
+
+  defp page_error(reason), do: reason
 
   defp request_context(run) do
     ref = %Ankole.Sessions.RunRef{

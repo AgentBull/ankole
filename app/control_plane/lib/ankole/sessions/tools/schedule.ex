@@ -397,9 +397,26 @@ defmodule Ankole.Sessions.Tools.Schedule do
   # the read actions read through the Schedule domain.
   defp execute_in(run, call, args) do
     with :ok <- operation_arguments(call["name"], args),
-         {:ok, payload} <- invoke(run, call, args),
-         do: {:ok, Tools.result(payload, presentation: effect_presentation(call["name"], args))}
+         {:ok, payload} <- invoke(run, call, args) do
+      {:ok, Tools.result(payload, presentation: effect_presentation(call["name"], args))}
+    else
+      {:error, reason} -> {:error, schedule_error(reason)}
+      error -> error
+    end
   end
+
+  # Lookup reasons reach the model as the next step it can take: a cron
+  # schedule is addressed by name and a checkback by its checkback_id.
+  defp schedule_error(:not_found),
+    do:
+      "No cron schedule with this name belongs to this conversation. Find it with the list action."
+
+  defp schedule_error(reason)
+       when reason in [:scheduled_event_not_found, :checkback_not_in_turn, :not_checkback],
+       do:
+         "No checkback with this checkback_id belongs to this conversation. Find it with the list action."
+
+  defp schedule_error(reason), do: reason
 
   defp invoke(run, call, args) do
     route = Ankole.Conversations.Route.snapshot(run)

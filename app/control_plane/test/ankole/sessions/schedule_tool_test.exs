@@ -105,7 +105,7 @@ defmodule Ankole.Sessions.ScheduleToolTest do
       invoke(run, "check_back_later", %{"action" => "get", "checkback_id" => id}, "foreign")
 
     assert rejected.is_error
-    assert rejected.output =~ "checkback_not_in_turn"
+    assert rejected.output =~ "No checkback with this checkback_id belongs to this conversation."
   end
 
   test "cron names resolve with whitespace and runs use default and explicit limits", %{run: run} do
@@ -209,6 +209,25 @@ defmodule Ankole.Sessions.ScheduleToolTest do
     assert result.is_error
     assert result.output =~ "finish_scheduled ends only a scheduled turn."
     refute Ankole.Sessions.ToolResult.ends_turn?(result)
+  end
+
+  test "an unknown checkback id or cron name names the lookup that finds it", %{run: run} do
+    missing =
+      invoke(
+        run,
+        "check_back_later",
+        %{"action" => "get", "checkback_id" => 9_999_999},
+        "missing-checkback"
+      )
+
+    assert missing.is_error
+    assert missing.output =~ "No checkback with this checkback_id belongs to this conversation."
+
+    unknown =
+      invoke(run, "cron", %{"action" => "get", "name" => "no-such-schedule"}, "missing-cron")
+
+    assert unknown.is_error
+    assert unknown.output =~ "No cron schedule with this name belongs to this conversation."
   end
 
   defp invoke(run, name, args, id) do

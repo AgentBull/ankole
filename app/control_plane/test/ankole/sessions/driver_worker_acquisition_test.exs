@@ -101,6 +101,21 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
 
     assert Acquisition.error_text(elem(state, 1)) =~ "busy with other tasks"
     refute Acquisition.error_text({:rejected, "secret"}) =~ "secret"
+
+    # Unavailability is final for the run, so no text invites a retry within
+    # the turn; only a transient cause promises the next message a new start.
+    for reason <- [elem(state, 1), {:timeout, :starting}, :late_error] do
+      text = Acquisition.error_text(reason)
+      assert text =~ "stay unavailable for the rest of this turn"
+      assert text =~ "After this turn ends, a later message tries to start the computer again."
+      refute text =~ "Try again"
+    end
+
+    for reason <- [:worker_provider_missing, {:rejected, "secret"}, :agent_not_active] do
+      text = Acquisition.error_text(reason)
+      assert text =~ "stay unavailable for the rest of this turn"
+      refute text =~ "a later message tries to start the computer again"
+    end
   end
 
   test "a committed round abandons only unfinished acquisition and cancels its timers" do

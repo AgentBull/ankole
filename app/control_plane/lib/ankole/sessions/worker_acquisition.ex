@@ -105,21 +105,30 @@ defmodule Ankole.Sessions.WorkerAcquisition do
   def phase_key(:capacity), do: "computer_busy"
   def phase_key(:preparing), do: "computer_preparing"
 
+  # An unavailable acquisition is final for its run: every later computer call
+  # in the same turn fails at once, including after messages that arrive
+  # during the turn and join it. The text therefore tells the model to stop
+  # calling computer tools instead of inviting a retry that cannot succeed.
+  @rest_of_turn " Computer tools stay unavailable for the rest of this turn, so do not call them again now: finish with the other tools and tell the user what is blocked."
+  @next_turn " After this turn ends, a later message tries to start the computer again."
+  @administrator " It stays unavailable until an administrator fixes it."
+
   def error_text({:rejected, _}), do: error_text(:worker_provider_missing)
 
   def error_text(:worker_provider_missing),
     do:
-      "The Agent computer cannot start: its provider configuration was rejected. An administrator must fix it in the Console."
+      "The Agent computer cannot start: its provider configuration was rejected, and an administrator must fix it in the Console." <>
+        @rest_of_turn <> @administrator
 
-  def error_text({:timeout, :preparing}),
-    do: "The Agent computer is being prepared for a new version. Try again in a few minutes."
+  def error_text(:agent_not_active),
+    do: "This Agent is disabled, so its computer is unavailable." <> @rest_of_turn
 
-  def error_text({:timeout, :capacity}),
-    do: "The Agent computer is busy with other tasks. Try again shortly."
+  def error_text(reason), do: cause(reason) <> @rest_of_turn <> @next_turn
 
-  def error_text({:timeout, _}),
-    do: "The Agent computer did not become ready in time. Try again shortly."
+  defp cause({:timeout, :preparing}),
+    do: "The Agent computer is being prepared for a new version."
 
-  def error_text(:agent_not_active), do: "This Agent is disabled, so its computer is unavailable."
-  def error_text(_), do: "The Agent computer is unavailable. Try again shortly."
+  defp cause({:timeout, :capacity}), do: "The Agent computer is busy with other tasks."
+  defp cause({:timeout, _}), do: "The Agent computer did not become ready in time."
+  defp cause(_), do: "The Agent computer is unavailable."
 end

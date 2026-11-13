@@ -2282,6 +2282,21 @@ the turn request context:
   status, usage, and sanitized `FailureDiagnostics` attributes (`error.type` and
   `ankole.ai_gateway.*`, never overwriting an outer code like
   `credential_pool_exhausted` with `nil` and omitting raw error messages/bodies).
+- In a traced Turn, Ankole opens a `session.worker.acquire` span under the
+  Turn root for each Worker acquisition, including a new acquisition after the
+  Worker changes. The span starts when the Turn leaves an idle or ready
+  acquisition. It ends when the Worker is ready, the acquisition becomes
+  unavailable, or a committed round abandons it; the Driver also ends it with
+  the Turn's other spans when it settles, rebuilds, cancels, or retries the
+  Turn. Ankole records `ankole.worker.outcome` (`ready`, `timeout_<phase>`,
+  `rejected`, `worker_provider_missing`, `agent_not_active`, `unavailable`,
+  `abandoned`, or `turn_ended`), `ankole.worker.wait_ms`, and
+  `ankole.worker.phases`. The phase list names each reported phase with its
+  offset from the start, for example `starting@0ms,capacity@1200ms,opening@9800ms`,
+  where `opening` marks the workspace open sent to a found Worker. Ankole marks
+  an unavailable outcome as an error, keeps raw provider diagnostics out of the
+  span, and leaves out the Turn's `gen_ai.operation.name`, so the span never
+  counts as another Agent.
 
 Exported spans attach `service.name`, optional `service.version`
 (`ANKOLE_VERSION`, falling back to `ANKOLE_RELEASE_REVISION` on the Worker)

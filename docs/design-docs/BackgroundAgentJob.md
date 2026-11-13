@@ -89,8 +89,10 @@ aliases, omitting pagination cursors, and preserving `metadata.redacted` and
 bodies must be trimmed to fit byte caps, never merely because three groups were
 selected).
 
-When `result_offset` is supplied (starting at `0`), the tool accepts only a
-`succeeded` Job with a persisted `output_text`. It returns `title`, `status`,
+When `result_offset` is supplied (starting at `0`) for a Job that has not
+succeeded, the tool returns the execution snapshot above, because only a
+succeeded Job has a result to read. For a `succeeded` Job with a persisted
+`output_text`, it returns `title`, `status`,
 `result_ref`, `workspace_owner_job_id`, and one UTF-8-safe `result` chunk
 (`{offset, output_text, next_offset}`). The result identifies a device Job by
 `runner_id`. A managed cloud Job includes `project_path`, `artifacts`, and
@@ -682,6 +684,12 @@ A Worker with Drive mounts reads selected Skill packages from its scoped
 `/drive/Skills` mount and links the turn's Skill directory to that view. A Worker
 without the mount materializes the packages at
 `/workspace/.ankole/turn-skills/<signal-id>/<skill-name>/`.
+
+Because the main Agent can reach `ankole-pod applet` from its own shell
+without loading `pod-content`, its job policy names Applet development as
+background work: the main Agent delegates building or changing an Applet,
+including its code, builds, publishing, and checks, to one Job whose task names
+`pod-content`, the target Page, and the acceptance criteria.
 
 Before each run, Agent Computer computes the loadable Skill set by intersecting
 the Job's frozen Skill selection with the Agent's currently enabled Skills and
