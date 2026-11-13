@@ -16,6 +16,7 @@ defmodule Ankole.Sessions.Driver do
       :phase,
       :activity_conversation_id,
       :worker_cli_context_id,
+      :worker_span,
       activity_tools: [],
       activity_revision: 0,
       activity_state: "active",
@@ -554,6 +555,19 @@ defmodule Ankole.Sessions.Driver do
     {%{data | tool_spans: spans}, []}
   end
 
+  defp execute({:observe_worker, :start}, data) do
+    Observability.finish_worker(data.worker_span, :abandoned)
+    {%{data | worker_span: Observability.start_worker(data.turn.run.span)}, []}
+  end
+
+  defp execute({:observe_worker, {:phase, name}}, data),
+    do: {%{data | worker_span: Observability.worker_phase(data.worker_span, name)}, []}
+
+  defp execute({:observe_worker, {:finish, outcome}}, data) do
+    Observability.finish_worker(data.worker_span, outcome)
+    {%{data | worker_span: nil}, []}
+  end
+
   defp execute({:finish_tool, id, result}, data) do
     {span, spans} = Map.pop(data.tool_spans, id)
     Observability.finish_tool(span, ToolResult.encode(result))
@@ -655,8 +669,15 @@ defmodule Ankole.Sessions.Driver do
       })
     end)
 
+    Observability.finish_worker(data.worker_span, :turn_ended)
     Observability.finish_turn(data.turn.run.span, opts)
-    %{data | tool_spans: %{}, turn: %{data.turn | run: %{data.turn.run | span: nil}}}
+
+    %{
+      data
+      | tool_spans: %{},
+        worker_span: nil,
+        turn: %{data.turn | run: %{data.turn.run | span: nil}}
+    }
   end
 
   @impl true

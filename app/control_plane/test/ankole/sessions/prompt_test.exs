@@ -38,6 +38,18 @@ defmodule Ankole.Sessions.PromptTest do
     assert Prompt.workflow_system(task) =~ Prompt.drive_instructions()
   end
 
+  test "an Agent that can delegate is told to hand Applet development to a background job" do
+    rule = "Building or changing an Applet"
+
+    delegating =
+      room(:participants)
+      |> opts()
+      |> Map.put(:available_tool_names, ["create_background_job"])
+
+    assert Prompt.system(delegating) =~ rule
+    refute Prompt.system(opts(room(:participants))) =~ rule
+  end
+
   defp room(access_scope) do
     %{
       id: "room-1",

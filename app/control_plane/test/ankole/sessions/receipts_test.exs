@@ -443,6 +443,18 @@ defmodule Ankole.Sessions.ReceiptsTest do
     created = Tools.execute(run, create, create_tool, create_args)
     refute created.is_error, created.output
     id = created.details["id"]
+
+    missing = %{
+      "type" => "function_call",
+      "name" => "pod_get_page",
+      "call_id" => "missing-page",
+      "arguments" => Ankole.JSON.encode!(%{"id" => Ecto.UUID.generate()})
+    }
+
+    assert {:ok, missing_tool, missing_args} = Tools.prepare(run, missing)
+    unseen = Tools.execute(run, missing, missing_tool, missing_args)
+    assert unseen.is_error
+    assert unseen.output =~ "No Page with this id is visible in this conversation."
     assert {:ok, %{page: page, content: content}} = Pages.get(actor, id)
     assert page.metadata == %{"entity_type" => "note", "summary" => "Pilot review"}
     assert content.plain_text =~ "187 CNY"

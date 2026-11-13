@@ -267,6 +267,15 @@ defmodule Ankole.Conversations.PeersTest do
 
     assert {:error, :related_context_unavailable} =
              Conversations.recall_related_context(%{run | event: group_event}, id, nil)
+
+    assert {:error, text} =
+             Ankole.Sessions.Tools.RelatedContext.execute(
+               %{run | event: group_event},
+               %{},
+               %{"ref_id" => id}
+             )
+
+    assert text =~ "Use a reference ID from the recent related context list"
   end
 
   test "page preflight fails before sending and incremental sharing preserves collaborators",

@@ -542,7 +542,7 @@ defmodule Ankole.Sessions.ToolsTest do
       args = %{"source_job_id" => id, "message" => "Improve the report."}
       live = invoke_error(run, "respawn_background_job", args, "live-continuation")
       assert live.is_error
-      assert live.output =~ "background_agent_job_not_terminal"
+      assert live.output =~ "Send it a message with send_message_to_background_job"
       source = Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, id)
 
       source =
@@ -568,7 +568,7 @@ defmodule Ankole.Sessions.ToolsTest do
       assert invoke(run, "respawn_background_job", args, "continuation") == resumed
       again = invoke_error(run, "respawn_background_job", args, "second-continuation")
       assert again.is_error
-      assert again.output =~ "background_agent_job_already_respawned"
+      assert again.output =~ "was already continued as job #{successor.id}"
 
       created =
         invoke(
@@ -591,7 +591,49 @@ defmodule Ankole.Sessions.ToolsTest do
         )
 
       assert missing.is_error
-      assert missing.output =~ "background_agent_job_runtime_thread_missing"
+
+      assert missing.output =~
+               "Create a new job with create_background_job and the complete task."
+    end
+
+    test "An unfinished Job answers a result read with its details and a finished Job names the next step",
+         %{run: run} do
+      created =
+        invoke(
+          run,
+          "create_background_job",
+          %{"title" => "Report", "task" => "Write the report."},
+          "unfinished-job"
+        )
+
+      id = created.details["job_id"]
+
+      details =
+        invoke(
+          run,
+          "show_background_job_details",
+          %{"job_id" => id, "result_offset" => 0},
+          "unfinished-result-read"
+        )
+
+      refute details.is_error, inspect(details)
+      assert details.details["status"] == created.details["status"]
+      refute Map.has_key?(details.details, "result")
+
+      job = Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, id)
+      Repo.update!(change(job, status: :failed, completed_at: DateTime.utc_now(:microsecond)))
+
+      refused =
+        invoke_error(
+          run,
+          "send_message_to_background_job",
+          %{"job_id" => id, "message" => "Add a summary."},
+          "finished-message"
+        )
+
+      assert refused.is_error
+      assert refused.output =~ "has status failed and accepts no more messages"
+      assert refused.output =~ "respawn_background_job"
     end
 
     test "Job result reads keep encoded output bounded and reject split UTF-8 offsets", %{

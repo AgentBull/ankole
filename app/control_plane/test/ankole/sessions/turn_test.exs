@@ -521,6 +521,46 @@ defmodule Ankole.Sessions.TurnTest do
     assert {^committed, []} = Turn.step(committed, {:worker, :workspace_ready, payload}, 60_104)
   end
 
+  test "each Worker acquisition becomes one observed episode with its phases and outcome" do
+    run = tool_run([call("c1")])
+    row = %{transport_route: "test"}
+    observed = fn commands -> Enum.filter(commands, &match?({:observe_worker, _}, &1)) end
+    {tools, _} = Turn.step(turn(run, :boundary), {:resume, run.epoch, :executing_tools}, 100)
+
+    {opening, commands} = Turn.step(tools, :tools, 100)
+
+    assert [{:observe_worker, :start}, {:observe_worker, {:phase, :starting}}] =
+             observed.(commands)
+
+    {waiting, commands} =
+      Turn.step(opening, {:completed, :worker_resolve, {:wait, :capacity}}, 200)
+
+    assert [{:observe_worker, {:phase, :capacity}}] = observed.(commands)
+
+    {_expired, commands} = Turn.step(waiting, {:worker_timeout, :expired}, 60_100)
+    assert [{:observe_worker, {:finish, {:timeout, :capacity}}}] = observed.(commands)
+
+    {opened, commands} =
+      Turn.step(opening, {:completed, :worker_resolve, {:ok, row, :envelope}}, 200)
+
+    assert [{:observe_worker, {:phase, :opening}}] = observed.(commands)
+    {ready, commands} = Turn.step(opened, {:completed, :worker, :ready}, 250)
+    assert {:ready, ^row} = ready.acquisition
+    assert [{:observe_worker, {:finish, :ready}}] = observed.(commands)
+
+    {reacquiring, commands} =
+      Turn.step(ready, {:completed, :worker_check, {:ok, :changed}}, 270)
+
+    assert {:opening, _since, _row} = reacquiring.acquisition
+    assert [{:observe_worker, :start} | _phases] = observed.(commands)
+
+    {abandoned, commands} =
+      Turn.step(opening, {:completed, :record, {:ok, %{message: %{id: "journal"}}}}, 300)
+
+    assert abandoned.acquisition == {:idle, :requested}
+    assert [{:observe_worker, {:finish, :abandoned}}] = observed.(commands)
+  end
+
   test "an old response cannot contribute a result to the current tool round" do
     turn = ready_tools([call("c1")])
     payload = %{run: Worker.ref(turn.run), response_id: "resp_old", call_id: "c1"}

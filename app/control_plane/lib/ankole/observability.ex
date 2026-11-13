@@ -295,6 +295,77 @@ defmodule Ankole.Observability do
   def finish_tool(_handle, _result), do: :ok
 
   @doc """
+  Starts a Worker acquisition span under the attempt root.
+
+  The span covers one acquisition from leaving idle until the Worker is ready,
+  unavailable, or no longer needed. Its phases are recorded as one attribute
+  when it ends, because the trace backend keeps span attributes as metadata.
+  """
+  def start_worker(%{span: parent, provider: provider} = handle) do
+    safe(nil, fn ->
+      context = :otel_tracer.set_current_span(Ctx.new(), parent)
+
+      span =
+        :otel_tracer.start_span(context, tracer(), "session.worker.acquire", %{
+          # The Turn root's `invoke_agent` operation would make the backend
+          # count this span as another Agent.
+          attributes: Map.delete(handle.attributes, "gen_ai.operation.name"),
+          kind: :internal
+        })
+
+      %{span: span, provider: provider, started_at: monotonic_ms(), phases: []}
+    end)
+  end
+
+  def start_worker(_handle), do: nil
+
+  @doc "Records a Worker acquisition phase and its offset from the start."
+  def worker_phase(%{started_at: started_at, phases: phases} = handle, phase),
+    do: %{handle | phases: phases ++ ["#{phase}@#{monotonic_ms() - started_at}ms"]}
+
+  def worker_phase(handle, _phase), do: handle
+
+  @doc """
+  Ends a Worker acquisition span with its outcome category.
+
+  An unavailable outcome marks the span as an error. Outcomes are fixed
+  categories, never raw provider diagnostics.
+  """
+  def finish_worker(%{span: span, started_at: started_at, phases: phases}, outcome) do
+    safe(:ok, fn ->
+      name = worker_outcome(outcome)
+
+      Span.set_attributes(span, %{
+        "ankole.worker.outcome" => name,
+        "ankole.worker.wait_ms" => monotonic_ms() - started_at,
+        "ankole.worker.phases" => Enum.join(phases, ",")
+      })
+
+      if name in ~w(ready abandoned turn_ended),
+        do: Span.set_status(span, OpenTelemetry.status(:ok)),
+        else: mark_error(span, name)
+
+      Span.end_span(span)
+      :ok
+    end)
+  end
+
+  def finish_worker(_handle, _outcome), do: :ok
+
+  defp worker_outcome(outcome) when outcome in [:ready, :abandoned, :turn_ended],
+    do: Atom.to_string(outcome)
+
+  defp worker_outcome({:timeout, phase}) when is_atom(phase), do: "timeout_#{phase}"
+  defp worker_outcome({:rejected, _diagnostic}), do: "rejected"
+
+  defp worker_outcome(outcome) when outcome in [:worker_provider_missing, :agent_not_active],
+    do: Atom.to_string(outcome)
+
+  defp worker_outcome(_outcome), do: "unavailable"
+
+  defp monotonic_ms, do: System.monotonic_time(:millisecond)
+
+  @doc """
   Forwards one worker-produced OTLP protobuf request through the configured exporter endpoint.
 
   Disabled tracing drops the request and returns `:ok`.

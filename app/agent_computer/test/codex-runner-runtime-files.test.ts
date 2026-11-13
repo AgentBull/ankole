@@ -64,5 +64,8 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     expect(content).toContain('materialize an initial working draft')
     expect(content).toContain('reconcile every acceptance criterion against the original task verbatim')
     expect(content).toContain('Outcome: incomplete')
+    expect(content).toContain('request about 4000 max_output_tokens')
+    expect(content).toContain('no `node` or `npm`')
+    expect(content).toContain(`ankole-pod pages.read '{"id":"<id>"}'`)
   })
 })
