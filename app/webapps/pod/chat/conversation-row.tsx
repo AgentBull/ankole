@@ -49,19 +49,40 @@ export function conversationLabel(room: RoomRow, untitled: string) {
 
 /**
  * The latest message as one line of plain text. The control plane sends the first 180 characters of the message's
- * Markdown source, so a row drops the markers that would show as stray symbols: code fences (keeping the code),
- * headings, quotes, list bullets, link and image syntax, `**` bold, strikethrough, and inline-code backticks.
- * Underscores and a single `*` stay, because they are as likely to belong to a name such as `dividend_radar` or
- * `__init__` as to mark emphasis.
+ * Markdown source, so a row drops the markers that would show as stray symbols. Code keeps its text: a fenced
+ * block loses only its fence lines, and an inline code span only its backticks, even when the cut leaves a fence
+ * open. Prose loses its heading, quote, list, and task markers, link and image syntax, `**` bold, and
+ * strikethrough; underscores and a single `*` stay, because they are as likely to belong to a name such as
+ * `dividend_radar` as to mark emphasis.
  */
 export function conversationPreview(source?: string | null) {
-  return (source ?? '')
-    .replace(/^\s*(?:```|~~~)[^\n]*$/gm, '')
-    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, '')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\*\*|~~|`/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  let fence: string | undefined
+  const lines: string[] = []
+  for (const line of (source ?? '').split('\n')) {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    if (marker && (!fence || (marker[0] === fence[0] && marker.length >= fence.length))) {
+      fence = fence ? undefined : marker
+      continue
+    }
+    lines.push(fence ? line : plainProse(line))
+  }
+  return lines.join(' ').replace(/\s+/g, ' ').trim()
+}
+
+/** One line of prose without its Markdown markers; its inline code spans keep their text. */
+function plainProse(line: string) {
+  return line
+    .replace(/^\s*(?:>\s?)*\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)?/, '')
+    .split(/(`[^`]+`)/)
+    .map((part, index) =>
+      index % 2
+        ? part.slice(1, -1)
+        : part
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+            .replace(/\*\*|~~/g, '')
+            .replace(/`/g, '')
+    )
+    .join('')
 }
 
 /**

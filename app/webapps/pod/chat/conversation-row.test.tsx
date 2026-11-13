@@ -51,4 +51,13 @@ describe('conversation previews', () => {
     // The control plane cuts the source at 180 characters, which can leave a fence open.
     expect(conversationPreview('```ts\nconst top = 20')).toBe('const top = 20')
   })
+
+  test('leave the text of code untouched while cleaning the prose around it', () => {
+    expect(
+      conversationPreview(
+        '结果如下：\n```python\n# 求幂\nprint(2 ** 3)\nrows = data[0](limit)\n```\n- 用 `a ** b` 计算'
+      )
+    ).toBe('结果如下： # 求幂 print(2 ** 3) rows = data[0](limit) 用 a ** b 计算')
+    expect(conversationPreview('> - [x] **完成**\n> > 嵌套引用')).toBe('完成 嵌套引用')
+  })
 })
