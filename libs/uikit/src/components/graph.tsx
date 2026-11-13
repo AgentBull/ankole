@@ -94,7 +94,7 @@ export function AnkoleGraph({
   ariaLabel,
   selectedNodeId = null,
   highlightedNodeId = null,
-  focusCenterNodeId = null,
+  focusCenterNodeId: requestedFocusCenterNodeId = null,
   showEdgeLabels = false,
   onSelectNode,
   onHoverNode,
@@ -119,10 +119,16 @@ export function AnkoleGraph({
   const [projectedAnchors, setProjectedAnchors] = useState<Map<string, ProjectedAnchor>>(() => new Map())
 
   const activeNodeId = highlightedNodeId ?? internalHoverId ?? selectedNodeId
+  // Only the radial layout arranges itself around a focus node. Elsewhere a new focus, such as the node a click
+  // selects, restyles the graph without laying it out again.
+  const focusCenterNodeId = layout === 'radial' ? requestedFocusCenterNodeId : null
 
+  // A resize keeps the drawn node positions and only resizes the canvas, so the layout reads the stage size when
+  // the graph's structure changes and does not settle the force simulation again on every resize frame.
   const topology = useMemo(
     () => computeGraphTopology(nodes, edges, layout, stageSize.width, stageSize.height, focusCenterNodeId),
-    [nodes, edges, layout, stageSize.width, stageSize.height, focusCenterNodeId]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes, edges, layout, focusCenterNodeId]
   )
 
   const linkableNodes = useMemo(() => nodes.filter(node => Boolean(node.href)), [nodes])
@@ -210,7 +216,6 @@ export function AnkoleGraph({
         activeNodeId,
         focusCenterNodeId,
         showEdgeLabels,
-        reducedMotion,
         interactive: true
       }),
     [
@@ -221,7 +226,6 @@ export function AnkoleGraph({
       layout,
       nodes,
       palette,
-      reducedMotion,
       selectedNodeId,
       showEdgeLabels,
       stageSize.height,
@@ -234,9 +238,7 @@ export function AnkoleGraph({
     const nodeKey = nodes.map(node => `${node.id}:${node.comboId ?? ''}:${node.tier ?? ''}`).join('|')
     const edgeKey = edges.map(edge => `${edge.id}:${edge.source}->${edge.target}`).join('|')
     const comboKey = combos.map(combo => combo.id).join('|')
-    // Only the radial layout places nodes around the focus; elsewhere a new focus must not restart the layout.
-    const focusKey = layout === 'radial' ? (focusCenterNodeId ?? '') : ''
-    return `${layout}::${focusKey}::${nodeKey}::${edgeKey}::${comboKey}`
+    return `${layout}::${focusCenterNodeId ?? ''}::${nodeKey}::${edgeKey}::${comboKey}`
   }, [combos, edges, focusCenterNodeId, layout, nodes])
 
   const prevStructureKeyRef = useRef<string>('')
@@ -293,8 +295,7 @@ export function AnkoleGraph({
       animation: !reducedMotion,
       zoomRange: [0.22, 3.5],
       autoFit: { type: 'view', options: { when: 'overflow', direction: 'both' } },
-      padding: [36, 36, 36, 36],
-      transforms: [{ type: 'process-parallel-edges', key: 'parallel-edges', distance: 24 }]
+      padding: [36, 36, 36, 36]
     })
 
     const handleSync = () => latestSyncRef.current()
@@ -356,13 +357,6 @@ export function AnkoleGraph({
     prevStructureKeyRef.current = structureKey
 
     if (structureChanged) {
-      // A layout left running from the previous render keeps ticking on removed nodes. G6 then throws
-      // from the shared d3 timer, so no layout finishes and the graph never reports itself rendered.
-      try {
-        graph.stopLayout()
-      } catch {
-        // Before the first render prepares its runtime, G6 has no layout controller and nothing to stop.
-      }
       graph.setOptions({
         animation: !reducedMotion,
         data: graphSpec.data,
@@ -374,8 +368,10 @@ export function AnkoleGraph({
         () => {}
       )
     } else {
-      // Style-only change (hover spotlight, selection, edge-label toggle, or theme switch):
-      // preserve settled layout coordinates and redraw elements in place without re-running physics.
+      // Style-only change (hover spotlight, selection, edge-label toggle, or theme switch): preserve settled
+      // layout coordinates and redraw elements in place without re-running the layout. The spotlight restyles
+      // nearly every element, and the motion it would get is a stroke-color fade on the focused node, so the
+      // redraw skips animation instead of building a few hundred animations on every pointer move.
       const preservedNodes = graphSpec.data.nodes.map(node => {
         if (graph.rendered && graph.hasNode(node.id)) {
           try {
@@ -399,10 +395,16 @@ export function AnkoleGraph({
         edges: graphSpec.data.edges,
         combos: graphSpec.data.combos
       })
-      void graph.draw().then(
-        () => latestSyncRef.current(),
-        () => {}
-      )
+      graph.setOptions({ animation: false })
+      void graph
+        .draw()
+        .then(
+          () => latestSyncRef.current(),
+          () => {}
+        )
+        .finally(() => {
+          if (!graph.destroyed) graph.setOptions({ animation: !reducedMotion })
+        })
     }
   }, [graphSpec, nodes.length, reducedMotion, structureKey, syncProjectedAnchors])
 

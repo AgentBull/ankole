@@ -1,4 +1,4 @@
-import { test, expect, openDocument, caret } from './helpers'
+import { test, expect, openDocument, caret, replaceDocument } from './helpers'
 
 test('a keystroke in a 500-row table takes far less than a second', async ({ page }) => {
   const rows = Array.from({ length: 500 }, (_, i) => `| r${i} | x | y | z | w |`)
@@ -12,6 +12,34 @@ test('a keystroke in a 500-row table takes far less than a second', async ({ pag
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   expect(Date.now() - start).toBeLessThan(1000)
   await expect(editor.getByText('r3q', { exact: true })).toBeVisible()
+})
+
+test('opening a document with many tables lays it out once for all of them', async ({ page, browser, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Chromium records forced layouts with their script stacks in its timeline')
+  const table = '| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |'
+  await page.goto('/')
+  await browser.startTracing(page, {
+    categories: [
+      'devtools.timeline',
+      'disabled-by-default-devtools.timeline',
+      'disabled-by-default-devtools.timeline.stack'
+    ]
+  })
+  await replaceDocument(
+    page,
+    [...Array.from({ length: 24 }, (_, i) => `${table}\n\nParagraph ${i}`), 'Last'].join('\n\n')
+  )
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  const trace = JSON.parse((await browser.stopTracing()).toString()) as {
+    traceEvents: { name: string; args?: { beginData?: { stackTrace?: { url: string }[] } } }[]
+  }
+  // Measuring each table right after writing the previous one forced a style and layout pass per table: 49 for 24.
+  const forced = trace.traceEvents.filter(
+    event =>
+      (event.name === 'UpdateLayoutTree' || event.name === 'Layout') &&
+      event.args?.beginData?.stackTrace?.some(frame => frame.url.includes('TableScroll'))
+  )
+  expect(forced.length).toBeLessThanOrEqual(2)
 })
 
 test('cutting a whole document that starts with a table keeps the editor', async ({ page }) => {

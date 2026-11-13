@@ -126,7 +126,6 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
       activeNodeId: spec.highlightedNodeId ?? spec.selectedNodeId,
       focusCenterNodeId: spec.focusCenterNodeId,
       showEdgeLabels: spec.showEdgeLabels,
-      reducedMotion: !animate,
       interactive: interactiveOverride ?? spec.interactive ?? !useSvgRenderer
     })
   }
@@ -143,7 +142,6 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
     zoomRange: [0.22, 3.5],
     autoFit: { type: 'view', options: { when: 'overflow', direction: 'both' } },
     padding: [36, 36, 36, 36],
-    transforms: [{ type: 'process-parallel-edges', key: 'parallel-edges', distance: 24 }],
     data: initialBuilt.data,
     layout: initialBuilt.layoutOptions,
     behaviors: initialBuilt.behaviors,
@@ -227,7 +225,6 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
       background: canvasPalette.background,
       autoFit: { type: 'view', options: { when: 'overflow', direction: 'both' } },
       padding: [36, 36, 36, 36],
-      transforms: [{ type: 'process-parallel-edges', key: 'parallel-edges', distance: 24 }],
       canvas: { enableMultiLayer: false },
       renderer: () => new SVGRenderer() as never,
       data: {

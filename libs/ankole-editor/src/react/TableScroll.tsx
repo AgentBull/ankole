@@ -4,6 +4,11 @@ import { Table, TableWidths } from '../editor/schema'
 import { tableResizePreview } from '../editor/table-presentation'
 import { useEditor, useEditorLabel, useEditorState } from './context'
 
+interface TableFrame {
+  frame: HTMLElement
+  scroll: HTMLElement
+}
+
 /** Scrolling is available in editable and read-only documents, including nested and wide tables. */
 export function TableScroll() {
   const editor = useEditor()
@@ -14,7 +19,7 @@ export function TableScroll() {
     // The editor renders this component again after it draws that transaction.
     if (state !== editor.state) return
     const preview = state.field(tableResizePreview)
-    const cleanups: (() => void)[] = []
+    const tables: TableFrame[] = []
     state.doc.iterate((node, pos) => {
       if (node.type !== Table.type || !node.isPlot) return
       const frame = editor.nodeDOM(pos) as HTMLElement | null
@@ -32,22 +37,41 @@ export function TableScroll() {
           if (col.style.width !== width) col.style.width = width
         })
       })
-      const update = () =>
-        editor.observer.ignore(() => {
-          scroll.setAttribute('aria-label', label('table_title'))
-          scroll.toggleAttribute('data-scroll-left', scroll.scrollLeft > 1)
-          scroll.toggleAttribute('data-scroll-right', scroll.scrollLeft + scroll.clientWidth < scroll.scrollWidth - 1)
+      tables.push({ frame, scroll })
+    })
+    if (tables.length === 0) return
+    const title = label('table_title')
+    const anchor = editor.contentDOM.closest<HTMLElement>('.editor-anchor')
+    const documentScroll = editor.contentDOM.closest('.document-scroll')
+    // A pass measures every table before it writes to any of them and writes only values that changed. A write
+    // between two measurements would make the browser recompute the whole document's styles for the next read,
+    // once for every table on every keystroke.
+    const update = (targets: readonly TableFrame[]) =>
+      editor.observer.ignore(() => {
+        const edges = targets.map(({ scroll }) => ({
+          left: scroll.scrollLeft > 1,
+          right: scroll.scrollLeft + scroll.clientWidth < scroll.scrollWidth - 1
+        }))
+        const bleeds = targets.some(({ frame }) => frame.parentElement === editor.contentDOM)
+        let bleed = 0
+        if (bleeds && documentScroll) {
           const content = editor.contentDOM.getBoundingClientRect()
-          const host = editor.contentDOM.closest('.document-scroll')?.getBoundingClientRect()
-          const bleed =
-            frame.parentElement === editor.contentDOM && host
-              ? Math.max(0, Math.min(content.left - host.left, host.right - content.right))
-              : 0
-          if (frame.parentElement === editor.contentDOM) {
-            editor.contentDOM.closest<HTMLElement>('.editor-anchor')?.style.setProperty('--table-bleed', `${bleed}px`)
-          }
+          const host = documentScroll.getBoundingClientRect()
+          bleed = Math.max(0, Math.min(content.left - host.left, host.right - content.right))
+        }
+        targets.forEach(({ scroll }, index) => {
+          if (scroll.getAttribute('aria-label') !== title) scroll.setAttribute('aria-label', title)
+          scroll.toggleAttribute('data-scroll-left', edges[index]!.left)
+          scroll.toggleAttribute('data-scroll-right', edges[index]!.right)
         })
-      update()
+        const value = `${bleed}px`
+        if (bleeds && anchor && anchor.style.getPropertyValue('--table-bleed') !== value) {
+          anchor.style.setProperty('--table-bleed', value)
+        }
+      })
+    const updateAll = () => update(tables)
+    const cleanups = tables.map(table => {
+      const { scroll } = table
       const key = (event: KeyboardEvent) => {
         // The focused region owns scrolling; cell editing keeps the editor's bindings.
         if (event.target !== scroll || event.altKey || event.metaKey || event.ctrlKey) return
@@ -69,24 +93,29 @@ export function TableScroll() {
         event.stopPropagation()
         scroll.scrollBy(...offset)
       }
+      const scrolled = () => update([table])
       scroll.addEventListener('keydown', key)
-      scroll.addEventListener('scroll', update, { passive: true })
-      window.addEventListener('resize', update)
-      const observer = new ResizeObserver(update)
+      scroll.addEventListener('scroll', scrolled, { passive: true })
+      return () => {
+        scroll.removeEventListener('keydown', key)
+        scroll.removeEventListener('scroll', scrolled)
+      }
+    })
+    updateAll()
+    window.addEventListener('resize', updateAll)
+    const observer = new ResizeObserver(updateAll)
+    for (const { frame, scroll } of tables) {
       observer.observe(frame)
       observer.observe(scroll)
-      const documentScroll = editor.contentDOM.closest('.document-scroll')
-      if (documentScroll) observer.observe(documentScroll)
       const table = scroll.querySelector('table')
       if (table) observer.observe(table)
-      cleanups.push(() => {
-        scroll.removeEventListener('keydown', key)
-        scroll.removeEventListener('scroll', update)
-        window.removeEventListener('resize', update)
-        observer.disconnect()
-      })
-    })
-    return () => cleanups.forEach(clean => clean())
+    }
+    if (documentScroll) observer.observe(documentScroll)
+    return () => {
+      cleanups.forEach(clean => clean())
+      window.removeEventListener('resize', updateAll)
+      observer.disconnect()
+    }
   }, [editor, state])
   return null
 }

@@ -1,4 +1,15 @@
 import type { ComboData, EdgeData, GraphOptions, NodeData, Point } from '@antv/g6'
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  forceX,
+  forceY,
+  type SimulationLinkDatum,
+  type SimulationNodeDatum
+} from 'd3-force'
 
 export type AnkoleGraphColorRamp =
   | 'blue'
@@ -178,10 +189,58 @@ function truncateLabel(value: string, maxChars: number): string {
   return value.length <= maxChars ? value : `${value.slice(0, maxChars - 1)}…`
 }
 
+// The force layout settles once its cooling factor drops below this threshold, the same stopping point that d3's
+// own simulation timer uses. At this decay rate the simulation reaches it after 103 ticks.
+const FORCE_ALPHA_MIN = 0.001
+const FORCE_ALPHA_DECAY = 0.065
+
+type ForceBody = SimulationNodeDatum & { id: string }
+
 /**
- * Computes degree centrality, 1-hop adjacency, visual node radii, and non-overlapping
- * initial coordinates so every layout converges smoothly and accessible hit targets
- * have immediate viewport positions prior to async canvas completion.
+ * Runs the force layout to rest from the clustered seeds. The canvas then draws the settled graph once,
+ * because drawing every simulation tick redraws every node and edge about a hundred times and keeps
+ * the main thread busy for seconds on a graph of a few hundred elements.
+ */
+function settleForceLayout(
+  nodes: readonly AnkoleGraphNode[],
+  edges: readonly AnkoleGraphEdge[],
+  nodeMap: ReadonlyMap<string, AnkoleGraphNode>,
+  seeds: Map<string, { x: number; y: number }>,
+  width: number,
+  height: number
+) {
+  const bodies: ForceBody[] = nodes.map(node => ({
+    id: node.id,
+    ...(seeds.get(node.id) ?? { x: width / 2, y: height / 2 })
+  }))
+  const links: SimulationLinkDatum<ForceBody>[] = edges
+    .filter(edge => nodeMap.has(edge.source) && nodeMap.has(edge.target) && edge.source !== edge.target)
+    .map(edge => ({ source: edge.source, target: edge.target }))
+  const simulation = forceSimulation(bodies)
+    .stop()
+    .alphaMin(FORCE_ALPHA_MIN)
+    .alphaDecay(FORCE_ALPHA_DECAY)
+    .velocityDecay(0.44)
+    .force(
+      'link',
+      forceLink<ForceBody, SimulationLinkDatum<ForceBody>>(links)
+        .id(body => body.id)
+        .distance(126)
+        .strength(0.34)
+    )
+    .force('charge', forceManyBody().strength(-230))
+    .force('center', forceCenter(width / 2, height / 2))
+    .force('collide', forceCollide(34).strength(0.9))
+    .force('x', forceX(width / 2).strength(0.065))
+    .force('y', forceY(height / 2).strength(0.065))
+  while (simulation.alpha() >= FORCE_ALPHA_MIN) simulation.tick()
+  for (const body of bodies) seeds.set(body.id, { x: body.x ?? width / 2, y: body.y ?? height / 2 })
+}
+
+/**
+ * Computes degree centrality, 1-hop adjacency, visual node radii, and node coordinates so accessible
+ * hit targets have viewport positions before the canvas finishes drawing. The force layout settles
+ * here; the other layouts start from these coordinates and finish in `@antv/g6`.
  */
 export function computeGraphTopology(
   nodes: readonly AnkoleGraphNode[],
@@ -419,6 +478,8 @@ export function computeGraphTopology(
     })
   })
 
+  if (layout === 'force') settleForceLayout(nodes, edges, nodeMap, initialPositions, safeWidth, safeHeight)
+
   return { degrees, neighbors, incidentEdges, radii, initialPositions, hubNodeId }
 }
 
@@ -480,8 +541,45 @@ export interface BuildG6GraphSpecOptions {
   activeNodeId?: string | null
   focusCenterNodeId?: string | null
   showEdgeLabels?: boolean
-  reducedMotion?: boolean
   interactive?: boolean
+}
+
+// Edges that join the same two nodes fan out by this many pixels so each one stays visible.
+const PARALLEL_EDGE_DISTANCE = 24
+
+/**
+ * Bends edges that join the same pair of nodes apart, in either direction, so none of them hides
+ * another. An edge that runs opposite to the first edge of its pair takes the opposite sign, which
+ * bends it to the other side because the offset follows each edge's own direction.
+ */
+function parallelEdgeOffsets(edges: readonly AnkoleGraphEdge[]): Map<string, number> {
+  const groups = new Map<string, AnkoleGraphEdge[]>()
+  for (const edge of edges) {
+    const key = edge.source < edge.target ? `${edge.source}\u0000${edge.target}` : `${edge.target}\u0000${edge.source}`
+    const group = groups.get(key)
+    if (group) group.push(edge)
+    else groups.set(key, [edge])
+  }
+  const offsets = new Map<string, number>()
+  for (const group of groups.values()) {
+    const first = group[0]!
+    group.forEach((edge, index) => {
+      if (group.length === 1) {
+        offsets.set(edge.id, 0)
+        return
+      }
+      const reversed = edge.source === first.target && edge.target === first.source
+      const sign = (index % 2 === 0 ? 1 : -1) * (reversed ? -1 : 1)
+      const step = PARALLEL_EDGE_DISTANCE * 2
+      offsets.set(
+        edge.id,
+        group.length % 2 === 1
+          ? sign * Math.ceil(index / 2) * step
+          : sign * (Math.floor(index / 2) * step + PARALLEL_EDGE_DISTANCE)
+      )
+    })
+  }
+  return offsets
 }
 
 export function buildG6GraphSpec({
@@ -497,7 +595,6 @@ export function buildG6GraphSpec({
   activeNodeId = null,
   focusCenterNodeId = null,
   showEdgeLabels = false,
-  reducedMotion = false,
   interactive = true
 }: BuildG6GraphSpecOptions): {
   data: { nodes: NodeData[]; edges: EdgeData[]; combos: ComboData[] }
@@ -589,49 +686,54 @@ export function buildG6GraphSpec({
     }
   })
 
-  const g6Edges: EdgeData[] = edges
-    .filter(edge => nodeById.has(edge.source) && nodeById.has(edge.target) && edge.source !== edge.target)
-    .map(edge => {
-      const sourceNode = nodeById.get(edge.source)
-      const rampColors = palette.ramps[edge.ramp ?? sourceNode?.ramp ?? 'gray']
-      const isHighlighted = Boolean(activeEdges?.has(edge.id))
-      const isDimmed = hasSpotlight && !isHighlighted
-      const showLabel = Boolean(edge.label && (showEdgeLabels || isHighlighted))
+  const drawnEdges = edges.filter(
+    edge => nodeById.has(edge.source) && nodeById.has(edge.target) && edge.source !== edge.target
+  )
+  const curveOffsets = parallelEdgeOffsets(drawnEdges)
+  const g6Edges: EdgeData[] = drawnEdges.map(edge => {
+    const sourceNode = nodeById.get(edge.source)
+    const rampColors = palette.ramps[edge.ramp ?? sourceNode?.ramp ?? 'gray']
+    const isHighlighted = Boolean(activeEdges?.has(edge.id))
+    const isDimmed = hasSpotlight && !isHighlighted
+    const showLabel = Boolean(edge.label && (showEdgeLabels || isHighlighted))
 
-      return {
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        type: layout === 'hierarchy' ? 'cubic-vertical' : 'quadratic',
-        data: {
-          kind: edge.kind ?? 'relation'
-        },
-        style: {
-          stroke: rampColors.fill,
-          strokeOpacity: isDimmed ? 0.08 : isHighlighted ? 0.92 : edge.kind === 'hierarchy' ? 0.38 : 0.56,
-          lineWidth: isHighlighted ? 2.2 : edge.kind === 'hierarchy' ? 1.2 : 1.5,
-          ...(edge.dashed ? { lineDash: [4, 4] } : {}),
-          endArrow: true,
-          endArrowSize: isHighlighted ? 7 : 5.5,
-          endArrowType: 'vee',
-          zIndex: isHighlighted ? 25 : 1,
-          ...(showLabel
-            ? {
-                labelText: edge.label,
-                labelFontSize: 10,
-                labelFontFamily: palette.fontMono,
-                labelFill: isHighlighted ? palette.foreground : palette.fgSecondary,
-                labelBackground: true,
-                labelBackgroundFill: palette.background,
-                labelBackgroundOpacity: 0.88,
-                labelBackgroundRadius: 3,
-                labelPadding: [1, 4]
-              }
-            : { labelText: '' })
-        }
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: 'quadratic',
+      data: {
+        kind: edge.kind ?? 'relation'
+      },
+      style: {
+        curveOffset: curveOffsets.get(edge.id) ?? 0,
+        stroke: rampColors.fill,
+        strokeOpacity: isDimmed ? 0.08 : isHighlighted ? 0.92 : edge.kind === 'hierarchy' ? 0.38 : 0.56,
+        lineWidth: isHighlighted ? 2.2 : edge.kind === 'hierarchy' ? 1.2 : 1.5,
+        ...(edge.dashed ? { lineDash: [4, 4] } : {}),
+        endArrow: true,
+        endArrowSize: isHighlighted ? 7 : 5.5,
+        endArrowType: 'vee',
+        zIndex: isHighlighted ? 25 : 1,
+        ...(showLabel
+          ? {
+              labelText: edge.label,
+              labelFontSize: 10,
+              labelFontFamily: palette.fontMono,
+              labelFill: isHighlighted ? palette.foreground : palette.fgSecondary,
+              labelBackground: true,
+              labelBackgroundFill: palette.background,
+              labelBackgroundOpacity: 0.88,
+              labelBackgroundRadius: 3,
+              labelPadding: [1, 4]
+            }
+          : { labelText: '' })
       }
-    })
+    }
+  })
 
+  // The force layout settles in `computeGraphTopology`, so its nodes already carry final coordinates and
+  // `@antv/g6` only draws them; the remaining layouts run inside `@antv/g6`.
   let layoutOptions: GraphOptions['layout']
   if (layout === 'hierarchy') {
     layoutOptions = {
@@ -659,29 +761,13 @@ export function buildG6GraphSpec({
       maxPreventOverlapIteration: 200,
       ...(originId ? { focusNode: originId } : {})
     }
-  } else {
-    layoutOptions = {
-      type: 'd3-force',
-      preventOverlap: true,
-      nodeSize: 44,
-      alphaDecay: reducedMotion ? 0.22 : 0.065,
-      velocityDecay: 0.44,
-      manyBody: { strength: -230 },
-      collide: { radius: 34, strength: 0.9 },
-      link: {
-        distance: (edge: { data?: { kind?: string } }) => (edge?.data?.kind === 'hierarchy' ? 76 : 126),
-        strength: (edge: { data?: { kind?: string } }) => (edge?.data?.kind === 'hierarchy' ? 0.72 : 0.34)
-      },
-      x: { x: width / 2, strength: 0.065 },
-      y: { y: height / 2, strength: 0.065 }
-    }
   }
 
   const behaviors: GraphOptions['behaviors'] = interactive
     ? [
         'drag-canvas',
         { type: 'zoom-canvas', sensitivity: 1.15 },
-        layout === 'force' ? 'drag-element-force' : 'drag-element',
+        'drag-element',
         ...(layout === 'combo' ? [{ type: 'collapse-expand', trigger: 'dblclick' as const }] : [])
       ]
     : []
