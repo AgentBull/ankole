@@ -1107,7 +1107,7 @@ Search and directory lists enforce access before applying result caps:
   Pages (including shared child Pages whose parent is hidden) via
   `page_search_documents`, ranking title matches ahead of metadata and body
   matches through `pg_search` BM25 conjunctions, substring tiers, workspace
-  activity, and personal recency/favorite signals, and returning up to 50 Pages
+  activity, and personal recency/favorite signals, and returning up to 100 Pages
   (default 30) alongside snippet highlights and typed jump targets. Move pickers
   pass `exclude_subtree_of` to strip the moving Page and all its
   descendants—even when intermediate ancestors do not match the query—before
