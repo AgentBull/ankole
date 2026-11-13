@@ -389,21 +389,37 @@ test suite runs these tests as well.
 ### Webapp entries and slots
 
 Frontend build composition mirrors the backend split. `app/webapps/entries.json`
-declares public SPA entries, while in SaaS builds
-`internals/webapps/entries.json` adds an `entries` map for private SPAs and an
-optional `overrides` map for wrappers around public entries. Every additional
-entry must use a unique name, every override must target an existing public
-entry, and both maps resolve source paths inside `internals/webapps`. An
-optional `assets` map replaces shared asset files, such as the UIKit fonts:
-each key names a shared file, and Vite resolves every import or CSS `url()`
-that ends in that file name to the mapped file inside `internals/webapps`, so
-the build emits the asset under the SaaS file name. Phoenix
-and Vite consume the same resolved entry names, and every SPA loads the build's
-merged locale catalog (allowing private extensions to define their own TOML key
-namespaces).
+declares public SPA entries. In SaaS builds, `internals/webapps/entries.json`
+adds an `entries` map for private SPAs, an optional `overrides` map for wrappers
+around public entries, and an optional `modules` map for dynamic SaaS webapp
+modules. Build preparation also discovers dynamic SaaS modules by convention at
+`internals/webapps/modules/<id>/extension.{ts,tsx}` and
+`internals/plugins/<id>/webapps/extension.{ts,tsx}`, emitting a typed static
+registry at `_build/<edition>/webapps/edition-modules.gen.ts`
+(`@ankole/edition-modules/registry.ts`). When no dynamic modules are present,
+`@ankole/edition-modules/registry.ts` exports an empty tuple (`[] as const`).
+Every additional entry and module ID must be unique, every override must target
+an existing public entry, and manifest paths resolve inside `internals/webapps`.
+An optional `assets` map replaces shared asset files, such as the UIKit fonts:
+each key names a shared file, and Vite resolves every import or CSS `url()` that
+ends in that file name to the mapped file inside `internals/webapps`, so the
+build emits the asset under the SaaS file name. Phoenix and Vite consume the
+same resolved entry names, and every SPA loads the build's merged locale catalog
+(merging `app/locales`, `internals/locales`,
+`internals/webapps/modules/*/locales`, and `internals/plugins/*/locales`).
+
+On the control plane, dynamic modules that expand build-time TypeScript
+artifacts implement `Ankole.WebappExtension` (`use Ankole.WebappExtension, id:
+"..."`) or register through `Ankole.Plugins.Plugin.webapp_extensions/0`. Running
+`mix ankole.webapps.generate` discovers all registered extensions and writes
+their generated TypeScript files, while `mix ankole.webapps.generate --check`
+verifies that committed artifacts match. `AnkoleWeb.JSONAPI.Router` also merges
+any Ash domains configured under `config :ankole, :json_api_domains` for its
+scope (`:console`, `:pod`, `:site`, `:saas`, `:saas_pod`, or `:saas_site`), and
+tracks that configuration key as a Mix compile-time dependency on the router.
 
 The Console shell loads route components on demand. A route loader that uses a
-page-owned query imports that page on the same route; the shared shell does not
+page-owned query imports that page on the same route. The shared shell does not
 pull unrelated editors into its initial module graph. TanStack Query owns the
 fetched data, and the router renders a ready destination without a minimum
 loading-screen duration. When a destination's code or loader data takes longer
@@ -411,24 +427,43 @@ than 300 ms, the router shows the Console page skeleton inside the shell until
 the destination is ready, so the operator sees that a slow first load or
 navigation is in progress, while a quicker load swaps in directly.
 
-An override wrapper passes typed `slots` into the public root component, whereas
-public roots default to empty slots:
+Each dynamic module uses `export default defineWebappModule({ id, console, pod })`, and an
+override wrapper can also pass typed `slots` into the public root component.
+`resolveConsoleSlots` and `resolvePodSlots` merge all discovered module
+contributions with any explicit root slots, whereas builds with no dynamic
+modules resolve to empty slots:
 
-- **`PodAppSlots`**: Contributes account-menu items and lazy-loaded settings
-  tabs. Each contribution names its owning `pluginId` and renders only when that
-  Plugin appears in the HTML shell's snapshot of active site Plugins. Settings
-  tabs declare `id`, `labelKey`, optional `when`, and a lazy `Component` wrapped
-  in `Suspense`; tab IDs must be unique and cannot collide with `general`,
-  `members`, `invitations`, or `providers`. Tabs without `when` activate
-  alongside their Plugin, while OpenFeature evaluates any `when` flag—returning
-  the settings view to `general` if the currently open tab becomes hidden.
+- **`PodAppSlots`**: Contributes account-menu items (`accountNavigation` or
+  `accountNavigations`) and lazy-loaded settings tabs (`settingsTabs`). Each
+  contribution names its owning `pluginId` and renders only when that Plugin
+  appears in the HTML shell's snapshot of active site Plugins and when optional
+  `when` and `isVisible` checks pass. Multiple modules can contribute
+  account-menu items; `PodShell` gates each contribution independently and
+  renders enabled items in module order (passing `undefined` to `PodSidebar`
+  when none are enabled). Settings tabs declare `id`, `labelKey`, optional
+  `icon`, optional `when` and `isVisible`, and a lazy `Component` wrapped in
+  `Suspense`. Tab IDs must be unique and cannot collide with built-in Pod
+  settings sections (`general`, `members`, `agents`, `invitations`, `providers`,
+  `environment`, or `connectors`). Tabs without `when` activate alongside their
+  Plugin, while OpenFeature evaluates any `when` flag and returns the settings
+  view to `general` if the currently open tab becomes hidden.
 - **`ConsoleAppSlots`**: Contributes extension `routes` and `navSections`,
-  gated by `pluginId` and optional `when`. Each route's `load` function imports
-  its page, and the router loads that code before committing the route, exactly
-  as it does for a core Console page. IDs and route paths cannot collide
-  with core Console routes. TanStack Router stores each route's
-  `scope: 'site' | 'tenant'` in its static metadata; the Console reads the
-  matched route to control the top-bar tenant switcher.
+  gated by `pluginId`, optional `when`, and optional `isVisible`. Multiple
+  contributions that share a navigation section `id` and `pluginId` merge their
+  `items` in module order and compose their `isVisible` predicates, while
+  conflicting `label` or `when` values raise an error. Each route's `load`
+  function imports its page, and optional `loader` prefetches route queries
+  (`{ queryClient, params, location, scope, tenantID }`) in parallel before the
+  route commits. Because `loader` runs during route transition before
+  component-level `SlotGate` and tenant-selection UI render, `tenantID` is
+  `string | null` and any error thrown in `loader` enters the Console route
+  error boundary. IDs and route paths cannot collide with core Console routes.
+  TanStack Router stores each route's `scope: 'site' | 'tenant'` in its static
+  metadata, and `validateConsoleSlots` builds a TanStack Router route matcher
+  for registered extension routes (`tenantPage: 'collection' | 'record'` and
+  optional `collectionPath`) so `tenant-scope.ts`, the top-bar tenant switcher,
+  tenant-scoped `Link`, and `tenantSwitchPath` match the router's exact route
+  selection.
 - **`AuthAppSlots.emailOtpChallenge`**: Contributes a lazy challenge component
   and optional `when` flag. The host passes `attemptKey` and
   `onChallengeStateChange({ready, headers})`, blocking email OTP requests and

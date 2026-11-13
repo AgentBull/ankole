@@ -6,6 +6,7 @@ import {
   assetsDirectory,
   edition,
   editionAssetAliases,
+  editionModulesFile,
   internalsRoot,
   localeDirectory,
   prepareEdition,
@@ -238,7 +239,18 @@ export default defineConfig(({ command }): UserConfig => ({
           edition === 'saas' &&
           (cleanId.endsWith('/webapps/common/styles.css') || cleanId.endsWith('/libs/uikit/src/styles.css'))
         ) {
-          return `${code}\n@source ${JSON.stringify(path.join(internalsRoot, 'webapps'))};\n`
+          const sources = [path.join(internalsRoot, 'webapps')]
+          const pluginsDir = path.join(internalsRoot, 'plugins')
+          if (existsSync(pluginsDir)) {
+            for (const entry of readdirSync(pluginsDir, { withFileTypes: true }).sort((a, b) =>
+              a.name.localeCompare(b.name)
+            )) {
+              if (!entry.isDirectory()) continue
+              const pluginWebapps = path.join(pluginsDir, entry.name, 'webapps')
+              if (existsSync(pluginWebapps)) sources.push(pluginWebapps)
+            }
+          }
+          return `${code}\n${sources.map(source => `@source ${JSON.stringify(source)};`).join('\n')}\n`
         }
       }
     },
@@ -417,7 +429,13 @@ export default defineConfig(({ command }): UserConfig => ({
     ]
   },
   publicDir: false,
-  resolve: { alias: [{ find: '@ankole/locales', replacement: localeDirectory }, ...editionAssetAliases()] },
+  resolve: {
+    alias: [
+      { find: '@ankole/locales', replacement: localeDirectory },
+      { find: /^@ankole\/edition-modules\/.+$/, replacement: editionModulesFile },
+      ...editionAssetAliases()
+    ]
+  },
   root: dirname,
   server: {
     fs: { allow: edition === 'saas' ? [repositoryRoot, artifactRoot, internalsRoot] : [repositoryRoot, artifactRoot] },

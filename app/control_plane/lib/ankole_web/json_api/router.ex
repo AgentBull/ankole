@@ -35,9 +35,20 @@ defmodule AnkoleWeb.JSONAPI.Router do
         do: expand.(before_dispatch),
         else: quote(do: {unquote(context), :before_dispatch, [unquote(scope)]})
 
+    configured_domains =
+      :ankole
+      |> Application.get_env(:json_api_domains, [])
+      |> Keyword.get(scope, [])
+      |> Enum.map(expand)
+
     opts =
       opts
-      |> Keyword.update!(:domains, expand)
+      |> Keyword.update!(:domains, fn domains ->
+        domains
+        |> expand.()
+        |> Kernel.++(configured_domains)
+        |> Enum.uniq()
+      end)
       |> Keyword.merge(
         open_api: "/openapi.json",
         phoenix_endpoint: expand.(quote(do: AnkoleWeb.Endpoint)),
@@ -46,6 +57,7 @@ defmodule AnkoleWeb.JSONAPI.Router do
       )
 
     quote do
+      _ = Application.compile_env(:ankole, [:json_api_domains, unquote(scope)], [])
       use AshJsonApi.Router, unquote(opts)
 
       def call(conn, opts) do

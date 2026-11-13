@@ -397,8 +397,10 @@ function ConsoleNavigation({ mobile = false, onNavigate }: { mobile?: boolean; o
                   {sectionEnabled =>
                     sectionEnabled
                       ? ext.items.map(item =>
-                          item.when ? (
-                            <SlotGate key={item.id} slot={{ pluginId: ext.pluginId, when: item.when }}>
+                          item.when || item.isVisible ? (
+                            <SlotGate
+                              key={item.id}
+                              slot={{ pluginId: ext.pluginId, when: item.when, isVisible: item.isVisible }}>
                               {itemEnabled =>
                                 itemEnabled ? (
                                   <ConsoleNavLink
@@ -436,8 +438,10 @@ function ConsoleNavigation({ mobile = false, onNavigate }: { mobile?: boolean; o
                   <div className="mt-3 grid content-start gap-px">
                     {ext.label ? <h2 className="px-2 pb-0.5 text-xs text-fg-tertiary">{t(ext.label)}</h2> : null}
                     {ext.items.map(item =>
-                      item.when ? (
-                        <SlotGate key={item.id} slot={{ pluginId: ext.pluginId, when: item.when }}>
+                      item.when || item.isVisible ? (
+                        <SlotGate
+                          key={item.id}
+                          slot={{ pluginId: ext.pluginId, when: item.when, isVisible: item.isVisible }}>
                           {itemEnabled =>
                             itemEnabled ? (
                               <ConsoleNavLink

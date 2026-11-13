@@ -1,5 +1,7 @@
 import { useBooleanFlagValue } from '@openfeature/react-sdk'
 import { createContext, useContext, Suspense, type ReactNode } from 'react'
+import type { ConsoleAppSlots } from '../../console/slots'
+import type { PodAppSlots } from '../../pod/slots'
 import { ErrorBoundary, type ErrorBoundaryVariant } from '../error-boundary'
 
 export function validateSlotIDs(slots: readonly { id: string }[], reserved: readonly string[]): void {
@@ -13,7 +15,20 @@ export function validateSlotIDs(slots: readonly { id: string }[], reserved: read
 export interface PluginSlot {
   pluginId: string
   when?: string
+  isVisible?: () => boolean
 }
+
+export interface EditionWebappModule {
+  id?: string
+  console?: ConsoleAppSlots
+  pod?: PodAppSlots
+}
+
+export function defineWebappModule<const T extends EditionWebappModule>(module: T): T & EditionWebappModule {
+  return module
+}
+
+export const emptyWebappModule: EditionWebappModule = defineWebappModule({})
 
 export const ActivePluginsContext = createContext<readonly string[]>([])
 
@@ -24,7 +39,7 @@ interface SlotGateProps {
 
 export function SlotGate({ slot, children }: SlotGateProps) {
   const activePlugins = useContext(ActivePluginsContext)
-  if (!slot || !activePlugins.includes(slot.pluginId)) return children(false)
+  if (!slot || !activePlugins.includes(slot.pluginId) || slot.isVisible?.() === false) return children(false)
   return slot.when === undefined ? children(true) : <FeatureGate flagKey={slot.when}>{children}</FeatureGate>
 }
 

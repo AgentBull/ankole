@@ -8,7 +8,7 @@ import { fromDocument } from './api/json-api'
 import { dataTenantID, selectDataTenant } from '../common/browser-session'
 import { ErrorBlock } from '../common/error-block'
 import { ErrorBoundary } from '../common/error-boundary'
-import type { ConsoleRouteSlot } from './slots'
+import { consoleSlotPageKind, type ConsoleRouteSlot } from './slots'
 import { ConsoleTenantContext } from './tenant-context'
 import { consoleTenantPage, tenantSwitchPath } from './state/tenant-scope'
 
@@ -64,9 +64,7 @@ export function ConsoleTenantContent({ children, slot }: { children: ReactNode; 
       : slot
         ? slot.scope === 'site'
           ? 'site'
-          : /\$|\/new$/.test(slot.path)
-            ? 'record'
-            : 'collection'
+          : consoleSlotPageKind(slot)
         : consoleTenantPage(location.pathname, new URLSearchParams(location.searchStr))
   const tenants = useTenants(mode !== 'site')
   if (mode === 'site') return children

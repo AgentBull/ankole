@@ -40,3 +40,9 @@ Pod Chat renders interactive content through json-render. A model-written `ui` b
 ## Generated clients
 
 Files under `openapi/*.json` and `*/api/generated/` are machine-generated. To change an API contract, update the owning declaration in the control plane, regenerate the OpenAPI spec, and run `bun run --filter @ankole/webapps openapi:generate`. Never hand-edit generated client files.
+
+## Dynamic SaaS modules and slots
+
+Dynamic SaaS modules use `export default defineWebappModule({ id, console, pod })` from `common/slots` at `internals/webapps/modules/<id>/extension.{ts,tsx}`, `internals/plugins/<id>/webapps/extension.{ts,tsx}`, or a path registered under `"modules"` in `internals/webapps/entries.json`. `prepareEdition()` discovers all modules at build time and generates `_build/<edition>/webapps/edition-modules.gen.ts` (`@ankole/edition-modules/registry.ts`). At runtime, `resolveConsoleSlots` and `resolvePodSlots` merge the generated module contributions with any explicit root slots when creating the Console router or rendering `PodApp` (resolving to empty slots when no dynamic modules are present).
+
+In Console extensions, declare `scope: 'site' | 'tenant'` on each `ConsoleRouteSlot`, use `loader` (`{ queryClient, params, location, scope, tenantID }`) to prefetch route queries in parallel with `load` (noting that `loader` runs before component-level `SlotGate` and tenant selection, so `tenantID` is `string | null` and uncaught errors enter the route error boundary), and import `useQuery`, `useMutation`, `Link`, `useNavigate`, and `TableRow` from `console/tenant-context` along with `ConsoleListPage`, `ConsoleEditorPage`, `ConsoleForm`, and `@ankole/uikit` components so tenant-scoped and site-scoped extension pages behave like built-in Console routes.

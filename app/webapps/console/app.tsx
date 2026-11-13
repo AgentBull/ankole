@@ -1,4 +1,6 @@
+import { editionModules } from '@ankole/edition-modules/registry.ts'
 import type { QueryClient } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import {
   createRootRoute,
   createRoute,
@@ -8,14 +10,14 @@ import {
   RouterProvider
 } from '@tanstack/react-router'
 import { configureConsoleAPIClient } from './api/client'
-import { applyDataTenantNavigation } from '../common/browser-session'
+import { applyDataTenantNavigation, dataTenantID } from '../common/browser-session'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { PageSkeleton } from './console-page'
 import { createConsoleRouteLoaders } from './console-route-loaders'
 import { ConsoleLayout } from './console-shell-chrome'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
 import { SlotBoundary, SlotGate } from '../common/slots'
-import { ConsoleSlotsContext, normalizeConsoleSlotPath, validateConsoleSlots, type ConsoleAppSlots } from './slots'
+import { ConsoleSlotsContext, normalizeConsoleSlotPath, resolveConsoleSlots, type ConsoleAppSlots } from './slots'
 
 const AgentEditorPage = lazyRouteComponent(() => import('./pages/agents'), 'AgentEditorPage')
 const AgentsListPage = lazyRouteComponent(() => import('./pages/agents'), 'AgentsListPage')
@@ -107,7 +109,7 @@ configureConsoleAPIClient()
 // routes. Settings are the exception: the key route is nested so its editor can
 // stay deep-linkable while opening as a drawer over the list.
 export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppSlots = {}) {
-  validateConsoleSlots(slots)
+  const resolvedSlots = resolveConsoleSlots(slots, editionModules)
   applyDataTenantNavigation()
   const basename = document.querySelector<HTMLMetaElement>('meta[name="ankole-site-admin-console-path"]')?.content
   if (!basename) throw new Error('The authenticated console shell did not provide its mount path')
@@ -381,14 +383,24 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
         path: 'conversations/$conversationID',
         component: ConversationDetailPage
       }),
-      ...(slots.routes ?? []).map(route => {
+      ...(resolvedSlots.routes ?? []).map(route => {
         const Page = lazyRouteComponent(route.load)
         return createRoute({
           getParentRoute: () => bodyRoute,
           path: normalizeConsoleSlotPath(route.path),
           staticData: { consoleSlot: route },
           // The route component wraps the page in the Plugin gate, so the loader preloads the page's code instead.
-          loader: () => Page.preload?.(),
+          loader: ({ params, location }) =>
+            Promise.all([
+              Page.preload?.(),
+              route.loader?.({
+                queryClient,
+                params: params as Readonly<Record<string, string>>,
+                location: { pathname: location.pathname, searchStr: location.searchStr },
+                scope: route.scope,
+                tenantID: dataTenantID()
+              })
+            ]),
           component: () => (
             <SlotGate slot={route}>
               {enabled =>
@@ -428,9 +440,9 @@ export function ConsoleApp({
   router: ReturnType<typeof createConsoleRouter>
   slots?: ConsoleAppSlots
 }) {
-  validateConsoleSlots(slots)
+  const resolvedSlots = useMemo(() => resolveConsoleSlots(slots, editionModules), [slots])
   return (
-    <ConsoleSlotsContext value={slots}>
+    <ConsoleSlotsContext value={resolvedSlots}>
       <RouterProvider router={router} />
     </ConsoleSlotsContext>
   )

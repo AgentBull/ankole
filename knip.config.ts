@@ -12,8 +12,15 @@ const privateManifest = 'internals/webapps/entries.json'
 const privateEntries = existsSync(privateManifest) ? JSON.parse(readFileSync(privateManifest, 'utf8')) : {}
 const privateWebapps = [
   ...Object.values(privateEntries.entries ?? {}),
-  ...Object.values(privateEntries.overrides ?? {})
+  ...Object.values(privateEntries.overrides ?? {}),
+  ...Object.values(privateEntries.modules ?? {})
 ].map(file => `internals/webapps/${file}!`)
+const dynamicModuleEntries = [
+  'plugins/*/webapps/extension.{ts,tsx}!',
+  ...(existsSync('internals')
+    ? ['internals/plugins/*/webapps/extension.{ts,tsx}!', 'internals/webapps/modules/*/extension.{ts,tsx}!']
+    : [])
+]
 
 const config: KnipConfig = {
   // An export with an internal production caller is live code.
@@ -28,6 +35,7 @@ const config: KnipConfig = {
         'tools/e2e/support/pod_content_browser.mjs!',
         'plugins/cloud_connectors_adapter/sync-catalog.ts!',
         ...privateWebapps,
+        ...dynamicModuleEntries,
         'app/library/agent-plugins/lark/skills/lark-approvals/examples/approval-inbox/server/main.js!'
       ]
     },

@@ -5,6 +5,7 @@ import {
   listIdentityProvidersOptions,
   saveIdentityProviderMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
+import { validateConsoleSlots } from '../slots'
 import {
   consoleTenantPage,
   tenantCollectionPath,
@@ -37,6 +38,41 @@ test('tenant collections aggregate, records require a tenant, and site settings 
   )
   expect(tenantCollectionPath('/identity/shared')).toBe('/identity')
   expect(tenantCollectionPath('/identity/mappings/new')).toBe('/identity/mappings')
+})
+
+test('dynamic Console route slots integrate with consoleTenantPage, tenantCollectionPath, and tenantSwitchPath', () => {
+  const load = async () => ({ default: () => null })
+  validateConsoleSlots({
+    routes: [
+      { id: 'relay-upstreams', pluginId: 'relay', path: '/relay/upstreams', scope: 'site', load },
+      { id: 'relay-upstream-edit', pluginId: 'relay', path: '/relay/upstreams/$accountID', scope: 'site', load },
+      { id: 'relay-policies', pluginId: 'relay', path: '/relay/policies', scope: 'tenant', load },
+      { id: 'relay-policies-new', pluginId: 'relay', path: '/relay/policies/new', scope: 'tenant', load },
+      {
+        id: 'relay-policy-edit',
+        pluginId: 'relay',
+        path: '/relay/policies/$policyID',
+        scope: 'tenant',
+        collectionPath: '/relay/policies',
+        load
+      }
+    ]
+  })
+  try {
+    expect(consoleTenantPage('/relay/upstreams', new URLSearchParams())).toBe('site')
+    expect(consoleTenantPage('/relay/upstreams/acct_01', new URLSearchParams())).toBe('site')
+    expect(consoleTenantPage('/relay/policies', new URLSearchParams())).toBe('collection')
+    expect(consoleTenantPage('/relay/policies/new', new URLSearchParams())).toBe('record')
+    expect(consoleTenantPage('/relay/policies/pol_01', new URLSearchParams())).toBe('record')
+
+    expect(tenantCollectionPath('/relay/policies/pol_01')).toBe('/relay/policies')
+    expect(tenantCollectionPath('/relay/policies/new')).toBe('/relay/policies')
+    expect(tenantSwitchPath('/relay/policies/pol_01', false)).toBe('/relay/policies/pol_01')
+    expect(tenantSwitchPath('/relay/policies/pol_01', true)).toBe('/relay/policies')
+    expect(tenantSwitchPath('/relay/policies/new', true)).toBe('/relay/policies/new')
+  } finally {
+    validateConsoleSlots({})
+  }
 })
 
 test('choosing an editor tenant binds a direct link and switching an owned record returns to its collection', () => {

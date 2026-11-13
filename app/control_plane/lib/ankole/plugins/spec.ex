@@ -28,6 +28,7 @@ defmodule Ankole.Plugins.Spec do
     app_config_definitions: [],
     app_config_patterns: [],
     adapter_declarations: [],
+    webapp_extensions: [],
     children: []
   ]
 
@@ -42,6 +43,7 @@ defmodule Ankole.Plugins.Spec do
           app_config_definitions: [Definition.t()],
           app_config_patterns: [PatternDefinition.t()],
           adapter_declarations: [map()],
+          webapp_extensions: [module()],
           children: [Supervisor.child_spec()]
         }
 
@@ -64,6 +66,8 @@ defmodule Ankole.Plugins.Spec do
          {:ok, definitions} <- optional_list(module, :app_config_definitions, &definition?/1),
          {:ok, patterns} <- optional_list(module, :app_config_patterns, &pattern?/1),
          {:ok, adapter_declarations} <- optional_adapter_declarations(module),
+         {:ok, webapp_extensions} <-
+           optional_list(module, :webapp_extensions, &webapp_extension_module?/1),
          {:ok, children} <- optional_children(module) do
       {:ok,
        %__MODULE__{
@@ -76,6 +80,7 @@ defmodule Ankole.Plugins.Spec do
          app_config_definitions: definitions,
          app_config_patterns: patterns,
          adapter_declarations: adapter_declarations,
+         webapp_extensions: webapp_extensions,
          children: children
        }}
     else
@@ -209,6 +214,13 @@ defmodule Ankole.Plugins.Spec do
 
   defp pattern?(%PatternDefinition{}), do: true
   defp pattern?(_value), do: false
+
+  defp webapp_extension_module?(module) when is_atom(module) do
+    Code.ensure_loaded?(module) and function_exported?(module, :extension_id, 0) and
+      function_exported?(module, :generated_files, 1)
+  end
+
+  defp webapp_extension_module?(_value), do: false
 
   defp map?(value), do: is_map(value)
 
