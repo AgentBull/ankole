@@ -210,7 +210,8 @@ defmodule Ankole.Tenants do
              :ok <- Ankole.Pod.Access.initialize_space(),
              :ok <- Ankole.AIAgent.Library.Contracts.initialize_in_tx(),
              :ok <- Ankole.AIAgent.Library.Management.seed_grants_in_tx(),
-             {:ok, _} <- Ankole.Brain.SchemaPacks.install_packs_in_tx(brain_packs) do
+             {:ok, _} <- Ankole.Brain.SchemaPacks.install_packs_in_tx(brain_packs),
+             {:ok, _} <- Ankole.AIAgent.Library.Jobs.SyncTenant.new(%{}) |> Oban.insert() do
           {:ok, tenant}
         end
       end)

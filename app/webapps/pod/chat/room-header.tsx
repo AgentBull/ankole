@@ -306,23 +306,23 @@ export function RoomHeader({
             <Button
               variant="destructive"
               disabled={actions.participants.isPending}
-              onClick={() =>
-                actions.participants.mutate(
-                  { removeUIDs: [room.viewer.uid] },
-                  {
-                    onSuccess: () => {
-                      setLeaving(false)
-                      client.removeQueries({ queryKey: podKeys.detail(room.id) })
-                      void client.invalidateQueries({ queryKey: podKeys.conversations })
-                      if (room.pageID) {
-                        void client.invalidateQueries({ queryKey: podKeys.pageConversations(room.pageID) })
-                      }
-                      if (onExitConversation) onExitConversation()
-                      else void navigate({ to: podLocation('/').pathname })
-                    }
-                  }
-                )
-              }>
+              onClick={async () => {
+                // The room's refresh after leaving reads a 404 and can unmount this header before
+                // per-call callbacks run, so leave the room from the awaited result instead.
+                try {
+                  await actions.participants.mutateAsync({ removeUIDs: [room.viewer.uid] })
+                } catch {
+                  return
+                }
+                setLeaving(false)
+                client.removeQueries({ queryKey: podKeys.detail(room.id) })
+                void client.invalidateQueries({ queryKey: podKeys.conversations })
+                if (room.pageID) {
+                  void client.invalidateQueries({ queryKey: podKeys.pageConversations(room.pageID) })
+                }
+                if (onExitConversation) onExitConversation()
+                else void navigate({ to: podLocation('/').pathname })
+              }}>
               {t('pod.chat_room.leave')}
             </Button>
           </DialogFooter>
