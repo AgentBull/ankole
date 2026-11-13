@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 2.0.0-alpha.148 (2026-11-13)
+
+- Return to the Private content list after moving a top-level Private page to
+  the trash. Pod sometimes opened the hidden system page named Private instead.
+- Keep a presentation playing full screen while you change slides or
+  collaborators edit the deck. Any update to the page used to leave full
+  screen and end the slideshow.
+- Turn selected text into a link when you paste a web address from the
+  context menu after selecting the text with Shift and the arrow keys or Home.
+  The editor used to replace the selected text with the address.
+- Limit **Check access** on a page you cannot manage to yourself and your own
+  personal assistant. A viewer without manage access could check any other
+  person or AI colleague on the page, which only page managers may do.
+- Show Base chart labels in the interface language. Axis titles, data table
+  headers, and KPI labels name the metric as, for example, "Sum · Revenue" in
+  the viewer's language instead of `SUM(Revenue)` or `Count`; the merged
+  scatter color group reads "Other" in that language; and screen readers
+  announce the metric controls without English words.
+- Open the matching records of a Base chart category from the keyboard. In the
+  chart's data table, the first cell of each row is now a button that opens the
+  same record list as clicking that bar, point, or slice.
+
 ## Version 2.0.0-alpha.147 (2026-11-13)
 
 - Fix commands such as `cat`, `bun`, `curl`, and `git` hanging until timeout
@@ -23,25 +45,6 @@
   Infographics as editable source instead of locked anchors.
 - Show "This view has no records" on a Base kanban view whose grouping field
   has no columns. The view used to show the raw text `pod.content.no_records`.
-- Return to the Private content list after moving a top-level Private page to
-  the trash. Pod sometimes opened the hidden system page named Private instead.
-- Keep a presentation playing full screen while you change slides or
-  collaborators edit the deck. Any update to the page used to leave full
-  screen and end the slideshow.
-- Turn selected text into a link when you paste a web address from the
-  context menu after selecting the text with Shift and the arrow keys or Home.
-  The editor used to replace the selected text with the address.
-- Limit **Check access** on a page you cannot manage to yourself and your own
-  personal assistant. A viewer without manage access could check any other
-  person or AI colleague on the page, which only page managers may do.
-- Show Base chart labels in the interface language. Axis titles, data table
-  headers, and KPI labels name the metric as, for example, "Sum · Revenue" in
-  the viewer's language instead of `SUM(Revenue)` or `Count`; the merged
-  scatter color group reads "Other" in that language; and screen readers
-  announce the metric controls without English words.
-- Open the matching records of a Base chart category from the keyboard. In the
-  chart's data table, the first cell of each row is now a button that opens the
-  same record list as clicking that bar, point, or slice.
 - Label the per-slot action on the Site defaults tab **Clear** instead of
   **Restore inheritance**, because Site values are the base layer and have
   nothing to inherit. Its confirmation warns that every Pod and Agent without
