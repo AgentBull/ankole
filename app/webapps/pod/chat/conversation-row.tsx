@@ -1,5 +1,5 @@
 import { Badge } from '@ankole/uikit'
-import { ChatRegular, PeopleRegular } from '@ankole/uikit/icons'
+import { ChatRegular } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import type { podConversations } from '../api/generated/sdk.gen'
@@ -48,23 +48,61 @@ export function conversationLabel(room: RoomRow, untitled: string) {
 }
 
 /**
- * The leading mark tells the three kinds apart at a glance: a colleague DM shows the colleague's face, a group
- * shows a group mark, and an assistant task shows a plain conversation mark, because every task belongs to the
- * same assistant and repeating its avatar on each row would add noise rather than information.
+ * The latest message as one line of plain text. The control plane sends the first 180 characters of the message's
+ * Markdown source, so a row drops the markers that would show as stray symbols. Code keeps its text: a fenced
+ * block loses only its fence lines, and an inline code span only its backticks, even when the cut leaves a fence
+ * open. Prose loses its heading, quote, list, and task markers, link and image syntax, `**` bold, and
+ * strikethrough; underscores and a single `*` stay, because they are as likely to belong to a name such as
+ * `dividend_radar` as to mark emphasis.
  */
-export function ConversationGlyph({ room, size = 'sm' }: { room: RoomRow; size?: 'sm' | 'md' }) {
-  const colleague = room.conversationKind === 'colleague_dm' ? room.agents[0] : undefined
-  if (colleague) {
-    return (
-      <span className="pod-conversation-glyph" data-size={size}>
-        <ChatAvatar name={colleague.displayName} src={colleague.avatarURL} agent />
-      </span>
-    )
+export function conversationPreview(source?: string | null) {
+  let fence: string | undefined
+  const lines: string[] = []
+  for (const line of (source ?? '').split('\n')) {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    if (marker && (!fence || (marker[0] === fence[0] && marker.length >= fence.length))) {
+      fence = fence ? undefined : marker
+      continue
+    }
+    lines.push(fence ? line : plainProse(line))
   }
-  const Icon = room.conversationKind === 'group' ? PeopleRegular : ChatRegular
+  return lines.join(' ').replace(/\s+/g, ' ').trim()
+}
+
+/** One line of prose without its Markdown markers; its inline code spans keep their text. */
+function plainProse(line: string) {
+  return line
+    .replace(/^\s*(?:>\s?)*\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)?/, '')
+    .split(/(`[^`]+`)/)
+    .map((part, index) =>
+      index % 2
+        ? part.slice(1, -1)
+        : part
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+            .replace(/\*\*|~~/g, '')
+            .replace(/`/g, '')
+    )
+    .join('')
+}
+
+/**
+ * The leading mark tells the three kinds apart at a glance: a colleague DM shows the colleague's avatar and a group
+ * shows the group's avatar, one rounded square with the same fill and edge, and an assistant task shows a plain
+ * conversation mark, because every task belongs to the same assistant and repeating its avatar on each row would add
+ * noise rather than information. `lg` is the 32px avatar of a two-line sidebar row.
+ */
+export function ConversationGlyph({ room, size = 'sm' }: { room: RoomRow; size?: 'sm' | 'md' | 'lg' }) {
+  const colleague = room.conversationKind === 'colleague_dm' ? room.agents[0] : undefined
+  const group = room.conversationKind === 'group'
+  const avatar = colleague ? (
+    <ChatAvatar name={colleague.displayName} src={colleague.avatarURL} agent size={size === 'lg' ? 'default' : 'sm'} />
+  ) : group ? (
+    <ChatAvatar name={room.title} group size={size === 'lg' ? 'default' : 'sm'} />
+  ) : undefined
+  if (avatar && size === 'lg') return avatar
   return (
-    <span className="pod-conversation-glyph" data-size={size}>
-      <Icon />
+    <span className="pod-conversation-glyph" data-size={size === 'lg' ? 'md' : size}>
+      {avatar ?? <ChatRegular />}
     </span>
   )
 }

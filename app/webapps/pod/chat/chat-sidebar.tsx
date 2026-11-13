@@ -10,6 +10,7 @@ import {
   SidebarMenuButton,
   SidebarMenuIcon,
   SidebarMenuItem,
+  SidebarMenuText,
   useSidebar,
   ContextMenu,
   ContextMenuTrigger,
@@ -59,6 +60,7 @@ import {
   ConversationTitle,
   conversationLabel,
   conversationPath,
+  conversationPreview,
   type RoomRow
 } from './conversation-row'
 import { useDebouncedValue } from '../../common/use-debounced-value'
@@ -239,36 +241,36 @@ export function ChatSidebar() {
       <ContextMenu key={room.id}>
         <ContextMenuTrigger render={<SidebarMenuItem className="pod-chat-row" data-lines={twoLines ? 2 : 1} />}>
           {renaming === room.id ? (
-            <div className="pod-chat-row-editing">
-              <ConversationGlyph room={room} size={twoLines ? 'md' : 'sm'} />
+            <div className="pod-chat-row-editing" data-lines={twoLines ? 2 : 1}>
+              <ConversationGlyph room={room} size={twoLines ? 'lg' : 'sm'} />
               <ChatRenameField room={room} onDone={() => setRenaming(undefined)} />
             </div>
           ) : (
             <>
               <SidebarMenuButton
                 render={<Link to={target} />}
+                size={twoLines ? 'lg' : 'default'}
                 isActive={pathname === target}
                 onClick={close}
                 title={title}>
-                <SidebarMenuIcon>
-                  <ConversationGlyph room={room} size={twoLines ? 'md' : 'sm'} />
+                <SidebarMenuIcon size={twoLines ? 'lg' : 'default'}>
+                  <ConversationGlyph room={room} size={twoLines ? 'lg' : 'sm'} />
                 </SidebarMenuIcon>
                 {twoLines ? (
-                  <span className="pod-chat-row-copy" dir="auto">
-                    <span className="pod-chat-row-line">
-                      <span className="pod-chat-row-title">
-                        <ConversationTitle room={room} />
-                      </span>
-                      <span className="pod-chat-row-trailing">{time}</span>
-                    </span>
-                    <span className="pod-chat-row-line">
-                      <span className="pod-chat-row-preview">{room.latestMessagePreview}</span>
-                      <span className="pod-chat-row-trailing">
-                        {muted}
-                        <ChatRowStatus status={room.rowStatus} />
-                      </span>
-                    </span>
-                  </span>
+                  <SidebarMenuText
+                    dir="auto"
+                    title={<ConversationTitle room={room} />}
+                    meta={time}
+                    description={conversationPreview(room.latestMessagePreview)}
+                    status={
+                      (muted || room.rowStatus !== 'idle') && (
+                        <>
+                          {muted}
+                          <ChatRowStatus status={room.rowStatus} />
+                        </>
+                      )
+                    }
+                  />
                 ) : (
                   <span className="pod-chat-row-line" dir="auto">
                     <span className="pod-chat-row-title">
@@ -301,22 +303,11 @@ export function ChatSidebar() {
     const target = podLocation(`/dm/${encodeURIComponent(agent.uid)}`).pathname
     return (
       <SidebarMenuItem key={agent.uid} className="pod-chat-row" data-lines={2}>
-        <SidebarMenuButton render={<Link to={target} />} isActive={pathname === target} onClick={close}>
-          <SidebarMenuIcon>
-            <span className="pod-conversation-glyph" data-size="md">
-              <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent />
-            </span>
+        <SidebarMenuButton render={<Link to={target} />} size="lg" isActive={pathname === target} onClick={close}>
+          <SidebarMenuIcon size="lg">
+            <ChatAvatar name={agent.displayName} src={agent.avatarURL} agent size="default" />
           </SidebarMenuIcon>
-          <span className="pod-chat-row-copy">
-            <span className="pod-chat-row-line">
-              <span className="pod-chat-row-title">
-                <AgentName agent={agent} />
-              </span>
-            </span>
-            <span className="pod-chat-row-line">
-              <span className="pod-chat-row-preview">{agent.role}</span>
-            </span>
-          </span>
+          <SidebarMenuText dir="auto" title={<AgentName agent={agent} />} description={agent.role} />
         </SidebarMenuButton>
       </SidebarMenuItem>
     )

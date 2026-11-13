@@ -683,8 +683,9 @@ function SidebarMenuRow({
  * A sidebar row is 32px high with the control radius, and 40px high in the phone sheet. Its content starts 12px in,
  * and one indent further for each nesting level. The indent is 20px, and 24px in the phone sheet. A 20px icon in a
  * `SidebarMenuIcon` sits 6px before a label of 14px primary text on a 26px line; a parent row's arrow takes the same
- * slot, so a parent's icon and label line up with its siblings'. The states come from `nav-row`, and the row gives
- * up room at its end while its actions show (see `styles.css`).
+ * slot, so a parent's icon and label line up with its siblings'. A row of someone to talk to is `size="lg"`: 48px
+ * high, with a 32px avatar in a `SidebarMenuIcon size="lg"` 8px before the two lines of a `SidebarMenuText`. The
+ * states come from `nav-row`, and the row gives up room at its end while its actions show (see `styles.css`).
  */
 const sidebarMenuButtonVariants = cva(
   "nav-row peer/menu-button group/menu-button flex w-full min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-control py-0 ps-[calc(var(--spacing)*3+var(--sidebar-menu-level,0)*var(--sidebar-menu-indent,calc(var(--spacing)*5)))] pe-[calc(var(--spacing)*2+var(--sidebar-menu-trail,0px))] text-left text-75 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-1.5! focus-visible:-outline-offset-2 in-data-[mobile=true]:min-h-10 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled [&_svg]:shrink-0 [&_svg]:text-(--nav-icon) [&_svg:not([class*='size-'])]:size-5 [&>span:last-child]:truncate",
@@ -693,7 +694,7 @@ const sidebarMenuButtonVariants = cva(
       size: {
         default: 'h-8',
         sm: 'h-7 text-[13px] leading-5',
-        lg: 'h-14 group-data-[collapsible=icon]:p-0!'
+        lg: 'h-12 gap-2 group-data-[collapsible=icon]:p-0!'
       }
     },
     defaultVariants: {
@@ -753,27 +754,67 @@ function SidebarMenuButton({
 
 /**
  * A row's icon in the 20px slot at the start of a `SidebarMenuButton`: a glyph, an emoji, a picture, or an avatar.
- * The icon takes the primary colour in every state of the row; `tone="secondary"` draws the icon of a row that starts
- * an action, such as a new conversation, in the secondary colour. A parent row's arrow takes this slot while it
- * shows (see `SidebarMenuToggle`).
+ * `size="lg"` is the 32px slot of a `size="lg"` row, which holds a default-size `Avatar`. The icon takes the primary
+ * colour in every state of the row; `tone="secondary"` draws the icon of a row that starts an action, such as a new
+ * conversation, in the secondary colour. A parent row's arrow takes this slot while it shows (see
+ * `SidebarMenuToggle`).
  */
 function SidebarMenuIcon({
   className,
   tone = 'primary',
+  size = 'default',
   ...props
-}: React.ComponentProps<'span'> & { tone?: 'primary' | 'secondary' }) {
+}: React.ComponentProps<'span'> & { tone?: 'primary' | 'secondary'; size?: 'default' | 'lg' }) {
   return (
     <span
       aria-hidden
       data-slot="sidebar-menu-icon"
       data-sidebar="menu-icon"
+      data-size={size}
       className={cn(
-        'grid size-5 shrink-0 place-items-center text-(--nav-icon)',
+        'grid shrink-0 place-items-center text-(--nav-icon)',
+        size === 'lg' ? 'size-8' : 'size-5',
         tone === 'secondary' ? '[--nav-icon:var(--fg-secondary)]' : '[--nav-icon:var(--foreground)]',
         className
       )}
       {...props}
     />
+  )
+}
+
+/**
+ * The two lines of a `size="lg"` row: the title in the row's 14px primary text and, under it, a description in 12px
+ * tertiary text, each cut to one line. `meta`, such as a time, ends the title line, and `status`, such as an unread
+ * mark, ends the description line; both take the 12px tertiary step with tabular digits, so they read as one
+ * trailing column. Without a description or a status the title stands alone, centred in the row.
+ */
+function SidebarMenuText({
+  className,
+  title,
+  description,
+  meta,
+  status,
+  ...props
+}: Omit<React.ComponentProps<'span'>, 'title' | 'children'> & {
+  title: React.ReactNode
+  description?: React.ReactNode
+  meta?: React.ReactNode
+  status?: React.ReactNode
+}) {
+  const trailing = 'flex shrink-0 items-center gap-1 text-50 leading-4 text-fg-tertiary tabular-nums'
+  return (
+    <span data-slot="sidebar-menu-text" className={cn('grid min-w-0 flex-1 gap-0.5', className)} {...props}>
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate leading-5">{title}</span>
+        {meta && <span className={trailing}>{meta}</span>}
+      </span>
+      {(description || status) && (
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-50 leading-4 text-fg-tertiary">{description}</span>
+          {status && <span className={trailing}>{status}</span>}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -1037,6 +1078,7 @@ export {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  SidebarMenuText,
   SidebarMenuToggle,
   SidebarProvider,
   SidebarRail,

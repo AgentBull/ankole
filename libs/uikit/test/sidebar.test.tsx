@@ -23,6 +23,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  SidebarMenuText,
   SidebarMenuToggle,
   SidebarProvider,
   SidebarSeparator,
@@ -177,6 +178,49 @@ describe('Sidebar menu rows', () => {
     const action = classesOf(tagWith(html, 'data-testid="action"'))
     expect(action).toContain('[--nav-icon:var(--fg-secondary)]')
     expect(action).not.toContain('[--nav-icon:var(--foreground)]')
+  })
+
+  test('lays out a 48px row of someone to talk to: a 32px avatar 8px before a title and time over a description', () => {
+    const html = shell(
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton size="lg" data-testid="row">
+            <SidebarMenuIcon size="lg" data-testid="avatar">
+              <Avatar shape="square">
+                <AvatarFallback>GR</AvatarFallback>
+              </Avatar>
+            </SidebarMenuIcon>
+            <SidebarMenuText
+              data-testid="text"
+              title="Growth team"
+              meta="9m"
+              description="Chen: I will check it this afternoon"
+              status={<span data-testid="unread" />}
+            />
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    )
+    const row = classesOf(tagWith(html, 'data-testid="row"'))
+    expect(row).toEqual(expect.arrayContaining(['h-12', 'gap-2']))
+    expect(row).not.toContain('h-8')
+    const avatar = tagWith(html, 'data-testid="avatar"')
+    expect(attributeOf(avatar, 'data-size')).toBe('lg')
+    expect(classesOf(avatar)).toContain('size-8')
+    expect(classesOf(avatar)).not.toContain('size-5')
+
+    const text = html.slice(html.indexOf('data-testid="text"'))
+    expect(text.indexOf('Growth team')).toBeLessThan(text.indexOf('9m'))
+    expect(text.indexOf('9m')).toBeLessThan(text.indexOf('Chen: I will check it this afternoon'))
+    expect(text.indexOf('Chen: I will check it this afternoon')).toBeLessThan(text.indexOf('data-testid="unread"'))
+    // The title keeps the row's 14px text on a 20px line; the description and the trailing column take 12/16.
+    expect(text).toContain('class="min-w-0 flex-1 truncate leading-5">Growth team')
+    expect(text).toContain('class="min-w-0 flex-1 truncate text-50 leading-4 text-fg-tertiary">Chen')
+    expect(text).toContain('text-50 leading-4 text-fg-tertiary tabular-nums">9m')
+
+    // Without a description or a status the title stands alone: the text, its one line, and the title.
+    expect(renderToStaticMarkup(<SidebarMenuText title="Legal" meta="2d" />).match(/<span/g)).toHaveLength(4)
+    expect(renderToStaticMarkup(<SidebarMenuText title="Legal" />).match(/<span/g)).toHaveLength(3)
   })
 
   test('renders a group as the element that the caller names, such as a region', () => {

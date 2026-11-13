@@ -598,11 +598,14 @@ on the five latest tasks; Show all lists the rest of the history, and the
 filter above the list searches it. While the section is collapsed, it exposes
 only pending questions, active work and unread tasks. A click anywhere on a
 section heading expands or collapses that section, and keyboard users toggle it
-with its chevron. Task rows are one line;
-IM rooms and colleagues use two lines, with the name and time above the latest
-message or the colleague's role. Every list names an Agent by its display name
-followed by its `@uid`, marks a DM with the colleague's avatar, a group with a
-group mark, and a task with a conversation mark. Home interleaves Pages and
+with its chevron. Task rows are one 32 px line;
+IM rooms and colleagues are the UI kit's 48 px two-line rows, with a 32 px
+avatar 8 px before the name and time, above the latest message as plain text or
+the colleague's role. Every list names an Agent by its display name followed by
+its `@uid`, marks a DM with the colleague's avatar and a group with the group's
+avatar, and marks a task with a conversation mark. An Agent's avatar and a
+group's avatar are one rounded square with the same fill and hairline edge; the
+group's shows the group mark. Home interleaves Pages and
 conversations, retaining at most three attention items ahead of ordinary
 recents: pending decisions first, relevant unread comments second, and running
 work third. The Home and Chat tab badges use the same count: Chat counts unread IM and
@@ -703,10 +706,17 @@ message names its author beside a 32 px round avatar, which Agents and people
 share, 12 px from the name. Without an uploaded picture, a person's avatar shows
 the initials of their name and an Agent's shows the bot mark, because an
 Agent's name, such as a personal assistant's, often begins with its owner's
-name. The message's first line sits 2 px under that row,
+name. The content of an Agent's reply or another person's message starts on
+the name's edge, 44 px in, rather than under the avatar, and so does its action
+row; a message that continues the same author's last one keeps that edge. The
+message's first line sits 2 px under that row,
 and its work summary 6 px under it: a 24 px filled caret that turns a quarter
-while the summary is open, 4 px from its label. An event notice shows its
-author's 20 px avatar.
+while the summary is open, then its label 22 px in. The caret's glyph stands on
+the name's edge, and the open steps hang from a rail that runs down from the
+middle of that glyph, with their icons under the summary's label. A step's
+hover wash stays right of the rail and ends on the content's far edge, with the
+text and the composer. An event
+notice shows its author's 20 px avatar.
 The objects inside a message are one family of outline cards (`surface-outline`
 in the UI kit): an 8 px radius and one hairline without a fill, a 20 px mark in
 the secondary colour, a title in 14 px Medium text, and meta in 12 px tertiary
@@ -739,7 +749,12 @@ is a hairline. Its text is 16 px on a
 attach, mention, and command buttons, the recipient and model selectors, and a
 52 × 20 px send pill that turns brand-coloured once the draft can be sent. A
 recipient that the conversation fixes shows as a label, which a composer
-narrower than 20 rem leaves out.
+narrower than 20 rem leaves out. In a chat column wider than 480 px the
+composer and the notes above it start on the authors' names, where the content
+of the messages starts, and end on the messages' far edge; a narrower column,
+such as the Page assistant or the column beside a side panel, keeps the
+composer at its full width, so the toolbar keeps the recipient and model
+controls.
 
 Each state of a turn has its own mark, so the person can tell at a glance
 whether an Agent is working, needs them, or has stopped. In the sidebar, an
@@ -897,7 +912,9 @@ In the timeline, compact event notices sit alongside attributed messages:
   inspector is a narrow panel, so its
   text is 14 px on a 26 px line and its labels and status are 12 px, all 18 px
   from the panel's edge; the task's brief, its plan, and its result are block
-  cards.
+  cards. The inspector names no author, so a work summary's caret stands on
+  that 18 px edge with the steps' rail under it, as it stands on the author's
+  name in the chat, and the composer's sides stand on the content's edges.
 - Message actions support copying, quoting, eligible edits, Agent retries, and
   multi-message selection. The actions form a 32 px row directly under the last
   block of the message they act on, 12 px above the next message: select,

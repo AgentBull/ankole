@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.143 (2026-11-13)
+## Version 2.0.0-alpha.144 (2026-11-13)
 
 - When the Agent computer cannot start in time, the Agent now stops calling
   computer tools for the rest of the turn and tells the user what is blocked.
@@ -16,6 +16,21 @@
 - Hand Applet development to a background job from the main Agent. Codex jobs
   keep tool output small, use `bun` because the computer has no `node`, and
   read `ankole:page` links with `ankole-pod pages.read`.
+
+## Version 2.0.0-alpha.143 (2026-11-13)
+
+- Line up a reply with its author's name in Pod Chat. An Agent's reply and
+  another person's message now start beside the avatar, under the name, and so
+  do their action rows. The work summary's caret sits on the name's edge, the
+  open steps hang from a rail under the caret, and a step's hover background
+  stays inside the message. In a chat column wider than 480 px the composer
+  lines up with the messages too. The background-work inspector uses the same
+  layout, and its composer lines up with its content.
+- Redesign the rooms and colleagues in the Chat sidebar's Messages and
+  colleagues section as two-line rows with 32 px avatars: the name and time
+  above the latest message, shown without Markdown symbols, and its state. A
+  group now shows a group avatar in the same rounded square as an Agent's, in
+  every list that shows conversations.
 
 ## Version 2.0.0-alpha.142 (2026-11-13)
 
