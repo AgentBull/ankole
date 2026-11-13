@@ -1,11 +1,18 @@
-use super::document;
+use super::document::{self, Dialect};
 use crate::page_document::tree::{self, Attrs, Element, Node, Result};
 use comrak::nodes::{AlertType, AstNode, ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Options};
 use regex::Regex;
 use std::sync::LazyLock;
 
-pub(super) fn body(source: &str) -> Result<Element> {
+pub(super) fn body(source: &str, dialect: Dialect) -> Result<Element> {
+    let folded;
+    let source = if dialect == Dialect::Document {
+        folded = fold_diagram_wrappers(source);
+        folded.as_str()
+    } else {
+        source
+    };
     let arena = Arena::new();
     let mut options = Options::default();
     options.extension.table = true;
@@ -13,19 +20,19 @@ pub(super) fn body(source: &str) -> Result<Element> {
     options.extension.strikethrough = true;
     options.extension.alerts = true;
     let ast = comrak::parse_document(&arena, source, &options);
-    let root = tree::normalize(tree::element("page", Attrs::new(), blocks(ast)?))?;
-    document::validate_tree(&root)?;
+    let root = tree::normalize(tree::element("page", Attrs::new(), blocks(ast, dialect)?))?;
+    document::validate_tree(&root, dialect)?;
     Ok(root)
 }
 
-fn blocks<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {
+fn blocks<'a>(node: &'a AstNode<'a>, dialect: Dialect) -> Result<Vec<Node>> {
     node.children()
-        .map(block)
+        .map(|child| block(child, dialect))
         .collect::<Result<Vec<_>>>()
         .map(|items| items.into_iter().flatten().collect())
 }
 
-fn block<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {
+fn block<'a>(node: &'a AstNode<'a>, dialect: Dialect) -> Result<Vec<Node>> {
     let data = node.data.borrow();
     let mut attrs = Attrs::new();
     let (tag, children) = match &data.value {
@@ -55,15 +62,18 @@ fn block<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {
         }
         NodeValue::Heading(h) => (format!("h{}", h.level), inline(node)?),
         NodeValue::ThematicBreak => ("hr".into(), vec![]),
-        NodeValue::BlockQuote => ("blockquote".into(), blocks(node)?),
+        NodeValue::BlockQuote => ("blockquote".into(), blocks(node, dialect)?),
         NodeValue::List(list) => {
             let ordered = list.list_type == ListType::Ordered;
             if ordered && list.start != 1 {
                 attrs.insert("start".into(), list.start.to_string());
             }
-            ((if ordered { "ol" } else { "ul" }).into(), blocks(node)?)
+            (
+                (if ordered { "ol" } else { "ul" }).into(),
+                blocks(node, dialect)?,
+            )
         }
-        NodeValue::Item(_) => ("li".into(), blocks(node)?),
+        NodeValue::Item(_) => ("li".into(), blocks(node, dialect)?),
         NodeValue::TaskItem(task) => {
             attrs.insert(
                 "task".into(),
@@ -74,7 +84,7 @@ fn block<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {
                 }
                 .into(),
             );
-            ("li".into(), blocks(node)?)
+            ("li".into(), blocks(node, dialect)?)
         }
         NodeValue::CodeBlock(code) => {
             let (lang, meta) = code.info.split_once(' ').unwrap_or((&code.info, ""));
@@ -83,9 +93,16 @@ fn block<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {
                 .strip_suffix('\n')
                 .unwrap_or(&code.literal)
                 .to_owned();
-            if meta.is_empty()
-                && let Some(spec) =
-                    crate::page_document::attributes::knowledge_source_diagram_by_fence(lang)
+            if let Some(wrapped) = meta.strip_prefix(WRAPPED_DIAGRAM)
+                && let Some(spec) = document::diagram_by_fence(lang, dialect)
+            {
+                let wrapper = tree::parse(&format!("<page><{} {wrapped}/></page>", spec.tag))?;
+                if let Some(Node::Element(diagram)) = wrapper.children.into_iter().next() {
+                    attrs = diagram.attrs;
+                }
+                (spec.tag.into(), vec![Node::Text(content)])
+            } else if meta.is_empty()
+                && let Some(spec) = document::diagram_by_fence(lang, dialect)
             {
                 (spec.tag.into(), vec![Node::Text(content)])
             } else {
@@ -120,7 +137,7 @@ fn block<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {
                     );
                 }
             }
-            ("callout".into(), blocks(node)?)
+            ("callout".into(), blocks(node, dialect)?)
         }
         NodeValue::Table(table) => {
             let mut rows = Vec::new();
@@ -158,6 +175,93 @@ fn block<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {
         value => return Err(format!("unsupported knowledge Markdown block: {value:?}")),
     };
     Ok(vec![Node::Element(tree::element(tag, attrs, children))])
+}
+
+/// Marks a diagram fence folded from a wrapper; Markdown text cannot contain this character.
+const WRAPPED_DIAGRAM: char = '\u{1}';
+
+/// Document Markdown carries a diagram's `view` and `theme` by wrapping its fence in the
+/// diagram tag. CommonMark would end that HTML block at the first blank line of the diagram,
+/// so each complete wrapper is folded into its fence, with the tag's attributes in the info
+/// string after `WRAPPED_DIAGRAM`. Ordinary fenced code passes through untouched.
+fn fold_diagram_wrappers(source: &str) -> String {
+    static OPEN: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"^ {0,3}<(mermaid|infographic)((?:\s+[a-z]+="[^"<>]*")*)\s*>\s*$"#)
+            .expect("static diagram wrapper expression")
+    });
+    let lines: Vec<&str> = source.split_inclusive('\n').collect();
+    let mut out = String::with_capacity(source.len());
+    let mut index = 0;
+    while index < lines.len() {
+        if let Some((mark, width, _)) = fence_open(lines[index]) {
+            out.push_str(lines[index]);
+            index += 1;
+            while index < lines.len() {
+                out.push_str(lines[index]);
+                index += 1;
+                if fence_close(lines[index - 1], mark, width) {
+                    break;
+                }
+            }
+            continue;
+        }
+        let folded = OPEN.captures(lines[index].trim_end()).and_then(|open| {
+            let tag = open.get(1).expect("tag group").as_str();
+            let opener = skip_blank(&lines, index + 1);
+            let (mark, width, info) = fence_open(lines.get(opener)?)?;
+            if info != tag {
+                return None;
+            }
+            let mut closer = opener + 1;
+            while !fence_close(lines.get(closer)?, mark, width) {
+                closer += 1;
+            }
+            let end = skip_blank(&lines, closer + 1);
+            (lines.get(end)?.trim() == format!("</{tag}>")).then(|| {
+                let marks = mark.to_string().repeat(width);
+                let attrs = open.get(2).expect("attribute group").as_str().trim();
+                let body = lines[opener + 1..closer].concat();
+                (
+                    format!("{marks}{tag} {WRAPPED_DIAGRAM}{attrs}\n{body}{marks}\n"),
+                    end + 1,
+                )
+            })
+        });
+        if let Some((fence, next)) = folded {
+            out.push_str(&fence);
+            index = next;
+        } else {
+            out.push_str(lines[index]);
+            index += 1;
+        }
+    }
+    out
+}
+
+fn skip_blank(lines: &[&str], mut index: usize) -> usize {
+    while lines.get(index).is_some_and(|line| line.trim().is_empty()) {
+        index += 1;
+    }
+    index
+}
+
+/// A CommonMark fence opener: its marker, run length, and info string.
+fn fence_open(line: &str) -> Option<(char, usize, &str)> {
+    let trimmed = line.trim_start_matches(' ');
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+    let mark = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
+    let width = trimmed.chars().take_while(|c| *c == mark).count();
+    let info = trimmed[width..].trim();
+    (width >= 3 && !(mark == '`' && info.contains('`'))).then_some((mark, width, info))
+}
+
+fn fence_close(line: &str, mark: char, width: usize) -> bool {
+    let trimmed = line.trim_start_matches(' ');
+    line.len() - trimmed.len() <= 3
+        && trimmed.chars().take_while(|c| *c == mark).count() >= width
+        && trimmed.trim_start_matches(mark).trim().is_empty()
 }
 
 fn inline<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {

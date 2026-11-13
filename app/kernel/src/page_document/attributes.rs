@@ -82,6 +82,11 @@ pub(super) fn knowledge_source_diagram_by_tag(tag: &str) -> Option<&'static Sour
 }
 
 #[cfg(feature = "markdown")]
+pub(super) fn source_diagram_by_fence(lang: &str) -> Option<&'static SourceDiagramSpec> {
+    SOURCE_DIAGRAMS.iter().find(|spec| spec.fence_lang == lang)
+}
+
+#[cfg(feature = "markdown")]
 pub(super) fn knowledge_source_diagram_by_fence(lang: &str) -> Option<&'static SourceDiagramSpec> {
     SOURCE_DIAGRAMS
         .iter()

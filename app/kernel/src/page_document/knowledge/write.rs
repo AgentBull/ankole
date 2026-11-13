@@ -1,19 +1,20 @@
+use super::document::{self, Dialect};
 use super::read;
 use crate::page_document::tree::{self, Attrs, Element, Node, Result};
 
-pub(super) fn body(root: &Element) -> Result<String> {
+pub(super) fn body(root: &Element, dialect: Dialect) -> Result<String> {
     root.children
         .iter()
         .map(|child| {
             let Node::Element(node) = child else {
                 return Err("knowledge page contains bare text".into());
             };
-            let candidate = block(node)?;
+            let candidate = block(node, dialect)?;
             let expected =
                 tree::normalize(tree::element("page", Attrs::new(), vec![child.clone()]))?;
             // Markdown's delimiter and whitespace rules are not injective. The OKF superset
             // accepts the same restricted XML vocabulary for these uncommon representations.
-            if read::body(&candidate).is_ok_and(|actual| actual == expected) {
+            if read::body(&candidate, dialect).is_ok_and(|actual| actual == expected) {
                 Ok(candidate)
             } else {
                 Ok(raw_xml_block(node))
@@ -23,7 +24,7 @@ pub(super) fn body(root: &Element) -> Result<String> {
         .map(|parts| parts.join("\n\n"))
 }
 
-fn block(node: &Element) -> Result<String> {
+fn block(node: &Element, dialect: Dialect) -> Result<String> {
     let result = match node.name.as_str() {
         "p" => inline(&node.children)?,
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => format!(
@@ -32,7 +33,7 @@ fn block(node: &Element) -> Result<String> {
             inline(&node.children)?
         ),
         "hr" => "***".into(),
-        "blockquote" => quote(&body(node)?),
+        "blockquote" => quote(&body(node, dialect)?),
         "callout" => {
             let alert = match node.attrs.get("tone").map(String::as_str) {
                 Some("success") => "TIP",
@@ -51,7 +52,7 @@ fn block(node: &Element) -> Result<String> {
                     )
                 })
                 .unwrap_or_default();
-            quote(&format!("[!{alert}]{icon}\n{}", body(node)?))
+            quote(&format!("[!{alert}]{icon}\n{}", body(node, dialect)?))
         }
         "ul" | "ol" => {
             let start = node
@@ -74,7 +75,7 @@ fn block(node: &Element) -> Result<String> {
                     Some("done") => "[x] ",
                     _ => "",
                 };
-                let content = body(item)?;
+                let content = body(item, dialect)?;
                 let mut lines = content.split('\n');
                 let first = lines.next().unwrap_or_default();
                 let mut output = format!("{marker}{task}{first}");
@@ -87,10 +88,10 @@ fn block(node: &Element) -> Result<String> {
         }
         "pre" => {
             if !node.attrs.contains_key("meta")
-                && node.attrs.get("lang").is_some_and(|lang| {
-                    crate::page_document::attributes::knowledge_source_diagram_by_fence(lang)
-                        .is_some()
-                })
+                && node
+                    .attrs
+                    .get("lang")
+                    .is_some_and(|lang| document::diagram_by_fence(lang, dialect).is_some())
             {
                 raw_xml_block(node)
             } else {
@@ -103,10 +104,17 @@ fn block(node: &Element) -> Result<String> {
                 fenced_code(&info, &text(&node.children))
             }
         }
-        tag if crate::page_document::attributes::knowledge_source_diagram_by_tag(tag).is_some() => {
-            let spec = crate::page_document::attributes::knowledge_source_diagram_by_tag(tag)
-                .expect("checked source diagram tag");
-            fenced_code(spec.fence_lang, &text(&node.children))
+        tag if document::diagram_by_tag(tag, dialect).is_some() => {
+            let spec = document::diagram_by_tag(tag, dialect).expect("checked source diagram tag");
+            let fence = fenced_code(spec.fence_lang, &text(&node.children));
+            if node.attrs.is_empty() {
+                fence
+            } else {
+                // A document keeps `view` and `theme` on a diagram tag that wraps the fence.
+                let open = tree::print(&tree::element(tag, node.attrs.clone(), vec![]));
+                let open = open.strip_suffix(" />").unwrap_or(&open);
+                format!("{open}>\n{fence}\n</{tag}>")
+            }
         }
         "table" => table(node)?,
         "media" => {

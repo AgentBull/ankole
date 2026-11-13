@@ -16,6 +16,16 @@
   interjects in the turn that started it. The card used to vanish from the
   timeline once the reply was saved, so the run could only be opened or stopped
   from the conversation's background work list.
+- Let Agents create Infographics and set diagram display options in document
+  pages through `ankole-pod`. A ` ```infographic ` fence used to be saved as a
+  plain code block, and a `<mermaid>` or `<infographic>` tag with `view` or
+  `theme` around its fence was rejected. `pages.read` now also shows existing
+  Infographics as editable source instead of locked anchors.
+- Label the per-slot action on the Site defaults tab **Clear** instead of
+  **Restore inheritance**, because Site values are the base layer and have
+  nothing to inherit. Its confirmation warns that every Pod and Agent without
+  its own override of the slot is affected, and the Site's Provider-hosted
+  switches offer **Restore default**.
 
 ## Version 2.0.0-alpha.146 (2026-11-13)
 

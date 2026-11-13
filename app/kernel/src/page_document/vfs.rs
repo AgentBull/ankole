@@ -39,7 +39,7 @@ fn blocks(source: &str) -> Result<Vec<BlockProjection>> {
             let id = format!("{index}-{}", &blake3::hash(xml.as_bytes()).to_hex()[..10]);
             let marker = format!("<!-- ankole:block id=\"{id}\" kind=\"{}\" -->", node.name);
             let page = format!("<page>{xml}</page>");
-            let markdown = knowledge::export(&page, &serde_json::json!({}));
+            let markdown = knowledge::export_document(&page);
             let editable = markdown.is_ok();
             let markdown = markdown.unwrap_or_else(|_| {
                 format!("<!-- {} -->", tree::text_of(&node).replace("--", "—"))
@@ -112,7 +112,7 @@ pub fn reconcile(source: &str, markdown: &str) -> Result<Page> {
 
 fn append_markdown(children: &mut Vec<Node>, markdown: &str) -> Result<()> {
     if !markdown.trim().is_empty() {
-        children.extend(tree::parse(&knowledge::parse(markdown)?.xml)?.children);
+        children.extend(tree::parse(&knowledge::parse_document(markdown)?.xml)?.children);
     }
     Ok(())
 }
@@ -170,6 +170,69 @@ mod tests {
             edited_diagrams
                 .xml
                 .contains("<infographic>infographic list-row</infographic>")
+        );
+    }
+
+    #[test]
+    fn document_markdown_writes_infographics_and_diagram_view_and_theme() {
+        let created = reconcile(
+            "<page />",
+            "```infographic\ninfographic list-row\n  data\n```\n\n<mermaid view=\"code\" theme=\"dark\">\n```mermaid\nflowchart LR\n\n  A --> B\n```\n</mermaid>\n\n```infographic title\nkept as code\n```",
+        )
+        .unwrap();
+        assert_eq!(
+            created.xml,
+            "<page><infographic>infographic list-row\n  data</infographic><mermaid theme=\"dark\" view=\"code\">flowchart LR\n\n  A --&gt; B</mermaid><pre lang=\"infographic\" meta=\"title\">kept as code</pre></page>"
+        );
+
+        // Every diagram projects as editable Markdown and survives an unchanged and an edited round trip.
+        let xml = "<page><infographic view=\"diagram\">infographic list-row</infographic><mermaid theme=\"light\">flowchart TD\n  X --&gt; Y</mermaid><pre lang=\"infographic\">explicit code</pre></page>";
+        let projected = export(xml).unwrap();
+        assert!(!projected.contains("<!-- infographic"), "{projected}");
+        assert!(
+            projected.contains(
+                "<mermaid theme=\"light\">\n```mermaid\nflowchart TD\n  X --> Y\n```\n</mermaid>"
+            ),
+            "{projected}"
+        );
+        let unchanged = projected.replace("<!-- ankole:block", "\n<!-- ankole:block");
+        assert_eq!(
+            reconcile(xml, &unchanged).unwrap().xml,
+            tree::print(&tree::parse(xml).unwrap())
+        );
+        let edited = reconcile(
+            xml,
+            &projected
+                .replace("X --> Y", "X --> Z")
+                .replace("list-row", "list-grid"),
+        )
+        .unwrap();
+        assert!(
+            edited
+                .xml
+                .contains("<infographic view=\"diagram\">infographic list-grid</infographic>")
+        );
+        assert!(
+            edited
+                .xml
+                .contains("<mermaid theme=\"light\">flowchart TD\n  X --&gt; Z</mermaid>")
+        );
+        assert!(
+            edited
+                .xml
+                .contains("<pre lang=\"infographic\">explicit code</pre>")
+        );
+
+        // A wrapper shown inside a code example stays code.
+        let example = reconcile(
+            "<page />",
+            "````markdown\n<mermaid view=\"code\">\n```mermaid\nA\n```\n</mermaid>\n````",
+        )
+        .unwrap();
+        assert!(
+            example.xml.starts_with("<page><pre lang=\"markdown\">"),
+            "{}",
+            example.xml
         );
     }
 }

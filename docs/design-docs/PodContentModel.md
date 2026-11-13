@@ -1901,7 +1901,10 @@ enabling Human or Page owner and their live attempt fence.
 document, the control plane exports the stored XML to Markdown with the Rust
 document codec (`Kernel.vfs_document_export/1`), which marks every block with an
 `<!-- ankole:block id="…" kind="…" -->` anchor and keeps rich blocks as opaque
-anchors. The control plane then sends that Markdown to the Worker as a file over
+anchors. The codec reads and writes the knowledge Markdown vocabulary plus the
+document's source diagrams: a ` ```mermaid ` or ` ```infographic ` fence is a
+diagram block, and a fence wrapped in its `<mermaid>` or `<infographic>` tag
+carries a non-default `view` or `theme`. The control plane then sends that Markdown to the Worker as a file over
 the signed WorkerFiles relay and returns the revision together with resolved
 `references` metadata for any `<mention />` targets visible to the caller.
 Knowledge pages return their OKF Markdown inline.

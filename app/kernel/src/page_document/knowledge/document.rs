@@ -1,5 +1,6 @@
 use super::{read, write};
 use crate::common;
+use crate::page_document::attributes::SourceDiagramSpec;
 use crate::page_document::tree::{self, Attrs, Element, Node, Result};
 use crate::page_document::{self, Page};
 use serde::Serialize;
@@ -13,14 +14,45 @@ pub struct Knowledge {
     pub metadata: Map<String, Value>,
 }
 
+/// Knowledge pages and document Markdown files share this codec. A document also carries
+/// Infographic blocks and the `view` and `theme` of its source diagrams.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Dialect {
+    Knowledge,
+    Document,
+}
+
+pub(super) fn diagram_by_tag(tag: &str, dialect: Dialect) -> Option<&'static SourceDiagramSpec> {
+    match dialect {
+        Dialect::Knowledge => page_document::attributes::knowledge_source_diagram_by_tag(tag),
+        Dialect::Document => page_document::attributes::source_diagram_by_tag(tag),
+    }
+}
+
+pub(super) fn diagram_by_fence(lang: &str, dialect: Dialect) -> Option<&'static SourceDiagramSpec> {
+    match dialect {
+        Dialect::Knowledge => page_document::attributes::knowledge_source_diagram_by_fence(lang),
+        Dialect::Document => page_document::attributes::source_diagram_by_fence(lang),
+    }
+}
+
 /// Parse OKF Markdown and YAML frontmatter into the supported page vocabulary.
 pub fn parse(source: &str) -> Result<Knowledge> {
+    parse_in(source, Dialect::Knowledge)
+}
+
+/// Parse the Markdown of a document block into page XML.
+pub fn parse_document(source: &str) -> Result<Knowledge> {
+    parse_in(source, Dialect::Document)
+}
+
+fn parse_in(source: &str, dialect: Dialect) -> Result<Knowledge> {
     if source.encode_utf16().count() > tree::SOURCE_LIMIT {
         return Err("knowledge source exceeds the UTF-16 limit".into());
     }
     let source = source.trim_start_matches('\u{feff}');
     let (metadata, body) = frontmatter(source)?;
-    let root = read::body(body)?;
+    let root = read::body(body, dialect)?;
     let page = page_document::page(root)?;
     Ok(Knowledge {
         xml: page.xml,
@@ -56,14 +88,21 @@ fn frontmatter(source: &str) -> Result<(Map<String, Value>, &str)> {
 /// Reject page constructs that cannot round-trip through knowledge Markdown.
 pub fn validate(source: &str) -> Result<Page> {
     let root = tree::parse(source)?;
-    validate_tree(&root)?;
+    validate_tree(&root, Dialect::Knowledge)?;
     page_document::page(root)
+}
+
+/// Export a document block as Markdown, or fail when Markdown cannot carry it.
+pub fn export_document(source: &str) -> Result<String> {
+    let root = tree::parse(source)?;
+    validate_tree(&root, Dialect::Document)?;
+    write::body(&root, Dialect::Document)
 }
 
 /// Export normalized page XML and caller-selected business metadata as OKF Markdown.
 pub fn export(source: &str, metadata: &Value) -> Result<String> {
     let root = tree::parse(source)?;
-    validate_tree(&root)?;
+    validate_tree(&root, Dialect::Knowledge)?;
     let metadata = metadata
         .as_object()
         .ok_or("knowledge metadata must be an object")?;
@@ -74,14 +113,14 @@ pub fn export(source: &str, metadata: &Value) -> Result<String> {
         result.push_str(&serde_yaml_ng::to_string(metadata).map_err(|e| e.to_string())?);
         result.push_str("---\n\n");
     }
-    result.push_str(&write::body(&root)?);
+    result.push_str(&write::body(&root, Dialect::Knowledge)?);
     Ok(result)
 }
 
 /// The caller adds only the children visible in its current RequestContext.
 pub fn overview(source: &str, metadata: &Value) -> Result<String> {
     let root = tree::parse(source)?;
-    validate_tree(&root)?;
+    validate_tree(&root, Dialect::Knowledge)?;
     let metadata = metadata
         .as_object()
         .ok_or("knowledge metadata must be an object")?;
@@ -104,11 +143,10 @@ pub fn overview(source: &str, metadata: &Value) -> Result<String> {
             children.push(Node::Element(node.clone()));
         } else if introduction && !omitted {
             let block = overview_block(node);
-            let markdown = write::body(&tree::element(
-                "page",
-                Attrs::new(),
-                vec![Node::Element(block.clone())],
-            ))?;
+            let markdown = write::body(
+                &tree::element("page", Attrs::new(), vec![Node::Element(block.clone())]),
+                Dialect::Knowledge,
+            )?;
             let tokens = common::estimate_o200k_base_tokens(&format!("{markdown}\n\n"));
             if tokens <= remaining {
                 children.push(Node::Element(block));
@@ -182,7 +220,7 @@ fn overview_block(node: &Element) -> Element {
     node
 }
 
-pub(super) fn validate_tree(node: &Element) -> Result<()> {
+pub(super) fn validate_tree(node: &Element, dialect: Dialect) -> Result<()> {
     let attrs: &[&str] = match node.name.as_str() {
         "page" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "strong" | "em" | "s" | "code"
         | "br" | "hr" | "blockquote" | "ul" | "table" | "tr" => &[],
@@ -191,10 +229,12 @@ pub(super) fn validate_tree(node: &Element) -> Result<()> {
         "ol" => &["start"],
         "li" => &["task"],
         "pre" => &["lang", "meta"],
-        tag if page_document::attributes::knowledge_source_diagram_by_tag(tag).is_some() => {
-            page_document::attributes::knowledge_source_diagram_by_tag(tag)
-                .and_then(|spec| spec.knowledge_attrs)
-                .unwrap_or(&[])
+        tag if diagram_by_tag(tag, dialect).is_some() => {
+            let spec = diagram_by_tag(tag, dialect).expect("checked source diagram tag");
+            match dialect {
+                Dialect::Knowledge => spec.knowledge_attrs.unwrap_or(&[]),
+                Dialect::Document => spec.doc_attrs,
+            }
         }
         "callout" => &["tone", "icon"],
         "th" | "td" => &["align"],
@@ -216,7 +256,7 @@ pub(super) fn validate_tree(node: &Element) -> Result<()> {
     }
     for child in &node.children {
         if let Node::Element(child) = child {
-            validate_tree(child)?;
+            validate_tree(child, dialect)?;
         }
     }
     Ok(())

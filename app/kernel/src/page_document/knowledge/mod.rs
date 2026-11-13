@@ -5,7 +5,7 @@ mod merge;
 mod read;
 mod write;
 
-pub use document::{Knowledge, export, overview, parse, validate};
+pub use document::{Knowledge, export, export_document, overview, parse, parse_document, validate};
 pub use merge::merge;
 
 #[cfg(test)]
