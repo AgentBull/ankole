@@ -1,5 +1,24 @@
 # Changelog
 
+## Version 2.0.0-alpha.150 (2026-11-13)
+
+- Return to Chat after you leave a room from its header. Pod sometimes stayed
+  on the room's address and showed a "conversation not found" notice.
+- Let the block menu of a heading open with the pointer at common desktop
+  widths. At 1280px the sidebar's resize edge covered the heading's
+  **Current block menu** button; document and knowledge pages now leave more
+  room before the text.
+- Open the Agent Library of a new space without the first long wait. Ankole
+  now installs the shipped Skills when the space is created instead of during
+  its first Agent Library read, which took about nine seconds.
+- Notes for fixes that shipped in 2.0.0-alpha.149: a failed database catalog
+  refresh now reports whether the address is blocked (`422`), the database is
+  unreachable (`503`), or a statement timed out (`504`) instead of a generic
+  validation error; **Focus node** in the Meta Brain object list now centers
+  the node instead of re-arranging the graph; and a background job that reads
+  a Skill available only to the main Agent now says the Skill cannot run in a
+  background job instead of calling it not enabled.
+
 ## Version 2.0.0-alpha.149 (2026-11-13)
 
 - Stop model profile cards from showing raw model IDs such as
