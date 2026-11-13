@@ -553,7 +553,11 @@ the `catalog_tables` budget is incomplete: Connectors still reports missing
 columns of the tables it holds, but it never reports a table as missing,
 because the table may lie beyond the budget. The refresh-catalog response
 carries `table_count`, `fetched_at`, and `complete`, which is false when the
-budget cut the catalog.
+budget cut the catalog. When the adapter cannot read the catalog, the response
+keeps the adapter's error code and message: `database_host_blocked` (`422`)
+when the network policy rejects the address, `database_unavailable` (`503`)
+when the database cannot be reached, and `statement_timeout` (`504`) when a
+catalog statement exceeds its time budget.
 
 `Ankole.Connectors.run_read_query(actor, connection, sql, params \\ [], opts \\ [])`
 is the core read interface for callers outside the gateway, such as Brain

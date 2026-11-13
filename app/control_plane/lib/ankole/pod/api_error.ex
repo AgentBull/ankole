@@ -125,6 +125,21 @@ defmodule Ankole.Pod.APIError do
       details: details
     }
 
+  # Database connector adapters explain why they could not reach the external
+  # database, so the administrator knows whether to fix the address, the
+  # database, or the time budget.
+  def public_error(%{code: code, message: message})
+      when code in ~w(database_host_blocked database_unavailable statement_timeout) do
+    status =
+      case code do
+        "database_host_blocked" -> 422
+        "database_unavailable" -> 503
+        "statement_timeout" -> 504
+      end
+
+    %{code: code, message: message, status: status, details: nil}
+  end
+
   def public_error({:claim_too_long, max}),
     do: %{
       code: "claim_too_long",
