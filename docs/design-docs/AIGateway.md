@@ -656,6 +656,10 @@ API-supported, and caches the normalized list for one hour; the Console populate
 its model combobox from that cache while keeping manual model entry enabled if
 the catalog is unreachable.
 
+The shared ChatGPT OAuth refresh protocol builds the token request and decodes
+the response fields. The calling adapter validates the issuer and owns the
+HTTP exchange, account binding, and credential storage.
+
 During credential selection, the control plane refreshes an OAuth entry under
 the provider row lock whenever its access token is within five minutes of expiry
 or its last refresh is at least eight days old, so concurrent requests share the
