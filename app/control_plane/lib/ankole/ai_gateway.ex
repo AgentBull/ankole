@@ -123,7 +123,7 @@ defmodule Ankole.AIGateway do
   def create_response(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   defp create_model_response(subject_uid, request, opts) do
-    with :ok <- reject_http_stateful_fields(request),
+    with {:ok, request} <- stateless_http_request(request),
          {:ok, %{runtime: runtime, spec: prepared_request, driver: driver}} <-
            ResponsesPreparation.prepare(
              subject_uid,
@@ -475,7 +475,7 @@ defmodule Ankole.AIGateway do
   def open_sse_stream(subject_uid, request, opts) when is_map(request) do
     request = Attrs.normalize_external_attrs(request)
 
-    with :ok <- reject_http_stateful_fields(request),
+    with {:ok, request} <- stateless_http_request(request),
          {:ok, %{spec: prepared_request}} <-
            ResponsesPreparation.prepare(
              subject_uid,
@@ -801,6 +801,14 @@ defmodule Ankole.AIGateway do
           :ok | {:error, {:stateful_http_field_forbidden, String.t()}}
   def ensure_stateless_request(request) when is_map(request),
     do: reject_http_stateful_fields(request)
+
+  # An HTTP `store=false` only confirms that the call is stateless. Like the
+  # WebSocket path, AIGateway consumes it before dispatch, because Chat
+  # Completions upstreams such as Google AI Studio reject an unknown `store`.
+  defp stateless_http_request(request) do
+    with :ok <- reject_http_stateful_fields(request),
+         do: {:ok, Map.delete(request, "store")}
+  end
 
   defp reject_http_stateful_fields(request) do
     request = Attrs.normalize_external_attrs(request)

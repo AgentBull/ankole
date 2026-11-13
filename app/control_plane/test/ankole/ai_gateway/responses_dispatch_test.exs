@@ -1819,6 +1819,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
                "input" => "hello",
+               "store" => false,
                "metadata" => %{"trace" => "abc"}
              })
 
@@ -1830,6 +1831,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["reasoning_effort"] == "high"
     refute Map.has_key?(request.body, "reasoningEffort")
     refute Map.has_key?(request.body, "metadata")
+    refute Map.has_key?(request.body, "store")
     assert body["model"] == "gemini-2.5-pro"
 
     assert {:ok, %{body: embedding_body}} =

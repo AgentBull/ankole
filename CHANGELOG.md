@@ -7,6 +7,11 @@
   output-shaping shims in `PATH`, a shim that should pass the command straight
   through ran itself again in an endless loop, so the Job could not read Drive
   files or run scripts.
+- Fix HTTP Responses requests with `store: false` failing on Google AI Studio
+  and other Chat Completions providers that reject unknown fields. AIGateway
+  now removes `store` before it calls the provider, as the WebSocket path
+  already did, so OIDC Clients, Codex, and internal callers such as OCR and
+  web search work with these providers again.
 
 ## Version 2.0.0-alpha.146 (2026-11-13)
 
