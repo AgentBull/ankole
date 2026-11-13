@@ -266,6 +266,19 @@ Every declared provider setting belongs to one of three scopes:
 - `credential` — encrypted inside each individual pool entry.
 - `request` — stored in plaintext on a model profile or passed per request.
 
+The Console edits each scope where the operator works with it: connection
+settings on the provider form, credential settings on each pool entry, and
+request settings on model profiles. A setting appears in the main form only
+when the operator must supply it or must choose between options that have no
+safe default. Every other setting declares `advanced: true`, and the Console
+folds it under Advanced settings. A provider does not ask for a value that
+AIGateway can derive: the Anthropic protocol version follows the target model
+and is not a setting, and a blank Vertex AI `project_id` falls back to the
+project of the service account key. The Console stores only the values that the
+operator enters. It presents a declared default as the field's placeholder or
+preselected option without saving it, so the provider module keeps owning that
+default, and a later change to it reaches every row that never overrode it.
+
 A provider declares a `request` setting only when its prepare code writes the
 value to an upstream field. Public names stay camelCase, and prepare code moves
 each value to the native field name: OpenAI-family providers send
@@ -289,7 +302,13 @@ Completions rejects the Responses-only options
 names. A Claude profile that sets `speed` to `fast` also sends the
 `fast-mode-2026-02-01` beta flag, because Anthropic serves fast mode on Claude
 Opus 5 and Opus 4.8 only behind that flag; the operator's own `anthropic_beta`
-flags come first.
+flags come first. Claude rows declare no API version. The kernel's
+`anthropic_messages` resolver sends `anthropic-version: 2026-10-21` for Claude
+4.5 and later models and `2023-06-01` for every other model, and it shapes the
+request body for the version it sends: a `2026-10-21` request leaves out
+`temperature`, `top_p`, and `top_k`, which that version rejects. An operator
+whose endpoint needs another version names it in the row's `headers` setting,
+which takes precedence.
 
 Ankole's public `reasoningEffort` levels are `none`, `minimal`, `low`,
 `medium`, `high`, `xhigh`, and `max`, the values that OpenAI accepts, and a
@@ -334,7 +353,12 @@ reasoning on Chat Completions, and every Agent request carries tools. An
 operator who serves a model that speaks only Chat Completions selects
 `chat_completions` on the row. Azure reads the request body's `model` as a
 deployment name, so a row that names a `deployment` sends it as the body
-`model` whenever the request path does not carry the deployment.
+`model` whenever the request path does not carry the deployment. The Console
+asks for the resource's v1 base URL, such as
+`https://<resource>.openai.azure.com/openai/v1`, because the v1 API needs no
+`api_version` and each model profile names its deployment as the model; the
+endpoint kind, `deployment`, `api_version`, and the credential's
+`auth_scheme` stay under Advanced settings.
 
 For Azure OpenAI Chat Completions, AIGateway maps `max_output_tokens` (and its
 `max_tokens` alias) to `max_completion_tokens` by default, because Azure
@@ -432,7 +456,10 @@ context, and safe account metadata). In the Console, operators can view each poo
 entry's label, source, health, recovery timestamp, request count, last selection
 time, and sanitized recent error details, reveal stored credential fields on
 demand through the decryption action, and add, edit, disable, enable, delete, or
-reauthenticate entries.
+reauthenticate entries. The form that creates a provider also takes its first
+credential and saves it as a pool entry labeled `Credential 1` in the operator's
+language; a form left without credential values creates the provider with an
+empty pool.
 
 Each row in `ai_gateway_providers` stores:
 
@@ -704,7 +731,8 @@ The operator pastes the whole key file into the `service_account_key`
 credential field. AIGateway accepts the credential only when it is a
 `service_account` key that names a `client_email` and a `project_id` and
 carries a readable RSA private key, so a wrong file is rejected when the
-operator saves it. The row itself has three connection settings:
+operator saves it. The row itself has three optional connection settings, which
+the Console keeps under Advanced settings:
 
 - `vertex_location` selects the location and defaults to `global`. AIGateway
   calls `aiplatform.googleapis.com` for `global` and

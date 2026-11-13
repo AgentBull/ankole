@@ -1999,7 +1999,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert_receive {:gateway_request, request}
     assert request.path == "v1/messages"
     assert request.headers["x-api-key"] == "anthropic-key"
-    assert request.headers["anthropic-version"] == "2023-06-01"
+    # The kernel chooses the Anthropic version that Claude 4.5 and later models use.
+    assert request.headers["anthropic-version"] == "2026-10-21"
     assert request.body["model"] == "claude-sonnet-4-5"
     assert request.body["stream"] == true
     assert request.body["cache_control"] == %{"type" => "ephemeral"}
@@ -2136,7 +2137,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.path == "messages"
     assert request.headers["authorization"] == "Bearer sk-openrouter"
     refute Map.has_key?(request.headers, "x-api-key")
-    assert request.headers["anthropic-version"] == "2023-06-01"
+    # The kernel chooses the Anthropic version that Claude 4.5 and later models use.
+    assert request.headers["anthropic-version"] == "2026-10-21"
     assert request.body["model"] == "anthropic/claude-sonnet-4.5"
     assert request.body["max_tokens"] == 32
     assert request.body["output_config"] == %{"effort" => "xhigh"}

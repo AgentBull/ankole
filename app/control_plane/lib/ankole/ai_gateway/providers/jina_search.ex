@@ -17,13 +17,13 @@ defmodule Ankole.AIGateway.Providers.JinaSearch do
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
-    setting(:gl, scope: :request)
-    setting(:location, scope: :request)
-    setting(:hl, scope: :request)
-    setting(:page, scope: :request)
-    setting(:noCache, scope: :request)
-    setting(:respondWith, scope: :request)
-    setting(:engine, scope: :request)
+    setting(:gl, scope: :request, advanced: true)
+    setting(:location, scope: :request, advanced: true)
+    setting(:hl, scope: :request, advanced: true)
+    setting(:page, scope: :request, advanced: true)
+    setting(:noCache, scope: :request, advanced: true)
+    setting(:respondWith, scope: :request, advanced: true)
+    setting(:engine, scope: :request, advanced: true)
 
     web_search do
       api_resolver(:jina_search_web_search)

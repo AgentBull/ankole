@@ -2,6 +2,9 @@ import { recordValue } from '@agentbull/active-support'
 import {
   Badge,
   Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -17,7 +20,7 @@ import {
   Spinner,
   toast
 } from '@ankole/uikit'
-import { AddRegular, ArrowClockwiseRegular, EyeOffRegular, EyeRegular } from '@ankole/uikit/icons'
+import { AddRegular, ArrowClockwiseRegular, ChevronDownRegular, EyeOffRegular, EyeRegular } from '@ankole/uikit/icons'
 import { useMutation } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -493,6 +496,7 @@ function CredentialEditorDialog({
     [entry, metadataOnly, providerKind]
   )
   const [label, setLabel] = useState('')
+  const [baselineLabel, setBaselineLabel] = useState('')
   const [priority, setPriority] = useState('0')
   const [values, setValues] = useState<Record<string, string>>({})
   const [baselineValues, setBaselineValues] = useState<Record<string, string>>({})
@@ -523,7 +527,11 @@ function CredentialEditorDialog({
       return
     }
     const seeded = initialSecretDrafts(entry, [...settings, ...readOnlySecrets])
-    setLabel(entry?.label ?? '')
+    const initialLabel =
+      entry?.label ??
+      t('console.providers.credential_default_label', { number: provider.credential_pool.entries.length + 1 })
+    setLabel(initialLabel)
+    setBaselineLabel(initialLabel)
     setPriority(String(entry?.priority ?? 0))
     setValues(seeded)
     setBaselineValues(seeded)
@@ -588,11 +596,37 @@ function CredentialEditorDialog({
       })
     }
   }
+  const credentialField = (setting: ProviderSetting) => {
+    const present = entryHasSecretField(entry, setting.key)
+    return (
+      <ProviderSettingField
+        key={setting.key}
+        setting={setting}
+        keepStored={Boolean(entry)}
+        secretPresent={present}
+        decrypt={
+          present
+            ? {
+                onReveal: () => revealField(setting.key),
+                revealed: Boolean(revealedKeys[setting.key]),
+                revealing: decrypt.isRevealing(setting.key)
+              }
+            : undefined
+        }
+        value={values[setting.key] ?? ''}
+        onChange={value => {
+          decrypt.cancelTarget(setting.key)
+          setValues(current => ({ ...current, [setting.key]: value }))
+          setValidationError(undefined)
+        }}
+      />
+    )
+  }
   const pending = create.isPending || update.isPending
   const error = validationError ?? create.error ?? update.error ?? decrypt.error
   const incomplete = !label.trim() || Boolean(missingRequiredSecretSetting(entry, settings, values, baselineValues))
   const dirty =
-    label !== (entry?.label ?? '') ||
+    label !== baselineLabel ||
     priority !== String(entry?.priority ?? 0) ||
     settings.some(setting => (values[setting.key] ?? '') !== (baselineValues[setting.key] ?? ''))
   const guard = useDialogDiscardGuard({ dirty: open && dirty, pending, onOpenChange })
@@ -626,35 +660,7 @@ function CredentialEditorDialog({
             <LabeledField label={t('console.providers.credential_label')} required>
               <Input value={label} onChange={event => setLabel(event.target.value)} />
             </LabeledField>
-            <LabeledField label={t('console.providers.priority')}>
-              <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
-            </LabeledField>
-            {settings.map(setting => {
-              const present = entryHasSecretField(entry, setting.key)
-              return (
-                <ProviderSettingField
-                  key={setting.key}
-                  setting={setting}
-                  keepStored={Boolean(entry)}
-                  secretPresent={present}
-                  decrypt={
-                    present
-                      ? {
-                          onReveal: () => revealField(setting.key),
-                          revealed: Boolean(revealedKeys[setting.key]),
-                          revealing: decrypt.isRevealing(setting.key)
-                        }
-                      : undefined
-                  }
-                  value={values[setting.key] ?? ''}
-                  onChange={value => {
-                    decrypt.cancelTarget(setting.key)
-                    setValues(current => ({ ...current, [setting.key]: value }))
-                    setValidationError(undefined)
-                  }}
-                />
-              )
-            })}
+            {settings.filter(setting => !setting.advanced).map(credentialField)}
             {readOnlySecrets.map(setting => (
               <ProviderSettingField
                 key={setting.key}
@@ -670,6 +676,23 @@ function CredentialEditorDialog({
                 onChange={() => {}}
               />
             ))}
+            <Collapsible className="grid gap-4" defaultOpen={false}>
+              <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+                <span>{t('common.advanced_settings')}</span>
+                <ChevronDownRegular
+                  className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
+                  aria-hidden
+                />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="grid gap-4">
+                <LabeledField
+                  label={t('console.providers.priority')}
+                  description={t('console.providers.priority_hint')}>
+                  <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
+                </LabeledField>
+                {settings.filter(setting => setting.advanced).map(credentialField)}
+              </CollapsibleContent>
+            </Collapsible>
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={pending} onClick={() => guard.requestOpenChange(false)}>

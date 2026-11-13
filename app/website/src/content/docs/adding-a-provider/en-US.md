@@ -82,7 +82,7 @@ setting(:reasoningEffort, type: :select, default: "high",
 
 Every configured provider row manages a credential pool, even when the operator enters only one credential. Before calling your prepare function, the AIGateway resolver selects a healthy pool member, decrypts its `:credential` settings, and merges them with `:connection` settings (such as an endpoint override or custom headers shared across the provider row) and `:request` settings from the model profile. Because all three scopes arrive pre-merged in the resolved settings map, the prepare function never implements pool selection itself.
 
-Setting `advanced: true` affects only Console presentation, placing the field behind an advanced toggle without altering validation or runtime behavior.
+Setting `advanced: true` affects only Console presentation, placing the field behind an advanced toggle without altering validation or runtime behavior. Leave a setting in the main form only when the operator must supply it or must choose between options that have no safe default, and mark every other setting `advanced: true`. Do not declare a setting for a value that the provider can derive, such as a protocol version that follows the model. The Console shows `default` as the field's placeholder or preselected option without saving it, so a provider that changes a default reaches every row that never overrode it.
 
 ## Capabilities
 

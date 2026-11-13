@@ -2613,7 +2613,7 @@ Ankole은 조직 내부의 프라이빗 배포를 전제로 설계되었습니�
 
 ## 3. LLM Provider 추가 및 Agent 생성
 
-먼저 LLM Provider를 등록하세요. Console에 로그인한 뒤 **Providers → New provider**를 열고 Provider 유형을 선택한 다음, 고정된 Provider ID와 엔드포인트·자격 증명을 입력해 저장합니다. Ankole은 Provider 자격 증명을 컨트롤 플레인 내부에 암호화해 저장하므로 배포 `.env` 파일이나 Agent 작업 공간 파일에는 절대 기록하지 마세요.
+먼저 LLM Provider를 등록하세요. Console에 로그인한 뒤 **Providers → New provider**를 열고 Provider 유형을 선택하고 API 키를 붙여 넣은 뒤 저장합니다. Provider ID는 Console이 제안하고 엔드포인트는 Provider의 기본값을 쓰므로, 주소는 Azure OpenAI처럼 리소스마다 주소가 정해지는 서비스나 자체 호스팅·호환 엔드포인트일 때만 입력하면 됩니다. Ankole은 Provider 자격 증명을 컨트롤 플레인 내부에 암호화해 저장하므로 배포 `.env` 파일이나 Agent 작업 공간 파일에는 절대 기록하지 마세요.
 
 다음으로 **Console → Model Profiles**를 열어 핵심 언어 모델 슬롯(`Site -> Pod -> Agent/System` 상속 및 `coding -> heavy -> primary`, `light -> primary` 슬롯 간 폴백)의 Site 또는 Pod 기본값을 설정합니다:
 

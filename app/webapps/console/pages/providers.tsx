@@ -39,8 +39,10 @@ import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-mo
 import {
   aiGatewayProvider,
   aiGatewayProviders,
+  buildFirstCredential,
   buildSettingOptions,
   connectionSettings,
+  credentialSettings,
   initialSettingValue,
   settingValidationMessage,
   type AIGatewayProviderItem,
@@ -48,7 +50,7 @@ import {
 } from '../state/provider-settings'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { useEditorDraft } from '../use-editor-draft'
-import { ProviderSettingField } from './provider-setting-field'
+import { ProviderSettingField, providerSettingLabel } from './provider-setting-field'
 
 import { CredentialPoolEditor, credentialStrategyLabel } from './provider-credentials'
 
@@ -230,6 +232,13 @@ export function ProviderEditorPage() {
 
   const activeKind = kinds.find(kind => kind.provider_kind === model.providerKind.value)
   const settings = connectionSettings(activeKind)
+  // A new provider takes its first credential in the same form. ChatGPT
+  // subscriptions sign in through the credential pool's login flow instead.
+  const firstCredentialSettings =
+    mode === 'new' && activeKind?.provider_kind !== 'chatgpt_subscription' ? credentialSettings(activeKind) : []
+  // A kind without a default endpoint, such as Azure OpenAI, needs the
+  // operator's own address before it can serve requests.
+  const baseURLRequired = Boolean(activeKind) && !activeKind?.default_base_url
   // A disabled plugin removes its kind from the registry while the stored
   // provider row survives. Detect from the stored row, not the editor model,
   // so the notice cannot flash before the model seeds.
@@ -250,7 +259,8 @@ export function ProviderEditorPage() {
         providerID: selected.provider_id,
         providerKind: selected.provider_kind,
         baseURL: selected.base_url ?? '',
-        options: initialOptions(connectionSettings(kind), selected)
+        options: initialOptions(connectionSettings(kind), selected),
+        credentials: {}
       }
     }
     if (mode === 'new') {
@@ -261,8 +271,9 @@ export function ProviderEditorPage() {
           configuredProviders?.map(provider => provider.provider_id) ?? []
         ),
         providerKind: kind?.provider_kind ?? '',
-        baseURL: kind?.default_base_url ?? '',
-        options: initialOptions(connectionSettings(kind), undefined)
+        baseURL: '',
+        options: initialOptions(connectionSettings(kind), undefined),
+        credentials: {}
       }
     }
     return undefined
@@ -280,8 +291,9 @@ export function ProviderEditorPage() {
     model.changeKind({
       providerID: nextProviderID(providerKind, configuredProviders?.map(provider => provider.provider_id) ?? []),
       providerKind,
-      baseURL: kind?.default_base_url ?? '',
-      options: initialOptions(connectionSettings(kind), undefined)
+      baseURL: '',
+      options: initialOptions(connectionSettings(kind), undefined),
+      credentials: {}
     })
   }
 
@@ -293,9 +305,25 @@ export function ProviderEditorPage() {
       return
     }
 
+    if (baseURLRequired && !model.baseURL.value.trim()) {
+      model.validationError.value = settingValidationMessage(t('console.providers.base_url'), 'required')
+      return
+    }
+
     const built = buildSettingOptions(settings, model.options.value, settingValidationMessage)
     if (!built.ok) {
       model.validationError.value = built.error
+      return
+    }
+
+    const credential = buildFirstCredential(
+      firstCredentialSettings,
+      model.credentials.value,
+      settingValidationMessage,
+      key => providerSettingLabel(t, key)
+    )
+    if (!credential.ok) {
+      model.validationError.value = credential.error
       return
     }
 
@@ -311,7 +339,19 @@ export function ProviderEditorPage() {
                 attributes: {
                   provider_kind: draft.providerKind,
                   base_url: draft.baseURL.trim() || null,
-                  connection_options: built.value
+                  connection_options: built.value,
+                  ...(credential.value
+                    ? {
+                        credential_pool: {
+                          entries: [
+                            {
+                              label: t('console.providers.credential_default_label', { number: 1 }),
+                              ...credential.value
+                            }
+                          ]
+                        }
+                      }
+                    : {})
                 }
               }
             },
@@ -333,10 +373,29 @@ export function ProviderEditorPage() {
   const advancedBaseURL = baseURLSetting?.advanced ?? false
   const advancedSettings = optionSettings.filter(setting => setting.advanced)
   const basicSettings = optionSettings.filter(setting => !setting.advanced)
-  const advancedFieldCount = advancedSettings.length + (advancedBaseURL ? 1 : 0)
+  const basicCredentialSettings = firstCredentialSettings.filter(setting => !setting.advanced)
+  const advancedCredentialSettings = firstCredentialSettings.filter(setting => setting.advanced)
+  const advancedFieldCount = advancedSettings.length + advancedCredentialSettings.length + (advancedBaseURL ? 1 : 0)
+  const credentialField = (setting: ProviderSetting) => (
+    <ProviderSettingField
+      key={`credential:${setting.key}`}
+      setting={setting}
+      value={model.credentials.value[setting.key] ?? ''}
+      onChange={value => model.setCredential(setting.key, value)}
+    />
+  )
   const submitDisabled = mode === 'edit' && !model.dirty.value
   const baseURLField = (
-    <LabeledField label={t('console.providers.base_url')} description={t('console.providers.base_url_hint')}>
+    <LabeledField
+      label={t('console.providers.base_url')}
+      required={baseURLRequired}
+      description={
+        baseURLRequired
+          ? t(`console.providers.base_url_required_hint_${activeKind?.provider_kind}`, {
+              defaultValue: t('console.providers.base_url_required_hint')
+            })
+          : t('console.providers.base_url_hint')
+      }>
       <Input
         placeholder={activeKind?.default_base_url ?? 'https://api.example.com/v1'}
         value={model.baseURL.value}
@@ -353,7 +412,7 @@ export function ProviderEditorPage() {
     <ResourceEditorPage
       fieldsDisabled={draftStatus !== 'ready'}
       title={mode === 'new' ? t('console.providers.new') : (providerID ?? '')}
-      description={t('console.providers.editor_description')}
+      description={t(mode === 'new' ? 'console.providers.new_description' : 'console.providers.editor_description')}
       backTo="/providers"
       dirty={model.dirty.value}
       error={
@@ -432,6 +491,8 @@ export function ProviderEditorPage() {
         </LabeledField>
       </div>
 
+      {basicCredentialSettings.map(credentialField)}
+
       {advancedBaseURL ? null : baseURLField}
 
       {basicSettings.map(setting => (
@@ -457,6 +518,7 @@ export function ProviderEditorPage() {
           </CollapsibleTrigger>
           <CollapsibleContent className="grid gap-5">
             {advancedBaseURL ? baseURLField : null}
+            {advancedCredentialSettings.map(credentialField)}
             {advancedSettings.map(setting => (
               <ProviderSettingField
                 key={setting.key}

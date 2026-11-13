@@ -2611,7 +2611,7 @@ Ankole は組織内のプライベートデプロイメント向けに設計さ�
 
 ## 3. LLM Provider を追加して Agent を作成する
 
-モデルプロファイルは登録済みの LLM Provider を参照するため、先に Console の **Providers → New provider** で provider の種類を選択し、安定した Provider ID、エンドポイント、認証情報を入力して保存します。登録した認証情報は control plane 内で暗号化して保管されるため、デプロイ用の `.env` ファイルや Agent のワークスペースファイル内に API キーを書き込まないでください。
+モデルプロファイルは登録済みの LLM Provider を参照するため、先に Console の **Providers → New provider** で provider の種類を選んで API キーを貼り付け、保存します。Provider ID は Console が提案し、エンドポイントは provider の既定値を使うため、アドレスを入力するのは、Azure OpenAI のようにリソースごとにアドレスが割り当てられるサービスか、セルフホストや互換エンドポイントの場合だけです。登録した認証情報は control plane 内で暗号化して保管されるため、デプロイ用の `.env` ファイルや Agent のワークスペースファイル内に API キーを書き込まないでください。
 
 次に **Console → Model Profiles** を開き、Site または Pod 既定の言語モデルスロットを設定します（`Site -> Pod -> Agent/System` の 3 層疎継承と、`coding -> heavy -> primary` および `light -> primary` のフォールバックが適用されます）。
 

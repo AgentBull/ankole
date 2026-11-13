@@ -15,7 +15,8 @@ describe('ProviderEditorModel', () => {
       providerID: 'openai',
       providerKind: 'openai',
       baseURL: 'https://api.example.com/v1',
-      options: { api_key: '' }
+      options: { api_key: '' },
+      credentials: {}
     })
     expect(model.dirty.value).toBe(false)
     model.baseURL.value = 'https://proxy.example.com/v1'
@@ -25,7 +26,8 @@ describe('ProviderEditorModel', () => {
       providerID: 'openai',
       providerKind: 'openai',
       baseURL: 'https://refetched.example.com/v1',
-      options: { api_key: '' }
+      options: { api_key: '' },
+      credentials: {}
     })
 
     expect(model.baseURL.value).toBe('https://proxy.example.com/v1')
@@ -34,7 +36,8 @@ describe('ProviderEditorModel', () => {
       providerID: 'anthropic',
       providerKind: 'anthropic',
       baseURL: 'https://api.anthropic.com',
-      options: { api_key: '' }
+      options: { api_key: '' },
+      credentials: {}
     })
 
     expect(model.providerID.value).toBe('anthropic')
@@ -50,13 +53,15 @@ describe('ProviderEditorModel', () => {
       providerID: 'openai',
       providerKind: 'openai',
       baseURL: 'https://api.openai.com/v1',
-      options: {}
+      options: {},
+      credentials: {}
     })
     model.changeKind({
       providerID: 'openrouter-2',
       providerKind: 'openrouter',
       baseURL: 'https://openrouter.ai/api/v1',
-      options: {}
+      options: {},
+      credentials: {}
     })
 
     expect(model.providerID.value).toBe('openrouter-2')
@@ -71,7 +76,8 @@ describe('ProviderEditorModel', () => {
       providerID: 'openrouter',
       providerKind: 'openrouter',
       baseURL: 'https://openrouter.ai/api/v1',
-      options: { app_referer: 'https://ankole.test', app_title: 'Ankole' }
+      options: { app_referer: 'https://ankole.test', app_title: 'Ankole' },
+      credentials: {}
     })
     expect(model.dirty.value).toBe(false)
 
@@ -84,7 +90,7 @@ describe('ProviderEditorModel', () => {
 })
 
 describe('Provider save acknowledgement', () => {
-  const initial = { providerID: 'openai', providerKind: 'openai', baseURL: 'initial', options: {} }
+  const initial = { providerID: 'openai', providerKind: 'openai', baseURL: 'initial', options: {}, credentials: {} }
 
   test('confirms the sent snapshot and preserves edits made while the request is pending', async () => {
     using model = new ProviderEditorModel()

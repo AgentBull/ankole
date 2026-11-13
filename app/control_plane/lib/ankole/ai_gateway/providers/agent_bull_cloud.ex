@@ -19,7 +19,7 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
 
   provider :agentbull_cloud do
     label(%{"default" => "AgentBull Cloud", "zh-Hans-CN" => "AgentBull Cloud"})
-    base_url(@default_base_url)
+    base_url(@default_base_url, advanced: true)
 
     setting(:api_key, encrypted: true, required: true, scope: :credential)
 

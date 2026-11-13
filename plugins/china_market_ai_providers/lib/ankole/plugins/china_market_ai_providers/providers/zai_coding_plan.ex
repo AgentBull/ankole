@@ -25,9 +25,9 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
-    setting(:user, scope: :request)
-    setting(:thinking, type: :map, scope: :request)
-    setting(:response_format, scope: :request)
+    setting(:user, scope: :request, advanced: true)
+    setting(:thinking, type: :map, scope: :request, advanced: true)
+    setting(:response_format, scope: :request, advanced: true)
 
     language_model do
       api_resolver(:openai_chat_completions)

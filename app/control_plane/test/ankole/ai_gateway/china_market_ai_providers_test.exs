@@ -119,12 +119,30 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
 
     assert spec.api_resolver == :anthropic_messages
     assert spec.upstream.url == "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages"
-    assert headers(spec)["x-api-key"] == "mimo-key"
-    assert headers(spec)["anthropic-version"] == "2023-06-01"
+    assert headers(spec)["api-key"] == "mimo-key"
+    # The kernel chooses the Anthropic version from the target model.
+    refute Map.has_key?(headers(spec), "anthropic-version")
 
     assert spec.response_context.provider_options == %{
              "thinking" => %{"type" => "enabled"}
            }
+  end
+
+  test "xiaomi mimo token plan reaches an overseas cluster over a stored default host" do
+    assert {:ok, spec} =
+             prepared_spec(XiaomiMiMo,
+               model: "mimo-v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "tp-key"}]
+               },
+               connection_options: %{
+                 "base_url" => "https://api.xiaomimimo.com/anthropic",
+                 "xiaomi_mimo_billing_plan" => "token_plan_sgp"
+               },
+               request: %{"input" => "hello"}
+             )
+
+    assert spec.upstream.url == "https://token-plan-sgp.xiaomimimo.com/anthropic/v1/messages"
   end
 
   test "zai coding plan preserves thinking options and uses the longer timeout" do

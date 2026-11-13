@@ -6,9 +6,17 @@ export type ProviderEditorDraft = {
   providerKind: string
   baseURL: string
   options: Record<string, string>
+  /** The first pool credential of a new provider; an existing provider edits its pool separately. */
+  credentials: Record<string, string>
 }
 
-const emptyDraft = (): ProviderEditorDraft => ({ providerID: '', providerKind: '', baseURL: '', options: {} })
+const emptyDraft = (): ProviderEditorDraft => ({
+  providerID: '',
+  providerKind: '',
+  baseURL: '',
+  options: {},
+  credentials: {}
+})
 
 export function nextProviderID(providerKind: string, existingProviderIDs: Iterable<string>): string {
   const existing = new Set(existingProviderIDs)
@@ -27,6 +35,7 @@ export const ProviderEditorModel = createModel(() => {
   const providerKind = signal(initial.providerKind)
   const baseURL = signal(initial.baseURL)
   const options = signal(initial.options)
+  const credentials = signal(initial.credentials)
   const initialDraft = signal<ProviderEditorDraft>()
   const validationError = signal<string>()
   const dirty = computed(() => {
@@ -36,7 +45,8 @@ export const ProviderEditorModel = createModel(() => {
       (providerID.value !== source.providerID ||
         providerKind.value !== source.providerKind ||
         baseURL.value !== source.baseURL ||
-        !equal(options.value, source.options))
+        !equal(options.value, source.options) ||
+        !equal(credentials.value, source.credentials))
     )
   })
 
@@ -46,9 +56,11 @@ export const ProviderEditorModel = createModel(() => {
       providerKind.value = draft.providerKind
       baseURL.value = draft.baseURL
       options.value = draft.options
+      credentials.value = draft.credentials
       initialDraft.value = {
         ...draft,
-        options: { ...draft.options }
+        options: { ...draft.options },
+        credentials: { ...draft.credentials }
       }
       validationError.value = undefined
     })
@@ -60,6 +72,7 @@ export const ProviderEditorModel = createModel(() => {
     providerKind,
     baseURL,
     options,
+    credentials,
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: ProviderEditorDraft) {
@@ -75,6 +88,9 @@ export const ProviderEditorModel = createModel(() => {
     setOption(key: string, value: string) {
       options.value = { ...options.value, [key]: value }
     },
+    setCredential(key: string, value: string) {
+      credentials.value = { ...credentials.value, [key]: value }
+    },
     clearValidation() {
       validationError.value = undefined
     },
@@ -87,7 +103,8 @@ export const ProviderEditorModel = createModel(() => {
         providerID: providerID.value,
         providerKind: providerKind.value,
         baseURL: baseURL.value,
-        options: { ...options.value }
+        options: { ...options.value },
+        credentials: { ...credentials.value }
       }
       const result = await request(sentDraft)
       if (source !== requestedSource) return

@@ -82,7 +82,7 @@ setting(:reasoningEffort, type: :select, default: "high",
 
 每条 Provider 记录都配有一个凭据池（哪怕池中只有一个成员）。调用 `prepare` 函数前，解析器会先从池中选出一个健康的凭据成员，并解密其 `:credential` 作用域的配置；端点地址、自定义请求头等 `:connection` 配置由整条 Provider 记录共用；`:request` 配置则取自具体的模型档案（Model Profile）。这三类配置会合并进同一个 `settings` 映射传给 `prepare` 函数，因此 `prepare` 函数只需直接按键读取，无需自行实现凭据池调度。
 
-`advanced?` 仅控制界面呈现，用于在 Console 表单中将该字段收纳进「高级设置」折叠区，不影响校验规则或运行时逻辑。
+`advanced?` 仅控制界面呈现，用于在 Console 表单中将该字段收纳进「高级设置」折叠区，不影响校验规则或运行时逻辑。只有管理员必须填写的字段，以及没有安全默认值、必须由管理员选择的字段才留在主表单，其余字段一律标记 `advanced: true`。Provider 能自行推导的值不要声明成设置，例如随模型而定的协议版本。Console 只把 `default` 显示为占位文字或预选项，并不保存它；因此 Provider 改了默认值，所有没有覆盖过该值的记录都会跟着生效。
 
 ## 能力
 

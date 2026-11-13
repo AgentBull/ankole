@@ -8,7 +8,6 @@ defmodule Ankole.AIGateway.Providers.Claude do
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @anthropic_version "2023-06-01"
   # Anthropic `output_config.effort` uses Ankole's public names from low through
   # max. The model metadata decides which of them each model accepts.
   @reasoning_effort_map Map.new(~w(low medium high xhigh max), &{&1, &1})
@@ -31,7 +30,6 @@ defmodule Ankole.AIGateway.Providers.Claude do
     )
 
     setting(:headers, type: :map, advanced: true)
-    setting(:anthropic_version, default: @anthropic_version, advanced: true)
     setting(:anthropic_beta, advanced: true)
     setting(:messages_path, default: "v1/messages", advanced: true)
 
@@ -57,14 +55,14 @@ defmodule Ankole.AIGateway.Providers.Claude do
   @doc """
   Builds an Anthropic Messages request.
 
-  Anthropic keeps version and beta behavior in headers, so the provider adds
-  those headers while the Rust `anthropic_messages` resolver owns stream
-  normalization.
+  The provider adds the beta header, while the Rust `anthropic_messages`
+  resolver chooses the `anthropic-version` that matches the target model and
+  owns stream normalization. An operator who must pin a version sends it
+  through the `headers` setting.
   """
   def prepare_language_model(ctx) do
     ctx
     |> UniversalAIRequest.new(ctx.settings[:messages_path] || "v1/messages", :anthropic_messages)
-    |> UniversalAIRequest.put_new_setting_header("anthropic-version", :anthropic_version)
     |> maybe_put_beta(anthropic_betas(ctx))
     |> put_auth(ctx)
     |> ReasoningEffort.put_provider_options(ctx, reasoning_effort_options())

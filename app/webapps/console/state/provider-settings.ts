@@ -153,13 +153,16 @@ export function humanizeKey(key: string): string {
  * The blank stays as the second lock: a Plugin that declares its provider by
  * hand bypasses the compile-time guard, and a secret is not a value to render
  * into an input on the strength of a rule enforced somewhere else.
+ *
+ * The draft holds only what the operator stored. The Console presents a DSL
+ * default as the field's placeholder or preselected option without copying
+ * it into the draft, so the provider keeps owning that default and a later
+ * change to it reaches every connection that never overrode it.
  */
 export function initialSettingValue(setting: ProviderSetting, provider: AIGatewayProviderItem | undefined): string {
   if (setting.encrypted) return ''
 
-  const stored = provider ? recordValue(provider.connection_options)?.[setting.key] : undefined
-  const value = stored ?? (provider ? undefined : setting.default)
-
+  const value = provider ? recordValue(provider.connection_options)?.[setting.key] : undefined
   if (value == null) return ''
   return settingDraftValue(value)
 }
@@ -171,6 +174,28 @@ export function settingDraftValue(value: unknown): string {
 }
 
 export type BuildResult = { ok: true; value: Record<string, unknown> } | { ok: false; key: string; error: string }
+
+/**
+ * Builds the first pool credential that a new provider form submits. A form
+ * left without any credential value yields `null`, so the provider starts
+ * with an empty pool and the operator adds credentials on its page later.
+ */
+export function buildFirstCredential(
+  settings: ProviderSetting[],
+  drafts: Record<string, string>,
+  validationMessage: (field: string, error: SettingValidationError) => string,
+  labelFor: (key: string) => string = humanizeKey
+): { ok: true; value: Record<string, unknown> | null } | { ok: false; error: string } {
+  const filled = (setting: ProviderSetting) => (drafts[setting.key] ?? '').trim() !== ''
+  if (!settings.some(filled)) return { ok: true, value: null }
+
+  // `buildSettingOptions` leaves secrets unchecked, so a required secret is checked here.
+  const missing = settings.find(setting => setting.required && !filled(setting))
+  if (missing) return { ok: false, error: validationMessage(labelFor(missing.key), 'required') }
+
+  const built = buildSettingOptions(settings, drafts, validationMessage, labelFor)
+  return built.ok ? { ok: true, value: built.value } : { ok: false, error: built.error }
+}
 
 export function buildSettingOptions(
   settings: ProviderSetting[],

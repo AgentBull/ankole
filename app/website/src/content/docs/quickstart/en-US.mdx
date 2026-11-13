@@ -2614,7 +2614,7 @@ When enabling an enterprise adapter for the first time, restart the control plan
 
 ## 3. Add an LLM Provider and create an Agent
 
-Register your LLM Provider first: sign in to the Console, open **Providers → New provider**, pick the provider kind, assign a stable Provider ID, enter its endpoint and credentials, and save. Ankole encrypts provider credentials inside the control plane—never place them in deployment `.env` files or Agent workspace files.
+Register your LLM Provider first: sign in to the Console, open **Providers → New provider**, pick the provider kind, paste its API key, and save. The Console suggests a Provider ID and uses the provider's default endpoint, so only a service that assigns an address per resource, such as Azure OpenAI, or a self-hosted or compatible endpoint needs one. Ankole encrypts provider credentials inside the control plane—never place them in deployment `.env` files or Agent workspace files.
 
 Next, open **Console → Model Profiles** to set your Site or Pod defaults across the core language-model slots (`Site -> Pod -> Agent/System`, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`):
 

@@ -15,15 +15,15 @@ defmodule Ankole.AIGateway.Providers.BrightDataSERP do
 
     setting(:api_key, encrypted: true, scope: :credential)
     setting(:zone, required: true)
-    setting(:country)
-    setting(:language)
-    setting(:google_domain)
+    setting(:country, advanced: true)
+    setting(:language, advanced: true)
+    setting(:google_domain, advanced: true)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
-    setting(:country, scope: :request)
-    setting(:language, scope: :request)
-    setting(:google_domain, scope: :request)
+    setting(:country, scope: :request, advanced: true)
+    setting(:language, scope: :request, advanced: true)
+    setting(:google_domain, scope: :request, advanced: true)
 
     web_search do
       api_resolver(:bright_data_serp_web_search)

@@ -3,15 +3,18 @@ import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import type {
   AIGatewayCredentialPoolEntry,
   AIGatewayModelCatalogEntry,
+  AIGatewayProviderItem,
   AIGatewayProviderKindItem,
   ProviderSetting as AIGatewayProviderSetting
 } from './provider-settings'
 import {
+  buildFirstCredential,
   buildSettingOptions,
   connectionSettings,
   credentialSettings,
   decryptedCredentialFieldText,
   entryHasSecretField,
+  initialSettingValue,
   requestSettings,
   secretCredentialSettings,
   settingsForModel
@@ -73,6 +76,34 @@ function catalogEntry(model: string, reasoningEfforts: string[] | null): AIGatew
 }
 
 describe('provider settings', () => {
+  test('leaves a declared default out of a new provider draft and keeps a stored value', () => {
+    const gateway = providerSetting('gateway_id', { default: 'default', advanced: true })
+    const stored = { connection_options: { gateway_id: 'edge' } } as unknown as AIGatewayProviderItem
+
+    expect(initialSettingValue(gateway, undefined)).toBe('')
+    expect(initialSettingValue(gateway, stored)).toBe('edge')
+  })
+
+  test('builds the first credential of a new provider only from entered values', () => {
+    const settings = [
+      providerSetting('access_key_id', { encrypted: true, required: true, scope: 'credential' }),
+      providerSetting('secret_access_key', { encrypted: true, required: true, scope: 'credential' }),
+      providerSetting('auth_mode', { type: 'select', options: ['api_key', 'bearer'], scope: 'credential' })
+    ]
+
+    const message = (field: string, error: string) => `${field}:${error}`
+
+    expect(buildFirstCredential(settings, {}, message)).toEqual({ ok: true, value: null })
+    expect(buildFirstCredential(settings, { access_key_id: 'AKIA' }, message)).toEqual({
+      ok: false,
+      error: 'Secret access key:required'
+    })
+    expect(buildFirstCredential(settings, { access_key_id: 'AKIA', secret_access_key: 'secret' }, message)).toEqual({
+      ok: true,
+      value: { access_key_id: 'AKIA', secret_access_key: 'secret' }
+    })
+  })
+
   test('narrows the reasoning-effort picker to the levels the selected model accepts', () => {
     const settings = requestSettings(providerKind('openai'), 'llm')
     const catalog = [

@@ -40,12 +40,13 @@ defmodule Ankole.AIGateway.Providers.GoogleVertexAI do
 
     setting(:service_account_key, encrypted: true, required: true, scope: :credential)
 
-    setting(:vertex_location, default: "global")
-    setting(:project_id)
+    setting(:vertex_location, default: "global", advanced: true)
+    setting(:project_id, advanced: true)
 
     setting(:safety_threshold,
       type: :select,
-      options: ~w(OFF BLOCK_NONE BLOCK_ONLY_HIGH BLOCK_MEDIUM_AND_ABOVE BLOCK_LOW_AND_ABOVE)
+      options: ~w(OFF BLOCK_NONE BLOCK_ONLY_HIGH BLOCK_MEDIUM_AND_ABOVE BLOCK_LOW_AND_ABOVE),
+      advanced: true
     )
 
     setting(:headers, type: :map, advanced: true)

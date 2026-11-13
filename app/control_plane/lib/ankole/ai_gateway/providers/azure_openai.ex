@@ -19,13 +19,14 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
     setting(:endpoint_kind,
       type: :select,
       default: "responses",
-      options: ~w(responses chat_completions)
+      options: ~w(responses chat_completions),
+      advanced: true
     )
 
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
     setting(:api_version, default: "2025-04-01-preview", advanced: true)
-    setting(:deployment)
+    setting(:deployment, advanced: true)
 
     setting(:maxTokensParameter,
       type: :select,
@@ -39,7 +40,8 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       type: :select,
       default: "api_key",
       options: ~w(api_key bearer auth_token),
-      scope: :credential
+      scope: :credential,
+      advanced: true
     )
 
     setting(:reasoningEffort,

@@ -1,5 +1,35 @@
 # Changelog
 
+## Version 2.0.0-alpha.141 (2026-11-12)
+
+- Add a model provider in one step. The new-provider form asks for the API key
+  together with the connection and saves it as the provider's first credential,
+  so the provider serves requests as soon as it is saved. The credential dialog
+  fills in a label and keeps priority and authentication mode under Advanced
+  settings.
+- Show only the settings that an operator must fill in. Optional settings that
+  already work by default move under Advanced settings, including Azure OpenAI's
+  endpoint kind and deployment, Vertex AI's location, project, and safety
+  threshold, Cloudflare's gateway, Bright Data's search defaults, the AgentBull
+  Cloud base URL, and the model profile options of Alibaba Cloud, Jina,
+  Parallel, Z.AI, and Xiaomi MiMo. Select fields show readable option names, and
+  a provider kind without a default endpoint, such as Azure OpenAI, marks the
+  base URL as required and shows an example address.
+- Stop saving default values into a new provider's settings. A blank field keeps
+  following the provider's current default, so later improvements to a default
+  reach the provider too.
+- Stop asking for an Anthropic API version on Claude and Xiaomi MiMo
+  connections. Ankole now sends `2026-10-21` for Claude 4.5 and later models and
+  `2023-06-01` for other models, so Claude 4.5 and later traffic moves to the
+  newer version, which leaves out a caller's `temperature`, `top_p`, and
+  `top_k`. Upgrading removes the stored version from existing connections, and
+  an endpoint that needs a specific version receives it through the
+  connection's custom headers.
+- Let Xiaomi MiMo connections choose a Token Plan in Singapore or Europe as well
+  as China, and authenticate with the `api-key` header that Xiaomi documents.
+  Upgrading removes the unused Messages path and beta header settings from
+  existing Xiaomi MiMo connections.
+
 ## Version 2.0.0-alpha.140 (2026-11-12)
 
 - Fix Page references in Chat drawing a Page's icon over its title when an

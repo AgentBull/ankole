@@ -271,7 +271,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
 
   test "Azure OpenAI defaults to the Responses endpoint" do
     assert setting(AzureOpenAI, :endpoint_kind) ==
-             {:select, ~w(responses chat_completions), false}
+             {:select, ~w(responses chat_completions), true}
 
     assert Providers.responses_endpoint?("azure_openai", %{})
     assert Providers.responses_endpoint?("azure_openai", %{"endpoint_kind" => "responses"})

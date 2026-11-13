@@ -17,7 +17,9 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
 
     setting(:api_key, encrypted: true, scope: :credential)
     setting(:account_id, required: true)
-    setting(:gateway_id, default: "default")
+    # Cloudflare creates the `default` gateway on the first authenticated
+    # request, so only an operator who routes through another gateway sets it.
+    setting(:gateway_id, default: "default", advanced: true)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 

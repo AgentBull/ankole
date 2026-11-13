@@ -17,13 +17,13 @@ defmodule Ankole.AIGateway.Providers.Parallel do
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
-    setting(:objective, scope: :request)
-    setting(:search_queries, scope: :request)
-    setting(:mode, scope: :request)
-    setting(:max_chars_total, scope: :request)
-    setting(:session_id, scope: :request)
-    setting(:client_model, scope: :request)
-    setting(:advanced_settings, type: :map, scope: :request)
+    setting(:objective, scope: :request, advanced: true)
+    setting(:search_queries, scope: :request, advanced: true)
+    setting(:mode, scope: :request, advanced: true)
+    setting(:max_chars_total, scope: :request, advanced: true)
+    setting(:session_id, scope: :request, advanced: true)
+    setting(:client_model, scope: :request, advanced: true)
+    setting(:advanced_settings, type: :map, scope: :request, advanced: true)
 
     web_search do
       api_resolver(:parallel_web_search)

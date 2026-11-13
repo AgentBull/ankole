@@ -14,7 +14,6 @@ import { JSONField, LabeledField } from '../console-form'
 import { EncryptedValueInput } from '../encrypted-value-input'
 import { humanizeKey, settingDraftValue, type ProviderSetting } from '../state/provider-settings'
 
-const UNSET_BOOLEAN = '__unset__'
 export const UNSET_SELECT = '__unset_select__'
 const UNSET_SERVICE_TIER = '__unset_service_tier__'
 
@@ -122,13 +121,13 @@ export function ProviderSettingField({
       <LabeledField label={label} description={description} required={setting.required}>
         <Select
           disabled={disabled}
-          value={draft || UNSET_BOOLEAN}
-          onValueChange={next => onChange(String(next) === UNSET_BOOLEAN ? '' : String(next))}>
+          value={selectControlValue(draft, defaultDraft, keepStored ?? false)}
+          onValueChange={next => onChange(String(next) === UNSET_SELECT ? '' : String(next))}>
           <SelectTrigger className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={UNSET_BOOLEAN}>{blankOptionLabel}</SelectItem>
+            <SelectItem value={UNSET_SELECT}>{blankOptionLabel}</SelectItem>
             <SelectItem value="true">{t('common.boolean_true')}</SelectItem>
             <SelectItem value="false">{t('common.boolean_false')}</SelectItem>
           </SelectContent>
@@ -196,7 +195,7 @@ export function ProviderSettingField({
             <SelectItem value={UNSET_SELECT}>{blankOptionLabel}</SelectItem>
             {setting.options.map(option => (
               <SelectItem key={option} value={option}>
-                {option}
+                {t(`console.providers.setting_${setting.key}_option_${option}`, { defaultValue: option })}
               </SelectItem>
             ))}
           </SelectContent>
