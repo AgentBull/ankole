@@ -51,9 +51,9 @@ export type InlineEditControls = {
 
 /**
  * Who wrote a message: a 32px round avatar, which Agents and people share, and the name. An Agent without an uploaded
- * avatar shows the bot mark instead of initials. Your own messages and a message that continues the same author's
- * last one keep the name only for assistive technology. The message states its time in its action row, not on this
- * line.
+ * avatar shows the bot mark instead of initials. The message's content starts on the name's edge, beside the avatar
+ * rather than under it (see `chat.css`). Your own messages and a message that continues the same author's last one
+ * keep the name only for assistive technology. The message states its time in its action row, not on this line.
  */
 export function MessageIdentity({
   name,
@@ -72,7 +72,14 @@ export function MessageIdentity({
   return (
     <header className="pod-chat-message-identity" data-quiet={quiet || undefined}>
       {!quiet && (
-        <ChatAvatar name={name} src={avatarURL} agent={agent} size="default" className="pod-chat-message-avatar" />
+        <ChatAvatar
+          name={name}
+          src={avatarURL}
+          agent={agent}
+          round
+          size="default"
+          className="pod-chat-message-avatar"
+        />
       )}
       <strong className={quiet ? 'sr-only' : undefined}>{name}</strong>
       {archived && <span className="pod-chat-archived">{t('pod.chat_timeline.archived')}</span>}
@@ -176,7 +183,7 @@ export const MessageView = memo(function MessageView({
     const label = timelineEventLabel(message, t, i18n.language)
     return (
       <div className="pod-chat-timeline-event">
-        <ChatAvatar name={name} src={avatarURL} agent={agent} size="xs" className="pod-chat-notice-avatar" />
+        <ChatAvatar name={name} src={avatarURL} agent={agent} round size="xs" className="pod-chat-notice-avatar" />
         <p title={label}>{label}</p>
         <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString(i18n.language)}>
           {messageTime(message.createdAt, i18n.language)}

@@ -44,6 +44,23 @@ test('keeps one shape: the picture, the initials fill, and the hairline edge tak
   expect(round).toContain('rounded-full')
 })
 
+test('draws an Agent or a group as a rounded square whose corner is a quarter of its side', () => {
+  const html = renderToStaticMarkup(
+    <Avatar shape="square" size="sm">
+      <AvatarFallback>GR</AvatarFallback>
+    </Avatar>
+  )
+  const avatar = tagWith(html, 'data-slot="avatar"')
+  expect(attributeOf(avatar, 'data-shape')).toBe('square')
+  expect(classesOf(avatar)).toEqual(
+    expect.arrayContaining(['data-[shape=square]:rounded-[25%]', 'after:rounded-[inherit]'])
+  )
+  expect(classesOf(tagWith(html, 'data-slot="avatar-fallback"'))).toEqual(
+    expect.arrayContaining(['rounded-[inherit]', 'bg-muted'])
+  )
+  expect(attributeOf(tagWith(renderToStaticMarkup(<Avatar />), 'data-slot="avatar"'), 'data-shape')).toBe('circle')
+})
+
 test('draws a 20px mark whose initials take the smallest type step', () => {
   const html = renderToStaticMarkup(
     <Avatar size="xs">
