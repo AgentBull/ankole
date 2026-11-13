@@ -149,51 +149,42 @@ export function AnkoleGraph({
   const latestSyncRef = useRef(syncProjectedAnchors)
   latestSyncRef.current = syncProjectedAnchors
 
-  useImperativeHandle(
-    ref,
-    () => ({
+  useImperativeHandle(ref, () => {
+    // The first render lays the graph out before it draws, and a selection redraws it; the node links show
+    // before either finishes. A viewport action waits for that render or redraw, so a click is not dropped
+    // and a redraw cannot cancel its animation.
+    const afterDraw = (action: (graph: Graph) => Promise<unknown>) => {
+      void pendingDrawRef.current
+        .then(() => {
+          const graph = graphRef.current
+          if (!graph || graph.destroyed || !graph.rendered) return
+          return action(graph).then(() => latestSyncRef.current())
+        })
+        .catch(() => {})
+    }
+    return {
       zoomIn() {
-        const graph = graphRef.current
-        if (!graph || graph.destroyed || !graph.rendered) return
-        void graph.zoomBy(1.25, reducedMotion ? false : { duration: 150 }).then(
-          () => latestSyncRef.current(),
-          () => {}
-        )
+        afterDraw(graph => graph.zoomBy(1.25, reducedMotion ? false : { duration: 150 }))
       },
       zoomOut() {
-        const graph = graphRef.current
-        if (!graph || graph.destroyed || !graph.rendered) return
-        void graph.zoomBy(0.8, reducedMotion ? false : { duration: 150 }).then(
-          () => latestSyncRef.current(),
-          () => {}
-        )
+        afterDraw(graph => graph.zoomBy(0.8, reducedMotion ? false : { duration: 150 }))
       },
       fitView() {
-        const graph = graphRef.current
-        if (!graph || graph.destroyed || !graph.rendered) return
-        void graph.fitView({ when: 'always', direction: 'both' }, reducedMotion ? false : { duration: 180 }).then(
-          () => latestSyncRef.current(),
-          () => {}
+        afterDraw(graph =>
+          graph.fitView({ when: 'always', direction: 'both' }, reducedMotion ? false : { duration: 180 })
         )
       },
       focusNode(nodeId: string) {
-        // A click that focuses a node usually selects it as well. The redraw for that selection runs without
-        // animation and would cancel the focus animation, so the focus starts once that redraw settles.
-        setTimeout(() => {
-          void pendingDrawRef.current
-            .then(() => {
-              const graph = graphRef.current
-              if (!graph || graph.destroyed || !graph.rendered || !graph.hasNode(nodeId)) return
-              return graph
-                .focusElement(nodeId, reducedMotion ? false : { duration: 200 })
-                .then(() => latestSyncRef.current())
-            })
-            .catch(() => {})
-        })
+        // The click that focuses a node usually selects it as well, and React starts that redraw after the
+        // click handler returns, so the focus waits one task before it joins the pending redraw.
+        setTimeout(() =>
+          afterDraw(async graph => {
+            if (graph.hasNode(nodeId)) await graph.focusElement(nodeId, reducedMotion ? false : { duration: 200 })
+          })
+        )
       }
-    }),
-    [reducedMotion]
-  )
+    }
+  }, [reducedMotion])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -350,6 +341,8 @@ export function AnkoleGraph({
       cancelHoverClear()
       prevStructureKeyRef.current = ''
       graphRef.current = null
+      // A render of the destroyed graph may never settle, so the next graph starts a fresh chain.
+      pendingDrawRef.current = Promise.resolve()
       graph.destroy()
     }
     // Graph lifecycle binds once to the DOM container; size, theme, layout, and data update reactively below.
@@ -378,10 +371,11 @@ export function AnkoleGraph({
         transforms: graphSpec.transforms,
         behaviors: graphSpec.behaviors
       })
-      pendingDrawRef.current = graph.render().then(
+      const rendered = graph.render().then(
         () => latestSyncRef.current(),
         () => {}
       )
+      pendingDrawRef.current = Promise.all([pendingDrawRef.current, rendered])
     } else {
       // Style-only change (hover spotlight, selection, edge-label toggle, or theme switch): preserve settled
       // layout coordinates and redraw elements in place without re-running the layout. The spotlight restyles
@@ -411,7 +405,7 @@ export function AnkoleGraph({
         combos: graphSpec.data.combos
       })
       graph.setOptions({ animation: false })
-      pendingDrawRef.current = graph
+      const drawn = graph
         .draw()
         .then(
           () => latestSyncRef.current(),
@@ -420,6 +414,8 @@ export function AnkoleGraph({
         .finally(() => {
           if (!graph.destroyed) graph.setOptions({ animation: !reducedMotion })
         })
+      // A quick redraw must not stand in for a slower render that is still running.
+      pendingDrawRef.current = Promise.all([pendingDrawRef.current, drawn])
     }
   }, [graphSpec, nodes.length, reducedMotion, structureKey, syncProjectedAnchors])
 

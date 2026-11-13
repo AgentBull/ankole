@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.153 (2026-11-13)
+
+- Keep Zoom in, Zoom out, Fit view, and Focus node working when you use them
+  right after the Brain graph opens or after a search changes it. The node
+  links appear before the graph finishes drawing, and a click in that moment
+  used to be ignored; the graph now applies it as soon as drawing finishes.
+
 ## Version 2.0.0-alpha.152 (2026-11-13)
 
 - Center the node when you choose **Focus node** in the Meta Brain object list.
