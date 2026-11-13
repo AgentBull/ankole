@@ -21,6 +21,8 @@
   plain code block, and a `<mermaid>` or `<infographic>` tag with `view` or
   `theme` around its fence was rejected. `pages.read` now also shows existing
   Infographics as editable source instead of locked anchors.
+- Show "This view has no records" on a Base kanban view whose grouping field
+  has no columns. The view used to show the raw text `pod.content.no_records`.
 - Label the per-slot action on the Site defaults tab **Clear** instead of
   **Restore inheritance**, because Site values are the base layer and have
   nothing to inherit. Its confirmation warns that every Pod and Agent without

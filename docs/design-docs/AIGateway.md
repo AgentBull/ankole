@@ -167,7 +167,9 @@ saves. The Pod defaults tab, each Agent, and each system Principal offer
 Provider-hosted overrides one by one through the same deletion routes; when a
 deletion fails, the slots cleared before it stay cleared, the page refreshes,
 and the operator runs it again for the rest. The Site tab has no such action,
-because Site values are the base that every Pod inherits.
+because Site values are the base that every Pod inherits: its per-slot action
+clears the Site value and warns that every Pod and Agent without its own
+override loses it, and its Provider-hosted switches restore their default.
 Provider disable and deletion check Agent options, every Site, Pod, and
 `system:<uid>` profile row, and model aliases of enabled OIDC Clients before
 allowing the operation. Tenant-owned references include the tenant ID, together

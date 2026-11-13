@@ -1095,6 +1095,8 @@ restore_all_description_tenant = "Remove this Pod's overrides ({$count}). These 
 restore_all_done = "Inheritance restored ({$count})."
 restore_all_title = "Restore all inheritance"
 save_creates_override = "Unsaved. Saving stops this slot inheriting"
+clear_site_description = "Remove the Site setting for {$profile}. Every Pod and Agent that does not override this slot is affected."
+restore_default = "Restore default"
 
 [console.ai_usage]
 title = "Model usage"

@@ -1150,6 +1150,8 @@ restore_all_description_tenant = "이 Pod의 재정의 {$count}개를 삭제합�
 restore_all_done = "{$count}개를 상속으로 복원했습니다."
 restore_all_title = "모두 상속 복원"
 save_creates_override = "저장되지 않음. 저장하면 이 슬롯은 더 이상 상속하지 않습니다"
+clear_site_description = "Site의 \"{$profile}\" 설정을 삭제합니다. 이 슬롯을 따로 재정의하지 않은 모든 Pod와 Agent에 영향을 줍니다."
+restore_default = "기본값 복원"
 
 [console.ai_usage]
 title = "모델 사용량"

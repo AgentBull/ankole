@@ -1076,6 +1076,8 @@ restore_all_description_tenant = "移除这个 Pod 的 {$count} 项覆盖，之�
 restore_all_done = "已恢复 {$count} 项继承。"
 restore_all_title = "全部恢复继承"
 save_creates_override = "未保存，保存后此槽位不再继承"
+clear_site_description = "移除 Site 的“{$profile}”配置。所有没有单独覆盖这个槽位的 Pod 和 Agent 都会受影响。"
+restore_default = "恢复默认"
 
 [console.ai_usage]
 title = "模型用量"

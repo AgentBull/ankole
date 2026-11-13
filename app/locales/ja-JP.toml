@@ -1149,6 +1149,8 @@ restore_all_description_tenant = "この Pod の上書き {$count} 件を削除�
 restore_all_done = "{$count} 件を継承に戻しました。"
 restore_all_title = "すべて継承に戻す"
 save_creates_override = "未保存。保存するとこのスロットは継承しなくなります"
+clear_site_description = "Site の「{$profile}」の設定を削除します。このスロットを個別に上書きしていないすべての Pod と Agent に影響します。"
+restore_default = "既定に戻す"
 
 [console.ai_usage]
 title = "モデル使用量"

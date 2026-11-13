@@ -80,7 +80,7 @@ export function ModelProfilesPage() {
       replacesProfile: true,
       onChange: next => mutate(next),
       onReset: Object.hasOwn(hostedOverrides, capability) ? () => mutate(null) : undefined,
-      resetLabel: t('console.models.restore_inheritance')
+      resetLabel: t(scope === 'global' ? 'console.models.restore_default' : 'console.models.restore_inheritance')
     }
   }
 

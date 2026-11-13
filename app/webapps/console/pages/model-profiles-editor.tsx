@@ -412,6 +412,8 @@ export function ProfileEditor({
     )
   }
   const layer = profileLayer(target)
+  // Site values are the base layer, so removing one clears the slot rather than restoring inheritance.
+  const clearLabel = layer === 'global' ? t('common.clear') : t('console.models.restore_inheritance')
   const source = profileSource(layer, profile, hasOverride, configuration.effective[profile])
   const inherited = recordValue(configuration.inherited[profile])
   const inheritedHint =
@@ -434,11 +436,16 @@ export function ProfileEditor({
         providerHosted={providerHosted}
         deleteConfirm={{
           title: t('console.models.clear_title'),
-          description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
-          confirmLabel: t('console.models.restore_inheritance')
+          description: t(
+            layer === 'global' ? 'console.models.clear_site_description' : 'console.models.clear_description',
+            {
+              profile: modelProfileLabel(t, profile)
+            }
+          ),
+          confirmLabel: clearLabel
         }}
         deleteDisabled={!hasOverride}
-        deleteLabel={t('console.models.restore_inheritance')}
+        deleteLabel={clearLabel}
         providers={providers}
         providerKinds={providerKinds}
         modelCatalog={modelCatalog}
