@@ -22,7 +22,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.Usage
   alias Ankole.Attrs
   alias Ankole.AIGateway.ModelMetadata
-  alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.HostedTools.Brain
   alias Ankole.AIGateway.ResponsesPreparation
@@ -42,11 +41,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     max_output_tokens max_tool_calls service_tier prompt_cache_key
     safety_identifier user
   )
-
-  # Stateful history replays as Responses items. Only these wires translate
-  # bare client tool calls and outputs faithfully. Other wires cannot preserve
-  # those pairs in provider history. Stateless requests do not pass this gate.
-  @stateful_replay_api_resolvers [:openai_responses, :openai_chat_completions]
 
   @doc false
   @spec retrieve_response(String.t(), binary()) :: {:ok, %{body: map()}} | {:error, term()}
@@ -302,8 +296,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     conversation_id = request["conversation"]
     previous_response_id = request["previous_response_id"]
 
-    with :ok <- ensure_stateful_replay_wire(runtime),
-         :ok <- validate_external_optional_response_id(previous_response_id),
+    with :ok <- validate_external_optional_response_id(previous_response_id),
          {:ok, conversation} <-
            resolve_stateful_request_conversation(
              subject_uid,
@@ -354,18 +347,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          recovered_call_ids: recovered_call_ids,
          compaction: compaction
        }}
-    end
-  end
-
-  defp ensure_stateful_replay_wire(runtime) do
-    provider_kind = Map.get(runtime, "provider_kind")
-
-    with {:ok, api_resolver} <- Providers.effective_language_model_api_resolver(runtime) do
-      if api_resolver in @stateful_replay_api_resolvers do
-        :ok
-      else
-        {:error, {:stateful_wire_unsupported, provider_kind, api_resolver}}
-      end
     end
   end
 

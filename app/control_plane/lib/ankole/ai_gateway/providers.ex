@@ -314,30 +314,6 @@ defmodule Ankole.AIGateway.Providers do
     do: build_prepared_request(runtime, :language_model, request, opts)
 
   @doc """
-  Returns the effective language-model resolver for one resolved runtime.
-
-  OpenAI-family providers select the resolver from their effective endpoint.
-  Other providers use their declared resolver.
-  """
-  @spec effective_language_model_api_resolver(map()) :: {:ok, atom()} | {:error, term()}
-  def effective_language_model_api_resolver(%{"provider_kind" => provider_kind} = runtime) do
-    with {:ok, provider} <- fetch(provider_kind),
-         {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
-      resolver =
-        if provider_kind in ~w(openai openai_compatible azure_openai chatgpt_subscription) do
-          openai_family_api_resolver(responses_endpoint?(runtime))
-        else
-          capability.api_resolver
-        end
-
-      {:ok, resolver}
-    end
-  end
-
-  def effective_language_model_api_resolver(_runtime),
-    do: {:error, :unknown_ai_gateway_provider}
-
-  @doc """
   Maps the Responses-wire judgment to the native API resolver shared by the
   OpenAI protocol family. The native side normalizes the two OpenAI stream
   formats differently, so the resolver must follow the effective endpoint.

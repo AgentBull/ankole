@@ -953,17 +953,20 @@ and the OpenAI, Azure OpenAI, and `openai_compatible` Responses adapters set
 upstream `store: false` independently so local conversation durability never
 depends on provider-side storage.
 
-Because AIGateway replays stateful history as Responses items, a stateful turn
-must target an upstream wire that can replay those items losslessly—either
-`openai_responses` or `openai_chat_completions`. Other wires (such as Anthropic
-Messages) remain available for stateless calls, while stateful turns against
-them fail at turn start with HTTP `422` (`stateful_wire_unsupported`). Tool
-history is likewise bound to its execution runtime: if a native Responses
+AIGateway stores stateful history as Responses items, and each language-model
+wire replays those items in its provider's own shape. The OpenAI Responses wire
+sends them as they are. The Chat Completions and Anthropic Messages adapters
+rebuild assistant turns, tool calls, and tool results as their own messages, so
+every Claude `tool_use` reaches the provider together with its `tool_result`
+(see [Split Work between Elixir and Rust](#split-work-between-elixir-and-rust)
+for how each adapter carries private reasoning). A conversation can therefore
+switch its model profile between turns, including across wires. Tool history
+remains bound to its execution runtime, however: if a native Responses
 conversation recorded caller-executed Shell, Apply Patch, or provider-hosted
 items that AIGateway's local compatibility loop cannot run, switching the
 conversation to a local-compatibility route fails on the first unsupported item
 with `invalid_program_child` rather than silently altering history. Moving across
-either boundary requires starting a new conversation.
+that boundary requires starting a new conversation.
 
 A stateful request continues history in one of three mutually exclusive ways
 (passing both `conversation` and `previous_response_id` is invalid):

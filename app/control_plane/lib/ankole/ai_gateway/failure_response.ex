@@ -355,15 +355,6 @@ defmodule Ankole.AIGateway.FailureResponse do
       {422, "context_overflow", "AIGateway stateful input exceeds the configured context budget.",
        nil, details}
 
-  defp row({:stateful_wire_unsupported, provider_kind, api_resolver}),
-    do:
-      {422, "stateful_wire_unsupported",
-       "Stateful conversations replay history as Responses items. Provider " <>
-         "'#{provider_kind}' uses the '#{api_resolver}' wire, which cannot replay " <>
-         "that history. Select a provider on the openai_responses or " <>
-         "openai_chat_completions wire, or use this provider for stateless requests.", "model",
-       nil}
-
   defp row(:invalid_response_stream_collect_timeout),
     do:
       {400, "invalid_response_stream_collect_timeout",

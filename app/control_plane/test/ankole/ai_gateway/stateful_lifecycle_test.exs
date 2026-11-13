@@ -199,39 +199,113 @@ defmodule Ankole.AIGateway.StatefulLifecycleTest do
     assert stateful_context.message.status == :generating
   end
 
-  test "websocket stateful requests reject wires that cannot replay Responses history" do
+  test "Claude conversations replay stored tool history as Anthropic messages" do
     %{principal: agent} = agent_fixture()
+    parent = self()
+
+    base_url =
+      start_upstream_server(fn request ->
+        send(parent, {:anthropic_request, request.path, request.body})
+        {:sse, 200, anthropic_stream_events(), false}
+      end)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "claude-stateful-gate",
+               provider_id: "claude-stateful",
                provider_kind: "claude",
+               base_url: base_url,
                credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-claude"}]
+                 "entries" => [%{"label" => "Local fixture", "api_key" => "sk-claude"}]
                }
              })
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "claude-stateful-gate",
-               model: "claude-opus-4-6"
+               provider_id: "claude-stateful",
+               model: "claude-sonnet-4-5"
              })
 
-    assert {:error, {:stateful_wire_unsupported, "claude", :anthropic_messages}} =
-             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, "claude-history")
+
+    {:ok, first} =
+      start_stateful_message(agent.uid, conversation, "claude-history-a", [
+        text_message("user", "Read the report.")
+      ])
+
+    call = %{
+      "type" => "function_call",
+      "call_id" => "toolu_read",
+      "name" => "read_file",
+      "arguments" => ~s({"path":"report.txt"}),
+      "status" => "completed"
+    }
+
+    {:ok, first} =
+      ResponseCommit.commit_complete(first, [text_message("assistant", "Reading it."), call])
+
+    assert {:ok, _journal} =
+             Repo.transact_top_level(fn ->
+               AIGateway.record_tool_results_in_tx(
+                 agent.uid,
+                 %{
+                   "previous_response_id" => "resp_#{first.id}",
+                   "input" => [
+                     %{
+                       "type" => "function_call_output",
+                       "call_id" => "toolu_read",
+                       "output" => "Revenue grew 12%."
+                     }
+                   ]
+                 },
+                 %{}
+               )
+             end)
+
+    assert {:ok, stream, meta} =
+             AIGateway.open_websocket_stream(agent.uid, %{
                "model" => "primary",
-               "input" => "hello",
-               "store" => true
+               "conversation" => "conv_#{conversation.id}",
+               "store" => true,
+               "input" => "Summarize it."
              })
 
-    # The same selector stays usable for stateless requests.
-    assert {:ok, _request, nil} =
-             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
-               "model" => "primary",
-               "input" => "hello"
-             })
+    assert {:ok, %{terminal_response: %{"status" => "completed"}}, _} =
+             Ankole.AIGateway.ResponseStream.await_terminal(stream, meta, 5_000)
 
-    refute_receive {:gateway_request, _request}
+    assert_receive {:anthropic_request, "v1/messages", body}
+    assert body["model"] == "claude-sonnet-4-5"
+
+    # The stored assistant turn becomes one assistant message. The next user
+    # message answers its tool_use first and then carries the new question,
+    # which is the pairing Claude requires.
+    assert [
+             %{
+               "role" => "user",
+               "content" => [%{"type" => "text", "text" => "Read the report."}]
+             },
+             %{
+               "role" => "assistant",
+               "content" => [
+                 %{"type" => "text", "text" => "Reading it."},
+                 %{
+                   "type" => "tool_use",
+                   "id" => "toolu_read",
+                   "name" => "read_file",
+                   "input" => %{"path" => "report.txt"}
+                 }
+               ]
+             },
+             %{
+               "role" => "user",
+               "content" => [
+                 %{"type" => "tool_result", "tool_use_id" => "toolu_read", "content" => output}
+                 | current
+               ]
+             }
+           ] = body["messages"]
+
+    assert output =~ "Revenue grew 12%."
+    assert Enum.any?(current, &(&1["type"] == "text" and &1["text"] =~ "Summarize it."))
   end
 
   test "websocket stateful previous_response_id expands history without provider state fields" do

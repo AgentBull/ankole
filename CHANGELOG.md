@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.145 (2026-11-13)
+
+- Let a Claude provider answer conversations. When a site, Pod, or Agent
+  pointed a conversation profile such as `primary` or `heavy` at a Claude
+  provider, every message used to fail at the start of its turn with
+  `stateful_wire_unsupported`. Claude now continues each conversation from its
+  stored history, including earlier tool calls and turns that another model
+  answered.
+
 ## Version 2.0.0-alpha.144 (2026-11-13)
 
 - When the Agent computer cannot start in time, the Agent now stops calling
