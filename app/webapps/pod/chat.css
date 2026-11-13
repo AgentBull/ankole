@@ -161,6 +161,20 @@
   margin-bottom: 10px;
 }
 
+/* In a chat column wider than 480px the composer and the notes above it start on the content's edge, past the
+   authors' avatars, as the messages above them do. A narrower column, such as the Page assistant, the column beside
+   a side panel, or a phone, keeps the composer at its full width, so its toolbar holds every control on one row. */
+@container (min-width: 481px) {
+  .pod-chat-composer-dock > * {
+    margin-inline-start: 44px;
+  }
+  .pod-chat-composer-dock > .pod-chat-composer-shell {
+    width: auto;
+    max-width: none;
+    margin-inline: 44px 0;
+  }
+}
+
 /* The tools of the message editor share one row with its Cancel and Save buttons along its bottom edge. */
 .pod-chat-composer-tools[data-slot='input-group-addon'] {
   justify-content: space-between;
@@ -461,9 +475,19 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A chat avatar takes its size, shape, fill, and edge from the kit (see `ChatAvatar`); chat sets only the type of its
+   initials. */
 .pod-chat-avatar {
+  font-size: 10px;
+  font-weight: 500;
+}
+.pod-chat-avatar [data-slot='avatar-fallback'] {
+  font: inherit;
+  white-space: nowrap;
+}
+.pod-chat-avatar-overflow {
   display: inline-flex;
-  flex: 0 0 auto;
+  flex: none;
   align-items: center;
   justify-content: center;
   width: 24px;
@@ -471,29 +495,17 @@
   border-radius: 50%;
   background: var(--muted);
   color: var(--fg-secondary);
-  font-size: 10px;
-  font-weight: 500;
-  border: 1px solid var(--background);
-}
-.pod-chat-avatar [data-slot='avatar-fallback'] {
-  font: inherit;
-  color: inherit;
-  background: inherit;
-  white-space: nowrap;
-}
-.pod-chat-avatar-overflow {
   font-size: 9px;
 }
 .pod-chat-human-text .pod-chat-markdown p,
 .pod-chat-human-text .pod-chat-markdown li {
   white-space: pre-wrap;
 }
-.pod-chat-avatar-agent {
-  border-radius: 7px;
-  background: var(--accent);
-  color: var(--accent-foreground);
+/* In a cluster each avatar keeps a ring of the paper, and a small overlap keeps both letters of a two-letter initial
+   readable. */
+.pod-chat-avatar-cluster .pod-chat-avatar {
+  border: 1px solid var(--background);
 }
-/* A small overlap keeps both letters of a two-letter initial readable. */
 .pod-chat-avatar-cluster .pod-chat-avatar + .pod-chat-avatar {
   margin-left: -4px;
 }
@@ -788,19 +800,9 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   color: var(--fg-tertiary);
   font-size: 12px;
 }
-/* Sidebar conversation rows. A task row is one 32px line; a DM, group, or colleague row is two lines (name and
-   time, then preview and state) at 44px. The trailing slot keeps time and state aligned in one column, and the
-   row's actions button shows after it while the row is hovered or focused. */
-.pod-chat-row[data-lines='2'] > [data-slot='sidebar-menu-button'] {
-  height: 44px;
-  align-items: center;
-}
-.pod-chat-row-copy {
-  display: grid;
-  min-width: 0;
-  flex: 1;
-  gap: 1px;
-}
+/* Sidebar conversation rows. A task row is one 32px line; a DM, group, or colleague row is the kit's two-line row
+   (`SidebarMenuButton size="lg"` with a `SidebarMenuText`). In a task row the trailing slot keeps the state in one
+   column, and the row's actions button shows after it while the row is hovered or focused. */
 .pod-chat-row-line {
   display: flex;
   min-width: 0;
@@ -808,18 +810,12 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   align-items: center;
   gap: 6px;
 }
-.pod-chat-row-title,
-.pod-chat-row-preview {
+.pod-chat-row-title {
   min-width: 0;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.pod-chat-row-preview {
-  color: var(--fg-tertiary);
-  font-size: 12px;
-  line-height: 16px;
 }
 .pod-chat-row-trailing {
   display: flex;
@@ -841,6 +837,11 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   gap: 8px;
   padding: 0 4px 0 8px;
   font-size: 13px;
+}
+/* A two-line row keeps its height and its avatar's place while its title is edited. */
+.pod-chat-row-editing[data-lines='2'] {
+  min-height: 48px;
+  padding-inline-start: 12px;
 }
 /* The conversation mark keeps one width in every list, so titles start on the same edge as page titles. */
 .pod-conversation-glyph {
@@ -873,8 +874,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   height: 24px;
   font-size: 11px;
 }
-/* In a sidebar row the mark fills the row's 20px icon slot, as a page icon does, and a colleague's avatar fills it
-   without the ring that separates avatars in a cluster. */
+/* In a one-line sidebar row the mark fills the row's 20px icon slot, as a page icon does. */
 [data-sidebar='menu-button'] .pod-conversation-glyph,
 [data-sidebar='menu-button'] .pod-conversation-glyph > svg,
 [data-sidebar='menu-button'] .pod-conversation-glyph .pod-chat-avatar {
@@ -882,7 +882,6 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   height: --spacing(5);
 }
 [data-sidebar='menu-button'] .pod-conversation-glyph .pod-chat-avatar {
-  border: 0;
   font-size: var(--text-25);
 }
 .pod-chat-status-dot {
@@ -1465,18 +1464,9 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-/* Agents and people share one avatar beside a message: 32px and round, with initials in the 12px step. Declared
-   after the Agent mark, this rule keeps an Agent's avatar round here. */
+/* Agents and people share one avatar beside a message, the kit's round 32px avatar (see `MessageIdentity`), with
+   initials in the 12px step. */
 .pod-chat-message-avatar {
-  display: inline-flex;
-  flex: 0 0 32px;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--muted);
-  color: var(--fg-secondary);
   font-size: var(--text-50);
   line-height: var(--text-50--line-height);
   font-weight: 600;
@@ -1492,6 +1482,18 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-chat-timeline .pod-chat-agent-message {
   max-width: var(--spacing-content);
   width: 100%;
+}
+/* A message from someone else, an Agent's reply or another person's, starts its content on its author's name: 44px
+   in, past the 32px avatar and the 12px gap, while the identity row reaches back over that indent to keep the avatar
+   on the column's edge. A message that continues the same author's last one shows no identity and keeps the indent,
+   so one author's blocks share one edge. */
+.pod-chat-timeline :is(.pod-chat-agent-message, .pod-chat-human-message:not(.pod-chat-own-message)) {
+  padding-inline-start: 44px;
+}
+.pod-chat-timeline
+  :is(.pod-chat-agent-message, .pod-chat-human-message:not(.pod-chat-own-message))
+  > .pod-chat-message-identity:not([data-quiet]) {
+  margin-inline-start: -44px;
 }
 .pod-chat-timeline .pod-chat-human-message {
   width: 100%;
@@ -1608,6 +1610,11 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   bottom: 12px;
   left: 0;
 }
+.pod-chat-timeline
+  :is(.pod-chat-agent-message, .pod-chat-human-message:not(.pod-chat-own-message))
+  > .pod-chat-message-actions {
+  left: 44px;
+}
 .pod-chat-own-message > .pod-chat-message-actions {
   right: 0;
   left: auto;
@@ -1651,17 +1658,10 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-chat-timeline-event:hover time {
   opacity: 1;
 }
-/* A notice line keeps the round avatar of the message beside it, for an Agent as for a person. */
+/* A notice line keeps the round avatar of the message beside it, for an Agent as for a person, at the kit's 20px. */
 .pod-chat-notice-avatar.pod-chat-avatar {
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--muted);
-  color: var(--fg-secondary);
   font-size: var(--text-25);
   line-height: var(--text-25--line-height);
-  font-weight: 500;
 }
 .pod-chat-event-avatar {
   display: inline-flex;
@@ -1941,8 +1941,8 @@ img.pod-page-icon.pod-page-mark {
   padding: 1px;
 }
 /* The work summary is one 12/20 tertiary line under the identity row: a 24px caret that turns a quarter while the
-   summary is open, 4px, and the label. The caret sits 4px in from the message's edge, under the middle of the
-   avatar, so the label starts 32px in. */
+   summary is open, and the label 22px in. The caret's glyph fills the middle 12px of its box, so the box starts 6px
+   before the content's edge and the glyph stands on that edge, under the author's name. */
 .pod-chat-work {
   margin: 0 0 8px;
   color: var(--fg-tertiary);
@@ -1960,8 +1960,8 @@ img.pod-page-icon.pod-page-mark {
   list-style: none;
   user-select: none;
 }
-.pod-chat-work > summary {
-  padding-inline-start: 4px;
+.pod-chat-work > summary > .pod-chat-disclosure-caret {
+  margin-inline: -6px 0;
 }
 .pod-chat-work > summary::-webkit-details-marker,
 .pod-chat-thinking > summary::-webkit-details-marker {
@@ -2007,17 +2007,17 @@ img.pod-page-icon.pod-page-mark {
     filter: blur(3px);
   }
 }
-/* While an Agent has not started a step yet, its spinner stands in the caret's 24px place. */
+/* While an Agent has not started a step yet, its 14px spinner centres where the caret's glyph would, before the
+   label's 22px edge. */
 .pod-chat-work-status {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding-inline-start: 4px;
 }
 .pod-chat-work-status > .pod-chat-working-spinner {
   width: 14px;
   height: 14px;
-  margin-inline: 5px;
+  margin-inline: -1px 5px;
 }
 @media (prefers-reduced-motion: no-preference) {
   [data-working-phase]::after {
@@ -2055,9 +2055,13 @@ img.pod-page-icon.pod-page-mark {
   margin-left: 4px;
   color: var(--warning-foreground);
 }
+/* The open steps hang from a rail that runs down from the middle of the caret's glyph, and their icons start under
+   the summary's label, 22px in. A step row's hover wash reaches 6px past its icon and its status mark, so it stays
+   right of the rail, and the steps end 6px before the content's far edge, where the wash ends with the text and the
+   composer. */
 .pod-chat-work-content {
-  margin: 8px 0 10px 3px;
-  padding-left: 12px;
+  margin: 8px 6px 10px 5.5px;
+  padding-left: 15.5px;
   border-left: 1px solid var(--border);
 }
 .pod-chat-thinking {
@@ -3535,11 +3539,11 @@ summary.pod-chat-block-card-header:hover {
   font-size: var(--text-50);
   line-height: var(--text-50--line-height);
 }
-/* The inspector's composer is the chat's composer, floating over the foot of the inspector with the insets that the
-   chat's composer keeps in a narrow column. */
+/* The inspector's composer is the chat's composer, floating over the foot of the inspector with its sides on the
+   content's edges, 18px in. */
 .pod-chat-inspector-composer {
   flex-shrink: 0;
-  padding: 10px 12px max(14px, env(safe-area-inset-bottom));
+  padding: 10px 18px max(14px, env(safe-area-inset-bottom));
 }
 .pod-chat-inspector-composer-error {
   margin: 0 0 6px;

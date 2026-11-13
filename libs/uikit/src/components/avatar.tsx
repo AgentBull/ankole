@@ -5,23 +5,27 @@ import { cn } from '../lib/utils'
 
 /**
  * A picture of a person or a place, or its initials while there is no picture. It is 32px by default, 40px at `lg`,
- * 24px at `sm`, and 20px at `xs`, the size of a mark beside 12px text, whose initials take the 10px step. The avatar
- * is round unless the caller gives it another radius, such as the rounded square of an Agent; its picture, the fill
- * behind its initials, and its hairline edge all take the avatar's radius, so the avatar keeps one shape.
+ * 24px at `sm`, and 20px at `xs`, the size of a mark beside 12px text, whose initials take the 10px step. A person's
+ * avatar is round; `shape="square"` draws the rounded square of an Agent or a group, whose corner is a quarter of its
+ * side at every size. The picture, the fill behind the initials or mark, and the hairline edge all take the avatar's
+ * radius, so the avatar keeps one shape.
  */
 function Avatar({
   className,
   size = 'default',
+  shape = 'circle',
   ...props
 }: AvatarPrimitive.Root.Props & {
   size?: 'default' | 'sm' | 'xs' | 'lg'
+  shape?: 'circle' | 'square'
 }) {
   return (
     <AvatarPrimitive.Root
       data-slot="avatar"
       data-size={size}
+      data-shape={shape}
       className={cn(
-        'group/avatar relative flex size-8 shrink-0 rounded-full select-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-border after:mix-blend-darken data-[size=lg]:size-10 data-[size=sm]:size-6 data-[size=xs]:size-5 dark:after:mix-blend-lighten',
+        'group/avatar relative flex size-8 shrink-0 rounded-full select-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-border after:mix-blend-darken data-[shape=square]:rounded-[25%] data-[size=lg]:size-10 data-[size=sm]:size-6 data-[size=xs]:size-5 dark:after:mix-blend-lighten',
         className
       )}
       {...props}

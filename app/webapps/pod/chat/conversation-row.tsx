@@ -1,5 +1,5 @@
 import { Badge } from '@ankole/uikit'
-import { ChatRegular, PeopleRegular } from '@ankole/uikit/icons'
+import { ChatRegular } from '@ankole/uikit/icons'
 import { useTranslation } from 'react-i18next'
 import { podLocation } from '../../common/browser-context'
 import type { podConversations } from '../api/generated/sdk.gen'
@@ -48,23 +48,23 @@ export function conversationLabel(room: RoomRow, untitled: string) {
 }
 
 /**
- * The leading mark tells the three kinds apart at a glance: a colleague DM shows the colleague's face, a group
- * shows a group mark, and an assistant task shows a plain conversation mark, because every task belongs to the
- * same assistant and repeating its avatar on each row would add noise rather than information.
+ * The leading mark tells the three kinds apart at a glance: a colleague DM shows the colleague's avatar and a group
+ * shows the group's avatar, one rounded square with the same fill and edge, and an assistant task shows a plain
+ * conversation mark, because every task belongs to the same assistant and repeating its avatar on each row would add
+ * noise rather than information. `lg` is the 32px avatar of a two-line sidebar row.
  */
-export function ConversationGlyph({ room, size = 'sm' }: { room: RoomRow; size?: 'sm' | 'md' }) {
+export function ConversationGlyph({ room, size = 'sm' }: { room: RoomRow; size?: 'sm' | 'md' | 'lg' }) {
   const colleague = room.conversationKind === 'colleague_dm' ? room.agents[0] : undefined
-  if (colleague) {
-    return (
-      <span className="pod-conversation-glyph" data-size={size}>
-        <ChatAvatar name={colleague.displayName} src={colleague.avatarURL} agent />
-      </span>
-    )
-  }
-  const Icon = room.conversationKind === 'group' ? PeopleRegular : ChatRegular
+  const group = room.conversationKind === 'group'
+  const avatar = colleague ? (
+    <ChatAvatar name={colleague.displayName} src={colleague.avatarURL} agent size={size === 'lg' ? 'default' : 'sm'} />
+  ) : group ? (
+    <ChatAvatar name={room.title} group size={size === 'lg' ? 'default' : 'sm'} />
+  ) : undefined
+  if (avatar && size === 'lg') return avatar
   return (
-    <span className="pod-conversation-glyph" data-size={size}>
-      <Icon />
+    <span className="pod-conversation-glyph" data-size={size === 'lg' ? 'md' : size}>
+      {avatar ?? <ChatRegular />}
     </span>
   )
 }
