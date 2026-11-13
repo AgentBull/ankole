@@ -60,9 +60,9 @@ import {
   ConversationTitle,
   conversationLabel,
   conversationPath,
+  conversationPreview,
   type RoomRow
 } from './conversation-row'
-import { cleanExecutionPreview } from './linked-execution-card'
 import { useDebouncedValue } from '../../common/use-debounced-value'
 import '../chat.css'
 
@@ -261,7 +261,7 @@ export function ChatSidebar() {
                     dir="auto"
                     title={<ConversationTitle room={room} />}
                     meta={time}
-                    description={cleanExecutionPreview(room.latestMessagePreview)}
+                    description={conversationPreview(room.latestMessagePreview)}
                     status={
                       (muted || room.rowStatus !== 'idle') && (
                         <>

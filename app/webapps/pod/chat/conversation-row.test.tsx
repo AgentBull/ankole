@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { ConversationGlyph, type RoomRow } from './conversation-row'
+import { ConversationGlyph, conversationPreview, type RoomRow } from './conversation-row'
 
 const agent = { uid: 'writer', displayName: 'Writer', avatarURL: null }
 const room = (conversationKind: RoomRow['conversationKind'], agents = [agent]) =>
@@ -31,5 +31,24 @@ describe('conversation marks', () => {
     const html = renderToStaticMarkup(<ConversationGlyph room={room('assistant_task', [])} />)
     expect(avatarTag(html)).toBeUndefined()
     expect(html).toContain('pod-conversation-glyph')
+  })
+})
+
+describe('conversation previews', () => {
+  test('drop Markdown markers and keep the words', () => {
+    expect(
+      conversationPreview('是，你这个反问站得住。**对接口层来说**，[文档](https://example.com) 已经 ~~过时~~ 更新')
+    ).toBe('是，你这个反问站得住。对接口层来说，文档 已经 过时 更新')
+    expect(conversationPreview('## 结论\n> 引用一句\n- 第一点\n1. 第二点\n![图](a.png) `ankole-files`')).toBe(
+      '结论 引用一句 第一点 第二点 图 ankole-files'
+    )
+  })
+
+  test('keep the code of a message that is only a code block', () => {
+    expect(conversationPreview('```python\nfrom dividend_radar import __init__\nprint(rank * 2)\n```')).toBe(
+      'from dividend_radar import __init__ print(rank * 2)'
+    )
+    // The control plane cuts the source at 180 characters, which can leave a fence open.
+    expect(conversationPreview('```ts\nconst top = 20')).toBe('const top = 20')
   })
 })

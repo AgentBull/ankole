@@ -48,6 +48,23 @@ export function conversationLabel(room: RoomRow, untitled: string) {
 }
 
 /**
+ * The latest message as one line of plain text. The control plane sends the first 180 characters of the message's
+ * Markdown source, so a row drops the markers that would show as stray symbols: code fences (keeping the code),
+ * headings, quotes, list bullets, link and image syntax, `**` bold, strikethrough, and inline-code backticks.
+ * Underscores and a single `*` stay, because they are as likely to belong to a name such as `dividend_radar` or
+ * `__init__` as to mark emphasis.
+ */
+export function conversationPreview(source?: string | null) {
+  return (source ?? '')
+    .replace(/^\s*(?:```|~~~)[^\n]*$/gm, '')
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, '')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*|~~|`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
  * The leading mark tells the three kinds apart at a glance: a colleague DM shows the colleague's avatar and a group
  * shows the group's avatar, one rounded square with the same fill and edge, and an assistant task shows a plain
  * conversation mark, because every task belongs to the same assistant and repeating its avatar on each row would add
