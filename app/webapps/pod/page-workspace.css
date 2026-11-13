@@ -14,8 +14,8 @@
   padding: 0;
 }
 
-/* The Page body is the 892px content column (`--spacing-content`) with at least 68px on either side, and its first
-   line sits 68px below the content card's top edge. */
+/* The Page body is the 892px content column (`--spacing-content`) with at least 68px on either side (88px before
+   editable documents), and its first line sits 68px below the content card's top edge. */
 .pod-page-content {
   --pod-page-gutter-start: 68px;
   --pod-page-gutter-end: 68px;
@@ -23,6 +23,14 @@
   margin-inline: auto;
   padding-block: 68px 120px;
   padding-inline: var(--pod-page-gutter-start) var(--pod-page-gutter-end);
+}
+
+/* A foldable heading's block handle sits 82px left of the text; the wider start gutter keeps it clear of the
+   sidebar resize edge when the window is too narrow to center the column. */
+@media (min-width: 761px) {
+  .pod-page:is([data-page-type='doc'], [data-page-type='knowledge']) .pod-page-content {
+    --pod-page-gutter-start: 88px;
+  }
 }
 
 .pod-page[data-page-type='base'] .pod-page-content,

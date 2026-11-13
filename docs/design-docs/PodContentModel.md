@@ -69,8 +69,10 @@ writing area, with synchronization status and online participants in the Page
 header.
 
 A document Page sets its icon, title, and body in one 892px column
-(`--spacing-content`), centred in the content card with at least 68px of gutter
-on either side, and its first line sits 68px below the card's top edge. The Page
+(`--spacing-content`), centred in the content card with at least 88px of gutter
+at its start and 68px at its end, and its first line sits 68px below the card's
+top edge. The wider start gutter holds the block handle of a foldable heading,
+which sits 82px before the text, clear of the sidebar's resize edge. The Page
 icon is a 48px box holding a 40px glyph, and the title sits 12px below it in the
 36px type step, SemiBold on a 54px line; on viewports 760px wide or narrower the
 title steps down to the 30px step. The body starts 12px below the title, or below
@@ -608,8 +610,9 @@ lets the ground show through beside the content card (`main`): a white card with
 8 px top corners and no edge that keeps 20 px of ground at its end and runs to
 the bottom of the window. While the sidebar is hidden, the card keeps 20 px of
 ground at its start as well. On a Page, the document column is 892 px wide with
-at least 68 px on either side, and its first line sits 68 px below the card's
-top edge. A Conversation opens with its own 44 px header, whose title shows no
+at least 68 px on either side (88 px at the start of a document or knowledge
+Page on viewports wider than 760 px), and its first line sits 68 px below the
+card's top edge. A Conversation opens with its own 44 px header, whose title shows no
 hover wash and takes only the width of its text: a long title truncates with an
 ellipsis and names itself in full in a tooltip, and the rename field grows with
 the text up to the header's free space and scrolls beyond it. The Page link
