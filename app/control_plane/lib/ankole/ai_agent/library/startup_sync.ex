@@ -26,7 +26,8 @@ defmodule Ankole.AIAgent.Library.StartupSync do
     end
   end
 
-  defp sync_tenant(sources) do
+  @doc false
+  def sync_tenant(sources) do
     with {:ok, _} <-
            Ankole.Repo.transact_top_level(fn ->
              with :ok <- Ankole.AIAgent.Library.Contracts.initialize_in_tx(),

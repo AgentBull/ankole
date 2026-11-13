@@ -244,6 +244,11 @@ Pod under **Meta Ankole -> Skills** (`/api/v2/pod/meta/skills`), while Agent
 Plugin defaults live in `AppConfigure` under
 `ai_agent.library.agent_plugin_defaults` (`global` and `tenant:<id>`).
 Per-Agent choices use the Library-owned `agent_plugin_overrides` table.
+`Ankole.AIAgent.Library.StartupSync` installs the shipped Skill packages into
+every active tenant when the control plane starts, and `Ankole.Tenants.create/1`
+enqueues `Ankole.AIAgent.Library.Jobs.SyncTenant` for a new tenant, so reads
+such as the Console capabilities list only compare package hashes instead of
+copying every shipped file inside the request.
 
 The Console API exposes Agent Plugin defaults, tenant Skill enablement, and
 per-Agent effective capabilities through six JSON:API endpoints

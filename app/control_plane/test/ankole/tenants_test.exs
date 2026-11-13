@@ -44,6 +44,26 @@ defmodule Ankole.TenantsTest do
     Ankole.DataCase.assert_persisted_equal(Repo.get!(Tenants.Tenant, tenant.id), tenant)
   end
 
+  test "a new tenant installs the shipped Skills in the background" do
+    tenant = new_tenant()
+
+    assert_enqueued(
+      worker: Ankole.AIAgent.Library.Jobs.SyncTenant,
+      args: %{"tenant_id" => tenant.id}
+    )
+
+    Repo.with_tenant(tenant.id, fn ->
+      assert :ok =
+               Ankole.AIAgent.Library.Jobs.SyncTenant.run(%Oban.Job{
+                 args: %{"tenant_id" => tenant.id}
+               })
+
+      {:ok, sources} = Ankole.AIAgent.Library.shipped_skill_sources()
+      stored = MapSet.new(Ankole.AIAgent.Library.Skills.list(), & &1.slug)
+      assert Enum.all?(sources, &MapSet.member?(stored, &1.name))
+    end)
+  end
+
   test "final persistence requires deletion and repeated requests retain its first time" do
     tenant = new_tenant()
 
