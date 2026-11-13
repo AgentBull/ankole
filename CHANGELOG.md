@@ -34,6 +34,11 @@
 - Limit **Check access** on a page you cannot manage to yourself and your own
   personal assistant. A viewer without manage access could check any other
   person or AI colleague on the page, which only page managers may do.
+- Show Base chart labels in the interface language. Axis titles, data table
+  headers, and KPI labels name the metric as, for example, "Sum · Revenue" in
+  the viewer's language instead of `SUM(Revenue)` or `Count`; the merged
+  scatter color group reads "Other" in that language; and screen readers
+  announce the metric controls without English words.
 - Label the per-slot action on the Site defaults tab **Clear** instead of
   **Restore inheritance**, because Site values are the base layer and have
   nothing to inherit. Its confirmation warns that every Pod and Agent without

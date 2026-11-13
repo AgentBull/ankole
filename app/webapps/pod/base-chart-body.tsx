@@ -34,6 +34,7 @@ import {
   formatMetricHeader,
   toChartNumeric,
   type BuiltChartDataset,
+  type MetricOperationLabels,
   type DrilldownPeriodMode,
   type ResolvedChartConfig
 } from './state/chart-view'
@@ -47,6 +48,22 @@ export type ChartViewProps = ViewProps & {
 function extractApiErrorCode(error: unknown): string | undefined {
   if (error instanceof InternalAPIError) return requestErrorCode(error.payload)
   return requestErrorCode(error)
+}
+
+/** The viewer-language names of the metric operations that chart controls and labels share. */
+export function useMetricOperationLabels(): MetricOperationLabels {
+  const { t } = useTranslation()
+  return useMemo(
+    () => ({
+      count: t('pod.content.metric_count', { defaultValue: 'Count' }),
+      count_distinct: t('pod.content.metric_count_distinct', { defaultValue: 'Count distinct' }),
+      sum: t('pod.content.metric_sum', { defaultValue: 'Sum' }),
+      avg: t('pod.content.metric_avg', { defaultValue: 'Average' }),
+      min: t('pod.content.metric_min', { defaultValue: 'Min' }),
+      max: t('pod.content.metric_max', { defaultValue: 'Max' })
+    }),
+    [t]
+  )
 }
 
 export function AggregateChartBody(
@@ -70,13 +87,15 @@ export function AggregateChartBody(
   const aggregate = useAggregate(props.tableID, aggregateQuery)
   const errorCode = extractApiErrorCode(aggregate.error)
 
+  const operations = useMetricOperationLabels()
   const labels = useMemo(
     () => ({
       empty: t('pod.content.ungrouped', { defaultValue: 'Empty' }),
       other: t('pod.content.other', { defaultValue: 'Other' }),
-      categoryFallback: t('pod.content.all_records', { defaultValue: 'All records' })
+      categoryFallback: t('pod.content.all_records', { defaultValue: 'All records' }),
+      operations
     }),
-    [t]
+    [t, operations]
   )
 
   const dataset = useMemo(
@@ -176,12 +195,14 @@ export function AggregateChartBody(
     xField: 'x',
     yField: 'y',
     xTitle: g0Field?.name ?? labels.categoryFallback,
-    yTitle: primaryMetric ? formatMetricHeader(primaryMetric, primaryField) : 'Count',
+    yTitle: primaryMetric ? formatMetricHeader(primaryMetric, primaryField, operations) : operations.count,
     formattedYField: '__formattedY',
     ...(resolved.chartType === 'combo'
       ? {
           secondaryYField: 'y2',
-          secondaryYTitle: secondaryMetric ? formatMetricHeader(secondaryMetric, secondaryField) : 'Count',
+          secondaryYTitle: secondaryMetric
+            ? formatMetricHeader(secondaryMetric, secondaryField, operations)
+            : operations.count,
           formattedSecondaryYField: '__formattedY2'
         }
       : {}),
@@ -245,6 +266,7 @@ function StatChartContent(
   }
 ) {
   const { t } = useTranslation()
+  const operations = useMetricOperationLabels()
   const [drilldownOpen, setDrilldownOpen] = useState(false)
   const primaryMetric = props.resolved.metrics[0] ?? { operation: 'count' as const, alias: 'count' }
   const metricField = primaryMetric.field_id ? props.fields.find(f => f.id === primaryMetric.field_id) : undefined
@@ -332,7 +354,7 @@ function StatChartContent(
   }
 
   const label = metricField
-    ? `${primaryMetric.operation.toUpperCase()} · ${metricField.name}`
+    ? formatMetricHeader(primaryMetric, metricField, operations)
     : t('pod.content.total_records', { defaultValue: 'Total records' })
 
   return (
@@ -393,6 +415,7 @@ export function ScatterChartBody(props: ChartViewProps & { resolved: ResolvedCha
   })
 
   const emptyLabel = t('pod.content.ungrouped', { defaultValue: 'Empty' })
+  const otherLabel = t('pod.content.other', { defaultValue: 'Other' })
 
   const { rows, seriesMeta, summaryTable } = useMemo(() => {
     const rawRecords = records.data?.records ?? []
@@ -413,7 +436,7 @@ export function ScatterChartBody(props: ChartViewProps & { resolved: ResolvedCha
           const rawC = fieldValue(rec, colorField)
           const formatted = formatDimensionBucketLabel(rawC, false, colorField, undefined, {
             empty: emptyLabel,
-            other: 'Other'
+            other: otherLabel
           })
           seriesKey = formatted.key
           if (!metaMap.has(seriesKey)) {
@@ -456,7 +479,7 @@ export function ScatterChartBody(props: ChartViewProps & { resolved: ResolvedCha
       seriesMeta: [...metaMap.values()],
       summaryTable: { columns: cols, rows: sRows }
     }
-  }, [records.data?.records, xField, yField, sizeField, colorField, emptyLabel])
+  }, [records.data?.records, xField, yField, sizeField, colorField, emptyLabel, otherLabel])
 
   if (records.error) {
     return <ContentError error={records.error} retry={() => void records.refetch()} />

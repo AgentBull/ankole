@@ -4,7 +4,7 @@ import { Button, Checkbox, Input, Popover, PopoverContent, PopoverTitle, Popover
 import type { BaseField, MetricOperation, TimeBucket } from '@ankole/applet-sdk/types'
 import { OptionsRegular, WarningRegular } from '@ankole/uikit/icons'
 import { Choice } from './content-primitives'
-import { AggregateChartBody, ScatterChartBody, type ChartViewProps } from './base-chart-body'
+import { AggregateChartBody, ScatterChartBody, useMetricOperationLabels, type ChartViewProps } from './base-chart-body'
 import {
   resolveChartSpec,
   type ChartGroupBy,
@@ -69,14 +69,7 @@ export function ChartView(props: ChartViewProps) {
     year: t('pod.content.bucket_year', { defaultValue: 'Year' })
   }
 
-  const operationLabels: Record<MetricOperation, string> = {
-    count: t('pod.content.metric_count', { defaultValue: 'Count' }),
-    count_distinct: t('pod.content.metric_count_distinct', { defaultValue: 'Count distinct' }),
-    sum: t('pod.content.metric_sum', { defaultValue: 'Sum' }),
-    avg: t('pod.content.metric_avg', { defaultValue: 'Average' }),
-    min: t('pod.content.metric_min', { defaultValue: 'Min' }),
-    max: t('pod.content.metric_max', { defaultValue: 'Max' })
-  }
+  const operationLabels = useMetricOperationLabels()
 
   const isMissingKind = (kind: MissingChartSlotKind) => missingSlots.some(slot => slot.kind === kind)
 
@@ -438,7 +431,7 @@ function MetricCapsule({
   return (
     <div className={`inline-flex flex-wrap items-center gap-1 ${missing ? 'rounded-control ring-2 ring-warning' : ''}`}>
       <Choice
-        label={`${labelPrefix} operation`}
+        label={t('pod.content.metric_operation_control', { prefix: labelPrefix })}
         disabled={disabled}
         value={metric.operation}
         onChange={nextOp => {
@@ -463,7 +456,7 @@ function MetricCapsule({
       />
       {(metric.operation !== 'count' || missing || Boolean(metric.field_id)) && compatible.length > 0 && (
         <Choice
-          label={`${labelPrefix} field`}
+          label={t('pod.content.metric_field_control', { prefix: labelPrefix })}
           disabled={disabled}
           value={metric.field_id ?? ''}
           onChange={fieldId => {

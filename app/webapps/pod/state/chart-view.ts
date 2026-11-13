@@ -552,7 +552,7 @@ export function buildChartDataset(
   rawGroups: readonly AggregateGroup[],
   resolved: ResolvedChartConfig,
   fields: readonly BaseField[],
-  labels: { empty: string; other: string; categoryFallback: string }
+  labels: { empty: string; other: string; categoryFallback: string; operations: MetricOperationLabels }
 ): BuiltChartDataset {
   const g0 = resolved.groupBy[0]
   const g1 = resolved.groupBy[1]
@@ -734,8 +734,8 @@ export function buildChartDataset(
   const summaryColumns: string[] = [
     field0?.name ?? labels.categoryFallback,
     ...(field1 ? [field1.name] : []),
-    primaryMetric ? formatMetricHeader(primaryMetric, primaryField) : 'Count',
-    ...(secondaryMetric ? [formatMetricHeader(secondaryMetric, secondaryField)] : [])
+    primaryMetric ? formatMetricHeader(primaryMetric, primaryField, labels.operations) : labels.operations.count,
+    ...(secondaryMetric ? [formatMetricHeader(secondaryMetric, secondaryField, labels.operations)] : [])
   ]
 
   const summaryRows = processedGroups.slice(0, 200).map((group, idx) => {
@@ -758,7 +758,9 @@ export function buildChartDataset(
     (!field0 || effectiveFieldType(field0) !== 'array')
       ? {
           value: formatMetricValue(null, donutSum.toFixed(), primaryField),
-          title: primaryMetric ? formatMetricHeader(primaryMetric, primaryField) : 'Count'
+          title: primaryMetric
+            ? formatMetricHeader(primaryMetric, primaryField, labels.operations)
+            : labels.operations.count
         }
       : undefined
 
@@ -772,10 +774,16 @@ export function buildChartDataset(
   }
 }
 
-export function formatMetricHeader(metric: ChartMetric, field: BaseField | undefined): string {
-  if (metric.operation === 'count' && !field) return 'Count'
-  const fieldName = field?.name ?? ''
-  return `${metric.operation.toUpperCase()}(${fieldName})`
+export type MetricOperationLabels = Record<MetricOperation, string>
+
+/** Names a metric in the viewer's language, such as "Sum · Revenue", for axis titles, table headers and KPI labels. */
+export function formatMetricHeader(
+  metric: ChartMetric,
+  field: BaseField | undefined,
+  operations: MetricOperationLabels
+): string {
+  if (metric.operation === 'count' && !field) return operations.count
+  return `${operations[metric.operation]} · ${field?.name ?? ''}`
 }
 
 /**

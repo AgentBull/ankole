@@ -12,6 +12,15 @@ import {
 import { nextViewName, sanitizeViewConfig } from './base-page'
 import { parseViewConfig, resolveChartSpec, type ViewConfig } from './state/view-config'
 
+const operations = {
+  count: 'Count',
+  count_distinct: 'Count distinct',
+  sum: 'Sum',
+  avg: 'Average',
+  min: 'Min',
+  max: 'Max'
+}
+
 const textField: BaseField = {
   id: 'f-title',
   name: 'Title',
@@ -155,7 +164,8 @@ describe('buildChartDataset & rank-order colors', () => {
     const dataset = buildChartDataset(groups, resolved, [selectField, revenueField], {
       empty: 'Empty',
       other: 'Other',
-      categoryFallback: 'All'
+      categoryFallback: 'All',
+      operations
     })
 
     expect(dataset.rows.map(r => r.x)).toEqual(['South', 'East', 'Other', 'Empty'])
@@ -207,7 +217,8 @@ describe('buildChartDataset & rank-order colors', () => {
     const dataset = buildChartDataset(sparse, resolved, [dateField, revenueField], {
       empty: 'Empty',
       other: 'Other',
-      categoryFallback: 'All'
+      categoryFallback: 'All',
+      operations
     })
 
     expect(dataset.rows.map(r => ({ x: r.x, y: r.y }))).toEqual([
@@ -407,7 +418,8 @@ describe('Notion-parity UX contracts: naming, lossless display serialization, so
     const dataset = buildChartDataset(groups, resolved, [selectField, revenueField], {
       empty: 'Empty',
       other: 'Other',
-      categoryFallback: 'All'
+      categoryFallback: 'All',
+      operations
     })
 
     // Schema order is East -> West -> South, followed by Other, followed by Empty
@@ -462,13 +474,14 @@ describe('Notion-parity UX contracts: naming, lossless display serialization, so
     const dataset = buildChartDataset(groups, donutResolved, [selectField, revenueField], {
       empty: 'Empty',
       other: 'Other',
-      categoryFallback: 'All'
+      categoryFallback: 'All',
+      operations
     })
 
     expect(dataset.rows.map(r => r.x)).toEqual(['East', 'South'])
     expect(dataset.donutCenterLabel).toEqual({
       value: '$1,700.00',
-      title: 'SUM(Revenue)'
+      title: 'Sum · Revenue'
     })
 
     // Multi-select (:array) donut omits center total to avoid double-counting overlapping memberships
@@ -479,14 +492,15 @@ describe('Notion-parity UX contracts: naming, lossless display serialization, so
     const multiDataset = buildChartDataset(groups, donutResolved, [multiSelectField, revenueField], {
       empty: 'Empty',
       other: 'Other',
-      categoryFallback: 'All'
+      categoryFallback: 'All',
+      operations
     })
     expect(multiDataset.donutCenterLabel).toBeUndefined()
   })
 })
 
 describe('exact chart totals', () => {
-  const labels = { empty: 'Empty', other: 'Other', categoryFallback: 'All' }
+  const labels = { empty: 'Empty', other: 'Other', categoryFallback: 'All', operations }
   const groups: AggregateGroup[] = [
     { values: ['2026-03'], metrics: { m0: 0.02 }, metrics_text: { m0: '0.02' } },
     { values: ['2026-01'], metrics: { m0: 9007199254740992 }, metrics_text: { m0: '9007199254740992.01' } }
