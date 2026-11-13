@@ -22,6 +22,48 @@ describe('Select', () => {
     expect(html).not.toContain('>openrouter<')
   })
 
+  test('waits for loading options instead of showing a raw value', () => {
+    const loading = renderToStaticMarkup(
+      <Select value="01a1d381-tenant" loading>
+        <SelectTrigger>
+          <SelectValue placeholder="Choose tenant" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">All tenants</SelectItem>
+        </SelectContent>
+      </Select>
+    )
+    // The hidden form input still carries the value; only the visible value waits.
+    const visible = loading.slice(loading.indexOf('data-slot="select-value"'), loading.indexOf('<svg'))
+    expect(visible).toContain('data-slot="skeleton"')
+    expect(visible).not.toContain('01a1d381-tenant')
+
+    const known = renderToStaticMarkup(
+      <Select value="openrouter" loading>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="openrouter">OpenRouter</SelectItem>
+        </SelectContent>
+      </Select>
+    )
+    expect(known).toContain('OpenRouter')
+    expect(known).not.toContain('data-slot="skeleton"')
+
+    const loaded = renderToStaticMarkup(
+      <Select value="retired-provider">
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="openrouter">OpenRouter</SelectItem>
+        </SelectContent>
+      </Select>
+    )
+    expect(loaded).toContain('retired-provider')
+  })
+
   test('preserves an explicit items mapping', () => {
     const html = renderToStaticMarkup(
       <Select value="openrouter" items={{ openrouter: 'Explicit OpenRouter label' }}>

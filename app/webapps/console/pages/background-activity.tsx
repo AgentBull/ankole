@@ -33,7 +33,14 @@ import {
 const key = 'console.home.background_activity.'
 const prefixes = ['activity_jobs_', 'activity_calls_', 'activity_runs_']
 
-export function BackgroundActivity({ agents }: { agents: Pick<AgentItem, 'uid' | 'display_name'>[] }) {
+export function BackgroundActivity({
+  agents,
+  loading
+}: {
+  agents: Pick<AgentItem, 'uid' | 'display_name'>[]
+  /** The agent list is still loading, so the section waits instead of asking the operator to choose an agent. */
+  loading: boolean
+}) {
   const { t } = useTranslation()
   const [params, setParams] = useSearchParams()
   const uid = resolveAgentUID(agents, params.get('agent') ?? '')
@@ -44,30 +51,39 @@ export function BackgroundActivity({ agents }: { agents: Pick<AgentItem, 'uid' |
           <h2 className="text-sm font-semibold">{t(`${key}title`)}</h2>
           <p className="mt-1 text-xs text-muted-foreground">{t(`${key}description`)}</p>
         </div>
-        <Select
-          value={uid || null}
-          onValueChange={value =>
-            setParams(current => {
-              let next = new URLSearchParams(current)
-              if (value) next.set('agent', String(value))
-              else next.delete('agent')
-              for (const prefix of prefixes) next = resetCursorParams(next, prefix)
-              return next
-            })
-          }>
-          <SelectTrigger aria-label={t(`${key}agent`)} className="w-64">
-            <SelectValue placeholder={t(`${key}choose_agent`)} />
-          </SelectTrigger>
-          <SelectContent>
-            {agents.map(agent => (
-              <SelectItem value={agent.uid} key={agent.uid}>
-                {agent.display_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {loading ? (
+          <Skeleton className="h-8 w-64" />
+        ) : (
+          <Select
+            value={uid || null}
+            onValueChange={value =>
+              setParams(current => {
+                let next = new URLSearchParams(current)
+                if (value) next.set('agent', String(value))
+                else next.delete('agent')
+                for (const prefix of prefixes) next = resetCursorParams(next, prefix)
+                return next
+              })
+            }>
+            <SelectTrigger aria-label={t(`${key}agent`)} className="w-64">
+              <SelectValue placeholder={t(`${key}choose_agent`)} />
+            </SelectTrigger>
+            <SelectContent>
+              {agents.map(agent => (
+                <SelectItem value={agent.uid} key={agent.uid}>
+                  {agent.display_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
-      {uid ? (
+      {loading ? (
+        <div className="grid gap-2">
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-2/3" />
+        </div>
+      ) : uid ? (
         <div className="grid items-start gap-4 xl:grid-cols-2">
           <Jobs agentUID={uid} />
           <Workflow agentUID={uid} />

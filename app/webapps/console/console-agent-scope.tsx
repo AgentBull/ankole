@@ -64,6 +64,7 @@ export function AgentFilter({ scope }: { scope: AgentScope }) {
 
   return (
     <Select
+      loading={scope.isLoading}
       value={scope.agentUID || null}
       onValueChange={value => scope.selectAgent(value == null ? '' : String(value))}>
       {/* The all-agents state is the null value, which the trigger styles as an

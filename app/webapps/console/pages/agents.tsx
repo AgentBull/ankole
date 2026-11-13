@@ -391,6 +391,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               providers={providers.data ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
+              modelCatalogPending={modelCatalog.isPending}
             />
             <CustomModelProfilesEditor
               agentUID={selectedAgent.uid}

@@ -24,11 +24,15 @@ export function TenantSwitcher({ record = false, search = {} }: { record?: boole
   const location = useLocation()
   const router = useRouter()
   const items = tenants.data?.filter(tenant => !tenant.deleting_at) ?? []
+  const tenantLabel = (tenant: (typeof items)[number]) =>
+    `${tenant.display_name} (${tenant.slug})${tenant.suspended_at ? ` (${t('console.tenants.suspended')})` : ''}`
   return (
     <div className="grid min-w-0 gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-3">
         <span className="text-sm font-medium">{t('console.tenants.tenant')}</span>
+        {/* Choosing a tenant reloads the page, so the selected ID arrives before the tenant list. */}
         <Select
+          loading={tenants.isPending}
           value={dataTenantID() ?? (record ? '' : ALL_TENANTS)}
           onValueChange={value => {
             const path = record ? tenantSwitchPath(location.pathname, Boolean(dataTenantID())) : location.pathname
@@ -41,7 +45,7 @@ export function TenantSwitcher({ record = false, search = {} }: { record?: boole
             <SelectItem value={ALL_TENANTS}>{t('console.tenants.all')}</SelectItem>
             {items.map(tenant => (
               <SelectItem key={tenant.id} value={tenant.id}>
-                {tenant.display_name} ({tenant.slug}){tenant.suspended_at ? ` (${t('console.tenants.suspended')})` : ''}
+                {tenantLabel(tenant)}
               </SelectItem>
             ))}
           </SelectContent>

@@ -14,6 +14,7 @@ import {
   SelectLabel,
   SelectTrigger,
   SelectValue,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -504,7 +505,10 @@ export function SignalBindingEditorPage() {
           ) : null}
           {model.routingMode.value === 'ai_colleague' ? (
             <LabeledField label={t('console.signals.target_agent')} required>
-              <Select value={targetAgentUID || null} onValueChange={value => model.selectAgent(String(value))}>
+              <Select
+                loading={agents.isPending}
+                value={targetAgentUID || null}
+                onValueChange={value => model.selectAgent(String(value))}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t('console.signals.select_agent')} />
                 </SelectTrigger>
@@ -521,9 +525,13 @@ export function SignalBindingEditorPage() {
           <LabeledField label={t('console.signals.adapter')} required={!editing}>
             {editing ? (
               <ReadOnlyValue>
-                {activeAdapter
-                  ? (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
-                  : model.adapterID.value}
+                {activeAdapter ? (
+                  (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
+                ) : adapters.isPending ? (
+                  <Skeleton className="h-4 w-40" />
+                ) : (
+                  model.adapterID.value
+                )}
               </ReadOnlyValue>
             ) : (
               <Select

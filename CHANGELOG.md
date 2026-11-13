@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.149 (2026-11-13)
+
+- Stop model profile cards from showing raw model IDs such as
+  `claude-sonnet-5-5` for a moment before switching to model names. The Site
+  and Pod defaults, system Principals, and Agent model profiles now wait for
+  the model catalog before they show the cards.
+- Stop selectors and labels from showing a raw ID while the list that names it
+  loads. The Console tenant selector right after picking a tenant, the chat
+  selector beside a Pod page, the Agent filter on Console lists, and the Agent
+  and adapter fields of schedules, signal routes, and identity providers now
+  show a placeholder until the name arrives. The home page's background
+  activity waits for the agent list instead of asking you to choose an agent.
+
 ## Version 2.0.0-alpha.148 (2026-11-13)
 
 - Return to the Private content list after moving a top-level Private page to

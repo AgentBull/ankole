@@ -33,6 +33,8 @@ After a Console mutation succeeds, let `createConsoleMutationCache` in `console/
 
 Console editor pages initialize local drafts through `useEditorDraft`. Keep `sourceKey` stable, opaque, and inclusive of every selection dimension. Because the hook seeds each `sourceKey` only once, background refetches leave in-progress operator edits intact. Models that capture pending request payloads must implement `resetSource`. Do not use `useEditorDraft` in setup forms.
 
+A value that names a record from another query must not show its raw ID while that query loads. Pass `loading={query.isPending}` to a `Select` whose options come from a query; it then shows a skeleton for a value that matches no option yet. A read-only label or card header that looks a name up in such a query shows a `Skeleton` until the query settles, and a section that would otherwise ask the operator to choose waits for the list instead.
+
 ## Chat interactions
 
 Pod Chat renders interactive content through json-render. A model-written `ui` block uses the catalog in `pod/chat/ui-block/catalog.ts`, which also generates the Skill reference that teaches Agents the block. Add a component to that catalog only when a block should be able to use it, then run `bun scripts/ui-block-reference.ts` in `app/webapps` to regenerate the reference. Ankole's own cards, the Clarify card and the Action Card, each build an interaction spec and render it with `pod/chat/interaction-surface.tsx`. A new durable card adds its elements there, builds its spec from what the control plane committed, and leaves the answer or the approval with the control plane. Keep forms, durable actions, and data access out of the model-visible catalog.

@@ -193,6 +193,8 @@ type ModelProfilesEditorProps = {
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: AIGatewayModelCatalogEntry[]
+  /** Card headers name models from the catalog, so the cards wait for it rather than show raw model IDs first. */
+  modelCatalogPending: boolean
 }
 
 type ProfilePersistence = { submission: ModelProfileSubmission } & (
@@ -228,7 +230,8 @@ function AgentModelProfilesEditor({
   configuration,
   providers,
   providerKinds,
-  modelCatalog
+  modelCatalog,
+  modelCatalogPending
 }: ModelProfilesEditorProps) {
   useSignals()
   const { t } = useTranslation()
@@ -293,7 +296,7 @@ function AgentModelProfilesEditor({
       {configuration ? (
         <RestoreAllInheritanceButton configuration={configuration} model={model} target={{ agentUID: agent.uid }} />
       ) : null}
-      {draftStatus === 'loading' ? (
+      {draftStatus === 'loading' || modelCatalogPending ? (
         <div className="grid gap-4" aria-busy="true">
           <Skeleton className="h-48 w-full" />
           <Skeleton className="h-48 w-full" />

@@ -210,7 +210,7 @@ export function HomePage() {
       </section>
 
       <ErrorBoundary variant="panel" label={t('console.home.background_activity.title')}>
-        <BackgroundActivity agents={agentRows} />
+        <BackgroundActivity agents={agentRows} loading={agents.isPending} />
       </ErrorBoundary>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">

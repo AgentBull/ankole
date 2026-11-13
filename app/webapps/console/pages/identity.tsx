@@ -10,6 +10,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Skeleton,
   SwitchRow,
   TableCell,
   toast
@@ -314,9 +315,13 @@ export function IdentityProviderEditorPage() {
           <LabeledField label={t('console.identity.adapter')} required={mode === 'new'}>
             {mode === 'edit' ? (
               <ReadOnlyValue>
-                {activeAdapter
-                  ? (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
-                  : model.adapterID.value}
+                {activeAdapter ? (
+                  (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
+                ) : adapters.isPending ? (
+                  <Skeleton className="h-4 w-40" />
+                ) : (
+                  model.adapterID.value
+                )}
               </ReadOnlyValue>
             ) : (
               <Select

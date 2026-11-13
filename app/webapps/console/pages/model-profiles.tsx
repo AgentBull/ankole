@@ -53,6 +53,8 @@ export function ModelProfilesPage() {
   const providers = useBaseQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
   const providerKinds = useBaseQuery(listAiGatewayProviderKindsOptions())
   const modelCatalog = useBaseQuery(listAiGatewayModelsOptions())
+  // Card headers name models from the catalog, so the cards wait for it rather than show raw model IDs first.
+  const catalogPending = modelCatalog.isPending
   const draftSourceKey = scope === 'global' ? 'defaults:global' : `defaults:tenant:${selectedTenantID ?? 'none'}`
   const draftStatus = useModelProfilesDraft(
     model,
@@ -138,7 +140,7 @@ export function ModelProfilesPage() {
                   saveProviderHosted.error
                 }
               />
-              {draftStatus === 'loading' ? (
+              {draftStatus === 'loading' || catalogPending ? (
                 <div className="grid gap-4" aria-busy="true">
                   <Skeleton className="h-48 w-full" />
                   <Skeleton className="h-48 w-full" />
@@ -183,6 +185,7 @@ export function ModelProfilesPage() {
                   {systemPrincipals.data?.system_principals.map(service => (
                     <SystemPrincipalEditor
                       key={service.uid}
+                      catalogPending={catalogPending}
                       service={service}
                       selected={params.get('system_principal') === service.uid}
                       providers={providers.data ?? []}
@@ -201,12 +204,14 @@ export function ModelProfilesPage() {
 }
 
 function SystemPrincipalEditor({
+  catalogPending,
   service,
   selected,
   providers,
   providerKinds,
   modelCatalog
 }: {
+  catalogPending: boolean
   service: { uid: string; purpose: string }
   selected: boolean
   providers: ComponentProps<typeof ProfileEditor>['providers']
@@ -243,7 +248,7 @@ function SystemPrincipalEditor({
         </p>
       </div>
       <ErrorBlock error={configuration.error} />
-      {draftStatus === 'loading' ? (
+      {draftStatus === 'loading' || catalogPending ? (
         <Skeleton className="h-48 w-full" />
       ) : configuration.data ? (
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">

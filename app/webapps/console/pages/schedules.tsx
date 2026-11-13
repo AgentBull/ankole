@@ -13,6 +13,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -675,14 +676,20 @@ export function ScheduleCronEditorPage() {
       description={!editing ? t('console.schedules.agent_execution_hint') : undefined}>
       {editing ? (
         <ReadOnlyValue>
-          {selectedAgent
-            ? selectedAgent.display_name
-              ? `${selectedAgent.display_name} · ${selectedAgent.uid}`
-              : selectedAgent.uid
-            : agentUID || '—'}
+          {selectedAgent ? (
+            selectedAgent.display_name ? (
+              `${selectedAgent.display_name} · ${selectedAgent.uid}`
+            ) : (
+              selectedAgent.uid
+            )
+          ) : agents.isPending ? (
+            <Skeleton className="h-4 w-40" />
+          ) : (
+            agentUID || '—'
+          )}
         </ReadOnlyValue>
       ) : (
-        <Select value={agentUID || null} onValueChange={value => selectAgent(String(value))}>
+        <Select loading={agents.isPending} value={agentUID || null} onValueChange={value => selectAgent(String(value))}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder={t('console.select_agent')} />
           </SelectTrigger>

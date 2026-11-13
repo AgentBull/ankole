@@ -94,6 +94,7 @@ export function PageChat({
           <AddRegular aria-hidden />
         </Button>
         <Select
+          loading={chats.isPending}
           value={conversationID ?? 'new'}
           onValueChange={id => id && selectTarget(id, true)}
           disabled={chats.isPending || accessDenied}>

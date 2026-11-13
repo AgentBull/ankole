@@ -4,26 +4,58 @@ import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../lib/utils'
 
+type SelectItems = SelectPrimitive.Root.Props<unknown, boolean | undefined>['items']
+
+/**
+ * Carries the options and their loading state from `Select` to `SelectValue`. Base UI shows a value that matches no
+ * option as its raw string, so while the caller still loads the options, `SelectValue` shows a skeleton for such a
+ * value instead of an ID that turns into a name a moment later.
+ */
+const SelectOptionsContext = React.createContext<{ items: SelectItems; loading: boolean } | null>(null)
+
 const SelectThemeContext = React.createContext<{
   theme: string | undefined
   setTheme: React.Dispatch<React.SetStateAction<string | undefined>>
 } | null>(null)
 
 function Select<Value, Multiple extends boolean | undefined = false>(
-  props: SelectPrimitive.Root.Props<Value, Multiple>
+  props: SelectPrimitive.Root.Props<Value, Multiple> & {
+    /** The options are still loading, so a value without a matching option shows a skeleton, not its raw value. */
+    loading?: boolean
+  }
 ) {
-  const { children, items, ...rootProps } = props
+  const { children, items, loading = false, ...rootProps } = props
   const [theme, setTheme] = React.useState<string | undefined>()
   const themeContext = React.useMemo(() => ({ theme, setTheme }), [theme])
   const resolvedItems = React.useMemo(() => items ?? collectSelectItems<Value>(children), [children, items])
+  const optionsContext = React.useMemo(
+    () => ({ items: resolvedItems as SelectItems, loading }),
+    [resolvedItems, loading]
+  )
 
   return (
     <SelectThemeContext.Provider value={themeContext}>
-      <SelectPrimitive.Root {...rootProps} items={resolvedItems}>
-        {children}
-      </SelectPrimitive.Root>
+      <SelectOptionsContext.Provider value={optionsContext}>
+        <SelectPrimitive.Root {...rootProps} items={resolvedItems}>
+          {children}
+        </SelectPrimitive.Root>
+      </SelectOptionsContext.Provider>
     </SelectThemeContext.Provider>
   )
+}
+
+function selectItemLabel(items: SelectItems, value: unknown): { found: boolean; label?: React.ReactNode } {
+  if (Array.isArray(items)) {
+    const item = items.find(entry => Object.is(entry.value, value))
+    return item ? { found: true, label: item.label } : { found: false }
+  }
+  if (items && typeof items === 'object') {
+    const key = String(value)
+    return Object.hasOwn(items, key)
+      ? { found: true, label: (items as Record<string, React.ReactNode>)[key] }
+      : { found: false }
+  }
+  return { found: false }
 }
 
 function collectSelectItems<Value>(children: React.ReactNode): ReadonlyArray<{ label: React.ReactNode; value: Value }> {
@@ -55,13 +87,27 @@ function SelectValue({ children, className, placeholder, ...props }: SelectPrimi
     typeof children === 'function' && placeholder != null
       ? (value: unknown) => (value == null || value === '' ? placeholder : children(value))
       : children
+  const options = React.useContext(SelectOptionsContext)
+  const content =
+    options?.loading === true
+      ? (value: unknown) => {
+          if (value == null || value === '') return placeholder
+          if (Array.isArray(value)) return typeof children === 'function' ? children(value) : children
+          const item = selectItemLabel(options.items, value)
+          if (!item.found) {
+            return <span data-slot="skeleton" aria-hidden className="inline-block h-4 w-24 rounded-mini bg-skeleton" />
+          }
+          if (typeof children === 'function') return children(value)
+          return children ?? item.label
+        }
+      : guarded
   return (
     <SelectPrimitive.Value
       data-slot="select-value"
       className={cn('flex min-w-0 flex-1 truncate text-left', className)}
       placeholder={placeholder}
       {...props}>
-      {guarded}
+      {content}
     </SelectPrimitive.Value>
   )
 }
