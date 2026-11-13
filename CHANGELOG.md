@@ -12,6 +12,10 @@
   now removes `store` before it calls the provider, as the WebSocket path
   already did, so OIDC Clients, Codex, and internal callers such as OCR and
   web search work with these providers again.
+- Keep the card of a Workflow or background job on the reply after a person
+  interjects in the turn that started it. The card used to vanish from the
+  timeline once the reply was saved, so the run could only be opened or stopped
+  from the conversation's background work list.
 
 ## Version 2.0.0-alpha.146 (2026-11-13)
 

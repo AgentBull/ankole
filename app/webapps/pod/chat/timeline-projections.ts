@@ -215,12 +215,18 @@ export function placeLinkedExecutions(
   streams: TimelineLiveStream[],
   runs: LinkedExecution[]
 ) {
-  const messageBySignal = new Map(
-    messages
-      .filter(
-        message => message.authorType === 'agent' && (message.kind === 'message' || message.richContent?.execution)
+  const replies = messages.filter(
+    message => message.authorType === 'agent' && (message.kind === 'message' || message.richContent?.execution)
+  )
+  const messageBySignal = new Map(replies.map(message => [message.signalID, message.id]))
+  // An interjected turn's reply carries the claiming signal, not the turn's starting signal that the run records.
+  // The reply's work still holds the tool call that started the run.
+  const messageByToolCall = new Map(
+    replies.flatMap(message =>
+      ((message as Pick<TimelineMessage, 'richContent'>).richContent?.execution?.steps ?? []).map(
+        step => [step.id, message.id] as const
       )
-      .map(message => [message.signalID, message.id])
+    )
   )
   const streamBySignal = new Map(streams.flatMap(stream => stream.signalIDs.map(id => [id, stream.agentUID] as const)))
   const placement = {
@@ -229,7 +235,10 @@ export function placeLinkedExecutions(
   }
   for (const run of collapseExecutionChains(runs)) {
     const stream = run.sourceSignalID ? streamBySignal.get(run.sourceSignalID) : undefined
-    const reply = run.sourceSignalID ? messageBySignal.get(run.sourceSignalID) : undefined
+    const reply =
+      (run.sourceSignalID && messageBySignal.get(run.sourceSignalID)) ||
+      (run.sourceToolCallID && messageByToolCall.get(run.sourceToolCallID)) ||
+      undefined
     const source =
       run.sourceMessageID &&
       messages.find(message => message.id === run.sourceMessageID && message.authorType === 'human')?.id

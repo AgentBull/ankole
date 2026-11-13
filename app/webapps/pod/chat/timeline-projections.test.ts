@@ -227,6 +227,35 @@ describe('timeline-projections', () => {
       [job1, job2]
     )
     expect(placement.messages.get('a1')?.map(run => run.id)).toEqual(['job-2'])
+
+    // A Human interjected into a turn that a job notification started: the reply carries the interjection's signal,
+    // and the workflow records the starting signal without a source message.
+    const workflow = {
+      kind: 'workflow' as const,
+      id: 'wf-1',
+      agentUID: 'assistant',
+      title: 'Review',
+      status: 'running' as const,
+      createdAt: '2026-11-08T00:00:05Z',
+      updatedAt: '2026-11-08T00:00:06Z',
+      sourceSignalID: 'sig-notification',
+      sourceMessageID: null,
+      sourceToolCallID: 'call-wf'
+    }
+    const interjected = placeLinkedExecutions(
+      [
+        makeMessage({ id: 'h2', signalID: 'sig-interjection' }),
+        {
+          ...makeMessage({ id: 'a2', authorType: 'agent', signalID: 'sig-interjection' }),
+          richContent: {
+            execution: { steps: [{ id: 'call-wf', tool: 'workflow', title: 'Start workflow', status: 'completed' }] }
+          }
+        }
+      ],
+      [],
+      [workflow]
+    )
+    expect(interjected.messages.get('a2')?.map(run => run.id)).toEqual(['wf-1'])
   })
 
   test('placeDelegations puts a delegation on the reply of its turn, or on the live reply while the turn streams', () => {
