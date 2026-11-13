@@ -2358,7 +2358,8 @@ values in chronological order independently of display sorting and bucket
 filling. Cumulative labels and donut totals use exact decimal arithmetic;
 renderers receive numeric coordinates. KPI cards display loading or query
 errors until their whole-table total is available. Charts open a version-checked
-drill-down record dialog on element or KPI stat click. In standalone Base workspaces,
+drill-down record dialog on element or KPI stat click, and keyboard users open it
+from the button in the first cell of each data table row. In standalone Base workspaces,
 editors with `:manage_schema` persist `chart` configuration changes through a
 `600ms` debounced `BaseView` update that flushes on view switch or unmount; in
 `doc` `<embed>` blocks, both linked shared `chart` views and inline `chart`

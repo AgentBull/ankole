@@ -31,6 +31,8 @@ export interface AnkoleChartProps {
   ariaLabel?: string
   caption?: ReactNode
   summaryTable?: AnkoleChartSummaryTable
+  /** Makes each data table row's first cell a button, giving keyboard users the same action as clicking a chart element. */
+  onSummaryRowActivate?: (rowIndex: number) => void
   defaultTableOpen?: boolean
   tableToggleLabel?: string
   allowExport?: boolean
@@ -116,6 +118,7 @@ export function AnkoleChart({
   ariaLabel,
   caption,
   summaryTable,
+  onSummaryRowActivate,
   defaultTableOpen = false,
   tableToggleLabel = 'Data table',
   allowExport = false,
@@ -433,11 +436,23 @@ export function AnkoleChart({
             <tbody>
               {tableData.rows.map((row, rowIndex) => (
                 <tr key={rowIndex} className="border-b border-border/60">
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex} className="px-2 py-1 text-fg-secondary">
-                      {cell === null || cell === undefined ? '—' : String(cell)}
-                    </td>
-                  ))}
+                  {row.map((cell, cellIndex) => {
+                    const text = cell === null || cell === undefined ? '—' : String(cell)
+                    return (
+                      <td key={cellIndex} className="px-2 py-1 text-fg-secondary">
+                        {cellIndex === 0 && onSummaryRowActivate ? (
+                          <button
+                            type="button"
+                            className="text-left text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                            onClick={() => onSummaryRowActivate(rowIndex)}>
+                            {text}
+                          </button>
+                        ) : (
+                          text
+                        )}
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>

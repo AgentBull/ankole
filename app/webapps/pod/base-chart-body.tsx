@@ -189,6 +189,13 @@ export function AggregateChartBody(
     : undefined
 
   const hasSeries = resolved.groupBy.length > 1 && resolved.chartType !== 'combo'
+  const openDrilldown = (index: number, row: { x?: unknown; series?: unknown } | undefined) => {
+    const clicked = index >= 0 ? dataset.processedGroups[index] : undefined
+    if (!clicked) return
+    const labelParts = [String(row?.x ?? '')]
+    if (row?.series !== undefined) labelParts.push(String(row.series))
+    setDrilldownGroup({ group: clicked, label: labelParts.filter(Boolean).join(' · ') })
+  }
   const spec: StatisticalChartSpec = {
     type: resolved.chartType,
     data: dataset.rows,
@@ -216,14 +223,7 @@ export function AggregateChartBody(
     ...(dataset.donutCenterLabel ? { donutCenterLabel: dataset.donutCenterLabel } : {}),
     ...(resolved.referenceLines.length > 0 ? { referenceLines: resolved.referenceLines } : {}),
     height: CHART_HEIGHT_PX[resolved.height],
-    onElementClick: datum => {
-      const idx = typeof datum.__groupIndex === 'number' ? datum.__groupIndex : -1
-      const clicked = idx >= 0 ? dataset.processedGroups[idx] : undefined
-      if (!clicked) return
-      const labelParts = [String(datum.x ?? '')]
-      if (datum.series !== undefined) labelParts.push(String(datum.series))
-      setDrilldownGroup({ group: clicked, label: labelParts.filter(Boolean).join(' · ') })
-    }
+    onElementClick: datum => openDrilldown(typeof datum.__groupIndex === 'number' ? datum.__groupIndex : -1, datum)
   }
 
   return (
@@ -233,6 +233,7 @@ export function AggregateChartBody(
         ariaLabel={props.view.name}
         caption={resolved.caption}
         summaryTable={dataset.summaryTable}
+        onSummaryRowActivate={index => openDrilldown(index, dataset.rows[index])}
         tableToggleLabel={t('pod.content.data_table', { defaultValue: 'Data table' })}
         allowExport
         exportFilename={props.view.name}

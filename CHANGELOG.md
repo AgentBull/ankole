@@ -39,6 +39,9 @@
   the viewer's language instead of `SUM(Revenue)` or `Count`; the merged
   scatter color group reads "Other" in that language; and screen readers
   announce the metric controls without English words.
+- Open the matching records of a Base chart category from the keyboard. In the
+  chart's data table, the first cell of each row is now a button that opens the
+  same record list as clicking that bar, point, or slice.
 - Label the per-slot action on the Site defaults tab **Clear** instead of
   **Restore inheritance**, because Site values are the base layer and have
   nothing to inherit. Its confirmation warns that every Pod and Agent without
