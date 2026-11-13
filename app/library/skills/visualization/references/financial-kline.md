@@ -41,7 +41,7 @@ const { bars, volume } = recordsToFinancialSeries(records, {
 
 ## Offline export (`ankole-viz kline`)
 
-Because Lightweight Charts renders on HTML5 Canvas, `ankole-viz kline` exports high-DPI `.png` figures (`1920px` default print width):
+Because Lightweight Charts renders on HTML5 Canvas, `ankole-viz kline` exports high-DPI `.png` figures: `1680px` wide by default (840 CSS px at DPR 2), and at least `1920px` wide with `--pdf-safe` for print:
 
 ```bash
 ankole-viz kline \
