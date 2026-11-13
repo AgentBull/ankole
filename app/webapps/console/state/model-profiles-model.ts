@@ -41,6 +41,53 @@ export function resolvedProviderHosted(configuration: JSONObject | undefined): {
   }
 }
 
+/** The layer a model-profile editor writes: Site and Pod defaults, one Agent, or one system Principal. */
+export type ModelProfileLayer = 'global' | 'tenant' | 'agent' | 'system'
+
+/**
+ * Lists the overrides that the editor's layer stores, which restoring every
+ * slot's inheritance removes: fixed-slot profiles and Provider-hosted switches.
+ */
+export function layerOverrides(configuration: JSONObject | undefined): {
+  profiles: ProfileName[]
+  hosted: ('web_search' | 'image_generate')[]
+} {
+  const overrides = recordValue(configuration?.overrides) ?? {}
+  const hostedOverrides = recordValue(recordValue(configuration?.provider_hosted)?.overrides) ?? {}
+
+  return {
+    profiles: POD_PROFILE_NAMES.filter(profile => Object.hasOwn(overrides, profile)),
+    hosted: (['web_search', 'image_generate'] as const).filter(capability => Object.hasOwn(hostedOverrides, capability))
+  }
+}
+
+/**
+ * Says where a slot's effective value comes from, so a value that the layer
+ * inherits never reads as one that the layer stores.
+ */
+export function profileSource(
+  layer: ModelProfileLayer,
+  profile: ProfileName,
+  hasOverride: boolean,
+  entry: unknown
+):
+  | { kind: 'own'; layer: ModelProfileLayer }
+  | { kind: 'fallback'; profile: ProfileName }
+  | { kind: 'inherited'; source: string }
+  | { kind: 'none' } {
+  if (hasOverride) return { kind: 'own', layer }
+
+  const resolved = recordValue(entry)
+  const resolvedFrom = resolved?.resolved_from_profile
+  if (typeof resolvedFrom === 'string' && resolvedFrom !== profile) {
+    return { kind: 'fallback', profile: resolvedFrom as ProfileName }
+  }
+
+  const value = recordValue(resolved?.value)
+  if (!value || Object.keys(value).length === 0) return { kind: 'none' }
+  return { kind: 'inherited', source: typeof resolved?.source === 'string' ? resolved.source : 'default' }
+}
+
 export type ProfileDraft = {
   description: string
   providerID: string

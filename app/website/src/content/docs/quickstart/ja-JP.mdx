@@ -2613,7 +2613,7 @@ Ankole は組織内のプライベートデプロイメント向けに設計さ�
 
 モデルプロファイルは登録済みの LLM Provider を参照するため、先に Console の **Providers → New provider** で provider の種類を選んで API キーを貼り付け、保存します。Provider ID は Console が提案し、エンドポイントは provider の既定値を使うため、アドレスを入力するのは、Azure OpenAI のようにリソースごとにアドレスが割り当てられるサービスか、セルフホストや互換エンドポイントの場合だけです。登録した認証情報は control plane 内で暗号化して保管されるため、デプロイ用の `.env` ファイルや Agent のワークスペースファイル内に API キーを書き込まないでください。
 
-次に **Console → Model Profiles** を開き、Site または Pod 既定の言語モデルスロットを設定します（`Site -> Pod -> Agent/System` の 3 層疎継承と、`coding -> heavy -> primary` および `light -> primary` のフォールバックが適用されます）。
+次に **Console → Model Profiles** を開き、すべての Pod と Agent が継承する Site 既定の言語モデルスロットを設定します（`Site -> Pod -> Agent/System` の 3 層疎継承と、`coding -> heavy -> primary` および `light -> primary` のフォールバックが適用されます）。
 
 | プロファイル | 初回実行での用途 |
 |---|---|
@@ -2621,7 +2621,7 @@ Ankole は組織内のプライベートデプロイメント向けに設計さ�
 | `light` | 高頻度・低コストな処理と `ankole_brain` の知識抽出 |
 | `heavy` | 高度な統合推論、Dreaming、Skill 教訓の再確認 |
 
-最初の疎通確認では、Site または Pod 既定値の `primary` に動作実績のある provider とモデルを 1 つ割り当てるだけで全 Agent と `ankole_brain` が稼働可能になります。一通りの会話が通ることを確認してから、`light` と `heavy` を用途別の階層に分けてください。
+最初の疎通確認では、Site 既定値の `primary` に動作実績のある provider とモデルを 1 つ割り当てるだけで全 Agent と `ankole_brain` が稼働可能になります。一通りの会話が通ることを確認してから、`light` と `heavy` を用途別の階層に分けてください。
 
 **Pod** ワークスペースでは、各内部メンバーに 1:1 の**個人アシスタント**が自動で用意され、**Pod Chat** からすぐに利用できます。チームで共有する専門の **AI 同僚**（Pod ルームや外部 IM ルーティング用）を作成する場合は、**Agents → New Agent** を開いてテナント内で意味のわかる小文字の `uid`（`research-analyst` など）、表示名、ロール、所有者、`WorkerProvider` を設定して保存します。Agent は個別スロットを上書きしないかぎり Site・Pod のモデルプロファイルを継承し、行動規範と視覚デザイン規則は **Meta Ankole → Agents** の `AGENTS.md` と `DESIGN.md` で管理します。
 

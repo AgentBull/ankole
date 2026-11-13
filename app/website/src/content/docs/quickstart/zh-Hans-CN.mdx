@@ -2589,7 +2589,7 @@ Ankole 专为企业私有化部署设计。一套站点可承载多个租户；�
 
 模型档案通过引用已登记的模型提供商解析路由，因此请先登录 Console 打开 **模型提供商 → 新增提供商**，选择提供商类型，粘贴 API 密钥并保存。Console 会自动给出 Provider ID，接口地址默认使用该提供商的官方地址；只有 Azure OpenAI 这类按资源分配地址的服务，以及自建或兼容端点，才需要填写地址。控制面会对所有提供商凭证加密存储，切勿将模型 API 密钥写入部署环境变量或 Agent 工作区文件中。
 
-接着打开 **Console → Model Profiles**，配置站点或 Pod 层的默认语言模型槽位（按 `Site -> Pod -> Agent/System` 三层稀疏继承，并支持 `coding -> heavy -> primary` 与 `light -> primary` 自动回退）：
+接着打开 **Console → Model Profiles**，配置站点默认的语言模型槽位，所有 Pod 和 Agent 都会继承（按 `Site -> Pod -> Agent/System` 三层稀疏继承，并支持 `coding -> heavy -> primary` 与 `light -> primary` 自动回退）：
 
 | Profile | 建议用途 |
 |---|---|
@@ -2597,7 +2597,7 @@ Ankole 专为企业私有化部署设计。一套站点可承载多个租户；�
 | `light` | 高频、低成本轻量回合与 `ankole_brain` 日常事实抽取 |
 | `heavy` | 高复杂度深度综合、离线 Dreaming 归纳与技能教训复审 |
 
-首次跑通链路时，只需在站点或 Pod 默认层为 `primary` 绑定一个已验证可用的提供商和模型，所有 Agent 与 `ankole_brain` 即可直接运行；待确认端到端对话顺畅后，再将 `light` 与 `heavy` 拆分为不同档位的模型。
+首次跑通链路时，只需在站点默认配置里为 `primary` 绑定一个已验证可用的提供商和模型，所有 Agent 与 `ankole_brain` 即可直接运行；待确认端到端对话顺畅后，再将 `light` 与 `heavy` 拆分为不同档位的模型。
 
 在 **Pod** 工作区中，系统已为每位内部成员自动配备 1:1 专属**个人助理**（可在 **Pod Chat** 中直接对话）。如需创建供团队共享或对接外部 IM 渠道的专业岗位 **AI 同事**，请打开 **Agents → New Agent**，设定语义清晰的租户内小写 `uid`（例如 `research-analyst`）、显示名称、角色定位、负责人与 `WorkerProvider` 并保存。新建 Agent 默认继承站点与 Pod 的模型档案（无需逐项重复填表，仅需按需覆盖特定槽位），其行为准则与视觉设计规范则在 **Meta Ankole → Agents** 的 `AGENTS.md` 与 `DESIGN.md` 中统一维护。
 

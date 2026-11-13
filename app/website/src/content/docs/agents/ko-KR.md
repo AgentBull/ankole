@@ -57,7 +57,7 @@ Agent의 모델 프로필은 **Console → Model Profiles**에서 구성하는 3
 
 별도 `web_search` 또는 `image_generate` 프로필을 쓰려면 해당 provider-hosted 스위치도 꺼야 합니다. 프로필을 연결하는 것만으로 스위치가 바뀌지는 않습니다. 두 스위치는 기본적으로 켜져 있으며 Site → Pod → Agent 순서로 설정을 상속합니다.
 
-모델을 고르거나 직접 입력하려면 먼저 Provider부터 선택해야 하며, context length 입력란 역시 Provider를 선택한 뒤에 활성화됩니다. context length를 비워 두면 해당 Provider와 모델의 기본값을 따릅니다. Agent 슬롯 재정의를 삭제하면 다시 Pod 및 Site 기본값을 상속합니다.
+모델을 고르거나 직접 입력하려면 먼저 Provider부터 선택해야 하며, context length 입력란 역시 Provider를 선택한 뒤에 활성화됩니다. context length를 비워 두면 해당 Provider와 모델의 기본값을 따릅니다. Agent 슬롯 재정의를 삭제하면 다시 Pod 및 Site 기본값을 상속합니다. 각 슬롯 머리글에는 그 값이 Agent 자체 재정의인지, 어느 계층에서 상속한 값인지가 표시되며, **모두 상속 복원**을 누르면 이 Agent의 재정의를 한 번에 모두 삭제합니다.
 
 고급 설정 영역에는 선택한 Provider에서 선언한 옵션만 나타납니다. **Reasoning summary**는 Responses API 기반 모델에만 적용되며, **Answer detail**은 응답의 기본 상세 수준을 지정하고, **Service tier**는 해당 model profile의 요청 등급을 재정의합니다. 선택 가능한 값은 Provider, 계정 등급, 모델에 따라 다르며 비워 두면 Provider 기본값이 적용됩니다.
 

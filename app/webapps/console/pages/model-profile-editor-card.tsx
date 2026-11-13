@@ -48,6 +48,8 @@ export function ModelProfileEditorCard({
   disabled,
   required,
   hint,
+  source,
+  saveNotice,
   nameField,
   saveIncomplete,
   showDescription,
@@ -70,6 +72,10 @@ export function ModelProfileEditorCard({
   disabled?: boolean
   required?: boolean
   hint?: string
+  /** Names the layer that the effective value comes from; `own` marks a value this layer stores. */
+  source?: { label: string; own: boolean }
+  /** Replaces the unsaved marker when saving would stop the slot inheriting. */
+  saveNotice?: string
   nameField?: ReactNode
   saveIncomplete?: boolean
   showDescription?: boolean
@@ -175,10 +181,18 @@ export function ModelProfileEditorCard({
               ? [providerID, configurableModel ? selectedModelLabel : null].filter(Boolean).join(' · ')
               : t('console.models.not_configured')}
           </span>
+          {source ? (
+            <span
+              className={source.own ? 'shrink-0 text-xs text-foreground' : 'shrink-0 text-xs text-muted-foreground'}>
+              {source.label}
+            </span>
+          ) : null}
           {required ? (
             <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.required')}</span>
           ) : null}
-          {dirty ? <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.unsaved')}</span> : null}
+          {dirty ? (
+            <span className="shrink-0 text-xs text-muted-foreground">{saveNotice ?? t('console.models.unsaved')}</span>
+          ) : null}
           <ChevronDownRegular
             className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
             aria-hidden

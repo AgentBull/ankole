@@ -59,7 +59,7 @@ Agent のモデルプロファイルは、**Console → Model Profiles** で構�
 
 独立した `web_search` または `image_generate` プロファイルを使う場合は、対応する provider-hosted スイッチもオフにします。プロファイルの紐付けだけではスイッチは変わりません。両スイッチは既定でオンとなり、Site → Pod → Agent の順で設定を継承します。
 
-モデルを選択・入力する前に、まず Provider を選択してください。Provider を選ぶと context length 欄も入力できるようになります。空欄のままにした場合は、Provider とモデルの既定値が使われます。Agent 側の上書きを削除すると、再び Pod・Site 既定値の継承に戻ります。
+モデルを選択・入力する前に、まず Provider を選択してください。Provider を選ぶと context length 欄も入力できるようになります。空欄のままにした場合は、Provider とモデルの既定値が使われます。Agent 側の上書きを削除すると、再び Pod・Site 既定値の継承に戻ります。各スロットの見出しには、その値が Agent 自身の上書きか、どの層から継承したものかが表示されます。**すべて継承に戻す**を使うと、この Agent の上書きを一度にすべて削除できます。
 
 詳細設定（Advanced）には、選択した Provider がサポートするオプションだけが表示されます。**Reasoning summary** は Responses API でのみ有効です。**Answer detail** は応答の既定の詳細度を指定し、**Service tier** はこのモデルプロファイルにおけるリクエスト tier を上書きします。指定可能な値は Provider、アカウント、モデルによって異なり、空欄の場合は Provider の既定値が使われます。
 

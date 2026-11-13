@@ -148,7 +148,6 @@ export type ReadinessStep = {
 export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse): ReadinessStep[] {
   const providerID = readiness.provider.provider_id
   const agentUID = readiness.agent.uid
-  const profileAgentUID = readiness.model_profiles.agent_uid
 
   return [
     {
@@ -184,9 +183,8 @@ export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse
             )
           }),
       title: t('console.readiness.profiles_title'),
-      to: profileAgentUID
-        ? `/agents/${encodeURIComponent(profileAgentUID)}#model-profiles`
-        : '/model-profiles?defaults_scope=tenant'
+      // Site defaults serve every Pod and Agent; a Pod or Agent override is for the one that differs.
+      to: '/model-profiles'
     },
     {
       key: 'worker',

@@ -2616,7 +2616,7 @@ When enabling an enterprise adapter for the first time, restart the control plan
 
 Register your LLM Provider first: sign in to the Console, open **Providers → New provider**, pick the provider kind, paste its API key, and save. The Console suggests a Provider ID and uses the provider's default endpoint, so only a service that assigns an address per resource, such as Azure OpenAI, or a self-hosted or compatible endpoint needs one. Ankole encrypts provider credentials inside the control plane—never place them in deployment `.env` files or Agent workspace files.
 
-Next, open **Console → Model Profiles** to set your Site or Pod defaults across the core language-model slots (`Site -> Pod -> Agent/System`, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`):
+Next, open **Console → Model Profiles** to set your Site defaults across the core language-model slots, which every Pod and Agent inherits (`Site -> Pod -> Agent/System`, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`):
 
 | Profile | First-run use |
 |---|---|
@@ -2624,7 +2624,7 @@ Next, open **Console → Model Profiles** to set your Site or Pod defaults acros
 | `light` | High-volume, low-cost turns and `ankole_brain` extraction |
 | `heavy` | Complex synthesis, Dreaming, and Skill lesson review |
 
-Binding a known-good provider and model to `primary` at the Site or Pod level makes every Agent and `ankole_brain` ready to run right away; split `light` and `heavy` onto dedicated tiers once your end-to-end conversation path works.
+Binding a known-good provider and model to `primary` in the Site defaults makes every Agent and `ankole_brain` ready to run right away; split `light` and `heavy` onto dedicated tiers once your end-to-end conversation path works.
 
 Inside **Pod**, every internal member automatically receives a 1:1 **Personal Assistant** in **Pod Chat**. To create a shared specialist **AI Colleague** (for Pod rooms or external IM routing), open **Agents → New Agent**, set a meaningful lowercase tenant-scoped `uid` (such as `research-analyst`), display name, role, owner, and `WorkerProvider`, and save. Agents inherit your Site and Pod Model Profiles unless you override specific slots on the Agent, while behavioral and visual rules live in `AGENTS.md` and `DESIGN.md` under **Meta Ankole → Agents**.
 

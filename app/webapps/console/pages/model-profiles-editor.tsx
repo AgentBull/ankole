@@ -13,8 +13,10 @@ import { putAgentProviderHostedMutation } from '../api/v2/generated/@tanstack/re
 import {
   deleteAgentModelProfile,
   putAgentModelProfile,
+  putAgentProviderHosted,
   deleteDefaultModelProfile,
   putDefaultModelProfile,
+  putDefaultProviderHosted,
   deleteSystemModelProfile,
   putSystemModelProfile
 } from '../api/v2/generated/sdk.gen'
@@ -23,11 +25,15 @@ import type { AgentItem } from '../api/agents'
 import type { AIGatewayProviderKindItem } from '../state/provider-settings'
 import type { ModelProfileWriteRequest } from '../state/model-profiles-model'
 import { ErrorBlock } from '../../common/error-block'
+import { ConfirmDeleteButton } from '../console-form'
 import {
   draftsFromEffective,
+  layerOverrides,
+  profileSource,
   resolvedProviderHosted,
   ModelProfilesModel,
   PROFILE_NAMES,
+  type ModelProfileLayer,
   type ModelProfileSubmission,
   type ProfileName
 } from '../state/model-profiles-model'
@@ -58,6 +64,124 @@ export function profileSourceDescription(t: TFunction, profile: ProfileName, ent
   }
 
   return t('console.models.effective_source', { source: sourceLabel })
+}
+
+type ModelProfileTarget = { agentUID: string } | { defaultsScope: 'tenant' | 'global' } | { systemUID: string }
+
+function profileLayer(target: ModelProfileTarget): ModelProfileLayer {
+  if ('agentUID' in target) return 'agent'
+  if ('systemUID' in target) return 'system'
+  return target.defaultsScope
+}
+
+/** Labels a card header with the layer that its effective value comes from. */
+function profileSourceBadge(t: TFunction, source: ReturnType<typeof profileSource>) {
+  switch (source.kind) {
+    case 'own':
+      return { label: t(`console.models.own_source_${source.layer}`), own: true }
+    case 'fallback':
+      return {
+        label: t('console.models.fallback_badge', { profile: modelProfileLabel(t, source.profile) }),
+        own: false
+      }
+    case 'inherited':
+      return {
+        label:
+          source.source === 'default'
+            ? t('console.models.source_default')
+            : t('console.models.inherited_badge', { source: t(`console.models.source_${source.source}`) }),
+        own: false
+      }
+    case 'none':
+      return undefined
+  }
+}
+
+async function deleteProfileOverride(target: ModelProfileTarget, profile: ProfileName) {
+  if ('agentUID' in target) {
+    return (await deleteAgentModelProfile({ path: { agent_uid: target.agentUID, profile }, throwOnError: true })).data
+  }
+  if ('systemUID' in target) {
+    return (await deleteSystemModelProfile({ path: { uid: target.systemUID, profile }, throwOnError: true })).data
+  }
+  return (
+    await deleteDefaultModelProfile({
+      path: { profile },
+      query: { defaults_scope: target.defaultsScope },
+      throwOnError: true
+    })
+  ).data
+}
+
+/**
+ * Removes every override that one layer stores, so each slot follows the
+ * next layer again. The slots clear one by one; when a call fails, the slots
+ * cleared before it stay cleared, the page refreshes, and the operator can
+ * run it again for the rest.
+ */
+export function RestoreAllInheritanceButton({
+  configuration,
+  model,
+  target
+}: {
+  configuration: ListAgentModelProfilesResponse | undefined
+  model: InstanceType<typeof ModelProfilesModel>
+  target: ModelProfileTarget
+}) {
+  useSignals()
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const layer = profileLayer(target)
+  const overrides = layerOverrides(configuration)
+  const count = overrides.profiles.length + overrides.hosted.length
+  const restore = useMutation({
+    mutationFn: async () => {
+      const submissions = overrides.profiles.map(profile => [profile, model.submission(profile)] as const)
+      let latest: ListAgentModelProfilesResponse | undefined
+      for (const [profile] of submissions) latest = await deleteProfileOverride(target, profile)
+      if (overrides.hosted.length > 0) {
+        const reset = Object.fromEntries(overrides.hosted.map(capability => [capability, null]))
+        if ('agentUID' in target) {
+          await putAgentProviderHosted({
+            path: { agent_uid: target.agentUID },
+            body: { data: reset },
+            throwOnError: true
+          })
+        } else if ('defaultsScope' in target) {
+          await putDefaultProviderHosted({
+            body: { data: { defaults_scope: target.defaultsScope, ...reset } },
+            throwOnError: true
+          })
+        }
+      }
+      return { latest, submissions }
+    },
+    onSuccess: ({ latest, submissions }) => {
+      if (latest) {
+        for (const [profile, submission] of submissions) model.markSaved(profile, latest.effective, submission)
+      }
+      toast.success(t('console.models.restore_all_done', { count }))
+    },
+    onError: () => void queryClient.invalidateQueries()
+  })
+
+  return (
+    <div className="grid justify-items-start gap-2">
+      <ErrorBlock error={restore.error} />
+      <ConfirmDeleteButton
+        confirm={{
+          title: t('console.models.restore_all_title'),
+          description: t(`console.models.restore_all_description_${layer}`, { count }),
+          confirmLabel: t('console.models.restore_all')
+        }}
+        label={count > 0 ? t('console.models.restore_all_count', { count }) : t('console.models.restore_all')}
+        pending={restore.isPending || count === 0}
+        size="sm"
+        variant="outline"
+        onConfirm={() => restore.mutate()}
+      />
+    </div>
+  )
 }
 
 type ModelProfilesEditorProps = {
@@ -166,6 +290,9 @@ function AgentModelProfilesEditor({
         ) : null}
       </div>
       <ErrorBlock error={error ?? saveProviderHosted.error} />
+      {configuration ? (
+        <RestoreAllInheritanceButton configuration={configuration} model={model} target={{ agentUID: agent.uid }} />
+      ) : null}
       {draftStatus === 'loading' ? (
         <div className="grid gap-4" aria-busy="true">
           <Skeleton className="h-48 w-full" />
@@ -203,7 +330,7 @@ export function ProfileEditor({
   modelCatalog,
   providerHosted
 }: {
-  target: { agentUID: string } | { defaultsScope: 'tenant' | 'global' } | { systemUID: string }
+  target: ModelProfileTarget
   profile: ProfileName
   model: InstanceType<typeof ModelProfilesModel>
   configuration: ListAgentModelProfilesResponse
@@ -220,36 +347,29 @@ export function ProfileEditor({
   const [existingScans, setExistingScans] = useState<{ unread: UnreadScans | undefined } | null>(null)
   const persist = useMutation({
     mutationFn: async (input: ProfilePersistence) => {
+      if (input.action === 'cleared') return deleteProfileOverride(target, profile)
+
       if ('agentUID' in target) {
         const path = { agent_uid: target.agentUID, profile }
-        const response =
-          input.action === 'saved'
-            ? await putAgentModelProfile({ path, body: { data: { attrs: input.body } }, throwOnError: true })
-            : await deleteAgentModelProfile({ path, throwOnError: true })
+        const response = await putAgentModelProfile({ path, body: { data: { attrs: input.body } }, throwOnError: true })
         return response.data
       }
 
       if ('systemUID' in target) {
         const path = { uid: target.systemUID, profile }
-        const response =
-          input.action === 'saved'
-            ? await putSystemModelProfile({ path, body: { data: { attrs: input.body } }, throwOnError: true })
-            : await deleteSystemModelProfile({ path, throwOnError: true })
+        const response = await putSystemModelProfile({
+          path,
+          body: { data: { attrs: input.body } },
+          throwOnError: true
+        })
         return response.data
       }
 
-      const response =
-        input.action === 'saved'
-          ? await putDefaultModelProfile({
-              path: { profile },
-              body: { data: { defaults_scope: target.defaultsScope, attrs: input.body } },
-              throwOnError: true
-            })
-          : await deleteDefaultModelProfile({
-              path: { profile },
-              query: { defaults_scope: target.defaultsScope },
-              throwOnError: true
-            })
+      const response = await putDefaultModelProfile({
+        path: { profile },
+        body: { data: { defaults_scope: target.defaultsScope, attrs: input.body } },
+        throwOnError: true
+      })
       return response.data
     }
   })
@@ -291,6 +411,8 @@ export function ProfileEditor({
       { onSuccess: finishPersistence }
     )
   }
+  const layer = profileLayer(target)
+  const source = profileSource(layer, profile, hasOverride, configuration.effective[profile])
   const inherited = recordValue(configuration.inherited[profile])
   const inheritedHint =
     hasOverride && recordValue(inherited?.value)
@@ -306,6 +428,8 @@ export function ProfileEditor({
         draft={draft}
         dirty={signals.dirty.value}
         hint={`${profileDescription(t, profile)} ${profileSourceDescription(t, profile, configuration.effective[profile])} ${inheritedHint}`}
+        source={profileSourceBadge(t, source)}
+        saveNotice={layer !== 'global' && !hasOverride ? t('console.models.save_creates_override') : undefined}
         persistencePending={persist.isPending}
         providerHosted={providerHosted}
         deleteConfirm={{

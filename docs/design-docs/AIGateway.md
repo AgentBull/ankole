@@ -153,8 +153,21 @@ fields and preserve unsaved slot drafts.
 The Console's `/model-profiles` page opens on Site defaults across Pods and
 provides a Pod defaults tab that edits Pod overrides and system Principal
 profiles for the selected tenant, prompting for a tenant when none is selected.
-The readiness model step links to `/model-profiles?defaults_scope=tenant` when
-the Pod has no Agent.
+The readiness model step links to the Site defaults, because one Site value
+serves every Pod and Agent; a Pod or Agent override is for the one that needs a
+different model.
+
+Each slot editor fills its form from the effective value, so every slot header
+names the source of that value: the layer's own override, the layer it
+inherits from, or the slot it falls back to. Saving a slot that inherits turns
+the effective value into an override of the current layer, which then stops
+following the layers below, and the unsaved marker says so before the operator
+saves. The Pod defaults tab, each Agent, and each system Principal offer
+**Restore all inheritance**. It deletes the layer's fixed-slot and
+Provider-hosted overrides one by one through the same deletion routes; when a
+deletion fails, the slots cleared before it stay cleared, the page refreshes,
+and the operator runs it again for the rest. The Site tab has no such action,
+because Site values are the base that every Pod inherits.
 Provider disable and deletion check Agent options, every Site, Pod, and
 `system:<uid>` profile row, and model aliases of enabled OIDC Clients before
 allowing the operation. Tenant-owned references include the tenant ID, together

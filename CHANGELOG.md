@@ -1,5 +1,22 @@
 # Changelog
 
+## Version 2.0.0-alpha.146 (2026-11-13)
+
+- Show where each model profile slot gets its value. Every slot header on the
+  Pod defaults tab, an Agent, and a system Principal now says whether the value
+  is that layer's own override, which layer it inherits from, or which slot it
+  falls back to, so an inherited value no longer looks like one the layer
+  stores. Before saving a slot that inherits, the header warns that saving
+  stops the slot from inheriting.
+- Add **Restore all inheritance** to the Pod defaults tab, each Agent, and each
+  system Principal. It removes every override of that layer at once, so the
+  slots follow the Site defaults again.
+- Send the readiness step for model profiles to the Site defaults, which every
+  Pod and Agent inherits. It used to open the Pod defaults tab or the first
+  Agent's profiles, which saved the first models as overrides and left later
+  Site changes without effect. A Pod configured that way keeps its overrides
+  until an operator restores inheritance.
+
 ## Version 2.0.0-alpha.145 (2026-11-13)
 
 - Let a Claude provider answer conversations. When a site, Pod, or Agent

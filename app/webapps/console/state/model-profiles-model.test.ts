@@ -2,12 +2,41 @@ import { describe, expect, test } from 'bun:test'
 import { effect } from '@preact/signals-react'
 import {
   CustomModelProfileModel,
+  layerOverrides,
   ModelProfilesModel,
   POD_PROFILE_NAMES,
   PROFILE_NAMES,
+  profileSource,
   resolvedProfileValue,
   resolvedProviderHosted
 } from './model-profiles-model'
+
+describe('model-profile layers', () => {
+  test('lists the profile and Provider-hosted overrides that one layer stores', () => {
+    expect(
+      layerOverrides({
+        overrides: { primary: { provider_id: 'aiberm', model: 'claude-sonnet-5-5' }, ocr: { provider_id: 'mistral' } },
+        provider_hosted: { overrides: { web_search: false } }
+      })
+    ).toEqual({ profiles: ['primary', 'ocr'], hosted: ['web_search'] })
+    expect(layerOverrides({ overrides: {}, provider_hosted: { overrides: {} } })).toEqual({ profiles: [], hosted: [] })
+  })
+
+  test('tells a stored value from an inherited, fallback, or missing one', () => {
+    const site = { value: { provider_id: 'aiberm', model: 'claude-opus-5-5' }, source: 'global' }
+
+    expect(profileSource('tenant', 'primary', true, { ...site, source: 'tenant' })).toEqual({
+      kind: 'own',
+      layer: 'tenant'
+    })
+    expect(profileSource('tenant', 'primary', false, site)).toEqual({ kind: 'inherited', source: 'global' })
+    expect(profileSource('agent', 'coding', false, { ...site, resolved_from_profile: 'heavy' })).toEqual({
+      kind: 'fallback',
+      profile: 'heavy'
+    })
+    expect(profileSource('tenant', 'ocr', false, { value: {}, source: 'default' })).toEqual({ kind: 'none' })
+  })
+})
 
 describe('ModelProfilesModel', () => {
   test('saving primary refreshes clean fallback drafts and preserves an edited slot', () => {

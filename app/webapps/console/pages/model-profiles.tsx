@@ -30,7 +30,7 @@ import {
 } from '../state/model-profiles-model'
 import { TenantSwitcher } from '../tenant-switcher'
 import { ModelProfileEditorCard } from './model-profile-editor-card'
-import { ProfileEditor, useModelProfilesDraft } from './model-profiles-editor'
+import { ProfileEditor, RestoreAllInheritanceButton, useModelProfilesDraft } from './model-profiles-editor'
 
 type DefaultsScope = 'tenant' | 'global'
 export function ModelProfilesPage() {
@@ -146,6 +146,13 @@ export function ModelProfilesPage() {
                 </div>
               ) : configuration.data ? (
                 <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
+                  {scope === 'tenant' ? (
+                    <RestoreAllInheritanceButton
+                      configuration={configuration.data}
+                      model={model}
+                      target={{ defaultsScope: scope }}
+                    />
+                  ) : null}
                   {POD_PROFILE_NAMES.map(profile => (
                     <ProfileEditor
                       key={`${scope}:${selectedTenantID ?? 'global'}:${profile}`}
@@ -240,6 +247,11 @@ function SystemPrincipalEditor({
         <Skeleton className="h-48 w-full" />
       ) : configuration.data ? (
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
+          <RestoreAllInheritanceButton
+            configuration={configuration.data}
+            model={model}
+            target={{ systemUID: service.uid }}
+          />
           {POD_PROFILE_NAMES.map(profile => (
             <ProfileEditor
               key={profile}
