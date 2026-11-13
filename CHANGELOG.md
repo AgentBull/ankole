@@ -28,6 +28,9 @@
 - Keep a presentation playing full screen while you change slides or
   collaborators edit the deck. Any update to the page used to leave full
   screen and end the slideshow.
+- Turn selected text into a link when you paste a web address from the
+  context menu after selecting the text with Shift and the arrow keys or Home.
+  The editor used to replace the selected text with the address.
 - Label the per-slot action on the Site defaults tab **Clear** instead of
   **Restore inheritance**, because Site values are the base layer and have
   nothing to inherit. Its confirmation warns that every Pod and Agent without

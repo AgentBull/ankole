@@ -27,6 +27,16 @@ function range(node: Node, from: number, to = from) {
 }
 
 describe('input events', () => {
+  it('forget a released Shift before a paste that has no keydown', () => {
+    const wg = tempEditor(doc(p('hello')))
+    const key = (type: string, shiftKey: boolean) =>
+      wg.contentDOM.dispatchEvent(new KeyboardEvent(type, { key: 'Shift', keyCode: 16, shiftKey, bubbles: true }))
+    key('keydown', true)
+    ist(wg.inputState.shiftKey)
+    key('keyup', false)
+    ist(!wg.inputState.shiftKey)
+  })
+
   it('act on a DOM selection that the editor has not read yet', () => {
     const wg = requireFocus(tempEditor(doc(p('hello world'))))
     wg.flush()

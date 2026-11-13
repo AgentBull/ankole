@@ -152,7 +152,6 @@ export class InputState {
       this.finishComposition()
     }
     if (event.type == 'keydown' && this.keydown(event as KeyboardEvent)) return
-    if (event.type == 'keyup' && (event as KeyboardEvent).keyCode == 16) this.shiftKey = false
     if (event.type == 'beforeinput') {
       // The beforeinput handler sets this again when the browser applies the input.
       this.pendingInputEvent = null
@@ -1291,5 +1290,10 @@ const baseObservers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: 
 
   contextmenu(wg) {
     wg.inputState.lastContextMenu = Date.now()
+  },
+
+  // A paste from a menu has no keydown of its own, so the released Shift must not linger.
+  keyup(wg, event) {
+    if (event.keyCode == 16) wg.inputState.shiftKey = false
   }
 }
