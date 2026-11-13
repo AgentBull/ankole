@@ -1,7 +1,7 @@
 import { Button } from '@ankole/uikit'
 import { ChevronLeftRegular, ChevronRightRegular, FullScreenMinimizeRegular } from '@ankole/uikit/icons'
 import { t } from 'i18next'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { PresentationRenderedSlide } from './presentation-engine'
 
@@ -97,6 +97,9 @@ export function PresentationPresent({
     [slideCount, onSlideChange]
   )
 
+  // The page re-creates onClose on every render; Fullscreen must not restart with it.
+  const closeFromFullscreen = useEffectEvent(onClose)
+
   // Request browser Fullscreen when available and exit Present mode if the user leaves Fullscreen.
   useEffect(() => {
     if (!open) return
@@ -119,7 +122,7 @@ export function PresentationPresent({
         enteredFullscreenRef.current = false
         if (!closingRef.current) {
           closingRef.current = true
-          onClose()
+          closeFromFullscreen()
         }
       }
     }
@@ -131,7 +134,7 @@ export function PresentationPresent({
       }
       previousFocus?.focus?.({ preventScroll: true })
     }
-  }, [open, onClose])
+  }, [open])
 
   // Track available stage dimensions so slides stay sharp across window and fullscreen resizes.
   useEffect(() => {
