@@ -497,6 +497,10 @@ export function ScatterChartBody(props: ChartViewProps & { resolved: ResolvedCha
   }
 
   const truncated = Boolean(records.data?.page_token)
+  const openRecord = (id: unknown) => {
+    const found = typeof id === 'string' ? records.data?.records.find(r => r.id === id) : undefined
+    if (found) setDetailRecord(found)
+  }
 
   const spec: StatisticalChartSpec = {
     type: 'scatter',
@@ -511,12 +515,7 @@ export function ScatterChartBody(props: ChartViewProps & { resolved: ResolvedCha
     ...(resolved.showLegend !== undefined ? { showLegend: resolved.showLegend } : {}),
     ...(resolved.referenceLines.length > 0 ? { referenceLines: resolved.referenceLines } : {}),
     height: CHART_HEIGHT_PX[resolved.height],
-    onElementClick: datum => {
-      const id = typeof datum.__recordId === 'string' ? datum.__recordId : undefined
-      if (!id) return
-      const found = records.data?.records.find(r => r.id === id)
-      if (found) setDetailRecord(found)
-    }
+    onElementClick: datum => openRecord(datum.__recordId)
   }
 
   return (
@@ -537,6 +536,7 @@ export function ScatterChartBody(props: ChartViewProps & { resolved: ResolvedCha
         ariaLabel={props.view.name}
         caption={resolved.caption}
         summaryTable={summaryTable}
+        onSummaryRowActivate={index => openRecord(rows[index]?.__recordId)}
         tableToggleLabel={t('pod.content.data_table', { defaultValue: 'Data table' })}
         allowExport
         exportFilename={props.view.name}
