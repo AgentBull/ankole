@@ -1,6 +1,6 @@
 import { plugin } from 'bun'
 import path from 'node:path'
-import { localeDirectory, prepareEdition } from './edition'
+import { editionModulesFile, localeDirectory, prepareEdition } from './edition'
 
 prepareEdition()
 plugin({
@@ -8,6 +8,9 @@ plugin({
   setup(build) {
     build.onResolve({ filter: /^@ankole\/locales\// }, args => ({
       path: path.join(localeDirectory, args.path.slice('@ankole/locales/'.length))
+    }))
+    build.onResolve({ filter: /^@ankole\/edition-modules\// }, () => ({
+      path: editionModulesFile
     }))
     build.onResolve({ filter: /\?url$/ }, args => ({
       path: args.path.slice(0, -4),

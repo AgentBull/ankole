@@ -335,6 +335,7 @@ export function ManagedAgent({
 
 function ExtensionNavigationTrigger({ slot }: { slot: PodSettingsTabSlot }) {
   const { t } = useTranslation()
+  const Icon = slot.icon ?? PuzzlePieceRegular
   return (
     <SlotGate slot={slot}>
       {visible =>
@@ -342,7 +343,7 @@ function ExtensionNavigationTrigger({ slot }: { slot: PodSettingsTabSlot }) {
           <TabsTrigger
             value={slot.id}
             className="min-h-9 shrink-0 justify-start gap-2.5 rounded-lg px-3 py-2 text-sm md:h-9 md:py-1.5">
-            <PuzzlePieceRegular aria-hidden />
+            <Icon aria-hidden />
             <span>{t(slot.labelKey)}</span>
           </TabsTrigger>
         )

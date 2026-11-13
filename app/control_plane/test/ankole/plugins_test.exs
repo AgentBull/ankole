@@ -17,8 +17,104 @@ defmodule Ankole.PluginsTest do
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Contracts
   alias Ankole.Plugins.Registry
+  alias Ankole.Plugins.Spec
+  alias Ankole.WebappExtension
+  alias Mix.Tasks.Ankole.Webapps.Generate, as: WebappsGenerateTask
 
   import ExUnit.CaptureLog
+
+  defmodule ValidWebappExtension do
+    use Ankole.WebappExtension, id: "relay_ext"
+
+    @impl true
+    def generated_files(context) do
+      [
+        %{
+          path: Path.join(context.internals_root, "webapps/modules/relay/generated.ts"),
+          content: "export const relayGenerated = true"
+        }
+      ]
+    end
+  end
+
+  defmodule SecondWebappExtension do
+    use Ankole.WebappExtension, id: "billing_ext"
+
+    @impl true
+    def generated_files(context) do
+      [
+        %{
+          path: Path.join(context.webapps_root, "common/billing.gen.ts"),
+          content: "export const billingGenerated = true\n"
+        }
+      ]
+    end
+  end
+
+  defmodule DuplicateIdWebappExtension do
+    use Ankole.WebappExtension, id: "relay_ext"
+
+    @impl true
+    def generated_files(_context), do: []
+  end
+
+  defmodule UnsafePathWebappExtension do
+    use Ankole.WebappExtension, id: "unsafe_ext"
+
+    @impl true
+    def generated_files(context) do
+      [
+        %{
+          path: Path.join(context.repository_root, "outside.ts"),
+          content: "export const unsafe = true\n"
+        }
+      ]
+    end
+  end
+
+  defmodule DuplicatePathWebappExtension do
+    use Ankole.WebappExtension, id: "duplicate_path_ext"
+
+    @impl true
+    def generated_files(context) do
+      [
+        %{
+          path: Path.join(context.internals_root, "webapps/modules/relay/generated.ts"),
+          content: "export const duplicate = true\n"
+        }
+      ]
+    end
+  end
+
+  defmodule FailingValidateWebappExtension do
+    use Ankole.WebappExtension, id: "failing_ext"
+
+    @impl true
+    def validate!, do: raise("broken contract")
+
+    @impl true
+    def generated_files(_context), do: []
+  end
+
+  defmodule WebappExtensionPlugin do
+    @behaviour Ankole.Plugins.Plugin
+
+    @impl true
+    def plugin_id, do: "ext-plugin"
+
+    @impl true
+    def webapp_extensions, do: [ValidWebappExtension]
+  end
+
+  defmodule InvalidWebappExtensionPlugin do
+    @behaviour Ankole.Plugins.Plugin
+
+    @impl true
+    def plugin_id, do: "invalid-ext-plugin"
+
+    @impl true
+    def webapp_extensions, do: [String]
+  end
 
   setup do
     AppConfigureRegistry.clear_for_test()
@@ -213,6 +309,62 @@ defmodule Ankole.PluginsTest do
 
     assert {:error, {:invalid_connector_declaration, %{}}} =
              Contracts.validate("connectors.connector", %{})
+  end
+
+  test "Plugin.Spec validates webapp_extensions declarations" do
+    assert {:ok, %Spec{webapp_extensions: [ValidWebappExtension]}} =
+             Spec.from_module(WebappExtensionPlugin)
+
+    assert {:error, {InvalidWebappExtensionPlugin, {:invalid_list_items, :webapp_extensions}}} =
+             Spec.from_module(InvalidWebappExtensionPlugin)
+  end
+
+  test "WebappExtension discovers, validates, and expands safe TypeScript artifacts" do
+    temp_root =
+      Path.join(
+        System.tmp_dir!(),
+        "ankole_webapp_ext_#{System.unique_integer([:positive])}"
+      )
+
+    context = %{
+      edition: "saas",
+      repository_root: temp_root,
+      webapps_root: Path.join(temp_root, "app/webapps"),
+      internals_root: Path.join(temp_root, "internals")
+    }
+
+    on_exit(fn -> File.rm_rf!(temp_root) end)
+
+    assert {:ok, [SecondWebappExtension, ValidWebappExtension]} =
+             WebappExtension.discover([ValidWebappExtension, SecondWebappExtension])
+
+    assert {:error,
+            {:duplicate_extension_id, "relay_ext", DuplicateIdWebappExtension,
+             ValidWebappExtension}} =
+             WebappExtension.discover([ValidWebappExtension, DuplicateIdWebappExtension])
+
+    assert {:error, {FailingValidateWebappExtension, {:validation_failed, "broken contract"}}} =
+             WebappExtension.discover([FailingValidateWebappExtension])
+
+    assert {:ok, [billing_file, relay_file]} =
+             WebappExtension.generate_all(context, [ValidWebappExtension, SecondWebappExtension])
+
+    assert billing_file.extension_id == "billing_ext"
+    assert billing_file.content == "export const billingGenerated = true\n"
+    assert relay_file.extension_id == "relay_ext"
+    assert relay_file.content == "export const relayGenerated = true\n"
+
+    assert {:error, {UnsafePathWebappExtension, {:unsafe_generated_path, _}}} =
+             WebappExtension.generate_all(context, [UnsafePathWebappExtension])
+
+    assert {:error,
+            {:duplicate_generated_path, _, DuplicatePathWebappExtension, ValidWebappExtension}} =
+             WebappExtension.generate_all(context, [
+               ValidWebappExtension,
+               DuplicatePathWebappExtension
+             ])
+
+    assert :ok = WebappsGenerateTask.run(["--check"])
   end
 
   defp start_registry! do

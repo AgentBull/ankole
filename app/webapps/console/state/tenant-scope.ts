@@ -1,5 +1,5 @@
 import type { QueryKey, UseMutationOptions } from '@tanstack/react-query'
-import { coreConsoleRouteScopes } from '../slots'
+import { consoleSlotCollectionPath, consoleSlotTenantPage, coreConsoleRouteScopes } from '../slots'
 import { GLOBAL_LIBRARY_SCOPE, isSiteLibraryDefaults } from './agent-library-capabilities'
 
 const collections = new Set([
@@ -52,11 +52,15 @@ export function consoleTenantPage(path: string, search: URLSearchParams): 'site'
     if (isSiteLibraryDefaults(scope || GLOBAL_LIBRARY_SCOPE, search.get('defaults_scope') ?? 'tenant')) return 'site'
   }
   if (collections.has(path)) return 'collection'
+  const slotPage = consoleSlotTenantPage(path)
+  if (slotPage) return slotPage
   return tenantRoots.has(path.split('/')[1]!) ? 'record' : 'site'
 }
 
 export function tenantCollectionPath(path: string): string {
   if (path.startsWith('/access/grants/')) return '/access/principals'
+  const slotCollection = consoleSlotCollectionPath(path)
+  if (slotCollection) return slotCollection
   const candidates = [...collections].filter(
     candidate => candidate !== '/' && (path === candidate || path.startsWith(`${candidate}/`))
   )

@@ -1,5 +1,16 @@
+import { editionModules } from '@ankole/edition-modules/registry.ts'
 import { isApplePlatform } from '../common/platform'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode
+} from 'react'
 import { SidebarInset, SidebarProvider, TooltipProvider } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import {
@@ -43,8 +54,8 @@ import { PodTopBar, PodTopBarProvider } from './top-bar'
 import { watchPodSession } from './session-redirect'
 import './pod.css'
 
-import { SlotGate, validateSlotIDs } from '../common/slots'
-import { PodSlotsContext, usePodSlots, podSettingsSections, type PodAppSlots } from './slots'
+import { SlotGate } from '../common/slots'
+import { PodSlotsContext, resolvePodSlots, usePodSlots, type PodAccountNavigationSlot, type PodAppSlots } from './slots'
 export type { PodAppSlots } from './slots'
 
 const contentScopeTitleKeys: Record<string, string> = {
@@ -97,7 +108,7 @@ const LazyChatRoute = lazyRouteComponent(() => import('./chat-page'), 'ChatRoute
 const LazyPageRoute = lazyRouteComponent(() => import('./page-workspace'), 'PageRoute')
 
 export function PodApp({ slots = {}, initialHref }: { slots?: PodAppSlots; initialHref?: string } = {}) {
-  validateSlotIDs(slots.settingsTabs ?? [], podSettingsSections)
+  const resolvedSlots = useMemo(() => resolvePodSlots(slots, editionModules), [slots])
   const client = useQueryClient()
   useEffect(() => watchPodSession(client), [client])
   const router = useMemo(() => {
@@ -281,7 +292,7 @@ export function PodApp({ slots = {}, initialHref }: { slots?: PodAppSlots; initi
     })
   }, [client, initialHref])
   return (
-    <PodSlotsContext value={slots}>
+    <PodSlotsContext value={resolvedSlots}>
       <ContentProvider>
         <ChatDraftProvider>
           <RouterProvider router={router} />
@@ -352,12 +363,32 @@ function PodRouteError({ error, reset }: { error: unknown; reset?: () => void })
   )
 }
 
+function GatedAccountNavigation({
+  slots,
+  children
+}: {
+  slots: readonly PodAccountNavigationSlot[]
+  children: (content: ReactNode | undefined) => ReactNode
+}) {
+  const renderAt = (index: number, acc: ReactNode[]): ReactNode => {
+    const slot = slots[index]
+    if (!slot) {
+      if (acc.length === 0) return children(undefined)
+      if (acc.length === 1) return children(acc[0])
+      return children(acc.map((node, itemIndex) => <Fragment key={itemIndex}>{node}</Fragment>))
+    }
+    return <SlotGate slot={slot}>{enabled => renderAt(index + 1, enabled ? [...acc, slot.content] : acc)}</SlotGate>
+  }
+  return renderAt(0, [])
+}
+
 function PodShell() {
   useSignals()
   const { t } = useTranslation()
   const client = useQueryClient()
   const sidebarLayout = useModel(SidebarLayoutModel)
-  const { accountNavigation } = usePodSlots()
+  const { accountNavigation, accountNavigations } = usePodSlots()
+  const accountNavigationSlots = accountNavigations ?? (accountNavigation ? [accountNavigation] : [])
   const { pathname, composerLocationKey } = useLocation({
     select: location => {
       const state = location.state as (Partial<PodCommandNavigationState> & { __TSR_key?: string; key?: string }) | null
@@ -539,14 +570,9 @@ function PodShell() {
                 variant="panel"
                 className="fixed bottom-3 left-3 z-50 w-(--sidebar-width) max-w-[calc(100vw-1.5rem)] md:static md:m-2 md:shrink-0 md:self-start"
                 resetKeys={[pathname]}>
-                <SlotGate slot={accountNavigation}>
-                  {enabled => (
-                    <PodSidebar
-                      accountNavigation={enabled ? accountNavigation?.content : undefined}
-                      layout={sidebarLayout}
-                    />
-                  )}
-                </SlotGate>
+                <GatedAccountNavigation slots={accountNavigationSlots}>
+                  {content => <PodSidebar accountNavigation={content} layout={sidebarLayout} />}
+                </GatedAccountNavigation>
               </ErrorBoundary>
               <SidebarInset className="min-h-0">
                 <div className="min-h-0 flex-1 overflow-hidden">

@@ -24,6 +24,7 @@ defmodule Ankole.Plugins.Plugin do
   @callback app_config_definitions() :: [Definition.t()]
   @callback app_config_patterns() :: [PatternDefinition.t()]
   @callback adapter_declarations() :: [adapter_declaration()]
+  @callback webapp_extensions() :: [module()]
   @callback children() :: [Supervisor.child_spec()]
 
   @optional_callbacks activation: 0,
@@ -33,5 +34,6 @@ defmodule Ankole.Plugins.Plugin do
                       app_config_definitions: 0,
                       app_config_patterns: 0,
                       adapter_declarations: 0,
+                      webapp_extensions: 0,
                       children: 0
 end
