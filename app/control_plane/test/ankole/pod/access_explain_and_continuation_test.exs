@@ -116,6 +116,29 @@ defmodule Ankole.Pod.AccessExplainAndContinuationTest do
     assert {:error, :not_found} =
              Pages.explain_sharing(ctx.guest_actor, space_page.id, ctx.outsider.uid, :node_view)
 
+    # A viewer without node_manage inspects only themselves; a manager inspects anyone
+    {:ok, viewed_page} = Pages.create(ctx.owner_actor, %{title: "Viewed Only"})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, viewed_page.id, %{
+        inherit_permissions: false,
+        grants: [
+          %{principal_uid: ctx.owner.uid, role: "manage"},
+          %{principal_uid: ctx.member.uid, role: "view"}
+        ]
+      })
+
+    assert {:ok, _} =
+             Pages.explain_sharing(ctx.member_actor, viewed_page.id, ctx.member.uid, :node_view)
+
+    for subject <- [ctx.outsider, ctx.colleague, ctx.owner_pa] do
+      assert {:error, :not_found} =
+               Pages.explain_sharing(ctx.member_actor, viewed_page.id, subject.uid, :node_view)
+
+      assert {:ok, _} =
+               Pages.explain_sharing(ctx.owner_actor, viewed_page.id, subject.uid, :node_view)
+    end
+
     # 2. Private page: owner & owner's PA allowed; member, colleague & guest denied
     {:ok, private_page} =
       Pages.create(ctx.owner_actor, %{

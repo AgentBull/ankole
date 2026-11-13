@@ -46,6 +46,8 @@ export function CheckAccessView({
     if (viewerUid) {
       byUid.set(viewerUid, `${t('pod.sharing.you_subject')} (@${viewerUid})`)
     }
+    // Only a Page manager may inspect other collaborators and Agents.
+    if (!canManage) return [...byUid.entries()].map(([uid, label]) => ({ uid, label }))
     for (const sub of sharing.subjects) {
       if (sub.principal_uid && !byUid.has(sub.principal_uid)) {
         byUid.set(sub.principal_uid, `${sub.name} (@${sub.principal_uid})`)
@@ -62,7 +64,7 @@ export function CheckAccessView({
       }
     }
     return [...byUid.entries()].map(([uid, label]) => ({ uid, label }))
-  }, [sharing.grants, sharing.inherited, sharing.subjects, t, viewerUid])
+  }, [canManage, sharing.grants, sharing.inherited, sharing.subjects, t, viewerUid])
 
   const [selectedUid, setSelectedUid] = useState<string>(() => candidates[0]?.uid ?? '')
   const [action, setAction] = useState<PageSharingExplainAction>('node_view')
