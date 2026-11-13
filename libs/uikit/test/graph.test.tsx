@@ -169,6 +169,22 @@ describe('AnkoleGraph', () => {
       expect(spec.data.edges.every(edge => edge.type === 'quadratic')).toBe(true)
       // e1 and e7 join the hub and Acme in opposite directions, so equal offsets bend them to opposite sides.
       expect(offsets).toEqual({ e1: 24, e7: 24, e2: 0, e3: 0, e5: 48, e6: 48, e4: 0 })
+      expect(spec.transforms).toEqual([])
     }
+  })
+
+  test('keeps resolving parallel edges while drawing the combo layout, whose combos collapse', () => {
+    const spec = buildG6GraphSpec({
+      nodes: SAMPLE_NODES,
+      edges: SAMPLE_EDGES,
+      combos: [{ id: 'combo:companies', label: 'companies' }],
+      layout: 'combo',
+      width: 960,
+      height: 560,
+      palette: resolveCanvasThemePalette(null),
+      topology: computeGraphTopology(SAMPLE_NODES, SAMPLE_EDGES, 'combo', 960, 560)
+    })
+    expect(spec.transforms).toEqual([{ type: 'process-parallel-edges', key: 'parallel-edges', distance: 24 }])
+    expect(spec.behaviors).toContainEqual({ type: 'collapse-expand', trigger: 'dblclick' })
   })
 })

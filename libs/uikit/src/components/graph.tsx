@@ -361,6 +361,7 @@ export function AnkoleGraph({
         animation: !reducedMotion,
         data: graphSpec.data,
         layout: graphSpec.layoutOptions,
+        transforms: graphSpec.transforms,
         behaviors: graphSpec.behaviors
       })
       void graph.render().then(

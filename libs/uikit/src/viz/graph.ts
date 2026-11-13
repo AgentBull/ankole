@@ -144,6 +144,7 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
     padding: [36, 36, 36, 36],
     data: initialBuilt.data,
     layout: initialBuilt.layoutOptions,
+    transforms: initialBuilt.transforms,
     behaviors: initialBuilt.behaviors,
     ...(useSvgRenderer
       ? {
@@ -233,6 +234,7 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
         combos: exportBuilt.data.combos
       },
       ...(graph.rendered ? {} : { layout: exportBuilt.layoutOptions }),
+      transforms: exportBuilt.transforms,
       behaviors: []
     })
 
@@ -272,6 +274,7 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
         background: canvasPalette.background,
         data: nextBuilt.data,
         layout: nextBuilt.layoutOptions,
+        transforms: nextBuilt.transforms,
         behaviors: nextBuilt.behaviors
       })
       await graph.render()

@@ -16,6 +16,10 @@ test('a keystroke in a 500-row table takes far less than a second', async ({ pag
 
 test('opening a document with many tables lays it out once for all of them', async ({ page, browser, browserName }) => {
   test.skip(browserName !== 'chromium', 'Chromium records forced layouts with their script stacks in its timeline')
+  test.skip(
+    !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
+    'Only the development server serves source modules, whose URLs name TableScroll'
+  )
   const table = '| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |'
   await page.goto('/')
   await browser.startTracing(page, {
@@ -39,6 +43,9 @@ test('opening a document with many tables lays it out once for all of them', asy
       (event.name === 'UpdateLayoutTree' || event.name === 'Layout') &&
       event.args?.beginData?.stackTrace?.some(frame => frame.url.includes('TableScroll'))
   )
+  // Measuring the freshly rendered tables always forces one style and layout pass, so finding none would mean the
+  // stack attribution above stopped matching rather than that the layouts went away.
+  expect(forced.length).toBeGreaterThan(0)
   expect(forced.length).toBeLessThanOrEqual(2)
 })
 

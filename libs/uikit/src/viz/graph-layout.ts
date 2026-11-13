@@ -600,6 +600,7 @@ export function buildG6GraphSpec({
   data: { nodes: NodeData[]; edges: EdgeData[]; combos: ComboData[] }
   layoutOptions: GraphOptions['layout']
   behaviors: GraphOptions['behaviors']
+  transforms: GraphOptions['transforms']
 } {
   const nodeById = new Map(nodes.map(node => [node.id, node]))
   const activeSet = activeNodeId && nodeById.has(activeNodeId) ? topology.neighbors.get(activeNodeId) : undefined
@@ -775,6 +776,13 @@ export function buildG6GraphSpec({
   return {
     data: { nodes: g6Nodes, edges: g6Edges, combos: g6Combos },
     layoutOptions,
-    behaviors
+    behaviors,
+    // Collapsing a category combo redirects its members' edges to the combo, so edges that join different members
+    // to one outside node become parallel only then. G6's transform offsets them by their resolved ends on each
+    // draw; the other layouts cannot collapse, and the offsets computed above stay correct for them.
+    transforms:
+      layout === 'combo'
+        ? [{ type: 'process-parallel-edges', key: 'parallel-edges', distance: PARALLEL_EDGE_DISTANCE }]
+        : []
   }
 }
