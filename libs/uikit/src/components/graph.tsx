@@ -86,6 +86,11 @@ export { useCanvasThemePalette }
 
 const NO_COMBOS: readonly AnkoleGraphCombo[] = []
 
+function measureStage(stage: HTMLElement): { width: number; height: number } {
+  const rect = stage.getBoundingClientRect()
+  return { width: Math.max(320, Math.round(rect.width)), height: Math.max(260, Math.round(rect.height)) }
+}
+
 export function AnkoleGraph({
   nodes,
   edges,
@@ -112,6 +117,8 @@ export function AnkoleGraph({
   const stageRef = useRef<HTMLDivElement | null>(null)
   const canvasHostRef = useRef<HTMLDivElement | null>(null)
   const graphRef = useRef<Graph | null>(null)
+  // The latest render or redraw, so a focus can start after the redraw that a selection triggers.
+  const pendingDrawRef = useRef<Promise<unknown>>(Promise.resolve())
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
 
   const [stageSize, setStageSize] = useState<{ width: number; height: number }>({ width: 960, height: 560 })
@@ -170,12 +177,19 @@ export function AnkoleGraph({
         )
       },
       focusNode(nodeId: string) {
-        const graph = graphRef.current
-        if (!graph || graph.destroyed || !graph.rendered || !graph.hasNode(nodeId)) return
-        void graph.focusElement(nodeId, reducedMotion ? false : { duration: 200 }).then(
-          () => latestSyncRef.current(),
-          () => {}
-        )
+        // A click that focuses a node usually selects it as well. The redraw for that selection runs without
+        // animation and would cancel the focus animation, so the focus starts once that redraw settles.
+        setTimeout(() => {
+          void pendingDrawRef.current
+            .then(() => {
+              const graph = graphRef.current
+              if (!graph || graph.destroyed || !graph.rendered || !graph.hasNode(nodeId)) return
+              return graph
+                .focusElement(nodeId, reducedMotion ? false : { duration: 200 })
+                .then(() => latestSyncRef.current())
+            })
+            .catch(() => {})
+        })
       }
     }),
     [reducedMotion]
@@ -185,9 +199,7 @@ export function AnkoleGraph({
     const stage = stageRef.current
     if (!stage || typeof ResizeObserver === 'undefined') return
     const updateSize = () => {
-      const rect = stage.getBoundingClientRect()
-      const width = Math.max(320, Math.round(rect.width))
-      const height = Math.max(260, Math.round(rect.height))
+      const { width, height } = measureStage(stage)
       setStageSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }))
       const graph = graphRef.current
       if (graph && !graph.destroyed && graph.rendered) {
@@ -287,10 +299,12 @@ export function AnkoleGraph({
     const host = canvasHostRef.current
     if (!host) return
 
+    // The size effect measured the stage before this graph existed, so the canvas starts at the stage's real size.
+    const initialSize = stageRef.current ? measureStage(stageRef.current) : stageSize
     const graph = new Graph({
       container: host,
-      width: stageSize.width,
-      height: stageSize.height,
+      width: initialSize.width,
+      height: initialSize.height,
       autoResize: false,
       animation: !reducedMotion,
       zoomRange: [0.22, 3.5],
@@ -364,7 +378,7 @@ export function AnkoleGraph({
         transforms: graphSpec.transforms,
         behaviors: graphSpec.behaviors
       })
-      void graph.render().then(
+      pendingDrawRef.current = graph.render().then(
         () => latestSyncRef.current(),
         () => {}
       )
@@ -397,7 +411,7 @@ export function AnkoleGraph({
         combos: graphSpec.data.combos
       })
       graph.setOptions({ animation: false })
-      void graph
+      pendingDrawRef.current = graph
         .draw()
         .then(
           () => latestSyncRef.current(),

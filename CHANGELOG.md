@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.152 (2026-11-13)
+
+- Center the node when you choose **Focus node** in the Meta Brain object list.
+  The graph canvas used to keep its initial width when the graph area started
+  narrower, and the redraw for the new selection cancelled the focus
+  animation, so the node stayed off center.
+
 ## Version 2.0.0-alpha.151 (2026-11-13)
 
 - Open the Brain graph at its settled layout instead of animating every node
