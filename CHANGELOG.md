@@ -23,6 +23,8 @@
   Infographics as editable source instead of locked anchors.
 - Show "This view has no records" on a Base kanban view whose grouping field
   has no columns. The view used to show the raw text `pod.content.no_records`.
+- Return to the Private content list after moving a top-level Private page to
+  the trash. Pod sometimes opened the hidden system page named Private instead.
 - Label the per-slot action on the Site defaults tab **Clear** instead of
   **Restore inheritance**, because Site values are the base layer and have
   nothing to inherit. Its confirmation warns that every Pod and Agent without

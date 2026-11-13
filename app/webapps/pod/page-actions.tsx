@@ -97,10 +97,12 @@ export function usePageTrash(onRemoved?: () => void) {
       onRemoved?.()
       const ancestors = client.getQueryData<PageDetail>(contentKeys.page(page.id))?.ancestors ?? []
       const domain = pageDomain(page, ancestors)
-      const parent =
+      const cachedParent =
         page.parent_id &&
         (client.getQueryData<PageDetail>(contentKeys.page(page.parent_id))?.page ??
           [...cachedPages(client), ...ancestors].find(candidate => candidate.id === page.parent_id))
+      // A system root such as Private is not a page to open; its content root stands in for it.
+      const parent = cachedParent && !cachedParent.is_root ? cachedParent : undefined
       const rootScope = (['private', 'space'] as const).find(scope =>
         client
           .getQueryData<InfiniteData<PodPageChildrenResponse>>(contentKeys.children(scope))
