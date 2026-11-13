@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.147 (2026-11-13)
+
+- Fix commands such as `cat`, `bun`, `curl`, and `git` hanging until timeout
+  in Codex Jobs. When Codex put its own directories ahead of the Worker's
+  output-shaping shims in `PATH`, a shim that should pass the command straight
+  through ran itself again in an endless loop, so the Job could not read Drive
+  files or run scripts.
+
 ## Version 2.0.0-alpha.146 (2026-11-13)
 
 - Show where each model profile slot gets its value. Every slot header on the

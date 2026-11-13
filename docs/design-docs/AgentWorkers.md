@@ -1090,7 +1090,10 @@ container shim, `/etc/profile.d/ankole-agent-computer.sh` records
 shapes output only when `/proc/$$/fd/1` still points to that harness stream
 (or, without an outer shell, when `stdout` is a direct `codex` child pipe/socket
 rather than a regular file), automatically bypassing downstream pipes and file
-redirections. On foreground `command` calls, Agent Computer writes
+redirections. To pass a command through, the shim removes every
+`/usr/local/libexec/ankole-cli-shims` entry from `PATH`, wherever the caller
+placed it, before it executes the real command; Codex, for example, prepends
+its own directories. On foreground `command` calls, Agent Computer writes
 `outputLogPath` whenever raw output exceeds the text cap or perceptual shaping
 shrinks the output, so the Agent can inspect exact unshaped bytes without
 re-running the command. Shaped outputs fold clean test suites, compiler and

@@ -59,4 +59,14 @@ describe('Worker image CLI perceptual shims', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('passes through to the real command when a caller directory precedes the shim directory in PATH', () => {
+    const env = commandEnv(undefined, { agentHome: tmpdir() })
+    // Codex prepends its own directory, so the shim directory is not the first PATH entry.
+    const run = Bun.spawnSync(['timeout', '5', 'cat', '/etc/hostname'], {
+      env: { ...env, ANKOLE_RAW: '1', PATH: `/tmp/ankole-caller-bin:${env.PATH}` }
+    })
+    expect(run.exitCode).toBe(0)
+    expect(run.stdout.toString('utf8').trim().length).toBeGreaterThan(0)
+  })
 })

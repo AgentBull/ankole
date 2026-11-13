@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { chmodSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdirAgentSync } from '../src/common/agent-user'
@@ -392,6 +392,36 @@ describe('Worker silent perceptual CLI shaping', () => {
       })
       expect(rawRun.exitCode).toBe(0)
       expect(rawRun.stdout.toString('utf8')).toBe(payload)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('container shell shim passes through to the real command when another directory precedes the shim directory in PATH', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ankole-cli-shell-shim-test-'))
+    const callerBinDir = join(dir, 'caller-bin')
+    const realBinDir = join(dir, 'real-bin')
+    const shimDir = join(dir, 'shims')
+    mkdirAgentSync(callerBinDir)
+    mkdirAgentSync(realBinDir)
+    mkdirAgentSync(shimDir)
+    const fakeCatPath = join(realBinDir, 'cat')
+    writeFileSync(fakeCatPath, '#!/bin/sh\nprintf \'real cat:%s\' "$*"\nexit 3\n')
+    chmodSync(fakeCatPath, 0o755)
+    symlinkSync(join(import.meta.dir, '..', 'scripts', 'ankole-cli-shim.sh'), join(shimDir, 'cat'))
+
+    try {
+      // Codex prepends its own directory, so the shim directory is not the first PATH entry.
+      const run = Bun.spawnSync([join(shimDir, 'cat'), 'notes.md'], {
+        env: {
+          ANKOLE_RAW: '1',
+          ANKOLE_SHIM_DIR_OVERRIDE: shimDir,
+          PATH: `${callerBinDir}:${shimDir}:${realBinDir}:${shimDir}:/usr/bin:/bin`
+        },
+        timeout: 5_000
+      })
+      expect(run.exitCode).toBe(3)
+      expect(run.stdout.toString('utf8')).toBe('real cat:notes.md')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
