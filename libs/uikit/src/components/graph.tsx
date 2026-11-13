@@ -234,7 +234,9 @@ export function AnkoleGraph({
     const nodeKey = nodes.map(node => `${node.id}:${node.comboId ?? ''}:${node.tier ?? ''}`).join('|')
     const edgeKey = edges.map(edge => `${edge.id}:${edge.source}->${edge.target}`).join('|')
     const comboKey = combos.map(combo => combo.id).join('|')
-    return `${layout}::${focusCenterNodeId ?? ''}::${nodeKey}::${edgeKey}::${comboKey}`
+    // Only the radial layout places nodes around the focus; elsewhere a new focus must not restart the layout.
+    const focusKey = layout === 'radial' ? (focusCenterNodeId ?? '') : ''
+    return `${layout}::${focusKey}::${nodeKey}::${edgeKey}::${comboKey}`
   }, [combos, edges, focusCenterNodeId, layout, nodes])
 
   const prevStructureKeyRef = useRef<string>('')
