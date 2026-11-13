@@ -379,6 +379,16 @@ defmodule Ankole.Sessions.ToolsTest do
       unavailable = invoke(run, "skill_view", %{"name" => "not-enabled"}, "missing")
       assert unavailable.is_error
       assert unavailable.output =~ "skill is not enabled for this turn: not-enabled"
+
+      assert {:error, "skill is not available in the background_job runtime: workflow-authoring"} =
+               Ankole.Sessions.Tools.Skill.view(
+                 run.agent_uid,
+                 %{"name" => "workflow-authoring"},
+                 "background_job",
+                 [],
+                 nil,
+                 run.signal_id
+               )
     end
 
     test "creating a Job stores its source and sending, listing, stopping keep the domain owner (G1, G4)",

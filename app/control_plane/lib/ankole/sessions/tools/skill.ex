@@ -51,6 +51,11 @@ defmodule Ankole.Sessions.Tools.Skill do
     runtime = get_in(summary || %{}, ["metadata", "ankole-runtime"]) || "any"
 
     cond do
+      # A Job's frozen selection already drops main-only Skills, so name the runtime instead of
+      # telling the Agent to enable a Skill that is enabled but cannot load here.
+      is_nil(summary) and execution_runtime == "background_job" and main_only?(args["name"]) ->
+        {:error, "skill is not available in the background_job runtime: #{args["name"]}"}
+
       is_nil(summary) ->
         {:error, "skill is not enabled for this turn: #{args["name"]}"}
 
@@ -111,4 +116,13 @@ defmodule Ankole.Sessions.Tools.Skill do
   end
 
   defp escape(text), do: text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+  defp main_only?(name) when is_binary(name) do
+    match?(
+      {:ok, %{metadata: %{"ankole-runtime" => "main"}}},
+      Ankole.AIAgent.Library.Skills.get(name)
+    )
+  end
+
+  defp main_only?(_name), do: false
 end
