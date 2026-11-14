@@ -8,14 +8,13 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   at most one control-plane request at a time.
   """
 
+  alias Ankole.AIGateway.ChatGPTAuth.RefreshProtocol
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.EgressProxy
   alias Ankole.Logging
 
-  @client_id "app_EMoamEEZ73f0CkXaXp7hrann"
-  @default_issuer "https://auth.openai.com"
   @official_issuer_hosts ["auth.openai.com"]
   @loopback_hosts ["127.0.0.1", "localhost", "::1"]
   @allow_loopback_http Mix.env() == :test
@@ -49,7 +48,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
            request(
              :post,
              "#{issuer}/api/accounts/deviceauth/usercode",
-             [json: %{"client_id" => @client_id}],
+             [json: %{"client_id" => client_id()}],
              opts
            ) do
       case response.status do
@@ -207,7 +206,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   """
   @spec refresh_tokens_with_authority(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def refresh_tokens_with_authority(credential, opts \\ []) when is_map(credential) do
-    issuer_url = Keyword.get(opts, :issuer, @default_issuer)
+    issuer_url = Keyword.get(opts, :issuer, default_issuer())
     exchange_refresh_token(issuer_url, credential, opts)
   end
 
@@ -222,19 +221,9 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
 
     with {:ok, validated_issuer} <- validate_issuer_url(issuer_url, merged_opts),
          {:ok, refresh_token} <- required_text(normalized_credential, "refresh_token"),
-         {:ok, response} <-
-           request(
-             :post,
-             "#{validated_issuer}/oauth/token",
-             [
-               json: %{
-                 "client_id" => @client_id,
-                 "grant_type" => "refresh_token",
-                 "refresh_token" => refresh_token
-               }
-             ],
-             merged_opts
-           ) do
+         %{method: method, url: url, json: json} =
+           RefreshProtocol.request(validated_issuer, refresh_token),
+         {:ok, response} <- request(method, url, [json: json], merged_opts) do
       handle_refresh_token_response(normalized_credential, response, merged_opts)
     else
       {:error, :missing_refresh_token} ->
@@ -277,7 +266,11 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
     case response.status do
       status when status in 200..299 ->
         with {:ok, updated} <-
-               merge_refreshed_tokens(normalized_credential, response.body, opts),
+               merge_refreshed_tokens(
+                 normalized_credential,
+                 RefreshProtocol.decode_tokens(response.body),
+                 opts
+               ),
              :ok <- same_account(normalized_credential, updated) do
           {:ok, updated}
         end
@@ -437,14 +430,11 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
     |> Keyword.put(:require_proxy, require_proxy?)
   end
 
-  defp merge_refreshed_tokens(credential, body, opts) when is_map(body) do
+  defp merge_refreshed_tokens(credential, {:ok, fields}, opts) do
     tokens =
-      ~w(access_token refresh_token id_token)
-      |> Enum.reduce(credential, fn key, acc ->
-        case Map.get(body, key) do
-          value when is_binary(value) and value != "" -> Map.put(acc, key, value)
-          _value -> acc
-        end
+      Enum.reduce(fields, credential, fn
+        {key, {:value, value}}, acc -> Map.put(acc, Atom.to_string(key), value)
+        {_, _}, acc -> acc
       end)
 
     with {:ok, access_token} <- required_text(tokens, "access_token") do
@@ -462,7 +452,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
     end
   end
 
-  defp merge_refreshed_tokens(_credential, _body, _opts),
+  defp merge_refreshed_tokens(_credential, {:error, :invalid_body}, _opts),
     do: {:error, {:chatgpt_refresh_transient, nil, %{}, "invalid_response"}}
 
   defp same_account(existing, updated) do
@@ -542,7 +532,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
     query =
       URI.encode_query(%{
         "response_type" => "code",
-        "client_id" => @client_id,
+        "client_id" => client_id(),
         "redirect_uri" => @browser_redirect_uri,
         "scope" => @scope,
         "prompt" => "login",
@@ -583,7 +573,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
                  "grant_type" => "authorization_code",
                  "code" => code,
                  "redirect_uri" => redirect_uri,
-                 "client_id" => @client_id,
+                 "client_id" => client_id(),
                  "code_verifier" => verifier
                }
              ],
@@ -689,12 +679,15 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   defp issuer(%Provider{connection_options: options}) do
     value =
       case options do
-        %{} -> Map.get(options, "auth_issuer", @default_issuer)
-        _value -> @default_issuer
+        %{} -> Map.get(options, "auth_issuer", default_issuer())
+        _value -> default_issuer()
       end
 
     validate_issuer_url(value)
   end
+
+  defp default_issuer, do: elem(RefreshProtocol.commercial_authority(), 0)
+  defp client_id, do: elem(RefreshProtocol.commercial_authority(), 1)
 
   defp allowed_issuer_uri?("https", host, opts) do
     allowed = Keyword.get(opts, :allowed_issuer_hosts, @official_issuer_hosts)
