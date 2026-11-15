@@ -307,3 +307,87 @@ test('Brain network graph opens at rest and keeps its layout when a node is sele
   const arcCalls = await page.evaluate(() => (window as typeof window & { brainArcCalls: number }).brainArcCalls)
   expect(arcCalls).toBeLessThanOrEqual(nodes.length * 4)
 })
+
+test('a large Brain graph appears in one step and ignores a pointer that only passes over a node', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 })
+  await mockPodSession(page)
+  await page.addInitScript(() => {
+    const scope = window as typeof window & { brainArcCalls: number }
+    scope.brainArcCalls = 0
+    const arc = CanvasRenderingContext2D.prototype.arc
+    CanvasRenderingContext2D.prototype.arc = function (...args: Parameters<typeof arc>) {
+      scope.brainArcCalls++
+      return arc.apply(this, args)
+    }
+  })
+  const arcCalls = () => page.evaluate(() => (window as typeof window & { brainArcCalls: number }).brainArcCalls)
+  const resetArcCalls = () =>
+    page.evaluate(() => {
+      ;(window as typeof window & { brainArcCalls: number }).brainArcCalls = 0
+    })
+  const nodes = Array.from({ length: 160 }, (_, index) => ({
+    id: `obj-${index}`,
+    title: `Object ${index}`,
+    slug: `notes/object-${index}`,
+    type: 'note',
+    parent_id: 'cat-notes'
+  }))
+  const links = nodes.slice(1).map((node, index) => ({
+    from_page_id: nodes[index]!.id,
+    to_page_id: node.id,
+    link_type: 'references',
+    relation_kind: 'reference'
+  }))
+  await page.route('**/api/v2/pod/**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (!path.endsWith('/meta/brain')) return fulfillEmptyPod(route, path)
+    return route.fulfill({
+      json: {
+        viewer_uid: 'person',
+        assistant_uid: null,
+        categories: [{ id: 'cat-notes', name: 'notes', can_edit: false, entity_type: 'note', primitive: 'concept' }],
+        nodes,
+        links
+      } satisfies MetaBrainResponse
+    })
+  })
+
+  await page.goto('/meta/brain')
+  const graph = page.getByRole('group', { name: 'Knowledge graph', exact: true })
+  // The count includes the links of nodes outside the viewport, which stay hidden until they scroll into view.
+  await expect(graph.locator('a')).toHaveCount(nodes.length, { timeout: 15_000 })
+  // Let the canvas finish drawing. An entrance animation would redraw all 161 circles on each of its frames.
+  await page.waitForTimeout(2_000)
+  expect(await arcCalls()).toBeLessThanOrEqual((nodes.length + 1) * 4)
+
+  // A zoom at the middle of the canvas grows the links with their nodes.
+  const stage = (await graph.boundingBox())!
+  const link = graph.getByRole('link').first()
+  const before = await anchorMetrics(link)
+  await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2)
+  await page.mouse.wheel(0, -480)
+  await page.mouse.wheel(0, -480)
+  await expect.poll(async () => (await anchorMetrics(link)).width).toBeGreaterThan(before.width)
+
+  // Crossing a node on the way elsewhere leaves the graph as it is; resting on one moves the spotlight there.
+  const away = { x: stage.x + stage.width - 12, y: stage.y + stage.height - 12 }
+  await page.mouse.move(away.x, away.y)
+  await page.waitForTimeout(600)
+  await resetArcCalls()
+  // A link that no overlay card covers, so the pointer reaches it.
+  const target = await graph.evaluate(group => {
+    for (const anchor of group.querySelectorAll('a')) {
+      const box = anchor.getBoundingClientRect()
+      const cx = box.x + box.width / 2
+      const cy = box.y + box.height / 2
+      if (document.elementFromPoint(cx, cy) === anchor) return { cx, cy }
+    }
+    throw new Error('Expected a node link the pointer can reach')
+  })
+  await page.mouse.move(target.cx, target.cy)
+  await page.mouse.move(away.x, away.y)
+  await page.waitForTimeout(500)
+  expect(await arcCalls()).toBe(0)
+  await page.mouse.move(target.cx, target.cy)
+  await expect.poll(arcCalls).toBeGreaterThan(0)
+})

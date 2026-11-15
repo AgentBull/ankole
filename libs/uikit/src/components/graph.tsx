@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -52,6 +53,15 @@ export {
 // The spotlight outlives a pointer leave long enough to cross the gap to a neighboring node, so moving
 // between nodes switches the spotlight directly instead of flashing the whole graph back to full opacity.
 const HOVER_CLEAR_DELAY_MS = 180
+
+// The spotlight restyles nearly every element, so it waits until the pointer rests on a node. A pointer that
+// crosses nodes on its way elsewhere, or nodes that slide under a still pointer during a pan or zoom, would
+// otherwise restyle the whole graph again and again.
+const HOVER_INTENT_DELAY_MS = 100
+
+// An animation redraws every element it touches on each frame, and a canvas holding more than a couple of
+// hundred nodes and edges cannot finish such a frame in time. A larger graph changes in one step instead.
+const ANIMATED_ELEMENT_LIMIT = 200
 
 export interface AnkoleGraphHandle {
   zoomIn: () => void
@@ -113,9 +123,10 @@ export function AnkoleGraph({
   ref
 }: AnkoleGraphProps) {
   const palette = useCanvasThemePalette()
-  const reducedMotion = useReducedMotion()
+  const animated = !useReducedMotion() && nodes.length + edges.length <= ANIMATED_ELEMENT_LIMIT
   const stageRef = useRef<HTMLDivElement | null>(null)
   const canvasHostRef = useRef<HTMLDivElement | null>(null)
+  const anchorLayerRef = useRef<HTMLDivElement | null>(null)
   const graphRef = useRef<Graph | null>(null)
   // The latest render or redraw, so a focus can start after the redraw that a selection triggers.
   const pendingDrawRef = useRef<Promise<unknown>>(Promise.resolve())
@@ -123,7 +134,6 @@ export function AnkoleGraph({
 
   const [stageSize, setStageSize] = useState<{ width: number; height: number }>({ width: 960, height: 560 })
   const [internalHoverId, setInternalHoverId] = useState<string | null>(null)
-  const [projectedAnchors, setProjectedAnchors] = useState<Map<string, ProjectedAnchor>>(() => new Map())
 
   const activeNodeId = highlightedNodeId ?? internalHoverId ?? selectedNodeId
   // Only the radial layout arranges itself around a focus node. Elsewhere a new focus, such as the node a click
@@ -140,14 +150,33 @@ export function AnkoleGraph({
 
   const linkableNodes = useMemo(() => nodes.filter(node => Boolean(node.href)), [nodes])
 
-  const syncProjectedAnchors = useCallback(() => {
+  // Places every node link over its node by writing the link's style. A pan or zoom moves all links on each
+  // frame, and keeping their positions in React state rendered every link again for each of those frames.
+  // Before the canvas has drawn, the links take the coordinates the layout computed.
+  const placeAnchors = useCallback(() => {
+    const layer = anchorLayerRef.current
+    if (!layer) return
     const graph = graphRef.current
-    if (!graph || graph.destroyed || !graph.rendered) return
-    setProjectedAnchors(projectGraphAnchors(graph, linkableNodes, topology.radii))
-  }, [linkableNodes, topology.radii])
+    const projected =
+      graph && !graph.destroyed && graph.rendered ? projectGraphAnchors(graph, linkableNodes, topology.radii) : null
+    linkableNodes.forEach((node, index) => {
+      const anchor = layer.children[index] as HTMLElement | undefined
+      if (!anchor) return
+      const at = projected?.get(node.id)
+      const { x, y } = at ??
+        topology.initialPositions.get(node.id) ?? { x: stageSize.width / 2, y: stageSize.height / 2 }
+      const size = at ? at.size : Math.max(24, (topology.radii.get(node.id) ?? 10) * 2 + 8)
+      anchor.style.left = `${Math.round(x - size / 2)}px`
+      anchor.style.top = `${Math.round(y - size / 2)}px`
+      anchor.style.width = `${size}px`
+      anchor.style.height = `${size}px`
+      anchor.style.visibility = at && !at.visible ? 'hidden' : 'visible'
+    })
+  }, [linkableNodes, topology, stageSize.width, stageSize.height])
+  useLayoutEffect(placeAnchors, [placeAnchors])
 
-  const latestSyncRef = useRef(syncProjectedAnchors)
-  latestSyncRef.current = syncProjectedAnchors
+  const latestSyncRef = useRef(placeAnchors)
+  latestSyncRef.current = placeAnchors
 
   useImperativeHandle(ref, () => {
     // The first render lays the graph out before it draws, and a selection redraws it; the node links show
@@ -164,27 +193,25 @@ export function AnkoleGraph({
     }
     return {
       zoomIn() {
-        afterDraw(graph => graph.zoomBy(1.25, reducedMotion ? false : { duration: 150 }))
+        afterDraw(graph => graph.zoomBy(1.25, animated ? { duration: 150 } : false))
       },
       zoomOut() {
-        afterDraw(graph => graph.zoomBy(0.8, reducedMotion ? false : { duration: 150 }))
+        afterDraw(graph => graph.zoomBy(0.8, animated ? { duration: 150 } : false))
       },
       fitView() {
-        afterDraw(graph =>
-          graph.fitView({ when: 'always', direction: 'both' }, reducedMotion ? false : { duration: 180 })
-        )
+        afterDraw(graph => graph.fitView({ when: 'always', direction: 'both' }, animated ? { duration: 180 } : false))
       },
       focusNode(nodeId: string) {
         // The click that focuses a node usually selects it as well, and React starts that redraw after the
         // click handler returns, so the focus waits one task before it joins the pending redraw.
         setTimeout(() =>
           afterDraw(async graph => {
-            if (graph.hasNode(nodeId)) await graph.focusElement(nodeId, reducedMotion ? false : { duration: 200 })
+            if (graph.hasNode(nodeId)) await graph.focusElement(nodeId, animated ? { duration: 200 } : false)
           })
         )
       }
     }
-  }, [reducedMotion])
+  }, [animated])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -247,43 +274,48 @@ export function AnkoleGraph({
   const prevStructureKeyRef = useRef<string>('')
   const latestOnSelectRef = useRef(onSelectNode)
   const latestOnHoverRef = useRef(onHoverNode)
+  const latestOnNavigateRef = useRef(onNavigateNode)
   useEffect(() => {
     latestOnSelectRef.current = onSelectNode
     latestOnHoverRef.current = onHoverNode
-  }, [onHoverNode, onSelectNode])
+    latestOnNavigateRef.current = onNavigateNode
+  }, [onHoverNode, onNavigateNode, onSelectNode])
 
-  const hoveredIdRef = useRef<string | null>(null)
-  const hoverClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const cancelHoverClear = useCallback(() => {
-    if (hoverClearTimerRef.current === null) return
-    clearTimeout(hoverClearTimerRef.current)
-    hoverClearTimerRef.current = null
+  // The spotlight follows the node under the pointer once the pointer has rested: on that node before the
+  // spotlight moves there, or off every node before the spotlight clears.
+  const spotlightIdRef = useRef<string | null>(null)
+  const pointerNodeIdRef = useRef<string | null>(null)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelHoverTimer = useCallback(() => {
+    if (hoverTimerRef.current === null) return
+    clearTimeout(hoverTimerRef.current)
+    hoverTimerRef.current = null
   }, [])
-  const enterNodeHover = useCallback(
-    (nodeId: string) => {
-      cancelHoverClear()
-      if (hoveredIdRef.current === nodeId) return
-      hoveredIdRef.current = nodeId
-      setInternalHoverId(nodeId)
-      latestOnHoverRef.current?.(nodeId)
+  const settleHover = useCallback(
+    (nodeId: string | null) => {
+      pointerNodeIdRef.current = nodeId
+      cancelHoverTimer()
+      if (spotlightIdRef.current === nodeId) return
+      hoverTimerRef.current = setTimeout(
+        () => {
+          hoverTimerRef.current = null
+          spotlightIdRef.current = nodeId
+          setInternalHoverId(nodeId)
+          latestOnHoverRef.current?.(nodeId)
+        },
+        nodeId === null ? HOVER_CLEAR_DELAY_MS : HOVER_INTENT_DELAY_MS
+      )
     },
-    [cancelHoverClear]
+    [cancelHoverTimer]
   )
+  const enterNodeHover = settleHover
   const leaveNodeHover = useCallback(
     (nodeId: string) => {
       // The canvas and the link layer report enter and leave independently, so a late leave from the
-      // previous node must not touch the spotlight that a newer enter already moved.
-      if (hoveredIdRef.current !== nodeId) return
-      cancelHoverClear()
-      hoverClearTimerRef.current = setTimeout(() => {
-        hoverClearTimerRef.current = null
-        if (hoveredIdRef.current !== nodeId) return
-        hoveredIdRef.current = null
-        setInternalHoverId(null)
-        latestOnHoverRef.current?.(null)
-      }, HOVER_CLEAR_DELAY_MS)
+      // previous node must not undo a newer enter.
+      if (pointerNodeIdRef.current === nodeId) settleHover(null)
     },
-    [cancelHoverClear]
+    [settleHover]
   )
 
   useEffect(() => {
@@ -297,7 +329,7 @@ export function AnkoleGraph({
       width: initialSize.width,
       height: initialSize.height,
       autoResize: false,
-      animation: !reducedMotion,
+      animation: animated,
       zoomRange: [0.22, 3.5],
       autoFit: { type: 'view', options: { when: 'overflow', direction: 'both' } },
       padding: [36, 36, 36, 36]
@@ -338,7 +370,7 @@ export function AnkoleGraph({
     graphRef.current = graph
 
     return () => {
-      cancelHoverClear()
+      cancelHoverTimer()
       prevStructureKeyRef.current = ''
       graphRef.current = null
       // A render of the destroyed graph may never settle, so the next graph starts a fresh chain.
@@ -356,7 +388,6 @@ export function AnkoleGraph({
     if (nodes.length === 0) {
       prevStructureKeyRef.current = structureKey
       void graph.clear().catch(() => {})
-      setProjectedAnchors(new Map())
       return
     }
 
@@ -365,7 +396,7 @@ export function AnkoleGraph({
 
     if (structureChanged) {
       graph.setOptions({
-        animation: !reducedMotion,
+        animation: animated,
         data: graphSpec.data,
         layout: graphSpec.layoutOptions,
         transforms: graphSpec.transforms,
@@ -412,12 +443,12 @@ export function AnkoleGraph({
           () => {}
         )
         .finally(() => {
-          if (!graph.destroyed) graph.setOptions({ animation: !reducedMotion })
+          if (!graph.destroyed) graph.setOptions({ animation: animated })
         })
       // A quick redraw must not stand in for a slower render that is still running.
       pendingDrawRef.current = Promise.all([pendingDrawRef.current, drawn])
     }
-  }, [graphSpec, nodes.length, reducedMotion, structureKey, syncProjectedAnchors])
+  }, [animated, graphSpec, nodes.length, structureKey])
 
   const forwardWheelToCanvas = useCallback((event: React.WheelEvent<HTMLAnchorElement>) => {
     const host = canvasHostRef.current
@@ -443,6 +474,48 @@ export function AnkoleGraph({
     )
   }, [])
 
+  // The links depend only on the nodes, so a spotlight change, which re-renders this component, leaves them alone.
+  const anchorLinks = useMemo(
+    () =>
+      linkableNodes.map(node => (
+        <a
+          key={node.id}
+          href={node.href}
+          aria-label={node.label}
+          title={node.subtitle ? `${node.label} · ${node.subtitle}` : node.label}
+          onPointerDown={(event: PointerEvent<HTMLAnchorElement>) => {
+            pointerDownRef.current = { x: event.clientX, y: event.clientY }
+          }}
+          onPointerEnter={() => enterNodeHover(node.id)}
+          onPointerLeave={() => leaveNodeHover(node.id)}
+          onFocus={() => {
+            enterNodeHover(node.id)
+            latestOnSelectRef.current?.(node.id)
+          }}
+          onBlur={() => leaveNodeHover(node.id)}
+          onWheel={forwardWheelToCanvas}
+          onClick={event => {
+            const start = pointerDownRef.current
+            pointerDownRef.current = null
+            if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) {
+              event.preventDefault()
+              return
+            }
+            latestOnSelectRef.current?.(node.id)
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+              return
+            }
+            if (latestOnNavigateRef.current) {
+              event.preventDefault()
+              latestOnNavigateRef.current(node, event)
+            }
+          }}
+          className="pointer-events-auto absolute rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        />
+      )),
+    [enterNodeHover, forwardWheelToCanvas, leaveNodeHover, linkableNodes]
+  )
+
   return (
     <div
       ref={stageRef}
@@ -455,62 +528,8 @@ export function AnkoleGraph({
 
         {/* Synchronized semantic link layer: gives keyboard users, screen readers, and native
             browser Cmd/Ctrl+Click actions exact accessible anchors over every navigable graph node. */}
-        <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
-          {linkableNodes.map(node => {
-            const projected = projectedAnchors.get(node.id)
-            const fallback = topology.initialPositions.get(node.id) ?? {
-              x: stageSize.width / 2,
-              y: stageSize.height / 2
-            }
-            const x = projected ? projected.x : fallback.x
-            const y = projected ? projected.y : fallback.y
-            const size = projected ? projected.size : Math.max(24, (topology.radii.get(node.id) ?? 10) * 2 + 8)
-            const visible = projected ? projected.visible : true
-
-            return (
-              <a
-                key={node.id}
-                href={node.href}
-                aria-label={node.label}
-                title={node.subtitle ? `${node.label} · ${node.subtitle}` : node.label}
-                style={{
-                  left: `${Math.round(x - size / 2)}px`,
-                  top: `${Math.round(y - size / 2)}px`,
-                  width: `${size}px`,
-                  height: `${size}px`,
-                  visibility: visible ? 'visible' : 'hidden'
-                }}
-                onPointerDown={(event: PointerEvent<HTMLAnchorElement>) => {
-                  pointerDownRef.current = { x: event.clientX, y: event.clientY }
-                }}
-                onPointerEnter={() => enterNodeHover(node.id)}
-                onPointerLeave={() => leaveNodeHover(node.id)}
-                onFocus={() => {
-                  enterNodeHover(node.id)
-                  onSelectNode?.(node.id)
-                }}
-                onBlur={() => leaveNodeHover(node.id)}
-                onWheel={forwardWheelToCanvas}
-                onClick={event => {
-                  const start = pointerDownRef.current
-                  pointerDownRef.current = null
-                  if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) {
-                    event.preventDefault()
-                    return
-                  }
-                  onSelectNode?.(node.id)
-                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-                    return
-                  }
-                  if (onNavigateNode) {
-                    event.preventDefault()
-                    onNavigateNode(node, event)
-                  }
-                }}
-                className="pointer-events-auto absolute rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              />
-            )
-          })}
+        <div ref={anchorLayerRef} className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+          {anchorLinks}
         </div>
       </div>
 
