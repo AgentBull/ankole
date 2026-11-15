@@ -307,6 +307,11 @@ defmodule Ankole.MixProject do
           fn args ->
             Mix.Task.run("loadpaths", args)
             Mix.Tasks.Ecto.Migrate.run(args, &Ankole.Migrations.migrate/4)
+
+            if Mix.env() == :dev and
+                 Enum.all?(args, &(&1 in ["--all", "--quiet", "--no-compile", "--no-deps-check"])) do
+              Mix.Task.run("ankole.schema.check", ["--write"])
+            end
           end
         ],
         "ecto.rollback": [

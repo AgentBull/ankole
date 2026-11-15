@@ -46,6 +46,14 @@ docker build -f app/control_plane/Dockerfile \
 
 (Note: while an internal resource image layer can bundle private Agent templates or Skills onto an existing image, copying files alone never compiles SaaS backend or frontend code—always run a `saas` source build for code changes.)
 
+## View and update the database schema
+
+Open [`structure.sql`](app/control_plane/priv/repo/structure.sql) to view the FOSS database schema. In the SaaS checkout, `control_plane/priv/repo/saas_schema_diff.sql` shows the DDL that SaaS adds or changes.
+
+Install the PostgreSQL 18 client tools and put them on `PATH`. For SaaS development, also install `pg-schema-diff` with `go install github.com/stripe/pg-schema-diff/cmd/pg-schema-diff@v1.0.9` and put the binary on `PATH`. The database account used by development migrations must be able to create temporary databases with the project's PostgreSQL extensions.
+
+A complete development migration refreshes the selected edition's SQL. To refresh it manually, run `mix ankole.schema.check --write` from `app/control_plane` with the same development database configuration and edition. Commit the generated SQL with the migration. CI runs `mix ankole.schema.check` and prints a diff when the checked-in SQL is stale. The task builds temporary databases from the migrations, so local data and runtime-created tables do not enter the snapshot.
+
 ## What a successful setup means
 
 A full local development setup is complete only when all five of these hold:

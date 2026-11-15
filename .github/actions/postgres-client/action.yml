@@ -1,0 +1,11 @@
+name: Set up the PostgreSQL 18 client
+description: Adds the PostgreSQL 18 client tools to PATH on the Ubuntu runner.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get install -y postgresql-common
+        sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+        sudo apt-get install -y postgresql-client-18
+        echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
