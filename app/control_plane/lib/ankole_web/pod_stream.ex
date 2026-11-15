@@ -413,10 +413,8 @@ defmodule AnkoleWeb.PodStream do
   end
 
   defp authorized?(conn, scope) do
-    with %{"principal_uid" => uid, :principal => principal} <-
-           AnkoleWeb.Session.pod_session(conn, include_principal: true),
-         true <- uid == conn.assigns.current_principal_uid,
-         do: visible?(%{scope.actor | principal: principal}, scope),
+    with {:ok, actor} <- AnkoleWeb.Session.pod_stream_actor(conn, scope.actor),
+         do: visible?(actor, scope),
          else: (_ -> false)
   end
 

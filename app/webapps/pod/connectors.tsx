@@ -33,17 +33,19 @@ import {
   setPath,
   type ConfigFieldDefinition
 } from '../common/config-fields'
-import { authenticationRef, podID, podPublicOrigin } from '../common/browser-context'
+import { isDesktopRuntime, podID, podPublicOrigin, sessionIdentityKey } from '../common/browser-context'
+import { getPodRuntimeBootstrap } from '../common/pod-bootstrap'
 import { localReturnPath } from '../common/pod-url'
+import { useSearchParams } from '../common/router'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import * as api from './api/generated/sdk.gen'
 import { ConnectionEditorDialog } from './connector-connection-dialog'
 import { CredentialBindingDialog } from './connector-credential-dialog'
 import {
-  connectorAddressAfterAuthorization,
   connectorAutomationContext,
   connectorAutomationReturnTo,
   connectorFailureMessage,
+  connectorParamsAfterAuthorization,
   connectorReturnTo,
   connectorTriggerConfigFromURL,
   ConnectorsModel,
@@ -56,17 +58,17 @@ export function Connectors() {
   useSignals()
   const { t, i18n } = useTranslation()
   const model = useModel(ConnectorsModel)
-  const params = new URLSearchParams(window.location.search)
+  const [params, setSearchParams] = useSearchParams()
   const isPopup = params.get('popup') === '1'
   const originalTaskPath = localReturnPath(params.get('intent'), podPublicOrigin())
   const automation = connectorAutomationContext(params)
   const session = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+    queryKey: ['pod-session', sessionIdentityKey() ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
     staleTime: 60_000
   })
   const client = useQueryClient()
-  const key = ['connectors', authenticationRef() ?? '', podID() ?? '']
+  const key = ['connectors', sessionIdentityKey() ?? '', podID() ?? '']
   const catalog = useQuery({ queryKey: [...key, 'catalog'], queryFn: () => api.podConnectorsCatalog() })
   const connections = useQuery({ queryKey: [...key, 'connections'], queryFn: () => api.podConnectorAuthConfigsList() })
   const accounts = useQuery({
@@ -108,28 +110,40 @@ export function Connectors() {
               automation,
               subjectKind,
               intent: params.get('intent'),
-              popup: isPopup
+              popup: isPopup,
+              desktop: isDesktopRuntime()
             }),
             subject_kind: subjectKind
           }
         }
       })
     },
-    onSuccess: result => window.location.assign(result.authorization_url)
+    onSuccess: result => {
+      if (isDesktopRuntime()) {
+        const openExternal = getPodRuntimeBootstrap()?.onOpenExternal
+        if (openExternal) {
+          void openExternal(result.authorization_url)
+          return
+        }
+      }
+      window.location.assign(result.authorization_url)
+    }
   })
   const claim = useMutation({
     mutationFn: (code: string) => api.podConnectorOAuthClaim({ body: { data: { completion_code: code } } }),
     onSuccess: refresh
   })
-  const claimed = useRef(false)
+  const completionCode = params.get('connector_completion')
+  const claimedCode = useRef<string | null>(null)
   useEffect(() => {
-    const url = new URL(window.location.href)
-    const code = url.searchParams.get('connector_completion')
-    if (!code || claimed.current) return
-    claimed.current = true
-    claim.mutate(code)
-    window.history.replaceState(null, '', connectorAddressAfterAuthorization(url))
-  }, [claim.mutate])
+    if (!completionCode || claimedCode.current === completionCode) return
+    claimedCode.current = completionCode
+    claim.mutate(completionCode)
+    setSearchParams(prev => connectorParamsAfterAuthorization(prev), {
+      replace: true,
+      preventScrollReset: true
+    })
+  }, [completionCode, claim.mutate, setSearchParams])
   useEffect(() => {
     if (!isPopup || (!claim.isSuccess && !model.credentialsBound.value)) return
     const timer = window.setTimeout(() => {
@@ -238,12 +252,21 @@ export function Connectors() {
       model.bindCredentials(connection, credentialMode === 'team_credentials' ? 'app' : 'human')
     }
   }, [connections.data, catalog.data, requested, credentialMode, model])
-  const authorizationIntentStarted = useRef(
-    params.has('connector_completion') || params.has('connector_error') || params.has('trigger_type')
+  const scopesKey = scopes?.join(' ') ?? ''
+  const intentKey = requested ? `${requestedSubjectKind}:${requested}:${scopesKey}` : null
+  const startedIntentKey = useRef<string | null>(
+    params.has('connector_completion') || params.has('connector_error') || params.has('trigger_type') ? intentKey : null
   )
   useEffect(() => {
+    if (!intentKey) {
+      startedIntentKey.current = null
+      return
+    }
     if (
-      authorizationIntentStarted.current ||
+      startedIntentKey.current === intentKey ||
+      params.has('connector_completion') ||
+      params.has('connector_error') ||
+      params.has('trigger_type') ||
       ['personal_credentials', 'team_credentials'].includes(credentialMode ?? '') ||
       !requested ||
       !connections.data ||
@@ -255,9 +278,20 @@ export function Connectors() {
     const connection = connections.data.connections.find(item => item.slug === requested)
     if (!connection || !supportsOAuthAccount(connection) || connection.status !== 'active') return
     if (requestedSubjectKind === 'app' && !catalog.data.can_manage) return
-    authorizationIntentStarted.current = true
+    startedIntentKey.current = intentKey
     oauth.mutate({ connection: connection.slug, scopes, subjectKind: requestedSubjectKind })
-  }, [connections.data, catalog.data, session.isSuccess, requested, requestedSubjectKind, credentialMode])
+  }, [
+    intentKey,
+    params,
+    connections.data,
+    catalog.data,
+    session.isSuccess,
+    requested,
+    requestedSubjectKind,
+    credentialMode,
+    scopes,
+    oauth.mutate
+  ])
   const focusedTarget = useRef(false)
   const requestedTarget = params.get('trigger_id') ?? (requested ? `${requestedSubjectKind}-${requested}` : undefined)
   // The address loses its connection once an authorization finishes, usually before the lists
@@ -279,13 +313,12 @@ export function Connectors() {
   useEffect(() => {
     if (restoredDraft.current || !connections.data || !catalog.data) return
     restoredDraft.current = true
-    const intent = new URLSearchParams(window.location.search)
-    const connection = connections.data.connections.find(item => item.slug === intent.get('connection'))
-    const type = intent.get('trigger_type')
+    const connection = connections.data.connections.find(item => item.slug === params.get('connection'))
+    const type = params.get('trigger_type')
     if (
       connection &&
       type &&
-      !intent.has('trigger_id') &&
+      !params.has('trigger_id') &&
       catalog.data.connectors?.some(
         item => item.plugin_id === connection.plugin_id && item.trigger_types?.some(trigger => trigger.id === type)
       )
@@ -293,12 +326,12 @@ export function Connectors() {
       model.openTrigger({
         connection,
         type,
-        scope: intent.get('scope_key') ?? '',
-        config: connectorTriggerConfigFromURL(intent),
+        scope: params.get('scope_key') ?? '',
+        config: connectorTriggerConfigFromURL(params),
         subject: requestedSubjectKind
       })
     }
-  }, [connections.data, catalog.data, model])
+  }, [connections.data, catalog.data, model, params, requestedSubjectKind])
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto grid w-full max-w-4xl content-start gap-6 px-6 pt-2 pb-10">

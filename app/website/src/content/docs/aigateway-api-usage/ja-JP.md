@@ -92,7 +92,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/decisions \
   }'
 ```
 
-`score` 質問の `criteria` には 2〜10 個の順序付きレベルラベルを指定します。レスポンスには `model`、`answers`、トークンの `usage` が含まれ、各回答に確率が付きます。TypeSafe、Azure Foundry、OpenRouter、OpenAI、Cloudflare の判定モデルは同じ公開リクエスト形式を使いますが、画像の対応は異なります。SystemOne は PNG/JPEG、Microsoft-Decision-1 はテキストのみ、OpenAI は WebP にも対応します。OpenAI がいずれかの質問を拒否した場合は、部分的な回答を返さず `422 upstream_decision_refusal` を返します。判定モデルプロファイルが未設定の場合は、呼び出し元の `light` 言語モデルが未較正の確率で回答します。
+`score` 質問の `criteria` には 2〜10 個の順序付きレベルラベルを指定します。レスポンスには `model`、`answers`、トークンの `usage` が含まれ、各回答に確率が付きます。TypeSafe、Azure Foundry、OpenRouter、OpenAI、Google AI Studio、Cloudflare の判定モデルは同じ公開リクエスト形式を使いますが、画像の対応は異なります。SystemOne は PNG/JPEG、Microsoft-Decision-1 はテキストのみ、OpenAI と Google AI Studio は WebP にも対応します。OpenAI の拒否や Google の安全フィルターによるブロックが発生した場合は、部分的な回答を返さず `422 upstream_decision_refusal` を返します。判定モデルプロファイルが未設定の場合は、呼び出し元の `light` 言語モデルが未較正の確率で回答します。
 
 ## このガイドではないもの
 

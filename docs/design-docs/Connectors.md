@@ -153,6 +153,7 @@ and personal authorization keep their respective subject kinds across consent.
 Existing subscriptions let their account owner authorize and retry; administrators
 see which owner must supply the grant.
 The Pod accepts only local absolute paths as OAuth return destinations; missing or invalid destinations use the connection page.
+When `Ankole Desktop` initiates connector OAuth, the client opens the authorization URL in the system browser with `desktop=1` on the local return path, and the public callback renders a handoff page that launches `ankole://open` with the completion (or cancellation) query, `pod_origin`, `tenant_id`, and `actor_uid` so the desktop host switches to the matching workspace and claims the completion code over its authenticated Pod session.
 The authorization request uses PKCE and a one-use state
 digest. The public callback exchanges the authorization code and stores sealed
 pending tokens after checking the provider's external subject. The browser then

@@ -18,12 +18,15 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
           {"jina-embeddings-v3", ["embeddings"], ["input", "encoding_format"], "embedding"},
           {"jina-reranker-v2", ["text"], ["query", "documents", "top_n"], "rerank"},
           {"gpt-6-luna", ["text"], [], "decision"},
+          {"gemini-decision-1", ["decisions"], [], "decision"},
+          {"google/gemini-decision-1", ["text"], [], "decision"},
           {"microsoft/microsoft-decision-1", ["text"], [], "decision"},
           {"microsoft-decision-1", ["text"], [], "decision"},
           {"typesafe/jev-1.14", ["text"], [], "decision"},
           {"jev-latest", ["text"], [], "decision"},
           {"@cf/cloudflare/clef-flash", ["text"], [], "decision"},
-          {"compatible-jev", ["decision"], [], "decision"}
+          {"compatible-jev", ["decision"], [], "decision"},
+          {"respan/span-02", ["decisions"], [], "decision"}
         ] do
       metadata = %{
         "id" => id,
@@ -42,7 +45,8 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
     for {kind, model, capability} <- [
           {"openai", "text-embedding-3-small", "embedding"},
           {"cohere", "rerank-v3.5", "rerank"},
-          {"openai", "gpt-image-1", "image_generate"}
+          {"openai", "gpt-image-1", "image_generate"},
+          {"google_ai_studio_openai", "gemini-decision-1", "decision"}
         ] do
       assert {:ok, provider} =
                ProviderConfigs.create_provider(%{
@@ -434,6 +438,7 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
     end
 
     for prefixed_id <- [
+          "google-prod/gemini-decision-1",
           "openai-prod/gpt-6-luna",
           "azure-prod/microsoft-decision-1",
           "or-prod/microsoft/microsoft-decision-1",

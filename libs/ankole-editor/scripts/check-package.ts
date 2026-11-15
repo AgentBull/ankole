@@ -130,7 +130,7 @@ import {
   type ResourceAttributes,
   type ResourceKind
 } from '@ankole/block-editor/editor'
-import { parseMarkdown, printMarkdown, printXml, parseXml, resourceContent, resourceText } from '@ankole/block-editor/document'
+import { importMarkdownDocument, parseMarkdown, printMarkdown, printXml, parseXml, resourceContent, resourceText } from '@ankole/block-editor/document'
 
 const mentionTarget: MentionTarget = { page: '019a2b00-0000-7000-8000-000000000001' }
 const mentionCategory: MentionCategory = 'all'
@@ -169,6 +169,7 @@ if (
   !revealComment ||
   !pasteTextAtDocumentStart ||
   !splitPastedDocumentTitle ||
+  !importMarkdownDocument ||
   !remoteSelections ||
   !host.resolveAsset ||
   !mentionCategory ||

@@ -497,7 +497,14 @@ defmodule Ankole.AgentWorkers do
       ])
 
   @doc "Records and enqueues initial Worker startup in the Agent's creation transaction."
-  @spec insert_in_tx(String.t(), String.t()) :: :ok
+  @spec insert_in_tx(String.t(), String.t() | nil) :: :ok
+  def insert_in_tx(agent_uid, nil) when is_binary(agent_uid) do
+    case Ankole.Ash.create(AgentWorker, :register_unassigned, %{agent_uid: agent_uid}) do
+      {:ok, _worker} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   def insert_in_tx(agent_uid, provider_id)
       when is_binary(agent_uid) and is_binary(provider_id) do
     case Ankole.Ash.create(AgentWorker, :register, %{

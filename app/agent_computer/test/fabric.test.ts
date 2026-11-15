@@ -8,7 +8,7 @@ import {
   type ChannelLike,
   type ChannelPushLike,
   type ChannelSocketLike
-} from '../src/fabric/channel_transport'
+} from '../src/fabric/channel-transport'
 import {
   JobTurnRefSchema,
   WorkerHeartbeatSchema,
@@ -21,10 +21,10 @@ import {
   RPCRequestSchema,
   RPCResponseSchema,
   type Envelope
-} from '../src/fabric/envelope_proto'
+} from '../src/fabric/envelope-proto'
 import { TurnControlSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { workerLogger } from '../src/worker/logging'
-import { sendWorkerHeartbeat } from '../src/worker/lifecycle_messages'
+import { sendWorkerHeartbeat } from '../src/worker/lifecycle-messages'
 import { RuntimeFabricTransportError } from '../src/fabric/fabric'
 
 const config = {

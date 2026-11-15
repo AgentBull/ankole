@@ -531,7 +531,8 @@ defmodule Ankole.Pod.Pages.Tree do
          )
   end
 
-  defp trash_node_in_tx(actor, node, action) do
+  @doc false
+  def trash_node_in_tx(actor, node, action) do
     with :ok <- mutable(node),
          {:ok, _} <-
            Access.authorize(actor, node, action, requester_action: "node_edit"),

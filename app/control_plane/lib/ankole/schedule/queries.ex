@@ -131,4 +131,63 @@ defmodule Ankole.Schedule.Queries do
     {:ok, records} = Ankole.Ash.read(query)
     records
   end
+
+  def list_board_cron_schedules do
+    CronSchedule
+    |> Ash.Query.filter(is_nil(owner_job_id) and status in [:active, :paused])
+    |> Ash.Query.sort(next_fire_at: :asc_nils_last, updated_at: :desc)
+    |> read()
+  end
+
+  def list_board_checkbacks(cutoff) do
+    ScheduledEvent
+    |> Ash.Query.filter(
+      kind == "check_back_later" and
+        (status == :scheduled or (status == :failed and updated_at >= ^cutoff))
+    )
+    |> Ash.Query.sort(due_at: :asc, id: :asc)
+    |> read()
+  end
+
+  def cron_fire_rollups([]), do: {%{}, MapSet.new()}
+
+  def cron_fire_rollups(rule_ids) when is_list(rule_ids) do
+    latest_events =
+      ScheduledEvent
+      |> Ash.Query.filter(cron_schedule_id in ^rule_ids and kind == "cron_fire")
+      |> Ash.Query.distinct([:cron_schedule_id])
+      |> Ash.Query.distinct_sort(cron_schedule_id: :asc, due_at: :desc, id: :desc)
+      |> read()
+      |> Map.new(&{&1.cron_schedule_id, &1})
+
+    pending_manual_ids =
+      ScheduledEvent
+      |> Ash.Query.filter(
+        cron_schedule_id in ^rule_ids and kind == "cron_fire" and status == :scheduled
+      )
+      |> Ash.Query.select([:cron_schedule_id])
+      |> read()
+      |> MapSet.new(& &1.cron_schedule_id)
+
+    {latest_events, pending_manual_ids}
+  end
+
+  def schedules_by_owner_jobs([]), do: %{}
+
+  def schedules_by_owner_jobs(job_ids) when is_list(job_ids) do
+    CronSchedule
+    |> Ash.Query.filter(owner_job_id in ^job_ids and status != :deleted)
+    |> Ash.Query.sort(next_fire_at: :asc_nils_last, name: :asc)
+    |> read()
+    |> Enum.group_by(& &1.owner_job_id)
+  end
+
+  def list_cron_fire_events(cron_schedule_id, limit)
+      when is_binary(cron_schedule_id) and is_integer(limit) and limit > 0 do
+    ScheduledEvent
+    |> Ash.Query.filter(cron_schedule_id == ^cron_schedule_id and kind == "cron_fire")
+    |> Ash.Query.sort(due_at: :desc, id: :desc)
+    |> Ash.Query.limit(limit)
+    |> read()
+  end
 end

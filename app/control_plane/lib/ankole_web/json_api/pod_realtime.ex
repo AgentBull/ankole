@@ -55,7 +55,7 @@ defmodule AnkoleWeb.JSONAPI.PodRealtime do
         |> Ankole.Pod.APIError.result(fn principal ->
           %{
             token: AnkoleWeb.PodSocket.token(principal.uid, credential),
-            principal: %{uid: principal.uid, name: principal.display_name}
+            principal: %{uid: principal.uid, name: Ankole.Principals.display_name(principal)}
           }
         end)
       end)

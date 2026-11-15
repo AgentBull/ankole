@@ -30,9 +30,9 @@ fn polly_takes_the_engine_from_the_model_and_the_voice_from_the_request_or_the_p
         ),
         json!({"Engine": "neural", "Text": "Hello", "VoiceId": "Matthew", "OutputFormat": "pcm"})
     );
-    // The profile's voice serves a request that names none.
+    // The profile's voice serves a request that names none, and omitted format defaults to MP3.
     assert_eq!(
-        body(json!({"input": "Hello", "response_format": "mp3"})),
+        body(json!({"input": "Hello"})),
         json!({"Engine": "neural", "Text": "Hello", "VoiceId": "Joanna", "OutputFormat": "mp3"})
     );
 }

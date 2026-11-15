@@ -92,7 +92,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/decisions \
   }'
 ```
 
-A `score` question takes 2 to 10 ordered labels in `criteria`. The response contains `model`, `answers`, and token `usage`; every answer includes probabilities. TypeSafe, Azure Foundry, OpenRouter, OpenAI, and Cloudflare decision models use the same public request shape. Upstream image support differs: SystemOne accepts PNG/JPEG, Microsoft-Decision-1 is text-only, and OpenAI also accepts WebP. An OpenAI refusal for any question returns `422 upstream_decision_refusal` without partial answers. When no decision profile is configured, the caller's `light` language model answers with uncalibrated probabilities.
+A `score` question takes 2 to 10 ordered labels in `criteria`. The response contains `model`, `answers`, and token `usage`; every answer includes probabilities. TypeSafe, Azure Foundry, OpenRouter, OpenAI, Google AI Studio, and Cloudflare decision models use the same public request shape. Upstream image support differs: SystemOne accepts PNG/JPEG, Microsoft-Decision-1 is text-only, and OpenAI and Google AI Studio also accept WebP. An OpenAI refusal or Google safety block returns `422 upstream_decision_refusal` without partial answers. When no decision profile is configured, the caller's `light` language model answers with uncalibrated probabilities.
 
 ## What this guide is not
 

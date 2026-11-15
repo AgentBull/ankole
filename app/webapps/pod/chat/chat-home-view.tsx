@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
-import { authenticationRef, podID } from '../../common/browser-context'
+import { podID, sessionIdentityKey } from '../../common/browser-context'
 import { browserSession } from '../../common/api/generated/sdk.gen'
 import { conversationAttentionQuery, podKeys, type PodAgent } from '../api'
 import { podConversations } from '../api/generated/sdk.gen'
@@ -29,7 +29,7 @@ export function ChatHomeView({
 }) {
   const { t, i18n } = useTranslation()
   const session = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+    queryKey: ['pod-session', sessionIdentityKey() ?? '', podID() ?? ''],
     queryFn: () => browserSession()
   })
   const attention = useQuery({

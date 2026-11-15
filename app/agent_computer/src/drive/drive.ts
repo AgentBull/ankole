@@ -4,7 +4,7 @@ import { chmod, lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { nodeErrorCode } from '../common/errors'
 import { relativePathWithin } from '../core/path-boundary'
-import { type RPCRequester, type TurnRPCFrame } from '../lanes/rpc_lane'
+import { type RPCRequester, type TurnRPCFrame } from '../lanes/rpc-lane'
 
 /**
  * Worker-side client for the Agent's drive in the control plane.

@@ -1,6 +1,7 @@
 defmodule Ankole.AppConfigure.SiteOperations do
   @moduledoc "Registry setting operations for the site Console."
   use Ankole.Ash.OperationResource,
+    tenancy: :site,
     authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.AppConfigure.Site,

@@ -126,3 +126,27 @@ export function acknowledgeKnowledge(
     if (!body.hasUnsavedChanges.value && !properties.dirty.value) properties.finish()
   })
 }
+
+/** Rebases an untouched editing session onto a newer upstream snapshot without leaving edit mode. */
+export function rebaseCleanKnowledge(
+  body: Body,
+  properties: Properties,
+  latest: { xml: string; metadata: KnowledgeMetadata; revision: number }
+) {
+  batch(() => {
+    if (!properties.editing.value || body.hasUnsavedChanges.value || properties.dirty.value) return
+    const currentMeta = properties.parsed.value.metadata ?? {}
+    if (
+      body.revision.value === latest.revision &&
+      body.savedXML.value === latest.xml &&
+      isEqual(currentMeta, latest.metadata)
+    ) {
+      return
+    }
+    const xmlChanged = body.xml.value !== latest.xml
+    body.xml.value = latest.xml
+    body.saved(latest.xml, latest.revision, false)
+    properties.saved(currentMeta, latest.metadata)
+    if (xmlChanged) properties.generation.value++
+  })
+}

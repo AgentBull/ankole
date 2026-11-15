@@ -89,14 +89,14 @@ export type DecideResult = {
 export type GenerateSpeechOptions = {
   input: string
   voice?: string
-  format?: 'mp3' | 'pcm'
+  format?: 'mp3' | 'pcm' | 'wav'
   speed?: number
   instructions?: string
   saveTo?: { pageId: string; name?: string }
 }
 export type GenerateSpeechResult = {
   url: string
-  /** `audio/mpeg` for mp3 and `audio/pcm` for pcm, unless the speech model names another audio type. */
+  /** `audio/mpeg` for mp3, `audio/pcm` for pcm, and `audio/wav` for wav, unless the speech model names another audio type. */
   mimeType: string
   file: FileEntry & {
     name: string

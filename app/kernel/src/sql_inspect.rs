@@ -18,7 +18,7 @@ use std::ops::ControlFlow;
 
 use serde_json::{Value as JSONValue, json};
 use sqlparser::ast::{
-    BinaryOperator, DuplicateTreatment, Expr, Function, FunctionArguments, GroupByExpr,
+    BinaryOperator, DuplicateTreatment, Expr, Function, FunctionArguments, GroupByExpr, InTarget,
     LimitClause, ObjectName, Query, Select, SetExpr, Statement, TableFactor, UnaryOperator, Value,
     Visit, Visitor, visit_expressions,
 };
@@ -409,7 +409,14 @@ impl Inspector {
                 // PostgreSQL `TABLE name` reads a whole table.
                 SetExpr::Table(table) => {
                     if let Some(name) = &table.table_name {
-                        let table = (None, table.schema_name.clone(), name.clone());
+                        let table = (
+                            None,
+                            table
+                                .schema_name
+                                .as_ref()
+                                .map(|schema| schema.value.clone()),
+                            name.value.clone(),
+                        );
                         if !self.tables.contains(&table) {
                             self.tables.push(table);
                         }
@@ -544,6 +551,17 @@ impl Visitor for Inspector {
                     && !self.aggregates.contains(&name)
                 {
                     self.aggregates.push(name);
+                }
+                None
+            }
+            Expr::In {
+                target: InTarget::Table { name, args, .. },
+                ..
+            } => {
+                if args.is_some() {
+                    self.check_function(name)?;
+                } else {
+                    self.add_table(name);
                 }
                 None
             }
@@ -803,10 +821,11 @@ fn collect_literals(expr: &Expr, out: &mut Vec<JSONValue>) {
                 push(column, flipped, vec![value]);
             }
         }
-        Expr::InList {
+        Expr::In {
             expr,
-            list,
+            target: InTarget::List(list),
             negated: false,
+            ..
         } => {
             let values: Option<Vec<JSONValue>> = list.iter().map(literal).collect();
             if let (Some(column), Some(values)) = (column_operand(expr), values) {
@@ -1297,18 +1316,65 @@ mod tests {
     #[test]
     fn deeply_nested_queries_fail_cleanly_on_small_thread_stacks() {
         let deep_parens = format!("SELECT {}1{}", "(".repeat(2_000), ")".repeat(2_000));
-        let deep_and = std::iter::repeat_n("a = 1", 2_000)
+        let deep_and = std::iter::repeat_n("a=1", 80_000)
             .collect::<Vec<_>>()
-            .join(" AND ");
-        let deep_where = format!("SELECT a FROM t WHERE {deep_and}");
+            .join(" OR ");
+        let queries = [
+            deep_parens,
+            format!("SELECT a FROM t WHERE {deep_and}"),
+            format!("SELECT a FROM t ORDER BY {deep_and}"),
+            format!("SELECT coalesce({deep_and}, false) FROM t"),
+            format!("SELECT a FROM t JOIN u ON {deep_and}"),
+            format!("SELECT a FROM t WHERE {deep_and} +"),
+            format!("DELETE FROM t WHERE {deep_and}"),
+            format!("SELECT 1::int{}", "[]".repeat(80_000)),
+            format!("CREATE TABLE t(x int{})", "[]".repeat(80_000)),
+            std::iter::repeat_n("SELECT 1", 30_000)
+                .collect::<Vec<_>>()
+                .join(" UNION ALL "),
+        ];
 
         let handle = std::thread::Builder::new()
             .stack_size(512 * 1024)
             .spawn(move || {
-                assert_eq!(code(&deep_parens, "postgres"), "parse_error");
-                assert_eq!(code(&deep_where, "postgres"), "parse_error");
+                for sql in queries {
+                    assert_eq!(code(&sql, "postgres"), "parse_error");
+                }
+                assert_eq!(
+                    code(
+                        &format!(
+                            "SELECT * FROM t{}{}",
+                            " JOIN t".repeat(20_000),
+                            " ON true".repeat(20_000)
+                        ),
+                        "postgres"
+                    ),
+                    "parse_error"
+                );
+                for sql in [
+                    format!(
+                        "SELECT * FROM t{}",
+                        " PIVOT(SUM(x) FOR y IN(1))".repeat(20_000)
+                    ),
+                    format!(
+                        "SELECT * FROM t MATCH_RECOGNIZE (PATTERN ({}A{}) DEFINE A AS true)",
+                        "(".repeat(20_000),
+                        ")".repeat(20_000)
+                    ),
+                ] {
+                    assert_eq!(code(&sql, "generic"), "parse_error");
+                }
             })
             .unwrap();
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn independent_expressions_do_not_share_a_depth_budget() {
+        let projection = std::iter::repeat_n("1 + 2", 2_000)
+            .collect::<Vec<_>>()
+            .join(", ");
+        ok(&format!("SELECT {projection}"), "postgres");
+        ok("SELECT 1 + 2 UNION ALL SELECT 3 + 4", "postgres");
     }
 }

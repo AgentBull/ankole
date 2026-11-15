@@ -114,7 +114,7 @@ defmodule Ankole.Brain.DataSemantics.Execution do
         spec
       else
         groups = Enum.map(dimensions, &Map.take(&1, ["field_id", "bucket"]))
-        Map.put(spec, "group_by", Map.get(spec, "group_by", []) ++ groups)
+        Map.put(spec, "group_by", (Map.get(spec, "group_by") || []) ++ groups)
       end
 
     with {:ok, result} <- Ankole.Pod.Bases.aggregate(actor, revision.source["table_id"], spec),

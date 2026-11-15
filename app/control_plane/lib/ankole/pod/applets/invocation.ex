@@ -50,15 +50,10 @@ defmodule Ankole.Pod.Applets.Invocation do
     {:ok, handle, run_id} = AppletClient.start(source, context, limits, deadline, authority)
 
     host_context =
-      case Keyword.get(opts, :authentication_ref) do
-        auth_ref when is_binary(auth_ref) and auth_ref != "" ->
-          context
-          |> Map.put("deadline", deadline)
-          |> Map.put("authentication_ref", auth_ref)
-
-        _ ->
-          Map.put(context, "deadline", deadline)
-      end
+      context
+      |> Map.put("deadline", deadline)
+      |> maybe_put_host_credential("authentication_ref", Keyword.get(opts, :authentication_ref))
+      |> maybe_put_host_credential("oidc_session_id", Keyword.get(opts, :oidc_session_id))
 
     state = %{
       handle: handle,
@@ -230,6 +225,12 @@ defmodule Ankole.Pod.Applets.Invocation do
       )
     end)
   end
+
+  defp maybe_put_host_credential(context, key, value)
+       when is_binary(value) and value != "",
+       do: Map.put(context, key, value)
+
+  defp maybe_put_host_credential(context, _key, _value), do: context
 
   defp failed,
     do: %{

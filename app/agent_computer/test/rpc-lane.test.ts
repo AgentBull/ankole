@@ -1,8 +1,8 @@
 import { create, toBinary } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
-import { RPCResponseSchema } from '../src/fabric/envelope_proto'
+import { RPCResponseSchema } from '../src/fabric/envelope-proto'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { RPCTimeoutError, RuntimeRPCClient } from '../src/lanes/rpc_lane'
+import { RPCTimeoutError, RuntimeRPCClient } from '../src/lanes/rpc-lane'
 import { RuntimeFabricTransportError, type EnvelopeSender } from '../src/fabric/fabric'
 
 describe('Runtime RPC client', () => {

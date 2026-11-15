@@ -71,9 +71,15 @@ async fn serve(listener: TcpListener, ssrf_filter: bool) {
     loop {
         tokio::select! {
             incoming = listener.accept() => {
-                let Ok((client, _)) = incoming else { break };
-                if connections.len() < MAX_CONNECTIONS {
-                    connections.spawn(tunnel(client, ssrf_filter));
+                match incoming {
+                    Ok((client, _)) => {
+                        if connections.len() < MAX_CONNECTIONS {
+                            connections.spawn(tunnel(client, ssrf_filter));
+                        }
+                    }
+                    Err(_) => {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
                 }
             }
             _ = connections.join_next(), if !connections.is_empty() => {}

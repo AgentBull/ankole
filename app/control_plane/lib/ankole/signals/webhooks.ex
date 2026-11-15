@@ -675,6 +675,16 @@ defmodule Ankole.Signals.Webhooks do
     |> Enum.map(& &1.id)
   end
 
+  def counts_by_owner_jobs([]), do: %{}
+
+  def counts_by_owner_jobs(job_ids) when is_list(job_ids) do
+    WebhookEndpoint
+    |> Ash.Query.filter(owner_job_id in ^job_ids and status in [:armed, :active, :paused])
+    |> Ash.Query.select([:id, :owner_job_id])
+    |> Ankole.Ash.read!()
+    |> Enum.frequencies_by(& &1.owner_job_id)
+  end
+
   def purge_job_sources_in_tx(ids) do
     WebhookEndpoint
     |> Ash.Query.filter(id in ^ids)

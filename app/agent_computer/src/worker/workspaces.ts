@@ -1,4 +1,4 @@
-import type { Slots } from './lifecycle_messages'
+import type { Slots } from './lifecycle-messages'
 import { create } from '@bufbuild/protobuf'
 import { isRecord, type JsonObject } from '@agentbull/active-support'
 import type { BrowserRuntime } from '../browser-runtime'
@@ -6,7 +6,7 @@ import { startRunCLIBridges } from '../cli/run-cli-bridges'
 import { agentHomePaths } from '../core/agent-home-paths'
 import { materializeAgentLibraryDocuments } from '../core/agent-library-documents'
 import { prepareExecutionMaterials, type PreparedExecutionMaterials } from '../core/execution/execution-materials'
-import { SESSION_CONTEXT_ID_ENV } from '../core/execution/turn_runtime_env'
+import { SESSION_CONTEXT_ID_ENV } from '../core/execution/turn-runtime-env'
 import type { ContentPart, WorkerAgentTool } from '../core/types'
 import { imageBytes } from '../common/image-bytes'
 import { Drive } from '../drive/drive'
@@ -22,7 +22,7 @@ import {
   WorkspaceReadySchema,
   safeNumberFromBigInt,
   type Envelope
-} from '../fabric/envelope_proto'
+} from '../fabric/envelope-proto'
 import { RuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
 import type {
   RunRef as RunRefMessage,
@@ -32,8 +32,8 @@ import type {
   WorkspaceClose
 } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { WorkspaceReady_Reason } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
-import { runRefFromProto } from '../lanes/session_lane'
-import type { RuntimeRPCClient } from '../lanes/rpc_lane'
+import { runRefFromProto } from '../lanes/session-lane'
+import type { RuntimeRPCClient } from '../lanes/rpc-lane'
 import { skillAvailableInRuntime } from '../skills/effective-skill'
 import { linkMountedSkills, materializeKnowledgeSkills } from '../skills/knowledge-skills'
 import { join } from 'node:path'
@@ -43,7 +43,7 @@ import { renderedFallbackFetch } from '../tools/web/web-tools'
 import { errorMessage } from '../common/errors'
 import type { WorkerConfig } from './config'
 import type { WorkerDrainState } from './drain'
-import { throwingRPCRequester } from './rpc_requests'
+import { throwingRPCRequester } from './rpc-requests'
 import { prepareActorWorkspace } from './workspace'
 import { workerLogger } from './logging'
 

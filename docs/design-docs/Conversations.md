@@ -113,6 +113,9 @@ binds `dm_human_uid` and `dm_colleague_uid` to one unique tenant-local pair.
 Creation reuses that pair even when callers submit different room UUIDs. Both
 columns reference their typed Principal records with `ON UPDATE CASCADE`;
 deferred foreign-key checks let the parallel Principal cascade paths settle.
+Reopening a participant-scoped colleague DM keeps its associated Page link.
+Losing access to that Page does not prevent its participants from continuing
+their conversation; opening the Page still requires its own permission.
 The migration binds the latest historical DM for each pair and leaves the other
 historical rooms unbound. Only bound rooms use the colleague DM identity and
 `/dm/<uid>` route. Unbound historical rooms keep their own titles and
@@ -155,17 +158,11 @@ Room visibility follows `native_access_scope`:
 Global Chat and Recents exclude `anchor_page` and `agent_peer` rooms. Comments
 use the former internally, and the origin's timeline exposes the latter.
 The Page Assistant panel lists only the viewer's private assistant tasks bound
-to that Page. Guests do not receive that panel.
-
-An [Issue](Issues.md) has one native room with `participants` access, which
-`Conversations.ensure_issue_room_in_tx/2` creates for the Issue's creator and
-its Agent without an opening message. The room is a `dm` that carries no
-colleague-DM identity, so an AI colleague's Issue room stays apart from the
-colleague's direct-message room, and it becomes a `group` when its creator
-invites another person. The room detail names the Issue's Agent in
-`issueAgentUID`, which the composer selects as the default recipient of that
-group. Starting the Issue posts its request to the room as an ordinary Human
-message.
+to that Page. Guests do not receive that panel. When a member schedules a
+recurring Cron routine on the [Jobs Board](JobsBoard.md) without picking an
+existing room, `Conversations.ensure_agent_delivery_room_in_tx/2` reuses the
+canonical colleague DM or a quiet personal-assistant delivery room so routine
+notifications have a destination without posting synthetic setup messages.
 
 Room members, the room creator, Pod administrators, and managers of an anchor
 Page can rename the room or invite participants, though changing an Agent's

@@ -4,6 +4,7 @@ defmodule Ankole.Sessions.Key do
   def conversation(id), do: "conversation:#{id}"
   def cron(id), do: "cron:#{id}"
   def job(id), do: "job:#{id}"
+  def pod_job(id), do: "pod_job:#{id}"
   def workflow_task(id), do: "wf_task:#{id}"
 
   def parse(key) when is_binary(key) do
@@ -20,7 +21,7 @@ defmodule Ankole.Sessions.Key do
   def routable?(key) do
     case parse(key) do
       :error -> false
-      {kind, _} when kind in [:job, :workflow_task] -> false
+      {kind, _} when kind in [:job, :pod_job, :workflow_task] -> false
       _ -> true
     end
   end
@@ -32,7 +33,12 @@ defmodule Ankole.Sessions.Key do
     end
   end
 
-  for {prefix, kind} <- [{"cron:", :cron}, {"job:", :job}, {"wf_task:", :workflow_task}] do
+  for {prefix, kind} <- [
+        {"cron:", :cron},
+        {"job:", :job},
+        {"pod_job:", :pod_job},
+        {"wf_task:", :workflow_task}
+      ] do
     defp parse_valid(unquote(prefix) <> id) do
       if String.trim(id) == "", do: :error, else: {unquote(kind), id}
     end

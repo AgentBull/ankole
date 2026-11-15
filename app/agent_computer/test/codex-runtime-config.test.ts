@@ -1,7 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { TurnStart } from '../src/lanes/session_lane'
+import type { TurnStart } from '../src/lanes/session-lane'
 import { resolveCodexRuntimeConfig } from '../src/core/codex-runner/runtime-config'
 
 function turnStart(modelRef: TurnStart['model_ref']): TurnStart {

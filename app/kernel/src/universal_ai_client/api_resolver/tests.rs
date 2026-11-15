@@ -5,6 +5,7 @@ mod anthropic;
 mod anthropic_v2026;
 mod audio;
 mod aws_bedrock_converse;
+mod china_market;
 mod cloudflare_images;
 mod conversion_policy;
 mod decision;

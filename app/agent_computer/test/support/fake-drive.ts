@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Drive } from '../../src/drive/drive'
-import { type RPCRequester } from '../../src/lanes/rpc_lane'
+import { type RPCRequester } from '../../src/lanes/rpc-lane'
 
 export type FakeDriveFile = {
   nodeId: string

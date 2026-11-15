@@ -4,7 +4,7 @@ import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-sup
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/job/turn-recorder'
 import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/runtime/app-server-client'
-import { RPCRejectedError, type RPCRejection } from '../src/lanes/rpc_lane'
+import { RPCRejectedError, type RPCRejection } from '../src/lanes/rpc-lane'
 import {
   actorTurn,
   decodedUpsert,

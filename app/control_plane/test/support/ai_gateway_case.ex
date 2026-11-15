@@ -64,9 +64,16 @@ defmodule Ankole.AIGatewayCase do
         case get_req_header(conn, "content-type") do
           [content_type | _rest]
           when is_binary(content_type) ->
-            if String.starts_with?(content_type, "application/x-www-form-urlencoded"),
-              do: URI.decode_query(body),
-              else: Ankole.JSON.decode!(body)
+            cond do
+              String.starts_with?(content_type, "application/x-www-form-urlencoded") ->
+                URI.decode_query(body)
+
+              String.starts_with?(content_type, "multipart/form-data") ->
+                {:multipart, content_type, body}
+
+              true ->
+                Ankole.JSON.decode!(body)
+            end
 
           _missing ->
             Ankole.JSON.decode!(body)
@@ -106,6 +113,15 @@ defmodule Ankole.AIGatewayCase do
       conn
       |> put_resp_content_type(content_type)
       |> send_resp(status, body)
+    end
+
+    defp send_upstream_response({:raw, status, headers, content_type, body}, conn) do
+      conn =
+        Enum.reduce(headers, conn, fn {name, value}, conn ->
+          put_resp_header(conn, name, value)
+        end)
+
+      send_upstream_response({:raw, status, content_type, body}, conn)
     end
 
     defp send_upstream_response({:sse, status, events}, conn) do

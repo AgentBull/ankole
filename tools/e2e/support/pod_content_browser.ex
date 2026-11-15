@@ -121,7 +121,7 @@ defmodule Ankole.E2E.PodContentBrowser do
     File.chmod!(state_path, 0o600)
 
     try do
-      script = File.read!(Path.join(__DIR__, "pod_content_browser.mjs"))
+      script = File.read!(Path.join(__DIR__, "pod-content-browser.mjs"))
 
       {output, status} =
         System.cmd("bun", ["--eval", script, state_path],

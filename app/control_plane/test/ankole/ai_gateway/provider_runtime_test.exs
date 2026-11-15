@@ -62,6 +62,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "embedding" in openrouter["capabilities"]
     assert "rerank" in openrouter["capabilities"]
     assert "embedding" in google_ai_studio["capabilities"]
+    assert "decision" in google_ai_studio["capabilities"]
     assert "web_search" in parallel["capabilities"]
     assert "web_fetch" in parallel["capabilities"]
     assert "web_search" in jina_search["capabilities"]

@@ -252,37 +252,32 @@ export function devCommand() {
     },
     command =>
       command
-        .flags(
-          {
-            name: 'services',
+        .flags({
+          services: {
             type: 'boolean',
             description: 'Start Docker Compose support services.',
             default: true
           },
-          {
-            name: 'migrate',
+          migrate: {
             type: 'boolean',
             description: 'Run control-plane Ecto migrations.',
             default: true
           },
-          {
-            name: 'build',
+          build: {
             type: 'boolean',
             description: 'Build missing or stale local runtime images.',
             default: true
           },
-          {
-            name: 'port',
+          port: {
             type: 'number',
             description: 'Phoenix HTTP port.',
             default: defaultPhoenixPort
           },
-          {
-            name: 'worker-image',
+          'worker-image': {
             type: 'string',
             description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
           }
-        )
+        })
         .action(({ flags }) => runDev(flags))
   )
 }

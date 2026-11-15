@@ -8,9 +8,9 @@ import { createWebTools, renderedFallbackFetch } from '../src/tools/web/web-tool
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
 import { createContainerComputer } from '../src/tools/computer/computer'
 import { buildCodexJobProjection } from '../src/core/codex-runner/job/projection'
-import { jsonBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes } from '../src/fabric/envelope-proto'
 import { mkdirAgentSync } from '../src/common/agent-user'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
 
 const roots: string[] = []
 afterEach(() => {

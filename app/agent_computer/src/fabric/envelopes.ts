@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import { createEnvelope, ControlShutdownSchema, envelopeHeader, type Envelope } from './envelope_proto'
+import { createEnvelope, ControlShutdownSchema, envelopeHeader, type Envelope } from './envelope-proto'
 
 /**
  * Reports that this worker has stopped accepting new turns and is draining its

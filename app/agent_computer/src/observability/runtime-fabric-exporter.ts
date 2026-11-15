@@ -1,5 +1,5 @@
 import { ms } from '@agentbull/active-support'
-import type { RuntimeRPCClient } from '../lanes/rpc_lane'
+import type { RuntimeRPCClient } from '../lanes/rpc-lane'
 import { configureWorkerTracing } from './turn-tracing'
 
 /**

@@ -7,9 +7,9 @@ import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import { chownAgentPath, mkdirAgent } from '../../common/agent-user'
 import { agentProcessArgv } from '../../core/execution/process-group'
 import { parseCLIRequest, startSocketLineBridge } from '../../core/socket-line-bridge'
-import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope_proto'
+import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope-proto'
 import { collectLocalFiles, sha256File, type Drive } from '../../drive/drive'
-import type { RPCRequester, TurnRPCFrame } from '../../lanes/rpc_lane'
+import type { RPCRequester, TurnRPCFrame } from '../../lanes/rpc-lane'
 import { preflightPageMarkdown, type ExistingPageSnapshot } from './diagram-preflight'
 
 const readOperations = [

@@ -1,5 +1,6 @@
 import {
   isDelimitedTextTable,
+  isHtmlFile,
   isMarkdownFile,
   isOfficeSpreadsheetFile,
   isPresentationFile,
@@ -37,7 +38,7 @@ import { ChatMarkdown } from './chat/chat-markdown'
 import { fileExtensionBadge } from './state/page-subpages'
 import { CodeBlockView } from './chat/code-block-view'
 import { ImageZoomView } from './chat/zoomable-image'
-import { DelimitedTablePreview } from './page-file-previews'
+import { DelimitedTablePreview, HtmlFilePreview } from './page-file-previews'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from './panel-motion'
 
 const SpreadsheetWasmPreview = lazy(() => import('./spreadsheet/spreadsheet-preview'))
@@ -59,6 +60,7 @@ export function attachmentPreviewKind(name: string, type?: string) {
   if (isWordFile(name, mime)) return 'word'
   if (isPresentationFile(name, mime)) return 'presentation'
   if (isMarkdownFile(name, mime)) return 'markdown'
+  if (isHtmlFile(name, mime)) return 'html'
   // A `.ts` source file often arrives as `video/mp2t`, so text detection runs before media.
   if (isTextFile(name, mime)) return 'text'
   if (mime?.startsWith('video/')) return 'video'
@@ -339,6 +341,17 @@ function AttachmentPreviewBody({ file }: { file: AttachmentPreviewFile }) {
         <WordPreview url={url} local={local} />
       ) : kind === 'presentation' ? (
         <PresentationPreview url={url} local={local} />
+      ) : kind === 'html' ? (
+        <HtmlFilePreview
+          className="pod-attachment-html"
+          cacheKey={conversationID ? podKeys.detail(conversationID) : podKeys.conversations}
+          url={url}
+          downloadURL={file.downloadURL}
+          name={stripBidi(name)}
+          size={size}
+          local={local}
+          canComment={false}
+        />
       ) : kind ? (
         <PreviewContent
           url={url}

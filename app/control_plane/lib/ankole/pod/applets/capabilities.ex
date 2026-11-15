@@ -73,6 +73,13 @@ defmodule Ankole.Pod.Applets.Capabilities do
        when is_binary(ref) and ref != "" and method in ["POST", "PUT", "PATCH", "DELETE"],
        do: true
 
+  defp browser_review?(
+         %{"oidc_session_id" => sid, "method" => method},
+         %Ankole.AuthZ.Actor{principal: %{type: :human}}
+       )
+       when is_binary(sid) and sid != "" and method in ["POST", "PUT", "PATCH", "DELETE"],
+       do: true
+
   defp browser_review?(_context, _caller), do: false
 
   @doc false
@@ -127,11 +134,11 @@ defmodule Ankole.Pod.Applets.Capabilities do
   defp dispatch_context(_context, page, actor, caller, "approvals.request", [request]),
     do: Approvals.request(page.id, actor, caller || actor, request)
 
-  defp dispatch_context(_context, page, actor, caller, "approvals.get", [id]),
-    do: Approvals.get(page.id, caller || actor, id)
+  defp dispatch_context(_context, page, actor, _caller, "approvals.get", [id]),
+    do: Approvals.get(page.id, actor, id)
 
-  defp dispatch_context(_context, page, actor, caller, "approvals.list", []),
-    do: Approvals.list(page.id, caller || actor)
+  defp dispatch_context(_context, page, actor, _caller, "approvals.list", []),
+    do: Approvals.list(page.id, actor)
 
   defp dispatch_context(_context, page, _actor, caller, "approvals.decide", [request]),
     do: Approvals.decide(page.id, caller, request)

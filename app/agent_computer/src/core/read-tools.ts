@@ -1,8 +1,8 @@
 import { isRecord } from '@agentbull/active-support'
 import type { JsonObject } from '@agentbull/active-support'
-import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
-import type { JobTurnRef } from '../lanes/session_lane'
-import type { RPCRequester } from '../lanes/rpc_lane'
+import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope-proto'
+import type { JobTurnRef } from '../lanes/session-lane'
+import type { RPCRequester } from '../lanes/rpc-lane'
 import type { AgentToolResult } from './types'
 
 /** Codec adapter only; the control plane owns read-tool behavior and results. */

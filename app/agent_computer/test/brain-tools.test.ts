@@ -2,9 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import { brainToolDeclarations, createBrainTools } from '../src/tools/library/brain-tools'
 import { buildCodexJobProjection } from '../src/core/codex-runner/job/projection'
 import type { DynamicToolCallParams } from '../src/core/codex-runner/generated/protocol/v2/DynamicToolCallParams'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
-import type { JobTurnRef } from '../src/lanes/session_lane'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope-proto'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
+import type { JobTurnRef } from '../src/lanes/session-lane'
 
 const turn: JobTurnRef = {
   session: { session_id: 'job:1000' },

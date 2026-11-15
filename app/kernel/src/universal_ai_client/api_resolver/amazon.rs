@@ -37,7 +37,18 @@ impl APIProtocol for AmazonPollySpeech {
                 body.insert(field.to_string(), value.clone());
             }
         }
+        put_default(&mut body, "OutputFormat", json!("mp3"));
         Ok(body)
+    }
+
+    fn on_provider_response(
+        &mut self,
+        _context: &ResponseContext,
+        status: u16,
+        headers: &[(String, String)],
+        body: &[u8],
+    ) -> Result<Option<Value>, StreamError> {
+        binary_speech_response(status, headers, body).map(Some)
     }
 
     fn on_provider_body(

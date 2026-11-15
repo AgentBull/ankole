@@ -570,6 +570,7 @@ export class InputState {
     this.compositionCompletionPending ||= !!this.composing
     this.composing = null
     this.pendingInputEvent = null
+    this.shiftKey = false
     if (this.mouseSelection) this.mouseSelection.disconnect()
   }
 }
@@ -1274,6 +1275,7 @@ const baseObservers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: 
   },
 
   blur(wg) {
+    wg.inputState.shiftKey = false
     updateForFocusChange(wg)
   },
 

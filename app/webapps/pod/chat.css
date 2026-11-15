@@ -645,7 +645,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   overflow: auto;
   padding: 16px 18px 24px;
 }
-.pod-chat-file-panel-body > .pod-attachment-pdf {
+.pod-chat-file-panel-body > :is(.pod-attachment-pdf, .pod-attachment-html) {
   height: 100%;
 }
 /* The members of the summary are rows of the 14px step, a 24px avatar beside the name, and their state in the 12px

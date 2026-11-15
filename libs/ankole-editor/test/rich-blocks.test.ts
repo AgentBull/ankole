@@ -35,7 +35,7 @@ import {
 } from '../src/editor/link-views'
 import { linkAt, linkAtPos, singleLinkInRange, updateLinkAt } from '../src/editor/links'
 import { EditorContext } from '../src/react/context'
-import { ExternalEmbedBlock, MediaResourceBlock } from '../src/react/ResourceBlocks'
+import { ExternalEmbedBlock, MediaResourceBlock } from '../src/react/resource-blocks'
 import { expectReopens, exportMarkdown, open, openWithHost, readTree, select, typeText } from './helpers'
 
 test('all six headings can be inserted, identified, reopened and undone', () => {

@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startDriveCLIBridge } from '../src/cli/drive/drive-cli-bridge'
 import { startWebhookCLIBridge, webhookRPCRequester } from '../src/cli/webhooks/webhook-cli-bridge'
-import { DRIVE_CLI_SOCKET_ENV, WEBHOOK_CLI_SOCKET_ENV } from '../src/core/execution/turn_runtime_env'
-import { jsonBytes } from '../src/fabric/envelope_proto'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
+import { DRIVE_CLI_SOCKET_ENV, WEBHOOK_CLI_SOCKET_ENV } from '../src/core/execution/turn-runtime-env'
+import { jsonBytes } from '../src/fabric/envelope-proto'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
 import { FakeDrive } from './support/fake-drive'
 
 describe('CLI shell entrypoints', () => {

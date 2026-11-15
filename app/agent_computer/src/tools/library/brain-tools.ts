@@ -3,8 +3,8 @@ import { isRecord } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import { readTool } from '../../core/read-tools'
-import type { JobTurnRef } from '../../lanes/session_lane'
-import type { RPCRequester } from '../../lanes/rpc_lane'
+import type { JobTurnRef } from '../../lanes/session-lane'
+import type { RPCRequester } from '../../lanes/rpc-lane'
 
 /**
  * One Brain read declaration as `Ankole.Sessions.Tools.Brain.declarations/0`

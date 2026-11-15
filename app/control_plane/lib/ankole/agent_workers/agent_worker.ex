@@ -184,6 +184,11 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change(set_attribute(:initial_start_pending, true))
     end
 
+    create :register_unassigned do
+      accept([:agent_uid])
+      change(set_attribute(:initial_start_pending, false))
+    end
+
     update :reserve_slot do
       require_atomic?(true)
       accept([])

@@ -14,12 +14,9 @@ import {
   type EnvVarEntry
 } from './env-vars-dotenv'
 import { EnvVarsEditor } from './env-vars-editor'
-import {
-  AppletMissingEnvBanner,
-  AppletSettingsControl,
-  appletEnvKeys,
-  resolveAppletSettingsInitialTab
-} from './applet-settings'
+import { AppletMissingEnvBanner } from './applet-missing-env-banner'
+import { AppletSettingsControl } from './applet-settings'
+import { appletEnvKeys, resolveAppletSettingsInitialTab } from './applet-settings-state'
 import { AppletFunctionsTab } from './applet-automation'
 import { contentKeys, podFileURL, type PageDetail } from './content-api'
 

@@ -55,7 +55,11 @@ Every statement that a caller supplies to `query` or `explain` first passes
 `Ankole.Kernel.sql_inspect/2` in the engine's dialect. The kernel accepts one
 `SELECT` or `WITH` query and rejects the input with `empty`, `parse_error`,
 `multiple_statements`, `not_read_only`, `locking_clause`, or
-`side_effect_function`. The kernel raises `side_effect_function` when any part
+`side_effect_function`. The parser applies its depth budget to nested syntax,
+chained expressions, and set operations before constructing an oversized tree.
+Input that exceeds this budget receives a `parse_error`, including malformed
+or non-read-only statements. Independent expressions use separate depth
+budgets. The kernel raises `side_effect_function` when any part
 of the statement, including a table function or a `LATERAL` call, calls a
 built-in function of the dialect that has effects outside the query result,
 such as PostgreSQL `pg_notify`, advisory locks, `dblink`, or `pg_sleep`, MySQL

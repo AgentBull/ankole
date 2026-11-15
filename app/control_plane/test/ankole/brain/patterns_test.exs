@@ -162,6 +162,47 @@ defmodule Ankole.Brain.PatternsTest do
     assert %{status: :ok, pages: 0} = Patterns.run()
   end
 
+  test "accepts a file page as a valid pattern provenance source", context do
+    owner_actor = actor_fixture(context.owner)
+
+    {:ok, folder} =
+      Ankole.Pod.Pages.create(owner_actor, %{
+        title: "Uploads",
+        private_owner_uid: context.owner.uid
+      })
+
+    {:ok, file_page} =
+      Ankole.Pod.Files.create_from_upload(
+        owner_actor,
+        %{parent_id: folder.id},
+        "renewal-notes.txt",
+        "Renewal approval notes across projects.",
+        "text/plain"
+      )
+
+    for slug <- Enum.take(context.slugs, 3) do
+      write_fact!(
+        slug,
+        "File provenance requires renewal sign-off.",
+        file_page.id,
+        context.owner.uid
+      )
+    end
+
+    respond(context.state, [pattern(Enum.take(context.slugs, 3), "File-backed pattern summary.")])
+    assert %{status: :ok, pages: 2, buckets: 2} = Patterns.run()
+
+    file_pattern =
+      Enum.find(pages(), &(&1.upstream_state["source_node_id"] == file_page.id))
+
+    assert file_pattern
+    assert file_pattern.body =~ "File-backed pattern summary."
+    assert {:ok, _} = Ankole.Pod.Pages.get(owner_actor, file_pattern.id)
+
+    assert {:error, :forbidden} =
+             Ankole.Pod.Pages.get(actor_fixture(context.outsider), file_pattern.id)
+  end
+
   defp pattern(slugs, text \\ "Renewal approval recurs across projects.") do
     %{
       "topic" => "renewal-approval",

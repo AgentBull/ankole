@@ -297,4 +297,26 @@ defmodule Ankole.Brain.SkillLessonsTest do
     assert {:ok, _value} = AppConfigure.put_global_by_key("brain.skill_learning_enabled", false)
     assert %{status: :skipped, reason: :skill_learning_disabled} = SkillLessons.run_phase()
   end
+
+  test "bounded reflection prioritizes human-intervened jobs before newer failures while advancing the watermark",
+       %{agent: agent} do
+    assert {:ok, _value} =
+             AppConfigure.put_global_by_key("brain.skill_learning_reflection_threshold", 2)
+
+    steered = signal_job_with_steering!(agent)
+    failures = for _ <- 1..30, do: signal_job_with_failure!(agent)
+    latest = List.last(failures)
+
+    assert %{status: :ok, agents: agents} = SkillLessons.run_phase()
+
+    assert %{trigger: %{status: :reflection_created, job_id: reflection_id, signal_jobs: 31}} =
+             Map.fetch!(agents, agent.uid)
+
+    reflection = Repo.get!(Job, reflection_id)
+    assert reflection.metadata["through_job_id"] == latest.id
+    assert length(reflection.metadata["evidence_job_ids"]) == 30
+    assert steered.id in reflection.metadata["evidence_job_ids"]
+    assert reflection.metadata["human_input_job_ids"] == [steered.id]
+    refute hd(failures).id in reflection.metadata["evidence_job_ids"]
+  end
 end

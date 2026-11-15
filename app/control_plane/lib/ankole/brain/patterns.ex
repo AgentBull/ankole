@@ -122,7 +122,7 @@ defmodule Ankole.Brain.Patterns do
     Nodes.lock_roots(Nodes.root_ids([source_id, brain.id]))
 
     with {:ok, source} <- Nodes.lock(source_id),
-         true <- is_nil(source.deleted_at) and source.type != :file do
+         true <- is_nil(source.deleted_at) do
       Enum.reduce_while(patterns, {:ok, 0}, fn pattern, {:ok, count} ->
         case save_pattern(source, pattern) do
           {:ok, _} -> {:cont, {:ok, count + 1}}

@@ -364,12 +364,60 @@ defmodule Ankole.Pod.Files do
   def primary_files_by_page([]), do: %{}
 
   def primary_files_by_page(page_ids) when is_list(page_ids) do
-    Enum.reduce(page_ids, %{}, fn id, result ->
-      case all_files(id) do
-        {:ok, [file | _]} -> Map.put(result, id, entry(file))
-        _ -> result
+    ids = for id <- Enum.uniq(page_ids), is_binary(id), {:ok, id} <- [Ecto.UUID.cast(id)], do: id
+
+    if ids == [] do
+      %{}
+    else
+      pages =
+        Ankole.Pod.Page
+        |> Ash.Query.filter(id in ^ids)
+        |> Ankole.Ash.read!()
+
+      {file_pages, other_pages} = Enum.split_with(pages, &(&1.type == :file))
+
+      objects_by_id =
+        file_pages
+        |> Enum.map(& &1.object_id)
+        |> Enum.reject(&is_nil/1)
+        |> Drive.fetch_objects()
+
+      file_entries =
+        Enum.reduce(file_pages, %{}, fn page, acc ->
+          case Map.get(objects_by_id, page.object_id) do
+            nil ->
+              acc
+
+            object ->
+              Map.put(
+                acc,
+                page.id,
+                entry(%{
+                  path: page.name,
+                  object_id: object.id,
+                  sha256: object.sha256,
+                  size: object.size,
+                  content_type: page.content_type || MIME.from_path(page.name)
+                })
+              )
+          end
+        end)
+
+      other_ids = Enum.map(other_pages, & &1.id)
+
+      if other_ids == [] do
+        file_entries
+      else
+        PodFile
+        |> Ash.Query.filter(node_id in ^other_ids)
+        |> Ash.Query.load([:sha256, :size])
+        |> Ash.Query.sort(path: :asc)
+        |> Ankole.Ash.read!()
+        |> Enum.reduce(file_entries, fn file, acc ->
+          Map.put_new(acc, file.node_id, entry(file))
+        end)
       end
-    end)
+    end
   end
 
   defp publish_in_tx(

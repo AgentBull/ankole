@@ -4,15 +4,17 @@ import { Button } from '@ankole/uikit'
 import { useModel, useSignal } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { resolvePodLinkMetadata } from './content-api'
+import { hasBlockingSaveOverlay, isSaveShortcut, isSidebarEditorFocus } from './content-context'
 import { DocumentDraftModel } from './state/document-draft'
 import { DraftNavigationGuard } from './draft-navigation-guard'
 import { createMentionHostAdapters } from './document-mentions'
 import { usePageHref } from './use-page-metadata'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { KnowledgeProperties } from './knowledge-properties'
+import { PodTopBarSavingStatus } from './top-bar'
 import {
   KnowledgeDraftModel,
   knowledgeSubmission,
@@ -63,6 +65,16 @@ export function MetaDocument<Result>({
     [client, pageHref, i18n]
   )
   const [reviewing, setReviewing] = useState(false)
+  const [manualSaving, setManualSaving] = useState(false)
+  const flushRef = useRef<(() => void) | null>(null)
+  const savePromiseRef = useRef<Promise<unknown> | null>(null)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
   const editorError = useSignal<unknown>(null)
   const showBody = typeof bodyEnabled === 'function' ? bodyEnabled(draft.editing.value) : bodyEnabled
   const mutation = useMutation({
@@ -72,6 +84,36 @@ export function MetaDocument<Result>({
       onSaved?.(result)
     }
   })
+  const submitSave = async (fromShortcut = false) => {
+    flushRef.current?.()
+    if (savePromiseRef.current || draft.parsed.peek().error) return
+    if (fromShortcut && !body.hasUnsavedChanges.peek() && !draft.dirty.peek() && !pendingChanges) return
+    if (fromShortcut) setManualSaving(true)
+    const pending = mutation.mutateAsync(knowledgeSubmission(body, draft))
+    savePromiseRef.current = pending
+    try {
+      await pending
+    } catch {
+      // Save error is captured in `mutation.error` and rendered via `<ContentError>`.
+    } finally {
+      if (savePromiseRef.current === pending) savePromiseRef.current = null
+      if (fromShortcut && mountedRef.current) setManualSaving(false)
+    }
+  }
+  const onSaveKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (!canEdit || !draft.editing.peek()) return
+    if (!isSaveShortcut(event)) return
+    if (hasBlockingSaveOverlay(document) || isSidebarEditorFocus(document.activeElement)) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.repeat || event.isComposing || event.keyCode === 229 || savePromiseRef.current) return
+    void submitSave(true)
+  })
+  useEffect(() => {
+    if (!canEdit || !draft.editing.value) return
+    window.addEventListener('keydown', onSaveKeyDown, true)
+    return () => window.removeEventListener('keydown', onSaveKeyDown, true)
+  }, [canEdit, draft.editing.value])
   const begin = () => {
     onBegin?.()
     body.xml.value = xml
@@ -83,6 +125,7 @@ export function MetaDocument<Result>({
   }
   return (
     <section className="space-y-4 rounded-lg border border-border p-5">
+      {manualSaving && <PodTopBarSavingStatus />}
       <DraftNavigationGuard
         dirty={draft.editing.value && (body.hasUnsavedChanges.value || draft.dirty.value || pendingChanges)}
       />
@@ -108,7 +151,7 @@ export function MetaDocument<Result>({
             <Button
               size="sm"
               disabled={mutation.isPending || !!draft.parsed.value.error}
-              onClick={() => mutation.mutate(knowledgeSubmission(body, draft))}>
+              onClick={() => void submitSave(false)}>
               {t('common.save')}
             </Button>
           </div>
@@ -125,6 +168,7 @@ export function MetaDocument<Result>({
               host={host}
               labels={editorLabels(i18n.language)}
               disabled={mutation.isPending}
+              flushRef={flushRef}
               onChange={value => {
                 body.xml.value = value
               }}

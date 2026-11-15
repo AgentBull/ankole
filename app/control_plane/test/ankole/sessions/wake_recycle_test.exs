@@ -140,6 +140,20 @@ defmodule Ankole.Sessions.WakeRecycleTest do
           "output" => %{"ok" => true}
         },
         %{
+          "type" => "function_call",
+          "call_id" => "call-other-workspace",
+          "name" => "read_file",
+          "arguments" =>
+            Jason.encode!(%{
+              "path" => "/workspace/sessions/#{first_run.workspace_id + 1}/other-conversation.txt"
+            })
+        },
+        %{
+          "type" => "function_call_output",
+          "call_id" => "call-other-workspace",
+          "output" => "file not found"
+        },
+        %{
           "type" => "message",
           "role" => "assistant",
           "content" => [%{"type" => "output_text", "text" => "Initial check complete."}]
@@ -209,6 +223,9 @@ defmodule Ankole.Sessions.WakeRecycleTest do
       assert briefing =~ "<recent-actions>"
       assert briefing =~ "<objects-in-play>"
       assert briefing =~ "Deploy checklist v2 live content"
+
+      refute briefing =~
+               ~s(<object path="/workspace/sessions/#{first_run.workspace_id + 1}/other-conversation.txt")
 
       assert briefing =~
                ~s(path="/workspace/sessions/#{recycled_run.workspace_id}/notes/session_memo.md" source="workspace" status="worker_offline_not_reread")

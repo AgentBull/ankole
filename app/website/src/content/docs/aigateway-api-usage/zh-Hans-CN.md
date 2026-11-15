@@ -92,7 +92,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/decisions \
   }'
 ```
 
-`score` 问题的 `criteria` 包含 2 到 10 个有序等级标签。响应包含 `model`、`answers` 和 token `usage`，每个答案都带有概率。TypeSafe、Azure Foundry、OpenRouter、OpenAI 和 Cloudflare 的决策模型共用这一公开请求格式，但上游图像能力不同：SystemOne 接受 PNG/JPEG，Microsoft-Decision-1 仅支持文本，OpenAI 还支持 WebP。OpenAI 对任一问题拒答时，网关返回 `422 upstream_decision_refusal`，不返回残缺答案。未配置决策模型档案时，由调用方的 `light` 语言模型作答，其概率未经校准。
+`score` 问题的 `criteria` 包含 2 到 10 个有序等级标签。响应包含 `model`、`answers` 和 token `usage`，每个答案都带有概率。TypeSafe、Azure Foundry、OpenRouter、OpenAI、Google AI Studio 和 Cloudflare 的决策模型共用这一公开请求格式，但上游图像能力不同：SystemOne 接受 PNG/JPEG，Microsoft-Decision-1 仅支持文本，OpenAI 和 Google AI Studio 还支持 WebP。OpenAI 拒答或 Google 安全策略拦截时，网关返回 `422 upstream_decision_refusal`，不返回残缺答案。未配置决策模型档案时，由调用方的 `light` 语言模型作答，其概率未经校准。
 
 ## 本指南不是什么
 

@@ -6,7 +6,6 @@ import {
   chatCommandPolicy,
   chatRecipientAvailable,
   effectiveTargetAgentUID,
-  issueRecipientUID,
   mergeMessages,
   resolveFollowUpDeliveryModes,
   shouldSendOnEnter,
@@ -68,23 +67,10 @@ test('an explicit recipient must remain a callable active member while team disc
   expect(chatRecipientAvailable('', [], [])).toBe(true)
 })
 
-test("the room of an Issue addresses the Issue's Agent by default once it is a group", () => {
-  const agents = [
-    { uid: 'agent-a', active: true },
-    { uid: 'agent-b', active: true }
-  ]
-  const room = (roomMode: string, issueAgentUID?: string) => ({ issueAgentUID, conversation: { roomMode, agents } })
-  expect(issueRecipientUID(room('group', 'agent-a'), ['agent-a'])).toBe('agent-a')
-  // A dm addresses its Agent already, and a group without an Issue keeps the choice of who may respond.
-  expect(issueRecipientUID(room('dm', 'agent-a'), ['agent-a'])).toBeUndefined()
-  expect(issueRecipientUID(room('group'), ['agent-a'])).toBeUndefined()
-  // An Agent that the person cannot call leaves the recipient to the person.
-  expect(issueRecipientUID(room('group', 'agent-a'), ['agent-b'])).toBeUndefined()
-
-  // Uninitialized selection (null) follows issueRecipientUID, while explicit '' preserves group listeners.
-  expect(effectiveTargetAgentUID(null, room('group', 'agent-a'), ['agent-a', 'agent-b'])).toBe('agent-a')
-  expect(effectiveTargetAgentUID('', room('group', 'agent-a'), ['agent-a', 'agent-b'])).toBe('')
-  expect(effectiveTargetAgentUID('agent-b', room('group', 'agent-a'), ['agent-a', 'agent-b'])).toBe('agent-b')
+test('effectiveTargetAgentUID maps null and empty selection to group listeners while preserving explicit Agent UID', () => {
+  expect(effectiveTargetAgentUID(null)).toBe('')
+  expect(effectiveTargetAgentUID('')).toBe('')
+  expect(effectiveTargetAgentUID('agent-b')).toBe('agent-b')
 })
 
 test('composer, retry and message actions share command eligibility without blocking stop during model selection', () => {

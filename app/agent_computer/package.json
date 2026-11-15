@@ -33,7 +33,7 @@
     "@bufbuild/protobuf": "2.17.0",
     "@ff-labs/fff-bun": "0.11.0",
     "@opentelemetry/api": "^1.10.0",
-    "@opentelemetry/otlp-transformer": "^0.301.1",
+    "@opentelemetry/otlp-transformer": "^0.301.2",
     "@opentelemetry/resources": "^3.1.1",
     "@opentelemetry/sdk-trace": "^3.1.1",
     "pele": "1.13.0",
@@ -46,6 +46,6 @@
     "@bufbuild/protoc-gen-es": "2.17.0",
     "@types/bun": "1.4.4",
     "@types/phoenix": "^1.6.7",
-    "openai": "7.55.0"
+    "openai": "7.56.0"
   }
 }

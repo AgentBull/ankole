@@ -252,4 +252,82 @@ defmodule Ankole.Connectors.CloudAccessTest do
                "target" => %{"conversation_id" => Ankole.Kernel.gen_uuid_v7()}
              })
   end
+
+  test "personal connector subscriptions deliver to the owner's personal assistant under Human WorkAccess while service subscriptions require an AI colleague",
+       ctx do
+    worker_provider_fixture(%{is_default: true})
+    {:ok, %{principal: member_pa}} = Ankole.Principals.ensure_personal_assistant(ctx.member.uid)
+    {:ok, %{principal: admin_pa}} = Ankole.Principals.ensure_personal_assistant(ctx.admin.uid)
+
+    conversation_id = Ankole.Kernel.gen_uuid_v7()
+
+    {:ok, _} =
+      Ankole.ConversationsFixtures.create(ctx.member.uid, %{
+        conversation_id: conversation_id,
+        message_id: Ankole.Kernel.gen_uuid_v7(),
+        agent_uid: member_pa.uid,
+        text: "Watch my calendar."
+      })
+
+    {:ok, config} =
+      Store.create_auth_config(ctx.admin, %{
+        "plugin_id" => "lark",
+        "slug" => "personal-calendar",
+        "auth_scheme" => "lark_app",
+        "secret" => %{"appID" => "cal-#{ctx.admin.uid}", "appSecret" => "secret"}
+      })
+
+    {:ok, account} =
+      Accounts.put_human_tokens(
+        config.id,
+        ctx.member.uid,
+        %{"access_token" => "member-cal-token"},
+        %{granted_scopes: ["calendar:calendar.event:read"]}
+      )
+
+    {:ok, personal_trigger} =
+      Triggers.create(ctx.member, %{
+        "auth_config_id" => config.id,
+        "connected_account_id" => account.id,
+        "trigger_type" => "lark_calendar",
+        "scope_key" => "primary"
+      })
+
+    assert {:ok, _binding} =
+             Ankole.Signals.EventBindings.put(Ankole.AuthZ.Actor.new(ctx.member), %{
+               "config_ref" => "connector-trigger://" <> personal_trigger.id,
+               "agent_uid" => member_pa.uid,
+               "target" => %{"conversation_id" => conversation_id}
+             })
+
+    assert {:ok, %{signals: [signal]}} =
+             Ankole.Connectors.Ingress.receive_cloud_delivery(%{
+               "kind" => "trigger_event",
+               "pod_trigger_id" => personal_trigger.id,
+               "delivery_id" => "evt-personal-1",
+               "cloud_event" => %{
+                 "type" => "lark.calendar.event.updated",
+                 "data" => %{"calendar_id" => "primary"}
+               }
+             })
+
+    assert signal.agent_uid == member_pa.uid
+    assert signal.authorization_kind == "human"
+    assert signal.human_uid == ctx.member.uid
+    assert signal.human_access_version == ctx.member.access_version
+
+    {:ok, service_trigger} =
+      Triggers.create(ctx.admin, %{
+        "auth_config_id" => config.id,
+        "trigger_type" => "lark_approval",
+        "scope_key" => "approval-definition"
+      })
+
+    assert {:error, :personal_assistant_requires_human_work} =
+             Ankole.Signals.EventBindings.put(Ankole.AuthZ.Actor.new(ctx.admin), %{
+               "config_ref" => "connector-trigger://" <> service_trigger.id,
+               "agent_uid" => admin_pa.uid,
+               "target" => %{"conversation_id" => Ankole.Kernel.gen_uuid_v7()}
+             })
+  end
 end

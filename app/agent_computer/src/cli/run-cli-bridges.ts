@@ -8,11 +8,11 @@ import {
   DRIVE_CLI_SOCKET_ENV,
   POD_CLI_SOCKET_ENV,
   WEBHOOK_CLI_SOCKET_ENV
-} from '../core/execution/turn_runtime_env'
+} from '../core/execution/turn-runtime-env'
 import type { SocketLineBridge } from '../core/socket-line-bridge'
 import type { Drive } from '../drive/drive'
-import { type RPCRequester } from '../lanes/rpc_lane'
-import type { JobTurnRef, RunRef } from '../lanes/session_lane'
+import { type RPCRequester } from '../lanes/rpc-lane'
+import type { JobTurnRef, RunRef } from '../lanes/session-lane'
 import { writeContextGenerationFile } from './cli-guidance'
 import { startDriveCLIBridge } from './drive/drive-cli-bridge'
 import { startPodCLIBridge } from './pod/pod-cli-bridge'

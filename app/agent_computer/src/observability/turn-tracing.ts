@@ -13,7 +13,7 @@ import { TracerProvider, BatchSpanProcessor, type ReadableSpan, type SpanExporte
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { redactText, sensitiveKey } from '../common/content-redaction'
-import type { TurnStart } from '../lanes/session_lane'
+import type { TurnStart } from '../lanes/session-lane'
 import { toError } from '../common/errors'
 
 const tracerName = 'ankole-worker'

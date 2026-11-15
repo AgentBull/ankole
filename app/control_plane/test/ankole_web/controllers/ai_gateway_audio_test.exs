@@ -193,6 +193,7 @@ defmodule AnkoleWeb.AIGatewayAudioTest do
 
     for {option, value} <- [
           {"response_format", "pcm"},
+          {"response_format", "wav"},
           {"speed", 1.5},
           {"instructions", "Whisper."}
         ] do
@@ -220,7 +221,7 @@ defmodule AnkoleWeb.AIGatewayAudioTest do
           {%{}, "input"},
           {%{"input" => "  "}, "input"},
           {%{"input" => "Hello.", "voice" => ""}, "voice"},
-          {%{"input" => "Hello.", "response_format" => "wav"}, "response_format"},
+          {%{"input" => "Hello.", "response_format" => "flac"}, "response_format"},
           {%{"input" => "Hello.", "speed" => 0}, "speed"}
         ] do
       assert %{"error" => %{"param" => ^param}} =

@@ -1,6 +1,7 @@
 defmodule Ankole.Connectors.Ingress do
   @moduledoc "Verifies a tenant-bound provider event before its durable Signal fanout."
   alias Ankole.Connectors.{Credentials, Registry, Store, Triggers}
+  alias Ankole.Principals.WorkAccess
 
   @doc "Accepts a delivery after the configured Cloud provider authenticates and binds its Pod scope."
   def receive_cloud_delivery(%{
@@ -10,9 +11,13 @@ defmodule Ankole.Connectors.Ingress do
         "cloud_event" => event
       })
       when is_binary(delivery_id) and is_map(event) do
-    with {:ok, %{trigger: trigger}} <- Triggers.get_ingress(id),
+    with {:ok, %{trigger: trigger, authorization: authorization}} <- Triggers.get_ingress(id),
          true <- is_binary(event["type"]) and is_map(event["data"]) do
-      Ankole.Signals.emit("connector-trigger://" <> trigger.id, Map.put(event, "id", delivery_id))
+      Ankole.Signals.emit(
+        "connector-trigger://" <> trigger.id,
+        Map.put(event, "id", delivery_id),
+        authorization: authorization
+      )
     else
       false -> {:error, :invalid_cloud_event}
       error -> error
@@ -31,16 +36,17 @@ defmodule Ankole.Connectors.Ingress do
   def receive_event(:auth, id, body, headers) do
     with {:ok, config} <- Store.get_auth_config(id),
          {:ok, secret} <- Credentials.secret(config),
-         do: dispatch(config, nil, secret, body, headers)
+         do: dispatch(config, nil, secret, body, headers, WorkAccess.service())
   end
 
   def receive_event(:trigger, id, body, headers) do
-    with {:ok, %{auth_config: config, trigger: trigger, secret: secret}} <-
+    with {:ok,
+          %{auth_config: config, trigger: trigger, secret: secret, authorization: authorization}} <-
            Triggers.get_ingress(id),
-         do: dispatch(config, trigger, secret, body, headers)
+         do: dispatch(config, trigger, secret, body, headers, authorization)
   end
 
-  defp dispatch(config, trigger, secret, body, headers) do
+  defp dispatch(config, trigger, secret, body, headers, authorization) do
     with {:ok, adapter} <- Registry.adapter(config.plugin_id),
          true <- function_exported?(adapter, :webhook, 4) do
       case adapter.webhook(config, secret, body, headers) do
@@ -64,7 +70,7 @@ defmodule Ankole.Connectors.Ingress do
             end
 
           with {:ok, references} <- references,
-               {:ok, _} <- emit(references, event) do
+               {:ok, _} <- emit(references, event, authorization) do
             {:ok,
              if(function_exported?(adapter, :webhook_response, 1),
                do: adapter.webhook_response(event),
@@ -81,9 +87,9 @@ defmodule Ankole.Connectors.Ingress do
     end
   end
 
-  defp emit(references, event) do
+  defp emit(references, event, authorization) do
     Enum.reduce_while(references, {:ok, %{}}, fn reference, _ ->
-      case Ankole.Signals.emit(reference, event) do
+      case Ankole.Signals.emit(reference, event, authorization: authorization) do
         {:ok, _} -> {:cont, {:ok, %{}}}
         error -> {:halt, error}
       end

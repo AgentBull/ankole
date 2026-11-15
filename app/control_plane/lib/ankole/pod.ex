@@ -114,7 +114,7 @@ defmodule Ankole.Pod do
 
   resources do
     resource(Ankole.AutomationJobs.Browser)
-    resource(Ankole.Issues.Browser)
+    resource(Ankole.Pod.JobsBoard.Browser)
     resource(Ankole.Signals.EventBindingsBrowser)
     resource(Ankole.Principals.PodAdminOperations)
     resource(Ankole.AIAgent.Library.Browser)
@@ -310,18 +310,36 @@ defmodule Ankole.Pod do
         )
       end
 
-      base_route "/issues", Ankole.Issues.Browser do
-        route(:get, "/", :list, name: "podIssues", wrap_in_result?: false)
-        route(:post, "/", :create, name: "createPodIssue", wrap_in_result?: false)
-        route(:get, "/scheduled", :scheduled, name: "podScheduledWork", wrap_in_result?: false)
+      base_route "/jobs", Ankole.Pod.JobsBoard.Browser do
+        route(:get, "/", :list, name: "podJobs", wrap_in_result?: false)
+        route(:get, "/summary", :summary, name: "podJobsSummary", wrap_in_result?: false)
+        route(:post, "/", :create, name: "createPodJob", wrap_in_result?: false)
 
-        route(:patch, "/scheduled/:id", :change_schedule,
-          name: "changePodScheduledWork",
+        route(:get, "/routines/:kind/:raw_id", :routine_detail,
+          name: "podJobRoutine",
           wrap_in_result?: false
         )
 
-        route(:get, "/:id", :show, name: "podIssue", wrap_in_result?: false)
-        route(:patch, "/:id", :update, name: "updatePodIssue", wrap_in_result?: false)
+        route(:patch, "/routines/:kind/:raw_id", :change_routine,
+          name: "changePodJobRoutine",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/executions/:kind/:run_id", :execution,
+          name: "podJobExecution",
+          query_params: [:cursor],
+          wrap_in_result?: false
+        )
+
+        route(:post, "/executions/:kind/:run_id/stop", :stop_execution,
+          name: "stopPodJobExecution",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/executions/:run_id/messages", :message_execution,
+          name: "messagePodJobExecution",
+          wrap_in_result?: false
+        )
       end
 
       base_route "/signal-bindings", Ankole.Signals.EventBindingsBrowser do

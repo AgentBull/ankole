@@ -114,7 +114,12 @@ defmodule Ankole.Pod.Knowledge do
            :ok <- Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: parsed.plain_text),
            :ok <-
              History.checkpoint_in_tx(page, content, now, Keyword.get(opts, :reason, :checkpoint)),
-           :ok <- Ankole.Brain.Knowledge.page_changed_in_tx(page, content) do
+           :ok <-
+             Ankole.Brain.Knowledge.page_changed_in_tx(
+               page,
+               content,
+               Keyword.take(opts, [:actor, :context])
+             ) do
         {:ok, %{page: page, content: content}}
       end
     else

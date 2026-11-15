@@ -26,7 +26,11 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
-    setting(:user, scope: :request, advanced: true)
+    setting(:user,
+      scope: :request,
+      advanced: true,
+      capabilities: [:language_model, :embedding_model]
+    )
 
     setting(:reasoningEffort,
       type: :select,
@@ -64,7 +68,16 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
       api_resolver(:google_embeddings)
       prepare(:prepare_embedding_model)
     end
+
+    decision_model do
+      api_resolver(:google_decision)
+      prepare(:prepare_decision_model)
+    end
   end
+
+  @decision_unsupported_options ~w(
+    user reasoningEffort taskType title outputDimensionality autoTruncate
+  )
 
   @doc "Returns the reasoning-effort target and value map of this provider's language-model requests."
   def reasoning_effort_options, do: [target: :reasoning_effort, map: @reasoning_effort_map]
@@ -100,6 +113,32 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     end
   end
 
+  @doc """
+  Builds a Google native Decisions API request.
+
+  Google Decisions lives at `/v1beta/decisions` beside the `/openai` chat
+  compatibility prefix and authenticates with `x-goog-api-key`.
+  """
+  def prepare_decision_model(ctx) do
+    with :ok <- validate_decision_options(ctx.provider_options) do
+      ctx = put_in(ctx.settings[:base_url], google_decision_base_url(ctx))
+
+      ctx
+      |> UniversalAIRequest.new("decisions", :google_decision)
+      |> UniversalAIRequest.put_new_header("x-goog-api-client", "ankole-ai-gateway/0.1")
+      |> UniversalAIRequest.api_key_header("x-goog-api-key")
+    end
+  end
+
+  defp validate_decision_options(options) when is_map(options) do
+    case Enum.find(@decision_unsupported_options, &Map.has_key?(options, &1)) do
+      nil -> :ok
+      option -> {:error, {:unsupported_provider_option, option, "decisions"}}
+    end
+  end
+
+  defp validate_decision_options(_options), do: :ok
+
   # The official embeddings API uses `embedContent` for one input and
   # `batchEmbedContents` for multiple text inputs. Token vectors are not treated
   # as batches because they are one already-tokenized input.
@@ -127,6 +166,12 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     |> to_string()
     |> String.trim_trailing("/")
     |> String.replace_suffix("/openai", "")
+  end
+
+  defp google_decision_base_url(ctx) do
+    ctx
+    |> google_native_base_url()
+    |> String.replace_suffix("/decisions", "")
   end
 
   defp google_model_path("models/" <> _rest = model), do: model

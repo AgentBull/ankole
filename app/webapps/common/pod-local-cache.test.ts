@@ -11,7 +11,10 @@ import {
 
 const originalIndexedDB = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
 
-function createFakeIndexedDB() {
+function createFakeIndexedDB(
+  initialRecords: { namespace: string }[] = [],
+  deliverRead: (complete: () => void) => void = queueMicrotask
+) {
   const databases = new Map<string, Map<string, Map<string, unknown>>>()
 
   return {
@@ -36,7 +39,9 @@ function createFakeIndexedDB() {
             contains: (storeName: string) => resolvedStores.has(storeName)
           },
           createObjectStore: (storeName: string) => {
-            if (!resolvedStores.has(storeName)) resolvedStores.set(storeName, new Map())
+            if (!resolvedStores.has(storeName)) {
+              resolvedStores.set(storeName, new Map(initialRecords.map(record => [record.namespace, record])))
+            }
             return {}
           },
           transaction: (storeName: string, _mode: string) => {
@@ -49,8 +54,9 @@ function createFakeIndexedDB() {
               objectStore: () => ({
                 get(key: string) {
                   const getReq: Record<string, any> = { result: undefined, onsuccess: null, onerror: null }
-                  queueMicrotask(() => {
-                    getReq.result = storeMap.get(key)
+                  const value = structuredClone(storeMap.get(key))
+                  deliverRead(() => {
+                    getReq.result = value
                     getReq.onsuccess?.()
                   })
                   return getReq
@@ -128,4 +134,48 @@ test('pod-local-cache isolates page metadata and recent searches by (podId, prin
   expect(await readCachedPodPages('pod-a', 'alice')).toEqual([])
   expect(await readCachedPodRecentSearches('pod-a', 'alice')).toEqual([])
   expect(await readCachedPodPages('pod-b', 'bob')).toHaveLength(1)
+})
+
+test('concurrent cold writes preserve page metadata and recent searches in the same namespace', async () => {
+  const searches = [{ id: 'q-1', query: 'budget', result_count: 1, updated_at: '2026-11-14T10:00:00Z' }]
+  await Promise.all([
+    writeCachedPodPages('pod-a', 'alice', [{ id: 'page-1', title: 'Budget' }]),
+    writeCachedPodPages('pod-a', 'alice', [{ id: 'page-2', title: 'Plans' }]),
+    writeCachedPodRecentSearches('pod-a', 'alice', searches)
+  ])
+
+  expect(await readCachedPodPages('pod-a', 'alice')).toEqual([
+    { id: 'page-1', title: 'Budget' },
+    { id: 'page-2', title: 'Plans' }
+  ])
+  expect(await readCachedPodRecentSearches('pod-a', 'alice')).toEqual(searches)
+})
+
+test('a disk read started before sign-out cannot restore the cleared namespace', async () => {
+  const record = {
+    namespace: 'pod-a:alice',
+    podId: 'pod-a',
+    principalUid: 'alice',
+    pages: { 'page-1': { id: 'page-1', title: 'Budget' } },
+    recentSearches: [{ id: 'q-1', query: 'budget', result_count: 1, updated_at: '2026-11-14T10:00:00Z' }],
+    updatedAt: Date.now()
+  }
+  const started = Promise.withResolvers<void>()
+  let completeRead: () => void = () => {}
+  Object.defineProperty(globalThis, 'indexedDB', {
+    configurable: true,
+    value: createFakeIndexedDB([record], complete => {
+      completeRead = complete
+      started.resolve()
+    })
+  })
+
+  const reading = readCachedPodPages('pod-a', 'alice')
+  await started.promise
+  const clearing = clearPodLocalCache({ podId: 'pod-a', principalUid: 'alice' })
+  completeRead()
+  await clearing
+
+  expect(await reading).toEqual([])
+  expect(peekCachedPodRecentSearches('pod-a', 'alice')).toBeUndefined()
 })

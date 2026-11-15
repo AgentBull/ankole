@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserRuntime } from '../../../src/browser-runtime'
-import { createEnvelope, envelopeHeader, RPCResponseSchema, type Envelope } from '../../../src/fabric/envelope_proto'
+import { createEnvelope, envelopeHeader, RPCResponseSchema, type Envelope } from '../../../src/fabric/envelope-proto'
 import {
   SignalEnvelopeSchema,
   TurnControlSchema,
@@ -12,12 +12,12 @@ import {
 } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { ActorTurnAbortResponseSchema } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { RuntimeFabricTransportError, type EnvelopeSender } from '../../../src/fabric/fabric'
-import { jobTurnRefToProto } from '../../../src/lanes/session_lane'
-import { RuntimeRPCClient } from '../../../src/lanes/rpc_lane'
-import { ActiveTurns } from '../../../src/worker/active_turns'
+import { jobTurnRefToProto } from '../../../src/lanes/session-lane'
+import { RuntimeRPCClient } from '../../../src/lanes/rpc-lane'
+import { ActiveTurns } from '../../../src/worker/active-turns'
 import type { WorkerConfig } from '../../../src/worker/config'
 import { WorkerDrainState } from '../../../src/worker/drain'
-import { Slots } from '../../../src/worker/lifecycle_messages'
+import { Slots } from '../../../src/worker/lifecycle-messages'
 
 const turn = {
   session: { agent_uid: 'agent-1', session_id: 'job:1000' },

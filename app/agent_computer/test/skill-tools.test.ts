@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import { createSkillTools } from '../src/tools/library/skill-tools'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope-proto'
 import { RuntimeSkillSummarySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
-import type { JobTurnRef } from '../src/lanes/session_lane'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
+import type { JobTurnRef } from '../src/lanes/session-lane'
 import { createSkillLoader } from '../src/skills/skill-loader'
 
 const turn: JobTurnRef = {

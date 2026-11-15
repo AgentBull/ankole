@@ -24,6 +24,7 @@ export function createPageMetadata(persistence?: { podId?: string | null; princi
   let sync!: Parameters<SyncConfig<PageMetadata, string>['sync']>[0]
   let disposed = false
   let version = 0
+  let notifyRevision = 0
   const changed = new Map<string, number>()
   const listeners = new Set<() => void>()
   const collection = createCollection<PageMetadata, string>({
@@ -72,6 +73,7 @@ export function createPageMetadata(persistence?: { podId?: string | null; princi
     }
     sync.commit()
     if (wrote) {
+      notifyRevision++
       if (persist && persistence?.podId && persistence.principalUid) {
         void writeCachedPodPages(persistence.podId, persistence.principalUid, writtenEntries)
       }
@@ -89,6 +91,9 @@ export function createPageMetadata(persistence?: { podId?: string | null; princi
 
   return {
     collection,
+    revision(): number {
+      return notifyRevision
+    },
     values(): PageMetadata[] {
       return [...collection.values()]
     },

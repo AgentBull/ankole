@@ -460,7 +460,7 @@ defmodule Ankole.Repo do
 
   defp scope_source(expression, _tenant), do: expression
 
-  # This is the Ecto 3.14.2 adapter boundary. The dependency is pinned in mix.exs;
+  # This is the Ecto 3.14.3 adapter boundary. The dependency is pinned in mix.exs;
   # compound ON parameters and every schema's associations run through the SQL
   # planner in repo_tenancy_test.exs. An unsupported expression must fail closed.
   defp scope_join(%Ecto.Query.JoinExpr{on: %Ecto.Query.QueryExpr{}} = join, query, tenant, index) do

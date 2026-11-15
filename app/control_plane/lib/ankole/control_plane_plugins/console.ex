@@ -1,6 +1,7 @@
 defmodule Ankole.ControlPlanePlugins.Console do
   @moduledoc "Console configuration of Control Plane Plugins."
   use Ankole.Ash.OperationResource,
+    tenancy: :site,
     authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.ControlPlanePlugins,
     data_layer: Ash.DataLayer.Simple,

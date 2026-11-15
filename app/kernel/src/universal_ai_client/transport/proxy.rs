@@ -523,6 +523,7 @@ mod tests {
             url: format!("http://{address}/unavailable"),
             headers: Vec::new(),
             body: None,
+            body_bytes: None,
             websocket_initial_messages: Vec::new(),
             timeout: TimeoutSpec {
                 connect_ms: 100,
@@ -560,6 +561,7 @@ mod tests {
                 url: format!("ws://{address}/responses"),
                 headers: Vec::new(),
                 body: None,
+                body_bytes: None,
                 websocket_initial_messages: Vec::new(),
                 timeout: TimeoutSpec {
                     connect_ms: 200,

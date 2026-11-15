@@ -9,9 +9,22 @@ pub struct APIResolver {
     prepare_error: Option<StreamError>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawWireBody {
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
 pub trait APIProtocol: std::fmt::Debug + Send + Sync {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(context.resolved_provider_request_object())
+    }
+
+    fn build_raw_body(
+        &self,
+        _context: &ResponseContext,
+    ) -> Result<Option<RawWireBody>, StreamError> {
+        Ok(None)
     }
 
     fn websocket_initial_messages(
@@ -49,6 +62,16 @@ pub trait APIProtocol: std::fmt::Debug + Send + Sync {
         _error: &StreamError,
     ) -> Vec<Value> {
         Vec::new()
+    }
+
+    fn on_provider_response(
+        &mut self,
+        _context: &ResponseContext,
+        _status: u16,
+        _headers: &[(String, String)],
+        _body: &[u8],
+    ) -> Result<Option<Value>, StreamError> {
+        Ok(None)
     }
 
     fn on_provider_body(
@@ -111,6 +134,11 @@ impl APIResolver {
         self.protocol.build_body(&self.provider_context)
     }
 
+    pub fn build_raw_body(&self) -> Result<Option<RawWireBody>, StreamError> {
+        self.check_prepared()?;
+        self.protocol.build_raw_body(&self.provider_context)
+    }
+
     pub(crate) fn websocket_initial_messages(&self) -> Result<Vec<String>, StreamError> {
         self.check_prepared()?;
         self.protocol
@@ -143,6 +171,31 @@ impl APIResolver {
         let events = self.protocol.on_transport_error(&self.context, error);
         self.opaque_tool_fields
             .fail_events(&self.context, error, events)
+    }
+
+    pub fn normalize_http_response(
+        &mut self,
+        status: u16,
+        headers: &[(String, String)],
+        body: &[u8],
+    ) -> Result<Value, StreamError> {
+        self.check_prepared()?;
+        if let Some(response) =
+            self.protocol
+                .on_provider_response(&self.context, status, headers, body)?
+        {
+            return self.opaque_tool_fields.lift_response(response);
+        }
+        let decoded = sonic_rs::from_slice::<Value>(body).map_err(|reason| {
+            StreamError::new(
+                "invalid_upstream_response",
+                "api_resolver",
+                format!("upstream response body must contain valid JSON: {reason}"),
+            )
+            .provider_status(status)
+            .provider_body_excerpt(body)
+        })?;
+        self.normalize_body(status, decoded)
     }
 
     pub fn normalize_body(&mut self, status: u16, body: Value) -> Result<Value, StreamError> {
@@ -198,6 +251,7 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::CloudflareDecision => Box::new(CloudflareDecision),
         APIResolverKind::SystemoneDecision => Box::new(SystemOneDecision),
         APIResolverKind::OpenAIDecision => Box::new(OpenAIDecision),
+        APIResolverKind::GoogleDecision => Box::new(GoogleDecision),
         APIResolverKind::CloudflareImages => Box::new(CloudflareImages),
         APIResolverKind::OpenrouterSpeech => Box::new(OpenrouterSpeech),
         APIResolverKind::CloudflareSpeech => Box::new(CloudflareSpeech),
@@ -208,6 +262,15 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::AmazonTextractOcr => Box::new(AmazonTextractOcr),
         APIResolverKind::OpenrouterVideo => Box::new(OpenrouterVideo),
         APIResolverKind::CloudflareMusic => Box::new(CloudflareMusic),
+        APIResolverKind::AlibabaDashscopeSpeech => Box::new(AlibabaDashscopeSpeech),
+        APIResolverKind::AlibabaDashscopeTranscription => Box::new(AlibabaDashscopeTranscription),
+        APIResolverKind::AlibabaDashscopeOcr => Box::new(AlibabaDashscopeOcr),
+        APIResolverKind::VolcengineSpeech => Box::new(VolcengineSpeech),
+        APIResolverKind::VolcengineTranscription => Box::new(VolcengineTranscription),
+        APIResolverKind::VolcengineVisualOcr => Box::new(VolcengineVisualOcr),
+        APIResolverKind::DeepseekSpeech => Box::new(DeepseekSpeech),
+        APIResolverKind::DeepseekTranscription => Box::new(DeepseekTranscription),
+        APIResolverKind::DeepseekOcr => Box::new(DeepseekOcr),
     }
 }
 

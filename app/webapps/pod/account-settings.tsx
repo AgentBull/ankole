@@ -16,12 +16,14 @@ import {
   ArrowRightRegular,
   DesktopRegular,
   LinkMultipleRegular,
+  OpenRegular,
   PersonRegular,
   ShieldKeyholeRegular,
   SignOutRegular
 } from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   exitPod,
@@ -33,7 +35,16 @@ import {
   verifyPodEmailBinding
 } from './api/generated/sdk.gen'
 import type { PodMeResponse } from './api/generated/types.gen'
-import { replaceAuthentication } from '../common/browser-context'
+import {
+  isDesktopRuntime,
+  podID,
+  podPublicOrigin,
+  principalUID,
+  replaceAuthentication
+} from '../common/browser-context'
+import { clearPodSessionDrafts } from '../common/browser-session'
+import { getPodRuntimeBootstrap } from '../common/pod-bootstrap'
+import { useSearchParams } from '../common/router'
 import { CodeSentStatus } from '../common/code-sent-status'
 import { EmailOtpInput } from '../common/email-otp-input'
 import { ContentError } from './content-primitives'
@@ -46,10 +57,30 @@ import { SettingsLayout, SettingsPanel, SettingsSection } from './settings-layou
 import { RunnerDevicesSettings } from './runner-devices'
 import { AccountSettingsModel } from './state/account-settings'
 
+const VALID_ACCOUNT_SECTIONS = new Set(['profile', 'login', 'connections', 'devices', 'exit'])
+
 export function AccountSettings() {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(AccountSettingsModel)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const desktopRuntime = isDesktopRuntime()
+  const requestedSection = searchParams.get('section')
+  useEffect(() => {
+    if (requestedSection && VALID_ACCOUNT_SECTIONS.has(requestedSection) && model.section.value !== requestedSection) {
+      model.section.value = requestedSection
+    }
+  }, [requestedSection, model])
+  const openInBrowser = (section: 'login' | 'exit') => {
+    const url = new URL('/me', podPublicOrigin())
+    url.searchParams.set('section', section)
+    const runtime = getPodRuntimeBootstrap()
+    if (runtime?.onOpenExternal) {
+      void runtime.onOpenExternal(url.toString())
+      return
+    }
+    window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  }
   const client = useQueryClient()
   const reauthenticate = useMutation({
     mutationFn: () => reauthenticatePodMember(),
@@ -58,7 +89,7 @@ export function AccountSettings() {
   const me = useQuery({ queryKey: ['pod-me'], queryFn: () => podMe() })
   const refresh = async () => {
     const result = await me.refetch()
-    if (result.error instanceof InternalAPIError && result.error.status === 401) {
+    if (!desktopRuntime && result.error instanceof InternalAPIError && result.error.status === 401) {
       window.location.assign('/sessions/new?switch=1&return_to=/me')
     }
   }
@@ -104,7 +135,15 @@ export function AccountSettings() {
   })
   const exit = useMutation({
     mutationFn: () => exitPod(),
-    onSuccess: () => window.location.assign('/sessions/logged-out')
+    onSuccess: async () => {
+      clearPodSessionDrafts({ podId: podID(), principalUid: principalUID() })
+      const runtime = isDesktopRuntime() ? getPodRuntimeBootstrap() : undefined
+      if (runtime) {
+        await runtime.onSignOutWorkspace?.(runtime.workspaceKey)
+        return
+      }
+      window.location.assign('/sessions/logged-out')
+    }
   })
   const accountError =
     me.error ?? profile.error ?? reauthenticate.error ?? request.error ?? verify.error ?? unbind.error ?? exit.error
@@ -131,19 +170,39 @@ export function AccountSettings() {
       value={model.section.value}
       onValueChange={value => {
         model.section.value = value
+        if (searchParams.has('section')) {
+          setSearchParams(
+            prev => {
+              const next = new URLSearchParams(prev)
+              next.set('section', value)
+              return next
+            },
+            { replace: true, preventScrollReset: true }
+          )
+        }
       }}
       items={navigation}>
       <ContentError error={accountError} />
       {needsReauthentication && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
           <p className="text-sm text-muted-foreground">{t('pod.account.reauthenticate_hint')}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={reauthenticate.isPending}
-            onClick={() => reauthenticate.mutate()}>
-            {t('pod.account.reauthenticate')}
-          </Button>
+          {desktopRuntime ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openInBrowser(model.section.value === 'exit' ? 'exit' : 'login')}>
+              <OpenRegular aria-hidden data-icon="inline-start" />
+              {t('pod.account.manage_in_browser')}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={reauthenticate.isPending}
+              onClick={() => reauthenticate.mutate()}>
+              {t('pod.account.reauthenticate')}
+            </Button>
+          )}
         </div>
       )}
       <SettingsPanel value="profile">
@@ -209,108 +268,132 @@ export function AccountSettings() {
                       <Badge variant="secondary">{humanizeTechnicalLabel(credential.provider)}</Badge>
                     )}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!me.data.credentialChangeAllowed || me.data.credentials.length <= 1 || unbind.isPending}
-                    onClick={() => {
-                      unbind.reset()
-                      model.confirmUnbind.value = credential.id
-                    }}>
-                    {t('pod.account.unbind')}
-                  </Button>
+                  {!desktopRuntime && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!me.data.credentialChangeAllowed || me.data.credentials.length <= 1 || unbind.isPending}
+                      onClick={() => {
+                        unbind.reset()
+                        model.confirmUnbind.value = credential.id
+                      }}>
+                      {t('pod.account.unbind')}
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>
-            {me.data && me.data.credentials.length <= 1 && (
-              <p className="text-sm text-muted-foreground">{t('common.authn.last_login_method')}</p>
-            )}
-            {me.data?.credentialChangeAllowed ? (
-              !model.challengeID.value ? (
-                <form
-                  className="grid max-w-md gap-3 border-t border-border pt-5"
-                  onSubmit={event => {
-                    event.preventDefault()
-                    request.mutate(false)
-                  }}>
-                  <div className="grid gap-2">
-                    <Label htmlFor="binding-email">{t('pod.account.new_email')}</Label>
-                    <Input
-                      id="binding-email"
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      required
-                      disabled={request.isPending}
-                      value={model.email.value}
-                      onChange={event => {
-                        model.email.value = event.target.value
-                        request.reset()
-                        verify.reset()
-                      }}
-                    />
-                  </div>
+            {desktopRuntime ? (
+              <div className="grid gap-3 border-t border-border pt-5">
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    me.data?.credentialChangeAllowed === false
+                      ? 'pod.account.credential_change_disabled'
+                      : 'pod.account.manage_in_browser_login_description'
+                  )}
+                </p>
+                {me.data?.credentialChangeAllowed !== false && (
                   <div>
-                    <Button type="submit" variant="outline" disabled={request.isPending}>
-                      {t('auth.send_code')}
+                    <Button type="button" variant="outline" size="sm" onClick={() => openInBrowser('login')}>
+                      <OpenRegular aria-hidden data-icon="inline-start" />
+                      {t('pod.account.manage_in_browser')}
                     </Button>
                   </div>
-                </form>
-              ) : (
-                <form
-                  className="grid max-w-md gap-4 border-t border-border pt-5"
-                  onSubmit={event => {
-                    event.preventDefault()
-                    if (verify.isPending || request.isPending || model.code.value.length !== 6) return
-                    verify.mutate()
-                  }}>
-                  <CodeSentStatus email={model.email.value} />
-                  <div className="grid gap-2">
-                    <Label htmlFor="binding-code">{t('auth.email_code')}</Label>
-                    <EmailOtpInput
-                      id="binding-code"
-                      disabled={verify.isPending || request.isPending}
-                      value={model.code.value}
-                      onChange={value => {
-                        model.code.value = value
-                        verify.reset()
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <Button
-                      type="submit"
-                      disabled={verify.isPending || request.isPending || model.code.value.length !== 6}>
-                      {t('pod.account.bind_email')}
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={request.isPending || verify.isPending}
-                      onClick={() => request.mutate(true)}>
-                      {t('auth.resend_code')}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={request.isPending || verify.isPending}
-                      onClick={() => {
-                        request.reset()
-                        verify.reset()
-                        model.challengeID.value = undefined
-                        model.code.value = ''
-                      }}>
-                      {t('auth.change_email')}
-                    </Button>
-                  </div>
-                </form>
-              )
+                )}
+              </div>
             ) : (
-              <p className="border-t border-border pt-5 text-sm text-muted-foreground">
-                {t('pod.account.credential_change_disabled')}
-              </p>
+              <>
+                {me.data && me.data.credentials.length <= 1 && (
+                  <p className="text-sm text-muted-foreground">{t('common.authn.last_login_method')}</p>
+                )}
+                {me.data?.credentialChangeAllowed ? (
+                  !model.challengeID.value ? (
+                    <form
+                      className="grid max-w-md gap-3 border-t border-border pt-5"
+                      onSubmit={event => {
+                        event.preventDefault()
+                        request.mutate(false)
+                      }}>
+                      <div className="grid gap-2">
+                        <Label htmlFor="binding-email">{t('pod.account.new_email')}</Label>
+                        <Input
+                          id="binding-email"
+                          name="email"
+                          type="email"
+                          autoComplete="email"
+                          required
+                          disabled={request.isPending}
+                          value={model.email.value}
+                          onChange={event => {
+                            model.email.value = event.target.value
+                            request.reset()
+                            verify.reset()
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Button type="submit" variant="outline" disabled={request.isPending}>
+                          {t('auth.send_code')}
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <form
+                      className="grid max-w-md gap-4 border-t border-border pt-5"
+                      onSubmit={event => {
+                        event.preventDefault()
+                        if (verify.isPending || request.isPending || model.code.value.length !== 6) return
+                        verify.mutate()
+                      }}>
+                      <CodeSentStatus email={model.email.value} />
+                      <div className="grid gap-2">
+                        <Label htmlFor="binding-code">{t('auth.email_code')}</Label>
+                        <EmailOtpInput
+                          id="binding-code"
+                          disabled={verify.isPending || request.isPending}
+                          value={model.code.value}
+                          onChange={value => {
+                            model.code.value = value
+                            verify.reset()
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Button
+                          type="submit"
+                          disabled={verify.isPending || request.isPending || model.code.value.length !== 6}>
+                          {t('pod.account.bind_email')}
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          disabled={request.isPending || verify.isPending}
+                          onClick={() => request.mutate(true)}>
+                          {t('auth.resend_code')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          disabled={request.isPending || verify.isPending}
+                          onClick={() => {
+                            request.reset()
+                            verify.reset()
+                            model.challengeID.value = undefined
+                            model.code.value = ''
+                          }}>
+                          {t('auth.change_email')}
+                        </Button>
+                      </div>
+                    </form>
+                  )
+                ) : (
+                  <p className="border-t border-border pt-5 text-sm text-muted-foreground">
+                    {t('pod.account.credential_change_disabled')}
+                  </p>
+                )}
+              </>
             )}
           </div>
         </SettingsSection>
@@ -333,6 +416,16 @@ export function AccountSettings() {
           className="ring-destructive/30">
           {me.data?.managed ? (
             <p className="text-sm leading-6 text-muted-foreground">{t('pod.account.managed_exit')}</p>
+          ) : desktopRuntime ? (
+            <div className="grid gap-3">
+              <p className="text-sm text-muted-foreground">{t('pod.account.manage_in_browser_exit_description')}</p>
+              <div>
+                <Button type="button" variant="outline" size="sm" onClick={() => openInBrowser('exit')}>
+                  <OpenRegular aria-hidden data-icon="inline-start" />
+                  {t('pod.account.manage_in_browser')}
+                </Button>
+              </div>
+            </div>
           ) : (
             <Button
               variant="destructive"

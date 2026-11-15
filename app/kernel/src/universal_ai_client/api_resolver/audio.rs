@@ -1,3 +1,5 @@
+use base64_simd::STANDARD;
+
 use super::*;
 
 /// OpenRouter text to speech at `/audio/speech`.
@@ -36,6 +38,16 @@ impl APIProtocol for OpenrouterSpeech {
         Ok(body)
     }
 
+    fn on_provider_response(
+        &mut self,
+        _context: &ResponseContext,
+        status: u16,
+        headers: &[(String, String)],
+        body: &[u8],
+    ) -> Result<Option<Value>, StreamError> {
+        binary_speech_response(status, headers, body).map(Some)
+    }
+
     fn on_provider_body(
         &mut self,
         _context: &ResponseContext,
@@ -70,6 +82,16 @@ impl APIProtocol for CloudflareSpeech {
             body.insert("speaker".to_string(), voice.clone());
         }
         Ok(body)
+    }
+
+    fn on_provider_response(
+        &mut self,
+        _context: &ResponseContext,
+        status: u16,
+        headers: &[(String, String)],
+        body: &[u8],
+    ) -> Result<Option<Value>, StreamError> {
+        binary_speech_response(status, headers, body).map(Some)
     }
 
     fn on_provider_body(
@@ -171,7 +193,7 @@ impl APIProtocol for CloudflareTranscription {
 /// Builds the transcription that every provider's response becomes: the text,
 /// the language and duration when the provider reports them, and the segments
 /// with their start and end in seconds.
-fn transcription(
+pub(super) fn transcription(
     status: u16,
     payload: &Value,
     language: Option<&Value>,
@@ -209,4 +231,71 @@ fn transcription(
     }
     result.insert("usage".to_string(), usage);
     Ok(Value::Object(result))
+}
+
+/// Validates that a direct speech response or signed audio download carries
+/// non-empty audio bytes (`audio/*` or generic `application/octet-stream` /
+/// `binary/octet-stream`), rejecting HTML, XML, or JSON error bodies returned
+/// under a 2xx status.
+///
+/// Returns `(raw_media_type, normalized_audio_mime)` where
+/// `normalized_audio_mime` is `Some("audio/...")` for explicit `audio/*`
+/// headers (canonicalizing WAV aliases to `"audio/wav"`) and `None` when the
+/// server returned generic `octet-stream`.
+pub(crate) fn validate_audio_bytes(
+    headers: &[(String, String)],
+    body: &[u8],
+    error_code: &'static str,
+    stage: &'static str,
+    message: &'static str,
+    provider_status: Option<u16>,
+) -> Result<(String, Option<String>), StreamError> {
+    let media_type = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .and_then(|(_, value)| value.split(';').next())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let is_octet_stream = matches!(
+        media_type.as_str(),
+        "application/octet-stream" | "binary/octet-stream"
+    );
+    let is_audio = media_type.starts_with("audio/");
+
+    if body.is_empty() || !(is_audio || is_octet_stream) {
+        let mut err = StreamError::new(error_code, stage, message).provider_body_excerpt(body);
+        if let Some(status) = provider_status {
+            err = err.provider_status(status);
+        }
+        return Err(err);
+    }
+
+    let normalized_audio = is_audio.then(|| match media_type.as_str() {
+        "audio/x-wav" | "audio/wave" | "audio/vnd.wave" => "audio/wav".to_string(),
+        _ => media_type.clone(),
+    });
+
+    Ok((media_type, normalized_audio))
+}
+
+pub(super) fn binary_speech_response(
+    status: u16,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Result<Value, StreamError> {
+    let (media_type, normalized_audio) = validate_audio_bytes(
+        headers,
+        body,
+        "invalid_upstream_response",
+        "api_resolver",
+        "upstream speech response must contain audio",
+        Some(status),
+    )?;
+
+    Ok(json!({
+        "audio": STANDARD.encode_to_string(body),
+        "content_type": normalized_audio.unwrap_or(media_type),
+        "usage": {}
+    }))
 }

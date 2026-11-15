@@ -37,6 +37,7 @@ export class PageCollaboration {
   private pushing = false
   private timer?: ReturnType<typeof setTimeout>
   private revision: number
+  private flushWaiters = new Set<{ attempted: boolean; resolve(sent: boolean): void }>()
 
   constructor(
     private editor: Wordgard,
@@ -83,12 +84,45 @@ export class PageCollaboration {
     }, delay)
   }
 
+  private settleFlushWaiters() {
+    if (!this.flushWaiters.size) return
+    const waiters = [...this.flushWaiters]
+    this.flushWaiters.clear()
+    for (const waiter of waiters) waiter.resolve(waiter.attempted)
+  }
+
+  /**
+   * Immediately flushes any queued local edits and awaits in-flight transport acknowledgements.
+   * Resolves to `true` when at least one `send` round-trip was executed or awaited, or `false`
+   * when all local edits were already acknowledged (or deferred during active IME composition).
+   */
+  flushNow(): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false)
+    if (!this.pushing && !this.sent && (this.pending.empty || this.editor.composing)) {
+      return Promise.resolve(false)
+    }
+    return new Promise<boolean>(resolve => {
+      this.flushWaiters.add({ attempted: this.pushing, resolve })
+      if (!this.pushing) {
+        clearTimeout(this.timer)
+        void this.flush()
+      }
+    })
+  }
+
   private async flush() {
-    if (this.disposed || this.pushing) return
+    if (this.disposed || this.pushing) {
+      if (this.disposed) this.settleFlushWaiters()
+      return
+    }
     if (!this.sent) {
-      if (this.pending.empty) return
+      if (this.pending.empty) {
+        this.settleFlushWaiters()
+        return
+      }
       if (this.editor.composing) {
         this.schedule()
+        this.settleFlushWaiters()
         return
       }
       try {
@@ -111,11 +145,14 @@ export class PageCollaboration {
       } catch (error) {
         // Invalid local content must be repaired before it can become a request.
         this.publish(error)
+        this.settleFlushWaiters()
         return
       }
     }
     const sent = this.sent
-    let delay: number | undefined = 30
+    let delay: number | undefined = this.flushWaiters.size ? 0 : 30
+    let errored = false
+    for (const waiter of this.flushWaiters) waiter.attempted = true
     this.pushing = true
     try {
       const response = await this.options.send(sent.request)
@@ -133,12 +170,22 @@ export class PageCollaboration {
       }
       this.publish()
     } catch (error) {
+      errored = true
       delay = 1000
       if (!this.disposed) this.publish(error)
     } finally {
       this.pushing = false
       // A broadcast may acknowledge this request while later edits wait for its transport slot.
-      if (!this.disposed && delay !== undefined && (this.sent || !this.pending.empty)) this.schedule(delay)
+      const more = !this.disposed && delay !== undefined && (Boolean(this.sent) || !this.pending.empty)
+      if (!more || errored || this.editor.composing) {
+        this.settleFlushWaiters()
+        if (more) this.schedule(delay === 0 ? 30 : delay)
+      } else if (this.flushWaiters.size) {
+        clearTimeout(this.timer)
+        void this.flush()
+      } else {
+        this.schedule(delay)
+      }
     }
   }
 
@@ -268,6 +315,7 @@ export class PageCollaboration {
   dispose() {
     this.disposed = true
     clearTimeout(this.timer)
+    this.settleFlushWaiters()
   }
 }
 

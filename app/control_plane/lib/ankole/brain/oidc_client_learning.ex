@@ -56,6 +56,9 @@ defmodule Ankole.Brain.OIDCClientLearning do
     |> pending_conversations()
     |> Enum.reduce_while(%{learned: 0, failed: []}, fn {conversation, object}, report ->
       case learn_conversation(source, conversation, object) do
+        {:ok, :skipped} ->
+          {:cont, report}
+
         {:ok, _object} ->
           {:cont, %{report | learned: report.learned + 1}}
 
@@ -97,23 +100,37 @@ defmodule Ankole.Brain.OIDCClientLearning do
     OIDCClientConversations.conversations(source.upstream_id)
     |> Enum.flat_map(fn conversation ->
       case objects[conversation.id] do
-        {_page, %{"source_revision" => revision}} when revision == conversation.revision -> []
-        {page, _state} -> [{conversation, page}]
-        nil -> [{conversation, nil}]
+        {_page, %{"source_revision" => revision}} when revision == conversation.revision ->
+          []
+
+        {page, _state} ->
+          [{conversation, page}]
+
+        nil ->
+          case resolve_conversation_scope(source, conversation, nil) do
+            :skip -> []
+            _ -> [{conversation, nil}]
+          end
       end
     end)
   end
 
   defp learn_conversation(source, conversation, previous) do
+    case resolve_conversation_scope(source, conversation, previous) do
+      :skip ->
+        {:ok, :skipped}
+
+      {:error, _reason} = error ->
+        error
+
+      {:ok, scope} ->
+        learn_scoped_conversation(source, conversation, previous, scope)
+    end
+  end
+
+  defp learn_scoped_conversation(source, conversation, previous, scope) do
     material = OIDCClientConversations.read(source.upstream_id, conversation.id)
     content = Enum.map_join(material.requests, "\n", &JSON.encode!/1)
-
-    scope =
-      if previous,
-        do: upstream_state(previous)["source_node_id"],
-        else:
-          source.default_source_node_id || Ankole.Brain.Scope.principal(conversation.subject_uid)
-
     slug = "media/oidc-#{source.id}-#{conversation.id}"
     title = "#{source.name} / #{conversation.id}"
 
@@ -159,6 +176,36 @@ defmodule Ankole.Brain.OIDCClientLearning do
       end
 
       {:ok, object}
+    end
+  end
+
+  defp resolve_conversation_scope(_source, _conversation, %Object{} = previous) do
+    case upstream_state(previous)["source_node_id"] do
+      id when is_binary(id) and id != "" -> {:ok, id}
+      _ -> {:error, :private_scope_unavailable}
+    end
+  end
+
+  defp resolve_conversation_scope(%Source{default_source_node_id: id}, _conversation, nil)
+       when is_binary(id) and id != "",
+       do: {:ok, id}
+
+  defp resolve_conversation_scope(_source, conversation, nil) do
+    owner_uid = Ankole.Principals.authority_uid(conversation.subject_uid)
+
+    case Ankole.Pod.Pages.Tree.private_root(owner_uid) do
+      {:ok, node} ->
+        {:ok, node.id}
+
+      {:error, :not_found} ->
+        case Ankole.Principals.get_principal(owner_uid) do
+          {:ok, %{type: :human, membership: :guest}} -> :skip
+          {:ok, _principal} -> {:error, :private_scope_unavailable}
+          {:error, :not_found} -> {:error, :private_scope_unavailable}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

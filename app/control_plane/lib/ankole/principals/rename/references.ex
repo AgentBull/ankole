@@ -42,8 +42,7 @@ defmodule Ankole.Principals.Rename.References do
   ]
   @principal_key_arrays [
     {"identity_directory_states", "member_uids"},
-    {"identity_directory_states", "missing_uids"},
-    {"issues", "squad_uids"}
+    {"identity_directory_states", "missing_uids"}
   ]
   @actor_refs [
     {"agent_skill_lessons", "author"},
@@ -190,10 +189,21 @@ defmodule Ankole.Principals.Rename.References do
       {:ok, page} ->
         {:ok, node} = Ankole.Pod.Pages.Tree.fetch(page.id)
         {:ok, old_path} = Ankole.Pod.Pages.Tree.path(node)
-        {:ok, _} = Ankole.Pod.Pages.Tree.update_in_tx(node, :rename, %{name: new_uid})
+        {:ok, node} = Ankole.Pod.Pages.Tree.update_in_tx(node, :rename, %{name: new_uid})
 
-        if page.title == old_uid do
-          {:ok, _} = Ankole.Pod.Pages.update_properties_in_tx(page, :edit, %{title: new_uid})
+        updates =
+          %{}
+          |> then(fn acc ->
+            if page.title == old_uid, do: Map.put(acc, :title, new_uid), else: acc
+          end)
+          |> then(fn acc ->
+            if node.metadata["uid"] == old_uid,
+              do: Map.put(acc, :metadata, Map.put(node.metadata, "uid", new_uid)),
+              else: acc
+          end)
+
+        if map_size(updates) > 0 do
+          {:ok, _} = Ankole.Pod.Pages.update_properties_in_tx(node, :edit, updates)
         end
 
         Ankole.Brain.Knowledge.page_moved_in_tx(page.id, old_path)

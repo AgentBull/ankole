@@ -7,7 +7,7 @@ import {
   orderedList,
   requiredProp
 } from '../../lib/markdown-text'
-import type { FaqIssue, FaqLabels, FaqProviderTab } from './FaqProviderTabs'
+import type { FaqIssue, FaqLabels, FaqProviderTab } from './faq-provider-tabs'
 
 export const renderFaqIssueList: ComponentMarkdownRenderer = (props, context) => {
   const labels = requiredProp<FaqLabels>(props, 'labels')

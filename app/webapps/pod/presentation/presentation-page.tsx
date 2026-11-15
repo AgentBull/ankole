@@ -764,12 +764,20 @@ function PresentationWorkspace({
     const mod = isMac ? event.metaKey : event.ctrlKey
     const lower = event.key.toLowerCase()
 
-    if (mod && !event.altKey) {
-      if (lower === 's') {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      !(event.metaKey && event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      lower === 's'
+    ) {
+      if (!event.defaultPrevented) {
         event.preventDefault()
-        if (editable) void model.commitNow()
-        return
+        if (editable) void model.saveNow()
       }
+      return
+    }
+    if (mod && !event.altKey) {
       if (lower === 'f') {
         event.preventDefault()
         setFindOpen(true)
@@ -1230,9 +1238,16 @@ function PresentationWorkspace({
                   }}
                   onKeyDown={event => {
                     if (event.nativeEvent.isComposing || event.keyCode === 229 || composingRef.current) return
-                    if ((isMac ? event.metaKey : event.ctrlKey) && event.key.toLowerCase() === 's') {
+                    if (
+                      (event.metaKey || event.ctrlKey) &&
+                      !(event.metaKey && event.ctrlKey) &&
+                      !event.altKey &&
+                      !event.shiftKey &&
+                      event.key.toLowerCase() === 's' &&
+                      !event.defaultPrevented
+                    ) {
                       event.preventDefault()
-                      void model.commitNow()
+                      void model.saveNow()
                     }
                   }}
                   onChange={event => {

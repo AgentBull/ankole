@@ -14,6 +14,7 @@
   "ignorePatterns": [
     "app/agent_computer/src/core/codex-runner/generated/**",
     "app/agent_computer/src/fabric/generated/**",
+    "app/webapps/**/generated/**",
     "app/kernel/spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts",
     "app/kernel/word-wasm/ankole_word_wasm.d.ts",
     "app/kernel/presentation-wasm/ankole_presentation_wasm.d.ts"
@@ -45,6 +46,24 @@
       "files": ["app/agent_computer/src/**"],
       "rules": {
         "max-lines": ["warn", { "max": 700, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["libs/applet-sdk/src/toolkits/*.d.ts"],
+      "rules": {
+        "unicorn/filename-case": "off"
+      }
+    },
+    {
+      "files": ["app/library/agent-plugins/**/tools/*.ts"],
+      "rules": {
+        "unicorn/filename-case": ["warn", { "cases": { "kebabCase": true, "snakeCase": true } }]
+      }
+    },
+    {
+      "files": ["**/*.astro"],
+      "rules": {
+        "unicorn/filename-case": ["warn", { "cases": { "kebabCase": true, "pascalCase": true } }]
       }
     }
   ]

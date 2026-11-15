@@ -1080,7 +1080,8 @@ on foreground `command` tool results after `outputLogPath` captures the raw
 bytes, and through `PATH`-prepended shims at `/usr/local/libexec/ankole-cli-shims`
 (`pytest`, `vitest`, `jest`, `mix`, `cargo`, `tsc`, `oxlint`, `eslint`, `npm`,
 `pnpm`, `yarn`, `bun`, `pip`, `pip3`, `uv`, `curl`, `git`, and `cat`) for child
-processes in Session commands and Codex Jobs. Both paths preserve the real exit
+processes in Session commands and Codex Jobs. Caller-supplied environment values
+take precedence over the shaper's defaults. Both paths preserve the real exit
 code and pass raw bytes straight through whenever a command specifies
 machine-readable or verbose flags (`--json`, `--porcelain`, `--format`, `-v`,
 `-vv`, `--nocapture`, `-o`, `-O`), shell pipes or redirections,

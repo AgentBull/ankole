@@ -13,10 +13,50 @@ import { metaKeys, type MetaBrainGraph } from './meta-api'
 import { pageHrefFor } from './use-page-metadata'
 import type { OfficeNavigationSession } from './office/office-collaboration'
 
+export type PageSaveOptions = {
+  syncIfClean: boolean
+}
+
 export type PageHostActions = {
   navigateToPage(pageID: string): void
   openChat(options?: PodChatOpenOptions): void
   registerOfficeSession?(session: OfficeNavigationSession): () => void
+  registerPageSave?(handler: (options: PageSaveOptions) => Promise<boolean>): () => void
+}
+
+export function isSaveShortcut(
+  event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>
+): boolean {
+  if (event.shiftKey || event.altKey) return false
+  if (event.metaKey === event.ctrlKey) return false
+  return event.key.toLowerCase() === 's'
+}
+
+const BLOCKING_SAVE_OVERLAY_SELECTOR =
+  '[data-slot="dialog-content"]:not([data-ending-style]), [data-slot="sheet-content"]:not([data-ending-style]), [role="alertdialog"]:not([data-ending-style]), [aria-modal="true"]:not([data-ending-style])'
+
+/**
+ * Modal dialogs and sheets own keyboard input while open, except Base's record-details dialog
+ * (`.pod-record-dialog` without a create-record `<form>`), which edits an existing Base record in place.
+ */
+export function hasBlockingSaveOverlay(ownerDoc: Document | undefined = globalThis.document): boolean {
+  if (!ownerDoc) return false
+  for (const overlay of ownerDoc.querySelectorAll(BLOCKING_SAVE_OVERLAY_SELECTOR)) {
+    if (overlay.hasAttribute('hidden')) continue
+    if (overlay.classList.contains('pod-record-dialog') && !overlay.querySelector('form')) continue
+    return true
+  }
+  return false
+}
+
+export function isSidebarEditorFocus(
+  activeElement: Element | null = globalThis.document?.activeElement ?? null
+): boolean {
+  if (!activeElement || typeof activeElement.closest !== 'function') return false
+  return (
+    Boolean(activeElement.closest('[data-sidebar]')) &&
+    activeElement.matches('input, textarea, select, [contenteditable="true"]')
+  )
 }
 
 const PageHostContext = createContext<PageHostActions | null>(null)

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { writeContextGenerationFile } from '../src/cli/cli-guidance'
 import { coerceTabularCell, injectDataIntoSpec, loadDataFile, parseDelimitedRecords } from '../src/cli/viz/data-loader'
 import { designColorsToTokenOverrides, parseDesignFrontmatterColors } from '../src/cli/viz/design-palette'
-import { CLI_CONTEXT_FILE_ENV, CLI_LEDGER_DIR_ENV } from '../src/core/execution/turn_runtime_env'
+import { CLI_CONTEXT_FILE_ENV, CLI_LEDGER_DIR_ENV } from '../src/core/execution/turn-runtime-env'
 
 const VIZ_CLI_ENTRY = join(import.meta.dir, '../src/cli/viz/viz-cli.ts')
 

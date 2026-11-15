@@ -318,7 +318,7 @@ export function ChatPage({
     ).values()
   ]
   const callableAgentUIDs = callableAgents.map(agent => agent.uid)
-  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value, data, callableAgentUIDs)
+  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value)
   const agentUID =
     data?.conversation.agents.find(agent => agent.uid === targetUID)?.uid ??
     data?.conversation.agents[0]?.uid ??

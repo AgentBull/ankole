@@ -47,6 +47,9 @@ defmodule Ankole.Plugins.AmazonAIProviders.Providers.Amazon do
   """
   def prepare_speech_model(ctx) do
     cond do
+      ctx.request["response_format"] not in [nil, "mp3", "pcm"] ->
+        unsupported("response_format", "The configured speech model outputs MP3 or PCM audio.")
+
       field = Enum.find(~w(speed instructions), &is_map_key(ctx.request, &1)) ->
         unsupported(field, "The configured speech model does not accept #{field}.")
 

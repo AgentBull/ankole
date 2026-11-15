@@ -110,6 +110,12 @@ defmodule Ankole.Brain.Claims do
         {:error, _} -> []
       end
 
+    holders =
+      case Scope.canonical_slug(principal_uid) do
+        {:ok, slug} -> [slug | page_ids]
+        {:error, _} -> page_ids
+      end
+
     scope = Scope.principal(principal_uid)
 
     principal_ref =
@@ -117,7 +123,7 @@ defmodule Ankole.Brain.Claims do
 
     Claim
     |> Ash.Query.filter(
-      holder in ^page_ids or subject_page_id in ^page_ids or author == ^principal_ref or
+      holder in ^holders or subject_page_id in ^page_ids or author == ^principal_ref or
         source_node_id == ^scope
     )
     |> Ash.Query.sort(created_at: :desc)

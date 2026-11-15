@@ -6,14 +6,20 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders do
   @behaviour Ankole.Plugins.Plugin
 
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN
+  alias Ankole.Plugins.ChinaMarketAIProviders.Providers.DeepSeek
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk
+  alias Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineSpeech
+  alias Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineVisual
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo
   alias Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan
 
   @providers [
     {"xiaomi_mimo", XiaomiMiMo},
     {"volcengine_ark", VolcengineArk},
+    {"volcengine_speech", VolcengineSpeech},
+    {"volcengine_visual", VolcengineVisual},
     {"alibaba_cn", AlibabaCN},
+    {"deepseek", DeepSeek},
     {"zai_coding_plan", ZaiCodingPlan}
   ]
 

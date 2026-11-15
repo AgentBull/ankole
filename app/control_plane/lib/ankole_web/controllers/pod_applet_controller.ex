@@ -21,12 +21,19 @@ defmodule AnkoleWeb.PodAppletController do
         _ -> nil
       end
 
+    oidc_session_id =
+      case conn.assigns[:oidc_session] do
+        %Ankole.OIDC.Session{id: sid} -> sid
+        _ -> nil
+      end
+
     with {:ok, revision} <- revision(conn),
          {:ok, request} <- request(conn),
          {:ok, task} <-
            Applets.start(conn.assigns.authz_actor, id, request,
              revision: revision,
-             authentication_ref: auth_ref
+             authentication_ref: auth_ref,
+             oidc_session_id: oidc_session_id
            ) do
       {conn, result} = AnkoleWeb.AppletRequest.await(conn, task)
 

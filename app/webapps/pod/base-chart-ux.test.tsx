@@ -336,7 +336,7 @@ describe('Notion-aligned Base chart & doc embed UX', () => {
       }
     })
 
-    expect(html).toContain('SUM · Amount')
+    expect(html).toContain('Sum · Amount')
     expect(html).toContain('Monthly Recurring Revenue')
     expect(html).toContain('$2,200.00')
     expect(html).toContain('data-slot="stat-drilldown-trigger"')

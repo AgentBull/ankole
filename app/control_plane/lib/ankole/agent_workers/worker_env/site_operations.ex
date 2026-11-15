@@ -1,6 +1,7 @@
 defmodule Ankole.AgentWorkers.WorkerEnv.SiteOperations do
   @moduledoc "Operator shell variable operations for the site Console."
   use Ankole.Ash.OperationResource,
+    tenancy: :site,
     authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.AgentWorkers.Providers,

@@ -201,8 +201,13 @@ defmodule Ankole.Brain.SkillLessons do
   end
 
   defp create_reflection_job(agent_uid, candidates) do
-    bundle = Enum.take(candidates, @bundle_job_limit)
-    through_job_id = hd(bundle).job_id
+    through_job_id = hd(candidates).job_id
+
+    bundle =
+      candidates
+      |> Enum.sort_by(&{if(&1.human_input_count > 0, do: 0, else: 1), -&1.job_id})
+      |> Enum.take(@bundle_job_limit)
+      |> Enum.sort_by(&(-&1.job_id))
 
     human_input_ids =
       for candidate <- bundle, candidate.human_input_count > 0, do: candidate.job_id

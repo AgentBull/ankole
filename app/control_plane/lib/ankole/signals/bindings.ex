@@ -717,6 +717,23 @@ defmodule Ankole.Signals.Bindings do
 
   defp static_target(%{routing_mode: :sender_personal_assistant}), do: :ok
 
+  defp static_target(%{
+         adapter: "cloudevents",
+         config_ref: "webhook-endpoint://" <> id,
+         agent_uid: uid
+       }) do
+    case Ankole.Signals.Webhooks.get_endpoint(id) do
+      nil ->
+        {:error, :webhook_endpoint_not_found}
+
+      endpoint ->
+        Principals.WorkAccess.check_execution_target(
+          uid,
+          Principals.WorkAccess.fields(endpoint)
+        )
+    end
+  end
+
   defp static_target(%{agent_uid: uid}) do
     case Principals.get_agent_record!(uid) do
       %{type: :personal_assistant} -> {:error, :personal_assistant_requires_sender_routing}

@@ -1,7 +1,7 @@
 import { driveMounts, type DriveView } from '../../../drive/mounts'
 import { linkMountedSkills, materializeKnowledgeSkills } from '../../../skills/knowledge-skills'
 import { HostedTool } from '../../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
-import type { TurnStart } from '../../../lanes/session_lane'
+import type { TurnStart } from '../../../lanes/session-lane'
 import {
   type BackgroundAgentJobResponse,
   type RuntimeSkillSummary

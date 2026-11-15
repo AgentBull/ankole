@@ -24,7 +24,7 @@ import { DocumentPresence } from './document-presence'
 import { DocumentPresenceModel, peerColor } from './state/document-presence'
 import { useSignals } from '@preact/signals-react/runtime'
 import { QueryClientProvider, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useEffectEvent, useMemo, useRef, useState, type SyntheticEvent } from 'react'
+import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { useNavigate } from '@tanstack/react-router'
@@ -48,7 +48,15 @@ import { DocumentDraftModel } from './state/document-draft'
 import type { ReadonlySignal } from '@preact/signals-react'
 import { DocumentRecovery, downloadDraft } from './document-recovery'
 
-import { ContentScope, PageHostScope, useContent, usePageHost } from './content-context'
+import {
+  ContentScope,
+  PageHostScope,
+  useContent,
+  usePageHost,
+  type PageHostActions,
+  type PageSaveOptions
+} from './content-context'
+import type { OfficeNavigationSession } from './office/office-collaboration'
 import { isRealtimeAccessDenied, RealtimeRequestError } from './realtime'
 
 const PagePicker = lazy(() => import('./page-picker').then(module => ({ default: module.PagePicker })))
@@ -58,6 +66,7 @@ export function DocumentPage({
   model,
   title,
   presenceContainer,
+  manualSaving = false,
   onEditor,
   resolvedCommentIDs,
   onComment,
@@ -68,6 +77,7 @@ export function DocumentPage({
   model: InstanceType<typeof DocumentDraftModel>
   title: ReadonlySignal<string>
   presenceContainer: HTMLElement | null
+  manualSaving?: boolean
   onEditor(handle: EditorHandle | null): void
   resolvedCommentIDs: readonly string[]
   onComment(ids: readonly string[]): void
@@ -94,6 +104,32 @@ export function DocumentPage({
   const navigate = useNavigate()
   const content = useContent()
   const pageHost = usePageHost()
+  const embedOfficeSessions = useRef<Set<OfficeNavigationSession>>(new Set())
+  const embedPageSaves = useRef<Set<(options: PageSaveOptions) => Promise<boolean>>>(new Set())
+  const saveDocumentRef = useRef<(options: PageSaveOptions) => Promise<boolean>>(async () => false)
+  const registerPageSave = pageHost?.registerPageSave
+  useEffect(() => {
+    return registerPageSave?.(options => saveDocumentRef.current(options))
+  }, [registerPageSave])
+  const embedPageHost = useMemo<PageHostActions>(
+    () => ({
+      navigateToPage: targetPageID => pageHost?.navigateToPage(targetPageID),
+      openChat: options => pageHost?.openChat(options),
+      registerOfficeSession: embeddedSession => {
+        embedOfficeSessions.current.add(embeddedSession)
+        return () => {
+          embedOfficeSessions.current.delete(embeddedSession)
+        }
+      },
+      registerPageSave: handler => {
+        embedPageSaves.current.add(handler)
+        return () => {
+          embedPageSaves.current.delete(handler)
+        }
+      }
+    }),
+    [pageHost]
+  )
   const [assetError, setAssetError] = useState<unknown>()
   const awareness = useModel(DocumentPresenceModel)
   const [collaborationError, setCollaborationError] = useState<unknown>()
@@ -156,7 +192,7 @@ export function DocumentPage({
           <I18nextProvider i18n={i18n}>
             <QueryClientProvider client={client}>
               <ContentScope value={content}>
-                <PageHostScope value={pageHost}>
+                <PageHostScope value={embedPageHost}>
                   <ErrorBoundary
                     variant="inline"
                     resetKeys={[attributes.ref, attributes.table, attributes.view]}
@@ -237,7 +273,7 @@ export function DocumentPage({
       detail.page.id,
       detail.page.deleted_at,
       content,
-      pageHost,
+      embedPageHost,
       canEdit,
       canComment,
       canAskAgent,
@@ -262,7 +298,7 @@ export function DocumentPage({
       instance.dispatch({ selection: EditorSelection.near(instance.state, hit.pos, hit.side) })
       instance.focus()
     }
-    // Images and videos belong to the document body; every other file becomes a File Page child.
+    // Images and videos belong to the document body; Markdown files become Document Page children and other files become File Page children.
     const [media, others] = partition(files, file => /^(image|video)\//.test(file.type))
     setAssetError(undefined)
     for (const file of media) {
@@ -328,6 +364,7 @@ export function DocumentPage({
             model={awareness}
             pending={model.bodyPending.value || model.xml.value !== model.savedXML.value}
             error={Boolean(collaborationError || model.conflict.value)}
+            manualSaving={manualSaving}
           />,
           presenceContainer
         )}
@@ -471,16 +508,23 @@ export function DocumentPage({
                 }
                 return joined
               }
+              const syncNow = async (): Promise<boolean> => {
+                if (disposed || model.conflict.peek()) return false
+                try {
+                  const connection = await connect()
+                  if (disposed || model.conflict.peek()) return false
+                  const response = await connection.push<PageChanges>('sync', {
+                    revision: collaboration.currentRevision()
+                  })
+                  collaboration.receive(response)
+                  return true
+                } catch (error) {
+                  failed(error)
+                  return false
+                }
+              }
               const sync = () => {
-                if (disposed || model.conflict.value) return
-                void connect()
-                  .then(connection =>
-                    connection.push<PageChanges>('sync', {
-                      revision: collaboration.currentRevision()
-                    })
-                  )
-                  .then(response => collaboration.receive(response))
-                  .catch(failed)
+                void syncNow()
               }
               retryConnection.current = sync
               const collaboration = new PageCollaboration(instance, model.revision.value, {
@@ -516,6 +560,25 @@ export function DocumentPage({
                 },
                 sync
               })
+              const saveDocument = async ({ syncIfClean }: PageSaveOptions): Promise<boolean> => {
+                if (disposed || model.conflict.peek()) return false
+                instance.flush()
+                const embedResults = await Promise.all([
+                  ...Array.from(embedOfficeSessions.current, embeddedSession =>
+                    embeddedSession.hasUnsavedChanges()
+                      ? embeddedSession.saveNow({ syncIfClean: false })
+                      : Promise.resolve(false)
+                  ),
+                  ...Array.from(embedPageSaves.current, saveEmbed => saveEmbed({ syncIfClean: false }))
+                ])
+                const embedSaved = embedResults.some(Boolean)
+                if (!canEdit || instance.state.readOnly) return embedSaved
+                const sentChanges = await collaboration.flushNow()
+                if (sentChanges || embedSaved) return true
+                if (!syncIfClean) return false
+                return syncNow()
+              }
+              saveDocumentRef.current = saveDocument
               let rendered = ''
               refreshPeers = () => {
                 const peers = awareness.peers.value.flatMap(peer => {
@@ -573,6 +636,9 @@ export function DocumentPage({
                 collaboration.dispose()
                 handle?.close()
                 current.dispose()
+                if (saveDocumentRef.current === saveDocument) {
+                  saveDocumentRef.current = async () => false
+                }
                 if (session.current === current) {
                   session.current = null
                   editor.current = null

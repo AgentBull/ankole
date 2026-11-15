@@ -454,7 +454,8 @@ defmodule Ankole.Pod.Chat.Presentation do
     match?(%{conversation_id: ^id, agent_uid: uid} when uid == run.agent_uid, source)
   end
 
-  defp execution_page(%Job{} = job, :background_agent_job, cursor, can_act?) do
+  @doc false
+  def execution_page(%Job{} = job, :background_agent_job, cursor, can_act?) do
     turns = Ankole.BackgroundAgentJobs.list_turns(job.id)
     projector = &JobItemProjection.project_row(&1, &2, job.runtime_thread_id)
 
@@ -502,7 +503,7 @@ defmodule Ankole.Pod.Chat.Presentation do
     end
   end
 
-  defp execution_page(workflow, :workflow, cursor, _can_act?) do
+  def execution_page(workflow, :workflow, cursor, _can_act?) do
     with {:ok, after_seq} <- workflow_cursor(cursor) do
       filter = Ash.Expr.expr(run_id == ^workflow.id and call_seq > ^after_seq)
 

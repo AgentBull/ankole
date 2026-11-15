@@ -30,7 +30,7 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
   Returns `{:ok, :draft}` for a dataset object without `source`, or the
   binding attributes and the page IDs of its join targets.
   """
-  def dataset(meta, page_id) do
+  def dataset(meta, page_id, opts \\ []) do
     case meta["source"] do
       nil ->
         {:ok, :draft}
@@ -38,10 +38,13 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
       source ->
         with {:ok, grain} <- text(meta, "grain", :dataset),
              {:ok, bound} <- dataset_source(source),
+             :ok <-
+               if(bound.kind == :base, do: authorize_base_table(bound.table, opts), else: :ok),
              {:ok, primary} <- keys(meta, "primary_key"),
              {:ok, business} <- keys(meta, "business_key"),
              {:ok, entity_key} <- entity_key(meta["entity_key"]),
              {:ok, joins} <- joins(meta["joins_to"], page_id, bound),
+             :ok <- authorize_join_targets(joins, opts),
              own = primary ++ business ++ entity_columns(entity_key) ++ join_from(joins),
              {:ok, field_types} <- dataset_field_types(bound, own, joins) do
           {:ok,
@@ -256,7 +259,7 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
   Returns `{:ok, :draft}` without `dataset`, `{:ok, :retired}` for
   `status: retired`, or the revision attributes and the dataset page ID.
   """
-  def metric(meta) do
+  def metric(meta, opts \\ []) do
     cond do
       meta["status"] == "retired" ->
         {:ok, :retired}
@@ -276,7 +279,8 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
              {:ok, time_field} <- optional_text(meta["time_field"], "time_field", :metric),
              {:ok, parameters} <- parameters(meta["parameters"]),
              {:ok, dimensions} <- dimensions(meta["addible_dimensions"], binding.source_kind),
-             {:ok, executable} <- executable(binding, meta, parameters, dimensions, time_field) do
+             {:ok, executable} <-
+               executable(binding, meta, parameters, dimensions, time_field, opts) do
           {:ok,
            Map.merge(executable, %{
              dataset_binding_id: binding.id,
@@ -404,17 +408,18 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
       else: metric_error("addible_dimensions.name", "#{name} must be a lowercase name")
   end
 
-  defp executable(%{source_kind: :base} = binding, meta, parameters, dimensions, time_field) do
+  defp executable(%{source_kind: :base} = binding, meta, parameters, dimensions, time_field, opts) do
     with {:ok, spec} <- base_spec(meta["spec"]),
          :ok <- placeholders(spec, parameters),
          {:ok, table} <- bound_table(binding),
+         :ok <- authorize_base_table(table, opts),
          refs = spec_references(spec),
          field_ids =
            Enum.uniq(
              refs.fields ++
                refs.links ++ Enum.map(dimensions, & &1["field_id"]) ++ List.wrap(time_field)
            ),
-         {:ok, field_types} <- spec_field_types(table, refs.tables, field_ids, refs.links) do
+         {:ok, field_types} <- spec_field_types(table, refs.tables, field_ids, refs.links, opts) do
       {:ok,
        %{
          source: %{"base_page_id" => table.page_id, "table_id" => table.id},
@@ -425,7 +430,14 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
     end
   end
 
-  defp executable(%{source_kind: :connector} = binding, meta, _parameters, dimensions, time) do
+  defp executable(
+         %{source_kind: :connector} = binding,
+         meta,
+         _parameters,
+         dimensions,
+         time,
+         _opts
+       ) do
     with {:ok, sql} <- text(meta, "sql", :metric),
          {:ok, columns} <- columns(meta["columns"]),
          {:ok, schema} <- connector_schema(binding) do
@@ -550,9 +562,9 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
 
   # Path link fields record their own type, and each table a path reaches
   # records an entry, so deleting a link or a traversed table is drift.
-  defp spec_field_types(table, table_ids, field_ids, links) do
+  defp spec_field_types(table, table_ids, field_ids, links, opts) do
     with {:ok, tables} <- spec_tables(table, Enum.uniq(table_ids)) do
-      fields = reachable_fields(tables, [table.id], @link_depth)
+      fields = reachable_fields(tables, [table.id], @link_depth, opts)
       missing = Enum.reject(field_ids, &Map.has_key?(fields, &1))
 
       not_link =
@@ -597,9 +609,9 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
 
   # Fields of the given tables and of tables reached through their link
   # fields, keyed by field ID with their table ID, type, and link target.
-  defp reachable_fields(tables, _seen, 0), do: fields_of(tables)
+  defp reachable_fields(tables, _seen, 0, _opts), do: fields_of(tables)
 
-  defp reachable_fields(tables, seen, depth) do
+  defp reachable_fields(tables, seen, depth, opts) do
     fields = Enum.flat_map(tables, &Bases.fields/1)
 
     linked =
@@ -608,14 +620,81 @@ defmodule Ankole.Brain.DataSemantics.Definitions do
       |> Enum.map(& &1.config["table_id"])
       |> Enum.uniq()
       |> Enum.reject(&(&1 in seen or &1 in tables))
-      |> Enum.filter(&match?({:ok, _}, Bases.fetch_table(&1)))
+      |> Enum.filter(fn id ->
+        match?({:ok, linked_table} when is_map(linked_table), Bases.fetch_table(id)) and
+          case Bases.fetch_table(id) do
+            {:ok, linked_table} -> authorize_base_table(linked_table, opts) == :ok
+            _ -> false
+          end
+      end)
 
     own = Map.new(fields, &field_entry/1)
 
     if linked == [],
       do: own,
-      else: Map.merge(reachable_fields(linked, seen ++ tables, depth - 1), own)
+      else: Map.merge(reachable_fields(linked, seen ++ tables, depth - 1, opts), own)
   end
+
+  defp authorize_join_targets(joins, opts) do
+    Enum.reduce_while(joins, :ok, fn join, :ok ->
+      case join["target"] do
+        %{kind: :base, table: table} ->
+          case authorize_base_table(table, opts) do
+            :ok -> {:cont, :ok}
+            error -> {:halt, error}
+          end
+
+        _ ->
+          {:cont, :ok}
+      end
+    end)
+  end
+
+  defp authorize_base_table(nil, _opts), do: :ok
+
+  defp authorize_base_table(table, opts) do
+    case Keyword.get(opts, :actor) do
+      %Ankole.AuthZ.Actor{} = actor ->
+        with {:ok, base_page} <- Ankole.Pod.Pages.authorize(actor, table.page_id, "node_view"),
+             :ok <- authorize_requester_base_page(actor, base_page, Keyword.get(opts, :context)) do
+          :ok
+        else
+          _ -> {:error, :forbidden}
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp authorize_requester_base_page(
+         _actor,
+         base_page,
+         %{disclosure: %{asker_uid: uid}} = context
+       )
+       when is_binary(uid) do
+    with {:ok, principal} <- Ankole.Principals.get_principal(uid),
+         {:ok, _} <-
+           Ankole.Pod.Access.authorize(
+             Ankole.AuthZ.Actor.new(principal, authn: Map.get(context, :authn, %{})),
+             base_page,
+             "node_view"
+           ),
+         do: :ok
+  end
+
+  defp authorize_requester_base_page(
+         %Ankole.AuthZ.Actor{turn_authority: {ref, _}} = actor,
+         base_page,
+         nil
+       )
+       when is_struct(ref, Ankole.Sessions.RunRef) or is_struct(ref, Ankole.Sessions.JobTurnRef) do
+    with {:ok, context} <-
+           Ankole.Brain.RequestContext.build(actor.principal.uid, %{"signal_id" => ref.signal_id}),
+         do: authorize_requester_base_page(actor, base_page, %{context | authn: actor.authn})
+  end
+
+  defp authorize_requester_base_page(_actor, _base_page, _context), do: :ok
 
   defp fields_of(tables), do: tables |> Enum.flat_map(&Bases.fields/1) |> Map.new(&field_entry/1)
 

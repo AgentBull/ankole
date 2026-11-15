@@ -241,11 +241,12 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   let queue: Entry[] = []
   const localEdits = new Set<symbol>()
   let sequence = 0
+  let applyCount = 0
   let pushing = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let undoStack: UndoRecord[] = []
   let redoStack: UndoRecord[] = []
-  let syncing = false
+  let syncTask: Promise<boolean> | undefined
   let syncAgain = false
   let presenceTimer: ReturnType<typeof setTimeout> | undefined
   let presenceSentAt = Number.NEGATIVE_INFINITY
@@ -253,6 +254,14 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   let functionList: Promise<FunctionInfo[]> | undefined
   /** The undo step of this tab's latest fill, which a fill in another mode replaces. */
   let lastFill: UndoRecord | undefined
+  let saveAttempt: PromiseWithResolvers<boolean> | undefined
+
+  const finishSave = (saved: boolean) => {
+    if (!saveAttempt) return
+    const attempt = saveAttempt
+    saveAttempt = undefined
+    attempt.resolve(saved)
+  }
 
   /** Engine work and state transitions run one at a time, in the order they were requested. */
   const serial = <T>(task: () => Promise<T>): Promise<T> => {
@@ -262,11 +271,13 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   }
 
   const publishCounts = () => {
+    const nextPending = localEdits.size + (inFlight ? 1 : 0) + queue.length
     batch(() => {
-      pending.value = localEdits.size + (inFlight ? 1 : 0) + queue.length
+      pending.value = nextPending
       canUndo.value = undoStack.length > 0
       canRedo.value = redoStack.length > 0
     })
+    if (saveAttempt && nextPending === 0) finishSave(true)
   }
 
   /**
@@ -337,6 +348,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       if ('op' in result) entry.op = result.op
       // The server decides about the request in flight; its reply reports the outcome.
       else if (entry !== inFlight) {
+        finishSave(false)
         queue = queue.filter(item => item !== entry)
         forget(entry.undo)
         options.notify(
@@ -383,6 +395,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
 
   const reset = async () => {
     const discarded = localEdits.size + (inFlight ? 1 : 0) + queue.length
+    finishSave(false)
     localEdits.clear()
     inFlight = undefined
     queue = []
@@ -452,26 +465,31 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     }
   }
 
-  const sync = async () => {
-    if (disposed || !channel) return
-    if (syncing) {
-      syncAgain = true
-      return
+  const sync = (repeatIfRunning = true): Promise<boolean> => {
+    if (disposed || !channel) return Promise.resolve(false)
+    if (syncTask) {
+      if (repeatIfRunning) syncAgain = true
+      return syncTask
     }
-    syncing = true
-    try {
-      do {
-        syncAgain = false
-        await channel.ready
-        if (disposed || !loaded()) break
-        const reply = await channel.push<SheetChanges>('office:sync', { revision: revision.peek() })
-        await serial(() => receive(reply))
-      } while (syncAgain && !disposed)
-    } catch (failure) {
-      if (!disposed) error.value = failure
-    } finally {
-      syncing = false
-    }
+    const run = (async () => {
+      try {
+        do {
+          syncAgain = false
+          await channel!.ready
+          if (disposed || !loaded()) return false
+          const reply = await channel!.push<SheetChanges>('office:sync', { revision: revision.peek() })
+          await serial(() => receive(reply))
+        } while (syncAgain && !disposed)
+        return !disposed
+      } catch (failure) {
+        if (!disposed) error.value = failure
+        return false
+      } finally {
+        syncTask = undefined
+      }
+    })()
+    syncTask = run
+    return run
   }
 
   const take = async () => {
@@ -486,16 +504,18 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   const flush = async () => {
     if (disposed || pushing || !channel || !loaded()) return
     pushing = true
-    let delay: number | undefined = SEND_DELAY_MS
+    let delay: number | undefined = saveAttempt ? 0 : SEND_DELAY_MS
     let sent: Entry | undefined
     try {
       sent = await serial(take)
       if (!sent) return
+      applyCount++
       const reply = await channel.push<SheetChanges>('office:apply', sent.request!)
       await serial(() => receive(reply, sent))
       error.value = undefined
     } catch (failure) {
       delay = sent ? await failed(sent, failure) : RETRY_DELAY_MS
+      if (delay === RETRY_DELAY_MS || delay === undefined) finishSave(false)
     } finally {
       pushing = false
       if (!disposed && delay !== undefined && (inFlight || queue.length)) schedule(delay)
@@ -533,6 +553,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   /** Gives up the request in flight after the server refused it, keeping the queue behind it. */
   const drop = async (sent: Entry, missed: SheetEntry[], notice: SpreadsheetNotice) => {
     if (inFlight !== sent || !engine) return
+    finishSave(false)
     const fresh = missed.filter(entry => entry.revision > revision.peek()).sort((a, b) => a.revision - b.revision)
     if (
       fresh.some(
@@ -769,6 +790,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
 
   const revoke = () => {
     if (revoked.peek()) return
+    finishSave(false)
     options.notify({ kind: 'revoked' })
     batch(() => {
       revoked.value = true
@@ -805,6 +827,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
 
   effect(() => () => {
     disposed = true
+    finishSave(false)
     localEdits.clear()
     inFlight = undefined
     queue = []
@@ -1394,6 +1417,35 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       if (rect.r1 > rect.r0) await fill({ ...column, r1: rect.r0 }, column, 'copy')
       if (rect.c1 > rect.c0) await fill(column, rect, 'copy')
       return undefined
+    },
+    hasUnsavedChanges(): boolean {
+      return pending.value > 0 || Boolean(draft.value)
+    },
+    /** Commits any open cell draft and flushes pending edits before leaving the page. */
+    async savePending(): Promise<boolean> {
+      if (saveAttempt) return saveAttempt.promise
+      if (disposed) return false
+      if (draft.peek()) await this.commitEdit()
+      if (disposed) return false
+      if (pending.peek() === 0) return true
+      if (!editable.peek() || !channel || !loaded()) return pending.peek() === 0
+      const attempt = Promise.withResolvers<boolean>()
+      saveAttempt = attempt
+      clearTimeout(timer)
+      void flush()
+      return attempt.promise
+    },
+    /** Flushes uncommitted or queued edits, or runs a single sync round-trip when already saved. */
+    async saveNow({ syncIfClean = true }: { syncIfClean?: boolean } = {}): Promise<boolean> {
+      if (disposed || !editable.peek() || !channel || !loaded()) return false
+      const hadDraft = Boolean(draft.peek())
+      const hadPending = pending.peek() > 0
+      const beforeApplies = applyCount
+      await this.savePending()
+      if (disposed) return false
+      if (applyCount > beforeApplies || hadPending) return true
+      if (hadDraft || !syncIfClean) return false
+      return sync(false)
     }
   }
 })

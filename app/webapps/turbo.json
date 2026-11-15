@@ -9,6 +9,8 @@
         "$TURBO_ROOT$/app/locales/**",
         "$TURBO_ROOT$/tools/openapi-client-generator/package.json",
         "$TURBO_ROOT$/internals/webapps/**",
+        "!$TURBO_ROOT$/internals/webapps/node_modules",
+        "!$TURBO_ROOT$/internals/webapps/node_modules/**",
         "$TURBO_ROOT$/internals/locales/**"
       ],
       "env": ["ANKOLE_EDITION"],
@@ -19,6 +21,8 @@
         "$TURBO_EXTENDS$",
         "$TURBO_ROOT$/app/locales/**",
         "$TURBO_ROOT$/internals/webapps/**",
+        "!$TURBO_ROOT$/internals/webapps/node_modules",
+        "!$TURBO_ROOT$/internals/webapps/node_modules/**",
         "$TURBO_ROOT$/internals/locales/**"
       ],
       "env": ["ANKOLE_EDITION"]
@@ -28,6 +32,8 @@
         "$TURBO_EXTENDS$",
         "$TURBO_ROOT$/app/locales/**",
         "$TURBO_ROOT$/internals/webapps/**",
+        "!$TURBO_ROOT$/internals/webapps/node_modules",
+        "!$TURBO_ROOT$/internals/webapps/node_modules/**",
         "$TURBO_ROOT$/internals/locales/**"
       ],
       "env": ["ANKOLE_EDITION"]
@@ -37,6 +43,8 @@
         "$TURBO_EXTENDS$",
         "$TURBO_ROOT$/app/locales/**",
         "$TURBO_ROOT$/internals/webapps/**",
+        "!$TURBO_ROOT$/internals/webapps/node_modules",
+        "!$TURBO_ROOT$/internals/webapps/node_modules/**",
         "$TURBO_ROOT$/internals/locales/**"
       ],
       "env": ["ANKOLE_EDITION"]

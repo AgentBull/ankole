@@ -8,7 +8,7 @@ import { BrowserRuntime, type RenderedFetchBrowserMaterializeSettings } from '..
 import type { BrowserRoute } from '../src/browser-runtime/materializer'
 import { projectWorkerEnv, type CodexJobRuntimeProjection } from '../src/core/codex-runner/job/runtime-projection'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { type RPCRequester, type TurnRPCFrame } from '../src/lanes/rpc_lane'
+import { type RPCRequester, type TurnRPCFrame } from '../src/lanes/rpc-lane'
 
 const mainFrame = { run: { session: { session_id: 'main:agent' }, signal_id: 'main-signal' } }
 const jobFrame = { jobTurn: { session: { session_id: 'job:1' }, signal_id: 'job-signal', job_id: 1, attempt: 2 } }

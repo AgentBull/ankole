@@ -1,4 +1,4 @@
-import { knownPageTitle, usePageHref, usePagesMetadata } from './use-page-metadata'
+import { knownPageTitle, mergePageMetadata, usePageHref, usePagesMetadata } from './use-page-metadata'
 import {
   createContext,
   useContext,
@@ -45,13 +45,14 @@ import {
   PlugConnectedRegular,
   PuzzlePieceRegular,
   SearchRegular,
-  SettingsRegular
+  SettingsRegular,
+  TaskListSquareLtrRegular
 } from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from '@tanstack/react-router'
 import { browserSession } from '../common/api/generated/sdk.gen'
-import { authenticationRef, podID } from '../common/browser-context'
+import { podID, sessionIdentityKey } from '../common/browser-context'
 import { podLocation, podPagePathnameID } from '../common/pod-url'
 import { isApplePlatform } from '../common/platform'
 import { linkTarget } from '../common/router'
@@ -295,7 +296,7 @@ export function PodCommandSurface({
   const metadataStore = pageMetadata(client)
   const metadataRevision = useSyncExternalStore(
     listener => metadataStore.subscribe(listener),
-    () => metadataStore.collection.size,
+    () => metadataStore.revision(),
     () => 0
   )
 
@@ -344,7 +345,9 @@ export function PodCommandSurface({
     if (!open || !trimmedQuery || serverReady) return []
     const normalizedNeedle = normalizeSearchQuery(trimmedQuery)
     const knownMap = cachedPageMap(client)
-    const candidates: Page[] = [...cachedPages(client)]
+    const candidates: Page[] = cachedPages(client).map(page =>
+      mergePageMetadata(page, metadataStore.collection.get(page.id))
+    )
     if (!scopePageID) {
       for (const item of metadataStore.values()) {
         if (knownMap.has(item.id) || !item.title) continue
@@ -429,7 +432,7 @@ export function PodCommandSurface({
       : []
 
   const session = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+    queryKey: ['pod-session', sessionIdentityKey() ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
     staleTime: 60_000,
     enabled: open
@@ -471,6 +474,13 @@ export function PodCommandSurface({
       })
     }
     rawNav.push(
+      {
+        value: 'nav:jobs',
+        label: t('pod.jobs.title'),
+        keywords: [t('pod.jobs.title'), 'jobs', 'cron', 'schedule', 'background'],
+        href: '/jobs',
+        icon: TaskListSquareLtrRegular
+      },
       {
         value: 'nav:meta-agents',
         label: t('pod.meta.agents'),

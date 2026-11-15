@@ -9,9 +9,7 @@ use futures_util::future::{AbortHandle, Abortable};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
-use super::stream::{
-    decode_raw_response_body, decode_response_body, run_stream, send_aborted_once,
-};
+use super::stream::{decode_raw_response_body, run_stream, send_aborted_once};
 use crate::common::{
     KernelError, KernelResult, io_runtime, validate_ip_addresses, validate_web_url,
 };
@@ -240,19 +238,23 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
         .provider_body_excerpt(&response.body)
         .provider_headers(&response.headers));
     }
-
-    let body = if spec.api_resolver.answers_with_audio() {
-        audio_body(&response)?
-    } else {
-        decode_response_body(&response.body)?
-    };
     let mut resolver =
         api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
-    let mut normalized_body = resolver.normalize_body(response.status, body)?;
-    // Only the Cloudflare image resolver writes `result_url`. In any other
-    // resolver's body the field is the provider's own and stays untouched.
+    let mut normalized_body =
+        resolver.normalize_http_response(response.status, &response.headers, &response.body)?;
+    // Only the Cloudflare image resolver writes `result_url`, and only Alibaba
+    // DashScope speech writes `audio_url`. In any other resolver's body those
+    // fields belong to the provider and stay untouched.
     if spec.api_resolver == APIResolverKind::CloudflareImages {
         download_result_url(
+            &upstream,
+            &mut normalized_body,
+            spec.limits.max_response_bytes,
+            spec.result_download_ssrf_filter,
+        )
+        .await?;
+    } else if spec.api_resolver == APIResolverKind::AlibabaDashscopeSpeech {
+        download_audio_url(
             &upstream,
             &mut normalized_body,
             spec.limits.max_response_bytes,
@@ -285,104 +287,14 @@ async fn download_result_url(
     max_response_bytes: usize,
     ssrf_filter: bool,
 ) -> Result<(), StreamError> {
-    let Some(mut current_url) = body
+    let Some(url) = body
         .get("result_url")
         .and_then(Value::as_str)
         .map(str::to_owned)
     else {
         return Ok(());
     };
-    let failed = |message: String| StreamError::new("transport_failed", "result_download", message);
-
-    let response = {
-        let mut final_response = None;
-        for hop in 0..=MAX_RESULT_DOWNLOAD_REDIRECTS {
-            if validate_web_url(&current_url, &["https", "http"], ssrf_filter).is_err() {
-                return Err(failed(
-                    "the result link is not a web URL that the client fetches".to_string(),
-                ));
-            }
-            let parsed = reqwest::Url::parse(&current_url).map_err(|_| {
-                failed("the result link is not a web URL that the client fetches".to_string())
-            })?;
-
-            let mut download = upstream.clone();
-            download.method = "GET".to_string();
-            download.url = current_url.clone();
-            download.headers = Vec::new();
-            download.body = None;
-
-            let proxy =
-                transport::resolved_proxy(&download).map_err(|error| failed(error.message))?;
-            let response = match (proxy, parsed.host()) {
-                (None, Some(url::Host::Domain(domain))) => {
-                    let port = parsed.port_or_known_default().unwrap_or(443);
-                    let addrs: Vec<std::net::SocketAddr> = tokio::time::timeout(
-                        download.timeout.connect_duration(),
-                        tokio::net::lookup_host((domain, port)),
-                    )
-                    .await
-                    .map_err(|_| failed("result download DNS lookup timed out".to_string()))?
-                    .map_err(|reason| {
-                        failed(format!("result download DNS lookup failed: {reason}"))
-                    })?
-                    .collect();
-                    let ips: Vec<std::net::IpAddr> =
-                        addrs.iter().map(std::net::SocketAddr::ip).collect();
-                    validate_ip_addresses(&ips, ssrf_filter).map_err(|_| {
-                        failed("the result link resolved to a disallowed address".to_string())
-                    })?;
-                    transport::send_no_redirect_http_request(
-                        &download,
-                        Some((domain, &addrs)),
-                        max_response_bytes,
-                    )
-                    .await
-                    .map_err(|error| failed(error.message))?
-                }
-                _ => transport::send_no_redirect_http_request(&download, None, max_response_bytes)
-                    .await
-                    .map_err(|error| failed(error.message))?,
-            };
-
-            if matches!(response.status, 301 | 302 | 303 | 307 | 308) {
-                if hop == MAX_RESULT_DOWNLOAD_REDIRECTS {
-                    return Err(failed(
-                        "result download exceeded maximum redirects".to_string(),
-                    ));
-                }
-                let location = response
-                    .headers
-                    .iter()
-                    .find(|(name, _)| name.eq_ignore_ascii_case("location"))
-                    .map(|(_, value)| value.trim())
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| {
-                        failed(format!(
-                            "result download redirect status {} missing Location header",
-                            response.status
-                        ))
-                    })?;
-                let next_url = parsed.join(location).map_err(|_| {
-                    failed("result download redirect Location is invalid".to_string())
-                })?;
-                current_url = next_url.to_string();
-                continue;
-            }
-
-            if !(200..300).contains(&response.status) {
-                return Err(failed(format!(
-                    "result download returned HTTP status {}",
-                    response.status
-                )));
-            }
-
-            final_response = Some(response);
-            break;
-        }
-        final_response
-            .ok_or_else(|| failed("result download exceeded maximum redirects".to_string()))?
-    };
+    let response = fetch_result_link(upstream, url, max_response_bytes, ssrf_filter).await?;
 
     if let Some(object) = body.as_object_mut() {
         object.remove("result_url");
@@ -397,35 +309,136 @@ async fn download_result_url(
     Ok(())
 }
 
-/// Hands a speech provider's audio to the resolver as base64 next to the
-/// media type that the provider declared. A 2xx body that is not audio is the
-/// provider's own error report, so the request fails with its excerpt.
-fn audio_body(response: &transport::HTTPResponse) -> Result<Value, StreamError> {
-    let media_type = response
-        .headers
-        .iter()
-        .find(|(name, _value)| name.eq_ignore_ascii_case("content-type"))
-        .and_then(|(_name, value)| value.split(';').next())
-        .map(|media_type| media_type.trim().to_ascii_lowercase())
-        .unwrap_or_default();
+/// Downloads the signed OSS audio link returned by Alibaba DashScope speech
+/// synthesis so every caller receives inline base64 `audio`.
+async fn download_audio_url(
+    upstream: &UpstreamSpec,
+    body: &mut Value,
+    max_response_bytes: usize,
+    ssrf_filter: bool,
+) -> Result<(), StreamError> {
+    let Some(url) = body
+        .get("audio_url")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        return Ok(());
+    };
+    let response = fetch_result_link(upstream, url, max_response_bytes, ssrf_filter).await?;
+    let (_raw_media_type, downloaded_media_type) = api_resolver::validate_audio_bytes(
+        &response.headers,
+        &response.body,
+        "transport_failed",
+        "result_download",
+        "result download must contain audio",
+        None,
+    )?;
 
-    if response.body.is_empty()
-        || !(media_type.starts_with("audio/") || media_type == "application/octet-stream")
-    {
-        return Err(StreamError::new(
-            "invalid_upstream_response",
-            "api_resolver",
-            "upstream speech response must contain audio",
-        )
-        .provider_status(response.status)
-        .provider_body_excerpt(&response.body));
+    if let Some(object) = body.as_object_mut() {
+        object.remove("audio_url");
+        if let Some(content_type) = downloaded_media_type {
+            object.insert("content_type".to_string(), json!(content_type));
+        }
+        object.insert(
+            "audio".to_string(),
+            json!(STANDARD.encode_to_string(&response.body)),
+        );
     }
+    Ok(())
+}
 
-    Ok(json!({
-        "audio": STANDARD.encode_to_string(&response.body),
-        "content_type": media_type,
-        "usage": {}
-    }))
+async fn fetch_result_link(
+    upstream: &UpstreamSpec,
+    mut current_url: String,
+    max_response_bytes: usize,
+    ssrf_filter: bool,
+) -> Result<transport::HTTPResponse, StreamError> {
+    let failed = |message: String| StreamError::new("transport_failed", "result_download", message);
+
+    let mut final_response = None;
+    for hop in 0..=MAX_RESULT_DOWNLOAD_REDIRECTS {
+        if validate_web_url(&current_url, &["https", "http"], ssrf_filter).is_err() {
+            return Err(failed(
+                "the result link is not a web URL that the client fetches".to_string(),
+            ));
+        }
+        let parsed = reqwest::Url::parse(&current_url).map_err(|_| {
+            failed("the result link is not a web URL that the client fetches".to_string())
+        })?;
+
+        let mut download = upstream.clone();
+        download.method = "GET".to_string();
+        download.url = current_url.clone();
+        download.headers = Vec::new();
+        download.body = None;
+        download.body_bytes = None;
+
+        let proxy = transport::resolved_proxy(&download).map_err(|error| failed(error.message))?;
+        let response = match (proxy, parsed.host()) {
+            (None, Some(url::Host::Domain(domain))) => {
+                let port = parsed.port_or_known_default().unwrap_or(443);
+                let addrs: Vec<std::net::SocketAddr> = tokio::time::timeout(
+                    download.timeout.connect_duration(),
+                    tokio::net::lookup_host((domain, port)),
+                )
+                .await
+                .map_err(|_| failed("result download DNS lookup timed out".to_string()))?
+                .map_err(|reason| failed(format!("result download DNS lookup failed: {reason}")))?
+                .collect();
+                let ips: Vec<std::net::IpAddr> =
+                    addrs.iter().map(std::net::SocketAddr::ip).collect();
+                validate_ip_addresses(&ips, ssrf_filter).map_err(|_| {
+                    failed("the result link resolved to a disallowed address".to_string())
+                })?;
+                transport::send_no_redirect_http_request(
+                    &download,
+                    Some((domain, &addrs)),
+                    max_response_bytes,
+                )
+                .await
+                .map_err(|error| failed(error.message))?
+            }
+            _ => transport::send_no_redirect_http_request(&download, None, max_response_bytes)
+                .await
+                .map_err(|error| failed(error.message))?,
+        };
+
+        if matches!(response.status, 301 | 302 | 303 | 307 | 308) {
+            if hop == MAX_RESULT_DOWNLOAD_REDIRECTS {
+                return Err(failed(
+                    "result download exceeded maximum redirects".to_string(),
+                ));
+            }
+            let location = response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                .map(|(_, value)| value.trim())
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    failed(format!(
+                        "result download redirect status {} missing Location header",
+                        response.status
+                    ))
+                })?;
+            let next_url = parsed
+                .join(location)
+                .map_err(|_| failed("result download redirect Location is invalid".to_string()))?;
+            current_url = next_url.to_string();
+            continue;
+        }
+
+        if !(200..300).contains(&response.status) {
+            return Err(failed(format!(
+                "result download returned HTTP status {}",
+                response.status
+            )));
+        }
+
+        final_response = Some(response);
+        break;
+    }
+    final_response.ok_or_else(|| failed("result download exceeded maximum redirects".to_string()))
 }
 
 async fn run_raw_request(spec: RawRequestSpec) -> Result<Value, StreamError> {

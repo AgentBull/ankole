@@ -35,6 +35,9 @@ defmodule Ankole.Brain.Schemas.SlugAlias do
 
     create :add do
       accept([:id, :alias_slug, :canonical_page_id, :notes, :created_at])
+      upsert?(true)
+      upsert_identity(:alias)
+      upsert_fields([:canonical_page_id, :notes])
     end
 
     update :repoint do

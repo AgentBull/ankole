@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { emitFirstUseGuidance, readContextGenerationFile, writeContextGenerationFile } from '../src/cli/cli-guidance'
 import { startRunCLIBridges } from '../src/cli/run-cli-bridges'
-import { CLI_CONTEXT_FILE_ENV, CLI_LEDGER_DIR_ENV } from '../src/core/execution/turn_runtime_env'
-import { jsonBytes } from '../src/fabric/envelope_proto'
+import { CLI_CONTEXT_FILE_ENV, CLI_LEDGER_DIR_ENV } from '../src/core/execution/turn-runtime-env'
+import { jsonBytes } from '../src/fabric/envelope-proto'
 import { JSONPassthroughResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
 import { FakeDrive } from './support/fake-drive'
 
 describe('CLI context-epoch first-use guidance and stdout EPIPE guard', () => {

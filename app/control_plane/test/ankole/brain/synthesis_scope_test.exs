@@ -54,27 +54,119 @@ defmodule Ankole.Brain.SynthesisScopeTest do
     %{agent: agent, alice: alice, bob: bob}
   end
 
-  test "synthesis keeps all visible evidence and shares only with common readers", ctx do
-    first = source(ctx.agent.uid, ctx.alice.uid, "First")
-    second = source(ctx.agent.uid, ctx.bob.uid, "Second")
-    assert {:ok, result} = Synthesis.synthesize(ctx.agent.uid, "Acme renewal")
-    assert first.id in result.source_node_ids
-    assert second.id in result.source_node_ids
-    assert {:ok, self_access} = Ankole.Brain.Access.for_querier(ctx.agent.uid)
-    assert Ankole.Brain.Access.visible?(self_access, result.page_id)
+  test "private synthesis stays scoped to the requester and does not auto-share with raw source readers",
+       ctx do
+    shared_source =
+      shared_evidence(ctx.agent.uid, [ctx.alice.uid, ctx.bob.uid], "Shared")
 
-    for uid <- [ctx.alice.uid, ctx.bob.uid] do
+    disclosure = %{mode: :strict, asker_uid: ctx.alice.uid, present_uids: [ctx.alice.uid]}
+
+    assert {:ok, result} =
+             Synthesis.synthesize(ctx.agent.uid, "Acme renewal", disclosure: disclosure)
+
+    assert shared_source.id in result.source_node_ids
+
+    for uid <- [ctx.agent.uid, ctx.alice.uid] do
       assert {:ok, access} = Ankole.Brain.Access.for_querier(uid)
-      refute Ankole.Brain.Access.visible?(access, result.page_id)
+      assert Ankole.Brain.Access.visible?(access, result.page_id)
     end
 
-    assert {:ok, page} = Objects.get_by_slug(result.page_id)
-    assert page.meta["role"] == "synthesis"
-    assert page.body == @analysis_body
-    assert_receive {:synthesis_request, request}
-    prompt = request["messages"] |> List.first() |> Map.fetch!("content")
-    assert prompt =~ "First renewal evidence"
-    assert prompt =~ "Second renewal evidence"
+    assert {:ok, bob_access} = Ankole.Brain.Access.for_querier(ctx.bob.uid)
+    refute Ankole.Brain.Access.visible?(bob_access, result.page_id)
+
+    # Explicit publication uses the report's own ACL, and revoking raw source
+    # access afterward preserves the published report snapshot.
+    alice_actor = actor_fixture(ctx.alice)
+
+    assert {:ok, _} =
+             Ankole.Pod.Pages.update_sharing(alice_actor, result.page_id, %{
+               upserts: [%{principal_uid: ctx.bob.uid, role: "view", target_scope: "self"}]
+             })
+
+    assert {:ok, _} = Ankole.Pod.Pages.get(actor_fixture(ctx.bob), result.page_id)
+
+    {:ok, :ok} =
+      Repo.transact(fn ->
+        shared_source.id
+        |> Ankole.Pod.Access.page_grants()
+        |> Enum.filter(&(&1.principal_uid == ctx.bob.uid))
+        |> Ankole.Pod.Access.remove_grants()
+
+        {:ok, :ok}
+      end)
+
+    Ankole.Pod.Access.broadcast_change()
+
+    assert {:error, :forbidden} = Ankole.Pod.Pages.get(actor_fixture(ctx.bob), shared_source.id)
+    assert {:ok, _} = Ankole.Pod.Pages.get(actor_fixture(ctx.bob), result.page_id)
+  end
+
+  test "conversation synthesis shares with the room, respects relaxed disclosure, and enforces edit access on explicit target spaces",
+       ctx do
+    private_source = source(ctx.agent.uid, ctx.alice.uid, "AliceOnly")
+    Ankole.ConversationsFixtures.grant_chat(ctx.alice.uid, ctx.agent.uid)
+    Ankole.ConversationsFixtures.grant_chat(ctx.bob.uid, ctx.agent.uid)
+
+    conversation_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Ankole.ConversationsFixtures.create(ctx.alice.uid, %{
+               conversation_id: conversation_id,
+               message_id: Ecto.UUID.generate(),
+               agent_uid: ctx.agent.uid,
+               room_mode: :group,
+               participant_uids: [ctx.bob.uid],
+               text: "Summarize renewal risk."
+             })
+
+    relaxed = %{mode: :relaxed, asker_uid: ctx.alice.uid, present_uids: []}
+
+    assert {:ok, conv_result} =
+             Synthesis.synthesize(ctx.agent.uid, "Acme renewal",
+               disclosure: relaxed,
+               conversation_id: conversation_id
+             )
+
+    assert private_source.id in conv_result.source_node_ids
+    assert {:ok, _} = Ankole.Pod.Pages.get(actor_fixture(ctx.alice), conv_result.page_id)
+    assert {:ok, _} = Ankole.Pod.Pages.get(actor_fixture(ctx.bob), conv_result.page_id)
+
+    %{principal: outsider} = human_fixture()
+
+    assert {:error, :forbidden} =
+             Ankole.Pod.Pages.get(actor_fixture(outsider), conv_result.page_id)
+
+    # Explicit target space requires node_edit for the requester and Agent.
+    bob_actor = actor_fixture(ctx.bob)
+    {:ok, folder} = Ankole.Pod.Pages.create(bob_actor, %{title: "Team Space"})
+
+    {:ok, _} =
+      Ankole.Pod.Pages.update_sharing(bob_actor, folder.id, %{
+        inherit_permissions: false,
+        upserts: [
+          %{principal_uid: ctx.alice.uid, role: "view", target_scope: "container"},
+          %{principal_uid: ctx.agent.uid, role: "edit", target_scope: "container"}
+        ]
+      })
+
+    assert {:error, :forbidden} =
+             Synthesis.synthesize(ctx.agent.uid, "Acme renewal",
+               disclosure: relaxed,
+               source_node_id: folder.id
+             )
+
+    {:ok, _} =
+      Ankole.Pod.Pages.update_sharing(bob_actor, folder.id, %{
+        upserts: [%{principal_uid: ctx.alice.uid, role: "edit", target_scope: "container"}]
+      })
+
+    assert {:ok, folder_result} =
+             Synthesis.synthesize(ctx.agent.uid, "Acme renewal",
+               disclosure: relaxed,
+               source_node_id: folder.id
+             )
+
+    assert {:ok, _} = Ankole.Pod.Pages.get(bob_actor, folder_result.page_id)
   end
 
   test "requester intersection applies before model evidence assembly", ctx do
@@ -124,7 +216,10 @@ defmodule Ankole.Brain.SynthesisScopeTest do
     assert prompt =~ DateTime.to_iso8601(claim.valid_from)
   end
 
-  defp source(agent_uid, reader_uid, label) do
+  defp source(agent_uid, reader_uid, label),
+    do: shared_evidence(agent_uid, [reader_uid], label)
+
+  defp shared_evidence(agent_uid, reader_uids, label) do
     {:ok, page} =
       page_fixture_result(
         %{
@@ -142,7 +237,7 @@ defmodule Ankole.Brain.SynthesisScopeTest do
         {:ok, node} =
           Ankole.Pod.Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
 
-        for uid <- [agent_uid, reader_uid],
+        for uid <- Enum.uniq([agent_uid | reader_uids]),
             do:
               :ok =
                 Ankole.Pod.Access.put_role(

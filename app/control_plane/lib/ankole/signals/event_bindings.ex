@@ -2,6 +2,7 @@ defmodule Ankole.Signals.EventBindings do
   @moduledoc "Page-owned event subscriptions use the same Binding rows as schedules and webhooks."
   require Ash.Query
   alias Ankole.{AutomationJobs, Repo, Pod, AuthZ}
+  alias Ankole.Principals.WorkAccess
   alias Ankole.Signals.{Binding, SourceBindings, Target}
 
   def list(actor, reference, job_id \\ nil)
@@ -47,7 +48,8 @@ defmodule Ankole.Signals.EventBindings do
 
     with {:ok, _} <- Pod.Access.principal(actor),
          :ok <- source_access(actor, reference),
-         {:ok, route} <- target(actor, attrs) do
+         {:ok, authorization} <- source_authorization(reference),
+         {:ok, route} <- target(actor, attrs, authorization) do
       Repo.transact_top_level(fn ->
         id = attrs["id"] || Ash.UUIDv7.generate()
         previous = Binding |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
@@ -60,9 +62,10 @@ defmodule Ankole.Signals.EventBindings do
                  source_job_id(reference)
                ]),
              :ok <- source_access(actor, reference),
+             {:ok, authorization} <- source_authorization(reference),
              :ok <- editable_binding(previous, reference, attrs),
              :ok <- AutomationJobs.authorize_bindable_in_tx(actor, route.automation_job_id),
-             {:ok, route} <- target(actor, attrs),
+             {:ok, route} <- target(actor, attrs, authorization),
              {:ok, binding} <-
                Ankole.Ash.create(
                  Binding,
@@ -118,7 +121,7 @@ defmodule Ankole.Signals.EventBindings do
       else: :ok
   end
 
-  defp target(actor, %{"automation_job_id" => id}) when is_integer(id) do
+  defp target(actor, %{"automation_job_id" => id}, _authorization) when is_integer(id) do
     with {:ok, %{status: :active} = job} <- AutomationJobs.get_automation_job(id),
          :ok <- AutomationJobs.authorize_applet_job(actor, job, job.page_id, "node_contribute"),
          do: {:ok, %{routing_mode: :action, automation_job_id: id, agent_uid: nil, target: %{}}},
@@ -129,13 +132,14 @@ defmodule Ankole.Signals.EventBindings do
          )
   end
 
-  defp target(actor, %{"agent_uid" => uid, "target" => target}) do
+  defp target(actor, %{"agent_uid" => uid, "target" => target}, authorization) do
     with {:ok, _} <- Ankole.Principals.get_agent(uid),
          :ok <-
            if(AuthZ.allowed?(AuthZ.Actor.uid(actor), "agent:#{uid}", "chat"),
              do: :ok,
              else: {:error, :forbidden}
            ),
+         :ok <- WorkAccess.check_execution_target(uid, authorization),
          true <- routable?(Target.parse(target)),
          do:
            {:ok,
@@ -146,7 +150,45 @@ defmodule Ankole.Signals.EventBindings do
          )
   end
 
-  defp target(_, _), do: {:error, :invalid_signal_target}
+  defp target(_, _, _), do: {:error, :invalid_signal_target}
+
+  defp source_authorization("schedule://" <> id) do
+    with {:ok, source} <- Ankole.Schedule.get_cron_schedule(id),
+         do: {:ok, WorkAccess.fields(source)}
+  end
+
+  defp source_authorization("scheduled-event://" <> id) do
+    with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+         {:ok, source} <- Ankole.Schedule.get_checkback(id),
+         do: {:ok, WorkAccess.fields(source)}
+  end
+
+  defp source_authorization("webhook-endpoint://" <> id) do
+    case Ankole.Signals.Webhooks.get_endpoint(id) do
+      nil -> {:error, :not_found}
+      source -> {:ok, WorkAccess.fields(source)}
+    end
+  end
+
+  defp source_authorization("job://" <> id) do
+    with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+         {:ok, job} when not is_nil(job) <- AutomationJobs.get_automation_job(id) do
+      {:ok, WorkAccess.fields(job)}
+    else
+      {:ok, nil} -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp source_authorization("connector-trigger://" <> id) do
+    with {:ok, trigger} <- Ankole.Connectors.Triggers.get(id),
+         do: {:ok, Ankole.Connectors.Triggers.authorization(trigger)}
+  end
+
+  defp source_authorization("connector://" <> _), do: {:ok, WorkAccess.service()}
+  defp source_authorization("base://" <> _), do: {:ok, WorkAccess.service()}
+  defp source_authorization("applet://" <> _), do: {:ok, WorkAccess.service()}
+  defp source_authorization(_), do: {:error, :invalid_signal_source}
 
   defp source_access(actor, reference, mode \\ :write)
 

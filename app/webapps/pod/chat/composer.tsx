@@ -170,7 +170,7 @@ export function Composer({
   const roomAgents = (detail?.conversation.agents ?? agents).filter(agent => agent.active && callable.has(agent.uid))
   const group = detail?.conversation.roomMode === 'group'
   const humanOnly = (group || detail?.conversation.accessScope === 'anchor_page') && roomAgents.length === 0
-  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value, detail, [...callable])
+  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value)
   const recipientUID =
     answerQuestion?.agentUID ??
     queueEditing?.agentUID ??

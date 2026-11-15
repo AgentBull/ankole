@@ -17,7 +17,7 @@ import { pageMetadata, type PageMetadata } from './state/page-metadata'
 
 type PageDisplay = { id: string; title?: string | null; icon?: string | null }
 
-function merge<P extends PageDisplay>(page: P, metadata: PageMetadata | undefined): P {
+export function mergePageMetadata<P extends PageDisplay>(page: P, metadata: PageMetadata | undefined): P {
   if (!metadata) return page
   const title = metadata.title ?? page.title
   const icon = metadata.icon === undefined ? page.icon : metadata.icon
@@ -37,7 +37,7 @@ export function usePageMetadata<P extends PageDisplay>(page: P | undefined): P |
             .findOne()
         : undefined
   })
-  return page ? merge(page, data) : page
+  return page ? mergePageMetadata(page, data) : page
 }
 
 /** Small result sets (paths and pickers) subscribe only to the IDs they display. */
@@ -48,7 +48,7 @@ export function usePagesMetadata<P extends PageDisplay>(pages: readonly P[]): P[
     query: q => (ids.length ? q.from({ page: collection }).where(({ page }) => inArray(page.id, ids)) : undefined)
   })
   const byID = new Map((data ?? []).map(page => [page.id, page]))
-  return pages.map(page => merge(page, byID.get(page.id)))
+  return pages.map(page => mergePageMetadata(page, byID.get(page.id)))
 }
 
 export function usePageTransliteration(): boolean {

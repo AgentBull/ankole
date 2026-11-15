@@ -106,13 +106,19 @@ defmodule AnkoleWeb.OIDCDesktopPodTest do
     assert is_binary(access_token)
     assert is_binary(token_resp["refresh_token"])
 
-    bootstrap =
+    bootstrap_conn =
       conn
       |> recycle()
       |> pod_conn(tenant)
       |> put_req_header("authorization", "Bearer #{access_token}")
       |> get("/api/v2/pod/bootstrap")
-      |> json_response(200)
+
+    bootstrap = json_response(bootstrap_conn, 200)
+
+    assert {:ok, stream_actor} =
+             WebSession.pod_stream_actor(bootstrap_conn, bootstrap_conn.assigns.authz_actor)
+
+    assert stream_actor.principal.uid == human.principal.uid
 
     assert bootstrap["tenantId"] == tenant.id
     assert bootstrap["tenantSlug"] == tenant.slug
@@ -182,6 +188,9 @@ defmodule AnkoleWeb.OIDCDesktopPodTest do
       |> json_response(401)
 
     assert rejected["error"]["code"] == "unauthorized"
+
+    assert {:ok, _} = OIDC.Sessions.revoke(bootstrap_conn.assigns.oidc_session.id)
+    assert :error = WebSession.pod_stream_actor(bootstrap_conn, stream_actor)
   end
 
   test "OIDC access tokens without the pod scope are rejected on Pod endpoints",
@@ -281,6 +290,117 @@ defmodule AnkoleWeb.OIDCDesktopPodTest do
       |> html_response(200)
 
     refute console_html =~ "manifest.webmanifest"
+  end
+
+  test "GET /oauth/desktop/authorize mints a desktop PKCE code and returns pod_origin on callback",
+       %{conn: conn, tenant: tenant} do
+    human =
+      human_fixture(%{
+        uid: unique_uid("desktop-handoff"),
+        display_name: "Desktop Handoff",
+        email: "#{unique_uid("desktop-handoff")}@example.com"
+      })
+
+    verifier = String.duplicate("h", 43)
+
+    authorization =
+      conn
+      |> oauth_session_conn(tenant, human.principal.uid)
+      |> get("/oauth/desktop/authorize", %{
+        "state" => "handoff-state-42",
+        "code_challenge" => pkce_challenge(verifier),
+        "code_challenge_method" => "S256"
+      })
+
+    redirect_uri = URI.parse(redirected_to(authorization, 302))
+    assert redirect_uri.scheme == "ankole"
+    assert redirect_uri.host == "oauth"
+    assert redirect_uri.path == "/callback"
+
+    query = URI.decode_query(redirect_uri.query)
+    assert query["state"] == "handoff-state-42"
+    assert query["pod_origin"] == AnkoleWeb.PodURL.origin(authorization, tenant)
+    assert is_binary(query["code"])
+
+    token_resp =
+      conn
+      |> recycle()
+      |> pod_conn(tenant)
+      |> post("/oauth/token", %{
+        "grant_type" => "authorization_code",
+        "client_id" => DesktopClient.client_id(tenant.id),
+        "redirect_uri" => "ankole://oauth/callback",
+        "code" => query["code"],
+        "code_verifier" => verifier
+      })
+      |> json_response(200)
+
+    assert is_binary(token_resp["access_token"])
+    assert is_binary(token_resp["refresh_token"])
+  end
+
+  test "GET /oauth/connectors/callback renders an ankole://open handoff page when desktop=1 is set on return_to",
+       %{conn: conn, tenant: tenant} do
+    human =
+      human_fixture(%{
+        uid: unique_uid("desktop-connector"),
+        display_name: "Desktop Connector",
+        email: "#{unique_uid("desktop-connector")}@example.com"
+      })
+
+    {:ok, config} =
+      Ankole.Ash.create(Ankole.Connectors.AuthConfig, :create, %{
+        plugin_id: "github",
+        slug: "github-desktop",
+        display_name: "GitHub",
+        mode: "cloud",
+        auth_scheme: "oauth2",
+        status: "active",
+        created_by_uid: human.principal.uid
+      })
+
+    raw_state = tenant.id <> "." <> Ankole.Authn.SecretDigest.token()
+    session_id = Ankole.Kernel.gen_uuid_v7()
+
+    {:ok, sealed} =
+      Ankole.Connectors.Credentials.seal("verifier", "connector_oauth_pkce", session_id)
+
+    {:ok, _session} =
+      Ankole.Ash.create(Ankole.Connectors.OAuthSession, :create, %{
+        id: session_id,
+        auth_config_id: config.id,
+        subject_kind: "human",
+        actor_uid: human.principal.uid,
+        oauth_state_digest: Ankole.Authn.SecretDigest.digest("connector_oauth_state", raw_state),
+        sealed_pkce_verifier: sealed,
+        requested_scopes: ["repo"],
+        return_to:
+          "/connectors?connection=github-desktop&desktop=1&intent=%2Fconversations%2F123",
+        expires_at: DateTime.add(DateTime.utc_now(), 600)
+      })
+
+    resp =
+      conn
+      |> get("/oauth/connectors/callback", %{
+        "state" => raw_state,
+        "error" => "access_denied"
+      })
+
+    html = html_response(resp, 200)
+    assert [link] = Regex.run(~r/href="(ankole:\/\/open\?[^"]+)"/, html, capture: :all_but_first)
+    deep_link = URI.parse(String.replace(link, "&amp;", "&"))
+    query = URI.decode_query(deep_link.query)
+
+    assert query["tenant_id"] == tenant.id
+    assert query["principal_uid"] == human.principal.uid
+    assert query["pod_origin"] == AnkoleWeb.PodURL.origin(resp, tenant)
+
+    href_uri = URI.parse(query["href"])
+    assert href_uri.path == "/connectors"
+    href_query = URI.decode_query(href_uri.query)
+    refute Map.has_key?(href_query, "desktop")
+    assert href_query["connector_error"] == "oauth_authorization_cancelled"
+    assert href_query["intent"] == "/conversations/123"
   end
 
   defp authorize_desktop_code!(

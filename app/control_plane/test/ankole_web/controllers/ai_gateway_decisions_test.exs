@@ -674,6 +674,138 @@ defmodule AnkoleWeb.AIGatewayDecisionsTest do
              openai_request.body["questions"]
   end
 
+  test "Google AI Studio converts all question types, normalizes usage, and rejects safety blocks",
+       ctx do
+    base_url =
+      ctx.upstream.(fn %{path: "v1beta/decisions"} = request ->
+        if request.body["input"] == "Blocked prompt" do
+          {:json, 200,
+           %{
+             "answers" => %{},
+             "prompt_feedback" => %{
+               "block_reason" => "safety",
+               "block_reason_message" => "Prompt blocked by safety filter"
+             }
+           }}
+        else
+          {:json, 200,
+           %{
+             "answers" => %{
+               "urgent" => %{"type" => "noul", "noul" => 0.96, "confidence" => 0.96},
+               "ankole_q_1" => %{
+                 "type" => "choice",
+                 "choice" => "billing",
+                 "probabilities" => %{"billing" => 0.91, "support" => 0.09},
+                 "confidence" => 0.91
+               },
+               "severity" => %{
+                 "type" => "score",
+                 "score" => 1.5,
+                 "legend" => %{"0" => "Cosmetic", "1" => "Degraded", "2" => "Outage"},
+                 "probabilities" => %{"0" => 0.1, "1" => 0.3, "2" => 0.6},
+                 "confidence" => 0.6
+               }
+             },
+             "usage" => %{
+               "total_input_tokens" => 152,
+               "input_tokens_by_modality" => [
+                 %{"modality" => "text", "tokens" => 52},
+                 %{"modality" => "image", "tokens" => 100}
+               ],
+               "total_cached_tokens" => 10,
+               "total_output_tokens" => 0,
+               "total_tokens" => 152
+             }
+           }}
+        end
+      end)
+
+    decision_provider(
+      "google-decision",
+      "google_ai_studio_openai",
+      base_url <> "/v1beta/openai"
+    )
+
+    use_decision_model("google-decision", "gemini-decision-1")
+
+    questions = %{
+      "urgent" => %{
+        "type" => "noul",
+        "instructions" => "Does this ticket need a reply today?",
+        "criteria" => %{"true" => "Reply today", "false" => "Can wait"}
+      },
+      "ticket.team" => @questions["team"],
+      "severity" => @questions["severity"]
+    }
+
+    conn =
+      decide(ctx.conn, %{
+        "state" => %{"ticket" => %{"message" => "Charged twice"}},
+        "questions" => questions,
+        "images" => ["data:image/webp;base64,d2VicA=="]
+      })
+
+    assert %{
+             "model" => "gemini-decision-1",
+             "answers" => %{
+               "urgent" => %{"type" => "noul", "noul" => 0.96},
+               "ticket.team" => %{
+                 "type" => "choice",
+                 "choice" => "billing",
+                 "probabilities" => %{"billing" => 0.91, "support" => 0.09},
+                 "confidence" => 0.91
+               },
+               "severity" => %{
+                 "type" => "score",
+                 "score" => 1.5,
+                 "legend" => %{"0" => "Cosmetic", "1" => "Degraded", "2" => "Outage"},
+                 "probabilities" => %{"0" => 0.1, "1" => 0.3, "2" => 0.6},
+                 "confidence" => 0.6
+               }
+             },
+             "usage" => %{
+               "input_tokens" => 152,
+               "output_tokens" => 0,
+               "total_tokens" => 152,
+               "input_tokens_details" => %{"cached_tokens" => 10}
+             }
+           } = json_response(conn, 200)
+
+    assert_receive {:gateway_request, request}
+    assert request.headers["x-goog-api-key"] == "decision-token"
+    assert request.headers["x-goog-api-client"] == "ankole-ai-gateway/0.1"
+    refute Map.has_key?(request.headers, "authorization")
+    assert request.body["model"] == "gemini-decision-1"
+
+    assert request.body["input"] == [
+             %{"type" => "text", "text" => ~s({"ticket":{"message":"Charged twice"}})},
+             %{"type" => "image", "mime_type" => "image/webp", "data" => "d2VicA=="}
+           ]
+
+    assert request.body["questions"]["urgent"]["criteria"] == %{
+             "true_description" => "Reply today",
+             "false_description" => "Can wait"
+           }
+
+    assert request.body["questions"]["ankole_q_1"]["type"] == "choice"
+
+    assert [row] = Ankole.Repo.all(UsageRecord)
+    assert row.capability == :decision
+    assert {row.input_tokens, row.output_tokens, row.cached_input_tokens} == {152, 0, 10}
+    assert {row.model, row.provider_model} == {"google-decision/gemini-decision-1", nil}
+
+    blocked_conn =
+      decide(ctx.conn, %{
+        "state" => "Blocked prompt",
+        "questions" => Map.take(@questions, ["urgent"])
+      })
+
+    assert %{"error" => %{"code" => "upstream_decision_refusal"}} =
+             json_response(blocked_conn, 422)
+
+    assert length(Ankole.Repo.all(UsageRecord)) == 1
+  end
+
   defp decision_provider(provider_id, kind, base_url, connection_options \\ %{}) do
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{

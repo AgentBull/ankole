@@ -901,30 +901,18 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
        when is_binary(id) and id != "" and map_size(item) == 2,
        do: Map.put(item, "type", "item_reference")
 
-  defp provider_replay_item(
-         %{"type" => "message", "role" => "assistant", "status" => status, "id" => id} = item,
-         _supports_image?
-       )
-       when status in ["in_progress", "completed", "incomplete"] and is_binary(id) and id != "",
-       do: item
-
   defp provider_replay_item(%{} = item, supports_image?)
        when is_map_key(item, "id") do
-    cond do
-      ResponseItems.provider_replay_id_required?(item) ->
-        CompactionHistory.strip_transient_replay_options(item)
-
-      supports_image? ->
+    item =
+      if ResponseItems.provider_replay_id_required?(item) and
+           is_binary(item["id"]) and item["id"] != "" do
         item
-        |> Map.delete("id")
-        |> CompactionHistory.strip_transient_replay_options()
+      else
+        Map.delete(item, "id")
+      end
+      |> CompactionHistory.strip_transient_replay_options()
 
-      true ->
-        item
-        |> Map.delete("id")
-        |> CompactionHistory.strip_transient_replay_options()
-        |> replace_image_parts_for_text_model()
-    end
+    if supports_image?, do: item, else: replace_image_parts_for_text_model(item)
   end
 
   defp provider_replay_item(%{} = item, true) do

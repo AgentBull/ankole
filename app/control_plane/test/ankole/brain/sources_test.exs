@@ -6,6 +6,71 @@ defmodule Ankole.Brain.SourcesTest do
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Repo
 
+  test "OIDC learning skips an unscoped guest conversation until a scope exists while failing on broken scope" do
+    guest = Ankole.PrincipalsFixtures.human_fixture(%{membership: :guest}).principal
+    assert Ankole.Brain.Scope.principal(guest.uid) == nil
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(guest.uid, "guest-learning")
+
+    {:ok, message} =
+      Ankole.Ash.create(Ankole.AIGateway.Schemas.Message, :start, %{
+        subject_uid: guest.uid,
+        conversation_id: conversation.id,
+        content: [%{"role" => "user", "content" => "Private guest conversation"}],
+        metadata: %{"oidc_client_id" => "guest-client", "request_item_count" => 1}
+      })
+
+    {:ok, _} = Ankole.AIGateway.ResponseCommit.commit_complete(message, [])
+
+    {:ok, source} =
+      Sources.create(%{kind: "oidc_client", upstream_id: "guest-client", name: "Guest client"})
+
+    assert Ankole.Brain.OIDCClientLearning.sweep() == 0
+
+    assert {:ok, %{status: :learned, conversations: 0}} =
+             Ankole.Brain.OIDCClientLearning.learn(source)
+
+    assert Ankole.Brain.Scope.principal(guest.uid) == nil
+
+    assert {:error, :not_found} =
+             Ankole.Brain.Objects.get_by_slug("media/oidc-#{source.id}-#{conversation.id}")
+
+    {:ok, _promoted} = Ankole.Principals.change_human_membership(guest.uid, :member)
+    assert is_binary(Ankole.Brain.Scope.principal(guest.uid))
+    assert Ankole.Brain.OIDCClientLearning.sweep() == 1
+
+    member = Ankole.PrincipalsFixtures.human_fixture().principal
+
+    Repo.delete_all(
+      from(p in Ankole.Pod.Page,
+        where: is_nil(p.parent_id) and p.private_owner_uid == ^member.uid
+      )
+    )
+
+    assert Ankole.Brain.Scope.principal(member.uid) == nil
+
+    {:ok, broken_conv} =
+      Ankole.AIGatewayCase.ensure_conversation(member.uid, "missing-scope-learning")
+
+    {:ok, broken_msg} =
+      Ankole.Ash.create(Ankole.AIGateway.Schemas.Message, :start, %{
+        subject_uid: member.uid,
+        conversation_id: broken_conv.id,
+        content: [%{"role" => "user", "content" => "Orphaned conversation"}],
+        metadata: %{"oidc_client_id" => "broken-client", "request_item_count" => 1}
+      })
+
+    {:ok, _} = Ankole.AIGateway.ResponseCommit.commit_complete(broken_msg, [])
+
+    {:ok, broken_source} =
+      Sources.create(%{kind: "oidc_client", upstream_id: "broken-client", name: "Broken client"})
+
+    assert {:error,
+            {:conversation_learning_failed, [{broken_conv_id, :private_scope_unavailable}]}} =
+             Ankole.Brain.OIDCClientLearning.learn(broken_source)
+
+    assert broken_conv_id == broken_conv.id
+  end
+
   test "recording an extraction watermark keeps Source list ordering" do
     assert {:ok, source} =
              Sources.create(%{kind: "conversation", upstream_id: "channel-1", name: "Channel"})

@@ -1,8 +1,8 @@
 import { compareCodePointStrings } from '../../../common/ordering'
 import { compact, isRecord, uniq } from '@agentbull/active-support'
-import { jsonObjectFromBytes } from '../../../fabric/envelope_proto'
+import { jsonObjectFromBytes } from '../../../fabric/envelope-proto'
 import { type BackgroundAgentJobResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { ResolvedAgentWorkerEnv } from '../../execution/worker_env'
+import type { ResolvedAgentWorkerEnv } from '../../execution/worker-env'
 
 /**
  * The control plane freezes this projection when it creates the Job.

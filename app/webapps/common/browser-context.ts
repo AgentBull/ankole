@@ -10,6 +10,11 @@ export function authenticationRef(): string | undefined {
   return meta('ankole-authentication')
 }
 
+/** Discriminator for session-scoped client caches across browser proofs and Desktop workspaces. */
+export function sessionIdentityKey(): string | undefined {
+  return authenticationRef() ?? getPodRuntimeBootstrap()?.principalUid
+}
+
 export function principalUID(): string | undefined {
   return getPodRuntimeBootstrap()?.principalUid ?? meta('ankole-principal')
 }

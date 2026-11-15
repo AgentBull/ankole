@@ -2,9 +2,9 @@ import { z } from 'zod'
 import type { JsonObject } from '@agentbull/active-support'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import { readTool } from '../../core/read-tools'
-import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope_proto'
-import type { JobTurnRef } from '../../lanes/session_lane'
-import type { RPCRequester } from '../../lanes/rpc_lane'
+import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope-proto'
+import type { JobTurnRef } from '../../lanes/session-lane'
+import type { RPCRequester } from '../../lanes/rpc-lane'
 
 /** Job adapters use the same declarations and owners as foreground peer tools. */
 export function createPeerTools(opts: {

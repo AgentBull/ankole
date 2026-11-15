@@ -259,6 +259,7 @@ defmodule Ankole.Principals do
   defdelegate lock_principals_in_tx(uids), to: Humans
 
   defdelegate personal_assistant(owner_uid), to: Agents
+  defdelegate foreign_personal_assistant_uids(owner_uid), to: Agents
   defdelegate ensure_personal_assistant(owner_uid), to: Agents
   defdelegate authority_uid(uid), to: Agents
   defdelegate served_human_uid(agent_uid, human_uid), to: Agents

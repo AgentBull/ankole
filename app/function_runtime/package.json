@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@ankole/applet-sdk": "workspace:*",
-    "acorn": "8.18.0",
-    "mcporter": "0.16.0"
+    "acorn": "8.19.0",
+    "mcporter": "0.17.0"
   }
 }

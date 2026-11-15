@@ -3,7 +3,7 @@ import {
   createChannelTransport,
   createPhoenixSocket,
   type ChannelSocketLike
-} from '../../../src/fabric/channel_transport'
+} from '../../../src/fabric/channel-transport'
 import { workerLogger } from '../../../src/worker/logging'
 
 type PhoenixConnection = ChannelSocketLike & { conn: WebSocket | null; heartbeatIntervalMs: number }

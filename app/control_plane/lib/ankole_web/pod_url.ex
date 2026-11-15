@@ -57,6 +57,12 @@ defmodule AnkoleWeb.PodURL do
     end
   end
 
+  def workspace_selection_url do
+    if @host_policy && function_exported?(@host_policy, :workspace_selection_url, 0) do
+      apply(@host_policy, :workspace_selection_url, [])
+    end
+  end
+
   def login_url(conn, tenant, params \\ %{}) do
     if @host_policy,
       do: apply(@host_policy, :login_url, [tenant, params]),
@@ -149,7 +155,7 @@ defmodule AnkoleWeb.PodURL do
     end
   end
 
-  defp browser_path([path]) when path in ["settings", "me", "connectors", "work"],
+  defp browser_path([path]) when path in ["settings", "me", "connectors", "jobs"],
     do: {:ok, "/" <> path}
 
   defp browser_path([]), do: {:ok, "/"}

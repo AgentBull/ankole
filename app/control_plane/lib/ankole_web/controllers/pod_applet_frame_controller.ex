@@ -32,7 +32,10 @@ defmodule AnkoleWeb.PodAppletFrameController do
 
   defp serve_applet_index(conn, file, object) do
     tags = shell_tags()
-    digest = Base.encode16(:crypto.hash(:sha256, [object.sha256, tags]), case: :lower)
+
+    digest =
+      Base.encode16(:crypto.hash(:sha256, [object.sha256 || object.id, tags]), case: :lower)
+
     content_type = mime("index.html", file.content_type)
 
     if PodResponse.applet_frame_unchanged?(conn, digest) do
@@ -57,8 +60,8 @@ defmodule AnkoleWeb.PodAppletFrameController do
   end
 
   defp shell(html, tags) do
-    if String.contains?(html, "<head>"),
-      do: String.replace(html, "<head>", "<head>" <> tags, global: false),
+    if Regex.match?(~r/<head\b[^>]*>/i, html),
+      do: Regex.replace(~r/<head\b[^>]*>/i, html, "\\0" <> tags, global: false),
       else: tags <> html
   end
 

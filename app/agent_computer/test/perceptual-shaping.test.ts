@@ -325,6 +325,40 @@ describe('Worker silent perceptual CLI shaping', () => {
     }
   })
 
+  it('standalone shim supplies environment defaults while honoring caller overrides', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ankole-cli-shim-env-'))
+    const shimEntry = join(import.meta.dir, '..', 'src', 'cli', 'shim', 'ankole-cli-shim.ts')
+    const cargo = join(dir, 'cargo')
+    writeFileSync(cargo, '#!/usr/bin/env bash\nprintf "color=%s ci=%s\\n" "$CARGO_TERM_COLOR" "$CI"\n')
+    chmodSync(cargo, 0o755)
+    try {
+      const base = { ...process.env }
+      delete base.CARGO_TERM_COLOR
+      delete base.CI
+      delete base.ANKOLE_RAW
+      delete base.ANKOLE_SHIM_ACTIVE
+      delete base.ANKOLE_PERCEPTUAL_POSTURE
+      for (const [overrides, expected] of [
+        [{}, 'color=never ci=1'],
+        [{ CARGO_TERM_COLOR: 'always', CI: '0' }, 'color=always ci=0']
+      ] as const) {
+        const result = Bun.spawnSync([process.execPath, shimEntry, 'cargo', 'check'], {
+          env: {
+            ...base,
+            ...overrides,
+            ANKOLE_SHIM_DIR_OVERRIDE: join(dir, 'shims'),
+            ANKOLE_SHIM_DIRECT: '1',
+            PATH: `${dir}:${process.env.PATH}`
+          }
+        })
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout.toString()).toContain(expected)
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('standalone ankole-cli-shim shapes direct harness calls and bypasses file redirections and ANKOLE_RAW=1', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ankole-cli-shim-test-'))
     const realBinDir = join(dir, 'real-bin')

@@ -185,24 +185,27 @@ defmodule Ankole.Plugins.DatabaseConnectors.ClickHouse do
           {[{names, [row]}], {:rows, names}}
       end)
 
-    result = consume.(chunks)
-    Process.delete(@report_key)
-    {:ok, %{columns: Process.delete(key) || [], result: result}}
-  rescue
-    error in ServerError ->
+    try do
+      result = consume.(chunks)
+      {:ok, %{columns: Process.delete(key) || [], result: result}}
+    rescue
+      error in ServerError ->
+        {:error, failure(500, error.message)}
+
+      error in Ankole.Files.HTTP.Error ->
+        # ClickHouse closes the connection after its error report, so a transport
+        # error that follows a report carries the report's message.
+        case {Process.delete(@report_key), error} do
+          {report, _error} when report != nil ->
+            {:error, failure(500, report_text(report))}
+
+          {nil, error} ->
+            stream_failure(error)
+        end
+    after
+      Process.delete(key)
       Process.delete(@report_key)
-      {:error, failure(500, error.message)}
-
-    error in Ankole.Files.HTTP.Error ->
-      # ClickHouse closes the connection after its error report, so a transport
-      # error that follows a report carries the report's message.
-      case {Process.delete(@report_key), error} do
-        {report, _error} when report != nil ->
-          {:error, failure(500, report_text(report))}
-
-        {nil, error} ->
-          stream_failure(error)
-      end
+    end
   end
 
   defp stream_failure(error) do

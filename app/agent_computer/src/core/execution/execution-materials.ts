@@ -1,10 +1,10 @@
 import type { BrowserRuntime, MaterializedBrowserRuntime } from '../../browser-runtime'
 import { browserRuntimeEnv, withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
-import type { RenderedFetchRuntimeConfig } from '../../fabric/envelope_proto'
-import type { RPCRequester, TurnRPCFrame } from '../../lanes/rpc_lane'
+import type { RenderedFetchRuntimeConfig } from '../../fabric/envelope-proto'
+import type { RPCRequester, TurnRPCFrame } from '../../lanes/rpc-lane'
 import { materializeMCPorterConfig, type MaterializedMCPorterConfig, type MCPServerConfig } from '../../tools/mcp'
 import type { RenderedWebFetchOptions } from '../../tools/web/web-tools'
-import { resolveAgentWorkerEnvParts, type ResolvedAgentWorkerEnv } from './worker_env'
+import { resolveAgentWorkerEnvParts, type ResolvedAgentWorkerEnv } from './worker-env'
 
 export type PreparedExecutionMaterials = {
   workerEnv: Record<string, string>

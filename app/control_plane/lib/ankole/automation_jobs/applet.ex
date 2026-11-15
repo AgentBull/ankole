@@ -524,4 +524,48 @@ defmodule Ankole.AutomationJobs.Applet do
       concurrency_mode: policy["concurrency"],
       max_slices: policy["maxSlices"]
     }
+
+  def list_visible_active_jobs(_authority_uid, []), do: []
+
+  def list_visible_active_jobs(authority_uid, visible_page_ids)
+      when is_binary(authority_uid) and is_list(visible_page_ids) do
+    Job
+    |> Ash.Query.filter(
+      status == :active and
+        (authorization_kind != "human" or human_uid == ^authority_uid) and
+        page_id in ^visible_page_ids
+    )
+    |> Ash.Query.sort(id: :asc)
+    |> Ankole.Ash.read!()
+  end
+
+  def run_rollups_by_jobs([]), do: {%{}, %{}}
+
+  def run_rollups_by_jobs(job_ids) when is_list(job_ids) do
+    live_runs =
+      Run
+      |> Ash.Query.filter(automation_job_id in ^job_ids and status in [:queued, :running])
+      |> Ash.Query.select([:id, :automation_job_id, :status])
+      |> Ankole.Ash.read!()
+      |> Enum.group_by(& &1.automation_job_id)
+
+    latest_runs =
+      Run
+      |> Ash.Query.filter(automation_job_id in ^job_ids)
+      |> Ash.Query.distinct([:automation_job_id])
+      |> Ash.Query.distinct_sort(automation_job_id: :asc, inserted_at: :desc, id: :desc)
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.automation_job_id, &1})
+
+    {live_runs, latest_runs}
+  end
+
+  def recent_runs_for_job(job_id, limit)
+      when is_integer(job_id) and is_integer(limit) and limit > 0 do
+    Run
+    |> Ash.Query.filter(automation_job_id == ^job_id)
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
+  end
 end

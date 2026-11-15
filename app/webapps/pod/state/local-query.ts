@@ -75,12 +75,18 @@ export function canQueryLocally(schema: TableSchema, query: RecordQuery): boolea
         ) {
           return false
         }
+        if (attribution(definition) && !condition.value.every(item => typeof item === 'string')) {
+          return false
+        }
         return (
           !datetime(definition) || condition.value.every(item => typeof item === 'string' && canonicalDatetime(item))
         )
       }
       if (condition.value === null || condition.value === undefined) return false
-      if (attribution(definition) && ['gt', 'gte', 'lt', 'lte'].includes(condition.operator)) return false
+      if (attribution(definition)) {
+        if (['gt', 'gte', 'lt', 'lte'].includes(condition.operator)) return false
+        if (typeof condition.value !== 'string') return false
+      }
       if (datetime(definition) && !canonicalDatetime(condition.value)) return false
       if (condition.operator === 'text_contains') return !!schema.local_query?.text_contains_ascii
       return (

@@ -1,5 +1,6 @@
 import {
   isDelimitedTextTable,
+  isHtmlFile,
   isLegacyWorkbookFile,
   isOfficeSpreadsheetFile,
   isPresentationFile,
@@ -12,7 +13,7 @@ import { useTranslation } from 'react-i18next'
 import { Button, buttonVariants, cn, Spinner } from '@ankole/uikit'
 import { CloudArrowUpRegular } from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { lazy, Suspense, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { InternalAPIError } from '../common/internal-api-client'
 import { BdiLabel } from '../common/bidi-file-name'
 import { sanitizeFileName } from '../common/bidi'
@@ -23,7 +24,7 @@ import { podFiles } from './api/generated/sdk.gen'
 import { uploadFile } from './native-transfers'
 import type { PodFileCopyResponse } from './api/generated/types.gen'
 import type { FileCommentAnchor, FileCommentSelection, FilePreviewHandle } from './file-comment-anchors'
-import { DelimitedTablePreview, MediaFilePreview, TextFilePreview } from './page-file-previews'
+import { DelimitedTablePreview, HtmlFilePreview, MediaFilePreview, TextFilePreview } from './page-file-previews'
 import { usePageRealtime } from './use-page-realtime'
 import { isRealtimeAccessDenied } from './realtime'
 import { officeFileFormat } from './office/office-files'
@@ -101,6 +102,8 @@ export function FilePage({
   )
   const name = file?.path.split('/').at(-1) ?? t('pod.content.file')
   const officeKind = file ? officeFileFormat(name) : undefined
+  const mime = file ? previewMediaType(name, file.content_type) : undefined
+  const isHtml = Boolean(file && !officeKind && isHtmlFile(name, mime))
   const findQuery = searchFind.trim()
   const chooseLabel = file ? t('pod.content.choose_a_replacement_file') : t('pod.content.choose_a_file_to_upload')
   const canUpload = Boolean(manifest.data) && !manifest.isFetching && !upload.isPending
@@ -112,6 +115,21 @@ export function FilePage({
   if (connection.revoked || isRealtimeAccessDenied(manifest.error)) {
     return <ContentError error={new Error(t('pod.content.you_no_longer_have_access_to_this_file'))} />
   }
+  const replaceButton = canEdit ? (
+    <Button type="button" size="sm" variant="outline" disabled={!canUpload} onClick={() => input.current?.click()}>
+      {upload.isPending && <Spinner aria-hidden className="size-4" />}
+      {upload.isPending ? t('pod.content.uploading') : chooseLabel}
+    </Button>
+  ) : null
+  const downloadLink = file ? (
+    // An Office download omits the digest, so the server first writes pending edits into the file.
+    <a
+      className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+      href={officeKind ? fileURL(page.id, file.path) : fileURL(page.id, file.path, file.sha256)}
+      download={sanitizeFileName(name)}>
+      {officeKind ? t('pod.office.download') : t('pod.content.download_original')}
+    </a>
+  ) : null
   return (
     <section
       className={cn(
@@ -147,47 +165,31 @@ export function FilePage({
         </p>
       )}
       <ContentError error={connection.error} retry={connection.retry} />
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        {file && (
-          <span className="min-w-0 grow basis-full truncate text-sm sm:basis-0" title={sanitizeFileName(name)}>
-            <BdiLabel value={name} /> · {formatFileBytes(file.size)}
-          </span>
-        )}
-        {canEdit && (
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <input
-              aria-label={chooseLabel}
-              type="file"
-              ref={input}
-              className="hidden"
-              tabIndex={-1}
-              disabled={upload.isPending}
-              onChange={event => {
-                submit(event.target.files?.[0])
-                event.target.value = ''
-              }}
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!canUpload}
-              onClick={() => input.current?.click()}>
-              {upload.isPending && <Spinner aria-hidden className="size-4" />}
-              {upload.isPending ? t('pod.content.uploading') : chooseLabel}
-            </Button>
-          </div>
-        )}
-        {file && (
-          // An Office download omits the digest, so the server first writes pending edits into the file.
-          <a
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-            href={officeKind ? fileURL(page.id, file.path) : fileURL(page.id, file.path, file.sha256)}
-            download={sanitizeFileName(name)}>
-            {officeKind ? t('pod.office.download') : t('pod.content.download_original')}
-          </a>
-        )}
-      </div>
+      {canEdit && (
+        <input
+          aria-label={chooseLabel}
+          type="file"
+          ref={input}
+          className="hidden"
+          tabIndex={-1}
+          disabled={upload.isPending}
+          onChange={event => {
+            submit(event.target.files?.[0])
+            event.target.value = ''
+          }}
+        />
+      )}
+      {!isHtml && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {file && (
+            <span className="min-w-0 grow basis-full truncate text-sm sm:basis-0" title={sanitizeFileName(name)}>
+              <BdiLabel value={name} /> · {formatFileBytes(file.size)}
+            </span>
+          )}
+          {replaceButton && <div className="flex min-w-0 flex-wrap items-center gap-2">{replaceButton}</div>}
+          {downloadLink}
+        </div>
+      )}
       {manifest.isPending ? (
         <ContentLoading label={t('pod.content.loading_file')} />
       ) : officeKind === 'spreadsheet' ? (
@@ -232,6 +234,21 @@ export function FilePage({
             previewRef={previewRef}
             searchTarget={searchTarget}
             searchFind={findQuery}
+            fileMeta={
+              isHtml ? (
+                <span title={sanitizeFileName(name)}>
+                  <BdiLabel value={name} /> · {formatFileBytes(file.size)}
+                </span>
+              ) : undefined
+            }
+            fileActions={
+              isHtml ? (
+                <>
+                  {replaceButton}
+                  {downloadLink}
+                </>
+              ) : undefined
+            }
           />
         </ErrorBoundary>
       ) : canEdit ? (
@@ -270,7 +287,9 @@ function FilePreview({
   onRequestComment,
   previewRef,
   searchTarget,
-  searchFind
+  searchFind,
+  fileMeta,
+  fileActions
 }: {
   pageID: string
   file: DriveFile
@@ -279,6 +298,8 @@ function FilePreview({
   previewRef?: Ref<FilePreviewHandle | null>
   searchTarget?: ParsedSearchTarget
   searchFind: string
+  fileMeta?: ReactNode
+  fileActions?: ReactNode
 }) {
   const innerPreview = useRef<FilePreviewHandle | null>(null)
   const versioned = (selection: FileCommentSelection): FileCommentSelection => ({
@@ -365,6 +386,21 @@ function FilePreview({
           canComment={canComment}
           onRequestComment={requestComment}
           previewRef={innerPreview}
+        />
+      ) : isHtmlFile(name, mime) ? (
+        <HtmlFilePreview
+          key={url}
+          cacheKey={contentKeys.page(pageID)}
+          url={url}
+          downloadURL={url}
+          name={name}
+          size={file.size}
+          canComment={canComment}
+          onRequestComment={requestComment}
+          previewRef={innerPreview}
+          initialAnchor={initialAnchor?.kind === 'lines' ? initialAnchor : undefined}
+          fileMeta={fileMeta}
+          fileActions={fileActions}
         />
       ) : isTextFile(name, mime) ? (
         <TextFilePreview

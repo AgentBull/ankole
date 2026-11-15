@@ -15,6 +15,7 @@ mod hosted_responses;
 mod request_builder;
 mod spec;
 mod transport;
+mod volcengine_sigv4;
 pub mod wire;
 
 pub use api_resolver::APIResolver;

@@ -64,6 +64,68 @@ defmodule Ankole.Conversations.PeersTest do
     assert send_peer(ctx, event) == peer.id
   end
 
+  test "a colleague DM can be retried with its original ID or reopened after page access is revoked",
+       ctx do
+    owner = human_fixture().principal
+
+    {:ok, page} =
+      Ankole.Pod.Pages.create(actor_fixture(owner), %{private_owner_uid: owner.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        grants: [%{principal_uid: ctx.human.uid, role: "view"}]
+      })
+
+    initial_id = Ecto.UUID.generate()
+    initial_message_id = Ecto.UUID.generate()
+
+    first =
+      room(ctx.actor, ctx.colleague.uid, %{
+        conversation_id: initial_id,
+        message_id: initial_message_id,
+        page_id: page.id
+      })
+
+    {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{grants: []})
+
+    assert {:error, _} = Ankole.Pod.Pages.get(ctx.actor, page.id)
+    assert {:ok, _} = Conversations.get(ctx.actor, first.conversation.id)
+
+    retried =
+      room(ctx.actor, ctx.colleague.uid, %{
+        conversation_id: initial_id,
+        message_id: initial_message_id,
+        page_id: page.id
+      })
+
+    assert retried.conversation.id == first.conversation.id
+    assert retried.conversation.sequence_high_water == 1
+
+    assert {:error, :conversation_conflict} =
+             Conversations.create(ctx.actor, %{
+               conversation_id: initial_id,
+               message_id: Ecto.UUID.generate(),
+               agent_uid: ctx.colleague.uid,
+               page_id: page.id,
+               text: "Conflicting message ID on same create ID"
+             })
+
+    reopened = room(ctx.actor, ctx.colleague.uid)
+    assert reopened.conversation.id == first.conversation.id
+    assert reopened.conversation.sequence_high_water == 2
+    assert Conversations.get_conversation!(first.conversation.id).page_id == page.id
+
+    assistant_room = room(ctx.actor, ctx.assistant.uid)
+
+    assert {:error, :conversation_conflict} =
+             Conversations.create(ctx.actor, %{
+               conversation_id: assistant_room.conversation.id,
+               message_id: Ecto.UUID.generate(),
+               agent_uid: ctx.assistant.uid,
+               text: "Conflicting non-DM create"
+             })
+  end
+
   test "unbound historical DMs keep their own identity beside the canonical colleague DM", ctx do
     historical_id = Ecto.UUID.generate()
 

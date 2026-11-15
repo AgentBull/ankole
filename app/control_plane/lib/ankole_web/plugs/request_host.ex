@@ -23,7 +23,8 @@ defmodule AnkoleWeb.Plugs.RequestHost do
   @callback membership_login_url(Plug.Conn.t(), Ankole.Tenants.Tenant.t(), atom(), map()) ::
               {:ok, String.t()} | {:error, atom()}
   @callback site_admin_console_origin() :: String.t()
-  @optional_callbacks site_admin_console_origin: 0
+  @callback workspace_selection_url() :: String.t()
+  @optional_callbacks site_admin_console_origin: 0, workspace_selection_url: 0
 
   @classifier_key :request_host_classifier
   @policy Application.compile_env(:ankole, :host_policy)

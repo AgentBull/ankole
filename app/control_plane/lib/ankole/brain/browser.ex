@@ -404,8 +404,12 @@ defmodule Ankole.Brain.Browser.Actions do
       end
 
     with :ok <- ensure_result,
-         {:ok, canonical_id} <- Scope.canonical_page_id(uid) do
-      {:ok, canonical_id, private_scope_id}
+         {:ok, canonical_id} <- Scope.canonical_page_id(uid),
+         scope_id when is_binary(scope_id) <- Scope.principal(uid) do
+      {:ok, canonical_id, scope_id}
+    else
+      nil -> {:error, :private_scope_unavailable}
+      error -> error
     end
   end
 

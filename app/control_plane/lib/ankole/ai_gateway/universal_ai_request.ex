@@ -25,7 +25,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
     headers: [],
     provider_options: nil,
     include_model: true,
-    aws_sigv4: nil
+    aws_sigv4: nil,
+    volcengine_sigv4: nil
   ]
 
   @typedoc """
@@ -40,7 +41,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
           headers: [{binary(), binary()}],
           provider_options: map() | nil,
           include_model: boolean(),
-          aws_sigv4: map() | nil
+          aws_sigv4: map() | nil,
+          volcengine_sigv4: map() | nil
         }
 
   @doc """
@@ -89,7 +91,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
           headers: request.headers,
           timeout: timeout(request.ctx),
           transport: setting(request.ctx, :transport) || %{},
-          aws_sigv4: request.aws_sigv4
+          aws_sigv4: request.aws_sigv4,
+          volcengine_sigv4: request.volcengine_sigv4
         }
         |> Map.reject(fn {_key, value} -> is_nil(value) end)
 
@@ -128,6 +131,35 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
       |> Map.reject(fn {_key, value} -> value in [nil, ""] end)
 
     %{request | aws_sigv4: credentials}
+  end
+
+  @doc """
+  Signs the request for a Volcengine OpenAPI `service` with Volcengine Signature
+  Version 4 (`HMAC-SHA256`).
+
+  The kernel computes the signature over the final request body bytes using the
+  `access_key_id`, `secret_access_key`, optional `session_token`, and `region`
+  settings.
+  """
+  @spec volcengine_sigv4(t(), binary()) :: t()
+  def volcengine_sigv4(%__MODULE__{ctx: ctx} = request, service) when is_binary(service) do
+    region =
+      case setting(ctx, :region) do
+        value when is_binary(value) and value != "" -> value
+        _other -> "cn-north-1"
+      end
+
+    credentials =
+      %{
+        access_key_id: setting(ctx, :access_key_id),
+        secret_access_key: setting(ctx, :secret_access_key),
+        session_token: setting(ctx, :session_token),
+        region: region,
+        service: service
+      }
+      |> Map.reject(fn {_key, value} -> value in [nil, ""] end)
+
+    %{request | volcengine_sigv4: credentials}
   end
 
   @doc """

@@ -1464,4 +1464,71 @@ describe('production OT client', () => {
       expect(client.currentRevision()).toBe(4)
     }
   })
+
+  test('flushNow cancels the 30ms batch timer, waits for in-flight and queued edits, and settles on errors', async () => {
+    const view = editor('<page><p>hello</p></page>')
+    let document = view.state.doc
+    const log: PageChange[] = []
+    const gates: PromiseWithResolvers<void>[] = []
+    let shouldFail = false
+    const client = new PageCollaboration(view, 0, {
+      clientID: 'manual-save',
+      changed() {},
+      reset() {},
+      sync() {},
+      async send(request) {
+        const gate = Promise.withResolvers<void>()
+        gates.push(gate)
+        await gate.promise
+        if (shouldFail) throw new Error('network error')
+        document = ChangeSet.fromJSON(document.schema, request.changes).apply(document)
+        const entry: PageChange = {
+          revision: log.length + 1,
+          kind: 'change',
+          client_id: request.client_id,
+          client_seq: request.client_seq,
+          changes: request.changes
+        }
+        log.push(entry)
+        return { revision: log.length, changes: [entry] }
+      }
+    })
+    try {
+      // Clean state sends nothing.
+      expect(await client.flushNow()).toBe(false)
+      expect(gates).toHaveLength(0)
+
+      // Typing queues a 30ms timer; flushNow sends immediately without waiting 30ms and without double-sending later.
+      view.dispatch({ changes: { from: 6, insert: [Leaf.text(' world')] }, userEvent: 'input.type' })
+      const firstFlush = client.flushNow()
+      expect(gates).toHaveLength(1)
+
+      // Another edit while the first batch is in flight chains immediately and flushNow waits for both.
+      view.dispatch({ changes: { from: 12, insert: [Leaf.text('!')] }, userEvent: 'input.type' })
+      let settled = false
+      void firstFlush.then(() => {
+        settled = true
+      })
+      gates[0]!.resolve()
+      await waitFor(() => gates.length === 2)
+      expect(settled).toBe(false)
+      gates[1]!.resolve()
+      expect(await firstFlush).toBe(true)
+      expect(settled).toBe(true)
+      await Bun.sleep(50)
+      expect(gates).toHaveLength(2)
+      expect(printXml(readTree(document))).toBe('<page><p>hello world!</p></page>')
+
+      // Transport errors settle flushNow cleanly (reporting that a send was attempted) instead of hanging.
+      shouldFail = true
+      view.dispatch({ changes: { from: 13, insert: [Leaf.text('?')] }, userEvent: 'input.type' })
+      const failedFlush = client.flushNow()
+      expect(gates).toHaveLength(3)
+      gates[2]!.resolve()
+      expect(await failedFlush).toBe(true)
+    } finally {
+      for (const gate of gates) gate.resolve()
+      client.dispose()
+    }
+  })
 })

@@ -20,37 +20,12 @@ defmodule Ankole.Conversations.Executions do
     kind = to_string(kind)
 
     with {:ok, parsed_id} <- Ankole.ModelIntegerID.parse(run_id) do
-      result =
-        Repo.transact_top_level(
-          fn ->
-            with :ok <- Ankole.Pod.lock_tree_in_tx(),
-                 {:ok, conversation} <-
-                   Conversations.visible_native_conversation(actor, conversation_id),
-                 {:ok, run} <- linked_run(kind, parsed_id, conversation.id),
-                 {:ok, _} <-
-                   Principals.lock_principals_in_tx(
-                     [Ankole.AuthZ.Actor.uid(actor), run.agent_uid]
-                     |> Enum.uniq()
-                     |> Enum.sort()
-                   ),
-                 :ok <- Native.check_human_in_tx(actor),
-                 :ok <- Native.authorize_agent(actor, run.agent_uid) do
-              stop_in_tx(kind, run, actor.principal)
-            end
-          end,
-          after_commit: &publish_stop/1
-        )
-
-      case result do
-        {:ok, %{kind: "background_agent_job", job: job}} ->
-          {:ok, %{runID: to_string(job.id), status: to_string(job.status)}}
-
-        {:ok, %{kind: "workflow", run: run}} ->
-          {:ok, %{runID: to_string(run.id), status: to_string(run.status)}}
-
-        {:error, _} = error ->
-          error
-      end
+      stop_with_policy(actor, kind, "Stopped from Pod conversation", fn ->
+        with {:ok, conversation} <-
+               Conversations.visible_native_conversation(actor, conversation_id) do
+          linked_run(kind, parsed_id, conversation.id)
+        end
+      end)
     else
       :error -> {:error, :execution_not_found}
     end
@@ -59,20 +34,75 @@ defmodule Ankole.Conversations.Executions do
   def stop(_actor, _conversation_id, _kind, _run_id), do: {:error, :execution_not_found}
 
   def message(actor, conversation_id, run_id, request_id, text) do
+    with {:ok, parsed_id} <- Ankole.ModelIntegerID.parse(run_id),
+         {:ok, normalized_request_id} <- Ecto.UUID.cast(request_id) do
+      message_with_policy(actor, normalized_request_id, text, fn ->
+        with {:ok, conversation} <-
+               Conversations.visible_native_conversation(actor, conversation_id),
+             {:ok, %Job{} = job} <-
+               linked_run("background_agent_job", parsed_id, conversation.id),
+             true <- room_agent?(conversation.id, job.agent_uid) do
+          {:ok, job, normalize_reply_route(job.reply_route, conversation.id)}
+        else
+          false -> {:error, :agent_unavailable}
+          {:error, _} = error -> error
+        end
+      end)
+    else
+      :error -> {:error, :execution_not_found}
+    end
+  end
+
+  @doc false
+  def stop_with_policy(actor, kind, reason, resolve_in_tx)
+      when kind in [:background_agent_job, :workflow, "background_agent_job", "workflow"] and
+             is_binary(reason) and is_function(resolve_in_tx, 0) do
+    kind = to_string(kind)
+
+    result =
+      Repo.transact_top_level(
+        fn ->
+          with :ok <- Ankole.Pod.lock_tree_in_tx(),
+               {:ok, run} <- resolve_in_tx.(),
+               {:ok, _} <-
+                 Principals.lock_principals_in_tx(
+                   [Ankole.AuthZ.Actor.uid(actor), run.agent_uid]
+                   |> Enum.uniq()
+                   |> Enum.sort()
+                 ),
+               :ok <- Native.check_human_in_tx(actor),
+               :ok <- Native.authorize_agent(actor, run.agent_uid) do
+            stop_in_tx(kind, run, actor.principal, reason)
+          end
+        end,
+        after_commit: &publish_stop/1
+      )
+
+    case result do
+      {:ok, %{kind: "background_agent_job", job: job}} ->
+        {:ok, %{runID: to_string(job.id), status: to_string(job.status)}}
+
+      {:ok, %{kind: "workflow", run: run}} ->
+        {:ok, %{runID: to_string(run.id), status: to_string(run.status)}}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc false
+  def message_with_policy(actor, normalized_request_id, text, resolve_in_tx)
+      when is_binary(normalized_request_id) and is_function(resolve_in_tx, 0) do
     trimmed = if is_binary(text), do: String.trim(text), else: ""
 
-    with {:ok, parsed_id} <- Ankole.ModelIntegerID.parse(run_id),
-         {:ok, normalized_request_id} <- Ecto.UUID.cast(request_id),
-         true <- trimmed != "" do
+    if trimmed == "" do
+      {:error, :invalid_text}
+    else
       result =
         Repo.transact_top_level(
           fn ->
             with :ok <- Ankole.Pod.lock_tree_in_tx(),
-                 {:ok, conversation} <-
-                   Conversations.visible_native_conversation(actor, conversation_id),
-                 {:ok, %Job{} = job} <-
-                   linked_run("background_agent_job", parsed_id, conversation.id),
-                 true <- room_agent?(conversation.id, job.agent_uid),
+                 {:ok, %Job{} = job, reply_route} <- resolve_in_tx.(),
                  {:ok, _} <-
                    Principals.lock_principals_in_tx(
                      [Ankole.AuthZ.Actor.uid(actor), job.agent_uid, job.human_uid]
@@ -82,17 +112,15 @@ defmodule Ankole.Conversations.Executions do
                    ),
                  :ok <- Native.check_human_in_tx(actor),
                  :ok <- active_agent_in_tx(job.agent_uid),
-                 :ok <- Native.authorize_agent(actor, job.agent_uid) do
-              message_or_respawn_in_tx(
+                 :ok <- Native.authorize_agent(actor, job.agent_uid),
+                 :ok <- lock_delegated_workflow_slot_if_needed(job) do
+              steer_or_respawn_in_tx(
                 job,
                 actor.principal,
-                conversation.id,
+                reply_route,
                 normalized_request_id,
                 trimmed
               )
-            else
-              false -> {:error, :agent_unavailable}
-              {:error, _} = error -> error
             end
           end,
           after_commit: fn %{commit: commit} ->
@@ -122,31 +150,22 @@ defmodule Ankole.Conversations.Executions do
         {:error, _} = error ->
           error
       end
-    else
-      false -> {:error, :invalid_text}
-      :error -> {:error, :execution_not_found}
     end
   end
 
-  defp stop_in_tx("background_agent_job", %Job{} = job, principal) do
-    if job.status in Job.terminal_statuses() do
-      {:ok, %{kind: "background_agent_job", job: job, turn: nil, noop: true}}
-    else
-      with {:ok, sessions, commit} <-
-             Control.prepare_stop_in_tx(job.id, %{
-               "agent_uid" => job.agent_uid,
-               "cancel_requested_by" => operator_ref(principal),
-               "reason" => "Stopped from Pod conversation"
-             }),
-           :ok <- Sessions.Queue.lock_sessions_in_tx(sessions),
-           {:ok, value} <- commit.() do
-        {:ok, Map.put(value, :kind, "background_agent_job")}
-      end
+  defp stop_in_tx("background_agent_job", %Job{} = job, principal, reason) do
+    with {:ok, value} <-
+           Control.request_stop_in_tx(job.id, %{
+             "agent_uid" => job.agent_uid,
+             "cancel_requested_by" => operator_ref(principal),
+             "reason" => reason
+           }) do
+      {:ok, Map.put(value, :kind, "background_agent_job")}
     end
   end
 
-  defp stop_in_tx("workflow", %Run{} = run, _principal) do
-    if run.status in [:completed, :failed, :cancelled] do
+  defp stop_in_tx("workflow", %Run{} = run, _principal, _reason) do
+    if run.status in Run.terminal_statuses() do
       {:ok, %{kind: "workflow", run: run, noop: true}}
     else
       with {:ok, value} <- Workflow.Lifecycle.cancel_in_tx(run.id, run.agent_uid) do
@@ -164,25 +183,33 @@ defmodule Ankole.Conversations.Executions do
 
   defp publish_stop(%{kind: "workflow"} = result) do
     Workflow.cleanup_terminal_transition({:ok, result})
+    Conversations.Events.publish_rooms_changed()
   end
 
-  defp message_or_respawn_in_tx(job, principal, conversation_id, request_id, text) do
+  defp lock_delegated_workflow_slot_if_needed(%Job{
+         agent_uid: agent_uid,
+         owner_session_id: owner_session_id
+       }) do
+    case Workflow.Queries.parse_task_session_id(owner_session_id) do
+      {:ok, _call_id} -> Workflow.Slot.lock_agent_slots(agent_uid)
+      :error -> :ok
+    end
+  end
+
+  defp steer_or_respawn_in_tx(%Job{} = job, principal, reply_route, request_id, text) do
     if job.status in Job.terminal_statuses() do
-      respawn_in_tx(job, principal, conversation_id, request_id, text)
+      respawn_in_tx(job, principal, reply_route, request_id, text)
     else
-      case Control.prepare_message_in_tx(job.id, %{
+      case Control.send_message_in_tx(job.id, %{
              "agent_uid" => job.agent_uid,
              "request_id" => request_id,
              "message" => text
            }) do
-        {:ok, sessions, commit} ->
-          with :ok <- Sessions.Queue.lock_sessions_in_tx(sessions),
-               {:ok, value} <- commit.() do
-            {:ok, %{mode: :steer, commit: value}}
-          end
+        {:ok, value} ->
+          {:ok, %{mode: :steer, commit: value}}
 
         {:error, {:background_agent_job_message_status_invalid, _terminal_status}} ->
-          respawn_in_tx(job, principal, conversation_id, request_id, text)
+          respawn_in_tx(job, principal, reply_route, request_id, text)
 
         {:error, _} = error ->
           error
@@ -190,19 +217,17 @@ defmodule Ankole.Conversations.Executions do
     end
   end
 
-  defp respawn_in_tx(job, principal, conversation_id, request_id, text) do
+  defp respawn_in_tx(%Job{} = job, principal, reply_route, request_id, text) do
     attrs = %{
       "agent_uid" => job.agent_uid,
       "created_by" => %{"principal_uid" => operator_ref(principal)},
       "owner_session_id" => job.owner_session_id,
       "source_tool_call_id" => "pod-followup:#{request_id}",
-      "reply_route" => normalize_reply_route(job.reply_route, conversation_id),
+      "reply_route" => reply_route,
       "message" => text
     }
 
-    with {:ok, sessions, commit} <- Dispatch.prepare_respawn_in_tx(job.id, attrs),
-         :ok <- Sessions.Queue.lock_sessions_in_tx(sessions),
-         {:ok, value} <- commit.() do
+    with {:ok, value} <- Dispatch.respawn_with_dispatch_in_tx(job.id, attrs) do
       {:ok, %{mode: :respawn, commit: value}}
     end
   end

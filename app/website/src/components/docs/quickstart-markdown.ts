@@ -9,7 +9,7 @@ import {
   inlineCode,
   requiredProp
 } from '../../lib/markdown-text'
-import type { QuickstartLabels, QuickstartSection, QuickstartStep, QuickstartTab } from './QuickstartTabs'
+import type { QuickstartLabels, QuickstartSection, QuickstartStep, QuickstartTab } from './quickstart-tabs'
 
 /*
  * The page shows one tab and keeps advanced sections closed. The Markdown writes every tab and

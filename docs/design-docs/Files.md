@@ -164,6 +164,17 @@ a full control-plane download. They support single closed/open/suffix byte
 ranges, 206, 416, ETag, If-None-Match and If-Range, including empty files.
 Multi-range or malformed Range headers are ignored and return the full response.
 Applet index HTML is read in full only because the host injects its shell.
+
+`Files.HTTP` handles outbound downloads, MCP calls, and link previews outside
+database transactions. It validates each URL and follows the operator's egress
+proxy configuration. For direct connections, it resolves the destination locally
+and checks those addresses against `security.ssrf_filter`. When a proxy is
+configured, the proxy resolves hostnames in its own network; Ankole still checks
+literal IP destinations locally. The operator owns the proxy's routing and
+destination policy. Compressed JSON responses use the same decoded byte limit
+as uncompressed responses, and unsupported compression dictionaries return an
+error to the caller.
+
 The native WebDAV server accepts PROPFIND bodies up to 1 MiB and XML nesting up to
 128 levels, and rejects larger or deeper request documents before processing their
 properties.

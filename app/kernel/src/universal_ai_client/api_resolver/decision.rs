@@ -1,6 +1,6 @@
 use super::*;
 
-const KNOWN_DECISION_FIELDS: &[&str] = &["state", "questions", "images"];
+pub(super) const KNOWN_DECISION_FIELDS: &[&str] = &["state", "questions", "images"];
 
 /// Cloudflare decision models: Clef on Workers AI and partner models such as
 /// Jev behind the unified `ai/run` endpoint.

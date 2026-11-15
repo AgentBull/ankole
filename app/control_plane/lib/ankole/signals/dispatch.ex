@@ -229,6 +229,11 @@ defmodule Ankole.Signals.Dispatch do
     job.status == :active and WorkAccess.check_in_tx(job) == :ok
   end
 
+  defp active_delivery?(plan, %{agent_uid: uid}) when is_binary(uid) do
+    authorization = Keyword.get(plan.opts, :authorization, WorkAccess.service())
+    WorkAccess.check_execution_target(uid, authorization) == :ok
+  end
+
   defp active_delivery?(_plan, _binding), do: true
 
   defp reserve_receipts(deliveries) do

@@ -370,12 +370,17 @@ defmodule Ankole.Sessions.CodexJob do
         BackgroundAgentJobs.abort_attempt_in_tx(ref, worker_id, error, now)
       end,
       after_commit: fn event ->
-        compensation = event.__metadata__[:compensation]
+        compensation = event.__metadata__[:compensation] || %{}
 
         Ankole.Signals.publish_committed(
           [compensation[:wakeup_event], compensation[:dispatch_event]]
           |> Enum.reject(&is_nil/1)
         )
+
+        if job = compensation[:job] do
+          BackgroundAgentJobs.notify_owner_conversation(job.owner_session_id)
+          Ankole.Sessions.job_turn(job)
+        end
       end
     )
     |> Ankole.Errors.reason()
@@ -469,6 +474,11 @@ defmodule Ankole.Sessions.CodexJob do
           [result[:wakeup_event], result[:dispatch_event]]
           |> Enum.reject(&is_nil/1)
         )
+
+        if failed_job = result[:failed_job] do
+          BackgroundAgentJobs.notify_owner_conversation(failed_job.owner_session_id)
+          Ankole.Sessions.job_turn(failed_job)
+        end
       end
     )
     |> Ankole.Errors.reason()
@@ -487,6 +497,7 @@ defmodule Ankole.Sessions.CodexJob do
        %{
          status: :dead_letter,
          signal: event,
+         failed_job: (compensation || %{})[:job],
          wakeup_event: (compensation || %{})[:wakeup_event]
        }}
     end

@@ -516,6 +516,8 @@ defmodule Ankole.Pod.Applets.AI do
   defp file_extension("image/gif"), do: "gif"
   defp file_extension("audio/mpeg"), do: "mp3"
   defp file_extension("audio/pcm"), do: "pcm"
+  defp file_extension("audio/x-wav"), do: "wav"
+  defp file_extension("audio/wave"), do: "wav"
   defp file_extension("audio/" <> subtype), do: subtype
   defp file_extension(_mime), do: "png"
 

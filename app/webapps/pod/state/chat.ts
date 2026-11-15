@@ -119,33 +119,11 @@ export function chatRecipientAvailable(
 }
 
 /**
- * The Agent that the composer of an Issue's room addresses until the person picks another recipient. A room of one
- * person and the Agent is a `dm`, which addresses its Agent already, so the default matters once the room is a group.
+ * Resolves the active recipient selection: `null` or `''` leaves group listeners active, while any
+ * non-empty string addresses an explicit Agent UID.
  */
-export function issueRecipientUID(
-  detail:
-    | { issueAgentUID?: string | null; conversation: { roomMode: string; agents: { uid: string; active: boolean }[] } }
-    | undefined,
-  callableUIDs: string[]
-) {
-  const uid = detail?.conversation.roomMode === 'group' ? detail.issueAgentUID : undefined
-  return uid && chatRecipientAvailable(uid, detail!.conversation.agents, callableUIDs) ? uid : undefined
-}
-
-/**
- * Resolves the active recipient selection without copying query state into `ChatModel.targetAgentUID`:
- * `null` follows the room's default Issue Agent, `''` is an explicit group-listeners selection, and any
- * non-empty string is an explicit Agent UID.
- */
-export function effectiveTargetAgentUID(
-  selectedTargetUID: string | null,
-  detail:
-    | { issueAgentUID?: string | null; conversation: { roomMode: string; agents: { uid: string; active: boolean }[] } }
-    | undefined,
-  callableUIDs: string[]
-): string {
-  if (selectedTargetUID !== null) return selectedTargetUID
-  return issueRecipientUID(detail, callableUIDs) ?? ''
+export function effectiveTargetAgentUID(selectedTargetUID: string | null): string {
+  return selectedTargetUID ?? ''
 }
 
 export function chatCommandPolicy(input: {

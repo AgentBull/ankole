@@ -1,5 +1,5 @@
-import { buildAppletWorkerBootstrap } from '../../main/applet_bootstrap.ts'
-import { buildPtcRunnerModule, type ProgramRequest } from '../../main/ptc_bootstrap.ts'
+import { buildAppletWorkerBootstrap } from '../../main/applet-bootstrap.ts'
+import { buildPtcRunnerModule, type ProgramRequest } from '../../main/ptc-bootstrap.ts'
 
 const basePermissions = {
   allow_all: false,

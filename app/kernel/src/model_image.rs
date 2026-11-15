@@ -33,11 +33,16 @@ pub fn normalize(bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
     let orientation = decoder.orientation().map_err(image_error)?;
     let mut decoded = DynamicImage::from_decoder(decoder).map_err(image_error)?;
     decoded.apply_orientation(orientation);
-    let mut dimension = decoded.width().max(decoded.height()).min(MAX_DIMENSION);
+    let native_max = decoded.width().max(decoded.height());
+    let mut dimension = native_max.min(MAX_DIMENSION);
     for _ in 0..4 {
-        let rgba = decoded
-            .resize(dimension, dimension, FilterType::Lanczos3)
-            .to_rgba8();
+        let rgba = if dimension >= native_max {
+            decoded.to_rgba8()
+        } else {
+            decoded
+                .resize(dimension, dimension, FilterType::Lanczos3)
+                .to_rgba8()
+        };
         let encoder = webp::Encoder::from_rgba(rgba.as_raw(), rgba.width(), rgba.height());
         if lossless {
             let output = encode(&encoder, true, 75)?;
@@ -45,10 +50,14 @@ pub fn normalize(bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
                 return Ok(output);
             }
         }
+        let max_quality_output = encode(&encoder, false, 85)?;
+        if fits(max_quality_output.len()) {
+            return Ok(max_quality_output);
+        }
         let mut low = 35;
-        let mut high = 85;
+        let mut high = 84;
         let mut best = None;
-        let mut smallest = usize::MAX;
+        let mut smallest = max_quality_output.len();
         while low <= high {
             let quality = (low + high) / 2;
             let output = encode(&encoder, false, quality)?;

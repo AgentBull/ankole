@@ -1,6 +1,7 @@
 defmodule AnkoleWeb.BrowserSetup do
   @moduledoc "Typed setup actions for the first administrator and installation configuration."
   use Ankole.Ash.OperationResource,
+    tenancy: :site,
     authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: AnkoleWeb.BrowserAPI,

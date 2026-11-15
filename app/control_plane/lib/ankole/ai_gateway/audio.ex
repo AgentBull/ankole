@@ -19,7 +19,7 @@ defmodule Ankole.AIGateway.Audio do
   @speech_fields ~w(input voice response_format speed instructions)
   @transcription_fields ~w(input_audio language response_format vad_filter)
 
-  @speech_content_types %{"mp3" => "audio/mpeg", "pcm" => "audio/pcm"}
+  @speech_content_types %{"mp3" => "audio/mpeg", "pcm" => "audio/pcm", "wav" => "audio/wav"}
   @max_audio_bytes 25 * 1024 * 1024
   # Long text becomes more audio than the kernel's default response limit holds.
   @max_speech_bytes 128 * 1024 * 1024
@@ -67,11 +67,15 @@ defmodule Ankole.AIGateway.Audio do
 
   # The Provider names the audio that it sent. A Provider that only says
   # "bytes" sent the format that the request asked for.
+  defp speech_content_type(%{"content_type" => type}, _request)
+       when type in ["audio/x-wav", "audio/wave", "audio/vnd.wave"],
+       do: "audio/wav"
+
   defp speech_content_type(%{"content_type" => "audio/" <> _subtype = content_type}, _request),
     do: content_type
 
   defp speech_content_type(_result, request),
-    do: Map.fetch!(@speech_content_types, request["response_format"])
+    do: Map.fetch!(@speech_content_types, request["response_format"] || "mp3")
 
   @doc """
   Returns the transcription: `text` and `usage`, and with
@@ -107,8 +111,6 @@ defmodule Ankole.AIGateway.Audio do
   def create_transcription(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   defp validate_speech(request) do
-    request = Map.put_new(request, "response_format", "mp3")
-
     cond do
       not text?(request["input"]) ->
         invalid("input", "missing_required_parameter", "input must be a non-empty string.")
@@ -116,8 +118,9 @@ defmodule Ankole.AIGateway.Audio do
       not optional_text?(request["voice"]) ->
         invalid("voice", "invalid_value", "voice must be a non-empty string.")
 
-      not is_map_key(@speech_content_types, request["response_format"]) ->
-        invalid("response_format", "invalid_value", "response_format must be mp3 or pcm.")
+      not (is_nil(request["response_format"]) or
+               is_map_key(@speech_content_types, request["response_format"])) ->
+        invalid("response_format", "invalid_value", "response_format must be mp3, pcm, or wav.")
 
       not (is_nil(request["speed"]) or (is_number(request["speed"]) and request["speed"] > 0)) ->
         invalid("speed", "invalid_value", "speed must be a positive number.")

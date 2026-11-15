@@ -1,2 +1,2 @@
-export { BlockEditor } from './react/BlockEditor'
+export { BlockEditor } from './react/block-editor'
 export { useEditor, type EditorHandle } from './react/context'

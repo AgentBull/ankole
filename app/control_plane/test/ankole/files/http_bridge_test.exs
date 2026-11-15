@@ -40,6 +40,24 @@ defmodule Ankole.Files.HTTPBridgeTest do
         "/large" ->
           send_resp(conn, 200, String.duplicate("x", 5_000_001))
 
+        "/proxy" ->
+          send(owner, {:proxy_target, conn.host})
+          send_resp(conn, 200, ~s({"via":"proxy"}))
+
+        "/dictionary" ->
+          z = :zlib.open()
+
+          bytes =
+            try do
+              :ok = :zlib.deflateInit(z)
+              :zlib.deflateSetDictionary(z, "shared dictionary")
+              :zlib.deflate(z, ~s({"text":"shared dictionary"}), :finish)
+            after
+              :zlib.close(z)
+            end
+
+          conn |> put_resp_header("content-encoding", "deflate") |> send_resp(200, bytes)
+
         "/download" ->
           conn = send_chunked(conn, 200)
 
@@ -162,6 +180,22 @@ defmodule Ankole.Files.HTTPBridgeTest do
       assert {:error, %{reason: ":invalid_url", retryable: false, request_sent: false}} =
                HTTP.json("GET", url, [], %{})
     end
+  end
+
+  test "a configured proxy resolves the destination in its own network", ctx do
+    assert {:ok, %{body: %{"via" => "proxy"}}} =
+             HTTP.json("GET", "http://proxy-only.example.test/proxy", [], %{},
+               proxy_url: ctx.url,
+               ssrf_filter: true,
+               idempotent: true
+             )
+
+    assert_receive {:proxy_target, "proxy-only.example.test"}
+  end
+
+  test "a compressed response requiring a dictionary returns a transport error", ctx do
+    assert {:error, %{reason: ":invalid_compressed_response", request_sent: true}} =
+             HTTP.json("GET", ctx.url <> "/dictionary", [], %{}, idempotent: true)
   end
 
   test "17 MiB transfers stream through immutable objects without a database transaction", ctx do

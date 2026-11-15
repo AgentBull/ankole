@@ -1,5 +1,54 @@
 # Changelog
 
+## Version 2.0.0-alpha.155 (2026-11-15)
+
+- Replace Pod **Issues** (`/work` and `/api/v2/pod/issues`) with **Jobs**
+  (`/jobs` and `/api/v2/pod/jobs`): a unified **Scheduled / Running / Completed**
+  board and **By Agent** view over one-off Background Agent Jobs (with
+  continuation chains folded onto a single card) and Workflows alongside living
+  routine cards for Agent Cron schedules, check-back timers, and Page Applet
+  Automation Jobs. **Jobs** is permanently available from the **Home** sidebar
+  and `⌘K`, pins items needing input or recent failures at the top of
+  **Running**, and lets members dispatch standalone (`pod_job:<request_id>`,
+  without opening a chat room) or conversation-linked jobs and recurring Cron
+  schedules from **New Job**. Run `mix ecto.migrate` when upgrading.
+- Scope Brain synthesis reports to the requester's private space, originating
+  conversation, or chosen target Page instead of automatically sharing new
+  reports with everyone who could read the source material; accept files as
+  Brain pattern sources; require `node_view` access on the referenced Base table
+  when saving a semantic model; skip OIDC guest conversations that have no
+  private Brain root during background learning; and prioritize runs with human
+  intervention during Skill Lessons reflection.
+- Reuse an existing colleague direct message cleanly when a client retries
+  creation with the original `conversationID`, return connector OAuth
+  authorizations to the desktop client via `ankole://oauth/callback`, and open
+  external account management in the system browser when Pod runs in the desktop
+  host.
+- Support the Gemini Decisions API (`gemini-decision-1` on `/v1beta/decisions`)
+  in the Google AI Studio provider (`google_ai_studio_openai`) for
+  `POST /api/v1/ai-gateway/decisions` and `decision` model profiles, including
+  text and structured states, PNG/JPEG/WebP images, `noul`/`choice`/`score`
+  questions, normalized token usage, and `422 upstream_decision_refusal` when
+  Google safety filters block a prompt.
+- Support speech synthesis (`POST /api/v1/ai-gateway/audio/speech`, including
+  `wav` output), speech transcription
+  (`POST /api/v1/ai-gateway/audio/transcriptions`), and document OCR
+  (`POST /api/v1/ai-gateway/ocr`) across Alibaba Cloud DashScope (`alibaba_cn`),
+  Volcengine (`volcengine_speech` and `volcengine_visual`), and DeepSeek
+  (`deepseek`, including `/chat/completions` language models) in the
+  `china-market-ai-providers` Plugin.
+- Handle `Command+S` and `Control+S` across editable Pod Pages (Documents,
+  editable Office Files, Base Pages, Knowledge Pages in edit mode, and focused
+  Page title inputs) by flushing pending changes immediately or refreshing clean
+  state while showing **Saving…** in the top bar.
+- Render HTML File Pages, inline Document HTML embeds, and Chat HTML attachment
+  previews (`.html`, `.htm`, `.xhtml`, `text/html`) with **Preview** and
+  **Source** tabs: **Preview** opens by default inside an opaque-origin
+  sandboxed `<iframe>` (`<= 16 MiB`) with reload and full-screen controls, while
+  **Source** and code File Pages render dual-theme Shiki syntax highlighting
+  (`<= 256 KiB`), horizontal scroll with a line-wrap toggle, and line-level
+  comment anchors.
+
 ## Version 2.0.0-alpha.154 (2026-11-15)
 
 - Keep a large Brain graph smooth while you move the pointer, pan, or zoom.

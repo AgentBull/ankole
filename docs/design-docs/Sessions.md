@@ -667,7 +667,8 @@ least `im_max_idle_seconds` (default `259,200` seconds / 72 hours):
   `<recent-actions>` covering up to `12` predecessor tool trajectories, and up
   to `1,400` tokens for `<objects-in-play>` covering live re-reads of up to `3`
   Pages, Drive files, or `/workspace` files touched within two hours at up to
-  `450` tokens per `<object>`). Workspace file re-reads call
+  `450` tokens per `<object>`). For paths under `/workspace/sessions`, the briefing
+  reads only the current Session's workspace. Workspace file re-reads call
   `WorkerFiles.stream_prefix/3` to read at most `16,384` bytes under a `500 ms`
   timeout only when `AgentWorkers.ready_worker/1` reports a `ready` Worker.
   An unavailable or timed-out Worker yields `status="worker_offline_not_reread"`;

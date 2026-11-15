@@ -50,13 +50,11 @@
     "analyze:structure": "bun run kit analyze structure",
     "analyze:cycles": "bun run kit analyze cycles"
   },
-  "dependencies": {
-    "turbo": "^2.11.10"
-  },
   "devDependencies": {
     "@types/bun": "1.4.4",
     "oxfmt": "^0.78.0",
     "oxlint": "^1.93.0",
+    "turbo": "^2.11.11",
     "typescript": "^7.0.2"
   },
   "overrides": {

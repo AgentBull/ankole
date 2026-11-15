@@ -109,6 +109,7 @@ defmodule AnkoleWeb.Router do
     get "/.well-known/ankole-desktop", OIDCController, :desktop_discovery
     get "/.well-known/jwks.json", OIDCController, :jwks
     get "/oauth/authorize", OIDCController, :authorize
+    get "/oauth/desktop/authorize", OIDCController, :desktop_authorize
     get "/oauth/authorize/resume", OIDCController, :resume_authorize
     post "/oauth/token", OIDCController, :token
     post "/oauth/introspect", OIDCController, :introspect
@@ -270,7 +271,7 @@ defmodule AnkoleWeb.Router do
     get "/site-admin-console/*path", SpaController, :console
     get "/settings", SpaController, :pod
     get "/connectors", SpaController, :pod
-    get "/work", SpaController, :pod
+    get "/jobs", SpaController, :pod
     get "/me", SpaController, :pod
     get "/pod", SpaController, :pod
     get "/pod/*path", SpaController, :pod

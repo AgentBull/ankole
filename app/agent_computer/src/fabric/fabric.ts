@@ -1,4 +1,4 @@
-import type { Envelope } from './envelope_proto'
+import type { Envelope } from './envelope-proto'
 
 /** Error codes of the Worker Channel transport. */
 export type RuntimeFabricErrorCode = 'socket_closed' | 'timeout' | 'rejected'

@@ -1,6 +1,6 @@
 import { join, normalize } from 'node:path'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { jsonObjectFromBytes } from '../fabric/envelope_proto'
+import { jsonObjectFromBytes } from '../fabric/envelope-proto'
 import { type RuntimeSkillSummary } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 export interface SkillFileRoots {

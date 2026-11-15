@@ -32,6 +32,14 @@ defmodule Ankole.Principals.Agents do
     |> Ankole.Ash.read_one!()
   end
 
+  def foreign_personal_assistant_uids(owner_uid) when is_binary(owner_uid) do
+    Agent
+    |> Ash.Query.filter(type == :personal_assistant and owner_principal_uid != ^owner_uid)
+    |> Ash.Query.select([:uid])
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.uid)
+  end
+
   def ensure_personal_assistant(owner_uid) do
     result =
       Repo.transact_top_level(fn ->

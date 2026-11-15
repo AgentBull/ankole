@@ -21,6 +21,10 @@ const baseDigestLabel = 'io.ankole.agent-os-base.digest'
 const baseRecipeLabel = 'io.ankole.agent-os-base.recipe'
 const workerBaseImageLock = path.join(repoRootPath, 'app', 'agent_computer', 'base-image.lock')
 const workerBaseDockerfile = 'app/agent_computer/Dockerfile.base'
+const workerBaseRecipeFiles = [
+  workerBaseDockerfile,
+  'app/agent_computer/scripts/pdf-inspector-1.25.2-tables.patch'
+] as const
 
 const sharedInputRoots = [
   '.dockerignore',
@@ -264,10 +268,7 @@ export function workerBaseSource(pinnedRecipe: string | null, currentRecipe: str
 
 async function resolveWorkerBaseImage(allowBuild: boolean): Promise<string> {
   const lock = readWorkerBaseImageLock()
-  const [pinnedRecipe, currentRecipe] = await Promise.all([
-    committedBaseRecipe(lock.revision),
-    gitOutput(['hash-object', '--', workerBaseDockerfile])
-  ])
+  const [pinnedRecipe, currentRecipe] = await Promise.all([committedBaseRecipe(lock.revision), workingTreeBaseRecipe()])
   if (workerBaseSource(pinnedRecipe, currentRecipe) === 'lock') return lock.image
   if (!currentRecipe) throw new Error(`cannot hash ${workerBaseDockerfile}`)
 
@@ -314,10 +315,7 @@ async function localBaseImageMatches(image: string, recipe: string): Promise<boo
 
 /** Warns when the next local Worker build will build `Dockerfile.base` instead of using the pin. */
 export async function warnIfBaseImageLockIsStale(lock: WorkerBaseImageLock): Promise<void> {
-  const [pinnedRecipe, currentRecipe] = await Promise.all([
-    committedBaseRecipe(lock.revision),
-    gitOutput(['hash-object', '--', workerBaseDockerfile])
-  ])
+  const [pinnedRecipe, currentRecipe] = await Promise.all([committedBaseRecipe(lock.revision), workingTreeBaseRecipe()])
   if (workerBaseSource(pinnedRecipe, currentRecipe) === 'lock') return
 
   const pin = `app/agent_computer/base-image.lock pins the Agent OS base of commit ${lock.revision.slice(0, 9)}`
@@ -331,8 +329,30 @@ export async function warnIfBaseImageLockIsStale(lock: WorkerBaseImageLock): Pro
   )
 }
 
-function committedBaseRecipe(revision: string): Promise<string | null> {
-  return gitOutput(['rev-parse', '--verify', '--quiet', `${revision}:${workerBaseDockerfile}`])
+function sha256Hex(content: Buffer | string): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+function workingTreeBaseRecipe(): string | null {
+  const lines: string[] = []
+  for (const relativePath of workerBaseRecipeFiles) {
+    const fullPath = path.join(repoRootPath, relativePath)
+    if (!existsSync(fullPath)) return null
+    lines.push(`${sha256Hex(readFileSync(fullPath))}\n`)
+  }
+  return sha256Hex(lines.join(''))
+}
+
+async function committedBaseRecipe(revision: string): Promise<string | null> {
+  const contents = await Promise.all(
+    workerBaseRecipeFiles.map(async relativePath => {
+      const result = await runChildCaptured('git', ['show', `${revision}:${relativePath}`], { cwd: repoRootPath })
+      return result.status === 0 ? result.stdout : null
+    })
+  )
+  if (contents.some(entry => entry === null)) return null
+  const combined = contents.map(entry => `${sha256Hex(Buffer.from(entry!, 'utf8'))}\n`).join('')
+  return sha256Hex(combined)
 }
 
 async function publishedBaseDigest(revision: string): Promise<string> {

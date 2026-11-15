@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { CodeCache } from '../main/code_cache.ts'
+import { CodeCache } from '../main/code-cache.ts'
 import { InvocationCapacity } from '../main/capacity.ts'
 import { matchRoute, validateRoutes } from '../main/routes.ts'
 

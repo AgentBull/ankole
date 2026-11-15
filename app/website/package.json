@@ -15,26 +15,26 @@
   "dependencies": {
     "@ankole/uikit": "workspace:*",
     "@tailwindcss/typography": "^0.5.20",
-    "astro": "^7.4.2",
-    "intl-messageformat": "^12.1.4",
+    "astro": "^7.4.12",
+    "intl-messageformat": "^12.1.5",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "remark-gfm": "^4.0.1",
     "remark-mdx": "^3.1.1",
     "remark-parse": "^11.0.0",
-    "sharp": "^0.35.5",
-    "tailwindcss": "^4.3.3",
+    "tailwindcss": "^4.3.5",
     "unified": "^11.0.5"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.12",
-    "@astrojs/mdx": "^8.1.1",
-    "@astrojs/react": "^7.1.1",
-    "@astrojs/sitemap": "^3.7.4",
-    "@tailwindcss/vite": "^4.3.3",
+    "@astrojs/mdx": "^8.1.6",
+    "@astrojs/react": "^7.1.9",
+    "@astrojs/sitemap": "^3.7.5",
+    "@tailwindcss/vite": "^4.3.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "sharp": "^0.35.5",
     "typescript": "6.0.3",
-    "vite": "^8.3.5"
+    "vite": "^8.3.8"
   }
 }

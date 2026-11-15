@@ -1,107 +1,49 @@
-import {
-  jsonObject,
-  ms,
-  recordValue,
-  safeJsonParse,
-  stringArg,
-  type JsonObject as JSONObject
-} from '@agentbull/active-support'
+import { jsonObject, ms, recordValue, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { sanitizeTurnContent } from './turn-content'
-import type { JobTurnRef } from '../../../lanes/session_lane'
-import { jsonBytes } from '../../../fabric/envelope_proto'
-import { RPCRejectedError, rpcRejectedMessage } from '../../../lanes/rpc_lane'
+import type { JobTurnRef } from '../../../lanes/session-lane'
 import { type BackgroundAgentJobTurnUpsertResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { type RPCRequestInit } from '../../../lanes/rpc_contract'
-import type {
-  BackgroundAgentJobTurnPlan,
-  BackgroundAgentJobTurnProgress,
-  BackgroundAgentJobTurnKind,
-  BackgroundAgentJobTurnStatus,
-  BackgroundAgentJobTurnTrajectoryHeader,
-  BackgroundAgentJobTurnItemEntry,
-  BackgroundAgentJobTurnUsage
-} from '../../background-agent-job-documents'
+import { type RPCRequestInit } from '../../../lanes/rpc-contract'
+import type { BackgroundAgentJobTurnPlan, BackgroundAgentJobTurnKind } from '../../background-agent-job-documents'
 import type { JSONRPCMessage } from '../runtime/app-server-client'
 import { boundedFilesChangedFromCodexDiff, normalizeCodexThreadUsage } from '../protocol'
 import { boundedBackgroundAgentJobPaths } from '../../background-agent-job-handoff'
 import type { WorkerTurnTrace } from '../../../observability/turn-tracing'
 import { CodexTurnTrace } from './turn-tracing'
-import {
-  projectCodexToolItem,
-  compareToolIdentity,
-  sameToolIdentity,
-  toolIdentityKey,
-  type CodexToolItem,
-  type ToolIdentity,
-  type ToolExecutionMechanism
-} from './tool-item'
-import { errorMessage } from '../../../common/errors'
+import { projectCodexToolItem, sameToolIdentity, type CodexToolItem } from './tool-item'
 import type { DriveView } from '../../../drive/mounts'
+import {
+  agentMessagePayload,
+  arrayValue,
+  buildTurnUpsertRequest,
+  collaborationToolName,
+  collaborationToolOutcome,
+  errorType,
+  fallbackCollaborationTool,
+  fileChangePaths,
+  itemKey,
+  now,
+  parseJSONValue,
+  persistTurnCheckpointWithRetry,
+  planStatus,
+  sameUserContent,
+  shouldRecordItem,
+  terminal,
+  timestampDate,
+  timestampSeconds,
+  traceTurnError,
+  traceTurnOutput,
+  turnStatus,
+  type DeferredCollaborationCall,
+  type ItemEntry,
+  type PendingCollaborationCall,
+  type RuntimeTurn
+} from './turn-recorder-helpers'
 
 // Coalesce event bursts before a progress checkpoint. flush() still bypasses
 // this delay at every durability boundary.
 const checkpointDelayMs = ms('5s')
 /** Child inputs kept per thread while their activity has not arrived. */
 const maxUnmatchedChildInputs = 8
-type RuntimeTurn = {
-  runtimeThreadID: string
-  runtimeTurnID: string
-  kind: BackgroundAgentJobTurnKind
-  status: BackgroundAgentJobTurnStatus
-  revision: number
-  items: Map<string, JSONObject>
-  itemOrder: string[]
-  itemPositions: Map<string, number>
-  nextTrajectoryPosition: number
-  enqueuedItemKeys: Set<string>
-  completedItemIDs: Set<string>
-  modelToolIdentities: Map<string, ToolIdentity>
-  toolItemIdentities: Map<string, ToolIdentity>
-  toolItemExecutionMechanisms: Map<string, ToolExecutionMechanism>
-  usedSkillNames: Set<string>
-  filesChanged: Set<string>
-  initialItemKey?: string
-  usage?: BackgroundAgentJobTurnUsage
-  plan?: BackgroundAgentJobTurnPlan
-  activeItem?: { id: string } & ToolIdentity
-  error: JSONObject
-  startedAt: string
-  completedAt?: string
-  trace: CodexTurnTrace | undefined
-  dirty: boolean
-  redacted: boolean
-  contentTruncated: boolean
-}
-
-type ItemEntry = {
-  key: string
-  item: JSONObject
-}
-
-type CollaborationActivity = {
-  kind: string
-  agentThreadID: string
-  agentPath: string
-}
-
-type PendingCollaborationCall = {
-  runtimeTurnID: string
-  tool: string
-  arguments: unknown
-  activity?: CollaborationActivity
-}
-
-/**
- * A collaboration call known only from its parent-scoped activity. Code mode
- * calls the collaboration tools inside the JavaScript executor, so no raw
- * `function_call` carries the arguments. Codex delivers the brief to the child
- * thread as a raw `agent_message` item, and that item holds the plaintext.
- */
-type DeferredCollaborationCall = {
-  runtimeTurnID: string
-  id: string
-  activity: CollaborationActivity
-}
 
 /**
  * Converts Codex events for one Job attempt into ordered durable Turn records.
@@ -764,323 +706,14 @@ export class BackgroundAgentJobTurnRecorder {
     if (!turn.dirty) return
     turn.dirty = false
     turn.revision += 1
-    const request = this.request(turn)
+    const request = buildTurnUpsertRequest(this.input.jobID, this.input.attempt, turn)
     this.tail = this.tail
       .then(async () => {
         if (this.checkpointError) return
-        let persisted = false
-        let lastError: unknown
-        for (let attempt = 1; attempt <= 3; attempt += 1) {
-          try {
-            await this.input.upsert(request)
-            persisted = true
-            break
-          } catch (error) {
-            if (error instanceof RPCRejectedError) {
-              // Domain rejections are authoritative. An explicitly retryable
-              // internal read rejection is infrastructure failure and follows
-              // the same bounded retry path as transport loss.
-              if (!error.retryable) {
-                throw new BackgroundAgentJobTurnPersistenceRejectedError(error.rejection)
-              }
-            }
-            lastError = error
-            if (attempt < 3) await Bun.sleep(50 * 2 ** (attempt - 1))
-          }
-        }
-        if (!persisted) throw new BackgroundAgentJobTurnPersistenceError(lastError)
+        await persistTurnCheckpointWithRetry(this.input.upsert, request)
       })
       .catch(error => {
         this.checkpointError ??= error
       })
-  }
-
-  private request(turn: RuntimeTurn): RPCRequestInit<'background_agent_job.turn.upsert'> {
-    const turnItems = pendingTurnItems(turn)
-    // Items leave memory before PostgreSQL acknowledges this request. Retries
-    // use this serialized request. A permanent failure makes flush() fail, so
-    // the Job attempt fails and the next attempt resumes the saved thread.
-    for (const entry of turnItems) {
-      turn.enqueuedItemKeys.add(entry.item_key)
-      if (entry.item_key !== turn.initialItemKey) {
-        turn.items.delete(entry.item_key)
-        turn.itemOrder = turn.itemOrder.filter(key => key !== entry.item_key)
-      }
-    }
-
-    return {
-      jobId: this.input.jobID,
-      attempt: this.input.attempt,
-      runtimeThreadId: turn.runtimeThreadID,
-      runtimeTurnId: turn.runtimeTurnID,
-      kind: turn.kind,
-      status: turn.status,
-      revision: turn.revision,
-      trajectoryJson: jsonBytes(trajectoryHeader(turn)),
-      turnItemsJson: jsonBytes(turnItems),
-      progressJson: jsonBytes(progress(turn)),
-      ...(turn.usage ? { usageJson: jsonBytes(turn.usage) } : {}),
-      errorJson: jsonBytes(turn.error),
-      startedAt: turn.startedAt,
-      ...(turn.completedAt ? { completedAt: turn.completedAt } : {})
-    }
-  }
-}
-
-function progress(turn: RuntimeTurn): BackgroundAgentJobTurnProgress {
-  const counts = new Map<string, ToolIdentity & { calls: number }>()
-  for (const identity of turn.toolItemIdentities.values()) {
-    const key = toolIdentityKey(identity)
-    const existing = counts.get(key)
-    counts.set(key, { ...identity, calls: (existing?.calls ?? 0) + 1 })
-  }
-  const toolsUsed = [...counts.values()].sort(compareToolIdentity)
-  const executionCounts = new Map<string, ToolExecutionMechanism & { calls: number }>()
-  for (const execution of turn.toolItemExecutionMechanisms.values()) {
-    const key = `${toolIdentityKey(execution)}\u0000${execution.execution_mechanism}`
-    const existing = executionCounts.get(key)
-    executionCounts.set(key, { ...execution, calls: (existing?.calls ?? 0) + 1 })
-  }
-  const toolExecutionMechanisms = [...executionCounts.values()].sort((left, right) => {
-    const identityOrder = compareToolIdentity(left, right)
-    if (identityOrder !== 0) return identityOrder
-    return left.execution_mechanism < right.execution_mechanism ? -1 : 1
-  })
-
-  return {
-    completed_items: turn.completedItemIDs.size,
-    tool_calls: turn.toolItemIdentities.size,
-    tools_used: toolsUsed,
-    ...(toolExecutionMechanisms.length > 0 ? { tool_execution_mechanisms: toolExecutionMechanisms } : {}),
-    files_changed: [...turn.filesChanged].sort(),
-    ...(turn.usedSkillNames.size > 0 ? { skills_used: [...turn.usedSkillNames].sort() } : {}),
-    ...(turn.plan ? { plan: turn.plan } : {}),
-    ...(turn.activeItem ? { active_item: turn.activeItem } : {})
-  }
-}
-
-function planStatus(value: unknown): BackgroundAgentJobTurnPlan['steps'][number]['status'] | undefined {
-  switch (value) {
-    case 'pending':
-      return 'pending'
-    case 'inProgress':
-      return 'in_progress'
-    case 'completed':
-      return 'completed'
-    default:
-      return undefined
-  }
-}
-
-function fileChangePaths(value: unknown): string[] {
-  return arrayValue(value).flatMap(change => {
-    const path = stringArg(recordValue(change), 'path')
-    return path ? [path] : []
-  })
-}
-
-function trajectoryHeader(turn: RuntimeTurn): BackgroundAgentJobTurnTrajectoryHeader {
-  const metadata = jsonObject({
-    ...(turn.redacted ? { redacted: true } : {}),
-    ...(turn.contentTruncated ? { content_truncated: true } : {})
-  })
-
-  return {
-    format: 'ankole_chatml',
-    version: 1,
-    ...(Object.keys(metadata).length > 0 ? { metadata } : {})
-  }
-}
-
-function pendingTurnItems(turn: RuntimeTurn): BackgroundAgentJobTurnItemEntry[] {
-  return turn.itemOrder.flatMap(key => {
-    if (turn.enqueuedItemKeys.has(key)) return []
-    const item = turn.items.get(key)
-    const position = turn.itemPositions.get(key)
-    if (!item || position === undefined) return []
-    return [{ position, item_key: key, item }]
-  })
-}
-
-// Normalize current namespaced calls and retained dotted call records to this
-// stable collaboration activity vocabulary.
-const collaborationV2Tools = new Set([
-  'spawn_agent',
-  'send_message',
-  'followup_task',
-  'interrupt_agent',
-  'list_agents',
-  'wait_agent'
-])
-
-function collaborationToolName(item: JSONObject): string | undefined {
-  const namespace = stringArg(item, 'namespace')
-  const name = stringArg(item, 'name')
-  if (!name) return undefined
-  if (namespace === 'collaboration' && collaborationV2Tools.has(name)) return name
-  if (!name.startsWith('collaboration.')) return undefined
-  const tool = name.slice('collaboration.'.length)
-  return collaborationV2Tools.has(tool) ? tool : undefined
-}
-
-function fallbackCollaborationTool(kind: string): string {
-  switch (kind) {
-    case 'started':
-      return 'spawn_agent'
-    case 'interrupted':
-      return 'interrupt_agent'
-    default:
-      return 'agent_interaction'
-  }
-}
-
-function collaborationToolOutcome(output: unknown, activity?: CollaborationActivity): unknown {
-  const parsedOutput = parseJSONValue(output, '')
-  if (!activity) return parsedOutput
-  return {
-    output: parsedOutput,
-    agents: [
-      {
-        thread_id: activity.agentThreadID,
-        path: activity.agentPath,
-        activity: activity.kind
-      }
-    ]
-  }
-}
-
-/**
- * A parent-to-child agent message carries a routing header as `input_text`
- * and the message itself as an `encrypted_content` part, which the pinned
- * Codex fills with the plaintext.
- */
-function agentMessagePayload(content: unknown): string | undefined {
-  const payload = arrayValue(content).flatMap(part => {
-    const value = recordValue(part)
-    return value?.type === 'encrypted_content' ? [stringArg(value, 'encrypted_content') ?? ''] : []
-  })
-  return payload.join('') || undefined
-}
-
-function parseJSONValue(value: unknown, emptyValue: unknown): unknown {
-  if (typeof value !== 'string') return value ?? emptyValue
-  if (!value.trim()) return emptyValue
-  return safeJsonParse(value).unwrapOr(value)
-}
-
-function userContent(content: unknown): string | JSONObject[] {
-  const items = arrayValue(content).map(item => jsonObject(item))
-  if (items.every(item => item.type === 'text')) return items.map(item => stringArg(item, 'text') ?? '').join('')
-  return items
-}
-
-function sameUserContent(left: unknown, right: unknown): boolean {
-  const leftContent = userContent(left)
-  const rightContent = userContent(right)
-  return typeof leftContent === 'string' && typeof rightContent === 'string'
-    ? leftContent === rightContent
-    : JSON.stringify(leftContent) === JSON.stringify(rightContent)
-}
-
-function itemKey(item: JSONObject): string | undefined {
-  const id = stringArg(item, 'id')
-  if (!id) return undefined
-  const clientId = stringArg(item, 'clientId')
-  return item.type === 'userMessage' && clientId ? `client:${clientId}` : id
-}
-
-function shouldRecordItem(item: JSONObject): boolean {
-  return item.type !== 'subAgentActivity'
-}
-
-function turnStatus(value: unknown): BackgroundAgentJobTurnStatus | undefined {
-  switch (value) {
-    case 'inProgress':
-    case 'in_progress':
-      return 'in_progress'
-    case 'completed':
-    case 'failed':
-    case 'interrupted':
-      return value
-    default:
-      return undefined
-  }
-}
-
-function terminal(status: BackgroundAgentJobTurnStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'interrupted'
-}
-
-function traceTurnOutput(payload: JSONObject): unknown {
-  for (const value of arrayValue(payload.items).reverse()) {
-    const item = recordValue(value)
-    const text = item?.type === 'agentMessage' ? stringArg(item, 'text') : undefined
-    if (text) return text
-  }
-
-  return undefined
-}
-
-function traceTurnError(turn: RuntimeTurn): string | undefined {
-  if (turn.status === 'completed') return undefined
-  return errorType(turn.error) ?? `codex_turn_${turn.status}`
-}
-
-function errorType(error: JSONObject): string | undefined {
-  const code = stringArg(error, 'code')
-  return code && code.trim() ? code : undefined
-}
-
-function timestampSeconds(value: unknown): string | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? new Date(value * 1_000).toISOString() : undefined
-}
-
-function timestampDate(value: unknown): Date | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? new Date(value * 1_000) : undefined
-}
-
-function arrayValue(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : []
-}
-
-function now(): string {
-  return new Date().toISOString()
-}
-
-class BackgroundAgentJobTurnPersistenceRejectedError extends Error {
-  readonly code = 'background_agent_job_turn_persistence_rejected'
-  readonly retryable = false
-  readonly details: JSONObject
-
-  constructor(response: { code: string; message?: string; details?: JSONObject }) {
-    super(rpcRejectedMessage('background agent job turn checkpoint rejected', response))
-    this.name = 'BackgroundAgentJobTurnPersistenceRejectedError'
-    this.details = persistenceRejectionDetails(response, false)
-  }
-}
-
-export class BackgroundAgentJobTurnPersistenceError extends Error {
-  readonly code = 'background_agent_job_turn_persistence_failed'
-  readonly retryable = true
-  readonly details: JSONObject
-
-  constructor(cause: unknown) {
-    super(`BackgroundAgentJob Turn persistence failed: ${errorMessage(cause)}`, {
-      cause: cause instanceof Error ? cause : undefined
-    })
-    this.name = 'BackgroundAgentJobTurnPersistenceError'
-    this.details =
-      cause instanceof RPCRejectedError ? persistenceRejectionDetails(cause.rejection, true) : { retryable: true }
-  }
-}
-
-function persistenceRejectionDetails(
-  response: { code: string; message?: string; details?: JSONObject },
-  retryable: boolean
-): JSONObject {
-  return {
-    retryable,
-    rpc_code: response.code,
-    ...(response.details ? { rpc_details: response.details } : {})
   }
 }

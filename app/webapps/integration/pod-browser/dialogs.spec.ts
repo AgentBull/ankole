@@ -326,3 +326,97 @@ test('choosing a file creates one named Page with its bytes and replaces it by d
     await context.close()
   }
 })
+
+test('uploading a Markdown file in the Space tree or subpages bar parses and creates a Document Page', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    let filePageWrites = 0
+    page.on('request', req => {
+      if (req.method() === 'POST' && new URL(req.url()).pathname === '/api/v2/pod/file-pages') filePageWrites++
+    })
+
+    const trigger = page
+      .locator('section[aria-label="空间"] > .pod-nav-section-heading')
+      .getByRole('button', { name: '新建页面', exact: true })
+    await trigger.click()
+    const chosen = page.waitForEvent('filechooser')
+    await page.getByRole('menuitem', { name: '文件', exact: true }).click()
+    const chooser = await chosen
+
+    const created = page.waitForResponse(
+      res => res.request().method() === 'POST' && new URL(res.url()).pathname === '/api/v2/pod/pages'
+    )
+    await chooser.setFiles({
+      name: 'quarterly-review.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('# Quarterly Review\n\n## Highlights\n\nRevenue grew **24%** QoQ.\n')
+    })
+    const response = await created
+    expect(response.ok()).toBe(true)
+    const body = (await response.json()) as { page: { id: string; type: string; title: string } }
+    id = body.page.id
+    expect(body.page.type).toBe('doc')
+    expect(body.page.title).toBe('Quarterly Review')
+    expect(filePageWrites).toBe(0)
+
+    await expect(page).toHaveURL(state.base_url + pageRoute(id, undefined, 'Quarterly Review'))
+    await expect(page.locator('.pod-page[data-page-type="doc"]')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue('Quarterly Review')
+    const editor = page.locator('.pod-document .editor-content')
+    await expect(editor.locator('h2')).toHaveText('Highlights')
+    await expect(editor.locator('strong')).toHaveText('24%')
+    await expect(page.getByRole('link', { name: '下载原文件', exact: true })).toHaveCount(0)
+
+    // Upload a `.md` file via the Document `/attachment` upload dialog, then another via the subpages bar.
+    await editor.focus()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('/attachment')
+    await page.getByRole('option', { name: '文件', exact: true }).click()
+    const uploadDialog = page.getByRole('dialog', { name: '文件', exact: true })
+    await expect(uploadDialog).toBeVisible()
+    const createdDialogChild = page.waitForResponse(
+      res => res.request().method() === 'POST' && new URL(res.url()).pathname === '/api/v2/pod/pages'
+    )
+    await uploadDialog.locator('input[type="file"]').setInputFiles({
+      name: 'action-items.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('- [x] Publish Q3 review\n')
+    })
+    const dialogChildBody = (await (await createdDialogChild).json()) as {
+      page: { id: string; type: string; title: string }
+    }
+    expect(dialogChildBody.page.type).toBe('doc')
+    expect(dialogChildBody.page.title).toBe('action-items')
+    await expect(uploadDialog).toHaveCount(0)
+
+    const subpages = page.locator('[data-pod-subpages]')
+    await expect(subpages).toBeVisible()
+    await expect(subpages.getByRole('link', { name: 'action-items', exact: true })).toBeVisible()
+
+    const createdSubpageChild = page.waitForResponse(
+      res => res.request().method() === 'POST' && new URL(res.url()).pathname === '/api/v2/pod/pages'
+    )
+    await subpages.locator('input[type="file"]').setInputFiles({
+      name: 'follow-up.markdown',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('---\ntitle: Follow-up Plan\n---\n\nOwner: Finance\n')
+    })
+    const subpageChildBody = (await (await createdSubpageChild).json()) as {
+      page: { id: string; type: string; title: string }
+    }
+    expect(subpageChildBody.page.type).toBe('doc')
+    expect(subpageChildBody.page.title).toBe('Follow-up Plan')
+    expect(filePageWrites).toBe(0)
+    await expect(subpages.getByRole('link', { name: 'Follow-up Plan', exact: true })).toBeVisible()
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})

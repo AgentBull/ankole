@@ -183,7 +183,11 @@ defmodule Ankole.Pod.Pages do
                uid,
                Ankole.Attrs.get(attrs, :skip_default_table, false)
              ),
-           :ok <- Ankole.Brain.Knowledge.page_changed_in_tx(page, nil),
+           :ok <-
+             Ankole.Brain.Knowledge.page_changed_in_tx(page, nil,
+               actor: actor,
+               context: opts[:context]
+             ),
            do: {:ok, page}
     end
   end
@@ -689,18 +693,9 @@ defmodule Ankole.Pod.Pages do
     action =
       if child.inherit_permissions and child.created_by == ActorRef.from_actor(actor),
         do: "node_edit",
-        else: "node_manage"
+        else: Nodes.deletion_action(child)
 
-    with {:ok, _} <- Access.authorize(actor, child, action),
-         {:ok, child} <-
-           Nodes.fetch(child.id)
-           |> then(fn {:ok, node} ->
-             Access.update_anchor_in_tx(node, :trash, %{
-               deleted_at: DateTime.utc_now(:microsecond)
-             })
-           end),
-         :ok <- schedule_purge(child),
-         do: {:ok, child}
+    Nodes.trash_node_in_tx(actor, child, action)
   end
 
   def restore(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil) do
@@ -989,6 +984,4 @@ defmodule Ankole.Pod.Pages do
       end
     end
   end
-
-  defp schedule_purge(page), do: Nodes.schedule_purge(page)
 end

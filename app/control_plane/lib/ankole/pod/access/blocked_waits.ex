@@ -241,10 +241,10 @@ defmodule Ankole.Pod.Access.BlockedWaits do
       end
 
     url =
-      if is_binary(conversation_id) do
-        String.trim_trailing(AnkoleWeb.Endpoint.url(), "/") <> "/chat/" <> conversation_id
+      if is_binary(conversation_id) and match?({:ok, _}, Ecto.UUID.cast(conversation_id)) do
+        AnkoleWeb.PodURL.current_tenant_url(AnkoleWeb.PodURL.conversation_path(conversation_id))
       else
-        String.trim_trailing(AnkoleWeb.Endpoint.url(), "/")
+        String.trim_trailing(AnkoleWeb.PodURL.current_tenant_url("/"), "/")
       end
 
     ReplyPresentation.new(state: "awaiting_input")

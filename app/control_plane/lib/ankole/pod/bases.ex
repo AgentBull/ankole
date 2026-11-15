@@ -51,16 +51,33 @@ defmodule Ankole.Pod.Bases do
   def rename_inline_principal_in_tx(old_uid, new_uid) do
     identity_tenant = Repo.tenant_id!()
 
-    BaseTable
-    |> Ash.Query.for_read(:across_tenants)
-    |> Ash.Query.filter(storage_mode == :inline and is_nil(deleting_at))
-    |> Ash.Query.sort(id: :asc)
-    |> Ash.Query.lock(:for_update)
-    |> Ankole.Ash.read_across_tenants!()
-    |> Enum.reduce_while({:ok, []}, fn table, {:ok, changes} ->
+    tables =
+      BaseTable
+      |> Ash.Query.for_read(:across_tenants)
+      |> Ash.Query.filter(storage_mode == :inline and is_nil(deleting_at))
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read_across_tenants!()
+
+    identity_table_ids =
+      for table <- tables, table.tenant_id == identity_tenant, do: table.id
+
+    fields_by_table =
+      if identity_table_ids == [] do
+        %{}
+      else
+        BaseField
+        |> Ash.Query.filter(table_id in ^identity_table_ids)
+        |> Ash.Query.sort(:position)
+        |> Ankole.Ash.read!()
+        |> Enum.group_by(& &1.table_id)
+      end
+
+    Enum.reduce_while(tables, {:ok, []}, fn table, {:ok, changes} ->
+      user_fields = Map.get(fields_by_table, table.id, [])
+
       result =
         Repo.with_tenant(table.tenant_id, fn ->
-          user_fields = if table.tenant_id == identity_tenant, do: fields(table.id), else: []
           Records.rename_principal_in_tx(table, user_fields, {identity_tenant, old_uid}, new_uid)
         end)
 

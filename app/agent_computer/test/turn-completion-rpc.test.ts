@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import type { JobTurnRef } from '../src/lanes/session_lane'
-import { RPCRejectedError, RPCTimeoutError } from '../src/lanes/rpc_lane'
-import { abortTurnWithAck } from '../src/worker/turn_completion'
+import type { JobTurnRef } from '../src/lanes/session-lane'
+import { RPCRejectedError, RPCTimeoutError } from '../src/lanes/rpc-lane'
+import { abortTurnWithAck } from '../src/worker/turn-completion'
 
 const turn: JobTurnRef = {
   session: { session_id: 'job:1000' },

@@ -79,10 +79,12 @@ defmodule AnkoleWeb.MeOperations do
       )
 
       run(fn _, context ->
+        principal = Actor.principal(context.actor)
+
         {:ok,
          %{
-           displayName: Actor.principal(context.actor).display_name,
-           avatarURL: Actor.principal(context.actor).avatar_url,
+           displayName: Ankole.Principals.display_name(principal),
+           avatarURL: principal.avatar_url,
            credentialChangeAllowed: CredentialBinding.permitted(context.actor) == :ok,
            managed: Ankole.IdentityProviders.directory_managed_member?(Actor.uid(context.actor)),
            credentials:

@@ -32,18 +32,18 @@ import {
   RPCRequestSchema,
   RPCResponseSchema,
   type Envelope
-} from '../src/fabric/envelope_proto'
+} from '../src/fabric/envelope-proto'
 import { RuntimeFabricTransportError } from '../src/fabric/fabric'
 import { parseRuntimeFabricEndpoint } from '../src/worker/config'
-import { Slots } from '../src/worker/lifecycle_messages'
-import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
+import { Slots } from '../src/worker/lifecycle-messages'
+import { handleWorkerRPCRequest } from '../src/lanes/rpc-lane'
 import { controlShutdownEnvelope } from '../src/fabric/envelopes'
-import { workerProgressEnvelope } from '../src/lanes/session_lane'
+import { workerProgressEnvelope } from '../src/lanes/session-lane'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareTurnWorkspace } from '../src/worker/workspace'
-import { jobTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/session_lane'
-import type { TurnStart } from '../src/lanes/session_lane'
-import { ActiveTurn, ActiveTurns, startTurnProgress } from '../src/worker/active_turns'
+import { jobTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/session-lane'
+import type { TurnStart } from '../src/lanes/session-lane'
+import { ActiveTurn, ActiveTurns, startTurnProgress } from '../src/worker/active-turns'
 import { WorkerDrainState } from '../src/worker/drain'
 import type { BrowserRuntime } from '../src/browser-runtime'
 import {
@@ -51,9 +51,9 @@ import {
   ActorTurnAbortRequestSchema,
   WorkerFileTransferRequestSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { turnFailureDetails } from '../src/worker/turn_failure'
-import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/job/turn-recorder'
-import { RPCRejectedError, RPCTimeoutError, RuntimeRPCClient } from '../src/lanes/rpc_lane'
+import { turnFailureDetails } from '../src/worker/turn-failure'
+import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/job/turn-recorder-helpers'
+import { RPCRejectedError, RPCTimeoutError, RuntimeRPCClient } from '../src/lanes/rpc-lane'
 import { agentHomePaths } from '../src/core/agent-home-paths'
 
 // Writes the version that the sending host supplies on the wire.

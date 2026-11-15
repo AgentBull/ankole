@@ -673,6 +673,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp inferred_output_modalities(%LLMDB.Model{capabilities: capabilities}) do
     cond do
+      truthy_capability?(capabilities, :evaluate) -> ["decision"]
       truthy_capability?(capabilities, :embeddings) -> ["embeddings"]
       truthy_capability?(capabilities, :rerank) -> ["text"]
       true -> ["text"]
@@ -948,6 +949,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
       decision_model_id?(id) or "decision" in outputs -> "decision"
       "embeddings" in outputs or "encoding_format" in parameters -> "embedding"
       "query" in parameters and "documents" in parameters -> "rerank"
+      "decisions" in outputs -> "decision"
       "image" in outputs -> "image_generate"
       "text" in outputs -> "llm"
       true -> "other"
@@ -965,7 +967,13 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp known_decision_model_id?(id) do
-    id in ["gpt-6-luna", "microsoft/microsoft-decision-1", "microsoft-decision-1"] or
+    id in [
+      "gemini-decision-1",
+      "google/gemini-decision-1",
+      "gpt-6-luna",
+      "microsoft/microsoft-decision-1",
+      "microsoft-decision-1"
+    ] or
       String.starts_with?(id, ["typesafe/", "jev-", "@cf/cloudflare/clef"])
   end
 

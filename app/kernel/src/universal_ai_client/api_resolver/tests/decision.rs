@@ -115,6 +115,10 @@ fn openai_decision(request: Value) -> APIResolver {
     )
 }
 
+fn google_decision(model: &str, request: Value) -> APIResolver {
+    decision_resolver(APIResolverKind::GoogleDecision, model, request, json!({}))
+}
+
 fn one_noul() -> Value {
     json!({"urgent": {"type": "noul", "instructions": "Is it urgent?"}})
 }
@@ -642,12 +646,233 @@ fn decision_resolver_wire_names_deserialize_exactly() {
     for (wire_name, expected) in [
         ("systemone_decision", APIResolverKind::SystemoneDecision),
         ("openai_decision", APIResolverKind::OpenAIDecision),
+        ("google_decision", APIResolverKind::GoogleDecision),
     ] {
         let encoded = format!("\"{wire_name}\"");
         let kind = sonic_rs::from_str::<APIResolverKind>(&encoded).unwrap();
         assert_eq!(kind, expected);
         assert_eq!(kind.as_str(), wire_name);
     }
+}
+
+#[test]
+fn google_decision_converts_inputs_questions_and_aliases_non_google_keys() {
+    let long_key = "q".repeat(70);
+    let request = json!({
+        "state": {"ticket": {"message": "Kettle arrived cracked"}},
+        "images": [
+            "data:image/png;base64,cG5n",
+            "data:image/jpeg;base64,anBlZw==",
+            "data:image/webp;base64,d2VicA=="
+        ],
+        "questions": {
+            "ankole_q_1": {
+                "type": "noul",
+                "instructions": "Existing alias key?",
+                "criteria": {"true": "Yes", "false": "No"}
+            },
+            "ticket.damaged": {
+                "type": "choice",
+                "instructions": ["Pick department", "Prefer shipping for transit damage"],
+                "criteria": {"shipping": "Damaged in transit", "other": null}
+            },
+            long_key.clone(): {
+                "type": "score",
+                "instructions": {"goal": "Rate severity"},
+                "criteria": [{"tier": "minor"}, {"tier": "major"}]
+            }
+        }
+    });
+
+    let mut resolver = google_decision("models/gemini-decision-1", request);
+    let body = Value::Object(resolver.build_body().unwrap());
+
+    assert_eq!(body["model"], "gemini-decision-1");
+    assert_eq!(
+        body["input"],
+        json!([
+            {"type": "text", "text": "{\"ticket\":{\"message\":\"Kettle arrived cracked\"}}"},
+            {"type": "image", "mime_type": "image/png", "data": "cG5n"},
+            {"type": "image", "mime_type": "image/jpeg", "data": "anBlZw=="},
+            {"type": "image", "mime_type": "image/webp", "data": "d2VicA=="}
+        ])
+    );
+    assert_eq!(
+        body["questions"],
+        json!({
+            "ankole_q_1": {
+                "type": "noul",
+                "instructions": "Existing alias key?",
+                "criteria": {
+                    "true_description": "Yes",
+                    "false_description": "No"
+                }
+            },
+            "ankole_q_2": {
+                "type": "score",
+                "instructions": "{\"goal\":\"Rate severity\"}",
+                "criteria": ["{\"tier\":\"minor\"}", "{\"tier\":\"major\"}"]
+            },
+            "ankole_q_3": {
+                "type": "choice",
+                "instructions": "[\"Pick department\",\"Prefer shipping for transit damage\"]",
+                "criteria": {"shipping": "Damaged in transit", "other": ""}
+            }
+        })
+    );
+
+    let normalized = resolver
+        .normalize_body(
+            200,
+            json!({
+                "answers": {
+                    "ankole_q_1": {"type": "noul", "noul": 0.97, "confidence": 0.97},
+                    "ankole_q_2": {
+                        "type": "score",
+                        "score": 0.85,
+                        "legend": {"0": "{\"tier\":\"minor\"}", "1": "{\"tier\":\"major\"}"},
+                        "probabilities": {"0": 0.15, "1": 0.85},
+                        "confidence": 0.85
+                    },
+                    "ankole_q_3": {
+                        "type": "choice",
+                        "choice": "shipping",
+                        "probabilities": {"shipping": 0.92, "other": 0.08},
+                        "confidence": 0.92
+                    }
+                },
+                "usage": {
+                    "total_input_tokens": 152,
+                    "input_tokens_by_modality": [
+                        {"modality": "text", "tokens": 52},
+                        {"modality": "image", "tokens": 100}
+                    ],
+                    "total_cached_tokens": 12,
+                    "total_thought_tokens": 4,
+                    "total_output_tokens": 0,
+                    "total_tokens": 156
+                }
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(
+        normalized,
+        json!({
+            "model": "gemini-decision-1",
+            "answers": {
+                "ankole_q_1": {"type": "noul", "noul": 0.97},
+                "ticket.damaged": {
+                    "type": "choice",
+                    "choice": "shipping",
+                    "probabilities": {"shipping": 0.92, "other": 0.08},
+                    "confidence": 0.92
+                },
+                long_key: {
+                    "type": "score",
+                    "score": 0.85,
+                    "legend": {"0": {"tier": "minor"}, "1": {"tier": "major"}},
+                    "probabilities": {"0": 0.15, "1": 0.85},
+                    "confidence": 0.85
+                }
+            },
+            "usage": {
+                "input_tokens": 152,
+                "output_tokens": 0,
+                "total_tokens": 156,
+                "input_tokens_by_modality": [
+                    {"modality": "text", "tokens": 52},
+                    {"modality": "image", "tokens": 100}
+                ],
+                "input_tokens_details": {"cached_tokens": 12},
+                "output_tokens_details": {"reasoning_tokens": 4}
+            }
+        })
+    );
+}
+
+#[test]
+fn google_decision_handles_scalar_and_empty_states_and_rejects_blocks_or_bad_answers() {
+    let plain = Value::Object(
+        google_decision(
+            "gemini-decision-1",
+            json!({"state": "Order #4821", "questions": one_noul()}),
+        )
+        .build_body()
+        .unwrap(),
+    );
+    assert_eq!(plain["input"], json!("Order #4821"));
+
+    for (state, expected) in [
+        (json!(""), "\"\""),
+        (Value::Null, "null"),
+        (json!(false), "false"),
+        (json!(42), "42"),
+        (json!([1, 2]), "[1,2]"),
+    ] {
+        let body = Value::Object(
+            google_decision(
+                "gemini-decision-1",
+                json!({"state": state, "questions": one_noul()}),
+            )
+            .build_body()
+            .unwrap(),
+        );
+        assert_eq!(body["input"], json!([{"type": "text", "text": expected}]));
+    }
+
+    let bad_image = google_decision(
+        "gemini-decision-1",
+        json!({
+            "state": "photo",
+            "questions": one_noul(),
+            "images": ["data:image/svg+xml;base64,c3Zn"]
+        }),
+    )
+    .build_body()
+    .unwrap_err();
+    assert_eq!(bad_image.code, "invalid_decision_request");
+
+    let blocked = google_decision(
+        "gemini-decision-1",
+        json!({"state": "unsafe", "questions": one_noul()}),
+    )
+    .normalize_body(
+        200,
+        json!({
+            "answers": {},
+            "prompt_feedback": {
+                "block_reason": "safety",
+                "block_reason_message": "Input violated safety policy"
+            }
+        }),
+    )
+    .unwrap_err();
+    assert_eq!(blocked.code, "upstream_decision_refusal");
+    assert_eq!(blocked.provider_status, Some(200));
+    assert_eq!(blocked.provider_error_type.as_deref(), Some("safety"));
+
+    let missing_answer = google_decision(
+        "gemini-decision-1",
+        json!({
+            "state": "ticket",
+            "questions": {
+                "first": {"type": "noul", "instructions": "First?"},
+                "second": {"type": "noul", "instructions": "Second?"}
+            }
+        }),
+    )
+    .normalize_body(
+        200,
+        json!({
+            "answers": {
+                "first": {"type": "noul", "noul": 0.8, "confidence": 0.8}
+            },
+            "usage": {"total_input_tokens": 20}
+        }),
+    )
+    .unwrap_err();
+    assert_eq!(missing_answer.code, "invalid_upstream_response");
 }
 
 #[test]

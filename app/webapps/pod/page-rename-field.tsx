@@ -1,6 +1,6 @@
 import { Button, cn, Input, Popover, PopoverContent, toast } from '@ankole/uikit'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { sanitizeRenameValue } from '../common/bidi'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -14,10 +14,12 @@ import { usePageMetadata } from './use-page-metadata'
 export function PageRenameField({
   page: sourcePage,
   className,
+  saveRef,
   onDone
 }: {
   page: Page
   className?: string
+  saveRef?: RefObject<(() => Promise<boolean>) | null>
   onDone(): void
 }) {
   const { t } = useTranslation()
@@ -28,6 +30,7 @@ export function PageRenameField({
   const [conflictingTitle, setConflictingTitle] = useState<string | null>(null)
   const field = useRef<HTMLInputElement>(null)
   const finished = useRef(false)
+  const activePromise = useRef<Promise<unknown> | null>(null)
   const finish = () => {
     finished.current = true
     onDone()
@@ -55,24 +58,62 @@ export function PageRenameField({
       toast.error(requestErrorMessage(contentError(error)))
     }
   })
-  const submit = (confirmConflict = false) => {
-    if (!canRenamePage(page)) return finish()
-    if (finished.current || rename.isPending) return
+  const submitAsync = async (confirmConflict = false, finishIfClean = true): Promise<boolean> => {
+    if (!canRenamePage(page)) {
+      if (finishIfClean) finish()
+      return false
+    }
+    if (activePromise.current) {
+      await activePromise.current.catch(() => {})
+      return true
+    }
+    if (finished.current || rename.isPending) return false
     if (conflictingTitle !== null) {
-      if (!confirmConflict) return
+      if (!confirmConflict) return false
       expectedTitle.current = conflictingTitle
       setConflictingTitle(null)
       const title = value.trim()
-      if (title === conflictingTitle) return finish()
+      if (title === conflictingTitle) {
+        if (finishIfClean) finish()
+        return false
+      }
       finished.current = true
-      rename.mutate(title)
-      return
+      const pending = rename.mutateAsync(title).catch(() => {})
+      activePromise.current = pending
+      try {
+        await pending
+      } finally {
+        if (activePromise.current === pending) activePromise.current = null
+      }
+      return true
     }
     const title = value.trim()
-    if (title === page.title) return finish()
+    if (title === page.title) {
+      if (finishIfClean) finish()
+      return false
+    }
     finished.current = true
-    rename.mutate(title)
+    const pending = rename.mutateAsync(title).catch(() => {})
+    activePromise.current = pending
+    try {
+      await pending
+    } finally {
+      if (activePromise.current === pending) activePromise.current = null
+    }
+    return true
   }
+  const submit = (confirmConflict = false) => {
+    void submitAsync(confirmConflict, true)
+  }
+  const submitAsyncRef = useRef(submitAsync)
+  submitAsyncRef.current = submitAsync
+  useEffect(() => {
+    if (!saveRef) return
+    saveRef.current = () => submitAsyncRef.current(false, true)
+    return () => {
+      saveRef.current = null
+    }
+  }, [saveRef])
   // A title conflict asks its question in a popover below the field, so the question shows in full wherever the field
   // sits, such as in a sidebar row or in the top bar's path, and the field keeps its focus.
   return (

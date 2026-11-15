@@ -2,6 +2,7 @@ import {
   Button,
   buttonVariants,
   SidebarTrigger,
+  Spinner,
   TopBar,
   TopBarActions,
   TopBarHistory,
@@ -15,7 +16,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useRouter } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { browserSession } from '../common/api/generated/sdk.gen'
-import { authenticationRef, podID, podLocation } from '../common/browser-context'
+import { isDesktopRuntime, podID, podLocation, sessionIdentityKey } from '../common/browser-context'
 import { getPodRuntimeBootstrap, subscribePodRuntimeBootstrap } from '../common/pod-bootstrap'
 import { isApplePlatform } from '../common/platform'
 import { ProfileMark, sessionAvatarContext } from './account-menu'
@@ -104,6 +105,24 @@ export function PodTopBarPeople({ children }: { children: ReactNode }) {
   return people ? createPortal(children, people) : null
 }
 
+/** Renders a visible saving indicator in the top bar's people slot while a manual save request is in flight. */
+export function PodTopBarSavingStatus() {
+  const { t } = useTranslation()
+  return (
+    <PodTopBarPeople>
+      <div
+        className="flex items-center px-1 text-xs text-muted-foreground"
+        data-page-save-status="saving"
+        role="status">
+        <span className="flex items-center gap-1.5" data-sync-status="saving">
+          <Spinner aria-hidden className="size-4" />
+          <span>{t('pod.collaboration.saving')}</span>
+        </span>
+      </div>
+    </PodTopBarPeople>
+  )
+}
+
 /** Renders the open route's actions at the end of the shell's top bar, after the search button. */
 export function PodTopBarActions({ children }: { children: ReactNode }) {
   const { actions } = use(PodTopBarContext)
@@ -117,7 +136,7 @@ export function PodTopBarActions({ children }: { children: ReactNode }) {
 function PodMark() {
   const runtime = useSyncExternalStore(subscribePodRuntimeBootstrap, getPodRuntimeBootstrap, () => undefined)
   const session = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? runtime?.principalUid ?? '', podID() ?? ''],
+    queryKey: ['pod-session', sessionIdentityKey() ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
     staleTime: 60_000
   })
@@ -140,8 +159,8 @@ function PodMark() {
 }
 
 /**
- * Back and forward through the Pod router's history. Back is available after the first navigation inside the Pod;
- * forward follows the browser's Navigation API, and a browser without that API keeps forward enabled.
+ * Back is available after the first navigation inside the Pod. Desktop reads forward availability from the router's
+ * memory history; browsers use the Navigation API and keep forward enabled when that API is unavailable.
  */
 function PodHistory() {
   const { t } = useTranslation()
@@ -157,7 +176,14 @@ function PodHistory() {
     [router]
   )
   const canGoBack = useSyncExternalStore(subscribe, () => router.history.canGoBack(), unavailable)
-  const canGoForward = useSyncExternalStore(subscribe, browserCanGoForward, unavailable)
+  const canGoForward = useSyncExternalStore(
+    subscribe,
+    () =>
+      isDesktopRuntime()
+        ? router.history.location.state.__TSR_index < router.history.length - 1
+        : browserCanGoForward(),
+    unavailable
+  )
   const back = t('pod.sidebar.go_back')
   const forward = t('pod.sidebar.go_forward')
   return (

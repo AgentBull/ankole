@@ -1,5 +1,5 @@
 import { mkdirAgentSync } from '../../../src/common/agent-user'
-import { Slots } from '../../../src/worker/lifecycle_messages'
+import { Slots } from '../../../src/worker/lifecycle-messages'
 import {
   AgentConversationContextResponseSchema,
   RuntimeSkillSummarySchema
@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BrowserRuntime } from '../../../src/browser-runtime'
-import { jsonBytes, RPCResponseSchema, type Envelope } from '../../../src/fabric/envelope_proto'
+import { jsonBytes, RPCResponseSchema, type Envelope } from '../../../src/fabric/envelope-proto'
 import {
   SessionKeySchema,
   RunRefSchema,
@@ -19,8 +19,8 @@ import {
   WorkspaceOpenSchema,
   WorkspaceReady_Reason
 } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
-import { RuntimeRPCClient } from '../../../src/lanes/rpc_lane'
-import { rpcOperations, type ControlPlaneOwnedRPCMethod } from '../../../src/lanes/rpc_contract'
+import { RuntimeRPCClient } from '../../../src/lanes/rpc-lane'
+import { rpcOperations, type ControlPlaneOwnedRPCMethod } from '../../../src/lanes/rpc-contract'
 import { WorkerDrainState } from '../../../src/worker/drain'
 import { Workspaces } from '../../../src/worker/workspaces'
 import type { WorkerConfig } from '../../../src/worker/config'

@@ -60,7 +60,7 @@ import {
 import { useComputed, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { Link, createLink, useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import { authenticationRef, podID } from '../common/browser-context'
+import { podID, sessionIdentityKey } from '../common/browser-context'
 import { podLocation, podPageRouteID } from '../common/pod-url'
 import { BdiLabel } from '../common/bidi-file-name'
 import { stripBidi } from '../common/bidi'
@@ -92,7 +92,7 @@ import { PageRenameField } from './page-rename-field'
 import { SpaceSettingsButton } from './space-settings'
 import { PageIcon } from './page-icon'
 import { navigationQuery, directoryPages } from './state/navigation-cache'
-import { workItemsQuery } from './work-api'
+import { jobsSummaryQuery } from './jobs-api'
 
 const pageTree = 'pod-pages'
 
@@ -219,7 +219,7 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
   const bootstrap = useQuery(navigationQuery(client, initialPageID))
   const agents = useQuery(agentsQuery)
   const restored = useRef(false)
-  const model = useModel(() => new NavigationModel(podID(), authenticationRef()))
+  const model = useModel(() => new NavigationModel(podID(), sessionIdentityKey()))
   const rootOpen = model.rootOpen.value
   useEffect(() => {
     const storageKey = model.storageKey()
@@ -264,12 +264,8 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
   }
   const sharedPath = podLocation('/content/shared').pathname
   const favoritesPath = podLocation('/content/favorites').pathname
-  const workPath = podLocation('/work').pathname
-  // The board's row appears while any work item waits to start or runs, and stays while the board is open.
-  const activeWork = useQuery({
-    ...workItemsQuery,
-    select: items => items.filter(item => item.status === 'todo' || item.status === 'working').length
-  })
+  const jobsPath = podLocation('/jobs').pathname
+  const jobsSummary = useQuery(jobsSummaryQuery)
   return (
     <PageTreeContext value={tree}>
       <nav ref={scrollContainer} aria-label={t('pod.content.page_navigation')} className="pod-navigation">
@@ -305,24 +301,27 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
         )}
         <SidebarGroup>
           <SidebarMenu>
-            {((activeWork.data ?? 0) > 0 || pathname === workPath) && (
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={
-                    <Link
-                      to={workPath}
-                      aria-current={pathname === workPath ? 'page' : undefined}
-                      onClick={onNavigate}
-                    />
-                  }
-                  className="pod-nav-link">
-                  <SidebarMenuIcon>
-                    <TaskListSquareLtrRegular />
-                  </SidebarMenuIcon>
-                  <span>{t('pod.work.title')}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                render={
+                  <Link to={jobsPath} aria-current={pathname === jobsPath ? 'page' : undefined} onClick={onNavigate} />
+                }
+                className="pod-nav-link">
+                <SidebarMenuIcon>
+                  <TaskListSquareLtrRegular />
+                </SidebarMenuIcon>
+                <span className="min-w-0 flex-1 truncate">{t('pod.jobs.title')}</span>
+                {(jobsSummary.data?.attentionCount ?? 0) > 0 ? (
+                  <Badge variant="warning" size="sm">
+                    {jobsSummary.data!.attentionCount}
+                  </Badge>
+                ) : (jobsSummary.data?.runningCount ?? 0) > 0 ? (
+                  <Badge variant="info" size="sm">
+                    {jobsSummary.data!.runningCount}
+                  </Badge>
+                ) : null}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 render={

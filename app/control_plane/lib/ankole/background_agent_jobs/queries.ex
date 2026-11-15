@@ -451,4 +451,138 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   end
 
   defp console_search(_search), do: {:error, :invalid_background_agent_job_search}
+
+  @doc false
+  def standalone_active_jobs(scope, cutoff) do
+    Job
+    |> Ash.Query.filter(
+      skill_lesson_reflection? != true and
+        (status in [:queued, :running, :waiting_on_user] or
+           (status == :failed and
+              fragment("COALESCE(?, ?) >= ?", completed_at, updated_at, ^cutoff)))
+    )
+    |> filter_chain_heads()
+    |> filter_standalone_visibility(scope)
+    |> Ash.Query.sort(updated_at: :desc, id: :desc)
+    |> Ankole.Ash.read!()
+  end
+
+  @doc false
+  def standalone_completed_jobs(scope, cutoff, limit) do
+    Job
+    |> Ash.Query.filter(
+      skill_lesson_reflection? != true and
+        (status in [:succeeded, :stopped] or
+           (status == :failed and
+              fragment("COALESCE(?, ?) < ?", completed_at, updated_at, ^cutoff)))
+    )
+    |> filter_chain_heads()
+    |> filter_standalone_visibility(scope)
+    |> Ash.Query.sort(completed_at: :desc, id: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
+  end
+
+  @doc false
+  def cron_active_jobs([], _cutoff), do: []
+
+  def cron_active_jobs(cron_session_ids, cutoff) when is_list(cron_session_ids) do
+    Job
+    |> Ash.Query.filter(
+      owner_session_id in ^cron_session_ids and skill_lesson_reflection? != true and
+        (status in [:queued, :running, :waiting_on_user] or
+           (status == :failed and
+              fragment("COALESCE(?, ?) >= ?", completed_at, updated_at, ^cutoff)))
+    )
+    |> filter_chain_heads()
+    |> Ash.Query.sort(updated_at: :desc, id: :desc)
+    |> Ankole.Ash.read!()
+  end
+
+  @doc false
+  def cron_board_jobs([], _cutoff), do: []
+
+  def cron_board_jobs(cron_session_ids, cutoff) when is_list(cron_session_ids) do
+    active = cron_active_jobs(cron_session_ids, cutoff)
+
+    latest_terminal =
+      Job
+      |> Ash.Query.filter(
+        owner_session_id in ^cron_session_ids and skill_lesson_reflection? != true and
+          status in [:succeeded, :failed, :stopped]
+      )
+      |> filter_chain_heads()
+      |> Ash.Query.distinct([:owner_session_id])
+      |> Ash.Query.distinct_sort(owner_session_id: :asc, completed_at: :desc, id: :desc)
+      |> Ankole.Ash.read!()
+
+    Enum.uniq_by(active ++ latest_terminal, & &1.id)
+  end
+
+  @doc false
+  def chain_lengths([]), do: %{}
+
+  def chain_lengths(owner_ids) when is_list(owner_ids) do
+    Job
+    |> Ash.Query.filter(workspace_owner_job_id in ^owner_ids)
+    |> Ash.Query.select([:id, :workspace_owner_job_id])
+    |> Ankole.Ash.read!()
+    |> Enum.frequencies_by(& &1.workspace_owner_job_id)
+  end
+
+  @doc false
+  def session_head_jobs(owner_session_id, limit)
+      when is_binary(owner_session_id) and is_integer(limit) and limit > 0 do
+    Job
+    |> Ash.Query.filter(
+      owner_session_id == ^owner_session_id and skill_lesson_reflection? != true
+    )
+    |> filter_chain_heads()
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
+  end
+
+  defp filter_chain_heads(query) do
+    Ash.Query.filter(query, not exists(Job, continued_from_job_id == parent(id)))
+  end
+
+  defp filter_standalone_visibility(query, scope) do
+    uid = scope.uid
+
+    query =
+      if scope.foreign_pa_uids == [] do
+        query
+      else
+        Ash.Query.filter(query, is_nil(agent_uid) or agent_uid not in ^scope.foreign_pa_uids)
+      end
+
+    query =
+      if scope.live_cron_sessions == [] do
+        query
+      else
+        Ash.Query.filter(query, owner_session_id not in ^scope.live_cron_sessions)
+      end
+
+    if scope.visible_room_ids == [] do
+      Ash.Query.filter(
+        query,
+        (fragment("starts_with(?, 'pod_job:')", owner_session_id) and human_uid == ^uid) or
+          (fragment("starts_with(?, 'cron:')", owner_session_id) and human_uid == ^uid)
+      )
+    else
+      Ash.Query.filter(
+        query,
+        owner_session_id in ^scope.visible_conv_sessions or
+          (fragment("starts_with(?, 'pod_job:')", owner_session_id) and human_uid == ^uid) or
+          (fragment("starts_with(?, 'cron:')", owner_session_id) and
+             (human_uid == ^uid or
+                fragment(
+                  "(? ->> 'conversation_id') = ANY(?::text[])",
+                  reply_route,
+                  ^scope.visible_room_ids
+                )))
+      )
+    end
+  end
 end

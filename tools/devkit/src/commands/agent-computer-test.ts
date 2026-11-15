@@ -79,19 +79,17 @@ export function agentComputerTestCommand() {
     { description: 'Run Agent Computer package tests in the canonical worker container runtime.' },
     command =>
       command
-        .flags(
-          {
-            name: 'suite',
+        .flags({
+          suite: {
             type: 'string',
             description: 'Test suite to run: unit, integration, or image.',
             default: 'unit'
           },
-          {
-            name: 'image',
+          image: {
             type: 'string',
             description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
           }
-        )
+        })
         .action(({ flags }) => runAgentComputerTests(parseAgentComputerTestSuite(flags.suite), flags.image))
   )
 }

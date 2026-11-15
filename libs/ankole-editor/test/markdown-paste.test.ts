@@ -6,7 +6,7 @@ import { readClipboard } from '../src/core/editor/clipboard'
 import * as T from '../src/core/types'
 import { MermaidBlock } from '../src/blocks/mermaid'
 import { InfographicBlock } from '../src/blocks/infographic'
-import { printMarkdown, printXml } from '../src/document'
+import { importMarkdownDocument, printMarkdown, printXml } from '../src/document'
 import { looksLikeMarkdown, parsePastedMarkdown } from '../src/document/markdown-paste'
 import { pasteTextAtDocumentStart, splitPastedDocumentTitle } from '../src/editor/clipboard'
 import { knowledgeExtension } from '../src/editor/knowledge'
@@ -372,5 +372,59 @@ describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
     expect(xml).not.toContain('javascript:')
     expect(xml).not.toContain('data:text/html')
     expect(xml).toContain('<td><p>Unsafe</p></td>')
+  })
+
+  test('imports Markdown files into Document Page titles and canonical XML without duplicating headings', () => {
+    // Lifts a sole top-level H1 into the Page title and removes it from the body (round-tripping exported Docs).
+    const exported = importMarkdownDocument(
+      '# Quarterly Review 2026\n\nRevenue grew **24%** QoQ.\n\n> [!NOTE] {icon="📌"}\n> Verified against ledger.\n\n> [!WARNING] Action required\n> Reconcile accruals.',
+      'Quarterly-Review-2026'
+    )
+    expect(exported.title).toBe('Quarterly Review 2026')
+    expect(exported.xml).not.toContain('<h1>')
+    expect(exported.xml).toContain('<p>Revenue grew <strong>24%</strong> QoQ.</p>')
+    expect(exported.xml).toContain('<callout icon="📌" tone="info"><p>Verified against ledger.</p></callout>')
+    expect(exported.xml).toContain(
+      '<callout tone="warning"><p><strong>Action required</strong></p><p>Reconcile accruals.</p></callout>'
+    )
+
+    // Uses YAML frontmatter `title:`, strips a duplicate matching H1, and keeps a distinct section H1.
+    const frontmatterDedupe = importMarkdownDocument(
+      '---\ntitle: "Sprint 14 Retro"\ntags: [retro]\n---\n\n# Sprint 14 Retro\n\n- Shipped fast',
+      '2026-05-retro'
+    )
+    expect(frontmatterDedupe).toEqual({
+      title: 'Sprint 14 Retro',
+      xml: '<page><ul><li><p>Shipped fast</p></li></ul></page>'
+    })
+
+    const frontmatterDistinctH1 = importMarkdownDocument(
+      '---\ntitle: "Sprint 14 Retro"\n---\n\n# Highlights\n\nAll green.',
+      '2026-05-retro'
+    )
+    expect(frontmatterDistinctH1).toEqual({
+      title: 'Sprint 14 Retro',
+      xml: '<page><h1>Highlights</h1><p>All green.</p></page>'
+    })
+
+    // Preserves multiple top-level H1 chapters and uses the fallback filename stem when none matches the filename.
+    const multiChapter = importMarkdownDocument('# Chapter 1\n\nIntro.\n\n# Chapter 2\n\nDetails.', 'handbook')
+    expect(multiChapter).toEqual({
+      title: 'handbook',
+      xml: '<page><h1>Chapter 1</h1><p>Intro.</p><h1>Chapter 2</h1><p>Details.</p></page>'
+    })
+
+    // Preserves a leading H1 containing a hyperlink in the body so the URL is not lost.
+    const linkedHeading = importMarkdownDocument('# [Ankole](https://example.com)\n\nWelcome.', 'README')
+    expect(linkedHeading).toEqual({
+      title: 'README',
+      xml: '<page><h1><a href="https://example.com">Ankole</a></h1><p>Welcome.</p></page>'
+    })
+
+    // Empty or BOM-only files use the fallback title and empty `<page />`.
+    expect(importMarkdownDocument('\uFEFF   \n', 'Untitled note')).toEqual({
+      title: 'Untitled note',
+      xml: '<page />'
+    })
   })
 })

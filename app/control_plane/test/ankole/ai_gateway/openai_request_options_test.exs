@@ -338,6 +338,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
     end
 
     assert capabilities.(GoogleAIStudioOpenAI, :reasoningEffort) == [:language_model]
+    assert capabilities.(GoogleAIStudioOpenAI, :user) == [:language_model, :embedding_model]
 
     for key <- [:sources, :timeRange, :skip_cache] do
       assert capabilities.(AgentBullCloud, key) == [:web_search]
@@ -520,6 +521,54 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
                  OpenRouter,
                  "typesafe/jev-latest",
                  %{"base_url" => "https://openrouter.ai/api/v1", "api_key" => "or-key"},
+                 %{"state" => nil, "questions" => %{}},
+                 %{option => value}
+               )
+    end
+  end
+
+  test "Google AI Studio decision requests normalize base URLs and reject non-decision options" do
+    root = "https://generativelanguage.googleapis.com/v1beta"
+
+    for suffix <- ["/openai", "/openai/", "", "/", "/decisions", "/decisions/"] do
+      prepared =
+        decision_prepared(
+          GoogleAIStudioOpenAI,
+          "gemini-decision-1",
+          %{
+            "base_url" => root <> suffix,
+            "api_key" => "gemini-key",
+            "query_params" => %{"alt" => "json"}
+          },
+          %{
+            "state" => nil,
+            "questions" => %{},
+            "images" => ["data:image/webp;base64,d2VicA=="]
+          }
+        )
+
+      assert prepared.path == "decisions"
+      assert prepared.ctx.settings.base_url == root
+      assert prepared.api_resolver == :google_decision
+      assert {"x-goog-api-key", "gemini-key"} in prepared.headers
+      assert {"x-goog-api-client", "ankole-ai-gateway/0.1"} in prepared.headers
+      assert {:ok, spec} = UniversalAIRequest.to_spec(prepared)
+      assert spec.upstream.url == root <> "/decisions?alt=json"
+    end
+
+    for {option, value} <- [
+          {"user", "end-user-1"},
+          {"reasoningEffort", "high"},
+          {"taskType", "RETRIEVAL_QUERY"},
+          {"title", "Doc"},
+          {"outputDimensionality", 256},
+          {"autoTruncate", true}
+        ] do
+      assert {:error, {:unsupported_provider_option, ^option, "decisions"}} =
+               decision_prepared(
+                 GoogleAIStudioOpenAI,
+                 "gemini-decision-1",
+                 %{"base_url" => root <> "/openai", "api_key" => "gemini-key"},
                  %{"state" => nil, "questions" => %{}},
                  %{option => value}
                )

@@ -340,7 +340,7 @@ defmodule Ankole.BrowserSessions.Logins do
     targets = if candidate, do: [{candidate.tenant_id, candidate.uid} | bindings], else: bindings
 
     targets
-    |> Enum.sort_by(&elem(&1, 1))
+    |> Enum.sort()
     |> Enum.reduce_while({:ok, []}, fn {tenant_id, uid}, {:ok, principals} ->
       case site_principal(tenant_id, uid, candidate, provider_id, proof) do
         {:ok, principal} -> {:cont, {:ok, [principal | principals]}}

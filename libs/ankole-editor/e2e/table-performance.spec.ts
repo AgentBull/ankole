@@ -18,7 +18,7 @@ test('opening a document with many tables lays it out once for all of them', asy
   test.skip(browserName !== 'chromium', 'Chromium records forced layouts with their script stacks in its timeline')
   test.skip(
     !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
-    'Only the development server serves source modules, whose URLs name TableScroll'
+    'Only the development server serves source modules, whose URLs name table-scroll'
   )
   const table = '| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |'
   await page.goto('/')
@@ -41,7 +41,7 @@ test('opening a document with many tables lays it out once for all of them', asy
   const forced = trace.traceEvents.filter(
     event =>
       (event.name === 'UpdateLayoutTree' || event.name === 'Layout') &&
-      event.args?.beginData?.stackTrace?.some(frame => frame.url.includes('TableScroll'))
+      event.args?.beginData?.stackTrace?.some(frame => frame.url.includes('table-scroll'))
   )
   // Measuring the freshly rendered tables always forces one style and layout pass, so finding none would mean the
   // stack attribution above stopped matching rather than that the layouts went away.

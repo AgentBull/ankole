@@ -5,7 +5,7 @@ import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Writable } from 'node:stream'
 import { AGENT_UID, chownAgentPathSync, mkdirAgentSync } from '../common/agent-user'
-import { CLI_CONTEXT_FILE_ENV, CLI_LEDGER_DIR_ENV } from '../core/execution/turn_runtime_env'
+import { CLI_CONTEXT_FILE_ENV, CLI_LEDGER_DIR_ENV } from '../core/execution/turn-runtime-env'
 
 const CONTEXT_FILE_NAME = 'context-generation.json'
 const CONTEXT_FILE_MAX_BYTES = 4096

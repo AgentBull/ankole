@@ -66,6 +66,21 @@ defmodule Ankole.Files.Objects do
 
   def fetch(_id), do: {:error, :not_found}
 
+  def fetch_objects([]), do: %{}
+
+  def fetch_objects(ids) when is_list(ids) do
+    ids = for id <- Enum.uniq(ids), is_binary(id), {:ok, id} <- [Ecto.UUID.cast(id)], do: id
+
+    if ids == [] do
+      %{}
+    else
+      FileObject
+      |> Ash.Query.filter(id in ^ids and not is_nil(completed_at))
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.id, &1})
+    end
+  end
+
   @doc """
   The IDs of the tenant's completed objects that hold the same bytes as `id`,
   by their SHA-256. The list includes `id`.

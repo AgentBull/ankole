@@ -205,7 +205,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       rpc: (async (method: unknown, payload: unknown, scope: unknown) => {
         requests.push({ method, name: (payload as { name: string }).name, scope })
         return { bodyJson: new TextEncoder().encode(JSON.stringify({ output: 'Search result', details: {} })) }
-      }) as unknown as import('../src/lanes/rpc_lane').RPCRequester
+      }) as unknown as import('../src/lanes/rpc-lane').RPCRequester
     })
     const result = await buildCodexJobProjection({ tools: webTools }).handleToolCall(
       {

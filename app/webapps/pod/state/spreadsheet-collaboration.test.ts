@@ -207,6 +207,72 @@ async function started(
   return { model, notices, loads: () => loads }
 }
 
+test('leaving commits the cell draft and waits for every pending server acknowledgement', async () => {
+  const { engine } = fakeEngine()
+  const first = Promise.withResolvers<unknown>()
+  const second = Promise.withResolvers<unknown>()
+  const socket = fakeChannel(() => first.promise)
+  const { model } = await started(socket, engine)
+  await model.setCell({ row: 0, col: 0 }, 'first')
+  await until(() => socket.applies().length === 1)
+  model.edit({ row: 1, col: 0 }, 'second')
+  expect(model.hasUnsavedChanges()).toBe(true)
+  const saved = model.savePending()
+  let finished = false
+  void saved.then(() => (finished = true))
+
+  socket.answer(() => second.promise)
+  first.resolve(acknowledge(1, socket.applies()[0]!.payload))
+  await until(() => socket.applies().length === 2)
+  expect(socket.applies()[1]!.payload.op).toMatchObject({ cell: 'A2', input: 'second' })
+  expect(finished).toBe(false)
+  second.resolve(acknowledge(2, socket.applies()[1]!.payload))
+
+  expect(await saved).toBe(true)
+  expect(model.hasUnsavedChanges()).toBe(false)
+  expect(model.revision.value).toBe(2)
+})
+
+test('leaving reports an interrupted connection and keeps the same request available for retry', async () => {
+  const { engine } = fakeEngine()
+  const socket = fakeChannel(async () => {
+    throw new Error('connection interrupted')
+  })
+  const { model } = await started(socket, engine)
+  model.edit({ row: 0, col: 0 }, 'draft')
+
+  expect(await model.savePending()).toBe(false)
+  expect(model.hasUnsavedChanges()).toBe(true)
+  socket.answer(async (_event, payload) => acknowledge(1, payload))
+  expect(await model.savePending()).toBe(true)
+  expect(socket.applies()[1]!.payload).toEqual(socket.applies()[0]!.payload)
+})
+
+test('leaving reports a rejected edit even when dropping it empties the queue', async () => {
+  const { engine } = fakeEngine()
+  const socket = fakeChannel(async () => {
+    throw rejection('invalid_operation')
+  })
+  const { model, notices } = await started(socket, engine)
+  model.edit({ row: 0, col: 0 }, 'rejected')
+
+  expect(await model.savePending()).toBe(false)
+  await until(() => model.pending.value === 0)
+  expect(notices).toContainEqual(expect.objectContaining({ kind: 'rejected' }))
+  expect(model.revision.value).toBe(0)
+})
+
+test('a workbook replacement cannot report the discarded edits as saved', async () => {
+  const { engine } = fakeEngine()
+  const socket = fakeChannel(async () => ({ revision: 2, changes: [], reset_required: true }))
+  const { model, notices } = await started(socket, engine, { loads: [0, 2] })
+  model.edit({ row: 0, col: 0 }, 'discarded')
+
+  expect(await model.savePending()).toBe(false)
+  await until(() => model.revision.value === 2)
+  expect(notices).toContainEqual({ kind: 'discarded', count: 1 })
+})
+
 test('one request is in flight and later edits wait in the queue behind it', async () => {
   const { engine } = fakeEngine()
   const held = Promise.withResolvers<unknown>()
@@ -899,4 +965,54 @@ test('a replace writes the matched cells as one undo step and find reads through
   await model.undo()
   const restored = called('applyLocal').at(-1)!.args[0] as SpreadsheetOp
   expect([restored.type, restored.range]).toEqual(['range.set_values', 'A1:C3'])
+})
+
+test('saveNow commits an open cell draft with one apply or runs one sync when clean', async () => {
+  const { engine } = fakeEngine()
+  const applyGate = Promise.withResolvers<void>()
+  const syncGates: PromiseWithResolvers<void>[] = []
+  const socket = fakeChannel(async (_event, payload) => {
+    await applyGate.promise
+    return acknowledge(socket.applies().length, payload)
+  })
+  const { model } = await started(socket, engine)
+  expect(model.editable.value).toBe(true)
+  const originalPush = socket.channel.push
+  socket.channel.push = async <T>(event: string, payload: object) => {
+    if (event === 'office:sync') {
+      const gate = Promise.withResolvers<void>()
+      syncGates.push(gate)
+      await gate.promise
+    }
+    return originalPush<T>(event, payload)
+  }
+
+  // Clean with syncIfClean: false sends zero requests.
+  const syncCountBefore = socket.pushes.filter(push => push.event === 'office:sync').length
+  expect(await model.saveNow({ syncIfClean: false })).toBe(false)
+  expect(socket.pushes.filter(push => push.event === 'office:sync')).toHaveLength(syncCountBefore)
+
+  // Open cell draft commits immediately via 1 office:apply without firing an extra office:sync.
+  model.edit({ row: 0, col: 0 }, '42')
+  const dirtySave = model.saveNow()
+  await until(() => socket.applies().length === 1)
+  expect(socket.pushes.filter(push => push.event === 'office:sync')).toHaveLength(syncCountBefore)
+  applyGate.resolve()
+  expect(await dirtySave).toBe(true)
+  expect(model.draft.value).toBeNull()
+  expect(socket.applies()).toHaveLength(1)
+  expect(socket.pushes.filter(push => push.event === 'office:sync')).toHaveLength(syncCountBefore)
+
+  // Clean state with default syncIfClean: true sends 1 office:sync and waits for its reply.
+  const cleanSave = model.saveNow()
+  await until(() => syncGates.length === 1)
+  let cleanDone = false
+  void cleanSave.then(() => {
+    cleanDone = true
+  })
+  await Bun.sleep(10)
+  expect(cleanDone).toBe(false)
+  syncGates[0]!.resolve()
+  expect(await cleanSave).toBe(true)
+  expect(socket.pushes.filter(push => push.event === 'office:sync')).toHaveLength(syncCountBefore + 1)
 })

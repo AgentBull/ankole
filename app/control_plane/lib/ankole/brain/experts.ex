@@ -12,7 +12,6 @@ defmodule Ankole.Brain.Experts do
 
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Access
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Page, as: Object
@@ -41,31 +40,42 @@ defmodule Ankole.Brain.Experts do
         |> Ankole.Ash.read!()
         |> Enum.map(& &1.name)
 
-      expert_slugs =
+      expert_objects =
         Object
         |> Ash.Query.filter(type in ^expert_types and is_nil(deleted_at))
-        |> Ash.Query.select([:id, :slug])
+        |> Ash.Query.select([:id, :slug, :title, :type])
         |> Ankole.Ash.read!()
-        |> Enum.flat_map(&[&1.id, &1.slug])
-        |> MapSet.new()
+
+      canonical_holders =
+        Enum.reduce(expert_objects, %{}, fn obj, acc ->
+          acc
+          |> Map.put(obj.id, obj)
+          |> then(fn map ->
+            if is_binary(obj.slug), do: Map.put(map, obj.slug, obj), else: map
+          end)
+        end)
 
       now = DateTime.utc_now()
 
       experts =
         recall.claims
-        |> Enum.filter(fn claim -> MapSet.member?(expert_slugs, claim.holder) end)
-        |> Enum.group_by(& &1.holder)
-        |> Enum.map(fn {holder, claims} ->
+        |> Enum.filter(fn claim -> Map.has_key?(canonical_holders, claim.holder) end)
+        |> Enum.group_by(fn claim -> canonical_holders[claim.holder].id end)
+        |> Enum.map(fn {canonical_id, claims} ->
+          object = Map.fetch!(canonical_holders, canonical_id)
+          holder_keys = Enum.uniq(Enum.reject([object.id, object.slug], &is_nil/1))
+
           %{
-            holder: holder,
+            holder: object.slug || object.id,
             evidence_count: length(claims),
             score: expert_score(claims, now),
-            calibration: holder_calibration(holder, access, disclosure)
+            calibration: holder_calibration(holder_keys, access, disclosure),
+            title: object.title,
+            type: object.type
           }
         end)
         |> Enum.sort_by(& &1.score, :desc)
         |> Enum.take(limit)
-        |> Enum.map(&add_holder_card/1)
 
       {:ok, experts}
     end
@@ -88,10 +98,10 @@ defmodule Ankole.Brain.Experts do
   # resolved_count and Brier over unreachable evidence would leak aggregate
   # knowledge through the numbers. Resolved takes are no longer current, so
   # the current-state predicate stays out.
-  defp holder_calibration(holder, access, disclosure) do
+  defp holder_calibration(holder_keys, access, disclosure) do
     resolved =
       Claim
-      |> Ash.Query.filter(claim_type == :take and holder == ^holder)
+      |> Ash.Query.filter(claim_type == :take and holder in ^holder_keys)
       |> Ash.Query.filter(resolved_quality in ["correct", "incorrect"])
       |> Access.filter_claims(access)
       |> Ankole.Ash.read!()
@@ -103,13 +113,6 @@ defmodule Ankole.Brain.Experts do
 
       takes ->
         %{resolved_count: length(takes), brier: Calibration.brier(takes)}
-    end
-  end
-
-  defp add_holder_card(expert) do
-    case Objects.get_by_slug(expert.holder) do
-      {:ok, object} -> Map.merge(expert, %{title: object.title, type: object.type})
-      {:error, :not_found} -> Map.merge(expert, %{title: expert.holder, type: nil})
     end
   end
 end

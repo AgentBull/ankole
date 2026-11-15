@@ -6,9 +6,9 @@ import { join } from 'node:path'
 import { startPodCLIBridge } from '../src/cli/pod/pod-cli-bridge'
 import { buildApplet, commandFromArgs, initializeApplet } from '../src/cli/pod/pod-cli'
 import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope-proto'
 import { JSONPassthroughResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
 import { FakeDrive } from './support/fake-drive'
 
 describe('Pod Agent CLI', () => {

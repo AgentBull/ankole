@@ -886,7 +886,7 @@ Whenever `apply` throws, the current document remains untouched. Revision number
 | Entry point | Exports |
 | --- | --- |
 | `@ankole/block-editor` | `BlockEditor`, `useEditor`, and type `EditorHandle` |
-| `@ankole/block-editor/document` | `parseMarkdown`, `printMarkdown`, `parseXml`, `printXml`, `resourceContent`, `resourceText`, `validateKnowledge` |
+| `@ankole/block-editor/document` | `parseMarkdown`, `importMarkdownDocument`, `printMarkdown`, `parseXml`, `printXml`, `resourceContent`, `resourceText`, `validateKnowledge` |
 | `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `pageDocument`, `replaceTree`, `foldedHeadings`, `headingSections`, `toggleHeading`, `pasteTextAtDocumentStart`, `splitPastedDocumentTitle`, `remoteSelections`, `insertEmbed`, `commitMention`, `insertMention`, `mentionField`, `insertImage`, `insertResource`, `toggleFormat`, `undo`, `commentSelection`, `trackCommentSelection`, `commentRanges`, `revealComment`, `EditorSelection`, and types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `LinkMetadata`, `MentionTarget`, `MentionCategory`, `MentionSession`, `MentionItem`, `MentionQueryResult`, `MountMentionOptions`, `ResourceAttributes`, `ResourceKind`, `PageChanges`, `RemoteSelection`, `CommentSelection`, `CommentRange` |
 | `@ankole/block-editor/reader` | `KnowledgeReader` and type `KnowledgeReaderProps` |
 | `@ankole/block-editor/styles.css` | Styles scoped to the editor and its overlays |

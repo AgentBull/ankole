@@ -28,4 +28,4 @@ wordcraft-geom = { git = "https://github.com/storytold/wordcraft", rev = "45db12
 wordcraft-layout = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
 wordcraft-pdf = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
 wordcraft-render = { git = "https://github.com/storytold/wordcraft", rev = "45db128c150074a7f6d127ba71626ce4a30d8f3c" }
-zip = { version = "9.4.2", default-features = false, features = ["deflate"] }
+zip = { version = "9.5.1", default-features = false, features = ["deflate"] }

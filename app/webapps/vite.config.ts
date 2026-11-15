@@ -173,7 +173,17 @@ function phoenixShellPlugin(): Plugin {
       installPhoenixShutdownGuard()
       installPhoenixRestartGuard(server)
       server.watcher.add(path.join(repositoryRoot, 'app/locales'))
-      if (process.env.ANKOLE_EDITION === 'saas') server.watcher.add(path.join(internalsRoot, 'locales'))
+      if (process.env.ANKOLE_EDITION === 'saas') {
+        server.watcher.add(path.join(internalsRoot, 'locales'))
+        for (const parent of [path.join(internalsRoot, 'webapps/modules'), path.join(internalsRoot, 'plugins')]) {
+          if (!existsSync(parent)) continue
+          for (const entry of readdirSync(parent, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue
+            const moduleLocales = path.join(parent, entry.name, 'locales')
+            if (existsSync(moduleLocales)) server.watcher.add(moduleLocales)
+          }
+        }
+      }
     },
     handleHotUpdate({ file, modules, server }) {
       if (file.endsWith('.toml') && /\/locales\//.test(file)) {

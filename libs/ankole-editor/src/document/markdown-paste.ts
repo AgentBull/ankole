@@ -8,8 +8,18 @@ import { readMarkdownTree, type MarkdownMode } from './markdown'
 import { normalizeTree } from './normalize'
 import { safeLinkHref } from './resources'
 import { applySourceEdits, codeRanges, isEscaped, isLinkDestination, scanTag, type SourceEdit } from './tags'
-import { element, removeInvalidCharacters, text, textOf, type Element, type Node } from './tree'
+import {
+  checkSource,
+  DocumentError,
+  element,
+  removeInvalidCharacters,
+  text,
+  textOf,
+  type Element,
+  type Node
+} from './tree'
 import { ruleOf } from './vocabulary'
+import { printXml } from './xml'
 
 const frontmatterPattern = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/
 const yamlTopKey = /^([A-Za-z_][A-Za-z0-9_.-]*)[ \t]*:(?:[ \t]*(.*))?$/
@@ -28,6 +38,15 @@ const htmlInlineAliases: Readonly<Record<string, string>> = {
 }
 
 const transparentWrappers = new Set(['details', 'summary', 'center'])
+
+const gfmAlertTone: Readonly<Record<string, string>> = {
+  NOTE: 'info',
+  TIP: 'success',
+  IMPORTANT: 'neutral',
+  WARNING: 'warning',
+  CAUTION: 'danger'
+}
+const okfAlertIcon = /^\{icon="([^"]+)"\}$/
 
 /** Extract leading YAML frontmatter when every line inside the `---` block has YAML structure. */
 function extractYamlFrontmatter(source: string): { body: string; title?: string } {
@@ -343,6 +362,11 @@ function cleanNode(node: Node, mode: MarkdownMode): Node[] {
 
   const children = node.children.flatMap(child => cleanNode(child, mode))
 
+  if (node.name === 'blockquote') {
+    const alert = convertGfmAlert(children)
+    if (alert) return [alert]
+  }
+
   if (node.name === 'a') {
     const safeHref = attrs.href ? safeLinkHref(attrs.href) : null
     if (!safeHref) return children
@@ -366,10 +390,150 @@ function cleanNode(node: Node, mode: MarkdownMode): Node[] {
   return [element(node.name, attrs, children)]
 }
 
+function convertGfmAlert(children: Node[]): Element | null {
+  const first = children[0]
+  if (!first || first.type !== 'element' || first.name !== 'p') return null
+  const lead = first.children[0]
+  if (!lead || lead.type !== 'text') return null
+  const prefix = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?=[ \t\r\n]|$)[ \t]*/i.exec(lead.value)
+  if (!prefix) return null
+  const tone = gfmAlertTone[prefix[1]!.toUpperCase()]
+  if (!tone) return null
+
+  const afterMarker = lead.value.slice(prefix[0].length)
+  const nl = /\r?\n/.exec(afterMarker)
+  const attrs: Record<string, string> = { tone }
+  const nextBlocks: Node[] = []
+
+  if (nl) {
+    const rawHeader = afterMarker.slice(0, nl.index).trim()
+    const restLead = afterMarker.slice(nl.index + nl[0].length)
+    const iconMatch = okfAlertIcon.exec(rawHeader)
+    if (iconMatch) {
+      attrs.icon = iconMatch[1]!
+    } else if (rawHeader) {
+      nextBlocks.push(element('p', {}, [element('strong', {}, [text(rawHeader)])]))
+    }
+    const restInline = [...(restLead ? [text(restLead)] : []), ...first.children.slice(1)]
+    if (restInline.length) nextBlocks.push(element('p', {}, restInline))
+  } else if (
+    first.children.length === 1 ||
+    (first.children[1]?.type === 'element' && first.children[1].name === 'br')
+  ) {
+    const rawHeader = afterMarker.trim()
+    const iconMatch = okfAlertIcon.exec(rawHeader)
+    if (iconMatch) {
+      attrs.icon = iconMatch[1]!
+    } else if (rawHeader) {
+      nextBlocks.push(element('p', {}, [element('strong', {}, [text(rawHeader)])]))
+    }
+    const restInline = first.children.length > 1 ? first.children.slice(2) : []
+    if (restInline.length) nextBlocks.push(element('p', {}, restInline))
+  } else {
+    const restInline = [...(afterMarker ? [text(afterMarker)] : []), ...first.children.slice(1)]
+    if (restInline.length) nextBlocks.push(element('p', {}, restInline))
+  }
+
+  nextBlocks.push(...children.slice(1))
+  if (!nextBlocks.length) nextBlocks.push(element('p'))
+  return element('callout', attrs, nextBlocks)
+}
+
 function cleanPastedPage(page: Element, mode: MarkdownMode): Element {
   const cleanedChildren = page.children.flatMap(child => cleanNode(child, mode))
   const normalized = normalizeTree(element('page', {}, cleanedChildren))
   return mode === 'knowledge' ? validateKnowledge(normalized) : normalized
+}
+
+function isLimitDocumentError(error: unknown): boolean {
+  return error instanceof DocumentError && error.reason.includes('超过')
+}
+
+function hasRichHeadingInline(node: Node): boolean {
+  if (node.type === 'text') return false
+  if (node.name === 'a' || node.name === 'img' || node.name === 'media' || node.name === 'mention') return true
+  return node.children.some(hasRichHeadingInline)
+}
+
+function normalizeComparableTitle(value: string): string {
+  return value
+    .normalize('NFC')
+    .trim()
+    .replace(/[-_\s]+/g, ' ')
+    .toLowerCase()
+}
+
+function sameHeadingTitle(a: string, b: string): boolean {
+  const left = normalizeComparableTitle(a)
+  const right = normalizeComparableTitle(b)
+  return Boolean(left && left === right)
+}
+
+/**
+ * Parse an uploaded Markdown file into a Document Page title and canonical `<page>` XML.
+ * Strips YAML frontmatter, lifts a document-level `title:` or sole plain-text `#` heading into
+ * the Page title without duplicating it in the body, and falls back to `fallbackTitle`.
+ */
+export function importMarkdownDocument(source: string, fallbackTitle = ''): { title: string; xml: string } {
+  const withoutBom = source.startsWith('\uFEFF') ? source.slice(1) : source
+  const cleaned = removeInvalidCharacters(withoutBom)
+  checkSource(cleaned, 'markdown')
+
+  const { body: withoutFrontmatter, title: frontmatterTitle } = extractYamlFrontmatter(cleaned)
+  const trimmedFallback = removeInvalidCharacters(fallbackTitle).replace(/\s+/g, ' ').trim()
+  const trimmedFrontmatter = frontmatterTitle?.replace(/\s+/g, ' ').trim() || ''
+
+  if (!withoutFrontmatter.trim()) {
+    return {
+      title: trimmedFrontmatter || trimmedFallback,
+      xml: printXml(element('page'))
+    }
+  }
+
+  const prepped = preprocessMarkdown(withoutFrontmatter)
+  let page: Element
+  try {
+    page = readMarkdownTree(rewritePastedMarkup(prepped), 'doc', tree => cleanPastedPage(tree, 'doc'))
+  } catch (firstError) {
+    if (isLimitDocumentError(firstError)) throw firstError
+    try {
+      page = readMarkdownTree(escapeAllTagsOutsideCode(prepped), 'doc', tree => cleanPastedPage(tree, 'doc'))
+    } catch (secondError) {
+      if (isLimitDocumentError(secondError)) throw secondError
+      const paragraphs = withoutFrontmatter
+        .split(/\r?\n[ \t]*\r?\n/)
+        .map(chunk => chunk.replace(/\r\n?|\n/g, ' ').trim())
+        .filter(Boolean)
+        .map(chunk => element('p', {}, [text(chunk)]))
+      page = normalizeTree(element('page', {}, paragraphs))
+    }
+  }
+
+  const firstChild = page.children[0]
+  const leadingHeading =
+    firstChild?.type === 'element' && firstChild.name === 'h1' && !hasRichHeadingInline(firstChild)
+      ? textOf(firstChild).replace(/\s+/g, ' ').trim()
+      : ''
+  const topLevelH1Count = page.children.filter(child => child.type === 'element' && child.name === 'h1').length
+
+  let title = trimmedFallback
+  if (trimmedFrontmatter) {
+    title = trimmedFrontmatter
+    if (leadingHeading && sameHeadingTitle(leadingHeading, trimmedFrontmatter)) {
+      page = element('page', page.attrs, page.children.slice(1))
+    }
+  } else if (
+    leadingHeading &&
+    (topLevelH1Count === 1 || (trimmedFallback !== '' && sameHeadingTitle(leadingHeading, trimmedFallback)))
+  ) {
+    title = leadingHeading
+    page = element('page', page.attrs, page.children.slice(1))
+  }
+
+  return {
+    title,
+    xml: printXml(page)
+  }
 }
 
 /**

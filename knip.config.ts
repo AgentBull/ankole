@@ -25,6 +25,9 @@ const dynamicModuleEntries = [
 const config: KnipConfig = {
   // An export with an internal production caller is live code.
   ignoreExportsUsedInFile: true,
+  // Playwright configs are already traced statically as workspace entries;
+  // disabling the plugin prevents Knip from executing live browser fixtures.
+  playwright: false,
   // Mix-only packages have package.json files for workspace scripts, but no TS
   // graph for Knip to analyze.
   ignoreWorkspaces: ['app/control_plane', 'plugins/lark_adapter'],
@@ -32,7 +35,7 @@ const config: KnipConfig = {
     '.': {
       entry: [
         'tools/deploy/kubernetes/update-schema.ts!',
-        'tools/e2e/support/pod_content_browser.mjs!',
+        'tools/e2e/support/pod-content-browser.mjs!',
         'plugins/cloud_connectors_adapter/sync-catalog.ts!',
         ...privateWebapps,
         ...dynamicModuleEntries,
@@ -68,7 +71,7 @@ const config: KnipConfig = {
         'entrypoints/applet-vendor/*.ts!',
         'openapi-ts.config.ts!',
         'vite.config.ts!',
-        'playwright.*.config.ts!'
+        'playwright*.config.ts!'
       ],
       project: [
         'auth/**/*.{ts,tsx}!',
@@ -81,7 +84,7 @@ const config: KnipConfig = {
       ]
     },
     'app/function_runtime': {
-      entry: ['main/index.ts!', 'main/node_crypto.ts!', 'build.ts!'],
+      entry: ['main/index.ts!', 'main/node-crypto.ts!', 'build.ts!'],
       project: ['main/**/*.ts!', 'build.ts!']
     },
     'app/kernel': {

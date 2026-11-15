@@ -51,7 +51,13 @@ import { defaultConfig, localizedText, setPath } from '../common/config-fields'
 import { executeEnvVarBatchImport, type EnvVarSaveInput, type ParsedDotEnvItem } from './env-vars-dotenv'
 import { EnvVarsEditor } from './env-vars-editor'
 import { ContentError } from './content-primitives'
-import { authenticationRef, podID, podPublicOrigin, principalUID, replacePrincipalUID } from '../common/browser-context'
+import {
+  podID,
+  podPublicOrigin,
+  principalUID,
+  replacePrincipalUID,
+  sessionIdentityKey
+} from '../common/browser-context'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { availableLocaleIDs, loadLocale, nativeLocaleLabel } from '../common/i18n'
 import * as api from './api/generated/sdk.gen'
@@ -254,7 +260,7 @@ function RenameMember({ member }: { member: Member }) {
       if (principalUID() === member.uid) {
         replacePrincipalUID(result.uid)
         client.setQueryData<BrowserSessionResponse>(
-          ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+          ['pod-session', sessionIdentityKey() ?? '', podID() ?? ''],
           session => session && { ...session, principalUID: result.uid }
         )
       }
@@ -563,7 +569,7 @@ function Members({ model }: { model: Model }) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const session = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+    queryKey: ['pod-session', sessionIdentityKey() ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
     staleTime: 60_000
   })
@@ -1109,11 +1115,11 @@ function Providers({ model }: { model: Model }) {
 
   const providers = useQuery({ queryKey: keys.providers, queryFn: () => api.podAdminIdentityProviders() })
   const connectorCatalog = useQuery({
-    queryKey: ['connectors', authenticationRef() ?? '', podID() ?? '', 'catalog'],
+    queryKey: ['connectors', sessionIdentityKey() ?? '', podID() ?? '', 'catalog'],
     queryFn: () => api.podConnectorsCatalog()
   })
   const connections = useQuery({
-    queryKey: ['connectors', authenticationRef() ?? '', podID() ?? '', 'connections'],
+    queryKey: ['connectors', sessionIdentityKey() ?? '', podID() ?? '', 'connections'],
     queryFn: () => api.podConnectorAuthConfigsList()
   })
   const adapters = providers.data?.adapters ?? []

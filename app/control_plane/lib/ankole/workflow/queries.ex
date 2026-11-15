@@ -366,4 +366,106 @@ defmodule Ankole.Workflow.Queries do
     <<byte>> = binary_part(text, offset, 1)
     byte < 128 or byte >= 192
   end
+
+  @doc false
+  def standalone_active_runs(scope, cutoff) do
+    Run
+    |> Ash.Query.filter(
+      status == :running or
+        (status == :failed and fragment("COALESCE(?, ?) >= ?", completed_at, updated_at, ^cutoff))
+    )
+    |> filter_standalone_visibility(scope)
+    |> Ash.Query.sort(updated_at: :desc, id: :desc)
+    |> Ankole.Ash.read!()
+  end
+
+  @doc false
+  def standalone_completed_runs(scope, cutoff, limit) do
+    Run
+    |> Ash.Query.filter(
+      status in [:completed, :cancelled] or
+        (status == :failed and fragment("COALESCE(?, ?) < ?", completed_at, updated_at, ^cutoff))
+    )
+    |> filter_standalone_visibility(scope)
+    |> Ash.Query.sort(completed_at: :desc, id: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
+  end
+
+  @doc false
+  def cron_active_runs([]), do: []
+
+  def cron_active_runs(cron_session_ids) when is_list(cron_session_ids) do
+    Run
+    |> Ash.Query.filter(owner_session_id in ^cron_session_ids and status == :running)
+    |> Ash.Query.sort(updated_at: :desc, id: :desc)
+    |> Ankole.Ash.read!()
+  end
+
+  @doc false
+  def cron_board_runs([]), do: []
+
+  def cron_board_runs(cron_session_ids) when is_list(cron_session_ids) do
+    active = cron_active_runs(cron_session_ids)
+
+    latest_terminal =
+      Run
+      |> Ash.Query.filter(
+        owner_session_id in ^cron_session_ids and status in [:completed, :failed, :cancelled]
+      )
+      |> Ash.Query.distinct([:owner_session_id])
+      |> Ash.Query.distinct_sort(owner_session_id: :asc, completed_at: :desc, id: :desc)
+      |> Ankole.Ash.read!()
+
+    Enum.uniq_by(active ++ latest_terminal, & &1.id)
+  end
+
+  @doc false
+  def session_runs(owner_session_id, limit)
+      when is_binary(owner_session_id) and is_integer(limit) and limit > 0 do
+    Run
+    |> Ash.Query.filter(owner_session_id == ^owner_session_id)
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
+  end
+
+  defp filter_standalone_visibility(query, scope) do
+    uid = scope.uid
+
+    query =
+      if scope.foreign_pa_uids == [] do
+        query
+      else
+        Ash.Query.filter(query, is_nil(agent_uid) or agent_uid not in ^scope.foreign_pa_uids)
+      end
+
+    query =
+      if scope.live_cron_sessions == [] do
+        query
+      else
+        Ash.Query.filter(query, owner_session_id not in ^scope.live_cron_sessions)
+      end
+
+    if scope.visible_room_ids == [] do
+      Ash.Query.filter(
+        query,
+        (fragment("starts_with(?, 'pod_job:')", owner_session_id) and human_uid == ^uid) or
+          (fragment("starts_with(?, 'cron:')", owner_session_id) and human_uid == ^uid)
+      )
+    else
+      Ash.Query.filter(
+        query,
+        owner_session_id in ^scope.visible_conv_sessions or
+          (fragment("starts_with(?, 'pod_job:')", owner_session_id) and human_uid == ^uid) or
+          (fragment("starts_with(?, 'cron:')", owner_session_id) and
+             (human_uid == ^uid or
+                fragment(
+                  "(? ->> 'conversation_id') = ANY(?::text[])",
+                  reply_route,
+                  ^scope.visible_room_ids
+                )))
+      )
+    end
+  end
 end

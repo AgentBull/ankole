@@ -224,7 +224,12 @@ defmodule Ankole.Brain.Tools do
   defp run("synthesize", params, context) do
     with {:ok, question} <- required(params, "question"),
          :ok <- Context.fence(context),
-         do: Synthesis.synthesize(context.querier_uid, question, disclosure: context.disclosure)
+         do:
+           Synthesis.synthesize(context.querier_uid, question,
+             disclosure: context.disclosure,
+             conversation_id: context.conversation_id,
+             source_node_id: params["source_node_id"]
+           )
   end
 
   defp run("delta", params, context) do
@@ -339,7 +344,7 @@ defmodule Ankole.Brain.Tools do
           {["topic"], ~w(topic limit)}
 
         "synthesize" ->
-          {["question"], ["question"]}
+          {["question"], ~w(question source_node_id)}
 
         "delta" ->
           {[], ~w(entity since until)}

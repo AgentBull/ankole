@@ -49,7 +49,8 @@ export function connectorReturnTo({
   automation,
   subjectKind,
   intent,
-  popup
+  popup,
+  desktop
 }: {
   connection?: string
   scopes?: string[]
@@ -58,11 +59,13 @@ export function connectorReturnTo({
   subjectKind?: 'human' | 'app'
   intent?: string | null
   popup?: boolean
+  desktop?: boolean
 }) {
   const params = new URLSearchParams()
   if (connection) params.set('connection', connection)
   if (intent) params.set('intent', intent)
   if (popup) params.set('popup', '1')
+  if (desktop) params.set('desktop', '1')
   if (subjectKind) params.set('subject_kind', subjectKind)
   if (scopes?.length) params.set('scopes', scopes.join(' '))
   if (trigger) {
@@ -81,17 +84,18 @@ export function connectorReturnTo({
 }
 
 /**
- * Returns the Connectors address to keep once an authorization has finished.
+ * Returns the Connectors search parameters to keep once an authorization has finished.
  *
  * The page starts an authorization when it loads with a `connection` and no result, so the
  * finished request leaves the address; otherwise the next load would ask the person to
  * authorize again. A trigger draft reopens from its parameters, so those stay.
  */
-export function connectorAddressAfterAuthorization(url: URL): URL {
-  const next = new URL(url)
-  next.searchParams.delete('connector_completion')
-  if (!next.searchParams.has('trigger_type')) {
-    for (const name of ['connection', 'scopes', 'subject_kind']) next.searchParams.delete(name)
+export function connectorParamsAfterAuthorization(params: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(params)
+  next.delete('connector_completion')
+  next.delete('desktop')
+  if (!next.has('trigger_type')) {
+    for (const name of ['connection', 'scopes', 'subject_kind']) next.delete(name)
   }
   return next
 }

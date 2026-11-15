@@ -14,26 +14,23 @@ export function externalServicesCommand() {
       command.add(
         defineCommand('start', { aliases: ['up'], description: 'Start Postgres and Function Runtime.' }, child =>
           child
-            .flags(
-              {
-                name: 'pull',
+            .flags({
+              pull: {
                 type: 'boolean',
                 description: 'Pull missing remote service images before starting.',
                 default: false
               },
-              {
-                name: 'wait',
+              wait: {
                 type: 'boolean',
                 description: 'Wait for service health checks.',
                 default: true
               },
-              {
-                name: 'wait-timeout',
+              'wait-timeout': {
                 type: 'number',
                 description: 'Seconds to wait for service health checks.',
                 default: 60
               }
-            )
+            })
             .action(({ flags }) =>
               startComposeServices({
                 pull: flags.pull,
@@ -53,10 +50,11 @@ export function externalServicesCommand() {
         defineCommand('remove', { aliases: ['down'], description: 'Stop and remove Compose containers.' }, child =>
           child
             .flags({
-              name: 'volumes',
-              type: 'boolean',
-              description: 'Also remove named development data volumes.',
-              default: false
+              volumes: {
+                type: 'boolean',
+                description: 'Also remove named development data volumes.',
+                default: false
+              }
             })
             .action(({ flags }) => runCompose(['down', '--remove-orphans', ...(flags.volumes ? ['--volumes'] : [])]))
         ),

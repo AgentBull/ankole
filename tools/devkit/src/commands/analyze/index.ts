@@ -1,11 +1,11 @@
-import { defineCommand } from '@crustjs/core'
+import { defineCommand, defineFlag } from '@crustjs/core'
 import { runCycles } from './cycles'
 import { runSmells } from './smells'
 import { runStructure } from './structure'
 import type { CheckResult, ExitCode } from './types'
 import { runUnused } from './unused'
 
-const jsonFlag = { name: 'json', type: 'boolean', description: 'Emit machine-readable JSON.', default: false } as const
+const json = defineFlag({ type: 'boolean', description: 'Emit machine-readable JSON.', default: false })
 
 function emit(result: CheckResult, json: boolean): void {
   if (json) {
@@ -84,27 +84,29 @@ export function analyzeCommand() {
     command =>
       command.add(
         defineCommand('smells', { description: 'Declared dependency-boundary gate.' }, child =>
-          child.flags(jsonFlag).action(({ flags }) => {
+          child.flags({ json }).action(({ flags }) => {
             emit(runSmells({ json: flags.json }), flags.json)
           })
         ),
         defineCommand('unused', { description: 'Knip unused-file gate vs the owner/reason allowlist.' }, child =>
-          child.flags(jsonFlag).action(async ({ flags }) => {
+          child.flags({ json }).action(async ({ flags }) => {
             emit(await runUnused({ json: flags.json }), flags.json)
           })
         ),
         defineCommand('structure', { description: 'konsistent structural convention gate.' }, child =>
-          child.flags(jsonFlag).action(async ({ flags }) => {
+          child.flags({ json }).action(async ({ flags }) => {
             emit(await runStructure({ json: flags.json }), flags.json)
           })
         ),
         defineCommand('cycles', { description: 'Runtime-value import-cycle gate, target = 0.' }, child =>
           child
-            .flags(jsonFlag, {
-              name: 'include-tests',
-              type: 'boolean',
-              description: 'Include test files.',
-              default: false
+            .flags({
+              json,
+              'include-tests': {
+                type: 'boolean',
+                description: 'Include test files.',
+                default: false
+              }
             })
             .action(({ flags }) => {
               emit(runCycles({ json: flags.json, includeTests: flags['include-tests'] }), flags.json)
@@ -112,10 +114,12 @@ export function analyzeCommand() {
         ),
         defineCommand('all', { description: 'Run all gates and aggregate the exit code.' }, child =>
           child
-            .flags(jsonFlag, {
-              name: 'skip',
-              type: 'string',
-              description: 'Comma list of checks to skip, for example unused.'
+            .flags({
+              json,
+              skip: {
+                type: 'string',
+                description: 'Comma list of checks to skip, for example unused.'
+              }
             })
             .action(async ({ flags }) => {
               await runAll({ json: flags.json, skip: flags.skip })

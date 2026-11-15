@@ -83,7 +83,11 @@ defmodule Ankole.Tenants do
   end
 
   @doc false
-  def privileged_id, do: AppConfigure.get_global_by_key_in_tx(@privileged_key)
+  def privileged_id do
+    if Repo.in_transaction?(),
+      do: AppConfigure.get_global_by_key_in_tx(@privileged_key),
+      else: AppConfigure.get(privileged_definition())
+  end
 
   def list, do: Ankole.Ash.read!(Ash.Query.for_read(Tenant, :list))
 

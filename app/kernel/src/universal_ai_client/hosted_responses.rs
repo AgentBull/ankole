@@ -526,6 +526,7 @@ fn stream_model_spec(spec: &StreamSpec) -> ModelRequestSpec {
             timeout: spec.upstream.timeout.clone(),
             transport: spec.upstream.transport.clone(),
             aws_sigv4: None,
+            volcengine_sigv4: None,
         },
         response_context: spec.response_context.clone(),
         limits: RequestLimits {

@@ -35,31 +35,18 @@ import {
   AppletWebhooksTab,
   useAppletJobsController
 } from './applet-automation'
-import { AppletMissingEnvBanner } from './applet-missing-env-banner'
 import {
   appletEnvKeys,
   appletEnvsQuery,
   canEditAppletEnv,
-  openAppletSettings,
   registerAppletSettingsOpener,
   resolveAppletSettingsInitialTab,
-  type AppletSettingsTab,
-  type OpenAppletSettingsRequest
+  type AppletSettingsTab
 } from './applet-settings-state'
 import { contentKeys, type PageDetail } from './content-api'
 import { executeEnvVarBatchImport, type EnvVarSaveInput, type ParsedDotEnvItem } from './env-vars-dotenv'
 import { EnvVarsEditor } from './env-vars-editor'
 import { automationJobID } from './state/connectors'
-
-export {
-  AppletMissingEnvBanner,
-  appletEnvKeys,
-  canEditAppletEnv,
-  openAppletSettings,
-  resolveAppletSettingsInitialTab,
-  type AppletSettingsTab,
-  type OpenAppletSettingsRequest
-}
 
 type RequestedJobSelection = {
   seq: number

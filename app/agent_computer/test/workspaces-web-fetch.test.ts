@@ -12,7 +12,7 @@ import {
   ProtocolVersion,
   Stream,
   type Envelope
-} from '../src/fabric/envelope_proto'
+} from '../src/fabric/envelope-proto'
 import { ToolCallSchema, type ToolCall } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import type { RenderedWebFetchBatch } from '../src/tools/web/web-tools'
 import { Workspaces } from '../src/worker/workspaces'

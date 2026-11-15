@@ -57,8 +57,16 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
   @spec resolve_timeout(Signal.t(), Job.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def resolve_timeout(%Signal{} = event, %Job{} = snapshot, %DateTime{} = now) do
     Repo.transact_top_level(fn -> resolve_timeout_in_tx(event, snapshot, now) end,
-      after_commit: fn result -> Ankole.Signals.publish_committed(result[:wakeup_event]) end
+      after_commit: fn result ->
+        Ankole.Signals.publish_committed(result[:wakeup_event])
+
+        if job = result[:failed_job] do
+          Lifecycle.notify_owner_conversation(job.owner_session_id)
+          Ankole.Sessions.job_turn(job)
+        end
+      end
     )
+    |> Ankole.Errors.reason()
   end
 
   @doc false
@@ -96,6 +104,7 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
              %{
                status: :dead_letter,
                signal: event,
+               failed_job: compensation[:job],
                wakeup_event: compensation[:wakeup_event]
              }}
           end

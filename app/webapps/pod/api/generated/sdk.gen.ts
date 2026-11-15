@@ -12,12 +12,12 @@ import type {
   BindPodRunnerDeviceData,
   BindPodRunnerDeviceErrors,
   BindPodRunnerDeviceResponses,
+  ChangePodJobRoutineData,
+  ChangePodJobRoutineErrors,
+  ChangePodJobRoutineResponses,
   ChangePodMembershipData,
   ChangePodMembershipErrors,
   ChangePodMembershipResponses,
-  ChangePodScheduledWorkData,
-  ChangePodScheduledWorkErrors,
-  ChangePodScheduledWorkResponses,
   ChoosePodNextStepData,
   ChoosePodNextStepErrors,
   ChoosePodNextStepResponses,
@@ -36,9 +36,9 @@ import type {
   CreatePodInvitationData,
   CreatePodInvitationErrors,
   CreatePodInvitationResponses,
-  CreatePodIssueData,
-  CreatePodIssueErrors,
-  CreatePodIssueResponses,
+  CreatePodJobData,
+  CreatePodJobErrors,
+  CreatePodJobResponses,
   CreatePodMemberData,
   CreatePodMemberErrors,
   CreatePodMemberResponses,
@@ -84,6 +84,9 @@ import type {
   MessageConversationExecutionData,
   MessageConversationExecutionErrors,
   MessageConversationExecutionResponses,
+  MessagePodJobExecutionData,
+  MessagePodJobExecutionErrors,
+  MessagePodJobExecutionResponses,
   MetaAgentContractsData,
   MetaAgentContractsErrors,
   MetaAgentContractsResponses,
@@ -357,12 +360,12 @@ import type {
   PodFilesData,
   PodFilesErrors,
   PodFilesResponses,
-  PodIssueData,
-  PodIssueErrors,
-  PodIssueResponses,
-  PodIssuesData,
-  PodIssuesErrors,
-  PodIssuesResponses,
+  PodJobExecutionData,
+  PodJobExecutionErrors,
+  PodJobExecutionResponses,
+  PodJobRoutineData,
+  PodJobRoutineErrors,
+  PodJobRoutineResponses,
   PodJobSchedulesDeleteData,
   PodJobSchedulesDeleteErrors,
   PodJobSchedulesDeleteResponses,
@@ -384,6 +387,12 @@ import type {
   PodJobSchedulesRunsData,
   PodJobSchedulesRunsErrors,
   PodJobSchedulesRunsResponses,
+  PodJobsData,
+  PodJobsErrors,
+  PodJobsResponses,
+  PodJobsSummaryData,
+  PodJobsSummaryErrors,
+  PodJobsSummaryResponses,
   PodJobWebhooksCancelData,
   PodJobWebhooksCancelErrors,
   PodJobWebhooksCancelResponses,
@@ -546,9 +555,6 @@ import type {
   PodReplySuggestionData,
   PodReplySuggestionErrors,
   PodReplySuggestionResponses,
-  PodScheduledWorkData,
-  PodScheduledWorkErrors,
-  PodScheduledWorkResponses,
   PodSpaceAgentDeleteData,
   PodSpaceAgentDeleteErrors,
   PodSpaceAgentDeleteResponses,
@@ -618,6 +624,9 @@ import type {
   StopConversationExecutionData,
   StopConversationExecutionErrors,
   StopConversationExecutionResponses,
+  StopPodJobExecutionData,
+  StopPodJobExecutionErrors,
+  StopPodJobExecutionResponses,
   StopPodPeerExchangeData,
   StopPodPeerExchangeErrors,
   StopPodPeerExchangeResponses,
@@ -642,9 +651,6 @@ import type {
   UpdatePodAdminSettingsData,
   UpdatePodAdminSettingsErrors,
   UpdatePodAdminSettingsResponses,
-  UpdatePodIssueData,
-  UpdatePodIssueErrors,
-  UpdatePodIssueResponses,
   UpdatePodProfileData,
   UpdatePodProfileErrors,
   UpdatePodProfileResponses,
@@ -777,36 +783,6 @@ export const updateConversationParticipants = <ThrowOnError extends boolean = tr
   })
 
 /**
- * podIssues operation on issue_operation resource
- */
-export const podIssues = <ThrowOnError extends boolean = true>(
-  options?: Options<PodIssuesData, ThrowOnError>
-): RequestResult<PodIssuesResponses, PodIssuesErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodIssuesResponses, PodIssuesErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/issues',
-    ...options
-  })
-
-/**
- * createPodIssue operation on issue_operation resource
- */
-export const createPodIssue = <ThrowOnError extends boolean = true>(
-  options: Options<CreatePodIssueData, ThrowOnError>
-): RequestResult<CreatePodIssueResponses, CreatePodIssueErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<CreatePodIssueResponses, CreatePodIssueErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/issues',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
  * create_pod_runner_job operation on pod_runner_operation resource
  */
 export const createPodRunnerJob = <ThrowOnError extends boolean = true>(
@@ -816,6 +792,23 @@ export const createPodRunnerJob = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/conversations/{id}/runner-jobs',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * messagePodJobExecution operation on pod_job_operation resource
+ */
+export const messagePodJobExecution = <ThrowOnError extends boolean = true>(
+  options: Options<MessagePodJobExecutionData, ThrowOnError>
+): RequestResult<MessagePodJobExecutionResponses, MessagePodJobExecutionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<MessagePodJobExecutionResponses, MessagePodJobExecutionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/jobs/executions/{run_id}/messages',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1193,6 +1186,19 @@ export const podAppletEnvPut = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podJobExecution operation on pod_job_operation resource
+ */
+export const podJobExecution = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobExecutionData, ThrowOnError>
+): RequestResult<PodJobExecutionResponses, PodJobExecutionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodJobExecutionResponses, PodJobExecutionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/jobs/executions/{kind}/{run_id}',
+    ...options
   })
 
 /**
@@ -1728,6 +1734,19 @@ export const podPageViewers = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podJobsSummary operation on pod_job_operation resource
+ */
+export const podJobsSummary = <ThrowOnError extends boolean = true>(
+  options?: Options<PodJobsSummaryData, ThrowOnError>
+): RequestResult<PodJobsSummaryResponses, PodJobsSummaryErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodJobsSummaryResponses, PodJobsSummaryErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/jobs/summary',
+    ...options
+  })
+
+/**
  * resolveConversationActionCard operation on pod_chat_operation resource
  */
 export const resolveConversationActionCard = <ThrowOnError extends boolean = true>(
@@ -2238,6 +2257,36 @@ export const podPageHistoryEntry = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podJobRoutine operation on pod_job_operation resource
+ */
+export const podJobRoutine = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobRoutineData, ThrowOnError>
+): RequestResult<PodJobRoutineResponses, PodJobRoutineErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodJobRoutineResponses, PodJobRoutineErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/jobs/routines/{kind}/{raw_id}',
+    ...options
+  })
+
+/**
+ * changePodJobRoutine operation on pod_job_operation resource
+ */
+export const changePodJobRoutine = <ThrowOnError extends boolean = true>(
+  options: Options<ChangePodJobRoutineData, ThrowOnError>
+): RequestResult<ChangePodJobRoutineResponses, ChangePodJobRoutineErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<ChangePodJobRoutineResponses, ChangePodJobRoutineErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/jobs/routines/{kind}/{raw_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * revokePodInvitation operation on pod_admin_operation resource
  */
 export const revokePodInvitation = <ThrowOnError extends boolean = true>(
@@ -2390,19 +2439,6 @@ export const podConnectorAccountsConnectTeam = <ThrowOnError extends boolean = t
   })
 
 /**
- * podScheduledWork operation on issue_operation resource
- */
-export const podScheduledWork = <ThrowOnError extends boolean = true>(
-  options?: Options<PodScheduledWorkData, ThrowOnError>
-): RequestResult<PodScheduledWorkResponses, PodScheduledWorkErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodScheduledWorkResponses, PodScheduledWorkErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/issues/scheduled',
-    ...options
-  })
-
-/**
  * postConversationMessage operation on pod_chat_operation resource
  */
 export const postConversationMessage = <ThrowOnError extends boolean = true>(
@@ -2434,6 +2470,36 @@ export const podBaseTableCreate = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/bases/{page_id}/tables',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podJobs operation on pod_job_operation resource
+ */
+export const podJobs = <ThrowOnError extends boolean = true>(
+  options?: Options<PodJobsData, ThrowOnError>
+): RequestResult<PodJobsResponses, PodJobsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodJobsResponses, PodJobsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/jobs',
+    ...options
+  })
+
+/**
+ * createPodJob operation on pod_job_operation resource
+ */
+export const createPodJob = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodJobData, ThrowOnError>
+): RequestResult<CreatePodJobResponses, CreatePodJobErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<CreatePodJobResponses, CreatePodJobErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/jobs',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -3490,25 +3556,6 @@ export const podOffice = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * changePodScheduledWork operation on issue_operation resource
- */
-export const changePodScheduledWork = <ThrowOnError extends boolean = true>(
-  options: Options<ChangePodScheduledWorkData, ThrowOnError>
-): RequestResult<ChangePodScheduledWorkResponses, ChangePodScheduledWorkErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<ChangePodScheduledWorkResponses, ChangePodScheduledWorkErrors, ThrowOnError, 'data'>(
-    {
-      responseStyle: 'data',
-      security: [{ name: 'Cookie', type: 'apiKey' }],
-      url: '/api/v2/pod/issues/scheduled/{id}',
-      ...options,
-      headers: {
-        'Content-Type': 'application/vnd.api+json',
-        ...options.headers
-      }
-    }
-  )
-
-/**
  * podPageCommentsRead operation on pod_document_comment_operation resource
  */
 export const podPageCommentsRead = <ThrowOnError extends boolean = true>(
@@ -3573,33 +3620,16 @@ export const metaCreateAgent = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podIssue operation on issue_operation resource
+ * stopPodJobExecution operation on pod_job_operation resource
  */
-export const podIssue = <ThrowOnError extends boolean = true>(
-  options: Options<PodIssueData, ThrowOnError>
-): RequestResult<PodIssueResponses, PodIssueErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodIssueResponses, PodIssueErrors, ThrowOnError, 'data'>({
+export const stopPodJobExecution = <ThrowOnError extends boolean = true>(
+  options: Options<StopPodJobExecutionData, ThrowOnError>
+): RequestResult<StopPodJobExecutionResponses, StopPodJobExecutionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<StopPodJobExecutionResponses, StopPodJobExecutionErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/issues/{id}',
+    url: '/api/v2/pod/jobs/executions/{kind}/{run_id}/stop',
     ...options
-  })
-
-/**
- * updatePodIssue operation on issue_operation resource
- */
-export const updatePodIssue = <ThrowOnError extends boolean = true>(
-  options: Options<UpdatePodIssueData, ThrowOnError>
-): RequestResult<UpdatePodIssueResponses, UpdatePodIssueErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<UpdatePodIssueResponses, UpdatePodIssueErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/issues/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
   })
 
 /**

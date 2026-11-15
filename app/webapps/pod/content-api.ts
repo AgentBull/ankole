@@ -233,8 +233,25 @@ export const pageAPI = {
   recentSearches: (limit = 8, signal?: AbortSignal) => podRecentSearches({ query: { limit }, signal }),
   recordRecentSearch: (query: string, result_count = 0) =>
     podRecordRecentSearch({ body: { data: { query: query.trim(), result_count } } }),
-  deleteRecentSearch: (id: string) => podDeleteRecentSearch({ path: { id } }),
-  clearRecentSearches: () => podClearRecentSearches(),
+  deleteRecentSearch: async (id: string) => {
+    const currentPodID = podID()
+    const currentPrincipalUID = principalUID()
+    const response = await podDeleteRecentSearch({ path: { id } })
+    const cached = await readCachedPodRecentSearches(currentPodID, currentPrincipalUID)
+    await writeCachedPodRecentSearches(
+      currentPodID,
+      currentPrincipalUID,
+      cached.filter(item => item.id !== id)
+    )
+    return response
+  },
+  clearRecentSearches: async () => {
+    const currentPodID = podID()
+    const currentPrincipalUID = principalUID()
+    const response = await podClearRecentSearches()
+    await writeCachedPodRecentSearches(currentPodID, currentPrincipalUID, [])
+    return response
+  },
   read: (id: string, signal?: AbortSignal) => podPageRead({ path: { id }, signal }),
   insights: (id: string, signal?: AbortSignal) => podPageInsights({ path: { id }, signal }),
   history: (id: string, cursor?: string, signal?: AbortSignal) =>

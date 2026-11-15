@@ -1,5 +1,5 @@
 import { uuidV4 } from '@agentbull/active-support'
-import { batch, computed, createModel, effect, signal } from '@preact/signals-react'
+import { batch, computed, createModel, effect, signal, type ReadonlySignal } from '@preact/signals-react'
 import { createClientConfig, InternalAPIError } from '../../common/internal-api-client'
 import { requestErrorCode } from '../../common/request-errors'
 import { podOffice } from '../api/generated/sdk.gen'
@@ -109,7 +109,9 @@ export type OfficeCollaborationOptions<TSnapshot extends OfficeSnapshotBase> = {
 }
 
 export type OfficeNavigationSession = {
+  editable: ReadonlySignal<boolean>
   savePending(): Promise<boolean>
+  saveNow(options?: { syncIfClean?: boolean }): Promise<boolean>
   hasUnsavedChanges(): boolean
 }
 
@@ -246,6 +248,7 @@ export const OfficeCollaborationModel = createModel(
     const localEdits = new Set<symbol>()
     let selectionTasks = 0
     let sequence = 0
+    let applyCount = 0
     let pushing = false
     let sendTimer: ReturnType<typeof setTimeout> | undefined
     let idleTimer: ReturnType<typeof setTimeout> | undefined
@@ -255,7 +258,7 @@ export const OfficeCollaborationModel = createModel(
     let lastAnnouncedEditing = false
     let externalComposition = false
     let saveAttempt: PromiseWithResolvers<boolean> | undefined
-    let syncing = false
+    let syncTask: Promise<boolean> | undefined
     let syncAgain = false
 
     const serial = <T>(task: () => Promise<T>): Promise<T> => {
@@ -486,29 +489,34 @@ export const OfficeCollaborationModel = createModel(
       if (payload.revision > revision.peek()) void sync()
     }
 
-    const sync = async () => {
-      if (disposed || !channel) return
-      if (syncing) {
-        syncAgain = true
-        return
+    const sync = (repeatIfRunning = true): Promise<boolean> => {
+      if (disposed || !channel) return Promise.resolve(false)
+      if (syncTask) {
+        if (repeatIfRunning) syncAgain = true
+        return syncTask
       }
-      syncing = true
-      try {
-        do {
-          syncAgain = false
-          await channel.ready
-          if (disposed || !loaded()) break
-          const reply = await channel.push<OfficeChanges>('office:sync', { revision: revision.peek() })
-          await serial(() => receive(reply))
-        } while (syncAgain && !disposed)
-      } catch (failure) {
-        if (!disposed) {
-          error.value = failure
-          finishSave(false)
+      const run = (async () => {
+        try {
+          do {
+            syncAgain = false
+            await channel!.ready
+            if (disposed || !loaded()) return false
+            const reply = await channel!.push<OfficeChanges>('office:sync', { revision: revision.peek() })
+            await serial(() => receive(reply))
+          } while (syncAgain && !disposed)
+          return !disposed
+        } catch (failure) {
+          if (!disposed) {
+            error.value = failure
+            finishSave(false)
+          }
+          return false
+        } finally {
+          syncTask = undefined
         }
-      } finally {
-        syncing = false
-      }
+      })()
+      syncTask = run
+      return run
     }
 
     const take = async () => {
@@ -528,11 +536,12 @@ export const OfficeCollaborationModel = createModel(
     const flush = async () => {
       if (disposed || pushing || !channel || !loaded()) return
       pushing = true
-      let delay: number | undefined = SEND_DELAY_MS
+      let delay: number | undefined = saveAttempt ? 0 : SEND_DELAY_MS
       let sent: QueueEntry | undefined
       try {
         sent = await serial(take)
         if (!sent) return
+        applyCount++
         const reply = await channel.push<OfficeChanges>('office:apply', sent.request!)
         await serial(() => receive(reply, sent))
         error.value = undefined
@@ -836,6 +845,17 @@ export const OfficeCollaborationModel = createModel(
       },
       commitNow,
       savePending,
+      async saveNow({ syncIfClean = true }: { syncIfClean?: boolean } = {}): Promise<boolean> {
+        if (disposed || composing.peek() || !editable.peek() || !channel || !loaded()) return false
+        const hadDraft = hasDraft.peek()
+        const hadPending = pending.peek() > 0
+        const beforeApplies = applyCount
+        await savePending()
+        if (disposed) return false
+        if (applyCount > beforeApplies || hadPending) return true
+        if (hadDraft || !syncIfClean) return false
+        return sync(false)
+      },
       hasUnsavedChanges() {
         return pending.value > 0 || composing.value
       },

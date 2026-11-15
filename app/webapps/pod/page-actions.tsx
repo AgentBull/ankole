@@ -231,7 +231,7 @@ export function PageMenuItems({
       </DropdownMenuItem>
       {canCreateChild(page) && (
         <CreatePageSubmenu
-          create={createSubpage(page.id)}
+          create={createSubpage(page.id, { domain: page.type === 'knowledge' ? 'brain' : 'pages' })}
           types={page.type === 'knowledge' ? ['knowledge', 'file'] : undefined}
         />
       )}

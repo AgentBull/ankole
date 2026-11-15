@@ -33,10 +33,10 @@ multiplexing subcommands through an `action` parameter.
 - `max_agent_calls`: optional total task limit for the run (`1` through `1,024`)
 - `model_profile`: optional custom model profile inherited from the current turn
 
-A run records the calling Session as its owner. When that Session is the room
-of an [Issue](Issues.md), the run is one of the Issue's runs. Creating a run
-reopens the room's accepted Issue in the same transaction and gives a room of
-the Chat list its Issue when the room has none.
+A run records the calling Session as its owner. Top-level runs started from a
+member's Pod conversations appear as one-off workflow cards on the Pod
+[Jobs Board](JobsBoard.md), while runs started inside a `cron:<schedule_id>`
+Session roll their live and failure state into that Cron schedule's routine card.
 
 Deployment-wide Workflow settings cap `concurrency` and `max_agent_calls` if the
 caller requests higher numbers. `workflow` returns the decimal `run_id` and the

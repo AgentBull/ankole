@@ -10,6 +10,7 @@ import { unknownNames } from '../document/vocabulary'
 import { parseXml, printXml } from '../document/xml'
 import { normalizedPageDocument } from './convert'
 import { portablePageChanges, validatedPageSource } from './page-update'
+import { editorPhrases } from './phrases'
 
 export type PageWrite = { format: SourceFormat; source: string; revision: number }
 export type PageSnapshot = { revision: number; markdown: string; xml: string }
@@ -62,10 +63,14 @@ export class PageSession {
   }
   /** Replace the page in one undoable step. Only the active session can write. */
   apply(write: PageWrite): PageApplied {
-    if (sessions.get(this.editor) !== this) throw new Error('页面会话已结束，请重新读取当前会话后再应用')
-    if (this.editor.composing) throw new Error('输入法组合尚未结束，请完成输入后再应用')
+    if (sessions.get(this.editor) !== this) {
+      throw new Error(editorPhrases.get(this.editor.state, 'page_session_ended'))
+    }
+    if (this.editor.composing) {
+      throw new Error(editorPhrases.get(this.editor.state, 'ime_composing_active'))
+    }
     if (write.revision !== this.version) {
-      throw new Error('文档已变化，源码草稿已保留。请导出草稿并重新读取文档后合并修改。')
+      throw new Error(editorPhrases.get(this.editor.state, 'page_source_changed'))
     }
     const mode = isKnowledge(this.editor.state) ? 'knowledge' : 'doc'
     const tree = write.format === 'xml' ? parseXml(write.source) : parseMarkdown(write.source, mode)

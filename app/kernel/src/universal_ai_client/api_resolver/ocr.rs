@@ -86,7 +86,7 @@ fn page_markdown(page: &Value) -> String {
     collapse_blank_lines(&markdown)
 }
 
-fn collapse_blank_lines(markdown: &str) -> String {
+pub(super) fn collapse_blank_lines(markdown: &str) -> String {
     let mut collapsed = String::with_capacity(markdown.len());
     let mut consecutive_newlines = 0usize;
     for ch in markdown.chars() {
@@ -101,4 +101,25 @@ fn collapse_blank_lines(markdown: &str) -> String {
         }
     }
     collapsed.trim().to_string()
+}
+
+/// Strips a single outer Markdown fence when a vision OCR model wraps the whole
+/// page in one despite instructions, and turns the `[no text]` sentinel into an
+/// empty page.
+pub(super) fn unfence_ocr_markdown(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed == "[no text]" {
+        return String::new();
+    }
+
+    if let Some(after_open) = trimmed.strip_prefix("```")
+        && let Some((lang, rest)) = after_open.split_once('\n')
+        && lang.chars().all(|ch| ch.is_ascii_lowercase())
+        && let Some(inner) = rest.strip_suffix("\n```")
+        && !inner.contains("```")
+    {
+        return collapse_blank_lines(inner);
+    }
+
+    collapse_blank_lines(trimmed)
 }

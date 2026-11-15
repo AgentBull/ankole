@@ -336,7 +336,7 @@ defmodule Ankole.AIGateway.Providers do
   def responses_endpoint?("chatgpt_subscription", _connection_options), do: true
 
   def responses_endpoint?(provider_kind, connection_options)
-      when provider_kind in ["openai", "azure_openai"] do
+      when provider_kind in ["openai", "azure_openai", "agentbull_cloud"] do
     Map.get(connection_options, "endpoint_kind") != "chat_completions"
   end
 
@@ -512,7 +512,8 @@ defmodule Ankole.AIGateway.Providers do
   """
   @spec credential_required?(definition()) :: boolean()
   def credential_required?(%ProviderDefinition{} = provider) do
-    Enum.any?(provider.settings, &(&1.scope == :credential and &1.required?))
+    Enum.any?(provider.settings, &(&1.scope == :credential and &1.required?)) or
+      validate_provider_credential_options(provider, %{}) != :ok
   end
 
   # Returns request-scoped provider option keys accepted by a provider definition.
@@ -575,7 +576,7 @@ defmodule Ankole.AIGateway.Providers do
            request: request
          } = ctx
        )
-       when provider_kind in ["openai", "azure_openai", "openai_compatible"] and
+       when provider_kind in ["openai", "azure_openai", "openai_compatible", "agentbull_cloud"] and
               is_map(request) do
     if responses_endpoint?(ctx) do
       %{ctx | request: Map.put(request, "store", false)}

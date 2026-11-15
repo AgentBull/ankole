@@ -233,19 +233,18 @@ defmodule Ankole.Conversations.Native do
            room_mode == :dm and not assistant? and
              Ankole.Attrs.get(attrs, :access_scope) in [nil, :participants, "participants"],
          requested_id = id,
-         id =
-           if(dm?, do: Map.get(NativeRoom.direct_conversations(human_uid), first, id), else: id),
-         page_id =
-           if(id != requested_id,
-             do: Ankole.Conversations.get_conversation!(id).page_id,
-             else: page_id
-           ),
+         existing_dm = existing_direct_conversation(dm?, human_uid, first),
+         id = if(existing_dm, do: existing_dm.id, else: id),
+         redirected_dm? = id != requested_id,
+         page_id = if(redirected_dm?, do: existing_dm.page_id, else: page_id),
          :ok <-
            Ankole.Sessions.Queue.lock_sessions_in_tx(
              Enum.map(initial_agents, &{&1, Ankole.Sessions.Key.conversation(id)})
            ),
          {:ok, text, attachments} <- human_content(actor, id, message_id, attrs),
-         :ok <- authorize_page(actor, page_id),
+         skip_page_authz? =
+           redirected_dm? or (not is_nil(existing_dm) and existing_dm.page_id == page_id),
+         :ok <- if(skip_page_authz?, do: :ok, else: authorize_page(actor, page_id)),
          {:ok, conversation} <-
            ensure_conversation_in_tx(
              actor,
@@ -257,7 +256,7 @@ defmodule Ankole.Conversations.Native do
              if(dm?, do: first)
            ),
          true <-
-           conversation.sequence_high_water == 0 or id != requested_id or
+           conversation.sequence_high_water == 0 or redirected_dm? or
              original_message?(id, message_id),
          {:ok, _} <- NativeRoom.ensure_members(actor, conversation, initial_agents ++ invited),
          {:ok, conversation} <- NativeRoom.promote(conversation),
@@ -302,37 +301,76 @@ defmodule Ankole.Conversations.Native do
 
   def create_in_tx(_human_uid, _attrs), do: {:error, :invalid_request}
 
-  @doc """
-  Creates the room of an Issue for a Human in the caller's transaction.
+  defp existing_direct_conversation(true, human_uid, agent_uid) do
+    case Map.get(NativeRoom.direct_conversations(human_uid), agent_uid) do
+      nil -> nil
+      dm_id -> Ankole.Conversations.get_conversation!(dm_id)
+    end
+  end
 
-  The room starts without a message, because starting the Issue posts the
-  request. It is a `dm` of the Human and the Agent, so every message that the
-  Human writes there addresses the Agent. The room carries no colleague-DM
-  identity, so an AI colleague's Issue stays apart from the colleague's
-  direct messages.
+  defp existing_direct_conversation(false, _human_uid, _agent_uid), do: nil
+
+  @doc """
+  Resolves or creates the single 1:1 delivery room between `actor` and `agent_uid`
+  inside the caller's transaction without posting a message.
+
+  For an AI colleague, this reuses or initializes the canonical colleague DM.
+  For the member's Personal Assistant, this reuses the member's most recent 1:1
+  assistant thread or creates a single empty 1:1 assistant room.
   """
-  def ensure_issue_room_in_tx(%Ankole.AuthZ.Actor{} = actor, attrs) when is_map(attrs) do
+  def ensure_agent_delivery_room_in_tx(%Ankole.AuthZ.Actor{} = actor, agent_uid)
+      when is_binary(agent_uid) do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
-    agent_uid = Ankole.Attrs.get(attrs, :agent_uid)
-    title = Ankole.Attrs.get(attrs, :title)
 
     with :ok <- Repo.require_transaction(),
          :ok <- Ankole.Pod.lock_tree_in_tx(),
-         {:ok, id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :conversation_id)),
          {:ok, _} <-
            Ankole.Principals.lock_principals_in_tx(Enum.sort(Enum.uniq([human_uid, agent_uid]))),
          :ok <- check_human_in_tx(actor),
          {:ok, agent} <- active_agent_in_tx(agent_uid),
-         :ok <- authorize_agent(actor, agent_uid),
-         :ok <-
-           Ankole.Sessions.Queue.lock_sessions_in_tx([
-             {agent_uid, Ankole.Sessions.Key.conversation(id)}
-           ]),
-         {:ok, conversation} <-
-           ensure_conversation_in_tx(actor, agent, id, title, nil, :dm, nil),
-         {:ok, conversation} <-
-           Ankole.Ash.update(conversation, :rename_title, %{title: title, title_customized: true}) do
-      ModelPreferences.initialize(conversation, agent.uid, nil)
+         :ok <- authorize_agent(actor, agent_uid) do
+      agent_record = Ankole.Principals.get_agent_record!(agent_uid)
+      assistant? = match?(%{type: :personal_assistant}, agent_record)
+
+      existing =
+        if assistant? do
+          Conversation
+          |> Ash.Query.filter(
+            kind == :native and room_mode == :dm and native_access_scope == :participants and
+              created_by == ^human_uid and
+              exists(
+                Participant,
+                conversation_id == parent(id) and principal_uid == ^agent_uid and role == :agent
+              )
+          )
+          |> Ash.Query.sort(updated_at: :desc)
+          |> Ash.Query.limit(1)
+          |> Ankole.Ash.read_one!()
+        else
+          case Map.get(NativeRoom.direct_conversations(human_uid), agent_uid) do
+            nil -> nil
+            dm_id -> Ankole.Conversations.get_conversation!(dm_id)
+          end
+        end
+
+      case existing do
+        %Conversation{} = conversation ->
+          {:ok, conversation}
+
+        nil ->
+          id = Ankole.Ecto.UUIDv7.autogenerate()
+          colleague_uid = if assistant?, do: nil, else: agent_uid
+          title = Ankole.Principals.display_name(agent)
+
+          with :ok <-
+                 Ankole.Sessions.Queue.lock_sessions_in_tx([
+                   {agent_uid, Ankole.Sessions.Key.conversation(id)}
+                 ]),
+               {:ok, conversation} <-
+                 ensure_conversation_in_tx(actor, agent, id, title, nil, :dm, colleague_uid) do
+            ModelPreferences.initialize(conversation, agent.uid, nil)
+          end
+      end
     else
       {:error, _} = error -> error
       _ -> {:error, :invalid_request}

@@ -22,26 +22,37 @@ export function fieldValue(record: BaseRecord, field: BaseField): Value {
 
 type ParsedActor = { tenant: string | null; uid: string }
 
+const ACTOR_TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 function parseActor(value: Value | undefined): ParsedActor | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'object' && !Array.isArray(value) && 'uid' in value) {
-    const uid = String(value.uid ?? '')
-      .trim()
-      .toLowerCase()
+    if (typeof value.uid !== 'string') return null
+    const uid = value.uid.trim().toLowerCase()
     const tenant =
-      'tenant_id' in value && typeof value.tenant_id === 'string' ? value.tenant_id.trim().toLowerCase() || null : null
+      'tenant_id' in value && typeof value.tenant_id === 'string' && ACTOR_TENANT_UUID_RE.test(value.tenant_id.trim())
+        ? value.tenant_id.trim().toLowerCase()
+        : null
     return uid ? { tenant, uid } : null
   }
   if (typeof value !== 'string') return null
-  const marker = value.indexOf(':principal/')
-  if (marker !== -1) {
-    const prefix = value.slice(0, marker)
-    const tenant = prefix.startsWith('ankole:') ? prefix.slice('ankole:'.length).trim().toLowerCase() || null : null
-    const uid = value
-      .slice(marker + ':principal/'.length)
-      .trim()
-      .toLowerCase()
-    return uid ? { tenant, uid } : null
+  if (value.startsWith('ankole:')) {
+    const rest = value.slice('ankole:'.length)
+    const marker = rest.indexOf(':principal/')
+    if (marker !== -1) {
+      const rawTenant = rest.slice(0, marker).trim()
+      const uid = rest
+        .slice(marker + ':principal/'.length)
+        .trim()
+        .toLowerCase()
+      if (ACTOR_TENANT_UUID_RE.test(rawTenant) && uid) {
+        return { tenant: rawTenant.toLowerCase(), uid }
+      }
+    }
+    return { tenant: null, uid: value }
+  }
+  if (value.includes(':principal/')) {
+    return { tenant: null, uid: value }
   }
   const uid = value.trim().toLowerCase()
   return uid ? { tenant: null, uid } : null

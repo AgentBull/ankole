@@ -58,8 +58,35 @@ defmodule AnkoleWeb.OIDCController do
       {:error, :tenant_suspended} ->
         oauth_json_error(conn, 403, "access_denied", "Pod is unavailable")
 
+      {:error, :not_found} ->
+        case desktop_workspace_selection_discovery(conn, params) do
+          {:ok, metadata} ->
+            conn |> no_store() |> json(metadata)
+
+          :error ->
+            oauth_json_error(conn, 404, "pod_not_found", "Pod workspace was not found")
+        end
+
       _ ->
         oauth_json_error(conn, 404, "pod_not_found", "Pod workspace was not found")
+    end
+  end
+
+  defp desktop_workspace_selection_discovery(conn, params) do
+    slug = if is_binary(params["slug"]), do: String.trim(params["slug"]), else: ""
+    selection_url = AnkoleWeb.PodURL.workspace_selection_url()
+
+    if slug == "" and conn.assigns[:host_context] == :site and is_binary(selection_url) do
+      {:ok,
+       %{
+         issuer: Ankole.OIDC.Config.issuer(),
+         site_origin: AnkoleWeb.PodURL.site_origin(conn),
+         workspace_selection_url: selection_url,
+         redirect_uri: OIDC.desktop_redirect_uri(),
+         scopes_supported: ~w(openid profile email offline_access pod)
+       }}
+    else
+      :error
     end
   end
 
@@ -92,6 +119,45 @@ defmodule AnkoleWeb.OIDCController do
   end
 
   def jwks(conn, _params), do: json(conn, Attesto.JWKS.from_config(OIDC.attesto_config()))
+
+  def desktop_authorize(conn, params) do
+    with {:ok, true} <- Ankole.Setup.Config.completed?(),
+         {:ok, tenant} <- resolve_desktop_tenant(conn, %{}),
+         :ok <- Ankole.Repo.put_tenant_id(tenant.id),
+         {:ok, client} <- OIDC.ensure_desktop_client() do
+      authorize(conn, %{
+        "response_type" => "code",
+        "client_id" => client.id,
+        "redirect_uri" => OIDC.desktop_redirect_uri(),
+        "scope" => "openid profile email offline_access pod",
+        "state" => params["state"],
+        "code_challenge" => params["code_challenge"],
+        "code_challenge_method" => params["code_challenge_method"] || "S256"
+      })
+    else
+      {:ok, false} ->
+        oauth_json_error(
+          conn,
+          503,
+          "temporarily_unavailable",
+          "installation setup is incomplete"
+        )
+
+      {:error, :desktop_client_disabled} ->
+        oauth_json_error(
+          conn,
+          403,
+          "desktop_client_disabled",
+          "desktop sign-in is disabled for this Pod"
+        )
+
+      {:error, :tenant_suspended} ->
+        oauth_json_error(conn, 403, "access_denied", "Pod is unavailable")
+
+      _ ->
+        oauth_json_error(conn, 404, "pod_not_found", "Pod workspace was not found")
+    end
+  end
 
   def authorize(conn, params) do
     params = Map.delete(params, "selection_confirmed")
@@ -205,7 +271,11 @@ defmodule AnkoleWeb.OIDCController do
 
   defp authorization_redirect(conn, params, code) do
     values =
-      %{"code" => code, "state" => params["state"]}
+      %{
+        "code" => code,
+        "state" => params["state"],
+        "pod_origin" => desktop_callback_pod_origin(conn, params)
+      }
       |> Map.reject(fn {_, value} -> is_nil(value) end)
 
     redirect(conn, external: append_query(params["redirect_uri"], URI.encode_query(values)))
@@ -286,13 +356,25 @@ defmodule AnkoleWeb.OIDCController do
       %{
         "error" => code,
         "error_description" => description,
-        "state" => if(is_binary(params["state"]), do: params["state"])
+        "state" => if(is_binary(params["state"]), do: params["state"]),
+        "pod_origin" => desktop_callback_pod_origin(conn, params)
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Enum.sort()
       |> URI.encode_query()
 
     redirect(conn, external: append_query(params["redirect_uri"], query))
+  end
+
+  defp desktop_callback_pod_origin(conn, params) do
+    if params["redirect_uri"] == OIDC.desktop_redirect_uri() do
+      with tenant_id when is_binary(tenant_id) <- Ankole.Repo.tenant_id(),
+           {:ok, tenant} <- Ankole.Tenants.get(tenant_id) do
+        AnkoleWeb.PodURL.origin(conn, tenant)
+      else
+        _ -> nil
+      end
+    end
   end
 
   defp authorize_request_origin(conn, client_id) do

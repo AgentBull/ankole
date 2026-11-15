@@ -51,7 +51,12 @@ defmodule Ankole.Pod.AgentPages do
     with {:ok, page} <- Pages.lock(id),
          :ok <- editable(actor, context, page),
          {:ok, parsed} <- Kernel.knowledge_parse(markdown),
-         do: Knowledge.put_in_tx(id, parsed, actor: actor, base_revision: base_revision)
+         do:
+           Knowledge.put_in_tx(id, parsed,
+             actor: actor,
+             context: context,
+             base_revision: base_revision
+           )
   end
 
   def create(actor, context, parent_id, title, markdown) do
@@ -68,13 +73,17 @@ defmodule Ankole.Pod.AgentPages do
          :ok <- editable(actor, context, parent),
          {:ok, parsed} <- Kernel.knowledge_parse(markdown),
          do:
-           Pages.create_in_tx(actor, %{
-             type: :knowledge,
-             parent_id: parent_id,
-             title: title,
-             xml: parsed.xml,
-             metadata: parsed.metadata
-           })
+           Pages.create_in_tx(
+             actor,
+             %{
+               type: :knowledge,
+               parent_id: parent_id,
+               title: title,
+               xml: parsed.xml,
+               metadata: parsed.metadata
+             },
+             context: context
+           )
   end
 
   @doc "Uses the executing Actor's permissions, with audience and requester checks for Brain."

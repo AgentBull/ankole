@@ -8,7 +8,7 @@ import { createClientConfig, InternalAPIError } from '../../common/internal-api-
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { podOffice } from '../api/generated/sdk.gen'
 import { contentKeys, fileURL, type PageDetail } from '../content-api'
-import { useContent } from '../content-context'
+import { useContent, usePageHost } from '../content-context'
 import { contentError } from '../content-errors'
 import { ContentError, ContentSkeleton } from '../content-primitives'
 import {
@@ -116,6 +116,7 @@ export default function SpreadsheetPage({
   initialFind?: string
 }) {
   const { realtime } = useContent()
+  const registerOfficeSession = usePageHost()?.registerOfficeSession
   const client = useQueryClient()
   const pageID = detail.page.id
   const canEdit = detail.actions.includes('node_edit')
@@ -137,6 +138,7 @@ export default function SpreadsheetPage({
         if (notice.kind === 'failed' || notice.kind === 'revoked') refresh()
       }
     })
+    const detach = registerOfficeSession?.(next)
     setSession({ model: next, generation: ++generation.current })
     void next.start()
     const unwatch = realtime.watchVersion('pages', pageID, version => {
@@ -144,10 +146,11 @@ export default function SpreadsheetPage({
       else if (version !== next.revision.peek()) next.sync()
     })
     return () => {
+      detach?.()
       unwatch()
       next[Symbol.dispose]()
     }
-  }, [pageID, canEdit, realtime, client])
+  }, [pageID, canEdit, realtime, client, registerOfficeSession])
 
   return session ? (
     <SpreadsheetWorkspace

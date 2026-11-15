@@ -337,10 +337,32 @@ defmodule Ankole.Connectors.Triggers do
          {:ok, root} <- Credentials.secret(config),
          {:ok, secret} <-
            Credentials.unseal(trigger.sealed_secret, "connector_trigger", trigger.id) do
-      {:ok, %{auth_config: config, trigger: trigger, secret: Map.merge(root, secret)}}
+      {:ok,
+       %{
+         auth_config: config,
+         trigger: trigger,
+         secret: Map.merge(root, secret),
+         authorization: authorization(trigger)
+       }}
     else
       false -> {:error, :connector_trigger_inactive}
       error -> error
+    end
+  end
+
+  def authorization(%{connected_account_id: nil}), do: Ankole.Principals.WorkAccess.service()
+
+  def authorization(%{connected_account_id: id}) do
+    case Accounts.get_by_id(id) do
+      {:ok, %{subject_kind: "human", owner_principal_uid: uid, owner_access_version: version}}
+      when is_binary(uid) and is_integer(version) ->
+        %{authorization_kind: "human", human_uid: uid, human_access_version: version}
+
+      {:ok, %{subject_kind: "app"}} ->
+        Ankole.Principals.WorkAccess.service()
+
+      _ ->
+        Ankole.Principals.WorkAccess.fields(nil)
     end
   end
 

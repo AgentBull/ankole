@@ -232,7 +232,10 @@ export const editorPhrases = PhraseSet.define({
   mention_tab_principal: '主体',
   mention_tab_hint: 'Tab 切换',
   mention_loading: '正在加载…',
-  mention_empty: '无匹配结果'
+  mention_empty: '无匹配结果',
+  page_session_ended: '页面会话已结束，请重新读取当前会话后再应用',
+  ime_composing_active: '输入法组合尚未结束，请完成输入后再应用',
+  page_source_changed: '文档已变化，源码草稿已保留。请导出草稿并重新读取文档后合并修改。'
 })
 
 export type EditorLabels = typeof editorPhrases.phrases

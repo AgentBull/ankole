@@ -1169,6 +1169,13 @@ the material revision and removes that row from evidence). Brain ingests this
 projection asynchronously via its OIDC Client Source rather than enqueueing jobs
 inside AIGateway's response commit; internal Agent requests carry no OIDC origin
 and unattributed rows are never matched to a Client by inference.
+For a new conversation, Brain uses the Source's configured default source node,
+or the submitting Principal's private root when no default is configured. A new
+conversation submitted by a guest without a private root or a configured default
+source node stays unarchived until either a default source node is configured or
+the guest becomes a member. Updates to an already learned conversation keep its
+recorded source node. If a required source node is unavailable, Brain returns an
+error instead of assigning the conversation to another audience.
 
 Finally, `ai_gateway_usage_records` is the single per-round fact table of model
 usage. AIGateway appends one immutable row for each classified provider round
@@ -1875,7 +1882,7 @@ level, together with `legend`, the `probabilities` of every level, and
 The `default` and `decision.default` selectors resolve the Pod or Site
 `decision` profile, and an explicit `provider_id/model` selector names a
 decision model directly. These provider kinds serve the capability through
-three native wires:
+four native wires:
 
 - `typesafe` calls `POST <base_url>/systemone`. Its top-level `base_url`
   defaults to `https://api.typesafe.ai/v1`, can name any compatible SystemOne
@@ -1907,6 +1914,11 @@ three native wires:
   native request fields. Language-only reasoning, service-tier, verbosity,
   truncation, context-management, and cache-retention options fail request
   preparation with `unsupported_provider_option`.
+- `google_ai_studio_openai` calls `/v1beta/decisions` with `gemini-decision-1`.
+  Its decision prepare function strips `/openai` or `/decisions` from the
+  configured base URL, sends `x-goog-api-key` and `x-goog-api-client` headers,
+  and rejects chat-only and embedding-only request options with
+  `unsupported_provider_option`.
 - `cloudflare` serves Workers AI models such as `@cf/cloudflare/clef` through
   their own run path, with the fields at the top level. Partner models such as
   `typesafe/jev` receive them inside `input` on the unified run path and accept
@@ -1931,6 +1943,20 @@ may be PNG, JPEG, or WebP. Responses become Ankole's answer dictionary again,
 including the score legend. An OpenAI `refusal` for any question fails the
 whole request with `422 upstream_decision_refusal`; AIGateway never invents or
 returns partial probabilities.
+
+The Google Decisions resolver strips any leading `models/` prefix from the model
+id, passes plain non-empty string states directly as `input`, and serializes
+structured, scalar, or empty string states as JSON text blocks. PNG, JPEG, and
+WebP data URLs become `image` content blocks after the state text block. It
+maps `noul` `true` and `false` criteria to `true_description` and
+`false_description`, converts `null` choice descriptions to empty strings,
+serializes structured instructions and criteria as JSON text, and aliases
+question ids containing `.` or exceeding 64 characters to collision-free wire
+keys before restoring the caller's original ids on the response. It normalizes
+`total_input_tokens`, `total_output_tokens`, `total_cached_tokens`, and
+`total_thought_tokens` into AIGateway's `usage` fields, preserves structured
+score legends, and fails requests carrying `prompt_feedback.block_reason` with
+`422 upstream_decision_refusal`.
 
 When the `decision` profile is not configured, AIGateway sends one stateless
 Responses request to the caller's `light` language model, constrained by a
@@ -1961,32 +1987,61 @@ fallback: a request whose profile is not configured fails with
 
 - `input` is required and holds the text to speak.
 - `voice` optionally names a voice of the model.
-- `response_format` is `mp3`, the default, or `pcm`.
+- `response_format` optionally selects `mp3`, `pcm`, or `wav`; when the request
+  omits it, the selected Provider uses its native default (`mp3` or `wav`).
 - `speed` optionally sets a playback speed multiplier, and `instructions`
   optionally describes the delivery, such as tone or pacing.
 
 The response body is the audio itself. Its content type is the audio type
 that the Provider names; when the Provider names none, it is `audio/mpeg` for
-`mp3` and `audio/pcm` for `pcm`. A caller can send `Accept: audio/*`. The
+`mp3`, `audio/pcm` for `pcm`, and `audio/wav` for `wav` (defaulting to
+`audio/mpeg` when neither names one). A caller can send `Accept: audio/*`. The
 kernel hands the Provider's bytes to the control plane as base64, reads up to
 128 MiB of audio, and fails the request when a Provider answers a speech
 request with anything but audio. The `openrouter` provider kind sends
 the request to `/audio/speech` unchanged under the provider model. The
 `cloudflare` provider kind serves the Deepgram Aura models on Workers AI,
 which take the text and the voice, answer with MP3, and keep their own rate
-and delivery; a request that asks such a model for `pcm`, `speed`, or
+and delivery; a request that asks such a model for `pcm`, `wav`, `speed`, or
 `instructions` fails with `400 unsupported_value`. The `amazon` provider
 kind, which the `amazon-ai-providers` Plugin registers, serves Amazon Polly:
 the model is the Polly engine, such as `neural`, and Polly needs a voice for
 every request, so a request that names none uses the profile's `voice`
 option and fails with `400 missing_required_parameter` when the profile has
-none either. Polly answers with `mp3` or `pcm` and rejects `speed` and
+none either. Polly answers with `mp3` or `pcm` and rejects `wav`, `speed`, and
 `instructions`.
 
 The `amazon` kind signs each request with AWS Signature Version 4 from the
 access key of the selected pool member and the row's `region`. The signature
 covers the final body bytes, so the kernel signs after it has built the body,
 and each service is reached at its own regional endpoint.
+
+With the `china-market-ai-providers` Plugin enabled, three regional provider
+kinds also serve `POST /audio/speech`:
+
+- `alibaba_cn` calls DashScope multimodal generation
+  (`/api/v1/services/aigc/multimodal-generation/generation` on the configured
+  DashScope host) for models such as `qwen3-tts-flash` and
+  `qwen3-tts-instruct-flash`, sending `text`, optional `voice`,
+  `language_type`, and delivery `instructions`. When DashScope returns a signed
+  `output.audio.url` instead of inline base64 `output.audio.data`, the kernel
+  downloads the WAV bytes over the configured HTTP transport before answering
+  the caller. `alibaba_cn` outputs WAV and rejects `mp3`, `pcm`, and `speed`
+  with `400 unsupported_value`.
+- `volcengine_speech` calls Volcengine Doubao Speech V3
+  (`POST /api/v3/tts/unidirectional` on `openspeech.bytedance.com`),
+  authenticating with either a single `api_key` (`X-Api-Key`) or paired
+  `app_key` and `access_key` credentials (`X-Api-App-Key` and
+  `X-Api-Access-Key`) and setting `X-Api-Resource-Id` from the profile's
+  `resource_id` option or the model name. Each request requires a `voice` on
+  either the request or the profile, accepts `mp3` (default) or `pcm` and
+  `speed` between `0.5` and `2.0`, and rejects `wav` and `instructions`. The
+  kernel reassembles chunked NDJSON base64 audio frames into a single response
+  and maps non-success `X-Api-Status-Code` headers to HTTP errors.
+- `deepseek` serves OpenAI-compatible language models at `/chat/completions`
+  alongside DeepSeek's native speech endpoint (`/v1/tools/tts`), returning WAV
+  by default or `pcm` with optional `voice` (such as `stella` or `tide`) and
+  `filter_markdown`, while rejecting `mp3`, `speed`, and `instructions`.
 
 `POST /audio/transcriptions` turns audio into text through the
 `transcription` profile:
@@ -2004,7 +2059,15 @@ when the Provider reports them. With `verbose_json` it also carries the
 `end`, and `text`, as far as the Provider reports them. The `openrouter`
 provider kind sends the request to `/audio/transcriptions`. The `cloudflare`
 provider kind serves the Workers AI models that take base64 audio, such as
-`@cf/openai/whisper-large-v3-turbo`.
+`@cf/openai/whisper-large-v3-turbo`. With `china-market-ai-providers` enabled,
+`alibaba_cn` sends base64 data-URL audio and `asr_options` to DashScope
+multimodal generation (`qwen3-asr-flash`), `volcengine_speech` sends base64
+audio to `/api/v3/auc/bigmodel/recognize/flash` (`X-Api-Resource-Id` defaulting
+to `volc.bigasr.auc_turbo` unless overridden by `resource_id` or a `volc.*`
+model name) and converts millisecond durations and utterance timestamps into
+seconds and `segments`, and `deepseek` uploads the decoded audio as
+`multipart/form-data` to `/v1/tools/asr`, converting `duration_ms` into
+seconds.
 
 ## Read a Document as Markdown
 
@@ -2040,7 +2103,17 @@ kind serves Amazon Textract: one synchronous `DetectDocumentText` call reads
 a PNG or JPEG image or a one-page PDF, and AIGateway returns the lines that
 Textract found, one per line of the page's `markdown`. Textract takes no
 WebP image and no `pages`; such a request fails with
-`400 unsupported_value`.
+`400 unsupported_value`. With `china-market-ai-providers` enabled, three
+regional provider kinds also serve `POST /ocr`, none of which accept `pages`:
+`alibaba_cn` sends a PNG, JPEG, or WebP image to DashScope's
+`/compatible-mode/v1/chat/completions` endpoint (`qwen-vl-ocr` or
+`qwen3.5-ocr`) and rejects PDFs; `volcengine_visual` signs Volcengine Visual
+OpenAPI requests (`visual.volcengineapi.com`) with Volcengine Signature Version
+4 (`HMAC-SHA256`, service `cv`, `region` defaulting to `cn-north-1`),
+dispatching images to `OCRNormal` and PDFs or `ocr-pdf` profiles to `OCRPdf`
+(`Version=2020-08-26`); and `deepseek` uploads a PDF or image as
+`multipart/form-data` to `/v1/tools/ocr` with `purpose` (`text_recognition` by
+default, or `rich_layout_recognition`).
 
 When the `ocr` profile is not configured, a language model that accepts
 images reads the document, so the request can carry an image only, and a PDF

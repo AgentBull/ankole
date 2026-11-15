@@ -389,7 +389,17 @@ requires target Page read permission and includes only sources the caller can
 read, so the Automation panel can load its subscriptions in one request.
 Mutation requires the
 source's management permission, and personal assistants use their owner's
-Human identity for personal source authorization.
+Human identity for personal source authorization. Target validation across
+`EventBindings`, `CloudBindings`, and `Signals.Dispatch` checks the bound Agent
+against the source's `WorkAccess`: personally authorized schedules, checkbacks,
+webhook endpoints, Applet Jobs, and personal `connector-trigger://`
+subscriptions run under their owner's Human `WorkAccess` and may target that
+owner's `personal_assistant` or an `ai_colleague`, whereas organization-wide
+`service` sources (`connector://`, workspace-scoped `connector-trigger://`,
+`base://`, `applet://`, and operator CloudEvents endpoints) require an
+`ai_colleague` or an `action` Job. Shared IM adapter Bindings (`app-config://`)
+require `sender_personal_assistant` mode to reach personal assistants so each
+message runs under its sender's Human identity.
 
 For Agent reads, `bindings.list` resolves a Base source to its table's Page and
 an Applet source or Applet Job source to its Applet Page. The Agent and the

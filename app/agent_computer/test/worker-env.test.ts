@@ -3,8 +3,8 @@ import { create } from '@bufbuild/protobuf'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { parseWorkerEnv } from '../src/worker/config'
 import { commandEnv } from '../src/core/execution/command-env'
-import { resolveAgentWorkerEnvParts } from '../src/core/execution/worker_env'
-import { type RPCRequester } from '../src/lanes/rpc_lane'
+import { resolveAgentWorkerEnvParts } from '../src/core/execution/worker-env'
+import { type RPCRequester } from '../src/lanes/rpc-lane'
 
 describe('parseWorkerEnv Skill roots', () => {
   const requiredEnv = {

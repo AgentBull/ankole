@@ -144,6 +144,8 @@ export function AnkoleChart({
   const [runtimeFallback, setRuntimeFallback] = useState<PercentFallbackReason | undefined>(undefined)
   const [renderError, setRenderError] = useState<string | null>(null)
   const [themeRevision, setThemeRevision] = useState(0)
+  const themeRevisionRef = useRef(0)
+  themeRevisionRef.current = themeRevision
 
   const fallbackReason = runtimeFallback ?? inferNegativePercentFallback(spec)
   const tableData = useMemo(() => deriveSummaryTable(spec, summaryTable), [spec, summaryTable])
@@ -258,6 +260,7 @@ export function AnkoleChart({
           const { mountStatisticalChart } = await import('../viz/statistical')
           if (cancelled || mountedRef.current) return
           const initialSpecSnapshot = latestSpecRef.current
+          const initialThemeSnapshot = themeRevisionRef.current
           const handle = await mountStatisticalChart(host, {
             ...initialSpecSnapshot,
             width: w,
@@ -270,7 +273,7 @@ export function AnkoleChart({
           mountedRef.current = handle
           setRenderError(null)
           setRuntimeFallback(handle.percentFallbackReason)
-          if (latestSpecRef.current !== initialSpecSnapshot) {
+          if (latestSpecRef.current !== initialSpecSnapshot || themeRevisionRef.current !== initialThemeSnapshot) {
             await handle.update(latestSpecRef.current)
             if (!cancelled && mountedRef.current === handle) {
               setRuntimeFallback(handle.percentFallbackReason)

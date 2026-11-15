@@ -167,10 +167,11 @@ defmodule Ankole.Sessions.Queue do
   @spec mark_event_dead_letter_in_tx(Signal.t(), DateTime.t(), term()) ::
           session_commit_result()
   def mark_event_dead_letter_in_tx(
-        %Signal{status: :completed} = signal,
+        %Signal{status: status} = signal,
         _dead_letter_at,
         _reason
-      ),
+      )
+      when status in [:completed, :dead_letter, :canceled],
       do: {:ok, signal}
 
   def mark_event_dead_letter_in_tx(%Signal{} = signal, dead_letter_at, reason) do

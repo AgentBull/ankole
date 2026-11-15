@@ -72,16 +72,6 @@ defmodule Ankole.OIDC do
 
   @type client_result :: {:ok, Client.t()} | {:error, term()}
 
-  @doc "Lists all OIDC clients in creation order."
-  @spec list_clients() :: [map()]
-  def list_clients do
-    Client
-    |> Ash.Query.load(:allowed_group_ids)
-    |> Ash.Query.sort(inserted_at: :asc)
-    |> Ankole.Ash.read!()
-    |> Enum.map(&projection/1)
-  end
-
   @doc "Loads one client, including disabled clients."
   @spec get_client(String.t()) :: client_result()
   def get_client(id) do
@@ -482,7 +472,11 @@ defmodule Ankole.OIDC do
       type: Atom.to_string(client.client_type),
       redirect_uris: client.redirect_uris,
       scopes: client.scopes,
-      allowed_group_ids: allowed_group_ids(client.id),
+      allowed_group_ids:
+        if(is_list(client.allowed_group_ids),
+          do: client.allowed_group_ids,
+          else: allowed_group_ids(client.id)
+        ),
       allowed_models: client.model_aliases,
       allowed_identity_provider_ids: client.allowed_identity_provider_ids,
       backchannel_logout_uri: client.backchannel_logout_uri,

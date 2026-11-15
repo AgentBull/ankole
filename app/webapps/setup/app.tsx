@@ -689,7 +689,13 @@ function oidcCallbackURL(publicBaseURL: string, providerID: string): string {
 }
 
 function identityAdapterGuideURL(adapterID: string, locale: string): string {
-  const docsLocale = locale.startsWith('zh') ? 'zh-Hans-CN' : 'en-US'
+  const docsLocale = locale.startsWith('zh')
+    ? 'zh-Hans-CN'
+    : locale.startsWith('ja')
+      ? 'ja-JP'
+      : locale.startsWith('ko')
+        ? 'ko-KR'
+        : 'en-US'
   return `https://ankole.agentbull.com/${docsLocale}/docs/quickstart/?idp=${encodeURIComponent(adapterID)}#identity-providers`
 }
 

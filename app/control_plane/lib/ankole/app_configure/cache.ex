@@ -139,7 +139,7 @@ defmodule Ankole.AppConfigure.Cache do
       cache_key = cache_key(scope, key, tenant_id)
 
       case safe_lookup(cache_key) do
-        [{^cache_key, _, expires_at}] when expires_at > loaded_at -> :ok
+        [{^cache_key, _, expires_at}] when expires_at - @max_age_ms >= loaded_at -> :ok
         _ -> :ets.insert(@table, {cache_key, state, loaded_at + @max_age_ms})
       end
     end

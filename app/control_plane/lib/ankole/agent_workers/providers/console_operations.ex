@@ -1,6 +1,7 @@
 defmodule Ankole.AgentWorkers.Providers.ConsoleOperations do
   @moduledoc "Worker provider catalog and connection checks for site operators."
   use Ankole.Ash.OperationResource,
+    tenancy: :site,
     authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.AgentWorkers.Providers,

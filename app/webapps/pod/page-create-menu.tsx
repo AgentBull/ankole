@@ -26,17 +26,19 @@ import { useNavigate } from '@tanstack/react-router'
 import { podPagePath } from '../common/pod-url'
 import { requestErrorMessage } from '../common/request-errors'
 import { podOfficeCreate } from './api/generated/sdk.gen'
-import { pageAPI, type Page } from './content-api'
+import { cachedPageMap, contentKeys, pageAPI, type Page, type PageDetail, type PageDomain } from './content-api'
 import { contentError } from './content-errors'
 import { typeLabels } from './content-primitives'
 import { PageIcon } from './page-icon'
+import { createUploadedPage } from './state/markdown-import'
 import { pageCreated } from './state/navigation-cache'
-import { chooseLocalFile, createFilePage } from './native-transfers'
+import { chooseLocalFile } from './native-transfers'
 
 export type CreatePageOptions = {
   parentID?: string
   scope?: 'space' | 'private'
   privateOwner?: string
+  domain?: PageDomain
   onCreated?: (page: Page) => void
 }
 
@@ -48,6 +50,20 @@ export type PageCreation = {
   submit: (type: PageType) => Promise<void>
 }
 
+function parentAllowsMarkdownDoc(
+  client: QueryClient,
+  parentID?: string,
+  domain?: PageDomain,
+  types?: readonly PageType[]
+): boolean {
+  if (domain === 'brain') return false
+  if (types && !types.includes('doc')) return false
+  if (!parentID) return true
+  const parent =
+    client.getQueryData<PageDetail>(contentKeys.page(parentID))?.page ?? cachedPageMap(client).get(parentID)
+  return parent?.type !== 'knowledge'
+}
+
 /** Creates a Page of a type that needs no local file; Office Pages start as blank packages. */
 function createPage(input: Exclude<PageType, 'file'>, destination: Destination) {
   if (input === 'spreadsheet' || input === 'word' || input === 'presentation') {
@@ -56,7 +72,13 @@ function createPage(input: Exclude<PageType, 'file'>, destination: Destination) 
   return pageAPI.create({ type: input, title: '', ...destination })
 }
 
-export function usePageCreation({ parentID, scope, privateOwner, onCreated }: CreatePageOptions = {}): PageCreation {
+export function usePageCreation({
+  parentID,
+  scope,
+  privateOwner,
+  domain,
+  onCreated
+}: CreatePageOptions = {}): PageCreation {
   const navigate = useNavigate()
   const client = useQueryClient()
   const latestOnCreated = useRef(onCreated)
@@ -66,12 +88,14 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
       input,
       targetParentID,
       targetScope,
-      targetOwner
+      targetOwner,
+      targetDomain
     }: {
       input: Exclude<PageType, 'file'> | File
       targetParentID?: string
       targetScope?: 'space' | 'private'
       targetOwner?: string
+      targetDomain?: PageDomain
     }) => {
       if (!targetParentID && targetScope === 'private' && !targetOwner) {
         throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_the'))
@@ -81,7 +105,11 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
         : targetScope === 'private'
           ? { private_owner_uid: targetOwner }
           : {}
-      if (input instanceof File) return createFilePage(input, destination)
+      if (input instanceof File) {
+        return createUploadedPage(input, destination, {
+          allowMarkdownDoc: parentAllowsMarkdownDoc(client, targetParentID, targetDomain)
+        })
+      }
       return createPage(input, destination)
     }
   })
@@ -94,7 +122,8 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
         input,
         targetParentID: override?.parentID ?? parentID,
         targetScope: override?.scope ?? scope,
-        targetOwner: override?.privateOwner ?? privateOwner
+        targetOwner: override?.privateOwner ?? privateOwner,
+        targetDomain: override?.domain ?? domain
       })
       pageCreated(client, page)
       if (callback) callback(page)
@@ -110,13 +139,21 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
 }
 
 /**
- * Creates one File Page per file under the parent, in order, and announces the result. A failure
- * stops at that file and rejects; the File Pages created before it stay in the tree.
+ * Creates one child Page per file under the parent, in order, and announces the result. In
+ * collaboration trees, Markdown files parse into Document Pages while other files become File
+ * Pages; under Brain, every file stays a File Page attachment. A failure stops at that file and
+ * rejects while children created before it remain in the tree.
  */
-export async function uploadFileSubpages(client: QueryClient, parentID: string, files: readonly File[]) {
+export async function uploadFileSubpages(
+  client: QueryClient,
+  parentID: string,
+  files: readonly File[],
+  options?: { domain?: PageDomain }
+) {
+  const allowMarkdownDoc = parentAllowsMarkdownDoc(client, parentID, options?.domain)
   let lastTitle = ''
   for (const file of files) {
-    const { page } = await createFilePage(file, { parent_id: parentID })
+    const { page } = await createUploadedPage(file, { parent_id: parentID }, { allowMarkdownDoc })
     pageCreated(client, page)
     lastTitle = page.title || file.name
   }
@@ -128,26 +165,47 @@ export function useSubpageCreation() {
   const navigate = useNavigate()
   const client = useQueryClient()
   const mutation = useMutation({
-    mutationFn: ({ input, parentID }: { input: Exclude<PageType, 'file'> | File; parentID: string }) => {
-      if (input instanceof File) return createFilePage(input, { parent_id: parentID })
+    mutationFn: ({
+      input,
+      parentID,
+      domain
+    }: {
+      input: Exclude<PageType, 'file'> | File
+      parentID: string
+      domain?: PageDomain
+    }) => {
+      if (input instanceof File) {
+        return createUploadedPage(
+          input,
+          { parent_id: parentID },
+          { allowMarkdownDoc: parentAllowsMarkdownDoc(client, parentID, domain) }
+        )
+      }
       return createPage(input, { parent_id: parentID })
     }
   })
-  const forParent = (parentID: string, onCreated?: (page: Page) => void): PageCreation => ({
-    isPending: mutation.isPending,
-    submit: async type => {
-      const input = type === 'file' ? await chooseLocalFile() : type
-      if (!input) return
-      try {
-        const { page } = await mutation.mutateAsync({ input, parentID })
-        pageCreated(client, page)
-        if (onCreated) onCreated(page)
-        else void navigate({ to: podPagePath(page.id, page.title) })
-      } catch (error) {
-        toast.error(requestErrorMessage(contentError(error)))
+  const forParent = (
+    parentID: string,
+    options?: ((page: Page) => void) | { domain?: PageDomain; onCreated?: (page: Page) => void }
+  ): PageCreation => {
+    const onCreated = typeof options === 'function' ? options : options?.onCreated
+    const domain = typeof options === 'function' ? undefined : options?.domain
+    return {
+      isPending: mutation.isPending,
+      submit: async type => {
+        const input = type === 'file' ? await chooseLocalFile() : type
+        if (!input) return
+        try {
+          const { page } = await mutation.mutateAsync({ input, parentID, domain })
+          pageCreated(client, page)
+          if (onCreated) onCreated(page)
+          else void navigate({ to: podPagePath(page.id, page.title) })
+        } catch (error) {
+          toast.error(requestErrorMessage(contentError(error)))
+        }
       }
     }
-  })
+  }
   return forParent
 }
 
@@ -181,6 +239,7 @@ export function CreatePageButton({
   parentID,
   scope,
   privateOwner,
+  domain,
   compact = false,
   disabled = false,
   label: providedLabel,
@@ -196,7 +255,8 @@ export function CreatePageButton({
   const { t } = useTranslation()
   const label = providedLabel ?? t('pod.content.new_page')
   const waitingForIdentity = !parentID && scope === 'private' && !privateOwner
-  const create = usePageCreation({ parentID, scope, privateOwner, onCreated })
+  const effectiveDomain = domain ?? (types && !types.includes('doc') ? 'brain' : undefined)
+  const create = usePageCreation({ parentID, scope, privateOwner, domain: effectiveDomain, onCreated })
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
@@ -235,7 +295,8 @@ export function CreatePageSubmenu({
 }: CreatePageOptions & { label?: string; create?: PageCreation; types?: readonly PageType[] }) {
   const { t } = useTranslation()
   const label = providedLabel ?? t('pod.sidebar.new_subpage')
-  const fallback = usePageCreation(options)
+  const effectiveDomain = options.domain ?? (types && !types.includes('doc') ? 'brain' : undefined)
+  const fallback = usePageCreation({ ...options, domain: effectiveDomain })
   const create = provided ?? fallback
   return (
     <DropdownMenuSub>

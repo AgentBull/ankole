@@ -158,6 +158,7 @@ defmodule Ankole.Principals.RenameTest do
   test "canonical XML mentions follow names containing an apostrophe without changing text" do
     owner = human_fixture(%{email: "o'connor@example.com"}).principal
     actor = actor_fixture(owner)
+    {:ok, comment_page} = Pages.create(actor, %{title: "Earlier discussion"})
 
     {:ok, page} =
       Pages.create(actor, %{
@@ -168,7 +169,10 @@ defmodule Ankole.Principals.RenameTest do
 
     mention = "<mention principal=\"#{owner.uid}\" />"
     comment_body = "Hello #{mention}. Example: `#{mention}`."
-    {:ok, %{comment: comment}} = Pod.Comments.create(actor, page.id, %{body: comment_body})
+    assert comment_page.id < page.id
+
+    {:ok, %{comment: comment}} =
+      Pod.Comments.create(actor, comment_page.id, %{body: comment_body})
 
     assert {:ok, %{principal: renamed}} = Principals.rename(owner.uid, "new.o'connor@example.com")
     content = Repo.get_by!(PageContent, page_id: page.id)
@@ -370,23 +374,10 @@ defmodule Ankole.Principals.RenameTest do
              Ankole.AuthZ.authorize(owner.uid, "drive:private:my-assistant:notes", "node_manage")
   end
 
-  test "renaming Squad colleagues and Human requesters updates Issues and in-flight MediaJobs" do
+  test "renaming Human requesters updates in-flight MediaJobs" do
     %{principal: owner} = human_fixture(%{email: "media-before@example.com"})
     worker_provider_fixture(%{is_default: true})
     {:ok, %{principal: assistant}} = Principals.ensure_personal_assistant(owner.uid)
-
-    %{principal: colleague} =
-      agent_fixture(%{uid: "squad-specialist", display_name: "Specialist"})
-
-    Ankole.ConversationsFixtures.grant_chat(owner.uid, colleague.uid)
-
-    {:ok, issue} =
-      Ankole.Issues.create(actor_fixture(owner), %{
-        title: "Prepare launch assets",
-        agent_uid: assistant.uid,
-        squad_uids: [colleague.uid],
-        start: false
-      })
 
     {:ok, media_job} =
       Ankole.Ash.create(Ankole.AIGateway.Schemas.MediaJob, :submit, %{
@@ -400,20 +391,8 @@ defmodule Ankole.Principals.RenameTest do
         expires_at: DateTime.add(DateTime.utc_now(:microsecond), 3600, :second)
       })
 
-    assert {:ok, _} = Principals.disable_agent(colleague.uid)
-
-    assert {:ok, %{principal: renamed_colleague}} =
-             Principals.rename(colleague.uid, "lead-specialist")
-
-    assert {:ok, _} = Principals.enable_agent(renamed_colleague.uid)
-
     assert {:ok, %{principal: renamed_owner}} =
              Principals.rename(owner.uid, "media-after@example.com")
-
-    assert {:ok, %{squad: [%{uid: squad_uid}]}} =
-             Ankole.Issues.get(actor_fixture(renamed_owner), issue.id)
-
-    assert squad_uid == renamed_colleague.uid
 
     reloaded_job = Repo.get!(Ankole.AIGateway.Schemas.MediaJob, media_job.id)
     assert reloaded_job.request_context["human_uid"] == renamed_owner.uid

@@ -42,7 +42,6 @@ export function createPresentationEngine(): PresentationEngine {
     )
   }
   const worker = new Worker(bootstrapURL ?? workerURL, { type: 'module' })
-  if (bootstrapURL) URL.revokeObjectURL(bootstrapURL)
 
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
   let nextID = 0
@@ -79,6 +78,10 @@ export function createPresentationEngine(): PresentationEngine {
     {
       dispose() {
         worker.terminate()
+        if (bootstrapURL) {
+          URL.revokeObjectURL(bootstrapURL)
+          bootstrapURL = undefined
+        }
         failAll('The presentation was closed')
       }
     } as PresentationEngine,

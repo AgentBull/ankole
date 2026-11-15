@@ -28,8 +28,14 @@ const STORE_NAME = 'namespaces'
 const MAX_CACHED_PAGES = 2000
 
 const memoryNamespaces = new Map<string, PodCacheRecord>()
+const namespaceGenerations = new Map<string, number>()
+let globalClearGeneration = 0
 let cachedIndexedDB: IDBFactory | undefined
 let dbPromise: Promise<IDBDatabase | null> | undefined
+
+function currentGeneration(namespace: string): string {
+  return `${globalClearGeneration}:${namespaceGenerations.get(namespace) ?? 0}`
+}
 
 export function podCacheNamespace(podId?: string | null, principalUid?: string | null): string | undefined {
   if (!podId || !principalUid) return undefined
@@ -68,21 +74,28 @@ function openCacheDatabase(): Promise<IDBDatabase | null> {
 }
 
 async function readRecordFromIDB(namespace: string): Promise<PodCacheRecord | undefined> {
+  const generation = currentGeneration(namespace)
   const cached = memoryNamespaces.get(namespace)
   if (cached) return cached
   const db = await openCacheDatabase()
-  if (!db) return undefined
+  if (!db || currentGeneration(namespace) !== generation) return undefined
   return new Promise(resolve => {
     try {
       const tx = db.transaction(STORE_NAME, 'readonly')
       const req = tx.objectStore(STORE_NAME).get(namespace)
       req.onsuccess = () => {
+        if (currentGeneration(namespace) !== generation) {
+          resolve(undefined)
+          return
+        }
         const value = req.result as PodCacheRecord | undefined
         if (value && typeof value === 'object') {
-          memoryNamespaces.set(namespace, value)
-          resolve(value)
+          if (!memoryNamespaces.has(namespace)) {
+            memoryNamespaces.set(namespace, value)
+          }
+          resolve(memoryNamespaces.get(namespace) ?? value)
         } else {
-          resolve(undefined)
+          resolve(memoryNamespaces.get(namespace))
         }
       }
       req.onerror = () => resolve(undefined)
@@ -92,10 +105,11 @@ async function readRecordFromIDB(namespace: string): Promise<PodCacheRecord | un
   })
 }
 
-async function writeRecordToIDB(record: PodCacheRecord): Promise<void> {
-  const db = await openCacheDatabase()
-  if (!db) return
+async function writeRecordToIDB(record: PodCacheRecord, generation: string): Promise<void> {
+  if (currentGeneration(record.namespace) !== generation) return
   memoryNamespaces.set(record.namespace, record)
+  const db = await openCacheDatabase()
+  if (!db || currentGeneration(record.namespace) !== generation) return
   await new Promise<void>(resolve => {
     try {
       const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -126,14 +140,18 @@ export async function writeCachedPodPages(
 ): Promise<void> {
   const namespace = podCacheNamespace(podId, principalUid)
   if (!namespace || !podId || !principalUid || entries.length === 0) return
-  const existing = (await readRecordFromIDB(namespace)) ?? {
-    namespace,
-    podId,
-    principalUid,
-    pages: {},
-    recentSearches: [],
-    updatedAt: Date.now()
-  }
+  const generation = currentGeneration(namespace)
+  const initial = await readRecordFromIDB(namespace)
+  if (currentGeneration(namespace) !== generation) return
+  const existing = memoryNamespaces.get(namespace) ??
+    initial ?? {
+      namespace,
+      podId,
+      principalUid,
+      pages: {},
+      recentSearches: [],
+      updatedAt: Date.now()
+    }
   const merged: Record<string, CachedPodPageMetadata> = { ...existing.pages }
   for (const entry of entries) {
     if (!entry.id) continue
@@ -162,22 +180,22 @@ export async function writeCachedPodPages(
     }
   }
   const allEntries = Object.values(merged)
+  let nextPages = merged
   if (allEntries.length > MAX_CACHED_PAGES) {
     allEntries.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
     const trimmed: Record<string, CachedPodPageMetadata> = {}
     for (const item of allEntries.slice(0, MAX_CACHED_PAGES)) trimmed[item.id] = item
-    await writeRecordToIDB({
-      ...existing,
-      pages: trimmed,
-      updatedAt: Date.now()
-    })
-    return
+    nextPages = trimmed
   }
-  await writeRecordToIDB({
-    ...existing,
-    pages: merged,
-    updatedAt: Date.now()
-  })
+  const latest = memoryNamespaces.get(namespace) ?? existing
+  await writeRecordToIDB(
+    {
+      ...latest,
+      pages: nextPages,
+      updatedAt: Date.now()
+    },
+    generation
+  )
 }
 
 export async function readCachedPodRecentSearches(
@@ -206,19 +224,26 @@ export async function writeCachedPodRecentSearches(
 ): Promise<void> {
   const namespace = podCacheNamespace(podId, principalUid)
   if (!namespace || !podId || !principalUid) return
-  const existing = (await readRecordFromIDB(namespace)) ?? {
-    namespace,
-    podId,
-    principalUid,
-    pages: {},
-    recentSearches: [],
-    updatedAt: Date.now()
-  }
-  await writeRecordToIDB({
-    ...existing,
-    recentSearches: [...queries],
-    updatedAt: Date.now()
-  })
+  const generation = currentGeneration(namespace)
+  const initial = await readRecordFromIDB(namespace)
+  if (currentGeneration(namespace) !== generation) return
+  const existing = memoryNamespaces.get(namespace) ??
+    initial ?? {
+      namespace,
+      podId,
+      principalUid,
+      pages: {},
+      recentSearches: [],
+      updatedAt: Date.now()
+    }
+  await writeRecordToIDB(
+    {
+      ...existing,
+      recentSearches: [...queries],
+      updatedAt: Date.now()
+    },
+    generation
+  )
 }
 
 export async function clearPodLocalCache(scope?: {
@@ -227,8 +252,11 @@ export async function clearPodLocalCache(scope?: {
 }): Promise<void> {
   const namespace = podCacheNamespace(scope?.podId, scope?.principalUid)
   if (namespace) {
+    namespaceGenerations.set(namespace, (namespaceGenerations.get(namespace) ?? 0) + 1)
     memoryNamespaces.delete(namespace)
   } else {
+    globalClearGeneration += 1
+    namespaceGenerations.clear()
     memoryNamespaces.clear()
   }
   const db = await openCacheDatabase()

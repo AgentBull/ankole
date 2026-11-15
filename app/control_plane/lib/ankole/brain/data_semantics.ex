@@ -33,17 +33,19 @@ defmodule Ankole.Brain.DataSemantics do
   ]
 
   @doc "Synchronizes one saved knowledge object's bindings, revisions, and identifiers."
-  def sync_in_tx(%{kind: :knowledge, deleted_at: nil} = object) do
+  def sync_in_tx(object, opts \\ [])
+
+  def sync_in_tx(%{kind: :knowledge, deleted_at: nil} = object, opts) do
     case category(object.id) do
       nil ->
         :ok
 
       category ->
-        with :ok <- sync_identifiers(object), do: sync_category(category, object)
+        with :ok <- sync_identifiers(object), do: sync_category(category, object, opts)
     end
   end
 
-  def sync_in_tx(_object), do: :ok
+  def sync_in_tx(_object, _opts), do: :ok
 
   @doc """
   Returns the Brain category of a page (`"metrics"`, `"datasets"`, ...), or
@@ -62,20 +64,20 @@ defmodule Ankole.Brain.DataSemantics do
     end
   end
 
-  defp sync_category(category, object) when category in ["datasets", "metrics"] do
+  defp sync_category(category, object, opts) when category in ["datasets", "metrics"] do
     with {:ok, _} <-
            Link
            |> Ash.Query.filter(origin_page_id == ^object.id and link_source == @link_source)
            |> Ankole.Ash.destroy_where(:remove),
-         do: sync_definition(category, object)
+         do: sync_definition(category, object, opts)
   end
 
-  defp sync_category(_category, _object), do: :ok
+  defp sync_category(_category, _object, _opts), do: :ok
 
-  defp sync_definition("datasets", object) do
+  defp sync_definition("datasets", object, opts) do
     current = Definitions.dataset_binding(object.id)
 
-    case Definitions.dataset(object.meta, object.id) do
+    case Definitions.dataset(object.meta, object.id, opts) do
       {:ok, :draft} ->
         if current, do: destroy(current), else: :ok
 
@@ -98,10 +100,10 @@ defmodule Ankole.Brain.DataSemantics do
     end
   end
 
-  defp sync_definition("metrics", object) do
+  defp sync_definition("metrics", object, opts) do
     latest = latest_revision(object.id)
 
-    case Definitions.metric(object.meta) do
+    case Definitions.metric(object.meta, opts) do
       {:ok, :draft} when is_nil(latest) or latest.status == :retired ->
         :ok
 

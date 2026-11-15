@@ -60,7 +60,11 @@ and provider-hosted tool calls do not count as failures here).
 
 Once an Agent accumulates at least `brain.skill_learning_reflection_threshold`
 unconsumed signal Jobs (minimum 2, default 10), the Dreaming `skill_lessons`
-phase launches one reflection Job for that Agent. Brain records the Agent itself
+phase launches one bounded reflection Job for that Agent. Within the 15-Job
+reflection bundle budget over the recent candidate window, Brain selects Jobs
+with mid-run human input first and orders ties by recency, while advancing
+`through_job_id` to the newest candidate in that window so older unbundled
+signals do not accumulate an unbounded backlog. Brain records the Agent itself
 as the trusted creation source: reflection runs as independent service work, so
 human input inside the evidence Jobs does not make the reflection Job
 human-owned. Because reflection Jobs run with an empty reply route and an

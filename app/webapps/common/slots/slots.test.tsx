@@ -162,7 +162,7 @@ test('createConsoleRouter registers extension routes and invokes route.loader wi
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
-      location: new URL('https://console.ankole.test/relay/upstreams/acct_01?mode=edit'),
+      location: new URL('https://console.ankole.test/extension/upstreams/acct_01?mode=edit'),
       document: { baseURI: 'https://console.ankole.test/' },
       addEventListener: () => {},
       removeEventListener: () => {},
@@ -191,37 +191,37 @@ test('createConsoleRouter registers extension routes and invokes route.loader wi
     const router = createConsoleRouter(queryClient, {
       routes: [
         {
-          id: 'relay-upstream-edit',
-          pluginId: 'relay',
-          path: '/relay/upstreams/$accountID',
+          id: 'extension-upstream-edit',
+          pluginId: 'extension',
+          path: '/extension/upstreams/$accountID',
           scope: 'site',
           loader: async ctx => {
             capturedContext = ctx
           },
           load: async () => {
             componentLoaded = true
-            return { default: () => <div>Relay Upstream Editor</div> }
+            return { default: () => <div>Extension Upstream Editor</div> }
           }
         }
       ]
     })
 
-    const matches = router.matchRoutes('/relay/upstreams/acct_01', { mode: 'edit' })
+    const matches = router.matchRoutes('/extension/upstreams/acct_01', { mode: 'edit' })
     const leaf = matches.at(-1)
-    expect(leaf?.staticData?.consoleSlot?.id).toBe('relay-upstream-edit')
+    expect(leaf?.staticData?.consoleSlot?.id).toBe('extension-upstream-edit')
     const route = leaf
       ? (router.routesById as Record<string, { options?: { loader?: (...args: unknown[]) => unknown } }>)[leaf.routeId]
       : undefined
     await route?.options?.loader?.({
       params: { accountID: 'acct_01' },
-      location: { pathname: '/relay/upstreams/acct_01', searchStr: '?mode=edit' }
+      location: { pathname: '/extension/upstreams/acct_01', searchStr: '?mode=edit' }
     })
 
     expect(componentLoaded).toBe(true)
     expect(capturedContext).toEqual({
       queryClient,
       params: { accountID: 'acct_01' },
-      location: { pathname: '/relay/upstreams/acct_01', searchStr: '?mode=edit' },
+      location: { pathname: '/extension/upstreams/acct_01', searchStr: '?mode=edit' },
       scope: 'site',
       tenantID: 'tenant-x'
     })

@@ -1,7 +1,7 @@
 //! Host-neutral `rustls` HTTP transport and header sanitization for the Ankole desktop client.
 
 use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,8 +18,13 @@ impl Resolve for Rfc6761DnsResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let host = name.as_str().trim_end_matches('.').to_ascii_lowercase();
         if host == "localhost" || host.ends_with(".localhost") {
-            let loopback = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-            let addrs: Addrs = Box::new(std::iter::once(loopback));
+            let addrs: Addrs = Box::new(
+                [
+                    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+                    SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0),
+                ]
+                .into_iter(),
+            );
             return Box::pin(async move { Ok(addrs) });
         }
         Box::pin(async move {
@@ -269,6 +274,30 @@ impl DesktopHttpClient {
     }
 }
 
+fn candidate_with_inferred_scheme(trimmed: &str) -> Result<Url, DesktopHttpError> {
+    if trimmed.contains("://") {
+        return Url::parse(trimmed)
+            .map_err(|reason| DesktopHttpError::InvalidUrl(reason.to_string()));
+    }
+    let https_probe = Url::parse(&format!("https://{trimmed}"))
+        .map_err(|reason| DesktopHttpError::InvalidUrl(reason.to_string()))?;
+    let is_local = match https_probe.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(domain)) => {
+            let lower = domain.trim_end_matches('.').to_ascii_lowercase();
+            lower == "localhost" || lower.ends_with(".localhost")
+        }
+        None => false,
+    };
+    if is_local {
+        Url::parse(&format!("http://{trimmed}"))
+            .map_err(|reason| DesktopHttpError::InvalidUrl(reason.to_string()))
+    } else {
+        Ok(https_probe)
+    }
+}
+
 /// Normalizes a user-entered workspace URL or hostname into a canonical `http(s)://host[:port]` origin.
 pub fn normalize_pod_origin(raw: &str) -> Result<String, DesktopHttpError> {
     let trimmed = raw.trim();
@@ -277,13 +306,7 @@ pub fn normalize_pod_origin(raw: &str) -> Result<String, DesktopHttpError> {
             "workspace URL must not be empty".to_string(),
         ));
     }
-    let candidate = if trimmed.contains("://") {
-        trimmed.to_string()
-    } else {
-        format!("https://{trimmed}")
-    };
-    let parsed = Url::parse(&candidate)
-        .map_err(|reason| DesktopHttpError::InvalidUrl(reason.to_string()))?;
+    let parsed = candidate_with_inferred_scheme(trimmed)?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(DesktopHttpError::InvalidUrl(format!(
             "unsupported URL scheme {}",
@@ -317,15 +340,7 @@ pub fn parse_discovery_target(raw: &str) -> Result<(String, Option<String>), Des
             "workspace URL must not be empty".to_string(),
         ));
     }
-    let candidate = if trimmed.contains("://") {
-        trimmed.to_string()
-    } else if trimmed.contains("localhost") || trimmed.starts_with("127.0.0.1") {
-        format!("http://{trimmed}")
-    } else {
-        format!("https://{trimmed}")
-    };
-    let parsed = Url::parse(&candidate)
-        .map_err(|reason| DesktopHttpError::InvalidUrl(reason.to_string()))?;
+    let parsed = candidate_with_inferred_scheme(trimmed)?;
     let origin = normalize_pod_origin(parsed.as_str())?;
     let query_slug = parsed
         .query_pairs()

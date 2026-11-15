@@ -45,14 +45,20 @@ spreadsheet, Word document, presentation, and file options. Within Brain, creati
   own content. Creating a child requires `node_edit` on its parent and the child
   inherits that parent's permissions. Empty documents and knowledge pages show
   the child-list creation and upload controls. File pages are leaves.
-- **File pages** prompt for a local file first, then submit its bytes and Page
-  attributes to `POST /api/v2/pod/file-pages`, which creates the Page and file
-  reference in a single tree transaction (defaulting an empty title to the
-  selected filename). If creation fails, the UI keeps the form entry open for
-  retry. Replacing a file Page's bytes gives the Page the uploaded file's name,
-  and the title follows that name. Editing the title keeps the stored file's
-  extension unless the new title already ends with it, so a renamed Office file
-  still opens in its editor and downloads with its type.
+- **File pages** prompt for a local file first. In collaboration trees (Space,
+  Private, and collaboration subpages), the browser parses chosen Markdown files
+  (`.md`, `.markdown`, or `text/markdown`) into canonical `<page>` XML, derives
+  the Page title from YAML frontmatter `title:`, a sole plain-text leading `#`
+  heading, or the filename stem, and submits `POST /api/v2/pod/pages` with
+  `type: "doc"`. For non-Markdown files—and for any file attachment created
+  under Brain—the browser submits the file bytes and Page attributes to `POST
+  /api/v2/pod/file-pages`, which creates the File Page and file reference in a
+  single tree transaction (defaulting an empty title to the selected filename).
+  If creation fails, the UI keeps the form entry open for retry. Replacing an
+  existing file Page's bytes gives the Page the uploaded file's name, and the
+  title follows that name. Editing the title keeps the stored file's extension
+  unless the new title already ends with it, so a renamed Office file still
+  opens in its editor and downloads with its type.
 
 Users edit Page titles at the top of the canvas. An Applet Page gives its whole
 canvas to the Applet instead: the Page's path shows the title, and the
@@ -241,14 +247,15 @@ Markdown into an editable Document Page's title field places the leading heading
 or title line in the Page title and pastes the remaining Markdown into the
 document body.
 
-Every other file belongs to its own File Page. The **File** entry in the `/` and
-`+` menus opens an upload panel at the caret; each chosen or dropped file becomes
-a File Page child of the current Document, and the document body stays unchanged.
+Non-media uploads become child Pages under the current Document. The **File**
+entry in the `/` and `+` menus opens an upload panel at the caret; each chosen
+or dropped Markdown file parses into a Document Page child and every other file
+becomes a File Page child, while the current document body stays unchanged.
 Pasting or dropping files into the document routes each file by type: images and
-videos become media blocks at the drop point, while other files become File Page
-children through the same path as the upload panel. The new children appear in
-the subpages directory below the body. Files upload one at a time, and a failure
-stops at that file while the children created before it remain.
+videos become media blocks at the drop point, while Markdown and other files
+become child Pages through the same path as the upload panel. The new children
+appear in the subpages directory below the body. Files upload one at a time, and
+a failure stops at that file while the children created before it remain.
 
 External embeds use `<embed href="…" title="…" height="…" />` and render a quiet
 iframe without permanent chrome, deriving provider URLs for Figma, YouTube, and
@@ -557,11 +564,15 @@ query `Pages.search` with `domain=all` so organizational `Brain` pages and
 categories participate alongside regular Pages (excluding hidden
 `ankole_brain_sources` backing nodes), whereas internal Page pickers default
 `domain` to `pages`. While the 180 ms input debounce settles, the command menu
-filters cached Pages locally at zero latency and then replaces them in exact
-server order (`shouldFilter={false}`), showing empty-query `Recent searches`
+filters cached Pages locally using their latest confirmed titles, then replaces
+them in exact server order (`shouldFilter={false}`), showing empty-query `Recent searches`
 (persisted in `pod_search_queries` with 30-second prefix/suffix coalescing, a
 20-entry per-principal cap, single-entry deletion, and Clear) above `Recent
-pages`. Callers can restrict matching to `Title only`, scope to the open Page's
+pages`. The browser also caches Page metadata and recent searches by Pod and
+Principal to populate the menu while requests are pending. Successful deletion
+or clearing of recent searches updates this local copy. Signing out clears the
+selected identity's local cache and invalidates its pending disk reads and writes.
+Callers can restrict matching to `Title only`, scope to the open Page's
 subtree, or switch between `Best matches` and edited/created timestamp sorts; on
 desktop viewports, a right-hand preview pane loads the focused Page through
 read-only `pageQuery` (pre-warming TanStack Query without recording a visit) and
@@ -658,10 +669,10 @@ Pages (ordered by `page_user_states.visited_at`) with recent Conversations
 (ordered by the later of `viewer.lastVisitedAt` and `lastActivityAt`) both inline in the sidebar and in `/content/recent`;
 the sidebar retains up to three attention items in decision, relevant unread
 comment, then running-work order. Attention queries include older unfinished
-work outside the ordinary recent page. While any work item is in To do or In
-progress, and while the Work page is open, `Home` also shows a
-`Background Agent tasks` row directly above `Shared with me`, which opens the
-Work page at `/work` (see [Issues](Issues.md)). Chat combines pinned rooms, an
+work outside the ordinary recent page. Directly above `Shared with me`, `Home`
+shows a permanent `Jobs` row (badged with attention or running counts from
+`GET /api/v2/pod/jobs/summary`) that opens the [Jobs Board](JobsBoard.md) at
+`/jobs`. Chat combines pinned rooms, an
 Assistant section that opens on its latest tasks each time Chat opens and keeps
 the active/unread tasks while collapsed, and existing IM rooms plus callable
 colleagues. Every tab offers New Chat for formal members.
@@ -1654,9 +1665,17 @@ Page access before delivering updates. The browser maps selections through its
 pending edits and hides selections from an incompatible revision. The participant
 strip distinguishes viewers and editors. The document's people and its
 connection and save status sit in the top bar, so both stay visible while the
-document scrolls. The status is an icon that names itself in words only while
-the document is offline or failing; in a top bar narrower than 860 px, that
-name drops back to the icon and a participant count replaces the avatars. The
+document scrolls. During background editing, the status renders as an icon and
+shows a text label only when the document is offline, failing, or running an
+explicit `Mod+S` (`Command+S` or `Control+S`) save; in a top bar narrower than
+860 px, offline and error labels drop back to the icon and a participant count
+replaces the avatars. Pressing `Mod+S` on any Page in an editable state—a
+Document Page, an editable Office File Page, a Base Page with edit or contribute
+permission, a Knowledge Page in edit mode, or any Page while focused in its
+editable title—intercepts the browser's native page-save shortcut, flushes
+pending title or body edits immediately (or runs one synchronization request
+when local state is already clean), and shows the saving status in the top bar
+until that request settles. The
 participant popover shows the full status and member list. `PodRealtime` owns connection status and reports it from the channel
 lifecycle. A failed synchronization request displays a retryable error while
 the channel continues to report its actual connection
@@ -2066,6 +2085,10 @@ child listing, while Page events update cached entries for children actually
 deleted by the server. Deleting a reference via text selection or an Agent
 rewrite leaves the target Page intact in the tree.
 
+Embedded child deletion uses the same Page trash lifecycle as deletion from
+the directory. Ankole retires the child's Brain facts and removes its search
+chunks in the deletion transaction.
+
 ## Base
 
 Navigating to a Base Page kicks off the table-list and initial table-schema
@@ -2471,13 +2494,16 @@ their own object references until their owner removes them. A frozen message or
 delivery attachment can continue referencing the previous object; see
 [Files](Files.md).
 
-File Pages render in-browser previews for PDFs, images, audio, video, workbooks,
-Word documents, and presentations. Office, workbook, and PDF viewers lazy-load
-their rendering Workers and stream bytes from the authorized Pod file URL without
-sending files to any external service—supporting sheet switching for workbooks,
-paginated layout for Word documents, slide switching for presentations, the
-[PDF viewer](#pdf-viewer) for PDFs, and original-file downloads (preview
-fidelity follows supported format features and installed fonts). `.xlsx`,
+File Pages render in-browser previews for PDFs, HTML documents, source code and
+plain text, CSV/TSV tables, images, audio, video, workbooks, Word documents, and
+presentations. Office, workbook, and PDF viewers lazy-load their rendering
+Workers and stream bytes from the authorized Pod file URL without sending files
+to any external service—supporting sheet switching for workbooks, paginated
+layout for Word documents, slide switching for presentations, the
+[PDF viewer](#pdf-viewer) for PDFs, the
+[HTML and source code viewer](#html-and-source-code-viewer) for `.html`, `.htm`,
+`.xhtml`, and source files, and original-file downloads (preview fidelity
+follows supported format features and installed fonts). `.xlsx`,
 `.xlsm`, `.docx`, `.docm`, and `.pptx` files open in the collaborative Office
 editors and read-only WebAssembly Workers (see [Office Files](OfficeFiles.md)),
 whereas `.xls`, `.xlsb`, and `.ods` workbooks use the read-only SheetJS table
@@ -2697,6 +2723,32 @@ of the pdf.js stylesheet, in a cascade layer below the Ankole theme. The Grid
 card thumbnail reads the first page through the same pdf.js setup and worker. Printing and rotation stay with the browser's own viewer,
 which the attachment preview's open-in-new-tab link and the original-file
 download reach.
+
+### HTML and source code viewer
+
+HTML File Pages, inline Document embeds of HTML File Pages, and Chat attachment
+previews for `.html`, `.htm`, `.xhtml`, `text/html`, and `application/xhtml+xml`
+share one tabbed viewer with **Preview** and **Source** modes:
+
+- **Opaque-origin sandboxed preview**: `HtmlFilePreview` opens on **Preview** by
+  default, streams up to `16 MiB` from the authorized file URL, and mounts the
+  document through `srcDoc` inside an `<iframe sandbox="allow-scripts
+  allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox
+  allow-downloads" referrerPolicy="no-referrer" allow="fullscreen">`. Omitting
+  `allow-same-origin` isolates the rendered HTML in an opaque `null` origin
+  without access to Ankole cookies, storage, or `/api/*` endpoints, while an
+  in-memory `localStorage` / `sessionStorage` / `document.cookie` compatibility
+  shim keeps bundled single-file web apps running and opens external links in a
+  new tab. Files larger than `16 MiB` skip iframe rendering and offer direct
+  original-file download alongside the **Source** tab.
+- **Syntax-highlighted source and line anchors**: **Source** mode on HTML files
+  and `TextFilePreview` on source-code File Pages stream up to `256 KiB`, render
+  dual-theme Shiki tokens per line (`github-light` / `github-dark`, bypassing
+  tokenization on minified lines over `2,000` characters), default to horizontal
+  scrolling with an accessible line-wrap toggle, and keep line-gutter selection
+  for `{ kind: "lines", start_line, end_line }` comments. Selecting a line
+  comment thread or search jump while **Preview** is active switches the viewer
+  to **Source** and scrolls the anchored lines into view.
 
 ### Office Pages
 
@@ -3084,7 +3136,7 @@ business write:
   unknown option with `400 invalid_request` and runs under the selected
   ordinary or `admin` execution Principal (mirrored on
   `AnkoleRuntime.admin.ai`). `ai.generateSpeech` accepts `input`, `voice`,
-  `format` (`mp3` or `pcm`), `speed`, `instructions`, and `saveTo`, resolves
+  `format` (`mp3`, `pcm`, or `wav`), `speed`, `instructions`, and `saveTo`, resolves
   AIGateway's `speech.default` selector, and stores the audio the way
   `ai.generateImage` stores an image: in `assets/<sha256>/<name>` on the
   Applet Page, or on the `saveTo` Page. It returns `url`, `mimeType`, and

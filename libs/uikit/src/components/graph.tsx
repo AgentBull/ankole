@@ -135,7 +135,9 @@ export function AnkoleGraph({
   const [stageSize, setStageSize] = useState<{ width: number; height: number }>({ width: 960, height: 560 })
   const [internalHoverId, setInternalHoverId] = useState<string | null>(null)
 
-  const activeNodeId = highlightedNodeId ?? internalHoverId ?? selectedNodeId
+  const validHoverId =
+    internalHoverId !== null && nodes.some(node => node.id === internalHoverId) ? internalHoverId : null
+  const activeNodeId = highlightedNodeId ?? validHoverId ?? selectedNodeId
   // Only the radial layout arranges itself around a focus node. Elsewhere a new focus, such as the node a click
   // selects, restyles the graph without laying it out again.
   const focusCenterNodeId = layout === 'radial' ? requestedFocusCenterNodeId : null

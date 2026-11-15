@@ -155,7 +155,8 @@ export function DocumentSubpages({
   })
   const favoriteIDs = new Set(favorites.data?.pages.map(item => item.id) ?? [])
   const actions = usePageActions()
-  const createChild = usePageCreation({ parentID: page.id, scope, privateOwner })
+  const subpageDomain = page.type === 'knowledge' ? 'brain' : 'pages'
+  const createChild = usePageCreation({ parentID: page.id, scope, privateOwner, domain: subpageDomain })
 
   const uploadInput = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
@@ -172,7 +173,7 @@ export function DocumentSubpages({
     if (!files.length || uploading) return
     setUploading(true)
     try {
-      await uploadFileSubpages(client, page.id, files)
+      await uploadFileSubpages(client, page.id, files, { domain: subpageDomain })
     } catch (error) {
       toast.error(requestErrorMessage(contentError(error)))
     } finally {

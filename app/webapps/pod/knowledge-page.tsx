@@ -8,14 +8,19 @@ import { useNavigate } from '@tanstack/react-router'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { InternalAPIError } from '../common/internal-api-client'
-import { contentKeys, fileURL, pageAPI, resolvePodLinkMetadata, type PageDetail } from './content-api'
+import { contentKeys, fileURL, pageAPI, pageQuery, resolvePodLinkMetadata, type PageDetail } from './content-api'
 import { usePageHref } from './use-page-metadata'
 import { ContentError, ContentSkeleton } from './content-primitives'
-import { useContent } from './content-context'
+import { useContent, usePageHost } from './content-context'
 import { createMentionHostAdapters } from './document-mentions'
 import { KnowledgeProperties } from './knowledge-properties'
 import { KnowledgePanel } from './knowledge-panel'
-import { KnowledgeDraftModel, knowledgeSubmission, acknowledgeKnowledge } from './state/knowledge-draft'
+import {
+  KnowledgeDraftModel,
+  knowledgeSubmission,
+  acknowledgeKnowledge,
+  rebaseCleanKnowledge
+} from './state/knowledge-draft'
 import { DocumentDraftModel } from './state/document-draft'
 import { DraftNavigationGuard } from './draft-navigation-guard'
 import { DocumentRecovery } from './document-recovery'
@@ -44,11 +49,14 @@ export function KnowledgePage({
   useSignals()
   const { t, i18n } = useTranslation()
   const content = useContent()
+  const pageHost = usePageHost()
   const pageHref = usePageHref()
   const client = useQueryClient()
   const navigate = useNavigate()
   const historyTrigger = useRef<HTMLButtonElement>(null)
   const editTrigger = useRef<HTMLButtonElement>(null)
+  const flushRef = useRef<(() => void) | null>(null)
+  const savePromiseRef = useRef<Promise<unknown> | null>(null)
   const [history, setHistory] = useState(false)
   const [editorError, setEditorError] = useState<unknown>()
   const metadata = detail.page.metadata ?? {}
@@ -111,6 +119,61 @@ export function KnowledgePage({
   const download = useMutation({
     mutationFn: () => downloadKnowledge(detail.page.id, detail.page.title)
   })
+  const submitSave = async (): Promise<boolean> => {
+    flushRef.current?.()
+    if (savePromiseRef.current) {
+      await savePromiseRef.current.catch(() => {})
+      return true
+    }
+    if (draft.parsed.peek().error) return false
+    const pending = save.mutateAsync(knowledgeSubmission(body, draft))
+    savePromiseRef.current = pending
+    try {
+      await pending
+    } catch {
+      // Save error is captured in `save.error` and rendered via `<ContentError>`.
+    } finally {
+      if (savePromiseRef.current === pending) savePromiseRef.current = null
+    }
+    return true
+  }
+  const submitSaveRef = useRef(submitSave)
+  submitSaveRef.current = submitSave
+  const registerPageSave = pageHost?.registerPageSave
+  useEffect(() => {
+    if (!editing || savePromiseRef.current) return
+    rebaseCleanKnowledge(body, draft, {
+      xml: source,
+      metadata,
+      revision: detail.page.revision
+    })
+  }, [editing, source, metadata, detail.page.revision, body, draft])
+  useEffect(() => {
+    if (!canEdit || !editing) return
+    return registerPageSave?.(async ({ syncIfClean }) => {
+      if (savePromiseRef.current) {
+        await savePromiseRef.current.catch(() => {})
+        return true
+      }
+      flushRef.current?.()
+      const dirty = body.hasUnsavedChanges.peek() || draft.dirty.peek()
+      if (dirty) return submitSaveRef.current()
+      if (!syncIfClean) return false
+      try {
+        const fresh = await client.fetchQuery({ ...pageQuery(detail.page.id), staleTime: 0 })
+        if (!savePromiseRef.current) {
+          rebaseCleanKnowledge(body, draft, {
+            xml: fresh.content?.content ?? '<page/>',
+            metadata: fresh.page.metadata ?? {},
+            revision: fresh.page.revision
+          })
+        }
+      } catch {
+        // Clean refresh is best-effort; keep the author's clean editing session open.
+      }
+      return true
+    })
+  }, [canEdit, editing, registerPageSave, body, draft, client, detail.page.id])
   const begin = () => {
     body.xml.value = source
     body.saved(source, detail.page.revision, false)
@@ -146,7 +209,7 @@ export function KnowledgePage({
               <Button
                 size="sm"
                 disabled={save.isPending || !!draft.parsed.value.error}
-                onClick={() => save.mutate(knowledgeSubmission(body, draft))}>
+                onClick={() => void submitSave()}>
                 {save.isPending ? t('pod.knowledge.saving') : t('pod.knowledge.save')}
               </Button>
             )}
@@ -185,6 +248,7 @@ export function KnowledgePage({
             key={draft.generation.value}
             xml={body.xml.value}
             disabled={save.isPending}
+            flushRef={flushRef}
             labels={editorLabels(i18n.language)}
             host={host}
             onError={setEditorError}

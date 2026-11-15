@@ -144,7 +144,8 @@ defmodule Ankole.Pod.Files.Content do
          do: {:ok, Paths.project(node, object, node.name)}
   end
 
-  defp sync_created_file_in_tx(node, object) do
+  @doc false
+  def sync_created_file_in_tx(node, object) do
     if Ankole.Pod.OfficeFiles.spreadsheet?(node.name) do
       Ankole.Pod.OfficeFiles.reconcile_file_in_tx(node)
     else

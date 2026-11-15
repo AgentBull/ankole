@@ -9,11 +9,11 @@ import {
   jsonBytes,
   jsonObjectFromBytes,
   RPCRequestSchema
-} from '../src/fabric/envelope_proto'
+} from '../src/fabric/envelope-proto'
 import { toBinary } from '@bufbuild/protobuf'
 import { ReadToolRequestSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
-import { jobTurnRefToProto, type JobTurnRef } from '../src/lanes/session_lane'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
+import { jobTurnRefToProto, type JobTurnRef } from '../src/lanes/session-lane'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

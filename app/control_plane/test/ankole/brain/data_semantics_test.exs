@@ -367,6 +367,29 @@ defmodule Ankole.Brain.DataSemanticsTest do
       disclosure: %{mode: :strict, asker_uid: ctx.owner.uid, present_uids: [ctx.owner.uid]}
     }
 
+    assert {:error, :forbidden} =
+             ObjectWrites.write(
+               %{
+                 "category" => "metrics",
+                 "title" => "Order count",
+                 "base_revision" => 0,
+                 "markdown" => markdown
+               },
+               context
+             )
+
+    {:ok, :ok} =
+      Repo.transact(fn ->
+        :ok =
+          Ankole.Pod.Access.put_role(
+            %{principal_uid: agent.uid},
+            "drive:**:#{ctx.base.id}:**",
+            "view"
+          )
+
+        {:ok, :ok}
+      end)
+
     assert {:ok, %{"status" => "saved", "object_id" => id}} =
              ObjectWrites.write(
                %{
@@ -853,5 +876,136 @@ defmodule Ankole.Brain.DataSemanticsTest do
 
     pointers = ContextPack.volunteer_pointers(ctx.owner.uid, "上个月成交额是多少？")
     assert Enum.any?(pointers, &(&1.id == metric.id and &1.type == "metric"))
+  end
+
+  test "saving a dataset or metric requires node_view on referenced Base tables without blocking retirement",
+       ctx do
+    %{principal: editor} = human_fixture()
+    editor_actor = actor_fixture(editor.uid)
+
+    {:ok, private_base} =
+      Pages.create(ctx.actor, %{
+        type: "base",
+        title: "Private Ledger",
+        private_owner_uid: ctx.owner.uid
+      })
+
+    {:ok, %{tables: [private_table]}} = Bases.list_tables(ctx.actor, private_base.id)
+    private_primary = Enum.find(Bases.fields(private_table.id), & &1.is_primary)
+
+    {:ok, private_amount} =
+      Bases.create_field(ctx.actor, private_table.id, %{name: "Amount", type: "number"})
+
+    for category <- [ctx.datasets, ctx.metrics] do
+      {:ok, _} =
+        Pages.update_sharing(ctx.actor, category.id, %{
+          upserts: [%{principal_uid: editor.uid, role: "edit", target_scope: "container"}]
+        })
+    end
+
+    # Even with an unknown field ID, unauthorized Base references fail with :forbidden
+    # rather than leaking whether the field exists.
+    assert {:error, :forbidden} =
+             Pages.create(editor_actor, %{
+               type: :knowledge,
+               parent_id: ctx.datasets.id,
+               title: "Forbidden Dataset",
+               xml: "<page><p>Forbidden</p></page>",
+               metadata: %{
+                 "grain" => "row",
+                 "source" => %{"kind" => "base", "table_id" => private_table.id},
+                 "primary_key" => ["missing_field"]
+               }
+             })
+
+    {:ok, private_dataset} =
+      create_object(ctx, ctx.datasets, "Private Dataset", %{
+        "grain" => "row",
+        "source" => %{"kind" => "base", "table_id" => private_table.id},
+        "primary_key" => [private_primary.id]
+      })
+
+    # Joining onto an unreadable Base dataset also requires node_view on that Base.
+    assert {:error, :forbidden} =
+             Pages.create(editor_actor, %{
+               type: :knowledge,
+               parent_id: ctx.datasets.id,
+               title: "Joined Dataset",
+               xml: "<page><p>Joined</p></page>",
+               metadata: %{
+                 "grain" => "row",
+                 "source" => %{"kind" => "base", "table_id" => ctx.table.id},
+                 "primary_key" => [ctx.primary.id],
+                 "joins_to" => [
+                   %{
+                     "dataset" => private_dataset.id,
+                     "keys" => [%{"from" => ctx.primary.id, "to" => private_primary.id}],
+                     "cardinality" => "many_to_one"
+                   }
+                 ]
+               }
+             })
+
+    # Publishing a metric against an unreadable Base fails with :forbidden.
+    assert {:error, :forbidden} =
+             Pages.create(editor_actor, %{
+               type: :knowledge,
+               parent_id: ctx.metrics.id,
+               title: "Forbidden Metric",
+               xml: "<page><p>Forbidden</p></page>",
+               metadata: %{
+                 "dataset" => private_dataset.id,
+                 "grain" => "row",
+                 "unit" => "CNY",
+                 "numerator" => "Sum",
+                 "spec" => %{
+                   "metrics" => [
+                     %{"operation" => "sum", "field_id" => "missing_field", "alias" => "value"}
+                   ]
+                 }
+               }
+             })
+
+    # Once granted node_view on the Base, the editor can publish and later retire the metric
+    # even after Base access is revoked.
+    {:ok, _} =
+      Pages.update_sharing(ctx.actor, private_base.id, %{
+        upserts: [%{principal_uid: editor.uid, role: "view", target_scope: "self"}]
+      })
+
+    assert {:ok, metric} =
+             Pages.create(editor_actor, %{
+               type: :knowledge,
+               parent_id: ctx.metrics.id,
+               title: "Authorized Metric",
+               xml: "<page><p>Authorized</p></page>",
+               metadata: %{
+                 "dataset" => private_dataset.id,
+                 "grain" => "row",
+                 "unit" => "CNY",
+                 "numerator" => "Sum",
+                 "spec" => %{
+                   "metrics" => [
+                     %{"operation" => "sum", "field_id" => private_amount.id, "alias" => "value"}
+                   ]
+                 }
+               }
+             })
+
+    {:ok, _} =
+      Pages.update_sharing(ctx.actor, private_base.id, %{
+        removes: [%{principal_uid: editor.uid, target_scope: "self"}]
+      })
+
+    {:ok, %{page: current_metric}} = Pages.get(editor_actor, metric.id)
+
+    assert {:ok, _} =
+             Knowledge.write(
+               editor_actor,
+               metric.id,
+               current_metric.revision,
+               "<page><p>Retired</p></page>",
+               Map.put(current_metric.metadata, "status", "retired")
+             )
   end
 end

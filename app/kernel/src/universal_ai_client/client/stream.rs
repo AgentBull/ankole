@@ -593,18 +593,6 @@ async fn wait_for_open_websocket(
     }
 }
 
-pub(super) fn decode_response_body(body: &[u8]) -> Result<Value, StreamError> {
-    sonic_rs::from_slice::<Value>(body).map_err(|reason| {
-        StreamError::new(
-            "invalid_upstream_response",
-            "api_resolver",
-            format!("upstream response body must contain valid JSON: {reason}"),
-        )
-        .provider_status(200)
-        .provider_body_excerpt(body)
-    })
-}
-
 pub(super) fn decode_raw_response_body(body: &[u8]) -> Value {
     sonic_rs::from_slice::<Value>(body).unwrap_or_else(|_| {
         String::from_utf8(body.to_vec())

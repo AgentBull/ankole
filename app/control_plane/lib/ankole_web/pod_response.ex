@@ -85,7 +85,12 @@ defmodule AnkoleWeb.PodResponse do
   end
 
   defp send_object(conn, %Ankole.Files.Schemas.FileObject{} = object) do
-    send_bytes(conn, object.size, Base.encode16(object.sha256, case: :lower), fn offset, length ->
+    digest =
+      if is_binary(object.sha256),
+        do: Base.encode16(object.sha256, case: :lower),
+        else: object.id
+
+    send_bytes(conn, object.size, digest, fn offset, length ->
       Ankole.Files.read_object_range(object, offset, length)
     end)
   end

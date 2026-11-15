@@ -144,7 +144,7 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
   """
   def prepare_speech_model(ctx) do
     cond do
-      ctx.request["response_format"] != "mp3" ->
+      ctx.request["response_format"] not in [nil, "mp3"] ->
         unsupported_speech_field("response_format")
 
       field = Enum.find(~w(speed instructions), &is_map_key(ctx.request, &1)) ->

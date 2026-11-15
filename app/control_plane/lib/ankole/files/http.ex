@@ -3,8 +3,10 @@ defmodule Ankole.Files.HTTP do
   Bounded HTTP streams for MCP, link previews, media downloads, and file transfers,
   executed outside database transactions.
 
-  Every hop validates its URL and resolved IP addresses against `security.ssrf_filter`
-  and `Ankole.EgressProxy`. Cross-origin redirects strip authentication and custom
+  Every hop validates its URL against `security.ssrf_filter` and selects its route
+  through `Ankole.EgressProxy`. Direct connections validate locally resolved IP
+  addresses; a configured proxy resolves destination hostnames in its own network.
+  Cross-origin redirects strip authentication and custom
   request headers so credentials never leave their origin. A caller adds TLS client
   options, such as a custom CA or `verify: :verify_none`, to an `https` connection
   through `:transport_opts`.
@@ -358,15 +360,8 @@ defmodule Ankole.Files.HTTP do
              url,
              Keyword.take(opts, [:proxy_url, :require_proxy])
            ),
-         {:ok, addresses} <- resolve_addresses(uri.host),
-         :ok <-
-           Ankole.Kernel.validate_ip_addresses(
-             Enum.map(addresses, &to_string(:inet.ntoa(&1))),
-             ssrf_filter
-           ) do
-      proxy = Keyword.get(req_proxy_opts, :connect_options, [])
-      target = if proxy == [], do: hd(addresses), else: uri.host
-
+         proxy = Keyword.get(req_proxy_opts, :connect_options, []),
+         {:ok, target} <- resolve_connect_target(uri.host, proxy, ssrf_filter) do
       inet6_opts =
         if proxy == [] and is_tuple(target) and tuple_size(target) == 8,
           do: [inet6: true],
@@ -397,6 +392,35 @@ defmodule Ankole.Files.HTTP do
       )
     else
       {:error, reason} -> raise Error, reason: reason
+    end
+  end
+
+  defp resolve_connect_target(host, [], ssrf_filter) do
+    with {:ok, addresses} <- resolve_addresses(host),
+         :ok <-
+           Ankole.Kernel.validate_ip_addresses(
+             Enum.map(addresses, &to_string(:inet.ntoa(&1))),
+             ssrf_filter
+           ) do
+      {:ok, hd(addresses)}
+    end
+  end
+
+  defp resolve_connect_target(host, _proxy, ssrf_filter) when is_binary(host) do
+    trimmed = strip_ipv6_brackets(host)
+
+    case :inet.parse_address(String.to_charlist(trimmed)) do
+      {:ok, ip} ->
+        with :ok <-
+               Ankole.Kernel.validate_ip_addresses(
+                 [to_string(:inet.ntoa(ip))],
+                 ssrf_filter
+               ) do
+          {:ok, host}
+        end
+
+      {:error, _} ->
+        {:ok, host}
     end
   end
 
@@ -649,8 +673,8 @@ defmodule Ankole.Files.HTTP do
   end
 
   defp decode_body(response, limit) do
-    case List.keyfind(response.headers, "content-encoding", 0) do
-      {_, encoding} when encoding in ["gzip", "x-gzip", "deflate"] ->
+    case content_encoding(response.headers) do
+      encoding when encoding in ["gzip", "x-gzip", "deflate"] ->
         z = :zlib.open()
 
         try do
@@ -660,7 +684,7 @@ defmodule Ankole.Files.HTTP do
 
           headers =
             Enum.reject(response.headers, fn {key, _} ->
-              key in ["content-encoding", "content-length"]
+              String.downcase(to_string(key)) in ["content-encoding", "content-length"]
             end)
 
           {:ok, %{response | body: body, headers: headers}}
@@ -677,15 +701,28 @@ defmodule Ankole.Files.HTTP do
     end
   end
 
-  defp inflate(z, data, parts, size, limit) do
-    {status, output} = :zlib.safeInflate(z, data)
-    size = size + IO.iodata_length(output)
-    if size > limit, do: raise(Error, reason: :json_too_large, sent?: true)
-    parts = [parts, output]
+  defp content_encoding(headers) do
+    Enum.find_value(headers, fn {key, value} ->
+      if String.downcase(to_string(key)) == "content-encoding" and is_binary(value) do
+        value |> String.trim() |> String.downcase()
+      end
+    end)
+  end
 
-    case status do
-      :continue -> inflate(z, [], parts, size, limit)
-      :finished -> IO.iodata_to_binary(parts)
+  defp inflate(z, data, parts, size, limit) do
+    case :zlib.safeInflate(z, data) do
+      {status, output} when status in [:continue, :finished] ->
+        size = size + IO.iodata_length(output)
+        if size > limit, do: raise(Error, reason: :json_too_large, sent?: true)
+        parts = [parts, output]
+
+        case status do
+          :continue -> inflate(z, [], parts, size, limit)
+          :finished -> IO.iodata_to_binary(parts)
+        end
+
+      {:need_dictionary, _adler, _output} ->
+        raise Error, reason: :invalid_compressed_response, sent?: true
     end
   end
 end

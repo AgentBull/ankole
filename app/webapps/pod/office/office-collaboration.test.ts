@@ -532,4 +532,54 @@ describe('OfficeCollaborationModel', () => {
     await until(() => model.pending.value === 0)
     expect(model.revision.value).toBe(2)
   })
+
+  it('saveNow flushes an uncommitted unit draft with one apply or runs one sync when clean', async () => {
+    const engine = makeFakeEngine()
+    const applyGate = Promise.withResolvers<void>()
+    const syncGates: PromiseWithResolvers<void>[] = []
+    const sock = makeFakeChannel(async (_event, payload) => {
+      await applyGate.promise
+      return acknowledge(sock.applies().length, payload)
+    })
+    const { model } = await openSaveModel(engine, sock)
+    expect(model.editable.value).toBe(true)
+    const originalPush = sock.channel.push
+    sock.channel.push = async <T>(event: string, payload: object) => {
+      if (event === 'office:sync') {
+        const gate = Promise.withResolvers<void>()
+        syncGates.push(gate)
+        await gate.promise
+      }
+      return originalPush<T>(event, payload)
+    }
+
+    const syncCountBefore = sock.pushes.filter(p => p.event === 'office:sync').length
+    expect(await model.saveNow({ syncIfClean: false })).toBe(false)
+    expect(sock.pushes.filter(p => p.event === 'office:sync')).toHaveLength(syncCountBefore)
+
+    // Active paragraph/slide draft flushes via 1 office:apply without waiting for idleCommitMs or calling office:sync.
+    await model.mutate(async () => ({ result: true, snapshot: engine.typeText('immediate save') }))
+    expect(model.hasDraft.value).toBe(true)
+    const dirtySave = model.saveNow()
+    await until(() => sock.applies().length === 1)
+    expect(sock.pushes.filter(p => p.event === 'office:sync')).toHaveLength(syncCountBefore)
+    applyGate.resolve()
+    expect(await dirtySave).toBe(true)
+    expect(model.hasDraft.value).toBe(false)
+    expect(sock.applies()).toHaveLength(1)
+    expect(sock.pushes.filter(p => p.event === 'office:sync')).toHaveLength(syncCountBefore)
+
+    // Clean state sends 1 office:sync and waits for its response.
+    const cleanSave = model.saveNow()
+    await until(() => syncGates.length === 1)
+    let settled = false
+    void cleanSave.then(() => {
+      settled = true
+    })
+    await Bun.sleep(10)
+    expect(settled).toBe(false)
+    syncGates[0]!.resolve()
+    expect(await cleanSave).toBe(true)
+    expect(sock.pushes.filter(p => p.event === 'office:sync')).toHaveLength(syncCountBefore + 1)
+  })
 })

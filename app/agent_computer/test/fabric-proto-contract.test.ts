@@ -2,7 +2,7 @@ import { HostedTool } from '../src/fabric/generated/ankole/runtime_fabric/v1/env
 import { fromBinary } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { decodeEnvelope, ProtocolVersion } from '../src/fabric/envelope_proto'
+import { decodeEnvelope, ProtocolVersion } from '../src/fabric/envelope-proto'
 import {
   ReadToolRequestSchema,
   FilesGetRequestSchema,
@@ -10,7 +10,7 @@ import {
   ConversationInfoSchema,
   JSONPassthroughResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { turnStartFromEnvelope } from '../src/lanes/session_lane'
+import { turnStartFromEnvelope } from '../src/lanes/session-lane'
 
 /**
  * Pins the cross-language golden bytes.

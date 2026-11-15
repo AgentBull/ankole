@@ -4,12 +4,14 @@ import { useModel, useSignal } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from '../common/router'
+import { hasBlockingSaveOverlay, isSaveShortcut, isSidebarEditorFocus } from './content-context'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { DraftNavigationGuard } from './draft-navigation-guard'
 import { DocumentDraftModel } from './state/document-draft'
+import { PodTopBarSavingStatus } from './top-bar'
 import {
   fileBase64,
   metaKeys,
@@ -319,6 +321,15 @@ function TextFile({
   const detail = useQuery(metaSkillQuery(skill.slug))
   const file = detail.data?.files.find(file => file.relative_path === path)
   const [reviewing, setReviewing] = useState(false)
+  const [manualSaving, setManualSaving] = useState(false)
+  const savePromiseRef = useRef<Promise<unknown> | null>(null)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
   useEffect(() => {
     draft.load(path, source, revision)
     if (revision >= draft.revision.peek() && (!draft.dirty.peek() || source === draft.savedXML.peek())) {
@@ -349,8 +360,32 @@ function TextFile({
     },
     onSettled: () => client.invalidateQueries({ queryKey: metaKeys.skills() })
   })
+  const onSaveKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (!skill.can_edit) return
+    if (!isSaveShortcut(event)) return
+    if (hasBlockingSaveOverlay(document) || isSidebarEditorFocus(document.activeElement)) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.repeat || event.isComposing || event.keyCode === 229 || savePromiseRef.current || save.isPending) return
+    setManualSaving(true)
+    const pending = (
+      draft.dirty.peek() ? save.mutateAsync() : client.fetchQuery({ ...metaSkillQuery(skill.slug), staleTime: 0 })
+    )
+      .catch(() => {})
+      .finally(() => {
+        if (savePromiseRef.current === pending) savePromiseRef.current = null
+        if (mountedRef.current) setManualSaving(false)
+      })
+    savePromiseRef.current = pending
+  })
+  useEffect(() => {
+    if (!skill.can_edit) return
+    window.addEventListener('keydown', onSaveKeyDown, true)
+    return () => window.removeEventListener('keydown', onSaveKeyDown, true)
+  }, [skill.can_edit])
   return (
     <div className="space-y-3">
+      {manualSaving && <PodTopBarSavingStatus />}
       <DraftNavigationGuard dirty={draft.hasUnsavedChanges.value} />
       <Textarea
         aria-label={path}

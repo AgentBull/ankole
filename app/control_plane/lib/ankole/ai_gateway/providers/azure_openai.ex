@@ -131,7 +131,8 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
         target: if(responses?, do: :reasoning, else: :reasoning_effort)
       )
       |> OpenAIRequestOptions.put_provider_options(
-        if(responses?, do: :responses, else: :chat_completions)
+        if(responses?, do: :responses, else: :chat_completions),
+        ctx.request
       )
     end
   end

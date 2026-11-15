@@ -19,7 +19,7 @@ import { mkdirAgentSync } from '../src/common/agent-user'
 import { runCodexJob } from '../src/core/codex-runner'
 import { create } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { jsonBytes, jsonFromBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes, jsonFromBytes, jsonObjectFromBytes } from '../src/fabric/envelope-proto'
 import {
   AgentConversationContextResponseSchema,
   AIGatewayAPIKeyResponseSchema,
@@ -32,8 +32,8 @@ import {
   type BackgroundAgentJobResponse,
   type RuntimeSkillSummary
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { type RPCRequester } from '../src/lanes/rpc_lane'
-import { type RPCRequestInit } from '../src/lanes/rpc_contract'
+import { type RPCRequester } from '../src/lanes/rpc-lane'
+import { type RPCRequestInit } from '../src/lanes/rpc-contract'
 
 type RecordedStatusUpdate = RPCRequestInit<'background_agent_job.status.update'> & {
   metadataJson?: Uint8Array
@@ -78,7 +78,7 @@ type FakeCodexBehavior = {
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
   return bytes ? jsonObjectFromBytes(bytes, 'test fixture json') : undefined
 }
-import type { TurnStart } from '../src/lanes/session_lane'
+import type { TurnStart } from '../src/lanes/session-lane'
 import type { CodexJobOptions } from '../src/core/codex-runner/options'
 import { BrowserRuntime } from '../src/browser-runtime'
 import { FakeDrive } from './support/fake-drive'

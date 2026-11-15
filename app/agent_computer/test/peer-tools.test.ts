@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
 import { createPeerTools } from '../src/tools/library/peer-tools'
 import { buildCodexJobProjection } from '../src/core/codex-runner/job/projection'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
-import type { RPCRequester, RPCCallOptions } from '../src/lanes/rpc_lane'
-import type { JobTurnRef } from '../src/lanes/session_lane'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope-proto'
+import type { RPCRequester, RPCCallOptions } from '../src/lanes/rpc-lane'
+import type { JobTurnRef } from '../src/lanes/session-lane'
 
 test('Job peer tools preserve the fenced turn and idempotent call identity through the real projection', async () => {
   const turn: JobTurnRef = {

@@ -1,4 +1,5 @@
 export { parseMarkdown, printMarkdown } from './markdown'
+export { importMarkdownDocument } from './markdown-paste'
 export { parseXml, printXml } from './xml'
 export { resourceContent, resourceText } from './resources'
 export { validateKnowledge } from './knowledge'

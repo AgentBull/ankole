@@ -223,8 +223,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       {:conversation, conversation_id} ->
         Ankole.Conversations.Events.publish_status(conversation_id)
 
-      # A cron rule's Job shows on the Work item of the room that owns the rule.
-      {:cron, _schedule_id} ->
+      # Cron-owned and standalone Pod Jobs refresh open Pod Jobs views.
+      {kind, _id} when kind in [:cron, :pod_job] ->
         Ankole.Conversations.Events.publish_rooms_changed()
 
       _ ->

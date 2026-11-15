@@ -22,6 +22,41 @@ defmodule Ankole.Conversations.NativeRoom do
     end
   end
 
+  def visible_room_titles(uid, visible_page_ids, only_ids \\ nil)
+  def visible_room_titles(_uid, _visible_page_ids, []), do: %{}
+
+  def visible_room_titles(uid, visible_page_ids, only_ids)
+      when is_binary(uid) and is_list(visible_page_ids) do
+    query =
+      if visible_page_ids == [] do
+        Conversation
+        |> Ash.Query.filter(
+          kind == :native and native_access_scope == :participants and
+            exists(
+              Participant,
+              conversation_id == parent(id) and principal_uid == ^uid and role != :observer
+            )
+        )
+      else
+        Conversation
+        |> Ash.Query.filter(
+          kind == :native and
+            ((native_access_scope == :participants and
+                exists(
+                  Participant,
+                  conversation_id == parent(id) and principal_uid == ^uid and role != :observer
+                )) or
+               (native_access_scope == :anchor_page and page_id in ^visible_page_ids))
+        )
+      end
+
+    query
+    |> only_ids(only_ids)
+    |> Ash.Query.select([:id, :title])
+    |> Ankole.Ash.read!()
+    |> Map.new(&{&1.id, &1.title || ""})
+  end
+
   defp list_in_tx(actor, opts) do
     uid = Ankole.AuthZ.Actor.uid(actor)
     {:ok, reachable} = Ankole.Pod.Access.reachable_anchors(actor)

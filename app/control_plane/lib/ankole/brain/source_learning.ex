@@ -659,6 +659,9 @@ defmodule Ankole.Brain.SourceLearning do
       warning = AIGateway.web_fetch_render_warning(result) ->
         {:error, {:source_fetch_unusable, warning}}
 
+      not is_binary(text) or String.trim(text) == "" ->
+        {:error, {:source_fetch_unusable, "empty_response"}}
+
       byte_size(text) <= @max_content_bytes ->
         {:ok, text}
 

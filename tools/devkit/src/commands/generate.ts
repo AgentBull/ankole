@@ -26,7 +26,7 @@ export function generateCommand() {
  */
 export async function runGenerate(args: string[]): Promise<void> {
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
-    showUsage()
+    await showUsage()
     return
   }
 
@@ -45,7 +45,7 @@ export async function runGenerate(args: string[]): Promise<void> {
   await runSchematics(schematicsArgs)
 }
 
-function showUsage(): void {
+async function showUsage(): Promise<void> {
   process.stdout.write(`bun kit generate [collection-name:]<schematic-name> [options]
 
 Common Options:
@@ -59,7 +59,7 @@ Common Options:
 
 Available schematics in ${defaultCollection} collection:\n`)
 
-  void runSchematics([`${collectionPath}:`, '--list-schematics'])
+  await runSchematics([`${collectionPath}:`, '--list-schematics'])
   process.stdout.write(`
 By default, if the collection name is not specified, use the internal collection provided by ${defaultCollection}.
 e.g. "${chalk.bold('bun kit g code-workspace')}" equals "${chalk.bold(`bun kit g ${defaultCollection}:code-workspace`)}".

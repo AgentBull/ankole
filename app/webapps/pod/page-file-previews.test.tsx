@@ -2,9 +2,17 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
+import { codeLanguageFromFileName, isHtmlFile } from '../common/file-preview'
 import i18n, { loadLocale } from '../common/i18n'
+import { contentKeys } from './content-api'
 import PdfPreview from './file-pdf'
-import { DelimitedTablePreview } from './page-file-previews'
+import {
+  buildSandboxedHtmlSrcDoc,
+  DelimitedTablePreview,
+  HTML_SANDBOX_ALLOW,
+  HtmlFilePreview,
+  TextFilePreview
+} from './page-file-previews'
 
 beforeAll(async () => {
   await loadLocale('en-US')
@@ -100,5 +108,170 @@ describe('PdfPreview', () => {
     expect(html).toContain(`aria-label="${i18n.t('pod.content.find_in_page')}"`)
     expect(html).toContain(`aria-label="${i18n.t('pod.chat_timeline.zoom_out')}"`)
     expect(html).toContain(`aria-label="${i18n.t('pod.chat_timeline.zoom_in')}"`)
+  })
+})
+
+describe('HTML and code source previews', () => {
+  test('detects HTML variants and maps source file extensions to Shiki grammars', () => {
+    expect(isHtmlFile('applet.html')).toBe(true)
+    expect(isHtmlFile('legacy.htm')).toBe(true)
+    expect(isHtmlFile('document (1).xhtml')).toBe(true)
+    expect(isHtmlFile('bundle.bin', 'text/html; charset=utf-8')).toBe(true)
+    expect(isHtmlFile('script.ts', 'text/plain')).toBe(false)
+
+    expect(codeLanguageFromFileName('applet (2).htm')).toBe('html')
+    expect(codeLanguageFromFileName('page.xhtml')).toBe('html')
+    expect(codeLanguageFromFileName('router.exs')).toBe('elixir')
+    expect(codeLanguageFromFileName('Dockerfile')).toBe('dockerfile')
+    expect(codeLanguageFromFileName('notes.txt')).toBeUndefined()
+  })
+
+  test('injects the sandbox storage and external-link shim without breaking Standards Mode doctypes', () => {
+    const withHead = buildSandboxedHtmlSrcDoc(
+      '<!doctype html><html lang="zh"><head><title>App</title></head><body>Hi</body></html>'
+    )
+    expect(withHead.startsWith('<!doctype html><html lang="zh"><head><script>')).toBe(true)
+    expect(withHead).toContain('localStorage')
+    expect(withHead).toContain('<title>App</title>')
+
+    const scriptWithLiteralHead = buildSandboxedHtmlSrcDoc(
+      '<!DOCTYPE html><script>const x = "<head>"</script><h1>Demo</h1>'
+    )
+    expect(scriptWithLiteralHead.startsWith('<!DOCTYPE html><script>(function()')).toBe(true)
+    expect(scriptWithLiteralHead).toContain('const x = "<head>"')
+
+    const fragment = buildSandboxedHtmlSrcDoc('<h1>Fragment</h1>')
+    expect(fragment.startsWith('<!doctype html><script>')).toBe(true)
+    expect(fragment.endsWith('<h1>Fragment</h1>')).toBe(true)
+  })
+
+  test('defaults HTML files to an opaque-origin sandboxed iframe without truncation banners under 16 MiB', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity } } })
+    const cacheKey = ['pod-page-file', 'page-html'] as const
+    const url = '/api/v2/pod/pages/page-html/files/content?path=ankole-pod-page-applet.html'
+
+    client.setQueryData([...cacheKey, 'file-html-preview', url, 'full'], {
+      previewHtml: '<!doctype html><html><body><h1>Applet</h1></body></html>',
+      sourceText: '<!doctype html>\n<html><body><h1>Applet</h1></body></html>',
+      tooLarge: false,
+      sourceTruncated: true,
+      empty: false
+    })
+
+    try {
+      const html = renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={client}>
+            <HtmlFilePreview
+              cacheKey={cacheKey}
+              url={url}
+              name="ankole-pod-page-applet.html"
+              size={3_500_000}
+              canComment
+              fileMeta={<span>ankole-pod-page-applet.html · 3.3 MB</span>}
+            />
+          </QueryClientProvider>
+        </I18nextProvider>
+      )
+
+      expect(html).toContain('role="tablist"')
+      expect(html).toContain(`sandbox="${HTML_SANDBOX_ALLOW}"`)
+      expect(html).not.toContain('allow-same-origin')
+      expect(html).toContain('referrerPolicy="no-referrer"')
+      expect(html).toContain(`aria-label="${i18n.t('pod.content.reload_preview')}"`)
+      expect(html).toContain(`aria-label="${i18n.t('pod.content.full_screen_preview')}"`)
+      expect(html).not.toContain('data-testid="search-truncated-notice"')
+      expect(html).toContain('ankole-pod-page-applet.html · 3.3 MB')
+    } finally {
+      client.clear()
+    }
+  })
+
+  test('opens directly on the Source tab when a line comment anchor is targeted and shows oversized fallback above 16 MiB', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity } } })
+    const cacheKey = ['pod-page-file', 'page-html-anchor'] as const
+    const url = '/api/v2/pod/pages/page-html-anchor/files/content?path=index.html'
+    const hugeUrl = '/api/v2/pod/pages/page-html-anchor/files/content?path=huge.html'
+
+    client.setQueryData([...cacheKey, 'file-html-preview', url, 'full'], {
+      previewHtml: '<!doctype html>\n<h1>Title</h1>\n<p>Body</p>',
+      sourceText: '<!doctype html>\n<h1>Title</h1>\n<p>Body</p>',
+      tooLarge: false,
+      sourceTruncated: true,
+      empty: false
+    })
+    client.setQueryData([...cacheKey, 'file-html-preview', hugeUrl, 'source-only'], {
+      previewHtml: null,
+      sourceText: '<!doctype html>\n<h1>Huge</h1>',
+      tooLarge: true,
+      sourceTruncated: true,
+      empty: false
+    })
+
+    try {
+      const anchoredHtml = renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={client}>
+            <HtmlFilePreview
+              cacheKey={cacheKey}
+              url={url}
+              name="index.html"
+              canComment
+              initialAnchor={{ kind: 'lines', start_line: 2, end_line: 3 }}
+            />
+          </QueryClientProvider>
+        </I18nextProvider>
+      )
+
+      expect(anchoredHtml).toContain('data-file-line="2"')
+      expect(anchoredHtml).toContain('&lt;h1&gt;Title&lt;/h1&gt;')
+      expect(anchoredHtml).toContain('data-testid="search-truncated-notice"')
+      expect(anchoredHtml).toContain(`aria-label="${i18n.t('pod.chat_timeline.wrap_code')}"`)
+      expect(anchoredHtml).toContain('aria-pressed="false"')
+
+      const hugeHtml = renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={client}>
+            <HtmlFilePreview
+              cacheKey={cacheKey}
+              url={hugeUrl}
+              name="huge.html"
+              size={20 * 1024 * 1024}
+              canComment={false}
+            />
+          </QueryClientProvider>
+        </I18nextProvider>
+      )
+      expect(hugeHtml).not.toContain('<iframe')
+      expect(hugeHtml).toContain('download="huge.html"')
+    } finally {
+      client.clear()
+    }
+  })
+
+  test('renders TextFilePreview with horizontal-scroll default, line-wrap toggle, and line gutters', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity } } })
+    const url = '/api/v2/pod/pages/page-code/files/content?path=server.ts'
+    client.setQueryData([...contentKeys.page('page-code'), 'file-text-preview', url], {
+      text: 'export const port = 4000\nconsole.log(port)',
+      truncated: false
+    })
+
+    try {
+      const html = renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={client}>
+            <TextFilePreview pageID="page-code" url={url} name="server.ts" canComment />
+          </QueryClientProvider>
+        </I18nextProvider>
+      )
+      expect(html).toContain('data-file-line="1"')
+      expect(html).toContain('data-file-line="2"')
+      expect(html).toContain('whitespace-pre')
+      expect(html).toContain(`aria-label="${i18n.t('pod.chat_timeline.wrap_code')}"`)
+      expect(html).toContain('aria-pressed="false"')
+    } finally {
+      client.clear()
+    }
   })
 })

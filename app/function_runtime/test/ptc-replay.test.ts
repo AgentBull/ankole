@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { runInNewContext } from 'node:vm'
 import { MessageChannel } from 'node:worker_threads'
-import { buildPtcRunnerModule, type ProgramRequest } from '../main/ptc_bootstrap.ts'
+import { buildPtcRunnerModule, type ProgramRequest } from '../main/ptc-bootstrap.ts'
 
 type Call = { namespace: string; name: string; arguments: unknown }
 type Outcome = { status: string; output: unknown[]; pending_calls: Call[]; error_code?: string }

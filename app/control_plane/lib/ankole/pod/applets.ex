@@ -42,7 +42,8 @@ defmodule Ankole.Pod.Applets do
           actor
           | turn_authority: Keyword.get(opts, :authority, actor.turn_authority)
         },
-        authentication_ref: Keyword.get(opts, :authentication_ref)
+        authentication_ref: Keyword.get(opts, :authentication_ref),
+        oidc_session_id: Keyword.get(opts, :oidc_session_id)
       )
     end
   end
@@ -312,7 +313,8 @@ defmodule Ankole.Pod.Applets do
 
       with {:ok, task} <-
              Invocation.start(package, context, limits, actor,
-               authentication_ref: parent["authentication_ref"]
+               authentication_ref: parent["authentication_ref"],
+               oidc_session_id: parent["oidc_session_id"]
              ),
            {:ok, outcome} <- Invocation.await(task) do
         if outcome["status"] < 400,
@@ -346,23 +348,27 @@ defmodule Ankole.Pod.Applets do
   end
 
   def transfer_owner(actor, page_id, owner_uid) do
-    Ankole.Repo.transact_top_level(fn ->
-      with {:ok, _} <- Ankole.Principals.lock_principals_in_tx([owner_uid]),
-           :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
-           {:ok, _} <- Access.principal(actor),
-           {:ok, page} <- Pages.lock(page_id),
-           :ok <- applet_type(page),
-           true <-
-             page.owner_uid == Ankole.AuthZ.Actor.uid(actor) or
-               Ankole.AuthZ.pod_admin?(Ankole.AuthZ.Actor.uid(actor)),
-           {:ok, %{status: :active}} <- Ankole.Principals.get_principal(owner_uid) do
-        Ankole.Ash.update(page, :transfer_owner, %{owner_uid: owner_uid})
-      else
-        false -> {:error, :forbidden}
-        {:error, _} = error -> error
-        _ -> {:error, :applet_owner_unavailable}
-      end
-    end)
+    with {:ok, updated} <-
+           Ankole.Repo.transact_top_level(fn ->
+             with {:ok, _} <- Ankole.Principals.lock_principals_in_tx([owner_uid]),
+                  :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
+                  {:ok, _} <- Access.principal(actor),
+                  {:ok, page} <- Pages.lock(page_id),
+                  :ok <- applet_type(page),
+                  true <-
+                    page.owner_uid == Ankole.AuthZ.Actor.uid(actor) or
+                      Ankole.AuthZ.pod_admin?(Ankole.AuthZ.Actor.uid(actor)),
+                  {:ok, %{status: :active}} <- Ankole.Principals.get_principal(owner_uid) do
+               Ankole.Ash.update(page, :transfer_owner, %{owner_uid: owner_uid})
+             else
+               false -> {:error, :forbidden}
+               {:error, _} = error -> error
+               _ -> {:error, :applet_owner_unavailable}
+             end
+           end) do
+      Pages.committed_page(updated)
+      {:ok, updated}
+    end
   end
 
   defp applet_type(%{type: :applet}), do: :ok

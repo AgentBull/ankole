@@ -53,7 +53,7 @@ export type PodSidebarTab = 'home' | 'chat'
 export function routeSidebarTab(pathname: string, state?: PodSidebarNavigationState | null): PodSidebarTab | undefined {
   if (state?.keepSidebarTab) return state.keepSidebarTab
   if (
-    pathname === '/work' ||
+    pathname === '/jobs' ||
     pathname === '/meta' ||
     pathname.startsWith('/meta/') ||
     pathname.startsWith('/pages/') ||

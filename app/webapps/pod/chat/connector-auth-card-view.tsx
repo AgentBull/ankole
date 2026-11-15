@@ -1,9 +1,27 @@
 import type { Spec } from '@json-render/react'
+import { useRouter } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { principalUID } from '../../common/browser-context'
+import { isDesktopRuntime, podPublicOrigin, principalUID } from '../../common/browser-context'
+import { getPodRuntimeBootstrap } from '../../common/pod-bootstrap'
+import { linkTarget } from '../../common/router'
 import { InteractionSurface, interactionSpec } from './interaction-surface'
 import type { ConnectorAuthPrompt } from './types'
+
+export function desktopConnectorHref(rawUrl: string, currentPath: string, origin: string): string | null {
+  try {
+    const parsed = new URL(rawUrl, origin)
+    if (parsed.pathname !== '/connectors') return null
+    parsed.searchParams.delete('popup')
+    if (currentPath.startsWith('/') && !currentPath.startsWith('//') && !parsed.searchParams.has('intent')) {
+      parsed.searchParams.set('intent', currentPath)
+    }
+    const query = parsed.searchParams.toString()
+    return query ? `/connectors?${query}` : '/connectors'
+  } catch {
+    return null
+  }
+}
 
 function popupAuthorizationUrl(rawUrl: string): string {
   try {
@@ -162,6 +180,7 @@ function connectorAuthSpec(
 
 export function ConnectorAuthCardView({ prompt }: { prompt: ConnectorAuthPrompt }) {
   const { t } = useTranslation()
+  const router = useRouter({ warn: false }) as ReturnType<typeof useRouter> | undefined
   const cardRef = useRef<HTMLDivElement>(null)
   const [opening, setOpening] = useState(false)
   const viewerUID = principalUID()
@@ -175,6 +194,24 @@ export function ConnectorAuthCardView({ prompt }: { prompt: ConnectorAuthPrompt 
       handlers={{
         connect: () => {
           if (!canAuthorize) return
+          if (isDesktopRuntime()) {
+            const currentPath = router?.latestLocation
+              ? `${router.latestLocation.pathname}${router.latestLocation.searchStr}`
+              : typeof window !== 'undefined'
+                ? `${window.location.pathname}${window.location.search}`
+                : ''
+            const href = desktopConnectorHref(prompt.authorization_url, currentPath, podPublicOrigin())
+            if (href && router) {
+              void router.navigate(linkTarget(href))
+              return
+            }
+            const openExternal = getPodRuntimeBootstrap()?.onOpenExternal
+            if (openExternal) {
+              setOpening(true)
+              void openExternal(prompt.authorization_url)
+              return
+            }
+          }
           setOpening(true)
           openCenteredPopup(prompt.authorization_url)
         }

@@ -201,7 +201,7 @@ export function useChatCommands({
     }
   })
   const callableSet = new Set(callableAgentUIDs)
-  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value, data, callableAgentUIDs)
+  const targetUID = effectiveTargetAgentUID(model.targetAgentUID.value)
   const sending = (send.isPending && send.variables.owner === model) || model.pending.value?.state === 'sending'
   const working =
     !!data &&

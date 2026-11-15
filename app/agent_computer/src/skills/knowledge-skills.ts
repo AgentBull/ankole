@@ -2,8 +2,8 @@ import { relativePathWithin } from '../core/path-boundary'
 import { chmod, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { isRecord } from '@agentbull/active-support'
-import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
-import type { RPCRequester, TurnRPCFrame } from '../lanes/rpc_lane'
+import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope-proto'
+import type { RPCRequester, TurnRPCFrame } from '../lanes/rpc-lane'
 import type { RuntimeSkillSummary } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 /** The model's turn directory resolves inside the command's mounted namespace. */

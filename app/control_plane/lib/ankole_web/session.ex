@@ -268,6 +268,33 @@ defmodule AnkoleWeb.Session do
 
   def authorization_reference(_conn, _request), do: nil
 
+  def pod_stream_actor(
+        %{
+          assigns: %{
+            current_principal_uid: uid,
+            oidc_session: %Ankole.OIDC.Session{id: sid, client_id: client_id}
+          }
+        } = conn,
+        _actor
+      ) do
+    oauth_scope = get_in(conn.assigns, [:oidc_claims, "scope"]) || "openid pod"
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+
+    with {:ok, _session} <- Ankole.OIDC.Sessions.validate(sid, client_id, uid, oauth_scope),
+         {:ok, principal} <- Ankole.Principals.get_principal(uid),
+         {:ok, actor} <- Ankole.OIDC.actor_for_session(sid, principal, ip),
+         do: {:ok, actor},
+         else: (_ -> :error)
+  end
+
+  def pod_stream_actor(conn, actor) do
+    with %{"principal_uid" => uid, :principal => principal} <-
+           pod_session(conn, include_principal: true),
+         true <- uid == conn.assigns.current_principal_uid,
+         do: {:ok, %{actor | principal: principal}},
+         else: (_ -> :error)
+  end
+
   def seal_reauthentication(conn, uid, authentication_ref, tenant_id)
       when is_binary(uid) and is_map(authentication_ref) and is_binary(tenant_id) do
     with {:ok, browser} <- BrowserSessions.get(browser_reference(conn)),
@@ -287,6 +314,9 @@ defmodule AnkoleWeb.Session do
       error -> error
     end
   end
+
+  def seal_reauthentication(_conn, _uid, _authentication_ref, _tenant_id),
+    do: {:error, :invalid_authentication}
 
   def unseal_reauthentication(conn, ticket, tenant_id)
       when is_binary(ticket) and ticket != "" and is_binary(tenant_id) do

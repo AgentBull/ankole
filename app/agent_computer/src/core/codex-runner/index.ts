@@ -1,4 +1,4 @@
-import type { TurnStart } from '../../lanes/session_lane'
+import type { TurnStart } from '../../lanes/session-lane'
 import { isTerminalBackgroundAgentJobStatus } from '../background-agent-job-documents'
 import { modelIntegerIDFromWire, modelIntegerIDToWire } from '../model-integer-id'
 import type { CodexJobOptions } from './options'

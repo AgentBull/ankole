@@ -96,7 +96,7 @@ pub(crate) fn sign(
         .iter()
         .map(|(name, value)| format!("{name}:{value}\n"))
         .collect();
-    let payload_hash = hex::encode(Sha256::digest(upstream.body.as_deref().unwrap_or_default()));
+    let payload_hash = hex::encode(Sha256::digest(upstream.payload_bytes()));
     // shortcut: uses the URL's path as it is, which is right for a path of
     // unreserved characters such as `/v1/speech`; encode each segment twice
     // when a service path carries other characters.

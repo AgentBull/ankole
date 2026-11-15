@@ -17,24 +17,27 @@ import { DocumentPresenceModel, peerColor } from './state/document-presence'
 
 /**
  * The document's sync state and the people in it, at the start of the top bar's actions. Each person shows as a 24px
- * avatar with a dot in their collaboration colour; the state shows as an icon and names itself in words only while
- * the document is offline or failing, and the popover lists everyone with the state.
+ * avatar with a dot in their collaboration colour; the state shows as an icon and names itself in words while an
+ * explicit save is in flight or while the document is offline or failing, and the popover lists everyone with the state.
  */
 export function DocumentPresence({
   model,
   pending,
-  error
+  error,
+  manualSaving = false
 }: {
   model: InstanceType<typeof DocumentPresenceModel>
   pending: boolean
   error: boolean
+  manualSaving?: boolean
 }) {
   useSignals()
   const { t } = useTranslation()
   const members = model.members.value
   const status = model.connection.value
-  const label =
-    status === 'disconnected'
+  const label = manualSaving
+    ? 'saving'
+    : status === 'disconnected'
       ? 'offline'
       : error
         ? 'error'
@@ -43,8 +46,9 @@ export function DocumentPresence({
           : pending
             ? 'saving'
             : 'saved'
-  const Icon =
-    status === 'disconnected' || error
+  const Icon = manualSaving
+    ? Spinner
+    : status === 'disconnected' || error
       ? CloudOffRegular
       : status === 'connecting' || pending
         ? Spinner
@@ -71,7 +75,9 @@ export function DocumentPresence({
           }>
           <span role="status" className="flex items-center gap-1.5" data-sync-status={label}>
             <Icon aria-hidden className="size-4" />
-            <span className={failing ? '@max-[860px]:sr-only' : 'sr-only'}>{statusLabel}</span>
+            <span className={manualSaving ? undefined : failing ? '@max-[860px]:sr-only' : 'sr-only'}>
+              {statusLabel}
+            </span>
           </span>
           <span className="flex items-center gap-1 @max-[860px]:hidden">
             {members.slice(0, 4).map(member => (

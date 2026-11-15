@@ -37,6 +37,7 @@ pub enum APIResolverKind {
     SystemoneDecision,
     #[serde(rename = "openai_decision")]
     OpenAIDecision,
+    GoogleDecision,
     CloudflareImages,
     OpenrouterSpeech,
     CloudflareSpeech,
@@ -47,6 +48,15 @@ pub enum APIResolverKind {
     AmazonTextractOcr,
     OpenrouterVideo,
     CloudflareMusic,
+    AlibabaDashscopeSpeech,
+    AlibabaDashscopeTranscription,
+    AlibabaDashscopeOcr,
+    VolcengineSpeech,
+    VolcengineTranscription,
+    VolcengineVisualOcr,
+    DeepseekSpeech,
+    DeepseekTranscription,
+    DeepseekOcr,
 }
 
 impl APIResolverKind {
@@ -76,6 +86,7 @@ impl APIResolverKind {
             Self::CloudflareDecision => "cloudflare_decision",
             Self::SystemoneDecision => "systemone_decision",
             Self::OpenAIDecision => "openai_decision",
+            Self::GoogleDecision => "google_decision",
             Self::CloudflareImages => "cloudflare_images",
             Self::OpenrouterSpeech => "openrouter_speech",
             Self::CloudflareSpeech => "cloudflare_speech",
@@ -86,15 +97,16 @@ impl APIResolverKind {
             Self::AmazonTextractOcr => "amazon_textract_ocr",
             Self::OpenrouterVideo => "openrouter_video",
             Self::CloudflareMusic => "cloudflare_music",
+            Self::AlibabaDashscopeSpeech => "alibaba_dashscope_speech",
+            Self::AlibabaDashscopeTranscription => "alibaba_dashscope_transcription",
+            Self::AlibabaDashscopeOcr => "alibaba_dashscope_ocr",
+            Self::VolcengineSpeech => "volcengine_speech",
+            Self::VolcengineTranscription => "volcengine_transcription",
+            Self::VolcengineVisualOcr => "volcengine_visual_ocr",
+            Self::DeepseekSpeech => "deepseek_speech",
+            Self::DeepseekTranscription => "deepseek_transcription",
+            Self::DeepseekOcr => "deepseek_ocr",
         }
-    }
-
-    /// A speech provider answers with the audio itself rather than with JSON.
-    pub fn answers_with_audio(self) -> bool {
-        matches!(
-            self,
-            Self::OpenrouterSpeech | Self::CloudflareSpeech | Self::AmazonPollySpeech
-        )
     }
 }
 
@@ -181,12 +193,26 @@ pub struct UpstreamSpec {
     pub headers: Vec<(String, String)>,
     #[serde(default)]
     pub body: Option<String>,
+    #[serde(skip)]
+    pub body_bytes: Option<Vec<u8>>,
     #[serde(default)]
     pub websocket_initial_messages: Vec<String>,
     #[serde(default)]
     pub timeout: TimeoutSpec,
     #[serde(default)]
     pub transport: TransportSpec,
+}
+
+impl UpstreamSpec {
+    pub(crate) fn payload_bytes(&self) -> &[u8] {
+        if let Some(bytes) = &self.body_bytes {
+            bytes.as_slice()
+        } else if let Some(body) = &self.body {
+            body.as_bytes()
+        } else {
+            &[]
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -204,6 +230,10 @@ pub(crate) struct PreparedHTTPRequestSpec {
     /// Signs the request for an AWS service once its body is built.
     #[serde(default)]
     pub(crate) aws_sigv4: Option<crate::universal_ai_client::aws_sigv4::AwsSigV4Spec>,
+    /// Signs the request for a Volcengine OpenAPI service once its body is built.
+    #[serde(default)]
+    pub(crate) volcengine_sigv4:
+        Option<crate::universal_ai_client::volcengine_sigv4::VolcengineSigV4Spec>,
 }
 
 impl PreparedHTTPRequestSpec {
@@ -214,6 +244,7 @@ impl PreparedHTTPRequestSpec {
             url: self.url.clone(),
             headers: self.headers.clone(),
             body: self.body.clone(),
+            body_bytes: None,
             websocket_initial_messages: Vec::new(),
             timeout: self.timeout.clone(),
             transport: self.transport.clone(),

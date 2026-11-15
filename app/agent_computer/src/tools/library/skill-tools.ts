@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import type { JobTurnRef } from '../../lanes/session_lane'
+import type { JobTurnRef } from '../../lanes/session-lane'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
-import { type RPCRequester } from '../../lanes/rpc_lane'
+import { type RPCRequester } from '../../lanes/rpc-lane'
 import { type RuntimeSkillSummary } from '../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { createSkillLoader, type SkillLoadDetails, type SkillLoader } from '../../skills/skill-loader'
 

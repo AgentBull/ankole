@@ -43,13 +43,17 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
-import { chatError, podKeys } from '../api'
+import { podKeys } from '../api'
 import {
   conversationExecution,
   messageConversationExecution,
-  stopConversationExecution
+  messagePodJobExecution,
+  podJobExecution,
+  stopConversationExecution,
+  stopPodJobExecution
 } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
+import { jobsError, jobsKeys } from '../jobs-api'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from '../panel-motion'
 import { refreshConversationQueries } from '../query-cache'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -90,7 +94,7 @@ export function ExecutionInspectorPanel({
   onSwitchTarget,
   actions
 }: {
-  conversationID: string
+  conversationID?: string
   target: InspectorTarget
   /** `inline` renders only the inspector's content, inside a surface that the caller owns and closes. */
   variant?: 'panel' | 'sheet' | 'inline'
@@ -99,7 +103,7 @@ export function ExecutionInspectorPanel({
   onClose: (event?: PanelInputEvent) => void
   onBackToSummary?: (event?: PanelInputEvent) => void
   onSwitchTarget: (next: InspectorTarget) => void
-  /** Controls that the opening surface adds to the header, before Close, such as the Work page's Issue step. */
+  /** Controls that the opening surface adds to the header, before Close. */
   actions?: ReactNode
 }) {
   const { t } = useTranslation()
@@ -304,7 +308,7 @@ function InspectorContent({
   actions,
   autoFocus
 }: {
-  conversationID: string
+  conversationID?: string
   target: InspectorTarget
   resolveAgentName?: (agentUID: string) => string | undefined
   onClose: (event?: PanelInputEvent) => void
@@ -345,11 +349,13 @@ function InspectorContent({
         </header>
         <div className="pod-chat-inspector-scroll">
           <div className="pod-chat-inspector-content">
-            <PeerExchangeInspectorBody
-              conversationID={conversationID}
-              exchangeID={target.exchangeID}
-              agentUID={target.agentUID}
-            />
+            {conversationID && (
+              <PeerExchangeInspectorBody
+                conversationID={conversationID}
+                exchangeID={target.exchangeID}
+                agentUID={target.agentUID}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -381,7 +387,7 @@ function ExecutionInspectorBody({
   actions,
   autoFocus
 }: {
-  conversationID: string
+  conversationID?: string
   target: Extract<InspectorTarget, { type: 'execution' }>
   resolveAgentName?: (agentUID: string) => string | undefined
   onClose: (event?: PanelInputEvent) => void
@@ -399,14 +405,22 @@ function ExecutionInspectorBody({
   const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({})
 
   const query = useInfiniteQuery({
-    queryKey: [...podKeys.detail(conversationID), 'execution', target.kind, target.runID],
+    queryKey: conversationID
+      ? [...podKeys.detail(conversationID), 'execution', target.kind, target.runID]
+      : jobsKeys.execution(target.kind, target.runID),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) =>
-      conversationExecution({
-        path: { id: conversationID, kind: target.kind, run_id: Number(target.runID) },
-        query: { cursor: pageParam ?? undefined },
-        signal
-      }),
+      conversationID
+        ? conversationExecution({
+            path: { id: conversationID, kind: target.kind, run_id: Number(target.runID) },
+            query: { cursor: pageParam ?? undefined },
+            signal
+          })
+        : podJobExecution({
+            path: { kind: target.kind, run_id: Number(target.runID) },
+            query: { cursor: pageParam ?? undefined },
+            signal
+          }),
     getNextPageParam: page => page.nextCursor ?? undefined,
     retry: false,
     refetchInterval: q => {
@@ -430,26 +444,43 @@ function ExecutionInspectorBody({
     resize: reducedMotion ? 'instant' : 'smooth'
   })
 
+  const refreshExecutionState = () => {
+    if (conversationID) {
+      refreshConversationQueries(client, conversationID)
+    } else {
+      void client.invalidateQueries({ queryKey: jobsKeys.all })
+    }
+  }
+
   const stopMutation = useMutation({
     mutationFn: () =>
-      stopConversationExecution({
-        path: { id: conversationID, kind: target.kind, run_id: Number(target.runID) }
-      }),
+      conversationID
+        ? stopConversationExecution({
+            path: { id: conversationID, kind: target.kind, run_id: Number(target.runID) }
+          })
+        : stopPodJobExecution({
+            path: { kind: target.kind, run_id: Number(target.runID) }
+          }),
     onSuccess: () => {
-      refreshConversationQueries(client, conversationID)
+      refreshExecutionState()
     }
   })
 
   const sendMutation = useMutation({
     mutationFn: (text: string) =>
-      messageConversationExecution({
-        path: { id: conversationID, run_id: Number(target.runID) },
-        body: { data: { requestID: uuidV4(), text } }
-      }),
+      conversationID
+        ? messageConversationExecution({
+            path: { id: conversationID, run_id: Number(target.runID) },
+            body: { data: { requestID: uuidV4(), text } }
+          })
+        : messagePodJobExecution({
+            path: { run_id: Number(target.runID) },
+            body: { data: { requestID: uuidV4(), text } }
+          }),
     onSuccess: result => {
       setDraft('')
       setSelectedChoices({})
-      refreshConversationQueries(client, conversationID)
+      refreshExecutionState()
       if (result.respawned && result.runID && result.runID !== target.runID) {
         onSwitchTarget({
           type: 'execution',
@@ -756,7 +787,7 @@ function ExecutionInspectorBody({
             onSubmit={submitText}
             placeholder={placeholder}
             submitting={sendMutation.isPending}
-            error={sendMutation.error ? requestErrorMessage(chatError(sendMutation.error)) : undefined}
+            error={sendMutation.error ? requestErrorMessage(jobsError(sendMutation.error)) : undefined}
             autoFocus={autoFocus}
             onStop={stoppable ? () => stopMutation.mutate() : undefined}
             stopping={stopMutation.isPending}

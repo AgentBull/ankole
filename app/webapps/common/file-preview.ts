@@ -1,10 +1,15 @@
 export const TEXT_PREVIEW_BYTES = 64 * 1024
+export const CODE_SOURCE_PREVIEW_BYTES = 256 * 1024
+export const HTML_PREVIEW_BYTES = 16 * 1024 * 1024
 
 // Pod guesses a media type from the extension only for the formats that it previews by media type. The control plane
 // applies its own `MIME.from_path/1` fallback when it serves such a file, so a PDF without a recorded type still
 // arrives inline.
 const MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
   pdf: 'application/pdf',
+  html: 'text/html',
+  htm: 'text/html',
+  xhtml: 'application/xhtml+xml',
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -40,15 +45,42 @@ export function previewMediaType(name: string, type?: string | null): string | u
 }
 
 export function isTextFile(name: string, mime?: string) {
+  const base = stripDuplicateSuffix(name)
   return Boolean(
     mime?.startsWith('text/') ||
-    ['application/json', 'application/xml', 'application/javascript'].includes(mime ?? '') ||
-    /\.(txt|md|markdown|json|xml|ya?ml|[cm]?[jt]sx?|py|exs?|rs|go|rb|sh|css|html|sql|toml)$/i.test(name)
+    ['application/json', 'application/xml', 'application/xhtml+xml', 'application/javascript'].includes(mime ?? '') ||
+    /^(?:dockerfile|makefile)$/i.test(base) ||
+    /\.(txt|md|markdown|json|xml|ya?ml|[cm]?[jt]sx?|py|exs?|rs|go|rb|sh|css|html?|xhtml|sql|toml)$/i.test(base)
   )
 }
 
+export function isHtmlFile(name: string, mime?: string) {
+  const base = stripDuplicateSuffix(name)
+  const normalizedMime = mime?.split(';')[0]?.trim().toLowerCase()
+  return /\.(html?|xhtml)$/i.test(base) || normalizedMime === 'text/html' || normalizedMime === 'application/xhtml+xml'
+}
+
 export function isMarkdownFile(name: string, mime?: string) {
-  return /\.(md|markdown)$/i.test(name) || mime === 'text/markdown'
+  const base = stripDuplicateSuffix(name)
+  return /\.(md|markdown)$/i.test(base) || mime === 'text/markdown'
+}
+
+const CODE_LANGUAGE_ALIASES: Record<string, string> = {
+  htm: 'html',
+  xhtml: 'html',
+  ex: 'elixir',
+  exs: 'elixir',
+  markdown: 'md',
+  yml: 'yaml'
+}
+
+export function codeLanguageFromFileName(name: string): string | undefined {
+  const base = stripDuplicateSuffix(name)
+  const lower = base.toLowerCase()
+  if (lower === 'dockerfile' || lower === 'makefile') return lower
+  const extension = base.includes('.') ? base.split('.').at(-1)?.toLowerCase() : undefined
+  if (!extension || extension === 'txt' || extension === 'text') return undefined
+  return CODE_LANGUAGE_ALIASES[extension] ?? extension
 }
 
 export function isDelimitedTextTable(name: string, mime?: string) {

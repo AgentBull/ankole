@@ -184,10 +184,23 @@ defmodule Ankole.Principals.WorkAccess do
   def from_sender(_uid), do: fields(nil)
   def service, do: %{authorization_kind: "service", human_uid: nil, human_access_version: nil}
 
-  def check_execution_target(uid, %{authorization_kind: "service"}) when is_binary(uid) do
+  def check_execution_target(uid, %{authorization_kind: kind} = authorization)
+      when is_binary(uid) do
     case Ankole.Principals.get_agent_record!(uid) do
-      %{type: :personal_assistant} -> {:error, :personal_assistant_requires_human_work}
-      _ -> :ok
+      %{type: :personal_assistant, owner_principal_uid: owner_uid} ->
+        cond do
+          kind in ["service", :service] ->
+            {:error, :personal_assistant_requires_human_work}
+
+          kind in ["human", :human] and Map.get(authorization, :human_uid) != owner_uid ->
+            {:error, :personal_assistant_requires_owner_authorization}
+
+          true ->
+            :ok
+        end
+
+      _ ->
+        :ok
     end
   end
 

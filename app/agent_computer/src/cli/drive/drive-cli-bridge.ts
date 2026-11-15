@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
-import type { TurnRPCFrame } from '../../lanes/rpc_lane'
+import type { TurnRPCFrame } from '../../lanes/rpc-lane'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import {
   CLI_REQUEST_MAX_BYTES,

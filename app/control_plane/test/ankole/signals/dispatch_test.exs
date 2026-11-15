@@ -389,6 +389,107 @@ defmodule Ankole.Signals.DispatchTest do
     end
   end
 
+  test "personal assistants accept human-owned CloudBindings and EventBindings while rejecting service or other-owner sources" do
+    worker_provider_fixture(%{is_default: true})
+    %{principal: alice} = human_fixture()
+    %{principal: bob} = human_fixture()
+    {:ok, %{principal: alice_pa}} = Ankole.Principals.ensure_personal_assistant(alice.uid)
+    {:ok, %{principal: bob_pa}} = Ankole.Principals.ensure_personal_assistant(bob.uid)
+    alice_actor = actor_fixture(alice.uid)
+
+    conversation_id = Ash.UUIDv7.generate()
+
+    {:ok, _} =
+      Ankole.ConversationsFixtures.create(alice.uid, %{
+        conversation_id: conversation_id,
+        message_id: Ash.UUIDv7.generate(),
+        agent_uid: alice_pa.uid,
+        text: "Handle my personal webhook."
+      })
+
+    bob_conversation_id = Ash.UUIDv7.generate()
+
+    {:ok, _} =
+      Ankole.ConversationsFixtures.create(bob.uid, %{
+        conversation_id: bob_conversation_id,
+        message_id: Ash.UUIDv7.generate(),
+        agent_uid: bob_pa.uid,
+        text: "Bob room."
+      })
+
+    expires_at = DateTime.add(DateTime.utc_now(:microsecond), 3_600, :second)
+
+    {:ok, %{webhook_endpoint: personal_endpoint, token: personal_token}} =
+      Ankole.Signals.Webhooks.create_endpoint(
+        Map.merge(Ankole.Principals.WorkAccess.from_sender(alice.uid), %{
+          agent_uid: alice_pa.uid,
+          label: "Alice personal CloudEvents",
+          expires_at: expires_at,
+          mode: "standing",
+          event_format: "cloudevents",
+          source_provenance: %{"kind" => "agent_tool"}
+        })
+      )
+
+    assert {:ok, _} =
+             Ankole.Signals.CloudBindings.put(alice_pa.uid, "alice-ce", %{
+               "config" => %{
+                 "webhook_endpoint_id" => personal_endpoint.id,
+                 "target_kind" => "conversation",
+                 "target_id" => conversation_id
+               }
+             })
+
+    assert {:error, :personal_assistant_requires_owner_authorization} =
+             Ankole.Signals.CloudBindings.put(bob_pa.uid, "bob-ce", %{
+               "config" => %{
+                 "webhook_endpoint_id" => personal_endpoint.id,
+                 "target_kind" => "conversation",
+                 "target_id" => bob_conversation_id
+               }
+             })
+
+    assert {:ok, %{status: :accepted, signal: delivered}} =
+             Ankole.Signals.Webhooks.receive_cloudevent(personal_token, %{
+               "specversion" => "1.0",
+               "id" => "ce-1",
+               "source" => "https://example.com/alice",
+               "type" => "alice.reminder",
+               "data" => %{"note" => "ping"}
+             })
+
+    assert delivered.agent_uid == alice_pa.uid
+    assert delivered.authorization_kind == "human"
+    assert delivered.human_uid == alice.uid
+
+    {:ok, %{webhook_endpoint: service_endpoint}} =
+      Repo.transact_top_level(fn ->
+        Ankole.Signals.Webhooks.create_operator_endpoint_in_tx(%{
+          label: "Org CloudEvents",
+          expires_at: expires_at
+        })
+      end)
+
+    assert {:error, :personal_assistant_requires_human_work} =
+             Ankole.Signals.CloudBindings.put(alice_pa.uid, "org-ce", %{
+               "config" => %{
+                 "webhook_endpoint_id" => service_endpoint.id,
+                 "target_kind" => "conversation",
+                 "target_id" => conversation_id
+               }
+             })
+
+    {:ok, base} = Pages.create(alice_actor, %{type: "base"})
+    {:ok, table} = Bases.create_table(alice_actor, base.id, %{name: "Shared"})
+
+    assert {:error, :personal_assistant_requires_human_work} =
+             Signals.put_event_binding(alice_actor, %{
+               config_ref: "base://#{table.id}",
+               agent_uid: alice_pa.uid,
+               target: %{"conversation_id" => conversation_id}
+             })
+  end
+
   defp count_reads(table, operation), do: count_queries(table, "SELECT", operation)
 
   defp count_queries(table, prefix, operation) do

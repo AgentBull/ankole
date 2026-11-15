@@ -62,7 +62,7 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
 
   defp valid_in_flight_timers?(_state, _now, _timers), do: false
 
-  laws "WorkerAcquisition state machine contracts" do
+  laws "WorkerAcquisition state machine contracts", options: [maxRecDepth: 10_000] do
     prelude(~LEAN"""
     module
 
@@ -521,36 +521,27 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
           is_binary(WorkerAcquisition.error_text(detail)),
       proof: ~LEAN"""
       rw [«rejected_error_text_redacts_detail:ensures/1»]
-      have hbin : Erlang.erlang.«is_binary/1» (Elixir.Ankole.Sessions.WorkerAcquisition.lynx_literal_kizgp2hn) = .ok Lynx.Term.true ∧
-          Erlang.erlang.«is_binary/1» (Elixir.Ankole.Sessions.WorkerAcquisition.lynx_literal_liheonu6) = .ok Lynx.Term.true ∧
-          Erlang.erlang.«is_binary/1» (Elixir.Ankole.Sessions.WorkerAcquisition.lynx_literal_doiv3vgt) = .ok Lynx.Term.true ∧
-          Erlang.erlang.«is_binary/1» (Elixir.Ankole.Sessions.WorkerAcquisition.lynx_literal_6df2lgqz) = .ok Lynx.Term.true ∧
-          Erlang.erlang.«is_binary/1» (Elixir.Ankole.Sessions.WorkerAcquisition.lynx_literal_b7l46356) = .ok Lynx.Term.true ∧
-          Erlang.erlang.«is_binary/1» (Elixir.Ankole.Sessions.WorkerAcquisition.lynx_literal_eadvwwvi) = .ok Lynx.Term.true :=
-        ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
       have htot : ∃ out, Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1» detail = .ok out ∧
           Erlang.erlang.«is_binary/1» out = .ok Lynx.Term.true := by
         rw [Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1».eq_def]
         split
         · rw [Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1».eq_def]
-          exact ⟨_, rfl, hbin.1⟩
-        · exact ⟨_, rfl, hbin.1⟩
-        · exact ⟨_, rfl, hbin.2.1⟩
-        · exact ⟨_, rfl, hbin.2.2.1⟩
-        · exact ⟨_, rfl, hbin.2.2.2.1⟩
-        · exact ⟨_, rfl, hbin.2.2.2.2.1⟩
-        · exact ⟨_, rfl, hbin.2.2.2.2.2⟩
+          exact ⟨_, rfl, rfl⟩
+        · exact ⟨_, rfl, rfl⟩
+        · exact ⟨_, rfl, rfl⟩
+        · unfold Elixir.Ankole.Sessions.WorkerAcquisition.«cause/1»
+          split <;> exact ⟨_, rfl, rfl⟩
       obtain ⟨out, hout, hbout⟩ := htot
       have hrej : Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1»
           (.tuple #[.atom "rejected", detail]) =
           Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1» (.atom "worker_provider_missing") := by
         conv => lhs; rw [Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1».eq_def]
         rfl
-      have hwpm : Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1»
-          (.atom "worker_provider_missing") =
-          .ok Elixir.Ankole.Sessions.WorkerAcquisition.lynx_literal_kizgp2hn := by
+      have hwpm : ∃ wpm, Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1»
+          (.atom "worker_provider_missing") = .ok wpm := by
         rw [Elixir.Ankole.Sessions.WorkerAcquisition.«error_text/1».eq_def]
-        rfl
+        exact ⟨_, rfl⟩
+      obtain ⟨wpm, hwpm⟩ := hwpm
       simp [hrej, hwpm, hout, hbout, Erlang.erlang.«==/2», Std.ReflCmp.compare_self]
       """
     )

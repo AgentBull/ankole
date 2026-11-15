@@ -1,4 +1,4 @@
-import type { TurnStart } from '../lanes/session_lane'
+import type { TurnStart } from '../lanes/session-lane'
 import { objectPath } from '@agentbull/active-support'
 
 /**

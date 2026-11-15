@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { KnowledgeReader } from '../src/reader'
-import { renderKnowledgeMermaid } from '../src/react/KnowledgeReader'
+import { renderKnowledgeMermaid } from '../src/react/knowledge-reader'
 import corpus from '../corpus/knowledge.json'
 
 describe('knowledge reading without an editor', () => {

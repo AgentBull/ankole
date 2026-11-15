@@ -198,6 +198,19 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     assert Enum.all?(chunks, &(&1.chunking_signature == Ankole.Brain.Chunker.signature(chunking)))
   end
 
+  test "removing an embedded child retires its Brain facts and chunks", ctx do
+    page = child(ctx.root, "Embedded reference", "Lunar alloy handling notes.")
+    {:ok, %{claim: claim}} = fact(page.id, page.id, "Lunar alloy source fact", ctx.agent.uid)
+
+    assert Repo.exists?(from(c in Chunk, where: c.source_node_id == ^page.id))
+
+    assert {:ok, nil} =
+             Pages.delete_embeds(actor_fixture(ctx.owner), ctx.root.id, [page.id])
+
+    assert Repo.get!(Claim, claim.id).expired_at
+    refute Repo.exists?(from(c in Chunk, where: c.source_node_id == ^page.id))
+  end
+
   test "timeline recall follows its source and preserves an absent subject on empty Pages", ctx do
     hidden = child(ctx.root, "Private timeline", "")
 
@@ -565,6 +578,29 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     assert resolved.id == child.id
     assert Repo.get!(Link, edge.id).to_page_id == child.id
     assert Repo.get!(Link, edge.id).link_type == "supplies"
+  end
+
+  test "a folder can be renamed after an older page is moved into it", ctx do
+    older = child(ctx.root, "Older reference", "Source details.")
+    folder = child(ctx.root, "Later folder", "")
+    actor = actor_fixture(ctx.owner)
+    assert older.id < folder.id
+
+    assert {:ok, _} =
+             Ankole.Pod.Pages.Tree.move(actor, older.id, %{parent_id: folder.id})
+
+    {:ok, before} = Objects.get_by_slug(older.id)
+
+    assert {:ok, _} =
+             Pages.update(actor, folder.id, %{
+               title: "Renamed folder",
+               expected_title: folder.name
+             })
+
+    assert {:ok, resolved} = Objects.resolve_slug(before.slug)
+    assert resolved.id == older.id
+    assert {:ok, current} = Objects.get_by_slug(older.id)
+    assert current.slug =~ "Renamed folder/Older reference"
   end
 
   defp child(parent, name, body) do

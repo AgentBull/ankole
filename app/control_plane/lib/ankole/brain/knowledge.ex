@@ -80,13 +80,14 @@ defmodule Ankole.Brain.Knowledge do
 
   # A file page has no content until Pod extracts its text, so the extraction
   # cache drives its index instead of the page write.
-  def page_changed_in_tx(%{type: type}, _content) when type == :file, do: :ok
+  def page_changed_in_tx(page, content, opts \\ [])
+  def page_changed_in_tx(%{type: type}, _content, _opts) when type == :file, do: :ok
 
   # A content save also synchronizes the data semantics of Brain objects;
   # moves and restores only reindex.
-  def page_changed_in_tx(page, _content) do
+  def page_changed_in_tx(page, _content, opts) do
     with {:ok, knowledge} <- reindex_in_tx(page.id),
-         do: Ankole.Brain.DataSemantics.sync_in_tx(knowledge)
+         do: Ankole.Brain.DataSemantics.sync_in_tx(knowledge, opts)
   end
 
   @doc "Reindexes and relearns a file page after Pod wrote or cleared its extraction cache."
@@ -289,14 +290,38 @@ defmodule Ankole.Brain.Knowledge do
              &Map.take(&1, [:id, :date, :summary, :detail, :provenance, :source_node_id])
            ),
          backlinks:
-           Enum.map(backlinks, fn link ->
-             {:ok, page} = Objects.get_by_slug(link.from_page_id)
+           (
+             from_ids = backlinks |> Enum.map(& &1.from_page_id) |> Enum.uniq()
 
-             Map.merge(Map.take(link, [:from_page_id, :link_type, :context, :link_source]), %{
-               page_id: page.id,
-               title: page.title
-             })
-           end),
+             from_pages =
+               if from_ids == [] do
+                 %{}
+               else
+                 Ankole.Brain.Schemas.Page
+                 |> Ash.Query.filter(id in ^from_ids)
+                 |> Ash.Query.select([:id, :title])
+                 |> Ankole.Ash.read!()
+                 |> Map.new(&{&1.id, &1})
+               end
+
+             Enum.flat_map(backlinks, fn link ->
+               case Map.get(from_pages, link.from_page_id) do
+                 nil ->
+                   []
+
+                 page ->
+                   [
+                     Map.merge(
+                       Map.take(link, [:from_page_id, :link_type, :context, :link_source]),
+                       %{
+                         page_id: page.id,
+                         title: page.title
+                       }
+                     )
+                   ]
+               end
+             end)
+           ),
          scorecard: %{
            takes: length(takes),
            brier: if(takes == [], do: nil, else: Ankole.Brain.Calibration.brier(takes))

@@ -1,5 +1,5 @@
 import { assertOnlyOptions, helpRequested, positiveInteger } from '../primitives'
-import { WEBHOOK_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
+import { WEBHOOK_CLI_SOCKET_ENV } from '../../core/execution/turn-runtime-env'
 import { WebhookCLICommand, type WebhookCLICommand as WebhookCLICommandValue } from './webhook-cli-protocol'
 import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import { errorMessage } from '../../common/errors'

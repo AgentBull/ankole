@@ -36,7 +36,7 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { activateBrowserAccount, browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 type BrowserAccount = BrowserSessionResponse['accounts'][number] | BrowserSessionResponse['pendingAccounts'][number]
-import { authenticationRef, podID, podLocation } from '../common/browser-context'
+import { podID, podLocation, sessionIdentityKey } from '../common/browser-context'
 import { clearPodSessionDrafts, endAccountSession, endBrowserSession } from '../common/browser-session'
 import { getPodRuntimeBootstrap, isDesktopRuntime, subscribePodRuntimeBootstrap } from '../common/pod-bootstrap'
 import { signInMethodLabel } from '../common/sign-in-method'
@@ -105,7 +105,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
   const desktopMode = isDesktopRuntime() && !!runtime
   const desktopWorkspaces = runtime?.workspaces ?? []
   const session = useQuery({
-    queryKey: ['pod-session', authenticationRef() ?? runtime?.principalUid ?? '', podID() ?? ''],
+    queryKey: ['pod-session', sessionIdentityKey() ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
     staleTime: 60_000
   })
@@ -175,7 +175,11 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
           </>
         ) : (
           <>
-            <ProfileMark name={name} avatarURL={data?.avatarURL} context={currentAvatarContext} />
+            <ProfileMark
+              name={name}
+              avatarURL={data?.avatarURL ?? runtime?.principalAvatarUrl}
+              context={currentAvatarContext}
+            />
             <SidebarFooterLabel className="pod-account-text">
               <span>{tenantName || name}</span>
               {tenantName && <small>{name}</small>}

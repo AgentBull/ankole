@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { materializeKnowledgeSkills } from '../src/skills/knowledge-skills'
 import { RuntimeSkillSummarySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { jsonBytes } from '../src/fabric/envelope_proto'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
+import { jsonBytes } from '../src/fabric/envelope-proto'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
 
 const skill = create(RuntimeSkillSummarySchema, { skillName: 'demo', sourceKind: 'builtin', relativePath: 'demo' })
 

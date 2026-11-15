@@ -40,16 +40,32 @@ pub(crate) fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<Upstream
         &upstream,
     );
     let resolver = APIResolver::new(spec.api_resolver, context.clone());
-    let body = resolver.build_body()?;
-    put_resolved_anthropic_version(spec.api_resolver, &context, &body, &mut upstream);
-    // A GET reads a resource that the request's URL names, such as the state
-    // of a video generation, so it sends no body.
-    if !upstream.method.eq_ignore_ascii_case("GET") {
-        upstream.body = Some(encode_json(&Value::Object(body))?);
+    if let Some(raw_body) = resolver.build_raw_body()? {
+        if !upstream.method.eq_ignore_ascii_case("GET") {
+            upstream.body = None;
+            upstream.body_bytes = Some(raw_body.bytes);
+        }
+        put_new_header(
+            &mut upstream.headers,
+            "content-type",
+            &raw_body.content_type,
+        );
+        put_new_header(&mut upstream.headers, "accept", "application/json");
+    } else {
+        let body = resolver.build_body()?;
+        put_resolved_anthropic_version(spec.api_resolver, &context, &body, &mut upstream);
+        // A GET reads a resource that the request's URL names, such as the state
+        // of a video generation, so it sends no body.
+        if !upstream.method.eq_ignore_ascii_case("GET") {
+            upstream.body = Some(encode_json(&Value::Object(body))?);
+        }
+        put_default_json_headers(&mut upstream);
     }
-    put_default_json_headers(&mut upstream);
     if let Some(credentials) = &spec.upstream.aws_sigv4 {
         super::aws_sigv4::sign(&mut upstream, credentials, std::time::SystemTime::now())?;
+    }
+    if let Some(credentials) = &spec.upstream.volcengine_sigv4 {
+        super::volcengine_sigv4::sign(&mut upstream, credentials, std::time::SystemTime::now())?;
     }
     Ok(upstream)
 }
@@ -184,6 +200,7 @@ mod tests {
                 url: "wss://example.test/v1/responses".to_string(),
                 headers: Vec::new(),
                 body: None,
+                body_bytes: None,
                 websocket_initial_messages: Vec::new(),
                 timeout: TimeoutSpec::default(),
                 transport: TransportSpec::default(),
@@ -235,6 +252,7 @@ mod tests {
                 url: "https://api.anthropic.com/v1/messages".to_string(),
                 headers,
                 body: None,
+                body_bytes: None,
                 websocket_initial_messages: Vec::new(),
                 timeout: TimeoutSpec::default(),
                 transport: TransportSpec::default(),

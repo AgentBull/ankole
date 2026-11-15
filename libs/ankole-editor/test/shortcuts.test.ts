@@ -12,7 +12,7 @@ import { headlessState } from '../src/editor/extension'
 import { addressLink, linkAt, removeLink, setLink } from '../src/editor/links'
 import { fenceShortcut } from '../src/editor/markdown-shortcuts'
 import { Link, safeLinkHref, schema } from '../src/editor/schema'
-import { resolveLinkInputUrl } from '../src/react/SelectionToolbar'
+import { resolveLinkInputUrl } from '../src/react/selection-toolbar'
 import { open, openWithHost } from './helpers'
 
 const markdown = (state: GardState) => printMarkdown(readTree(state.doc))

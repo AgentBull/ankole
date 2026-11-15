@@ -1,6 +1,12 @@
 import { DocumentDraftModel } from './document-draft'
 import { describe, expect, test } from 'bun:test'
-import { KnowledgeDraftModel, parseMetadata, knowledgeSubmission, acknowledgeKnowledge } from './knowledge-draft'
+import {
+  KnowledgeDraftModel,
+  parseMetadata,
+  knowledgeSubmission,
+  acknowledgeKnowledge,
+  rebaseCleanKnowledge
+} from './knowledge-draft'
 
 describe('explicit knowledge property drafts', () => {
   test('preserves nested design tokens and accepts a metadata-only change', () => {
@@ -95,4 +101,45 @@ test('metadata treats React-like business keys as ordinary JSON properties', () 
   draft.begin({ payload: { $$typeof: 'business', _owner: { uid: 'alice' } } })
   draft.change(0, { source: '$$typeof: business\n_owner: {uid: bob}' })
   expect(draft.dirty.value).toBe(true)
+})
+
+test('rebaseCleanKnowledge advances clean edit drafts onto newer remote snapshots without leaving edit mode or clobbering dirty drafts', () => {
+  const body = new DocumentDraftModel()
+  const draft = new KnowledgeDraftModel()
+  body.load('page', '<page><p>v1</p></page>', 1)
+  draft.begin({ summary: 'Initial' })
+  const initialGen = draft.generation.value
+
+  // Metadata-only advance keeps editor generation stable while advancing base revision.
+  rebaseCleanKnowledge(body, draft, {
+    xml: '<page><p>v1</p></page>',
+    metadata: { summary: 'Remote metadata' },
+    revision: 2
+  })
+  expect(draft.editing.value).toBe(true)
+  expect(draft.dirty.value).toBe(false)
+  expect(body.revision.value).toBe(2)
+  expect(draft.parsed.value.metadata).toEqual({ summary: 'Remote metadata' })
+  expect(draft.generation.value).toBe(initialGen)
+
+  // XML advance bumps generation so the editor remounts with fresh XML while remaining in edit mode.
+  rebaseCleanKnowledge(body, draft, {
+    xml: '<page><p>v3</p></page>',
+    metadata: { summary: 'Remote metadata' },
+    revision: 3
+  })
+  expect(draft.editing.value).toBe(true)
+  expect(body.xml.value).toBe('<page><p>v3</p></page>')
+  expect(body.revision.value).toBe(3)
+  expect(draft.generation.value).toBe(initialGen + 1)
+
+  // Once the author edits locally, upstream updates never overwrite the dirty draft.
+  body.xml.value = '<page><p>Author draft</p></page>'
+  rebaseCleanKnowledge(body, draft, {
+    xml: '<page><p>v4</p></page>',
+    metadata: { summary: 'Remote v4' },
+    revision: 4
+  })
+  expect(body.xml.value).toBe('<page><p>Author draft</p></page>')
+  expect(body.revision.value).toBe(3)
 })

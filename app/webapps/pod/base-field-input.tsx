@@ -11,7 +11,7 @@ import {
   RadioGroupItem
 } from '@ankole/uikit'
 import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { useDebouncedValue } from '../common/use-debounced-value'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -24,6 +24,23 @@ import { uploadPageFile } from './page-files'
 import { podSubjects } from './api/generated/sdk.gen'
 import { displayValue, fieldOptions } from './base-field-types'
 import { FieldValue, formatRecordLabel } from './base-field-value'
+
+const BaseFlushContext = createContext<Set<() => Promise<boolean>> | null>(null)
+export const BaseFlushScope = BaseFlushContext.Provider
+
+export function useRegisterBaseFlush(flush: () => Promise<boolean>) {
+  const registry = useContext(BaseFlushContext)
+  const flushRef = useRef(flush)
+  flushRef.current = flush
+  useEffect(() => {
+    if (!registry) return
+    const entry = () => flushRef.current()
+    registry.add(entry)
+    return () => {
+      registry.delete(entry)
+    }
+  }, [registry])
+}
 
 export function FieldInput({
   field,
@@ -87,6 +104,44 @@ export function FieldInput({
     setError(undefined)
     return onChange(next)
   }
+  const textInputRef = useRef<HTMLInputElement>(null)
+  const datetime = field.type === 'datetime'
+  const commitText = async (input: HTMLInputElement, finishEditing: boolean): Promise<boolean> => {
+    if (unavailable.current) return false
+    const raw = input.value
+    const next = raw === '' ? null : field.type === 'number' ? Number(raw) : datetime ? new Date(raw).getTime() : raw
+    if (input.validity.badInput || ((field.type === 'number' || datetime) && next !== null && !Number.isFinite(next))) {
+      if (commitOnChange) void Promise.resolve(change(null)).catch(() => {})
+      if (finishEditing) {
+        setError(
+          new Error(datetime ? t('pod.content.enter_a_valid_date_and_time') : t('pod.content.enter_a_valid_number'))
+        )
+      }
+      return false
+    }
+    const parsed =
+      datetime && typeof next === 'number' ? new Date(next).toISOString().replace('.000Z', '.000000Z') : next
+    if (parsed === value) {
+      if (finishEditing || model.draft.peek() === raw) {
+        model.dirty.value = false
+      }
+      if (finishEditing) onEditEnd?.()
+      return false
+    }
+    try {
+      await Promise.resolve(change(parsed))
+      if (model.draft.peek() === raw) model.dirty.value = false
+    } catch {
+      // Enclosing Base mutations surface request errors.
+    }
+    return true
+  }
+  useRegisterBaseFlush(async () => {
+    if (commitOnChange || unavailable.current || !mounted.current || !model.dirty.peek() || !textInputRef.current) {
+      return false
+    }
+    return commitText(textInputRef.current, false)
+  })
   const labels = fieldOptions(field)
   if (field.type === 'checkbox') {
     return (
@@ -254,38 +309,10 @@ export function FieldInput({
       </div>
     )
   }
-  const datetime = field.type === 'datetime'
-  const commitText = (input: HTMLInputElement, finishEditing: boolean) => {
-    if (unavailable.current) return
-    const raw = input.value
-    const next = raw === '' ? null : field.type === 'number' ? Number(raw) : datetime ? new Date(raw).getTime() : raw
-    if (input.validity.badInput || ((field.type === 'number' || datetime) && next !== null && !Number.isFinite(next))) {
-      if (commitOnChange) void Promise.resolve(change(null)).catch(() => {})
-      if (finishEditing) {
-        setError(
-          new Error(datetime ? t('pod.content.enter_a_valid_date_and_time') : t('pod.content.enter_a_valid_number'))
-        )
-      }
-      return
-    }
-    const parsed =
-      datetime && typeof next === 'number' ? new Date(next).toISOString().replace('.000Z', '.000000Z') : next
-    if (parsed === value) {
-      if (finishEditing) {
-        model.dirty.value = false
-        onEditEnd?.()
-      }
-      return
-    }
-    void Promise.resolve(change(parsed))
-      .then(() => {
-        if (finishEditing && model.draft.peek() === raw) model.dirty.value = false
-      })
-      .catch(() => {})
-  }
   return (
     <div data-cell-retained={model.dirty.value ? 'true' : undefined}>
       <Input
+        ref={textInputRef}
         variant={variant}
         disabled={disabled}
         required={required}
@@ -300,7 +327,7 @@ export function FieldInput({
         }}
         onChange={event => {
           model.edit(event.target.value)
-          if (commitOnChange) commitText(event.currentTarget, false)
+          if (commitOnChange) void commitText(event.currentTarget, false)
         }}
         onKeyDown={event => {
           if (event.nativeEvent.isComposing) return
@@ -326,7 +353,7 @@ export function FieldInput({
             onEditEnd?.()
             return
           }
-          commitText(event.currentTarget, true)
+          void commitText(event.currentTarget, true)
         }}
       />
       <ContentError error={error} />

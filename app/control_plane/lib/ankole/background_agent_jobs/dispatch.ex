@@ -257,7 +257,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     {:ok, job_sessions(job),
      fn ->
        with {:ok, event} <- append_dispatch_event(job, now),
-            :ok <- Ankole.Issues.ensure_for_task_room_in_tx(job.agent_uid, job.owner_session_id),
             do: {:ok, %{job: job, dispatch_event: event}}
      end}
   end
@@ -513,20 +512,28 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       %{} = route ->
         route = Attrs.normalize(route)
 
-        case Attrs.text(route, "binding_name") do
-          binding_name when is_binary(binding_name) ->
-            {:ok, Map.put(route, "binding_name", binding_name)}
+        if map_size(route) == 0 and standalone_pod_job?(attrs) do
+          {:ok, %{}}
+        else
+          case Attrs.text(route, "binding_name") do
+            binding_name when is_binary(binding_name) ->
+              {:ok, Map.put(route, "binding_name", binding_name)}
 
-          nil ->
-            case Ecto.UUID.cast(Map.get(route, "conversation_id")) do
-              {:ok, id} -> {:ok, Map.put(route, "conversation_id", id)}
-              :error -> {:error, :background_agent_job_reply_route_binding_missing}
-            end
+            nil ->
+              case Ecto.UUID.cast(Map.get(route, "conversation_id")) do
+                {:ok, id} -> {:ok, Map.put(route, "conversation_id", id)}
+                :error -> {:error, :background_agent_job_reply_route_binding_missing}
+              end
+          end
         end
 
       _value ->
         {:error, :invalid_background_agent_job_reply_route}
     end
+  end
+
+  defp standalone_pod_job?(attrs) do
+    match?({:pod_job, _}, Ankole.Sessions.Key.parse(Attrs.text(attrs, "owner_session_id")))
   end
 
   defp reject_unsupported_create_fields(attrs) do

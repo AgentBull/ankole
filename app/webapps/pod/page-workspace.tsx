@@ -1,7 +1,14 @@
 import { agentsQuery } from './api'
 import { pageDomain, canCreateChild, canRenamePage, canTrashPage } from './state/page-location'
 import { pageHrefFor, useCanonicalPageUrl, usePageMetadata } from './use-page-metadata'
-import { PageHostScope, type PageHostActions } from './content-context'
+import {
+  hasBlockingSaveOverlay,
+  isSaveShortcut,
+  isSidebarEditorFocus,
+  PageHostScope,
+  type PageHostActions,
+  type PageSaveOptions
+} from './content-context'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import { PageContent, PageLearningButton } from './page-content'
 import { KnowledgePage } from './knowledge-page'
@@ -119,7 +126,7 @@ import { PageFindBar, readSingleLineSelectionInContainer, shouldHandlePageFindSh
 import { normalizeSearchQuery, parseSearchTarget } from './search-targets'
 import { filesQuery } from './page-files'
 import type { OfficeNavigationSession } from './office/office-collaboration'
-import { PodTopBarActions, PodTopBarPeople, PodTopBarTitle } from './top-bar'
+import { PodTopBarActions, PodTopBarPeople, PodTopBarSavingStatus, PodTopBarTitle } from './top-bar'
 import './page-workspace.css'
 
 const AppletSettingsControl = lazy(() =>
@@ -434,6 +441,19 @@ function PageWorkspace({
   const [titleComposing, setTitleComposing] = useState(false)
   const dirty = drafts.hasUnsavedChanges.value
   const officeSession = useRef<OfficeNavigationSession | null>(null)
+  const pageSaveHandler = useRef<((options: PageSaveOptions) => Promise<boolean>) | null>(null)
+  const breadcrumbRenameSave = useRef<(() => Promise<boolean>) | null>(null)
+  const titleTimer = useRef<number | null>(null)
+  const activeRenamePromise = useRef<Promise<unknown> | null>(null)
+  const manualSaveInFlight = useRef<Promise<void> | null>(null)
+  const mountedRef = useRef(true)
+  const [manualSaving, setManualSaving] = useState(false)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
   const [activeOfficeSession, setActiveOfficeSession] = useState<OfficeNavigationSession | null>(null)
   const [officeSaveFailed, setOfficeSaveFailed] = useState(false)
   const officeUnsaved = Boolean(activeOfficeSession?.hasUnsavedChanges())
@@ -558,6 +578,14 @@ function PageWorkspace({
             setOfficeSaveFailed(false)
           }
         }
+      },
+      registerPageSave: handler => {
+        pageSaveHandler.current = handler
+        return () => {
+          if (pageSaveHandler.current === handler) {
+            pageSaveHandler.current = null
+          }
+        }
       }
     }),
     []
@@ -595,25 +623,117 @@ function PageWorkspace({
       }
     }
   })
+  const clearTitleTimer = () => {
+    if (titleTimer.current !== null) {
+      window.clearTimeout(titleTimer.current)
+      titleTimer.current = null
+    }
+  }
+  const runRename = (nextTitle: string) => {
+    const pending = rename.mutateAsync(nextTitle)
+    activeRenamePromise.current = pending
+    void pending
+      .catch(() => {})
+      .finally(() => {
+        if (activeRenamePromise.current === pending) activeRenamePromise.current = null
+      })
+    return pending
+  }
   const saveTitle = (retry = false) => {
-    if (!canRename || titleDraft.conflict.value || rename.isPending) return
-    const title = titleDraft.value.value.trim()
-    if (!retry && rename.isError && rename.variables === title) return
-    if (titleDraft.dirty.value) rename.mutate(title)
+    if (!canRename || titleDraft.conflict.value || rename.isPending || activeRenamePromise.current) return
+    const nextTitle = titleDraft.value.value.trim()
+    if (!retry && rename.isError && rename.variables === nextTitle) return
+    if (titleDraft.dirty.value) void runRename(nextTitle).catch(() => {})
   }
   const title = titleDraft.value.value
-  const autosaveTitle = useEffectEvent(() => saveTitle())
+  const autosaveTitle = useEffectEvent(() => {
+    titleTimer.current = null
+    saveTitle()
+  })
   useEffect(() => {
     if (!canRename || titleComposing) return
     const timer = window.setTimeout(autosaveTitle, 500)
-    return () => window.clearTimeout(timer)
+    titleTimer.current = timer
+    return () => {
+      window.clearTimeout(timer)
+      if (titleTimer.current === timer) titleTimer.current = null
+    }
   }, [title, canRename, titleComposing, rename.isPending])
+  const flushTitleSave = async (): Promise<boolean> => {
+    clearTitleTimer()
+    if (breadcrumbRenameSave.current) {
+      const renamed = await breadcrumbRenameSave.current()
+      if (renamed) return true
+    }
+    if (activeRenamePromise.current) {
+      await activeRenamePromise.current.catch(() => {})
+      return true
+    }
+    if (!canRename || titleDraft.conflict.peek() || !titleDraft.dirty.peek()) return false
+    await runRename(titleDraft.value.peek().trim()).catch(() => {})
+    return true
+  }
+  const handleManualSaveKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (!isSaveShortcut(event)) return
+    if (hasBlockingSaveOverlay(document) || isSidebarEditorFocus(document.activeElement)) return
+    if (trashed || accessDenied) return
+    const activeEl = document.activeElement
+    const focusInTitle =
+      canRename &&
+      (activeEl === titleInput.current ||
+        Boolean(renamingTitle && breadcrumbRenameSave.current) ||
+        Boolean(
+          activeEl instanceof HTMLElement && activeEl.matches('input, textarea') && activeEl.closest('.pod-page-path')
+        ))
+    const dirtyTitle = canRename && titleDraft.dirty.peek() && !titleDraft.conflict.peek()
+    const bodyEditable = (() => {
+      switch (page.type) {
+        case 'doc':
+          return edit && !model?.conflict.peek() && !(documentEditor.current?.state.readOnly ?? false)
+        case 'file':
+          return edit && (officeSession.current ? officeSession.current.editable.peek() : isOfficeFile)
+        case 'base':
+          return actions.includes('node_edit') || actions.includes('node_contribute')
+        case 'knowledge':
+          return edit && Boolean(properties?.editing.peek())
+        default:
+          return false
+      }
+    })()
+    if (!focusInTitle && !dirtyTitle && !bodyEditable) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.repeat || event.isComposing || event.keyCode === 229 || manualSaveInFlight.current) return
+    setManualSaving(true)
+    const run = (async () => {
+      const titleSaved = await flushTitleSave()
+      let bodySaved = false
+      if (officeSession.current) {
+        bodySaved = await officeSession.current.saveNow({ syncIfClean: !titleSaved })
+      } else if (pageSaveHandler.current) {
+        bodySaved = await pageSaveHandler.current({ syncIfClean: !titleSaved })
+      }
+      const blockedByValidation =
+        page.type === 'knowledge' && Boolean(properties?.editing.peek() && properties.parsed.peek().error)
+      if (!titleSaved && !bodySaved && !blockedByValidation) {
+        await client.fetchQuery({ ...pageQuery(page.id), staleTime: 0 }).catch(() => {})
+      }
+    })().finally(() => {
+      if (manualSaveInFlight.current === run) manualSaveInFlight.current = null
+      if (mountedRef.current) setManualSaving(false)
+    })
+    manualSaveInFlight.current = run
+  })
+  useEffect(() => {
+    window.addEventListener('keydown', handleManualSaveKeyDown, true)
+    return () => window.removeEventListener('keydown', handleManualSaveKeyDown, true)
+  }, [])
   const finishTitle = async () => {
     if (titleDraft.conflict.value) throw new Error(t('pod.document_title.conflict'))
     if (accessDenied || (!canRename && titleDraft.dirty.value)) {
       throw new Error(t('pod.content.could_not_confirm_your_editing_permission_reload_the_page_and'))
     }
-    if (titleDraft.dirty.value) await rename.mutateAsync(titleDraft.value.value.trim())
+    if (titleDraft.dirty.value) await runRename(titleDraft.value.value.trim())
   }
   const remove = usePageTrash(drafts.discard)
   const favorite = useMutation({
@@ -664,6 +784,7 @@ function PageWorkspace({
               <PageRenameField
                 page={{ ...page, actions }}
                 className="-ml-1 w-60 max-w-[45vw]"
+                saveRef={breadcrumbRenameSave}
                 onDone={() => setRenamingTitle(false)}
               />
             ) : undefined
@@ -717,10 +838,12 @@ function PageWorkspace({
         ) : (
           <PodTopBarTitle>{path}</PodTopBarTitle>
         )}
-        {page.type === 'doc' && (
+        {page.type === 'doc' ? (
           <PodTopBarPeople>
             <div ref={setPresenceContainer} className="contents" />
           </PodTopBarPeople>
+        ) : (
+          manualSaving && <PodTopBarSavingStatus />
         )}
         <PodTopBarActions>
           <div className="pod-page-actions flex shrink-0 items-center">
@@ -1147,6 +1270,7 @@ function PageWorkspace({
                               model={model!}
                               title={titleDraft.value}
                               presenceContainer={presenceContainer}
+                              manualSaving={manualSaving}
                               onEditor={attachEditor}
                               resolvedCommentIDs={commentSummary.data?.resolved_ids ?? []}
                               onComment={ids => openComments(ids[0] ?? null, ids.length > 1 ? ids : [])}

@@ -1,8 +1,8 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import type { RPCMethod, RPCRequestInit } from '../../lanes/rpc_contract'
-import { type RPCRequester, type RPCFrame } from '../../lanes/rpc_lane'
-import type { RunRef, JobTurnRef } from '../../lanes/session_lane'
-import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
+import type { RPCMethod, RPCRequestInit } from '../../lanes/rpc-contract'
+import { type RPCRequester, type RPCFrame } from '../../lanes/rpc-lane'
+import type { RunRef, JobTurnRef } from '../../lanes/session-lane'
+import { jsonObjectFromBytes } from '../../fabric/envelope-proto'
 
 export type WebhookRPCMethod = Extract<RPCMethod, `webhook.${string}`>
 export type WebhookRPCRequester = <M extends WebhookRPCMethod>(

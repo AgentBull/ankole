@@ -18,7 +18,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     page_user_states page_changes page_comments page_snapshots page_daily_activity page_search_documents page_contents
     pod_search_queries pod_office_ops pod_office_checkpoints pod_file_caches permission_grants
     conversation_action_cards external_message_refs conversation_messages conversation_participants
-    next_step_suggestions issues
+    next_step_suggestions
     session_ambient_judgments scheduled_events cron_schedules
     sessions agent_computer_worker_envs runner_bindings runner_devices
     agent_plugin_overrides agent_skill_lessons agent_skills agent_contracts skill_files skills

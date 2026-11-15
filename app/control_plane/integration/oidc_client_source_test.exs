@@ -502,6 +502,51 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
              material.requests
   end
 
+  test "guest OIDC conversations wait unarchived without enqueuing retries until scope exists",
+       ctx do
+    %{principal: guest} = human_fixture(%{membership: :guest})
+    {:ok, _} = AuthZ.add_principal_to_group(guest.uid, ctx.group.id)
+    assert Ankole.Brain.Scope.principal(guest.uid) == nil
+
+    guest_msg =
+      start_stored!(guest.uid, [text("Cobalt guest conversation before promotion")], %{
+        "oidc_client_id" => ctx.client.id
+      })
+
+    {:ok, _} = ResponseCommit.commit_complete(guest_msg.id, [])
+
+    assert {:ok, %{oidc_sources: 0}} = Ankole.Brain.SelfHealing.sweep()
+    source = source!(ctx.client)
+    assert {:ok, %{status: :learned, conversations: 0}} = SourceLearning.learn(source.id)
+    assert objects(source) == []
+    assert extraction_prompts() == []
+
+    {:ok, _} = Ankole.Principals.change_human_membership(guest.uid, :member)
+    private_root_id = Ankole.Brain.Scope.principal(guest.uid)
+    assert is_binary(private_root_id)
+
+    assert {:ok, %{oidc_sources: 1}} = Ankole.Brain.SelfHealing.sweep()
+    assert {:ok, %{status: :learned, conversations: 1}} = SourceLearning.learn(source.id)
+    [projection] = objects(source)
+    assert upstream_state(projection)["source_node_id"] == private_root_id
+
+    corrupted_state =
+      projection
+      |> upstream_state()
+      |> Map.delete("source_node_id")
+      |> Map.put("source_revision", "stale")
+
+    Repo.update_all(
+      from(p in Ankole.Pod.Page, where: p.id == ^projection.id),
+      set: [upstream_state: corrupted_state]
+    )
+
+    conv_id = guest_msg.conversation_id
+
+    assert {:error, {:conversation_learning_failed, [{^conv_id, :private_scope_unavailable}]}} =
+             SourceLearning.learn(source.id)
+  end
+
   defp client!(group_id) do
     {:ok, %{client: client}} =
       OIDC.create_client(%{

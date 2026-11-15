@@ -137,7 +137,8 @@ defmodule Ankole.Connectors.OAuth do
          %{
            error: "oauth_authorization_cancelled",
            return_to: session.return_to,
-           tenant_id: tenant
+           tenant_id: tenant,
+           actor_uid: session.actor_uid
          }}
       end
     end)
@@ -194,7 +195,12 @@ defmodule Ankole.Connectors.OAuth do
              sealed_pkce_verifier: nil
            }) do
       {:ok,
-       %{completion_code: completion, return_to: session.return_to, tenant_id: Repo.tenant_id!()}}
+       %{
+         completion_code: completion,
+         return_to: session.return_to,
+         tenant_id: Repo.tenant_id!(),
+         actor_uid: session.actor_uid
+       }}
     else
       false -> {:error, :external_subject_required}
       error -> error

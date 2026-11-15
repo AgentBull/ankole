@@ -1,9 +1,9 @@
 import { parse } from 'acorn'
 import { InvocationMCP, bridgeAppletSockets } from './mcp.ts'
-import { buildAppletWorkerBootstrap } from './applet_bootstrap.ts'
-import { CodeCache, type AppletCode } from './code_cache.ts'
+import { buildAppletWorkerBootstrap } from './applet-bootstrap.ts'
+import { CodeCache, type AppletCode } from './code-cache.ts'
 import { InvocationCapacity } from './capacity.ts'
-import { buildPtcRunnerModule, type ProgramRequest } from './ptc_bootstrap.ts'
+import { buildPtcRunnerModule, type ProgramRequest } from './ptc-bootstrap.ts'
 
 const token = Deno.env.get('ANKOLE_FUNCTION_RUNTIME_TOKEN')
 if (!token) throw new Error('ANKOLE_FUNCTION_RUNTIME_TOKEN is required')
@@ -44,10 +44,11 @@ async function evictWarmWorkers() {
         residentBytes() >= 1792 * 1024 * 1024)
     ) {
       const entry = entries.shift()!
+      if (!entries.length && warmWorkers.get(key) === entries) warmWorkers.delete(key)
       warmHeapMb -= entry.memory
       await entry.instance.retire()
     }
-    if (!entries.length) warmWorkers.delete(key)
+    if (!entries.length && warmWorkers.get(key) === entries) warmWorkers.delete(key)
   }
 }
 async function retireSupersededWarmWorkers(pagePrefix: string, activePoolKey: string) {
@@ -189,12 +190,16 @@ Deno.serve(async (req: Request) => {
       return json(401, 'unauthorized')
     }
     invocation.bridgeToken = undefined
-    const instance = await invocation.worker!
-    const target = new URL('/v1/applet/invoke', req.url)
-    target.searchParams.set('timeout_ms', String(Math.max(1, invocation.deadline - Date.now())))
-    const request = new Request(target.toString(), { headers: req.headers })
-    EdgeRuntime.applySupabaseTag(req, request)
-    return instance.fetch(forward(request))
+    try {
+      const instance = await invocation.worker!
+      const target = new URL('/v1/applet/invoke', req.url)
+      target.searchParams.set('timeout_ms', String(Math.max(1, invocation.deadline - Date.now())))
+      const request = new Request(target.toString(), { headers: req.headers })
+      EdgeRuntime.applySupabaseTag(req, request)
+      return await instance.fetch(forward(request))
+    } catch (error) {
+      return json(500, 'worker_bridge_failed', error instanceof Error ? error.message : String(error))
+    }
   }
   if (!url.pathname.startsWith('/v1/')) return json(404, 'not_found')
   if (req.headers.get('authorization') !== `Bearer ${token}`) return json(401, 'unauthorized')

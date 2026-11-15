@@ -6,8 +6,8 @@ import {
   encodeAIGatewayModelBinding,
   type CodexJobBindingIdentity
 } from '../runtime/agent-home-config'
-import { AI_GATEWAY_TOKEN_FILE_ENV, AI_GATEWAY_URL_ENV } from '../../execution/turn_runtime_env'
-import { AIGATEWAY_OBSERVABILITY_USER_ID_HEADER, aiGatewayTurnTraceHeaders } from '../../ai_gateway_transport'
+import { AI_GATEWAY_TOKEN_FILE_ENV, AI_GATEWAY_URL_ENV } from '../../execution/turn-runtime-env'
+import { AIGATEWAY_OBSERVABILITY_USER_ID_HEADER, aiGatewayTurnTraceHeaders } from '../../ai-gateway-transport'
 import type { TurnTracePropagation } from '../../../observability/turn-tracing'
 import type { CodexRuntimeConfig } from '../runtime-config'
 import { codexJobDriveContext } from './runtime-files'

@@ -182,7 +182,9 @@ async fn open_http_stream_with_client(
     for (name, value) in &upstream.headers {
         request = request.header(name.as_str(), value.as_str());
     }
-    if let Some(body) = &upstream.body {
+    if let Some(bytes) = &upstream.body_bytes {
+        request = request.body(bytes.clone());
+    } else if let Some(body) = &upstream.body {
         request = request.body(body.clone());
     }
     let response = timeout(upstream.timeout.first_byte_duration(), request.send())
@@ -502,6 +504,7 @@ mod tests {
             url: "https://127.0.0.1/ca-test".to_string(),
             headers: Vec::new(),
             body: None,
+            body_bytes: None,
             websocket_initial_messages: Vec::new(),
             timeout: TimeoutSpec {
                 connect_ms: 1,

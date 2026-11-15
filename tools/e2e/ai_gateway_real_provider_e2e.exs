@@ -434,7 +434,9 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       model: "gemini-3.1-flash-lite"
     })
 
-    Map.put(setup, :google_agent, agent)
+    setup
+    |> Map.put(:google_agent, agent)
+    |> Map.put(:google_provider, provider_id)
   end
 
   defp setup_alibaba_cn(%{suffix: suffix} = setup, credential) do
@@ -541,7 +543,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     }
 
   defp fake_setup(:jina), do: %{jina_agent: %{uid: "fake-jina-agent"}, jina_provider: "fake-jina"}
-  defp fake_setup(:google), do: %{google_agent: %{uid: "fake-google-agent"}}
+
+  defp fake_setup(:google),
+    do: %{google_agent: %{uid: "fake-google-agent"}, google_provider: "fake-google"}
+
   defp fake_setup(:alibaba_cn), do: %{alibaba_cn_agent: %{uid: "fake-alibaba-cn-agent"}}
 
   defp fake_setup(:volcengine_ark),
@@ -725,12 +730,14 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp add_jina_cases(cases, _setup), do: cases
 
-  defp add_google_cases(cases, %{google_agent: agent}, image) do
+  defp add_google_cases(cases, %{google_agent: agent, google_provider: provider}, image) do
     [
       {"google_ai_studio.llm_text", fn -> case_llm_direct(agent, "primary") end},
       {"google_ai_studio.llm_multimodal", fn -> case_llm_multimodal(agent, "primary", image) end},
       {"google_ai_studio.tool_call_round_trip",
        fn -> case_llm_tool_call_round_trip(agent, "primary") end},
+      {"google_ai_studio.decisions_typed_with_image",
+       fn -> case_decision(agent, "#{provider}/gemini-decision-1", image) end},
       {"google_ai_studio.concurrent_llm_text", fn -> case_google_concurrent_llm(agent) end}
       | cases
     ]

@@ -92,7 +92,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/decisions \
   }'
 ```
 
-`score` 질문의 `criteria`에는 2~10개의 순서 있는 등급 라벨을 지정합니다. 응답에는 `model`, `answers`, 토큰 `usage`가 포함되며 모든 답변에 확률이 들어 있습니다. TypeSafe, Azure Foundry, OpenRouter, OpenAI, Cloudflare 결정 모델은 같은 공개 요청 형식을 사용하지만 이미지 지원은 다릅니다. SystemOne은 PNG/JPEG를 지원하고 Microsoft-Decision-1은 텍스트만 지원하며 OpenAI는 WebP도 지원합니다. OpenAI가 질문 하나라도 거부하면 부분 답변 없이 `422 upstream_decision_refusal`을 반환합니다. 결정 모델 프로필이 없으면 호출자의 `light` 언어 모델이 보정되지 않은 확률로 답합니다.
+`score` 질문의 `criteria`에는 2~10개의 순서 있는 등급 라벨을 지정합니다. 응답에는 `model`, `answers`, 토큰 `usage`가 포함되며 모든 답변에 확률이 들어 있습니다. TypeSafe, Azure Foundry, OpenRouter, OpenAI, Google AI Studio, Cloudflare 결정 모델은 같은 공개 요청 형식을 사용하지만 이미지 지원은 다릅니다. SystemOne은 PNG/JPEG를 지원하고 Microsoft-Decision-1은 텍스트만 지원하며 OpenAI와 Google AI Studio는 WebP도 지원합니다. OpenAI 거부나 Google 안전 필터 차단 시에는 부분 답변 없이 `422 upstream_decision_refusal`을 반환합니다. 결정 모델 프로필이 없으면 호출자의 `light` 언어 모델이 보정되지 않은 확률로 답합니다.
 
 ## 이 가이드가 아닌 것
 

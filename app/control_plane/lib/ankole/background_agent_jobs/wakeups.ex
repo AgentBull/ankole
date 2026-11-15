@@ -46,8 +46,11 @@ defmodule Ankole.BackgroundAgentJobs.Wakeups do
     {:ok, nil}
   end
 
-  def conclude_transition_in_tx(%Job{} = job, %DateTime{} = now, steer_outcome),
-    do: append_wakeup_event(job, now, steer_outcome)
+  def conclude_transition_in_tx(%Job{} = job, %DateTime{} = now, steer_outcome) do
+    if standalone_pod_job?(job),
+      do: {:ok, nil},
+      else: append_wakeup_event(job, now, steer_outcome)
+  end
 
   @doc false
   @spec enqueue_input_undeliverable_in_tx(
@@ -67,6 +70,19 @@ defmodule Ankole.BackgroundAgentJobs.Wakeups do
         %Signal{} = steer_event,
         %DateTime{} = now
       ) do
+    if standalone_pod_job?(job) do
+      {:ok, nil}
+    else
+      enqueue_routed_input_undeliverable_in_tx(job, steer_event, now)
+    end
+  end
+
+  defp standalone_pod_job?(%Job{owner_session_id: owner_session_id, reply_route: reply_route}) do
+    map_size(reply_route || %{}) == 0 and
+      match?({:pod_job, _}, Ankole.Sessions.Key.parse(owner_session_id))
+  end
+
+  defp enqueue_routed_input_undeliverable_in_tx(%Job{} = job, %Signal{} = steer_event, now) do
     event_type = "background_agent_job.input_undeliverable"
     source_event_id = "background_agent_job:#{job.id}:input_undeliverable:#{steer_event.id}"
     reply_route = job.reply_route || %{}

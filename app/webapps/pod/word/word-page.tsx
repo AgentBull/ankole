@@ -783,8 +783,10 @@ export function WordDocumentSurface({
       return
     }
     if (ctrlOrMeta && !event.altKey && !event.shiftKey && lower === 's') {
-      event.preventDefault()
-      if (model.editable.peek()) void model.commitNow()
+      if (!event.defaultPrevented) {
+        event.preventDefault()
+        if (model.editable.peek()) void model.saveNow()
+      }
       return
     }
     if (ctrlOrMeta && !event.altKey && !event.shiftKey && lower === 'z') {

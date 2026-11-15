@@ -1,33 +1,29 @@
-import { defineCommand } from '@crustjs/core'
+import { defineCommand, defineFlag } from '@crustjs/core'
 
 import { startComposeServices } from '../local-function-runtime-image'
 import { appRootPath, loadAppDevelopmentEnv, resolveAppDatabaseName, runCompose, runMix } from '../utils'
 
-const commonDBFlags = [
-  {
-    name: 'name',
+const commonDBFlags = {
+  name: defineFlag({
     type: 'string',
     description: 'Database name. Defaults to DATABASE_URL in the development environment.'
-  },
-  {
-    name: 'start-services',
+  }),
+  'start-services': defineFlag({
     type: 'boolean',
     description: 'Start the Compose services before the database operation.',
     default: true
-  },
-  {
-    name: 'pull',
+  }),
+  pull: defineFlag({
     type: 'boolean',
     description: 'Pull the latest service images before starting services.',
     default: true
-  },
-  {
-    name: 'wait-timeout',
+  }),
+  'wait-timeout': defineFlag({
     type: 'number',
     description: 'Seconds to wait for service health checks.',
     default: 60
-  }
-] as const
+  })
+} as const
 
 /** Creates the local app database inside the devkit Postgres container. */
 export const createLocalAppDatabase = async (databaseName: string): Promise<void> => {
@@ -99,7 +95,7 @@ export function appDBCommand() {
     command =>
       command.add(
         defineCommand('create', { description: 'Create the app database if it does not already exist.' }, child =>
-          child.flags(...commonDBFlags).action(async ({ flags }) => {
+          child.flags(commonDBFlags).action(async ({ flags }) => {
             const databaseName = resolveAppDatabaseName(flags.name)
             if (flags['start-services']) {
               await startComposeServices({
@@ -112,11 +108,13 @@ export function appDBCommand() {
         ),
         defineCommand('drop', { description: 'Drop the app database.' }, child =>
           child
-            .flags(...commonDBFlags, {
-              name: 'yes',
-              type: 'boolean',
-              description: 'Confirm the destructive drop operation.',
-              default: false
+            .flags({
+              ...commonDBFlags,
+              yes: {
+                type: 'boolean',
+                description: 'Confirm the destructive drop operation.',
+                default: false
+              }
             })
             .action(async ({ flags }) => {
               requireYes('app-db drop', flags.yes)
@@ -133,21 +131,19 @@ export function appDBCommand() {
         ),
         defineCommand('rebuild', { description: 'Drop, create, and migrate the app database.' }, child =>
           child
-            .flags(
+            .flags({
               ...commonDBFlags,
-              {
-                name: 'yes',
+              yes: {
                 type: 'boolean',
                 description: 'Confirm the destructive rebuild operation.',
                 default: false
               },
-              {
-                name: 'migrate',
+              migrate: {
                 type: 'boolean',
                 description: 'Run control-plane Ecto migrations after recreating the database.',
                 default: true
               }
-            )
+            })
             .action(async ({ flags }) => {
               requireYes('app-db rebuild', flags.yes)
 

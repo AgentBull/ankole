@@ -2,6 +2,10 @@
 .gitmodules
 .github
 .forgejo
+internals/*
+!internals/agent-plugins
+!internals/deep-research-playbooks
+!internals/skills
 **/.git
 **/.elixir_ls
 **/.turbo
@@ -35,10 +39,6 @@ app/webapps/**/*.test.ts
 app/webapps/**/*.test.tsx
 app/website
 docs
-internals/*
-!internals/agent-plugins
-!internals/deep-research-playbooks
-!internals/skills
 libs/*/e2e
 libs/*/test
 libs/ankole-editor/compat

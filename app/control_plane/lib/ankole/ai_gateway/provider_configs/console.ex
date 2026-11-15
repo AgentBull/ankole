@@ -1,6 +1,7 @@
 defmodule Ankole.AIGateway.ProviderConfigs.Console do
   @moduledoc "The HTTP actions for provider catalogs, credential decryption, and ChatGPT sign-in."
   use Ankole.Ash.OperationResource,
+    tenancy: :site,
     authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.AIGateway.ProviderConfigs,
     data_layer: Ash.DataLayer.Simple,

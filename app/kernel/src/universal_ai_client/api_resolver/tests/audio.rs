@@ -166,3 +166,74 @@ fn a_transcription_without_text_is_an_invalid_upstream_response() {
 
     assert_eq!(error.code, "invalid_upstream_response");
 }
+
+#[test]
+fn audio_byte_validator_rejects_html_and_json_errors_while_preserving_octet_stream_fallback() {
+    let html_err = validate_audio_bytes(
+        &[(
+            "Content-Type".to_string(),
+            "text/html; charset=utf-8".to_string(),
+        )],
+        b"<html><body>AccessDenied</body></html>",
+        "transport_failed",
+        "result_download",
+        "result download must contain audio",
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(html_err.code, "transport_failed");
+    assert_eq!(html_err.stage, "result_download");
+    assert_eq!(html_err.provider_status, None);
+
+    let json_err = validate_audio_bytes(
+        &[("content-type".to_string(), "application/json".to_string())],
+        br#"{"error":"expired signature"}"#,
+        "transport_failed",
+        "result_download",
+        "result download must contain audio",
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(json_err.code, "transport_failed");
+
+    let (raw_octets, normalized_octets) = validate_audio_bytes(
+        &[(
+            "Content-Type".to_string(),
+            "application/octet-stream".to_string(),
+        )],
+        b"RIFF\x24\x00\x00\x00WAVE",
+        "transport_failed",
+        "result_download",
+        "result download must contain audio",
+        None,
+    )
+    .unwrap();
+    assert_eq!(raw_octets, "application/octet-stream");
+    assert_eq!(normalized_octets, None);
+
+    let (_raw_wav, normalized_wav) = validate_audio_bytes(
+        &[("Content-Type".to_string(), "audio/x-wav".to_string())],
+        b"RIFF\x24\x00\x00\x00WAVE",
+        "transport_failed",
+        "result_download",
+        "result download must contain audio",
+        None,
+    )
+    .unwrap();
+    assert_eq!(normalized_wav.as_deref(), Some("audio/wav"));
+
+    let mut speech = resolver(
+        APIResolverKind::OpenrouterSpeech,
+        "openai/gpt-4o-mini-tts",
+        json!({"input": "Hello"}),
+    );
+    let speech_err = speech
+        .normalize_http_response(
+            200,
+            &[("content-type".to_string(), "application/json".to_string())],
+            br#"{"error":"upstream failed"}"#,
+        )
+        .unwrap_err();
+    assert_eq!(speech_err.code, "invalid_upstream_response");
+    assert_eq!(speech_err.provider_status, Some(200));
+}

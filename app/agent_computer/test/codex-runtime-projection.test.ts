@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import { decodeCodexJobRuntimeProjection, projectWorkerEnv } from '../src/core/codex-runner/job/runtime-projection'
-import { jsonBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes } from '../src/fabric/envelope-proto'
 import { BackgroundAgentJobResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 describe('BackgroundAgentJob runtime projection', () => {

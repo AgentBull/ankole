@@ -39,6 +39,27 @@ defmodule Ankole.Brain.ClaimsTest do
     )
   end
 
+  test "Principal audits include its slug holder without conflating an external person", ctx do
+    agent = agent_fixture(%{owner_principal_uid: ctx.human.uid}).principal
+
+    {:ok, external} =
+      page_fixture_result(%{slug: "people/" <> agent.uid, title: "External person"}, :system)
+
+    {:ok, %{claim: own}} =
+      Claims.write_fact(fact_attrs(%{holder: "agents/" <> agent.uid}), :system, embed: false)
+
+    {:ok, %{claim: unrelated}} =
+      Claims.write_fact(
+        fact_attrs(%{holder: external.slug, claim: "An external person's separate prediction"}),
+        :system,
+        embed: false
+      )
+
+    ids = Enum.map(Claims.list_for_principal_audit(agent.uid, limit: 100), & &1.id)
+    assert own.id in ids
+    refute unrelated.id in ids
+  end
+
   test "platform attribution survives superseding and removal of its author tenant", %{
     tenant: tenant
   } do

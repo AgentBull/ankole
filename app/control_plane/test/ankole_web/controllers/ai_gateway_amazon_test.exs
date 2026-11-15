@@ -116,6 +116,9 @@ defmodule AnkoleWeb.AIGatewayAmazonTest do
     assert %{"error" => %{"param" => "speed", "code" => "unsupported_value"}} =
              speak.(%{"input" => "Hello.", "voice" => "Joanna", "speed" => 1.5})
 
+    assert %{"error" => %{"param" => "response_format", "code" => "unsupported_value"}} =
+             speak.(%{"input" => "Hello.", "voice" => "Joanna", "response_format" => "wav"})
+
     refute_received {:aws_request, _request}
   end
 

@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 
-const compatibility = resolve(import.meta.dir, 'main/node_crypto.ts')
+const compatibility = resolve(import.meta.dir, 'main/node-crypto.ts')
 const result = await Bun.build({
   entrypoints: [resolve(import.meta.dir, 'main/index.ts')],
   target: 'node',

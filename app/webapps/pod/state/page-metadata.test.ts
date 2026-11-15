@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test'
 import { createCollection, eq, liveQueryCollectionOptions } from '@tanstack/db'
 import { InfiniteQueryObserver, QueryClient } from '@tanstack/react-query'
-import { pageAPI, pageChildrenQuery, contentKeys, type NavigationPage } from '../content-api'
+import { cachedPages, pageAPI, pageChildrenQuery, contentKeys, type NavigationPage } from '../content-api'
+import { mergePageMetadata } from '../use-page-metadata'
 import { updatePageMetadata } from './navigation-cache'
 import { createPageMetadata, pageMetadata } from './page-metadata'
 
@@ -25,6 +26,25 @@ const directory = (pages: NavigationPage[], next_cursor: string | null = null) =
   can_create_private: false,
   can_create_space: false,
   can_manage_space: false
+})
+
+test('cached search candidates use confirmed names while directory snapshots keep their membership', () => {
+  const client = new QueryClient()
+  const metadata = pageMetadata(client)
+  const original = directory([{ ...row('page'), title: 'Old name' }])
+  client.setQueryData(contentKeys.list('favorites'), original)
+  metadata.update({ id: 'page', title: 'New name', icon: null })
+  const revision = metadata.revision()
+  metadata.update({ id: 'page', title: 'Newest name' })
+  expect(metadata.revision()).toBeGreaterThan(revision)
+
+  const candidates = cachedPages(client).map(page => mergePageMetadata(page, metadata.collection.get(page.id)))
+  expect(candidates.filter(page => page.title?.includes('Newest')).map(page => page.id)).toEqual(['page'])
+  expect(candidates.filter(page => page.title?.includes('Old'))).toEqual([])
+  expect(candidates[0]?.icon).toBeNull()
+  expect(client.getQueryData(contentKeys.list('favorites'))).toBe(original)
+  metadata.dispose()
+  client.clear()
 })
 
 test('a rename reaches each live view without rewriting list snapshots or notifying another Page', async () => {

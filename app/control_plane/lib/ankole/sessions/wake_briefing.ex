@@ -497,7 +497,7 @@ defmodule Ankole.Sessions.WakeBriefing do
 
   defp extract_action_objects(%{name: "read_file", args: %{"path" => path} = args}, run)
        when is_binary(path) do
-    workspace_candidate(path, action_workdir(args, run))
+    workspace_candidate(path, action_workdir(args, run), run)
   end
 
   defp extract_action_objects(%{name: name, args: args, raw_input: patch}, run)
@@ -506,7 +506,7 @@ defmodule Ankole.Sessions.WakeBriefing do
 
     Regex.scan(@apply_patch_file_re, patch, capture: :all_but_first)
     |> List.flatten()
-    |> Enum.flat_map(&workspace_candidate(&1, base_dir))
+    |> Enum.flat_map(&workspace_candidate(&1, base_dir, run))
   end
 
   defp extract_action_objects(%{name: name, args: %{"command" => cmd} = args}, run)
@@ -538,7 +538,7 @@ defmodule Ankole.Sessions.WakeBriefing do
         capture: :all_but_first
       )
       |> List.flatten()
-      |> Enum.flat_map(&workspace_candidate(&1, base_dir))
+      |> Enum.flat_map(&workspace_candidate(&1, base_dir, run))
 
     pod_nodes ++ pages ++ workspace_files
   end
@@ -660,15 +660,30 @@ defmodule Ankole.Sessions.WakeBriefing do
 
   defp action_workdir(_args, run), do: session_workdir(run)
 
-  defp workspace_candidate(raw_path, base_dir) when is_binary(raw_path) do
+  defp workspace_candidate(raw_path, base_dir, run) when is_binary(raw_path) do
     case resolve_agent_home_rel(raw_path, base_dir) do
       {:ok, rel} when rel != "" ->
-        [%{source: :workspace, key: rel, display_path: "/workspace/#{rel}"}]
+        if allowed_workspace_rel?(rel, run) do
+          [%{source: :workspace, key: rel, display_path: "/workspace/#{rel}"}]
+        else
+          []
+        end
 
       _ ->
         []
     end
   end
+
+  defp allowed_workspace_rel?("sessions", _run), do: false
+
+  defp allowed_workspace_rel?("sessions/" <> _ = rel, %Run{workspace_id: workspace_id})
+       when is_integer(workspace_id) and workspace_id >= 10_000 do
+    prefix = "sessions/#{workspace_id}/"
+    String.starts_with?(rel, prefix)
+  end
+
+  defp allowed_workspace_rel?("sessions/" <> _, _run), do: false
+  defp allowed_workspace_rel?(_rel, _run), do: true
 
   defp resolve_agent_home_rel(raw_path, base_dir) when is_binary(raw_path) do
     trimmed = String.trim(raw_path)

@@ -141,8 +141,13 @@ test('real frozen attachments preview in the room sidebar with bounded text, esc
 
     await page.getByRole('button', { name: fileLabel('预览', 'preview-markup.html') }).click()
     const markup = page.getByRole('complementary', { name: 'preview-markup.html', exact: true })
-    await expect(markup.locator('pre')).toHaveText('<script>window.previewExecuted = true</script>')
+    await expect(markup.getByRole('tab', { name: '预览', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(markup.locator('iframe[sandbox]')).toBeVisible()
     expect(await page.evaluate(() => 'previewExecuted' in window)).toBe(false)
+    await markup.getByRole('tab', { name: '源码', exact: true }).click()
+    await expect(markup.locator('[data-file-line="1"] code')).toHaveText(
+      '<script>window.previewExecuted = true</script>'
+    )
     await page.keyboard.press('Escape')
 
     const imageTrigger = page.getByRole('button', { name: fileLabel('预览', 'preview-image.png') })

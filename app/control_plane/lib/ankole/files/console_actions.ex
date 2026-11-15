@@ -131,20 +131,23 @@ defmodule Ankole.Files.ConsoleActions do
           fn ->
             with {:ok, parent} <- Nodes.fetch(attrs.parent_id),
                  {:ok, _} <- Nodes.authorize_child_create(actor, parent),
-                 {:ok, object} <- Objects.complete_in_tx(stored) do
-              Nodes.create_in_tx(%{
-                parent_id: parent.id,
-                name: attrs.name,
-                type: :file,
-                object_id: object.id,
-                source: "console",
-                content_type: attrs.content_type,
-                created_by: Ankole.ActorRef.from_actor(actor)
-              })
+                 {:ok, object} <- Objects.complete_in_tx(stored),
+                 {:ok, node} <-
+                   Nodes.create_in_tx(%{
+                     parent_id: parent.id,
+                     name: attrs.name,
+                     type: :file,
+                     object_id: object.id,
+                     source: "console",
+                     content_type: attrs.content_type,
+                     created_by: Ankole.ActorRef.from_actor(actor)
+                   }),
+                 :ok <- Ankole.Pod.Files.Content.sync_created_file_in_tx(node, object) do
+              {:ok, node}
             end
           end,
           root_ids: fn -> Nodes.root_ids([attrs.parent_id]) end,
-          after_commit: fn _ -> Access.broadcast_change() end
+          after_commit: &Nodes.committed/1
         )
 
       with {:ok, node} <- result, do: {:ok, node_json(node)}

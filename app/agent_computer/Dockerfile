@@ -2,13 +2,13 @@
 
 ARG BASE_IMAGE
 ARG CODEX_VERSION=0.166.0
-ARG MCPORTER_VERSION=0.16.0
+ARG MCPORTER_VERSION=0.17.0
 ARG OFFICECLI_VERSION=v1.0.159
 ARG TYPST_VERSION=v0.15.1
 ARG KUBECTL_VERSION=v1.37.1
 ARG AWS_CLI_VERSION=2.38.5
 
-FROM --platform=linux/amd64 cloudflare/sandbox:1.0.0 AS directory-backup
+FROM --platform=linux/amd64 cloudflare/sandbox:1.0.3 AS directory-backup
 
 FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS rclone
 ARG TARGETARCH

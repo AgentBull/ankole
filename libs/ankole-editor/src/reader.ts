@@ -1,1 +1,1 @@
-export { KnowledgeReader, type KnowledgeReaderProps } from './react/KnowledgeReader'
+export { KnowledgeReader, type KnowledgeReaderProps } from './react/knowledge-reader'

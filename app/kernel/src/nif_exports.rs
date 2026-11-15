@@ -1235,7 +1235,10 @@ pub fn universal_ai_client_raw_request_nif<'a>(
     let deliver =
         monitored_request_sink(owner_pid, BeamStreamRef::new(request_ref), resource.clone());
 
-    match universal_ai_client::start_raw_request(&encoded_spec, deliver) {
+    let result = stacker::grow(8 * 1024 * 1024, || {
+        universal_ai_client::start_raw_request(&encoded_spec, deliver)
+    });
+    match result {
         Ok(handle) => {
             if !monitored {
                 resource.cancel();

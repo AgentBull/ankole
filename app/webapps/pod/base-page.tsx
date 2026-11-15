@@ -59,6 +59,7 @@ import { usePageHref } from './use-page-metadata'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
 import { BaseViewContent, RecordForm, type ViewProps } from './base-views'
+import { BaseFlushScope, useRegisterBaseFlush } from './base-field-input'
 import { QueryControls } from './base-query-controls'
 import { FieldEditorButton, resolveVisibleFields } from './base-fields'
 import { podBaseCopy } from './api/generated/sdk.gen'
@@ -231,6 +232,7 @@ function BaseWorkspace({
   embed?: EmbedBridge
 }) {
   const { t } = useTranslation()
+  const pageHost = usePageHost()
   const tables = useQuery(baseTablesQuery(detail.page.id))
   const [selected, setSelected] = useState(initialTable ?? '')
   const [renaming, setRenaming] = useState<string>()
@@ -238,6 +240,19 @@ function BaseWorkspace({
   const [deleting, setDeleting] = useState(false)
   const tableSaving = useRef(false)
   const client = useQueryClient()
+  const flushCallbacks = useMemo(() => new Set<() => Promise<boolean>>(), [])
+  const editable = detail.actions.includes('node_edit') || detail.actions.includes('node_contribute')
+  const registerPageSave = pageHost?.registerPageSave
+  useEffect(() => {
+    if (!editable) return
+    return registerPageSave?.(async ({ syncIfClean }) => {
+      const results = await Promise.all(Array.from(flushCallbacks, flush => flush()))
+      if (results.some(Boolean)) return true
+      if (!syncIfClean) return false
+      await client.fetchQuery({ ...baseTablesQuery(detail.page.id), staleTime: 0 }).catch(() => {})
+      return true
+    })
+  }, [editable, registerPageSave, flushCallbacks, client, detail.page.id])
   const tablesQueryKey = [...contentKeys.page(detail.page.id), 'tables']
   const create = useMutation({
     mutationFn: () => baseHTTP.createTable(detail.page.id, nextTableName(tables.data?.tables ?? [])),
@@ -286,171 +301,173 @@ function BaseWorkspace({
   })
   const hasTableActions = detail.actions.includes('node_edit') || detail.actions.includes('node_manage')
   return (
-    <section className="pod-base min-w-0" data-inline={!!embed} data-quiet-chart={quietSingleChartEmbed || undefined}>
-      {!quietSingleChartEmbed && !explicitMissingTable && (
-        <div className="pod-base-sources" aria-label={t('pod.content.table')}>
-          {tables.data?.tables.map(table =>
-            renaming === table.id ? (
-              <DefinitionName
-                key={table.id}
-                name={table.name}
-                label={t('pod.content.table_name')}
-                invalidateKey={tablesQueryKey}
-                save={name => baseHTTP.renameTable(table.id, name)}
-                close={() => setRenaming(undefined)}
-              />
-            ) : (
-              <div key={table.id} className="inline-flex shrink-0 items-center gap-0.5">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className={table.id === tableID ? 'font-semibold' : undefined}
-                  aria-pressed={table.id === tableID}
-                  title={table.description || undefined}
-                  onDoubleClick={() => detail.actions.includes('node_edit') && setRenaming(table.id)}
-                  onClick={() => {
-                    setSelected(table.id)
-                    if (embed?.inlineConfig && embed.configureInline) {
-                      embed.configureInline({ type: embed.inlineConfig.type ?? 'grid' }, table.id)
-                    } else if (embed?.bindSavedView) {
-                      embed.bindSavedView('', table.id)
-                    }
-                  }}>
-                  {table.name}
-                </Button>
-                {hasTableActions && table.id === tableID && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={<Button size="icon-sm" variant="ghost" aria-label={t('pod.content.table_actions')} />}>
-                      ⋯
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      {detail.actions.includes('node_edit') && (
-                        <DropdownMenuItem onClick={() => setRenaming(table.id)}>
-                          {t('pod.sidebar.rename')}
-                        </DropdownMenuItem>
-                      )}
-                      {detail.actions.includes('node_edit') && (
-                        <DropdownMenuItem onClick={() => setDescribing(table.id)}>
-                          {t('pod.content.edit_table_description')}
-                        </DropdownMenuItem>
-                      )}
-                      {detail.actions.includes('node_manage') && (
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => {
-                            remove.reset()
-                            setDeleting(true)
-                          }}>
-                          {t('pod.content.delete_table')}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+    <BaseFlushScope value={flushCallbacks}>
+      <section className="pod-base min-w-0" data-inline={!!embed} data-quiet-chart={quietSingleChartEmbed || undefined}>
+        {!quietSingleChartEmbed && !explicitMissingTable && (
+          <div className="pod-base-sources" aria-label={t('pod.content.table')}>
+            {tables.data?.tables.map(table =>
+              renaming === table.id ? (
+                <DefinitionName
+                  key={table.id}
+                  name={table.name}
+                  label={t('pod.content.table_name')}
+                  invalidateKey={tablesQueryKey}
+                  save={name => baseHTTP.renameTable(table.id, name)}
+                  close={() => setRenaming(undefined)}
+                />
+              ) : (
+                <div key={table.id} className="inline-flex shrink-0 items-center gap-0.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={table.id === tableID ? 'font-semibold' : undefined}
+                    aria-pressed={table.id === tableID}
+                    title={table.description || undefined}
+                    onDoubleClick={() => detail.actions.includes('node_edit') && setRenaming(table.id)}
+                    onClick={() => {
+                      setSelected(table.id)
+                      if (embed?.inlineConfig && embed.configureInline) {
+                        embed.configureInline({ type: embed.inlineConfig.type ?? 'grid' }, table.id)
+                      } else if (embed?.bindSavedView) {
+                        embed.bindSavedView('', table.id)
+                      }
+                    }}>
+                    {table.name}
+                  </Button>
+                  {hasTableActions && table.id === tableID && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={<Button size="icon-sm" variant="ghost" aria-label={t('pod.content.table_actions')} />}>
+                        ⋯
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {detail.actions.includes('node_edit') && (
+                          <DropdownMenuItem onClick={() => setRenaming(table.id)}>
+                            {t('pod.sidebar.rename')}
+                          </DropdownMenuItem>
+                        )}
+                        {detail.actions.includes('node_edit') && (
+                          <DropdownMenuItem onClick={() => setDescribing(table.id)}>
+                            {t('pod.content.edit_table_description')}
+                          </DropdownMenuItem>
+                        )}
+                        {detail.actions.includes('node_manage') && (
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => {
+                              remove.reset()
+                              setDeleting(true)
+                            }}>
+                            {t('pod.content.delete_table')}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              )
+            )}
+            {detail.actions.includes('node_edit') && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={create.isPending}
+                onClick={() => {
+                  if (!tableSaving.current) {
+                    tableSaving.current = true
+                    create.mutate()
+                  }
+                }}>
+                <AddRegular aria-hidden="true" />
+                {t('pod.content.new_table')}
+              </Button>
+            )}
+          </div>
+        )}
+        <ContentError error={tables.error} retry={() => void tables.refetch()} />
+        <ContentError error={create.error} />
+        {tables.isPending ? (
+          <ContentSkeleton variant="table" label={t('pod.content.loading_tables')} />
+        ) : explicitMissingTable ? (
+          <div
+            role="alert"
+            data-slot="missing-embed-table"
+            className="space-y-2 rounded-control border border-border bg-layer-01 p-4 text-sm">
+            <p className="font-medium text-foreground">
+              {t('pod.content.embed_bound_table_missing', {
+                defaultValue: 'The bound table was deleted or is inaccessible.'
+              })}
+            </p>
+            {Boolean(embed?.configureInline || embed?.bindSavedView) && (tables.data?.tables.length ?? 0) > 0 && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-xs text-fg-secondary">
+                  {t('pod.content.rebind_embed_table', { defaultValue: 'Rebind to table:' })}
+                </span>
+                {tables.data!.tables.map(candidate => (
+                  <Button
+                    key={candidate.id}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setSelected(candidate.id)
+                      if (embed?.inlineConfig && embed.configureInline) {
+                        embed.configureInline({ type: embed.inlineConfig.type ?? 'chart' }, candidate.id)
+                      } else if (embed?.bindSavedView) {
+                        embed.bindSavedView('', candidate.id)
+                      } else if (embed?.configureInline) {
+                        embed.configureInline({}, candidate.id)
+                      }
+                    }}>
+                    {candidate.name}
+                  </Button>
+                ))}
               </div>
-            )
-          )}
-          {detail.actions.includes('node_edit') && (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={create.isPending}
-              onClick={() => {
-                if (!tableSaving.current) {
-                  tableSaving.current = true
-                  create.mutate()
-                }
-              }}>
-              <AddRegular aria-hidden="true" />
-              {t('pod.content.new_table')}
-            </Button>
-          )}
-        </div>
-      )}
-      <ContentError error={tables.error} retry={() => void tables.refetch()} />
-      <ContentError error={create.error} />
-      {tables.isPending ? (
-        <ContentSkeleton variant="table" label={t('pod.content.loading_tables')} />
-      ) : explicitMissingTable ? (
-        <div
-          role="alert"
-          data-slot="missing-embed-table"
-          className="space-y-2 rounded-control border border-border bg-layer-01 p-4 text-sm">
-          <p className="font-medium text-foreground">
-            {t('pod.content.embed_bound_table_missing', {
-              defaultValue: 'The bound table was deleted or is inaccessible.'
-            })}
+            )}
+          </div>
+        ) : tableID ? (
+          <TableWorkspace
+            key={tableID}
+            tableID={tableID}
+            page={detail}
+            tables={tables.data!.tables}
+            initialView={initialView}
+            embed={embed}
+            onSwitchEmbedTable={nextTableId => {
+              setSelected(nextTableId)
+              if (embed?.inlineConfig && embed.configureInline) {
+                embed.configureInline({ type: embed.inlineConfig.type ?? 'chart' }, nextTableId)
+              }
+            }}
+          />
+        ) : (
+          <p className="py-12 text-sm text-fg-tertiary">
+            {t('pod.content.no_tables_yet_create_one_to_manage_your_records')}
           </p>
-          {Boolean(embed?.configureInline || embed?.bindSavedView) && (tables.data?.tables.length ?? 0) > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="text-xs text-fg-secondary">
-                {t('pod.content.rebind_embed_table', { defaultValue: 'Rebind to table:' })}
-              </span>
-              {tables.data!.tables.map(candidate => (
-                <Button
-                  key={candidate.id}
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setSelected(candidate.id)
-                    if (embed?.inlineConfig && embed.configureInline) {
-                      embed.configureInline({ type: embed.inlineConfig.type ?? 'chart' }, candidate.id)
-                    } else if (embed?.bindSavedView) {
-                      embed.bindSavedView('', candidate.id)
-                    } else if (embed?.configureInline) {
-                      embed.configureInline({}, candidate.id)
-                    }
-                  }}>
-                  {candidate.name}
-                </Button>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : tableID ? (
-        <TableWorkspace
-          key={tableID}
-          tableID={tableID}
-          page={detail}
-          tables={tables.data!.tables}
-          initialView={initialView}
-          embed={embed}
-          onSwitchEmbedTable={nextTableId => {
-            setSelected(nextTableId)
-            if (embed?.inlineConfig && embed.configureInline) {
-              embed.configureInline({ type: embed.inlineConfig.type ?? 'chart' }, nextTableId)
-            }
-          }}
-        />
-      ) : (
-        <p className="py-12 text-sm text-fg-tertiary">
-          {t('pod.content.no_tables_yet_create_one_to_manage_your_records')}
-        </p>
-      )}
-      <Dialog open={deleting} onOpenChange={next => !remove.isPending && setDeleting(next)}>
-        <DialogContent className="pod-dialog" closeLabel={t('common.close')} showCloseButton={!remove.isPending}>
-          <DialogTitle>{t('pod.content.delete_table')}</DialogTitle>
-          <p>{t('pod.content.delete_table_confirmation')}</p>
-          <ContentError error={remove.error} />
-          <DialogFooter>
-            <Button variant="ghost" disabled={remove.isPending} onClick={() => setDeleting(false)}>
-              {t('pod.content.cancel')}
-            </Button>
-            <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
-              {t('pod.content.delete_table')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {describing && (
-        <TableDescriptionDialog
-          table={tables.data?.tables.find(table => table.id === describing)}
-          invalidateKey={tablesQueryKey}
-          close={() => setDescribing(undefined)}
-        />
-      )}
-    </section>
+        )}
+        <Dialog open={deleting} onOpenChange={next => !remove.isPending && setDeleting(next)}>
+          <DialogContent className="pod-dialog" closeLabel={t('common.close')} showCloseButton={!remove.isPending}>
+            <DialogTitle>{t('pod.content.delete_table')}</DialogTitle>
+            <p>{t('pod.content.delete_table_confirmation')}</p>
+            <ContentError error={remove.error} />
+            <DialogFooter>
+              <Button variant="ghost" disabled={remove.isPending} onClick={() => setDeleting(false)}>
+                {t('pod.content.cancel')}
+              </Button>
+              <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                {t('pod.content.delete_table')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {describing && (
+          <TableDescriptionDialog
+            table={tables.data?.tables.find(table => table.id === describing)}
+            invalidateKey={tablesQueryKey}
+            close={() => setDescribing(undefined)}
+          />
+        )}
+      </section>
+    </BaseFlushScope>
   )
 }
 
@@ -596,9 +613,31 @@ function TableWorkspace({
       }
     }
     const prev = chartSaveInFlight.current ?? Promise.resolve()
-    chartSaveInFlight.current = prev.then(execute, execute)
+    const next = prev.then(execute, execute).finally(() => {
+      if (chartSaveInFlight.current === next) chartSaveInFlight.current = null
+    })
+    chartSaveInFlight.current = next
   }
   flushChartAutoSaveRef.current = flushChartAutoSave
+
+  useRegisterBaseFlush(async () => {
+    let flushed = false
+    if (inlineDebounceTimer.current) {
+      clearTimeout(inlineDebounceTimer.current)
+      inlineDebounceTimer.current = undefined
+      pendingInlineFlush.current?.()
+      pendingInlineFlush.current = undefined
+      flushed = true
+    }
+    if (chartAutoSaveTimer.current || pendingChartSave.current) {
+      flushChartAutoSaveRef.current()
+    }
+    if (chartSaveInFlight.current) {
+      flushed = true
+      await chartSaveInFlight.current.catch(() => {})
+    }
+    return flushed
+  })
 
   useEffect(() => {
     return () => {
@@ -1353,6 +1392,7 @@ function DefinitionName({
 }) {
   const [draft, setDraft] = useState(name)
   const writing = useRef(false)
+  const writePromise = useRef<Promise<unknown> | null>(null)
   const client = useQueryClient()
   const write = useMutation({
     mutationFn: () => save(draft.trim()),
@@ -1360,20 +1400,37 @@ function DefinitionName({
       await client.invalidateQueries({ queryKey: invalidateKey })
       close()
     },
-    onError: error => toast.error(requestErrorMessage(contentError(error))),
-    onSettled: () => {
+    onError: error => {
       writing.current = false
+      toast.error(requestErrorMessage(contentError(error)))
     }
   })
-  const commit = () => {
-    if (writing.current) return
+  const commitAsync = async (closeIfClean: boolean): Promise<boolean> => {
+    if (writing.current) {
+      if (writePromise.current) {
+        await writePromise.current.catch(() => {})
+        return true
+      }
+      return false
+    }
     if (!draft.trim() || draft.trim() === name) {
-      close()
-      return
+      if (closeIfClean) close()
+      return false
     }
     writing.current = true
-    write.mutate()
+    const pending = write.mutateAsync().catch(() => {})
+    writePromise.current = pending
+    try {
+      await pending
+    } finally {
+      if (writePromise.current === pending) writePromise.current = null
+    }
+    return true
   }
+  const commit = () => {
+    void commitAsync(true)
+  }
+  useRegisterBaseFlush(() => commitAsync(false))
   return (
     <Input
       className="h-7 w-40 px-2 text-sm"

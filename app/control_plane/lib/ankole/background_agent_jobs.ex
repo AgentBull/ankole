@@ -210,6 +210,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate publish_status_commit(result), to: Lifecycle
 
+  @doc false
+  defdelegate notify_owner_conversation(owner_session_id), to: Lifecycle
+
   @doc "Returns the connection of a Job's selected Worker."
   defdelegate connected_worker(agent_uid, runner_id),
     to: Ankole.BackgroundAgentJobs.Worker,

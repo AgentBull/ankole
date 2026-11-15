@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { TurnStart } from '../src/lanes/session_lane'
+import type { TurnStart } from '../src/lanes/session-lane'
 import {
   configureWorkerTracing,
   finishWorkerSpan,

@@ -6,10 +6,10 @@ import { join } from 'node:path'
 import { POD_CLI_HELP } from '../src/cli/pod/pod-cli'
 import { startPodCLIBridge } from '../src/cli/pod/pod-cli-bridge'
 import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope-proto'
 import { JSONPassthroughResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { RPCRequestInit } from '../src/lanes/rpc_contract'
-import type { RPCRequester } from '../src/lanes/rpc_lane'
+import type { RPCRequestInit } from '../src/lanes/rpc-contract'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
 import { FakeDrive } from './support/fake-drive'
 
 const respond = (result: unknown) => create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ result }) })

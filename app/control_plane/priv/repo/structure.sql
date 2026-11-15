@@ -3457,28 +3457,6 @@ COMMENT ON COLUMN public.identity_mapping_requests.metadata IS 'Alternate subjec
 
 
 --
--- Name: issues; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.issues (
-    tenant_id uuid NOT NULL,
-    conversation_id uuid NOT NULL,
-    status text NOT NULL,
-    description text DEFAULT ''::text NOT NULL,
-    agent_uid text,
-    inserted_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    labels text[] DEFAULT '{}'::text[] NOT NULL,
-    parent_id uuid,
-    squad_uids text[] DEFAULT '{}'::text[] NOT NULL,
-    CONSTRAINT issues_labels_check CHECK ((cardinality(labels) <= 10)),
-    CONSTRAINT issues_parent_check CHECK ((parent_id IS DISTINCT FROM conversation_id)),
-    CONSTRAINT issues_squad_check CHECK ((cardinality(squad_uids) <= 10)),
-    CONSTRAINT issues_status_check CHECK ((status = ANY (ARRAY['todo'::text, 'started'::text, 'done'::text])))
-);
-
-
---
 -- Name: message_attachments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5861,14 +5839,6 @@ ALTER TABLE ONLY public.identity_mapping_requests
 
 
 --
--- Name: issues issues_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.issues
-    ADD CONSTRAINT issues_pkey PRIMARY KEY (tenant_id, conversation_id);
-
-
---
 -- Name: message_attachments message_attachments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6898,6 +6868,20 @@ CREATE INDEX background_agent_jobs_human_uid_index ON public.background_agent_jo
 
 
 --
+-- Name: background_agent_jobs_pod_completed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX background_agent_jobs_pod_completed_idx ON public.background_agent_jobs USING btree (tenant_id, completed_at DESC) WHERE (status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'stopped'::text]));
+
+
+--
+-- Name: background_agent_jobs_pod_live_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX background_agent_jobs_pod_live_idx ON public.background_agent_jobs USING btree (tenant_id, updated_at DESC) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text, 'waiting_on_user'::text]));
+
+
+--
 -- Name: background_agent_jobs_running_runner_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7696,6 +7680,13 @@ CREATE UNIQUE INDEX cron_schedules_job_name_index ON public.cron_schedules USING
 
 
 --
+-- Name: cron_schedules_pod_board_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cron_schedules_pod_board_idx ON public.cron_schedules USING btree (tenant_id, next_fire_at) WHERE ((owner_job_id IS NULL) AND (status = ANY (ARRAY['active'::text, 'paused'::text])));
+
+
+--
 -- Name: cron_schedules_session_owner_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7938,20 +7929,6 @@ CREATE UNIQUE INDEX identity_mapping_requests_subject_index ON public.identity_m
 --
 
 CREATE INDEX identity_mapping_requests_tenant_id_index ON public.identity_mapping_requests USING btree (tenant_id);
-
-
---
--- Name: issues_agent_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX issues_agent_index ON public.issues USING btree (tenant_id, agent_uid);
-
-
---
--- Name: issues_parent_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX issues_parent_index ON public.issues USING btree (tenant_id, parent_id);
 
 
 --
@@ -8746,6 +8723,13 @@ CREATE INDEX scheduled_events_origin_ai_message_index ON public.scheduled_events
 
 
 --
+-- Name: scheduled_events_pod_checkbacks_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX scheduled_events_pod_checkbacks_idx ON public.scheduled_events USING btree (tenant_id, due_at) WHERE ((kind = 'check_back_later'::text) AND (status = ANY (ARRAY['scheduled'::text, 'failed'::text])));
+
+
+--
 -- Name: scheduled_events_signal_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9079,6 +9063,20 @@ CREATE INDEX workflow_runs_cleanup_pending_index ON public.workflow_runs USING b
 --
 
 CREATE INDEX workflow_runs_human_uid_index ON public.workflow_runs USING btree (tenant_id, human_uid);
+
+
+--
+-- Name: workflow_runs_pod_completed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workflow_runs_pod_completed_idx ON public.workflow_runs USING btree (tenant_id, completed_at DESC) WHERE (status = ANY (ARRAY['completed'::text, 'failed'::text, 'cancelled'::text]));
+
+
+--
+-- Name: workflow_runs_pod_live_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workflow_runs_pod_live_idx ON public.workflow_runs USING btree (tenant_id, updated_at DESC) WHERE (status = 'running'::text);
 
 
 --
@@ -10648,38 +10646,6 @@ ALTER TABLE ONLY public.identity_directory_states
 
 ALTER TABLE ONLY public.identity_mapping_requests
     ADD CONSTRAINT identity_mapping_requests_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
-
-
---
--- Name: issues issues_agent_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.issues
-    ADD CONSTRAINT issues_agent_fkey FOREIGN KEY (tenant_id, agent_uid) REFERENCES public.principals(tenant_id, uid) ON UPDATE CASCADE ON DELETE SET NULL (agent_uid);
-
-
---
--- Name: issues issues_conversation_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.issues
-    ADD CONSTRAINT issues_conversation_fkey FOREIGN KEY (tenant_id, conversation_id) REFERENCES public.conversations(tenant_id, id) ON DELETE CASCADE;
-
-
---
--- Name: issues issues_parent_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.issues
-    ADD CONSTRAINT issues_parent_fkey FOREIGN KEY (tenant_id, parent_id) REFERENCES public.issues(tenant_id, conversation_id) ON DELETE SET NULL (parent_id);
-
-
---
--- Name: issues issues_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.issues
-    ADD CONSTRAINT issues_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
 
 
 --

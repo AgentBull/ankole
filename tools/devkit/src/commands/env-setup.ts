@@ -31,50 +31,43 @@ export function envSetupCommand() {
     { description: 'Install the host toolchain required for Ankole development.' },
     command =>
       command
-        .flags(
-          {
-            name: 'dry-run',
+        .flags({
+          'dry-run': {
             type: 'boolean',
             description: 'Print installer commands without running them.',
             default: false
           },
-          {
-            name: 'system-packages',
+          'system-packages': {
             type: 'boolean',
             description: 'Install OS build packages required by Erlang, Rust, and native dependencies.',
             default: true
           },
-          {
-            name: 'docker',
+          docker: {
             type: 'boolean',
             description: 'Install Docker Engine/Desktop when Docker is missing.',
             default: true
           },
-          {
-            name: 'rust',
+          rust: {
             type: 'boolean',
             description: 'Install Rust with rustup, clippy, and rustfmt.',
             default: true
           },
-          {
-            name: 'sccache',
+          sccache: {
             type: 'boolean',
             description: 'Install sccache for local SSD Rust build caching.',
             default: true
           },
-          {
-            name: 'elixir',
+          elixir: {
             type: 'boolean',
             description: 'Install Erlang/OTP and Elixir through mise.',
             default: true
           },
-          {
-            name: 'bun',
+          bun: {
             type: 'boolean',
             description: 'Install the Bun version pinned by the repository.',
             default: true
           }
-        )
+        })
         .action(async ({ flags }) => {
           if (process.platform === 'win32') {
             console.warn(

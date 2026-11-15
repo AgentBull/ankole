@@ -10,6 +10,17 @@ defmodule Ankole.Brain.ObjectsTest do
     :ok
   end
 
+  test "a rejected nested creation leaves no intermediate folders" do
+    writer = human_fixture().principal
+
+    assert {:error, :forbidden} =
+             Repo.transact_top_level(fn ->
+               Objects.create_object_in_tx(%{slug: "concepts/not-mine/nested/object"}, writer.uid)
+             end)
+
+    assert {:error, :not_found} = Objects.get_by_slug("concepts/not-mine")
+  end
+
   test "learning an existing entity cannot replace the team's saved knowledge" do
     attrs = %{slug: "companies/review-acme", title: "Acme", body: "Human-approved terms."}
     assert {:ok, page} = Ankole.Brain.create_object(attrs, :system)

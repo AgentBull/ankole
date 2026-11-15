@@ -750,13 +750,12 @@ test('submitEdit accepts unchanged text for branch re-runs and invokes onInlineE
   }
 })
 
-test('group Issue room derives default issueAgentUID without mutating targetAgentUID and preserves explicit listeners selection', async () => {
+test('group room broadcasts to room listeners by default and sends targetAgentUID only when explicitly selected', async () => {
   const original = podClient.getConfig()
   const sentTargets: Array<string | null | undefined> = []
   const data = detail([])
-  data.issueAgentUID = 'agent-a'
   const model = new ChatModel()
-  model.draft.value = 'First message to default Issue Agent'
+  model.draft.value = 'First message to room listeners'
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
   let current!: ReturnType<typeof useChatCommands>
 
@@ -805,18 +804,15 @@ test('group Issue room derives default issueAgentUID without mutating targetAgen
 
   try {
     renderSubject()
-    // Signal stays null (no side-effect copy), while default submission addresses issueAgentUID ('agent-a').
     expect(model.targetAgentUID.value).toBeNull()
     await submitAndWait()
-    expect(sentTargets[0]).toBe('agent-a')
+    expect(sentTargets[0]).toBeUndefined()
 
-    // Explicit __listeners__ ('') survives re-renders/remounts and broadcasts without targetAgentUID.
-    model.targetAgentUID.value = ''
-    model.draft.value = 'Broadcast to all room listeners'
+    model.targetAgentUID.value = 'agent-b'
+    model.draft.value = 'Direct message to agent-b'
     renderSubject()
-    expect(model.targetAgentUID.value).toBe('')
     await submitAndWait()
-    expect(sentTargets[1]).toBeUndefined()
+    expect(sentTargets[1]).toBe('agent-b')
   } finally {
     podClient.setConfig(original)
     client.clear()

@@ -255,3 +255,67 @@ test('presentation pages expose their selection while keeping file actions above
     await context.close()
   }
 })
+
+test('html file pages default to a sandboxed iframe preview with a unified toolbar and source tab', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let id: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    id = (await request<{ page: { id: string } }>(page, '/pages', 'POST', { type: 'file', title: 'HTML Applet' })).page
+      .id
+    await page.goto(pageRoute(id))
+    const htmlFile = {
+      name: 'applet.html',
+      mimeType: 'text/html',
+      buffer: Buffer.from(
+        [
+          '<!doctype html>',
+          '<html lang="zh-Hans">',
+          '<head><title>Sandboxed Applet</title></head>',
+          '<body>',
+          '<h1 id="heading">Interactive Report</h1>',
+          '<script>',
+          'window.parentLeak = true;',
+          'localStorage.setItem("draft", "ready");',
+          'document.getElementById("heading").textContent = "Interactive Report: " + localStorage.getItem("draft");',
+          '</script>',
+          '</body>',
+          '</html>'
+        ].join('\n'),
+        'utf-8'
+      )
+    }
+    await page.getByLabel('选择上传文件', { exact: true }).setInputFiles(htmlFile)
+    const previewTab = page.getByRole('tab', { name: '预览', exact: true })
+    const sourceTab = page.getByRole('tab', { name: '源码', exact: true })
+    await expect(previewTab).toHaveAttribute('aria-selected', 'true')
+    const frame = page.locator('iframe[sandbox]')
+    await expect(frame.contentFrame().getByRole('heading', { name: 'Interactive Report: ready' })).toBeVisible()
+    expect(await page.evaluate(() => 'parentLeak' in window)).toBe(false)
+
+    const download = page.getByRole('link', { name: '下载原文件', exact: true })
+    const replaceButton = page.getByRole('button', { name: '选择替换文件', exact: true })
+    for (const width of [900, 390]) {
+      await page.setViewportSize({ width, height: 800 })
+      const stage = await page.getByTestId('html-file-preview-stage').boundingBox()
+      for (const action of [download, replaceButton]) {
+        await expect(action).toBeInViewport({ ratio: 1 })
+        const bounds = await action.boundingBox()
+        expect(bounds!.x).toBeGreaterThanOrEqual(0)
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+        expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(stage!.y)
+      }
+    }
+
+    await sourceTab.click()
+    await expect(sourceTab).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('[data-file-line="1"] code')).toHaveText('<!doctype html>')
+  } finally {
+    if (id) await request(page, `/pages/${id}`, 'DELETE')
+    await context.close()
+  }
+})

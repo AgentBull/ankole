@@ -1,12 +1,13 @@
 import { expect, test } from 'bun:test'
 import { localReturnPath, podRouteID } from '../../common/pod-url'
 import i18n, { loadLocale } from '../../common/i18n'
+import { desktopConnectorHref } from '../chat/connector-auth-card-view'
 import {
   automationJobID,
-  connectorAddressAfterAuthorization,
   connectorAutomationContext,
   connectorAutomationReturnTo,
   connectorFailureMessage,
+  connectorParamsAfterAuthorization,
   connectorReturnTo,
   connectorTriggerConfigFromURL,
   ConnectorsModel
@@ -191,7 +192,7 @@ test('a finished authorization leaves the address so that the next load does not
     origin
   )
   returned.searchParams.set('connector_completion', 'code')
-  const kept = connectorAddressAfterAuthorization(returned).searchParams
+  const kept = connectorParamsAfterAuthorization(returned.searchParams)
   expect([...kept.keys()].sort()).toEqual(['automation_job', 'automation_page', 'intent'])
   expect(returned.searchParams.get('connection')).toBe('work')
 })
@@ -206,9 +207,38 @@ test('a finished authorization keeps the trigger draft that reopens from the add
     'https://ankole.test'
   )
   returned.searchParams.set('connector_completion', 'code')
-  const kept = connectorAddressAfterAuthorization(returned).searchParams
+  const kept = connectorParamsAfterAuthorization(returned.searchParams)
   expect(kept.has('connector_completion')).toBe(false)
   expect(kept.get('connection')).toBe('figma')
   expect(kept.get('subject_kind')).toBe('human')
   expect(kept.get('trigger_type')).toBe('file_update')
+})
+
+test('desktop connector authorization marks return_to for deep-link handoff and preserves chat intent', () => {
+  const origin = 'https://acme.ankole.test'
+  const cardHref = desktopConnectorHref(
+    'https://acme.ankole.test/connectors?connection=github&scopes=repo&popup=1',
+    '/conversations/0024h36h2ncsvrh6daqf6dvvqz',
+    origin
+  )
+  expect(cardHref).toBe(
+    '/connectors?connection=github&scopes=repo&intent=%2Fconversations%2F0024h36h2ncsvrh6daqf6dvvqz'
+  )
+
+  const returnTo = connectorReturnTo({
+    connection: 'github',
+    scopes: ['repo'],
+    subjectKind: 'human',
+    intent: '/conversations/0024h36h2ncsvrh6daqf6dvvqz',
+    desktop: true
+  })
+  const params = new URL(returnTo, origin).searchParams
+  expect(params.get('desktop')).toBe('1')
+  params.set('connector_completion', 'tenant.token')
+
+  const afterClaim = connectorParamsAfterAuthorization(params)
+  expect(afterClaim.has('desktop')).toBe(false)
+  expect(afterClaim.has('connector_completion')).toBe(false)
+  expect(afterClaim.has('connection')).toBe(false)
+  expect(afterClaim.get('intent')).toBe('/conversations/0024h36h2ncsvrh6daqf6dvvqz')
 })
