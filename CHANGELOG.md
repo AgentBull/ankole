@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.154 (2026-11-15)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.153 (2026-11-13)
 
 - Keep Zoom in, Zoom out, Fit view, and Focus node working when you use them

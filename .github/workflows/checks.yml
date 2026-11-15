@@ -173,6 +173,17 @@ jobs:
     env:
       MIX_ENV: test
       ANKOLE_EDITION: foss
+      DATABASE_URL: ecto://postgres:repository-checks-only@localhost:5432/postgres
+    services:
+      postgres:
+        image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: repository-checks-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -224,6 +235,9 @@ jobs:
       # Removing it makes Mix build the NIF when the cache above has no library.
       - if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
         run: rm -rf app/control_plane/_build/${ANKOLE_EDITION}/test/lib/ankole_kernel
+      - uses: ./.github/actions/postgres-client
+      - run: mix ankole.schema.check
+        working-directory: app/control_plane
       - run: mix ankole.openapi.check
         working-directory: app/control_plane
       - run: mix ankole.toolkits
