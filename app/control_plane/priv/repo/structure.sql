@@ -32,13 +32,6 @@ CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access methods';
-
-
---
 -- Name: pg_search; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -46,24 +39,10 @@ CREATE EXTENSION IF NOT EXISTS pg_search WITH SCHEMA paradedb;
 
 
 --
--- Name: EXTENSION pg_search; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION pg_search IS 'pg_search: Full text search for PostgreSQL using BM25';
-
-
---
 -- Name: pg_trgm; Type: EXTENSION; Schema: -; Owner: -
 --
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
-
-
---
--- Name: EXTENSION pg_trgm; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching based on trigrams';
 
 
 --

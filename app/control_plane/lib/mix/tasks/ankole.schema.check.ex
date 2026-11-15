@@ -110,6 +110,10 @@ defmodule Mix.Tasks.Ankole.Schema.Check do
       database
     )
     |> String.replace(~r/^(?:\\(?:un)?restrict \S+|-- Dumped (?:from|by) .*?)\n/m, "")
+    |> String.replace(
+      ~r/^--\n-- Name: EXTENSION [^\n]+; Type: COMMENT; Schema: -; Owner: -\n--\n\nCOMMENT ON EXTENSION [^\n]+ IS '(?:[^']|'')*';\n\n\n/m,
+      ""
+    )
     |> String.trim()
     |> Kernel.<>("\n")
   end
