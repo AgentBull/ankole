@@ -92,9 +92,9 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 AIGateway は上流へのリクエストを行う前に、**Console → Model Profiles** で構成される 3 層の疎な**モデルプロファイル（Model Profile）**継承チェーン（`Site -> Pod -> Agent/System`）に従ってモデルセレクターを解決します。
 
-- **Site、Pod、および `system` Principal（`ankole_brain`、`system`）**は 15 個の固定スロットを持ちます。内訳は 5 つの言語モデルスロット（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）と 10 個の機能スロット（`web_search`、`web_fetch`、`image_generate`、`rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music`）です。
-- **Agent** は `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music` を除く 8 つの標準スロットに加え、Agent ごとのカスタム言語モデルエイリアスを持ち、未指定のスロットは Pod と Site の既定値を継承します。
-- **スロット間のフォールバック**は `coding -> heavy -> primary` および `light -> primary` の順で解決されるため、Site または Pod で `primary` を設定するだけで Agent と Brain が動作し、必要な箇所だけ Pod・Agent・`system` Principal 単位で上書きできます。
+- **Site、Pod、および `system` Principal（`ankole_brain`、`system`）**は 14 個の固定スロットを持ちます。内訳は 4 つの言語モデルスロット（`primary`、`light`、`heavy`、`vision_fallback`）と 10 個の機能スロット（`web_search`、`web_fetch`、`image_generate`、`rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music`）です。
+- **Agent** は `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music` を除く 7 つの標準スロットに加え、Agent ごとのカスタム言語モデルエイリアスを持ち、未指定のスロットは Pod と Site の既定値を継承します。
+- **スロット間のフォールバック**は `heavy -> primary` および `light -> primary` の順で解決されるため、Site または Pod で `primary` を設定するだけで Agent・Background Agent Job・Brain が動作し、必要な箇所だけ Pod・Agent・`system` Principal 単位で上書きできます。
 
 また、権限のある管理者や内部呼び出し元は `provider_id/model` 形式の明示的なセレクターも指定できます。現在の認証主体が解決可能なモデルの一覧は `GET /models` で確認でき、OpenRouter 形式のクエリパラメータ（`q`、`context`、`min_price`、`max_price`、`sort`、モダリティフィルタ）による絞り込みにも対応しています。
 
@@ -138,7 +138,7 @@ AIGateway は上流へのリクエストを行う前に、**Console → Model Pr
 
 同じ認証主体とトークンを使って、周辺の AI 機能もそのまま呼び出せます。`POST /web_search` は文字数上限付きの `query` を受け取って検索結果を返し、`POST /web_fetch` は 1〜5 件の公開 HTTPS URL を受け取ってページ本文を返します。これらのエンドポイントでは `web_search.default` や `web_fetch.default` を指定でき、AIGateway が現在の Agent プロファイルを自動的に解決します。
 
-`POST /embeddings` はテキスト、トークン配列、または構造化入力ブロックを受け付け、`provider_id/model` 形式による明示的なセレクター指定が必要です（たとえば `Ankole.Brain` は embedding 生成時に [AppConfigure](../app-configuration/) のサイト設定 `brain.embedding_model` を読み取ります）。`POST /rerank` は空でないドキュメント配列と正の整数 `top_n` を受け取って再ランク付けを行い、明示的な `provider_id/model` セレクターまたは `default` / `rerank.default` を受け付けます（`ankole_brain` は自身の有効な `rerank` モデルプロファイルを解決し、Agent や Human の呼び出しは Pod/Site の `rerank` プロファイルを解決します。検索の詳細は [Brain](../brain/) を参照してください）。一方、Pod Applet の `ctx.ai` 呼び出しは、`Ankole.Pod.Applets.Gateway` を経由し、選択された実行 Principal としてステートレスに実行されます。言語モデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）の解決では、Human は有効な Pod/Site の既定値を、Agent はその Agent の有効な設定を使用します。使用量は実行 Principal に記録され、対話型 Agent のトークンクォータは消費しません。
+`POST /embeddings` はテキスト、トークン配列、または構造化入力ブロックを受け付け、`provider_id/model` 形式による明示的なセレクター指定が必要です（たとえば `Ankole.Brain` は embedding 生成時に [AppConfigure](../app-configuration/) のサイト設定 `brain.embedding_model` を読み取ります）。`POST /rerank` は空でないドキュメント配列と正の整数 `top_n` を受け取って再ランク付けを行い、明示的な `provider_id/model` セレクターまたは `default` / `rerank.default` を受け付けます（`ankole_brain` は自身の有効な `rerank` モデルプロファイルを解決し、Agent や Human の呼び出しは Pod/Site の `rerank` プロファイルを解決します。検索の詳細は [Brain](../brain/) を参照してください）。一方、Pod Applet の `ctx.ai` 呼び出しは、`Ankole.Pod.Applets.Gateway` を経由し、選択された実行 Principal としてステートレスに実行されます。言語モデルプロファイル（`primary`、`light`、`heavy`、`vision_fallback`）の解決では、Human は有効な Pod/Site の既定値を、Agent はその Agent の有効な設定を使用します。使用量は実行 Principal に記録され、対話型 Agent のトークンクォータは消費しません。
 
 `POST /web_search` は 1,024 文字以内の `query` と、任意の `limit`（1〜100、既定値 5）を受け取り、`items` と `metadata` を返します。各結果には `url`、`title`、`description` が含まれ、Provider が返した場合は `published_at` と `score` も付きます。`metadata` には `query`、ゲートウェイ側の所要時間 `latency_ms`、HTTP リクエストの `request_id` が入ります。`POST /decisions` は、与えられた `state` について型付きの質問に回答します。1 回のリクエストには 1〜64 個の `questions` を指定でき、各質問は `noul`（はい／いいえ）、`choice`（2〜255 個の名前付き選択肢から 1 つ）、`score`（2〜10 段階の順序付きレベル）のいずれかです。画像は 1 枚あたり 4 MiB 以内で、4 枚まで添付できます。レスポンスは質問ごとに確率付きの回答を返し、回答した `model` とトークンの `usage` も含みます。`default` / `decision.default` セレクターは Pod/Site の `decision` プロファイルに解決されます。このプロファイルが未設定の場合は、呼び出し元の `light` 言語モデルが代わりに回答します。言語モデルが返すのは自己申告の確信度であるため、この確率は較正されていません。また、言語モデルが回答する場合、1 回のリクエストに指定できる選択肢とレベルは合計 500 個までです。
 

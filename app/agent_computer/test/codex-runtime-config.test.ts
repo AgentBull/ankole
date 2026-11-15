@@ -24,7 +24,7 @@ function turnStart(modelRef: TurnStart['model_ref']): TurnStart {
 }
 
 describe('@ankole/agent-computer Codex runtime config', () => {
-  it('uses the coding model resolved for the current Job turn', async () => {
+  it('uses the model resolved for the current Job turn', async () => {
     const runtime = await resolveCodexRuntimeConfig({
       turnStart: turnStart({
         provider_id: 'openrouter',

@@ -5,6 +5,7 @@ defmodule AnkoleWeb.OfficeFonts do
   """
 
   @default_dir "/usr/share/ankole/fonts"
+  @local_dir Path.expand("../../../../var/office-fonts", __DIR__)
 
   @spec directory() :: String.t()
   def directory do
@@ -14,10 +15,15 @@ defmodule AnkoleWeb.OfficeFonts do
         raw -> String.trim(raw)
       end
 
-    if configured != "" and File.exists?(Path.join(configured, "manifest.json")) do
-      configured
-    else
-      Application.app_dir(:ankole, "priv/static/fonts/office")
+    cond do
+      configured != "" and File.exists?(Path.join(configured, "manifest.json")) ->
+        configured
+
+      File.exists?(Path.join(@local_dir, "manifest.json")) ->
+        @local_dir
+
+      true ->
+        Application.app_dir(:ankole, "priv/static/fonts/office")
     end
   end
 end

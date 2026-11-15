@@ -2313,7 +2313,7 @@ fn select_cjk_fallback_families(
     }
     if has_other_cjk && out.is_empty() {
         for candidate in [
-            "Noto Sans SC",
+            "IBM Plex Sans SC",
             "Noto Sans TC",
             "Noto Sans JP",
             "Noto Sans KR",

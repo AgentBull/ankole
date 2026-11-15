@@ -19,6 +19,7 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.Control
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Dispatch
+  alias Ankole.BackgroundAgentJobs.ExecutionLog
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.TurnEvidence
@@ -542,6 +543,9 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc false
   defdelegate get_result_window_for_agent(job_id, agent_uid, offset, window_bytes), to: Queries
+
+  @doc "Projects one bounded execution-log page across a Job's workspace lineage for Worker recovery."
+  defdelegate execution_log_page(job, cursor), to: ExecutionLog, as: :page
 
   @doc "Fetches one job with its orchestrator-facing execution projection."
   def get_job_summary_for_agent(job_id, agent_uid, opts \\ []),

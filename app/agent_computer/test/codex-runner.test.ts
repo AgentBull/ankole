@@ -32,7 +32,7 @@ import {
   type BackgroundAgentJobResponse,
   type RuntimeSkillSummary
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { type RPCRequester } from '../src/lanes/rpc-lane'
+import { RPCTimeoutError, type RPCRequester } from '../src/lanes/rpc-lane'
 import { type RPCRequestInit } from '../src/lanes/rpc-contract'
 
 type RecordedStatusUpdate = RPCRequestInit<'background_agent_job.status.update'> & {
@@ -628,7 +628,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(statusUpdates[0]).toMatchObject({ runtimeThreadId: 'thread-1' })
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
         runtime_checkpoint_recreated: true,
-        runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
+        runtime_checkpoint_recovery: 'new_thread_from_logfile',
+        runtime_thread_recreated_reason: 'resume_failed'
       })
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.runtime_thread_id).toBe('thread-1')
     } finally {
@@ -673,7 +674,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'running', 'succeeded'])
       expect(parsedJSON(statusUpdates[1]?.metadataJson)).toMatchObject({
         runtime_checkpoint_recreated: true,
-        runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
+        runtime_checkpoint_recovery: 'new_thread_from_logfile',
+        runtime_thread_recreated_reason: 'resume_failed'
       })
       expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toContain(response().task)
     } finally {
@@ -906,11 +908,219 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(existsSync(join(codexHomeFor(fixture.root), 'inject-items.json'))).toBe(false)
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
         runtime_checkpoint_recreated: true,
-        runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
+        runtime_checkpoint_recovery: 'new_thread_from_logfile',
+        runtime_thread_recreated_reason: 'resume_failed'
       })
       const replacement = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
       expect(replacement.config.developer_instructions).toContain(currentTurn.request_context!.original_human_request)
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('replaces the thread and materializes .ankole logfile recovery when a respawn switches model providers', async () => {
+    const fixture = prepareFixture('done after cross-provider respawn')
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const workspaceOwnerJobID = '1001'
+    const sourceWorkspace = jobProjectFor(fixture.root, workspaceOwnerJobID)
+    mkdirAgentSync(sourceWorkspace)
+
+    const sourceProjection = jsonBytes({
+      version: 1,
+      model_ref: { provider_id: 'openai-main', model: 'gpt-5.4' },
+      runtime_policy: {},
+      skills: [],
+      agent_plugins: [],
+      native_mcp_servers: [],
+      worker_env: { names: [], plain_values: {} },
+      browser: { mode: 'persistent' }
+    })
+    const currentProjection = jsonBytes({
+      version: 1,
+      model_ref: { provider_id: 'anthropic-main', model: 'claude-haiku-4-5' },
+      runtime_policy: {},
+      skills: [],
+      agent_plugins: [],
+      native_mcp_servers: [],
+      worker_env: { names: [], plain_values: {} },
+      browser: { mode: 'persistent' }
+    })
+
+    const currentJob = create(BackgroundAgentJobResponseSchema, {
+      ...response(),
+      task: 'Format the verified table and fix typo in section 2.',
+      runtimeThreadId: 'thread-openai-1',
+      continuedFromJobId: '1002',
+      workspaceOwnerJobId: workspaceOwnerJobID,
+      runtimeProjectionJson: currentProjection
+    })
+
+    const baseOpts = options(fixture.root, statusUpdates, [], () => currentJob)
+    const opts: CodexJobOptions = {
+      ...baseOpts,
+      rpc: (async (method: unknown, payload: unknown, auth?: unknown, rpcOpts?: unknown) => {
+        if (method === 'background_agent_job.get') {
+          const req = payload as { jobId?: string; resultOffset?: string; executionLogCursor?: string }
+          if (req.executionLogCursor === 'head') {
+            return create(BackgroundAgentJobResponseSchema, {
+              status: 'running',
+              task: currentJob.task,
+              executionLogJsonl: Buffer.from(
+                `${JSON.stringify({ job_id: 1002, position: 0, type: 'dynamicToolCall', tool: 'pages.create', output: [{ text: 'page_id=pg_77' }] })}\n`,
+                'utf8'
+              ),
+              executionLogNextCursor: '',
+              taskLineageJson: jsonBytes({
+                format: 'ankole_job_task_lineage',
+                version: 1,
+                jobs: [{ job_id: 1002, task: 'Create Q4 revenue page.' }]
+              })
+            })
+          }
+          if (req.jobId === '1002' && req.resultOffset === undefined) {
+            return create(BackgroundAgentJobResponseSchema, {
+              ...response(),
+              task: 'Create Q4 revenue page.',
+              runtimeThreadId: 'thread-openai-1',
+              runtimeProjectionJson: sourceProjection
+            })
+          }
+        }
+        return (baseOpts.rpc as (...args: unknown[]) => Promise<unknown>)(method, payload, auth, rpcOpts)
+      }) as RPCRequester
+    }
+
+    try {
+      await runCodexJob(turnStart(), opts)
+
+      expect(existsSync(join(codexHomeFor(fixture.root), 'thread-resume.json'))).toBe(false)
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
+        runtime_checkpoint_recreated: true,
+        runtime_checkpoint_recovery: 'new_thread_from_logfile',
+        runtime_thread_recreated_reason: 'respawn_runtime_incompatible'
+      })
+      expect(existsSync(join(sourceWorkspace, '.ankole', 'task-lineage.json'))).toBe(true)
+      expect(readFileSync(join(sourceWorkspace, '.ankole', 'execution-history.jsonl'), 'utf8')).toContain(
+        'page_id=pg_77'
+      )
+      const turnInputText = readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')
+      expect(turnInputText).toContain('.ankole/task-lineage.json')
+      expect(turnInputText).toContain('.ankole/execution-history.jsonl')
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.files_changed).toEqual({
+        paths: [],
+        total_count: 0,
+        truncated: false
+      })
+      expect(statusUpdates.at(-1)?.status).toBe('succeeded')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('keeps the prior runtime_thread_id anchor on history RPC timeout and resumes the successor thread on subsequent turns', async () => {
+    const fixture = prepareFixture('recovered-after-timeout')
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const workspaceOwnerJobID = '1001'
+    const sourceWorkspace = jobProjectFor(fixture.root, workspaceOwnerJobID)
+    mkdirAgentSync(sourceWorkspace)
+
+    const sourceProjection = jsonBytes({
+      version: 1,
+      model_ref: { provider_id: 'openai-main', model: 'gpt-5.4' },
+      runtime_policy: {},
+      skills: [],
+      agent_plugins: [],
+      native_mcp_servers: [],
+      worker_env: { names: [], plain_values: {} },
+      browser: { mode: 'persistent' }
+    })
+    const currentProjection = jsonBytes({
+      version: 1,
+      model_ref: { provider_id: 'anthropic-main', model: 'claude-haiku-4-5' },
+      runtime_policy: {},
+      skills: [],
+      agent_plugins: [],
+      native_mcp_servers: [],
+      worker_env: { names: [], plain_values: {} },
+      browser: { mode: 'persistent' }
+    })
+
+    let persistedThreadID = 'thread-openai-1'
+    let failNextHistoryRead = true
+
+    const currentJob = () =>
+      create(BackgroundAgentJobResponseSchema, {
+        ...response(),
+        task: 'Continue after cross-model respawn.',
+        runtimeThreadId: persistedThreadID,
+        continuedFromJobId: '1002',
+        workspaceOwnerJobId: workspaceOwnerJobID,
+        runtimeProjectionJson: currentProjection
+      })
+
+    const baseOpts = options(fixture.root, statusUpdates, [], currentJob)
+    const opts: CodexJobOptions = {
+      ...baseOpts,
+      rpc: (async (method: unknown, payload: unknown, auth?: unknown, rpcOpts?: unknown) => {
+        if (method === 'background_agent_job.status.update') {
+          const update = payload as RecordedStatusUpdate
+          if (update.runtimeThreadId) persistedThreadID = update.runtimeThreadId
+        }
+        if (method === 'background_agent_job.get') {
+          const req = payload as { jobId?: string; resultOffset?: string; executionLogCursor?: string }
+          if (req.executionLogCursor === 'head') {
+            if (failNextHistoryRead) {
+              failNextHistoryRead = false
+              throw new RPCTimeoutError('background_agent_job.get', true)
+            }
+            return create(BackgroundAgentJobResponseSchema, {
+              status: 'running',
+              task: 'Continue after cross-model respawn.',
+              executionLogJsonl: Buffer.from(
+                `${JSON.stringify({ job_id: 1002, position: 0, type: 'dynamicToolCall', tool: 'pages.create', output: [{ text: 'page_id=pg_88' }] })}\n`,
+                'utf8'
+              ),
+              executionLogNextCursor: '',
+              taskLineageJson: jsonBytes({
+                format: 'ankole_job_task_lineage',
+                version: 1,
+                jobs: [{ job_id: 1002, task: 'Initial parent task.' }]
+              })
+            })
+          }
+          if (req.jobId === '1002' && req.resultOffset === undefined) {
+            return create(BackgroundAgentJobResponseSchema, {
+              ...response(),
+              task: 'Initial parent task.',
+              runtimeThreadId: 'thread-openai-1',
+              runtimeProjectionJson: sourceProjection
+            })
+          }
+        }
+        return (baseOpts.rpc as (...args: unknown[]) => Promise<unknown>)(method, payload, auth, rpcOpts)
+      }) as RPCRequester
+    }
+
+    try {
+      // Attempt 1: history RPC times out; neither thread/start nor status.update may commit an empty replacement thread.
+      await expect(runCodexJob(turnStart(), opts)).rejects.toBeInstanceOf(RPCTimeoutError)
+      expect(persistedThreadID).toBe('thread-openai-1')
+      expect(statusUpdates).toHaveLength(0)
+      expect(existsSync(join(codexHomeFor(fixture.root), 'thread-start.json'))).toBe(false)
+
+      // Attempt 2: recovers history into `.ankole/` and starts the successor's own thread (`thread-1`).
+      await runCodexJob(turnStart(), opts)
+      expect(persistedThreadID).toBe('thread-1')
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toContain(
+        '.ankole/execution-history.jsonl'
+      )
+
+      // Subsequent turn on the same successor Job (`persistedThreadID === 'thread-1'`): resumes `thread-1` directly without re-replacing it.
+      statusUpdates.length = 0
+      await runCodexJob(turnStart(), opts)
+      expect(existsSync(join(codexHomeFor(fixture.root), 'thread-resume.json'))).toBe(true)
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)?.runtime_checkpoint_recreated).toBeUndefined()
     } finally {
       fixture.cleanup()
     }

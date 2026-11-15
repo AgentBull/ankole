@@ -178,7 +178,7 @@ defmodule Ankole.E2E.RunnerBacktestE2ETest do
                credential_pool: %{entries: [%{label: "Test", api_key: "test-only"}]}
              })
 
-    for profile <- ["primary", "coding"] do
+    for profile <- ["primary", "heavy"] do
       assert {:ok, _} =
                ModelProfiles.put_model_profile(agent_uid, profile, %{
                  provider_id: provider_id,

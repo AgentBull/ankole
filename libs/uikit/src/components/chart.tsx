@@ -1,6 +1,7 @@
 import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { cn } from '../lib/utils'
 import { describeStatChart } from '../viz/stat-summary'
+import { sanitizeDownloadStem } from '../viz/theme'
 import type { MountedStatisticalChart, PercentFallbackReason, StatisticalChartSpec } from '../viz/statistical'
 
 export type {
@@ -44,15 +45,6 @@ export interface AnkoleChartProps {
   emptyState?: ReactNode
   className?: string
   ref?: Ref<AnkoleChartHandle>
-}
-
-function sanitizeDownloadStem(raw?: string): string {
-  const cleaned = (raw ?? 'ankole-chart')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return cleaned || 'ankole-chart'
 }
 
 function triggerHrefDownload(href: string, filename: string) {
@@ -334,12 +326,12 @@ export function AnkoleChart({
     (spec.type === 'stat'
       ? describeStatChart(spec) || spec.title || 'Metric card'
       : (spec.title ?? `${spec.type} chart`))
-  const fileStem = sanitizeDownloadStem(exportFilename ?? ariaLabel ?? spec.title)
   const showExportControls = allowExport && !isEmptyData
 
   const handleExport = async (kind: 'png' | 'svg') => {
     const instance = mountedRef.current
     if (!instance || exportingKind) return
+    const fileStem = sanitizeDownloadStem(exportFilename ?? ariaLabel ?? spec.title)
     setExportingKind(kind)
     try {
       if (kind === 'png') {

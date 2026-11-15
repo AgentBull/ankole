@@ -31,7 +31,13 @@ multiplexing subcommands through an `action` parameter.
 - `args`: optional JSON object exposed to the script as `args`
 - `concurrency`: optional per-run concurrent task limit (`1` through `32`)
 - `max_agent_calls`: optional total task limit for the run (`1` through `1,024`)
-- `model_profile`: optional custom model profile inherited from the current turn
+- `model_profile`: optional run-level delegation profile—a resolvable built-in
+  capability tier (`light`, `primary`, or `heavy`, omitted from the tool schema
+  when all three resolve to the identical effective `{provider_id, model,
+  provider_options}` binding) or a configured custom LLM profile—inherited from
+  the current turn when omitted (validated inside `Lifecycle.persist_in_tx/1`'s
+  new-run branch after idempotency lookup so duplicate retries of an already
+  created run succeed even if a custom profile was later removed)
 
 A run records the calling Session as its owner. Top-level runs started from a
 member's Pod conversations appear as one-off workflow cards on the Pod
@@ -169,6 +175,19 @@ if (__wf_value !== undefined) {
 
 Scripts invoke subagents through `agent(prompt, opts)`, where `prompt` is a
 non-empty string and `opts` may specify `label`, `model_profile`, and `schema`.
+Each `agent()` call selects its model profile independently: omitting
+`model_profile` inherits the Workflow run's `model_profile`, while passing
+`light`, `primary`, `heavy`, or a custom LLM alias overrides that stage's task
+session (`Replay` rejects non-delegation fixed slots such as `vision_fallback`
+or malformed names with `workflow_agent_call_invalid`, whereas an unconfigured
+custom alias fails only that individual task at `WorkflowTask` admission with
+`workflow_task_model_profile_unavailable` so `await agent(...)` resolves to
+`null`). Multi-stage pipelines can therefore match each stage's difficulty—using
+`heavy` where ambiguity, cross-file synthesis, or root-cause diagnosis
+dominates, `primary` for standard coordination, and `light` for bounded
+mechanical fanout or localized formatting once earlier stages have verified the
+core structure—while naming a custom profile only when requested by the user or
+an active Skill.
 Task schemas use the supported OpenAPI 3 JSON Schema subset with a single
 non-null top-level type (`object`, `array`, `string`, `number`, `integer`, or
 `boolean`):

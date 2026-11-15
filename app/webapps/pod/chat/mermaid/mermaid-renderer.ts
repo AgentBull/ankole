@@ -1,9 +1,4 @@
-import {
-  buildPeleCssVarsString,
-  parseSvgDimensions,
-  resolveVizTheme,
-  type VizThemePalette
-} from '@ankole/uikit/viz/theme'
+import { buildPeleCssVarsString, resolveVizTheme, type VizThemePalette } from '@ankole/uikit/viz/theme'
 import { PeleError } from 'pele/core'
 import { renderAsync, type DiagramType } from 'pele/lazy'
 
@@ -230,12 +225,11 @@ export async function renderInfographicDiagram(code: string, theme: MermaidTheme
       width: 760
     })
     try {
-      const { svg } = await mounted.exportSVG()
-      const dims = parseSvgDimensions(svg)
+      const { svg, width, height } = await mounted.exportSVG()
       const entry: RenderedMermaidDiagram = {
         svg,
-        width: dims.width,
-        height: dims.height,
+        width,
+        height,
         diagramType: 'infographic'
       }
       storeCachedDiagram(cacheKey('infographic', theme, trimmed), entry)

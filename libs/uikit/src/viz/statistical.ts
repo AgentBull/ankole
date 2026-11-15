@@ -2,11 +2,11 @@ import { Renderer as SVGRenderer } from '@antv/g-svg'
 import { corelib, extend, graphlib, plotlib, Runtime, type G2Spec } from '@antv/g2'
 import { formatFallbackNumeric, toFiniteNumber } from './format'
 import { statChartParts, statTrendGlyph, type StatTrendDirection } from './stat-summary'
+import { finalizeExportedSvg, type ExportedSvgArtifact } from './svg-export'
 import {
   assignSeriesColors,
   pickReadableDataLabelInk,
   resolveVizTheme,
-  sanitizeExportedSvg,
   type AssignSeriesColorsOptions,
   type MarketConvention,
   type SeriesColorDescriptor,
@@ -130,6 +130,7 @@ export interface MountedStatisticalChart {
   update: (nextSpec: StatisticalChartSpec) => Promise<void>
   resize: (width: number, height: number) => Promise<void>
   exportSVG: () => Promise<string>
+  exportSvgArtifact: (options?: { cardFrame?: boolean }) => Promise<ExportedSvgArtifact>
   exportPNG: (dpr?: number) => Promise<string>
   destroy: () => void
 }
@@ -1770,12 +1771,17 @@ export async function mountStatisticalChart(
 
   let destroyed = false
 
-  const serializeLiveOrOffscreenSvg = async (): Promise<string> => {
+  const serializeLiveOrOffscreenSvg = async (exportOptions?: { cardFrame?: boolean }): Promise<ExportedSvgArtifact> => {
     if (useSvgRenderer) {
       const svgEl = host.querySelector('svg')
       if (svgEl) {
         const raw = new XMLSerializer().serializeToString(svgEl)
-        return sanitizeExportedSvg(raw, palette, { safetyPaddingPx: 8 })
+        return finalizeExportedSvg(raw, palette, {
+          safetyPaddingPx: 8,
+          cardFrame: exportOptions?.cardFrame,
+          fallbackWidth: currentWidth,
+          fallbackHeight: currentHeight
+        })
       }
     }
 
@@ -1802,7 +1808,12 @@ export async function mountStatisticalChart(
         throw new Error('Failed to serialize G2 SVG output.')
       }
       const raw = new XMLSerializer().serializeToString(svgEl)
-      return sanitizeExportedSvg(raw, palette, { safetyPaddingPx: 8 })
+      return finalizeExportedSvg(raw, palette, {
+        safetyPaddingPx: 8,
+        cardFrame: exportOptions?.cardFrame,
+        fallbackWidth: currentWidth,
+        fallbackHeight: currentHeight
+      })
     } finally {
       tempChart.destroy()
       tempHost.remove()
@@ -1841,7 +1852,11 @@ export async function mountStatisticalChart(
     },
     async exportSVG() {
       if (destroyed) throw new Error('Chart instance has been destroyed.')
-      return serializeLiveOrOffscreenSvg()
+      return (await serializeLiveOrOffscreenSvg()).svg
+    },
+    async exportSvgArtifact(exportOptions) {
+      if (destroyed) throw new Error('Chart instance has been destroyed.')
+      return serializeLiveOrOffscreenSvg(exportOptions)
     },
     async exportPNG(dpr = 2) {
       if (destroyed) throw new Error('Chart instance has been destroyed.')
@@ -1851,7 +1866,7 @@ export async function mountStatisticalChart(
           return canvasEl.toDataURL('image/png')
         }
       }
-      const svg = await serializeLiveOrOffscreenSvg()
+      const { svg } = await serializeLiveOrOffscreenSvg()
       return svgMarkupToPngDataUrl(svg, currentWidth, currentHeight, dpr)
     },
     destroy() {

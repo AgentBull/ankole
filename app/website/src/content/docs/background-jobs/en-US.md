@@ -43,7 +43,7 @@ Tell the Agent upfront how you want it to coordinate with the Job:
 - **Research this in the background, then continue your answer:** best when the Agent's main reply depends on the Job's findings.
 - **Ask me before a key choice:** best when scope or spend decisions need your sign-off—the Job pauses, asks in the originating conversation, and resumes once you reply.
 - **Run silently:** best when the Job only produces files or you plan to review it later—ask the Agent not to post a completion message, and check on it later in chat or in the Console.
-- **Continue the previous Job:** reference the earlier Job and state the follow-up requirement so the Agent resumes with the existing workspace and context when still resumable.
+- **Continue the previous Job:** reference the earlier Job and state the follow-up requirement so the Agent resumes with the existing workspace and context when still resumable. Whenever Ankole starts a fresh Codex thread after a cold-idle recycle, Worker replacement, or model-profile switch, it writes the prior task lineage and persisted execution trajectory into `.ankole/task-lineage.json` and `.ankole/execution-history.jsonl` inside the workspace so the new thread can inspect prior actions without re-running completed work.
 
 For example:
 
@@ -56,9 +56,9 @@ Mention whether the task needs a repository, document set, or installed tool, an
 
 ## Select the model provider
 
-Every Job routes model calls through AIGateway. At the first execution admission, Ankole snapshots the Agent's effective **Background Agent Jobs** model profile, falling back to the Agent's `heavy` profile if **Background Agent Jobs** is left blank.
+Every Job routes model calls through AIGateway. By default, a new Job selects the Agent's `heavy` (**Complex Reasoning & Background Jobs**) profile, falling back to `primary` when `heavy` is unset; the Agent can also target `light`, `primary`, or a named custom profile when creating or continuing a Job, and Ankole snapshots the resolved provider binding on the Job's first execution admission.
 
-To run Jobs with a ChatGPT subscription, first configure a [ChatGPT subscription provider](../chatgpt-subscription-provider/), then open **Console → Agents**, locate **Background Agent Jobs** under the Agent's model profiles, and choose that provider along with an entitled model, reasoning effort, and Fast Mode. AIGateway's credential pool automatically selects and rotates accounts.
+To run Jobs with a ChatGPT subscription, first configure a [ChatGPT subscription provider](../chatgpt-subscription-provider/), then open **Console → Agents** (or **Console → Model Profiles**), select the `heavy` (**Complex Reasoning & Background Jobs**) profile, and choose that provider along with an entitled model, reasoning effort, and Fast Mode. AIGateway's credential pool automatically selects and rotates accounts.
 
 ## Inspect Jobs in the Console
 
@@ -84,7 +84,7 @@ If you only want to adjust the goal, message the Agent in the originating conver
 ## Common problems
 
 - **The Job stays `queued`:** check that the Agent's Worker is ready on **Console → Workers** and that sibling Jobs of the same Agent have not filled every running slot (`background_agent_jobs.max_running_per_agent`).
-- **It fails immediately on start:** verify the Agent's **Background Agent Jobs** model profile and the bound provider's credential-pool health.
+- **It fails immediately on start:** verify the Agent's selected model profile (`heavy` by default, falling back to `primary`) and the bound provider's credential-pool health.
 - **It sits in `waiting_on_user`, but no question appeared in chat:** check the signal routing rule and Channel Provider for the originating conversation.
 - **It succeeded without posting back to chat:** confirm first that the prompt did not ask for silent execution; otherwise, open the Job to verify that a result was recorded and check the originating conversation's signal routing rule.
 - **An admitted Job ignores a model-profile edit:** Ankole locks in the provider binding on a Job's first execution admission, so profile edits apply only to Jobs admitted afterward.

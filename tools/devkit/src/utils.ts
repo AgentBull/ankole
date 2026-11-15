@@ -100,27 +100,30 @@ export async function runChildCaptured(
 
 /**
  * Resolve a locally-installed binary such as Knip. Prefer the repo-root
- * workspace install so analyze uses the same versions pinned by the root
- * lockfile; fall back to devkit-local bins for standalone development.
+ * workspace install, then devkit's own workspace `.bin` links, and finally
+ * `.bun` store bins sorted numerically so stale cached versions (for example
+ * `beta.9` vs `beta.13`) never shadow the lockfile-pinned binary.
  * Returns null if absent so callers can emit an infra error (exit 2) instead
  * of a violation (exit 1).
  */
-export function resolveLocalBin(name: string): string | null {
+export function resolveLocalBin(name: string, roots: { repoRoot?: string; packageRoot?: string } = {}): string | null {
+  const repoRoot = roots.repoRoot ?? repoRootPath
+  const pkgRoot = roots.packageRoot ?? packageRootPath
   const candidates = [
-    join(repoRootPath, 'node_modules', '.bin', name),
-    ...resolveBunStoreBins(name),
-    join(packageRootPath, 'node_modules', '.bin', name)
+    join(repoRoot, 'node_modules', '.bin', name),
+    join(pkgRoot, 'node_modules', '.bin', name),
+    ...resolveBunStoreBins(name, repoRoot)
   ]
   return candidates.find(candidate => existsSync(candidate)) ?? null
 }
 
-function resolveBunStoreBins(name: string): string[] {
-  const storePath = join(repoRootPath, 'node_modules', '.bun')
+function resolveBunStoreBins(name: string, repoRoot = repoRootPath): string[] {
+  const storePath = join(repoRoot, 'node_modules', '.bun')
 
   try {
     return readdirSync(storePath)
       .filter(entry => entry.startsWith(`${name}@`))
-      .toSorted((left, right) => right.localeCompare(left))
+      .toSorted((left, right) => right.localeCompare(left, undefined, { numeric: true }))
       .map(entry => join(storePath, entry, 'node_modules', '.bin', name))
   } catch {
     return []

@@ -234,12 +234,15 @@ defmodule Ankole.Sessions.Tools.Workflow do
   def declarations, do: @declarations
   @impl true
   def declarations(run) do
+    tiers = run.spec.request_context["delegation_tier_profiles"] || []
+
     Enum.map(@declarations, fn
       %{"name" => "workflow"} = tool ->
         Ankole.Sessions.Tool.with_profiles(
           tool,
           run.spec.request_context["custom_model_profiles"] || [],
-          "primary"
+          "primary",
+          tiers: tiers
         )
 
       %{"name" => "submit_result"} = tool ->

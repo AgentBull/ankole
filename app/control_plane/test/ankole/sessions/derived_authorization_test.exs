@@ -1,7 +1,7 @@
 defmodule Ankole.Sessions.DerivedAuthorizationTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.{AuthZ, BackgroundAgentJobs, Conversations, Schedule, Workflow}
+  alias Ankole.{AuthZ, Conversations, Schedule, Workflow}
   alias Ankole.AgentWorkers.WorkerRoute
   alias Ankole.Pod.{Pages, RPCBroker}
   alias Ankole.RuntimeFabric.V1.{PodRequest, ReadToolRequest}
@@ -372,7 +372,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     assert {:ok, _} =
              Ankole.AIGateway.ModelProfiles.put_model_profile(
                source.agent_uid,
-               "coding",
+               "heavy",
                Map.take(primary, ["provider_id", "model", "provider_options"])
              )
 

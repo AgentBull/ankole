@@ -37,7 +37,7 @@ defmodule Ankole.E2E.PodSuperagentRealLLMTest do
     for {profile, model} <- [
           {"primary", "deepseek/deepseek-v4.1-flash"},
           {"light", "deepseek/deepseek-v4.1-flash"},
-          {"coding", "minimax/minimax-m3"}
+          {"heavy", "minimax/minimax-m3"}
         ] do
       assert {:ok, _} =
                ModelProfiles.put_model_profile(legal.uid, profile, %{
@@ -250,7 +250,7 @@ defmodule Ankole.E2E.PodSuperagentRealLLMTest do
           ] do
         colleague = create_e2e_agent!(%{display_name: name, role: role}).principal
 
-        for profile <- ["primary", "light", "coding"] do
+        for profile <- ["primary", "light", "heavy"] do
           assert {:ok, _} =
                    ModelProfiles.put_model_profile(colleague.uid, profile, %{
                      provider_id: ctx.provider_id,

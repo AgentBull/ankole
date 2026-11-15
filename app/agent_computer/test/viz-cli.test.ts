@@ -1,11 +1,13 @@
-import { isPrintSafeSvg } from '@ankole/uikit/viz/theme'
+import { isPrintSafeSvg } from '@ankole/uikit/viz/svg-export'
 import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeContextGenerationFile } from '../src/cli/cli-guidance'
+import { buildVizHarnessBundle } from '../src/cli/viz/build-harness'
 import { coerceTabularCell, injectDataIntoSpec, loadDataFile, parseDelimitedRecords } from '../src/cli/viz/data-loader'
 import { designColorsToTokenOverrides, parseDesignFrontmatterColors } from '../src/cli/viz/design-palette'
+import { renderMermaidSvgInBun } from '../src/cli/viz/mermaid-svg'
 import { CLI_CONTEXT_FILE_ENV, CLI_LEDGER_DIR_ENV } from '../src/core/execution/turn-runtime-env'
 
 const VIZ_CLI_ENTRY = join(import.meta.dir, '../src/cli/viz/viz-cli.ts')
@@ -360,6 +362,31 @@ describe('ankole-viz CLI, validator, pure-Bun Mermaid renderer, and data/design 
       expect(klineSvgErr.stderr).toContain('--pdf-safe')
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves CSS-like prose in Mermaid labels without backtracking and bundles the browser harness cleanly', async () => {
+    const start = performance.now()
+    const source = [
+      'flowchart LR',
+      `  accTitle: var(--x, ${' '.repeat(20_000)}!`,
+      `  accDescr: style="rx:${'1'.repeat(20_000)}!`,
+      '  A["Token var(--chart-1)"] --> B["Ref url(https://example.com)"]'
+    ].join('\n')
+
+    const rendered = await renderMermaidSvgInBun(source, { theme: 'light' })
+    expect(performance.now() - start).toBeLessThan(1_000)
+    expect(rendered.printSafe).toBe(true)
+    expect(isPrintSafeSvg(rendered.svg)).toBe(true)
+    expect(rendered.svg).toContain('Token var(--chart-1)')
+    expect(rendered.svg).toContain('url(https://example.com)')
+
+    const outDir = mkdtempSync(join(tmpdir(), 'ankole-viz-harness-build-'))
+    try {
+      const bundlePath = await buildVizHarnessBundle(outDir)
+      expect(existsSync(bundlePath)).toBe(true)
+    } finally {
+      rmSync(outDir, { recursive: true, force: true })
     }
   })
 })

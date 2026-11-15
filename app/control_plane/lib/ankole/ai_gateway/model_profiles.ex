@@ -4,7 +4,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
 
   Agent overrides live under `agents.options["ai_agent"]`; system Principal,
   Pod, and Site overrides use AppConfigure rows. Runtime reads merge each slot across those
-  layers before applying the coding and light fallbacks.
+  layers before applying the heavy and light fallbacks.
   """
 
   alias Ankole.AIGateway.ImageModelCatalog
@@ -12,6 +12,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
   alias Ankole.AIGateway.ModelMetadata
+  alias Ankole.AIGateway.ModelProfiles.Delegation
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderDefinition
@@ -23,8 +24,9 @@ defmodule Ankole.AIGateway.ModelProfiles do
   alias Ankole.Repo
 
   @profiles ~w(
-    primary light heavy coding vision_fallback web_search web_fetch image_generate
+    primary light heavy vision_fallback web_search web_fetch image_generate
   )
+  @delegation_tiers ~w(light primary heavy)
   @pod_profiles @profiles ++
                   ["rerank", "decision", "speech", "transcription", "ocr", "video", "music"]
   @provider_hosted_capabilities ~w(web_search image_generate)
@@ -38,6 +40,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
   @type profile :: String.t()
 
   def agent_profiles, do: @profiles
+  def delegation_tier_profiles, do: @delegation_tiers
   def pod_profiles, do: @pod_profiles
   def provider_hosted_capabilities, do: @provider_hosted_capabilities
 
@@ -220,25 +223,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
   Lists the configured custom LLM profile names and descriptions for an Agent.
   """
   @spec list_custom_model_profiles(String.t()) :: {:ok, [map()]} | {:error, term()}
-  def list_custom_model_profiles(agent_uid) do
-    with {:ok, profiles} <- get_model_profiles(agent_uid) do
-      custom_profiles =
-        profiles
-        |> Enum.flat_map(fn
-          {name, %{"description" => description}}
-          when is_binary(description) and description != "" ->
-            if custom_profile_name?(name),
-              do: [%{"name" => name, "description" => description}],
-              else: []
-
-          {_name, _attrs} ->
-            []
-        end)
-        |> Enum.sort_by(& &1["name"])
-
-      {:ok, custom_profiles}
-    end
-  end
+  defdelegate list_custom_model_profiles(agent_uid), to: Delegation
 
   @doc """
   Reads one configured custom LLM profile.
@@ -249,6 +234,26 @@ defmodule Ankole.AIGateway.ModelProfiles do
       get_model_profile(agent_uid, profile)
     end
   end
+
+  @doc "Normalizes a delegation model profile name (`light`, `primary`, `heavy`, or custom LLM profile)."
+  @spec normalize_delegation_profile(term()) ::
+          {:ok, profile()} | {:error, :invalid_delegation_model_profile}
+  defdelegate normalize_delegation_profile(profile), to: Delegation
+
+  @doc """
+  Validates and resolves a delegation model profile (`light`, `primary`, `heavy`,
+  or custom LLM profile), returning the canonical logical profile name.
+  """
+  @spec validate_delegation_profile(String.t(), term()) :: {:ok, profile()} | {:error, term()}
+  defdelegate validate_delegation_profile(agent_uid, profile), to: Delegation
+
+  @doc """
+  Lists resolvable built-in capability tiers (`light`, `primary`, `heavy`) and
+  configured custom LLM profiles for delegation tool schemas.
+  """
+  @spec available_delegation_profiles(String.t()) ::
+          {:ok, %{built_in_tiers: [profile()], custom_profiles: [map()]}} | {:error, term()}
+  defdelegate available_delegation_profiles(agent_uid), to: Delegation
 
   @doc """
   Updates one model profile after validating the referenced provider and
@@ -627,8 +632,8 @@ defmodule Ankole.AIGateway.ModelProfiles do
     end)
   end
 
-  defp resolved_profile(direct, "coding") do
-    Enum.find(["coding", "heavy", "primary"], "primary", &Map.has_key?(direct, &1))
+  defp resolved_profile(direct, "heavy") do
+    if Map.has_key?(direct, "heavy"), do: "heavy", else: "primary"
   end
 
   defp resolved_profile(direct, "light") do

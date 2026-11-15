@@ -28,7 +28,7 @@ git push origin feature/agent-fix
 
 - **Git の認証情報。** GitHub（Cloud または Enterprise）では、**Pod → Connections**（`Ankole.Connectors`）で GitHub App インストールまたは個人 OAuth アカウントを接続する方法を推奨します。Ankole が Turn スコープの `GIT_ASKPASS` クレデンシャルヘルパー（`POST /api/internal/connectors/git-credentials`）を自動注入するため、`WorkerEnv` に静的トークンを保存しなくても HTTPS 経由で `git clone`・`git fetch`・`git push` を認証できます。それ以外の Git ホストを使う場合は、**Console → Environment variables** で SSH キーや PAT を `GIT_SSH_KEY` や `GIT_TOKEN` などの暗号化変数として保存してください（詳しくは [Environment variables](../worker-env/) を参照）。
 - **Worker からアクセス可能なリポジトリ。** Worker から git ホストへネットワーク経由で到達できる必要があります。プライベートネットワーク環境では、Worker から対象の git サーバーへ接続できるか事前に確認してください。Docker Compose 環境では、Worker コンテナは `ankole_workers` ネットワークに接続されており、コントロールプレーンとインターネットの双方に通信できるため、パブリックな git ホストへそのままアクセスできます。Helm チャートで `networkPolicy.enabled` を有効にした場合も、Worker Pod からコントロールプレーン、DNS、パブリックアドレスへは通信できますが、プライベートアドレス上の git サーバーについては、該当するアドレス帯が `networkPolicy.workerDeniedCIDRs` に含まれている限りアクセスできません。
-- **モデルプロファイル（個別指定が必要な場合のみ）。** Agent は上書きしない限りサイトと Pod のモデルプロファイルを継承し、Background Agent Job も `coding` から `heavy`、`primary` の順でフォールバックします。Background Agent Job で専用の Provider やモデルを使いたい場合にのみ、`coding` プロファイルを設定してください。
+- **モデルプロファイル（個別指定が必要な場合のみ）。** Agent は上書きしない限りサイトと Pod のモデルプロファイルを継承し、Background Agent Job は既定で `heavy` を使用して未設定時は `primary` へフォールバックします。Background Agent Job で専用の Provider やモデルを使いたい場合にのみ、`heavy` プロファイルを設定してください。
 
 ## workspace
 
@@ -49,7 +49,7 @@ git リポジトリは、セッションまたは Job ごとのワークスペ�
 PR をレビューするコーディング Agent をセットアップする手順は次のとおりです。
 
 1. **Pod → Connections** で GitHub App または個人 OAuth アカウントを接続します（GitHub 以外のホストでは **Console → Environment variables** に暗号化した SSH キーまたは PAT を保存します）。
-2. Agent を作成します。サイトおよび Pod の既定モデルプロファイルが自動で継承されるため、通常の会話や Background Agent Job で別のモデルを使いたい場合にのみ個別の上書きや `coding` プロファイルを設定します。
+2. Agent を作成します。サイトおよび Pod の既定モデルプロファイルが自動で継承されるため、通常の会話や Background Agent Job で別のモデルを使いたい場合にのみ個別の上書きや `heavy` プロファイルを設定します。
 3. **Meta Ankole → Agents** でその Agent の `AGENTS.md` 規約を編集し、リポジトリ名、レビュー基準、ブランチ命名規約を記載します。
 4. チャネルで Agent に次のように依頼します。「`your-repo` の最新 PR をレビューしてください。クローンしてチェックアウトし、テストを実行したうえで、見つかった問題点を報告してください。」
 5. 依頼を受けると、Agent は `command` ツールを使ってクローン、チェックアウト、テスト実行を進め、結果を報告します。この一連の作業は会話の中で直接進めることも、Background Agent Job に委任することも可能です。

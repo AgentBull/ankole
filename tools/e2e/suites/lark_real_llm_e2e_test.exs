@@ -458,7 +458,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     provider_id = create_chatgpt_subscription_provider!()
 
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(ctx.agent.uid, "coding", %{
+             ModelProfiles.put_model_profile(ctx.agent.uid, "heavy", %{
                provider_id: provider_id,
                model: @chatgpt_coding_model,
                provider_options: %{"reasoningEffort" => "high"}

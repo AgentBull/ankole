@@ -57,7 +57,7 @@ Follow the Skill's own rule of thumb: run short, stateless Python scripts direct
 
 CodexRunner executes every Background Agent Job—whether a Job researches a topic, drafts a document, edits a repository, or performs other multi-step work, its background lifecycle (rather than its subject matter) routes it to CodexRunner. Communicating with the Codex app-server through `app-server-client.ts`, CodexRunner provisions an isolated Job workspace and runtime config.
 
-In the Console, the corresponding model profile appears as **Background Agent Jobs**, stored in PostgreSQL and the API under the key `coding`.
+In the Console, Background Agent Jobs use the `heavy` model profile by default (`heavy -> primary`), while explicit delegation calls can also select `light`, `primary`, or a configured custom profile.
 
 ## How these paths are selected
 
@@ -65,11 +65,11 @@ Operators govern these execution paths through three straightforward controls:
 
 - **Computer tools** (`command`, `read_file`, and `apply_patch`) ship in every Worker and are available during foreground conversation turns.
 - **Jupyter live kernel** is a `default_enabled` Skill managed in the [Agent Library](../agent-library/) just like the [browser](../browser-automation/) Skill; disable it per Agent whenever an Agent should not run stateful Python sessions.
-- **CodexRunner** drives every Background Agent Job, routing all model calls through AIGateway. Configure the **Background Agent Jobs** (`coding`) profile when Jobs need a dedicated provider or model; if left unset, the control plane falls back to the Agent's `heavy` profile.
+- **CodexRunner** drives every Background Agent Job, routing all model calls through AIGateway. Configure the `heavy` profile when Jobs need a dedicated provider or model; if left unset, the control plane falls back to the Agent's `primary` profile.
 
 ## Next steps
 
 - For the Worker that runs these tools and owns the `/workspace` filesystem, read [Agent Computer Worker](../agent-computer-worker/).
 - For the skill and enablement model behind the Jupyter skill, read [Agent Library](../agent-library/).
-- For the Background Agent Jobs profile, whose internal key is `coding`, read [Background Agent Jobs](../background-jobs/#select-the-model-provider).
+- For configuring the `heavy` profile and Background Agent Job execution, read [Background Agent Jobs](../background-jobs/#select-the-model-provider).
 - For the Worker trust boundary and how to harden it, read [Security hardening](../security-hardening/).

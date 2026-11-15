@@ -705,3 +705,29 @@ fn diffs_unknown_legacy_bookmark_into_unified_embed_card() {
         "Before\nExample\nSummary\nhttps://example.com/doc\nAfter"
     );
 }
+
+#[test]
+fn line_breaks_across_many_inline_atoms_normalize_linearly() {
+    let start = std::time::Instant::now();
+    let latin = format!("<page><p>a{}b</p></page>", "<em>\n</em>".repeat(8_000));
+    assert_eq!(
+        validate(&latin).unwrap().xml,
+        format!("<page><p>a{}b</p></page>", " ".repeat(8_000))
+    );
+
+    let cjk = format!("<page><p>中{}文</p></page>", "<em>\n</em>".repeat(8_000));
+    assert_eq!(validate(&cjk).unwrap().xml, "<page><p>中文</p></page>");
+
+    let tabs = format!(
+        "<page><p><strong>a\nb{}c</strong></p></page>",
+        "\t".repeat(32_000)
+    );
+    assert_eq!(
+        validate(&tabs).unwrap().xml,
+        format!(
+            "<page><p><strong>a b{}c</strong></p></page>",
+            "\t".repeat(32_000)
+        )
+    );
+    assert!(start.elapsed() < std::time::Duration::from_secs(1));
+}

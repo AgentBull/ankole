@@ -48,7 +48,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     end
 
     put_model_profile!(agent.uid, provider_id, "primary")
-    put_model_profile!(agent.uid, provider_id, "coding")
+    put_model_profile!(agent.uid, provider_id, "heavy")
     put_model_profile!(agent.uid, provider_id, "light")
     put_inactivity_timeout!(agent.uid)
     install_data_source_skill!(agent.uid)

@@ -7,7 +7,8 @@ import {
   registerResourceLoader,
   type InfographicOptions
 } from '@antv/infographic'
-import { isPrintSafeSvg, resolveVizTheme, sanitizeExportedSvg, type MarketConvention, type VizThemeMode } from './theme'
+import { finalizeExportedSvg, type ExportedSvgArtifact } from './svg-export'
+import { resolveVizTheme, type MarketConvention, type VizThemeMode } from './theme'
 
 export const BUILTIN_INFOGRAPHIC_TEMPLATES = [
   'list-row-simple-horizontal-arrow',
@@ -239,7 +240,11 @@ export interface InfographicMountOptions {
 }
 
 export interface MountedInfographic {
-  exportSVG: () => Promise<{ svg: string; isPrintSafe: boolean }>
+  exportSVG: (options?: {
+    cardFrame?: boolean
+    fallbackWidth?: number
+    fallbackHeight?: number
+  }) => Promise<ExportedSvgArtifact>
   exportPNG: (options?: { dpr?: number }) => Promise<string>
   destroy: () => void
 }
@@ -362,7 +367,7 @@ export async function mountInfographicAsync(
   let destroyed = false
 
   return {
-    async exportSVG() {
+    async exportSVG(exportOptions) {
       if (destroyed) throw new Error('Infographic instance has been destroyed.')
       const liveSvg = host.querySelector('svg')
       if (!liveSvg) {
@@ -370,11 +375,12 @@ export async function mountInfographicAsync(
       }
       const exportedNode = await exportToSVG(liveSvg, { embedResources: false })
       const rawSvg = new XMLSerializer().serializeToString(exportedNode)
-      const sanitized = sanitizeExportedSvg(rawSvg, palette, { safetyPaddingPx: 8 })
-      return {
-        svg: sanitized,
-        isPrintSafe: isPrintSafeSvg(sanitized)
-      }
+      return finalizeExportedSvg(rawSvg, palette, {
+        safetyPaddingPx: 8,
+        cardFrame: exportOptions?.cardFrame,
+        fallbackWidth: exportOptions?.fallbackWidth,
+        fallbackHeight: exportOptions?.fallbackHeight
+      })
     },
     async exportPNG(exportOptions) {
       if (destroyed) throw new Error('Infographic instance has been destroyed.')

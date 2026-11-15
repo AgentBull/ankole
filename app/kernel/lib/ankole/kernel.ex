@@ -10,7 +10,7 @@ defmodule Ankole.Kernel do
                 Mix.env() == :dev or Path.basename(Mix.Project.build_path()) == "dev" -> :dev
                 true -> :prod
               end)
-  @rustler_mode if(Mix.env() == :prod, do: :release, else: :debug)
+  @rustler_mode if(@build_env == :prod, do: :release, else: :debug)
   @rustler_features if(@build_env == :test, do: ["nif", "test-ca"], else: ["nif"])
   # Dev and test builds share `app/kernel/priv` through `_build` symlinks.
   # Test builds enable `test-ca`. Thus each of them loads its own NIF file.
@@ -18,6 +18,18 @@ defmodule Ankole.Kernel do
                         :prod -> "priv/native/ankole_kernel"
                         env -> "priv/native/ankole_kernel_#{env}"
                       end)
+  @crate_root Path.expand("../..", __DIR__)
+
+  # Isolate each NIF build role inside `app/kernel/target/nif-<env>` unless the
+  # caller explicitly chose `CARGO_TARGET_DIR`, so dev, test, prod, clippy,
+  # napi, and wasm builds never contend on `.cargo-lock` or thrash features.
+  @cargo_target_dir (case System.get_env("CARGO_TARGET_DIR") do
+                       value when value in [nil, ""] ->
+                         Path.join(@crate_root, "target/nif-#{@build_env}")
+
+                       value ->
+                         Path.expand(value, @crate_root)
+                     end)
 
   # A local variable, not an attribute: only the branch that finds sccache
   # reads it, and an unread attribute warns on hosts without sccache.
@@ -55,8 +67,9 @@ defmodule Ankole.Kernel do
                    end
 
                  craft_env = [
-                   {"CRAFT_I18N_DIR", ""},
-                   {"CRAFT_FONTS_DIR", ""}
+                   {"CARGO_TARGET_DIR", @cargo_target_dir},
+                   {"CRAFT_I18N_DIR", nil},
+                   {"CRAFT_FONTS_DIR", nil}
                  ]
 
                  sccache_env =
@@ -103,13 +116,19 @@ defmodule Ankole.Kernel do
                )
 
   # Static checks such as `mix credo` and `mix xref` read compiled modules and
-  # never load native code. With `ANKOLE_KERNEL_SKIP_NIF=1`, Mix compiles this
-  # module without building the crate, so those checks need no Rust toolchain.
-  # Calls into the NIF then fail because no library exists to load.
-  @skip_nif System.get_env("ANKOLE_KERNEL_SKIP_NIF", "") in ~w(1 true)
+  # never load native code. With `ANKOLE_KERNEL_SKIP_NIF=1` or compile-time
+  # `skip_compilation?: true`, Mix compiles this module without building the
+  # crate, so those checks need no Rust toolchain.
+  @skip_nif_env System.get_env("ANKOLE_KERNEL_SKIP_NIF", "") in ~w(1 true)
+  @skip_nif @skip_nif_env or
+              Keyword.get(
+                Application.compile_env(:ankole_kernel, __MODULE__, []),
+                :skip_compilation?,
+                false
+              )
 
   if @skip_nif do
-    Mix.shell().info("Skipping the Ankole.Kernel NIF build because ANKOLE_KERNEL_SKIP_NIF is set")
+    Mix.shell().info("Skipping the Ankole.Kernel NIF build")
   else
     Mix.shell().info("Building Ankole.Kernel NIF in #{@rustler_mode} mode")
   end
@@ -120,22 +139,53 @@ defmodule Ankole.Kernel do
     crate: "ankole_kernel",
     # Rustler compares this path verbatim when excluding target artifacts from
     # Elixir external resources, so keep it absolute instead of using `.`.
-    path: Path.expand("../..", __DIR__),
+    path: @crate_root,
     default_features: false,
     features: @rustler_features,
     load_from: {:ankole_kernel, @rustler_load_path},
     mode: @rustler_mode,
     env: @rustler_env
 
-  # Rustler always writes `priv/native/ankole_kernel`. Copy it to the
-  # environment-specific name. Remove the old file first, because a running VM
-  # can have it loaded. Skip copying when `ANKOLE_KERNEL_SKIP_NIF` is set so
-  # static checks never overwrite a live dev/test NIF with a stale binary.
+  # Stage the environment-specific NIF directly from this build's isolated Cargo
+  # target directory via a PID-scoped temporary file and atomic `File.rename!/2`,
+  # so concurrent dev/test compilations never copy each other's binary or expose
+  # a half-written `.so` to a running VM.
   if not @skip_nif and @build_env != :prod do
-    for source <- Path.wildcard("priv/native/ankole_kernel.{so,dll}") do
-      target = @rustler_load_path <> Path.extname(source)
-      File.rm(target)
-      File.cp!(source, target)
+    cargo_profile = if(@rustler_mode == :release, do: "release", else: "debug")
+
+    {artifact_name, target_ext} =
+      case :os.type() do
+        {:win32, _} -> {"ankole_kernel.dll", ".dll"}
+        {:unix, :darwin} -> {"libankole_kernel.dylib", ".so"}
+        {:unix, _} -> {"libankole_kernel.so", ".so"}
+      end
+
+    compiled_artifact = Path.join([@cargo_target_dir, cargo_profile, artifact_name])
+
+    sources =
+      if File.exists?(compiled_artifact) do
+        [{compiled_artifact, target_ext}]
+      else
+        for source <- Path.wildcard("priv/native/ankole_kernel.{so,dll}"),
+            do: {source, Path.extname(source)}
+      end
+
+    for {source, ext} <- sources do
+      target = @rustler_load_path <> ext
+      File.mkdir_p!(Path.dirname(target))
+
+      temporary =
+        Path.join(
+          Path.dirname(target),
+          ".#{Path.basename(target)}.#{System.pid()}.#{System.unique_integer([:positive])}.tmp"
+        )
+
+      try do
+        File.cp!(source, temporary)
+        File.rename!(temporary, target)
+      after
+        File.rm(temporary)
+      end
     end
 
     Mix.Project.build_structure()
@@ -143,7 +193,7 @@ defmodule Ankole.Kernel do
 
   @doc false
   def __mix_recompile__? do
-    System.get_env("ANKOLE_KERNEL_SKIP_NIF", "") in ~w(1 true) != @skip_nif
+    System.get_env("ANKOLE_KERNEL_SKIP_NIF", "") in ~w(1 true) != @skip_nif_env
   end
 
   # The Cargo root also contains Mix and Bun outputs. Rustler lists those as
@@ -704,22 +754,33 @@ defmodule Ankole.Kernel do
     end
   end
 
-  defp default_office_fonts_dir do
-    configured =
-      case System.get_env("ANKOLE_OFFICE_FONTS_DIR") do
-        nil -> "/usr/share/ankole/fonts"
-        raw -> String.trim(raw)
-      end
+  @default_office_fonts_dir "/usr/share/ankole/fonts"
+  @local_office_fonts_dir Path.expand("../../../../var/office-fonts", __DIR__)
 
+  defp default_office_fonts_dir do
+    case System.get_env("ANKOLE_OFFICE_FONTS_DIR") do
+      raw when is_binary(raw) ->
+        trimmed = String.trim(raw)
+        if trimmed != "" and File.dir?(trimmed), do: trimmed, else: fallback_office_fonts_dir()
+
+      nil ->
+        fallback_office_fonts_dir()
+    end
+  end
+
+  defp fallback_office_fonts_dir do
     cond do
-      configured != "" and File.dir?(configured) ->
-        configured
+      File.dir?(@default_office_fonts_dir) ->
+        @default_office_fonts_dir
+
+      File.exists?(Path.join(@local_office_fonts_dir, "manifest.json")) ->
+        @local_office_fonts_dir
 
       match?({:ok, _}, :application.get_key(:ankole, :vsn)) ->
         Application.app_dir(:ankole, "priv/static/fonts/office")
 
       true ->
-        configured
+        @default_office_fonts_dir
     end
   end
 

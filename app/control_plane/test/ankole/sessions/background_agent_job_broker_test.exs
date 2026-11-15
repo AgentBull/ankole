@@ -558,6 +558,147 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
     end
   end
 
+  test "a Job turn pages execution logs for itself and its direct source while rejecting conflicting selectors and unrelated Jobs" do
+    %{principal: agent} = agent_fixture()
+    %{principal: other_agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+    route = unique_route()
+    parent = start_parent_turn!(agent.uid, route)
+    source = create_job!(agent.uid, parent, "log-source")
+
+    source =
+      source
+      |> Ecto.Changeset.change(
+        status: :running,
+        attempts: 1,
+        runtime_thread_id: "source-thread",
+        workspace_owner_job_id: source.id
+      )
+      |> Repo.update!()
+
+    {:ok, _turn} =
+      Repo.transact(fn ->
+        Ankole.BackgroundAgentJobs.Turns.upsert_from_worker_in_tx(source, %{
+          "attempt" => 1,
+          "runtime_thread_id" => "source-thread",
+          "runtime_turn_id" => "source-turn-1",
+          "kind" => "agent",
+          "status" => "completed",
+          "revision" => 0,
+          "trajectory" => %{"format" => "ankole_chatml", "version" => 1},
+          "error" => %{},
+          "started_at" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
+          "completed_at" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
+          "turn_items" => [
+            %{
+              "position" => 0,
+              "item_key" => "cmd:created-page",
+              "item" => %{
+                "type" => "commandExecution",
+                "id" => "cmd:created-page",
+                "command" => "pod page create",
+                "cwd" => "/workspace",
+                "status" => "completed",
+                "exitCode" => 0,
+                "aggregatedOutput" => "page_id=pg_from_failed_source"
+              }
+            }
+          ]
+        })
+      end)
+
+    source
+    |> Ecto.Changeset.change(
+      status: :failed,
+      completed_at: DateTime.utc_now(:microsecond),
+      error: %{"code" => "worker_lost", "summary" => "Worker restarted"}
+    )
+    |> Repo.update!()
+
+    assert {:ok, %{job: successor}} =
+             with_stubbed_session_drivers(agent.uid, fn ->
+               BackgroundAgentJobs.respawn_with_dispatch(source.id, %{
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => parent.session.session_id,
+                 "source_signal_id" => parent.signal_id,
+                 "source_tool_call_id" => "continue-log-source",
+                 "message" => "Resume and reuse created page.",
+                 "reply_route" => source.reply_route
+               })
+             end)
+
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(successor.id)}
+    now = DateTime.add(successor.queued_at, 1, :second)
+    assert {:ok, %{event: event}} = Run.rebuild(key, now)
+    assert {:ok, run} = Admission.admit(key, event, now: now)
+    assert {:ok, _} = CodexJob.start(run)
+    assert_receive {:actor_lane, dispatch_envelope}, 200
+    job_turn = turn_start_payload!(dispatch_envelope).turn
+
+    assert {:ok, ok_envelope} =
+             handle_rpc(
+               rpc_request(
+                 "read-exec-log",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{
+                   job_id: Integer.to_string(successor.id),
+                   execution_log_cursor: "head"
+                 },
+                 job_turn: job_turn
+               ),
+               route,
+               agent.uid
+             )
+
+    payload = job_payload(ok_envelope)
+    assert payload.execution_log_jsonl =~ "page_id=pg_from_failed_source"
+    lineage = Torque.decode!(payload.task_lineage_json)
+    assert Enum.map(lineage["jobs"], & &1["job_id"]) == [source.id, successor.id]
+
+    assert {:ok, conflict_envelope} =
+             handle_rpc(
+               rpc_request(
+                 "conflicting-selectors",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{
+                   job_id: Integer.to_string(source.id),
+                   result_offset: "0",
+                   execution_log_cursor: "head"
+                 },
+                 job_turn: job_turn
+               ),
+               route,
+               agent.uid
+             )
+
+    assert rpc_error(conflict_envelope)["code"] == "invalid_background_agent_job_get_selector"
+
+    unrelated = create_job!(agent.uid, parent, "log-unrelated")
+    other = create_job!(other_agent.uid, parent, "log-other")
+
+    for {target_job, expected_code} <- [
+          {unrelated, "background_agent_job_scope_mismatch"},
+          {other, "job_not_found"}
+        ] do
+      assert {:ok, denied_envelope} =
+               handle_rpc(
+                 rpc_request(
+                   "denied-exec-log",
+                   "background_agent_job.get",
+                   %FabricProto.BackgroundAgentJobGetRequest{
+                     job_id: Integer.to_string(target_job.id),
+                     execution_log_cursor: "head"
+                   },
+                   job_turn: job_turn
+                 ),
+                 route,
+                 agent.uid
+               )
+
+      assert rpc_error(denied_envelope)["code"] == expected_code
+    end
+  end
+
   defp read_result!(job_id, offset, turn, route, agent_uid) do
     assert {:ok, response} =
              handle_rpc(

@@ -11,14 +11,13 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 
 ## 杠杆 1：model profile 档位
 
-模型档案（Model Profile）在 **Console → Model Profiles** 中通过三层稀疏继承链（`Site -> Pod -> Agent/System`）解析。每个 Agent 提供八个内置槽位（五个语言模型槽位，外加 `web_search`、`web_fetch` 与 `image_generate`）；站点、Pod 与内置 `system` 主体（`ankole_brain`、`system`）则在此基础上增加 `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video` 与 `music` 七个槽位。未单独覆盖的槽位自动继承 Pod 与站点默认值，并支持 `coding -> heavy -> primary` 与 `light -> primary` 跨槽位回退。
+模型档案（Model Profile）在 **Console → Model Profiles** 中通过三层稀疏继承链（`Site -> Pod -> Agent/System`）解析。每个 Agent 提供七个内置槽位（四个语言模型槽位，外加 `web_search`、`web_fetch` 与 `image_generate`）；站点、Pod 与内置 `system` 主体（`ankole_brain`、`system`）则在此基础上增加 `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video` 与 `music` 七个槽位。未单独覆盖的槽位自动继承 Pod 与站点默认值，并支持 `heavy -> primary` 与 `light -> primary` 跨槽位回退。
 
 | 档案槽位 | 触发场景 | 控费要点 |
 |---|---|---|
 | `primary` | 日常主推理模型，承接绝大多数常规对话回合 | 占比最高的核心开销项 |
 | `light` | 高频、低风险的轻量处理路径（未配置时回退至 `primary`） | 务必绑定真正低成本的轻量模型，避免批量处理按主力单价计费 |
-| `heavy` | 高难度综合分析与 Dreaming 复盘 | 单价昂贵；只要 `primary` 选型得当，平时极少动用 |
-| 后台 Agent 任务（内部键名 `coding`） | 每一个持久化后台 Agent 任务（按 `coding -> heavy -> primary` 回退） | 决定长时异步任务使用哪个 Provider 与模型 |
+| `heavy` | 高难度综合分析、持久化后台 Agent 任务与 Dreaming 复盘（未配置时回退至 `primary`） | 决定复杂推理与长时异步任务使用哪个 Provider 与模型 |
 | `vision_fallback` | 当 `primary` 模型不支持视觉输入时的识图回退 | 仅在该 Agent 确实需要看图时才配置 |
 | `web_search`、`web_fetch` | 公网网页搜索与正文抓取工具 | 见下文“杠杆 3” |
 | `image_generate` | 图像生成工具 | 按张计费较高；仅在确有生图需求时绑定 |
@@ -40,7 +39,7 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 - **在站点或 Pod 层给 `light` 配一款便宜好用的小模型**：`light` 未配置时会回退至 `primary`，且同时承接高频辅助调用与 `ankole_brain` 的日常事实抽取；在默认层绑好低成本模型，所有继承默认值的 Agent 与企业大脑都会同步受益。
 - **`primary` 默认够用即可，不必盲目拉满顶配**：很多让人觉得“烧钱”的 Agent，往往只是因为在 `primary` 槽位绑了远超日常任务难度的重型模型。建议先从性价比均衡的主力模型起步，仅为少数回答质量确实吃紧的专家岗位单独上调 `primary` 或 `heavy`。
 
-修改 Agent 覆盖项前，先检查从 Site 与 Pod 继承后的有效档案。有效 `vision_fallback` 档案为空时，才没有对应的图像输入回退能力。图像生成的**由模型的 Provider 执行**开启时，使用主提供商的原生能力，专用档案不参与调用；关闭该开关才使用 `image_generate`。后台 Agent 任务（`coding`）留空时则会沿 `heavy -> primary` 自动回退执行；当希望长时编码或调研任务改走专用编码模型或订阅池时，再单独配置 `coding` 槽位即可。
+修改 Agent 覆盖项前，先检查从 Site 与 Pod 继承后的有效档案。有效 `vision_fallback` 档案为空时，才没有对应的图像输入回退能力。图像生成的**由模型的 Provider 执行**开启时，使用主提供商的原生能力，专用档案不参与调用；关闭该开关才使用 `image_generate`。`heavy` 留空时，后台 Agent 任务会沿 `heavy -> primary` 自动回退执行；当希望复杂推理或长时后台任务改走高阶模型或独立订阅池时，单独配置 `heavy` 槽位即可。
 
 ## 杠杆 2：reasoning effort
 

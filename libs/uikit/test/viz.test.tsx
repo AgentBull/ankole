@@ -10,16 +10,14 @@ import {
   AnkoleYieldCurveChart,
   assignSeriesColors,
   buildPeleCssVarsString,
-  isPrintSafeSvg,
-  materializePeleSvg,
-  parseSvgDimensions,
   pickReadableDataLabelInk,
   resolveSelectOptionColor,
   resolveSelectOptionStrokeColor,
   resolveVizTheme,
-  sanitizeExportedSvg,
+  sanitizeDownloadStem,
   type DonutCenterLabel
 } from '../src/index'
+import { finalizeExportedSvg, isPrintSafeSvg, materializePeleSvg } from '../src/viz/svg-export'
 import {
   colorizeVolumePoints,
   mapPriceScaleMode,
@@ -151,11 +149,14 @@ describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
     ).toBe(false)
 
     const dirty = '<svg viewBox="0 0 200 100"><rect fill="var(--chart-1)" stroke="var(--border)"/></svg>'
-    const sanitized = sanitizeExportedSvg(dirty, palette, { safetyPaddingPx: 10 })
-    expect(isPrintSafeSvg(sanitized)).toBe(true)
-    expect(sanitized).toContain('xmlns="http://www.w3.org/2000/svg"')
-    expect(sanitized).toContain('viewBox="-10 -10 220 120"')
-    expect(sanitized).toContain(palette.categorical[0])
+    const finalizedDirty = finalizeExportedSvg(dirty, palette, { safetyPaddingPx: 10 })
+    expect(finalizedDirty.isPrintSafe).toBe(true)
+    expect(isPrintSafeSvg(finalizedDirty.svg)).toBe(true)
+    expect(finalizedDirty.svg).toContain('xmlns="http://www.w3.org/2000/svg"')
+    expect(finalizedDirty.svg).toContain('viewBox="-10 -10 220 120"')
+    expect(finalizedDirty.svg).toContain(palette.categorical[0])
+    expect(finalizedDirty.width).toBe(220)
+    expect(finalizedDirty.height).toBe(120)
   })
 })
 
@@ -814,18 +815,93 @@ describe('Thin lazy React visualization wrappers', () => {
     expect(yieldHtml).toContain('Yield curve chart')
   })
 
-  test('materializes Pele CSS variables, rx styles, and dimensions into print-safe standalone SVG', () => {
+  test('materializes Pele CSS variables, cascaded rx styles, and dimensions into print-safe standalone SVG', () => {
     const palette = resolveVizTheme(null, { theme: 'dark' })
     const rawSvg =
-      '<svg viewBox="0 0 200 100" style="--_bg:var(--pele-bg);--_fg:var(--pele-fg);color:var(--_fg)"><rect x="4" y="4" width="120" height="40" style="rx:6px" fill="var(--_bg)" stroke="var(--pele-accent)"/></svg>'
-    const materialized = materializePeleSvg(rawSvg, palette)
+      '<svg viewBox="0 0 200 100" style="--_bg:var(--pele-bg);--_fg:var(--pele-fg);--_r:var(--pele-radius,4px);--_a:var(--pele-surface-alt);color:var(--_fg)"><title>var(--_fg) style="rx:12px"</title><rect id="default-r" x="4" y="4" width="120" height="40" style="rx:var(--_r);fill:#ff0" stroke="color-mix(in srgb,var(--_a) 50%,var(--_bg))"/><rect id="override-r" x="4" y="50" width="120" height="40" style="rx:var(--_r);rx:12px;fill:#0ff !important;fill:#f0f"/><rect id="attr-override" x="130" y="4" width="40" height="40" rx="4" style="rx:0px"/><text aria-label="var(--_bg)">var(--pele-accent)</text></svg>'
+    const materialized = materializePeleSvg(rawSvg, palette, {
+      extraTokens: { '--pele-radius': '6px' }
+    })
+    expect(materialized.isPrintSafe).toBe(true)
     expect(isPrintSafeSvg(materialized.svg)).toBe(true)
+    expect(materialized.svg).toContain('id="default-r"')
     expect(materialized.svg).toContain('rx="6"')
-    expect(materialized.svg).not.toContain('var(--')
+    // Later `rx:12px` declaration in the same style block must win over earlier `rx:var(--_r)`.
+    expect(materialized.svg).toContain(
+      'id="override-r" x="4" y="50" width="120" height="40" style="fill:#0ff !important" rx="12"'
+    )
+    // Inline CSS `rx:0px` overrides presentation attribute `rx="4"`.
+    expect(materialized.svg).toContain('id="attr-override" x="130" y="4" width="40" height="40" rx="0"')
+    expect(materialized.svg).toContain('style="fill:#ff0"')
+    expect(materialized.svg).toContain(`color-mix(in srgb,${palette.layer02} 50%,${palette.background})`)
+    // Prose inside <title>, <text>, and aria-* metadata must never be rewritten as CSS.
+    expect(materialized.svg).toContain('<title>var(--_fg) style="rx:12px"</title>')
+    expect(materialized.svg).toContain('<text aria-label="var(--_bg)">var(--pele-accent)</text>')
     expect(materialized.width).toBe(216)
     expect(materialized.height).toBe(116)
-    expect(parseSvgDimensions(materialized.svg)).toEqual({ width: 216, height: 116 })
     expect(buildPeleCssVarsString(palette)).toContain(`--pele-bg:${palette.background}`)
+  })
+
+  test('resolves cyclic and stylesheet custom properties, enforces structural Print-Safe rules, and scales linearly on adversarial inputs', () => {
+    const palette = resolveVizTheme(null, { theme: 'light' })
+
+    // Cyclic custom properties fall back cleanly without infinite recursion; rgba(...) fallbacks stay intact.
+    const cyclicSvg =
+      '<svg viewBox="0 0 100 60" style="--a:var(--b);--b:var(--a)"><defs><style>:root { --custom-stroke: var(--chart-2); }</style></defs><rect width="80" height="40" fill="var(--a, rgba(15, 98, 254, 0.25))" stroke="var(--custom-stroke)"/></svg>'
+    const finalized = finalizeExportedSvg(cyclicSvg, palette, {
+      safetyPaddingPx: 8,
+      cardFrame: true,
+      stripCustomProperties: true
+    })
+    expect(finalized.isPrintSafe).toBe(true)
+    expect(finalized.svg).toContain('fill="rgba(15, 98, 254, 0.25)"')
+    expect(finalized.svg).toContain(`stroke="${palette.categorical[1]}"`)
+    expect(finalized.svg).toContain('viewBox="-20 -20 140 100"')
+    expect(finalized.width).toBe(140)
+    expect(finalized.height).toBe(100)
+
+    // Prose text and aria-* attributes containing URLs or var(--...) do not trigger false rejections.
+    expect(
+      isPrintSafeSvg(
+        '<svg xmlns="http://www.w3.org/2000/svg" aria-label="url(https://cdn.example.com/a.png) var(--chart-1)"><text>url(https://cdn.example.com/a.png) var(--chart-1)</text><use xlink:href="#icon"/></svg>'
+      )
+    ).toBe(true)
+
+    // External URLs across CSS url(), @import, xlink:href, <?xml-stylesheet?>, and <script> are rejected.
+    expect(
+      isPrintSafeSvg(
+        '<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill: url( \'https://evil.example/a.png\' )"/></svg>'
+      )
+    ).toBe(false)
+    expect(
+      isPrintSafeSvg(
+        '<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://evil.example/a.css";</style></svg>'
+      )
+    ).toBe(false)
+    expect(
+      isPrintSafeSvg('<svg xmlns="http://www.w3.org/2000/svg"><use xlink:href="//evil.example/sprite.svg#x"/></svg>')
+    ).toBe(false)
+    expect(
+      isPrintSafeSvg(
+        '<?xml-stylesheet type="text/css" href="https://evil.example/a.css"?><svg xmlns="http://www.w3.org/2000/svg"/>'
+      )
+    ).toBe(false)
+    expect(isPrintSafeSvg('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')).toBe(false)
+
+    // Linear-time scaling on all security-review PoC inputs (#49, #53, #54, #71, #72).
+    const start = performance.now()
+    expect(sanitizeDownloadStem(`x${'-'.repeat(32_000)}x`)).toBe(`x${'-'.repeat(32_000)}x`)
+    expect(sanitizeDownloadStem(`${'!'.repeat(16_000)}季度报告 2026${'!'.repeat(16_000)}`)).toBe('季度报告-2026')
+    expect(sanitizeDownloadStem('---')).toBe('ankole-chart')
+
+    const longUrlTextSvg = `<svg xmlns="http://www.w3.org/2000/svg" aria-label="url(${' '.repeat(32_000)}x"><text>url(${' '.repeat(32_000)}x</text></svg>`
+    expect(isPrintSafeSvg(longUrlTextSvg)).toBe(true)
+
+    const longTitleAndStyleSvg = `<svg viewBox="0 0 100 50" style="${'var(--x, '.repeat(4_000)}#112233"><title>var(--x, ${' '.repeat(32_000)}! style=&quot;rx:${'1'.repeat(32_000)}!</title><rect width="10" height="10" fill="var(--_bg)" stroke="${'var(--x, '.repeat(2_000)}#224466${')'.repeat(2_000)}"/></svg>`
+    const advMaterialized = materializePeleSvg(longTitleAndStyleSvg, palette)
+    expect(advMaterialized.svg).toContain(palette.background)
+    expect(advMaterialized.svg).toContain('stroke="#224466"')
+    expect(performance.now() - start).toBeLessThan(500)
   })
 
   test('normalizes financial series points by sorting ascending, deduplicating timestamps, clamping OHLC, and dropping NaN', () => {

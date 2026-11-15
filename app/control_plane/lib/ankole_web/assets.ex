@@ -180,16 +180,16 @@ defmodule AnkoleWeb.Assets do
       end)
   end
 
-  defp manifest_css(chunk, manifest) do
+  defp manifest_css(chunk, manifest, base \\ static_base()) do
     {css, _seen} = collect_manifest_css(chunk, manifest, MapSet.new())
 
-    Enum.map(css, &asset_path/1)
+    Enum.map(css, &asset_path(&1, base))
   end
 
-  defp manifest_imports(chunk, manifest) do
+  defp manifest_imports(chunk, manifest, base \\ static_base()) do
     {files, _seen} = collect_manifest_import_files(chunk, manifest, MapSet.new())
 
-    Enum.map(files, &asset_path/1)
+    Enum.map(files, &asset_path(&1, base))
   end
 
   # Recurse the import graph collecting every chunk's CSS in ES module evaluation
@@ -250,7 +250,9 @@ defmodule AnkoleWeb.Assets do
   ]
 
   @doc "Returns the import map, shared styles, and module preloads for an Applet document."
-  def applet_frame_tags do
+  def applet_frame_tags(opts \\ []) do
+    base = Keyword.get_lazy(opts, :static_base, &static_base/0)
+
     case dev_server() do
       nil ->
         manifest = read_manifest()
@@ -262,19 +264,19 @@ defmodule AnkoleWeb.Assets do
 
         imports =
           Map.new(chunks, fn {name, chunk} ->
-            {name, IO.iodata_to_binary(asset_path(chunk["file"]))}
+            {name, IO.iodata_to_binary(asset_path(chunk["file"], base))}
           end)
 
         css =
           chunks
-          |> Enum.flat_map(fn {_name, chunk} -> manifest_css(chunk, manifest) end)
+          |> Enum.flat_map(fn {_name, chunk} -> manifest_css(chunk, manifest, base) end)
           |> Enum.uniq()
 
         preloads =
           chunks
           |> Enum.reject(fn {name, _chunk} -> name == "react/jsx-dev-runtime" end)
           |> Enum.flat_map(fn {_name, %{"file" => file} = chunk} ->
-            [asset_path(file) | manifest_imports(chunk, manifest)]
+            [asset_path(file, base) | manifest_imports(chunk, manifest, base)]
           end)
           |> Enum.uniq()
 
@@ -306,6 +308,30 @@ defmodule AnkoleWeb.Assets do
 
   def directory, do: Application.fetch_env!(:ankole, :webapp_assets_path)
 
+  @doc """
+  Returns the configured protocol-relative or origin static URL prefix (for example,
+  `"//ankole-static-files.cdn.agentbull.net"`), or `""` when static files load from
+  the current page origin.
+  """
+  @spec static_base() :: String.t()
+  def static_base do
+    case Application.get_env(:ankole, :static_url_base, "") do
+      base when is_binary(base) -> base |> String.trim() |> String.trim_trailing("/")
+      _ -> ""
+    end
+  end
+
+  @doc "Prefixes a root-relative static path with `static_base/0` when configured."
+  @spec static_path(String.t()) :: String.t()
+  def static_path(path) when is_binary(path) do
+    normalized = if String.starts_with?(path, "/"), do: path, else: "/" <> path
+
+    case static_base() do
+      "" -> normalized
+      base -> base <> normalized
+    end
+  end
+
   defp manifest_path do
     __MODULE__
     |> config()
@@ -323,7 +349,12 @@ defmodule AnkoleWeb.Assets do
 
   defp config(module), do: Application.get_env(:ankole, module, [])
 
-  defp asset_path(path), do: ["/assets/", path]
+  defp asset_path(path, base \\ static_base()) do
+    case base do
+      "" -> ["/assets/", path]
+      prefix -> [prefix, "/assets/", path]
+    end
+  end
 
   # Hand-rolled copy of the preamble `@vitejs/plugin-react` normally injects into
   # the HTML. Because Phoenix renders the shell (not Vite's index.html), we must
@@ -342,7 +373,8 @@ defmodule AnkoleWeb.Assets do
     ]
   end
 
-  defp stylesheet_tag(href), do: [~s(<link rel="stylesheet" href="), href, ~s(">\n)]
+  defp stylesheet_tag(href),
+    do: [~s(<link rel="stylesheet" crossorigin="anonymous" href="), href, ~s(">\n)]
 
   defp modulepreload_tag(href),
     do: [~s(<link rel="modulepreload" crossorigin="anonymous" href="), href, ~s(">\n)]

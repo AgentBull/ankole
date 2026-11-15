@@ -30,8 +30,9 @@ import { jobsError, jobsKeys, type JobBoardItem, type JobCandidateAgent } from '
 
 export type JobStarterPreset = {
   mode: 'one_off' | 'cron'
-  title: string
-  task: string
+  agentUID?: string
+  title?: string
+  task?: string
   expression?: string
 }
 
@@ -116,9 +117,14 @@ export function JobCreateDialog({
 
   useEffect(() => {
     if (!open) return
-    const initialMode: 'one_off' | 'cron' = preset?.mode === 'cron' || !anyBackgroundCapable ? 'cron' : 'one_off'
+    const presetAgent = preset?.agentUID ? agents.find(agent => agent.uid === preset.agentUID) : undefined
+    const initialMode: 'one_off' | 'cron' =
+      preset?.mode === 'cron' || !anyBackgroundCapable || (presetAgent && !presetAgent.canRunBackgroundJob)
+        ? 'cron'
+        : 'one_off'
     const preferredAgent =
-      initialMode === 'one_off' ? (agents.find(agent => agent.canRunBackgroundJob) ?? agents[0]) : agents[0]
+      presetAgent ??
+      (initialMode === 'one_off' ? (agents.find(agent => agent.canRunBackgroundJob) ?? agents[0]) : agents[0])
     const nextExpression = preset?.expression ?? '0 9 * * 1-5'
     const knownPreset = SCHEDULE_PRESETS.some(entry => entry.value === nextExpression) ? nextExpression : 'custom'
     setMode(initialMode)

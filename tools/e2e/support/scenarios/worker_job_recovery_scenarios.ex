@@ -27,7 +27,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     ctx = Map.merge(ctx, start_worker!([ctx.agent.uid], server_port: ctx.server_port))
     uid = ctx.agent.uid
     {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
-    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
+    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "heavy", profile)
 
     input = send!(ctx, "reconnect", "CHAOS_JOB_CREATE_RECONNECT")
     assert {:ok, _, _} = wait_for_completed_final_reply(ctx.container, input.id, deadline(60_000))
@@ -105,7 +105,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     ctx = start_worker_e2e_stack!(replaces_workers: true)
     uid = ctx.agent.uid
     {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
-    assert {:ok, _profile} = ModelProfiles.put_model_profile(uid, "coding", profile)
+    assert {:ok, _profile} = ModelProfiles.put_model_profile(uid, "heavy", profile)
 
     start = send!(ctx, "create", "CHAOS_JOB_CREATE")
 

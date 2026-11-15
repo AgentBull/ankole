@@ -1366,11 +1366,6 @@ export const modelAdvanced = {
       title: '선택적 기능 프로필 추가',
       fields: [
         {
-          name: 'Background Agent Jobs',
-          description:
-            '영속적인 Background Agent Jobs에 사용할 Provider와 모델을 선택합니다(coding 프로필로 저장되며 비워 두면 heavy -> primary 순서로 폴백).'
-        },
-        {
           name: 'vision_fallback',
           description: '기본 모델이 이미지를 처리할 수 없을 때 대신 사용할 폴백(fallback) 모델입니다.'
         },
@@ -2548,7 +2543,7 @@ export const signalAdvanced = {
 | **Delivery** | 외부 대화 채널로 내보내는 메시지의 영속적인 전송 의도, 시도 이력 및 최종 결과 | Delivery |
 | **Signal Routing Rule (Signal Binding)** | 시그널 소스의 메시지나 이벤트를 대상 Agent로 연결하는 라우팅 규칙 | Routing rule |
 | **LLM Provider** | 모델 서비스 엔드포인트, 자격 증명, 사용 가능 모델 목록을 담는 설정 | LLM Provider |
-| **Background Agent Jobs profile (internal key: `coding`)** | Background Agent Jobs 실행에 사용할 AIGateway Provider와 모델을 지정하는 프로필 | Background Agent Jobs |
+| **Model Profile** | `Site -> Pod -> Agent/System` 계층으로 상속되는 능력 슬롯(`primary`, `light`, `heavy` 및 멀티모달·검색 슬롯) | Model Profile |
 
 ## Agent가 setup을 완료하게 하기
 
@@ -2615,13 +2610,13 @@ Ankole은 조직 내부의 프라이빗 배포를 전제로 설계되었습니�
 
 먼저 LLM Provider를 등록하세요. Console에 로그인한 뒤 **Providers → New provider**를 열고 Provider 유형을 선택하고 API 키를 붙여 넣은 뒤 저장합니다. Provider ID는 Console이 제안하고 엔드포인트는 Provider의 기본값을 쓰므로, 주소는 Azure OpenAI처럼 리소스마다 주소가 정해지는 서비스나 자체 호스팅·호환 엔드포인트일 때만 입력하면 됩니다. Ankole은 Provider 자격 증명을 컨트롤 플레인 내부에 암호화해 저장하므로 배포 `.env` 파일이나 Agent 작업 공간 파일에는 절대 기록하지 마세요.
 
-다음으로 **Console → Model Profiles**를 열어 핵심 언어 모델 슬롯(`Site -> Pod -> Agent/System` 상속 및 `coding -> heavy -> primary`, `light -> primary` 슬롯 간 폴백)의 Site 기본값을 설정합니다. 모든 Pod와 Agent가 이 값을 상속합니다:
+다음으로 **Console → Model Profiles**를 열어 핵심 언어 모델 슬롯(`Site -> Pod -> Agent/System` 상속 및 `heavy -> primary`, `light -> primary` 슬롯 간 폴백)의 Site 기본값을 설정합니다. 모든 Pod와 Agent가 이 값을 상속합니다:
 
 | 프로필 | 첫 실행 용도 |
 |---|---|
-| `primary` | 주 추론 및 대화 모델(필수; `light`와 `coding -> heavy`가 비어 있을 때 이곳으로 폴백) |
+| `primary` | 주 추론 및 대화 모델(필수; `light`와 `heavy`가 비어 있을 때 이곳으로 폴백) |
 | `light` | 빈번한 경량 턴 및 `ankole_brain` 지식 추출 |
-| `heavy` | 심층 종합 추론, Dreaming, Skill 교훈 검토 |
+| `heavy` | 심층 종합 추론, Background Agent Jobs, Dreaming, Skill 교훈 검토 |
 
 Site 기본값에서 검증된 Provider·모델을 `primary`에 바인딩해 두면 모든 Agent와 `ankole_brain`을 곧바로 실행할 수 있습니다. 전체 대화 경로가 정상 동작하는 것을 확인한 뒤에 `light`와 `heavy`를 역할별 전용 모델로 분리하세요.
 

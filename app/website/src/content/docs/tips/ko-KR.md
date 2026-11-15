@@ -36,7 +36,7 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 ## 모델 프로파일 슬롯을 다이얼로 취급
 
-Agent에 내장된 8개의 모델 프로파일 슬롯(`primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`)은 각각 역할에 맞게 조절하는 다이얼과 같습니다.
+Agent에 내장된 7개의 모델 프로파일 슬롯(`primary`, `light`, `heavy`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`)은 각각 역할에 맞게 조절하는 다이얼과 같습니다.
 
 - 간단한 질의응답 위주의 Agent라면 **`primary`**에 가볍고 저렴한 모델을 연결하고, 비용보다 판단 품질이 중요한 역할일 때만 상위 모델로 올리세요.
 - **`light`**에는 실제로 빠르고 저렴한 경량 모델을 바인딩하세요. 호출 빈도는 높고 중요도는 낮은 보조 경로를 위해 마련된 슬롯입니다.

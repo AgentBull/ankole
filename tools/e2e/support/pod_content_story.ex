@@ -54,7 +54,7 @@ defmodule Ankole.E2E.PodContentStory do
     ctx = %{ctx | agent: assistant, container: request_worker!(assistant.uid)}
 
     assert {:ok, _} =
-             ModelProfiles.put_model_profile(ctx.agent.uid, "coding", %{
+             ModelProfiles.put_model_profile(ctx.agent.uid, "heavy", %{
                provider_id: ctx.provider_id,
                model: @coding_model
              })

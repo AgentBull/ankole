@@ -164,18 +164,38 @@ defmodule Ankole.Sessions.ToolsTest do
     refute Map.has_key?(Ankole.Sessions.Tool.new(custom, :worker).schema, "strict")
   end
 
-  test "model_profile only advertises named overrides" do
+  test "model_profile advertises distinct capability tiers alongside named custom profiles" do
     tool = %{
       "description" => "Delegate.",
       "parameters" => %{"type" => "object", "properties" => %{}}
     }
 
     profiles = [%{"name" => "fast", "description" => "Low-cost model for quick drafts"}]
-    declared = Ankole.Sessions.Tool.with_profiles(tool, profiles, "coding")
+    declared = Ankole.Sessions.Tool.with_profiles(tool, profiles, "heavy")
 
     assert declared["parameters"]["properties"]["model_profile"] == %{
              "type" => "string",
              "enum" => ["fast"]
+           }
+
+    tiered =
+      Ankole.Sessions.Tool.with_profiles(tool, profiles, "heavy",
+        tiers: ["light", "primary", "heavy"]
+      )
+
+    assert tiered["parameters"]["properties"]["model_profile"] == %{
+             "type" => "string",
+             "enum" => ["light", "primary", "heavy", "fast"]
+           }
+
+    respawn =
+      Ankole.Sessions.Tool.with_profiles(tool, [], :source, tiers: ["light", "primary", "heavy"])
+
+    assert respawn["description"] =~ "inherit the source job's model profile"
+
+    assert respawn["parameters"]["properties"]["model_profile"] == %{
+             "type" => "string",
+             "enum" => ["light", "primary", "heavy"]
            }
   end
 

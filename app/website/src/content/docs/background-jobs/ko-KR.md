@@ -44,7 +44,7 @@ Job이 시작된 뒤에도 원래 대화방에서 Main Agent를 통해 추가 �
 - **백그라운드에서 조사한 다음 답변을 계속해:** 지금 나누고 있는 대화의 결론을 내리기 위해 백그라운드 조사 결과가 먼저 필요할 때 사용합니다.
 - **핵심 선택 전에 나에게 물어봐:** 진행 방향이나 유료 리소스 사용처럼 중요한 결정을 확인받아야 할 때 사용합니다. Job이 잠시 멈추고 원래 대화방에 질문을 남기며, 답변을 주면 다시 실행을 이어 갑니다.
 - **조용히 실행해:** 파일 생성만 해 두면 되거나 나중에 직접 확인할 예정일 때 사용합니다. 알림을 보내지 말라고 지정한 뒤 나중에 대화에서 물어보거나 Console에서 결과를 확인할 수 있습니다.
-- **이전 Job 계속:** 이어서 작업할 이전 Job을 지목하고 추가 요구 사항을 전달합니다. 해당 Job이 재개 가능한 상태라면 기존 작업 공간과 문맥을 그대로 살려 후속 작업을 진행합니다.
+- **이전 Job 계속:** 이어서 작업할 이전 Job을 지목하고 추가 요구 사항을 전달합니다. 해당 Job이 재개 가능한 상태라면 기존 작업 공간과 문맥을 그대로 살려 후속 작업을 진행합니다. 유휴 회수, Worker 교체, 또는 모델 프로필 전환으로 새 Codex 스레드를 시작할 때는 Ankole이 이전 태스크 계보와 영속화된 실행 이력을 작업 공간 안의 `.ankole/task-lineage.json` 및 `.ankole/execution-history.jsonl`에 기록하므로, 새 스레드도 이미 마친 작업을 되풀이하지 않고 이전 실행 내역을 바로 확인할 수 있습니다.
 
 예를 들면 다음과 같이 요청할 수 있습니다.
 
@@ -57,9 +57,9 @@ Ask me here before you expand the scope or use a paid data source.
 
 ## 모델 provider 선택
 
-모든 백그라운드 Job은 AIGateway를 거쳐 모델을 호출합니다. 첫 실행 승인(execution admission) 시점에 Ankole은 해당 Agent에 설정된 유효 **Background Agent Jobs** 모델 프로필을 기록하며, 이 프로필이 비어 있으면 Agent의 `heavy` 프로필을 기본값으로 사용합니다.
+모든 백그라운드 Job은 AIGateway를 거쳐 모델을 호출합니다. 새 Job은 기본값으로 Agent의 `heavy`(**복합 추론 및 백그라운드 Job**) 프로필을 선택하며 `heavy`가 비어 있으면 `primary`로 폴백합니다. Agent는 Job 생성이나 재실행 시 `light`, `primary`, 또는 이름 있는 커스텀 프로필을 지정할 수도 있으며, Ankole은 첫 실행 승인(execution admission) 시점에 해석된 provider 바인딩을 기록합니다.
 
-ChatGPT 구독 계정을 연결해 쓰려면 먼저 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 등록하세요. 그다음 Console에서 **Agents** 페이지를 열고 해당 Agent의 모델 프로필 중 **Background Agent Jobs** 항목에서 방금 만든 provider와 지원 모델, reasoning effort, Fast Mode 여부를 선택하면 됩니다. 여러 계정이 등록된 경우 provider의 자격 증명 풀이 알아서 계정을 선택하고 순환 사용합니다.
+ChatGPT 구독 계정을 연결해 쓰려면 먼저 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 등록하세요. 그다음 Console에서 **Agents**(또는 **Model Profiles**) 페이지를 열고 `heavy`(**복합 추론 및 백그라운드 Job**) 프로필에서 방금 만든 provider와 지원 모델, reasoning effort, Fast Mode 여부를 선택하면 됩니다. 여러 계정이 등록된 경우 provider의 자격 증명 풀이 알아서 계정을 선택하고 순환 사용합니다.
 
 ## Console에서 Job 검사
 
@@ -87,7 +87,7 @@ Console에서 **Background Agent Jobs** 페이지를 열면 대기 중(`queued`)
 ## 일반적인 문제
 
 - **Job이 계속 `queued` 상태에 머무름:** 해당 Agent의 Worker가 정상 기동되었는지, 같은 Agent의 다른 백그라운드 작업들이 동시 실행 슬롯(`background_agent_jobs.max_running_per_agent`)을 모두 점유하고 있지는 않은지 확인하세요.
-- **시작 직후 바로 `failed`로 끝남:** Agent에 저장된 Background Agent Jobs 모델 프로필 구성과 연결된 provider의 자격 증명 풀 상태를 점검하세요.
+- **시작 직후 바로 `failed`로 끝남:** Job에 선택된 모델 프로필(기본값 `heavy`, 미설정 시 `primary` 폴백) 구성과 연결된 provider의 자격 증명 풀 상태를 점검하세요.
 - **`waiting_on_user` 상태인데 질문도 안 오고 진행도 멈춤:** 원래 대화방의 시그널 라우팅 규칙과 외부 Channel Provider 연결 상태를 확인하세요.
 - **`succeeded`로 끝났는데 채팅방에 완료 보고가 오지 않음:** 처음 요청할 때 조용히 실행하라고 지시하지 않았는지 먼저 확인하고, 아니라면 상세 화면에 결과가 생성되어 있는지 확인한 뒤 원래 대화방의 라우팅 규칙을 점검하세요.
 - **모델 프로필을 바꿨는데 기존 Job에 반영되지 않음:** 프로바이더 및 모델 바인딩은 첫 실행 승인(execution admission) 시점에 고정되므로, 프로필 변경 사항은 아직 실행 승인 전인 대기 작업이나 새로 생성한 Job부터 적용됩니다.

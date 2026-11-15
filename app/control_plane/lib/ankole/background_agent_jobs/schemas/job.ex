@@ -181,7 +181,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     attribute(:workspace_template_id, :string, public?: true)
 
     attribute(:model_profile, :string,
-      default: "coding",
+      default: "heavy",
       allow_nil?: false,
       constraints: [match: @model_profile],
       public?: true
@@ -590,14 +590,21 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   @doc """
   Builds the creation attributes of a successor Job from its source Job and
   the successor's own facts. The inherited fields and the continuation link
-  replace any value in `attrs`; metadata belongs to the successor.
+  replace any value in `attrs`, except an explicit `model_profile` override;
+  metadata belongs to the successor.
   """
   @spec successor_attrs(%__MODULE__{}, map()) :: map()
   def successor_attrs(%__MODULE__{} = source, attrs) when is_map(attrs) do
     inherited = Map.new(@inherited_fields, &{Atom.to_string(&1), Map.fetch!(source, &1)})
+    requested_profile = Ankole.Attrs.optional_text(attrs["model_profile"])
 
     attrs
     |> Map.merge(inherited)
+    |> then(fn merged ->
+      if is_binary(requested_profile),
+        do: Map.put(merged, "model_profile", requested_profile),
+        else: merged
+    end)
     |> Map.put("continued_from_job_id", source.id)
   end
 end

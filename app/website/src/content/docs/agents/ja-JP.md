@@ -49,13 +49,12 @@ group memory の開示モードは、複数のメンバーが回答を閲覧で�
 
 ## モデルを設定する
 
-Agent のモデルプロファイルは、**Console → Model Profiles** で構成される 3 層の疎な継承チェーン（`Agent -> Pod -> Site`）に従って解決され、`coding -> heavy -> primary` と `light -> primary` のスロット間フォールバックも適用されます。Site または Pod で `primary` プロファイルが設定されていれば、新しい Agent は個別の上書き設定なしでそのまま稼働できます。この Agent の業務に Pod 既定値とは異なる Provider・モデル階層・カスタム言語モデルエイリアスが必要なスロットだけを上書きしてください。
+Agent のモデルプロファイルは、**Console → Model Profiles** で構成される 3 層の疎な継承チェーン（`Agent -> Pod -> Site`）に従って解決され、`heavy -> primary` と `light -> primary` のスロット間フォールバックも適用されます。Site または Pod で `primary` プロファイルが設定されていれば、新しい Agent は個別の上書き設定なしでそのまま稼働できます。この Agent の業務に Pod 既定値とは異なる Provider・モデル階層・カスタム言語モデルエイリアスが必要なスロットだけを上書きしてください。
 
-- Pod 既定値よりも上位または特化したモデルが必要な場合は、`primary`、`light`、または `heavy` を上書きします。
+- Pod 既定値よりも上位または特化したモデルが必要な場合は、`primary`、`light`、または `heavy` を上書きします（`heavy` は Background Agent Job の既定プロファイルでもあり、未設定時は `primary` にフォールバックします。ChatGPT サブスクリプションで Job を動かす場合も [ChatGPT サブスクリプション provider](../chatgpt-subscription-provider/) を `heavy` に設定します）。
 - `primary` がネイティブ画像入力に非対応で、画像の読み取りが必要な場合は `vision_fallback` を設定します。
 - Pod 既定値とは異なる Web 検索・閲覧設定が必要な場合は、`web_search` と `web_fetch` を設定します。
 - 専用の画像生成 Provider を使う場合は、`image_generate` を設定します。
-- Background Agent Job（`coding`）で別の provider やモデルを使いたい場合は **Background Agent Jobs** を設定します（未設定時は `heavy -> primary` にフォールバックします）。ChatGPT サブスクリプションも、[ChatGPT サブスクリプション provider](../chatgpt-subscription-provider/) を通じて同じ手順で選択できます。
 
 独立した `web_search` または `image_generate` プロファイルを使う場合は、対応する provider-hosted スイッチもオフにします。プロファイルの紐付けだけではスイッチは変わりません。両スイッチは既定でオンとなり、Site → Pod → Agent の順で設定を継承します。
 

@@ -223,7 +223,7 @@ defmodule Ankole.ConversationsModelPreferencesTest do
                "careful"
              )
 
-    for choice <- ["primary", "heavy", "coding", "unknown", 7] do
+    for choice <- ["primary", "heavy", "light", "unknown", 7] do
       assert {:error, :model_profile_unavailable} =
                Conversations.set_model_profile(
                  Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),

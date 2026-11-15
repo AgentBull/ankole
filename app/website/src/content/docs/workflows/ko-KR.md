@@ -30,7 +30,7 @@ criteria below. Return one JSON result with every verdict, the failed reviews,
 and a final shortlist. Do not expand beyond these 40 proposals.
 ```
 
-오케스트레이션 코드는 메인 Agent가 직접 작성해 실행하므로 사용자가 JavaScript를 짜거나 API를 직접 호출할 필요가 없습니다. 실행 시 메인 Agent는 실행당 동시 작업 수, 최대 서브에이전트 호출 횟수, 그리고 자신에게 허용된 커스텀 모델 프로필을 지정할 수 있으며, 별도 프로필을 고르지 않으면 `primary` 프로필이 사용됩니다.
+오케스트레이션 코드는 메인 Agent가 직접 작성해 실행하므로 사용자가 JavaScript를 짜거나 API를 직접 호출할 필요가 없습니다. 실행 시 메인 Agent는 실행당 동시 작업 수, 최대 서브에이전트 호출 횟수, 그리고 실행 전체의 기본 `model_profile`(해석 가능한 `light`·`primary`·`heavy` 능력 티어 또는 이름 있는 커스텀 프로필, 생략 시 `primary`)을 지정할 수 있으며, 개별 `agent(prompt, options)` 단계에서도 `options.model_profile`로 단계별 티어를 따로 고를 수 있습니다.
 
 Workflow가 시작되면 실행 ID와 `running` 상태가 즉시 반환되며, 메인 Agent는 루프를 돌며 상태를 폴링하지 않습니다. 사용자는 같은 채팅방에서 다른 대화를 계속 나누다가 필요할 때 진행 상황만 물어보면 됩니다.
 

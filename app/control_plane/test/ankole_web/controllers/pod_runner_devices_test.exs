@@ -90,7 +90,7 @@ defmodule AnkoleWeb.PodRunnerDevicesTest do
     fixture = Ankole.AIGatewayCase.background_agent_fixture()
 
     {:ok, _} =
-      Ankole.AIGateway.ModelProfiles.put_model_profile(assistant.uid, "coding", %{
+      Ankole.AIGateway.ModelProfiles.put_model_profile(assistant.uid, "heavy", %{
         provider_id: fixture.provider_id,
         model: "openai/gpt-5.6-sol"
       })
@@ -239,7 +239,7 @@ defmodule AnkoleWeb.PodRunnerDevicesTest do
 
     for agent_uid <- [assistant.uid, colleague.uid] do
       {:ok, _} =
-        Ankole.AIGateway.ModelProfiles.put_model_profile(agent_uid, "coding", %{
+        Ankole.AIGateway.ModelProfiles.put_model_profile(agent_uid, "heavy", %{
           provider_id: fixture.provider_id,
           model: "openai/gpt-5.6-sol"
         })

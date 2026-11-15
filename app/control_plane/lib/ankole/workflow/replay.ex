@@ -284,6 +284,7 @@ defmodule Ankole.Workflow.Replay do
   defp validate_agent_arguments(arguments) do
     with prompt when is_binary(prompt) <- Map.get(arguments, "prompt"),
          true <- String.trim(prompt) != "" || {:error, :workflow_agent_prompt_required},
+         :ok <- validate_agent_model_profile(Map.get(arguments, "model_profile")),
          :ok <- ResultSchema.validate_schema(Map.get(arguments, "schema", %{"type" => "string"})) do
       :ok
     else
@@ -294,14 +295,41 @@ defmodule Ankole.Workflow.Replay do
     end
   end
 
+  defp validate_agent_model_profile(nil), do: :ok
+
+  defp validate_agent_model_profile(profile) when is_binary(profile) do
+    case Ankole.Attrs.optional_text(profile) do
+      nil ->
+        {:error, :invalid_delegation_model_profile}
+
+      text ->
+        case Ankole.AIGateway.ModelProfiles.normalize_delegation_profile(text) do
+          {:ok, _normalized} -> :ok
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp validate_agent_model_profile(_profile), do: {:error, :invalid_delegation_model_profile}
+
   defp call_attrs(run, call_seq, arguments) do
+    model_profile =
+      case Ankole.Attrs.optional_text(arguments["model_profile"]) do
+        nil ->
+          nil
+
+        profile ->
+          {:ok, normalized} = Ankole.AIGateway.ModelProfiles.normalize_delegation_profile(profile)
+          normalized
+      end
+
     %{
       run_id: run.id,
       agent_uid: run.agent_uid,
       call_seq: call_seq,
       arguments: arguments,
       label: Ankole.Attrs.optional_text(arguments["label"]),
-      model_profile: Ankole.Attrs.optional_text(arguments["model_profile"]),
+      model_profile: model_profile,
       attempts: 0,
       error: %{}
     }

@@ -435,3 +435,7 @@ native tenant authentications through the tenant-deletion owner.
 Finally, the `RequestHost` policy defines host classification, the shared cookie
 domain, tenant origins, canonical origins, and explicit per-host route
 allowlists; declaring a Phoenix route alone never exposes it on a Pod host.
+Hosts classified as `:static` (such as `cdn.<domain>` and an optional external
+SaaS CDN host) serve only `GET` and `HEAD` files matched by `Plug.Static` with
+anonymous CORS headers, returning `404` without session cookies for `/` and all
+dynamic routes or sockets.

@@ -46,7 +46,7 @@ When an account hits rate limits and enters `exhausted`, AIGateway automatically
 ## Assign the provider to an Agent
 
 1. Open **Console → Agents** and select the Agent.
-2. Open the target model profile—use **Background Agent Jobs** for durable Jobs, or another profile for foreground turns.
+2. Open the target model profile—use `heavy` (**Complex Reasoning & Background Jobs**) for durable Jobs, or `primary`, `light`, or a custom profile for foreground turns.
 3. Select the ChatGPT subscription provider and an entitled model.
 4. Configure reasoning effort and Fast Mode as needed.
 5. Save the profile.

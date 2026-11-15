@@ -35,10 +35,10 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
 
       assert {:ok, primary} = ModelProfiles.get_model_profile(agent.uid, "primary")
 
-      assert {:ok, _coding} =
+      assert {:ok, _heavy} =
                ModelProfiles.put_model_profile(
                  agent.uid,
-                 "coding",
+                 "heavy",
                  Map.take(primary, ~w(provider_id model provider_options))
                )
 

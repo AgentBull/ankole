@@ -1365,11 +1365,6 @@ export const modelAdvanced = {
       title: '任意の能力プロファイルを追加する',
       fields: [
         {
-          name: 'Background Agent Jobs',
-          description:
-            '永続的な Background Agent Jobs で使用する provider とモデルを選択します（内部では coding プロファイルとして保存され、未設定時は heavy -> primary へフォールバックします）。'
-        },
-        {
           name: 'vision_fallback',
           description: 'primary モデルが画像を直接扱えない場合に使われる画像認識用フォールバックモデル。'
         },
@@ -2546,7 +2541,7 @@ export const signalAdvanced = {
 | **Delivery** | 外部の会話へメッセージを送出する際の永続的な送信意図・試行・結果の記録 | Delivery |
 | **Signal Routing Rule (Signal Binding)** | Signal の発生元から対象の Agent へメッセージやイベントを振り分けるルール | Routing rule |
 | **LLM Provider** | モデルサービスの接続先エンドポイント、認証情報、利用可能なモデル一覧を保持する設定 | LLM Provider |
-| **Background Agent Jobs profile (内部キー: `coding`)** | Background Agent Jobs で使用する AIGateway provider とモデルを指定するプロファイル | Background Agent Jobs |
+| **Model Profile** | `Site -> Pod -> Agent/System` で継承される能力スロット（`primary`、`light`、`heavy`、およびマルチモーダル・検索スロット） | Model Profile |
 
 ## Agent にセットアップを完了させる
 
@@ -2613,13 +2608,13 @@ Ankole は組織内のプライベートデプロイメント向けに設計さ�
 
 モデルプロファイルは登録済みの LLM Provider を参照するため、先に Console の **Providers → New provider** で provider の種類を選んで API キーを貼り付け、保存します。Provider ID は Console が提案し、エンドポイントは provider の既定値を使うため、アドレスを入力するのは、Azure OpenAI のようにリソースごとにアドレスが割り当てられるサービスか、セルフホストや互換エンドポイントの場合だけです。登録した認証情報は control plane 内で暗号化して保管されるため、デプロイ用の `.env` ファイルや Agent のワークスペースファイル内に API キーを書き込まないでください。
 
-次に **Console → Model Profiles** を開き、すべての Pod と Agent が継承する Site 既定の言語モデルスロットを設定します（`Site -> Pod -> Agent/System` の 3 層疎継承と、`coding -> heavy -> primary` および `light -> primary` のフォールバックが適用されます）。
+次に **Console → Model Profiles** を開き、すべての Pod と Agent が継承する Site 既定の言語モデルスロットを設定します（`Site -> Pod -> Agent/System` の 3 層疎継承と、`heavy -> primary` および `light -> primary` のフォールバックが適用されます）。
 
 | プロファイル | 初回実行での用途 |
 |---|---|
-| `primary` | メインの対話・推論モデル（必須。未設定時の `light` や `coding -> heavy` のフォールバック先） |
+| `primary` | メインの対話・推論モデル（必須。未設定時の `light` や `heavy` のフォールバック先） |
 | `light` | 高頻度・低コストな処理と `ankole_brain` の知識抽出 |
-| `heavy` | 高度な統合推論、Dreaming、Skill 教訓の再確認 |
+| `heavy` | 高度な統合推論、Background Agent Jobs、Dreaming、Skill 教訓の再確認 |
 
 最初の疎通確認では、Site 既定値の `primary` に動作実績のある provider とモデルを 1 つ割り当てるだけで全 Agent と `ankole_brain` が稼働可能になります。一通りの会話が通ることを確認してから、`light` と `heavy` を用途別の階層に分けてください。
 

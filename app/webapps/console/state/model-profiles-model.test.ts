@@ -30,9 +30,9 @@ describe('model-profile layers', () => {
       layer: 'tenant'
     })
     expect(profileSource('tenant', 'primary', false, site)).toEqual({ kind: 'inherited', source: 'global' })
-    expect(profileSource('agent', 'coding', false, { ...site, resolved_from_profile: 'heavy' })).toEqual({
+    expect(profileSource('agent', 'heavy', false, { ...site, resolved_from_profile: 'primary' })).toEqual({
       kind: 'fallback',
-      profile: 'heavy'
+      profile: 'primary'
     })
     expect(profileSource('tenant', 'ocr', false, { value: {}, source: 'default' })).toEqual({ kind: 'none' })
   })
@@ -44,24 +44,24 @@ describe('ModelProfilesModel', () => {
     model.initialize('defaults:tenant', {
       primary: { providerID: 'openai', model: 'old' },
       light: { providerID: 'openai', model: 'old' },
-      coding: { providerID: 'openai', model: 'old' }
+      heavy: { providerID: 'openai', model: 'old' }
     })
     model.update('primary', { model: 'new' })
-    model.update('coding', { model: 'unsaved' })
+    model.update('heavy', { model: 'unsaved' })
     model.markSaved(
       'primary',
       {
         primary: { value: { provider_id: 'openai', model: 'new' } },
         light: { value: { provider_id: 'openai', model: 'new' } },
-        coding: { value: { provider_id: 'openai', model: 'new' } }
+        heavy: { value: { provider_id: 'openai', model: 'new' } }
       },
       model.submission('primary')
     )
 
     expect(model.snapshot('light').model).toBe('new')
     expect(model.profiles.light.dirty.value).toBeFalse()
-    expect(model.snapshot('coding').model).toBe('unsaved')
-    expect(model.profiles.coding.dirty.value).toBeTrue()
+    expect(model.snapshot('heavy').model).toBe('unsaved')
+    expect(model.profiles.heavy.dirty.value).toBeTrue()
     model[Symbol.dispose]()
   })
 
@@ -179,24 +179,24 @@ describe('ModelProfilesModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('tracks a ChatGPT subscription provider as an ordinary coding profile', () => {
+  test('tracks a ChatGPT subscription provider as an ordinary heavy profile', () => {
     const model = new ModelProfilesModel()
     model.initialize('agent:alpha', {
-      coding: {
+      heavy: {
         providerID: 'chatgpt-subscription',
         model: 'gpt-5.6-sol',
         providerOptions: { reasoningEffort: 'max', serviceTier: 'priority' }
       }
     })
 
-    expect(model.snapshot('coding')).toMatchObject({
+    expect(model.snapshot('heavy')).toMatchObject({
       providerID: 'chatgpt-subscription',
       model: 'gpt-5.6-sol',
       providerOptions: { reasoningEffort: 'max', serviceTier: 'priority' }
     })
 
-    model.update('coding', { providerOptions: { reasoningEffort: 'high' } })
-    expect(model.profiles.coding.dirty.value).toBeTrue()
+    model.update('heavy', { providerOptions: { reasoningEffort: 'high' } })
+    expect(model.profiles.heavy.dirty.value).toBeTrue()
     model[Symbol.dispose]()
   })
 

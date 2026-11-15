@@ -30,7 +30,7 @@ criteria below. Return one JSON result with every verdict, the failed reviews,
 and a final shortlist. Do not expand beyond these 40 proposals.
 ```
 
-The Main Agent authors and launches the orchestration program automatically—you never have to write JavaScript or call an API directly. When starting the run, the Agent can specify a per-run concurrency cap, a maximum subagent call count, and any model profile available to it (defaulting to `primary`).
+The Main Agent authors and launches the orchestration program automatically—you never have to write JavaScript or call an API directly. When starting the run, the Agent can specify a per-run concurrency cap, a maximum subagent call count, and a run-level `model_profile` across its resolvable capability tiers (`light`, `primary`, `heavy`) or named custom profiles (defaulting to `primary`), while individual `agent(prompt, options)` stages can also set `options.model_profile` to match each stage's workload.
 
 Starting a Workflow returns the `run_id` and initial `running` state immediately. Rather than polling in a loop, the Main Agent yields so you can keep chatting in the same thread and check progress whenever you want.
 

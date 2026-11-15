@@ -1,74 +1,16 @@
-import {
-  Badge,
-  Board,
-  BoardCard,
-  BoardCardActions,
-  BoardCardAside,
-  BoardCardFooter,
-  BoardCardHeader,
-  BoardCardTitle,
-  BoardColumn,
-  BoardColumnHeader,
-  BoardPresence,
-  Button,
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  toast,
-  useSidebar,
-  type BoardTone
-} from '@ankole/uikit'
-import {
-  AddRegular,
-  CalendarClockRegular,
-  CheckmarkCircleFilled,
-  CircleHalfFillRegular,
-  ClockRegular,
-  FilterRegular,
-  FlashRegular,
-  PauseCircleRegular,
-  StopFilled
-} from '@ankole/uikit/icons'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { TFunction } from 'i18next'
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useTranslation } from 'react-i18next'
-import { formatRelativeTime } from '../common/date-time'
-import { requestErrorMessage } from '../common/request-errors'
+import { useSidebar } from '@ankole/uikit'
+import { useQuery } from '@tanstack/react-query'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from '../common/router'
-import { stopPodJobExecution } from './api/generated/sdk.gen'
-import { ChatAvatar } from './chat/chat-avatar'
-import { ExecutionStatusMark, isLiveExecutionStatus } from './chat/execution-status'
+import { useSearchDraft } from '../common/use-search-draft'
 import { ContentError, ContentLoading } from './content-primitives'
 import { JobCreateDialog, type JobStarterPreset } from './job-create-dialog'
-import {
-  jobColumns,
-  jobsBoardQuery,
-  jobsError,
-  jobsKeys,
-  type JobBoardItem,
-  type JobCandidateAgent,
-  type JobColumn
-} from './jobs-api'
+import { jobsBoardQuery, jobsError, type JobBoardItem } from './jobs-api'
+import { AgentColumnsBoard, EmptyJobsState, FilteredEmptyJobsState, StatusColumnsBoard } from './jobs-board-views'
 import { JobsDetailPanel, type JobExecutionRef } from './jobs-detail-panel'
+import { JOB_KINDS, JobsBoardHeader, type WorkingAgentSummary } from './jobs-toolbar'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import './chat.css'
-
-const JOB_KINDS: ReadonlyArray<JobBoardItem['kind']> = [
-  'background_agent_job',
-  'workflow',
-  'cron',
-  'automation_job',
-  'checkback'
-]
 
 function parseRunParam(raw: string | null): JobExecutionRef | null {
   if (!raw) return null
@@ -81,19 +23,21 @@ function parseRunParam(raw: string | null): JobExecutionRef | null {
   return null
 }
 
-function columnMeta(column: JobColumn): { icon: ReactNode; tone: BoardTone } {
-  switch (column) {
-    case 'scheduled':
-      return { icon: <ClockRegular />, tone: 'gray' }
-    case 'running':
-      return { icon: <CircleHalfFillRegular />, tone: 'blue' }
-    case 'completed':
-      return { icon: <CheckmarkCircleFilled />, tone: 'green' }
-  }
+function matchesSearchQuery(item: JobBoardItem, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true
+  const haystacks = [
+    item.title,
+    item.summary,
+    item.agentName,
+    item.agentUID,
+    item.pageTitle,
+    item.conversationTitle,
+    item.triggerSummary
+  ]
+  return haystacks.some(field => field?.toLowerCase().includes(normalizedQuery))
 }
 
 export function JobsRoute() {
-  const { t } = useTranslation()
   const { isMobile } = useSidebar()
   const [searchParams, setSearchParams] = useSearchParams()
   const board = useQuery(jobsBoardQuery)
@@ -101,8 +45,28 @@ export function JobsRoute() {
   const selectedID = searchParams.get('item')?.trim() || undefined
   const selectedRun = useMemo(() => parseRunParam(searchParams.get('run')), [searchParams])
   const agentFilter = searchParams.get('agent')?.trim() || undefined
-  const kindFilter = searchParams.get('kind')?.trim() as JobBoardItem['kind'] | undefined
+  const rawKind = searchParams.get('kind')?.trim()
+  const kindFilter =
+    rawKind && (JOB_KINDS as readonly string[]).includes(rawKind) ? (rawKind as JobBoardItem['kind']) : undefined
+  const searchQuery = searchParams.get('q') ?? ''
   const viewMode: 'status' | 'agent' = searchParams.get('view') === 'agent' ? 'agent' : 'status'
+
+  const [inputQuery, setInputQuery] = useSearchDraft(
+    searchQuery,
+    value => {
+      const clean = value.trim()
+      setSearchParams(
+        prev => {
+          const next = new URLSearchParams(prev)
+          if (clean) next.set('q', clean)
+          else next.delete('q')
+          return next
+        },
+        { replace: true, preventScrollReset: true }
+      )
+    },
+    { delay: 140 }
+  )
 
   const panelMotion = usePanelMotion(Boolean(selectedID))
   const triggerElement = useRef<HTMLElement | null>(null)
@@ -150,41 +114,48 @@ export function JobsRoute() {
     [setSearchParams]
   )
 
-  const updateParam = (key: string, value: string | undefined) => {
-    setSearchParams(
-      prev => {
-        const next = new URLSearchParams(prev)
-        if (value) next.set(key, value)
-        else next.delete(key)
-        return next
-      },
-      { replace: true, preventScrollReset: true }
-    )
-  }
+  const updateParam = useCallback(
+    (key: string, value: string | undefined) => {
+      setSearchParams(
+        prev => {
+          const next = new URLSearchParams(prev)
+          if (value) next.set(key, value)
+          else next.delete(key)
+          return next
+        },
+        { replace: true, preventScrollReset: true }
+      )
+    },
+    [setSearchParams]
+  )
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
+    setInputQuery('')
     setSearchParams(
       prev => {
         const next = new URLSearchParams(prev)
         next.delete('agent')
         next.delete('kind')
+        next.delete('q')
         return next
       },
       { replace: true, preventScrollReset: true }
     )
-  }
+  }, [setInputQuery, setSearchParams])
 
   const allItems = board.data?.items ?? []
   const agents = board.data?.agents ?? []
+  const normalizedQuery = inputQuery.trim().toLowerCase()
 
   const filteredItems = useMemo(
     () =>
       allItems.filter(item => {
         if (agentFilter && item.agentUID !== agentFilter) return false
         if (kindFilter && item.kind !== kindFilter) return false
+        if (normalizedQuery && !matchesSearchQuery(item, normalizedQuery)) return false
         return true
       }),
-    [agentFilter, allItems, kindFilter]
+    [agentFilter, allItems, kindFilter, normalizedQuery]
   )
 
   const selectedItem = useMemo(
@@ -195,9 +166,9 @@ export function JobsRoute() {
   const agentAvatarByUID = useMemo(() => new Map(agents.map(agent => [agent.uid, agent.avatarURL])), [agents])
 
   const workingAgents = useMemo(() => {
-    const byUID = new Map<string, { uid: string; name: string; avatarURL?: string | null }>()
+    const byUID = new Map<string, WorkingAgentSummary>()
     for (const item of allItems) {
-      if (item.column !== 'running' || !item.agentUID) continue
+      if (item.column !== 'running' || item.attention || !item.agentUID) continue
       if (!byUID.has(item.agentUID)) {
         const candidate = agents.find(agent => agent.uid === item.agentUID)
         byUID.set(item.agentUID, {
@@ -210,115 +181,68 @@ export function JobsRoute() {
     return [...byUID.values()]
   }, [agents, allItems])
 
+  const attentionCount = useMemo(() => allItems.filter(item => item.attention).length, [allItems])
   const activeFilterCount = (agentFilter ? 1 : 0) + (kindFilter ? 1 : 0)
+  const hasAnyFilter = activeFilterCount > 0 || normalizedQuery.length > 0
+  const showToolbar = !board.isPending && !board.error && (allItems.length > 0 || hasAnyFilter)
+  const filteredAgentName = useMemo(
+    () =>
+      agentFilter ? (agents.find(agent => agent.uid === agentFilter)?.displayName ?? `@${agentFilter}`) : undefined,
+    [agentFilter, agents]
+  )
 
-  const openCreateWithPreset = (preset: JobStarterPreset | null) => {
+  const openCreateWithPreset = useCallback((preset: JobStarterPreset | null) => {
     setStarterPreset(preset)
     setCreateOpen(true)
-  }
+  }, [])
 
   return (
     <div className="pod-chat-room-body h-full overflow-hidden">
-      <div className="pod-chat-room-main overflow-y-auto px-4 py-5 md:px-8 md:py-6">
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <h1 className="text-lg font-semibold tracking-tight text-foreground">{t('pod.jobs.title')}</h1>
-            {workingAgents.length > 0 && (
-              <BoardPresence
-                avatars={workingAgents.slice(0, 4).map(agent => (
-                  <ChatAvatar key={agent.uid} name={agent.name} src={agent.avatarURL} agent round size="xs" />
-                ))}>
-                {workingAgents.length === 1
-                  ? t('pod.jobs.working_single', { name: workingAgents[0]!.name })
-                  : t('pod.jobs.working_count', { count: workingAgents.length })}
-              </BoardPresence>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Tabs
-              value={viewMode}
-              onValueChange={value => updateParam('view', value === 'agent' ? 'agent' : undefined)}>
-              <TabsList variant="object" aria-label={t('pod.jobs.view_label')}>
-                <TabsTrigger value="status">{t('pod.jobs.view_status')}</TabsTrigger>
-                <TabsTrigger value="agent">{t('pod.jobs.view_agent')}</TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button type="button" variant="outline" size="sm">
-                    <FilterRegular aria-hidden />
-                    {t('pod.jobs.filter')}
-                    {activeFilterCount > 0 && (
-                      <Badge variant="info" size="sm">
-                        {activeFilterCount}
-                      </Badge>
-                    )}
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end" className="min-w-52">
-                {agents.length > 0 && (
-                  <>
-                    <DropdownMenuGroup>
-                      <DropdownMenuLabel>{t('pod.jobs.field_agent')}</DropdownMenuLabel>
-                      {agents.map(agent => (
-                        <DropdownMenuCheckboxItem
-                          key={agent.uid}
-                          checked={agentFilter === agent.uid}
-                          onCheckedChange={checked => updateParam('agent', checked ? agent.uid : undefined)}>
-                          {agent.displayName}
-                        </DropdownMenuCheckboxItem>
-                      ))}
-                    </DropdownMenuGroup>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>{t('pod.jobs.filter_kind')}</DropdownMenuLabel>
-                  {JOB_KINDS.map(kind => (
-                    <DropdownMenuCheckboxItem
-                      key={kind}
-                      checked={kindFilter === kind}
-                      onCheckedChange={checked => updateParam('kind', checked ? kind : undefined)}>
-                      {t(`pod.jobs.kinds.${kind}`)}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuGroup>
-                {activeFilterCount > 0 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={clearFilters}>{t('pod.jobs.clear_filters')}</DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {agents.length > 0 && (
-              <Button ref={createButtonRef} type="button" size="sm" onClick={() => openCreateWithPreset(null)}>
-                <AddRegular aria-hidden />
-                {t('pod.jobs.new_job')}
-              </Button>
-            )}
-          </div>
-        </header>
+      <div className="pod-chat-room-main flex flex-col overflow-y-auto px-5 py-5 md:px-8 md:py-6">
+        <JobsBoardHeader
+          agents={agents}
+          workingAgents={workingAgents}
+          attentionCount={attentionCount}
+          showToolbar={showToolbar}
+          viewMode={viewMode}
+          agentFilter={agentFilter}
+          filteredAgentName={filteredAgentName}
+          kindFilter={kindFilter}
+          inputQuery={inputQuery}
+          activeFilterCount={activeFilterCount}
+          createButtonRef={createButtonRef}
+          onNewJob={() => openCreateWithPreset(null)}
+          onViewModeChange={next => updateParam('view', next === 'agent' ? 'agent' : undefined)}
+          onAgentFilterChange={next => updateParam('agent', next)}
+          onKindFilterChange={next => updateParam('kind', next)}
+          onQueryChange={setInputQuery}
+          onClearFilters={clearFilters}
+        />
 
         {board.isPending ? (
-          <ContentLoading className="py-16" />
+          <ContentLoading className="flex-1 py-16" />
         ) : board.error ? (
           <ContentError error={jobsError(board.error)} retry={() => void board.refetch()} />
         ) : allItems.length === 0 ? (
           <EmptyJobsState agents={agents} onPickPreset={openCreateWithPreset} />
+        ) : filteredItems.length === 0 ? (
+          <FilteredEmptyJobsState onReset={clearFilters} />
         ) : viewMode === 'agent' ? (
-          <AgentColumnsBoard items={filteredItems} agents={agents} selectedID={selectedID} onSelect={selectCard} />
+          <AgentColumnsBoard
+            items={filteredItems}
+            agents={agents}
+            selectedID={selectedID}
+            onSelect={selectCard}
+            onQuickCreate={openCreateWithPreset}
+          />
         ) : (
           <StatusColumnsBoard
             items={filteredItems}
+            agents={agents}
             agentAvatarByUID={agentAvatarByUID}
             selectedID={selectedID}
             onSelect={selectCard}
+            onQuickCreate={openCreateWithPreset}
           />
         )}
       </div>
@@ -362,348 +286,6 @@ export function JobsRoute() {
         returnFocus={createButtonRef}
         onCreated={created => selectCard(created.id)}
       />
-    </div>
-  )
-}
-
-function StatusColumnsBoard({
-  items,
-  agentAvatarByUID,
-  selectedID,
-  onSelect
-}: {
-  items: JobBoardItem[]
-  agentAvatarByUID: Map<string, string | null | undefined>
-  selectedID?: string
-  onSelect: (id: string, event?: PanelInputEvent, source?: HTMLElement | null) => void
-}) {
-  const { t } = useTranslation()
-
-  return (
-    <Board>
-      {jobColumns.map(column => {
-        const meta = columnMeta(column)
-        const cards = items
-          .filter(item => item.column === column)
-          .sort((a, b) => {
-            if (column === 'running' && a.attention !== b.attention) {
-              return a.attention ? -1 : 1
-            }
-            return 0
-          })
-
-        return (
-          <BoardColumn key={column} aria-label={t(`pod.jobs.columns.${column}`)}>
-            <BoardColumnHeader icon={meta.icon} tone={meta.tone} count={cards.length}>
-              {t(`pod.jobs.columns.${column}`)}
-            </BoardColumnHeader>
-            {cards.map(card => (
-              <JobCard
-                key={card.id}
-                item={card}
-                agentAvatarURL={card.agentUID ? agentAvatarByUID.get(card.agentUID) : undefined}
-                selected={selectedID === card.id}
-                onSelect={(event, button) => onSelect(card.id, event, button)}
-              />
-            ))}
-          </BoardColumn>
-        )
-      })}
-    </Board>
-  )
-}
-
-function AgentColumnsBoard({
-  items,
-  agents,
-  selectedID,
-  onSelect
-}: {
-  items: JobBoardItem[]
-  agents: JobCandidateAgent[]
-  selectedID?: string
-  onSelect: (id: string, event?: PanelInputEvent, source?: HTMLElement | null) => void
-}) {
-  const { t } = useTranslation()
-
-  const columns = useMemo(() => {
-    const orderRank = (item: JobBoardItem) => {
-      if (item.attention) return 0
-      if (item.column === 'running') return 1
-      if (item.column === 'scheduled') return 2
-      return 3
-    }
-
-    const byAgent = new Map<string, { key: string; title: string; avatarURL?: string | null; cards: JobBoardItem[] }>()
-    for (const agent of agents) {
-      byAgent.set(agent.uid, {
-        key: agent.uid,
-        title: agent.displayName,
-        avatarURL: agent.avatarURL,
-        cards: []
-      })
-    }
-
-    const automationCards: JobBoardItem[] = []
-    for (const item of items) {
-      if (!item.agentUID) {
-        automationCards.push(item)
-        continue
-      }
-      let bucket = byAgent.get(item.agentUID)
-      if (!bucket) {
-        bucket = {
-          key: item.agentUID,
-          title: item.agentName || `@${item.agentUID}`,
-          cards: []
-        }
-        byAgent.set(item.agentUID, bucket)
-      }
-      bucket.cards.push(item)
-    }
-
-    const result = [...byAgent.values()]
-      .filter(bucket => bucket.cards.length > 0 || agents.length <= 4)
-      .map(bucket => ({
-        ...bucket,
-        cards: [...bucket.cards].sort((a, b) => orderRank(a) - orderRank(b))
-      }))
-
-    if (automationCards.length > 0) {
-      result.push({
-        key: '__automations__',
-        title: t('pod.jobs.page_automations'),
-        cards: [...automationCards].sort((a, b) => orderRank(a) - orderRank(b))
-      })
-    }
-    return result
-  }, [agents, items, t])
-
-  return (
-    <Board>
-      {columns.map(column => (
-        <BoardColumn key={column.key} aria-label={column.title}>
-          <BoardColumnHeader
-            icon={
-              column.key === '__automations__' ? (
-                <FlashRegular />
-              ) : (
-                <ChatAvatar name={column.title} src={column.avatarURL} agent size="xs" />
-              )
-            }
-            tone={column.cards.some(card => card.column === 'running') ? 'blue' : 'gray'}
-            count={column.cards.length}>
-            {column.title}
-          </BoardColumnHeader>
-          {column.cards.map(card => (
-            <JobCard
-              key={card.id}
-              item={card}
-              agentAvatarURL={column.avatarURL}
-              selected={selectedID === card.id}
-              onSelect={(event, button) => onSelect(card.id, event, button)}
-            />
-          ))}
-        </BoardColumn>
-      ))}
-    </Board>
-  )
-}
-
-function JobCard({
-  item,
-  agentAvatarURL,
-  selected,
-  onSelect
-}: {
-  item: JobBoardItem
-  agentAvatarURL?: string | null
-  selected: boolean
-  onSelect: (event: PanelInputEvent, source: HTMLButtonElement) => void
-}) {
-  const { t, i18n } = useTranslation()
-  const client = useQueryClient()
-
-  const stopMutation = useMutation({
-    mutationFn: () => {
-      if (!item.activeExecutionKind || !item.activeExecutionID) {
-        throw new Error('Missing active execution')
-      }
-      return stopPodJobExecution({
-        path: {
-          kind: item.activeExecutionKind,
-          run_id: Number(item.activeExecutionID)
-        }
-      })
-    },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: jobsKeys.all })
-    },
-    onError: error => {
-      toast.error(requestErrorMessage(jobsError(error)))
-    }
-  })
-
-  const metaDetail = cardProgressSummary(item, t)
-  const timestamp =
-    item.column === 'scheduled' && item.nextRunAt
-      ? formatRelativeTime(item.nextRunAt, i18n.language)
-      : formatRelativeTime(item.updatedAt, i18n.language)
-
-  return (
-    <BoardCard selected={selected}>
-      <BoardCardHeader>
-        {item.cardType === 'routine' && <CalendarClockRegular aria-hidden className="size-3.5 shrink-0" />}
-        <span className="truncate">{t(`pod.jobs.kinds.${item.kind}`)}</span>
-        {metaDetail && <span className="truncate font-mono text-[11px]">{metaDetail}</span>}
-        {item.attention && (
-          <Badge variant={item.status === 'waiting_on_user' ? 'warning' : 'destructive'} size="sm">
-            {attentionLabel(item, t)}
-          </Badge>
-        )}
-
-        <BoardCardAside>
-          {item.status === 'paused' ? (
-            <PauseCircleRegular aria-hidden className="size-3.5 text-fg-tertiary" />
-          ) : isLiveExecutionStatus(item.status) || item.attention ? (
-            <span className="flex shrink-0 [&>svg]:size-3.5">
-              <ExecutionStatusMark status={item.status} />
-            </span>
-          ) : null}
-          {item.stoppable && item.activeExecutionKind && item.activeExecutionID && (
-            <BoardCardActions>
-              <Button
-                type="button"
-                size="icon-xs"
-                variant="ghost"
-                disabled={stopMutation.isPending}
-                aria-label={t('pod.chat_timeline.execution_stop_action')}
-                title={t('pod.chat_timeline.execution_stop_action')}
-                onClick={() => stopMutation.mutate()}>
-                <StopFilled aria-hidden />
-              </Button>
-            </BoardCardActions>
-          )}
-        </BoardCardAside>
-      </BoardCardHeader>
-
-      <BoardCardTitle
-        render={<button type="button" onClick={event => onSelect(event.nativeEvent, event.currentTarget)} />}>
-        {item.title}
-      </BoardCardTitle>
-
-      <BoardCardFooter>
-        {item.agentUID ? (
-          <>
-            <ChatAvatar name={item.agentName || `@${item.agentUID}`} src={agentAvatarURL} agent size="xs" />
-            <span className="min-w-0 truncate">{item.agentName || `@${item.agentUID}`}</span>
-          </>
-        ) : item.pageTitle ? (
-          <>
-            <FlashRegular aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />
-            <span className="min-w-0 truncate">{item.pageTitle}</span>
-          </>
-        ) : null}
-
-        {timestamp && <BoardCardAside>{timestamp}</BoardCardAside>}
-      </BoardCardFooter>
-    </BoardCard>
-  )
-}
-
-function cardProgressSummary(item: JobBoardItem, t: TFunction): string | null {
-  if (item.cardType === 'routine') {
-    if (item.status === 'paused') return t('pod.jobs.status_paused')
-    return item.triggerSummary ?? null
-  }
-  const parts: string[] = []
-  if (item.planTotal != null && item.planTotal > 0) {
-    parts.push(`${item.planCompleted ?? 0}/${item.planTotal}`)
-  } else if (item.stepCount > 0) {
-    parts.push(t('pod.jobs.step_count', { count: item.stepCount }))
-  }
-  if (item.chainLength > 1) {
-    parts.push(`+${item.chainLength - 1}`)
-  }
-  return parts.length > 0 ? parts.join(' · ') : null
-}
-
-function attentionLabel(item: JobBoardItem, t: (key: string) => string): string {
-  if (item.status === 'waiting_on_user') return t('pod.jobs.attention_waiting')
-  if (item.status === 'unavailable') return t('pod.jobs.status_unavailable')
-  return t('pod.jobs.attention_failed')
-}
-
-function EmptyJobsState({
-  agents,
-  onPickPreset
-}: {
-  agents: JobCandidateAgent[]
-  onPickPreset: (preset: JobStarterPreset) => void
-}) {
-  const { t } = useTranslation()
-  const canRunBackground = agents.some(agent => agent.canRunBackgroundJob)
-
-  const starters: Array<{ key: string; preset: JobStarterPreset; badge: string }> = [
-    {
-      key: 'briefing',
-      badge: t('pod.jobs.mode_cron'),
-      preset: {
-        mode: 'cron',
-        title: t('pod.jobs.starters.briefing_title'),
-        task: t('pod.jobs.starters.briefing_task'),
-        expression: '0 9 * * 1-5'
-      }
-    },
-    ...(canRunBackground
-      ? [
-          {
-            key: 'research',
-            badge: t('pod.jobs.mode_one_off'),
-            preset: {
-              mode: 'one_off' as const,
-              title: t('pod.jobs.starters.research_title'),
-              task: t('pod.jobs.starters.research_task')
-            }
-          }
-        ]
-      : []),
-    {
-      key: 'monitor',
-      badge: t('pod.jobs.mode_cron'),
-      preset: {
-        mode: 'cron',
-        title: t('pod.jobs.starters.monitor_title'),
-        task: t('pod.jobs.starters.monitor_task'),
-        expression: '0 * * * *'
-      }
-    }
-  ]
-
-  return (
-    <div className="mx-auto my-8 grid max-w-3xl gap-6 rounded-surface border border-border bg-background-secondary/40 p-6">
-      <div className="grid gap-1.5">
-        <h2 className="text-base font-semibold text-foreground">{t('pod.jobs.empty_title')}</h2>
-        <p className="text-sm text-fg-secondary">{t('pod.jobs.empty_description')}</p>
-      </div>
-
-      {agents.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {starters.map(entry => (
-            <button
-              key={entry.key}
-              type="button"
-              onClick={() => onPickPreset(entry.preset)}
-              className="flex flex-col items-start gap-2 rounded-surface border border-border bg-card p-3.5 text-start transition-shadow hover:shadow-sm">
-              <Badge variant="secondary" size="sm">
-                {entry.badge}
-              </Badge>
-              <span className="text-sm font-medium text-foreground">{entry.preset.title}</span>
-              <span className="line-clamp-2 text-xs text-fg-secondary">{entry.preset.task}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

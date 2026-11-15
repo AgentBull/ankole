@@ -10,7 +10,7 @@ export type {
 } from '../viz/infographic'
 
 export interface AnkoleInfographicHandle {
-  exportSVG: () => Promise<{ svg: string; isPrintSafe: boolean }>
+  exportSVG: () => Promise<{ svg: string; width: number; height: number; isPrintSafe: boolean }>
   exportPNG: (options?: { dpr?: number }) => Promise<string>
 }
 

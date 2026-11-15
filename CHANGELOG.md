@@ -1,5 +1,40 @@
 # Changelog
 
+## Version 2.0.0-alpha.156 (2026-11-15)
+
+- Support an optional SaaS static CDN host (`ANKOLE_SAAS_CDN_HOST`, backed by
+  origin `cdn.<domain>`) so browser shells, relative CSS/JS/WASM/Worker bundles,
+  UI and `/fonts/office/` fonts, favicons, and PWA manifest icons load from
+  `//<cdn_host>` with anonymous CORS headers while `cdn.<domain>` and
+  `<cdn_host>` serve only static files and return `404` for `/` and all dynamic
+  routes.
+- Reflow Word Pages and previews automatically once dynamically loaded site
+  fonts arrive instead of retaining stale missing-glyph boxes, wait for pending
+  Office font downloads before initial page display and PDF export, and unify
+  Simplified Chinese typography across Agent Computer Workers, control-plane
+  Office rendering, and self-hosted `/fonts/office/` around `IBM Plex Sans SC`,
+  `寒蝉锦书宋` (`ChillJinshuSong`), `LXGW WenKai GB` (`霞鹜文楷 GB` for `楷体` /
+  `华文楷体` / `STKaiti` / `仿宋`), and `IBMPlexMonoSCHalf` (preserving regional
+  `Noto Sans/Serif TC/JP/KR` fallbacks without rewriting declared `.docx` or
+  `.pptx` font names).
+- Consolidate the `coding` model profile into `heavy` (`heavy -> primary`
+  fallback; `BackgroundAgentJob` now defaults to `heavy`, and stored `coding`
+  overrides at Site, Pod, Agent, or system levels automatically promote into
+  `heavy` whenever `heavy` is unset), open resolvable built-in capability tiers
+  (`light`, `primary`, `heavy`) alongside named custom LLM profiles across
+  `workflow`, `agent(prompt, { model_profile })`, `create_background_job`, and
+  `respawn_background_job`, and materialize prior task lineage and persisted
+  execution history into `.ankole/task-lineage.json` and
+  `.ankole/execution-history.jsonl` whenever a Background Agent Job starts a
+  fresh Codex thread after cold-idle recycling, thread loss, or a model-tier
+  switch. Run `mix ecto.migrate` when upgrading.
+
+- Upgrade Pod **Jobs** (`/jobs`) with live working-Agent presence and attention
+  counts in the header, search and Agent/type filter chips, quick `+` creation on
+  **Scheduled**, **Running**, and **By Agent** columns, summary snippets and
+  determinate plan progress bars on cards, inline **Stop** actions on active
+  runs, and guided starter templates when the board is empty.
+
 ## Version 2.0.0-alpha.155 (2026-11-15)
 
 - Replace Pod **Issues** (`/work` and `/api/v2/pod/issues`) with **Jobs**

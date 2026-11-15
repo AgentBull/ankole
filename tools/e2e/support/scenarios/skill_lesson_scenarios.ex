@@ -620,7 +620,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
   defp put_coding_profile!(agent_uid, provider_id) do
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent_uid, "coding", %{
+             ModelProfiles.put_model_profile(agent_uid, "heavy", %{
                provider_id: provider_id,
                model: @real_coding_model,
                provider_options: %{}

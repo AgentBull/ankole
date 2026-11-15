@@ -219,6 +219,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
   @impl true
   def declarations(run) do
     profiles = run.spec.request_context["custom_model_profiles"] || []
+    tiers = run.spec.request_context["delegation_tier_profiles"] || []
 
     templates =
       run.context.agent_plugins
@@ -227,7 +228,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
 
     Enum.map(@declarations, fn
       %{"name" => "create_background_job"} = tool ->
-        tool = Ankole.Sessions.Tool.with_profiles(tool, profiles, "coding")
+        tool = Ankole.Sessions.Tool.with_profiles(tool, profiles, "heavy", tiers: tiers)
 
         description =
           if templates == [],
@@ -249,6 +250,9 @@ defmodule Ankole.Sessions.Tools.Jobs do
               "type" => "string",
               "enum" => Enum.map(templates, & &1["id"])
             })
+
+      %{"name" => "respawn_background_job"} = tool ->
+        Ankole.Sessions.Tool.with_profiles(tool, profiles, :source, tiers: tiers)
 
       tool ->
         tool
@@ -426,9 +430,14 @@ defmodule Ankole.Sessions.Tools.Jobs do
   end
 
   def prepare_in_tx(run, %{"name" => "respawn_background_job"} = call, args) do
+    respawn_attrs =
+      args
+      |> Map.take(["message", "model_profile"])
+      |> Map.merge(origin(run, call))
+
     Ankole.BackgroundAgentJobs.Dispatch.prepare_respawn_in_tx(
       args["source_job_id"],
-      Map.merge(origin(run, call), %{"message" => args["message"]})
+      respawn_attrs
     )
     |> project_prepared(&job_result/1)
   end

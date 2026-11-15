@@ -385,50 +385,118 @@ function flatten(
 function joinStyle(outer: string, inner: string): string {
   if (!outer.trim()) return inner
   if (!inner.trim()) return outer
-  return `${outer}${/;\s*$/.test(outer) ? '' : ';'} ${inner}`
+  return `${outer}${outer.trimEnd().endsWith(';') ? '' : ';'} ${inner}`
+}
+
+const isLayoutSpaceCode = (code: number) => code === 0x20 || code === 0x09 || code === 0x0d || code === 0x0a
+
+// White space is visible in code, underlined, struck and highlighted text.
+const decorated = (atom: Atom) =>
+  atom.marks.some(mark => mark === 'code' || mark === 'u' || mark === 's' || mark === 'mark')
+
+function codePointStartingAt(value: string, index: number): string {
+  return String.fromCodePoint(value.codePointAt(index)!)
+}
+
+function codePointEndingAt(value: string, endIndex: number): string {
+  const i = endIndex - 1
+  const pair = i > 0 ? value.codePointAt(i - 1)! : 0
+  return String.fromCodePoint(pair > 0xffff ? pair : value.codePointAt(i)!)
+}
+
+function edgeChar(value: string, spaceVisible: boolean, fromEnd: boolean): string | undefined {
+  if (fromEnd) {
+    for (let i = value.length - 1; i >= 0; i--) {
+      if (!spaceVisible && isLayoutSpaceCode(value.charCodeAt(i))) continue
+      const pair = i > 0 ? value.codePointAt(i - 1)! : 0
+      return String.fromCodePoint(pair > 0xffff ? pair : value.codePointAt(i)!)
+    }
+    return undefined
+  }
+  for (let i = 0; i < value.length; i++) {
+    if (!spaceVisible && isLayoutSpaceCode(value.charCodeAt(i))) continue
+    return String.fromCodePoint(value.codePointAt(i)!)
+  }
+  return undefined
+}
+
+function replaceCodeLineBreaks(value: string): string {
+  let out = ''
+  let copiedUntil = 0
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code !== 0x0d && code !== 0x0a) continue
+    out += `${value.slice(copiedUntil, i)} `
+    if (code === 0x0d && value.charCodeAt(i + 1) === 0x0a) i++
+    copiedUntil = i + 1
+  }
+  return copiedUntil === 0 ? value : out + value.slice(copiedUntil)
+}
+
+function convertProseLineBreaks(value: string, leftBefore: string | null, rightAfter: string | null): string {
+  let out = ''
+  let copiedUntil = 0
+  let i = 0
+  while (i < value.length) {
+    if (!isLayoutSpaceCode(value.charCodeAt(i))) {
+      i++
+      continue
+    }
+    const runStart = i
+    let sawBreak = false
+    while (i < value.length) {
+      const code = value.charCodeAt(i)
+      if (!isLayoutSpaceCode(code)) break
+      if (code === 0x0d || code === 0x0a) sawBreak = true
+      i++
+    }
+    if (!sawBreak) continue
+    const runEnd = i
+    const before = runStart > 0 ? codePointEndingAt(value, runStart) : leftBefore
+    const after = runEnd < value.length ? codePointStartingAt(value, runEnd) : rightAfter
+    const replacement =
+      before === null || after === null || (closeScript.test(before) && closeScript.test(after)) ? '' : ' '
+    out += value.slice(copiedUntil, runStart) + replacement
+    copiedUntil = runEnd
+  }
+  return copiedUntil === 0 ? value : out + value.slice(copiedUntil)
 }
 
 // A line break in the source of prose is a soft break. It becomes a space,
 // except between Chinese or Japanese characters, after a hard break and at
 // the edges of the text. Code keeps one space for each break.
 function convertLineBreaks(atoms: Atom[]) {
-  atoms.forEach((atom, index) => {
-    if (atom.value === undefined || !/[\r\n]/.test(atom.value)) return
-    if (atom.marks.includes('code')) {
-      atom.value = atom.value.replace(/\r\n|\r|\n/g, ' ')
-      return
-    }
-    atom.value = atom.value.replace(/[ \t]*(?:\r\n|\r|\n)[ \t\r\n]*/g, (match, offset: number, whole: string) => {
-      const before = neighbour(atoms, index, whole.slice(0, offset), -1)
-      const after = neighbour(atoms, index, whole.slice(offset + match.length), 1)
-      return before === null || after === null || (closeScript.test(before) && closeScript.test(after)) ? '' : ' '
-    })
-  })
-}
+  if (atoms.length === 0) return
 
-// White space is visible in code, underlined, struck and highlighted text.
-const decorated = (atom: Atom) =>
-  atom.marks.some(mark => mark === 'code' || mark === 'u' || mark === 's' || mark === 'mark')
-
-function neighbour(atoms: Atom[], index: number, own: string, direction: 1 | -1): string | null {
-  // Scan from the edge only: a text with many line breaks would make a full scan quadratic.
-  const edge = (value: string, spaceVisible: boolean) => {
-    for (let i = direction < 0 ? value.length - 1 : 0; i >= 0 && i < value.length; i += direction) {
-      if (!spaceVisible && /[ \t\r\n]/.test(value[i]!)) continue
-      const pair = direction < 0 && i > 0 ? value.codePointAt(i - 1)! : 0
-      return String.fromCodePoint(pair > 0xffff ? pair : value.codePointAt(i)!)
-    }
-    return undefined
-  }
-  const found = edge(own, false)
-  if (found) return found
-  for (let i = index + direction; i >= 0 && i < atoms.length; i += direction) {
+  const rightAfter = Array.from<string | null>({ length: atoms.length })
+  let nextRight: string | null = null
+  for (let i = atoms.length - 1; i >= 0; i--) {
+    rightAfter[i] = nextRight
     const atom = atoms[i]!
-    if (atom.node) return atom.node.name === 'br' ? null : 'x'
-    const character = edge(atom.value ?? '', decorated(atom))
-    if (character) return character
+    if (atom.node) {
+      nextRight = atom.node.name === 'br' ? null : 'x'
+    } else {
+      const ch = edgeChar(atom.value ?? '', decorated(atom), false)
+      if (ch !== undefined) nextRight = ch
+    }
   }
-  return null
+
+  let leftBefore: string | null = null
+  for (let i = 0; i < atoms.length; i++) {
+    const atom = atoms[i]!
+    const value = atom.value
+    if (value !== undefined && (value.includes('\n') || value.includes('\r'))) {
+      atom.value = atom.marks.includes('code')
+        ? replaceCodeLineBreaks(value)
+        : convertProseLineBreaks(value, leftBefore, rightAfter[i]!)
+    }
+    if (atom.node) {
+      leftBefore = atom.node.name === 'br' ? null : 'x'
+    } else {
+      const ch = edgeChar(atom.value ?? '', decorated(atom), true)
+      if (ch !== undefined) leftBefore = ch
+    }
+  }
 }
 
 // White space looks the same in bold or italic. Keep it outside the emphasis.
@@ -441,12 +509,22 @@ function splitEmphasisSpace(atoms: Atom[]): Atom[] {
     ) {
       return [atom]
     }
+    if (!atom.value) return []
+    const trimmedStart = atom.value.trimStart()
+    if (!trimmedStart) {
+      return [{ ...atom, marks: atom.marks.filter(mark => mark !== 'strong' && mark !== 'em') }]
+    }
+    const leadEnd = atom.value.length - trimmedStart.length
+    const body = trimmedStart.trimEnd()
+    if (leadEnd === 0 && body.length === atom.value.length) {
+      return [atom]
+    }
     const plain = atom.marks.filter(mark => mark !== 'strong' && mark !== 'em')
-    const [, lead = '', body = '', trail = ''] = /^(\s*)([\s\S]*?)(\s*)$/u.exec(atom.value)!
+    const bodyEnd = leadEnd + body.length
     return [
-      ...(lead ? [{ ...atom, value: lead, marks: plain }] : []),
-      ...(body ? [{ ...atom, value: body }] : []),
-      ...(trail ? [{ ...atom, value: trail, marks: plain }] : [])
+      ...(leadEnd > 0 ? [{ ...atom, value: atom.value.slice(0, leadEnd), marks: plain }] : []),
+      { ...atom, value: body },
+      ...(bodyEnd < atom.value.length ? [{ ...atom, value: atom.value.slice(bodyEnd), marks: plain }] : [])
     ]
   })
 }

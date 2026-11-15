@@ -425,7 +425,9 @@ function RoutineInspectorContent({
 
         <div className="pod-chat-inspector-meta">
           <span>{t(`pod.jobs.kinds.${kind}`)}</span>
-          <span className="pod-chat-inspector-status-text">{statusLabel}</span>
+          <Badge variant={routineStatusBadgeVariant(status)} size="sm">
+            {statusLabel}
+          </Badge>
           {item?.agentName && <span>{item.agentName}</span>}
           {!item?.agentName && item?.pageTitle && <span>{item.pageTitle}</span>}
         </div>
@@ -468,6 +470,7 @@ function RoutineInspectorContent({
                   type="button"
                   size="xs"
                   variant="ghost"
+                  className="hover:bg-destructive/10 hover:text-destructive-foreground"
                   disabled={actionMutation.isPending}
                   onClick={() => actionMutation.mutate('remove')}>
                   <DeleteRegular aria-hidden />
@@ -507,9 +510,9 @@ function RoutineInspectorContent({
                 </div>
               )}
 
-              <section className="grid gap-2 rounded-surface border border-border bg-background-secondary/50 p-3 text-xs">
+              <section className="divide-y divide-border/60 rounded-surface border border-border/80 bg-background-secondary/45 px-3 text-xs">
                 {item?.triggerSummary && (
-                  <div className="flex items-baseline justify-between gap-3">
+                  <div className="flex items-baseline justify-between gap-3 py-2.5">
                     <span className="text-fg-tertiary">{t('pod.jobs.field_schedule')}</span>
                     <span className="font-mono text-foreground">
                       {item.triggerSummary}
@@ -518,23 +521,27 @@ function RoutineInspectorContent({
                   </div>
                 )}
                 {item?.nextRunAt && (
-                  <div className="flex items-baseline justify-between gap-3">
+                  <div className="flex items-baseline justify-between gap-3 py-2.5">
                     <span className="text-fg-tertiary">{t('pod.jobs.next_run')}</span>
-                    <span className="text-foreground" title={formatDateTime(item.nextRunAt, i18n.language)}>
+                    <span
+                      className="text-foreground tabular-nums"
+                      title={formatDateTime(item.nextRunAt, i18n.language)}>
                       {formatDateTime(item.nextRunAt, i18n.language)}
                     </span>
                   </div>
                 )}
                 {item?.lastRunAt && (
-                  <div className="flex items-baseline justify-between gap-3">
+                  <div className="flex items-baseline justify-between gap-3 py-2.5">
                     <span className="text-fg-tertiary">{t('pod.jobs.last_run')}</span>
-                    <span className="text-foreground" title={formatDateTime(item.lastRunAt, i18n.language)}>
+                    <span
+                      className="text-foreground tabular-nums"
+                      title={formatDateTime(item.lastRunAt, i18n.language)}>
                       {formatRelativeTime(item.lastRunAt, i18n.language)}
                     </span>
                   </div>
                 )}
                 {detail?.quietSuccess != null && (
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center justify-between gap-3 py-2.5">
                     <span className="text-fg-tertiary">{t('pod.jobs.field_quiet_success')}</span>
                     <Badge variant="secondary" size="sm">
                       {detail.quietSuccess ? t('pod.jobs.enabled') : t('pod.jobs.disabled')}
@@ -544,7 +551,7 @@ function RoutineInspectorContent({
               </section>
 
               {detail?.instructions ? (
-                <section className="pod-chat-inspector-outcome">
+                <section className="pod-chat-inspector-outcome [&_.pod-chat-markdown]:text-[13px] [&_.pod-chat-markdown]:leading-5">
                   <header>{t('pod.jobs.instructions')}</header>
                   <ChatMarkdown text={detail.instructions} />
                 </section>
@@ -553,21 +560,27 @@ function RoutineInspectorContent({
               {detail && detail.childExecutions.length > 0 && (
                 <section className="grid gap-1.5">
                   <h3 className="text-xs font-medium text-fg-tertiary">{t('pod.jobs.delegated_runs')}</h3>
-                  <div className="grid gap-1">
+                  <div className="grid gap-1.5">
                     {detail.childExecutions.map(exec => (
                       <button
                         key={`${exec.kind}:${exec.id}`}
                         type="button"
                         onClick={() => selectRun({ kind: exec.kind, id: exec.id })}
-                        className="flex min-w-0 items-center gap-2 rounded-control border border-border bg-card px-2.5 py-2 text-start text-xs transition-colors hover:bg-accent">
-                        <span className="flex shrink-0 [&>svg]:size-3.5">
-                          <ExecutionStatusMark status={exec.status} />
-                        </span>
-                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{exec.title}</span>
-                        <span className="shrink-0 text-fg-tertiary tabular-nums">
-                          {formatRelativeTime(exec.completedAt ?? exec.startedAt ?? exec.createdAt, i18n.language)}
-                        </span>
-                        <CaretRightFilled aria-hidden className="size-3 shrink-0 text-fg-tertiary" />
+                        className="group/exec flex min-w-0 cursor-pointer flex-col gap-1 rounded-surface border border-border/80 bg-card px-3 py-2.5 text-start text-xs transition-[border-color,box-shadow] duration-(--duration-feedback) hover:border-control-edge hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                        <div className="flex w-full min-w-0 items-center gap-2">
+                          <span className="flex shrink-0 [&>svg]:size-3.5">
+                            <ExecutionStatusMark status={exec.status} />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-medium text-foreground">{exec.title}</span>
+                          <span className="shrink-0 text-[11px] text-fg-tertiary tabular-nums">
+                            {formatRelativeTime(exec.completedAt ?? exec.startedAt ?? exec.createdAt, i18n.language)}
+                          </span>
+                          <CaretRightFilled
+                            aria-hidden
+                            className="size-3 shrink-0 text-fg-tertiary transition-transform duration-(--duration-feedback) group-hover/exec:translate-x-0.5"
+                          />
+                        </div>
+                        {exec.summary && <p className="line-clamp-1 ps-5.5 text-fg-secondary">{exec.summary}</p>}
                       </button>
                     ))}
                   </div>
@@ -581,21 +594,25 @@ function RoutineInspectorContent({
                     {detail.runs.map(entry => (
                       <div
                         key={entry.id}
-                        className="grid gap-1 rounded-control border border-border bg-card px-2.5 py-2 text-xs">
+                        className="grid gap-1.5 rounded-surface border border-border/80 bg-card px-3 py-2.5 text-xs">
                         <div className="flex items-center gap-2">
                           <span className="flex shrink-0 [&>svg]:size-3.5">
                             <ExecutionStatusMark status={entry.status} />
                           </span>
                           <span className="font-medium text-foreground">{routineStatusLabel(entry.status, t)}</span>
-                          {entry.trigger && <span className="text-fg-tertiary">· {entry.trigger}</span>}
-                          <span className="ms-auto shrink-0 text-fg-tertiary tabular-nums">
+                          {entry.trigger && (
+                            <span className="rounded-mini bg-background-secondary px-1.5 py-0.5 font-mono text-[11px] leading-3.5 text-fg-tertiary">
+                              {entry.trigger}
+                            </span>
+                          )}
+                          <span className="ms-auto shrink-0 text-[11px] text-fg-tertiary tabular-nums">
                             {formatRelativeTime(entry.finishedAt ?? entry.startedAt, i18n.language)}
                           </span>
                         </div>
                         {entry.error ? (
-                          <p className="line-clamp-3 text-destructive">{entry.error}</p>
+                          <p className="line-clamp-3 ps-5.5 text-destructive-foreground">{entry.error}</p>
                         ) : entry.summary ? (
-                          <p className="line-clamp-2 text-fg-secondary">{entry.summary}</p>
+                          <p className="line-clamp-2 ps-5.5 text-fg-secondary">{entry.summary}</p>
                         ) : null}
                       </div>
                     ))}
@@ -610,6 +627,22 @@ function RoutineInspectorContent({
       </div>
     </div>
   )
+}
+
+function routineStatusBadgeVariant(status: string): 'info' | 'success' | 'warning' | 'destructive' | 'secondary' {
+  switch (status) {
+    case 'paused':
+      return 'secondary'
+    case 'unavailable':
+    case 'failed':
+      return 'destructive'
+    case 'waiting_on_user':
+      return 'warning'
+    case 'running':
+      return 'info'
+    default:
+      return 'success'
+  }
 }
 
 function routineStatusLabel(status: string, t: (key: string) => string): string {

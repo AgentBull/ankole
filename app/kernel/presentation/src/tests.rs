@@ -210,7 +210,7 @@ fn editor_missing_glyph_fonts_detects_cjk_without_polluting_substituted_fonts() 
 
     for (sample, expected) in [
         ("Latin text only", Vec::<&str>::new()),
-        ("季度工作汇报", vec!["Noto Sans SC"]),
+        ("季度工作汇报", vec!["IBM Plex Sans SC"]),
         ("日本語のテスト", vec!["Noto Sans JP"]),
         ("분기 보고서", vec!["Noto Sans KR"]),
         ("ㄅㄆㄇㄈ", vec!["Noto Sans TC"]),

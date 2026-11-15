@@ -45,6 +45,31 @@ export function devMailboxPath(): string | undefined {
   return path?.startsWith('/') && !path.startsWith('//') ? path : undefined
 }
 
+/**
+ * Returns the optional CDN/static base prefix advertised by `<meta name="ankole-static-base">`
+ * (for example `//ankole-static-files.cdn.agentbull.net`), or `""` when static assets resolve
+ * from the current document origin or local Desktop bundle.
+ */
+export function staticAssetBase(): string {
+  if (isDesktopRuntime()) return ''
+  const raw = meta('ankole-static-base')?.trim()
+  if (!raw) return ''
+  if (raw.startsWith('//') && raw.length > 2 && !raw.startsWith('///')) {
+    return raw.replace(/\/+$/, '')
+  }
+  if (/^https?:\/\/[^/\s]+/i.test(raw)) {
+    return raw.replace(/\/+$/, '')
+  }
+  return ''
+}
+
+/** Prefixes a root-relative static asset path with `staticAssetBase()` when configured. */
+export function staticAssetURL(path: string): string {
+  const normalized = path.startsWith('/') ? path : `/${path}`
+  const base = staticAssetBase()
+  return base ? `${base}${normalized}` : normalized
+}
+
 export function identityHeaders(): Record<string, string> {
   return compactRecord({
     'x-ankole-authentication': authenticationRef(),

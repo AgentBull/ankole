@@ -3,9 +3,7 @@ import { mountGraphViz, type GraphVizSpec } from '@ankole/uikit/viz/graph'
 import { mountInfographicAsync } from '@ankole/uikit/viz/infographic'
 import { mountStatisticalChart, type StatisticalChartSpec } from '@ankole/uikit/viz/statistical'
 import {
-  isPrintSafeSvg,
   resolveVizTheme,
-  sanitizeExportedSvg,
   type MarketConvention,
   type VizThemeMode,
   type VizThemePalette
@@ -228,46 +226,6 @@ function createStageElements(
   return { stage, mount }
 }
 
-function parseSvgDimensions(svg: string, fallbackW: number, fallbackH: number): { width: number; height: number } {
-  const vb = /\bviewBox\s*=\s*(['"])\s*([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s*\1/i.exec(svg)
-  if (vb) {
-    const w = Number.parseFloat(vb[4]!)
-    const h = Number.parseFloat(vb[5]!)
-    if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
-      return { width: Math.ceil(w), height: Math.ceil(h) }
-    }
-  }
-  const wAttr = /\bwidth\s*=\s*(['"])([-+\d.]+)(?:px)?\1/i.exec(svg)
-  const hAttr = /\bheight\s*=\s*(['"])([-+\d.]+)(?:px)?\1/i.exec(svg)
-  const w = wAttr ? Number.parseFloat(wAttr[2]!) : Number.NaN
-  const h = hAttr ? Number.parseFloat(hAttr[2]!) : Number.NaN
-  return {
-    width: Number.isFinite(w) && w > 0 ? Math.ceil(w) : fallbackW,
-    height: Number.isFinite(h) && h > 0 ? Math.ceil(h) : fallbackH
-  }
-}
-
-function addCardFrameToSvg(svg: string, palette: VizThemePalette): string {
-  const vb = /\bviewBox\s*=\s*(['"])\s*([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s*\1/i.exec(svg)
-  if (!vb) return svg
-  const x = Number.parseFloat(vb[2]!)
-  const y = Number.parseFloat(vb[3]!)
-  const w = Number.parseFloat(vb[4]!)
-  const h = Number.parseFloat(vb[5]!)
-  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) {
-    return svg
-  }
-  const pad = 12
-  const nx = x - pad
-  const ny = y - pad
-  const nw = w + pad * 2
-  const nh = h + pad * 2
-  const frameRect = `<rect x="${nx + 0.5}" y="${ny + 0.5}" width="${nw - 1}" height="${nh - 1}" fill="${palette.background}" stroke="${palette.border}" stroke-width="1"/>`
-  return svg
-    .replace(vb[0], `viewBox="${nx} ${ny} ${nw} ${nh}"`)
-    .replace(/<svg\b([^>]*)>/i, (_m, attrs: string) => `<svg${attrs}>${frameRect}`)
-}
-
 function cleanupActive(): void {
   if (activeDestroy) {
     try {
@@ -331,24 +289,19 @@ async function runJob(job: HarnessJobPayload): Promise<HarnessJobOutcome> {
     await nextFrame()
 
     if (job.format === 'svg') {
-      let svg = await mounted.exportSVG()
-      if (job.chrome === 'card') {
-        svg = addCardFrameToSvg(svg, palette)
-      }
-      const printSafe = isPrintSafeSvg(svg)
-      if (!printSafe && job.pdfSafe) {
+      const exported = await mounted.exportSvgArtifact({ cardFrame: job.chrome === 'card' })
+      if (!exported.isPrintSafe && job.pdfSafe) {
         return {
           isPrintSafe: true,
           needsPngCapture: true,
           fallbackReason: 'foreignObject'
         }
       }
-      const dims = parseSvgDimensions(svg, job.width, job.height)
       return {
-        svg,
-        svgWidth: dims.width,
-        svgHeight: dims.height,
-        isPrintSafe: printSafe,
+        svg: exported.svg,
+        svgWidth: exported.width,
+        svgHeight: exported.height,
+        isPrintSafe: exported.isPrintSafe,
         needsPngCapture: false
       }
     }
@@ -404,24 +357,19 @@ async function runJob(job: HarnessJobPayload): Promise<HarnessJobOutcome> {
     await nextFrame()
 
     if (job.format === 'svg') {
-      let svg = await mounted.exportSVG()
-      if (job.chrome === 'card') {
-        svg = addCardFrameToSvg(svg, palette)
-      }
-      const printSafe = isPrintSafeSvg(svg)
-      if (!printSafe && job.pdfSafe) {
+      const exported = await mounted.exportSvgArtifact({ cardFrame: job.chrome === 'card' })
+      if (!exported.isPrintSafe && job.pdfSafe) {
         return {
           isPrintSafe: true,
           needsPngCapture: true,
           fallbackReason: 'foreignObject'
         }
       }
-      const dims = parseSvgDimensions(svg, job.width, job.height)
       return {
-        svg,
-        svgWidth: dims.width,
-        svgHeight: dims.height,
-        isPrintSafe: printSafe,
+        svg: exported.svg,
+        svgWidth: exported.width,
+        svgHeight: exported.height,
+        isPrintSafe: exported.isPrintSafe,
         needsPngCapture: false
       }
     }
@@ -452,19 +400,22 @@ async function runJob(job: HarnessJobPayload): Promise<HarnessJobOutcome> {
     await document.fonts.ready
     await nextFrame()
 
-    const { svg: rawSvg, isPrintSafe } = await mounted.exportSVG()
-    const svg = sanitizeExportedSvg(rawSvg, palette, { safetyPaddingPx: 8 })
-    const safe = isPrintSafe && isPrintSafeSvg(svg)
-
-    if (job.format === 'svg' && (!job.pdfSafe || safe)) {
-      const finalSvg = job.chrome === 'card' ? addCardFrameToSvg(svg, palette) : svg
-      const dims = parseSvgDimensions(finalSvg, job.width ?? 800, job.height ?? 480)
-      return {
-        svg: finalSvg,
-        svgWidth: dims.width,
-        svgHeight: dims.height,
-        isPrintSafe: safe,
-        needsPngCapture: false
+    let safe = true
+    if (job.format === 'svg') {
+      const exported = await mounted.exportSVG({
+        cardFrame: job.chrome === 'card',
+        fallbackWidth: job.width ?? 800,
+        fallbackHeight: job.height ?? 480
+      })
+      safe = exported.isPrintSafe
+      if (!job.pdfSafe || safe) {
+        return {
+          svg: exported.svg,
+          svgWidth: exported.width,
+          svgHeight: exported.height,
+          isPrintSafe: safe,
+          needsPngCapture: false
+        }
       }
     }
 

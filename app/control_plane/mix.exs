@@ -298,11 +298,20 @@ defmodule Ankole.MixProject do
     ]
   end
 
+  defp compile_with_lock(args) do
+    Mix.Project.with_build_lock(fn ->
+      prepare_webapps(args)
+      result = Mix.Task.run("compile", args)
+      validate_build(args)
+      result
+    end)
+  end
+
   defp aliases do
     Ankole.Mix.DependencyPatches.aliases() ++
       [
         setup: ["deps.get", "ecto.setup"],
-        compile: [&prepare_webapps/1, "compile", &validate_build/1],
+        compile: [&compile_with_lock/1],
         "ecto.migrate": [
           fn args ->
             Mix.Task.run("loadpaths", args)

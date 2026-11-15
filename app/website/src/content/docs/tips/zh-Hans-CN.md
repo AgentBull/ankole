@@ -36,7 +36,7 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 ## 把 model profile 槽当拨盘
 
-每个 Agent 内置的八个模型档案槽位——`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 与 `image_generate`——都可以当作灵活调节成本与速度的旋钮：
+每个 Agent 内置的七个模型档案槽位——`primary`、`light`、`heavy`、`vision_fallback`、`web_search`、`web_fetch` 与 `image_generate`——都可以当作灵活调节成本与速度的旋钮：
 
 - **按任务轻重调节 `primary`**：主要负责日常快速问答的 Agent，可将 `primary` 绑定到响应更快、单价更低的轻量模型；对推理深度与成稿质量要求更高的岗位，再换绑旗舰模型。
 - **为 `light` 绑定真正低延迟的高性价比模型**：该槽位专为高频、低风险的内部辅助路径设计，无需动用昂贵的大模型。

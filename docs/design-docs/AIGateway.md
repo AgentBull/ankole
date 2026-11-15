@@ -70,7 +70,7 @@ AIGateway exposes twelve capability kinds:
 three layers: Site defaults, Pod overrides, and sparse subject overrides. Agents
 store overrides in `agents.options`; registered system Principals store them in
 AppConfigure under `system:<uid>`. Site, Pod, and system Principals expose
-`primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`,
+`primary`, `light`, `heavy`, `vision_fallback`, `web_search`,
 `web_fetch`, `image_generate`, `rerank`, `decision`, `speech`,
 `transcription`, `ocr`, `video`, and `music`; Agents expose the same slots
 except `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, and
@@ -81,13 +81,13 @@ missing row may advance fallback to the next layer.
 
 Resolution first merges each slot across `Agent -> Pod -> Site`,
 `system Principal -> Pod -> Site`, or `Pod -> Site` for Human calls, then applies
-`coding -> heavy -> primary` and
+`heavy -> primary` and
 `light -> primary`. A single effective `primary` therefore serves the basic LLM
-paths, while embedding, web fetching, reranking, and other specialized
-capabilities require their own configuration. `brain.embedding_model` remains a
-Site-only setting because Brain shares one physical vector space. Brain uses the
-effective heavy profile for Dreaming and falls back to effective primary when
-heavy is absent.
+paths and Background Agent Jobs, while embedding, web fetching, reranking, and
+other specialized capabilities require their own configuration.
+`brain.embedding_model` remains a Site-only setting because Brain shares one
+physical vector space. Brain uses the effective heavy profile for Dreaming and
+falls back to effective primary when heavy is absent.
 
 The owner exposes three distinct reads:
 
@@ -122,12 +122,12 @@ capabilities without spending interactive Agent token quota. OIDC-bound external
 requests use their explicit model binding.
 
 Provider-hosted switches inherit from Pod and Site for system Principals;
-system overrides accept only the fifteen fixed slots, with no custom aliases.
+system overrides accept only the fourteen fixed slots, with no custom aliases.
 Without subject overrides, every effective slot matches the Pod configuration.
 
 Alongside fixed profiles, an Agent can store custom LLM profiles in
 `agents.options["ai_agent"]["models"]`. Each custom name matches
-`[a-z][a-z0-9_-]{0,63}`, avoids the eight Agent fixed slots, is immutable, and
+`[a-z][a-z0-9_-]{0,63}`, avoids the seven Agent fixed slots, is immutable, and
 has a non-empty description. The names `rerank`, `decision`, `speech`,
 `transcription`, `ocr`, `video`, and `music` are valid custom LLM aliases; they do not collide with the
 Pod/Site capabilities of the same names, whose default selectors are `default`
@@ -177,16 +177,18 @@ with the Agent or system Principal UID, or the OIDC Client ID and alias, so
 operators can identify the configuration that must change. Disabled OIDC Clients
 do not hold an active model-profile reference.
 
-The `coding` profile holds `provider_id`, `model`, and request-level
-`provider_options`, and `chatgpt_subscription` is an ordinary provider kind.
-When coding and heavy are absent, the effective primary handles Job creation;
-only a missing value along the whole fallback chain rejects it.
+The `heavy` profile holds `provider_id`, `model`, and request-level
+`provider_options` for complex reasoning and Background Agent Jobs, and
+`chatgpt_subscription` is an ordinary provider kind. When `heavy` is absent,
+the effective `primary` profile handles Job creation; only a missing value
+along the whole fallback chain rejects it.
 
 ## Bind a Codex Job to Its Model Snapshot
 
 When admitting a Background Agent Job's first execution attempt, the control
-plane resolves the Job's logical model profile—defaulting to `coding` when
-omitted, or accepting a single custom profile configured on that Agent—and
+plane resolves the Job's logical model profile—defaulting to `heavy` when
+omitted, or accepting a resolvable built-in capability tier (`light`,
+`primary`, or `heavy`) or a custom LLM profile configured on that Agent—and
 writes the frozen snapshot into the Job runtime projection in the same
 transaction. That snapshot records the logical profile name alongside the
 resolved Codex model, the exact `provider_id/raw-model-id` selector, all

@@ -161,13 +161,13 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && cp /usr/local/bin/python /usr/local/bin/python3 \
   && chmod +x /usr/local/bin/python /usr/local/bin/python3
 
-ARG ANKOLE_FONTS_VERSION=v1-d3cec8d9a5f35613
+ARG ANKOLE_FONTS_VERSION=v2-3544df1485c63aaf
 
 # The public font release contains IBM Plex Sans SC, IBMPlexMonoSCHalf,
-# ChillJinshuSong, and Fluent Emoji Color. Sans and mono include weights 300,
-# 400, 500, 600, and 700. The serif family has no weight 600, so it includes
-# weights 300, 400, 500, and 700. The release workflow converts the serif CFF
-# files to TrueType files.
+# ChillJinshuSong, LXGW WenKai GB, and Fluent Emoji Color. Sans and mono include
+# weights 300, 400, 500, 600, and 700. ChillJinshuSong has no weight 600, so it
+# includes weights 300, 400, 500, and 700 (converted from CFF to TrueType in the
+# release workflow). LXGW WenKai GB includes weights 300, 400, and 500.
 RUN set -eux; \
   font_assets_dir=/tmp/ankole-fonts; \
   font_assets_url="https://github.com/AgentBull/ankole-fonts/releases/download/${ANKOLE_FONTS_VERSION}"; \
@@ -179,22 +179,26 @@ RUN set -eux; \
     IBMPlexMonoSCHalf-Regular.ttf IBMPlexMonoSCHalf-SemiBold.ttf \
     IBMPlexSansSC-Bold.ttf IBMPlexSansSC-Light.ttf IBMPlexSansSC-Medium.ttf \
     IBMPlexSansSC-Regular.ttf IBMPlexSansSC-SemiBold.ttf \
+    LXGWWenKaiGB-Light.ttf LXGWWenKaiGB-Medium.ttf LXGWWenKaiGB-Regular.ttf \
     LICENSE-ChillJinshuSong.txt LICENSE-Fluent-Emoji-Color.txt \
-    LICENSE-IBM-Plex-Mono-SC.txt LICENSE-IBM-Plex-Sans-SC.txt; do \
+    LICENSE-IBM-Plex-Mono-SC.txt LICENSE-IBM-Plex-Sans-SC.txt LICENSE-LXGW-WenKai-GB.txt; do \
     curl -fsSL --retry 5 --retry-all-errors \
       "${font_assets_url}/${file}" -o "${font_assets_dir}/${file}"; \
   done; \
   plex_sc_dir=/usr/share/fonts/truetype/ibm-plex-sans-sc; \
   plex_mono_dir=/usr/share/fonts/truetype/ibm-plex-mono-sc; \
   chill_dir=/usr/share/fonts/truetype/chill-jinshu-song; \
+  wenkai_dir=/usr/share/fonts/truetype/lxgw-wenkai-gb; \
   emoji_dir=/usr/share/fonts/truetype/fluent-emoji-color; \
-  mkdir -p "${plex_sc_dir}" "${plex_mono_dir}" "${chill_dir}" "${emoji_dir}"; \
+  mkdir -p "${plex_sc_dir}" "${plex_mono_dir}" "${chill_dir}" "${wenkai_dir}" "${emoji_dir}"; \
   install -m 0644 "${font_assets_dir}"/IBMPlexSansSC-*.ttf "${plex_sc_dir}/"; \
   install -m 0644 "${font_assets_dir}/LICENSE-IBM-Plex-Sans-SC.txt" "${plex_sc_dir}/license.txt"; \
   install -m 0644 "${font_assets_dir}"/IBMPlexMonoSCHalf-*.ttf "${plex_mono_dir}/"; \
   install -m 0644 "${font_assets_dir}/LICENSE-IBM-Plex-Mono-SC.txt" "${plex_mono_dir}/license.txt"; \
   install -m 0644 "${font_assets_dir}"/ChillJinshuSong*.ttf "${chill_dir}/"; \
   install -m 0644 "${font_assets_dir}/LICENSE-ChillJinshuSong.txt" "${chill_dir}/LICENSE"; \
+  install -m 0644 "${font_assets_dir}"/LXGWWenKaiGB-*.ttf "${wenkai_dir}/"; \
+  install -m 0644 "${font_assets_dir}/LICENSE-LXGW-WenKai-GB.txt" "${wenkai_dir}/LICENSE"; \
   install -m 0644 "${font_assets_dir}/FluentEmojiColor.ttf" "${emoji_dir}/"; \
   install -m 0644 "${font_assets_dir}/LICENSE-Fluent-Emoji-Color.txt" "${emoji_dir}/LICENSE"; \
   printf '%s\n' \
@@ -204,6 +208,15 @@ RUN set -eux; \
     '  <alias binding="strong"><family>IBM Plex Sans</family><prefer><family>IBM Plex Sans SC</family></prefer></alias>' \
     '  <alias binding="strong"><family>IBM Plex Mono</family><prefer><family>IBMPlexMonoSCHalf</family></prefer></alias>' \
     '  <alias binding="strong"><family>ChillJinshuSong</family><prefer><family>寒蝉锦书宋</family></prefer></alias>' \
+    '  <alias binding="strong"><family>LXGW WenKai</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
+    '  <alias binding="strong"><family>霞鹜文楷</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
+    '  <alias binding="strong"><family>霞鹜文楷 GB</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
+    '  <alias binding="strong"><family>楷体</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
+    '  <alias binding="strong"><family>KaiTi</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
+    '  <alias binding="strong"><family>华文楷体</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
+    '  <alias binding="strong"><family>STKaiti</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
+    '  <alias binding="strong"><family>仿宋</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
+    '  <alias binding="strong"><family>FangSong</family><prefer><family>LXGW WenKai GB</family></prefer></alias>' \
     '  <alias binding="strong"><family>emoji</family><prefer><family>Fluent Emoji Color</family></prefer></alias>' \
     '  <alias binding="strong"><family>sans-serif</family><prefer><family>IBM Plex Sans SC</family><family>Fluent Emoji Color</family></prefer></alias>' \
     '  <alias binding="strong"><family>serif</family><prefer><family>寒蝉锦书宋</family><family>Fluent Emoji Color</family></prefer></alias>' \
@@ -218,6 +231,10 @@ RUN set -eux; \
   fc-match 'IBM Plex Sans' | grep -F 'IBM Plex Sans SC'; \
   fc-match 'IBM Plex Mono' | grep -F 'IBMPlexMonoSCHalf'; \
   fc-match 'ChillJinshuSong' | grep -F 'ChillJinshuSong'; \
+  fc-match 'LXGW WenKai GB' | grep -F 'LXGWWenKaiGB'; \
+  fc-match '霞鹜文楷 GB' | grep -F 'LXGWWenKaiGB'; \
+  fc-match '华文楷体' | grep -F 'LXGWWenKaiGB'; \
+  fc-match 'STKaiti' | grep -F 'LXGWWenKaiGB'; \
   rm -rf "${font_assets_dir}"
 
 # Bake the PP-OCRv6 medium models into the rapidocr package directory and prove

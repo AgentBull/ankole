@@ -41,7 +41,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert job.task == attrs["task"]
     assert job.reply_route == attrs["reply_route"]
     assert job.workspace_template_id == nil
-    assert job.model_profile == "coding"
+    assert job.model_profile == "heavy"
 
     assert event.agent_uid == agent.uid
     assert event.reply_binding_name == "lark"
@@ -56,7 +56,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert get_in(event.data, ["owner_session_id"]) == "parent-session"
     refute Map.has_key?(event.data, "workspace_template_id")
     refute Map.has_key?(event.data, "workspace_mounts")
-    assert get_in(event.data, ["model_profile"]) == "coding"
+    assert get_in(event.data, ["model_profile"]) == "heavy"
     assert get_in(event.data, ["attempts"]) == 0
     refute inspect(Ankole.Signals.Signal.envelope(event)) =~ attrs["task"]
 
@@ -353,10 +353,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
   test "Jobs do not persist AIGateway credentials or a second model-profile copy" do
     %{principal: agent} = background_agent_fixture()
-    assert {:ok, profile} = ModelProfiles.get_model_profile(agent.uid, "coding")
+    assert {:ok, profile} = ModelProfiles.get_model_profile(agent.uid, "heavy")
 
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+             ModelProfiles.put_model_profile(agent.uid, "heavy", %{
                provider_id: profile["provider_id"],
                model: "openai/gpt-5.6-sol",
                context_length: 262_144,
@@ -382,7 +382,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     refute Map.has_key?(job.metadata, "codex_account_id")
 
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+             ModelProfiles.put_model_profile(agent.uid, "heavy", %{
                provider_id: profile["provider_id"],
                model: "moonshotai/kimi-k2.7-code",
                provider_options: %{"reasoningEffort" => "medium"}
@@ -403,7 +403,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     refute Map.has_key?(next_job.metadata, "codex_subscription")
   end
 
-  test "Job creation rejects an Agent without a coding model or heavy fallback" do
+  test "Job creation rejects an Agent without a heavy model or primary fallback" do
     %{principal: agent} = agent_fixture()
 
     assert {:error, :model_profile_not_configured} =
@@ -418,14 +418,20 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
   end
 
-  test "Job creation accepts only configured custom profile overrides and persists the logical name" do
+  test "Job creation and respawn accept resolvable delegation tiers and custom profiles while rejecting non-delegation slots" do
     %{principal: agent} = background_agent_fixture()
-    assert {:ok, coding} = ModelProfiles.get_model_profile(agent.uid, "coding")
+    assert {:ok, heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: heavy["provider_id"],
+               model: "openai/gpt-5-mini"
+             })
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "kimi", %{
                description: "Long-context coding",
-               provider_id: coding["provider_id"],
+               provider_id: heavy["provider_id"],
                model: "moonshotai/kimi-k2.7-code",
                provider_options: %{"reasoningEffort" => "high"}
              })
@@ -447,10 +453,18 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert job.model_profile == "kimi"
     assert get_in(event.data, ["model_profile"]) == "kimi"
 
-    assert {:error, :invalid_custom_model_profile} =
+    assert {:ok, %{job: light_job}} =
              attrs
-             |> Map.put("source_tool_call_id", "tool-fixed-model-override")
-             |> Map.put("model_profile", "coding")
+             |> Map.put("source_tool_call_id", "tool-light-tier")
+             |> Map.put("model_profile", "light")
+             |> BackgroundAgentJobs.create_with_dispatch()
+
+    assert light_job.model_profile == "light"
+
+    assert {:error, :invalid_delegation_model_profile} =
+             attrs
+             |> Map.put("source_tool_call_id", "tool-non-delegation-slot")
+             |> Map.put("model_profile", "vision_fallback")
              |> BackgroundAgentJobs.create_with_dispatch()
 
     assert {:error, :model_profile_not_configured} =
@@ -458,6 +472,29 @@ defmodule Ankole.BackgroundAgentJobsTest do
              |> Map.put("source_tool_call_id", "tool-missing-model-override")
              |> Map.put("model_profile", "missing")
              |> BackgroundAgentJobs.create_with_dispatch()
+
+    terminal_source =
+      job
+      |> Ecto.Changeset.change(
+        status: :succeeded,
+        attempts: 1,
+        runtime_thread_id: "thread-kimi-1"
+      )
+      |> Repo.update!()
+
+    assert {:ok, %{job: respawned, dispatch_event: respawn_event}} =
+             BackgroundAgentJobs.respawn_with_dispatch(terminal_source.id, %{
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "parent-session-custom-model",
+               "source_tool_call_id" => "tool-respawn-light",
+               "message" => "Apply localized polish.",
+               "model_profile" => "light",
+               "reply_route" => %{"binding_name" => "lark"}
+             })
+
+    assert respawned.model_profile == "light"
+    assert get_in(respawn_event.data, ["model_profile"]) == "light"
   end
 
   test "start replay returns the original dispatch after attempts and lifecycle state change" do
@@ -705,7 +742,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       workspace_owner_job_id: 1400,
       runner_id: "019a7d15-6b54-7ed9-ae76-78f7fd91e4d5",
       workspace_template_id: "deep-research",
-      model_profile: "coding",
+      model_profile: "heavy",
       metadata: %{"owner_conversation_id" => "conv-source"}
     }
 
@@ -724,11 +761,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
              "workspace_owner_job_id" => 1400,
              "runner_id" => "019a7d15-6b54-7ed9-ae76-78f7fd91e4d5",
              "workspace_template_id" => "deep-research",
-             "model_profile" => "coding",
+             "model_profile" => "heavy",
              "continued_from_job_id" => 1500,
              "metadata" => %{"seeded_from_steer" => true}
            }
 
+    assert Job.successor_attrs(source, %{"model_profile" => "light"})["model_profile"] == "light"
     assert Job.successor_attrs(source, %{"metadata" => %{}})["metadata"] == %{}
   end
 

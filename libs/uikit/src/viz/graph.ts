@@ -17,7 +17,8 @@ import {
   type GraphViewportReader,
   type ProjectedAnchor
 } from './graph-layout'
-import { resolveVizTheme, sanitizeExportedSvg, type VizThemeMode } from './theme'
+import { finalizeExportedSvg, type ExportedSvgArtifact } from './svg-export'
+import { resolveVizTheme, type VizThemeMode } from './theme'
 
 export {
   buildG6GraphSpec,
@@ -62,6 +63,7 @@ export interface MountedGraphViz {
   fitView: () => Promise<void>
   focusNode: (nodeId: string) => Promise<void>
   exportSVG: () => Promise<string>
+  exportSvgArtifact: (options?: { cardFrame?: boolean }) => Promise<ExportedSvgArtifact>
   exportPNG: (options?: { dpr?: number }) => Promise<string>
   destroy: () => void
 }
@@ -180,7 +182,7 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
 
   let destroyed = false
 
-  const exportSVG = async (): Promise<string> => {
+  const exportSvgArtifact = async (exportOptions?: { cardFrame?: boolean }): Promise<ExportedSvgArtifact> => {
     if (destroyed || graph.destroyed) {
       throw new Error('Graph visualization instance has been destroyed.')
     }
@@ -189,7 +191,12 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
       const svgEl = host.querySelector('svg')
       if (svgEl) {
         const raw = new XMLSerializer().serializeToString(svgEl)
-        return sanitizeExportedSvg(raw, vizPalette, { safetyPaddingPx: 12 })
+        return finalizeExportedSvg(raw, vizPalette, {
+          safetyPaddingPx: 12,
+          cardFrame: exportOptions?.cardFrame,
+          fallbackWidth: currentWidth,
+          fallbackHeight: currentHeight
+        })
       }
     }
 
@@ -247,12 +254,19 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
         throw new Error('Failed to extract SVG markup from G6 SVG renderer.')
       }
       const raw = new XMLSerializer().serializeToString(svgEl)
-      return sanitizeExportedSvg(raw, vizPalette, { safetyPaddingPx: 12 })
+      return finalizeExportedSvg(raw, vizPalette, {
+        safetyPaddingPx: 12,
+        cardFrame: exportOptions?.cardFrame,
+        fallbackWidth: currentWidth,
+        fallbackHeight: currentHeight
+      })
     } finally {
       tempGraph.destroy()
       tempHost.remove()
     }
   }
+
+  const exportSVG = async (): Promise<string> => (await exportSvgArtifact()).svg
 
   return {
     async update(nextSpec: GraphVizSpec) {
@@ -296,6 +310,7 @@ export async function mountGraphViz(host: HTMLElement, initialSpec: GraphVizSpec
       await graph.focusElement(nodeId, animate ? { duration: 200 } : false)
     },
     exportSVG,
+    exportSvgArtifact,
     async exportPNG(options) {
       if (destroyed || graph.destroyed) {
         throw new Error('Graph visualization instance has been destroyed.')

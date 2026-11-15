@@ -56,10 +56,9 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
              )
   end
 
-  @doc "Adds the coding/heavy profiles a delegated BackgroundAgentJob needs."
+  @doc "Adds the heavy profile a delegated BackgroundAgentJob uses by default."
   def put_workflow_coding_models!(%{agent: agent, provider_id: provider_id}) do
     put_profile!(agent.uid, provider_id, "heavy", @coding_model)
-    put_profile!(agent.uid, provider_id, "coding", @coding_model)
   end
 
   def run_real_workflow_fanout(%{fake_feishu: fake_feishu, agent: agent, container: container}) do

@@ -47,13 +47,12 @@ order: 13
 
 ## 配置模型
 
-Agent 的模型档案通过 **Console → Model Profiles** 的三层稀疏继承链（`Agent -> Pod -> Site`）解析，并内置 `coding -> heavy -> primary` 与 `light -> primary` 跨槽位回退。只要站点或 Pod 已配置好 `primary` 默认模型，新建的 Agent 无需逐槽位手动填表即可直接运行；仅当该岗位需要不同于 Pod 默认值的模型档位、独立 Provider 或自定义语言模型别名时，才需在 Agent 级别单独覆盖：
+Agent 的模型档案通过 **Console → Model Profiles** 的三层稀疏继承链（`Agent -> Pod -> Site`）解析，并内置 `heavy -> primary` 与 `light -> primary` 跨槽位回退。只要站点或 Pod 已配置好 `primary` 默认模型，新建的 Agent 无需逐槽位手动填表即可直接运行；仅当该岗位需要不同于 Pod 默认值的模型档位、独立 Provider 或自定义语言模型别名时，才需在 Agent 级别单独覆盖：
 
-- 当该 Agent 需要比 Pod 默认值更强或更专精的模型时，单独覆盖 `primary`、`light` 或 `heavy`。
+- 当该 Agent 需要比 Pod 默认值更强或更专精的模型时，单独覆盖 `primary`、`light` 或 `heavy`（`heavy` 同时作为后台 Agent 任务的默认档案，留空时回退至 `primary`；若希望后台任务使用 ChatGPT 订阅额度，也可通过 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/) 在 `heavy` 槽位选择）。
 - 当 `primary` 不支持原生识图而该 Agent 需要读取图片时，配置 `vision_fallback`。
 - 当该 Agent 的联网检索权限需与 Pod 默认值区分时，单独配置 `web_search` 和 `web_fetch`。
 - 当该 Agent 需要通过独立生图 Provider 生成图片时，配置 `image_generate`。
-- 当后台 Agent 任务（`coding`）需要使用独立的模型提供商或编码专用模型时单独配置（留空时沿 `heavy -> primary` 自动回退；ChatGPT 订阅额度同样通过 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/) 在此处选择）。
 
 使用独立的 `web_search` 或 `image_generate` 档案时，还须关闭对应的 provider-hosted 开关；仅绑定档案不会改变该开关。两个开关默认开启，按 Site → Pod → Agent 层级继承。
 

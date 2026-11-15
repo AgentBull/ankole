@@ -2,7 +2,7 @@ defmodule AnkoleWeb.Plugs.RequestHost do
   @moduledoc """
   The build-selected Host classification for HTTP and Worker connections.
 
-  A Host context is `:site`, `:cloud_api`, or `{:pod, tenant_id}`. The default FOSS
+  A Host context is `:site`, `:cloud_api`, `:static`, or `{:pod, tenant_id}`. The default FOSS
   classification recognizes Site and Pod hosts only. An edition that serves another Host
   category registers a classifier through `config :ankole, :request_host_classifier` (or
   `register_classifier/1`); it must export `classify/1`, accept a `URI.t()`, and return
@@ -12,13 +12,13 @@ defmodule AnkoleWeb.Plugs.RequestHost do
 
   @behaviour Plug
 
-  @type context :: :site | :cloud_api | {:pod, Ecto.UUID.t()}
+  @type context :: :site | :cloud_api | :static | {:pod, Ecto.UUID.t()}
   @type classifier :: module() | {module(), atom()} | (URI.t() -> {:ok, context()} | :error)
 
   @callback classify(URI.t()) :: {:ok, context()} | :error
   @callback domain() :: String.t()
   @callback pod_origin(%Ankole.Tenants.Tenant{}) :: String.t()
-  @callback canonical_origin(:site | :cloud_api | {:pod, Ecto.UUID.t()}) :: String.t()
+  @callback canonical_origin(:site | :cloud_api | :static | {:pod, Ecto.UUID.t()}) :: String.t()
   @callback login_url(Ankole.Tenants.Tenant.t() | nil, map()) :: String.t()
   @callback membership_login_url(Plug.Conn.t(), Ankole.Tenants.Tenant.t(), atom(), map()) ::
               {:ok, String.t()} | {:error, atom()}
@@ -63,11 +63,21 @@ defmodule AnkoleWeb.Plugs.RequestHost do
 
   def classify_uri(uri), do: classify_build(uri)
 
+  @doc "Returns true when the request Host classifies as static-only (`:static`)."
+  @spec static_host?(Plug.Conn.t()) :: boolean()
+  def static_host?(%Plug.Conn{assigns: %{host_context: :static}}), do: true
+
+  def static_host?(%Plug.Conn{} = conn) do
+    classify_uri(URI.parse(Plug.Conn.request_url(conn))) == {:ok, :static}
+  end
+
   @impl true
   def init(opts), do: opts
 
   if @policy do
     @impl true
+    def call(%Plug.Conn{assigns: %{host_context: :static}} = conn, _opts), do: conn
+
     def call(conn, _opts) do
       case classify_uri(Plug.Conn.request_url(conn) |> URI.parse()) do
         {:ok, {:pod, tenant_id} = context} ->
@@ -76,6 +86,9 @@ defmodule AnkoleWeb.Plugs.RequestHost do
 
         {:ok, :cloud_api} ->
           Plug.Conn.assign(conn, :host_context, :cloud_api)
+
+        {:ok, :static} ->
+          Plug.Conn.assign(conn, :host_context, :static)
 
         {:ok, :site} ->
           Plug.Conn.assign(conn, :host_context, :site)
@@ -88,6 +101,8 @@ defmodule AnkoleWeb.Plugs.RequestHost do
     def worker_allowed?(uri), do: is_struct(uri, URI) and classify_uri(uri) == {:ok, :site}
   else
     @impl true
+    def call(%Plug.Conn{assigns: %{host_context: :static}} = conn, _opts), do: conn
+
     def call(conn, _opts) do
       case classify_uri(Plug.Conn.request_url(conn) |> URI.parse()) do
         {:ok, {:pod, tenant_id} = context} ->
@@ -96,6 +111,9 @@ defmodule AnkoleWeb.Plugs.RequestHost do
 
         {:ok, :cloud_api} ->
           Plug.Conn.assign(conn, :host_context, :cloud_api)
+
+        {:ok, :static} ->
+          Plug.Conn.assign(conn, :host_context, :static)
 
         {:ok, context} ->
           conn = Plug.Conn.assign(conn, :host_context, context)
@@ -177,7 +195,7 @@ defmodule AnkoleWeb.Plugs.RequestHost do
     raise ArgumentError, "invalid Host classifier: #{inspect(other)}"
   end
 
-  defp validate_classification({:ok, context}, _uri) when context in [:site, :cloud_api],
+  defp validate_classification({:ok, context}, _uri) when context in [:site, :cloud_api, :static],
     do: {:ok, context}
 
   defp validate_classification({:ok, {:pod, tenant_id}}, _uri) when is_binary(tenant_id),

@@ -1210,6 +1210,69 @@
       }
     },
     {
+      "name": "cross-atom-breaks-and-emphasis-space",
+      "xml": "<page><p><u>中\n</u>\n文 𠮷\n𠮷 <img src=\"x\" />\ny<br />\nz <code>a\r\nb\rc\nd</code> <em>   </em><strong> x　</strong></p></page>",
+      "canonicalXml": "<page><p><u>中</u>文 𠮷𠮷 <img src=\"x\" /> y<br />z <code>a b c d</code>     <strong>x</strong>　</p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "中",
+                "marks": {
+                  "Underline": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": "文 𠮷𠮷 "
+              },
+              {
+                "type": "Image",
+                "param": "x"
+              },
+              {
+                "type": "Text",
+                "param": " y"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "z "
+              },
+              {
+                "type": "Text",
+                "param": "a b c d",
+                "marks": {
+                  "Code": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": "     "
+              },
+              {
+                "type": "Text",
+                "param": "x",
+                "marks": {
+                  "Strong": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": "　"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "generated-0",
       "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip></page>",
       "canonicalXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip></page>",

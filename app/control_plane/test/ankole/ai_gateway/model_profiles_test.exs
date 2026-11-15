@@ -39,7 +39,7 @@ defmodule Ankole.AIGateway.ModelProfilesTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     assert {:ok, _} = CodexModels.manifest(agent.uid, "agent")
-    assert Process.get(:model_profile_reads) == 20
+    assert Process.get(:model_profile_reads) == 18
     Process.put(:model_profile_reads, 0)
 
     assert {:ok, _} = ModelProfiles.get_model_profile(agent.uid, "primary")
@@ -58,7 +58,7 @@ defmodule Ankole.AIGateway.ModelProfilesTest do
              ModelProfiles.get_model_profile(agent.uid, "primary")
   end
 
-  test "same-slot inheritance precedes light and coding fallbacks" do
+  test "same-slot inheritance precedes light and heavy fallbacks" do
     provider_id = provider("openai")
     %{principal: agent} = agent_fixture()
 
@@ -96,7 +96,7 @@ defmodule Ankole.AIGateway.ModelProfilesTest do
              value: %{"model" => "agent-primary"},
              source: :agent,
              resolved_from_profile: "primary"
-           } = configuration.effective["coding"]
+           } = configuration.effective["heavy"]
 
     assert %{value: %{"model" => "pod-primary"}, source: :tenant} =
              configuration.inherited["primary"]
@@ -140,15 +140,15 @@ defmodule Ankole.AIGateway.ModelProfilesTest do
     assert {:ok, profiles} = ModelProfiles.get_model_profiles(agent.uid)
     assert profiles["primary"]["model"] == "gpt-5"
     assert profiles["light"]["fallback_profile"] == "primary"
-    assert profiles["coding"]["fallback_profile"] == "primary"
+    assert profiles["heavy"]["fallback_profile"] == "primary"
 
     assert {:ok, %{"data" => entries}} = Models.list_models(agent.uid, "agent")
     selectors = MapSet.new(entries, & &1["id"])
-    assert MapSet.subset?(MapSet.new(["primary", "light", "coding"]), selectors)
+    assert MapSet.subset?(MapSet.new(["primary", "light", "heavy"]), selectors)
 
     assert {:ok, %{"models" => manifest}} = CodexModels.manifest(agent.uid, "agent")
     slugs = MapSet.new(manifest, & &1["slug"])
-    assert MapSet.subset?(MapSet.new(["primary", "light", "coding", "gpt-5"]), slugs)
+    assert MapSet.subset?(MapSet.new(["primary", "light", "heavy", "gpt-5"]), slugs)
   end
 
   test "Agent and Pod rerank names stay in separate capability namespaces" do
@@ -311,7 +311,7 @@ defmodule Ankole.AIGateway.ModelProfilesTest do
              ModelProfiles.get_model_profile("ankole_brain", "light")
 
     assert {:ok, %{"model" => "pod-heavy"}} =
-             ModelProfiles.get_model_profile("ankole_brain", "coding")
+             ModelProfiles.get_model_profile("ankole_brain", "heavy")
 
     assert Ankole.Brain.Config.dreaming_model()["model"] == "pod-heavy"
 
@@ -327,8 +327,58 @@ defmodule Ankole.AIGateway.ModelProfilesTest do
     assert {:ok, _} = ModelProfiles.put_default_model_profile(:tenant, "heavy", nil)
     assert Ankole.Brain.Config.dreaming_model()["model"] == "brain-primary"
 
-    assert {:ok, %{"model" => "brain-primary"}} =
-             ModelProfiles.get_model_profile("ankole_brain", "coding")
+    assert {:ok, %{"model" => "brain-primary", "fallback_profile" => "primary"}} =
+             ModelProfiles.get_model_profile("ankole_brain", "heavy")
+  end
+
+  test "available_delegation_profiles suppresses redundant single-model tiers and validates delegation slots" do
+    provider_id = provider("openai")
+    %{principal: agent} = agent_fixture()
+
+    for profile <- ModelProfiles.agent_profiles() do
+      assert {:ok, _result} = ModelProfiles.put_model_profile(agent.uid, profile, nil)
+    end
+
+    assert {:ok, _} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: provider_id,
+               model: "gpt-5"
+             })
+
+    assert {:ok, %{built_in_tiers: [], custom_profiles: []}} =
+             ModelProfiles.available_delegation_profiles(agent.uid)
+
+    assert {:ok, _} =
+             ModelProfiles.put_model_profile(agent.uid, "light", %{
+               provider_id: provider_id,
+               model: "gpt-5-mini"
+             })
+
+    assert {:ok, _} =
+             ModelProfiles.put_model_profile(agent.uid, "review", %{
+               description: "Audit model",
+               provider_id: provider_id,
+               model: "gpt-5"
+             })
+
+    assert {:ok,
+            %{
+              built_in_tiers: ["light", "primary", "heavy"],
+              custom_profiles: [%{"name" => "review", "description" => "Audit model"}]
+            }} = ModelProfiles.available_delegation_profiles(agent.uid)
+
+    assert {:ok, "light"} = ModelProfiles.validate_delegation_profile(agent.uid, " LIGHT ")
+    assert {:ok, "heavy"} = ModelProfiles.validate_delegation_profile(agent.uid, "heavy")
+    assert {:ok, "review"} = ModelProfiles.validate_delegation_profile(agent.uid, "review")
+
+    assert {:error, :invalid_delegation_model_profile} =
+             ModelProfiles.validate_delegation_profile(agent.uid, "vision_fallback")
+
+    assert {:error, :invalid_delegation_model_profile} =
+             ModelProfiles.validate_delegation_profile(agent.uid, "web_search")
+
+    assert {:error, :model_profile_not_configured} =
+             ModelProfiles.validate_delegation_profile(agent.uid, "missing")
   end
 
   test "rerank selectors respect system overrides while Agent and Human calls use Pod defaults" do

@@ -309,6 +309,8 @@ RUN --mount=type=cache,target=/root/.cargo/git \
   && mix release
 
 FROM ${BUN_IMAGE} AS office-fonts
+ARG ANKOLE_FONTS_VERSION=v2-3544df1485c63aaf
+ENV ANKOLE_FONTS_VERSION=${ANKOLE_FONTS_VERSION}
 COPY app/control_plane/scripts/fetch-office-fonts.mjs /tmp/fetch-office-fonts.mjs
 RUN bun /tmp/fetch-office-fonts.mjs /usr/share/ankole/fonts
 
@@ -351,6 +353,7 @@ RUN groupadd --system --gid 10001 ankole \
 COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/${ANKOLE_EDITION}/prod/rel/ankole ./
 COPY --from=office-fonts --chown=ankole:ankole /usr/share/ankole/fonts /usr/share/ankole/fonts
 COPY app/kernel/vendor/deckcraft-fonts/LICENSE-* /usr/share/licenses/ankole/deckcraft/
+COPY app/kernel/vendor/wordcraft-fonts/LICENSE-* /usr/share/licenses/ankole/wordcraft/
 COPY --chown=ankole:ankole app/library ./app/library
 
 USER 10001:10001

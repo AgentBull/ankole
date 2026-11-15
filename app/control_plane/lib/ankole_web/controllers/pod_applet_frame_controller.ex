@@ -31,7 +31,7 @@ defmodule AnkoleWeb.PodAppletFrameController do
   end
 
   defp serve_applet_index(conn, file, object) do
-    tags = shell_tags()
+    tags = shell_tags(conn)
 
     digest =
       Base.encode16(:crypto.hash(:sha256, [object.sha256 || object.id, tags]), case: :lower)
@@ -51,10 +51,16 @@ defmodule AnkoleWeb.PodAppletFrameController do
     end
   end
 
-  defp shell_tags do
+  defp shell_tags(conn) do
+    # Desktop proxies `/pod/applet-frame/*` under `tauri://localhost` with an
+    # OAuth Bearer header; keep root-relative `/assets/*` paths there so the
+    # custom URI scheme does not resolve protocol-relative CDN URLs to `tauri://`.
+    asset_opts =
+      if get_req_header(conn, "authorization") == [], do: [], else: [static_base: ""]
+
     IO.iodata_to_binary([
       ~s(<meta name="color-scheme" content="light dark">),
-      Assets.applet_frame_tags(),
+      Assets.applet_frame_tags(asset_opts),
       "<script>parent.__ANKOLE_APPLET_HOST__.prepare(window)</script>"
     ])
   end

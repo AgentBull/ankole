@@ -1,5 +1,5 @@
 import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { errorMessage, toError } from '../../../common/errors'
+import { toError } from '../../../common/errors'
 import { compareCodePointStrings } from '../../../common/ordering'
 import { jsonBytes, jsonObjectFromBytes } from '../../../fabric/envelope-proto'
 import type { BackgroundAgentJobResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -24,34 +24,32 @@ import {
   type AgentCodexRuntimeLease,
   type AgentCodexRuntimeSession
 } from '../runtime/agent-runtime-manager'
-import { CodexAppServerClient, CodexAppServerRPCError, type JSONRPCMessage } from '../runtime/app-server-client'
+import { CodexAppServerClient, type JSONRPCMessage } from '../runtime/app-server-client'
 import {
-  classifyCodexRecoveryFailure,
   initialCodexRecoveryState,
-  transitionCodexRecovery,
   type CodexCredentialPoolExhaustion,
   type CodexRecoveryState
 } from './recovery-policy'
+import type { ThreadRecreateReason } from './execution-logfile'
 import {
   commitJobStatusWithAck,
   dispatchRuntimeServerRequest,
+  persistRuntimeThreadAnchor,
+  prepareReplacementCodexRootThread,
   publishRunningJobStatus,
-  resumeAndInjectCodexRootThread,
-  shouldRecycleColdIdleThread,
+  resumeExistingCodexRootThread,
   startCodexTurnOnThread,
-  startNewCodexRootThread
+  startNewCodexRootThread,
+  type ResumeCodexThreadResult
 } from './session-runtime-ops'
 import {
   abortReason,
-  durableRetryError,
-  fetchContinuationSourceContext,
   recreatedThreadInput,
   snapshotJobWorkspace,
   turnClientUserMessageID,
   turnInput,
   updateOriginalHumanRequestInstructions,
-  type CompactionHandshake,
-  type ContinuationSourceContext
+  type CompactionHandshake
 } from './session-support'
 import {
   completeSucceededCodexTurn,
@@ -125,6 +123,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
   private emptyReportRetries = 0
   private recreatedThreadOnResume = false
+  private recreatedThreadReason: ThreadRecreateReason | undefined
   private finalizing = false
   private closing = false
   private acceptingServerRequests = true
@@ -216,88 +215,102 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     await this.runtimeLease.runtime.ensureAgentPlugins(this.prepared.preparedAgentPlugins)
     if (await this.finishClaimedFinalization()) return
 
-    const resumeOutcome = await this.resumeExistingThread()
-    this.recreatedThreadOnResume = resumeOutcome === 'recreated'
+    const resumeResult = await this.resumeExistingThread()
+    this.recreatedThreadOnResume = resumeResult.outcome === 'recreated'
     if (await this.finishClaimedFinalization()) return
     if (!this.runtimeThreadID) await this.startNewThread()
     if (await this.finishClaimedFinalization()) return
     abortSignal?.throwIfAborted()
-    await this.publishRunningStatus(initializeResponse)
-    if (await this.finishClaimedFinalization()) return
 
     const initialTurnInput = turnInput(this.turnStart, this.job)
-    const effectiveTurnInput = this.recreatedThreadOnResume
-      ? recreatedThreadInput(this.job, initialTurnInput, await this.continuationSourceContext())
-      : initialTurnInput
+    const effectiveTurnInput =
+      resumeResult.outcome === 'recreated'
+        ? recreatedThreadInput(this.job, initialTurnInput, resumeResult.source, resumeResult.logfile)
+        : initialTurnInput
+
     this.workspaceSnapshot = await snapshotJobWorkspace(this.prepared.project.root, this.jobID, this.opts.logger)
     if (await this.finishClaimedFinalization()) return
-    await this.startCodexTurn(effectiveTurnInput)
+    await this.publishRunningStatus(initializeResponse)
+    if (await this.finishClaimedFinalization()) return
+    try {
+      await this.startCodexTurn(effectiveTurnInput)
+    } catch (error) {
+      if (this.recreatedThreadOnResume && this.runtimeThreadID && this.runtimeLease) {
+        await this.runtimeLease.runtime.retireRoot(this.runtimeThreadID, this).catch(() => undefined)
+      }
+      throw error
+    }
     if (await this.finishClaimedFinalization()) return
     this.startActiveTurnUpdatePoll()
     await this.done
   }
 
-  private async resumeExistingThread(): Promise<'none' | 'resumed' | 'recreated'> {
-    if (!this.runtimeThreadID || !this.client || !this.runtimeLease) return 'none'
-    if (shouldRecycleColdIdleThread(this.initialJobMetadata, this.opts)) {
-      this.opts.logger?.info(
-        'worker.codex_job_cold_idle_recycle',
-        'Recycling cold large Codex Job thread instead of replaying an uncached transcript',
-        { job_id: this.jobID, thread_id: this.runtimeThreadID }
-      )
-      await this.runtimeLease.runtime.retireRoot(this.runtimeThreadID, this)
-      return this.replaceLostThread()
-    }
-    const resumedThreadID = this.runtimeThreadID
-    try {
-      await resumeAndInjectCodexRootThread({
-        runtimeLease: this.runtimeLease,
-        client: this.client,
-        session: this,
-        resumedThreadID,
-        savedJobThreadID: this.job.runtimeThreadId,
-        prepared: this.prepared,
-        model: this.modelProfile.model
-      })
-      this.publishCliContextId()
-      return 'resumed'
-    } catch (error) {
-      const decision = transitionCodexRecovery({
-        stage: 'resume',
-        failure: classifyCodexRecoveryFailure(
-          error instanceof CodexAppServerRPCError ? error.details : { message: errorMessage(error) }
-        ),
-        state: this.recoveryState
-      })
-      this.recoveryState = decision.nextState
-      if (decision.action === 'durable_retry') {
-        throw durableRetryError(
-          error instanceof CodexAppServerRPCError ? error.details : { message: errorMessage(error) }
-        )
+  private async resumeExistingThread(): Promise<ResumeCodexThreadResult> {
+    return resumeExistingCodexRootThread({
+      runtimeLease: this.runtimeLease,
+      client: this.client,
+      session: this,
+      runtimeThreadID: this.runtimeThreadID,
+      jobID: this.jobID,
+      job: this.job,
+      jobTurn: this.turnStart.turn,
+      initialJobMetadata: this.initialJobMetadata,
+      prepared: this.prepared,
+      model: this.modelProfile.model,
+      recoveryState: this.recoveryState,
+      opts: this.opts,
+      setRecoveryState: state => {
+        this.recoveryState = state
+      },
+      publishCliContextId: () => this.publishCliContextId(),
+      replaceLostThread: (reason, retireThreadID) => this.replaceThreadAndPrepareHistory(reason, retireThreadID)
+    })
+  }
+
+  private async replaceThreadAndPrepareHistory(
+    reason: ThreadRecreateReason,
+    retireThreadID?: string
+  ): Promise<Extract<ResumeCodexThreadResult, { outcome: 'recreated' }>> {
+    return prepareReplacementCodexRootThread({
+      runtimeLease: this.runtimeLease,
+      session: this,
+      jobTurn: this.turnStart.turn,
+      jobID: this.jobID,
+      continuedFromJobID: this.job.continuedFromJobId,
+      projectRoot: this.prepared.project.root,
+      reason,
+      retireThreadID,
+      opts: this.opts,
+      startNewThread: async () => {
+        this.recreatedThreadReason = reason
+        this.runtimeThreadID = undefined
+        await this.startNewThread()
       }
-      if (decision.action !== 'replace_thread') throw error
-      return this.replaceLostThread()
-    }
+    })
   }
 
-  /** Starts a replacement thread; the caller supplies bounded workspace context. */
-  private async replaceLostThread(): Promise<'recreated'> {
-    this.runtimeThreadID = undefined
-    await this.startNewThread()
-    return 'recreated'
-  }
-
-  private async continuationSourceContext(): Promise<ContinuationSourceContext | undefined> {
-    const sourceJobID = this.job.continuedFromJobId
-    if (!sourceJobID) return undefined
-    return fetchContinuationSourceContext({
+  private async replaceThreadAndStartTurn(reason: ThreadRecreateReason, continuationPrompt: string): Promise<void> {
+    await this.turnRecorder.flush()
+    const previousThreadID = this.runtimeThreadID
+    const { source, logfile } = await this.replaceThreadAndPrepareHistory(reason, previousThreadID)
+    if (!this.runtimeThreadID) throw new Error('codex thread is not available for persistence')
+    const newThreadID = this.runtimeThreadID
+    await persistRuntimeThreadAnchor({
       rpc: this.opts.rpc,
       jobTurn: this.turnStart.turn,
       jobID: this.jobID,
-      sourceJobID,
-      abortSignal: this.opts.abortSignal,
-      logger: this.opts.logger
+      runtimeThreadID: newThreadID,
+      reason,
+      recovery: 'new_thread_from_logfile'
     })
+    try {
+      await this.startCodexTurn(recreatedThreadInput(this.job, continuationPrompt, source, logfile))
+    } catch (error) {
+      if (this.runtimeLease) {
+        await this.runtimeLease.runtime.retireRoot(newThreadID, this).catch(() => undefined)
+      }
+      throw error
+    }
   }
 
   private async publishRunningStatus(initializeResponse: JSONObject): Promise<void> {
@@ -312,6 +325,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       processID: this.client?.processID,
       compactionSeq: this.compactionSeq,
       recreatedThreadOnResume: this.recreatedThreadOnResume,
+      recreatedThreadReason: this.recreatedThreadReason,
       expectedSkillCount: this.expectedSkillNames.length
     })
   }
@@ -532,21 +546,12 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         recoveryState: this.recoveryState,
         canCompact: Boolean(this.client && this.runtimeThreadID),
         job: this.job,
-        jobID: this.jobID,
-        jobTurn: this.turnStart.turn,
-        rpc: this.opts.rpc,
-        turnRecorder: this.turnRecorder,
         setRecoveryState: nextState => {
           this.recoveryState = nextState
         },
         startCodexTurn: prompt => this.startCodexTurn(prompt),
         compactThread: () => this.compactThread(),
-        replaceLostThread: async () => {
-          await this.replaceLostThread()
-          if (!this.runtimeThreadID) throw new Error('codex thread is not available for persistence')
-          return this.runtimeThreadID
-        },
-        continuationSourceContext: () => this.continuationSourceContext(),
+        replaceThreadAndStartTurn: (reason, prompt) => this.replaceThreadAndStartTurn(reason, prompt),
         commit: (nextStatus, details) => this.commit(nextStatus, details)
       })
     } catch (recoveryError) {

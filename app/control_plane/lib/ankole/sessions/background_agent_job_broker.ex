@@ -21,6 +21,43 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
   def handle_get(
         %JobTurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobGetRequest{
+          result_offset: result_offset,
+          execution_log_cursor: execution_log_cursor
+        },
+        ctx
+      )
+      when result_offset != "" and execution_log_cursor != "" do
+    error(ctx.request_id, turn_ref.agent_uid, :invalid_background_agent_job_get_selector)
+  end
+
+  def handle_get(
+        %JobTurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobGetRequest{execution_log_cursor: execution_log_cursor} =
+          request,
+        ctx
+      )
+      when execution_log_cursor != "" do
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         %Job{} = job <- BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
+         :ok <- authorize_job_target(turn_ref, job),
+         {:ok, page} <- BackgroundAgentJobs.execution_log_page(job, execution_log_cursor) do
+      {:ok,
+       %FabricProto.BackgroundAgentJobResponse{
+         status: Atom.to_string(job.status),
+         task: job.task,
+         execution_log_jsonl: page.jsonl,
+         execution_log_next_cursor: page.next_cursor || "",
+         task_lineage_json: page.task_lineage_json
+       }}
+    else
+      nil -> error(ctx.request_id, turn_ref.agent_uid, :job_not_found)
+      {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
+    end
+  end
+
+  def handle_get(
+        %JobTurnRef{} = turn_ref,
         %FabricProto.BackgroundAgentJobGetRequest{result_offset: result_offset} = request,
         ctx
       )

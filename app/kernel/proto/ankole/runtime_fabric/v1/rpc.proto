@@ -213,6 +213,7 @@ message AgentPluginCatalogEntry {
 message BackgroundAgentJobGetRequest {
   string job_id = 1;
   string result_offset = 4; // UTF-8 byte offset; empty omits the result window
+  string execution_log_cursor = 5; // "head" or TrajectoryReader cursor; empty omits execution log
 }
 
 message BackgroundAgentJobTurnUpsertRequest {
@@ -267,6 +268,9 @@ message BackgroundAgentJobResponse {
   bytes runtime_projection_json = 29;
   string result_output_text = 31;
   string result_output_total_bytes = 32;
+  bytes execution_log_jsonl = 33;
+  string execution_log_next_cursor = 34;
+  bytes task_lineage_json = 35;
 }
 
 message BackgroundAgentJobTurn {

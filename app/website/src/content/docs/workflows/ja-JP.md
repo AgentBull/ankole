@@ -30,7 +30,7 @@ criteria below. Return one JSON result with every verdict, the failed reviews,
 and a final shortlist. Do not expand beyond these 40 proposals.
 ```
 
-ユーザーが自分で JavaScript コードを書いたり API を叩いたりする必要はありません。メイン Agent が編成プログラムを組み立てて実行を開始します。その際、Agent は Run あたりの同時実行数上限、サブエージェント呼び出し総数の上限、および自身が利用可能なカスタムモデルプロファイルを指定できます（プロファイルを指定しない場合、各 Workflow タスクは `primary` プロファイルを使用します）。
+ユーザーが自分で JavaScript コードを書いたり API を叩いたりする必要はありません。メイン Agent が編成プログラムを組み立てて実行を開始します。その際、Agent は Run あたりの同時実行数上限、サブエージェント呼び出し総数の上限、および Run 全体の既定 `model_profile`（解決可能な `light`・`primary`・`heavy` ティアまたは名前付きカスタムプロファイル。省略時は `primary`）を指定でき、さらに個々の `agent(prompt, options)` 呼び出しでも `options.model_profile` で段階ごとにティアを切り替えられます。
 
 開始ツールは `run_id` と初期ステータス `running` を返します。メイン Agent はポーリングで完了を待ち続けてはならず、いったん Turn を終えて通常の会話を続けられる状態を保ち、必要に応じて後から進捗を確認します。
 

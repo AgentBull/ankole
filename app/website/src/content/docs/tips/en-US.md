@@ -36,7 +36,7 @@ Always read the code from these runtime sources rather than trying to inspect ra
 
 ## Treat model-profile slots as dials
 
-Each Agent's eight built-in profile slots—`primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`—work like independent dials:
+Each Agent's seven built-in profile slots—`primary`, `light`, `heavy`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`—work like independent dials:
 
 - Point **`primary`** at a faster, cheaper model when an Agent mainly answers quick operational questions, or dial it up to a frontier reasoning model when accuracy outweighs latency and cost.
 - Bind **`light`** to a genuinely fast, low-cost model, since Ankole uses it for high-volume background classification and routing work.

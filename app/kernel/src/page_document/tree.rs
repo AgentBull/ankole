@@ -610,80 +610,137 @@ fn decorated(atom: &Atom) -> bool {
         .iter()
         .any(|m| ["code", "u", "s", "mark"].contains(&m.as_str()))
 }
-fn neighbour(atoms: &[Atom], index: usize, own: &str, direction: isize) -> Option<char> {
-    let edge = |value: &str, visible: bool| {
-        let mut chars = value
-            .chars()
-            .filter(|c| visible || !matches!(c, ' ' | '\t' | '\r' | '\n'));
-        if direction < 0 {
-            chars.next_back()
+fn is_layout_space_byte(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\r' | b'\n')
+}
+fn edge_char(value: &str, visible: bool, from_end: bool) -> Option<char> {
+    let mut chars = value
+        .chars()
+        .filter(|c| visible || !matches!(c, ' ' | '\t' | '\r' | '\n'));
+    if from_end {
+        chars.next_back()
+    } else {
+        chars.next()
+    }
+}
+fn replace_code_line_breaks(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            out.push(' ');
+        } else if ch == '\n' {
+            out.push(' ');
         } else {
-            chars.next()
+            out.push(ch);
         }
-    };
-    if let Some(c) = edge(own, false) {
-        return Some(c);
     }
-    let mut i = index as isize + direction;
-    while i >= 0 && (i as usize) < atoms.len() {
-        let atom = &atoms[i as usize];
-        if let Some(node) = &atom.node {
-            return if node.name == "br" { None } else { Some('x') };
+    out
+}
+fn convert_prose_line_breaks(
+    value: &str,
+    left_before: Option<char>,
+    right_after: Option<char>,
+    close_script: &Regex,
+) -> String {
+    let bytes = value.as_bytes();
+    let mut out = String::with_capacity(value.len());
+    let mut copied_until = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if !is_layout_space_byte(bytes[i]) {
+            i += 1;
+            continue;
         }
-        if let Some(c) = edge(atom.value.as_deref().unwrap_or(""), decorated(atom)) {
-            return Some(c);
+        let run_start = i;
+        let mut saw_break = false;
+        while i < bytes.len() && is_layout_space_byte(bytes[i]) {
+            if matches!(bytes[i], b'\r' | b'\n') {
+                saw_break = true;
+            }
+            i += 1;
         }
-        i += direction;
+        if !saw_break {
+            continue;
+        }
+        let run_end = i;
+        let before = if run_start > 0 {
+            value[..run_start].chars().next_back()
+        } else {
+            left_before
+        };
+        let after = if run_end < value.len() {
+            value[run_end..].chars().next()
+        } else {
+            right_after
+        };
+        out.push_str(&value[copied_until..run_start]);
+        if let (Some(before), Some(after)) = (before, after) {
+            let mut before_buf = [0u8; 4];
+            let mut after_buf = [0u8; 4];
+            if !(close_script.is_match(before.encode_utf8(&mut before_buf))
+                && close_script.is_match(after.encode_utf8(&mut after_buf)))
+            {
+                out.push(' ');
+            }
+        }
+        copied_until = run_end;
     }
-    None
+    if copied_until == 0 {
+        value.to_owned()
+    } else {
+        out.push_str(&value[copied_until..]);
+        out
+    }
 }
 fn convert_line_breaks(atoms: &mut [Atom]) {
-    static BREAK: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"[ \t]*(?:\r\n|\r|\n)[ \t\r\n]*").expect("valid static regex")
-    });
-    static CODE_BREAK: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"\r\n|\r|\n").expect("valid static regex"));
     static CLOSE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"[\p{Han}\p{Hiragana}\p{Katakana}\u3000-\u303f\u30fc\ufe30-\ufe4f\uff00-\uffef]",
         )
         .expect("valid static regex")
     });
-    for i in 0..atoms.len() {
-        if !atoms[i]
+    if atoms.is_empty() {
+        return;
+    }
+    let mut right_after = vec![None; atoms.len()];
+    let mut next_right = None;
+    for i in (0..atoms.len()).rev() {
+        right_after[i] = next_right;
+        let atom = &atoms[i];
+        if let Some(node) = &atom.node {
+            next_right = if node.name == "br" { None } else { Some('x') };
+        } else if let Some(ch) =
+            edge_char(atom.value.as_deref().unwrap_or(""), decorated(atom), false)
+        {
+            next_right = Some(ch);
+        }
+    }
+    let mut left_before = None;
+    for (i, atom) in atoms.iter_mut().enumerate() {
+        if atom
             .value
             .as_deref()
             .is_some_and(|v| v.contains(['\r', '\n']))
+            && let Some(value) = atom.value.take()
         {
-            continue;
+            let converted = if atom.context.marks.iter().any(|m| m == "code") {
+                replace_code_line_breaks(&value)
+            } else {
+                convert_prose_line_breaks(&value, left_before, right_after[i], &CLOSE)
+            };
+            atom.value = Some(converted);
         }
-        let Some(value) = atoms[i].value.clone() else {
-            continue;
-        };
-        let result = if atoms[i].context.marks.iter().any(|m| m == "code") {
-            CODE_BREAK.replace_all(&value, " ").into_owned()
-        } else {
-            let mut out = String::new();
-            let mut offset = 0;
-            for found in BREAK.find_iter(&value) {
-                out.push_str(&value[offset..found.start()]);
-                let before = neighbour(atoms, i, &value[..found.start()], -1);
-                let after = neighbour(atoms, i, &value[found.end()..], 1);
-                if let (Some(before), Some(after)) = (before, after) {
-                    let mut before_buf = [0u8; 4];
-                    let mut after_buf = [0u8; 4];
-                    if !(CLOSE.is_match(before.encode_utf8(&mut before_buf))
-                        && CLOSE.is_match(after.encode_utf8(&mut after_buf)))
-                    {
-                        out.push(' ');
-                    }
-                }
-                offset = found.end();
-            }
-            out.push_str(&value[offset..]);
-            out
-        };
-        atoms[i].value = Some(result);
+        if let Some(node) = &atom.node {
+            left_before = if node.name == "br" { None } else { Some('x') };
+        } else if let Some(ch) =
+            edge_char(atom.value.as_deref().unwrap_or(""), decorated(atom), true)
+        {
+            left_before = Some(ch);
+        }
     }
 }
 fn normalize_inline(

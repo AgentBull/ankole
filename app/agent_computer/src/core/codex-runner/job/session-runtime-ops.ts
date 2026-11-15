@@ -2,6 +2,7 @@ import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-sup
 import { errorMessage, toError } from '../../../common/errors'
 import { compareCodePointStrings } from '../../../common/ordering'
 import { jsonBytes } from '../../../fabric/envelope-proto'
+import type { BackgroundAgentJobResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { isRuntimeFabricTransportError } from '../../../fabric/fabric'
 import type { RPCRequestInit } from '../../../lanes/rpc-contract'
 import { RPCTimeoutError } from '../../../lanes/rpc-lane'
@@ -12,8 +13,16 @@ import type { CodexJobOptions } from '../options'
 import { approvalAcceptance, approvalRequestMethod, stringValue, textInput } from '../protocol'
 import type { CodexAIGatewayModelProfile } from '../runtime-config'
 import type { AgentCodexRuntimeLease, AgentCodexRuntimeSession } from '../runtime/agent-runtime-manager'
-import type { CodexAppServerClient, JSONRPCMessage } from '../runtime/app-server-client'
+import { CodexAppServerRPCError, type CodexAppServerClient, type JSONRPCMessage } from '../runtime/app-server-client'
+import {
+  hasIncompatibleContinuationRuntime,
+  materializeJobExecutionLogfile,
+  type MaterializedExecutionLog,
+  type ThreadRecreateReason
+} from './execution-logfile'
 import { PARENT_INPUT_TOOL_NAME, pendingParentInputFromDynamicTool } from './parent-input'
+import { classifyCodexRecoveryFailure, transitionCodexRecovery, type CodexRecoveryState } from './recovery-policy'
+import { durableRetryError, fetchContinuationSourceContext, type ContinuationSourceContext } from './session-support'
 import type { PreparedCodexJobExecution } from './setup'
 import type { CodexSkillUsageTracker } from './skill-usage'
 import type { BackgroundAgentJobTurnRecorder } from './turn-recorder'
@@ -28,6 +37,7 @@ export async function publishRunningJobStatus(input: {
   processID: number | undefined
   compactionSeq: number
   recreatedThreadOnResume: boolean
+  recreatedThreadReason?: ThreadRecreateReason | undefined
   expectedSkillCount: number
 }): Promise<void> {
   const {
@@ -40,6 +50,7 @@ export async function publishRunningJobStatus(input: {
     processID,
     compactionSeq,
     recreatedThreadOnResume,
+    recreatedThreadReason,
     expectedSkillCount
   } = input
   const { projection, project, skills } = prepared
@@ -61,7 +72,8 @@ export async function publishRunningJobStatus(input: {
         ...(recreatedThreadOnResume
           ? {
               runtime_checkpoint_recreated: true,
-              runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
+              runtime_checkpoint_recovery: 'new_thread_from_logfile',
+              ...(recreatedThreadReason ? { runtime_thread_recreated_reason: recreatedThreadReason } : {})
             }
           : {}),
         projected_tool_names: projection.dynamicTools.map(tool => tool.name),
@@ -81,6 +93,7 @@ export async function persistRuntimeThreadAnchor(input: {
   jobID: string
   runtimeThreadID: string
   reason: string
+  recovery?: string
 }): Promise<void> {
   await input.rpc(
     'background_agent_job.status.update',
@@ -88,7 +101,10 @@ export async function persistRuntimeThreadAnchor(input: {
       jobId: input.jobID,
       status: 'running',
       runtimeThreadId: input.runtimeThreadID,
-      metadataJson: jsonBytes({ runtime_thread_recreated_reason: input.reason })
+      metadataJson: jsonBytes({
+        runtime_thread_recreated_reason: input.reason,
+        ...(input.recovery ? { runtime_checkpoint_recovery: input.recovery } : {})
+      })
     },
     { jobTurn: input.jobTurn }
   )
@@ -169,6 +185,152 @@ export async function resumeAndInjectCodexRootThread(input: {
       }
     ]
   })
+}
+
+export type ResumeCodexThreadResult =
+  | { outcome: 'none' }
+  | { outcome: 'resumed' }
+  | {
+      outcome: 'recreated'
+      reason: ThreadRecreateReason
+      source: ContinuationSourceContext | undefined
+      logfile: MaterializedExecutionLog
+    }
+
+export async function resumeExistingCodexRootThread(input: {
+  runtimeLease: AgentCodexRuntimeLease | undefined
+  client: CodexAppServerClient | undefined
+  session: AgentCodexRuntimeSession
+  runtimeThreadID: string | undefined
+  jobID: string
+  job: BackgroundAgentJobResponse
+  jobTurn: JobTurnRef
+  initialJobMetadata: JSONObject | undefined
+  prepared: PreparedCodexJobExecution
+  model: string
+  recoveryState: CodexRecoveryState
+  opts: CodexJobOptions
+  setRecoveryState: (state: CodexRecoveryState) => void
+  publishCliContextId: () => void
+  replaceLostThread: (
+    reason: ThreadRecreateReason,
+    retireThreadID?: string
+  ) => Promise<Extract<ResumeCodexThreadResult, { outcome: 'recreated' }>>
+}): Promise<ResumeCodexThreadResult> {
+  const {
+    runtimeLease,
+    client,
+    session,
+    runtimeThreadID,
+    jobID,
+    job,
+    jobTurn,
+    initialJobMetadata,
+    prepared,
+    model,
+    opts
+  } = input
+  if (!client || !runtimeLease) return { outcome: 'none' }
+  if (!runtimeThreadID) {
+    return job.continuedFromJobId ? input.replaceLostThread('continuation_without_thread') : { outcome: 'none' }
+  }
+  if (job.continuedFromJobId) {
+    const incompatible = await hasIncompatibleContinuationRuntime({
+      rpc: opts.rpc,
+      jobTurn,
+      jobID,
+      sourceJobID: job.continuedFromJobId,
+      runtimeThreadID,
+      currentJob: job,
+      abortSignal: opts.abortSignal,
+      logger: opts.logger
+    })
+    if (incompatible) {
+      opts.logger?.info(
+        'worker.codex_job_respawn_runtime_incompatible',
+        'Starting a replacement Codex Job thread because the respawned Job switched model bindings',
+        { job_id: jobID, source_job_id: job.continuedFromJobId, thread_id: runtimeThreadID }
+      )
+      return input.replaceLostThread('respawn_runtime_incompatible', runtimeThreadID)
+    }
+  }
+  if (shouldRecycleColdIdleThread(initialJobMetadata, opts)) {
+    opts.logger?.info(
+      'worker.codex_job_cold_idle_recycle',
+      'Recycling cold large Codex Job thread instead of replaying an uncached transcript',
+      { job_id: jobID, thread_id: runtimeThreadID }
+    )
+    return input.replaceLostThread('cold_idle_recycle', runtimeThreadID)
+  }
+  try {
+    await resumeAndInjectCodexRootThread({
+      runtimeLease,
+      client,
+      session,
+      resumedThreadID: runtimeThreadID,
+      savedJobThreadID: job.runtimeThreadId,
+      prepared,
+      model
+    })
+    input.publishCliContextId()
+    return { outcome: 'resumed' }
+  } catch (error) {
+    const decision = transitionCodexRecovery({
+      stage: 'resume',
+      failure: classifyCodexRecoveryFailure(
+        error instanceof CodexAppServerRPCError ? error.details : { message: errorMessage(error) }
+      ),
+      state: input.recoveryState
+    })
+    input.setRecoveryState(decision.nextState)
+    if (decision.action === 'durable_retry') {
+      throw durableRetryError(
+        error instanceof CodexAppServerRPCError ? error.details : { message: errorMessage(error) }
+      )
+    }
+    if (decision.action !== 'replace_thread') throw error
+    return input.replaceLostThread('resume_failed', runtimeThreadID)
+  }
+}
+
+export async function prepareReplacementCodexRootThread(input: {
+  runtimeLease: AgentCodexRuntimeLease | undefined
+  session: AgentCodexRuntimeSession
+  jobTurn: JobTurnRef
+  jobID: string
+  continuedFromJobID: string | undefined
+  projectRoot: string
+  reason: ThreadRecreateReason
+  retireThreadID?: string | undefined
+  opts: CodexJobOptions
+  startNewThread: () => Promise<void>
+}): Promise<Extract<ResumeCodexThreadResult, { outcome: 'recreated' }>> {
+  const [source, logfile] = await Promise.all([
+    input.continuedFromJobID
+      ? fetchContinuationSourceContext({
+          rpc: input.opts.rpc,
+          jobTurn: input.jobTurn,
+          jobID: input.jobID,
+          sourceJobID: input.continuedFromJobID,
+          abortSignal: input.opts.abortSignal,
+          logger: input.opts.logger
+        })
+      : Promise.resolve(undefined),
+    materializeJobExecutionLogfile({
+      rpc: input.opts.rpc,
+      jobTurn: input.jobTurn,
+      jobID: input.jobID,
+      projectRoot: input.projectRoot,
+      reason: input.reason,
+      abortSignal: input.opts.abortSignal,
+      logger: input.opts.logger
+    })
+  ])
+  if (input.retireThreadID && input.runtimeLease) {
+    await input.runtimeLease.runtime.retireRoot(input.retireThreadID, input.session)
+  }
+  await input.startNewThread()
+  return { outcome: 'recreated', reason: input.reason, source, logfile }
 }
 
 export async function startNewCodexRootThread(input: {

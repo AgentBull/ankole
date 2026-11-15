@@ -57,14 +57,16 @@ different styling language:
 No LaTeX engine is installed. For citations use Pandoc's own `--citeproc`, which
 works with both engines. Do not install a TeX distribution inside a Job.
 
-The image installs three text families, and `design-md` owns which one to use:
-`IBM Plex Sans SC` for text, `IBMPlexMonoSCHalf` for code, and `寒蝉锦书宋`
-(ChillJinshuSong) for serif. Sans and mono carry weights 300 to 700 including
-SemiBold 600; the serif has no SemiBold, so 600 resolves to Bold there. Fluent
-Emoji Color sits behind all three for emoji. Name the family explicitly, because
-an engine default can silently drop CJK glyphs. WeasyPrint accepts the ASCII
-alias `ChillJinshuSong`; Typst matches the family name inside the font file, so
-it needs `寒蝉锦书宋`.
+The image installs four Chinese-capable text families, and `design-md` owns
+which one to use: `IBM Plex Sans SC` for text, `IBMPlexMonoSCHalf` for code,
+`寒蝉锦书宋` (ChillJinshuSong) for serif, and `LXGW WenKai GB` (`霞鹜文楷 GB`) for
+Kai script or formal callouts. Sans and mono carry weights 300 to 700 including
+SemiBold 600; the serif has weights 300, 400, 500, and 700 (600 resolves to
+Bold), and Kai carries weights 300, 400, and 500. Fluent Emoji Color sits behind
+the text families for emoji. Name the family explicitly, because an engine
+default can silently drop CJK glyphs. WeasyPrint accepts the ASCII alias
+`ChillJinshuSong`; Typst matches the family name inside the font file, so it
+needs `寒蝉锦书宋` or `LXGW WenKai GB`.
 
 For Markdown with embedded HTML, convert with `pandoc --standalone --from markdown+raw_html --to
 html5 --css <stylesheet>` first, then print that HTML through the same engine.

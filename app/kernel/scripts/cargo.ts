@@ -32,12 +32,12 @@ function resolveMode(raw: string | undefined): 'auto' | 'enabled' | 'disabled' {
 }
 
 export function buildCargoEnv(env: NodeJS.ProcessEnv = process.env, options: CargoEnvOptions = {}): NodeJS.ProcessEnv {
-  // Keep WordCraft and DeckCraft builds independent of host dictionary or font checkouts.
-  const baseEnv: NodeJS.ProcessEnv = {
-    ...env,
-    CRAFT_I18N_DIR: '',
-    CRAFT_FONTS_DIR: ''
-  }
+  // Keep WordCraft and DeckCraft builds independent of host dictionary or font
+  // checkouts; unset both variables rather than setting `""` because
+  // `CRAFT_FONTS_DIR=""` is treated as `Some("")` by font `build.rs` scripts.
+  const baseEnv: NodeJS.ProcessEnv = { ...env }
+  delete baseEnv.CRAFT_I18N_DIR
+  delete baseEnv.CRAFT_FONTS_DIR
   const mode = resolveMode(baseEnv.ANKOLE_SCCACHE)
   if (mode === 'disabled') return baseEnv
   if (baseEnv.RUSTC_WRAPPER?.trim()) return baseEnv

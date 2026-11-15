@@ -50,6 +50,7 @@ tools/fake-feishu
 tools/formal
 **/.env
 **/.env.*
+.cache
 var
 *.log
 .DS_Store

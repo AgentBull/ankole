@@ -300,7 +300,7 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert {:ok, heavy_profile} = ModelProfiles.get_model_profile(agent.uid, "heavy")
 
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+             ModelProfiles.put_model_profile(agent.uid, "heavy", %{
                provider_id: heavy_profile["provider_id"],
                model: "openai/gpt-5.4-nano",
                provider_options: %{"reasoningEffort" => "medium"}
@@ -873,7 +873,7 @@ defmodule Ankole.Sessions.CodexJobTest do
     {:ok, heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
 
     assert {:ok, _} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+             ModelProfiles.put_model_profile(agent.uid, "heavy", %{
                provider_id: heavy["provider_id"],
                model: "openai/gpt-5.4-nano"
              })

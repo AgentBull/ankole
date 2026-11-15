@@ -222,8 +222,8 @@ export function WordDocumentSurface({
   const missingPictures = snapshot?.missingPictures ?? []
   const substitutedFonts = snapshot?.substitutedFonts ?? []
   const missingGlyphFonts = snapshot?.missingGlyphFonts ?? []
-  const requestedFonts = useMemo(
-    () => [...substitutedFonts, ...missingGlyphFonts],
+  const fontRequests = useMemo(
+    () => ({ substitutedFamilies: substitutedFonts, missingGlyphFamilies: missingGlyphFonts }),
     [substitutedFonts, missingGlyphFonts]
   )
 
@@ -233,7 +233,13 @@ export function WordDocumentSurface({
   const [viewportSize, setViewportSize] = useState({ width: 860, height: 640 })
   const [scrollTop, setScrollTop] = useState(0)
   const [dpr, setDpr] = useState(() => (typeof window !== 'undefined' ? Math.max(1, window.devicePixelRatio || 1) : 1))
-  const fontEpoch = useOfficeFonts(requestedFonts, model)
+  const {
+    epoch: fontEpoch,
+    fontsReady,
+    waitForFonts
+  } = useOfficeFonts(fontRequests, model, {
+    documentLoaded: status !== 'loading'
+  })
   const [bitmapTick, setBitmapTick] = useState(0)
 
   const [findOpen, setFindOpen] = useState(false)
@@ -290,7 +296,7 @@ export function WordDocumentSurface({
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [status, pages.length])
+  }, [status, pages.length, fontsReady])
 
   const maxPageWidthPt = useMemo(() => pages.reduce((acc, page) => Math.max(acc, page.width_pt), 612), [pages])
 
@@ -363,9 +369,9 @@ export function WordDocumentSurface({
     [pageLayout.items, cssScale]
   )
 
-  // Apply initialPage / initialFind once pages have loaded.
+  // Apply initialPage / initialFind once pages and initial fonts have settled.
   useEffect(() => {
-    if ((status !== 'ready' && status !== 'read_only') || pages.length === 0) return
+    if ((status !== 'ready' && status !== 'read_only') || !fontsReady || pages.length === 0) return
     const jumpKey = `${initialPage ?? ''}\0${initialFind ?? ''}`
     if ((initialPage === undefined && !initialFind) || appliedInitialJumpRef.current === jumpKey) {
       return
@@ -402,7 +408,7 @@ export function WordDocumentSurface({
     return () => {
       cancelled = true
     }
-  }, [status, pages.length, initialPage, initialFind, model, scrollToRect])
+  }, [status, fontsReady, pages.length, initialPage, initialFind, model, scrollToRect])
 
   // Re-run find query when query, matchCase, or document version changes while Find is open.
   useEffect(() => {
@@ -429,7 +435,7 @@ export function WordDocumentSurface({
 
   // Rasterize visible pages (+ 1-page overscan) and cache bitmaps by (version, fontEpoch, scale, pageIndex).
   useEffect(() => {
-    if (status === 'loading' || visibleEnd < visibleStart) return
+    if (status === 'loading' || !fontsReady || visibleEnd < visibleStart) return
     let cancelled = false
     const versionPrefix = `${version}:${fontEpoch}:${rasterScaleKey}:`
 
@@ -476,7 +482,7 @@ export function WordDocumentSurface({
     return () => {
       cancelled = true
     }
-  }, [status, visibleStart, visibleEnd, version, fontEpoch, rasterScale, rasterScaleKey, model])
+  }, [status, fontsReady, visibleStart, visibleEnd, version, fontEpoch, rasterScale, rasterScaleKey, model])
 
   // Resolve collaborator selection rectangles and Presence soft block locks.
   useEffect(() => {
@@ -971,7 +977,7 @@ export function WordDocumentSurface({
     }
     return <ContentError error={model.error.value} retry={model.retry} />
   }
-  if (status === 'loading' && pages.length === 0) {
+  if ((status === 'loading' && pages.length === 0) || !fontsReady) {
     return (
       <ContentSkeleton
         variant="page"
@@ -1039,6 +1045,7 @@ export function WordDocumentSurface({
           onToggleFitWidth={() => setFitWidth(f => !f)}
           onOpenFind={openFind}
           onRunCommand={runDiscreteCommand}
+          onWaitForFonts={waitForFonts}
         />
 
         {findOpen && (

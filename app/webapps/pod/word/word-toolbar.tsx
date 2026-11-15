@@ -197,6 +197,7 @@ export type WordToolbarProps = {
   onToggleFitWidth(): void
   onOpenFind(): void
   onRunCommand?(commandId: string, params?: Record<string, unknown>, mutates?: boolean): Promise<void> | void
+  onWaitForFonts?(): Promise<void>
 }
 
 /**
@@ -215,7 +216,8 @@ export function WordToolbar({
   onZoomReset,
   onToggleFitWidth,
   onOpenFind,
-  onRunCommand
+  onRunCommand,
+  onWaitForFonts
 }: WordToolbarProps) {
   useSignals()
 
@@ -284,6 +286,7 @@ export function WordToolbar({
     if (exportingPdf) return
     setExportingPdf(true)
     try {
+      await onWaitForFonts?.()
       const bytes = await model.read(eng => (eng as WordEngine).exportPdf())
       if (bytes && bytes.byteLength > 0) {
         downloadBlob(new Blob([bytes.slice()], { type: 'application/pdf' }), pdfDownloadName(title))

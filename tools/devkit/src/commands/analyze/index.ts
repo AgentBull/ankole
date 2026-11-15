@@ -93,7 +93,7 @@ export function analyzeCommand() {
             emit(await runUnused({ json: flags.json }), flags.json)
           })
         ),
-        defineCommand('structure', { description: 'konsistent structural convention gate.' }, child =>
+        defineCommand('structure', { description: 'Declared structural convention gate.' }, child =>
           child.flags({ json }).action(async ({ flags }) => {
             emit(await runStructure({ json: flags.json }), flags.json)
           })

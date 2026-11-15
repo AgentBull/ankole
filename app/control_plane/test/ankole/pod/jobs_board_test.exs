@@ -692,7 +692,7 @@ defmodule Ankole.Pod.JobsBoardTest do
           title: "Neighbor job #{idx}",
           task: "Batch #{idx}",
           reply_route: %{"conversation_id" => neighbor_room.conversation.id},
-          model_profile: "coding",
+          model_profile: "heavy",
           status: :succeeded,
           attempts: 1,
           execution_failures: 0,

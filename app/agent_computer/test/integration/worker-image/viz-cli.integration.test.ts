@@ -1,4 +1,4 @@
-import { isPrintSafeSvg } from '@ankole/uikit/viz/theme'
+import { isPrintSafeSvg } from '@ankole/uikit/viz/svg-export'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'

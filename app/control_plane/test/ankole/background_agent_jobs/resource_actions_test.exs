@@ -109,14 +109,14 @@ defmodule Ankole.BackgroundAgentJobs.ResourceActionsTest do
                  Job,
                  :create_job,
                  Map.merge(creation_attrs, %{
-                   model_profile: " coding ",
+                   model_profile: " heavy ",
                    result: %{"observed_at" => ~U[2026-10-22 00:00:00Z]}
                  })
                )
              end)
 
     assert created.status == :queued
-    assert created.model_profile == "coding"
+    assert created.model_profile == "heavy"
     assert created.result == %{"observed_at" => "2026-10-22T00:00:00Z"}
   end
 

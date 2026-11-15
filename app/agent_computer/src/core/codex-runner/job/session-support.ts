@@ -14,6 +14,7 @@ import type { AgentLoopLogger } from '../../types'
 import type { CodexJobOptions } from '../options'
 import { stringValue, textInput } from '../protocol'
 import type { CodexAppServerClient } from '../runtime/app-server-client'
+import { EXECUTION_HISTORY_REL_PATH, TASK_LINEAGE_REL_PATH, type MaterializedExecutionLog } from './execution-logfile'
 import type { CodexCredentialPoolExhaustion } from './recovery-policy'
 import { skillDisabledNotice } from './skill-usage'
 import { changedWorkspacePaths, snapshotWorkspace, type WorkspaceSnapshot } from './workspace-snapshot'
@@ -234,15 +235,45 @@ export function compactContinuationInput(task: string): string {
 export function recreatedThreadInput(
   job: BackgroundAgentJobResponse,
   continuation: string,
-  source?: ContinuationSourceContext
+  source?: ContinuationSourceContext,
+  logfile?: MaterializedExecutionLog
 ): string {
-  const priorAttempts = job.attemptHistory?.length
-    ? `\n\nBounded history from prior execution attempts:\n${JSON.stringify(job.attemptHistory, null, 2)}`
-    : ''
   const sourceContext = source?.task
     ? `\n\nThis Job continues terminal Job ${job.continuedFromJobId}. Its original task:\n${source.task}\n\nIts final report:\n${source.finalReport ?? '(the source Job recorded no final report)'}`
     : ''
-  return `${job.task}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${sourceContext}${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
+  const logfileGuidance = renderExecutionLogfileGuidance(job, logfile)
+  return `${job.task}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${sourceContext}${logfileGuidance}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
+}
+
+function renderExecutionLogfileGuidance(
+  job: BackgroundAgentJobResponse,
+  logfile: MaterializedExecutionLog | undefined
+): string {
+  if (logfile && (logfile.hasTaskLineage || logfile.hasExecutionHistory)) {
+    const bullets: string[] = []
+    if (logfile.hasTaskLineage) {
+      bullets.push(
+        `- \`${TASK_LINEAGE_REL_PATH}\`: full task lineage across root and respawned Jobs, prior final reports, and user steering messages.`
+      )
+    }
+    if (logfile.hasExecutionHistory) {
+      const truncationNote = logfile.historyTruncated ? ' (oldest entries truncated at 2 MiB)' : ''
+      bullets.push(
+        `- \`${EXECUTION_HISTORY_REL_PATH}\`: ${logfile.historyLineCount} chronological execution items${truncationNote}, including shell commands, exit codes, file edits, and tool outputs.`
+      )
+    }
+    return [
+      '',
+      '',
+      'Durable execution recovery files in the Job workspace:',
+      ...bullets,
+      'Before repeating any side effect or creating remote objects, read `.ankole/task-lineage.json` (if present) and inspect the tail or relevant entries of `.ankole/execution-history.jsonl` (for example with `tail`, `rg`, or `jq`) so you reuse existing Pod Page IDs, Base record IDs, and Drive `node_id`s.'
+    ].join('\n')
+  }
+
+  return job.attemptHistory?.length
+    ? `\n\nBounded history from prior execution attempts:\n${JSON.stringify(job.attemptHistory, null, 2)}`
+    : ''
 }
 
 export async function steerActiveTurn(

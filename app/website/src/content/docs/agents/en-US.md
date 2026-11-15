@@ -47,13 +47,12 @@ Saved edits take effect on the next turn, including a resumed Codex Job. The cur
 
 ## Configure models
 
-Agents resolve Model Profiles through 3-tier sparse inheritance (`Agent -> Pod -> Site`) configured in **Console → Model Profiles**, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`. Whenever your Site or Pod already defines a `primary` profile, a new Agent is ready to run immediately without per-Agent overrides; configure overrides on the Agent only when its role needs a distinct provider, model tier, or custom language-model alias:
+Agents resolve Model Profiles through 3-tier sparse inheritance (`Agent -> Pod -> Site`) configured in **Console → Model Profiles**, with cross-slot fallbacks `heavy -> primary` and `light -> primary`. Whenever your Site or Pod already defines a `primary` profile, a new Agent is ready to run immediately without per-Agent overrides; configure overrides on the Agent only when its role needs a distinct provider, model tier, or custom language-model alias:
 
-- Override `primary`, `light`, or `heavy` when this Agent needs a larger or more specialized model than the Pod default.
+- Override `primary`, `light`, or `heavy` when this Agent needs a larger or more specialized model than the Pod default (`heavy` also serves Background Agent Jobs by default and falls back to `primary` when unset; select a [ChatGPT subscription provider](../chatgpt-subscription-provider/) on `heavy` when Jobs should run on a ChatGPT subscription pool).
 - Configure `vision_fallback` when `primary` lacks native image input and the Agent must read images.
 - Configure `web_search` and `web_fetch` when this Agent needs web access that differs from the Pod default.
 - Configure `image_generate` when the Agent must create images through a dedicated image provider.
-- Configure **Background Agent Jobs** (`coding`) when Jobs need a separate provider or model (unset `coding` falls back through `heavy -> primary`). To run Jobs through a ChatGPT subscription, select its [ChatGPT subscription provider](../chatgpt-subscription-provider/) here.
 
 For separate `web_search` or `image_generate` profiles, also turn off the corresponding provider-hosted switch. Binding a profile alone does not change that switch. Both switches default to enabled and inherit Site → Pod → Agent settings.
 

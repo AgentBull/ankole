@@ -159,5 +159,54 @@ defmodule AnkoleWeb.PodOfficeControllerTest do
 
     assert %{"fonts" => fonts} = json_response(font_manifest, 200)
     assert is_list(fonts)
+    assert get_resp_header(font_manifest, "cache-control") == ["public, max-age=300"]
+
+    tmp_fonts_dir =
+      Path.join(System.tmp_dir!(), "ankole-office-fonts-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(tmp_fonts_dir)
+    previous_fonts_dir = System.get_env("ANKOLE_OFFICE_FONTS_DIR")
+
+    try do
+      manifest_body =
+        ~s({"version":"v2-test","fonts":[{"family":"IBM Plex Sans SC","file":"IBMPlexSansSC-Regular-034c70a1c7aa.ttf"}]})
+
+      blob_body = "synthetic-ttf-bytes"
+      blob_name = "IBMPlexSansSC-Regular-034c70a1c7aa.ttf"
+
+      File.write!(Path.join(tmp_fonts_dir, "manifest.json"), manifest_body)
+      File.write!(Path.join(tmp_fonts_dir, "manifest.json.gz"), :zlib.gzip(manifest_body))
+      File.write!(Path.join(tmp_fonts_dir, blob_name), blob_body)
+      File.write!(Path.join(tmp_fonts_dir, "#{blob_name}.gz"), :zlib.gzip(blob_body))
+      System.put_env("ANKOLE_OFFICE_FONTS_DIR", tmp_fonts_dir)
+
+      gz_manifest =
+        font_manifest
+        |> recycle_api()
+        |> put_req_header("accept-encoding", "gzip")
+        |> get("/fonts/office/manifest.json")
+
+      assert gz_manifest.status == 200
+      assert get_resp_header(gz_manifest, "cache-control") == ["public, max-age=300"]
+      assert get_resp_header(gz_manifest, "content-encoding") == ["gzip"]
+
+      gz_blob =
+        gz_manifest
+        |> recycle_api()
+        |> put_req_header("accept-encoding", "gzip")
+        |> get("/fonts/office/#{blob_name}")
+
+      assert gz_blob.status == 200
+      assert get_resp_header(gz_blob, "cache-control") == ["public, max-age=31536000, immutable"]
+      assert get_resp_header(gz_blob, "content-encoding") == ["gzip"]
+    after
+      if previous_fonts_dir do
+        System.put_env("ANKOLE_OFFICE_FONTS_DIR", previous_fonts_dir)
+      else
+        System.delete_env("ANKOLE_OFFICE_FONTS_DIR")
+      end
+
+      File.rm_rf(tmp_fonts_dir)
+    end
   end
 end

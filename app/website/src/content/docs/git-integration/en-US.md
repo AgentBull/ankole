@@ -26,7 +26,7 @@ During a normal conversation, the Agent runs these shell and file tools in the f
 
 - **Git credentials.** For GitHub (Cloud or Enterprise), connect a GitHub App installation or personal OAuth account in **Pod → Connections** (`Ankole.Connectors`): Ankole automatically injects a turn-scoped `GIT_ASKPASS` credential helper (`POST /api/internal/connectors/git-credentials`) so `git clone`, `git fetch`, and `git push` authenticate over HTTPS without storing static tokens in the Worker environment. For other Git hosts, store an SSH key or personal access token as an encrypted variable such as `GIT_SSH_KEY` or `GIT_TOKEN` in **Console → Environment variables** (see [Environment variables](../worker-env/)).
 - **Network access from the Worker to the repository.** Confirm that the Worker can reach your git host, especially on a private network. In a Docker Compose deployment, Worker containers join the `ankole_workers` network, which can reach both the control plane and the public internet. In a Helm deployment with `networkPolicy.enabled`, Worker Pods can reach the control plane, DNS, and public IP addresses, but cannot reach a private git server whose address range falls inside `networkPolicy.workerDeniedCIDRs`.
-- **A model profile for Background Agent Jobs, when needed.** Agents inherit Site and Pod model profiles automatically unless overridden, and Background Agent Jobs fall back from `coding` to `heavy` and `primary` across Agent, Pod, and Site scopes, so you only need to set `coding` if Background Agent Jobs require a dedicated provider or model.
+- **A model profile for Background Agent Jobs, when needed.** Agents inherit Site and Pod model profiles automatically unless overridden, and Background Agent Jobs use `heavy` by default (`heavy -> primary` across Agent, Pod, and Site scopes), so you only need to set `heavy` if Background Agent Jobs require a dedicated provider or model.
 
 ## The workspace
 
@@ -47,7 +47,7 @@ Repositories under `/workspace` survive Worker replacement and image updates, th
 To set up a coding Agent that reviews pull requests:
 
 1. Connect your GitHub App or personal OAuth account in **Pod → Connections** (or store an SSH key or PAT in **Console → Environment variables** for non-GitHub hosts).
-2. Create the Agent—it inherits your Site and Pod model profiles automatically; set Agent-specific overrides or a dedicated `coding` profile only if you want different models for interactive turns or Background Agent Jobs.
+2. Create the Agent—it inherits your Site and Pod model profiles automatically; set Agent-specific overrides or a dedicated `heavy` profile only if you want different models for interactive turns or Background Agent Jobs.
 3. Configure the Agent's `AGENTS.md` contract in **Meta Ankole → Agents** with the target repository, review criteria, and branch naming conventions.
 4. In a connected chat channel, ask the Agent: "Review the latest PR on `your-repo`. Clone, check out, run the tests, and report what you find."
 5. The Agent clones the repository, checks out the branch, runs the test suite with `command`, and posts its findings—either directly in the conversation or through a Background Agent Job.

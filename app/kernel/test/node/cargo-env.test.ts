@@ -6,12 +6,16 @@ describe('buildCargoEnv', () => {
   test('automatically enables local SSD sccache and strips remote backends when sccache is present', () => {
     const env = buildCargoEnv(
       {
+        CRAFT_FONTS_DIR: '/tmp/craft-fonts',
+        CRAFT_I18N_DIR: '/tmp/craft-i18n',
         SCCACHE_BUCKET: 'remote-s3-bucket',
         SCCACHE_GHA_ENABLED: 'true'
       },
       { resolveExecutable: () => '/usr/local/bin/sccache' }
     )
 
+    expect(env.CRAFT_FONTS_DIR).toBeUndefined()
+    expect(env.CRAFT_I18N_DIR).toBeUndefined()
     expect(env.RUSTC_WRAPPER).toBe('/usr/local/bin/sccache')
     expect(env.CMAKE_C_COMPILER_LAUNCHER).toBe('/usr/local/bin/sccache')
     expect(env.CMAKE_CXX_COMPILER_LAUNCHER).toBe('/usr/local/bin/sccache')

@@ -91,7 +91,7 @@ jobs:
       # own copy, which would crowd the repository's 10 GB cache quota.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/kernel
+          workspaces: app/kernel -> target/clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: bun run --filter @ankole/kernel lint
 
@@ -217,7 +217,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
         with:
-          workspaces: app/kernel
+          workspaces: app/kernel -> target/nif-test
           shared-key: control-plane-nif
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/cache/restore@v6

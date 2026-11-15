@@ -92,9 +92,9 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 在发起任何上游请求之前，AIGateway 会通过三层稀疏**模型档案（Model Profile）**继承链（`Site -> Pod -> Agent/System`，在 **Console → Model Profiles** 中配置）将模型选择符解析到真实的 Provider 绑定：
 
-- **站点（Site）、Pod 与 `system` 主体（`ankole_brain`、`system`）**提供十五个固定槽位：五个语言模型槽位（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）与十个独立能力槽位（`web_search`、`web_fetch`、`image_generate`、`rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music`）。
-- **Agent** 提供除 `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video` 与 `music` 外的八个内置槽位，并支持配置自定义语言模型别名；未单独覆盖的槽位会自动继承 Pod 与站点默认值。
-- **跨槽位回退链**按 `coding -> heavy -> primary` 与 `light -> primary` 解析，因此只需在站点或 Pod 层配置好 `primary`，Agent 与企业大脑即可直接运行，再按需为特定 Pod、Agent 或 `system` 主体单独指定模型覆盖。
+- **站点（Site）、Pod 与 `system` 主体（`ankole_brain`、`system`）**提供十四个固定槽位：四个语言模型槽位（`primary`、`light`、`heavy`、`vision_fallback`）与十个独立能力槽位（`web_search`、`web_fetch`、`image_generate`、`rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music`）。
+- **Agent** 提供除 `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video` 与 `music` 外的七个内置槽位，并支持配置自定义语言模型别名；未单独覆盖的槽位会自动继承 Pod 与站点默认值。
+- **跨槽位回退链**按 `heavy -> primary` 与 `light -> primary` 解析，因此只需在站点或 Pod 层配置好 `primary`，Agent、后台 Agent 任务与企业大脑即可直接运行，再按需为特定 Pod、Agent 或 `system` 主体单独指定模型覆盖。
 
 在权限允许的场景下，管理员与显式内部调用也可直接传入 `provider_id/model` 选择符。调用 `GET /models` 可列出当前主体能够解析的全部模型，并支持可选的 OpenRouter 风格筛选参数（`q`、`context`、`min_price`、`max_price`、`sort` 及模态过滤）。
 
@@ -136,7 +136,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 同一套主体身份与访问令牌也可调用周边能力端点。`POST /web_search` 接收带长度上限的查询词 `query`，返回由 Provider 提供的网页搜索结果；`POST /web_fetch` 接收 1 至 5 个公网 HTTPS URL，返回提取后的网页内容。这两类调用支持传入 `web_search.default` 与 `web_fetch.default`，由 AIGateway 自动解析当前 Agent 对应的模型档案。
 
-`POST /embeddings` 接受纯文本、Token 数组或结构化输入分块，并要求显式传入 `provider_id/model` 选择符——例如 `Ankole.Brain` 在生成向量嵌入时会读取 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model`。`POST /rerank` 接收非空文档数组与正整数 `top_n` 并对文档重排，既支持显式传入 `provider_id/model`，也支持传入 `default` 或 `rerank.default`（`ankole_brain` 会解析其自身生效的 `rerank` 模型档案，Agent 与人类调用则解析当前 Pod/站点的 `rerank` 档案；完整的知识检索机制见 [Brain](../brain/)）。与此同时，Pod Applet 的 `ctx.ai` 调用通过 `Ankole.Pod.Applets.Gateway`，以所选执行主体的身份无状态执行。解析语言模型档案（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）时，Human 使用 Pod/站点生效的默认配置，Agent 使用自身生效的配置。用量记入执行主体名下，不消耗交互式 Agent 的 Token 配额。
+`POST /embeddings` 接受纯文本、Token 数组或结构化输入分块，并要求显式传入 `provider_id/model` 选择符——例如 `Ankole.Brain` 在生成向量嵌入时会读取 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model`。`POST /rerank` 接收非空文档数组与正整数 `top_n` 并对文档重排，既支持显式传入 `provider_id/model`，也支持传入 `default` 或 `rerank.default`（`ankole_brain` 会解析其自身生效的 `rerank` 模型档案，Agent 与人类调用则解析当前 Pod/站点的 `rerank` 档案；完整的知识检索机制见 [Brain](../brain/)）。与此同时，Pod Applet 的 `ctx.ai` 调用通过 `Ankole.Pod.Applets.Gateway`，以所选执行主体的身份无状态执行。解析语言模型档案（`primary`、`light`、`heavy`、`vision_fallback`）时，Human 使用 Pod/站点生效的默认配置，Agent 使用自身生效的配置。用量记入执行主体名下，不消耗交互式 Agent 的 Token 配额。
 
 `POST /web_search` 接收不超过 1,024 个字符的 `query` 和可选的 `limit`（1 到 100，默认 5），返回 `items` 与 `metadata`。每个结果包含 `url`、`title` 和 `description`，Provider 提供时还带有 `published_at` 与 `score`；`metadata` 给出 `query`、网关侧耗时 `latency_ms` 和 HTTP 请求的 `request_id`。`POST /decisions` 针对一份 `state` 回答带类型的问题：一次请求携带 1 到 64 个 `questions`，每个问题是 `noul`（是或否）、`choice`（从 2 到 255 个具名选项中选一个）或 `score`（在 2 到 10 个有序等级上打分），还可以附带最多四张图片，每张不超过 4 MiB。响应为每个问题返回带概率的答案，并给出作答的 `model` 与 token `usage`。`default` / `decision.default` 选择符解析 Pod/Site 的 `decision` 档案；未配置该档案时，改由调用方的 `light` 语言模型作答。语言模型给出的是自述置信度，因此这些概率未经校准；由语言模型作答时，一次请求的选项与等级合计不能超过 500 个。
 

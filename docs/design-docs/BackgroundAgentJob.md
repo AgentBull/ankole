@@ -118,23 +118,28 @@ succeeded Job has a result to read. For a `succeeded` Job with a persisted
 - `title`: required management and UI label (never sent to Codex).
 - `task`: required prompt text passed verbatim as the initial Codex user
   message.
-- `model_profile`: optional custom model profile from the Agent's `TurnStart`
-  catalog (omitted from the schema when the catalog is empty; defaults to
-  `coding` when omitted, and never accepts fixed profile names, raw model IDs,
-  provider IDs, or reasoning-effort overrides).
+- `model_profile`: optional delegation profile from the Agent's `TurnStart`
+  catalog: a resolvable built-in capability tier (`light`, `primary`, or
+  `heavy`, omitted from the tool schema when all three resolve to the same
+  effective `{provider_id, model, provider_options}` binding) or a configured
+  custom LLM profile. Omitting `model_profile` selects `heavy` (`heavy ->
+  primary`). The tool rejects non-delegation fixed slots, raw model IDs,
+  provider IDs, and reasoning-effort overrides.
 - `workspace_template_id`: optional enabled workspace template materialized
   only when Agent Computer first creates the Job Workspace.
 - `runner_id`: optional device ID explicitly selected by the user. The main
   Agent uses `list_background_job_devices` to resolve a device's name and ID.
   Omitting the field selects the Agent's default cloud Worker.
 
-The tool description instructs the main Agent to omit `model_profile` unless the
-human explicitly requests a named custom profile (whose description must state
-its purpose), and explains the Job capability boundary: because a Job can
-neither spawn another Background Agent Job nor load a `main`-only Skill, the
-main Agent executes `main` Skill orchestration steps itself and creates every
-needed Job with its concrete task brief. Creation returns `{job_id, status:
-"queued"}` and includes `runner_id` for a device Job.
+The tool description instructs the main Agent to omit `model_profile` for
+standard heavy work, select `light` or `primary` only when a narrower
+capability tier fits a localized task, and select a custom profile only when
+the user or an active Skill names it explicitly. It also explains the Job
+capability boundary: because a Job can neither spawn another Background Agent
+Job nor load a `main`-only Skill, the main Agent executes `main` Skill
+orchestration steps itself and creates every needed Job with its concrete task
+brief. Creation returns `{job_id, status: "queued"}` and includes `runner_id`
+for a device Job.
 
 ### Device placement
 
@@ -198,14 +203,23 @@ and advances the channel cursor.
 ### `respawn_background_job` and `stop_background_job`
 
 `respawn_background_job` continues a terminal Job (`succeeded`, `failed`, or
-`stopped`) as a new Job from two inputs (`source_job_id` and `message`):
+`stopped`) as a new Job from `source_job_id`, `message`, and optional
+`model_profile`:
 
-- The source Job stays terminal while the new Job copies its title, resumes the
-  exact Codex thread in the original Job Workspace (or falls back to the
-  replacement-thread ladder under Turn recovery if native thread files are
-  gone), binds to the current authorized turn, and uses currently enabled Agent
-  Plugins, Skills, and runtime configuration, returning `{job_id, status:
-  "queued"}`.
+- Omitting `model_profile` inherits the source Job's `model_profile`, whereas
+  passing a resolvable built-in capability tier (`light`, `primary`, or
+  `heavy`) or a configured custom LLM profile overrides the successor's profile
+  (for example, stepping down to `light` for localized formatting or follow-up
+  edits after the source Job has built and verified the main artifact).
+- The source Job stays terminal while the new Job copies its title, binds to
+  the current authorized turn, uses currently enabled Agent Plugins, Skills, and
+  runtime configuration, and returns `{job_id, status: "queued"}`. On first
+  admission, when the successor's frozen `{provider_id, model,
+  reasoning_effort, provider_options}` binding matches the source Job's binding,
+  `CodexJobSession` resumes the exact Codex thread in the original Job
+  Workspace; when that binding differs or native thread files are absent,
+  `CodexJobSession` starts a replacement thread in the inherited Workspace
+  seeded from `.ankole/task-lineage.json` and `.ankole/execution-history.jsonl`.
 - The tool rejects any source Job that is still live, lacks a `runtime_thread_id`,
   already has a successor, or has lost its original Workspace directory under
   persistent `/workspace` Home (never copying a Workspace or creating a fresh
@@ -282,8 +296,8 @@ The Elixir control plane:
 - verifies authorization and persists `reply_route`
 - drives Job state transitions and counts execution attempts
 - dispatches, steers, stops, and externally completes Jobs
-- validates optional workspace templates and custom Model Profiles (defaulting
-  to `coding`)
+- validates optional workspace templates and delegation Model Profiles
+  (defaulting to `heavy`)
 - freezes the resolved runtime projection at first execution admission
 - places or adopts Codex Turns through `Sessions.JobDriver` and enforces the
   attempt fence
@@ -335,8 +349,8 @@ The `background_agent_jobs` table stores:
 - **Identity and lineage:** `id`, `agent_uid`, `owner_session_id`,
   `source_signal_id`, `source_tool_call_id`, `reply_route`,
   `continued_from_job_id`, `workspace_owner_job_id`, and `runtime_thread_id`.
-- **Request:** `title`, `task`, `model_profile` (`coding` or a custom profile
-  name), and optional `workspace_template_id`.
+- **Request:** `title`, `task`, `model_profile` (`heavy` by default, `light`,
+  `primary`, or a custom profile name), and optional `workspace_template_id`.
 - **Execution state:** `runtime_projection` (written atomically on first
   attempt admission when absent), `status`, `attempts`, timestamps, `result`,
   `error`, and `metadata`.
@@ -347,8 +361,8 @@ optional image-capable vision fallback, logical Plugin and member Skill IDs (no
 package hashes, archive bytes, overlays, Hook state, or cache paths), and
 non-secret Worker and browser settings. Retries, continuations, and Worker
 migrations reuse those frozen values rather than drifting with later Agent
-configuration edits, while a manual respawn inherits `model_profile` and
-snapshots a fresh projection on its own first admission.
+configuration edits, while a manual respawn inherits `model_profile` unless
+overridden and snapshots a fresh projection on its own first admission.
 
 WorkerEnv excludes Skill-declared MCP credential names and values when it
 captures a projection. The runtime broker applies the same filter before sending
@@ -910,35 +924,68 @@ window limits).
 
 ### Replacement threads
 
-If Codex cannot resume its native session file, each attempt may create at most
-one disclosed replacement thread (whether on initial resume or mid-attempt
-thread loss).
+Each attempt may create at most one disclosed replacement thread when native
+session resumption is unavailable or incompatible:
 
-The Worker starts a fresh thread seeded with `job.task`, the durable Workspace
-files, bounded attempt history, and (for continued Jobs) the source Job's `task`
-and final report. It records
-`runtime_checkpoint_recovery: new_thread_from_bounded_history`. Complete stored
-history remains available through the Job trajectory queries.
+- **`resume_failed`, `turn_thread_lost`, and `continuation_without_thread`**:
+  Codex cannot open or continue its native session file on initial resume or
+  mid-attempt recovery.
+- **`cold_idle_recycle`**: a `waiting_on_user` Job resumes after at least 10
+  minutes paused and its latest model call reported at least `128,000` total
+  tokens (lifetime `thread_total` usage does not measure the current context
+  window). An attempt claim preserves `metadata.paused_at` for the Worker to
+  inspect, and the Worker clears it in the running-status commit after
+  recovering or replacing the thread so an earlier failure preserves it for
+  retry.
+- **`respawn_runtime_incompatible`**: a continued Job's frozen
+  `{provider_id, model, reasoning_effort, provider_options}` binding differs
+  from its `continued_from` source Job's frozen binding (such as a profile
+  tier override on `respawn_background_job` or an operator profile edit between
+  terminal completion and respawn), preventing cross-provider or cross-model
+  replay of provider-opaque reasoning items on the old Codex thread.
 
-**Cold-idle thread recycle**: when resuming a `waiting_on_user` Job whose
-paused duration reaches 10 minutes and whose latest model call reports at
-least `128,000` total tokens, `CodexJobSession` starts a fresh thread from the
-same bounded Workspace rebuild rather than replaying a cold large context
-window, rotating the runtime CLI `contextId` whenever a fresh thread starts or
-compaction settles. An attempt claim preserves `metadata.paused_at` for the
-Worker to inspect. The Worker clears it in the running-status commit after
-recovering or replacing the thread; an earlier failure preserves it for retry.
-Lifetime `thread_total` usage does not measure the current context window.
+Before starting the replacement thread, `CodexJobSession` requests the
+workspace execution log from the control plane over the turn-fenced
+`background_agent_job.get` (`include_workspace_execution_log: true`) RPC and
+atomically writes two files inside `/workspace/jobs/<workspace-owner-job-id>/.ankole/`:
+
+- **`.ankole/task-lineage.json`**: every Job sharing `workspace_owner_job_id`
+  in chronological order, including `job_id`, `status`, `model_profile`, the
+  original `task`, applied user steer messages (`client:<signal-id>` items on
+  lead turns), and any terminal `final_report` or `error`.
+- **`.ankole/execution-history.jsonl`**: sanitized semantic lead-turn records
+  across that workspace lineage in chronological order within a `2 MiB` UTF-8
+  budget, read with `reveal: false` so `Ankole.AIGateway.OpaqueContent` values
+  stay sealed. Individual items exceeding `32 KiB` retain bounded head and tail
+  slices with `content_truncated: true`; when earlier items do not fit within
+  `2 MiB`, the control plane retains the newest suffix and returns
+  `earlier_items_omitted: true` with `omitted_items_count`.
+
+If `background_agent_job.get` fails with a retryable transport or timeout
+error, `CodexJobSession` aborts thread creation so the attempt retries instead
+of starting a replacement thread without prior trajectory facts; it omits
+`.ankole/execution-history.jsonl` only when PostgreSQL confirms zero prior
+lead-turn items. `CodexJobSession` rotates the runtime CLI `contextId` whenever
+a fresh thread starts or compaction settles, seeds the replacement thread with
+`job.task`, the original workspace goal and latest handoff summary on
+continuations, and instructions to read `.ankole/task-lineage.json` and search
+`.ankole/execution-history.jsonl` on demand before creating external resources.
+Running-status metadata records
+`runtime_checkpoint_recovery: new_thread_from_execution_logfile` alongside
+`recovery_reason`, `logfile_bytes`, `logfile_records`, and
+`earlier_items_omitted`, while complete stored history remains available through
+the Job trajectory queries.
 
 ## Create and Dispatch a Job Once
 
 Job creation deduplicates on `{agent_uid, owner_session_id, source_tool_call_id}`
 (returning the existing Job and dispatch Signal on retry):
 
-- Omitting `model_profile` validates `coding` (and its `heavy` fallback),
-  whereas an explicit value must match a configured custom LLM profile (failing
-  without fallback if unavailable, and rejecting `coding`, other fixed profiles,
-  or raw model names).
+- Omitting `model_profile` validates `heavy` (and its `primary` fallback),
+  whereas an explicit value must name either a resolvable built-in capability
+  tier (`light`, `primary`, or `heavy`) or a configured custom LLM profile on
+  that Agent (failing without fallback when a named custom profile is
+  unconfigured, and rejecting non-delegation fixed slots or raw model names).
 - One PostgreSQL transaction inserts both the Job row and its dispatch Signal
   targeting `{agent_uid, "job:<job-id>"}` (every Job Session uses the `job:`
   prefix).
@@ -959,18 +1006,20 @@ idempotency key:
   and Workspace; same-call retries return the stored successor, while distinct
   calls fail naming that successor).
 - `Ankole.BackgroundAgentJobs.Schemas.Job.successor_attrs/2` copies `title`,
-  `runtime_thread_id`, `workspace_owner_job_id`, `workspace_template_id`, and
-  `model_profile` for both manual
-  respawns and automatic steer successors. Successors never copy
+  `runtime_thread_id`, `workspace_owner_job_id`, and `workspace_template_id`,
+  and inherits `model_profile` unless `respawn_background_job` supplies an
+  explicit validated delegation profile override (automatic steer successors
+  always inherit `source.model_profile`). Successors never copy
   `runtime_projection`, `result`, `error`, `attempts`, or
   `managed_background_agent_job_root`, and Agent Computer never re-materializes
   the workspace template once a thread exists. Console Job detail surfaces both
   `continued_from_job_id` and `workspace_owner_job_id`.
 - Both Agent Computer (pre-RPC) and CodexRunner (pre-run) verify that the
   inherited Workspace exists on persistent Home without creating one if missing,
-  then resume the stored thread with `message` as the new `task` (falling back
-  to the [replacement thread](#replacement-threads) ladder if Codex cannot
-  resume).
+  then resume the stored thread with `message` as the new `task` when the
+  frozen model binding matches the source Job, or transition to a
+  [replacement thread](#replacement-threads) in that Workspace when the frozen
+  binding changed or Codex cannot resume the session file.
 
 ## Send a Message and Wait for Its Turn
 
@@ -1156,8 +1205,11 @@ available:
   admission.
 - Terminal-source checks, linear respawn, exact thread and Workspace reuse, and
   missing-Workspace errors.
-- Persistent `/workspace` Home preservation and replacement-thread recovery when
-  native Codex thread files are absent.
+- Persistent `/workspace` Home preservation, materialized workspace execution
+  logfile recovery (`.ankole/task-lineage.json` and
+  `.ankole/execution-history.jsonl`, including retryable RPC error propagation),
+  and replacement-thread handoff when native Codex thread files are absent or a
+  respawned Job switches model bindings.
 - Causal Turn lookup, bounded trajectory output, continuation, and delivery
   errors.
 - Root Turn trajectory, progress, causal lookup, and recovery when runtime

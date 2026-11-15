@@ -57,7 +57,7 @@ Agent Home 是挂载在 `/workspace` 下的持久化存储目录。`/agents/<age
 
 所有后台 Agent 任务统一由 `CodexRunner` 引擎驱动。无论任务内容是深度行业调研、撰写排版报告还是跨文件重构代码仓库，决定是否走 `CodexRunner` 的唯一标准是“任务是否作为持久后台任务运行”，而非任务题材。启动时，`CodexRunner` 通过 `app-server-client.ts` 与容器内的 Codex `app-server` 通信，并为每个任务初始化专属的工作区目录与运行配置。
 
-在 Console 界面上，控制该引擎选模的配置项显示为**后台 Agent 任务**，其底层数据库存储键名与 API 字段名均为 `coding`。
+后台 Agent 任务默认采用 `heavy` 模型档案（未单独配置时回退至 `primary`），显式委派时也可按任务复杂度指定 `light`、`primary` 或已配置的自定义档案。
 
 ## Ankole 如何选择运行路径
 
@@ -65,11 +65,11 @@ Agent Home 是挂载在 `/workspace` 下的持久化存储目录。`/agents/<age
 
 - **前台电脑工具**（`command`、`read_file` 与 `apply_patch`）随每台 Worker 开箱内置，普通对话回合可直接调用。
 - **Jupyter 交互式内核**（`jupyter-live-kernel`）属于默认启用的内置 Skill，可通过 [Agent Library](../agent-library/) 统一管控（管控方式与 [浏览器自动化](../browser-automation/)完全一致），只需为不需要交互式 Python 能力的 Agent 按需关闭即可。
-- **`CodexRunner`** 负责承载全部后台 Agent 任务，其所有模型请求同样统一流经 AIGateway。若希望后台任务使用不同于日常聊天的 Provider 或推理模型，只需配置该 Agent 的“后台 Agent 任务”模型档案；留空时控制面会自动回退使用该 Agent 的 `heavy` 档案。
+- **`CodexRunner`** 负责承载全部后台 Agent 任务，其所有模型请求同样统一流经 AIGateway。若希望后台任务使用不同于日常聊天的 Provider 或高阶模型，配置 `heavy` 模型档案即可；留空时控制面会自动回退使用该 Agent 的 `primary` 档案。
 
 ## 下一步
 
 - 了解承载这些工具并托管 `/workspace` 目录的运行环境，请参阅 [Agent Computer Worker](../agent-computer-worker/)。
 - 了解支撑 Jupyter 等能力的 Skill 管理与启用继承模型，请参阅 [Agent Library](../agent-library/)。
-- 了解“后台 Agent 任务”模型档案（内部键名 `coding`）的配置方法，请参阅 [后台 Agent 任务](../background-jobs/#选择模型-provider)。
+- 了解后台任务 `heavy` 模型档案的配置方法，请参阅 [后台 Agent 任务](../background-jobs/#选择模型-provider)。
 - 了解 Worker 容器的安全信任边界与生产加固建议，请参阅 [安全加固](../security-hardening/)。

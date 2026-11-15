@@ -297,6 +297,10 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     sample(
       'mentions-and-marks',
       '<page><p>详见 <mention page="019a2b00-0000-7000-8000-000000000001" />，由 <strong><mention principal="019a2b00-0000-7000-8000-000000000099" source="import" /> 跟进</strong>。</p><p><a href="https://example.com">前缀 <mention page="019a2b00-0000-7000-8000-000000000002" /> 后缀</a></p><p><comment ids="019a2b00-0000-7000-8000-000000000003"><mention principal="019a2b00-0000-7000-8000-000000000088" /></comment></p></page>'
+    ),
+    sample(
+      'cross-atom-breaks-and-emphasis-space',
+      '<page><p><u>中\n</u>\n文 𠮷\n𠮷 <img src="x" />\ny<br />\nz <code>a\r\nb\rc\nd</code> <em>   </em><strong>\u00a0x\u3000</strong></p></page>'
     )
   ]
   const invalid = [

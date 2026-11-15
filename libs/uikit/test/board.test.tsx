@@ -5,28 +5,42 @@ import {
   BoardCard,
   BoardCardActions,
   BoardCardAside,
+  BoardCardDescription,
   BoardCardFooter,
   BoardCardHeader,
+  BoardCardProgress,
   BoardCardTitle,
   BoardColumn,
+  BoardColumnEmpty,
   BoardColumnHeader,
-  BoardPresence
+  BoardPresence,
+  type BoardCardTone
 } from '../src/components/board'
 import { attributeOf, classesOf, tagWith } from './markup'
 
-function board({ selected = false, dropTarget = false } = {}) {
+function board({
+  selected = false,
+  dropTarget = false,
+  tone = 'default'
+}: {
+  selected?: boolean
+  dropTarget?: boolean
+  tone?: BoardCardTone
+} = {}) {
   return renderToStaticMarkup(
     <Board>
       <BoardColumn dropTarget={dropTarget} aria-label="In progress">
         <BoardColumnHeader icon={<svg data-icon="half" />} tone="blue" count={2} actions={<button type="button" />}>
           In progress
         </BoardColumnHeader>
-        <BoardCard selected={selected}>
+        <BoardCard selected={selected} tone={tone}>
           <BoardCardHeader>
             Background work
             <BoardCardAside>Running</BoardCardAside>
           </BoardCardHeader>
           <BoardCardTitle render={<button type="button" />}>Build the report</BoardCardTitle>
+          <BoardCardDescription>Synthesizing metrics across 4 repositories.</BoardCardDescription>
+          <BoardCardProgress value={2} max={4} label="2/4" />
           <BoardCardFooter>
             Research Agent
             <BoardCardAside>3m ago</BoardCardAside>
@@ -38,16 +52,21 @@ function board({ selected = false, dropTarget = false } = {}) {
 }
 
 describe('Board', () => {
-  test('lays its columns out in a wrapping grid, so a board never scrolls sideways', () => {
+  test('lays its columns out in a wrapping equal-height grid, so a board never scrolls sideways', () => {
     const classes = classesOf(tagWith(board(), 'data-slot="board"'))
     expect(classes).toContain('grid')
-    expect(classes).toContain('grid-cols-[repeat(auto-fit,minmax(min(10.5rem,100%),1fr))]')
+    expect(classes).toContain('grid-cols-[repeat(auto-fit,minmax(min(15.5rem,100%),1fr))]')
+    expect(classes).toContain('items-stretch')
   })
 
-  test('draws a column as a quiet surface that its label names', () => {
+  test('draws a column as a quiet surface that its label names, and supports an empty lane placeholder', () => {
     const column = tagWith(board(), 'data-slot="board-column"')
     expect(column).toContain('aria-label="In progress"')
     expect(classesOf(column)).toContain('bg-background-secondary')
+
+    const empty = renderToStaticMarkup(<BoardColumnEmpty>Nothing queued</BoardColumnEmpty>)
+    expect(tagWith(empty, 'data-slot="board-column-empty"')).toBeDefined()
+    expect(empty).toContain('Nothing queued')
   })
 
   test('heads a column with its status icon in its tone, its title, its count, and its actions', () => {
@@ -63,19 +82,36 @@ describe('Board', () => {
     expect(html.indexOf('<button type="button"></button>')).toBeGreaterThan(count)
   })
 
-  test('marks a column that a dragged card may land in, and the card whose details are open', () => {
+  test('marks a column drop target, card selection, and attention tones without layout shifts', () => {
     expect(attributeOf(tagWith(board(), 'data-slot="board-column"'), 'data-drop-target')).toBeUndefined()
     expect(attributeOf(tagWith(board({ dropTarget: true }), 'data-slot="board-column"'), 'data-drop-target')).toBe(
       'true'
     )
     expect(attributeOf(tagWith(board(), 'data-slot="board-card"'), 'data-selected')).toBeUndefined()
     expect(attributeOf(tagWith(board({ selected: true }), 'data-slot="board-card"'), 'data-selected')).toBe('true')
+    expect(attributeOf(tagWith(board(), 'data-slot="board-card"'), 'data-tone')).toBeUndefined()
+    expect(attributeOf(tagWith(board({ tone: 'warning' }), 'data-slot="board-card"'), 'data-tone')).toBe('warning')
+    expect(attributeOf(tagWith(board({ tone: 'danger' }), 'data-slot="board-card"'), 'data-tone')).toBe('danger')
   })
 
-  test('renders the title as the element that the caller passes, such as a button', () => {
-    const title = tagWith(board(), 'data-slot="board-card-title"')
+  test('stretches a button title across the whole card while elevating independent card controls', () => {
+    const html = board()
+    const cardClasses = classesOf(tagWith(html, 'data-slot="board-card"'))
+    expect(cardClasses).toContain('relative')
+    expect(cardClasses).toContain('[&_:is(a,button,input,select,textarea):not([data-slot=board-card-title])]:z-1')
+
+    const title = tagWith(html, 'data-slot="board-card-title"')
     expect(title.startsWith('<button')).toBe(true)
     expect(classesOf(title)).toContain('line-clamp-2')
+    expect(classesOf(title)).toContain('[:is(button,a)&]:after:inset-0')
+  })
+
+  test('renders card description and determinate progress row', () => {
+    const html = board()
+    expect(tagWith(html, 'data-slot="board-card-description"')).toBeDefined()
+    expect(html).toContain('Synthesizing metrics across 4 repositories.')
+    expect(tagWith(html, 'data-slot="board-card-progress"')).toBeDefined()
+    expect(html).toContain('>2/4</span>')
   })
 
   test('pushes the trailing fact of a card row to its end', () => {

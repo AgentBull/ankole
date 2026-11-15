@@ -27,10 +27,10 @@ describe('Conversation reply model facts', () => {
 
   test('keeps the requested profile beside the model actually reported by the provider', async () => {
     const html = await renderMessages([
-      message('coding', undefined, { request_model: 'provider/requested-model', provider_model: 'actual-model' })
+      message('heavy', undefined, { request_model: 'provider/requested-model', provider_model: 'actual-model' })
     ])
 
-    expect(html).toContain('Model profile: coding')
+    expect(html).toContain('Model profile: heavy')
     expect(html).toContain('Model: actual-model')
     expect(html).not.toContain('Model: provider/requested-model')
   })

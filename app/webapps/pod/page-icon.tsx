@@ -28,6 +28,7 @@ import { contentKeys, metadataFileURL, pageAPI, type Page } from './content-api'
 import { ContentError } from './content-primitives'
 import { isCustomEmojiIcon, pageIcon } from './page-icon-value'
 import { customEmojiLibrary, uploadCustomEmoji } from './native-transfers'
+import { staticAssetURL } from '../common/browser-context'
 import { InternalAPIError } from '../common/internal-api-client'
 import { updatePageMetadata } from './state/navigation-cache'
 import { officeFileFormat } from './office/office-files'
@@ -61,7 +62,7 @@ export function PageIcon({
   // A custom emoji whose file fails to load falls back to the Page's type mark.
   const [failedIcon, setFailedIcon] = useState<string | null>(null)
   if (page.system_key === 'ankole_brain') {
-    return <img src="/images/logo.svg" alt="" draggable={false} className={classes} />
+    return <img src={staticAssetURL('/images/logo.svg')} alt="" draggable={false} className={classes} />
   }
   const icon = pageIcon(page.icon)
   if (isCustomEmojiIcon(icon) && failedIcon !== icon) {

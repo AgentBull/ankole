@@ -1,7 +1,7 @@
 import { ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { errorMessage, toError } from '../../../common/errors'
 import type { BackgroundAgentJobResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { JobTurnRef, TurnSteerUpdate } from '../../../lanes/session-lane'
+import type { TurnSteerUpdate } from '../../../lanes/session-lane'
 import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../../background-agent-job-documents'
 import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../../background-agent-job-handoff'
 import type { CodexJobOptions } from '../options'
@@ -19,7 +19,7 @@ import {
   type CodexCredentialPoolExhaustion,
   type CodexRecoveryState
 } from './recovery-policy'
-import { persistRuntimeThreadAnchor } from './session-runtime-ops'
+import type { ThreadRecreateReason } from './execution-logfile'
 import {
   artifactDiscoveryRoots,
   CodexCredentialPoolExhaustedError,
@@ -28,11 +28,9 @@ import {
   compactContinuationInput,
   durableRetryError,
   ownerVisibleArtifactPaths,
-  recreatedThreadInput,
   retryContinuationInput,
   steerActiveTurn,
-  steerDisabledSkills,
-  type ContinuationSourceContext
+  steerDisabledSkills
 } from './session-support'
 import type { PreparedCodexJobExecution } from './setup'
 import type { CodexSkillUsageTracker } from './skill-usage'
@@ -182,15 +180,10 @@ export async function recoverOrCommitFailedCodexTurn(input: {
   recoveryState: CodexRecoveryState
   canCompact: boolean
   job: BackgroundAgentJobResponse
-  jobID: string
-  jobTurn: JobTurnRef
-  rpc: CodexJobOptions['rpc']
-  turnRecorder: BackgroundAgentJobTurnRecorder
   setRecoveryState: (state: CodexRecoveryState) => void
   startCodexTurn: (prompt: string) => Promise<void>
   compactThread: () => Promise<void>
-  replaceLostThread: () => Promise<string>
-  continuationSourceContext: () => Promise<ContinuationSourceContext | undefined>
+  replaceThreadAndStartTurn: (reason: ThreadRecreateReason, continuationPrompt: string) => Promise<void>
   commit: (status: BackgroundAgentJobStatus, details: { error: JSONObject }) => Promise<void>
 }): Promise<void> {
   const poolExhaustion = codexCredentialPoolExhaustion(input.error) ?? input.pendingCredentialPoolExhaustion
@@ -216,18 +209,7 @@ export async function recoverOrCommitFailedCodexTurn(input: {
     return
   }
   if (decision.action === 'replace_thread') {
-    await input.turnRecorder.flush()
-    const newThreadID = await input.replaceLostThread()
-    await persistRuntimeThreadAnchor({
-      rpc: input.rpc,
-      jobTurn: input.jobTurn,
-      jobID: input.jobID,
-      runtimeThreadID: newThreadID,
-      reason: 'new_thread_from_bounded_history'
-    })
-    await input.startCodexTurn(
-      recreatedThreadInput(input.job, retryContinuationInput(), await input.continuationSourceContext())
-    )
+    await input.replaceThreadAndStartTurn('turn_thread_lost', retryContinuationInput())
     return
   }
   if (decision.action === 'durable_retry') throw durableRetryError(input.error)

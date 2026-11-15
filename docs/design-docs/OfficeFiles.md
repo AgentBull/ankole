@@ -354,26 +354,44 @@ canvas, collapsible thumbnail rail, and speaker notes panel:
 
 ## Fonts
 
-Ankole ships one open-licensed site-wide font bundle for deterministic Office
-layout and rendering:
+Ankole ships one open-licensed site-wide font bundle (`AgentBull/ankole-fonts`,
+`v2-3544df1485c63aaf`) so the Agent Computer Worker, the control-plane kernel,
+and browser WebAssembly Workers render Office documents with deterministic
+metrics and CJK scripts without external CDN fetches:
 
 | Faces | Coverage |
 | --- | --- |
 | Source Sans 3, Source Serif 4, Inter, JetBrains Mono | Engine default UI, body, serif, and monospace faces |
 | Carlito, Caladea | Metric-compatible substitutes for Calibri and Cambria |
 | Liberation Sans, Serif, and Mono | Metric-compatible substitutes for Arial, Times New Roman, and Courier New |
-| Noto Sans CJK and Noto Serif CJK (SC, TC, JP, KR) | Simplified Chinese, Traditional Chinese, Japanese, and Korean faces |
+| IBM Plex Sans SC, 寒蝉锦书宋 (`ChillJinshuSong`), LXGW WenKai GB (`霞鹜文楷 GB`), IBMPlexMonoSCHalf | Simplified Chinese sans, Song/serif (`宋体` / `华文宋体`), Kai/FangSong (`楷体` / `华文楷体` / `STKaiti` / `仿宋`), and monospace faces |
+| Noto Sans CJK and Noto Serif CJK (TC, JP, KR) | Traditional Chinese, Japanese, and Korean sans and serif variable faces |
 
-`app/control_plane/scripts/fetch-office-fonts.mjs` downloads each `.ttf` file
-and license notice at a pinned SHA-256 digest during the container image build
-into `/usr/share/ankole/fonts` (`ANKOLE_OFFICE_FONTS_DIR`), writes a
-content-addressed `manifest.json`, and lists every license in
-`THIRD-PARTY-NOTICES.txt`; `AnkoleWeb.Endpoint` serves those immutable font
-files under `/fonts/office`.
+`app/control_plane/scripts/fetch-office-fonts.mjs` resolves each `.ttf` asset
+and license file from a local `ANKOLE_FONTS_SOURCE_DIR` directory or the pinned
+`AgentBull/ankole-fonts` GitHub Release, verifies every file's SHA-256 digest,
+writes content-addressed `<stem>-<sha12>.ttf` files with pre-compressed `.gz`
+sidecars, emits `manifest.json` and `THIRD-PARTY-NOTICES.txt` into
+`/usr/share/ankole/fonts` (`ANKOLE_OFFICE_FONTS_DIR`, or `var/office-fonts` in
+local development via `bun run fonts:office`), and removes stale artifacts.
+`AnkoleWeb.Endpoint` serves `manifest.json` and `THIRD-PARTY-NOTICES.txt` under
+`/fonts/office` with `public, max-age=300` and serves the content-addressed
+`.ttf` blobs with `public, max-age=31536000, immutable` and static `.gz`
+negotiation.
 
-Because both `wordcraft-fonts` and `deckcraft-fonts` memoize loaded `FontFace`
-data in a process-global table via `Box::leak`, Ankole separates font loading
-by runtime:
+Both `wordcraft-fonts` and `deckcraft-fonts` share identical cross-family CJK
+substitution tables (`微软雅黑` / `PingFang SC` → `IBM Plex Sans SC`,
+`宋体` / `SimSun` → `寒蝉锦书宋`, `华文楷体` / `STKaiti` / `楷体` / `仿宋` →
+`LXGW WenKai GB`), treat localized names of first-party families
+(`ChillJinshuSong` ↔ `寒蝉锦书宋`, `LXGW WenKai GB` ↔ `霞鹜文楷 GB`) as true
+aliases (`substituted == false`), and rank East Asian character fallback
+deterministically (`IBM Plex Sans SC` → `寒蝉锦书宋` → `LXGW WenKai GB` →
+`IBMPlexMonoSCHalf` → regional `Noto TC/JP/KR`) independently of font load
+order. Display and PDF export substitutions never rewrite the declared font
+names inside the `.docx` or `.pptx` archive.
+
+Because both engines memoize loaded `FontFace` data in a process-global table,
+Ankole separates font loading by runtime:
 
 - **Control plane (BEAM NIF).** `office_create_blank`, `office_open`,
   `office_apply`, `office_export`, `office_export_with_checkpoint`,
@@ -381,17 +399,19 @@ by runtime:
   document models without touching `FontDb`. Headless Agent command batches
   (`office.apply`) and page/slide PNG rendering (`office.render`) lazily
   initialize each engine's site-wide `FontDb` once on first call from
-  `ANKOLE_OFFICE_FONTS_DIR` (falling back to `/usr/share/ankole/fonts` or
-  `priv/static/fonts/office`) with host system fallback disabled, and never load
-  per-document embedded fonts into BEAM memory.
+  `ANKOLE_OFFICE_FONTS_DIR` (falling back to `/usr/share/ankole/fonts`, local
+  `var/office-fonts`, or `priv/static/fonts/office`) with host system fallback
+  disabled, and never load per-document embedded fonts into BEAM memory.
 - **Browser Web Worker.** Each open Office Page or preview runs in an isolated
-  Web Worker that inspects both `substituted_fonts` (requested font families
-  absent from the bundle) and `missing_glyph_fonts()` (characters mapped to the
-  `.notdef` glyph under a loaded Latin face such as Source Sans 3 or Carlito),
-  selectively fetches only the matching families or regional Noto CJK faces from
-  `/fonts/office/manifest.json` (plus any fonts embedded in that file) into its
-  own WASM linear memory without raising false font-substitution warnings, and
-  releases all memory when the Worker terminates.
+  Web Worker that inspects both `substituted_fonts` and `missing_glyph_fonts()`,
+  selectively fetches only the matching families from `/fonts/office/manifest.json`
+  (deferring generic `IBM Plex Sans SC` glyph fallback on the first pass when a
+  specific CJK substitution such as `华文楷体` or `宋体` is already queued),
+  advances the `FontDb` generation when registering dynamically fetched faces so
+  cached font matches and page layouts reflow automatically, holds the initial
+  loading skeleton (up to a bounded timeout) and PDF export until pending font
+  fetches settle with a single automatic retry on transient HTTP errors, and
+  releases all WASM linear memory when the Worker terminates.
 
 ## Read-only previews
 

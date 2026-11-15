@@ -240,12 +240,35 @@ describe('the normal form keeps what a reader sees', () => {
     expect(parseMarkdown('` `\n`  `\nx<u> </u>\ny')).toEqual(
       page(p(e('code', {}, [t(' ')]), ' ', e('code', {}, [t('  ')]), ' x', e('u', {}, [t(' ')]), ' y'))
     )
+    // Cross-atom breaks observe the post-normalization left neighbour and supplementary CJK characters.
+    expect(parseXml('<page><p><u>中\n</u>\n文 𠮷\n𠮷 <code>a\r\nb\rc\nd</code></p></page>')).toEqual(
+      page(p(e('u', {}, [t('中')]), '文 𠮷𠮷 ', e('code', {}, [t('a b c d')])))
+    )
   })
   test('white space at the edges of bold and italic text is plain', () => {
     expect(parseXml('<page><p><strong>bold </strong>after <em> x</em></p></page>')).toEqual(
       page(p(e('strong', {}, [t('bold')]), ' after  ', e('em', {}, [t('x')])))
     )
+    expect(parseXml('<page><p>a<em>   </em>b<strong>\u00a0x\u3000</strong></p></page>')).toEqual(
+      page(p('a   b\u00a0', e('strong', {}, [t('x')]), '\u3000'))
+    )
     expect(printMarkdown(parseMarkdown('*a **b** c*'))).toBe('*a **b** c*')
+  })
+  test('line break and emphasis normalization scales linearly on long whitespace and repeated inline atoms', () => {
+    const start = performance.now()
+    const tabMarkdown = `**a\nb${'\t'.repeat(32_000)}c**`
+    expect(parseMarkdown(tabMarkdown)).toEqual(page(p(e('strong', {}, [t(`a b${'\t'.repeat(32_000)}c`)]))))
+
+    const spaceMarkdown = `**a${' '.repeat(32_000)}b**`
+    expect(parseMarkdown(spaceMarkdown)).toEqual(page(p(e('strong', {}, [t(`a${' '.repeat(32_000)}b`)]))))
+
+    const repeatedAtomsXml = `<page><p>a${'<em>\n</em>'.repeat(8_000)}b</p></page>`
+    expect(parseXml(repeatedAtomsXml)).toEqual(page(p(`a${' '.repeat(8_000)}b`)))
+
+    const repeatedCjkAtomsXml = `<page><p>中${'<em>\n</em>'.repeat(8_000)}文</p></page>`
+    expect(parseXml(repeatedCjkAtomsXml)).toEqual(page(p('中文')))
+
+    expect(performance.now() - start).toBeLessThan(1_000)
   })
   test('format order and adjacent formats do not matter', () => {
     expect(parseXml('<page><p><em><strong>x</strong></em><u>a</u><u>b</u></p></page>')).toEqual(

@@ -76,6 +76,7 @@ const TARGETS: WasmTarget[] = [
 ]
 
 const toolsRoot = join(kernelRoot, 'target/wasm-tools')
+const wasmTargetDir = join(kernelRoot, 'target/wasm-build')
 
 function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, { cwd: kernelRoot, stdio: 'inherit' })
@@ -99,6 +100,8 @@ function wasmBindgen(): string {
 
 runCargo([
   'build',
+  '--target-dir',
+  wasmTargetDir,
   ...TARGETS.flatMap(target => ['-p', target.crateName]),
   '--target',
   'wasm32-unknown-unknown',
@@ -118,7 +121,7 @@ const kib = (n: number) => `${(n / 1024).toFixed(1)} KiB`
 
 for (const target of TARGETS) {
   const outDir = join(kernelRoot, 'dist', target.dirName)
-  const built = join(kernelRoot, 'target/wasm32-unknown-unknown/wasm-release', `${target.crateName}.wasm`)
+  const built = join(wasmTargetDir, 'wasm32-unknown-unknown/wasm-release', `${target.crateName}.wasm`)
   const bindgenWasm = join(outDir, `${target.crateName}_bg.wasm`)
   const declarations = `${target.crateName}.d.ts`
 

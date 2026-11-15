@@ -176,8 +176,8 @@ defmodule Ankole.Sessions.Context do
   @spec runtime(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def runtime(session_key, opts \\ []) when is_map(session_key) do
     with {:ok, turn_basis} <- turn_basis(session_key.agent_uid, opts),
-         {:ok, custom_model_profiles} <-
-           ModelProfiles.list_custom_model_profiles(session_key.agent_uid) do
+         {:ok, delegation_profiles} <-
+           ModelProfiles.available_delegation_profiles(session_key.agent_uid) do
       model_ref = turn_basis.model_ref
 
       {:ok,
@@ -187,7 +187,8 @@ defmodule Ankole.Sessions.Context do
            request_context(
              turn_basis.runtime_policy,
              Keyword.get(opts, :request_context, %{})
-             |> Map.put("custom_model_profiles", custom_model_profiles)
+             |> Map.put("custom_model_profiles", delegation_profiles.custom_profiles)
+             |> Map.put("delegation_tier_profiles", delegation_profiles.built_in_tiers)
              # The usage ledger and traces attribute every provider round of
              # this Turn to its Session and to the model profile it requested.
              |> Map.put("session_id", session_key.session_id)

@@ -294,12 +294,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         } = ctx
       ) do
     put_real_model_profile!(agent.uid, provider_id, "primary", @real_coding_model, %{})
-    put_real_model_profile!(agent.uid, provider_id, "heavy", @real_coding_model, %{})
 
     put_real_model_profile!(
       agent.uid,
       Map.get(ctx, :coding_provider_id, provider_id),
-      "coding",
+      "heavy",
       Map.get(ctx, :coding_model, @real_coding_model),
       Map.get(ctx, :coding_provider_options, %{})
     )
@@ -535,7 +534,6 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       }) do
     put_real_model_profile!(agent.uid, provider_id, "primary", @real_coding_model, %{})
     put_real_model_profile!(agent.uid, provider_id, "heavy", @real_coding_model, %{})
-    put_real_model_profile!(agent.uid, provider_id, "coding", @real_coding_model, %{})
     put_agent_inactivity_timeout!(agent.uid, @codex_real_llm_inactivity_timeout_ms)
 
     mention = lark_bot_mention()

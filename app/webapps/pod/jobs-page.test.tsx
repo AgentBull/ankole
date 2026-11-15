@@ -165,12 +165,68 @@ test('status board renders 3 columns, pins attention items at the top of Running
   expect(clean).toContain('Running')
   expect(clean).toContain('Completed')
   expect(clean).toContain('Alice Assistant working')
+  expect(clean).toContain('1 needs attention')
   expect(clean).toContain('0 9 * * 1-5')
   expect(clean).toContain('12 steps · +2')
   expect(clean).toContain('Needs input')
 
-  // Attention card (`Blocked deployment job`) is rendered ahead of `Normal running indexing job`.
+  // Attention card (`Blocked deployment job`) is rendered ahead of `Normal running indexing job` with warning tone.
   expect(html.indexOf('Blocked deployment job')).toBeLessThan(html.indexOf('Normal running indexing job'))
+  expect(html).toContain('data-tone="warning"')
+})
+
+test('cards surface summary snippets and determinate plan progress bars, and URL search/filters narrow the board', async () => {
+  const items: JobBoardItem[] = [
+    makeItem({
+      id: 'job:50',
+      rawID: '50',
+      kind: 'background_agent_job',
+      cardType: 'one_off',
+      column: 'running',
+      status: 'running',
+      title: 'Synthesize Q4 revenue signals',
+      summary: 'Cross-checking regional cohorts against CRM exports.',
+      planCompleted: 3,
+      planTotal: 5,
+      chainLength: 2
+    }),
+    makeItem({
+      id: 'job:51',
+      rawID: '51',
+      kind: 'workflow',
+      cardType: 'one_off',
+      column: 'running',
+      status: 'failed',
+      title: 'Broken ingestion pipeline',
+      summary: 'Upstream S3 bucket returned 403.',
+      attention: true,
+      attentionReason: 'failed',
+      agentUID: 'ops-bot',
+      agentName: 'Ops Colleague'
+    })
+  ]
+
+  const fullHtml = await renderJobsAt('/jobs', client => {
+    client.setQueryData(jobsKeys.board, { items, agents: sampleAgents })
+  })
+  expect(fullHtml).toContain('Cross-checking regional cohorts against CRM exports.')
+  expect(fullHtml).toContain('data-slot="board-card-progress"')
+  expect(fullHtml).toContain('>3/5 · +1</span>')
+  expect(fullHtml).toContain('data-tone="danger"')
+
+  const searchedHtml = await renderJobsAt('/jobs?q=cohorts', client => {
+    client.setQueryData(jobsKeys.board, { items, agents: sampleAgents })
+  })
+  expect(searchedHtml).toContain('Synthesize Q4 revenue signals')
+  expect(searchedHtml).not.toContain('Broken ingestion pipeline')
+  expect(searchedHtml).toContain('No scheduled routines')
+  expect(searchedHtml).toContain('No completed jobs yet')
+
+  const emptyFilteredHtml = await renderJobsAt('/jobs?q=nonexistent-keyword&kind=cron', client => {
+    client.setQueryData(jobsKeys.board, { items, agents: sampleAgents })
+  })
+  expect(emptyFilteredHtml).toContain('No jobs match the current search or filters.')
+  expect(emptyFilteredHtml).toContain('Clear filters')
 })
 
 test('By Agent view groups jobs per Agent and separates Page automations', async () => {

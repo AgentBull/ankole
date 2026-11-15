@@ -1348,11 +1348,6 @@ export const modelAdvanced = {
       title: '按需配置可选能力档案',
       fields: [
         {
-          name: '后台 Agent 任务',
-          description:
-            '选择持久后台 Agent 任务所使用的提供商和模型（内部存储键为 coding 档案；留空时沿 heavy -> primary 自动回退）。'
-        },
-        {
           name: 'vision_fallback',
           description: '主模型不支持图像输入时自动切换使用的视觉模型。'
         },
@@ -2521,7 +2516,7 @@ export const signalAdvanced = {
 | **投递（Delivery）** | 向外部对话发送回复时的持久化投递意图、尝试记录与最终回执 | 投递 |
 | **信号路由规则（Signal Binding）** | 定义将哪个信号源收到的消息或事件转交给哪位 Agent 处理的绑定规则 | 路由规则 |
 | **大语言模型提供商（LLM Provider）** | 保存模型接口地址、访问凭证及可用模型列表的配置 | 模型提供商 |
-| **后台 Agent 任务档案（内部键：`coding`）** | 指定后台 Agent 任务所使用的 AIGateway 提供商与模型 | 后台 Agent 任务 |
+| **模型档案（Model Profile）** | 按 `Site -> Pod -> Agent/System` 三层稀疏继承的能力槽位（如 `primary`、`light`、`heavy` 及多模态与检索槽位） | 模型档案 |
 
 ## 让 Agent 帮你完成安装
 
@@ -2589,13 +2584,13 @@ Ankole 专为企业私有化部署设计。一套站点可承载多个租户；�
 
 模型档案通过引用已登记的模型提供商解析路由，因此请先登录 Console 打开 **模型提供商 → 新增提供商**，选择提供商类型，粘贴 API 密钥并保存。Console 会自动给出 Provider ID，接口地址默认使用该提供商的官方地址；只有 Azure OpenAI 这类按资源分配地址的服务，以及自建或兼容端点，才需要填写地址。控制面会对所有提供商凭证加密存储，切勿将模型 API 密钥写入部署环境变量或 Agent 工作区文件中。
 
-接着打开 **Console → Model Profiles**，配置站点默认的语言模型槽位，所有 Pod 和 Agent 都会继承（按 `Site -> Pod -> Agent/System` 三层稀疏继承，并支持 `coding -> heavy -> primary` 与 `light -> primary` 自动回退）：
+接着打开 **Console → Model Profiles**，配置站点默认的语言模型槽位，所有 Pod 和 Agent 都会继承（按 `Site -> Pod -> Agent/System` 三层稀疏继承，并支持 `heavy -> primary` 与 `light -> primary` 自动回退）：
 
 | Profile | 建议用途 |
 |---|---|
-| `primary` | 日常对话与工具调用使用的主模型（必填；`light` 与 `coding -> heavy` 未配置时均回退至此） |
+| `primary` | 日常对话与工具调用使用的主模型（必填；`light` 与 `heavy` 未配置时均回退至此） |
 | `light` | 高频、低成本轻量回合与 `ankole_brain` 日常事实抽取 |
-| `heavy` | 高复杂度深度综合、离线 Dreaming 归纳与技能教训复审 |
+| `heavy` | 高复杂度深度综合、持久后台 Agent 任务、离线 Dreaming 归纳与技能教训复审 |
 
 首次跑通链路时，只需在站点默认配置里为 `primary` 绑定一个已验证可用的提供商和模型，所有 Agent 与 `ankole_brain` 即可直接运行；待确认端到端对话顺畅后，再将 `light` 与 `heavy` 拆分为不同档位的模型。
 

@@ -3,13 +3,27 @@ defmodule Ankole.Mix.DependencyPatches do
 
   def aliases do
     [
-      "deps.compile": [&prepare_deps_compile/1, "deps.compile", &finalize_deps_compile/1],
-      "deps.loadpaths": [
-        &compile_ash_dependencies/1,
-        "deps.loadpaths",
-        &write_ash_patches_stamp_after_loadpaths/1
-      ]
+      "deps.compile": [&deps_compile_with_lock/1],
+      "deps.loadpaths": [&deps_loadpaths_with_lock/1]
     ]
+  end
+
+  defp deps_compile_with_lock(args) do
+    Mix.Project.with_build_lock(fn ->
+      prepare_deps_compile(args)
+      result = Mix.Task.run("deps.compile", args)
+      finalize_deps_compile(args)
+      result
+    end)
+  end
+
+  defp deps_loadpaths_with_lock(args) do
+    Mix.Project.with_build_lock(fn ->
+      compile_ash_dependencies(args)
+      result = Mix.Task.run("deps.loadpaths", args)
+      write_ash_patches_stamp_after_loadpaths(args)
+      result
+    end)
   end
 
   @patches [
@@ -50,11 +64,13 @@ defmodule Ankole.Mix.DependencyPatches do
   # Patch before deps.compile takes its dependency snapshot. Gives the
   # dependencies that this call patched.
   defp patch_ash_dependencies(_args) do
-    for {dependency_name, filename} <- @patches,
-        dependency = Path.join(Mix.Project.deps_path(), dependency_name),
-        File.dir?(dependency),
-        apply_patch(dependency_name, dependency, filename) == :patched,
-        do: dependency_name
+    Mix.Project.with_deps_lock(fn ->
+      for {dependency_name, filename} <- @patches,
+          dependency = Path.join(Mix.Project.deps_path(), dependency_name),
+          File.dir?(dependency),
+          apply_patch(dependency_name, dependency, filename) == :patched,
+          do: dependency_name
+    end)
   end
 
   defp apply_patch(dependency_name, dependency, filename) do

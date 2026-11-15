@@ -135,7 +135,7 @@ defmodule Ankole.AshResourceConstraintsTest do
         title: "Constraint test",
         task: "Keep the database constraint.",
         reply_route: %{},
-        model_profile: "coding"
+        model_profile: "heavy"
       }
       |> job_id()
 

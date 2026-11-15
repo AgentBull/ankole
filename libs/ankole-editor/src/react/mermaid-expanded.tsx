@@ -1,4 +1,5 @@
-import { materializePeleSvg, rasterizeSvgToPngDataUrl, resolveVizTheme } from '@ankole/uikit'
+import { rasterizeSvgToPngDataUrl, resolveVizTheme } from '@ankole/uikit'
+import { materializePeleSvg } from '@ankole/uikit/viz/svg-export'
 import { ArrowDownloadRegular, DismissRegular } from '@ankole/uikit/icons'
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'

@@ -36,7 +36,7 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 ## model profile スロットをダイヤルとして扱う
 
-Agent に用意されている 8 つの組み込みモデルプロファイル枠（`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate`）は、用途とコストを調整するためのダイヤルとして使い分けます。
+Agent に用意されている 7 つの組み込みモデルプロファイル枠（`primary`、`light`、`heavy`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate`）は、用途とコストを調整するためのダイヤルとして使い分けます。
 
 - **`primary`：** 短い質疑応答が中心の Agent なら軽量で安価なモデルに抑え、コストよりも推論品質が重視される役割なら上位モデルを割り当てます。
 - **`light`：** 高頻度・低リスクの内部処理で使われるため、本当に高速で安価なモデルをバインドしてください。

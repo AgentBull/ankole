@@ -69,30 +69,64 @@ defmodule Ankole.Sessions.Tool do
   def deferred?(%__MODULE__{schema: schema}),
     do: Map.get(schema, "defer_loading") == true
 
-  def with_profiles(tool, profiles, default) do
-    description =
-      if profiles == [] do
-        "No custom model profile is available; omit model_profile to use the default #{default} profile."
-      else
-        "Available custom model profiles: " <>
-          Enum.map_join(
-            Enum.sort_by(profiles, & &1["name"]),
-            ", ",
-            &"#{&1["name"]} (#{&1["description"]})"
-          ) <>
-          ". Omit model_profile unless the human asks for one of these profiles by name; " <>
-          "the default #{default} profile is the Agent's standard model for this work."
-      end
+  def with_profiles(tool, profiles, default, opts \\ []) do
+    tiers =
+      opts
+      |> Keyword.get(:tiers, [])
+      |> Enum.filter(&(&1 in ~w(light primary heavy)))
 
+    sorted_profiles = Enum.sort_by(profiles, & &1["name"])
+    enum_values = tiers ++ Enum.map(sorted_profiles, & &1["name"])
+    description = profile_description(tiers, sorted_profiles, default)
     tool = Map.update!(tool, "description", &(&1 <> " " <> description))
 
-    if profiles == [],
+    if enum_values == [],
       do: tool,
       else:
         put_in(tool, ["parameters", "properties", "model_profile"], %{
           "type" => "string",
-          "enum" => profiles |> Enum.map(& &1["name"]) |> Enum.sort()
+          "enum" => enum_values
         })
+  end
+
+  defp profile_description([], [], :source),
+    do: "Omit model_profile to inherit the source job's model profile."
+
+  defp profile_description([], [], default),
+    do:
+      "No custom model profile is available; omit model_profile to use the default #{default} profile."
+
+  defp profile_description(tiers, sorted_profiles, default) do
+    default_sentence =
+      case default do
+        :source ->
+          "Omit model_profile to inherit the source job's model profile."
+
+        profile ->
+          "Omit model_profile to use the default #{profile} profile."
+      end
+
+    tier_sentence =
+      if tiers == [] do
+        nil
+      else
+        "Capability tiers: " <>
+          Enum.join(tiers, ", ") <>
+          " (light for bounded stateless or mechanical work, primary for standard work, heavy for complex synthesis or construction)."
+      end
+
+    custom_sentence =
+      if sorted_profiles == [] do
+        nil
+      else
+        "Available custom model profiles: " <>
+          Enum.map_join(sorted_profiles, ", ", &"#{&1["name"]} (#{&1["description"]})") <>
+          ". Select a custom profile only when the user or an active Skill names it."
+      end
+
+    [default_sentence, tier_sentence, custom_sentence]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
   end
 
   # A function tool without `strict` is strict on the OpenAI Responses API. In

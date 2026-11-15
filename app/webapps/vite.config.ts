@@ -239,6 +239,18 @@ function forcedExitTimer(): ReturnType<typeof setTimeout> {
 
 export default defineConfig(({ command }): UserConfig => ({
   base: command === 'build' ? '/assets/' : '/',
+  experimental:
+    command === 'build'
+      ? {
+          renderBuiltUrl(_filename, { hostType }) {
+            if (hostType === 'css' || hostType === 'js') return { relative: true }
+            return undefined
+          }
+        }
+      : undefined,
+  worker: {
+    format: 'es'
+  },
   plugins: [
     {
       name: 'ankole-edition-styles',

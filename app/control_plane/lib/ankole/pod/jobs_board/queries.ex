@@ -951,7 +951,7 @@ defmodule Ankole.Pod.JobsBoard.Queries do
         end
 
       can_run_job? =
-        match?({:ok, _}, ModelProfiles.resolve_runtime_profile(principal.uid, "coding"))
+        match?({:ok, _}, ModelProfiles.resolve_runtime_profile(principal.uid, "heavy"))
 
       %{
         uid: principal.uid,

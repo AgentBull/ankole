@@ -65,6 +65,89 @@ defmodule Ankole.Workflow.CreationTest do
              |> Workflow.create_with_dispatch()
   end
 
+  test "create validates delegation model_profile on new runs while preserving idempotent retry after custom profile removal" do
+    %{principal: agent} = agent_fixture()
+
+    {:ok, provider} =
+      Ankole.AIGateway.ProviderConfigs.create_provider(%{
+        provider_id: "wf-dispatch-" <> Ecto.UUID.generate(),
+        provider_kind: "openrouter",
+        base_url: "https://openrouter.ai/api/v1",
+        credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+      })
+
+    assert {:ok, _} =
+             Ankole.AIGateway.ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: provider.provider_id,
+               model: "openai/gpt-5"
+             })
+
+    assert {:ok, _} =
+             Ankole.AIGateway.ModelProfiles.put_model_profile(agent.uid, "review", %{
+               description: "Review specialist",
+               provider_id: provider.provider_id,
+               model: "openai/gpt-5-mini"
+             })
+
+    assert {:error, :invalid_delegation_model_profile} =
+             agent.uid
+             |> valid_attrs()
+             |> Map.put("source_tool_call_id", "wf-invalid-slot")
+             |> Map.put("model_profile", "vision_fallback")
+             |> Workflow.create_with_dispatch()
+
+    assert {:error, :model_profile_not_configured} =
+             agent.uid
+             |> valid_attrs()
+             |> Map.put("source_tool_call_id", "wf-missing-slot")
+             |> Map.put("model_profile", "missing")
+             |> Workflow.create_with_dispatch()
+
+    assert {:ok, %{run: %Run{model_profile: "heavy"}}} =
+             agent.uid
+             |> valid_attrs()
+             |> Map.put("source_tool_call_id", "wf-heavy-tier")
+             |> Map.put("model_profile", " HEAVY ")
+             |> Workflow.create_with_dispatch()
+
+    custom_attrs =
+      agent.uid
+      |> valid_attrs()
+      |> Map.put("source_tool_call_id", "wf-custom-idempotent")
+      |> Map.put("model_profile", "review")
+
+    assert {:ok, %{run: %Run{id: custom_run_id, model_profile: "review"}}} =
+             Workflow.create_with_dispatch(custom_attrs)
+
+    assert {:ok, _} = Ankole.AIGateway.ModelProfiles.put_model_profile(agent.uid, "review", nil)
+
+    assert {:ok, %{run: %Run{id: ^custom_run_id, model_profile: "review"}}} =
+             Workflow.create_with_dispatch(custom_attrs)
+
+    replay_result =
+      Workflow.Replay.commit_replay_pending(
+        custom_run_id,
+        [
+          %{
+            namespace: nil,
+            name: "agent",
+            arguments: %{"prompt" => "Check", "model_profile" => "vision_fallback"}
+          }
+        ],
+        0
+      )
+
+    assert {:ok,
+            %{
+              run: %Run{
+                status: :failed,
+                error: %{"code" => "workflow_agent_call_invalid", "summary" => summary}
+              }
+            }} = replay_result
+
+    assert is_binary(summary)
+  end
+
   defp valid_attrs(agent_uid) do
     %{
       "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,

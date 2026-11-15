@@ -1366,11 +1366,6 @@ export const modelAdvanced = {
       title: 'Add optional capability profiles',
       fields: [
         {
-          name: 'Background Agent Jobs',
-          description:
-            'Selects the provider and model for durable Background Agent Jobs (stored as the coding profile; falls back through heavy -> primary when unset).'
-        },
-        {
           name: 'vision_fallback',
           description: 'Fallback when the primary model cannot inspect an image.'
         },
@@ -2548,7 +2543,7 @@ The table below maps the canonical terms used across Ankole's interfaces and doc
 | **Delivery** | A durable intent, attempt, and result for sending a message to an external conversation | Delivery |
 | **Signal Routing Rule (Signal Binding)** | The rule that routes messages or events from a signal source to a target Agent | Routing rule |
 | **LLM Provider** | A configuration storing a model service endpoint, credentials, and available models | LLM Provider |
-| **Background Agent Jobs profile (internal key: `coding`)** | Selects the AIGateway provider and model for Background Agent Jobs | Background Agent Jobs |
+| **Model Profile** | A capability slot (`primary`, `light`, `heavy`, and multimodal or retrieval slots) inherited across `Site -> Pod -> Agent/System` | Model Profile |
 
 ## Let an Agent complete the setup
 
@@ -2616,13 +2611,13 @@ When enabling an enterprise adapter for the first time, restart the control plan
 
 Register your LLM Provider first: sign in to the Console, open **Providers → New provider**, pick the provider kind, paste its API key, and save. The Console suggests a Provider ID and uses the provider's default endpoint, so only a service that assigns an address per resource, such as Azure OpenAI, or a self-hosted or compatible endpoint needs one. Ankole encrypts provider credentials inside the control plane—never place them in deployment `.env` files or Agent workspace files.
 
-Next, open **Console → Model Profiles** to set your Site defaults across the core language-model slots, which every Pod and Agent inherits (`Site -> Pod -> Agent/System`, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`):
+Next, open **Console → Model Profiles** to set your Site defaults across the core language-model slots, which every Pod and Agent inherits (`Site -> Pod -> Agent/System`, with cross-slot fallbacks `heavy -> primary` and `light -> primary`):
 
 | Profile | First-run use |
 |---|---|
-| `primary` | Main reasoning model (required; `light` and `coding -> heavy` fall back here when unset) |
+| `primary` | Main reasoning model (required; `light` and `heavy` fall back here when unset) |
 | `light` | High-volume, low-cost turns and `ankole_brain` extraction |
-| `heavy` | Complex synthesis, Dreaming, and Skill lesson review |
+| `heavy` | Complex synthesis, Background Agent Jobs, Dreaming, and Skill lesson review |
 
 Binding a known-good provider and model to `primary` in the Site defaults makes every Agent and `ankole_brain` ready to run right away; split `light` and `heavy` onto dedicated tiers once your end-to-end conversation path works.
 

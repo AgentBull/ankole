@@ -2,6 +2,13 @@
 // Policy lives here; algorithms live in ./lib and the per-check modules.
 // Tightening or relaxing a guard should be an edit to THIS file only.
 
+import { camelCase } from '@agentbull/active-support'
+
+function pascalCase(value: string): string {
+  const camel = camelCase(value)
+  return camel ? `${camel.charAt(0).toUpperCase()}${camel.slice(1)}` : ''
+}
+
 /** TypeScript production roots where import/boundary checks are meaningful. */
 export const TYPESCRIPT_ARCHITECTURE_SCAN_ROOTS = [
   'app/agent_computer/src',
@@ -104,19 +111,75 @@ export const UNUSED_KNIP_ARGS = [
   '--no-config-hints'
 ] as const
 
-export const STRUCTURE_KONSISTENT_CONFIG_PATH = 'konsistent.json'
-export const STRUCTURE_KONSISTENT_VALIDATE_ARGS = [
-  'validate',
-  '--config-path',
-  STRUCTURE_KONSISTENT_CONFIG_PATH
-] as const
-export const STRUCTURE_KONSISTENT_CHECK_ARGS = [
-  'check',
-  '--config-path',
-  STRUCTURE_KONSISTENT_CONFIG_PATH,
-  '--format=json',
-  '--max-diagnostics=1000'
-] as const
+export interface StructureImportRequirement {
+  name: string
+  from: string
+}
+
+export interface StructureSourceRule {
+  kind: 'source'
+  name: string
+  directory: string
+  maxDepth?: number
+  subpathPattern: RegExp
+  exportFunctions?: (captures: Record<string, string | undefined>) => string[]
+  importValues?: (captures: Record<string, string | undefined>) => StructureImportRequirement[]
+  declareConstants?: (captures: Record<string, string | undefined>) => string[]
+}
+
+export interface StructureDirectoryRule {
+  kind: 'directory'
+  name: string
+  parentDirectory: string
+  requiredFiles: (entryName: string) => string[]
+}
+
+type StructureRule = StructureSourceRule | StructureDirectoryRule
+
+export const STRUCTURE_RULES: readonly StructureRule[] = [
+  {
+    kind: 'source',
+    name: 'webapp-app-exports',
+    directory: 'app/webapps',
+    maxDepth: 2,
+    subpathPattern: /^(?<appName>auth|console|pod|setup)\/app\.tsx$/,
+    exportFunctions: ({ appName }) => [`${pascalCase(appName!)}App`]
+  },
+  {
+    kind: 'source',
+    name: 'webapp-entrypoints',
+    directory: 'app/webapps/entrypoints',
+    subpathPattern: /^(?<appName>[^/]+)\.tsx$/,
+    importValues: () => [{ name: 'mountApp', from: '../common/mount' }]
+  },
+  {
+    kind: 'source',
+    name: 'webapp-direct-entrypoint-app-imports',
+    directory: 'app/webapps/entrypoints',
+    subpathPattern: /^(?<appName>auth|console|pod)\.tsx$/,
+    importValues: ({ appName }) => [{ name: `${pascalCase(appName!)}App`, from: `../${appName!}/app` }]
+  },
+  {
+    kind: 'source',
+    name: 'webapp-setup-entrypoint-lazy-app',
+    directory: 'app/webapps/entrypoints',
+    subpathPattern: /^setup\.tsx$/,
+    declareConstants: () => ['SetupApp']
+  },
+  {
+    kind: 'source',
+    name: 'computer-tool-factories',
+    directory: 'app/agent_computer/src/tools/computer',
+    subpathPattern: /^(?<toolName>[^/]+)-tool\.ts$/,
+    exportFunctions: ({ toolName }) => [`create${pascalCase(toolName!)}Tool`]
+  },
+  {
+    kind: 'directory',
+    name: 'plugin-root-files',
+    parentDirectory: 'plugins',
+    requiredFiles: pluginName => [`lib/ankole/plugins/${pluginName}.ex`]
+  }
+]
 
 export interface UnusedAllowEntry {
   file: string

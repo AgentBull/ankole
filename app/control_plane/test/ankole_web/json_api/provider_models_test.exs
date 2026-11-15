@@ -268,7 +268,7 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
            } = json_response(conn, 200)
   end
 
-  test "admin manages a ChatGPT credential pool and assigns its provider to coding", %{conn: conn} do
+  test "admin manages a ChatGPT credential pool and assigns its provider to heavy", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     conn = console_conn(conn)
 
@@ -357,7 +357,7 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
     conn =
       conn
       |> recycle_api()
-      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/coding", %{
+      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/heavy", %{
         "provider_id" => "chatgpt-main",
         "model" => "gpt-5.6-sol",
         "provider_options" => %{
@@ -368,7 +368,7 @@ defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
 
     assert %{
              "overrides" => %{
-               "coding" => %{
+               "heavy" => %{
                  "provider_id" => "chatgpt-main",
                  "model" => "gpt-5.6-sol",
                  "provider_options" => %{

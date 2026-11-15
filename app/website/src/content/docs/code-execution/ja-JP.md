@@ -59,7 +59,7 @@ Background Agent Job では、`skill_view` を通じて必要な Skill をオン
 
 `CodexRunner` は、すべての Background Agent Job を駆動する実行エンジンです。コード変更に限らず、トピック調査やドキュメント作成などの長時間タスクもすべて `CodexRunner` 上で動きます（選ばれる基準は作業ジャンルではなく「長時間・再開可能なライフサイクル」にあります）。ランナーは `app-server-client.ts` を通じて Codex app-server と通信し、ジョブ専用の workspace と実行時設定を準備します。
 
-Console 画面上では対応するモデルプロファイルが **Background Agent Jobs** と表示されますが、データベース上の保存キーおよび API 上の名称は `coding` です。
+Background Agent Job は既定で `heavy` モデルプロファイルを使用し（未設定時は `primary` へフォールバック）、委譲時に `light`、`primary`、またはカスタムプロファイルを明示指定することもできます。
 
 ## これらのパスの選択方法
 
@@ -67,11 +67,11 @@ Console 画面上では対応するモデルプロファイルが **Background A
 
 - **Computer tools**（`command`、`read_file`、`apply_patch`）はすべての Worker に標準搭載されており、通常の会話 Turn で利用できます。
 - **Jupyter live kernel** は `default_enabled` の Skill として提供されているため、[browser](../browser-automation/) Skill と同じく [Agent Library](../agent-library/) から有効・無効を制御します。対話的な Python 実行を許可したくない Agent では無効化してください。
-- **CodexRunner** はすべての Background Agent Job を実行し、モデル呼び出しはすべて AIGateway を通ります。バックグラウンドジョブで通常とは別の provider やモデルを使いたい場合は Background Agent Jobs プロファイルを設定してください（未設定の場合はその Agent の `heavy` プロファイルが使われます）。
+- **CodexRunner** はすべての Background Agent Job を実行し、モデル呼び出しはすべて AIGateway を通ります。バックグラウンドジョブで通常とは別の provider や上位モデルを使いたい場合は `heavy` プロファイルを設定してください（未設定の場合はその Agent の `primary` プロファイルが使われます）。
 
 ## 次のステップ
 
 - これらのツールを実行し `/workspace` ファイルシステムを保持する Worker の詳細については、[Agent Computer Worker](../agent-computer-worker/) を参照してください。
 - Jupyter Skill などの有効化モデルの仕組みについては、[Agent Library](../agent-library/) を参照してください。
-- 内部キー `coding` に対応する Background Agent Jobs プロファイルの設定については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を参照してください。
+- バックグラウンドジョブが使用する `heavy` プロファイルの設定については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を参照してください。
 - Worker の信頼境界とセキュリティ強化手順については、[Security hardening](../security-hardening/) を参照してください。

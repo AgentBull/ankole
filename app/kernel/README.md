@@ -70,16 +70,20 @@ dependencies do not build for WebAssembly:
   `test/fixtures/spreadsheet/corpus`, which every GridCraft upgrade must keep
   green.
 - `word/` (`ankole_word`) - host-neutral Word documents over WordCraft, pinned
-  to one Git revision. It opens `.docx` and `.docm` archives, derives and
-  rebases top-level block `ChangeSet` operations with inline marker validation,
-  runs headless Agent commands, renders page PNGs, and converts Word documents
-  directly into validated `page_document` XML with extracted media assets.
+  to one Git revision (with `vendor/wordcraft-fonts` keeping font catalog
+  generation tracking, CJK family substitution, and East Asian glyph fallback
+  deterministic across hosts). It opens `.docx` and `.docm` archives, derives
+  and rebases top-level block `ChangeSet` operations with inline marker
+  validation, runs headless Agent commands, renders page PNGs, and converts Word
+  documents directly into validated `page_document` XML with extracted media
+  assets.
 - `presentation/` (`ankole_presentation`) - host-neutral presentations over
   DeckCraft, pinned to one Git revision and aligned with `ankole_word` on one
   shared `storytold/craft-libs` revision (with `vendor/deckcraft-fonts` keeping
-  the font loader deterministic across hosts). It opens `.pptx` archives,
-  derives and rebases whole-slide `ChangeSet` operations with base64 media
-  wrappers, runs headless Agent commands, and renders slide PNGs.
+  the font loader and CJK substitution rules deterministic across hosts). It
+  opens `.pptx` archives, derives and rebases whole-slide `ChangeSet` operations
+  with base64 media wrappers, runs headless Agent commands, and renders slide
+  PNGs.
 - `spreadsheet-wasm/` (`ankole_spreadsheet_wasm`), `word-wasm/`
   (`ankole_word_wasm`), and `presentation-wasm/` (`ankole_presentation_wasm`) -
   the wasm-bindgen wrappers that run the three Office engines inside Pod's Web
@@ -87,7 +91,7 @@ dependencies do not build for WebAssembly:
   `bun run --filter @ankole/kernel build:wasm` (also the package `build`
   script, so Turbo builds all three before the webapps) writes the modules to
   `dist/spreadsheet-wasm/`, `dist/word-wasm/`, and `dist/presentation-wasm/`
-  with `CRAFT_I18N_DIR=""` and `CRAFT_FONTS_DIR=""`. `@ankole/kernel/<kind>-wasm`
+  with `CRAFT_I18N_DIR` and `CRAFT_FONTS_DIR` unset. `@ankole/kernel/<kind>-wasm`
   exports each module with its generated declarations in
   `<kind>-wasm/ankole_<kind>_wasm.d.ts` (tracked in git so type checks need no
   Rust toolchain), and `@ankole/kernel/<kind>-wasm/*` exposes the `.wasm`

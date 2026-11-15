@@ -251,19 +251,19 @@ defmodule AnkoleWeb.SpaController do
         lang: pod_locale(),
         icons: [
           %{
-            src: ~p"/images/pwa-192.png",
+            src: Assets.static_path(~p"/images/pwa-192.png"),
             sizes: "192x192",
             type: "image/png",
             purpose: "any"
           },
           %{
-            src: ~p"/images/pwa-512.png",
+            src: Assets.static_path(~p"/images/pwa-512.png"),
             sizes: "512x512",
             type: "image/png",
             purpose: "any maskable"
           },
           %{
-            src: ~p"/images/logo.svg",
+            src: Assets.static_path(~p"/images/logo.svg"),
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any"
@@ -390,10 +390,10 @@ defmodule AnkoleWeb.SpaController do
       to_string(conn.status || 200),
       "\">\n",
       "    <link rel=\"icon\" type=\"image/svg+xml\" href=\"",
-      html_escape(~p"/images/logo.svg"),
+      html_escape(Assets.static_path(~p"/images/logo.svg")),
       "\">\n",
       "    <link rel=\"icon\" href=\"",
-      html_escape(~p"/favicon.ico"),
+      html_escape(Assets.static_path(~p"/favicon.ico")),
       "\" sizes=\"48x48\">\n",
       pod_manifest_link(entry),
       "    <title>",
@@ -412,6 +412,7 @@ defmodule AnkoleWeb.SpaController do
         html_escape(PodURL.site_origin(conn)),
         "\">\n"
       ],
+      static_base_meta(),
       login_tenant_meta(conn),
       authentication_meta(conn, entry),
       console_path_meta(entry),
@@ -430,6 +431,20 @@ defmodule AnkoleWeb.SpaController do
       "  </body>\n",
       "</html>\n"
     ]
+  end
+
+  defp static_base_meta do
+    case Assets.static_base() do
+      "" ->
+        []
+
+      base ->
+        [
+          "<meta name=\"ankole-static-base\" content=\"",
+          html_escape(base),
+          "\">\n"
+        ]
+    end
   end
 
   defp login_tenant_meta(%{assigns: %{login_tenant_id: tenant_id}})

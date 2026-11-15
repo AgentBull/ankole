@@ -11,14 +11,13 @@ Ankole에서 발생하는 지출의 대부분은 모델 토큰 비용이며, 통
 
 ## 레버 1: model-profile 계층
 
-모델 프로필(Model Profile)은 **Console → Model Profiles**의 3계층 희소 상속 체인(`Site -> Pod -> Agent/System`)을 따라 해석됩니다. 각 Agent는 8개의 기본 슬롯(언어 모델 5개와 `web_search`, `web_fetch`, `image_generate`)을 제공하며, Site·Pod 및 내장 `system` Principal(`ankole_brain`, `system`)은 `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, `music` 슬롯을 추가로 제공합니다. 비워 둔 슬롯은 Pod와 Site 기본값을 상속하며 `coding -> heavy -> primary` 및 `light -> primary` 슬롯 간 폴백이 적용됩니다.
+모델 프로필(Model Profile)은 **Console → Model Profiles**의 3계층 희소 상속 체인(`Site -> Pod -> Agent/System`)을 따라 해석됩니다. 각 Agent는 7개의 기본 슬롯(언어 모델 4개와 `web_search`, `web_fetch`, `image_generate`)을 제공하며, Site·Pod 및 내장 `system` Principal(`ankole_brain`, `system`)은 `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, `music` 슬롯을 추가로 제공합니다. 비워 둔 슬롯은 Pod와 Site 기본값을 상속하며 `heavy -> primary` 및 `light -> primary` 슬롯 간 폴백이 적용됩니다.
 
 | 슬롯 | 실행 시점 | 비용 레버 |
 |---|---|---|
 | `primary` | 주력 추론 모델 — 대부분의 일반 턴 | 단일 최대 비용 항목 |
 | `light` | 대량 처리·저위험 경로(미설정 시 `primary`로 폴백) | 대량 작업이 `primary` 단가로 과금되지 않도록 저렴한 모델을 연결해야 함 |
-| `heavy` | 고난도 종합(synthesis) 작업 및 Dreaming | 단가가 높음. `primary`가 적절히 설정되어 있으면 드물게 호출됨 |
-| Background Agent Jobs(내부 키 `coding`) | 모든 Background Agent Job(`coding -> heavy -> primary` 폴백) | 장기 백그라운드 작업에 사용할 프로바이더와 모델 선택 |
+| `heavy` | 고난도 종합(synthesis) 작업, Background Agent Job 및 Dreaming(미설정 시 `primary`로 폴백) | 복합 추론과 장기 백그라운드 작업에 사용할 프로바이더와 모델 선택 |
 | `vision_fallback` | `primary` 모델이 이미지를 처리할 수 없을 때 | Agent가 이미지를 읽어야 할 때만 바인딩 |
 | `web_search`, `web_fetch` | 웹 도구 | 레버 3 참조 |
 | `image_generate` | 이미지 생성 | 호출당 단가가 높음. 실제로 사용할 때만 바인딩 |
@@ -40,7 +39,7 @@ Company Brain 유지보수와 Pod Applet 호출은 실행 주체가 다릅니다
 - **Site 또는 Pod 수준에서 `light`에 저렴한 모델을 연결하세요.** `light`는 비워 두면 `primary`로 폴백하며, 대량 보조 경로와 `ankole_brain` 사실 추출을 모두 담당합니다. 기본 계층에서 경량 모델을 지정해 두면 이를 상속하는 모든 Agent와 `ankole_brain`의 비용이 함께 절감됩니다.
 - **`primary`는 균형 잡힌 등급에서 시작하고, 꼭 필요한 전문 Agent만 상향하세요.** 유독 비용이 많이 나오는 Agent를 살펴보면 실제 맡은 업무에 비해 과도하게 무거운 모델이 `primary`에 연결된 경우가 많습니다. 결과 품질상 상위 모델이 꼭 필요한 전문 Agent에만 `primary`나 `heavy`를 재정의하세요.
 
-Agent 재정의를 바꾸기 전에 Site와 Pod에서 상속된 실효 프로필을 확인하세요. 실효 `vision_fallback` 프로필이 비어 있으면 이미지 입력 폴백을 사용할 수 없습니다. 이미지 생성의 **모델의 Provider가 실행**이 켜져 있으면 메인 Provider의 네이티브 기능을 사용하고 전용 프로필은 무시합니다. `image_generate`를 사용하려면 이 스위치를 끄세요. Background Agent Jobs(`coding`) 역시 비워 두면 AIGateway를 통해 `heavy -> primary` 순서로 폴백하여 실행되므로, 백그라운드 작업에 전용 코딩 모델이나 구독 풀을 지정하고 싶을 때 `coding` 슬롯을 구성하세요.
+Agent 재정의를 바꾸기 전에 Site와 Pod에서 상속된 실효 프로필을 확인하세요. 실효 `vision_fallback` 프로필이 비어 있으면 이미지 입력 폴백을 사용할 수 없습니다. 이미지 생성의 **모델의 Provider가 실행**이 켜져 있으면 메인 Provider의 네이티브 기능을 사용하고 전용 프로필은 무시합니다. `image_generate`를 사용하려면 이 스위치를 끄세요. `heavy` 역시 비워 두면 Background Agent Job이 AIGateway를 통해 `primary`로 폴백하여 실행되므로, 복합 추론이나 백그라운드 작업에 상위 모델 또는 전용 구독 풀을 지정하고 싶을 때 `heavy` 슬롯을 구성하세요.
 
 ## 레버 2: reasoning effort
 

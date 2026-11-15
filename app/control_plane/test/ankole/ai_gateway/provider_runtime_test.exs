@@ -504,6 +504,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert primary_runtime_profile["context_length"] == 1_048_576
 
+    assert {:ok, %{profile: nil}} = ModelProfiles.put_model_profile(agent.uid, "heavy", nil)
+
+    assert {:ok, fallback_heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
+    assert fallback_heavy["profile"] == "heavy"
+    assert fallback_heavy["fallback_profile"] == "primary"
+
     assert {:ok, %{profile: heavy_profile}} =
              ModelProfiles.put_model_profile(agent.uid, "heavy", %{
                provider_id: "openrouter-main",
@@ -512,17 +518,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert heavy_profile["provider_id"] == "openrouter-main"
 
-    assert {:ok, coding_profile} = ModelProfiles.get_model_profile(agent.uid, "coding")
-    assert coding_profile["profile"] == "coding"
-    assert coding_profile["fallback_profile"] == "heavy"
-    assert coding_profile["model"] == "anthropic/claude-sonnet-4.5"
+    assert {:ok, heavy_runtime_profile} =
+             ModelProfiles.resolve_runtime_profile(agent.uid, "heavy")
 
-    assert {:ok, coding_runtime_profile} =
-             ModelProfiles.resolve_runtime_profile(agent.uid, "coding")
-
-    assert coding_runtime_profile["profile"] == "coding"
-    assert coding_runtime_profile["provider_id"] == "openrouter-main"
-    assert coding_runtime_profile["model"] == "anthropic/claude-sonnet-4.5"
+    assert heavy_runtime_profile["profile"] == "heavy"
+    assert heavy_runtime_profile["provider_id"] == "openrouter-main"
+    assert heavy_runtime_profile["model"] == "anthropic/claude-sonnet-4.5"
 
     assert {:error, {:provider_kind_missing_capability, "web_search"}} =
              ModelProfiles.put_model_profile(agent.uid, "web_search", %{
@@ -1354,8 +1355,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
     %{principal: agent} = Ankole.AIGatewayCase.background_agent_fixture()
-    {:ok, coding} = ModelProfiles.get_model_profile(agent.uid, "coding")
-    :ok = Ankole.SessionsCase.cache_actor_runtime_models(coding["provider_id"])
+    {:ok, heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
+    :ok = Ankole.SessionsCase.cache_actor_runtime_models(heavy["provider_id"])
     alias Ankole.AIAgent.Library.{Contracts, Skills}
     human = human_fixture().principal
 

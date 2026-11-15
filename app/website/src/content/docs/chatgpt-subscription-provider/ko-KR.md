@@ -46,7 +46,7 @@ ChatGPT 구독 연결은 다른 업스트림과 동일한 방식으로 동작하
 ## provider를 Agent에 할당
 
 1. **Console → Agents**를 열고 설정할 Agent를 선택합니다.
-2. 연결할 모델 프로필을 엽니다. 장기 백그라운드 작업에는 **Background Agent Jobs** 프로필을, 일반 대화 턴에는 `primary` 등 해당 프로필을 선택하세요.
+2. 연결할 모델 프로필을 엽니다. 장기 백그라운드 작업에는 `heavy`(**복합 추론 및 백그라운드 Job**) 프로필을, 일반 대화 턴에는 `primary`, `light`, 또는 해당 커스텀 프로필을 선택하세요.
 3. 등록해 둔 ChatGPT 구독 provider와 지원 모델을 선택합니다.
 4. 필요에 따라 reasoning effort와 Fast Mode 옵션을 지정합니다.
 5. 프로필을 저장합니다.

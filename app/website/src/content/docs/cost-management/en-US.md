@@ -9,14 +9,13 @@ Model tokens account for most of Ankole's operational cost, so control-plane set
 
 ## Lever 1: model-profile tiers
 
-Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/System`) in **Console → Model Profiles**. Each Agent exposes eight built-in slots—five language-model slots plus `web_search`, `web_fetch`, and `image_generate`—while Site, Pod, and `system` Principals (`ankole_brain` and `system`) add the `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, and `music` slots. Unset slots inherit from Pod and Site defaults, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`.
+Model Profiles resolve through 3-tier sparse inheritance (`Site -> Pod -> Agent/System`) in **Console → Model Profiles**. Each Agent exposes seven built-in slots—four language-model slots plus `web_search`, `web_fetch`, and `image_generate`—while Site, Pod, and `system` Principals (`ankole_brain` and `system`) add the `rerank`, `decision`, `speech`, `transcription`, `ocr`, `video`, and `music` slots. Unset slots inherit from Pod and Site defaults, with cross-slot fallbacks `heavy -> primary` and `light -> primary`.
 
 | Slot | When it runs | Cost impact |
 |---|---|---|
 | `primary` | Main reasoning model for most turns | Largest single cost driver |
 | `light` | High-volume, low-complexity paths (falls back to `primary`) | Bind to a low-cost model to avoid billing bulk work at `primary` rates |
-| `heavy` | Complex synthesis and Dreaming | High cost per call; used sparingly when `primary` fits normal work |
-| Background Agent Jobs (`coding` internally) | Every Background Agent Job (falls back `coding -> heavy -> primary`) | Selects the provider and model for durable background work |
+| `heavy` | Complex synthesis, Background Agent Jobs, and Dreaming (falls back to `primary`) | Selects the provider and model for deep reasoning and durable background work |
 | `vision_fallback` | When `primary` cannot process an image | Bind only when the Agent receives images |
 | `web_search`, `web_fetch` | Web tools | See Lever 3 |
 | `image_generate` | Image generation | High cost per call; bind only when needed |
@@ -38,7 +37,7 @@ Two profile adjustments save the most spend:
 - **Bind `light` to a low-cost model at the Site or Pod level.** Because `light` falls back to `primary` when unset and handles high-volume paths (including `ankole_brain` extraction), binding a dedicated low-cost model immediately lowers bulk spend across every inheriting Agent and `ankole_brain`.
 - **Size `primary` for normal turns.** Start with a balanced model for `primary` and override `primary` or `heavy` only on specialist Agents whose task quality demands a larger tier.
 
-Check the effective optional profiles inherited from Site and Pod before changing Agent overrides. Vision fallback is unavailable when the effective `vision_fallback` profile is empty. When **Use the model's provider** is on for image generation, the main provider's native capability is used and the dedicated profile is ignored. Turn that switch off to use `image_generate`. Similarly, when `coding` is unset, Background Agent Jobs fall back through `heavy -> primary` on AIGateway; configure `coding` whenever Jobs should use a dedicated coding model or subscription pool.
+Check the effective optional profiles inherited from Site and Pod before changing Agent overrides. Vision fallback is unavailable when the effective `vision_fallback` profile is empty. When **Use the model's provider** is on for image generation, the main provider's native capability is used and the dedicated profile is ignored. Turn that switch off to use `image_generate`. Similarly, when `heavy` is unset, Background Agent Jobs fall back to `primary` on AIGateway; configure `heavy` whenever complex reasoning or Background Agent Jobs should use a dedicated frontier model or subscription pool.
 
 ## Lever 2: reasoning effort
 

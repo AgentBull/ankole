@@ -80,7 +80,7 @@ defmodule AnkoleWeb.JSONAPI.BackgroundAgentJobsTest do
     assert detail["workspace_template_id"] == nil
     assert detail["continued_from_job_id"] == nil
     assert detail["workspace_owner_job_id"] == middle.id
-    assert detail["model_profile"] == "coding"
+    assert detail["model_profile"] == "heavy"
 
     cancelled =
       conn

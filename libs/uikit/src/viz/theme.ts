@@ -254,14 +254,34 @@ function detectDomDark(target: Element | null): boolean {
   return themeAttr === 'dark'
 }
 
+function isSimpleTokenIdent(value: string): boolean {
+  if (value.length < 3 || !value.startsWith('--')) return false
+  for (let i = 2; i < value.length; i += 1) {
+    const code = value.charCodeAt(i)
+    const ok =
+      (code >= 0x30 && code <= 0x39) ||
+      (code >= 0x41 && code <= 0x5a) ||
+      (code >= 0x61 && code <= 0x7a) ||
+      code === 0x2d ||
+      code === 0x5f
+    if (!ok) return false
+  }
+  return true
+}
+
 function resolveVarTokenValue(raw: string, fallback: string): string {
   const trimmed = raw.trim()
   if (!trimmed) return fallback
-  const varMatch = /^var\(\s*(--[a-zA-Z0-9-_]+)(?:\s*,\s*([^)]+))?\s*\)$/.exec(trimmed)
-  if (varMatch) {
-    const refName = varMatch[1]!
-    const refFallback = varMatch[2]?.trim()
-    return STATIC_COLOR_TOKENS[refName] ?? refFallback ?? fallback
+  if (trimmed.length > 5 && trimmed.slice(0, 4).toLowerCase() === 'var(' && trimmed.endsWith(')')) {
+    const inner = trimmed.slice(4, -1).trim()
+    const commaIdx = inner.indexOf(',')
+    const refName = (commaIdx === -1 ? inner : inner.slice(0, commaIdx)).trim()
+    const refFallback = commaIdx === -1 ? undefined : inner.slice(commaIdx + 1).trim()
+    if (isSimpleTokenIdent(refName) && (!refFallback || !refFallback.includes(')'))) {
+      if (STATIC_COLOR_TOKENS[refName]) return STATIC_COLOR_TOKENS[refName]!
+      if (refFallback && !refFallback.includes('var(--')) return refFallback
+      return fallback
+    }
   }
   if (trimmed.includes('var(--')) return fallback
   return trimmed
@@ -547,31 +567,23 @@ export function assignSeriesColors(
   return result
 }
 
-const EXTERNAL_SVG_URL_PATTERNS: readonly RegExp[] = [
-  /\b(?:xlink:)?href\s*=\s*['"]\s*https?:\/\//i,
-  /\bsrc\s*=\s*['"]\s*https?:\/\//i,
-  /url\(\s*['"]?\s*https?:\/\//i,
-  /@import\s+(?:url\(\s*)?['"]?\s*https?:\/\//i,
-  /<\?xml-stylesheet\b[^>]*\bhref\s*=\s*['"]\s*https?:\/\//i
-]
-
 /**
- * Verifies whether an SVG string is self-contained and safe for offline vector PDF/print
- * pipelines: rejects `<foreignObject>`, unresolved `var(--...)`, and external `http(s)://`
- * resource references while permitting standard XML namespace declarations.
+ * Normalizes an arbitrary chart title or label into a safe download filename stem without
+ * leading or trailing hyphens.
  */
-export function isPrintSafeSvg(svg: string): boolean {
-  const trimmed = svg.trim()
-  if (!trimmed || !/<svg[\s>]/i.test(trimmed)) return false
-  if (/<\s*foreignobject\b/i.test(trimmed)) return false
-  if (/var\(\s*--/i.test(trimmed)) return false
-  for (const pattern of EXTERNAL_SVG_URL_PATTERNS) {
-    if (pattern.test(trimmed)) return false
-  }
-  return true
+export function sanitizeDownloadStem(raw?: string): string {
+  const collapsed = (raw ?? 'ankole-chart')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af_-]+/g, '-')
+  let start = 0
+  let end = collapsed.length
+  while (start < end && collapsed.charCodeAt(start) === 45) start += 1
+  while (end > start && collapsed.charCodeAt(end - 1) === 45) end -= 1
+  return start < end ? collapsed.slice(start, end) : 'ankole-chart'
 }
 
-function buildPaletteTokenLookup(palette: VizThemePalette): Record<string, string> {
+export function buildPaletteTokenLookup(palette: VizThemePalette): Record<string, string> {
   return {
     ...STATIC_COLOR_TOKENS,
     '--background': palette.background,
@@ -630,70 +642,6 @@ function buildPaletteTokenLookup(palette: VizThemePalette): Record<string, strin
   }
 }
 
-export interface SanitizeExportedSvgOptions {
-  safetyPaddingPx?: number
-}
-
-/**
- * Resolves known `var(--...)` CSS custom properties to concrete palette values, ensures
- * root `xmlns="http://www.w3.org/2000/svg"`, and optionally expands `viewBox` by
- * `safetyPaddingPx` so wide CJK glyphs and axis labels never clip during export.
- */
-export function sanitizeExportedSvg(
-  svg: string,
-  palette: VizThemePalette,
-  options?: SanitizeExportedSvgOptions
-): string {
-  if (!svg.trim()) return svg
-  const tokenMap = buildPaletteTokenLookup(palette)
-
-  let output = svg.replace(/var\(\s*(--[a-zA-Z0-9-_]+)(?:\s*,\s*([^)]+))?\s*\)/g, (full, name: string, fb?: string) => {
-    const direct = tokenMap[name]
-    if (direct) return direct
-    if (fb && !fb.includes('var(--')) return fb.trim()
-    return full
-  })
-
-  output = output.replace(/<svg\b([^>]*)>/i, (openTag, attrs: string) => {
-    let nextAttrs = attrs
-    if (!/\bxmlns\s*=/.test(nextAttrs)) {
-      nextAttrs = ` xmlns="http://www.w3.org/2000/svg"${nextAttrs}`
-    }
-
-    const pad = options?.safetyPaddingPx ?? 0
-    if (pad > 0) {
-      const viewBoxMatch = /\bviewBox\s*=\s*(['"])\s*([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s*\1/i.exec(
-        nextAttrs
-      )
-      if (viewBoxMatch) {
-        const quote = viewBoxMatch[1]!
-        const x = Number.parseFloat(viewBoxMatch[2]!)
-        const y = Number.parseFloat(viewBoxMatch[3]!)
-        const w = Number.parseFloat(viewBoxMatch[4]!)
-        const h = Number.parseFloat(viewBoxMatch[5]!)
-        if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h)) {
-          const expanded = `${x - pad} ${y - pad} ${w + pad * 2} ${h + pad * 2}`
-          nextAttrs = nextAttrs.replace(viewBoxMatch[0], `viewBox=${quote}${expanded}${quote}`)
-        }
-      } else {
-        const widthMatch = /\bwidth\s*=\s*(['"])([-+\d.]+)(?:px)?\1/i.exec(nextAttrs)
-        const heightMatch = /\bheight\s*=\s*(['"])([-+\d.]+)(?:px)?\1/i.exec(nextAttrs)
-        if (widthMatch && heightMatch) {
-          const w = Number.parseFloat(widthMatch[2]!)
-          const h = Number.parseFloat(heightMatch[2]!)
-          if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
-            nextAttrs = `${nextAttrs} viewBox="${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}"`
-          }
-        }
-      }
-    }
-
-    return `<svg${nextAttrs}>`
-  })
-
-  return output
-}
-
 export interface BuildPeleTokensOptions {
   radius?: string
   fontSans?: string
@@ -701,8 +649,9 @@ export interface BuildPeleTokensOptions {
 }
 
 /**
- * Builds the complete `--pele-*` and internal `--_*` CSS custom property map from a resolved
- * `VizThemePalette` so Worker CLI, Chat Mermaid frames, and Editor previews share one contract.
+ * Builds the public `--pele-*` CSS custom property map from a resolved `VizThemePalette`
+ * so Worker CLI, Chat Mermaid frames, and Editor previews share one contract while letting
+ * Pele's own inline declarations derive `--_*` internal aliases from `--pele-*`.
  */
 export function buildPeleTokenMap(palette: VizThemePalette, options?: BuildPeleTokensOptions): Record<string, string> {
   const fontSans = options?.fontSans ?? palette.fontSans
@@ -729,20 +678,7 @@ export function buildPeleTokenMap(palette: VizThemePalette, options?: BuildPeleT
     '--pele-zoom-right': '8px',
     '--pele-zoom-bottom': 'auto',
     '--pele-zoom-left': 'auto',
-    '--pele-zoom-cursor': 'pointer',
-    '--_bg': palette.background,
-    '--_fg': palette.foreground,
-    '--_m': palette.fgTertiary,
-    '--_l': palette.fgSecondary,
-    '--_s': palette.layer01,
-    '--_a': palette.isDark ? palette.layer02 : palette.border,
-    '--_b': palette.borderStrong,
-    '--_c': palette.categorical[0],
-    '--_r': radius,
-    '--_fm': fontMono,
-    '--_hw': 'bold',
-    '--_tw': 'bold',
-    '--_w': 'bold'
+    '--pele-zoom-cursor': 'pointer'
   }
   for (let i = 0; i < seriesColors.length; i += 1) {
     map[`--pele-series-${i + 1}`] = seriesColors[i]!
@@ -773,146 +709,6 @@ export function buildPeleCssVarsString(palette: VizThemePalette, options?: Build
     '--pele-radius'
   ]
   return keys.map(key => `${key}:${tokens[key]!}`).join(';')
-}
-
-/**
- * Reads intrinsic pixel dimensions from an SVG string's `viewBox` or `width`/`height` attributes.
- */
-export function parseSvgDimensions(
-  svg: string,
-  fallback?: { width?: number; height?: number }
-): { width: number; height: number } {
-  const vbMatch = /\bviewBox\s*=\s*['"]\s*[-+\d.]+\s+[-+\d.]+\s+([-+\d.]+)\s+([-+\d.]+)\s*['"]/i.exec(svg)
-  if (vbMatch) {
-    const w = Number.parseFloat(vbMatch[1]!)
-    const h = Number.parseFloat(vbMatch[2]!)
-    if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
-      return { width: Math.ceil(w), height: Math.ceil(h) }
-    }
-  }
-  const defaultW = fallback?.width ?? 680
-  const defaultH = fallback?.height ?? 400
-  const wMatch = /\bwidth\s*=\s*['"]([-+\d.]+)(?:px)?['"]/i.exec(svg)
-  const hMatch = /\bheight\s*=\s*['"]([-+\d.]+)(?:px)?['"]/i.exec(svg)
-  const w = wMatch ? Number.parseFloat(wMatch[1]!) : defaultW
-  const h = hMatch ? Number.parseFloat(hMatch[1]!) : defaultH
-  return {
-    width: Number.isFinite(w) && w > 0 ? Math.ceil(w) : defaultW,
-    height: Number.isFinite(h) && h > 0 ? Math.ceil(h) : defaultH
-  }
-}
-
-function replaceSingleLevelVars(input: string, tokens: Readonly<Record<string, string>>): string {
-  return input.replace(/var\(\s*(--[a-zA-Z0-9_-]+)(?:\s*,\s*([^()]+))?\s*\)/g, (full, name: string, fb?: string) => {
-    const resolved = tokens[name]
-    if (resolved !== undefined) return resolved
-    if (fb !== undefined) return fb.trim()
-    return full
-  })
-}
-
-function escapeXmlAttr(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-}
-
-export interface MaterializePeleSvgOptions {
-  width?: number
-  height?: number
-  safetyPaddingPx?: number
-  injectBackgroundRect?: boolean
-  extraTokens?: Readonly<Record<string, string>>
-}
-
-/**
- * Resolves all Pele CSS custom properties (`--pele-*` and `--_*`) into concrete palette
- * values, strips inline custom property declarations, converts CSS `rx` styles to SVG
- * `rx` attributes, and optionally inserts a solid background `<rect>` so standalone SVG
- * exports and offline PDF engines render faithfully.
- */
-export function materializePeleSvg(
-  rawSvg: string,
-  palette: VizThemePalette,
-  options?: MaterializePeleSvgOptions
-): { svg: string; width: number; height: number } {
-  const tokenMap: Record<string, string> = {
-    ...buildPeleTokenMap(palette),
-    ...options?.extraTokens
-  }
-
-  let output = rawSvg
-  for (let pass = 0; pass < 4; pass += 1) {
-    const next = replaceSingleLevelVars(output, tokenMap)
-    const declRe = /(--_[a-zA-Z0-9_-]+)\s*:\s*([^;"]+)/g
-    for (const match of next.matchAll(declRe)) {
-      const propName = match[1]!
-      const propVal = match[2]!.trim()
-      if (propVal && !propVal.includes('var(--')) {
-        tokenMap[propName] = propVal
-      }
-    }
-    output = next
-    if (!/var\(\s*--/.test(output)) break
-  }
-
-  for (let pass = 0; pass < 2 && /var\(\s*--/.test(output); pass += 1) {
-    output = replaceSingleLevelVars(output, tokenMap)
-  }
-
-  output = output.replace(/\sstyle="rx:\s*([\d.]+)(?:px)?\s*;?\s*"/gi, ' rx="$1"')
-
-  output = output.replace(/\bstyle="([^"]*)"/g, (_full, styleContent: string) => {
-    const kept = styleContent
-      .split(';')
-      .map(part => part.trim())
-      .filter(part => part.length > 0 && !part.startsWith('--'))
-    if (kept.length === 0) return ''
-    return `style="${escapeXmlAttr(kept.join(';'))}"`
-  })
-
-  output = sanitizeExportedSvg(output, palette, { safetyPaddingPx: options?.safetyPaddingPx ?? 8 })
-
-  let finalWidth = options?.width ?? 480
-  let finalHeight = options?.height ?? 320
-
-  const vbMatch = /\bviewBox\s*=\s*(['"])\s*([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s*\1/i.exec(output)
-  let vbX = 0
-  let vbY = 0
-  let vbW = finalWidth
-  let vbH = finalHeight
-
-  if (vbMatch) {
-    vbX = Number.parseFloat(vbMatch[2]!)
-    vbY = Number.parseFloat(vbMatch[3]!)
-    vbW = Number.parseFloat(vbMatch[4]!)
-    vbH = Number.parseFloat(vbMatch[5]!)
-    if (options?.width && options?.height) {
-      finalWidth = Math.round(options.width)
-      finalHeight = Math.round(options.height)
-    } else if (options?.width && vbW > 0) {
-      finalWidth = Math.round(options.width)
-      finalHeight = Math.max(1, Math.round((options.width * vbH) / vbW))
-    } else if (options?.height && vbH > 0) {
-      finalHeight = Math.round(options.height)
-      finalWidth = Math.max(1, Math.round((options.height * vbW) / vbH))
-    } else {
-      finalWidth = Math.max(1, Math.ceil(vbW))
-      finalHeight = Math.max(1, Math.ceil(vbH))
-    }
-  }
-
-  const injectBackgroundRect = options?.injectBackgroundRect ?? true
-  const bgFill = tokenMap['--pele-bg'] ?? palette.background
-  output = output.replace(/<svg\b([^>]*)>/i, (_openTag, attrs: string) => {
-    let nextAttrs = attrs.replace(/\swidth\s*=\s*(['"])[^'"]*\1/i, '').replace(/\sheight\s*=\s*(['"])[^'"]*\1/i, '')
-    nextAttrs = `${nextAttrs} width="${finalWidth}" height="${finalHeight}"`
-    if (!injectBackgroundRect) {
-      return `<svg${nextAttrs}>`
-    }
-    const bgRect = `<rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="${escapeXmlAttr(bgFill)}"/>`
-    return `<svg${nextAttrs}>${bgRect}`
-  })
-
-  return { svg: output, width: finalWidth, height: finalHeight }
 }
 
 export interface RasterizeSvgOptions {

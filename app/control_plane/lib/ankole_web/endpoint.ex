@@ -16,6 +16,10 @@ defmodule AnkoleWeb.Endpoint do
                 do: [:x_forwarded_proto, :x_forwarded_for],
                 else: [:x_forwarded_proto]
               )
+  @static_cors_headers [
+    {"access-control-allow-origin", "*"},
+    {"timing-allow-origin", "*"}
+  ]
 
   # The session payload is stored in the cookie and sealed with Ankole Kernel
   # AEAD. The browser carries the payload but cannot read or tamper with it.
@@ -55,6 +59,7 @@ defmodule AnkoleWeb.Endpoint do
 
   plug RequestID
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  plug :static_host_admission
   plug :worker_file_relay
   plug :connector_runtime
   plug :drive_vfs
@@ -64,22 +69,36 @@ defmodule AnkoleWeb.Endpoint do
     at: "/assets",
     from: {AnkoleWeb.Assets, :directory, []},
     gzip: not code_reloading?,
+    headers: @static_cors_headers,
     cache_control_for_etags:
       if(code_reloading?, do: "public, no-cache", else: "public, max-age=31536000, immutable")
 
   plug Plug.Static,
     at: "/fonts/office",
     from: {AnkoleWeb.OfficeFonts, :directory, []},
-    gzip: false,
+    only: ~w(manifest.json THIRD-PARTY-NOTICES.txt),
+    gzip: not code_reloading?,
+    headers: @static_cors_headers,
     cache_control_for_etags:
-      if(code_reloading?, do: "public, no-cache", else: "public, max-age=3600")
+      if(code_reloading?, do: "public, no-cache", else: "public, max-age=300")
+
+  plug Plug.Static,
+    at: "/fonts/office",
+    from: {AnkoleWeb.OfficeFonts, :directory, []},
+    gzip: not code_reloading?,
+    headers: @static_cors_headers,
+    cache_control_for_etags:
+      if(code_reloading?, do: "public, no-cache", else: "public, max-age=31536000, immutable")
 
   plug Plug.Static,
     at: "/",
     from: :ankole,
     gzip: not code_reloading?,
+    headers: @static_cors_headers,
     only: AnkoleWeb.static_paths() -- ["assets"],
     raise_on_missing_only: code_reloading?
+
+  plug :halt_static_host
 
   if code_reloading? do
     socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
@@ -121,11 +140,49 @@ defmodule AnkoleWeb.Endpoint do
 
   defp internal_health(conn, _opts), do: AnkoleWeb.EndpointDrain.call_health_plug(conn)
 
+  # Dedicated CDN / static hosts (`cdn.<saas_domain>` and optional `ANKOLE_SAAS_CDN_HOST`)
+  # resolve only static files; root `/` and all dynamic or internal endpoints return 404.
+  defp static_host_admission(conn, _opts) do
+    if AnkoleWeb.Plugs.RequestHost.static_host?(conn) do
+      if conn.method in ["GET", "HEAD"] and static_request_path?(conn.path_info) do
+        Plug.Conn.assign(conn, :host_context, :static)
+      else
+        send_static_not_found(conn)
+      end
+    else
+      conn
+    end
+  end
+
+  defp static_request_path?(["assets", _ | _]), do: true
+  defp static_request_path?(["fonts", _ | _]), do: true
+  defp static_request_path?(["images", _ | _]), do: true
+  defp static_request_path?(["favicon.ico"]), do: true
+  defp static_request_path?(["robots.txt"]), do: true
+  defp static_request_path?(_), do: false
+
+  defp halt_static_host(%Plug.Conn{assigns: %{host_context: :static}} = conn, _opts),
+    do: send_static_not_found(conn)
+
+  defp halt_static_host(conn, _opts), do: conn
+
+  defp send_static_not_found(conn) do
+    conn
+    |> Plug.Conn.put_resp_content_type("text/plain")
+    |> Plug.Conn.put_resp_header("cache-control", "no-store")
+    |> Plug.Conn.send_resp(404, "Not found")
+    |> Plug.Conn.halt()
+  end
+
+  defp worker_file_relay(%Plug.Conn{assigns: %{host_context: :static}} = conn, _opts), do: conn
+
   defp worker_file_relay(conn, opts),
     do: AnkoleWeb.WorkerFileRelay.call(conn, AnkoleWeb.WorkerFileRelay.init(opts))
 
   # Runtime credentials bind the tenant. These requests reach the issuing node's
   # internal origin independently of browser host admission, like file relays.
+  defp connector_runtime(%Plug.Conn{assigns: %{host_context: :static}} = conn, _opts), do: conn
+
   defp connector_runtime(
          %Plug.Conn{path_info: ["api", "internal", namespace | _]} = conn,
          _opts
@@ -144,6 +201,8 @@ defmodule AnkoleWeb.Endpoint do
   end
 
   defp connector_runtime(conn, _opts), do: conn
+
+  defp drive_vfs(%Plug.Conn{assigns: %{host_context: :static}} = conn, _opts), do: conn
 
   defp drive_vfs(conn, opts),
     do: AnkoleWeb.Plugs.VfsWebdav.call(conn, AnkoleWeb.Plugs.VfsWebdav.init(opts))

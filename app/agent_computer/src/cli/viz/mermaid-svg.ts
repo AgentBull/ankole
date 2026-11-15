@@ -1,10 +1,5 @@
-import {
-  isPrintSafeSvg,
-  materializePeleSvg,
-  resolveVizTheme,
-  type MarketConvention,
-  type VizThemeMode
-} from '@ankole/uikit/viz/theme'
+import { materializePeleSvg } from '@ankole/uikit/viz/svg-export'
+import { resolveVizTheme, type MarketConvention, type VizThemeMode } from '@ankole/uikit/viz/theme'
 import { PeleError } from 'pele/core'
 import { renderAsync } from 'pele/lazy'
 
@@ -86,8 +81,7 @@ export async function renderMermaidSvgInBun(
     width: options?.width,
     height: options?.height
   })
-  const printSafe = isPrintSafeSvg(materialized.svg)
-  if (!printSafe) {
+  if (!materialized.isPrintSafe) {
     throw new Error('Rendered Mermaid SVG failed Print-Safe verification.')
   }
 
@@ -95,6 +89,6 @@ export async function renderMermaidSvgInBun(
     svg: materialized.svg,
     width: materialized.width,
     height: materialized.height,
-    printSafe
+    printSafe: materialized.isPrintSafe
   }
 }

@@ -10,7 +10,7 @@ defmodule Ankole.Pod.Applets.AI do
   alias Ankole.Pod.Applets.Gateway
   alias Ankole.Pod.{Files, Pages}
 
-  @profiles ~w(primary light heavy coding vision_fallback)
+  @profiles ~w(primary light heavy vision_fallback)
   @max_image_references 8
   @image_option_keys ~w(
     prompt images mask action size quality background outputFormat

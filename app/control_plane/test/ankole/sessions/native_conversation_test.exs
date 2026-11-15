@@ -703,7 +703,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
              Ankole.AIGateway.ModelProfiles.get_model_profile(context.agent.uid, "heavy")
 
     assert {:ok, _} =
-             Ankole.AIGateway.ModelProfiles.put_model_profile(context.agent.uid, "coding", %{
+             Ankole.AIGateway.ModelProfiles.put_model_profile(context.agent.uid, "heavy", %{
                provider_id: heavy["provider_id"],
                model: heavy["model"]
              })

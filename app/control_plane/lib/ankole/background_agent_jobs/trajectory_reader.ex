@@ -42,6 +42,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
           | {:attempt_summary, [Turn.t()]}
           | {:console_detail, [Turn.t()]}
           | {:projected_items, [Turn.t()], item_projector()}
+          | {:execution_log, [Turn.t()], item_projector()}
 
   @typedoc "Semantic groups count `groups` and `bytes`; a summary counts `bytes`."
   @type budget ::
@@ -100,6 +101,13 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
        when is_list(turns) and is_function(projector, 2) do
     turns
     |> newest_first(:projected_item, reveal: true, fence: nil)
+    |> Map.put(:projector, projector)
+  end
+
+  defp walk(%Job{}, {:execution_log, turns, projector})
+       when is_list(turns) and is_function(projector, 2) do
+    turns
+    |> newest_first(:execution_log_item, reveal: false, fence: nil)
     |> Map.put(:projector, projector)
   end
 
@@ -172,10 +180,11 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   end
 
   defp cursor_unit_exists?(
-         %{unit: :projected_item, projector: projector} = walk,
+         %{unit: unit, projector: projector} = walk,
          id,
          item_position
-       ) do
+       )
+       when unit in [:projected_item, :execution_log_item] do
     turn = Enum.find(walk.turns, &(&1.id == id))
 
     TurnItem
@@ -246,7 +255,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   end
 
   defp collect(%{walk: %{unit: unit}} = state, %{groups: limit, bytes: bytes})
-       when unit in [:group, :projected_item] do
+       when unit in [:group, :projected_item, :execution_log_item] do
     {units, state} =
       state
       |> Map.merge(%{batch: (limit + 1) * @item_window_factor, bytes: bytes})
@@ -261,8 +270,9 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   defp select_page_units(:group, units, limit, bytes),
     do: select_page_groups(units, limit, bytes)
 
-  defp select_page_units(:projected_item, units, limit, bytes),
-    do: select_projected_items(units, limit, bytes)
+  defp select_page_units(unit, units, limit, bytes)
+       when unit in [:projected_item, :execution_log_item],
+       do: select_projected_items(units, limit, bytes)
 
   defp build_page(state, units, more?, edge_unit) do
     %{
@@ -394,8 +404,9 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
 
   defp project_unit(
          %TurnItem{} = row,
-         %{walk: %{unit: :projected_item, projector: projector}} = state
-       ) do
+         %{walk: %{unit: unit, projector: projector}} = state
+       )
+       when unit in [:projected_item, :execution_log_item] do
     turn = Map.fetch!(state.turns_by_id, row.turn_id)
 
     case projector.(row, turn) do
@@ -404,7 +415,19 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
 
       item when is_map(item) ->
         revealed = if state.walk.reveal, do: OpaqueContent.reveal(item), else: item
-        bounded = bound_projected_item(revealed, state.bytes)
+
+        bounded =
+          case unit do
+            :projected_item ->
+              bound_projected_item(revealed, state.bytes)
+
+            :execution_log_item ->
+              candidate = bound_execution_log_item(revealed, state.bytes)
+
+              if candidate != revealed,
+                do: Map.put(candidate, "content_truncated", true),
+                else: candidate
+          end
 
         [
           %{
@@ -585,5 +608,20 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
       if encoded_bytes(candidate) <= target, do: candidate
     end)
     |> Kernel.||(bound_value(item, 64))
+  end
+
+  defp bound_execution_log_item(item, bytes) do
+    target = max(bytes - @page_reserve_bytes, 1_024)
+
+    if encoded_bytes(item) <= target do
+      item
+    else
+      [16_384, 8_192, @model_string_bytes, 2_000, 1_000, 500, 200, 96]
+      |> Enum.find_value(fn limit ->
+        candidate = bound_value(item, limit)
+        if encoded_bytes(candidate) <= target, do: candidate
+      end)
+      |> Kernel.||(bound_value(item, 64))
+    end
   end
 end

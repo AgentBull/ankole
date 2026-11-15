@@ -283,7 +283,7 @@ defmodule AnkoleWeb.JSONAPI.AgentModelsTest do
 
     assert saved["overrides"]["primary"]["model"] == "agent-primary"
     assert saved["effective"]["light"]["value"]["model"] == "agent-primary"
-    assert saved["effective"]["coding"]["resolved_from_profile"] == "primary"
+    assert saved["effective"]["heavy"]["resolved_from_profile"] == "primary"
 
     deleted = conn |> send_v2(:delete, path) |> json_response(200)
     refute Map.has_key?(deleted["overrides"], "primary")

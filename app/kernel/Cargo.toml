@@ -23,6 +23,7 @@ members = [
   "spreadsheet",
   "spreadsheet-wasm",
   "vendor/deckcraft-fonts",
+  "vendor/wordcraft-fonts",
   "word",
   "word-wasm",
 ]
@@ -177,6 +178,11 @@ lto = "thin"
 debug = "line-tables-only"
 incremental = true
 
+# Optimize third-party dependencies in dev and test builds so Office, PDF,
+# image, and crypto workloads stay fast while workspace crates skip ThinLTO.
+[profile.dev.package."*"]
+opt-level = 2
+
 # `bun run --filter @ankole/kernel build:wasm` builds the browser spreadsheet
 # module with this profile; the NIF keeps the release profile above.
 [profile.wasm-release]
@@ -193,3 +199,6 @@ epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6
 
 [patch."https://github.com/storytold/deckcraft"]
 deckcraft-fonts = { path = "vendor/deckcraft-fonts" }
+
+[patch."https://github.com/storytold/wordcraft"]
+wordcraft-fonts = { path = "vendor/wordcraft-fonts" }

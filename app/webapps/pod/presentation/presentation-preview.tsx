@@ -239,11 +239,20 @@ function PresentationPreviewWorkspace({
 
   const status = model.status.value
   const snapshot = model.snapshot.value
-  const requestedFonts = useMemo(
-    () => [...(snapshot?.substitutedFonts.map(entry => entry.requested) ?? []), ...(snapshot?.missingGlyphFonts ?? [])],
+  const fontRequests = useMemo(
+    () => ({
+      substitutedFamilies: snapshot?.substitutedFonts.map(entry => entry.requested) ?? [],
+      missingGlyphFamilies: snapshot?.missingGlyphFonts ?? []
+    }),
     [snapshot?.substitutedFonts, snapshot?.missingGlyphFonts]
   )
-  const fontEpoch = useOfficeFonts(requestedFonts, model)
+  const {
+    epoch: fontEpoch,
+    fontsReady,
+    waitForFonts
+  } = useOfficeFonts(fontRequests, model, {
+    documentLoaded: status !== 'loading'
+  })
   const version = model.version.value
 
   const slides = snapshot?.slides ?? []
@@ -270,7 +279,7 @@ function PresentationPreviewWorkspace({
   )
 
   useEffect(() => {
-    if (status !== 'read_only' || slides.length === 0) return
+    if (status !== 'read_only' || !fontsReady || slides.length === 0) return
     const key = `${initialSlide ?? ''}\0${initialFind ?? ''}`
     if ((initialSlide === undefined && !initialFind) || appliedJump.current === key) return
     const target =
@@ -304,7 +313,7 @@ function PresentationPreviewWorkspace({
     return () => {
       cancelled = true
     }
-  }, [status, slides.length, initialSlide, initialFind, model, goToSlide])
+  }, [status, fontsReady, slides.length, initialSlide, initialFind, model, goToSlide])
 
   // Measure the preview stage viewport for fit zoom.
   useEffect(() => {
@@ -320,7 +329,7 @@ function PresentationPreviewWorkspace({
     const observer = new ResizeObserver(update)
     observer.observe(stage)
     return () => observer.disconnect()
-  }, [status, railOpen, findOpen, isMobile, activeSlide?.notes])
+  }, [status, fontsReady, railOpen, findOpen, isMobile, activeSlide?.notes])
 
   const safePtW = Math.max(1, slideSizePt.width)
   const safePtH = Math.max(1, slideSizePt.height)
@@ -343,7 +352,7 @@ function PresentationPreviewWorkspace({
   )
 
   useEffect(() => {
-    if (!slides.length) return
+    if (!slides.length || !fontsReady) return
     let cancelled = false
     void renderSlide(activeSlideIndex, mainRenderScale).then(rendered => {
       if (cancelled || !rendered || !canvasRef.current) return
@@ -352,7 +361,7 @@ function PresentationPreviewWorkspace({
     return () => {
       cancelled = true
     }
-  }, [slides.length, activeSlideIndex, mainRenderScale, version, fontEpoch, renderSlide])
+  }, [slides.length, fontsReady, activeSlideIndex, mainRenderScale, version, fontEpoch, renderSlide])
 
   useEffect(() => {
     if (!findOpen) return
@@ -407,6 +416,7 @@ function PresentationPreviewWorkspace({
     if (exportingPdf) return
     setExportingPdf(true)
     try {
+      await waitForFonts()
       const pdfBytes = await model.read(eng => (eng as PresentationEngine).exportPdf())
       if (pdfBytes && pdfBytes.byteLength > 0) {
         downloadBlob(new Blob([pdfBytes.slice()], { type: 'application/pdf' }), pdfFilenameFromUrl(url))
@@ -416,7 +426,7 @@ function PresentationPreviewWorkspace({
     } finally {
       setExportingPdf(false)
     }
-  }, [exportingPdf, model, url])
+  }, [exportingPdf, model, url, waitForFonts])
 
   const handleWorkspaceKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.target instanceof HTMLInputElement) return
@@ -480,7 +490,7 @@ function PresentationPreviewWorkspace({
   if (status === 'error') {
     return <ContentError error={model.error.value} retry={model.retry} />
   }
-  if (status === 'loading' && slides.length === 0) {
+  if ((status === 'loading' && slides.length === 0) || !fontsReady) {
     return <ContentSkeleton variant="page" label={t('pod.presentation.preview_loading')} immediate />
   }
 

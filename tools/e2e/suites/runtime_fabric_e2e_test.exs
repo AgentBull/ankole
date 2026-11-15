@@ -192,7 +192,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     ctx = start_worker_e2e_stack!()
     uid = ctx.agent.uid
     assert {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
-    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
+    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "heavy", profile)
     input = send!(ctx, "control", "CHAOS_JOB_CREATE_RECONNECT")
     assert {:ok, _, _} = wait_for_completed_final_reply(ctx.container, input.id, deadline(60_000))
     job = Repo.one!(from(j in Job, where: j.source_signal_id == ^input.id))
@@ -267,7 +267,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       ctx = start_worker_e2e_stack!()
       uid = ctx.agent.uid
       assert {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
-      assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
+      assert {:ok, _} = ModelProfiles.put_model_profile(uid, "heavy", profile)
       worker = Repo.get_by!(AgentWorker, agent_uid: uid)
       assert {:ok, channel} = WorkerRoute.connection_pid(AgentWorkers.target(worker))
       ref = pause_worker_boundary!(channel, boundary)
@@ -360,7 +360,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     ctx = start_worker_e2e_stack!()
     uid = ctx.agent.uid
     assert {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
-    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
+    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "heavy", profile)
     worker = Repo.get_by!(AgentWorker, agent_uid: uid)
     target = AgentWorkers.target(worker)
     assert {:ok, channel} = WorkerRoute.connection_pid(target)
@@ -493,7 +493,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     ctx = start_worker_e2e_stack!()
     uid = ctx.agent.uid
     assert {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
-    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
+    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "heavy", profile)
     input = send!(ctx, "quota-parent", "Q23_PARENT_READY")
     assert {:ok, _, _} = wait_for_completed_final_reply(ctx.container, input.id, deadline(60_000))
     before_requests = length(FakeOpenAIState.requests())
@@ -738,7 +738,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     ctx = start_worker_e2e_stack!()
     uid = ctx.agent.uid
     assert {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
-    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
+    assert {:ok, _} = ModelProfiles.put_model_profile(uid, "heavy", profile)
     endpoint_config = Application.fetch_env!(:ankole, AnkoleWeb.Endpoint)
 
     AnkoleWeb.Endpoint.config_change(

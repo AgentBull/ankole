@@ -219,7 +219,7 @@ defmodule Ankole.AIGatewayCase do
       })
 
     {:ok, _profile} =
-      Ankole.AIGateway.ModelProfiles.put_model_profile(fixture.principal.uid, "coding", %{
+      Ankole.AIGateway.ModelProfiles.put_model_profile(fixture.principal.uid, "heavy", %{
         provider_id: provider_id,
         model: "openai/gpt-5.6-sol",
         provider_options: %{"reasoningEffort" => "xhigh"}

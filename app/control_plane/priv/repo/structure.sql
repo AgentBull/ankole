@@ -1589,7 +1589,7 @@ CREATE TABLE public.background_agent_jobs (
     continued_from_job_id bigint,
     workspace_owner_job_id bigint NOT NULL,
     runtime_projection jsonb,
-    model_profile text DEFAULT 'coding'::text NOT NULL,
+    model_profile text DEFAULT 'heavy'::text NOT NULL,
     execution_failures integer DEFAULT 0 NOT NULL,
     authorization_kind text DEFAULT 'review_required'::text NOT NULL,
     human_uid text,

@@ -71,6 +71,57 @@ test('the expanded diagram opens and closes with Escape', async ({ page }) => {
   await expect(page.locator('.mermaid-expanded')).toHaveCount(0)
 })
 
+test('expanded Mermaid and Infographic previews export materialized standalone SVGs', async ({ page }) => {
+  const { readFile } = await import('node:fs/promises')
+  const diagramDoc = [
+    fence('flowchart TD\n  accTitle: Literal var(--x, keep) and url(https://example.com)\n  A[开始] --> B[完成]'),
+    [
+      '```infographic',
+      'infographic sequence-timeline-simple',
+      'data',
+      '  title Roadmap',
+      '  sequences',
+      '    - label Q1',
+      '      desc Ship',
+      '```'
+    ].join('\n')
+  ].join('\n\n')
+
+  await openDocument(page, diagramDoc)
+  const blocks = page.locator('.mermaid-block')
+  await expect(blocks).toHaveCount(2)
+  await expect(blocks.nth(0).locator('.mermaid-preview svg')).toBeVisible({ timeout: 10_000 })
+  await expect(blocks.nth(1).locator('.mermaid-preview svg')).toHaveCount(1, { timeout: 10_000 })
+
+  await blocks.nth(0).locator('[data-mermaid-action="expand"]').click()
+  const preview = page.locator('.mermaid-expanded-preview')
+  await expect(preview.locator('svg').first()).toBeVisible()
+  await preview.evaluate(el => el.style.setProperty('--pele-radius', '6px'))
+
+  const mermaidDownload = page.waitForEvent('download')
+  await page.locator('.mermaid-expanded-export', { hasText: 'SVG' }).click()
+  const mermaidFile = await mermaidDownload
+  expect(mermaidFile.suggestedFilename()).toBe('ankole-diagram.svg')
+  const mermaidSvg = await readFile((await mermaidFile.path())!, 'utf8')
+  expect(mermaidSvg).toContain('xmlns="http://www.w3.org/2000/svg"')
+  expect(mermaidSvg).toContain('>Literal var(--x, keep) and url(https://example.com)</title>')
+  expect(mermaidSvg).toContain('rx="6"')
+  expect(mermaidSvg.replace(/<title\b[^>]*>[\s\S]*?<\/title>/g, '')).not.toContain('var(--')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.mermaid-expanded')).toHaveCount(0)
+
+  await blocks.nth(1).locator('[data-mermaid-action="expand"]').click()
+  await expect(preview.locator('svg').first()).toHaveCount(1, { timeout: 10_000 })
+  const infographicDownload = page.waitForEvent('download')
+  await page.locator('.mermaid-expanded-export', { hasText: 'SVG' }).click()
+  const infographicFile = await infographicDownload
+  expect(infographicFile.suggestedFilename()).toBe('ankole-infographic.svg')
+  const infographicSvg = await readFile((await infographicFile.path())!, 'utf8')
+  expect(infographicSvg).toContain('xmlns="http://www.w3.org/2000/svg"')
+  expect(infographicSvg).toContain('Roadmap')
+  expect(infographicSvg).not.toContain('var(--')
+})
+
 test('the slash menu inserts an empty Mermaid block ready for typing', async ({ page }) => {
   await openDocument(page, 'Start')
   await caret(page.locator('.editor-content > p'))

@@ -6,6 +6,7 @@ defmodule AnkoleWeb.AssetsTest do
   setup do
     original_config = Application.get_env(:ankole, Assets)
     original_assets_path = Application.get_env(:ankole, :webapp_assets_path)
+    original_static_url_base = Application.get_env(:ankole, :static_url_base)
 
     directory =
       Path.join(System.tmp_dir!(), "ankole-assets-#{System.unique_integer([:positive])}")
@@ -16,6 +17,7 @@ defmodule AnkoleWeb.AssetsTest do
     File.write!(Path.join(directory, "js/vendor-react.js"), "export default {}\n")
     Application.put_env(:ankole, Assets, manifest_path: manifest_path)
     Application.put_env(:ankole, :webapp_assets_path, directory)
+    Application.delete_env(:ankole, :static_url_base)
 
     on_exit(fn ->
       if original_config,
@@ -25,6 +27,10 @@ defmodule AnkoleWeb.AssetsTest do
       if original_assets_path,
         do: Application.put_env(:ankole, :webapp_assets_path, original_assets_path),
         else: Application.delete_env(:ankole, :webapp_assets_path)
+
+      if original_static_url_base,
+        do: Application.put_env(:ankole, :static_url_base, original_static_url_base),
+        else: Application.delete_env(:ankole, :static_url_base)
 
       File.rm_rf!(directory)
     end)
@@ -114,6 +120,53 @@ defmodule AnkoleWeb.AssetsTest do
     assert Plug.Conn.get_resp_header(conn, "cache-control") == [
              "public, max-age=31536000, immutable"
            ]
+
+    assert Plug.Conn.get_resp_header(conn, "access-control-allow-origin") == ["*"]
+  end
+
+  test "static_url_base prefixes entry tags, locale preloads, Applet import maps, and static_path" do
+    Application.put_env(:ankole, :static_url_base, "//ankole-static-files.cdn.agentbull.net")
+
+    html = tags("/pages/a-page", "pod")
+
+    assert stylesheets(html) == [
+             "//ankole-static-files.cdn.agentbull.net/assets/css/shared.css",
+             "//ankole-static-files.cdn.agentbull.net/assets/css/pod.css",
+             "//ankole-static-files.cdn.agentbull.net/assets/css/page.css",
+             "//ankole-static-files.cdn.agentbull.net/assets/css/helper.css"
+           ]
+
+    assert html =~
+             ~s(<link rel="stylesheet" crossorigin="anonymous" href="//ankole-static-files.cdn.agentbull.net/assets/css/pod.css">)
+
+    assert html =~
+             ~s(<script type="module" crossorigin="anonymous" src="//ankole-static-files.cdn.agentbull.net/assets/js/pod.js"></script>)
+
+    assert preloads(html) |> Enum.sort() == [
+             "//ankole-static-files.cdn.agentbull.net/assets/js/helper.js",
+             "//ankole-static-files.cdn.agentbull.net/assets/js/page.js",
+             "//ankole-static-files.cdn.agentbull.net/assets/js/shared.js"
+           ]
+
+    locale_html = Assets.locale_preload_tags("zh-Hans-CN") |> IO.iodata_to_binary()
+
+    assert preloads(locale_html) == [
+             "//ankole-static-files.cdn.agentbull.net/assets/js/zh-Hans-CN.js",
+             "//ankole-static-files.cdn.agentbull.net/assets/js/en-US.js"
+           ]
+
+    applet_html = Assets.applet_frame_tags() |> IO.iodata_to_binary()
+
+    assert applet_html =~
+             ~s("@ankole/uikit":"//ankole-static-files.cdn.agentbull.net/assets/js/applet-uikit.js")
+
+    assert stylesheets(applet_html) == [
+             "//ankole-static-files.cdn.agentbull.net/assets/css/shared.css",
+             "//ankole-static-files.cdn.agentbull.net/assets/css/uikit.css"
+           ]
+
+    assert Assets.static_path("/images/logo.svg") ==
+             "//ankole-static-files.cdn.agentbull.net/images/logo.svg"
   end
 
   test "development Applet frames initialize their own React refresh runtime" do

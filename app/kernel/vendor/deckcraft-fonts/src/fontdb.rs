@@ -29,9 +29,409 @@ pub fn bundled() -> Vec<&'static [u8]> {
     v
 }
 
+/// Preferred East Asian fallback order when no explicit family covers CJK characters.
+fn east_asian_fallback_list(c: char) -> Option<&'static [&'static str]> {
+    const CJK_SC_FALLBACKS: &[&str] = &[
+        "IBM Plex Sans SC",
+        "寒蝉锦书宋",
+        "ChillJinshuSong",
+        "LXGW WenKai GB",
+        "IBMPlexMonoSCHalf",
+        "Noto Sans TC",
+        "Noto Serif TC",
+        "Noto Sans JP",
+        "Noto Serif JP",
+        "Noto Sans KR",
+        "Noto Serif KR",
+    ];
+    const CJK_TC_FALLBACKS: &[&str] = &[
+        "Noto Sans TC",
+        "Noto Serif TC",
+        "IBM Plex Sans SC",
+        "寒蝉锦书宋",
+        "ChillJinshuSong",
+        "LXGW WenKai GB",
+        "Noto Sans JP",
+        "Noto Serif JP",
+        "Noto Sans KR",
+        "Noto Serif KR",
+    ];
+    const CJK_JP_FALLBACKS: &[&str] = &[
+        "Noto Sans JP",
+        "Noto Serif JP",
+        "IBM Plex Sans SC",
+        "寒蝉锦书宋",
+        "ChillJinshuSong",
+        "LXGW WenKai GB",
+        "Noto Sans TC",
+        "Noto Serif TC",
+        "Noto Sans KR",
+        "Noto Serif KR",
+    ];
+    const CJK_KR_FALLBACKS: &[&str] = &[
+        "Noto Sans KR",
+        "Noto Serif KR",
+        "IBM Plex Sans SC",
+        "寒蝉锦书宋",
+        "ChillJinshuSong",
+        "LXGW WenKai GB",
+        "Noto Sans TC",
+        "Noto Serif TC",
+        "Noto Sans JP",
+        "Noto Serif JP",
+    ];
+
+    if matches!(
+        c,
+        '\u{3040}'..='\u{30FF}' | '\u{31F0}'..='\u{31FF}' | '\u{FF65}'..='\u{FF9F}'
+    ) {
+        Some(CJK_JP_FALLBACKS)
+    } else if matches!(
+        c,
+        '\u{1100}'..='\u{11FF}' | '\u{3130}'..='\u{318F}' | '\u{AC00}'..='\u{D7AF}'
+    ) {
+        Some(CJK_KR_FALLBACKS)
+    } else if matches!(c, '\u{3100}'..='\u{312F}' | '\u{31A0}'..='\u{31BF}') {
+        Some(CJK_TC_FALLBACKS)
+    } else if matches!(
+        c,
+        '\u{2E80}'..='\u{2FDF}'
+            | '\u{3000}'..='\u{33FF}'
+            | '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{FE30}'..='\u{FE4F}'
+            | '\u{FF00}'..='\u{FFEF}'
+            | '\u{20000}'..='\u{3FFFF}'
+    ) {
+        Some(CJK_SC_FALLBACKS)
+    } else {
+        None
+    }
+}
+
+fn east_asian_rank(face: &FontFace, list: Option<&[&str]>) -> usize {
+    match list {
+        Some(list) => list
+            .iter()
+            .position(|name| face.family.eq_ignore_ascii_case(name))
+            .unwrap_or(list.len()),
+        None => 0,
+    }
+}
+
+/// True alias of the exact same first-party font (`ChillJinshuSong` ↔ `寒蝉锦书宋`,
+/// `霞鹜文楷 GB` ↔ `LXGW WenKai GB`), distinct from cross-family substitutes.
+fn true_family_alias(family: &str) -> Option<&'static str> {
+    match family.trim().to_lowercase().as_str() {
+        "chilljinshusong" | "寒蟬錦書宋" => Some("寒蝉锦书宋"),
+        "寒蝉锦书宋" => Some("ChillJinshuSong"),
+        "霞鹜文楷 gb" => Some("LXGW WenKai GB"),
+        "lxgw wenkai gb" => Some("霞鹜文楷 GB"),
+        _ => None,
+    }
+}
+
+/// Deterministic CJK family substitutes matching Ankole's site font catalog.
+fn cjk_substitutes(family: &str) -> Option<&'static [&'static str]> {
+    const SC_SANS: &[&str] = &[
+        "IBM Plex Sans SC",
+        "寒蝉锦书宋",
+        "ChillJinshuSong",
+        "LXGW WenKai GB",
+        "Noto Sans TC",
+        "Noto Sans JP",
+        "Noto Sans KR",
+        "Carlito",
+        "Inter",
+    ];
+    const SC_SERIF: &[&str] = &[
+        "寒蝉锦书宋",
+        "ChillJinshuSong",
+        "LXGW WenKai GB",
+        "IBM Plex Sans SC",
+        "Noto Serif TC",
+        "Noto Serif JP",
+        "Noto Serif KR",
+        "Caladea",
+        "Liberation Serif",
+    ];
+    const SC_KAI: &[&str] = &[
+        "LXGW WenKai GB",
+        "霞鹜文楷 GB",
+        "LXGW WenKai",
+        "霞鹜文楷",
+        "寒蝉锦书宋",
+        "ChillJinshuSong",
+        "IBM Plex Sans SC",
+        "Noto Serif TC",
+        "Caladea",
+        "Liberation Serif",
+    ];
+    const SC_MONO: &[&str] = &[
+        "IBMPlexMonoSCHalf",
+        "JetBrains Mono",
+        "Liberation Mono",
+        "Courier New",
+        "Inter",
+    ];
+    const TC_SANS: &[&str] = &["Noto Sans TC", "IBM Plex Sans SC", "Carlito", "Inter"];
+    const TC_SERIF: &[&str] = &[
+        "Noto Serif TC",
+        "寒蝉锦书宋",
+        "ChillJinshuSong",
+        "LXGW WenKai GB",
+        "Caladea",
+        "Liberation Serif",
+    ];
+    const JP_SANS: &[&str] = &["Noto Sans JP", "Carlito", "Inter"];
+    const JP_SERIF: &[&str] = &["Noto Serif JP", "Caladea", "Liberation Serif"];
+    const KR_SANS: &[&str] = &["Noto Sans KR", "Carlito", "Inter"];
+    const KR_SERIF: &[&str] = &["Noto Serif KR", "Caladea", "Liberation Serif"];
+
+    match family.trim().to_lowercase().as_str() {
+        "ibm plex sans"
+        | "ibm plex sans sc"
+        | "microsoft yahei"
+        | "microsoft yahei ui"
+        | "microsoft yahei light"
+        | "微软雅黑"
+        | "微软雅黑 light"
+        | "dengxian"
+        | "dengxian light"
+        | "等线"
+        | "等线 light"
+        | "simhei"
+        | "黑体"
+        | "pingfang sc"
+        | "苹方-简"
+        | "苹方"
+        | "heiti sc"
+        | "黑体-简"
+        | "stheitisc"
+        | "stheiti"
+        | "stxihei"
+        | "华文黑体"
+        | "华文细黑"
+        | "youyuan"
+        | "幼圆"
+        | "noto sans sc"
+        | "noto sans cjk sc"
+        | "source han sans sc"
+        | "source han sans cn"
+        | "思源黑体"
+        | "思源黑体 cn"
+        | "harmonyos sans sc"
+        | "misans"
+        | "mi sans"
+        | "oppo sans"
+        | "alibaba puhuiti" => Some(SC_SANS),
+
+        "chilljinshusong"
+        | "寒蝉锦书宋"
+        | "寒蟬錦書宋"
+        | "simsun"
+        | "simsun-extb"
+        | "宋体"
+        | "nsimsun"
+        | "新宋体"
+        | "stsong"
+        | "华文宋体"
+        | "stzhongsong"
+        | "华文中宋"
+        | "songti sc"
+        | "宋体-简"
+        | "fzxbsjw"
+        | "fzxbsjw--gb1-0"
+        | "方正小标宋简体"
+        | "方正小标宋_gbk"
+        | "方正书宋简体"
+        | "方正书宋_gbk"
+        | "noto serif sc"
+        | "noto serif cjk sc"
+        | "source han serif sc"
+        | "source han serif cn"
+        | "思源宋体"
+        | "思源宋体 cn" => Some(SC_SERIF),
+
+        "lxgw wenkai gb"
+        | "霞鹜文楷 gb"
+        | "lxgw wenkai"
+        | "霞鹜文楷"
+        | "lxgw wenkai lite"
+        | "霞鹜文楷 轻便版"
+        | "stkaiti"
+        | "华文楷体"
+        | "kaiti"
+        | "楷体"
+        | "kaiti_gb2312"
+        | "楷体_gb2312"
+        | "kaiti sc"
+        | "楷体-简"
+        | "fangsong"
+        | "仿宋"
+        | "fangsong_gb2312"
+        | "仿宋_gb2312"
+        | "stfangsong"
+        | "华文仿宋"
+        | "fangsong sc"
+        | "仿宋-简"
+        | "fzkai-z03s"
+        | "方正楷体简体"
+        | "方正楷体_gbk"
+        | "fzfangsong-z02s"
+        | "方正仿宋简体"
+        | "方正仿宋_gbk"
+        | "stxingkai"
+        | "华文行楷"
+        | "stliti"
+        | "华文隶书"
+        | "lisu"
+        | "隶书" => Some(SC_KAI),
+
+        "ibmplexmonoschalf"
+        | "ibm plex mono"
+        | "ibm plex mono sc"
+        | "sarasa mono sc"
+        | "等距更纱黑体 sc"
+        | "lxgw wenkai mono"
+        | "lxgw wenkai mono gb"
+        | "霞鹜文楷等宽"
+        | "霞鹜文楷等宽 gb"
+        | "noto sans mono cjk sc" => Some(SC_MONO),
+
+        "noto sans tc"
+        | "noto sans cjk tc"
+        | "noto sans hk"
+        | "noto sans cjk hk"
+        | "source han sans tc"
+        | "source han sans tw"
+        | "source han sans hk"
+        | "思源黑體"
+        | "microsoft jhenghei"
+        | "microsoft jhenghei ui"
+        | "microsoft jhenghei light"
+        | "微軟正黑體"
+        | "pingfang tc"
+        | "苹方-繁"
+        | "蘋方-繁"
+        | "pingfang hk"
+        | "蘋方-港"
+        | "heiti tc"
+        | "黑體-繁"
+        | "lihei pro"
+        | "儷黑 pro" => Some(TC_SANS),
+
+        "noto serif tc"
+        | "noto serif cjk tc"
+        | "source han serif tc"
+        | "source han serif tw"
+        | "思源宋體"
+        | "pmingliu"
+        | "pmingliu-extb"
+        | "新細明體"
+        | "mingliu"
+        | "mingliu-extb"
+        | "mingliu_hkscs"
+        | "細明體"
+        | "dfkai-sb"
+        | "標楷體"
+        | "biaukai"
+        | "kaiti tc"
+        | "楷體-繁"
+        | "songti tc"
+        | "宋體-繁" => Some(TC_SERIF),
+
+        "noto sans jp"
+        | "noto sans cjk jp"
+        | "source han sans jp"
+        | "source han sans"
+        | "源ノ角ゴシック"
+        | "yu gothic"
+        | "yu gothic ui"
+        | "yu gothic medium"
+        | "yugothic"
+        | "游ゴシック"
+        | "游ゴシック体"
+        | "meiryo"
+        | "meiryo ui"
+        | "メイリオ"
+        | "ms pgothic"
+        | "ｍｓ ｐゴシック"
+        | "ms gothic"
+        | "ｍｓ ゴシック"
+        | "ms ui gothic"
+        | "hiragino kaku gothic pron"
+        | "ヒラギノ角ゴ pron"
+        | "hiragino kaku gothic pro"
+        | "hiragino sans"
+        | "ヒラギノ角ゴシック"
+        | "biz udpgothic"
+        | "biz udgothic" => Some(JP_SANS),
+
+        "noto serif jp"
+        | "noto serif cjk jp"
+        | "source han serif jp"
+        | "源ノ明朝"
+        | "ms mincho"
+        | "ｍｓ 明朝"
+        | "ms pmincho"
+        | "ｍｓ ｐ明朝"
+        | "yu mincho"
+        | "yumincho"
+        | "游明朝"
+        | "游明朝体"
+        | "hiragino mincho pron"
+        | "ヒラギノ明朝 pron"
+        | "hiragino mincho pro"
+        | "biz udpmincho"
+        | "biz udmincho" => Some(JP_SERIF),
+
+        "noto sans kr"
+        | "noto sans cjk kr"
+        | "source han sans kr"
+        | "source han sans k"
+        | "본고딕"
+        | "malgun gothic"
+        | "맑은 고딕"
+        | "apple sd gothic neo"
+        | "dotum"
+        | "돋움"
+        | "dotumche"
+        | "돋움체"
+        | "gulim"
+        | "굴림"
+        | "gulimche"
+        | "굴림체"
+        | "nanumgothic"
+        | "나눔고딕" => Some(KR_SANS),
+
+        "noto serif kr"
+        | "noto serif cjk kr"
+        | "source han serif kr"
+        | "본명조"
+        | "batang"
+        | "바탕"
+        | "batangche"
+        | "바탕체"
+        | "gungsuh"
+        | "궁서"
+        | "gungsuhche"
+        | "궁서체"
+        | "applemyungjo"
+        | "nanummyeongjo"
+        | "나눔명조" => Some(KR_SERIF),
+
+        _ => None,
+    }
+}
+
 /// Open substitutes for families documents often ask for but we can't ship (metric-compatible
 /// where one exists), tried in order after the family itself.
 pub fn substitutes(family: &str) -> &'static [&'static str] {
+    if let Some(cjk) = cjk_substitutes(family) {
+        return cjk;
+    }
     let f = family.to_ascii_lowercase();
     if is_monospace_family(&f) {
         return &[
@@ -1535,6 +1935,7 @@ impl FontDb {
         if family.eq_ignore_ascii_case(FALLBACK_FAMILY)
             || has_metric_twin(family)
             || is_office_cloud_font(family)
+            || cjk_substitutes(family).is_some()
             || self.has_family(family)
         {
             return self.face(family, style);
@@ -1563,12 +1964,27 @@ impl FontDb {
                 self.load_cataloged(family);
                 loaded.insert(key);
             }
+            if let Some(alias) = true_family_alias(family) {
+                let alias_key = alias.to_lowercase();
+                if !loaded.contains(&alias_key) {
+                    self.load_cataloged(alias);
+                    loaded.insert(alias_key);
+                }
+            }
         }
         self.find(family, style)
+            .or_else(|| true_family_alias(family).and_then(|alias| self.find(alias, style)))
     }
 
     /// Is `family` available (loaded, or installed on the system)?
     pub fn has_family(&self, family: &str) -> bool {
+        if self.has_exact_family(family) {
+            return true;
+        }
+        true_family_alias(family).is_some_and(|alias| self.has_exact_family(alias))
+    }
+
+    fn has_exact_family(&self, family: &str) -> bool {
         if self.is_loaded(family) {
             return true;
         }
@@ -1584,12 +2000,15 @@ impl FontDb {
     }
 
     pub(crate) fn is_loaded(&self, family: &str) -> bool {
-        self.read_faces().iter().any(|f| {
-            f.family.eq_ignore_ascii_case(family)
-                || f.legacy
-                    .as_ref()
-                    .is_some_and(|(lf, _)| lf.eq_ignore_ascii_case(family))
-        })
+        let matches_face = |target: &str| {
+            self.read_faces().iter().any(|f| {
+                f.family.eq_ignore_ascii_case(target)
+                    || f.legacy
+                        .as_ref()
+                        .is_some_and(|(lf, _)| lf.eq_ignore_ascii_case(target))
+            })
+        };
+        matches_face(family) || true_family_alias(family).is_some_and(matches_face)
     }
 
     /// A variable font's axes: (tag, name, min, default, max), empty for static fonts.
@@ -1764,10 +2183,12 @@ impl FontDb {
         exclude: u32,
         accept: &impl Fn(&FontFace) -> bool,
     ) -> Option<Arc<FontFace>> {
+        let cjk = east_asian_fallback_list(c);
         let faces = self.read_faces();
         let mut order: Vec<&Arc<FontFace>> = faces.iter().filter(|f| f.id != exclude).collect();
         order.sort_by_key(|f| {
             (
+                east_asian_rank(f, cjk),
                 !f.family.eq_ignore_ascii_case(FALLBACK_FAMILY),
                 f.italic,
                 (f.weight - 400.0).abs() as i32,
@@ -2289,6 +2710,151 @@ mod font_dir_tests {
             ]
         );
         assert!(fontconfig_dirs("<dir>/never closed", None, Some(home)).is_empty());
+    }
+
+    fn synthetic_cjk_font(family: &str, extra_chars: &[char]) -> Vec<u8> {
+        let base = crate::CRAFT_FONTS
+            .first()
+            .map(|f| f.bytes)
+            .unwrap_or(epaint_default_fonts::UBUNTU_LIGHT);
+        let base_ref = skrifa::FontRef::new(base).unwrap();
+        let base_cmap = base_ref.charmap();
+        let sample_gid = base_cmap.map('W').unwrap().to_u32();
+
+        let mut mappings = std::collections::BTreeMap::new();
+        for cp in 0x20u32..=0x7Eu32 {
+            if let Some(ch) = char::from_u32(cp)
+                && let Some(gid) = base_cmap.map(ch)
+            {
+                mappings.insert(cp, gid.to_u32());
+            }
+        }
+        for &ch in extra_chars {
+            mappings.insert(ch as u32, sample_gid);
+        }
+
+        let mut cmap = Vec::new();
+        cmap.extend_from_slice(&0u16.to_be_bytes());
+        cmap.extend_from_slice(&1u16.to_be_bytes());
+        cmap.extend_from_slice(&3u16.to_be_bytes());
+        cmap.extend_from_slice(&10u16.to_be_bytes());
+        cmap.extend_from_slice(&12u32.to_be_bytes());
+        cmap.extend_from_slice(&12u16.to_be_bytes());
+        cmap.extend_from_slice(&0u16.to_be_bytes());
+        let subtable_len = 16 + 12 * mappings.len() as u32;
+        cmap.extend_from_slice(&subtable_len.to_be_bytes());
+        cmap.extend_from_slice(&0u32.to_be_bytes());
+        cmap.extend_from_slice(&(mappings.len() as u32).to_be_bytes());
+        for (cp, gid) in mappings {
+            cmap.extend_from_slice(&cp.to_be_bytes());
+            cmap.extend_from_slice(&cp.to_be_bytes());
+            cmap.extend_from_slice(&gid.to_be_bytes());
+        }
+
+        let names: [(u16, String); 4] = [
+            (1, family.to_string()),
+            (2, "Regular".to_string()),
+            (16, family.to_string()),
+            (17, "Regular".to_string()),
+        ];
+        let mut name_table = vec![0, 0];
+        name_table.extend_from_slice(&(names.len() as u16).to_be_bytes());
+        name_table.extend_from_slice(&(6 + 12 * names.len() as u16).to_be_bytes());
+        let mut pool = Vec::new();
+        for (id, text) in &names {
+            let utf16: Vec<u8> = text.encode_utf16().flat_map(u16::to_be_bytes).collect();
+            for v in [3u16, 1, 0x409, *id, utf16.len() as u16, pool.len() as u16] {
+                name_table.extend_from_slice(&v.to_be_bytes());
+            }
+            pool.extend(utf16);
+        }
+        name_table.extend(pool);
+
+        let num_tables = u16::from_be_bytes([base[4], base[5]]) as usize;
+        let mut tables: Vec<([u8; 4], Vec<u8>)> = (0..num_tables)
+            .filter_map(|i| {
+                let rec = &base[12 + i * 16..28 + i * 16];
+                let tag: [u8; 4] = rec[..4].try_into().unwrap();
+                if &tag == b"name" || &tag == b"cmap" {
+                    return None;
+                }
+                let off = u32::from_be_bytes(rec[8..12].try_into().unwrap()) as usize;
+                let len = u32::from_be_bytes(rec[12..16].try_into().unwrap()) as usize;
+                Some((tag, base[off..off + len].to_vec()))
+            })
+            .collect();
+        tables.push((*b"cmap", cmap));
+        tables.push((*b"name", name_table));
+        tables.sort_by_key(|(tag, _)| *tag);
+
+        let mut font = Vec::new();
+        font.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        font.extend_from_slice(&(tables.len() as u16).to_be_bytes());
+        font.extend_from_slice(&[0; 6]);
+        let mut offset = 12 + 16 * tables.len();
+        for (tag, data) in &tables {
+            font.extend_from_slice(tag);
+            font.extend_from_slice(&[0; 4]);
+            font.extend_from_slice(&(offset as u32).to_be_bytes());
+            font.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            offset += data.len().next_multiple_of(4);
+        }
+        for (_, data) in &tables {
+            font.extend_from_slice(data);
+            font.resize(font.len().next_multiple_of(4), 0);
+        }
+        font
+    }
+
+    #[test]
+    fn cjk_document_face_and_fallback_rank_deterministically() {
+        let db = FontDb::with_font_dirs(Vec::new());
+        db.set_system_fallback(false);
+
+        // Load Noto Sans JP first to verify fallback order is deterministic rather than insertion-ordered.
+        assert_eq!(
+            db.add_font(synthetic_cjk_font("Noto Sans JP", &['中', 'あ'])),
+            1
+        );
+        assert_eq!(
+            db.add_font(synthetic_cjk_font("LXGW WenKai GB", &['中'])),
+            1
+        );
+        assert_eq!(db.add_font(synthetic_cjk_font("寒蝉锦书宋", &['中'])), 1);
+        assert_eq!(
+            db.add_font(synthetic_cjk_font("IBM Plex Sans SC", &['中'])),
+            1
+        );
+        assert_eq!(
+            db.add_font(synthetic_cjk_font("IBMPlexMonoSCHalf", &['中'])),
+            1
+        );
+
+        assert_eq!(
+            db.document_face("华文楷体", "Regular").family,
+            "LXGW WenKai GB"
+        );
+        assert_eq!(
+            db.document_face("STKaiti", "Regular").family,
+            "LXGW WenKai GB"
+        );
+        assert_eq!(db.document_face("宋体", "Regular").family, "寒蝉锦书宋");
+        assert_eq!(
+            db.document_face("微软雅黑", "Regular").family,
+            "IBM Plex Sans SC"
+        );
+        assert_eq!(
+            db.document_face("IBM Plex Mono", "Regular").family,
+            "IBMPlexMonoSCHalf"
+        );
+
+        // True aliases are recognized as installed without collapsing cross-family substitutes.
+        assert!(db.has_family("ChillJinshuSong"));
+        assert!(db.has_family("霞鹜文楷 GB"));
+        assert!(!db.has_family("华文楷体"));
+
+        assert_eq!(db.fallback_for('中', 0).unwrap().family, "IBM Plex Sans SC");
+        assert_eq!(db.fallback_for('あ', 0).unwrap().family, "Noto Sans JP");
     }
 
     #[test]

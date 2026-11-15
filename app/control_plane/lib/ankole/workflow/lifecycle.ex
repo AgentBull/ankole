@@ -293,7 +293,8 @@ defmodule Ankole.Workflow.Lifecycle do
           {:ok, %{run: run}}
 
         {:ok, nil} ->
-          with {:ok, run} <- Ankole.Ash.create(Run, :create_run, attrs),
+          with {:ok, attrs} <- validate_new_run_model_profile(attrs),
+               {:ok, run} <- Ankole.Ash.create(Run, :create_run, attrs),
                :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue(run.id) do
             {:ok, %{run: run}}
           end
@@ -301,6 +302,22 @@ defmodule Ankole.Workflow.Lifecycle do
         {:error, _reason} = error ->
           error
       end
+    end
+  end
+
+  defp validate_new_run_model_profile(attrs) do
+    case Map.get(attrs, "model_profile") do
+      nil ->
+        {:ok, attrs}
+
+      profile ->
+        with {:ok, normalized} <-
+               Ankole.AIGateway.ModelProfiles.validate_delegation_profile(
+                 attrs["agent_uid"],
+                 profile
+               ) do
+          {:ok, Map.put(attrs, "model_profile", normalized)}
+        end
     end
   end
 

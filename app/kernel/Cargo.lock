@@ -7782,7 +7782,6 @@ dependencies = [
 [[package]]
 name = "wordcraft-fonts"
 version = "0.15.1"
-source = "git+https://github.com/storytold/wordcraft?rev=45db128c150074a7f6d127ba71626ce4a30d8f3c#45db128c150074a7f6d127ba71626ce4a30d8f3c"
 dependencies = [
  "brotli-decompressor 5.0.3",
  "harfrust",

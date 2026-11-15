@@ -89,6 +89,7 @@ target/
 tmp/
 /output/
 .turbo
+.cache/
 var/**
 !var/.gitkeep
 !var/computer-dev/

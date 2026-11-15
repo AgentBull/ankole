@@ -33,8 +33,22 @@ Another JSON value becomes JSON text.
 `agent()` accepts these options:
 
 - `label`: a short stable name for status and failure reports
-- `model_profile`: a custom profile when one task needs it
+- `model_profile`: a built-in capability tier (`light`, `primary`, or `heavy`) or a named custom profile
 - `schema`: the non-null result schema for that task
+
+When the Agent has distinct capability tiers configured, match `model_profile`
+to each stage's actual work:
+
+- Keep short tasks on one model instead of adding stage handoffs just to switch
+  tiers.
+- Use `light` for stateless, independent read, extraction, classification, or
+  filtering batches.
+- Start stateful construction, root-cause diagnosis, or cross-source synthesis
+  on `heavy` or `primary`. Move a later stage to `light` only when concrete
+  artifacts and real verification feedback already exist and the remaining work
+  is localized and mechanical.
+- Select a named custom `model_profile` only when the user or an active Skill
+  names it.
 
 Use labels that describe roles or partitions, such as `collect:security`,
 `verify:pricing`, or `round:2:pair:3`. Do not put the complete prompt in the

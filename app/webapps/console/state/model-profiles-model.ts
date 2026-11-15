@@ -6,7 +6,6 @@ export const PROFILE_NAMES = [
   'primary',
   'light',
   'heavy',
-  'coding',
   'vision_fallback',
   'web_search',
   'web_fetch',

@@ -41,6 +41,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     created_by
     message
     metadata
+    model_profile
     owner_session_id
     reply_route
     source_signal_id
@@ -123,12 +124,12 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp prepare_respawn_source(source_job_id, attrs, agent_uid) do
     with {:ok, reply_route} <- reply_route(attrs),
          %Job{} = source_job <- Queries.get_for_agent(source_job_id, agent_uid),
-         # The successor inherits the source profile, which must still resolve.
-         {:ok, _model_profile} <- available_model_profile(agent_uid, source_job.model_profile),
+         {:ok, model_profile} <- respawn_model_profile(agent_uid, source_job, attrs),
          {:ok, metadata} <- job_metadata(attrs, false) do
       attrs =
         attrs
         |> Map.put("reply_route", reply_route)
+        |> Map.put("model_profile", model_profile)
         |> Map.put("metadata", metadata)
 
       prepare_persist_respawn(source_job_id, attrs, now())
@@ -140,16 +141,15 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   defp requested_model_profile(agent_uid, attrs) do
     case Attrs.text(attrs, "model_profile") do
-      nil -> available_model_profile(agent_uid, "coding")
-      profile -> available_custom_model_profile(agent_uid, profile)
+      nil -> available_model_profile(agent_uid, "heavy")
+      profile -> ModelProfiles.validate_delegation_profile(agent_uid, profile)
     end
   end
 
-  defp available_custom_model_profile(agent_uid, profile) do
-    with {:ok, custom_profile} <- ModelProfiles.get_custom_model_profile(agent_uid, profile),
-         normalized_profile <- Map.fetch!(custom_profile, "profile"),
-         {:ok, _runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, normalized_profile) do
-      {:ok, normalized_profile}
+  defp respawn_model_profile(agent_uid, source_job, attrs) do
+    case Attrs.text(attrs, "model_profile") do
+      nil -> available_model_profile(agent_uid, source_job.model_profile)
+      profile -> ModelProfiles.validate_delegation_profile(agent_uid, profile)
     end
   end
 

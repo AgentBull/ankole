@@ -28,7 +28,7 @@ Agent 先将代码仓库克隆到工作空间（位于 `/workspace/jobs/<job-id>
 
 - **配置 Git 凭证。** 对于 GitHub（含 GitHub Enterprise），推荐直接在 **Pod → 连接（Connections）**（`Ankole.Connectors`）中配置 GitHub App 安装或个人 OAuth 授权：Ankole 会在每轮执行时自动注入绑定当前回合权限的 `GIT_ASKPASS` 凭证助手（调用控制面 `POST /api/internal/connectors/git-credentials`），使 `git clone`、`git fetch` 与 `git push` 无需在 Worker 环境变量中存放静态令牌即可直接完成 HTTPS 认证。若对接其他 Git 托管平台，仍可在 **Console → 环境变量**中将 SSH 密钥或个人访问令牌（PAT）保存为加密变量（如 `GIT_SSH_KEY` 或 `GIT_TOKEN`），详见 [环境变量](../worker-env/)。
 - **打通 Worker 到代码仓库的网络。** Worker 必须能够连接目标 Git 主机；若部署在私有网络中，请先确认 Worker 到 Git 服务器的路由可达。采用 Docker Compose 部署时，Worker 容器位于 `ankole_workers` 网络中，可同时访问控制面和公网，因此能够直接连接公网上的 Git 主机。采用 Helm Chart 部署并开启 `networkPolicy.enabled` 时，Worker Pod 可访问控制面、DNS 和公网地址；但若 Git 服务器位于私有网段，且该网段仍列在 `networkPolicy.workerDeniedCIDRs` 中，连接就会被拦截。
-- **按需配置模型档案。** Agent 默认继承站点与 Pod 的模型档案，后台 Agent 任务也会按 `coding → heavy → primary` 顺序跨 Agent、Pod 与站点层级自动回退；仅当需要为该 Agent 或后台任务指定专属提供商与模型时，才需单独设置覆盖档案。
+- **按需配置模型档案。** Agent 默认继承站点与 Pod 的模型档案，后台 Agent 任务默认走 `heavy` 档案并按 `heavy → primary` 顺序跨 Agent、Pod 与站点层级自动回退；仅当需要为该 Agent 或后台任务指定专属提供商与模型时，才需单独设置覆盖档案。
 
 ## 工作空间
 
@@ -49,7 +49,7 @@ Git 仓库会克隆到按 Session 或按任务隔离的工作空间目录中：
 下面以配置一个负责审查 PR 的研发 Agent 为例：
 
 1. 在 **Pod → 连接（Connections）**中连接 GitHub App 或个人 OAuth 账号（对接非 GitHub 代码托管服务时，则在 **Console → 环境变量**中配置加密的 SSH 密钥或 PAT）。
-2. 创建 Agent——它会自动继承站点与 Pod 默认模型档案；仅在需要定制日常对话或后台任务模型时，再单独配置覆盖槽位或 `coding` 档案。
+2. 创建 Agent——它会自动继承站点与 Pod 默认模型档案；仅在需要定制日常对话或后台任务模型时，再单独配置覆盖槽位或 `heavy` 档案。
 3. 在 **Meta Ankole → Agents** 中编辑该 Agent 的 `AGENTS.md` 契约，写明目标代码仓库、审查标准与分支命名约定。
 4. 在频道中向 Agent 发送指令：“审查 `your-repo` 上最新的 PR：克隆仓库、检出分支、运行测试，并汇报发现的问题。”
 5. 收到指令后，Agent 会克隆仓库、切换分支、通过 `command` 工具运行测试并回复审查结果。整套流程既可在当前对话中直接完成，也可委派给后台 Agent 任务执行。

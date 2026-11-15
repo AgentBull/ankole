@@ -349,11 +349,20 @@ function PresentationWorkspace({
   const status = model.status.value
   const editable = model.editable.value
   const snapshot = model.snapshot.value
-  const requestedFonts = useMemo(
-    () => [...(snapshot?.substitutedFonts.map(entry => entry.requested) ?? []), ...(snapshot?.missingGlyphFonts ?? [])],
+  const fontRequests = useMemo(
+    () => ({
+      substitutedFamilies: snapshot?.substitutedFonts.map(entry => entry.requested) ?? [],
+      missingGlyphFamilies: snapshot?.missingGlyphFonts ?? []
+    }),
     [snapshot?.substitutedFonts, snapshot?.missingGlyphFonts]
   )
-  const fontEpoch = useOfficeFonts(requestedFonts, model)
+  const {
+    epoch: fontEpoch,
+    fontsReady,
+    waitForFonts
+  } = useOfficeFonts(fontRequests, model, {
+    documentLoaded: status !== 'loading'
+  })
   const members = model.members.value
   const version = model.version.value
   const revision = model.revision.value
@@ -393,7 +402,7 @@ function PresentationWorkspace({
     const observer = new ResizeObserver(update)
     observer.observe(stage)
     return () => observer.disconnect()
-  }, [status, railOpen, notesOpen, findOpen, isMobile])
+  }, [status, fontsReady, railOpen, notesOpen, findOpen, isMobile])
 
   const safePtW = Math.max(1, slideSizePt.width)
   const safePtH = Math.max(1, slideSizePt.height)
@@ -417,7 +426,7 @@ function PresentationWorkspace({
 
   // Rasterize the active slide onto the main `<canvas>`.
   useEffect(() => {
-    if (!slides.length) return
+    if (!slides.length || !fontsReady) return
     let cancelled = false
     void renderSlide(activeSlideIndex, mainRenderScale).then(rendered => {
       if (cancelled || !rendered || !canvasRef.current) return
@@ -426,7 +435,7 @@ function PresentationWorkspace({
     return () => {
       cancelled = true
     }
-  }, [slides.length, activeSlideIndex, mainRenderScale, version, fontEpoch, renderSlide])
+  }, [slides.length, fontsReady, activeSlideIndex, mainRenderScale, version, fontEpoch, renderSlide])
 
   const warnIfSlideLocked = useCallback(
     (targetSlideId?: number): boolean => {
@@ -465,7 +474,7 @@ function PresentationWorkspace({
 
   // Initial deep-link slide jump (`initialSlide` is 1-based) and search highlight (`initialFind`).
   useEffect(() => {
-    if ((status !== 'ready' && status !== 'read_only') || slides.length === 0) return
+    if ((status !== 'ready' && status !== 'read_only') || !fontsReady || slides.length === 0) return
     const key = `${initialSlide ?? ''}\0${initialFind ?? ''}`
     if ((initialSlide === undefined && !initialFind) || appliedJumpRef.current === key) {
       return
@@ -506,7 +515,7 @@ function PresentationWorkspace({
     return () => {
       cancelled = true
     }
-  }, [status, slides.length, initialSlide, initialFind, model, goToSlide])
+  }, [status, fontsReady, slides.length, initialSlide, initialFind, model, goToSlide])
 
   // Re-run deck search whenever Find bar query, case sensitivity, or document version changes.
   useEffect(() => {
@@ -576,6 +585,7 @@ function PresentationWorkspace({
     if (exportingPdf) return
     setExportingPdf(true)
     try {
+      await waitForFonts()
       const pdfBytes = await model.read(eng => (eng as PresentationEngine).exportPdf())
       if (pdfBytes && pdfBytes.byteLength > 0) {
         downloadBlob(new Blob([pdfBytes.slice()], { type: 'application/pdf' }), pdfDownloadFilename(pageTitle))
@@ -585,7 +595,7 @@ function PresentationWorkspace({
     } finally {
       setExportingPdf(false)
     }
-  }, [exportingPdf, model, pageTitle])
+  }, [exportingPdf, model, pageTitle, waitForFonts])
 
   const clientToSlideCoords = useCallback(
     (clientX: number, clientY: number): { x: number; y: number; tol: number } => {
@@ -999,7 +1009,7 @@ function PresentationWorkspace({
     }
     return <ContentError error={rawErr} retry={model.retry} />
   }
-  if (status === 'loading' && slides.length === 0) {
+  if ((status === 'loading' && slides.length === 0) || !fontsReady) {
     return <ContentSkeleton variant="page" label={t('pod.presentation.loading')} immediate />
   }
 

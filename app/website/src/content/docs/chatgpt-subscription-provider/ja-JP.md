@@ -46,7 +46,7 @@ ChatGPT サブスクリプションは、通常の AIGateway provider の 1 つ�
 ## Provider を Agent に割り当てる
 
 1. **Console → Agents** を開き、対象の Agent を選択します。
-2. 設定したいモデルプロファイルを開きます（長時間ジョブには **Background Agent Jobs** を、通常の会話ターンには `primary` などの各プロファイルを使います）。
+2. 設定したいモデルプロファイルを開きます（長時間ジョブには `heavy`（**高度な推論・バックグラウンドジョブ**）を、通常の会話ターンには `primary`、`light`、またはカスタムプロファイルを使います）。
 3. 作成した ChatGPT サブスクリプション provider と、サブスクリプションで利用可能なモデルを選択します。
 4. 必要に応じて推論強度（reasoning effort）と Fast Mode を設定します。
 5. プロファイルを保存します。

@@ -47,13 +47,12 @@ group memory 공개 모드는 여러 사람이 함께 보는 대화방에서 Age
 
 ## 모델 구성
 
-Agent의 모델 프로필은 **Console → Model Profiles**에서 구성하는 3계층 희소 상속 체인(`Agent -> Pod -> Site`)을 따라 해석되며, `coding -> heavy -> primary` 및 `light -> primary` 슬롯 간 폴백이 적용됩니다. Site나 Pod에 `primary` 프로필이 이미 구성되어 있으면 새 Agent는 슬롯별 개별 설정 없이도 즉시 동작하므로, 이 Agent의 역할에 Pod 기본값과 다른 provider·모델 등급·사용자 지정 언어 모델 별칭이 필요할 때만 슬롯을 재정의하세요.
+Agent의 모델 프로필은 **Console → Model Profiles**에서 구성하는 3계층 희소 상속 체인(`Agent -> Pod -> Site`)을 따라 해석되며, `heavy -> primary` 및 `light -> primary` 슬롯 간 폴백이 적용됩니다. Site나 Pod에 `primary` 프로필이 이미 구성되어 있으면 새 Agent는 슬롯별 개별 설정 없이도 즉시 동작하므로, 이 Agent의 역할에 Pod 기본값과 다른 provider·모델 등급·사용자 지정 언어 모델 별칭이 필요할 때만 슬롯을 재정의하세요.
 
-- Pod 기본값보다 상위 등급이나 특화된 모델이 필요하면 `primary`, `light`, 또는 `heavy`를 재정의합니다.
+- Pod 기본값보다 상위 등급이나 특화된 모델이 필요하면 `primary`, `light`, 또는 `heavy`를 재정의합니다(`heavy`는 Background Agent Job의 기본 프로필도 겸하며 비워 두면 `primary`로 폴백합니다. ChatGPT 구독으로 백그라운드 작업을 실행할 때도 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 `heavy`에 연결하면 됩니다).
 - `primary`가 네이티브 이미지 입력을 지원하지 않는데 이미지를 읽어야 한다면 `vision_fallback`을 구성합니다.
 - Pod 기본값과 다른 웹 검색·열람 설정이 필요하면 `web_search`와 `web_fetch`를 구성합니다.
 - 전용 이미지 생성 provider를 사용하려면 `image_generate`를 구성합니다.
-- 백그라운드 작업(`coding`)에 별도의 provider나 모델을 쓰려면 **Background Agent Jobs** 프로필을 구성합니다(비워 두면 `heavy -> primary`로 폴백합니다). ChatGPT 구독 연결도 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 통해 동일한 방식으로 선택할 수 있습니다.
 
 별도 `web_search` 또는 `image_generate` 프로필을 쓰려면 해당 provider-hosted 스위치도 꺼야 합니다. 프로필을 연결하는 것만으로 스위치가 바뀌지는 않습니다. 두 스위치는 기본적으로 켜져 있으며 Site → Pod → Agent 순서로 설정을 상속합니다.
 

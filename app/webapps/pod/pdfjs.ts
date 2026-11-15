@@ -3,7 +3,14 @@ import { getDocument, GlobalWorkerOptions, PDFWorker } from 'pdfjs-dist/legacy/b
 // eslint-disable-next-line import/default -- `?url` makes Vite export the asset URL, which the module itself does not
 import workerURL from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 
-GlobalWorkerOptions.workerSrc = workerURL
+const resolvedWorkerURL = new URL(workerURL, import.meta.url)
+GlobalWorkerOptions.workerSrc =
+  typeof window !== 'undefined' &&
+  typeof Worker === 'function' &&
+  typeof process === 'undefined' &&
+  resolvedWorkerURL.origin !== window.location.origin
+    ? URL.createObjectURL(new Blob([`import ${JSON.stringify(resolvedWorkerURL.href)};`], { type: 'text/javascript' }))
+    : resolvedWorkerURL.href
 
 // pdf.js names the predefined CMap, symbol font, or image decoder a document needs; Vite emits each as its own asset.
 // The other standard fonts come from the system, so pdf.js asks only for Symbol and ZapfDingbats.

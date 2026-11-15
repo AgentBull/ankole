@@ -213,7 +213,7 @@ defmodule Ankole.Brain.Config do
   @spec dreaming_model() :: map() | nil
   def dreaming_model, do: profile_or_nil("heavy")
 
-  @doc "Reads one effective ankole_brain model profile, with heavy falling back to primary."
+  @doc "Reads one effective ankole_brain model profile, with heavy and light falling back to primary."
   @spec effective_model_profile(String.t()) :: {:ok, map()} | {:error, term()}
   def effective_model_profile(profile) when is_binary(profile) do
     with {:ok, configuration} <-
@@ -221,7 +221,6 @@ defmodule Ankole.Brain.Config do
          %{value: %{} = model} <- Map.get(configuration.effective, profile) do
       {:ok, model}
     else
-      %{value: nil} when profile == "heavy" -> effective_model_profile("primary")
       %{value: nil} -> {:error, :model_profile_not_configured}
       nil -> {:error, :invalid_model_profile}
       {:error, _reason} = error -> error

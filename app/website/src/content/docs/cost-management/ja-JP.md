@@ -11,14 +11,13 @@ Ankole の運用コストの大半はモデルのトークン消費によるも�
 
 ## レバー 1: model profile の階層
 
-モデルプロファイル（Model Profile）は **Console → Model Profiles** の 3 層疎継承チェーン（`Site -> Pod -> Agent/System`）に従って解決されます。各 Agent は 8 つの標準スロット（5 つの言語モデルスロットと `web_search`、`web_fetch`、`image_generate`）を持ち、Site・Pod および組み込みの `system` Principal（`ankole_brain`、`system`）はさらに `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music` の 7 つのスロットを持ちます。未指定のスロットは Pod と Site の既定値を継承し、さらに `coding -> heavy -> primary` と `light -> primary` のスロット間フォールバックが適用されます。
+モデルプロファイル（Model Profile）は **Console → Model Profiles** の 3 層疎継承チェーン（`Site -> Pod -> Agent/System`）に従って解決されます。各 Agent は 7 つの標準スロット（4 つの言語モデルスロットと `web_search`、`web_fetch`、`image_generate`）を持ち、Site・Pod および組み込みの `system` Principal（`ankole_brain`、`system`）はさらに `rerank`、`decision`、`speech`、`transcription`、`ocr`、`video`、`music` の 7 つのスロットを持ちます。未指定のスロットは Pod と Site の既定値を継承し、さらに `heavy -> primary` と `light -> primary` のスロット間フォールバックが適用されます。
 
 | スロット | 使われる場面 | コスト上の位置づけ |
 |---|---|---|
 | `primary` | メインの推論モデル（大半の通常 turn で使用） | 単一項目として最大のコスト要因 |
 | `light` | 高頻度・低リスクな軽量処理（未設定時は `primary` にフォールバック） | 大量処理が `primary` 単価にならないよう安価なモデルを割り当てる枠 |
-| `heavy` | 難易度の高い統合・推論処理や Dreaming | 高単価。`primary` が適切なら呼ばれる頻度は低い |
-| Background Agent Jobs（内部キーは `coding`） | すべての Background Agent Job（`coding -> heavy -> primary` でフォールバック） | 長時間のバックグラウンド作業で使う Provider とモデルを決定 |
+| `heavy` | 難易度の高い統合・推論処理、Background Agent Job、Dreaming（未設定時は `primary` にフォールバック） | 複雑な推論や長時間のバックグラウンド作業で使う Provider とモデルを決定 |
 | `vision_fallback` | `primary` が画像入力に非対応のとき | 画像を扱う Agent にだけ設定する |
 | `web_search`、`web_fetch` | Web 検索・ページ取得ツール | レバー 3 を参照 |
 | `image_generate` | 画像生成ツール | 1 回あたりの単価が高いため、必要な Agent にだけ設定する |
@@ -40,7 +39,7 @@ Company Brain の保守と Pod Applet の呼び出しでは、実行主体が異
 - **Site または Pod レベルで `light` に安価な軽量モデルを割り当てる:** `light` は未設定時に `primary` へフォールバックし、高頻度の補助処理や `ankole_brain` の知識抽出を担います。既定レイヤーで低コストモデルを設定しておけば、継承するすべての Agent と `ankole_brain` の消費をまとめて抑えられます。
 - **`primary` は最初から最上位モデルにせず、標準クラスから始める:** 「想定よりコストが高い」と感じるケースの大半は、日常の定型作業に対して `primary` のモデルがオーバースペックになっていることが原因です。出力品質に不足を感じた専門 Agent だけ `primary` や `heavy` を上位モデルへ上書きしてください。
 
-Agent の上書きを変更する前に、Site と Pod から継承した実効プロファイルを確認します。実効の `vision_fallback` が未設定なら、画像入力のフォールバックは利用できません。画像生成の **モデルのプロバイダーが実行** がオンの場合はメイン Provider のネイティブ機能を使い、専用プロファイルは使いません。`image_generate` を使うにはこのスイッチをオフにします。一方、Background Agent Jobs（`coding`）が未設定の場合は `heavy -> primary` の順で AIGateway 経由のフォールバックが働くため、バックグラウンドジョブを別 Provider やコーディング特化モデルへ逃がしたい場合に `coding` を明示設定してください。
+Agent の上書きを変更する前に、Site と Pod から継承した実効プロファイルを確認します。実効の `vision_fallback` が未設定なら、画像入力のフォールバックは利用できません。画像生成の **モデルのプロバイダーが実行** がオンの場合はメイン Provider のネイティブ機能を使い、専用プロファイルは使いません。`image_generate` を使うにはこのスイッチをオフにします。一方、`heavy` が未設定の場合は Background Agent Job も AIGateway 経由で `primary` へフォールバックするため、複雑な推論やバックグラウンドジョブを別 Provider や上位モデルへ割り当てたい場合に `heavy` を設定してください。
 
 ## レバー 2: reasoning effort
 

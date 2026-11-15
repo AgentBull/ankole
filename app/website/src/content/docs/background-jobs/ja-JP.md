@@ -45,7 +45,7 @@ Job が動き始めたあとも、メイン Agent を通じて参考資料を追
 - **バックグラウンドで調査してから回答を続ける:** 今の会話の結論を出すために、まずまとまった下調べが必要な場合に使います。
 - **重要な選択の前に確認:** 方針転換や有料データソースの利用など、人間の判断を挟みたい場合に使います。Job は該当箇所で一時停止して元の会話に質問を投げ、あなたが返信すると再開します。
 - **サイレントに実行:** ファイルの生成だけ済ませておいて、後から自分のタイミングで確認したい場合に使います。途中経過を送らないよう伝えておけば、後からチャットで尋ねるか Console で結果を確認できます。
-- **前の Job を継続:** 以前の作業を指定したうえで追加要件を伝えます。対象の Job が再開可能な状態であれば、既存の workspace とコンテキストを引き継いで作業を続けられます。
+- **前の Job を継続:** 以前の作業を指定したうえで追加要件を伝えます。対象の Job が再開可能な状態であれば、既存の workspace とコンテキストを引き継いで作業を続けられます。コールドアイドル回収、Worker の置き換え、またはモデルプロファイルの切り替えに伴って新しい Codex スレッドを起動する際は、Ankole がこれまでのタスク系譜と永続化された実行履歴を workspace 内の `.ankole/task-lineage.json` と `.ankole/execution-history.jsonl` に書き出すため、新しいスレッドも完了済み作業をやり直すことなく過去の操作を参照できます。
 
 依頼例:
 
@@ -58,9 +58,9 @@ Ask me here before you expand the scope or use a paid data source.
 
 ## モデル provider を選択する
 
-すべての Job は AIGateway 経由でモデルを呼び出します。初回の実行受け入れ（execution admission）時に、その時点で有効な **Background Agent Jobs** モデルプロファイルが記録されます（未設定の場合は、その Agent の `heavy` プロファイルにフォールバックします）。
+すべての Job は AIGateway 経由でモデルを呼び出します。新しい Job は既定で Agent の `heavy`（**高度な推論・バックグラウンドジョブ**）プロファイルを選択し、`heavy` が未設定の場合は `primary` へフォールバックします。Agent は Job の作成や継続時に `light`、`primary`、または名前付きカスタムプロファイルを指定することもでき、Ankole は初回の実行受け入れ（execution admission）時に解決済みの provider バインディングを記録します。
 
-ChatGPT サブスクリプションを利用したい場合は、まず [ChatGPT subscription provider](../chatgpt-subscription-provider/) を登録します。その後 Console で **Agents** を開き、対象 Agent のモデルプロファイル欄にある **Background Agent Jobs** でその provider、使用モデル、推論強度（reasoning effort）、および Fast Mode を選択してください。複数アカウントを登録している場合は、provider の認証情報プールが自動でアカウントの選択とローテーションを行います。
+ChatGPT サブスクリプションを利用したい場合は、まず [ChatGPT subscription provider](../chatgpt-subscription-provider/) を登録します。その後 Console で **Agents**（または **Model Profiles**）を開き、`heavy`（**高度な推論・バックグラウンドジョブ**）プロファイルでその provider、使用モデル、推論強度（reasoning effort）、および Fast Mode を選択してください。複数アカウントを登録している場合は、provider の認証情報プールが自動でアカウントの選択とローテーションを行います。
 
 ## Console で Job を確認する
 
@@ -88,7 +88,7 @@ Console の **Background Agent Jobs** を開くと、すべての Job が `queue
 ## よくある問題
 
 - **Job が `queued` のまま進まない:** 対象 Agent の Worker が `ready` になっているか、また同じ Agent の他の実行中 Job が同時実行上限（`background_agent_jobs.max_running_per_agent`）を使い切っていないか確認してください。
-- **開始直後に `failed` になる:** Agent に保存されている Background Agent Jobs モデルプロファイルの設定と、選択した provider の認証情報プールの状態を確認してください。
+- **開始直後に `failed` になる:** Job が使用するモデルプロファイル（既定は `heavy`、未設定時は `primary` へフォールバック）の設定と、選択した provider の認証情報プールの状態を確認してください。
 - **`waiting_on_user` なのに質問が届かず、Agent も自動回答していない:** 元の会話に紐付くシグナルルーティングルールと Channel Provider の接続状態を確認してください。
 - **`succeeded` になったのにチャットへ結果が返ってこない:** まず「サイレント実行」を指示していなかったか確認してください。通知ありで依頼していた場合は、Job 詳細画面に結果が出力されているかを見たうえで、元の会話のルーティングルールを確認してください。
 - **実行中（admission 済み）の Job にモデルプロファイルの変更が反映されない:** 使用する provider とモデルの紐付けは、初回の実行受け入れ（execution admission）時点で固定されます。プロファイルの変更は、まだ admission されていない新しい Job から適用されます。

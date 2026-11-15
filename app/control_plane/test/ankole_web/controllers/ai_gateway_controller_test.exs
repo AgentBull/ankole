@@ -216,7 +216,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              })
 
     assert {:ok, _} =
-             ModelProfiles.put_model_profile(uid, "coding", %{
+             ModelProfiles.put_model_profile(uid, "heavy", %{
                provider_id: "runner-frozen-model",
                model: "openai/gpt-5.6-sol",
                provider_options: %{"reasoningEffort" => "xhigh"}
@@ -752,7 +752,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              })
 
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+             ModelProfiles.put_model_profile(agent.uid, "heavy", %{
                provider_id: "chatgpt-models",
                model: "gpt-5.6-sol"
              })
