@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 2.0.0-alpha.154 (2026-11-15)
+
+- Keep a large Brain graph smooth while you move the pointer, pan, or zoom.
+  The hover highlight used to restyle the whole graph each time a node passed
+  under the pointer; it now waits until the pointer rests on a node. Panning
+  and zooming also do less work on every frame.
+- Show a large Brain graph in one step. A graph of more than two hundred nodes
+  and edges skips the fade-in and other animations, which stuttered at that
+  size and delayed the first view.
+
 ## Version 2.0.0-alpha.153 (2026-11-13)
 
 - Keep Zoom in, Zoom out, Fit view, and Focus node working when you use them
