@@ -102,7 +102,7 @@ export function editionWebappModules(
       if (!entry.isDirectory()) continue
       const id = entry.name
       const moduleDir = subpath ? path.join(root, id, subpath) : path.join(root, id)
-      const candidates = ['extension.tsx', 'extension.ts']
+      const candidates = ['extension.tsx', 'extension.ts', 'extension.gen.tsx', 'extension.gen.ts']
         .map(name => path.join(moduleDir, name))
         .filter(candidate => existsSync(candidate))
       if (candidates.length > 1) throw new Error(`Multiple extension entrypoints in ${moduleDir}`)

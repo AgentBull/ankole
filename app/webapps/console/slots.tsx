@@ -53,6 +53,7 @@ export interface ConsoleNavItemSlot {
   icon: ComponentType<{ className?: string }>
   when?: string
   isVisible?: () => boolean
+  useVisible?: () => boolean
 }
 
 export interface ConsoleNavSectionSlot extends PluginSlot {

@@ -338,3 +338,42 @@ test('active Plugin slots use the mounted snapshot and official SDK conditions',
   )
   expect(html).toBe('<span>Enabled</span><span>Unconditional</span>')
 })
+
+test('editionWebappModules discovers generated extension.gen.ts entrypoints and rejects mixed duplicates', () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'ankole-edition-gen-'))
+  try {
+    const genDir = path.join(tempRoot, 'plugins/relay_saas/webapps')
+    mkdirSync(genDir, { recursive: true })
+    writeFileSync(path.join(genDir, 'extension.gen.ts'), 'export default { id: "relay_saas" }\n')
+
+    const discovered = editionWebappModules(tempRoot, 'saas')
+    expect(discovered).toEqual([{ id: 'relay_saas', file: path.join(genDir, 'extension.gen.ts') }])
+
+    writeFileSync(path.join(genDir, 'extension.ts'), 'export default { id: "relay_saas" }\n')
+    expect(() => editionWebappModules(tempRoot, 'saas')).toThrow('Multiple extension entrypoints')
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('SlotGate evaluates optional reactive useVisible hook alongside plugin activation', async () => {
+  await initializeFeatures({ 'fixture.on': true })
+
+  function ReactiveFixture({ useVisible, label }: { useVisible: () => boolean; label: string }) {
+    return (
+      <SlotGate slot={{ pluginId: 'fixture-active', when: 'fixture.on', useVisible }}>
+        {enabled => (enabled ? <span>{label}</span> : null)}
+      </SlotGate>
+    )
+  }
+
+  const html = renderToStaticMarkup(
+    <OpenFeatureProvider>
+      <ActivePluginsContext value={['fixture-active']}>
+        <ReactiveFixture useVisible={() => true} label="Visible" />
+        <ReactiveFixture useVisible={() => false} label="Hidden" />
+      </ActivePluginsContext>
+    </OpenFeatureProvider>
+  )
+  expect(html).toBe('<span>Visible</span>')
+})
