@@ -1182,16 +1182,29 @@ function PageWorkspace({
                 )}
               </div>
             )}
-            {!!loadError && drafts.hasUnsavedChanges.value && (
-              <p className="mb-3 text-sm">{t('pod.content.could_not_load_the_latest_page_state_your_unsaved_draft')}</p>
+            {accessDenied && dirty ? (
+              // One notice reports the lost access together with the kept draft and its export.
+              <Alert variant="warning" className="mb-6" role="alert">
+                <AlertDescription>
+                  {t('pod.content.you_no_longer_have_access_to_this_page_your_unsaved')}
+                </AlertDescription>
+                <AlertAction>
+                  <Button size="sm" variant="outline" onClick={() => exportDraft()}>
+                    {t('pod.content.export_draft')}
+                  </Button>
+                </AlertAction>
+              </Alert>
+            ) : (
+              <>
+                {!!loadError && dirty && (
+                  <p className="mb-3 text-sm">
+                    {t('pod.content.could_not_load_the_latest_page_state_your_unsaved_draft')}
+                  </p>
+                )}
+                <ContentError error={loadError} retry={accessDenied ? undefined : reload} />
+              </>
             )}
-            <ContentError error={loadError} retry={accessDenied ? undefined : reload} />
             {accessDenied && <LocalPageChatDrafts pageID={page.id} />}
-            {accessDenied && dirty && (
-              <Button variant="outline" size="sm" onClick={() => exportDraft()}>
-                {t('pod.content.export_draft')}
-              </Button>
-            )}
             {canRename && page.type !== 'applet' && (
               <p role="status" className="sr-only">
                 {rename.isPending

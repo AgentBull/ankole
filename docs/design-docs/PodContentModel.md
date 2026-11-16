@@ -1363,7 +1363,10 @@ follow the properties directly. The reader displays the knowledge block subset
 without constructing editor state or editable DOM. Edit loads the knowledge
 editor; saving or cancelling returns to the reader. Edit captures the current
 revision and starts a local draft. The Properties panel edits business fields
-and exposes a YAML drawer for nested values. Save commits XML and metadata in one `base_revision` compare
+in the order that the reader shows them and exposes a YAML drawer for nested
+values. It reports an empty or duplicate property name, and a YAML syntax error
+with its line and column, in the reader's language, keeping the parser's own
+text as secondary detail. Save commits XML and metadata in one `base_revision` compare
 and swap transaction, increments the revision, records a complete checkpoint,
 and broadcasts after commit. A conflict preserves the draft and shows the
 current saved version so the writer can reconcile it explicitly. A save confirms
@@ -1372,12 +1375,15 @@ editable and unsaved. The workspace derives the navigation guard's unsaved state
 from title, body and property drafts.
 
 Property details and child-page tables share value rendering. Business names stay
-open, nested values keep their structure, and explicit `page_id` and `subject`
+open, nested values keep their structure, lists of plain values read as chips,
+records put each field on a `key: value` line, and explicit `page_id` and `subject`
 references use the existing authorized Page-mention resolver. Reference objects
 keep their additional fields through editing and saving. Table filtering and
 sorting operate on the authorized pages already loaded into the view. Knowledge
 panels validate their consumed response fields at the request boundary and show
-malformed responses as errors. Graph nodes and backlinks subscribe to the shared
+a malformed response as one short localized error whose validator detail stays
+collapsed until the reader expands it. Claim and link types without a translation
+appear as humanized labels. Graph nodes and backlinks subscribe to the shared
 Page title and icon projection; queries still own authorization, membership and
 relationship refreshes.
 
@@ -1695,8 +1701,10 @@ When the server rejects an editing batch, the browser terminates that editing
 session and closes its channel. It keeps the local draft available for export
 and offers a fresh document read. A reader who loses editing permission can
 reopen the current document with viewing permission; losing all Page access
-removes the editor. The retry action is available only for request failures in
-an active editing session.
+removes the editor. A single notice reports the lost permission together with
+the kept draft and its export, and the request error that caused it is not
+repeated. The retry action is available only for request failures in an active
+editing session.
 
 The browser stores unconfirmed content and title drafts in tab-local
 `sessionStorage`, scoped to the Pod, Principal, and Page. On a browser reload,
@@ -2515,7 +2523,9 @@ follows supported format features and installed fonts). `.xlsx`,
 `.xlsm`, `.docx`, `.docm`, and `.pptx` files open in the collaborative Office
 editors and read-only WebAssembly Workers (see [Office Files](OfficeFiles.md)),
 whereas `.xls`, `.xlsb`, and `.ods` workbooks use the read-only SheetJS table
-preview. `Ankole.Pod.FileExtraction`
+preview, which the viewer styles with the current theme's resolved tokens. When
+the browser cannot load an image, the File Page shows a failure state that
+offers the original-file download. `Ankole.Pod.FileExtraction`
 indexes File Pages into `page_search_documents` and records extraction state in
 `pod_file_caches` keyed by `(object_id, format, extractor_version)` with
 `extract_status` in `ok`, `skipped`, or `failed`: small UTF-8 text, Markdown,

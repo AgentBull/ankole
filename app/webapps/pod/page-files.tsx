@@ -24,7 +24,13 @@ import { podFiles } from './api/generated/sdk.gen'
 import { uploadFile } from './native-transfers'
 import type { PodFileCopyResponse } from './api/generated/types.gen'
 import type { FileCommentAnchor, FileCommentSelection, FilePreviewHandle } from './file-comment-anchors'
-import { DelimitedTablePreview, HtmlFilePreview, MediaFilePreview, TextFilePreview } from './page-file-previews'
+import {
+  DelimitedTablePreview,
+  HtmlFilePreview,
+  ImageFilePreview,
+  MediaFilePreview,
+  TextFilePreview
+} from './page-file-previews'
 import { usePageRealtime } from './use-page-realtime'
 import { isRealtimeAccessDenied } from './realtime'
 import { officeFileFormat } from './office/office-files'
@@ -251,7 +257,7 @@ export function FilePage({
             }
           />
         </ErrorBoundary>
-      ) : canEdit ? (
+      ) : manifest.error ? null : canEdit ? (
         <div
           onClick={() => {
             if (canUpload) input.current?.click()
@@ -368,7 +374,7 @@ function FilePreview({
           />
         </Suspense>
       ) : mime?.startsWith('image/') ? (
-        <img className="mx-auto max-h-[70vh] max-w-full object-contain" alt={name} src={url} />
+        <ImageFilePreview url={url} name={name} />
       ) : mime === 'application/pdf' ? (
         <Suspense fallback={<ContentLoading label={t('pod.content.loading_file')} />}>
           <PdfPreview

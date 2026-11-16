@@ -7,9 +7,9 @@ import { BlockTypeIcon, blockMenuGroup } from './block-type-icon'
 import { useEditor, useEditorLabel } from './context'
 
 /**
- * One view of the block catalogue under its group titles. The slash menu keeps focus in the editor and lays each
- * block type on a rich row with its tile; the insert and turn-into menus are plain menus whose rows take menu-item
- * focus and mark the current type with a check.
+ * One view of the block catalogue under its group titles, or a row that says no block type matches the query. The
+ * slash menu keeps focus in the editor and lays each block type on a rich row with its tile; the insert and turn-into
+ * menus are plain menus whose rows take menu-item focus and mark the current type with a check.
  */
 export function BlockTypeItems({
   options,
@@ -24,6 +24,13 @@ export function BlockTypeItems({
 }) {
   const editor = useEditor()
   const label = useEditorLabel()
+  if (!options.length) {
+    return (
+      <div className={slash ? 'menu-group-label px-2' : 'menu-group-label'} role="status">
+        {label('no_matching_blocks')}
+      </div>
+    )
+  }
   return options.map((option, index) => {
     const title = option.title(editor.state)
     const detail = option.detail(editor.state)

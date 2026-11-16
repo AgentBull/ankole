@@ -81,7 +81,7 @@ export function FileSelectionToolbar({
       data-testid="file-comment-selection-bar"
       className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-border bg-accent/40 px-3 py-1.5 text-xs">
       <span className="inline-flex items-center gap-2 font-medium text-foreground">
-        <Badge variant="outline">{formatFileAnchorLabel(selection.anchor)}</Badge>
+        <Badge variant="outline">{formatFileAnchorLabel(selection.anchor, t)}</Badge>
         {selection.quote && (
           <span className="max-w-[36ch] truncate text-fg-secondary">{selection.quote.replace(/\s+/g, ' ').trim()}</span>
         )}
@@ -92,10 +92,39 @@ export function FileSelectionToolbar({
           {t('pod.document.comment_selection', { defaultValue: 'Comment on selection' })}
         </Button>
         <Button size="xs" variant="ghost" onClick={onClear}>
-          {t('pod.chat_timeline.clear_selection', { defaultValue: 'Clear' })}
+          {t('pod.document.clear_selection')}
         </Button>
       </span>
     </div>
+  )
+}
+
+/** Shows an image File, or a download fallback when the browser cannot decode or load it. */
+export function ImageFilePreview({ url, name }: { url: string; name: string }) {
+  const { t } = useTranslation()
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-col items-center justify-center gap-3 rounded-control border border-border bg-card px-6 py-12 text-center">
+        <p className="max-w-md text-sm text-fg-secondary">{t('pod.content.image_preview_failed')}</p>
+        <a
+          className={cn(buttonVariants({ variant: 'default', size: 'sm' }))}
+          href={url}
+          download={sanitizeFileName(name)}>
+          {t('pod.content.download_original')}
+        </a>
+      </div>
+    )
+  }
+  return (
+    <img
+      className="mx-auto max-h-[70vh] max-w-full object-contain"
+      alt={name}
+      src={url}
+      onError={() => setFailed(true)}
+    />
   )
 }
 
@@ -278,13 +307,13 @@ export function DelimitedTablePreview({
     const quote = clampCommentQuote(
       slice
         .map((cells, idx) => {
-          const rowNum = selectedRange.startRow + idx
+          const row = selectedRange.startRow + idx
           if (selectedRange.column) {
             const colIdx = parsed.headers.indexOf(selectedRange.column)
             const value = colIdx >= 0 ? (cells[colIdx] ?? '') : cells.join(' | ')
-            return `Row ${rowNum} (${selectedRange.column}): ${value}`
+            return t('pod.document.csv_row_column_quote', { row, column: selectedRange.column, value })
           }
-          return `Row ${rowNum}: ${cells.join(' | ')}`
+          return t('pod.document.csv_row_quote', { row, value: cells.join(' | ') })
         })
         .join('\n')
     )
@@ -297,7 +326,7 @@ export function DelimitedTablePreview({
       },
       quote
     }
-  }, [selectedRange, parsed, visibleRows])
+  }, [selectedRange, parsed, visibleRows, t])
 
   const revealCsvAnchor = useCallback((anchor: FileCommentAnchor): HTMLElement | null => {
     if (anchor.kind !== 'csv_rows') return null
@@ -423,7 +452,8 @@ export function DelimitedTablePreview({
                   className={cn(
                     'border-b border-border/70 transition-colors',
                     selected && 'bg-accent/65',
-                    highlighted && 'bg-selection/70 ring-1 ring-primary'
+                    highlighted &&
+                      locatedRunClassName(rowNum === highlightedRows?.start, rowNum === highlightedRows?.end)
                   )}>
                   <td className="border-r border-border px-2 py-1 text-right font-mono text-fg-tertiary">
                     <button
@@ -452,6 +482,18 @@ export function DelimitedTablePreview({
         </table>
       </div>
     </div>
+  )
+}
+
+/**
+ * Frames a contiguous run of located lines or rows as one box: every item draws the side edges, the first item draws
+ * the top edge, and the last item draws the bottom edge.
+ */
+export function locatedRunClassName(runStart: boolean, runEnd: boolean) {
+  return cn(
+    'relative bg-selection/70 before:pointer-events-none before:absolute before:inset-0 before:border-x before:border-primary',
+    runStart && 'before:border-t',
+    runEnd && 'before:border-b'
   )
 }
 
@@ -605,7 +647,11 @@ function SourceCodeLinesView({
               className={cn(
                 'flex items-start pr-3 transition-colors',
                 selected && 'bg-accent/65',
-                highlighted && 'bg-selection/70 ring-1 ring-primary'
+                highlighted &&
+                  cn(
+                    locatedRunClassName(!isLineHighlighted(lineNum - 1), !isLineHighlighted(lineNum + 1)),
+                    'before:z-20'
+                  )
               )}>
               <button
                 type="button"
@@ -894,7 +940,7 @@ export function TextFilePreview({
                 }
               }}>
               {copied ? <CheckmarkRegular aria-hidden /> : <CopyRegular aria-hidden />}
-              {t(copied ? 'pod.chat_timeline.copied' : 'pod.chat.copy_code')}
+              {t(copied ? 'pod.chat_timeline.copied' : language && !isMarkdown ? 'pod.chat.copy_code' : 'common.copy')}
             </Button>
           </div>
         </div>

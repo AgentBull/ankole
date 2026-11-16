@@ -30,7 +30,7 @@ import { ColorSwatches } from './spreadsheet-toolbar'
 /** The workspace marks its root, so a sheet tab finds the formula bar of its own editor. */
 export const WORKSPACE_ATTRIBUTE = 'data-spreadsheet-workspace'
 
-const TAB_COLORS = [
+export const TAB_COLORS = [
   '--color-red-60',
   '--color-orange-60',
   '--color-yellow-60',

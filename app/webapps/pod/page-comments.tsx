@@ -271,7 +271,7 @@ export function PageComments({
             <div className="pod-comment-draft-quote">
               {model.anchor.value.fileAnchor && (
                 <div className="mb-1.5">
-                  <Badge variant="outline">{formatFileAnchorLabel(model.anchor.value.fileAnchor)}</Badge>
+                  <Badge variant="outline">{formatFileAnchorLabel(model.anchor.value.fileAnchor, t)}</Badge>
                 </div>
               )}
               {(docSelection?.quote ?? model.anchor.value.quote) && (

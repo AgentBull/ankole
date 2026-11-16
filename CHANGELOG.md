@@ -1,5 +1,33 @@
 # Changelog
 
+## Version 2.0.0-alpha.159 (2026-11-16)
+
+- Polish Pod pages from the UI review checklists:
+  - **Documents**: the slash and `+` menus show "No matching Block" instead of
+    vanishing; losing access shows one notice with **Export draft** instead of
+    three; Mermaid and Infographic blocks size to their content.
+  - **Knowledge pages**: property errors are translated and point at the YAML
+    line and column; edit mode keeps the property order; lists show as chips
+    and objects as `key: value` lines; a malformed related-knowledge response
+    shows a short message with collapsible details, and custom claim types get
+    readable names.
+  - **Applets**: errors thrown inside an Applet show their own message instead
+    of `{}`; the settings dialog's section highlight fits the sidebar (every
+    vertical tab list is fixed); environment-variable form errors appear inside
+    the form; invalid JSON and `failed`/`pending` connection statuses are
+    translated.
+  - **File pages**: a failed file list shows only the error; broken images show
+    a failure card with **Download**; plain text gets **Copy** instead of
+    **Copy code**; located lines share one frame; CSV selection labels are
+    translated; `.xls`/`.xlsb`/`.ods` previews follow the theme and dark mode.
+  - **Spreadsheets**: viewers get a **Find** button; every palette color has a
+    name; cell notes appear in a bubble beside the cell; text overflows across
+    an unscrolled freeze line.
+  - **Word and presentations**: read-only toolbars lose the stray leading
+    separator; the link popover's remove button says **Remove link**, and the
+    automatic-color and no-highlight buttons say what they do; the command
+    palettes find the toolbar's commands by their translated names.
+
 ## Version 2.0.0-alpha.158 (2026-11-16)
 
 - Open conversations faster. Opening an unread room used to read the room and

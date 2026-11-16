@@ -66,9 +66,10 @@ import {
   ZoomOutRegular
 } from '@ankole/uikit/icons'
 import { t } from 'i18next'
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { chooseLocalFile } from '../native-transfers'
 import { OfficeCollaborationModel, type OfficeCollaborationOptions } from '../office/office-collaboration'
+import { searchOfficeCommands } from '../office/office-commands'
 import { OfficeVersions } from '../office/office-versions'
 import type { PresentationCommandInfo, PresentationEngine, PresentationSnapshot } from './presentation-engine'
 
@@ -76,6 +77,34 @@ export const MAX_PICTURE_BYTES = 2 * 1024 * 1024
 
 const PICTURE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp'
 const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 44, 54, 64, 72]
+
+// Palette names for the DeckCraft commands this toolbar also exposes; other commands keep the
+// engine's English label. `shape.insert` runs with the rectangle preset from `defaultCommandParams`.
+const COMMAND_NAME_KEYS: Readonly<Record<string, string>> = {
+  'edit.undo': 'pod.presentation.undo',
+  'edit.redo': 'pod.presentation.redo',
+  'edit.copy': 'pod.office.copy',
+  'edit.delete': 'pod.presentation.delete_shape',
+  'text.find': 'pod.office.find',
+  'slide.new': 'pod.presentation.add_slide',
+  'slide.duplicate': 'pod.presentation.duplicate_slide',
+  'slide.delete': 'pod.presentation.delete_slide',
+  'insert.textBox': 'pod.presentation.insert_textbox',
+  'shape.insert': 'pod.presentation.insert_rectangle',
+  'insert.table': 'pod.presentation.insert_table',
+  'insert.picture': 'pod.presentation.insert_picture',
+  'arrange.bringForward': 'pod.presentation.bring_forward',
+  'arrange.sendBackward': 'pod.presentation.send_backward',
+  'format.bold': 'pod.presentation.bold',
+  'format.italic': 'pod.presentation.italic',
+  'format.underline': 'pod.presentation.underline',
+  'format.strikethrough': 'pod.presentation.strikethrough',
+  'format.size': 'pod.presentation.font_size',
+  'format.color': 'pod.presentation.font_color',
+  'shape.fill': 'pod.presentation.fill_color',
+  'shape.line': 'pod.presentation.stroke_color',
+  'show.fromStart': 'pod.presentation.present'
+}
 
 const TEXT_COLOR_SWATCHES = [
   '#111827',
@@ -299,7 +328,7 @@ function PresentationCommandPaletteDialog({
     }
     let cancelled = false
     void model
-      .read(eng => (eng as PresentationEngine).commands(query))
+      .read(eng => (eng as PresentationEngine).commands(''))
       .then(list => {
         if (cancelled) return
         setCommands(list ?? [])
@@ -308,7 +337,12 @@ function PresentationCommandPaletteDialog({
     return () => {
       cancelled = true
     }
-  }, [open, query, model])
+  }, [open, model])
+
+  const matches = useMemo(
+    () => searchOfficeCommands(commands, query, COMMAND_NAME_KEYS, command => command.menu.join(' › ')),
+    [commands, query]
+  )
 
   const runSelected = (item: PresentationCommandInfo) => {
     onOpenChange(false)
@@ -332,10 +366,10 @@ function PresentationCommandPaletteDialog({
         />
         <CommandList aria-label={t('pod.office.command_palette')}>
           <CommandEmpty>{t('pod.office.no_commands')}</CommandEmpty>
-          {commands.map(item => (
+          {matches.map(item => (
             <CommandItem key={item.id} value={item.id} onSelect={() => runSelected(item)}>
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{item.label || item.id}</p>
+                <p className="truncate font-medium">{item.name}</p>
                 <p className="truncate font-mono text-xs text-fg-tertiary">{item.id}</p>
               </div>
               {item.shortcut && <CommandShortcut className="font-mono">{item.shortcut}</CommandShortcut>}

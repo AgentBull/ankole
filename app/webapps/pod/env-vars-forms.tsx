@@ -97,6 +97,8 @@ export function EnvVarDotEnvImportForm({
 
   const importTextId = `${baseId}-import-text`
   const importSecretId = `${baseId}-import-secret`
+  // EnvVarsEditor renders the form's error under this ID.
+  const errorId = `${baseId}-error`
   const preview = inspectDotEnv(importText)
   const hasBlankPreviewItem = preview.items.some(item => !/\S/.test(item.value))
 
@@ -180,6 +182,7 @@ export function EnvVarDotEnvImportForm({
         <FieldDescription>{t('pod.env_vars.import_hint')}</FieldDescription>
         <Textarea
           id={importTextId}
+          aria-describedby={errorId}
           name="dotenv"
           rows={4}
           required
@@ -435,6 +438,8 @@ export function EnvVarSingleEntryForm({
   const secretId = `${baseId}-secret`
   const secretHintId = `${baseId}-secret-hint`
   const descId = `${baseId}-description`
+  // EnvVarsEditor renders the form's error under this ID; it names the field the form marks invalid.
+  const errorId = `${baseId}-error`
 
   return (
     <form
@@ -449,6 +454,7 @@ export function EnvVarSingleEntryForm({
           <Input
             ref={nameInputRef}
             id={nameId}
+            aria-errormessage={errorId}
             name="name"
             required
             readOnly={Boolean(editingName)}
@@ -481,6 +487,7 @@ export function EnvVarSingleEntryForm({
               key={`${editingName ?? '__new__'}:${formResetCount}`}
               ref={valueInputRef}
               id={valueId}
+              aria-errormessage={errorId}
               name="value"
               required
               placeholder={
@@ -510,6 +517,7 @@ export function EnvVarSingleEntryForm({
             <Input
               ref={valueInputRef}
               id={valueId}
+              aria-errormessage={errorId}
               name="value"
               required
               autoCapitalize="off"

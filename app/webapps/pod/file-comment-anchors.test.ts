@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test'
+import { beforeAll, describe, expect, it } from 'bun:test'
+import i18n, { loadLocale } from '../common/i18n'
 import {
   clampCommentQuote,
   extractMarkdownSections,
@@ -7,6 +8,10 @@ import {
   parseDelimitedTable,
   parseFileCommentAnchor
 } from './file-comment-anchors'
+
+beforeAll(async () => {
+  await loadLocale('zh-Hans-CN')
+})
 
 describe('file-comment-anchors', () => {
   it('parses all four valid multimodal anchor schemas and rejects malformed shapes', () => {
@@ -62,14 +67,16 @@ describe('file-comment-anchors', () => {
   })
 
   it('formats human-readable labels for lines, CSV rows, Markdown sections, and media timestamps', () => {
-    expect(formatFileAnchorLabel({ kind: 'lines', start_line: 7, end_line: 7 })).toBe('L7')
-    expect(formatFileAnchorLabel({ kind: 'lines', start_line: 7, end_line: 14 })).toBe('L7–L14')
-    expect(formatFileAnchorLabel({ kind: 'csv_rows', start_row: 3, end_row: 6, column: 'Revenue' })).toBe(
-      'Rows 3–6 · Revenue'
+    const t = i18n.getFixedT('zh-Hans-CN')
+    expect(formatFileAnchorLabel({ kind: 'lines', start_line: 7, end_line: 7 }, t)).toBe('L7')
+    expect(formatFileAnchorLabel({ kind: 'lines', start_line: 7, end_line: 14 }, t)).toBe('L7–L14')
+    expect(formatFileAnchorLabel({ kind: 'csv_rows', start_row: 3, end_row: 3, column: '联系人' }, t)).toBe(
+      '第 3 行 · 联系人'
     )
-    expect(formatFileAnchorLabel({ kind: 'md_section', heading: 'Overview', level: 2 })).toBe('## Overview')
-    expect(formatFileAnchorLabel({ kind: 'media_timestamp', time_sec: 84 })).toBe('01:24')
-    expect(formatFileAnchorLabel({ kind: 'media_timestamp', time_sec: 3725, end_time_sec: 3730 })).toBe(
+    expect(formatFileAnchorLabel({ kind: 'csv_rows', start_row: 3, end_row: 6 }, t)).toBe('第 3–6 行')
+    expect(formatFileAnchorLabel({ kind: 'md_section', heading: 'Overview', level: 2 }, t)).toBe('## Overview')
+    expect(formatFileAnchorLabel({ kind: 'media_timestamp', time_sec: 84 }, t)).toBe('01:24')
+    expect(formatFileAnchorLabel({ kind: 'media_timestamp', time_sec: 3725, end_time_sec: 3730 }, t)).toBe(
       '1:02:05–1:02:10'
     )
     expect(formatMediaTimestamp(5)).toBe('00:05')

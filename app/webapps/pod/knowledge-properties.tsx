@@ -4,7 +4,13 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { stringify } from 'yaml'
-import { KnowledgeDraftModel, parseMetadata, type KnowledgeMetadata } from './state/knowledge-draft'
+import {
+  KnowledgeDraftModel,
+  parseMetadata,
+  propertyError,
+  type KnowledgeMetadata,
+  type KnowledgePropertyError
+} from './state/knowledge-draft'
 import { KnowledgeValue } from './knowledge-value'
 
 export function KnowledgeProperties({
@@ -17,7 +23,7 @@ export function KnowledgeProperties({
   useSignals()
   const { t } = useTranslation()
   const [yaml, setYAML] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<KnowledgePropertyError | null>(null)
   const editing = draft?.editing.value ?? false
   const current = editing ? (draft!.parsed.value.metadata ?? metadata) : metadata
   return (
@@ -64,11 +70,7 @@ export function KnowledgeProperties({
             <AddRegular aria-hidden className="size-4" />
             {t('pod.knowledge.add_property')}
           </Button>
-          {draft!.parsed.value.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {draft!.parsed.value.error}
-            </p>
-          )}
+          {draft!.parsed.value.error && <PropertyError error={draft!.parsed.value.error} />}
         </div>
       ) : (
         <dl className="grid grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
@@ -93,11 +95,7 @@ export function KnowledgeProperties({
             onChange={event => setYAML(event.target.value)}
             spellCheck={false}
           />
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <PropertyError error={error} />}
           <DrawerFooter className="p-0">
             <Button variant="outline" onClick={() => setYAML(null)}>
               {t('common.close')}
@@ -109,7 +107,7 @@ export function KnowledgeProperties({
                     draft!.replace(parseMetadata(yaml ?? ''))
                     setYAML(null)
                   } catch (error) {
-                    setError(error instanceof Error ? error.message : String(error))
+                    setError(propertyError(error))
                   }
                 }}>
                 {t('pod.knowledge.apply_properties')}
@@ -130,5 +128,20 @@ function Property({ name, value }: { name: string; value: unknown }) {
         <KnowledgeValue value={value} />
       </dd>
     </>
+  )
+}
+
+function PropertyError({ error }: { error: KnowledgePropertyError }) {
+  const { t } = useTranslation()
+  const { code, params, detail } = error
+  const message =
+    code === 'yaml_syntax' && params.name
+      ? t('pod.knowledge.property_value_yaml_error', params)
+      : t(`pod.knowledge.property_error_${code}`, params)
+  return (
+    <div role="alert" className="text-sm text-destructive">
+      <p>{message}</p>
+      {detail && <p className="font-mono text-xs text-fg-tertiary">{detail}</p>}
+    </div>
   )
 }

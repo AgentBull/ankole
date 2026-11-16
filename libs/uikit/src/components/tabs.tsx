@@ -83,6 +83,9 @@ function settledBox(list: HTMLElement): SegmentBox | null {
   ghost.removeAttribute('id')
   ghost.inert = true
   Object.assign(ghost.style, { position: 'absolute', left: '0', top: '0', visibility: 'hidden', pointerEvents: 'none' })
+  // The absolute clone resolves a percentage or stretched width against another containing block, so a vertical
+  // list, whose tabs fill its width, keeps the live list's width in the clone.
+  if (list.getAttribute('aria-orientation') === 'vertical') ghost.style.width = `${list.offsetWidth}px`
   list.parentElement.appendChild(ghost)
   const ghostTabs = [...ghost.querySelectorAll<HTMLElement>('[role="tab"]')].filter(
     tab => tab.closest('[role="tablist"]') === ghost

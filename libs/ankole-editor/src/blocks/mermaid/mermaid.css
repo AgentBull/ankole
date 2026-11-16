@@ -2,7 +2,8 @@
 :where(.ankole-editor) .editor-content .mermaid-block {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: 36px minmax(220px, min(520px, 60vh));
+  /* The body fits the taller visible pane up to the cap; the panes scroll, so their own minimum is 120px. */
+  grid-template-rows: 36px fit-content(min(520px, 60vh));
   margin: var(--spacing-content-gap) 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
@@ -71,6 +72,7 @@
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
+  min-height: 120px;
   max-height: 100%;
   margin: 0;
   padding: 14px 16px 14px 2px;
@@ -91,6 +93,7 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
+  min-height: 120px;
   max-height: 100%;
   padding: 16px;
   overflow: auto;

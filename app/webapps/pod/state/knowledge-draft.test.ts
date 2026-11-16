@@ -2,6 +2,7 @@ import { DocumentDraftModel } from './document-draft'
 import { describe, expect, test } from 'bun:test'
 import {
   KnowledgeDraftModel,
+  KnowledgePropertyError,
   parseMetadata,
   knowledgeSubmission,
   acknowledgeKnowledge,
@@ -25,16 +26,34 @@ describe('explicit knowledge property drafts', () => {
     expect(() => parseMetadata('score: .inf')).toThrow()
     expect(() => parseMetadata('loop: &loop [*loop]')).toThrow()
   })
-  test('invalid YAML and duplicate property names keep the draft unsavable', () => {
+  test('invalid YAML, empty and duplicate property names keep the draft unsavable with coded errors', () => {
     const draft = new KnowledgeDraftModel()
     draft.begin({ summary: 'Before' })
-    draft.change(0, { source: '[' })
-    expect(draft.parsed.value.error).not.toBeNull()
+    draft.change(0, { source: 'ok: 1\nbad: [' })
+    expect(draft.parsed.value.error).toMatchObject({
+      code: 'yaml_syntax',
+      params: { name: 'summary', line: 2, column: 7 }
+    })
+    expect(draft.parsed.value.error?.detail).not.toContain('at line')
     draft.replace({ summary: 'After' })
     draft.add()
+    expect(draft.parsed.value.error?.code).toBe('name_empty')
     draft.change(1, { key: 'summary', source: 'Duplicate' })
-    expect(draft.parsed.value.error).toContain('Duplicate')
-    expect(() => parseMetadata('- not\n- a mapping')).toThrow()
+    expect(draft.parsed.value.error).toMatchObject({ code: 'name_duplicate', params: { name: 'summary' } })
+    expect(() => parseMetadata('- not\n- a mapping')).toThrow(KnowledgePropertyError)
+    const failure = (() => {
+      try {
+        parseMetadata('a: [')
+      } catch (error) {
+        return error
+      }
+    })()
+    expect(failure).toMatchObject({ code: 'yaml_syntax', params: { line: 1, column: 5 } })
+  })
+  test('edit mode keeps the property order that read mode shows', () => {
+    const draft = new KnowledgeDraftModel()
+    draft.begin({ zeta: 1, alpha: 2, mid: 3 })
+    expect(draft.entries.value.map(entry => entry.key)).toEqual(['zeta', 'alpha', 'mid'])
   })
 })
 

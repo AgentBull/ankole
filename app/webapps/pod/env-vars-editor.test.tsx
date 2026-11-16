@@ -17,7 +17,7 @@ import { EnvVarsEditor } from './env-vars-editor'
 import { AppletMissingEnvBanner } from './applet-missing-env-banner'
 import { AppletSettingsControl } from './applet-settings'
 import { appletEnvKeys, resolveAppletSettingsInitialTab } from './applet-settings-state'
-import { AppletFunctionsTab } from './applet-automation'
+import { AppletFunctionsTab, jsonObjectField } from './applet-automation'
 import { contentKeys, podFileURL, type PageDetail } from './content-api'
 
 beforeAll(async () => {
@@ -623,5 +623,39 @@ describe('AppletMissingEnvBanner', () => {
     expect(html).toContain(`aria-label="${t('pod.applet_settings.create_job_for_action')} sync_digest"`)
     expect(html).toContain(`aria-label="${t('pod.applet_settings.create_job_for_action')} rebuild_index"`)
     client.clear()
+  })
+})
+
+describe('Applet automation forms', () => {
+  test('reports invalid task JSON in the interface language and keeps the parser position as detail', async () => {
+    await i18n.changeLanguage('zh-Hans-CN')
+    try {
+      const form = new FormData()
+      form.set('config', '{"limit": }')
+      const error = (() => {
+        try {
+          jsonObjectField(form, 'config', '配置')
+        } catch (caught) {
+          return caught as Error
+        }
+      })()
+      expect(error?.message).toContain('必须是合法 JSON')
+      expect(error?.message).toContain('配置')
+      form.set('config', '[1]')
+      expect(() => jsonObjectField(form, 'config', '配置')).toThrow('必须是 JSON 对象')
+      form.set('config', '{"limit": 3}')
+      expect(jsonObjectField(form, 'config', '配置')).toEqual({ limit: 3 })
+    } finally {
+      await i18n.changeLanguage('en-US')
+    }
+  })
+
+  test('labels every subscription and connection status in each locale', () => {
+    const statuses = ['active', 'provisioning', 'paused', 'degraded', 'deleting', 'failed', 'pending', 'disabled']
+    for (const locale of ['en-US', 'zh-Hans-CN', 'ja-JP', 'ko-KR']) {
+      for (const status of statuses) {
+        expect(i18n.exists(`pod.connectors.status.${status}`, { lng: locale })).toBe(true)
+      }
+    }
   })
 })

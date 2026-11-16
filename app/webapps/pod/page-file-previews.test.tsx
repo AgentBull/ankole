@@ -9,8 +9,10 @@ import PdfPreview from './file-pdf'
 import {
   buildSandboxedHtmlSrcDoc,
   DelimitedTablePreview,
+  FileSelectionToolbar,
   HTML_SANDBOX_ALLOW,
   HtmlFilePreview,
+  locatedRunClassName,
   TextFilePreview
 } from './page-file-previews'
 
@@ -270,8 +272,62 @@ describe('HTML and code source previews', () => {
       expect(html).toContain('whitespace-pre')
       expect(html).toContain(`aria-label="${i18n.t('pod.chat_timeline.wrap_code')}"`)
       expect(html).toContain('aria-pressed="false"')
+      expect(html).toContain(`</svg>${i18n.t('pod.chat.copy_code')}</button>`)
     } finally {
       client.clear()
     }
+  })
+
+  test('labels the plain-text copy button neutrally', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity } } })
+    const url = '/api/v2/pod/pages/page-text/files/content?path=notes.txt'
+    client.setQueryData([...contentKeys.page('page-text'), 'file-text-preview', url], {
+      text: 'Meeting notes',
+      truncated: false
+    })
+
+    try {
+      const html = renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={client}>
+            <TextFilePreview pageID="page-text" url={url} name="notes.txt" canComment={false} />
+          </QueryClientProvider>
+        </I18nextProvider>
+      )
+      expect(html).toContain(`</svg>${i18n.t('common.copy')}</button>`)
+      expect(html).not.toContain(i18n.t('pod.chat.copy_code'))
+    } finally {
+      client.clear()
+    }
+  })
+
+  test('frames a located run once: side edges on every item, top on the first, bottom on the last', () => {
+    const edges = (className: string) =>
+      ['before:border-t', 'before:border-b'].filter(edge => className.split(' ').includes(edge))
+    expect(edges(locatedRunClassName(true, false))).toEqual(['before:border-t'])
+    expect(edges(locatedRunClassName(false, false))).toEqual([])
+    expect(edges(locatedRunClassName(false, true))).toEqual(['before:border-b'])
+    expect(edges(locatedRunClassName(true, true))).toEqual(['before:border-t', 'before:border-b'])
+    expect(locatedRunClassName(false, false)).toContain('before:border-x')
+  })
+})
+
+describe('FileSelectionToolbar', () => {
+  test('localizes the CSV position label and labels the clear action as clearing the selection', async () => {
+    await loadLocale('zh-Hans-CN')
+    const zh = i18n.cloneInstance({ lng: 'zh-Hans-CN', initAsync: false })
+    const html = renderToStaticMarkup(
+      <I18nextProvider i18n={zh}>
+        <FileSelectionToolbar
+          selection={{ anchor: { kind: 'csv_rows', start_row: 3, end_row: 3, column: '联系人' }, quote: '' }}
+          canComment
+          onComment={() => undefined}
+          onClear={() => undefined}
+        />
+      </I18nextProvider>
+    )
+    expect(html).toContain('第 3 行 · 联系人')
+    expect(html).toContain(zh.t('pod.document.clear_selection'))
+    expect(html).not.toContain(zh.t('pod.chat_timeline.clear_selection'))
   })
 })
