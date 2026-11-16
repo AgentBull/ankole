@@ -24,9 +24,9 @@ import { podFiles } from './api/generated/sdk.gen'
 import { uploadFile } from './native-transfers'
 import type { PodFileCopyResponse } from './api/generated/types.gen'
 import type { FileCommentAnchor, FileCommentSelection, FilePreviewHandle } from './file-comment-anchors'
+import { HtmlFilePreview } from './html-file-preview'
 import {
   DelimitedTablePreview,
-  HtmlFilePreview,
   ImageFilePreview,
   MediaFilePreview,
   TextFilePreview

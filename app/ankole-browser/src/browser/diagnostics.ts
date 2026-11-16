@@ -5,8 +5,6 @@ import type { Browser, CDPSession, ConsoleMessage, Download, Page, Request, Resp
 import { BrowserDataError } from '../errors'
 import { compileQueryFilter } from './query-filter'
 
-export { compileQueryFilter } from './query-filter'
-
 const MaxConsoleEntries = 100
 const MaxNetworkEntries = 120
 const MaxDownloadEntries = 40
