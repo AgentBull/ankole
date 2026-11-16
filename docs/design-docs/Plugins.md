@@ -423,6 +423,31 @@ any Ash domains configured under `config :ankole, :json_api_domains` for its
 scope (`:console`, `:pod`, `:site`, `:saas`, `:saas_pod`, or `:saas_site`), and
 tracks that configuration key as a Mix compile-time dependency on the router.
 
+Declarative Console extensions declare pages, fields, and actions through
+`createDeclarativeConsoleModule`. Ankole uses the Console's TanStack Query setup
+for record queries and mutations. Tenant-scoped requests carry the owning
+tenant's header, and successful writes invalidate the shared query cache.
+Background refreshes preserve loaded records. The table page owns row action
+dialogs, so a one-time secret remains visible until the operator closes its
+dialog. Editors distinguish drafts by surface, create or edit mode, and record
+ID. Read-only fields display server values but are excluded from writes. Field
+defaults apply to both display and submission, and the JSON editor preserves
+array, object, and scalar types. Submitting the same query filters again sends
+a new request to the server.
+
+Operators edit local time in `datetime-local` inputs; Ankole converts server
+timestamps with time zones to local time for display. Wizards validate the
+current step's fields before advancing or submitting and remain open while
+submission is pending. Batch previews use the field names configured in the
+descriptor, and confirmation pages redact URL credentials at every nesting
+level. OAuth wizards validate the callback's state, origin, and path both when
+advancing and on final submission. Confirmation pages hide secret fields
+declared by the surface or any step. When a batch import partially succeeds,
+Ankole displays the failure count and closes the wizard. Operators must select
+the failed entries themselves before importing again. When multiple navigation
+contributions share a section, Ankole calls every `useVisible` callback on each
+render and shows the section only if all callbacks allow it.
+
 The Console shell loads route components on demand. A route loader that uses a
 page-owned query imports that page on the same route. The shared shell does not
 pull unrelated editors into its initial module graph. TanStack Query owns the

@@ -12,7 +12,12 @@ import {
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DeclarativeFields } from './fields'
-import { formatIdentifierLabel, serializeDeclarativeFields, type DeclarativeRecord } from './transport'
+import {
+  withFieldDefaults,
+  formatIdentifierLabel,
+  serializeDeclarativeFields,
+  type DeclarativeRecord
+} from './transport'
 import type { DeclarativeSurfaceDescriptor } from './types'
 
 export interface DeclarativeActionTriggerProps {
@@ -47,7 +52,7 @@ export function DeclarativeActionTrigger({
   const [error, setError] = useState<string | null>(null)
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null)
 
-  const mergedValues = { ...payload, ...draft }
+  const mergedValues = withFieldDefaults(surface.fields, { ...payload, ...draft })
   const visibleFields = surface.fields.filter(field => !('id' in payload && field.name === 'id'))
 
   return (

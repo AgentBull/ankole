@@ -13,21 +13,17 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  Textarea
+  Textarea,
+  toast
 } from '@ankole/uikit'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LabeledField } from '../console-form'
 import { DeclarativeFields, DeclarativeSelect } from './fields'
-import { asRecord, formatIdentifierLabel, serializeDeclarativeFields } from './transport'
+import { withFieldDefaults, asRecord, formatIdentifierLabel, serializeDeclarativeFields } from './transport'
 import type { DeclarativeBatchLinesConfig, DeclarativeOAuthPkceConfig, DeclarativeSurfaceDescriptor } from './types'
 
-export interface ParsedBatchItem {
-  readonly endpoint_url: string
-  readonly protocol: string
-  readonly name: string
-  readonly [key: string]: unknown
-}
+export type ParsedBatchItem = Readonly<Record<string, string>>
 
 export function redactBatchLine(raw: string): string {
   const trimmed = raw.trim()
@@ -61,7 +57,7 @@ export function parseBatchLine(
     [config.urlField]: parsed.href,
     [config.nameField]: left?.trim() || `${parsed.hostname}:${parsed.port || (scheme === 'https' ? 443 : 80)}`,
     [config.schemeField]: scheme
-  } as ParsedBatchItem
+  }
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -101,22 +97,10 @@ export function redactUrlCredentials(rawUrl: string): string {
 }
 
 function sanitizeConfirmValue(value: unknown): string {
-  if (typeof value === 'string') {
-    return /^https?:\/\/|^socks5?:\/\//i.test(value) ? redactUrlCredentials(value) : value
-  }
-  if (Array.isArray(value)) {
-    return JSON.stringify(value.map(item => (typeof item === 'string' ? sanitizeConfirmValue(item) : item)))
-  }
-  if (value && typeof value === 'object') {
-    const sanitized = Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
-        k,
-        typeof v === 'string' ? sanitizeConfirmValue(v) : v
-      ])
-    )
-    return JSON.stringify(sanitized)
-  }
-  return String(value ?? '')
+  if (typeof value === 'string') return /^https?:\/\/|^socks5?:\/\//i.test(value) ? redactUrlCredentials(value) : value
+  return (
+    JSON.stringify(value, (_key, nested) => (typeof nested === 'string' ? sanitizeConfirmValue(nested) : nested)) ?? ''
+  )
 }
 
 export function DeclarativeWizardModal({
@@ -139,8 +123,16 @@ export function DeclarativeWizardModal({
 }) {
   const { t } = useTranslation()
   const steps = surface.stepSchemas
+  const secretFieldNames = new Set(
+    [...surface.fields, ...steps.flatMap(item => item.fields)]
+      .filter(field => field.type === 'secret')
+      .map(field => field.name)
+  )
   const [stepIndex, setStepIndex] = useState(0)
-  const [draft, setDraft] = useState<Record<string, unknown>>({})
+  const [draft, setDraft] = useState<Record<string, unknown>>(() =>
+    withFieldDefaults([...surface.fields, ...steps.flatMap(item => item.fields)])
+  )
+  const formRef = useRef<HTMLFormElement>(null)
   const [defaultScheme, setDefaultScheme] = useState('http')
   const [pkce, setPkce] = useState<PkceSession | null>(null)
   const [previewItems, setPreviewItems] = useState<readonly ParsedBatchItem[]>([])
@@ -196,8 +188,29 @@ export function DeclarativeWizardModal({
     })
   }
 
+  const validatedOAuthPayload = () => {
+    if (!oauthStep || !pkce) throw new Error('Start OAuth authorization before submitting its callback')
+    const callbackUrl = new URL(String(draft[oauthStep.callbackField] ?? '').trim())
+    const redirectUrl = new URL(String(draft[oauthStep.redirectUriField] ?? '').trim())
+    const code = callbackUrl.searchParams.get('code')
+    if (
+      !code ||
+      callbackUrl.origin !== redirectUrl.origin ||
+      callbackUrl.pathname !== redirectUrl.pathname ||
+      callbackUrl.searchParams.get('state') !== pkce.state
+    ) {
+      throw new Error('OAuth callback URL did not match the active authorization request')
+    }
+    return {
+      ...draft,
+      [oauthStep.callbackField]: code,
+      [oauthStep.redirectUriField]: redirectUrl.href,
+      [oauthStep.verifierField]: pkce.verifier
+    }
+  }
+
   const handleAdvance = async () => {
-    if (!step) return
+    if (pending || !step || !formRef.current?.reportValidity()) return
     setPending(true)
     setError(null)
     try {
@@ -212,40 +225,13 @@ export function DeclarativeWizardModal({
       }
 
       if (!isFinal) {
-        if (step.kind === 'oauth_pkce' && oauthStep) {
-          const rawCallback = String(draft[oauthStep.callbackField] ?? '').trim()
-          const rawRedirect = String(draft[oauthStep.redirectUriField] ?? '').trim()
-          const callbackUrl = new URL(rawCallback)
-          const redirectUrl = new URL(rawRedirect)
-          const code = callbackUrl.searchParams.get('code')
-          if (
-            !pkce ||
-            !code ||
-            callbackUrl.origin !== redirectUrl.origin ||
-            callbackUrl.pathname !== redirectUrl.pathname ||
-            callbackUrl.searchParams.get('state') !== pkce.state
-          ) {
-            throw new Error('OAuth callback URL did not match the active authorization request')
-          }
-        }
+        if (step.kind === 'oauth_pkce' && oauthStep) validatedOAuthPayload()
         setStepIndex(prev => prev + 1)
         return
       }
 
       if (oauthStep) {
-        const callbackUrl = new URL(String(draft[oauthStep.callbackField] ?? ''))
-        const redirectUrl = new URL(String(draft[oauthStep.redirectUriField] ?? ''))
-        const code = callbackUrl.searchParams.get('code')
-        if (!pkce || !code) {
-          throw new Error('OAuth callback code is missing')
-        }
-        const merged = {
-          ...draft,
-          [oauthStep.callbackField]: code,
-          [oauthStep.redirectUriField]: redirectUrl.href,
-          [oauthStep.verifierField]: pkce.verifier
-        }
-        await onExecute(surface, serializeDeclarativeFields(surface, merged))
+        await onExecute(surface, serializeDeclarativeFields(surface, validatedOAuthPayload()))
         onComplete?.()
         onClose()
         return
@@ -254,7 +240,6 @@ export function DeclarativeWizardModal({
       if (batchStep) {
         const items = previewItems.length > 0 ? previewItems : batchPreview
         const result = await onExecute(surface, { [batchStep.listField]: items })
-        onComplete?.()
         const errors = result[0]?.errors
         if (Array.isArray(errors) && errors.length > 0) {
           if (errors.length === items.length) {
@@ -262,14 +247,16 @@ export function DeclarativeWizardModal({
               t(`${i18nPrefix}.ui.import_failed`, { count: errors.length, defaultValue: 'Import failed' })
             )
           }
-          setError(
+          toast.error(
             t(`${i18nPrefix}.ui.import_partial`, {
               count: errors.length,
               defaultValue: `${errors.length} entries failed to import`
             })
           )
+          onClose()
           return
         }
+        onComplete?.()
         onClose()
         return
       }
@@ -288,7 +275,7 @@ export function DeclarativeWizardModal({
     <Dialog
       open={open}
       onOpenChange={next => {
-        if (!next) onClose()
+        if (!next && !pending) onClose()
       }}>
       <DialogContent
         className="flex max-h-[85vh] flex-col gap-4 overflow-hidden sm:max-w-2xl"
@@ -312,7 +299,13 @@ export function DeclarativeWizardModal({
           </nav>
         ) : null}
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
+        <form
+          ref={formRef}
+          onSubmit={event => {
+            event.preventDefault()
+            void handleAdvance()
+          }}
+          className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
           {step ? (
             <>
               {step.kind === 'oauth_pkce' && step.oauthConfig ? (
@@ -368,7 +361,7 @@ export function DeclarativeWizardModal({
                     />
                   </LabeledField>
                 </div>
-              ) : step.kind === 'preview_items' ? (
+              ) : step.kind === 'preview_items' && batchStep ? (
                 <div className="overflow-x-auto border border-border">
                   <Table>
                     <TableHeader>
@@ -380,10 +373,12 @@ export function DeclarativeWizardModal({
                     </TableHeader>
                     <TableBody>
                       {(previewItems.length > 0 ? previewItems : batchPreview).map((item, idx) => (
-                        <TableRow key={`${item.name}-${idx}`}>
-                          <TableCell>{item.name}</TableCell>
-                          <TableCell>{item.protocol}</TableCell>
-                          <TableCell className="font-mono text-xs">{redactUrlCredentials(item.endpoint_url)}</TableCell>
+                        <TableRow key={`${item[batchStep.nameField]}-${idx}`}>
+                          <TableCell>{item[batchStep.nameField]}</TableCell>
+                          <TableCell>{item[batchStep.schemeField]}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {redactUrlCredentials(item[batchStep.urlField]!)}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -402,11 +397,11 @@ export function DeclarativeWizardModal({
                       </TableHeader>
                       <TableBody>
                         {(previewItems.length > 0 ? previewItems : batchPreview).map((item, idx) => (
-                          <TableRow key={`${item.name}-${idx}`}>
-                            <TableCell>{item.name}</TableCell>
-                            <TableCell>{item.protocol}</TableCell>
+                          <TableRow key={`${item[batchStep.nameField]}-${idx}`}>
+                            <TableCell>{item[batchStep.nameField]}</TableCell>
+                            <TableCell>{item[batchStep.schemeField]}</TableCell>
                             <TableCell className="font-mono text-xs">
-                              {redactUrlCredentials(item.endpoint_url)}
+                              {redactUrlCredentials(item[batchStep.urlField]!)}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -420,7 +415,7 @@ export function DeclarativeWizardModal({
                         if (oauthStep && (key === oauthStep.callbackField || key === oauthStep.verifierField)) {
                           return false
                         }
-                        return surface.fields.find(f => f.name === key)?.type !== 'secret'
+                        return !secretFieldNames.has(key)
                       })
                       .map(([key, val]) => (
                         <div key={key} className="contents">
@@ -441,7 +436,7 @@ export function DeclarativeWizardModal({
               {error}
             </p>
           ) : null}
-        </div>
+        </form>
 
         <DialogFooter>
           {stepIndex > 0 ? (

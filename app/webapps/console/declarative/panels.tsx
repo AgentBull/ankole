@@ -18,8 +18,9 @@ import { Link } from '../tenant-context'
 import { DeclarativeSeriesChart, type DeclarativeDrilldownSelection } from './charts'
 import { DeclarativeFields, DeclarativeSelect } from './fields'
 import {
+  withFieldDefaults,
   asRecord,
-  executeDeclarativeAction,
+  useDeclarativeAction,
   formatIdentifierLabel,
   isRecord,
   serializeDeclarativeFields,
@@ -347,7 +348,8 @@ export function DeclarativePanelView({
   i18nPrefix?: string
 }) {
   const { t } = useTranslation()
-  const [queryDraft, setQueryDraft] = useState<Record<string, unknown>>({})
+  const mutation = useDeclarativeAction()
+  const [queryDraft, setQueryDraft] = useState<Record<string, unknown>>(() => withFieldDefaults(surface.fields))
   const [submittedFilters, setSubmittedFilters] = useState<Record<string, string> | null>(null)
   const [actionState, setActionState] = useState<{
     rows: readonly DeclarativeRecord[]
@@ -367,7 +369,7 @@ export function DeclarativePanelView({
         : undefined
       : surfaceQueryEndpoint(surface, recordId)
 
-  const query = useDeclarativeRecords(endpoint, 0, surface.responseEnvelope ?? 'jsonapi')
+  const query = useDeclarativeRecords(endpoint, surface.responseEnvelope ?? 'jsonapi')
   const rows = isActionForm ? actionState.rows : query.rows
   const loading = isActionForm ? actionState.loading : query.loading
   const error = isActionForm ? actionState.error : query.error
@@ -386,7 +388,8 @@ export function DeclarativePanelView({
             if (!event.currentTarget.reportValidity()) return
             if (isActionForm) {
               setActionState({ rows: [], loading: true, error: null, executed: true })
-              void executeDeclarativeAction(surface, serializeDeclarativeFields(surface, queryDraft, recordId))
+              void mutation
+                .mutateAsync({ surface, payload: serializeDeclarativeFields(surface, queryDraft, recordId) })
                 .then(nextRows => setActionState({ rows: nextRows, loading: false, error: null, executed: true }))
                 .catch((failure: unknown) =>
                   setActionState({
@@ -404,6 +407,7 @@ export function DeclarativePanelView({
                 nextFilters[key] = String(val).trim()
               }
             }
+            if (endpoint === surfaceQueryEndpoint(surface, recordId, nextFilters)) void query.refresh()
             setSubmittedFilters(nextFilters)
           }}>
           <DeclarativeFields
@@ -489,7 +493,7 @@ export function DeclarativeDashboardView({
     ...schema?.staticQueryParams
   })
   const endpoint = schema ? `${surface.endpoint}?${queryParams}` : undefined
-  const report = useDeclarativeRecords(endpoint, 0, surface.responseEnvelope ?? 'flat')
+  const report = useDeclarativeRecords(endpoint, surface.responseEnvelope ?? 'flat')
 
   if (!schema) {
     throw new Error(`Dashboard surface "${surface.id}" is missing dashboardSchema`)
@@ -581,14 +585,15 @@ export function DeclarativeDashboardView({
           </span>
           <Link
             className="link"
-            to={(() => {
-              const drillParams = new URLSearchParams({
+            to={schema.drilldownRoute}
+            search={(() => {
+              const drillParams: Record<string, string> = {
                 [schema.drilldownParams.dateParam]: selectedDrilldown.dateKey
-              })
-              if (schema.drilldownParams.timezoneParam) {
-                drillParams.set(schema.drilldownParams.timezoneParam, selectedDrilldown.timezone)
               }
-              return `${schema.drilldownRoute}?${drillParams}`
+              if (schema.drilldownParams.timezoneParam) {
+                drillParams[schema.drilldownParams.timezoneParam] = selectedDrilldown.timezone
+              }
+              return drillParams
             })()}>
             {t(schema.drilldownParams.actionLabelKey ?? `${i18nPrefix}.ui.open_filtered`, {
               defaultValue: 'Open filtered view'

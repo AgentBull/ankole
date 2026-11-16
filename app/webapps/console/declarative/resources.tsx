@@ -24,8 +24,9 @@ import { DeclarativeActionTrigger } from './actions'
 import { DeclarativeFields, DeclarativeSelect } from './fields'
 import { DeclarativeDashboardView, DeclarativeFacts, DeclarativePanelView, DeclarativeValue } from './panels'
 import {
+  withFieldDefaults,
   asRecord,
-  executeDeclarativeAction,
+  useDeclarativeAction,
   formatIdentifierLabel,
   isRecord,
   resolveRecordEndpoint,
@@ -89,9 +90,7 @@ export function DeclarativeResourceTable({
   detailSurfaceId,
   titleOverride,
   onChangeFilter,
-  onClearFilters,
-  onRefresh,
-  onExecuteAction
+  onClearFilters
 }: {
   surface: DeclarativeSurfaceDescriptor
   surfaceById: ReadonlyMap<string, DeclarativeSurfaceDescriptor>
@@ -105,13 +104,10 @@ export function DeclarativeResourceTable({
   titleOverride?: string
   onChangeFilter?: (name: string, value: string) => void
   onClearFilters?: () => void
-  onRefresh: () => void
-  onExecuteAction?: (
-    targetSurface: DeclarativeSurfaceDescriptor,
-    payload: Record<string, unknown>
-  ) => Promise<readonly DeclarativeRecord[]>
 }) {
   const { t } = useTranslation()
+  const mutation = useDeclarativeAction()
+  const navigate = useNavigate()
   const [selectedRow, setSelectedRow] = useState<DeclarativeRecord | null>(null)
   const [activeRowModal, setActiveRowModal] = useState<{
     action: DeclarativeSurfaceDescriptor
@@ -120,16 +116,8 @@ export function DeclarativeResourceTable({
   const [pendingActionKey, setPendingActionKey] = useState<string | null>(null)
   const [rowError, setRowError] = useState<string | null>(null)
 
-  const runExecute = async (
-    targetSurface: DeclarativeSurfaceDescriptor,
-    payload: Record<string, unknown>
-  ): Promise<readonly DeclarativeRecord[]> => {
-    const res = onExecuteAction
-      ? await onExecuteAction(targetSurface, payload)
-      : await executeDeclarativeAction(targetSurface, payload)
-    onRefresh()
-    return res
-  }
+  const runExecute = (targetSurface: DeclarativeSurfaceDescriptor, payload: Record<string, unknown>) =>
+    mutation.mutateAsync({ surface: targetSurface, payload })
 
   const resolvedToolbarActions = (surface.toolbarActionIds ?? [])
     .map(id => surfaceById.get(id))
@@ -166,6 +154,34 @@ export function DeclarativeResourceTable({
           labelKey: `${i18nPrefix}.field.${name}`
         }))
   const secondaryFilters = [...extraFilters, ...fallbackFilters]
+  const filterControls = onChangeFilter
+    ? secondaryFilters.map(filterItem =>
+        filterItem.type === 'select' && filterItem.enumValues ? (
+          <DeclarativeSelect
+            key={filterItem.name}
+            label={t(filterItem.labelKey, { defaultValue: formatIdentifierLabel(filterItem.name) })}
+            options={[
+              ['', t('common.all', { defaultValue: 'All' })],
+              ...filterItem.enumValues.map(
+                val => [val, t(`${i18nPrefix}.value.${val}`, { defaultValue: formatIdentifierLabel(val) })] as const
+              )
+            ]}
+            value={filters[filterItem.name] ?? ''}
+            onChange={nextVal => onChangeFilter(filterItem.name, nextVal)}
+          />
+        ) : (
+          <Input
+            key={filterItem.name}
+            aria-label={t(filterItem.labelKey, { defaultValue: formatIdentifierLabel(filterItem.name) })}
+            className="w-36"
+            placeholder={t(filterItem.labelKey, { defaultValue: formatIdentifierLabel(filterItem.name) })}
+            type={filterItem.type === 'date' ? 'date' : 'text'}
+            value={filters[filterItem.name] ?? ''}
+            onChange={event => onChangeFilter(filterItem.name, event.target.value)}
+          />
+        )
+      )
+    : null
   const isFiltered = Object.values(filters).some(Boolean)
 
   const columnHeaders = surface.columns.map(col =>
@@ -191,36 +207,7 @@ export function DeclarativeResourceTable({
             <div className="flex w-full flex-wrap items-center gap-2">
               {hasSearchFilter && onChangeFilter ? (
                 <ResourceSearch
-                  filters={secondaryFilters.map(filterItem =>
-                    filterItem.type === 'select' && filterItem.enumValues ? (
-                      <DeclarativeSelect
-                        key={filterItem.name}
-                        label={t(filterItem.labelKey, { defaultValue: formatIdentifierLabel(filterItem.name) })}
-                        options={[
-                          ['', t('common.all', { defaultValue: 'All' })],
-                          ...filterItem.enumValues.map(
-                            val =>
-                              [
-                                val,
-                                t(`${i18nPrefix}.value.${val}`, { defaultValue: formatIdentifierLabel(val) })
-                              ] as const
-                          )
-                        ]}
-                        value={filters[filterItem.name] ?? ''}
-                        onChange={nextVal => onChangeFilter(filterItem.name, nextVal)}
-                      />
-                    ) : (
-                      <Input
-                        key={filterItem.name}
-                        aria-label={t(filterItem.labelKey, { defaultValue: formatIdentifierLabel(filterItem.name) })}
-                        className="w-36"
-                        placeholder={t(filterItem.labelKey, { defaultValue: formatIdentifierLabel(filterItem.name) })}
-                        type={filterItem.type === 'date' ? 'date' : 'text'}
-                        value={filters[filterItem.name] ?? ''}
-                        onChange={event => onChangeFilter(filterItem.name, event.target.value)}
-                      />
-                    )
-                  )}
+                  filters={filterControls}
                   label={t(searchFilterSchema?.labelKey ?? `${i18nPrefix}.ui.search`, { defaultValue: 'Search' })}
                   placeholder={t(searchFilterSchema?.placeholderKey ?? `${i18nPrefix}.ui.search`, {
                     defaultValue: 'Search...'
@@ -228,7 +215,9 @@ export function DeclarativeResourceTable({
                   value={filters.search ?? ''}
                   onChange={next => onChangeFilter('search', next)}
                 />
-              ) : null}
+              ) : (
+                filterControls
+              )}
 
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 {resolvedToolbarActions.map(action =>
@@ -237,7 +226,6 @@ export function DeclarativeResourceTable({
                       key={action.id}
                       i18nPrefix={i18nPrefix}
                       surface={action}
-                      onComplete={onRefresh}
                       onExecute={runExecute}
                     />
                   ) : (
@@ -264,9 +252,19 @@ export function DeclarativeResourceTable({
           const deleteSurface = deleteSpec ? surfaceById.get(deleteSpec.actionId) : undefined
 
           const extraMenuActions: RowAction[] = resolvedRowSpecs.flatMap(spec => {
-            if (spec.kind === 'route' || spec.kind === 'delete') return []
+            if (editTo && (spec === routeEditSpec || spec.kind === 'delete')) return []
             const target = surfaceById.get(spec.actionId)
             if (!target) return []
+            if (spec.kind === 'route') {
+              return rowId
+                ? [
+                    {
+                      label: t(spec.labelKey, { defaultValue: 'Open' }),
+                      onAction: () => void navigate({ to: resolveRecordEndpoint(spec.routeTemplate, rowId) })
+                    }
+                  ]
+                : []
+            }
             if (spec.kind === 'toggle_patch') {
               const inactive = spec.inactiveValues.includes(String(row[spec.field] ?? ''))
               const toggleKey = `${rowId ?? rowIndex}:${spec.actionId}`
@@ -368,22 +366,17 @@ export function DeclarativeResourceTable({
                         {t('common.view', { defaultValue: 'Inspect' })}
                       </Button>
                     ) : null}
-                    {resolvedRowSpecs.map(spec => {
-                      const target = surfaceById.get(spec.actionId)
-                      if (!target) return null
-                      return (
-                        <DeclarativeActionTrigger
-                          key={spec.actionId}
-                          i18nPrefix={i18nPrefix}
-                          label={t('labelKey' in spec && spec.labelKey ? spec.labelKey : target.titleKey, {
-                            defaultValue: formatIdentifierLabel(target.id)
-                          })}
-                          payload={buildRowPrefillPayload(target, row)}
-                          surface={target}
-                          onExecute={runExecute}
-                        />
-                      )
-                    })}
+                    {extraMenuActions.map((action, index) => (
+                      <Button
+                        key={index}
+                        disabled={action.pending}
+                        size="xs"
+                        type="button"
+                        variant="outline"
+                        onClick={action.onAction}>
+                        {action.label}
+                      </Button>
+                    ))}
                   </div>
                 </TableCell>
               )}
@@ -611,11 +604,12 @@ function DeclarativeSurfaceRouteBody({
     surface.kind === 'resource' || surface.presentation === 'table'
       ? surfaceQueryEndpoint(surface, recordId, filters)
       : undefined
-  const query = useDeclarativeRecords(endpoint, 0, surface.responseEnvelope ?? 'jsonapi')
+  const query = useDeclarativeRecords(endpoint, surface.responseEnvelope ?? 'jsonapi')
 
   if (route.mode === 'create' || route.mode === 'edit') {
     return (
       <DeclarativeResourceEditorView
+        key={JSON.stringify([surface.id, route.mode, recordId])}
         backPath={route.backPath ?? '/'}
         detailSurfaceId={route.detailSurfaceId ?? surface.detailSurfaceId ?? undefined}
         i18nPrefix={i18nPrefix}
@@ -641,7 +635,14 @@ function DeclarativeSurfaceRouteBody({
   }
 
   if ((surface.kind === 'panel' && surface.presentation !== 'table') || surface.presentation === 'form') {
-    return <DeclarativePanelView i18nPrefix={i18nPrefix} recordId={recordId} surface={surface} />
+    return (
+      <DeclarativePanelView
+        key={JSON.stringify([surface.id, recordId])}
+        i18nPrefix={i18nPrefix}
+        recordId={recordId}
+        surface={surface}
+      />
+    )
   }
 
   return (
@@ -667,7 +668,6 @@ function DeclarativeSurfaceRouteBody({
         for (const key of Object.keys(filters)) next.delete(key)
         setSearchParams(next)
       }}
-      onRefresh={query.refresh}
     />
   )
 }
@@ -694,8 +694,9 @@ function DeclarativeResourceEditorView({
   onNavigate: (to: string) => void
 }) {
   const { t } = useTranslation()
+  const mutation = useDeclarativeAction()
   const readEndpoint = mode === 'edit' && recordId ? resolveRecordEndpoint(surface.endpoint, recordId) : undefined
-  const recordQuery = useDeclarativeRecords(readEndpoint, 0, surface.responseEnvelope ?? 'jsonapi')
+  const recordQuery = useDeclarativeRecords(readEndpoint, surface.responseEnvelope ?? 'jsonapi')
   const [draft, setDraft] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<unknown>(null)
@@ -723,10 +724,10 @@ function DeclarativeResourceEditorView({
   const editableFields = surface.fields.filter(field => mode !== 'edit' || field.name !== 'id')
   const initialValues = Object.fromEntries(
     editableFields
-      .filter(field => !field.readOnly && field.type !== 'secret' && record && field.name in record)
+      .filter(field => field.type !== 'secret' && record && field.name in record)
       .map(field => [field.name, record?.[field.name]])
   )
-  const mergedDraft = { ...initialValues, ...draft }
+  const mergedDraft = withFieldDefaults(surface.fields, { ...initialValues, ...draft })
   const resolvedDetailSurfaceId = detailSurfaceId ?? surface.detailSurfaceId
   const detailSurface = resolvedDetailSurfaceId ? surfaceById.get(resolvedDetailSurfaceId) : undefined
 
@@ -760,11 +761,9 @@ function DeclarativeResourceEditorView({
                 payload={record ? buildRowPrefillPayload(actionSurface, record) : { id: recordId }}
                 surface={actionSurface}
                 onExecute={async (target, payload) => {
-                  const res = await executeDeclarativeAction(target, payload)
+                  const res = await mutation.mutateAsync({ surface: target, payload })
                   if (target.method === 'DELETE') {
                     onNavigate(backPath)
-                  } else {
-                    recordQuery.refresh()
                   }
                   return res
                 }}
@@ -776,7 +775,12 @@ function DeclarativeResourceEditorView({
       submitting={saving}
       supplementary={
         mode === 'edit' && recordId && detailSurface && visibleIds.has(detailSurface.surface) ? (
-          <DeclarativePanelView i18nPrefix={i18nPrefix} recordId={recordId} surface={detailSurface} />
+          <DeclarativePanelView
+            key={JSON.stringify([detailSurface.id, recordId])}
+            i18nPrefix={i18nPrefix}
+            recordId={recordId}
+            surface={detailSurface}
+          />
         ) : undefined
       }
       title={
@@ -787,13 +791,12 @@ function DeclarativeResourceEditorView({
       onSubmit={() => {
         setSaving(true)
         setSaveError(null)
-        void executeDeclarativeAction(surface, serializeDeclarativeFields(surface, mergedDraft, recordId))
+        void mutation
+          .mutateAsync({ surface, payload: serializeDeclarativeFields(surface, mergedDraft, recordId) })
           .then(() => {
             setDraft({})
             toast.success(t('common.saved', { defaultValue: 'Saved' }))
-            if (mode === 'edit') {
-              recordQuery.refresh()
-            } else {
+            if (mode !== 'edit') {
               onNavigate(backPath)
             }
           })

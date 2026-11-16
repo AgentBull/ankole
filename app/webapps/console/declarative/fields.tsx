@@ -1,6 +1,17 @@
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@ankole/uikit'
+import {
+  Button,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Switch,
+  Textarea
+} from '@ankole/uikit'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { dateTimeLocalValue } from '../../common/date-time'
 import { LabeledField } from '../console-form'
 import { asRecord, draftAt, formatIdentifierLabel, setDraftAt } from './transport'
 import type { DeclarativeFieldDescriptor, DeclarativeRuleSection, DeclarativeRuleTreeConfig } from './types'
@@ -12,23 +23,28 @@ export function DeclarativeSelect({
   value,
   options,
   disabled,
+  required,
+  id,
   onChange
 }: {
   label: string
   value: string
   options: readonly (readonly [string, string])[]
   disabled?: boolean
+  required?: boolean
+  id?: string
   onChange: (value: string) => void
 }) {
   return (
     <Select
+      required={required}
       disabled={disabled}
       items={options.map(([val, text]) => ({ value: val, label: text }))}
       value={value}
       onValueChange={next => {
         if (next !== null) onChange(next)
       }}>
-      <SelectTrigger aria-label={label}>
+      <SelectTrigger id={id} aria-label={label}>
         <SelectValue placeholder={label} />
       </SelectTrigger>
       <SelectContent>
@@ -138,7 +154,7 @@ export function KeyValueEditor({
       {rows.map(([rowKey, rowValue], index) => {
         const isExtra = index >= savedPairs.length
         return (
-          <div key={`${index}-${rowKey}`} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
             <Input
               aria-label={`${keyLabel} ${index + 1}`}
               autoCapitalize="none"
@@ -458,6 +474,41 @@ function RuleTreeEditor({
   )
 }
 
+function JsonEditor({
+  value,
+  onChange,
+  disabled,
+  label,
+  required
+}: {
+  value: unknown
+  onChange: (value: unknown) => void
+  disabled: boolean
+  label: string
+  required: boolean
+}) {
+  const [text, setText] = useState(() => (value === undefined ? '' : JSON.stringify(value, null, 2)))
+  return (
+    <Textarea
+      aria-label={label}
+      disabled={disabled}
+      required={required}
+      value={text}
+      onChange={event => {
+        const next = event.target.value
+        setText(next)
+        try {
+          const parsed: unknown = next.trim() ? JSON.parse(next) : undefined
+          event.target.setCustomValidity('')
+          onChange(parsed)
+        } catch {
+          event.target.setCustomValidity('Enter valid JSON')
+        }
+      }}
+    />
+  )
+}
+
 function DeclarativeField({
   descriptor,
   value,
@@ -556,7 +607,7 @@ function DeclarativeField({
     )
   }
 
-  if (descriptor.type === 'key_value' || (descriptor.type === 'json' && !descriptor.readOnly)) {
+  if (descriptor.type === 'key_value') {
     return (
       <KeyValueEditor
         descriptor={descriptor}
@@ -566,6 +617,20 @@ function DeclarativeField({
         value={value}
         onChange={onChange}
       />
+    )
+  }
+
+  if (descriptor.type === 'json' && !descriptor.readOnly) {
+    return (
+      <LabeledField description={description} label={label}>
+        <JsonEditor
+          value={value}
+          onChange={onChange}
+          disabled={isDisabled}
+          label={label}
+          required={descriptor.required}
+        />
+      </LabeledField>
     )
   }
 
@@ -579,7 +644,7 @@ function DeclarativeField({
             id,
             t(`${i18nPrefix}.value.${id}`, { defaultValue: formatIdentifierLabel(id) })
           ])}
-          value={String(value ?? descriptor.defaultValue ?? '')}
+          value={String(value ?? '')}
           onChange={onChange}
         />
       </LabeledField>
@@ -660,7 +725,11 @@ function DeclarativeField({
           Array.isArray(value)
             ? value.join(', ')
             : isDate && value
-              ? String(value).slice(0, descriptor.inputUnit === 'date' ? 10 : 16)
+              ? descriptor.inputUnit === 'date'
+                ? String(value).slice(0, 10)
+                : /(?:Z|[+-]\d{2}:?\d{2})$/i.test(String(value))
+                  ? dateTimeLocalValue(String(value)).slice(0, 16)
+                  : String(value).slice(0, 16)
               : typeof value === 'object' && value !== null
                 ? JSON.stringify(value)
                 : String(value ?? '')

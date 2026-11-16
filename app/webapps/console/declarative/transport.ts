@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { useMutation, useQuery } from '../tenant-context'
 import { identityHeaders, sessionIdentityKey } from '../../common/browser-context'
 import { csrfToken } from '../../common/internal-api-client'
 import type { DeclarativeEnvelope, DeclarativeFieldDescriptor, DeclarativeSurfaceDescriptor } from './types'
@@ -79,7 +80,8 @@ export async function declarativeRequest(
   url: string,
   method = 'GET',
   payload?: unknown,
-  responseEnvelope: DeclarativeEnvelope = 'jsonapi'
+  responseEnvelope: DeclarativeEnvelope = 'jsonapi',
+  headers: Readonly<Record<string, string>> = {}
 ): Promise<DeclarativeRecord[]> {
   const token = typeof document === 'undefined' ? undefined : csrfToken()
   const body = payload === undefined ? undefined : JSON.stringify(payload)
@@ -90,7 +92,8 @@ export async function declarativeRequest(
       accept: 'application/vnd.api+json',
       ...(body ? { 'content-type': 'application/vnd.api+json' } : {}),
       ...(token ? { 'x-csrf-token': token } : {}),
-      ...identityHeaders()
+      ...identityHeaders(),
+      ...headers
     },
     body
   })
@@ -128,19 +131,21 @@ export function surfaceQueryEndpoint(
     ...surface.filters,
     ...(surface.filterSchemas?.map(schema => schema.name) ?? [])
   ])
-  const searchParams = new URLSearchParams()
+  const [pathname, existingQuery] = base.split('?', 2)
+  const searchParams = new URLSearchParams(existingQuery)
   for (const [key, rawValue] of Object.entries(filters)) {
     if (rawValue === undefined || rawValue === '') continue
     if (allowedNames.size === 0 || allowedNames.has(key)) {
       searchParams.set(key, rawValue)
     }
   }
-  return searchParams.size > 0 ? `${base}?${searchParams}` : base
+  return searchParams.size > 0 ? `${pathname}?${searchParams}` : base
 }
 
 export async function executeDeclarativeAction(
   surface: DeclarativeSurfaceDescriptor,
-  payload: Readonly<Record<string, unknown>>
+  payload: Readonly<Record<string, unknown>>,
+  headers: Readonly<Record<string, string>> = {}
 ): Promise<DeclarativeRecord[]> {
   const needsId = surface.endpoint.includes(':id')
   const recordId = needsId && typeof payload.id === 'string' && payload.id ? payload.id : undefined
@@ -152,7 +157,7 @@ export async function executeDeclarativeAction(
 
   const responseEnvelope = surface.responseEnvelope ?? (surface.payloadEnvelope === 'jsonapi' ? 'jsonapi' : 'flat')
   if (surface.method === 'DELETE') {
-    return declarativeRequest(url, 'DELETE', undefined, responseEnvelope)
+    return declarativeRequest(url, 'DELETE', undefined, responseEnvelope, headers)
   }
 
   const attributes = Object.fromEntries(
@@ -164,9 +169,9 @@ export async function executeDeclarativeAction(
 
   switch (surface.payloadEnvelope) {
     case 'flat':
-      return declarativeRequest(url, surface.method, attributes, responseEnvelope)
+      return declarativeRequest(url, surface.method, attributes, responseEnvelope, headers)
     case 'data':
-      return declarativeRequest(url, surface.method, { data: attributes }, responseEnvelope)
+      return declarativeRequest(url, surface.method, { data: attributes }, responseEnvelope, headers)
     case 'jsonapi': {
       if (!surface.resourceType) {
         throw new Error(`Surface "${surface.id}" is missing a JSON:API resourceType`)
@@ -181,10 +186,25 @@ export async function executeDeclarativeAction(
             attributes
           }
         },
-        responseEnvelope
+        responseEnvelope,
+        headers
       )
     }
   }
+}
+
+export function useDeclarativeAction() {
+  return useMutation({
+    mutationFn: ({
+      surface,
+      payload,
+      headers
+    }: {
+      surface: DeclarativeSurfaceDescriptor
+      payload: Readonly<Record<string, unknown>>
+      headers?: Readonly<Record<string, string>>
+    }) => executeDeclarativeAction(surface, payload, headers)
+  })
 }
 
 export interface NullablePatchSerializerOptions {
@@ -255,7 +275,7 @@ function parseFieldScalar(field: DeclarativeFieldDescriptor, rawValue: unknown):
     if (nestedFields.length === 0) return source
     const nested: Record<string, unknown> = {}
     for (const child of nestedFields) {
-      if (child.name in source) {
+      if (!child.readOnly && child.name in source) {
         const parsed = parseFieldScalar(child, source[child.name])
         if (parsed !== undefined) nested[child.name] = parsed
       }
@@ -301,18 +321,7 @@ function parseFieldScalar(field: DeclarativeFieldDescriptor, rawValue: unknown):
 
   if (field.type === 'boolean') return Boolean(rawValue)
 
-  if (field.type === 'json') {
-    if (typeof rawValue === 'string') {
-      const trimmed = rawValue.trim()
-      if (!trimmed) return {}
-      try {
-        return JSON.parse(trimmed)
-      } catch {
-        throw new Error(`${formatIdentifierLabel(field.name)} must be valid JSON`)
-      }
-    }
-    return rawValue ?? {}
-  }
+  if (field.type === 'json') return rawValue
 
   if (field.type === 'datetime') {
     if (rawValue === '' || rawValue === null || rawValue === undefined) return undefined
@@ -328,11 +337,27 @@ function parseFieldScalar(field: DeclarativeFieldDescriptor, rawValue: unknown):
   return rawValue === '' ? undefined : rawValue
 }
 
+export function withFieldDefaults(
+  fields: readonly DeclarativeFieldDescriptor[],
+  draft: Readonly<Record<string, unknown>> = {}
+): Record<string, unknown> {
+  const values = { ...draft }
+  for (const field of fields) {
+    if (!(field.name in values) && field.defaultValue !== undefined) values[field.name] = field.defaultValue
+    if (field.type === 'object' && field.fields && (values[field.name] === undefined || isRecord(values[field.name]))) {
+      const nested = withFieldDefaults(field.fields, asRecord(values[field.name]))
+      if (Object.keys(nested).length > 0) values[field.name] = nested
+    }
+  }
+  return values
+}
+
 export function serializeDeclarativeFields(
   surface: Pick<DeclarativeSurfaceDescriptor, 'fields' | 'nullableFields' | 'method' | 'ruleSchema'>,
   draft: Readonly<Record<string, unknown>>,
   recordId?: unknown
 ): Record<string, unknown> {
+  draft = withFieldDefaults(surface.fields, draft)
   const preserveNulls = surface.method === 'PATCH' || surface.method === 'PUT'
   const arrayFields = surface.fields.filter(field => field.type === 'string_array').map(field => field.name)
   const rawEntries: Record<string, unknown> = {}
@@ -341,7 +366,9 @@ export function serializeDeclarativeFields(
     if (field.readOnly) continue
     if (!(field.name in draft)) continue
     const raw = draft[field.name]
-    if (raw === '' || raw === null || raw === undefined) {
+    if (field.type === 'json') {
+      rawEntries[field.name] = raw
+    } else if (raw === '' || raw === null || raw === undefined) {
       rawEntries[field.name] = field.type === 'string_array' ? [] : null
     } else {
       rawEntries[field.name] = parseFieldScalar(field, raw)
@@ -372,54 +399,40 @@ export function serializeDeclarativeFields(
   }
 
   const base = preserveNulls
-    ? serializeNullablePatchPayload(rawEntries, { nullableFields: surface.nullableFields, arrayFields })
+    ? serializeNullablePatchPayload(rawEntries, {
+        nullableFields: surface.nullableFields.filter(
+          name => !surface.fields.some(field => field.name === name && field.readOnly)
+        ),
+        arrayFields
+      })
     : Object.fromEntries(
         Object.entries(rawEntries).filter(
           ([key, value]) => value !== undefined && (value !== null || arrayFields.includes(key))
         )
       )
 
+  for (const field of surface.fields) {
+    if (field.type === 'json' && !field.readOnly && rawEntries[field.name] !== undefined) {
+      base[field.name] = rawEntries[field.name]
+    }
+  }
+
   return typeof recordId === 'string' && recordId ? { ...base, id: recordId } : base
 }
 
-export function useDeclarativeRecords(
-  endpoint?: string,
-  refreshKey = 0,
-  responseEnvelope: DeclarativeEnvelope = 'jsonapi'
-) {
-  const scope = currentScopeKey()
-  const [revision, setRevision] = useState(0)
-  const refresh = useCallback(() => setRevision(prev => prev + 1), [])
-  const requestKey = endpoint ? JSON.stringify([endpoint, scope, revision, refreshKey, responseEnvelope]) : ''
-  const [state, setState] = useState<{ key: string; rows: readonly DeclarativeRecord[]; error: string | null }>()
-
-  useEffect(() => {
-    if (!endpoint || !requestKey) return
-    let active = true
-    void declarativeRequest(endpoint, 'GET', undefined, responseEnvelope)
-      .then(rows => {
-        if (active) setState({ key: requestKey, rows, error: null })
-      })
-      .catch((failure: unknown) => {
-        if (active) {
-          setState({
-            key: requestKey,
-            rows: [],
-            error: failure instanceof Error ? failure.message : String(failure)
-          })
-        }
-      })
-    return () => {
-      active = false
-    }
-  }, [endpoint, requestKey, responseEnvelope])
-
-  const current = state?.key === requestKey ? state : undefined
+export function useDeclarativeRecords(endpoint?: string, responseEnvelope: DeclarativeEnvelope = 'jsonapi') {
+  const scope = useSyncExternalStore(subscribeScopeChanges, currentScopeKey, () => 'ssr')
+  const query = useQuery({
+    queryKey: [{ _id: 'declarativeRecords', endpoint, scope, responseEnvelope, headers: {} as Record<string, string> }],
+    enabled: Boolean(endpoint),
+    queryFn: ({ queryKey: [request] }) =>
+      declarativeRequest(request.endpoint!, 'GET', undefined, request.responseEnvelope, request.headers)
+  })
   return {
-    rows: current?.rows ?? [],
-    loading: Boolean(endpoint && !current),
-    error: current?.error ?? null,
-    refresh
+    rows: query.data ?? [],
+    loading: Boolean(endpoint) && query.isPending,
+    error: query.error?.message ?? null,
+    refresh: query.refetch
   }
 }
 
