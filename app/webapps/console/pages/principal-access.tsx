@@ -137,9 +137,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                 <div className="grid content-between gap-3 border border-border-subtle bg-page p-4">
                   <div className="grid gap-1">
                     <h4 className="text-sm font-medium">{t('pod.settings.offboard')}</h4>
-                    <p className="text-xs leading-5 text-fg-secondary">
-                      {t('pod.settings.offboarded_description')}
-                    </p>
+                    <p className="text-xs leading-5 text-fg-secondary">{t('pod.settings.offboarded_description')}</p>
                   </div>
                   <Button
                     className="justify-self-start"
@@ -251,9 +249,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                       {humanizeTechnicalLabel(item.action)} · {humanizeTechnicalLabel(item.source)}
                     </span>
                     <p>{item.reason}</p>
-                    {detailsText ? (
-                      <code className="text-xs break-all text-fg-secondary">{detailsText}</code>
-                    ) : null}
+                    {detailsText ? <code className="text-xs break-all text-fg-secondary">{detailsText}</code> : null}
                     <p className="text-xs text-fg-secondary">
                       <ActorLabel actor={item.actor} /> · {formatConsoleDate(item.inserted_at)}
                     </p>

@@ -269,7 +269,9 @@ export function FilePage({
           }}
           className={cn(
             'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-control border-2 border-dashed px-6 py-12 text-center transition-colors',
-            dragOver ? 'border-primary bg-layer-hover/50' : 'border-border-subtle hover:border-border-strong hover:bg-layer-hover/30',
+            dragOver
+              ? 'border-primary bg-layer-hover/50'
+              : 'border-border-subtle hover:border-border-strong hover:bg-layer-hover/30',
             !canUpload && 'pointer-events-none opacity-60'
           )}>
           <CloudArrowUpRegular aria-hidden className="size-6 text-fg-tertiary" />
