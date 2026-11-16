@@ -604,6 +604,7 @@ function FavoritesNavigationSection({
 
 export function PageChildrenMenu({
   pageID,
+  childCount,
   canCreate,
   scope,
   privateOwner,
@@ -611,6 +612,8 @@ export function PageChildrenMenu({
 }: {
   types?: readonly ('doc' | 'base' | 'knowledge' | 'file')[]
   pageID: string
+  /** The Page detail's count of children the viewer can see. */
+  childCount: number
   canCreate: boolean
   scope?: 'space' | 'private'
   privateOwner?: string
@@ -620,12 +623,10 @@ export function PageChildrenMenu({
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const effectiveScope = scope ?? (privateOwner ? 'private' : 'space')
-  const children = useInfiniteQuery({
-    ...pageChildrenQuery(effectiveScope, pageID),
-    enabled: open || !canCreate
-  })
+  // The list loads when the menu opens; the Page detail already says whether there is anything to list.
+  const children = useInfiniteQuery({ ...pageChildrenQuery(effectiveScope, pageID), enabled: open })
   const pages = usePagesMetadata(children.data?.pages.flatMap(batch => batch.pages) ?? [])
-  if (!canCreate && children.isSuccess && !children.hasNextPage && pages.length === 0) return null
+  if (!canCreate && childCount === 0) return null
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>

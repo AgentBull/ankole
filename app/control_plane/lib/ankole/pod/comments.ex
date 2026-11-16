@@ -21,6 +21,9 @@ defmodule Ankole.Pod.Comments do
 
   def wakeup_signal_type, do: @wakeup_signal_type
 
+  @doc "Unread and open counts, latest activity, and resolved anchored threads for one Page."
+  defdelegate summary(actor, id), to: Activity
+
   @doc false
   def rename_markdown_mentions(body, old_uid, new_uid) do
     Regex.replace(@principal_md_mention_regex, body, fn mention, uid ->

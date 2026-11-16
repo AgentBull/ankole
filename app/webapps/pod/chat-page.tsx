@@ -394,18 +394,24 @@ export function ChatPage({
   const lastReadSeq = data?.conversation.viewer.lastReadSeq,
     lastSeq = data?.messageRange.lastSeq
   const visitedRoom = useRef<string | null>(null)
+  // A reread that started before Ankole confirmed a read can still carry the older position, so a visit sends each
+  // read position once.
+  const sentReadSeq = useRef(0)
   const atBottom = model.reading.value[pageID ? 'page' : 'standalone']?.atBottom !== false
   useEffect(() => {
     const markRead = () => {
+      const seq = atBottom ? lastSeq : lastReadSeq
       if (
         conversationID &&
         lastSeq &&
         lastReadSeq != null &&
-        (visitedRoom.current !== conversationID || (lastReadSeq < lastSeq && atBottom)) &&
+        seq != null &&
+        (visitedRoom.current !== conversationID || (lastReadSeq < lastSeq && atBottom && seq > sentReadSeq.current)) &&
         document.visibilityState === 'visible'
       ) {
         visitedRoom.current = conversationID
-        actions.update.mutate({ lastReadSeq: atBottom ? lastSeq : lastReadSeq })
+        sentReadSeq.current = seq
+        actions.markRead.mutate(seq)
       }
     }
     markRead()

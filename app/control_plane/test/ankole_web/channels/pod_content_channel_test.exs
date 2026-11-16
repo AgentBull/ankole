@@ -366,6 +366,26 @@ defmodule AnkoleWeb.PodContentChannelTest do
     assert_receive {:DOWN, ^reference, :process, _, :normal}, 1_000
   end
 
+  test "a document join reply carries the reader's comment summary", ctx do
+    actor = actor_fixture(ctx.owner)
+    {:ok, page} = Pages.create(actor, %{private_owner_uid: ctx.owner.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
+        grants: [%{principal_uid: ctx.reader.uid, role: "view"}]
+      })
+
+    {:ok, _} = Ankole.Pod.Comments.create(actor, page.id, %{body: "Review the whole page"})
+
+    {:ok, joined, _socket} =
+      subscribe_and_join(authenticated_socket(ctx.reader), PodPageChannel, "page:#{page.id}")
+
+    assert %{"open_count" => 1, "unread_count" => 1, "resolved_ids" => []} =
+             joined.comment_summary
+
+    assert is_binary(joined.comment_summary["activity_at"])
+  end
+
   test "comment changes refresh connected readers independently of document revisions", ctx do
     actor = actor_fixture(ctx.owner)
     {:ok, page} = Pages.create(actor, %{private_owner_uid: ctx.owner.uid})

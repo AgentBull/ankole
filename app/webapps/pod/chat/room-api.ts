@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '@ankole/uikit'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { contentError } from '../content-errors'
-import { acceptConversationResult, refreshConversationQueries } from '../query-cache'
+import { acceptConversationResult, acceptReadPosition, refreshConversationQueries } from '../query-cache'
 import { podKeys, chatError, type ConversationDetail } from '../api'
 import {
   updateConversation,
@@ -36,6 +36,12 @@ export function useRoomActions(id: string) {
   const update = useMutation({
     mutationFn: (data: RoomUpdate) => updateConversation({ path: { id }, body: { data } }),
     onSuccess,
+    onError
+  })
+  // A read position belongs to the viewer alone, so its confirmation updates the cached room and lists in place.
+  const markRead = useMutation({
+    mutationFn: (lastReadSeq: number) => updateConversation({ path: { id }, body: { data: { lastReadSeq } } }),
+    onSuccess: (data: ConversationDetail) => acceptReadPosition(client, data),
     onError
   })
   const participants = useMutation({
@@ -72,7 +78,7 @@ export function useRoomActions(id: string) {
       else onError(error)
     }
   })
-  return { update, participants, answer, resolveActionCard, grantPageAccess }
+  return { update, markRead, participants, answer, resolveActionCard, grantPageAccess }
 }
 
 export const teammatesKey = () => [...podKeys.agents, 'teammates'] as const

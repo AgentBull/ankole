@@ -1,6 +1,6 @@
 import type { PodFileTarget } from '@ankole/applet-sdk/types'
 import { pageMetadata } from './state/page-metadata'
-import type { InfiniteData, QueryClient, QueryCacheNotifyEvent } from '@tanstack/react-query'
+import { hashKey, type InfiniteData, type QueryClient, type QueryCacheNotifyEvent } from '@tanstack/react-query'
 import { authenticationRef, podID, podPublicOrigin, principalUID } from '../common/browser-context'
 import { createClientConfig } from '../common/internal-api-client'
 import {
@@ -17,6 +17,7 @@ import type {
   PodPageSearchResponse,
   PodRecentSearchesResponse,
   PodPageChildrenResponse,
+  PodPageCommentSummaryResponse,
   PodPageSharingResponse,
   PodPageSharingExplainData,
   PodPageSharingExplainResponse,
@@ -483,6 +484,27 @@ export const pageCommentSummaryQuery = (id: string) => ({
   queryFn: ({ signal }: { signal: AbortSignal }) => pageAPI.commentSummary(id, signal),
   retry: false
 })
+
+/**
+ * A document channel's join reply carries the comment summary that Ankole read after subscribing. That summary replaces
+ * any summary read that started before the subscription, and the Page's other comment queries reread.
+ */
+export async function acceptJoinedComments(
+  client: QueryClient,
+  id: string,
+  summary: PodPageCommentSummaryResponse | undefined
+): Promise<void> {
+  const summaryKey = contentKeys.commentSummary(id)
+  if (summary) {
+    await client.cancelQueries({ queryKey: summaryKey, exact: true })
+    client.setQueryData(summaryKey, summary)
+  }
+  const summaryHash = hashKey(summaryKey)
+  await client.invalidateQueries({
+    queryKey: contentKeys.comments(id),
+    predicate: query => !summary || query.queryHash !== summaryHash
+  })
+}
 
 export const pageCommentsQuery = (id: string, status: 'open' | 'resolved' | 'all' | 'unread') => ({
   queryKey: contentKeys.comments(id, status),

@@ -178,7 +178,9 @@ room uses `participants` scope and are omitted from both the member list and the
 explicit invitation promotes an observer to a full member. Each Human manages
 their own pin state, mute state, monotonic `last_read_seq`, and `last_visited_at`, while an Agent's
 `may_intervene` flag controls whether that Agent receives unaddressed group
-messages.
+messages. Because these preferences change nothing that other viewers see, a
+`PATCH` that sets only them refreshes Pod conversation lists without a room
+event, while a title or access scope change also publishes a room event.
 
 An Applet may post a notification to an existing native room as an authorized
 Human. Conversations records it as a message with the Applet Page as provenance,
@@ -1087,7 +1089,7 @@ returns to Chat Home.
 | Event | JSON data | Meaning |
 | --- | --- | --- |
 | `connected` | `{conversationID}` | Room subscription is ready |
-| `conversation` | `{conversationID}` | Committed messages, queues, participants, or execution status changed |
+| `conversation` | `{conversationID}` | Committed messages, queues, participants, title, access scope, or execution status changed |
 | `started` | `{conversationID, agentUID, responseID, signalIDs, agentName, turnStartedAt}` and optional `sessionID` | One Agent starts a model Response |
 | `snapshot` | `{conversationID, agentUID, responseID, signalIDs, agentName, turnStartedAt, text, thinkingSummary, seq}` | Replace the current Response display when a connection or Agent subscription starts |
 | `delta` | `{conversationID, agentUID, sessionID, responseID, signalIDs, text}` | Text for that Response |
@@ -1145,7 +1147,12 @@ On every initial connect and every `conversation` frame, the browser triggers a
 fresh detail read started strictly after that event. Neither an older in-flight
 `GET` nor a delayed `POST` response may overwrite newer state, and the browser
 retains unconfirmed client message IDs for retry until they appear in committed
-history.
+history. These reads cover the room's own detail, peer, and execution queries;
+conversation lists refresh on the Pod's coalesced `conversations_changed` event,
+which every committed room change also triggers. When a visit marks the room
+read, the browser writes the confirmed read position into the cached room and
+conversation lists and clears an `unread` row whose last message the position
+covers, without rereading either.
 
 Queue mutations (`POST /conversations/:id/queue`) require `agentUID` (a missing
 transport field returns HTTP 400 with a JSON:API `errors` entry identifying that

@@ -7,7 +7,7 @@ import { conversationEventsURL, podKeys, type ConversationDetail, type PodActivi
 import { openPodEventStream, type PodEventStream } from '../common/pod-bootstrap'
 import type { ChatModel } from './state/chat'
 import { hasUnsentChatWork } from './state/chat-drafts'
-import { refreshConversationQueries } from './query-cache'
+import { refreshRoomQueries } from './query-cache'
 
 export function useConversationEvents(
   id: string | undefined,
@@ -131,7 +131,7 @@ export async function reloadConversation(
   model: InstanceType<typeof ChatModel>
 ): Promise<void> {
   const streams = { ...model.liveStreams.peek() }
-  await refreshConversationQueries(client, id)
+  await refreshRoomQueries(client, id)
   const result = client.getQueryState<ConversationDetail>(podKeys.detail(id))
   if (result?.status === 'success' && result.fetchStatus === 'idle' && result.data) {
     for (const stream of Object.values(streams)) {
