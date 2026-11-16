@@ -102,7 +102,7 @@ export function editionWebappModules(
       if (!entry.isDirectory()) continue
       const id = entry.name
       const moduleDir = subpath ? path.join(root, id, subpath) : path.join(root, id)
-      const candidates = ['extension.tsx', 'extension.ts']
+      const candidates = ['extension.tsx', 'extension.ts', 'extension.gen.tsx', 'extension.gen.ts']
         .map(name => path.join(moduleDir, name))
         .filter(candidate => existsSync(candidate))
       if (candidates.length > 1) throw new Error(`Multiple extension entrypoints in ${moduleDir}`)
@@ -142,8 +142,12 @@ export function prepareEditionModules(targetFile = editionModulesFile, modules =
 }
 
 export function prepareEdition(): void {
+  const sharedDependencies = path.join(repositoryRoot, 'app/webapps/node_modules')
+  ensureSharedDependenciesLink(
+    path.join(sharedDependencies, '@ankole/webapps'),
+    path.join(repositoryRoot, 'app/webapps')
+  )
   if (edition === 'saas') {
-    const sharedDependencies = path.join(repositoryRoot, 'app/webapps/node_modules')
     ensureSharedDependenciesLink(path.join(internalsRoot, 'webapps/node_modules'), sharedDependencies)
     const pluginsRoot = path.join(internalsRoot, 'plugins')
     if (existsSync(pluginsRoot)) {
@@ -162,6 +166,7 @@ export function prepareEdition(): void {
 }
 
 function ensureSharedDependenciesLink(privateDependencies: string, sharedDependencies: string): void {
+  mkdirSync(path.dirname(privateDependencies), { recursive: true })
   const target = path.relative(path.dirname(privateDependencies), sharedDependencies)
   const current = lstatSync(privateDependencies, { throwIfNoEntry: false })
   if (!current || (current.isSymbolicLink() && readlinkSync(privateDependencies) !== target)) {

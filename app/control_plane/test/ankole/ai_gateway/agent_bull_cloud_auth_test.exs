@@ -1,5 +1,5 @@
 defmodule Ankole.AIGateway.AgentBullCloudAuthTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ankole.AIGateway.Providers.AgentBullCloud
   alias Ankole.AIGateway.UniversalAIRequest
@@ -107,6 +107,14 @@ defmodule Ankole.AIGateway.AgentBullCloudAuthTest do
   end
 
   test "fails closed when no hosted token provider is registered" do
+    prev_provider = Application.get_env(:ankole, :hosted_token_provider)
+    Application.delete_env(:ankole, :hosted_token_provider)
+
+    on_exit(fn ->
+      if prev_provider != nil,
+        do: Application.put_env(:ankole, :hosted_token_provider, prev_provider)
+    end)
+
     ctx =
       context(
         settings: %{api_key: @static_key},

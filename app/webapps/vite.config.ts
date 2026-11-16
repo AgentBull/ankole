@@ -453,9 +453,10 @@ export default defineConfig(({ command }): UserConfig => ({
   publicDir: false,
   resolve: {
     alias: [
+      ...editionAssetAliases(),
       { find: '@ankole/locales', replacement: localeDirectory },
-      { find: /^@ankole\/edition-modules\/.+$/, replacement: editionModulesFile },
-      ...editionAssetAliases()
+      { find: /^@ankole\/webapps\/(.+)$/, replacement: path.join(dirname, '$1') },
+      { find: /^@ankole\/edition-modules\/.+$/, replacement: editionModulesFile }
     ]
   },
   root: dirname,

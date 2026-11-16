@@ -21,11 +21,23 @@ defmodule Ankole.AuthZ.Checks.GrantCheck do
 
   defp authorize(actor, checks) do
     Enum.reduce_while(checks, :ok, fn {resource, action}, :ok ->
-      case Ankole.AuthZ.Decision.authorize(actor, resource, action) do
+      case authorize_action(actor, resource, action) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}
       end
     end)
+  end
+
+  defp authorize_action(actor, resource, action) do
+    case Ankole.AuthZ.Decision.authorize(actor, resource, action) do
+      :ok ->
+        :ok
+
+      error ->
+        if String.starts_with?(resource, "site_console:") and action in ["execute", "ack"],
+          do: Ankole.AuthZ.Decision.authorize(actor, resource, "update"),
+          else: error
+    end
   end
 
   defp permissions(%{permissions: nil, action: action}, _args, resource),

@@ -53,6 +53,7 @@ export interface ConsoleNavItemSlot {
   icon: ComponentType<{ className?: string }>
   when?: string
   isVisible?: () => boolean
+  useVisible?: () => boolean
 }
 
 export interface ConsoleNavSectionSlot extends PluginSlot {
@@ -143,6 +144,16 @@ export function mergeConsoleSlots(...sources: readonly (ConsoleAppSlots | undefi
           const nextVisible = section.isVisible
           const isVisible =
             existingVisible && nextVisible ? () => existingVisible() && nextVisible() : (existingVisible ?? nextVisible)
+          const existingHook = existing.useVisible
+          const nextHook = section.useVisible
+          const useVisible =
+            existingHook && nextHook
+              ? () => {
+                  const firstVisible = existingHook()
+                  const secondVisible = nextHook()
+                  return firstVisible && secondVisible
+                }
+              : (existingHook ?? nextHook)
           const label = existing.label ?? section.label
           const when = existing.when ?? section.when
           navSections[existingIndex] = {
@@ -151,6 +162,7 @@ export function mergeConsoleSlots(...sources: readonly (ConsoleAppSlots | undefi
             ...(label !== undefined ? { label } : {}),
             ...(when !== undefined ? { when } : {}),
             ...(isVisible !== undefined ? { isVisible } : {}),
+            ...(useVisible !== undefined ? { useVisible } : {}),
             items: [...existing.items, ...section.items]
           }
         } else {

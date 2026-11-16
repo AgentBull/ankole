@@ -397,10 +397,15 @@ function ConsoleNavigation({ mobile = false, onNavigate }: { mobile?: boolean; o
                   {sectionEnabled =>
                     sectionEnabled
                       ? ext.items.map(item =>
-                          item.when || item.isVisible ? (
+                          item.when || item.isVisible || item.useVisible ? (
                             <SlotGate
                               key={item.id}
-                              slot={{ pluginId: ext.pluginId, when: item.when, isVisible: item.isVisible }}>
+                              slot={{
+                                pluginId: ext.pluginId,
+                                when: item.when,
+                                isVisible: item.isVisible,
+                                useVisible: item.useVisible
+                              }}>
                               {itemEnabled =>
                                 itemEnabled ? (
                                   <ConsoleNavLink
@@ -438,10 +443,15 @@ function ConsoleNavigation({ mobile = false, onNavigate }: { mobile?: boolean; o
                   <div className="mt-3 grid content-start gap-px">
                     {ext.label ? <h2 className="px-2 pb-0.5 text-xs text-fg-tertiary">{t(ext.label)}</h2> : null}
                     {ext.items.map(item =>
-                      item.when || item.isVisible ? (
+                      item.when || item.isVisible || item.useVisible ? (
                         <SlotGate
                           key={item.id}
-                          slot={{ pluginId: ext.pluginId, when: item.when, isVisible: item.isVisible }}>
+                          slot={{
+                            pluginId: ext.pluginId,
+                            when: item.when,
+                            isVisible: item.isVisible,
+                            useVisible: item.useVisible
+                          }}>
                           {itemEnabled =>
                             itemEnabled ? (
                               <ConsoleNavLink

@@ -15,6 +15,7 @@ if (edition === 'saas') {
     compilerOptions: {
       typeRoots: [path.join(publicRoot, 'node_modules/@types')],
       paths: {
+        '@ankole/webapps/*': [path.join(publicRoot, '*')],
         '@ankole/edition-modules/*': [editionModulesFile]
       }
     },

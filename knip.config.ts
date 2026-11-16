@@ -16,9 +16,12 @@ const privateWebapps = [
   ...Object.values(privateEntries.modules ?? {})
 ].map(file => `internals/webapps/${file}!`)
 const dynamicModuleEntries = [
-  'plugins/*/webapps/extension.{ts,tsx}!',
+  'plugins/*/webapps/extension{,.gen}.{ts,tsx}!',
   ...(existsSync('internals')
-    ? ['internals/plugins/*/webapps/extension.{ts,tsx}!', 'internals/webapps/modules/*/extension.{ts,tsx}!']
+    ? [
+        'internals/plugins/*/webapps/extension{,.gen}.{ts,tsx}!',
+        'internals/webapps/modules/*/extension{,.gen}.{ts,tsx}!'
+      ]
     : [])
 ]
 
@@ -68,6 +71,7 @@ const config: KnipConfig = {
     'app/webapps': {
       entry: [
         'entrypoints/*.tsx!',
+        'console/declarative/index.tsx!',
         'entrypoints/applet-vendor/*.ts!',
         'openapi-ts.config.ts!',
         'vite.config.ts!',

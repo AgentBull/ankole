@@ -16,6 +16,7 @@ export interface PluginSlot {
   pluginId: string
   when?: string
   isVisible?: () => boolean
+  useVisible?: () => boolean
 }
 
 export interface EditionWebappModule {
@@ -40,7 +41,25 @@ interface SlotGateProps {
 export function SlotGate({ slot, children }: SlotGateProps) {
   const activePlugins = useContext(ActivePluginsContext)
   if (!slot || !activePlugins.includes(slot.pluginId) || slot.isVisible?.() === false) return children(false)
-  return slot.when === undefined ? children(true) : <FeatureGate flagKey={slot.when}>{children}</FeatureGate>
+  const renderAfterCustom = (visible: boolean) => {
+    if (!visible) return children(false)
+    return slot.when === undefined ? children(true) : <FeatureGate flagKey={slot.when}>{children}</FeatureGate>
+  }
+  return slot.useVisible ? (
+    <CustomVisibilityGate useVisible={slot.useVisible}>{renderAfterCustom}</CustomVisibilityGate>
+  ) : (
+    renderAfterCustom(true)
+  )
+}
+
+function CustomVisibilityGate({
+  useVisible,
+  children
+}: {
+  useVisible: () => boolean
+  children: SlotGateProps['children']
+}) {
+  return children(useVisible())
 }
 
 function FeatureGate({ flagKey, children }: { flagKey: string; children: SlotGateProps['children'] }) {
