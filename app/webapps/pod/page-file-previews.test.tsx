@@ -6,15 +6,8 @@ import { codeLanguageFromFileName, isHtmlFile } from '../common/file-preview'
 import i18n, { loadLocale } from '../common/i18n'
 import { contentKeys } from './content-api'
 import PdfPreview from './file-pdf'
-import {
-  buildSandboxedHtmlSrcDoc,
-  DelimitedTablePreview,
-  FileSelectionToolbar,
-  HTML_SANDBOX_ALLOW,
-  HtmlFilePreview,
-  locatedRunClassName,
-  TextFilePreview
-} from './page-file-previews'
+import { buildSandboxedHtmlSrcDoc, HTML_SANDBOX_ALLOW, HtmlFilePreview } from './html-file-preview'
+import { DelimitedTablePreview, FileSelectionToolbar, locatedRunClassName, TextFilePreview } from './page-file-previews'
 
 beforeAll(async () => {
   await loadLocale('en-US')

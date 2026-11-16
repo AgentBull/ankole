@@ -482,7 +482,9 @@ fn normalize_cloudflare_web_fetch_body(
             markdown.clone(),
         ),
         result_field => {
-            let payload = result_field.filter(|value| value.is_object()).unwrap_or(&object);
+            let payload = result_field
+                .filter(|value| value.is_object())
+                .unwrap_or(&object);
             (
                 payload
                     .get("url")

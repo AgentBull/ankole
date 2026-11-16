@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { describe, expect, test } from 'bun:test'
 import { chromium } from 'playwright-core'
-import { selectByLabelOrValue } from '../src/browser/browser-session'
+import { selectByLabelOrValue } from '../src/browser/select'
 import { SnapshotStore } from '../src/browser/snapshot'
 import { callWebMCPTool, listWebMCPTools } from '../src/browser/webmcp'
 

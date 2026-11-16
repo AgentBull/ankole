@@ -903,5 +903,3 @@ export function TextFilePreview({
     </div>
   )
 }
-
-export { buildSandboxedHtmlSrcDoc, HTML_SANDBOX_ALLOW, HtmlFilePreview } from './html-file-preview'

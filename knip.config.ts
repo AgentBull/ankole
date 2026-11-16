@@ -71,6 +71,7 @@ const config: KnipConfig = {
     'app/webapps': {
       entry: [
         'entrypoints/*.tsx!',
+        'console/declarative/index.tsx!',
         'entrypoints/applet-vendor/*.ts!',
         'openapi-ts.config.ts!',
         'vite.config.ts!',

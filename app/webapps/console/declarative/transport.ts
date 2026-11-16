@@ -491,20 +491,6 @@ function fetchVisibilityEntry(endpoint: string, scope: string, entry: Visibility
     })
 }
 
-export function resetDeclarativeVisibilityStoreForTests() {
-  visibilityStore.clear()
-}
-
-export function seedDeclarativeVisibilityForTests(endpoint: string, ids: readonly string[], scope = currentScopeKey()) {
-  const entry = getOrCreateVisibilityEntry(endpoint, scope)
-  entry.snapshot = {
-    ids: new Set(ids),
-    loading: false,
-    error: null
-  }
-  notifyEntry(entry)
-}
-
 function subscribeScopeChanges(onStoreChange: () => void): () => void {
   if (typeof document === 'undefined' || typeof MutationObserver === 'undefined' || !document.head) {
     return () => {}

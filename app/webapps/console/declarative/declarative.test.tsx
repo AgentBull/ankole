@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { expect, spyOn, test } from 'bun:test'
 import i18next from 'i18next'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -10,17 +10,35 @@ import { resolveRouteTabSelection } from './resources'
 import { parseBatchLine, redactBatchLine, redactUrlCredentials } from './wizard'
 import {
   executeDeclarativeAction,
-  resetDeclarativeVisibilityStoreForTests,
-  seedDeclarativeVisibilityForTests,
+  useDeclarativeVisibility,
   serializeDeclarativeFields,
   serializeNullablePatchPayload
 } from './transport'
 import type { DeclarativeConsoleManifest, DeclarativeFieldDescriptor, DeclarativeRuleSection } from './types'
 import { createDeclarativeConsoleModule } from './index'
 
-afterEach(() => {
-  resetDeclarativeVisibilityStoreForTests()
-})
+async function loadVisibility(endpoint: string, ids: readonly string[]) {
+  const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ visible_ids: ids }))
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  let visibility!: ReturnType<typeof useDeclarativeVisibility>
+  function Harness() {
+    visibility = useDeclarativeVisibility(endpoint)
+    return null
+  }
+  try {
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: {} })
+    renderToStaticMarkup(<Harness />)
+    visibility.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    renderToStaticMarkup(<Harness />)
+    expect(visibility.loading).toBe(false)
+    expect(visibility.error).toBeNull()
+  } finally {
+    fetchSpy.mockRestore()
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+}
 
 const FIXTURE_MANIFEST: DeclarativeConsoleManifest = {
   id: 'widget_ops',
@@ -112,14 +130,14 @@ const FIXTURE_MANIFEST: DeclarativeConsoleManifest = {
   ]
 }
 
-test('createDeclarativeConsoleModule builds EditionWebappModule with reactive nav visibility', () => {
+test('createDeclarativeConsoleModule builds EditionWebappModule with reactive nav visibility', async () => {
   const mod = createDeclarativeConsoleModule(FIXTURE_MANIFEST)
   expect(mod.id).toBe('widget_ops')
   expect(mod.console?.routes).toHaveLength(2)
   expect(mod.console?.navSections?.[0]?.items).toHaveLength(2)
 
   const navItems = mod.console?.navSections?.[0]?.items ?? []
-  seedDeclarativeVisibilityForTests('/api/v2/saas-site/widgets/console-visible-ids', ['widget-overview'], 'ssr')
+  await loadVisibility(FIXTURE_MANIFEST.visibilityEndpoint, ['widget-overview'])
 
   function Harness({ index }: { index: number }) {
     const visible = navItems[index]?.useVisible?.() ?? false
@@ -430,7 +448,7 @@ test('parseBatchLine redacts embedded credentials on invalid schemes and malform
   expect(redactBatchLine('edge|alice:s3cr3t@bad host')).toBe('edge|***@bad host')
 })
 
-test('tabbed routes surface secondary permitted tabs and fall back from unauthorized tab params', () => {
+test('tabbed routes surface secondary permitted tabs and fall back from unauthorized tab params', async () => {
   const tabbedManifest: DeclarativeConsoleManifest = {
     ...FIXTURE_MANIFEST,
     navSections: [
@@ -466,7 +484,7 @@ test('tabbed routes surface secondary permitted tabs and fall back from unauthor
     ]
   }
   const mod = createDeclarativeConsoleModule(tabbedManifest)
-  seedDeclarativeVisibilityForTests(FIXTURE_MANIFEST.visibilityEndpoint, ['console:action:tab-secondary'], 'ssr')
+  await loadVisibility(FIXTURE_MANIFEST.visibilityEndpoint, ['console:action:tab-secondary'])
 
   function NavHarness() {
     return <span>{mod.console?.navSections?.[0]?.items?.[0]?.useVisible?.() ? 'visible' : 'hidden'}</span>
