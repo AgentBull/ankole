@@ -148,7 +148,7 @@ function PictureDropzone({
 
   return (
     <div
-      className="flex min-h-[150px] items-stretch justify-stretch rounded-control border border-dashed border-border-strong bg-transparent p-3 transition-colors data-[busy=true]:opacity-60 data-[dragging=true]:border-ring data-[dragging=true]:bg-accent"
+      className="flex min-h-[150px] items-stretch justify-stretch rounded-control border border-dashed border-border-strong bg-transparent p-3 transition-colors data-[busy=true]:opacity-60 data-[dragging=true]:border-ring data-[dragging=true]:bg-layer-hover"
       data-busy={busy || undefined}
       data-dragging={dragging || undefined}
       onDragOver={event => {
@@ -185,7 +185,7 @@ function PictureDropzone({
           disabled={busy}
           onClick={() => input.current?.click()}>
           <CloudArrowUpRegular aria-hidden className="size-6 text-fg-tertiary" />
-          <span className="text-sm leading-5 text-foreground">{labels.uploadDropzone}</span>
+          <span className="text-sm leading-5 text-fg-primary">{labels.uploadDropzone}</span>
           <span className="text-xs leading-4 text-fg-tertiary">{labels.uploadFormats}</span>
         </button>
       )}
@@ -246,7 +246,7 @@ function IconUploadDialog({ labels, upload }: { labels: IconPickerLabels; upload
         </DialogHeader>
         <PictureDropzone file={file} busy={busy} labels={labels} onFile={choose} />
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] leading-5 font-medium text-foreground" htmlFor={inputID}>
+          <label className="text-65 leading-5 font-medium text-fg-primary" htmlFor={inputID}>
             {labels.uploadNameLabel}
           </label>
           <Input
@@ -269,7 +269,7 @@ function IconUploadDialog({ labels, upload }: { labels: IconPickerLabels; upload
           />
           <p
             id={`${inputID}-hint`}
-            className={cn('text-xs leading-4', nameProblem ? 'text-destructive-foreground' : 'text-fg-tertiary')}>
+            className={cn('text-xs leading-4', nameProblem ? 'text-destructive-fg' : 'text-fg-tertiary')}>
             {nameProblem
               ? labels.uploadNameInvalid
               : nameValid
@@ -278,7 +278,7 @@ function IconUploadDialog({ labels, upload }: { labels: IconPickerLabels; upload
           </p>
         </div>
         {(problem || upload.errorText) && (
-          <p role="alert" className="text-sm leading-5 text-destructive-foreground">
+          <p role="alert" className="text-sm leading-5 text-destructive-fg">
             {problem ?? upload.errorText ?? labels.uploadFailed}
           </p>
         )}
@@ -307,7 +307,7 @@ function PictureGrid({
 }) {
   if (pictures.loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 px-4 py-8 text-center text-sm leading-5 text-muted-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-8 text-center text-sm leading-5 text-fg-secondary">
         <Spinner aria-hidden className="size-4" />
         <span>{labels.picturesLoading}</span>
       </div>
@@ -315,7 +315,7 @@ function PictureGrid({
   }
   if (pictures.errorText) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 px-4 py-8 text-center text-sm leading-5 text-muted-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-8 text-center text-sm leading-5 text-fg-secondary">
         <p>{labels.picturesError}</p>
         {pictures.onRetry && (
           <Button variant="outline" size="sm" onClick={pictures.onRetry}>
@@ -326,7 +326,7 @@ function PictureGrid({
     )
   }
   if (pictures.items.length === 0 && !pictures.canUpload) {
-    return <p className="px-4 py-8 text-center text-sm leading-5 text-muted-foreground">{labels.picturesEmpty}</p>
+    return <p className="px-4 py-8 text-center text-sm leading-5 text-fg-secondary">{labels.picturesEmpty}</p>
   }
   return (
     <div className="grid grid-cols-[repeat(auto-fill,40px)] content-start gap-1.5 p-3">
@@ -337,7 +337,7 @@ function PictureGrid({
           aria-label={picture.name}
           aria-pressed={activeIcon === picture.id}
           title={picture.name}
-          className="inline-flex size-10 cursor-pointer items-center justify-center rounded-control border border-transparent bg-transparent text-muted-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 aria-[pressed=true]:border-ring aria-[pressed=true]:bg-accent [&_img]:size-7 [&_img]:object-contain"
+          className="inline-flex size-10 cursor-pointer items-center justify-center rounded-control border border-transparent bg-transparent text-fg-secondary transition-colors hover:bg-layer-hover focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 aria-[pressed=true]:border-ring aria-[pressed=true]:bg-layer-hover [&_img]:size-7 [&_img]:object-contain"
           onClick={() => pictures.onSelect(picture.id)}>
           <img src={picture.url} alt="" draggable={false} />
         </button>
@@ -345,7 +345,7 @@ function PictureGrid({
       {pictures.canUpload && (
         <button
           type="button"
-          className="inline-flex size-10 cursor-pointer items-center justify-center rounded-control border border-dashed border-border-strong bg-transparent text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
+          className="inline-flex size-10 cursor-pointer items-center justify-center rounded-control border border-dashed border-border-strong bg-transparent text-fg-secondary transition-colors hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
           aria-label={labels.upload}
           title={labels.upload}
           onClick={() => pictures.upload.onOpenChange(true)}>
@@ -383,7 +383,7 @@ export function IconPicker({
     <div data-slot="icon-picker" className={cn('flex min-w-0 flex-col', className)}>
       {pictures ? (
         <Tabs defaultValue={defaultTab} className="gap-0">
-          <div className="flex min-h-10 items-center justify-between gap-2 border-b border-border">
+          <div className="flex min-h-10 items-center justify-between gap-2 border-b border-border-subtle">
             <TabsList className="h-10 border-b-0 pl-2">
               <TabsTrigger value="emoji">{labels.emojiTab}</TabsTrigger>
               <TabsTrigger value="picture">{labels.pictureTab}</TabsTrigger>
@@ -402,7 +402,7 @@ export function IconPicker({
       ) : (
         <>
           {onRemove && (
-            <div className="flex min-h-10 items-center justify-end border-b border-border">
+            <div className="flex min-h-10 items-center justify-end border-b border-border-subtle">
               <Button variant="ghost" size="sm" className="mr-1.5" onClick={onRemove}>
                 {labels.remove}
               </Button>

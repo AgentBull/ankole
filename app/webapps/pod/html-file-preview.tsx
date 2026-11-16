@@ -378,7 +378,7 @@ export function HtmlFilePreview({
             )}
             {fileActions && (
               <>
-                <span aria-hidden className="mx-0.5 hidden h-4 w-px bg-border sm:inline-block" />
+                <span aria-hidden className="mx-0.5 hidden h-4 w-px bg-border-subtle sm:inline-block" />
                 {fileActions}
               </>
             )}
@@ -401,11 +401,11 @@ export function HtmlFilePreview({
               keepMounted
               className={cn('flex flex-col [&[hidden]]:hidden', fill ? 'min-h-0 flex-1' : 'flex-none')}>
               {query.data.empty ? (
-                <p className="rounded-control border border-border p-8 text-center text-sm text-fg-tertiary">
+                <p className="rounded-control border border-border-subtle p-8 text-center text-sm text-fg-tertiary">
                   {t('pod.content.empty_file', { defaultValue: 'Empty file' })}
                 </p>
               ) : query.data.tooLarge || !srcDoc ? (
-                <div className="flex flex-col items-center justify-center gap-3 rounded-control border border-border bg-card px-6 py-12 text-center">
+                <div className="flex flex-col items-center justify-center gap-3 rounded-control border border-border-subtle bg-page px-6 py-12 text-center">
                   <p className="max-w-md text-sm text-fg-secondary">
                     {t('pod.content.html_preview_too_large', { limit: formatFileBytes(HTML_PREVIEW_BYTES) })}
                   </p>
@@ -426,7 +426,7 @@ export function HtmlFilePreview({
                   ref={previewStageRef}
                   data-testid="html-file-preview-stage"
                   className={cn(
-                    'relative flex w-full flex-col overflow-hidden rounded-control border border-border bg-white',
+                    'relative flex w-full flex-col overflow-hidden rounded-control border border-border-subtle bg-white',
                     fill ? 'min-h-[360px] flex-1' : cn('flex-none', fixedStageHeight),
                     '[&:fullscreen]:h-dvh [&:fullscreen]:w-dvw [&:fullscreen]:rounded-none [&:fullscreen]:border-0'
                   )}>
@@ -460,7 +460,7 @@ export function HtmlFilePreview({
                     allow="fullscreen"
                     srcDoc={srcDoc}
                     style={{ colorScheme: 'light' }}
-                    className="block min-h-0 w-full flex-1 border-0 bg-white text-neutral-950"
+                    className="block min-h-0 w-full flex-1 border-0 bg-white text-black"
                   />
                 </div>
               )}
@@ -476,7 +476,7 @@ export function HtmlFilePreview({
                   className={cn(
                     'flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-control px-2.5 py-1.5 text-xs',
                     targetBeyondPreview
-                      ? 'border border-primary/50 bg-selection/60 text-foreground'
+                      ? 'border border-primary/50 bg-selection/60 text-fg-primary'
                       : 'text-fg-tertiary'
                   )}>
                   <span>
@@ -506,7 +506,7 @@ export function HtmlFilePreview({
               )}
               <div
                 className={cn(
-                  'overflow-hidden rounded-control border border-border bg-card',
+                  'overflow-hidden rounded-control border border-border-subtle bg-page',
                   fill && 'flex min-h-0 flex-1 flex-col'
                 )}>
                 <SourceCodeLinesView
@@ -564,7 +564,7 @@ export function HtmlFilePreview({
                 <ArrowClockwiseRegular aria-hidden className="size-4" />
               </Button>
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden rounded-control border border-border bg-white">
+            <div className="min-h-0 flex-1 overflow-hidden rounded-control border border-border-subtle bg-white">
               {dialogFullscreenOpen && (
                 <iframe
                   key={`dialog:${url}:${reloadRevision}`}
@@ -574,7 +574,7 @@ export function HtmlFilePreview({
                   allow="fullscreen"
                   srcDoc={srcDoc}
                   style={{ colorScheme: 'light' }}
-                  className="block h-full w-full border-0 bg-white text-neutral-950"
+                  className="block h-full w-full border-0 bg-white text-black"
                 />
               )}
             </div>

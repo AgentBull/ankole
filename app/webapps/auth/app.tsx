@@ -79,7 +79,7 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
   const hasIdentities = !verifying && identities.length > 0
   return (
     <main className="ak-auth-page relative">
-      <ThemeToggle className="absolute top-4 right-4 border border-border bg-background/80 backdrop-blur" />
+      <ThemeToggle className="absolute top-4 right-4 border border-border-subtle bg-page/80 backdrop-blur" />
       <Card className="ak-auth-card">
         <CardHeader>
           <div className="ak-auth-heading">
@@ -114,9 +114,9 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
                 ))}
               </div>
             )}
-            {hasIdentities && hasEmail && <div className="border-t border-border/70" role="separator" />}
+            {hasIdentities && hasEmail && <div className="border-t border-border-subtle/70" role="separator" />}
             {!verifying && providers.data?.requireSSOForMembers && (
-              <p role="note" className="rounded-control bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              <p role="note" className="rounded-control bg-layer-03/50 px-3 py-2 text-xs text-fg-secondary">
                 {t('auth.sso_required')}
               </p>
             )}

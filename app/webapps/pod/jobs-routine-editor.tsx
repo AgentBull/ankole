@@ -124,12 +124,12 @@ export function RoutineInlineEditForm({
   return (
     <form
       aria-labelledby={formHeadingId}
-      className="grid gap-3 rounded-surface border border-border bg-background-secondary/50 p-3 text-xs"
+      className="grid gap-3 rounded-surface border border-border-subtle bg-layer-01/50 p-3 text-xs"
       onSubmit={event => {
         event.preventDefault()
         if (canSave) saveMutation.mutate()
       }}>
-      <h3 id={formHeadingId} className="text-xs font-medium text-foreground">
+      <h3 id={formHeadingId} className="text-xs font-medium text-fg-primary">
         {t('pod.jobs.action_edit')}
       </h3>
 
@@ -312,9 +312,9 @@ export function RoutineEventTriggersSection({
                   return (
                     <div
                       key={binding.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-surface border border-border/80 bg-card px-3 py-2.5 text-xs">
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-surface border border-border-subtle/80 bg-page px-3 py-2.5 text-xs">
                       <div className="min-w-0 flex-1 grid gap-0.5">
-                        <p className="truncate font-medium text-foreground">{origin?.label ?? binding.name}</p>
+                        <p className="truncate font-medium text-fg-primary">{origin?.label ?? binding.name}</p>
                         <p className="text-fg-tertiary">
                           {describeBindingFilter(
                             binding.filters,
@@ -353,7 +353,7 @@ export function RoutineEventTriggersSection({
             ))}
 
           {manageable && (
-            <div className="grid gap-2.5 rounded-surface border border-border/80 bg-background-secondary/45 p-3 text-xs">
+            <div className="grid gap-2.5 rounded-surface border border-border-subtle/80 bg-layer-01/45 p-3 text-xs">
               <ConnectorEventSourceFields
                 sources={sources}
                 selectedRef={selectedRef}

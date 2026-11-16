@@ -209,7 +209,7 @@ export function InlineMessageEditor({
       </label>
       <InputGroup variant="composer" className="pod-chat-composer-field">
         {editConflict && (
-          <div role="alert" className="space-y-2 border-b border-border px-1 py-2 text-75 text-fg-secondary">
+          <div role="alert" className="space-y-2 border-b border-border-subtle px-1 py-2 text-75 text-fg-secondary">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>{t(savedChanged ? 'pod.chat.saved_message_changed' : 'pod.chat.errors.queue_changed')}</span>
               <div className="flex items-center gap-1.5">
@@ -234,14 +234,14 @@ export function InlineMessageEditor({
               </div>
             </div>
             {savedChanged && savedSnapshot && (
-              <blockquote className="max-h-24 overflow-auto border-l-2 border-border pl-3 whitespace-pre-wrap break-words">
+              <blockquote className="max-h-24 overflow-auto border-l-2 border-border-subtle pl-3 whitespace-pre-wrap break-words">
                 {savedSnapshot.text}
               </blockquote>
             )}
           </div>
         )}
         {inlineFailure != null && (
-          <div role="alert" className="border-b border-border px-1 py-2 text-75 text-destructive-foreground">
+          <div role="alert" className="border-b border-border-subtle px-1 py-2 text-75 text-destructive-fg">
             {requestErrorMessage(chatError(inlineFailure))}
           </div>
         )}

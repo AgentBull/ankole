@@ -99,16 +99,16 @@ export const provider = defineApplet(App);`
   await writeFile(
     path.join(directory, 'src/style.css'),
     `
-.sample-workspace{display:grid;gap:24px;max-width:620px;padding:8px 0;color:var(--foreground)}
+.sample-workspace{display:grid;gap:24px;max-width:620px;padding:8px 0;color:var(--fg-primary)}
 .sample-workspace header{display:grid;gap:8px}.sample-workspace h2{font-size:24px;font-weight:600;line-height:1.3}
-.sample-workspace header p:not(.sample-eyebrow),.sample-workspace #sample-help,.sample-workspace footer{color:var(--muted-foreground);font-size:13px;line-height:1.5}
-.sample-workspace .sample-eyebrow{font-size:11px;font-weight:500;letter-spacing:.08em;color:var(--muted-foreground)}
-.sample-workspace .sample-availability{display:flex;align-items:baseline;gap:8px;padding-block:16px;border-block:1px solid var(--border);font-size:13px}
+.sample-workspace header p:not(.sample-eyebrow),.sample-workspace #sample-help,.sample-workspace footer{color:var(--fg-secondary);font-size:13px;line-height:1.5}
+.sample-workspace .sample-eyebrow{font-size:11px;font-weight:500;letter-spacing:.08em;color:var(--fg-secondary)}
+.sample-workspace .sample-availability{display:flex;align-items:baseline;gap:8px;padding-block:16px;border-block:1px solid var(--border-subtle);font-size:13px}
 .sample-workspace .sample-availability>span:first-child{margin-right:auto;font-size:14px}
 .sample-workspace output{font-size:28px;line-height:1.2;font-variant-numeric:tabular-nums;font-weight:600}
 .sample-workspace form{display:grid;gap:12px;justify-items:start}.sample-workspace .sample-field{display:grid;gap:8px;width:160px}
 .sample-workspace [role=alert]{font-size:13px;color:var(--destructive)}.sample-workspace [role=status]{font-size:13px}
-.sample-workspace footer{padding-top:8px;border-top:1px solid var(--border)}
+.sample-workspace footer{padding-top:8px;border-top:1px solid var(--border-subtle)}
 @media(max-width:480px){.sample-workspace{gap:20px}.sample-workspace .sample-availability{flex-wrap:wrap}}
 `
   )

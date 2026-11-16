@@ -73,7 +73,7 @@ function SharingPopoverBody({
         </div>
         <ContentError error={session.sharingError} retry={session.retrySharing} />
         {!session.sharingError && <InlineLoading label={t('pod.content.loading_sharing_settings')} />}
-        <div className="flex items-center justify-between border-t border-border pt-3">
+        <div className="flex items-center justify-between border-t border-border-subtle pt-3">
           <Button variant="outline" size="sm" onClick={() => void copyLink()}>
             <LinkRegular aria-hidden className="size-4" />
             {t('pod.content.copy_link')}

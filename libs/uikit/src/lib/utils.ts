@@ -5,7 +5,7 @@ const typeSteps = ['25', '50', '65', '75', '85', '100', '200', '300', '400', '50
 
 /**
  * tailwind-merge knows Tailwind's default scales only, so it reads an Ankole type step such as `text-75` as a
- * colour and drops `text-foreground` beside it, and it keeps both `rounded-control` and `rounded-surface`. The
+ * colour and drops `text-fg-primary` beside it, and it keeps both `rounded-control` and `rounded-surface`. The
  * kit therefore tells it the names that `theme.css` adds to each scale.
  */
 const twMerge = extendTailwindMerge({

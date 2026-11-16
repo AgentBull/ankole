@@ -36,7 +36,7 @@
   top: 0;
   left: 0;
   pointer-events: none;
-  background: var(--foreground);
+  background: var(--fg-primary);
   opacity: 0;
 }
 :where(.ankole-editor) .block-marquee {
@@ -75,7 +75,7 @@
   gap: 16px;
   height: 34px;
   padding: 0 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 :where(.ankole-editor-overlay).mention-menu .mention-tab {
@@ -90,10 +90,10 @@
   cursor: pointer;
 }
 :where(.ankole-editor-overlay).mention-menu .mention-tab:hover {
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 :where(.ankole-editor-overlay).mention-menu .mention-tab[aria-selected='true'] {
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 :where(.ankole-editor-overlay).mention-menu .mention-tab[aria-selected='true']::after {
   content: '';
@@ -102,7 +102,7 @@
   bottom: -1px;
   height: 2px;
   border-radius: 1px;
-  background: var(--foreground);
+  background: var(--fg-primary);
 }
 :where(.ankole-editor-overlay).mention-menu .mention-tab-hint {
   margin-left: auto;
@@ -120,7 +120,7 @@
   cursor: pointer;
 }
 :where(.ankole-editor-overlay).mention-menu .mention-group-clickable:hover {
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 :where(.ankole-editor-overlay).mention-menu .mention-option {
   display: flex;
@@ -132,7 +132,7 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground);
+  color: var(--fg-primary);
   text-align: left;
   cursor: pointer;
 }
@@ -172,7 +172,7 @@
   font-size: 13px;
   line-height: 18px;
   font-weight: 500;
-  color: var(--foreground);
+  color: var(--fg-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -312,7 +312,7 @@
 }
 /* Asking an Agent and the block type are labelled in ink: they name what they do, the marks show it. */
 :where(.ankole-editor-overlay).selection-toolbar :is(.selection-ask, .selection-block-type) {
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-weight: 500;
 }
 :where(.ankole-editor-overlay).selection-toolbar .selection-block-type {
@@ -377,12 +377,12 @@
   white-space: nowrap;
   font-size: 12.5px;
   line-height: 24px;
-  color: var(--foreground);
+  color: var(--fg-primary);
   cursor: pointer;
 }
 :where(.ankole-editor-overlay) .link-bar-url:hover {
   background: var(--layer-hover);
-  color: var(--foreground);
+  color: var(--fg-primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -393,7 +393,7 @@
 :where(.ankole-editor-overlay) .link-view-trigger {
   gap: 4px;
   padding-inline: 7px 5px;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-weight: 500;
 }
 @media (min-width: 1700px) {

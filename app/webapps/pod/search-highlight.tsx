@@ -73,7 +73,7 @@ export function HighlightedBdiLabel({
           title={t('common.bidi_warning_label', {
             defaultValue: 'Bidirectional override characters were stripped from this name'
           })}
-          className="inline-flex shrink-0 items-center rounded-mini bg-warning/15 px-1 py-0.5 text-[10px] font-medium leading-3 text-warning">
+          className="inline-flex shrink-0 items-center rounded-mini bg-warning/15 px-1 py-0.5 text-25 font-medium leading-3 text-warning">
           Bidi
         </span>
       )}

@@ -33,7 +33,7 @@
 
 :where(.ankole-editor) .editor-content .editor-code-toolbar button:is(:hover, :focus-visible, [aria-pressed='true']) {
   background: var(--layer-hover);
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 
 :where(.ankole-editor) .editor-content .editor-code-toolbar button:focus-visible {
@@ -65,9 +65,9 @@
 /* Syntax colours. Kirari emits one class per token category; each maps to an Ankole theme token. A category
    takes the lightest step of its hue that keeps 4.5:1 on the code surface, so the step differs between hues. */
 :where(.ankole-editor) {
-  --kirari-text: var(--foreground);
+  --kirari-text: var(--fg-primary);
   --kirari-keyword: var(--color-purple-60);
-  --kirari-variable: var(--foreground);
+  --kirari-variable: var(--fg-primary);
   --kirari-property: var(--color-cyan-80);
   --kirari-function: var(--color-blue-70);
   --kirari-string: var(--color-green-80);
@@ -181,7 +181,7 @@
   align-items: center;
   gap: 7px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--fg-tertiary);
 }
 
@@ -198,7 +198,7 @@
   border: 0;
   outline: none;
   background: transparent;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-family: var(--font-family-sans);
   font-size: 14px;
 }
@@ -220,7 +220,7 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-family: var(--font-family-sans);
   font-size: 14px;
   line-height: 20px;
@@ -235,7 +235,6 @@
 :where(.ankole-editor-overlay).code-language-menu .code-language-check {
   width: 16px;
   height: 16px;
-  color: var(--brand);
 }
 
 :where(.ankole-editor-overlay).code-language-menu .code-language-empty {

@@ -15,7 +15,7 @@ function subscribeTheme(onChange: () => void) {
 function readFrameStyle() {
   const root = getComputedStyle(document.documentElement)
   const token = (name: string) => root.getPropertyValue(name).trim()
-  return `:root{color-scheme:${token('color-scheme') || 'light'};background:${token('--card')}}body{margin:12px;font:14px/1.5 ${token('--font-family-sans')};color:${token('--foreground')}}table{border-collapse:collapse}td,th{border:1px solid ${token('--border')};padding:6px 10px;min-width:60px;white-space:pre-wrap}a{color:inherit}`
+  return `:root{color-scheme:${token('color-scheme') || 'light'};background:${token('--page')}}body{margin:12px;font:14px/1.5 ${token('--font-family-sans')};color:${token('--fg-primary')}}table{border-collapse:collapse}td,th{border:1px solid ${token('--border-subtle')};padding:6px 10px;min-width:60px;white-space:pre-wrap}a{color:inherit}`
 }
 
 /**
@@ -69,7 +69,7 @@ export default function LegacySpreadsheetPreview({ url, initialSheet }: { url: s
         <iframe
           title={t('pod.content.worksheet_2', { value1: selected })}
           sandbox=""
-          className="h-[65vh] w-full rounded border border-border bg-card"
+          className="h-[65vh] w-full rounded border border-border-subtle bg-page"
           srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><style>${frameStyle}</style>${html}`}
         />
       )}

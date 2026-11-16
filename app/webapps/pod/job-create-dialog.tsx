@@ -239,7 +239,7 @@ export function JobCreateFormContent({
       </div>
 
       {effectiveMode === 'cron' && (
-        <div className="grid gap-3 rounded-surface border border-border bg-background-secondary/60 p-3">
+        <div className="grid gap-3 rounded-surface border border-border-subtle bg-layer-01/60 p-3">
           <div className="grid gap-1.5">
             <Label id={triggerModeLabelId}>{t('pod.jobs.trigger_mode')}</Label>
             <ToggleGroup

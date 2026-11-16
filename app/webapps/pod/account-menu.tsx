@@ -75,7 +75,7 @@ export function ProfileMark({
           onError={() => setFailedSource(source)}
         />
       ) : (
-        <AvatarFallback className="text-foreground">{initial(name)}</AvatarFallback>
+        <AvatarFallback className="text-fg-primary">{initial(name)}</AvatarFallback>
       )}
     </Avatar>
   )

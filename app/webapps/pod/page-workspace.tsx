@@ -800,7 +800,7 @@ function PageWorkspace({
         <Button
           size="icon-xs"
           variant="ghost"
-          className="aria-pressed:text-foreground"
+          className="aria-pressed:text-fg-primary"
           aria-label={favorited ? t('pod.content.favorited') : t('pod.content.add_to_favorites')}
           title={favorited ? t('pod.content.favorited') : t('pod.content.add_to_favorites')}
           aria-pressed={favorited}
@@ -1090,7 +1090,7 @@ function PageWorkspace({
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive-foreground"
+                      className="text-destructive-fg"
                       disabled={!!page.purge_started_at || restore.isPending || purge.isPending}
                       onClick={() => setPurging(true)}>
                       <DeleteRegular aria-hidden />

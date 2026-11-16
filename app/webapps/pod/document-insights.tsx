@@ -49,7 +49,7 @@ export function DocumentInsights({
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold">{t('pod.document.viewers')}</h3>
                 <SwitchRow
-                  rowClassName="flex items-center justify-between gap-4 rounded border border-border p-3 text-sm"
+                  rowClassName="flex items-center justify-between gap-4 rounded border border-border-subtle p-3 text-sm"
                   label={
                     <span>
                       <span className="block font-medium">{t('pod.document.show_my_visits')}</span>
@@ -70,7 +70,7 @@ export function DocumentInsights({
               </section>
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold">{t('pod.document.source')}</h3>
-                <dl className="pod-document-source grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[13px]">
+                <dl className="pod-document-source grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-65">
                   <dt className="text-fg-tertiary">{t('pod.document.created')}</dt>
                   <dd className="m-0">
                     <time dateTime={insights.data.created_at}>{date(insights.data.created_at)}</time>
@@ -140,7 +140,7 @@ function PersonRow({ person, subtitle }: { person: Omit<Person, 'role'>; subtitl
   const { t } = useTranslation()
   return (
     <div className="flex items-center gap-3">
-      <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-accent" aria-hidden>
+      <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-layer-hover" aria-hidden>
         {person.avatar_url ? (
           <img className="size-full object-cover" src={person.avatar_url} alt="" />
         ) : (
@@ -188,7 +188,7 @@ function DocumentActivity({ daily }: { daily: Insights['daily'] }) {
         ))}
       </ul>
       <svg viewBox="0 0 600 170" className="w-full" role="img" aria-label={t('pod.document.activity_30_days')}>
-        <path d="M30 10V140H585" fill="none" stroke="var(--color-border)" />
+        <path d="M30 10V140H585" fill="none" stroke="var(--color-border-subtle)" />
         <text x="24" y="16" textAnchor="end" fill="currentColor" fontSize="14" className="max-sm:text-xl">
           {maximum}
         </text>

@@ -63,7 +63,7 @@ describe('Sidebar shell', () => {
 
   test('draws the content card on the page fill with the surface radius, no edge, and a 20px end inset', () => {
     const card = classesOf(tagWith(shell(null), 'data-slot="sidebar-inset"'))
-    expect(card).toContain('bg-background')
+    expect(card).toContain('bg-page')
     expect(card).toContain('md:peer-data-[variant=inset]:rounded-t-surface')
     expect(card).toContain('md:peer-data-[variant=inset]:me-5')
     expect(card.some(name => name.includes('paper-sheet') || name.startsWith('border'))).toBe(false)
@@ -173,11 +173,11 @@ describe('Sidebar menu rows', () => {
     expect(attributeOf(place, 'aria-hidden')).toBe('true')
     // The slot sets the colour that the row's icon reads, so the row's own states leave it primary.
     expect(classesOf(place)).toEqual(
-      expect.arrayContaining(['size-5', 'shrink-0', 'text-(--nav-icon)', '[--nav-icon:var(--foreground)]'])
+      expect.arrayContaining(['size-5', 'shrink-0', 'text-(--nav-icon)', '[--nav-icon:var(--fg-primary)]'])
     )
     const action = classesOf(tagWith(html, 'data-testid="action"'))
     expect(action).toContain('[--nav-icon:var(--fg-secondary)]')
-    expect(action).not.toContain('[--nav-icon:var(--foreground)]')
+    expect(action).not.toContain('[--nav-icon:var(--fg-primary)]')
   })
 
   test('lays out a 48px row of someone to talk to: a 32px avatar 8px before a title and time over a description', () => {
@@ -346,11 +346,11 @@ describe('Sidebar menu rows', () => {
     const actions = tagWith(html, 'data-slot="sidebar-menu-actions"')
     expect(attributeOf(actions, 'data-sidebar')).toBe('menu-actions')
     // A button that another component renders into the group takes the actions' primary ink too.
-    expect(classesOf(actions)).toContain('*:text-foreground')
+    expect(classesOf(actions)).toContain('*:text-fg-primary')
     const grouped = tagWith(html, 'aria-label="More"')
     expect(attributeOf(grouped, 'data-reveal')).toBeUndefined()
     expect(classesOf(grouped)).toEqual(
-      expect.arrayContaining(['size-6', 'text-foreground', '[&>svg:not([class*=size-])]:size-4'])
+      expect.arrayContaining(['size-6', 'text-fg-primary', '[&>svg:not([class*=size-])]:size-4'])
     )
     expect(classesOf(grouped)).not.toContain('absolute')
 

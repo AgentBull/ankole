@@ -142,7 +142,7 @@ export function ProvidersListPage() {
         return (
           <TableRow key={provider.provider_id}>
             <TableCell className="font-mono text-xs">
-              <Link data-row-link className="text-foreground" to={encodeURIComponent(provider.provider_id)}>
+              <Link data-row-link className="text-fg-primary" to={encodeURIComponent(provider.provider_id)}>
                 {provider.provider_id}
               </Link>
             </TableCell>
@@ -164,7 +164,7 @@ export function ProvidersListPage() {
                     usable
                   })}
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-fg-secondary">
                   {credentialStrategyLabel(t, provider.credential_pool.strategy)}
                 </span>
               </div>
@@ -431,9 +431,9 @@ export function ProviderEditorPage() {
           activeKind ? (
             <CredentialPoolEditor provider={selected} providerKind={activeKind} />
           ) : unavailableKind ? (
-            <section className="grid gap-1 border border-border bg-card p-5 md:p-6">
+            <section className="grid gap-1 border border-border-subtle bg-page p-5 md:p-6">
               <h3 className="title-section">{t('console.providers.pool_title')}</h3>
-              <p className="max-w-2xl text-sm text-muted-foreground">{t('console.providers.pool_kind_unavailable')}</p>
+              <p className="max-w-2xl text-sm text-fg-secondary">{t('console.providers.pool_kind_unavailable')}</p>
             </section>
           ) : null
         ) : null
@@ -506,9 +506,9 @@ export function ProviderEditorPage() {
 
       {advancedFieldCount > 0 ? (
         <Collapsible className="grid gap-4" defaultOpen={false}>
-          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border-subtle bg-layer-03/40 px-4 py-3 text-left text-sm font-medium">
             <span>{t('common.advanced_settings')}</span>
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2 text-xs text-fg-secondary">
               {advancedFieldCount}
               <ChevronDownRegular
                 className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
@@ -532,7 +532,7 @@ export function ProviderEditorPage() {
       ) : null}
 
       {mode === 'edit' ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-fg-secondary">
           {t('console.providers.model_profiles_hint')}{' '}
           <Link to="/model-profiles" className="link">
             {t('console.nav.model_profiles')}

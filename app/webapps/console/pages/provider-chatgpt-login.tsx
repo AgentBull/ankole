@@ -206,7 +206,7 @@ export function ChatGPTLoginDialog({
 
           <div className="grid gap-4">
             {error ? (
-              <p className="text-sm text-destructive-foreground" aria-live="assertive">
+              <p className="text-sm text-destructive-fg" aria-live="assertive">
                 {chatGPTLoginErrorText(error, t)}
               </p>
             ) : null}
@@ -228,7 +228,7 @@ export function ChatGPTLoginDialog({
             ) : null}
 
             {mode === 'device' ? (
-              <div className="grid gap-4 border border-border bg-muted/30 p-4">
+              <div className="grid gap-4 border border-border-subtle bg-layer-03/30 p-4">
                 <p className="text-sm">{t('console.providers.device_login_instructions')}</p>
                 <a
                   className="link inline-flex items-center gap-1 text-sm"
@@ -239,7 +239,7 @@ export function ChatGPTLoginDialog({
                   <OpenRegular className="size-4" aria-hidden />
                 </a>
                 <ReadOnlyValue mono>{textValue(login?.user_code)}</ReadOnlyValue>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-fg-secondary">
                   {poll.isPending
                     ? t('console.providers.device_login_polling')
                     : t('console.providers.device_login_waiting', { seconds: retryAfter })}
@@ -248,7 +248,7 @@ export function ChatGPTLoginDialog({
             ) : null}
 
             {mode === 'browser_paste' ? (
-              <div className="grid gap-4 border border-border bg-muted/30 p-4">
+              <div className="grid gap-4 border border-border-subtle bg-layer-03/30 p-4">
                 <p className="text-sm">{t('console.providers.browser_login_instructions')}</p>
                 <a
                   className="link inline-flex items-center gap-1 text-sm"

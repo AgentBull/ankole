@@ -4,9 +4,9 @@
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-block {
   position: relative;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
-  background: var(--background);
+  background: var(--page);
   overflow: hidden;
   font-size: 14px;
   line-height: 1.5;
@@ -36,7 +36,7 @@
 /* An empty block is a 48px placeholder on a 5% black wash, with its label in secondary 14px text. */
 :where(.ankole-editor, .ankole-editor-overlay) .resource-block:has(> .resource-empty) {
   border-color: transparent;
-  background: var(--background-overlay-secondary);
+  background: var(--overlay-secondary);
 }
 /* A web embed or media block covers the selection fill with its own surface, so every block selection that
    includes it, not only a single one, shows on the block border. */
@@ -56,7 +56,7 @@
 }
 :where(.ankole-editor-overlay).resource-floating-toolbar .resource-toolbar-link:hover {
   background: var(--layer-hover);
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 :where(.ankole-editor-overlay).resource-floating-toolbar .resource-toolbar-link:focus-visible {
   outline: 2px solid var(--ring);
@@ -99,8 +99,8 @@
   gap: 8px;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-actions [aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--foreground);
+  background: var(--layer-hover);
+  color: var(--fg-primary);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-summary {
   display: flex;
@@ -108,7 +108,7 @@
   gap: 12px;
   padding: 12px 16px;
   text-decoration: none;
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 /* A bookmark card is at most 640px wide: a 160px cover flush with its left edge, then the title, the description,
    and the site row, inset 12px from the top and 16px from the sides. */
@@ -136,7 +136,7 @@
   font-weight: 700;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-summary:hover {
-  background: var(--accent);
+  background: var(--layer-hover);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-summary:focus-visible {
   outline: 2px solid var(--ring);
@@ -176,7 +176,7 @@
 }
 :where(.ankole-editor, .ankole-editor-overlay) .resource-name {
   font-weight: 600;
-  color: var(--foreground);
+  color: var(--fg-primary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -241,8 +241,8 @@
   align-items: center;
   justify-content: center;
   height: 10px;
-  background: var(--background);
-  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: var(--page);
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 60%, transparent);
   cursor: ns-resize;
   touch-action: pan-x;
   -webkit-user-select: none;
@@ -313,7 +313,7 @@
   padding: 20px 12px;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-control);
-  background: var(--background);
+  background: var(--page);
   color: var(--fg-secondary);
   font-size: 14px;
   cursor: pointer;
@@ -325,7 +325,7 @@
 :where(.ankole-editor-overlay).file-upload .file-upload-zone:hover,
 :where(.ankole-editor-overlay).file-upload .file-upload-zone[data-dragging='true'] {
   border-color: var(--ring);
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 :where(.ankole-editor-overlay).file-upload .file-upload-zone:focus-visible {
   outline: 2px solid var(--ring);
@@ -342,7 +342,7 @@
 }
 :where(.ankole-editor-overlay).file-upload .file-upload-error {
   margin: 6px 0 0;
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
   font-size: 12px;
   line-height: 18px;
 }

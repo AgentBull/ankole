@@ -283,7 +283,7 @@ export function RoomHeader({
               aria-keyshortcuts="Meta+I Control+I"
               aria-expanded={summaryOpen}
               // The open summary panel is the button's feedback, so the button keeps its resting look while it is open.
-              className="aria-expanded:bg-transparent aria-expanded:text-muted-foreground hover:aria-expanded:bg-accent hover:aria-expanded:text-foreground"
+              className="aria-expanded:bg-transparent aria-expanded:text-fg-secondary hover:aria-expanded:bg-layer-hover hover:aria-expanded:text-fg-primary"
               onClick={onSummary}>
               <InfoRegular aria-hidden />
             </Button>

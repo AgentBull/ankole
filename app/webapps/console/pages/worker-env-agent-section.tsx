@@ -283,7 +283,7 @@ export function WorkerEnvAgentSection({
         </TableCell>
         <TableCell>
           <SwitchRow
-            rowClassName="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+            rowClassName="flex cursor-pointer items-center gap-2 text-xs text-fg-secondary"
             label={t('console.worker_envs.secret')}
             checked={draft.secret}
             size="sm"
@@ -324,10 +324,10 @@ export function WorkerEnvAgentSection({
     <section className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="title-section">{t('console.worker_envs.agent_section_title')}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t('console.worker_envs.agent_section_description')}</p>
+        <p className="text-sm leading-6 text-fg-secondary">{t('console.worker_envs.agent_section_description')}</p>
       </div>
       <ErrorBlock error={list.error ?? draftError} />
-      <div className="overflow-x-auto border border-border bg-card">
+      <div className="overflow-x-auto border border-border-subtle bg-page">
         <Table aria-busy={list.isLoading}>
           <TableHeader>
             <TableRow>
@@ -359,7 +359,7 @@ export function WorkerEnvAgentSection({
                       <TableCell className="max-w-[220px] font-mono text-xs break-all whitespace-normal">
                         {item.name}
                       </TableCell>
-                      <TableCell className="max-w-[260px] font-mono text-xs text-muted-foreground">
+                      <TableCell className="max-w-[260px] font-mono text-xs text-fg-secondary">
                         <div className="flex items-center gap-1.5">
                           <span className="truncate">{revealed[item.name] ?? workerEnvValueText(item)}</span>
                           {item.secret ? (
@@ -369,7 +369,7 @@ export function WorkerEnvAgentSection({
                                   ? t('console.worker_envs.reveal')
                                   : t('console.aria.hide_secret')
                               }
-                              className="grid size-9 shrink-0 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground"
+                              className="grid size-9 shrink-0 place-items-center text-fg-secondary hover:bg-layer-03 hover:text-fg-primary"
                               title={
                                 revealed[item.name] === undefined
                                   ? t('console.worker_envs.reveal')

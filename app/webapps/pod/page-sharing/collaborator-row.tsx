@@ -55,11 +55,11 @@ export function CollaboratorRow({
         <SubjectAvatar subject={subject} size="default" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-foreground">{displayName}</span>
+            <span className="truncate text-sm font-medium text-fg-primary">{displayName}</span>
             {origin === 'private_owner' && <Badge variant="secondary">{t('pod.sharing.badge_owner')}</Badge>}
             <SubjectKindBadges subject={subject} />
             {subject.inactive_in_private && (
-              <Badge variant="outline" className="text-muted-foreground">
+              <Badge variant="outline" className="text-fg-secondary">
                 {t('pod.sharing.badge_inactive_private')}
               </Badge>
             )}
@@ -70,7 +70,7 @@ export function CollaboratorRow({
                     <button
                       type="button"
                       aria-label={originTip}
-                      className="inline-flex size-4 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-offset-1">
+                      className="inline-flex size-4 cursor-pointer items-center justify-center rounded-full text-fg-secondary hover:text-fg-primary focus-visible:outline-offset-1">
                       <InfoRegular aria-hidden className="size-3.5" />
                     </button>
                   }
@@ -79,7 +79,7 @@ export function CollaboratorRow({
               </Tooltip>
             )}
           </div>
-          {subject.subtitle && <p className="truncate text-xs text-muted-foreground">{subject.subtitle}</p>}
+          {subject.subtitle && <p className="truncate text-xs text-fg-secondary">{subject.subtitle}</p>}
         </div>
       </div>
       <div className="shrink-0">
@@ -111,7 +111,7 @@ export function CollaboratorRow({
             </SelectContent>
           </Select>
         ) : (
-          <span className="text-xs text-muted-foreground">{roleLabel}</span>
+          <span className="text-xs text-fg-secondary">{roleLabel}</span>
         )}
       </div>
     </li>

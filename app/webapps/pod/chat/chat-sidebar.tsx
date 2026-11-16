@@ -554,7 +554,7 @@ function ChatSection({
           type="button"
           tabIndex={-1}
           aria-hidden
-          className="flex min-w-0 cursor-pointer items-center gap-1.5 self-stretch text-inherit hover:text-foreground"
+          className="flex min-w-0 cursor-pointer items-center gap-1.5 self-stretch text-inherit hover:text-fg-primary"
           onClick={event => toggle.current?.toggle(event.detail)}>
           <span className="min-w-0 truncate">{label}</span>
           {count && <span className="tabular-nums">{count}</span>}

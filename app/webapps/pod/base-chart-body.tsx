@@ -108,8 +108,8 @@ export function AggregateChartBody(
       <div
         role="alert"
         data-slot="chart-group-limit-notice"
-        className="space-y-2 rounded-control border border-border bg-layer-01 p-4 text-sm">
-        <p className="font-medium text-foreground">
+        className="space-y-2 rounded-control border border-border-subtle bg-layer-01 p-4 text-sm">
+        <p className="font-medium text-fg-primary">
           {t('pod.content.chart_group_limit_title', {
             defaultValue: 'This chart exceeds the 1,000-group limit.'
           })}
@@ -524,7 +524,7 @@ export function ScatterChartBody(props: ChartViewProps & { resolved: ResolvedCha
         <p
           role="status"
           data-slot="scatter-truncation-notice"
-          className="rounded-control border border-border bg-layer-01 px-3 py-1.5 text-xs text-fg-secondary">
+          className="rounded-control border border-border-subtle bg-layer-01 px-3 py-1.5 text-xs text-fg-secondary">
           {t('pod.content.scatter_first_1000_notice', {
             defaultValue:
               'Showing the first 1,000 records ordered by the current sort (deterministic prefix, not a random sample).'
@@ -650,7 +650,7 @@ function ChartDrilldownDialog(
           <div
             role="status"
             data-slot="drilldown-version-sync"
-            className="flex items-center justify-between gap-2 rounded-control border border-border bg-layer-01 px-3 py-1.5 text-xs text-fg-secondary">
+            className="flex items-center justify-between gap-2 rounded-control border border-border-subtle bg-layer-01 px-3 py-1.5 text-xs text-fg-secondary">
             <span>
               {t('pod.content.drilldown_version_updated', {
                 defaultValue: 'Table records changed since this chart loaded.'
@@ -666,7 +666,7 @@ function ChartDrilldownDialog(
         <ContentError error={rows.error} retry={() => void rows.refetch()} />
 
         <ReferenceLabelsProvider fields={props.fields} records={rows.data?.records ?? []}>
-          <div className="pod-dialog-body max-h-96 divide-y divide-border overflow-y-auto">
+          <div className="pod-dialog-body max-h-96 divide-y divide-border-subtle overflow-y-auto">
             {rows.isPending && !rows.data ? (
               <ContentSkeleton variant="list" label={t('pod.content.loading_records')} className="py-3" />
             ) : !rows.data ? null : !rows.data.records.length ? (
@@ -679,7 +679,7 @@ function ChartDrilldownDialog(
                   key={record.id}
                   className="flex items-center justify-between gap-3 py-2.5 text-sm hover:bg-layer-01/60">
                   <div className="min-w-0 flex-1 space-y-0.5">
-                    <div className="truncate font-medium text-foreground">
+                    <div className="truncate font-medium text-fg-primary">
                       <RecordTitle record={record} primary={primaryField} />
                     </div>
                     {previewFields.length > 0 && (

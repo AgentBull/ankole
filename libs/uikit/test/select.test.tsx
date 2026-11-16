@@ -99,7 +99,7 @@ describe('Select', () => {
         'data-[size=toolbar]:p-1.75',
         'data-[size=toolbar]:text-50',
         'data-[size=toolbar]:bg-clip-content',
-        'hover:bg-accent'
+        'hover:bg-layer-hover'
       ])
     )
     // The toolbar arrow is Fluent's filled caret, not the outline chevron of a field select.

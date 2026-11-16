@@ -75,7 +75,7 @@ function Slider<Value extends SliderValue = number>({
       {(label != null || showValue) && (
         <div className="flex items-center justify-between gap-2 text-sm">
           {label != null ? (
-            <span id={labelId} data-slot="slider-label" className="font-medium text-foreground">
+            <span id={labelId} data-slot="slider-label" className="font-medium text-fg-primary">
               {label}
             </span>
           ) : (
@@ -84,7 +84,7 @@ function Slider<Value extends SliderValue = number>({
           {showValue && (
             <SliderPrimitive.Value
               data-slot="slider-value"
-              className="font-mono text-xs text-muted-foreground tabular-nums">
+              className="font-mono text-xs text-fg-secondary tabular-nums">
               {(_formatted, values) => formatSliderDisplay(values, formatValue)}
             </SliderPrimitive.Value>
           )}
@@ -95,7 +95,7 @@ function Slider<Value extends SliderValue = number>({
         className="relative flex min-h-6 w-full touch-pan-y items-center py-1 data-[orientation=vertical]:touch-pan-x data-disabled:cursor-not-allowed">
         <SliderPrimitive.Track
           data-slot="slider-track"
-          className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted">
+          className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-layer-03">
           <SliderPrimitive.Indicator
             data-slot="slider-indicator"
             className="h-full rounded-full bg-primary motion-safe:transition-[width,left] motion-safe:duration-75"
@@ -108,7 +108,7 @@ function Slider<Value extends SliderValue = number>({
             data-slot="slider-thumb"
             getAriaLabel={getAriaLabel}
             getAriaValueText={getAriaValueText}
-            className="block size-4 shrink-0 cursor-grab rounded-full border-2 border-primary bg-background shadow-xs transition-[box-shadow] after:absolute after:-inset-1 pointer-coarse:after:-inset-3.5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring active:cursor-grabbing motion-safe:transition-[scale,box-shadow] motion-safe:active:scale-105 data-disabled:pointer-events-none"
+            className="block size-4 shrink-0 cursor-grab rounded-full border-2 border-primary bg-page shadow-xs transition-[box-shadow] after:absolute after:-inset-1 pointer-coarse:after:-inset-3.5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring active:cursor-grabbing motion-safe:transition-[scale,box-shadow] motion-safe:active:scale-105 data-disabled:pointer-events-none"
           />
         ))}
       </SliderPrimitive.Control>

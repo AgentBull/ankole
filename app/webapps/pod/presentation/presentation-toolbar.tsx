@@ -279,7 +279,7 @@ function PresentationColorPicker({
                 type="button"
                 aria-label={swatchName}
                 title={swatchName}
-                className="size-7 rounded-control border border-border focus-visible:outline-offset-1"
+                className="size-7 rounded-control border border-border-subtle focus-visible:outline-offset-1"
                 style={{ backgroundColor: hex }}
                 onClick={() => {
                   setOpen(false)
@@ -293,7 +293,7 @@ function PresentationColorPicker({
               type="button"
               aria-label={`${label} —`}
               title={`${label} —`}
-              className="flex size-7 items-center justify-center rounded-control border border-dashed border-border text-xs text-fg-secondary hover:bg-accent"
+              className="flex size-7 items-center justify-center rounded-control border border-dashed border-border-subtle text-xs text-fg-secondary hover:bg-layer-hover"
               onClick={() => {
                 setOpen(false)
                 onPick(null)
@@ -421,7 +421,7 @@ export function PresentationFindBar({
     <div
       role="search"
       aria-label={t('pod.office.find_what')}
-      className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/30 px-2.5 py-1.5">
+      className="flex flex-wrap items-center gap-1.5 border-b border-border-subtle bg-layer-03/30 px-2.5 py-1.5">
       <SearchRegular className="size-4 shrink-0 text-fg-tertiary" aria-hidden />
       <Input
         ref={inputRef}
@@ -601,7 +601,7 @@ export function PresentationToolbar({
       : t('pod.office.saved')
 
   return (
-    <div className="flex flex-col border-b border-border bg-background">
+    <div className="flex flex-col border-b border-border-subtle bg-page">
       <div className="flex min-h-10 flex-wrap items-center gap-0.5 px-2 py-1">
         <Toggle
           size="sm"

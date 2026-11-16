@@ -245,7 +245,7 @@ export function CronEditor({
   }
 
   return (
-    <div data-slot="cron-editor" className={cn('grid gap-4 border border-border bg-muted/20 p-4', className)}>
+    <div data-slot="cron-editor" className={cn('grid gap-4 border border-border-subtle bg-layer-03/20 p-4', className)}>
       <Field>
         <FieldLabel>{labels.mode}</FieldLabel>
         <Select
@@ -321,7 +321,7 @@ export function CronEditor({
             onChange={event => emitAs('custom', event.target.value)}
           />
         ) : (
-          <code className="flex min-h-8 items-center border border-border bg-background px-3 font-mono text-xs text-muted-foreground">
+          <code className="flex min-h-8 items-center border border-border-subtle bg-page px-3 font-mono text-xs text-fg-secondary">
             {value}
           </code>
         )}

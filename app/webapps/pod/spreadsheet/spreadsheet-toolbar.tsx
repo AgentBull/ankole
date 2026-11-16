@@ -138,7 +138,7 @@ export function ColorSwatches({ tokens, onPick }: { tokens: readonly string[]; o
               type="button"
               aria-label={name}
               title={name}
-              className="size-7 rounded-control border border-border focus-visible:outline-offset-1"
+              className="size-7 rounded-control border border-border-subtle focus-visible:outline-offset-1"
               style={{ background: `var(${token})` }}
               onClick={() => onPick(tokenColor(token))}
             />
@@ -360,7 +360,7 @@ export function SpreadsheetToolbar({
       : t('pod.spreadsheet.saved')
 
   return (
-    <div className="flex flex-col border-b border-border">
+    <div className="flex flex-col border-b border-border-subtle">
       <div className="flex min-h-10 flex-wrap items-center gap-0.5 px-2 py-1">
         {canEdit && (
           <>
@@ -701,7 +701,7 @@ export function SpreadsheetToolbar({
           {canEdit && <OfficeVersions pageID={pageID} />}
         </div>
       </div>
-      <div className="flex items-center gap-2 border-t border-border px-2 py-1">
+      <div className="flex items-center gap-2 border-t border-border-subtle px-2 py-1">
         <span
           className="w-20 shrink-0 truncate font-mono text-xs text-fg-secondary"
           title={t('pod.spreadsheet.name_box')}>
@@ -715,7 +715,7 @@ export function SpreadsheetToolbar({
           ref={formulaBar}
           {...{ [FORMULA_BAR_ATTRIBUTE]: '' }}
           aria-label={t('pod.spreadsheet.formula_bar')}
-          className="h-7 min-w-0 flex-1 rounded-control border border-field-edge bg-field px-2 font-mono text-sm outline-none focus-visible:border-input"
+          className="h-7 min-w-0 flex-1 rounded-control border border-field-edge bg-field px-2 font-mono text-sm outline-none focus-visible:border-field-border"
           readOnly={!editable}
           value={formula}
           onFocus={() => {

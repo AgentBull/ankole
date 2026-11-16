@@ -206,13 +206,13 @@ export function DocumentSubpages({
         data-collapsed=""
         className={cn(
           'opacity-55 transition-opacity focus-within:opacity-100 hover:opacity-100',
-          hideTopDivider ? 'mt-1' : 'mt-5 border-t border-border/70 pt-2.5'
+          hideTopDivider ? 'mt-1' : 'mt-5 border-t border-border-subtle/70 pt-2.5'
         )}>
         <button
           type="button"
           aria-expanded={false}
           onClick={() => model.toggleCollapsed(canEdit, persist)}
-          className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-control px-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
+          className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-control px-1.5 text-sm font-medium text-fg-primary transition-colors hover:bg-layer-hover focus-visible:outline-2 focus-visible:outline-ring">
           <ChevronRightRegular aria-hidden className="size-4 text-fg-secondary" />
           <span>{t('pod.subpages.title')}</span>
           <Badge
@@ -230,19 +230,19 @@ export function DocumentSubpages({
       aria-label={t('pod.subpages.title')}
       data-pod-subpages
       onKeyDown={handlePodListKeyDown}
-      className={hideTopDivider ? 'mt-1' : 'mt-5 border-t border-border pt-3.5'}>
+      className={hideTopDivider ? 'mt-1' : 'mt-5 border-t border-border-subtle pt-3.5'}>
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5">
         <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
             aria-expanded={true}
             onClick={() => model.toggleCollapsed(canEdit, persist)}
-            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-control px-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
+            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-control px-1.5 text-sm font-medium text-fg-primary transition-colors hover:bg-layer-hover focus-visible:outline-2 focus-visible:outline-ring">
             <ChevronDownRegular aria-hidden className="size-4 text-fg-secondary" />
             <span>{t('pod.subpages.title')}</span>
           </button>
 
-          <span aria-hidden className="mx-1 h-3.5 w-px bg-border" />
+          <span aria-hidden className="mx-1 h-3.5 w-px bg-border-subtle" />
 
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -355,8 +355,8 @@ export function DocumentSubpages({
                         setDragOverField(null)
                       }}
                       className={cn(
-                        'group/field-row flex h-8 items-center justify-between rounded-control px-1.5 text-sm transition-colors hover:bg-accent/60',
-                        dragOverField === field && 'bg-accent ring-1 ring-ring/40',
+                        'group/field-row flex h-8 items-center justify-between rounded-control px-1.5 text-sm transition-colors hover:bg-layer-hover/60',
+                        dragOverField === field && 'bg-layer-hover ring-1 ring-ring/40',
                         !isVisible && 'text-fg-secondary'
                       )}>
                       <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -400,7 +400,7 @@ export function DocumentSubpages({
                           className="size-6"
                           onClick={() => model.toggleField(field, canEdit, persist)}>
                           {isVisible ? (
-                            <EyeRegular aria-hidden className="size-4 text-foreground" />
+                            <EyeRegular aria-hidden className="size-4 text-fg-primary" />
                           ) : (
                             <EyeOffRegular aria-hidden className="size-4 text-fg-tertiary" />
                           )}
@@ -577,12 +577,12 @@ function SortableTableHead({
       <button
         type="button"
         onClick={() => onSort(field)}
-        className="group/sort -mx-1.5 inline-flex cursor-pointer items-center gap-1 rounded-control px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+        className="group/sort -mx-1.5 inline-flex cursor-pointer items-center gap-1 rounded-control px-1.5 py-0.5 text-xs font-medium text-fg-secondary transition-colors hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-2 focus-visible:outline-ring">
         <span>{label}</span>
         {active === 'asc' ? (
-          <ArrowUpRegular aria-hidden className="size-3.5 text-foreground" />
+          <ArrowUpRegular aria-hidden className="size-3.5 text-fg-primary" />
         ) : active === 'desc' ? (
-          <ArrowDownRegular aria-hidden className="size-3.5 text-foreground" />
+          <ArrowDownRegular aria-hidden className="size-3.5 text-fg-primary" />
         ) : (
           <ArrowSortRegular
             aria-hidden
@@ -650,7 +650,7 @@ function SubpageListRow({
                 to={pageHref(item.id, item.title)}
                 onPointerEnter={prefetch}
                 onFocus={prefetch}
-                className="inline-flex max-w-full items-center gap-2 rounded-control py-0.5 text-sm font-medium text-foreground outline-none focus-visible:outline-2 focus-visible:outline-ring">
+                className="inline-flex max-w-full items-center gap-2 rounded-control py-0.5 text-sm font-medium text-fg-primary outline-none focus-visible:outline-2 focus-visible:outline-ring">
                 <PageIcon page={item} className="shrink-0" />
                 <BdiLabel value={item.title} fallback={t('pod.content.untitled')} />
               </Link>
@@ -746,7 +746,7 @@ function SubpageGridCard({
       <ContextMenu>
         <ContextMenuTrigger
           render={
-            <article className="group/subpage-card relative flex flex-col bg-card ring-1 ring-border transition-colors fine-hover:hover:bg-accent/35 fine-hover:hover:ring-fg-tertiary/40 has-aria-expanded:ring-fg-tertiary/40" />
+            <article className="group/subpage-card relative flex flex-col bg-page ring-1 ring-border-subtle transition-colors fine-hover:hover:bg-layer-hover/35 fine-hover:hover:ring-fg-tertiary/40 has-aria-expanded:ring-fg-tertiary/40" />
           }>
           <SubpageCardPreview item={item} label={label} />
 
@@ -761,7 +761,7 @@ function SubpageGridCard({
                   to={pageHref(item.id, item.title)}
                   onPointerEnter={prefetch}
                   onFocus={prefetch}
-                  className="block truncate text-sm font-medium text-foreground outline-none after:absolute after:inset-0 focus-visible:underline">
+                  className="block truncate text-sm font-medium text-fg-primary outline-none after:absolute after:inset-0 focus-visible:underline">
                   <BdiLabel value={item.title} fallback={t('pod.content.untitled')} />
                 </Link>
               )}
@@ -805,7 +805,7 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
     const isImage = Boolean(mime?.startsWith('image/')) && !imageFailed
     if (isImage && file) {
       return (
-        <div className="h-[132px] overflow-hidden border-b border-border/70 bg-muted/35">
+        <div className="h-[132px] overflow-hidden border-b border-border-subtle/70 bg-layer-03/35">
           <img
             loading="lazy"
             src={fileURL(item.id, file.path, file.sha256)}
@@ -819,13 +819,13 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
     const badge = fileExtensionBadge(file?.path ?? item.title, file?.content_type)
     const size = file ? formatFileBytes(file.size) : typeLabels.file
     const mark = (
-      <div className="flex min-w-[96px] flex-col items-center gap-1 border border-border bg-background px-4 py-2.5 shadow-2xs">
-        <span className="font-mono text-xs font-semibold text-foreground">{badge}</span>
+      <div className="flex min-w-[96px] flex-col items-center gap-1 border border-border-subtle bg-page px-4 py-2.5 shadow-2xs">
+        <span className="font-mono text-xs font-semibold text-fg-primary">{badge}</span>
         <span className="text-xs tabular-nums text-fg-tertiary">{size}</span>
       </div>
     )
     return (
-      <div className="flex h-[132px] items-center justify-center overflow-hidden border-b border-border/70 bg-muted/35">
+      <div className="flex h-[132px] items-center justify-center overflow-hidden border-b border-border-subtle/70 bg-layer-03/35">
         {file && mime === 'application/pdf' ? (
           <PdfThumbnail
             url={fileURL(item.id, file.path, file.sha256)}
@@ -841,18 +841,18 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
 
   if (item.type === 'base') {
     return (
-      <div className="h-[132px] overflow-hidden border-b border-border/70 bg-muted/35 px-4 pt-3">
-        <div aria-hidden className="h-full border border-b-0 border-border/80 bg-background px-3 pt-2.5 shadow-2xs">
-          <div className="grid grid-cols-3 gap-2 border-b border-border pb-1.5">
-            <span className="h-2 w-12 bg-muted-foreground/25" />
-            <span className="h-2 w-10 bg-muted-foreground/20" />
-            <span className="h-2 w-8 bg-muted-foreground/20" />
+      <div className="h-[132px] overflow-hidden border-b border-border-subtle/70 bg-layer-03/35 px-4 pt-3">
+        <div aria-hidden className="h-full border border-b-0 border-border-subtle/80 bg-page px-3 pt-2.5 shadow-2xs">
+          <div className="grid grid-cols-3 gap-2 border-b border-border-subtle pb-1.5">
+            <span className="h-2 w-12 bg-fg-secondary/25" />
+            <span className="h-2 w-10 bg-fg-secondary/20" />
+            <span className="h-2 w-8 bg-fg-secondary/20" />
           </div>
           {[0, 1, 2].map(row => (
-            <div key={row} className="grid grid-cols-3 gap-2 border-b border-border/60 py-2">
-              <span className="h-2 w-14 bg-muted" />
-              <span className="h-2 w-9 bg-muted" />
-              <span className="h-2 w-11 bg-muted" />
+            <div key={row} className="grid grid-cols-3 gap-2 border-b border-border-subtle/60 py-2">
+              <span className="h-2 w-14 bg-layer-03" />
+              <span className="h-2 w-9 bg-layer-03" />
+              <span className="h-2 w-11 bg-layer-03" />
             </div>
           ))}
         </div>
@@ -862,16 +862,16 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
 
   if (item.type === 'applet') {
     return (
-      <div className="h-[132px] overflow-hidden border-b border-border/70 bg-muted/35 px-4 pt-3">
-        <div aria-hidden className="h-full border border-b-0 border-border/80 bg-background px-3 pt-2.5 shadow-2xs">
-          <div className="flex items-center gap-1 border-b border-border/70 pb-2">
-            <span className="size-1.5 rounded-full bg-muted-foreground/30" />
-            <span className="size-1.5 rounded-full bg-muted-foreground/30" />
-            <span className="ml-1 h-2 w-16 bg-muted-foreground/20" />
+      <div className="h-[132px] overflow-hidden border-b border-border-subtle/70 bg-layer-03/35 px-4 pt-3">
+        <div aria-hidden className="h-full border border-b-0 border-border-subtle/80 bg-page px-3 pt-2.5 shadow-2xs">
+          <div className="flex items-center gap-1 border-b border-border-subtle/70 pb-2">
+            <span className="size-1.5 rounded-full bg-fg-secondary/30" />
+            <span className="size-1.5 rounded-full bg-fg-secondary/30" />
+            <span className="ml-1 h-2 w-16 bg-fg-secondary/20" />
           </div>
           <div className="mt-2.5 grid grid-cols-2 gap-2">
-            <div className="h-12 border border-border/70 bg-muted/40" />
-            <div className="h-12 border border-border/70 bg-muted/40" />
+            <div className="h-12 border border-border-subtle/70 bg-layer-03/40" />
+            <div className="h-12 border border-border-subtle/70 bg-layer-03/40" />
           </div>
         </div>
       </div>
@@ -880,9 +880,9 @@ function SubpageCardPreview({ item, label }: { item: SubpageItem; label: string 
 
   const excerpt = item.excerpt?.trim()
   return (
-    <div className="h-[132px] overflow-hidden border-b border-border/70 bg-muted/35 px-4 pt-3">
-      <div aria-hidden className="h-full border border-b-0 border-border/80 bg-background px-3.5 pt-3 shadow-2xs">
-        <p className="line-clamp-1 text-xs font-semibold text-foreground">{label}</p>
+    <div className="h-[132px] overflow-hidden border-b border-border-subtle/70 bg-layer-03/35 px-4 pt-3">
+      <div aria-hidden className="h-full border border-b-0 border-border-subtle/80 bg-page px-3.5 pt-3 shadow-2xs">
+        <p className="line-clamp-1 text-xs font-semibold text-fg-primary">{label}</p>
         {excerpt ? (
           <p className="mt-1.5 line-clamp-3 text-xs leading-4 text-fg-secondary">{excerpt}</p>
         ) : (

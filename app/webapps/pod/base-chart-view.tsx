@@ -137,7 +137,7 @@ export function ChartView(props: ChartViewProps) {
         <div
           id={props.chartControlsId}
           data-slot="chart-capsule-bar"
-          className="flex flex-wrap items-center gap-2 rounded-control border border-border bg-layer-01/60 px-2.5 py-2 text-xs">
+          className="flex flex-wrap items-center gap-2 rounded-control border border-border-subtle bg-layer-01/60 px-2.5 py-2 text-xs">
           <Choice
             label={t('pod.content.chart_type', { defaultValue: 'Chart type' })}
             disabled={props.configuring}
@@ -377,7 +377,7 @@ export function ChartView(props: ChartViewProps) {
         <div
           role="alert"
           data-slot="chart-missing-fields"
-          className="flex items-start gap-2 rounded-control border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-foreground">
+          className="flex items-start gap-2 rounded-control border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-fg-primary">
           <WarningRegular aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
           <div className="space-y-1">
             <p className="font-medium">
@@ -702,7 +702,7 @@ function ChartDisplayOptionsPopover({
               <span>{t('pod.content.cumulative_total', { defaultValue: 'Cumulative running total' })}</span>
             </label>
             {!cumulativeAllowed && (
-              <p className="text-[11px] text-fg-tertiary">
+              <p className="text-50 text-fg-tertiary">
                 {t('pod.content.cumulative_sum_count_only', {
                   defaultValue: 'Available for Count and Sum metrics.'
                 })}
@@ -732,7 +732,7 @@ function ChartDisplayOptionsPopover({
         )}
 
         {referenceLineAllowed && (
-          <div className="space-y-2 border-t border-border pt-2">
+          <div className="space-y-2 border-t border-border-subtle pt-2">
             <CommitTextInput
               key={`ref-val:${primaryRefLine?.value ?? ''}`}
               id={refValueId}
@@ -783,7 +783,7 @@ function ChartDisplayOptionsPopover({
           </div>
         )}
 
-        <div className="border-t border-border pt-2">
+        <div className="border-t border-border-subtle pt-2">
           <CommitTextInput
             key={`caption:${resolved.caption ?? ''}`}
             id={captionId}

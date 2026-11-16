@@ -197,10 +197,10 @@ export function AnkoleInfographic({
   }, [height, isEmpty, isVisible, marketConvention, source, theme, themeRevision, tokenOverrides, width, zoom])
 
   return (
-    <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-background p-4', className)}>
+    <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-page p-4', className)}>
       {(title || subtitle) && (
         <header className="flex flex-col gap-0.5">
-          {title && <div className="text-sm font-semibold text-foreground">{title}</div>}
+          {title && <div className="text-sm font-semibold text-fg-primary">{title}</div>}
           {subtitle && <div className="text-xs text-fg-secondary">{subtitle}</div>}
         </header>
       )}
@@ -234,7 +234,7 @@ export function AnkoleInfographic({
               aria-expanded={outlineOpen}
               aria-controls={outlineId}
               onClick={() => setOutlineOpen(prev => !prev)}
-              className="rounded-mini border border-border px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-foreground">
+              className="rounded-mini border border-border-subtle px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-fg-primary">
               {outlineToggleLabel}
             </button>
           )}
@@ -242,9 +242,9 @@ export function AnkoleInfographic({
       )}
 
       {outlineOpen && outlineItems.length > 0 && (
-        <ol id={outlineId} className="flex flex-col gap-1 border-t border-border pt-2 pl-5 list-decimal text-xs">
+        <ol id={outlineId} className="flex flex-col gap-1 border-t border-border-subtle pt-2 pl-5 list-decimal text-xs">
           {outlineItems.map((item, idx) => (
-            <li key={idx} className="text-foreground">
+            <li key={idx} className="text-fg-primary">
               <span className="font-medium">{item.label}</span>
               {item.desc ? <span className="text-fg-secondary"> — {item.desc}</span> : null}
             </li>

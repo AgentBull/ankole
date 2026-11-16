@@ -722,7 +722,7 @@ describe('Thin lazy React visualization wrappers', () => {
       />
     )
     expect(cnHtml).toContain('▲')
-    expect(cnHtml).toContain('var(--chart-down-foreground)')
+    expect(cnHtml).toContain('var(--chart-down-fg)')
     expect(cnHtml).toContain('var(--chart-down)')
 
     const downSpark = renderToStaticMarkup(<AnkoleSparkline values={[100, 92, 85]} marketConvention="intl" />)

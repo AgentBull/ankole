@@ -81,7 +81,7 @@ export function JobsBoardHeader({
     <header className="mb-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-          <h1 className="title-page text-foreground">{t('pod.jobs.title')}</h1>
+          <h1 className="title-page text-fg-primary">{t('pod.jobs.title')}</h1>
           {workingAgents.length > 0 && (
             <BoardPresence
               avatars={workingAgents.slice(0, 4).map(agent => (
@@ -93,8 +93,8 @@ export function JobsBoardHeader({
             </BoardPresence>
           )}
           {attentionCount > 0 && (
-            <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-amber-40/70 bg-amber-10 px-2.5 text-xs leading-4 font-medium text-foreground dark:border-amber-80/55 dark:bg-amber-100/25">
-              <WarningRegular aria-hidden className="size-3.5 text-amber-80 dark:text-amber-50" />
+            <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-(--board-warning-chip-edge) bg-(--board-warning-chip) px-2.5 text-xs leading-4 font-medium text-fg-primary">
+              <WarningRegular aria-hidden className="size-3.5 text-(--board-warning-icon)" />
               {t('pod.jobs.summary_attention', { count: attentionCount })}
             </span>
           )}
@@ -121,12 +121,12 @@ export function JobsBoardHeader({
             {agentFilter && filteredAgentName && (
               <Badge variant="secondary" className="h-7 gap-1 rounded-control px-2 text-xs font-normal">
                 <span className="text-fg-tertiary">{t('pod.jobs.field_agent')}:</span>
-                <span className="max-w-32 truncate font-medium text-foreground">{filteredAgentName}</span>
+                <span className="max-w-32 truncate font-medium text-fg-primary">{filteredAgentName}</span>
                 <button
                   type="button"
                   aria-label={t('pod.jobs.clear_filters')}
                   onClick={() => onAgentFilterChange(undefined)}
-                  className="ms-0.5 inline-flex size-4 cursor-pointer items-center justify-center rounded-micro text-fg-tertiary hover:bg-layer-hover hover:text-foreground">
+                  className="ms-0.5 inline-flex size-4 cursor-pointer items-center justify-center rounded-micro text-fg-tertiary hover:bg-layer-hover hover:text-fg-primary">
                   <DismissRegular aria-hidden className="size-3" />
                 </button>
               </Badge>
@@ -135,14 +135,14 @@ export function JobsBoardHeader({
             {kindFilter && (
               <Badge variant="secondary" className="h-7 gap-1 rounded-control px-2 text-xs font-normal">
                 <span className="text-fg-tertiary">{t('pod.jobs.filter_kind')}:</span>
-                <span className="max-w-32 truncate font-medium text-foreground">
+                <span className="max-w-32 truncate font-medium text-fg-primary">
                   {t(`pod.jobs.kinds.${kindFilter}`)}
                 </span>
                 <button
                   type="button"
                   aria-label={t('pod.jobs.clear_filters')}
                   onClick={() => onKindFilterChange(undefined)}
-                  className="ms-0.5 inline-flex size-4 cursor-pointer items-center justify-center rounded-micro text-fg-tertiary hover:bg-layer-hover hover:text-foreground">
+                  className="ms-0.5 inline-flex size-4 cursor-pointer items-center justify-center rounded-micro text-fg-tertiary hover:bg-layer-hover hover:text-fg-primary">
                   <DismissRegular aria-hidden className="size-3" />
                 </button>
               </Badge>

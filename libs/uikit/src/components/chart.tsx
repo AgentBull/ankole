@@ -347,7 +347,7 @@ export function AnkoleChart({
   }
 
   return (
-    <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-background p-4', className)}>
+    <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-page p-4', className)}>
       {!isEmptyData && renderError && (
         <div
           role="alert"
@@ -388,7 +388,7 @@ export function AnkoleChart({
                   data-slot="chart-export-png"
                   disabled={exportingKind !== null}
                   onClick={() => void handleExport('png')}
-                  className="rounded-mini border border-border px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-foreground disabled:opacity-50">
+                  className="rounded-mini border border-border-subtle px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-fg-primary disabled:opacity-50">
                   {exportPngLabel}
                 </button>
                 <button
@@ -396,7 +396,7 @@ export function AnkoleChart({
                   data-slot="chart-export-svg"
                   disabled={exportingKind !== null}
                   onClick={() => void handleExport('svg')}
-                  className="rounded-mini border border-border px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-foreground disabled:opacity-50">
+                  className="rounded-mini border border-border-subtle px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-fg-primary disabled:opacity-50">
                   {exportSvgLabel}
                 </button>
               </>
@@ -407,7 +407,7 @@ export function AnkoleChart({
                 aria-expanded={tableOpen}
                 aria-controls={tableId}
                 onClick={() => setTableOpen(prev => !prev)}
-                className="rounded-mini border border-border px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-foreground">
+                className="rounded-mini border border-border-subtle px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-fg-primary">
                 {tableToggleLabel}
               </button>
             )}
@@ -416,13 +416,13 @@ export function AnkoleChart({
       )}
 
       {tableOpen && tableData.columns.length > 0 && (
-        <div id={tableId} className="max-h-64 overflow-auto border-t border-border pt-2">
+        <div id={tableId} className="max-h-64 overflow-auto border-t border-border-subtle pt-2">
           <table className="w-full border-collapse text-left text-xs tabular-nums">
             <caption className="sr-only">{accessibleLabel}</caption>
             <thead>
-              <tr className="border-b border-border bg-layer-01">
+              <tr className="border-b border-border-subtle bg-layer-01">
                 {tableData.columns.map(col => (
-                  <th key={col} scope="col" className="px-2 py-1.5 font-semibold text-foreground">
+                  <th key={col} scope="col" className="px-2 py-1.5 font-semibold text-fg-primary">
                     {col}
                   </th>
                 ))}
@@ -430,7 +430,7 @@ export function AnkoleChart({
             </thead>
             <tbody>
               {tableData.rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className="border-b border-border/60">
+                <tr key={rowIndex} className="border-b border-border-subtle/60">
                   {row.map((cell, cellIndex) => {
                     const text = cell === null || cell === undefined ? '—' : String(cell)
                     return (
@@ -438,7 +438,7 @@ export function AnkoleChart({
                         {cellIndex === 0 && onSummaryRowActivate ? (
                           <button
                             type="button"
-                            className="text-left text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                            className="text-left text-fg-primary underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
                             onClick={() => onSummaryRowActivate(rowIndex)}>
                             {text}
                           </button>

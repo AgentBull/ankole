@@ -73,7 +73,7 @@ export function BrainSearchPreviewPage() {
       <BrainSubNav />
 
       <form
-        className="grid gap-5 border border-border bg-card p-5"
+        className="grid gap-5 border border-border-subtle bg-page p-5"
         onSubmit={event => {
           event.preventDefault()
           if (principalUID && query.trim()) runPreview()
@@ -177,7 +177,7 @@ export function BrainSearchPreviewPage() {
 
       {result ? (
         <div className="grid gap-6">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-fg-secondary">
             {t('console.brain.recall_stats', {
               claims: result.claims.length,
               chunks: result.chunks.length
@@ -187,11 +187,11 @@ export function BrainSearchPreviewPage() {
           <section className="grid gap-3">
             <h3 className="text-sm font-semibold">{t('console.brain.recall_claims')}</h3>
             {result.claims.length === 0 ? (
-              <p className="border border-dashed border-border px-4 py-4 text-xs text-muted-foreground">
+              <p className="border border-dashed border-border-subtle px-4 py-4 text-xs text-fg-secondary">
                 {t('console.brain.no_rows')}
               </p>
             ) : (
-              <Table containerClassName="border border-border bg-card">
+              <Table containerClassName="border border-border-subtle bg-page">
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t('console.brain.claim')}</TableHead>
@@ -227,7 +227,7 @@ export function BrainSearchPreviewPage() {
           <section className="grid gap-3">
             <h3 className="text-sm font-semibold">{t('console.brain.recall_chunks')}</h3>
             {result.chunks.length === 0 ? (
-              <p className="border border-dashed border-border px-4 py-4 text-xs text-muted-foreground">
+              <p className="border border-dashed border-border-subtle px-4 py-4 text-xs text-fg-secondary">
                 {t('console.brain.no_rows')}
               </p>
             ) : (
@@ -235,7 +235,7 @@ export function BrainSearchPreviewPage() {
                 {result.chunks.map((chunk, index) => (
                   <article
                     key={`${chunk.subject_page_id}-${chunk.chunk_index}-${index}`}
-                    className="grid gap-2 border border-border bg-card p-4">
+                    className="grid gap-2 border border-border-subtle bg-page p-4">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       <span className="font-semibold">{chunk.title}</span>
                       <BrainPageLink pageID={chunk.subject_page_id} />
@@ -243,7 +243,7 @@ export function BrainSearchPreviewPage() {
                       <Badge variant="outline">#{chunk.chunk_index}</Badge>
                       <BrainSourceLabel nodeID={chunk.source_node_id} />
                     </div>
-                    <p className="text-xs whitespace-pre-wrap leading-5 text-muted-foreground">{chunk.text}</p>
+                    <p className="text-xs whitespace-pre-wrap leading-5 text-fg-secondary">{chunk.text}</p>
                   </article>
                 ))}
               </div>

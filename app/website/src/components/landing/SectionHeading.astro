@@ -22,16 +22,16 @@ const { index, eyebrow, title, subtitle, wide = false } = Astro.props
 	 */}
 	<p class="flex items-baseline gap-3 font-mono text-xs tracking-[0.14em] uppercase">
 		<span class="text-brand-60 tabular-nums dark:text-brand-40">{index}</span>
-		<span class="text-muted-foreground">{eyebrow}</span>
+		<span class="text-fg-secondary">{eyebrow}</span>
 	</p>
 	<h2
 		class:list={[
-			'mt-6 text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl',
+			'mt-6 text-balance text-3xl font-semibold tracking-tight text-fg-primary sm:text-4xl',
 			wide ? 'max-w-4xl' : 'max-w-2xl'
 		]}
 	>
 		{title}
 	</h2>
 	{/* Prose runs to about 36 CJK characters: long enough to read, short enough to return. */}
-	{subtitle && <p class="mt-5 max-w-xl leading-8 text-muted-foreground">{subtitle}</p>}
+	{subtitle && <p class="mt-5 max-w-xl leading-8 text-fg-secondary">{subtitle}</p>}
 </Reveal>

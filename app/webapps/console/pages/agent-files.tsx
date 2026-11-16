@@ -318,9 +318,9 @@ function NodeRow({
       <TableCell>
         <div className="flex min-w-0 items-center gap-2">
           {isFile ? (
-            <DocumentRegular className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <DocumentRegular className="size-4 shrink-0 text-fg-secondary" aria-hidden />
           ) : (
-            <FolderRegular className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <FolderRegular className="size-4 shrink-0 text-fg-secondary" aria-hidden />
           )}
           {rename !== undefined ? (
             <form

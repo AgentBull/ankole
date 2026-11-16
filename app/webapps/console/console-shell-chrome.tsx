@@ -141,7 +141,7 @@ export function ConsoleLayout() {
     <SidebarProvider
       defaultOpen={!readInitialSidebarCollapsed()}
       mobileBreakpoint={1024}
-      className="h-svh min-h-0 flex-col overflow-hidden bg-background text-foreground">
+      className="h-svh min-h-0 flex-col overflow-hidden bg-page text-fg-primary">
       <ConsoleFrame />
     </SidebarProvider>
   )
@@ -199,14 +199,14 @@ function ConsoleFrame() {
           tab order and shows itself only while focused. */}
       <a
         href="#console-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-background">
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-fg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-page">
         {t('console.aria.skip_to_content')}
       </a>
-      <header className="flex h-14 shrink-0 items-center px-3 text-foreground">
+      <header className="flex h-14 shrink-0 items-center px-3 text-fg-primary">
         <div className="flex min-w-0 items-center gap-2">
           <Link to="/" className="flex min-w-0 items-center gap-2.5 rounded-control py-1 pr-1.5">
             <BrandIcon className="size-6 shrink-0" />
-            <h1 className="truncate text-[13px] font-semibold tracking-normal">{t('console.title')}</h1>
+            <h1 className="truncate text-65 font-semibold tracking-normal">{t('console.title')}</h1>
           </Link>
         </div>
         {/* The top bar spans the whole window, so the account actions sit at its far end. */}
@@ -229,7 +229,7 @@ function ConsoleFrame() {
                     variant="ghost"
                   />
                 }
-                className="hover:bg-accent hover:text-accent-foreground">
+                className="hover:bg-layer-hover hover:text-fg-primary">
                 <SignOutRegular />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={6}>
@@ -251,7 +251,7 @@ function ConsoleFrame() {
               size="icon-sm"
               type="button"
               variant="ghost"
-              className="hover:bg-accent hover:text-accent-foreground">
+              className="hover:bg-layer-hover hover:text-fg-primary">
               <SignOutRegular />
             </Button>
           )}
@@ -283,7 +283,7 @@ function ConsoleFrame() {
           className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden paper-sheet rounded-t-control! rounded-b-none!">
           {/* The card's header starts with the navigation toggle, left of the current section's name, as on a Pod
               sheet. */}
-          <div className="sheet-header gap-1 border-b border-border">
+          <div className="sheet-header gap-1 border-b border-border-subtle">
             <Sheet
               open={navigationOpen}
               onOpenChange={setNavigationOpen}
@@ -300,23 +300,23 @@ function ConsoleFrame() {
                     variant="ghost"
                   />
                 }
-                className="hover:bg-accent hover:text-accent-foreground lg:hidden">
+                className="hover:bg-layer-hover hover:text-fg-primary lg:hidden">
                 <NavigationRegular />
               </SheetTrigger>
               <SheetContent
                 side="left"
                 showCloseButton={false}
-                className="data-[side=left]:w-[min(320px,88vw)] bg-sidebar p-0 text-foreground">
-                <SheetHeader className="flex-row items-center justify-between border-b border-border p-3">
+                className="data-[side=left]:w-[min(320px,88vw)] bg-sidebar p-0 text-fg-primary">
+                <SheetHeader className="flex-row items-center justify-between border-b border-border-subtle p-3">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <BrandIcon className="size-6 shrink-0" />
-                    <SheetTitle className="truncate text-[13px] font-semibold text-foreground">
+                    <SheetTitle className="truncate text-65 font-semibold text-fg-primary">
                       {t('console.title')}
                     </SheetTitle>
                   </div>
                   <SheetClose
                     render={<Button aria-label={t('common.close')} size="icon-sm" type="button" variant="ghost" />}
-                    className="hover:bg-accent hover:text-accent-foreground">
+                    className="hover:bg-layer-hover hover:text-fg-primary">
                     <DismissRegular />
                   </SheetClose>
                 </SheetHeader>
@@ -327,7 +327,7 @@ function ConsoleFrame() {
             </Sheet>
             <SidebarTrigger
               label={toggleLabel}
-              className="hidden text-fg-tertiary hover:bg-accent hover:text-foreground lg:inline-flex"
+              className="hidden text-fg-tertiary hover:bg-layer-hover hover:text-fg-primary lg:inline-flex"
             />
             {sectionLabel ? <span className="sheet-title">{t(sectionLabel)}</span> : null}
           </div>
@@ -499,7 +499,7 @@ function ConsoleNavLink({
       aria-current={isActive ? 'page' : undefined}
       onClick={onNavigate}
       className={cn(
-        'nav-row flex items-center gap-2 rounded-control px-2 text-left text-[13px] leading-5 focus-visible:-outline-offset-2',
+        'nav-row flex items-center gap-2 rounded-control px-2 text-left text-65 leading-5 focus-visible:-outline-offset-2',
         mobile ? 'min-h-10 py-2' : 'min-h-7 py-0.5'
       )}>
       <Icon className="size-4 shrink-0 text-(--nav-icon)" aria-hidden />

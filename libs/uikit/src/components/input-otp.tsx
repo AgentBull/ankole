@@ -90,7 +90,7 @@ function InputOTPGroup({ className, children, ...props }: React.ComponentProps<'
         aria-hidden
         className="pointer-events-none absolute top-0 left-0 z-10 grid place-items-center rounded-control border border-transparent opacity-0 shadow-[inset_0_-1px_0_var(--color-ring)] data-visible:opacity-100 group-has-[>[data-active=true][aria-invalid=true]]/otp-slots:shadow-[inset_0_-1px_0_var(--color-destructive)] group-has-[input:disabled]/input-otp:hidden motion-safe:[transition:transform_260ms_cubic-bezier(.22,1,.36,1),width_260ms_cubic-bezier(.22,1,.36,1),opacity_180ms_ease]">
         {slots?.some(slot => slot.hasFakeCaret) && (
-          <span className="h-4 w-px bg-foreground motion-safe:animate-otp-caret" />
+          <span className="h-4 w-px bg-fg-primary motion-safe:animate-otp-caret" />
         )}
       </span>
     </div>
@@ -113,8 +113,8 @@ function InputOTPSlot({
       data-active={isActive}
       style={{ '--otp-index': index } as React.CSSProperties}
       className={cn(
-        'relative flex size-8 items-center justify-center overflow-hidden rounded-control border border-field-edge border-b-input bg-field text-sm transition-[color,border-color,background-color,box-shadow] outline-none aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] group-has-[input[aria-invalid=true]]/input-otp:border-b-destructive group-has-[input[aria-invalid=true]]/input-otp:shadow-[inset_0_-1px_0_var(--color-destructive)] group-has-[input[data-status=success]]/input-otp:border-b-success group-has-[input[data-status=success]]/input-otp:shadow-[inset_0_-1px_0_var(--color-success)] data-[active=true]:z-10 data-[active=true]:border-control-edge data-[active=true]:border-b-ring data-[active=true]:bg-background data-[active=true]:shadow-[inset_0_-1px_0_var(--color-ring)] group-has-[input:disabled]/input-otp:border-b-transparent group-has-[input:disabled]/input-otp:text-fg-disabled',
-        'group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:border-b-input group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:shadow-none',
+        'relative flex size-8 items-center justify-center overflow-hidden rounded-control border border-field-edge border-b-field-border bg-field text-sm transition-[color,border-color,background-color,box-shadow] outline-none aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] group-has-[input[aria-invalid=true]]/input-otp:border-b-destructive group-has-[input[aria-invalid=true]]/input-otp:shadow-[inset_0_-1px_0_var(--color-destructive)] group-has-[input[data-status=success]]/input-otp:border-b-success group-has-[input[data-status=success]]/input-otp:shadow-[inset_0_-1px_0_var(--color-success)] data-[active=true]:z-10 data-[active=true]:border-control-edge data-[active=true]:border-b-ring data-[active=true]:bg-page data-[active=true]:shadow-[inset_0_-1px_0_var(--color-ring)] group-has-[input:disabled]/input-otp:border-b-transparent group-has-[input:disabled]/input-otp:text-fg-disabled',
+        'group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:border-b-field-border group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:shadow-none',
         className
       )}
       {...props}>
@@ -125,7 +125,7 @@ function InputOTPSlot({
       )}
       {hasFakeCaret && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:hidden">
-          <div className="h-4 w-px bg-foreground motion-safe:animate-otp-caret" />
+          <div className="h-4 w-px bg-fg-primary motion-safe:animate-otp-caret" />
         </div>
       )}
     </div>

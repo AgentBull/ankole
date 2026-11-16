@@ -284,7 +284,7 @@ function SingleSettingEditorDrawer() {
             onInput={formCompleteness.refresh}
             onInvalidCapture={event => event.preventDefault()}
             onSubmit={submit}>
-            <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-24">
+            <DrawerHeader className="relative gap-3 border-b border-border-subtle p-5 pr-24">
               <div className="absolute top-3 right-3 flex items-center gap-1">
                 {item?.editable && item.overridden ? (
                   <DropdownMenu>
@@ -333,12 +333,12 @@ function SingleSettingEditorDrawer() {
               <DrawerTitle className="text-lg tracking-normal normal-case">
                 {t(`console.settings.task_${key.replaceAll('.', '_')}`, { defaultValue: key })}
               </DrawerTitle>
-              <code className="break-all text-xs text-muted-foreground">{key}</code>
+              <code className="break-all text-xs text-fg-secondary">{key}</code>
               <DrawerDescription className="text-left text-pretty">
                 {description ?? t('console.settings.editor_description')}
               </DrawerDescription>
               {scope === 'global' && item ? (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-fg-secondary">
                   {t(
                     item.scope === 'global'
                       ? 'console.settings.site_shared_effect'
@@ -382,9 +382,9 @@ function SingleSettingEditorDrawer() {
               </ErrorBoundary>
             </div>
 
-            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">
+            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border-subtle p-4">
               {model.dirty.value ? (
-                <span className="mr-auto text-xs text-muted-foreground">{t('console.settings.unsaved')}</span>
+                <span className="mr-auto text-xs text-fg-secondary">{t('console.settings.unsaved')}</span>
               ) : null}
               <Button disabled={saving} type="button" variant="ghost" onClick={requestClose}>
                 {t('common.cancel')}
@@ -585,7 +585,7 @@ export function SettingGroupDrawer() {
             onInput={formCompleteness.refresh}
             onInvalidCapture={event => event.preventDefault()}
             onSubmit={submit}>
-            <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-16">
+            <DrawerHeader className="relative gap-3 border-b border-border-subtle p-5 pr-16">
               <div className="absolute top-3 right-3">
                 <Button
                   aria-label={t('common.close')}
@@ -607,7 +607,7 @@ export function SettingGroupDrawer() {
                 <SettingsTenantContext />
               </div>
               {scope === 'global' ? (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-fg-secondary">
                   {t(
                     members.every(item => item.scope === 'global')
                       ? 'console.settings.site_shared_effect'
@@ -645,7 +645,7 @@ export function SettingGroupDrawer() {
                     />
 
                     {group?.id === 'brain' && scope === 'tenant' ? (
-                      <div className="grid gap-2 border border-border p-4">
+                      <div className="grid gap-2 border border-border-subtle p-4">
                         <p className="text-sm font-medium">{t('console.settings.site_foundation')}</p>
                         {members
                           .filter(item => item.scope === 'global')
@@ -732,9 +732,9 @@ export function SettingGroupDrawer() {
               </ErrorBoundary>
             </div>
 
-            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">
+            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border-subtle p-4">
               {model.dirty.value ? (
-                <span className="mr-auto text-xs text-muted-foreground">{t('console.settings.unsaved')}</span>
+                <span className="mr-auto text-xs text-fg-secondary">{t('console.settings.unsaved')}</span>
               ) : null}
               <Button disabled={busy} type="button" variant="ghost" onClick={requestClose}>
                 {t('common.cancel')}
@@ -836,7 +836,7 @@ function SettingFallback({ item }: { item: AppConfigurationItem }) {
       })}
       {['drive.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
       retentionLength(item.key, item.fallback_value) < retentionLength(item.key, item.value) ? (
-        <span className="mt-2 block text-warning-foreground">{t('console.settings.retention_warning')}</span>
+        <span className="mt-2 block text-warning-fg">{t('console.settings.retention_warning')}</span>
       ) : null}
     </span>
   )

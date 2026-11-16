@@ -27,7 +27,7 @@ export function KnowledgeProperties({
   const editing = draft?.editing.value ?? false
   const current = editing ? (draft!.parsed.value.metadata ?? metadata) : metadata
   return (
-    <section aria-label={t('pod.knowledge.properties')} className="mb-5 border-y border-border py-3">
+    <section aria-label={t('pod.knowledge.properties')} className="mb-5 border-y border-border-subtle py-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-xs font-medium text-fg-secondary">{t('pod.knowledge.properties')}</h2>
         <Button

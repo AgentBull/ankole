@@ -236,7 +236,7 @@ export function KnowledgePage({
         </Button>
       )}
       {editing && comparison.data && (
-        <details className="border border-border p-3" open>
+        <details className="border border-border-subtle p-3" open>
           <summary className="cursor-pointer text-sm font-medium">{t('pod.knowledge.latest_revision')}</summary>
           <KnowledgeProperties metadata={comparison.data.page.metadata ?? {}} />
           <KnowledgeReader xml={comparison.data.content?.content ?? '<page/>'} host={host} pageHref={pageHref} />

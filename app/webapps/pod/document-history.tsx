@@ -93,7 +93,7 @@ export function DocumentHistory({
         className="pod-document-history flex h-[min(900px,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)]! w-[min(1200px,calc(100vw-2rem))]! max-w-none sm:max-w-none flex-col gap-0! overflow-hidden! p-0!"
         showCloseButton={false}
         finalFocus={returnFocus}>
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
           <DialogTitle>
             <HistoryRegular aria-hidden className="inline size-4 mr-2" />
             {t('pod.document.history')}
@@ -170,7 +170,7 @@ export function DocumentHistory({
               )}
             </section>
             <aside
-              className="pod-document-history-list flex max-h-[35%] w-full shrink-0 flex-col gap-2 overflow-auto border-t border-border p-4 min-[761px]:max-h-none min-[761px]:w-[250px] min-[761px]:border-t-0 min-[761px]:border-l"
+              className="pod-document-history-list flex max-h-[35%] w-full shrink-0 flex-col gap-2 overflow-auto border-t border-border-subtle p-4 min-[761px]:max-h-none min-[761px]:w-[250px] min-[761px]:border-t-0 min-[761px]:border-l"
               aria-label={t('pod.document.versions')}>
               <p className="text-xs text-fg-tertiary">
                 {t(detail.page.type === 'knowledge' ? 'pod.knowledge.history_cadence' : 'pod.document.history_cadence')}
@@ -223,7 +223,7 @@ export function DocumentHistory({
             </aside>
           </div>
         </ErrorBoundary>
-        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border px-4 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border-subtle px-4 py-3">
           <ContentError error={restore.error} />
           <ContentError error={prepareRestore.error} />
           <ContentError error={exportSnapshot.error} />

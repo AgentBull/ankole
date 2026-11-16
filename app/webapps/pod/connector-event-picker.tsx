@@ -229,7 +229,7 @@ export function ConnectorEventSourceFields({
       <div className="grid gap-1.5 text-xs text-fg-secondary">
         <p>{t('pod.automation.no_events')}</p>
         <Link
-          className="justify-self-start font-medium text-foreground underline underline-offset-4"
+          className="justify-self-start font-medium text-fg-primary underline underline-offset-4"
           to={openConnectorsURL}>
           {t('pod.automation.open_connectors')}
         </Link>
@@ -293,7 +293,7 @@ export function ConnectorEventSourceFields({
       )}
 
       {activeSource?.lastError && (
-        <p className="text-xs text-destructive-foreground [overflow-wrap:anywhere]">
+        <p className="text-xs text-destructive-fg [overflow-wrap:anywhere]">
           {connectorFailureMessage(activeSource.lastError)}{' '}
           <Link className="underline underline-offset-4" to={activeSource.manageURL}>
             {t('pod.automation.manage_event_source')}

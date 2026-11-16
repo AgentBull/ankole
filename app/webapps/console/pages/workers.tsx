@@ -92,10 +92,10 @@ export function WorkersListPage() {
             <StatusIndicator tone={stateTone(worker)}>{t(`console.status.${worker.state}`)}</StatusIndicator>
           </TableCell>
           <TableCell>{formatLoad(worker)}</TableCell>
-          <TableCell className="text-xs text-muted-foreground">
+          <TableCell className="text-xs text-fg-secondary">
             {formatConsoleDate(worker.last_worker_heartbeat_at)}
           </TableCell>
-          <TableCell className="max-w-md truncate font-mono text-xs text-muted-foreground" title={reason(worker)}>
+          <TableCell className="max-w-md truncate font-mono text-xs text-fg-secondary" title={reason(worker)}>
             {reason(worker) || '–'}
           </TableCell>
         </TableRow>

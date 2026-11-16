@@ -209,7 +209,7 @@ export function PageChat({
         <PodPanelSurface
           key="page-chat"
           aria-label={t('pod.page_chat.title')}
-          className="pod-page-chat border-s border-border"
+          className="pod-page-chat border-s border-border-subtle"
           style={{ '--pod-page-chat-width': `${width}px` } as CSSProperties}>
           <div
             role="separator"

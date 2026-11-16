@@ -286,7 +286,7 @@ export function QueryControls({
         <p className="text-xs text-fg-tertiary">
           {t('pod.content.sorts_are_applied_in_order_from_top_to_bottom_filters')}
         </p>
-        <div className="flex justify-end gap-2 border-t border-border pt-3">
+        <div className="flex justify-end gap-2 border-t border-border-subtle pt-3">
           <Button variant="ghost" disabled={disabled} onClick={() => setOpen(false)}>
             {t('pod.content.cancel')}
           </Button>

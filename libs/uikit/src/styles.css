@@ -89,7 +89,7 @@
 /* A sheet of paper on the ground: the page, and a side panel beside it, take the same radius, fill, and edge. */
 @utility paper-sheet {
   border-radius: var(--radius-panel);
-  background-color: var(--background);
+  background-color: var(--page);
   box-shadow: var(--paper-shadow);
 }
 
@@ -142,7 +142,7 @@
    drop. The composer and every list that opens from it lie on it, so the two read as one object. */
 @utility composer-glass {
   border-radius: var(--radius-surface);
-  background-color: var(--background-overlay);
+  background-color: var(--overlay);
   -webkit-backdrop-filter: blur(var(--blur-composer));
   backdrop-filter: blur(var(--blur-composer));
   box-shadow: var(--composer-shadow);
@@ -231,7 +231,7 @@
    without those pseudo-elements takes the standard thin scrollbar in the same grey. A person who asks for more
    contrast gets a tertiary thumb. */
 @utility menu-scrollbar {
-  --menu-scrollbar-thumb: var(--text-disabled);
+  --menu-scrollbar-thumb: var(--fg-disabled);
 
   &::-webkit-scrollbar {
     width: --spacing(2);
@@ -268,7 +268,7 @@
 }
 
 .ceramic-menu [data-variant='destructive'] > svg:first-child {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 
 @utility fog {
@@ -276,7 +276,7 @@
     radial-gradient(900px 620px at 12% -12%, var(--fog-cool), transparent 66%),
     radial-gradient(820px 560px at 96% -4%, var(--fog-rose), transparent 62%),
     radial-gradient(900px 700px at -6% 104%, var(--fog-sage), transparent 62%),
-    radial-gradient(820px 620px at 104% 104%, var(--fog-warm), transparent 60%), var(--background-secondary);
+    radial-gradient(820px 620px at 104% 104%, var(--fog-warm), transparent 60%), var(--layer-01);
 }
 
 /* Interface headings stay light: an overlay title and a section title are larger regular text, and only an inline
@@ -303,7 +303,7 @@
 }
 
 @utility title-inline {
-  font-size: 14px;
+  font-size: var(--text-75);
   line-height: 20px;
   font-weight: 600;
 }
@@ -324,7 +324,7 @@
   margin: 0;
   padding-inline: 6px;
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--text-75);
   line-height: 20px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -340,7 +340,7 @@
 
 /* A link is ink text with a gray-60 underline. The underline, not a color, marks it as a link. */
 @utility link {
-  color: var(--foreground);
+  color: var(--fg-primary);
   text-decoration-line: underline;
   text-decoration-color: var(--divider-strong);
   text-decoration-thickness: 1px;
@@ -362,7 +362,7 @@
 /* An object that sits in content on paper, such as a tool's output or a run card, is drawn with one hairline at
    the control radius. It stays square enough to read as part of the page, and 8px stays with ceramic. */
 @utility content-object {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
 }
 
@@ -373,13 +373,13 @@
    step. A block card holds material that belongs to the text, such as code, a diagram, or a tool's output: the
    control radius, the lightest gray, and the hairline. */
 @utility surface-outline {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-surface);
   padding: calc(var(--spacing) * 2 - 1px) calc(var(--spacing) * 3 - 1px);
 }
 
 @utility surface-block {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--layer-01);
 }
@@ -389,7 +389,7 @@
    and 12px monospace source on a 26px line, inset 16px at the sides and 24px at the bottom. */
 @utility code-surface {
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--layer-01);
 }
@@ -428,7 +428,7 @@
    with a light header row. A cell wraps only between words, so an amount or a short header stays whole and a
    wide table scrolls instead. */
 @utility content-cell {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   padding: 4px 8px;
   font-size: var(--text-75);
   line-height: var(--text-75--line-height);
@@ -521,16 +521,16 @@
    colours, the fill disappears, so the current place takes an outline instead. */
 @utility nav-row {
   --nav-icon: var(--fg-secondary);
-  color: var(--foreground);
+  color: var(--fg-primary);
   transition:
     background-color var(--duration-feedback) var(--ease-productive),
     color var(--duration-feedback) var(--ease-productive);
 
   @media (hover: hover) and (pointer: fine) {
     &:hover {
-      --nav-icon: var(--foreground);
+      --nav-icon: var(--fg-primary);
       background-color: var(--layer-hover);
-      color: var(--foreground);
+      color: var(--fg-primary);
     }
   }
 
@@ -539,10 +539,10 @@
   }
 
   &:is([aria-current='page'], [data-active]) {
-    --nav-icon: var(--foreground);
+    --nav-icon: var(--fg-primary);
     background-color: var(--layer-current);
     box-shadow: inset 0 0 0 0.2px var(--layer-current-edge);
-    color: var(--foreground);
+    color: var(--fg-primary);
   }
 
   @media (forced-colors: active) {
@@ -614,7 +614,7 @@
   }
 
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border-subtle outline-ring/50;
   }
 
   /* A Fluent icon draws at the size of the text around it (`width="1em"`). An icon that nothing sizes takes a 24px
@@ -633,7 +633,7 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-page text-fg-primary;
     font-family: var(--font-family-sans);
     font-feature-settings:
       'liga' 1,
@@ -666,7 +666,7 @@
 
   ::selection {
     background: var(--selection);
-    color: var(--foreground);
+    color: var(--fg-primary);
   }
 }
 
@@ -711,7 +711,7 @@
     background-image: linear-gradient(
       100deg,
       transparent 42%,
-      color-mix(in srgb, var(--background) 62%, transparent) 50%,
+      color-mix(in srgb, var(--page) 62%, transparent) 50%,
       transparent 58%
     );
     background-size: 200vw 100%;
@@ -866,7 +866,7 @@
         ~ :is([data-sidebar='menu-action'], [data-sidebar='menu-actions']):hover
       )
     ):not([data-active], [aria-current='page']) {
-      --nav-icon: var(--foreground);
+      --nav-icon: var(--fg-primary);
       background-color: var(--layer-hover);
     }
   }
@@ -994,7 +994,7 @@
     right: 0;
     height: 2px;
     border-radius: 1px;
-    background: var(--foreground);
+    background: var(--fg-primary);
   }
 
   [data-slot='tree-drop-indicator'][data-operation='before'] {
@@ -1008,7 +1008,7 @@
   [data-slot='tree-drop-indicator'][data-operation='inside'] {
     inset: 0;
     border-radius: var(--radius-control);
-    box-shadow: inset 0 0 0 2px var(--foreground);
+    box-shadow: inset 0 0 0 2px var(--fg-primary);
   }
 
   @media (forced-colors: active) {
@@ -1028,35 +1028,26 @@
     max-width: 240px;
     overflow: hidden;
     padding: 4px 10px;
-    color: var(--foreground);
+    color: var(--fg-primary);
     font-family: var(--font-family-sans);
-    font-size: 13px;
+    font-size: var(--text-65);
     line-height: 20px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .ankole-json-editor {
-    --jer-form-border: 1px solid var(--input);
+    --jer-form-border: 1px solid var(--field-border);
     --jer-form-border-focus: 1px solid var(--ring);
-    --jer-select-border: var(--input);
+    --jer-select-border: var(--field-border);
     --jer-select-focus: var(--ring);
-    --jer-select-arrow: var(--muted-foreground);
-    --ankole-json-key: var(--color-blue-70);
-    --ankole-json-string: var(--color-teal-80);
-    --ankole-json-number: var(--color-purple-70);
-    --ankole-json-boolean: var(--color-green-80);
-    --ankole-json-null: var(--color-red-70);
-    --ankole-json-punctuation: var(--color-gray-80);
-  }
-
-  [data-theme='dark'] .ankole-json-editor {
-    --ankole-json-key: var(--color-blue-30);
-    --ankole-json-string: var(--color-teal-30);
-    --ankole-json-number: var(--color-purple-30);
-    --ankole-json-boolean: var(--color-green-30);
-    --ankole-json-null: var(--color-red-30);
-    --ankole-json-punctuation: var(--color-gray-60);
+    --jer-select-arrow: var(--fg-secondary);
+    --ankole-json-key: var(--syntax-key);
+    --ankole-json-string: var(--syntax-string);
+    --ankole-json-number: var(--syntax-number);
+    --ankole-json-boolean: var(--syntax-boolean);
+    --ankole-json-null: var(--syntax-null);
+    --ankole-json-punctuation: var(--syntax-punctuation);
   }
 
   .ankole-json-editor.jer-editor-container {
@@ -1104,12 +1095,12 @@
 
   .ankole-json-editor .jer-select {
     border-radius: 0;
-    background: var(--background);
-    color: var(--foreground);
+    background: var(--page);
+    color: var(--fg-primary);
   }
 
   .ankole-json-editor .jer-select select {
-    color: var(--foreground);
+    color: var(--fg-primary);
   }
 
   .ankole-json-editor .jer-collection-error-row,

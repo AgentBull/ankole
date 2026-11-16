@@ -550,8 +550,8 @@ export function Composer({
                 {model.attachedSkill.value && (
                   <span className="pod-chat-draft-page" data-testid="composer-skill-pill">
                     <FlashRegular aria-hidden className="size-3.5 shrink-0 text-primary" />
-                    <span className="truncate font-medium text-foreground">{model.attachedSkill.value.name}</span>
-                    <span className="font-mono text-[11px] text-fg-tertiary">/{model.attachedSkill.value.slug}</span>
+                    <span className="truncate font-medium text-fg-primary">{model.attachedSkill.value.name}</span>
+                    <span className="font-mono text-50 text-fg-tertiary">/{model.attachedSkill.value.slug}</span>
                     <Button
                       type="button"
                       size="icon-xs"

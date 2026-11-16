@@ -86,11 +86,11 @@ export function ConsoleReadiness() {
         side="bottom"
         sideOffset={8}
         className="w-[calc(100vw-2rem)] max-w-sm gap-0 overflow-hidden p-0">
-        <header className="border-b border-border p-4">
+        <header className="border-b border-border-subtle p-4">
           <div className="flex items-center justify-between gap-3">
             <PopoverTitle>{t('console.readiness.title')}</PopoverTitle>
             {readiness ? (
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              <span className="shrink-0 text-xs text-fg-secondary tabular-nums">
                 {readiness.completed_core_steps}/{readiness.total_core_steps}
               </span>
             ) : null}
@@ -121,7 +121,7 @@ export function ConsoleReadiness() {
               <Skeleton className="h-10 w-full" />
             </div>
           ) : query.isError || !readiness ? (
-            <div className="flex gap-3 p-4 text-sm text-destructive-foreground" role="alert">
+            <div className="flex gap-3 p-4 text-sm text-destructive-fg" role="alert">
               <ErrorCircleRegular className="mt-0.5 size-4 shrink-0" aria-hidden />
               <p>{t('console.readiness.unavailable')}</p>
             </div>
@@ -203,7 +203,7 @@ function ReadinessContent({ readiness, close }: { readiness: ConsoleReadinessRes
   const steps = readinessSteps(t, readiness)
 
   return (
-    <ul className="divide-y divide-border">
+    <ul className="divide-y divide-border-subtle">
       {steps.map(step => (
         <ReadinessRow
           key={step.key}
@@ -240,24 +240,24 @@ function ReadinessRow({
         {...linkTarget(to)}
         onClick={onNavigate}
         className={cn(
-          'flex min-h-12 gap-2.5 px-4 hover:bg-muted focus-visible:bg-muted focus-visible:-outline-offset-2',
+          'flex min-h-12 gap-2.5 px-4 hover:bg-layer-03 focus-visible:bg-layer-03 focus-visible:-outline-offset-2',
           complete ? 'items-center py-2' : 'items-start py-2.5'
         )}>
         <StatusIcon
-          className={cn('size-4 shrink-0', complete ? 'text-success' : 'mt-0.5 text-muted-foreground')}
+          className={cn('size-4 shrink-0', complete ? 'text-success' : 'mt-0.5 text-fg-secondary')}
           aria-hidden
         />
         <span className="min-w-0 flex-1">
-          <span className="block text-sm leading-5 font-medium text-foreground">{title}</span>
+          <span className="block text-sm leading-5 font-medium text-fg-primary">{title}</span>
           {!complete ? (
-            <span className="mt-0.5 block text-pretty text-xs leading-4 text-muted-foreground">{detail}</span>
+            <span className="mt-0.5 block text-pretty text-xs leading-4 text-fg-secondary">{detail}</span>
           ) : null}
           <span className="sr-only">
             {complete ? t('console.readiness.complete') : t('console.readiness.incomplete')}
           </span>
         </span>
         <ChevronRightRegular
-          className={cn('size-4 shrink-0 text-muted-foreground', complete ? null : 'mt-0.5')}
+          className={cn('size-4 shrink-0 text-fg-secondary', complete ? null : 'mt-0.5')}
           aria-hidden
         />
       </Link>

@@ -97,7 +97,7 @@ export function SlashCommandPicker({
                 <span className="truncate font-medium">{skill.name}</span>
                 <span className="font-mono text-xs text-fg-tertiary">/{skill.slug}</span>
                 {skill.agent_uid ? (
-                  <span className="ml-auto shrink-0 rounded-mini bg-muted px-1.5 py-0.5 text-[11px] text-fg-secondary">
+                  <span className="ml-auto shrink-0 rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 text-fg-secondary">
                     {t('pod.meta.scope_personal_badge', { defaultValue: 'Personal' })}
                   </span>
                 ) : (

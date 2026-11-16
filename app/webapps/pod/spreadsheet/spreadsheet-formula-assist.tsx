@@ -124,7 +124,7 @@ export function SpreadsheetFormulaAssist({
   const [before, current, after] = called && call ? signatureParts(called.signature, call.argument) : ['', '', '']
   return createPortal(
     <div
-      className="fixed z-50 w-80 overflow-hidden rounded-control border border-border bg-popover text-sm text-popover-foreground shadow-md"
+      className="fixed z-50 w-80 overflow-hidden rounded-control border border-border-subtle bg-layer-01 text-sm text-fg-primary shadow-md"
       style={style}
       role={suggestions.length ? 'listbox' : 'tooltip'}
       aria-label={suggestions.length ? t('pod.spreadsheet.function_suggestions') : t('pod.spreadsheet.function_hint')}
@@ -136,7 +136,7 @@ export function SpreadsheetFormulaAssist({
               key={fn.name}
               role="option"
               aria-selected={index === highlight}
-              className={cn('cursor-pointer px-3 py-1.5', index === highlight && 'bg-accent')}
+              className={cn('cursor-pointer px-3 py-1.5', index === highlight && 'bg-layer-hover')}
               onPointerEnter={() => setHighlight(index)}
               onClick={() => {
                 if (!prefix) return

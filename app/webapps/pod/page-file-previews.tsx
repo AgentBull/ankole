@@ -50,8 +50,8 @@ export function FileSelectionToolbar({
   return (
     <div
       data-testid="file-comment-selection-bar"
-      className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-border bg-accent/40 px-3 py-1.5 text-xs">
-      <span className="inline-flex items-center gap-2 font-medium text-foreground">
+      className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-border-subtle bg-layer-hover/40 px-3 py-1.5 text-xs">
+      <span className="inline-flex items-center gap-2 font-medium text-fg-primary">
         <Badge variant="outline">{formatFileAnchorLabel(selection.anchor, t)}</Badge>
         {selection.quote && (
           <span className="max-w-[36ch] truncate text-fg-secondary">{selection.quote.replace(/\s+/g, ' ').trim()}</span>
@@ -78,7 +78,7 @@ export function ImageFilePreview({ url, name }: { url: string; name: string }) {
     return (
       <div
         role="alert"
-        className="flex flex-col items-center justify-center gap-3 rounded-control border border-border bg-card px-6 py-12 text-center">
+        className="flex flex-col items-center justify-center gap-3 rounded-control border border-border-subtle bg-page px-6 py-12 text-center">
         <p className="max-w-md text-sm text-fg-secondary">{t('pod.content.image_preview_failed')}</p>
         <a
           className={cn(buttonVariants({ variant: 'default', size: 'sm' }))}
@@ -376,7 +376,7 @@ export function DelimitedTablePreview({
           data-testid="search-truncated-notice"
           className={cn(
             'flex flex-wrap items-center justify-between gap-2 rounded-control px-2.5 py-1.5 text-xs',
-            anchorBeyondPreview ? 'border border-primary/50 bg-selection/60 text-foreground' : 'text-fg-tertiary'
+            anchorBeyondPreview ? 'border border-primary/50 bg-selection/60 text-fg-primary' : 'text-fg-tertiary'
           )}>
           <span>
             {anchorBeyondPreview
@@ -393,17 +393,17 @@ export function DelimitedTablePreview({
           )}
         </div>
       )}
-      <div className="max-h-[65vh] overflow-auto rounded-control border border-border">
+      <div className="max-h-[65vh] overflow-auto rounded-control border border-border-subtle">
         <table className="w-full border-collapse text-left text-xs">
-          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+          <thead className="sticky top-0 z-10 bg-layer-03/90 backdrop-blur">
             <tr>
-              <th className="w-12 border-b border-r border-border px-2 py-1.5 text-right font-mono text-fg-tertiary">
+              <th className="w-12 border-b border-r border-border-subtle px-2 py-1.5 text-right font-mono text-fg-tertiary">
                 #
               </th>
               {parsed.headers.map((header, colIdx) => (
                 <th
                   key={colIdx}
-                  className="border-b border-r border-border px-2.5 py-1.5 font-semibold text-foreground">
+                  className="border-b border-r border-border-subtle px-2.5 py-1.5 font-semibold text-fg-primary">
                   {header || `Col ${colIdx + 1}`}
                 </th>
               ))}
@@ -421,17 +421,17 @@ export function DelimitedTablePreview({
                   key={rowNum}
                   data-csv-row={rowNum}
                   className={cn(
-                    'border-b border-border/70 transition-colors',
-                    selected && 'bg-accent/65',
+                    'border-b border-border-subtle/70 transition-colors',
+                    selected && 'bg-layer-hover/65',
                     highlighted &&
                       locatedRunClassName(rowNum === highlightedRows?.start, rowNum === highlightedRows?.end)
                   )}>
-                  <td className="border-r border-border px-2 py-1 text-right font-mono text-fg-tertiary">
+                  <td className="border-r border-border-subtle px-2 py-1 text-right font-mono text-fg-tertiary">
                     <button
                       type="button"
                       disabled={!canComment}
                       onClick={event => selectRow(rowNum, event.shiftKey)}
-                      className="w-full text-right enabled:cursor-pointer enabled:hover:text-foreground">
+                      className="w-full text-right enabled:cursor-pointer enabled:hover:text-fg-primary">
                       {rowNum}
                     </button>
                   </td>
@@ -440,8 +440,8 @@ export function DelimitedTablePreview({
                       key={colIdx}
                       onClick={event => selectRow(rowNum, event.shiftKey, header || undefined)}
                       className={cn(
-                        'border-r border-border/60 px-2.5 py-1 whitespace-pre-wrap text-foreground',
-                        canComment && 'cursor-pointer hover:bg-accent/35'
+                        'border-r border-border-subtle/60 px-2.5 py-1 whitespace-pre-wrap text-fg-primary',
+                        canComment && 'cursor-pointer hover:bg-layer-hover/35'
                       )}>
                       {cells[colIdx] ?? ''}
                     </td>
@@ -568,7 +568,7 @@ export function SourceCodeLinesView({
       onMouseUp={() => {
         if (canComment) onCaptureDomRange(bodyRef.current)
       }}
-      className={cn('notranslate max-h-[70vh] overflow-auto bg-card font-mono text-xs leading-5', className)}>
+      className={cn('notranslate max-h-[70vh] overflow-auto bg-page font-mono text-xs leading-5', className)}>
       <div className={cn('py-2', wrap ? 'w-full' : 'min-w-full w-fit')}>
         {lines.map((line, index) => {
           const lineNum = index + 1
@@ -581,7 +581,7 @@ export function SourceCodeLinesView({
               data-file-line={lineNum}
               className={cn(
                 'flex items-start pr-3 transition-colors',
-                selected && 'bg-accent/65',
+                selected && 'bg-layer-hover/65',
                 highlighted &&
                   cn(
                     locatedRunClassName(!isLineHighlighted(lineNum - 1), !isLineHighlighted(lineNum + 1)),
@@ -594,15 +594,15 @@ export function SourceCodeLinesView({
                 onClick={event => onSelectLine(lineNum, event.shiftKey)}
                 aria-label={t('pod.document.line_number', { line: lineNum })}
                 className={cn(
-                  'sticky left-0 z-10 mr-3 w-12 shrink-0 select-none bg-card pl-2 text-right text-fg-tertiary enabled:cursor-pointer enabled:hover:text-foreground',
-                  selected && 'bg-accent',
+                  'sticky left-0 z-10 mr-3 w-12 shrink-0 select-none bg-page pl-2 text-right text-fg-tertiary enabled:cursor-pointer enabled:hover:text-fg-primary',
+                  selected && 'bg-layer-hover',
                   highlighted && 'bg-selection'
                 )}>
                 {lineNum}
               </button>
               <code
                 className={cn(
-                  'min-w-0 flex-1 font-mono text-foreground',
+                  'min-w-0 flex-1 font-mono text-fg-primary',
                   wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
                 )}>
                 {lineTokens && lineTokens.length > 0
@@ -792,7 +792,7 @@ export function TextFilePreview({
           data-testid="search-truncated-notice"
           className={cn(
             'flex flex-wrap items-center justify-between gap-2 rounded-control px-2.5 py-1.5 text-sm',
-            targetBeyondPreview ? 'border border-primary/50 bg-selection/60 text-foreground' : 'text-fg-tertiary'
+            targetBeyondPreview ? 'border border-primary/50 bg-selection/60 text-fg-primary' : 'text-fg-tertiary'
           )}>
           <span>
             {targetBeyondPreview
@@ -848,8 +848,8 @@ export function TextFilePreview({
           }}
         />
       )}
-      <div className="overflow-hidden rounded-control border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-xs text-fg-secondary">
+      <div className="overflow-hidden rounded-control border border-border-subtle bg-page">
+        <div className="flex items-center justify-between border-b border-border-subtle px-3 py-1.5 text-xs text-fg-secondary">
           <span className="font-mono">{extension || 'text'}</span>
           <div className="flex items-center gap-0.5">
             <Button
@@ -903,5 +903,3 @@ export function TextFilePreview({
     </div>
   )
 }
-
-export { buildSandboxedHtmlSrcDoc, HTML_SANDBOX_ALLOW, HtmlFilePreview } from './html-file-preview'

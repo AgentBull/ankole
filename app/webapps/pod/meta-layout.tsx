@@ -8,7 +8,7 @@ export function MetaLayout() {
   if (pageID) return <Outlet />
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 flex-wrap items-center gap-4 border-b border-border px-5 py-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-4 border-b border-border-subtle px-5 py-3">
         <span className="shrink-0 font-semibold">Meta Ankole</span>
         <nav
           aria-label={t('pod.meta.modules')}

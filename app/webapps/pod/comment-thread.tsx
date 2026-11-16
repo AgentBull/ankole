@@ -75,7 +75,7 @@ export function CommentThread({
   const showAnchorBlock = Boolean(thread.quote || parsedAnchor)
   return (
     <article
-      className="pod-comment-thread mb-3 rounded-(--radius-control) border border-border p-3 data-[focused=true]:bg-selection/40"
+      className="pod-comment-thread mb-3 rounded-(--radius-control) border border-border-subtle p-3 data-[focused=true]:bg-selection/40"
       data-thread-id={thread.id}
       data-focused={focused}>
       {unread && <Badge variant="secondary">{t('pod.document.unread_comments')}</Badge>}
@@ -87,11 +87,11 @@ export function CommentThread({
                 type="button"
                 disabled={!thread.anchor_present}
                 onClick={() => reveal(parsedAnchor)}
-                className="inline-flex items-center rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary enabled:cursor-pointer enabled:hover:border-border-strong enabled:hover:text-foreground disabled:opacity-60">
+                className="inline-flex items-center rounded border border-border-subtle bg-layer-03/50 px-1.5 py-0.5 font-mono text-50 text-fg-secondary enabled:cursor-pointer enabled:hover:border-border-strong enabled:hover:text-fg-primary disabled:opacity-60">
                 {formatFileAnchorLabel(parsedAnchor, t)}
               </button>
               {thread.anchor_outdated && (
-                <Badge variant="outline" className="text-warning-foreground">
+                <Badge variant="outline" className="text-warning-fg">
                   {t('pod.document.anchor_outdated', { defaultValue: 'Anchor from an earlier file version' })}
                 </Badge>
               )}
@@ -100,7 +100,7 @@ export function CommentThread({
           {thread.quote && (
             <button
               type="button"
-              className="pod-comment-quote block max-h-[100px] overflow-auto border-l-2 border-border pl-2 text-start text-xs leading-normal whitespace-pre-wrap text-fg-secondary enabled:cursor-pointer [overflow-wrap:anywhere]"
+              className="pod-comment-quote block max-h-[100px] overflow-auto border-l-2 border-border-subtle pl-2 text-start text-xs leading-normal whitespace-pre-wrap text-fg-secondary enabled:cursor-pointer [overflow-wrap:anywhere]"
               onClick={() => reveal(parsedAnchor)}
               disabled={!thread.anchor_present}>
               {thread.quote}
@@ -247,7 +247,7 @@ function CommentEntry({
         <>
           {needsReview && (
             <section
-              className="mb-3 grid gap-2 rounded border border-border p-3"
+              className="mb-3 grid gap-2 rounded border border-border-subtle p-3"
               aria-label={t('pod.document.latest_comment')}>
               <p className="text-xs" role="status">
                 {t('pod.document.comment_changed')}
@@ -439,7 +439,7 @@ export function CommentComposer({
           id={listboxID}
           role="listbox"
           aria-label={t('pod.document.mention_agent', { defaultValue: 'Mention an Agent' })}
-          className="max-h-40 overflow-auto rounded-control border border-border bg-popover p-1 text-xs shadow-md">
+          className="max-h-40 overflow-auto rounded-control border border-border-subtle bg-layer-01 p-1 text-xs shadow-md">
           {matchingAgents.map((agent, index) => (
             <button
               key={agent.uid}
@@ -451,7 +451,7 @@ export function CommentComposer({
                 insertAgentMention(agent)
               }}
               className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left ${
-                index === activeIndex ? 'bg-accent text-foreground' : 'text-fg-secondary hover:bg-accent/50'
+                index === activeIndex ? 'bg-layer-hover text-fg-primary' : 'text-fg-secondary hover:bg-layer-hover/50'
               }`}>
               <span className="truncate font-medium">@{agent.displayName}</span>
               <Badge variant="secondary">{t('pod.document.agent_author')}</Badge>

@@ -341,7 +341,7 @@ export function Connectors() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl">{t('pod.connectors.title')}</h1>
-            <p className="mt-2 text-sm text-muted-foreground">{t('pod.connectors.description')}</p>
+            <p className="mt-2 text-sm text-fg-secondary">{t('pod.connectors.description')}</p>
           </div>
           {catalog.data?.can_manage && (
             <Button
@@ -427,7 +427,7 @@ export function Connectors() {
               <h2 id={`connectors-${subjectKind}`} className="text-lg">
                 {t(subjectKind === 'human' ? 'pod.connectors.personal_title' : 'pod.connectors.team_title')}
               </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 text-sm text-fg-secondary">
                 {t(subjectKind === 'human' ? 'pod.connectors.personal_description' : 'pod.connectors.team_description')}
               </p>
             </div>
@@ -464,11 +464,11 @@ export function Connectors() {
                         </Badge>
                         {connection.is_default && <Badge variant="outline">{t('pod.connectors.default')}</Badge>}
                       </div>
-                      {subjectKind === 'app' && <p className="text-xs text-muted-foreground">{connection.slug}</p>}
+                      {subjectKind === 'app' && <p className="text-xs text-fg-secondary">{connection.slug}</p>}
                     </CardHeader>
                     <CardContent className="grid gap-4">
                       {subjectKind === 'app' && connection.catalog?.complete === false && (
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-sm text-fg-secondary">
                           {t('pod.connectors.catalog_truncated', { count: connection.catalog.table_count })}
                         </p>
                       )}
@@ -478,7 +478,7 @@ export function Connectors() {
                         accounts.isSuccess &&
                         teamAccounts.isSuccess &&
                         session.isSuccess && (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-fg-secondary">
                             {t(
                               subjectKind === 'human'
                                 ? 'pod.connectors.personal_empty'
@@ -500,7 +500,7 @@ export function Connectors() {
                                 ? account.public_metadata.name
                                 : account.external_subject_id || account.account_key}
                             </p>
-                            <p className="text-muted-foreground">
+                            <p className="text-fg-secondary">
                               {t(`pod.connectors.status.${account.status}`, { defaultValue: account.status ?? '' })}
                               {account.granted_scopes?.length ? ` · ${account.granted_scopes.join(', ')}` : ''}
                             </p>
@@ -519,7 +519,7 @@ export function Connectors() {
                         </div>
                       ))}
                       {connection.plugin_id === 'salesforce' && (
-                        <p className="text-sm text-muted-foreground">{t('pod.connectors.guide_salesforce')}</p>
+                        <p className="text-sm text-fg-secondary">{t('pod.connectors.guide_salesforce')}</p>
                       )}
                       <div className="flex flex-wrap gap-2">
                         {((subjectKind === 'human' && definition?.personal_credentials) ||
@@ -639,7 +639,7 @@ export function Connectors() {
         {(triggers.data?.triggers.length ?? 0) > 0 && (
           <section className="grid gap-3">
             <h2 className="text-lg">{t('pod.connectors.subscriptions')}</h2>
-            <p className="text-sm text-muted-foreground">{t('pod.connectors.subscription_next_step')}</p>
+            <p className="text-sm text-fg-secondary">{t('pod.connectors.subscription_next_step')}</p>
             {triggers.data!.triggers.map(trigger => {
               const connection = allConnections.find(item => item.id === trigger.auth_config_id)
               const account = allAccounts.find(item => item.id === trigger.connected_account_id)
@@ -673,10 +673,10 @@ export function Connectors() {
                       <p>
                         {String(definition?.label ?? trigger.trigger_type)} · {trigger.scope_key}
                       </p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-fg-secondary">
                         {allConnections.find(connection => connection.id === trigger.auth_config_id)?.display_name}
                       </p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-fg-secondary">
                         {t(`pod.connectors.status.${trigger.status}`, { defaultValue: trigger.status ?? '' })}
                       </p>
                       <p className="mt-1 break-all font-mono text-xs select-all">{trigger.config_ref}</p>
@@ -692,7 +692,7 @@ export function Connectors() {
                             value={callbackURL}
                             onFocus={event => event.target.select()}
                           />
-                          <p className="text-sm text-muted-foreground">{t('pod.connectors.sentry_webhook_setup')}</p>
+                          <p className="text-sm text-fg-secondary">{t('pod.connectors.sentry_webhook_setup')}</p>
                         </div>
                       )}
                     </div>
@@ -769,7 +769,7 @@ export function Connectors() {
           }}>
           <DialogContent closeLabel={t('common.close')}>
             <DialogTitle>{t('pod.connectors.subscribe')}</DialogTitle>
-            <p className="text-sm text-muted-foreground">{t('pod.connectors.subscription_help')}</p>
+            <p className="text-sm text-fg-secondary">{t('pod.connectors.subscription_help')}</p>
             <ContentError error={consentRequired ? undefined : createTrigger.error} />
             <ContentError error={oauth.error ?? claim.error} />
             {claim.isPending && <p role="status">{t('pod.connectors.finishing')}</p>}

@@ -58,7 +58,7 @@ export function CredentialBindingDialog({
             event.preventDefault()
             bind.mutate()
           }}>
-          <p className="text-sm text-muted-foreground">{connection.display_name}</p>
+          <p className="text-sm text-fg-secondary">{connection.display_name}</p>
           {connection.plugin_id === 'figma' ? (
             <div className="grid gap-3 text-sm">
               <ol className="list-decimal space-y-2 pl-5">
@@ -74,12 +74,12 @@ export function CredentialBindingDialog({
                 <li>{t('pod.connectors.figma_step_scopes')}</li>
                 <li>{t('pod.connectors.figma_step_paste')}</li>
               </ol>
-              <p className="text-muted-foreground">
+              <p className="text-fg-secondary">
                 {t(personal ? 'pod.connectors.personal_description' : 'pod.connectors.team_description')}
               </p>
             </div>
           ) : ['stripe', 'sentry', 'zendesk'].includes(connection.plugin_id ?? '') ? (
-            <p className="text-sm text-muted-foreground">{t(`pod.connectors.guide_${connection.plugin_id}`)}</p>
+            <p className="text-sm text-fg-secondary">{t(`pod.connectors.guide_${connection.plugin_id}`)}</p>
           ) : null}
           {fields.map(field => {
             const path = String(field.key)
@@ -104,7 +104,7 @@ export function CredentialBindingDialog({
               />
             )
           })}
-          <p className="text-sm text-muted-foreground">{t('pod.connectors.credentials_verify_hint')}</p>
+          <p className="text-sm text-fg-secondary">{t('pod.connectors.credentials_verify_hint')}</p>
           <Button type="submit" disabled={bind.isPending}>
             {t(bind.isPending ? 'pod.connectors.credentials_verifying' : 'pod.connectors.credentials_verify_connect')}
           </Button>

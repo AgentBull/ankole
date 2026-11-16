@@ -104,7 +104,7 @@ export function RunnerDevicesSettings() {
           </Button>
         </form>
         {command && pairing && (
-          <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3">
+          <div className="grid gap-2 rounded-lg border border-border-subtle bg-layer-03/30 p-3">
             <p className="text-sm">{t('pod.runner.pair_instructions')}</p>
             <code className="break-all text-xs">{command}</code>
             <div>
@@ -129,7 +129,7 @@ export function RunnerDevicesSettings() {
               : (unbound[0]?.uid ?? '')
           const isBindingThisDevice = bind.isPending && bind.variables?.id === device.id
           return (
-            <div key={device.id} className="grid gap-2.5 border-t border-border pt-3">
+            <div key={device.id} className="grid gap-2.5 border-t border-border-subtle pt-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="break-all text-sm font-medium">{device.name}</span>
@@ -146,16 +146,16 @@ export function RunnerDevicesSettings() {
                 </Button>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-muted-foreground">{t('pod.runner.colleagues_label')}</span>
+                <span className="text-xs text-fg-secondary">{t('pod.runner.colleagues_label')}</span>
                 {device.bindings.map(binding => {
                   const title = binding.displayName || binding.agentUID
                   return (
                     <div
                       key={binding.agentUID}
-                      className="inline-flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-muted/20 px-2 py-1 text-xs">
+                      className="inline-flex flex-wrap items-center gap-1.5 rounded-md border border-border-subtle bg-layer-03/20 px-2 py-1 text-xs">
                       <span className="font-medium">{title}</span>
                       {binding.displayName && binding.displayName !== binding.agentUID && (
-                        <span className="text-muted-foreground">@{binding.agentUID}</span>
+                        <span className="text-fg-secondary">@{binding.agentUID}</span>
                       )}
                       <Badge
                         variant={
@@ -207,7 +207,7 @@ export function RunnerDevicesSettings() {
                 </div>
               ) : (
                 colleagues.length > 0 && (
-                  <span className="text-xs text-muted-foreground">{t('pod.runner.all_colleagues_bound')}</span>
+                  <span className="text-xs text-fg-secondary">{t('pod.runner.all_colleagues_bound')}</span>
                 )
               )}
             </div>

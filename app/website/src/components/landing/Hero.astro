@@ -17,7 +17,7 @@ const { lang } = Astro.props
 const CLAIMS = ['recovery', 'noLockIn', 'access', 'license'].map(key => t(lang, `hero.claim.${key}`))
 ---
 
-<section class="relative overflow-hidden border-b border-border">
+<section class="relative overflow-hidden border-b border-border-subtle">
 	<div
 		class="grid-field pointer-events-none absolute inset-0 [mask-image:radial-gradient(80%_60%_at_20%_0%,black,transparent)]"
 		aria-hidden="true"
@@ -32,13 +32,13 @@ const CLAIMS = ['recovery', 'noLockIn', 'access', 'license'].map(key => t(lang, 
 		 * the white space an uneven shape, which is the point of it.
 		 */}
 		<div
-			class="grid gap-12 border-x border-border/70 px-4 pt-16 pb-14 sm:px-8 sm:pt-20 lg:grid-cols-[1.15fr_minmax(0,23.5rem)] lg:gap-16 lg:pt-24 lg:pb-20"
+			class="grid gap-12 border-x border-border-subtle/70 px-4 pt-16 pb-14 sm:px-8 sm:pt-20 lg:grid-cols-[1.15fr_minmax(0,23.5rem)] lg:gap-16 lg:pt-24 lg:pb-20"
 		>
 			<div class="lg:pr-6">
 				{/* No pulse. A dot beating forever next to a licence label says nothing, and
 				    spending motion there costs the beats that do carry meaning. */}
 				<span
-					class="inline-flex items-center gap-2.5 border border-border bg-background/60 px-3 py-1.5 font-mono text-xs text-muted-foreground backdrop-blur-sm"
+					class="inline-flex items-center gap-2.5 border border-border-subtle bg-page/60 px-3 py-1.5 font-mono text-xs text-fg-secondary backdrop-blur-sm"
 				>
 					<span class="size-1.5 bg-brand-60 dark:bg-brand-40" aria-hidden="true"></span>
 					{t(lang, 'hero.badge')}
@@ -46,13 +46,13 @@ const CLAIMS = ['recovery', 'noLockIn', 'access', 'license'].map(key => t(lang, 
 
 				{/* Each line is a separate string, so every locale controls its own break. */}
 				<h1
-					class="mt-8 text-[2.125rem] leading-[1.06] font-semibold tracking-tight text-foreground sm:text-6xl sm:leading-[1.02] lg:text-[4.75rem]"
+					class="mt-8 text-[2.125rem] leading-[1.06] font-semibold tracking-tight text-fg-primary sm:text-6xl sm:leading-[1.02] lg:text-[4.75rem]"
 				>
 					<span class="block">{t(lang, 'hero.title.line1')}</span>
 					<span class="block">{t(lang, 'hero.title.line2')}</span>
 				</h1>
 
-				<p class="mt-8 max-w-lg text-base leading-8 text-muted-foreground sm:text-lg">
+				<p class="mt-8 max-w-lg text-base leading-8 text-fg-secondary sm:text-lg">
 					{t(lang, 'hero.subtitle')}
 				</p>
 
@@ -79,11 +79,11 @@ const CLAIMS = ['recovery', 'noLockIn', 'access', 'license'].map(key => t(lang, 
 		</div>
 	</div>
 
-	<div class="relative border-t border-border bg-background/50 backdrop-blur-sm">
+	<div class="relative border-t border-border-subtle bg-page/50 backdrop-blur-sm">
 		<div class="mx-auto max-w-7xl px-4 sm:px-6">
 			{/* Prose, so it leaves the mono face; a brand tick separates the claims. */}
 			<ul
-				class="flex list-none flex-wrap items-center gap-x-6 gap-y-2 border-x border-border/70 px-4 py-4 text-xs text-fg-tertiary sm:px-8"
+				class="flex list-none flex-wrap items-center gap-x-6 gap-y-2 border-x border-border-subtle/70 px-4 py-4 text-xs text-fg-tertiary sm:px-8"
 			>
 				{
 					CLAIMS.map((claim, index) => (

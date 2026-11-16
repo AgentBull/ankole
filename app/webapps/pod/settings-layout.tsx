@@ -35,13 +35,13 @@ export function SettingsLayout({
         onValueChange={onValueChange}
         className="mx-auto grid w-full max-w-6xl grid-cols-1 content-start gap-6 px-4 py-7 sm:px-6 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-x-10 md:px-8 md:py-10 lg:gap-x-14 lg:px-10">
         <header className="grid gap-1.5 md:col-span-2">
-          <h1 className="title-page text-foreground">{title}</h1>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+          <h1 className="title-page text-fg-primary">{title}</h1>
+          <p className="max-w-2xl text-sm leading-6 text-fg-secondary">{description}</p>
         </header>
         <TabsList
           variant="object"
           aria-label={navigationLabel}
-          className="w-full min-w-0 justify-start gap-1 overflow-x-auto border-b border-border pb-3 group-data-horizontal/tabs:h-auto md:w-auto md:border-0 md:pb-0">
+          className="w-full min-w-0 justify-start gap-1 overflow-x-auto border-b border-border-subtle pb-3 group-data-horizontal/tabs:h-auto md:w-auto md:border-0 md:pb-0">
           {items.map(item => (
             <TabsTrigger
               key={item.value}
@@ -79,8 +79,8 @@ function SettingsSectionHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
       <div className="grid min-w-0 gap-1">
-        <h2 className="text-base font-semibold text-foreground">{title}</h2>
-        {description && <p className="max-w-2xl text-sm leading-5 text-muted-foreground">{description}</p>}
+        <h2 className="text-base font-semibold text-fg-primary">{title}</h2>
+        {description && <p className="max-w-2xl text-sm leading-5 text-fg-secondary">{description}</p>}
       </div>
       {action}
     </div>
@@ -107,7 +107,7 @@ export function SettingsSection({
     <section className="grid content-start gap-3">
       <SettingsSectionHeader title={title} description={description} action={action} />
       {framed ? (
-        <Card size="sm" className={cn('gap-0 rounded-xl bg-card py-0 shadow-none', className)}>
+        <Card size="sm" className={cn('gap-0 rounded-xl bg-page py-0 shadow-none', className)}>
           <CardContent className="px-5 py-5 sm:px-6 sm:py-6">{children}</CardContent>
         </Card>
       ) : (

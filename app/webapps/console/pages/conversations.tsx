@@ -216,7 +216,7 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
           <div className="flex min-w-0 items-center gap-1.5">
             <Link
               className={cn(
-                'block min-w-0 max-w-64 truncate text-foreground',
+                'block min-w-0 max-w-64 truncate text-fg-primary',
                 hasDisplayName ? 'font-medium' : 'font-mono text-xs'
               )}
               data-row-link
@@ -228,7 +228,7 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
           </div>
           {hasDisplayName ? (
             <span
-              className="block max-w-64 truncate font-mono text-xs text-muted-foreground"
+              className="block max-w-64 truncate font-mono text-xs text-fg-secondary"
               title={conversation.conversation_key}>
               {conversation.conversation_key}
             </span>
@@ -237,19 +237,19 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
       </TableCell>
       <AgentCell uid={conversation.subject_uid} />
       <TableCell className="text-right text-sm tabular-nums">
-        <span className={conversation.message_count === 0 ? 'text-muted-foreground' : undefined}>
+        <span className={conversation.message_count === 0 ? 'text-fg-secondary' : undefined}>
           {conversation.message_count}
         </span>
       </TableCell>
       <TableCell>
         <span className="inline-flex items-center gap-1.5 text-sm">
-          <span className={cn('size-1.5 rounded-full', active ? 'bg-success' : 'bg-gray-60')} aria-hidden />
-          <span className={active ? undefined : 'text-muted-foreground'}>
+          <span className={cn('size-1.5 rounded-full', active ? 'bg-success' : 'bg-fg-placeholder')} aria-hidden />
+          <span className={active ? undefined : 'text-fg-secondary'}>
             {active ? t('console.conversations.status_active') : t('console.conversations.status_ended')}
           </span>
         </span>
       </TableCell>
-      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+      <TableCell className="whitespace-nowrap text-xs text-fg-secondary">
         {formatConsoleDate(conversation.updated_at)}
       </TableCell>
       <RowViewAction
@@ -296,9 +296,9 @@ function ConversationHeader({ conversation }: { conversation: AIGatewayConversat
   const hasDisplayName = displayName !== conversation.conversation_key
 
   return (
-    <header className="grid gap-3 border-b border-border pb-6">
+    <header className="grid gap-3 border-b border-border-subtle pb-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="min-w-0 break-all title-page text-foreground">{displayName}</h2>
+        <h2 className="min-w-0 break-all title-page text-fg-primary">{displayName}</h2>
         <StatusIndicator tone={conversation.ended_at == null ? 'positive' : 'neutral'}>
           {conversation.ended_at == null
             ? t('console.conversations.status_active')
@@ -306,7 +306,7 @@ function ConversationHeader({ conversation }: { conversation: AIGatewayConversat
         </StatusIndicator>
         <ConversationKindTags conversation={conversation} />
       </div>
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-secondary">
         {hasDisplayName ? (
           <>
             <span className="break-all font-mono text-xs">{conversation.conversation_key}</span>
@@ -387,7 +387,7 @@ export function ConversationDetailPage() {
 
           <section className="grid gap-3" aria-label={t('console.conversations.details')}>
             <h3 className="title-inline">{t('console.conversations.details')}</h3>
-            <dl className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+            <dl className="grid grid-cols-1 gap-px border border-border-subtle bg-border-subtle sm:grid-cols-2 lg:grid-cols-3">
               <DetailFact
                 className="py-4"
                 label={t('console.conversations.subject')}
@@ -418,7 +418,7 @@ export function ConversationDetailPage() {
               />
             </dl>
             {Object.keys(detail.metadata).length > 0 ? (
-              <Accordion className="border border-border bg-card px-4">
+              <Accordion className="border border-border-subtle bg-page px-4">
                 <AccordionItem value="metadata">
                   <AccordionTrigger className="py-3">{t('console.conversations.metadata')}</AccordionTrigger>
                   <AccordionContent>
@@ -437,9 +437,9 @@ export function ConversationDetailPage() {
             {t('console.conversations.messages')}
           </h3>
           {messages.isLoading ? (
-            <span className="text-xs text-muted-foreground">{t('console.conversations.loading')}</span>
+            <span className="text-xs text-fg-secondary">{t('console.conversations.loading')}</span>
           ) : (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-fg-secondary">
               {t('console.conversations.message_count', { count: thread.length })}
             </span>
           )}
@@ -450,7 +450,7 @@ export function ConversationDetailPage() {
         ) : messages.isLoading ? (
           <Skeleton className="h-64 w-full" />
         ) : thread.length === 0 ? (
-          <div className="flex items-center gap-3 border border-border bg-card p-8 text-sm text-muted-foreground">
+          <div className="flex items-center gap-3 border border-border-subtle bg-page p-8 text-sm text-fg-secondary">
             <MailInboxRegular className="size-5" />
             {t('console.conversations.no_messages')}
           </div>
@@ -502,13 +502,13 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
   if (message.type === 'checkpoint') {
     return (
       <div className="grid gap-2">
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3 text-xs text-fg-secondary">
           <Badge variant="secondary">{t('console.conversations.checkpoint_badge')}</Badge>
           <span className="min-w-0 break-all font-mono">{message.id}</span>
           <span className="ml-auto shrink-0">{formatConsoleDate(message.inserted_at)}</span>
         </div>
         <RawJSON value={message.content} />
-        <div className="h-px bg-border" aria-hidden />
+        <div className="h-px bg-border-subtle" aria-hidden />
       </div>
     )
   }
@@ -519,9 +519,9 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
   // tile reveals the individual items and their pretty-printed payloads.
   if (hasToolItems(message.content)) {
     return (
-      <article className="border border-border">
+      <article className="border border-border-subtle">
         {text ? (
-          <div className="border-b border-border px-4 py-3">
+          <div className="border-b border-border-subtle px-4 py-3">
             <MarkdownBody text={text} />
           </div>
         ) : null}
@@ -529,16 +529,16 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
           <AccordionItem value="items">
             <AccordionTrigger className="items-center gap-3 px-4 py-2.5 text-xs font-normal hover:no-underline">
               <span className="flex min-w-0 flex-1 items-center gap-2">
-                <MathFormulaRegular className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <MathFormulaRegular className="size-3.5 shrink-0 text-fg-secondary" aria-hidden />
                 <ToolSummary content={message.content} />
-                <span className="ml-auto flex flex-wrap items-center justify-end gap-2 text-muted-foreground">
+                <span className="ml-auto flex flex-wrap items-center justify-end gap-2 text-fg-secondary">
                   <MessageModel message={message} />
                   <MessageStatus message={message} />
                   <span>{formatConsoleDate(message.inserted_at)}</span>
                 </span>
               </span>
             </AccordionTrigger>
-            <AccordionContent className="border-t border-border pb-0">
+            <AccordionContent className="border-t border-border-subtle pb-0">
               <ToolItems content={message.content} fallbackText={text} />
             </AccordionContent>
           </AccordionItem>
@@ -549,7 +549,7 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
 
   return (
     <article className="grid gap-1.5">
-      <header className="flex flex-wrap items-center gap-2 px-1 text-xs text-muted-foreground">
+      <header className="flex flex-wrap items-center gap-2 px-1 text-xs text-fg-secondary">
         <MessageModel message={message} />
         <MessageStatus message={message} />
         <span>{formatConsoleDate(message.inserted_at)}</span>
@@ -596,9 +596,9 @@ function ToolSummary({ content }: { content: ResponseItem[] }) {
       {typeof first.name === 'string' ? (
         <span className="truncate font-mono font-medium">{first.name}</span>
       ) : typeof first.call_id === 'string' ? (
-        <span className="truncate font-mono text-muted-foreground">{first.call_id}</span>
+        <span className="truncate font-mono text-fg-secondary">{first.call_id}</span>
       ) : null}
-      {toolItems.length > 1 ? <span className="shrink-0 text-muted-foreground">+{toolItems.length - 1}</span> : null}
+      {toolItems.length > 1 ? <span className="shrink-0 text-fg-secondary">+{toolItems.length - 1}</span> : null}
     </>
   )
 }
@@ -629,7 +629,7 @@ function ToolItems({ content, fallbackText }: { content: ResponseItem[]; fallbac
   }
 
   return (
-    <div className="grid divide-y divide-border">
+    <div className="grid divide-y divide-border-subtle">
       {toolItems.map((item, index) => (
         <ToolItemView key={index} item={item} />
       ))}
@@ -645,7 +645,7 @@ function ToolItemView({ item }: { item: ResponseItem }) {
     return (
       <div className="grid gap-2 px-4 py-3">
         <ToolItemHeader item={item} type={type} />
-        {raw ? <p className="text-xs leading-5 whitespace-pre-wrap text-muted-foreground">{raw}</p> : null}
+        {raw ? <p className="text-xs leading-5 whitespace-pre-wrap text-fg-secondary">{raw}</p> : null}
       </div>
     )
   }
@@ -671,9 +671,9 @@ function ToolItemHeader({ item, type, nonce }: { item: ResponseItem; type: strin
       <Badge variant="outline">{type}</Badge>
       {typeof item.name === 'string' ? <span className="font-mono font-medium">{item.name}</span> : null}
       {typeof item.call_id === 'string' ? (
-        <span className="break-all font-mono text-muted-foreground">{item.call_id}</span>
+        <span className="break-all font-mono text-fg-secondary">{item.call_id}</span>
       ) : null}
-      {nonce ? <span className="font-mono text-muted-foreground">nonce {nonce}</span> : null}
+      {nonce ? <span className="font-mono text-fg-secondary">nonce {nonce}</span> : null}
     </div>
   )
 }
@@ -681,7 +681,7 @@ function ToolItemHeader({ item, type, nonce }: { item: ResponseItem; type: strin
 /** Monospace payload surface: Carbon layer-01 with a hairline border, no wrapping. */
 function CodeBlock({ children }: { children: string }) {
   return (
-    <pre className="max-h-80 overflow-auto border border-border bg-card px-3 py-2 font-mono text-xs leading-5 whitespace-pre">
+    <pre className="max-h-80 overflow-auto border border-border-subtle bg-page px-3 py-2 font-mono text-xs leading-5 whitespace-pre">
       {children}
     </pre>
   )

@@ -346,7 +346,7 @@ function CalendarMonth({
 
   return (
     <div data-slot="calendar-month" className="grid gap-2">
-      <div className="text-center text-xs font-semibold text-foreground">{formatMonthHeading(year, month, locale)}</div>
+      <div className="text-center text-xs font-semibold text-fg-primary">{formatMonthHeading(year, month, locale)}</div>
       <table role="grid" aria-label={formatMonthHeading(year, month, locale)} className="w-full border-collapse">
         <thead>
           <tr>
@@ -354,7 +354,7 @@ function CalendarMonth({
               <th
                 key={index}
                 scope="col"
-                className="size-8 text-center text-[11px] font-medium text-muted-foreground select-none">
+                className="size-8 text-center text-50 font-medium text-fg-secondary select-none">
                 {dayLabel}
               </th>
             ))}
@@ -396,10 +396,10 @@ function CalendarMonth({
                       className={cn(
                         'inline-flex size-8 cursor-pointer items-center justify-center rounded-control text-xs tabular-nums transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-35',
                         isSelected
-                          ? 'bg-primary font-medium text-primary-foreground'
+                          ? 'bg-primary font-medium text-primary-fg'
                           : isInRange
-                            ? 'rounded-none bg-accent text-accent-foreground hover:bg-accent/80'
-                            : 'text-foreground hover:bg-muted',
+                            ? 'rounded-none bg-layer-hover text-fg-primary hover:bg-layer-hover/80'
+                            : 'text-fg-primary hover:bg-layer-03',
                         isToday && !isSelected && 'font-semibold underline decoration-primary underline-offset-4'
                       )}>
                       {cell.day}
@@ -495,10 +495,10 @@ export function DatePicker({
           render={
             <Button type="button" variant="outline" size="default" className="justify-between gap-2 font-normal" />
           }>
-          <CalendarRegular aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          <CalendarRegular aria-hidden="true" className="size-4 shrink-0 text-fg-secondary" />
           <span className={cn('tabular-nums', !selected && 'text-fg-placeholder')}>{selected ?? placeholder}</span>
           {timezone && (
-            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] font-normal">
+            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-25 font-normal">
               {timezone}
             </Badge>
           )}
@@ -514,7 +514,7 @@ export function DatePicker({
               onClick={() => setMonthView(prev => addMonthsPlain(prev, -1))}>
               <ChevronLeftRegular aria-hidden="true" className="size-4" />
             </Button>
-            <span className="text-xs text-muted-foreground">{timezone ?? 'ISO 8601'}</span>
+            <span className="text-xs text-fg-secondary">{timezone ?? 'ISO 8601'}</span>
             <Button
               type="button"
               variant="ghost"
@@ -642,10 +642,10 @@ export function DateRangePicker({
           render={
             <Button type="button" variant="outline" size="default" className="justify-between gap-2 font-normal" />
           }>
-          <CalendarRegular aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          <CalendarRegular aria-hidden="true" className="size-4 shrink-0 text-fg-secondary" />
           <span className={cn('tabular-nums', !summary && 'text-fg-placeholder')}>{summary ?? placeholder}</span>
           {timezone && (
-            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] font-normal">
+            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-25 font-normal">
               {timezone}
             </Badge>
           )}
@@ -655,7 +655,7 @@ export function DateRangePicker({
             {presets && presets.length > 0 && (
               <div
                 data-slot="date-range-presets"
-                className="flex flex-wrap gap-1 border-b border-border pb-2 sm:w-36 sm:flex-col sm:border-r sm:border-b-0 sm:pr-3 sm:pb-0">
+                className="flex flex-wrap gap-1 border-b border-border-subtle pb-2 sm:w-36 sm:flex-col sm:border-r sm:border-b-0 sm:pr-3 sm:pb-0">
                 {presets.map(preset => {
                   const constrained = constrainDateRange(preset.range, minDate, maxDate)
                   const active = constrained !== null && range.from === constrained.from && range.to === constrained.to
@@ -690,7 +690,7 @@ export function DateRangePicker({
                   onClick={() => setMonthView(prev => addMonthsPlain(prev, -1))}>
                   <ChevronLeftRegular aria-hidden="true" className="size-4" />
                 </Button>
-                <span className="text-xs text-muted-foreground">{timezone ?? 'ISO 8601'}</span>
+                <span className="text-xs text-fg-secondary">{timezone ?? 'ISO 8601'}</span>
                 <Button
                   type="button"
                   variant="ghost"

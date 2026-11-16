@@ -43,7 +43,7 @@ export function ConnectionAccessFields({ access }: { access: Signal<ConnectionAc
       </Select>
       {restricted && (
         <>
-          <p className="text-xs text-muted-foreground">{t('pod.connectors.access_restricted_help')}</p>
+          <p className="text-xs text-fg-secondary">{t('pod.connectors.access_restricted_help')}</p>
           <ContentError error={subjects.error} />
           <div className="grid max-h-48 gap-2 overflow-y-auto rounded-lg border p-3">
             {choices.map(subject => {
@@ -56,7 +56,7 @@ export function ConnectionAccessFields({ access }: { access: Signal<ConnectionAc
                     onCheckedChange={checked => toggle(key, id, checked === true)}
                   />
                   <span className="min-w-0 flex-1 truncate">{subject.name}</span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-fg-secondary">
                     {t(subject.kind === 'group' ? 'pod.connectors.access_group' : 'pod.connectors.access_agent')}
                   </span>
                 </Label>

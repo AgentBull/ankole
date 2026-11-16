@@ -26,12 +26,12 @@ export function SettingGroupField({
   return (
     <section
       data-setting-key={item.key}
-      className="grid gap-3 data-[search-match=true]:ring-2 data-[search-match=true]:ring-ring border-t border-border pt-6 first:border-t-0 first:pt-0">
+      className="grid gap-3 data-[search-match=true]:ring-2 data-[search-match=true]:ring-ring border-t border-border-subtle pt-6 first:border-t-0 first:pt-0">
       <div className="flex items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1">
-          <h2 className="text-sm font-semibold text-foreground">{label}</h2>
-          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <h2 className="text-sm font-semibold text-fg-primary">{label}</h2>
+          <p className="text-xs leading-5 text-fg-secondary">{description}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
             <span>{t(`console.settings.source_${item.source}`)}</span>
             {item.overridden ? <Badge variant="outline">{t('console.settings.independent_override')}</Badge> : null}
             {item.agent_override_supported ? <span>{t('console.settings.agent_override_hint')}</span> : null}

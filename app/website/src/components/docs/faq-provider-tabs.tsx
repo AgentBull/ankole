@@ -40,7 +40,7 @@ interface FaqProviderTabsProps {
 
 export function FaqIssueList({ issues, labels }: FaqIssueListProps) {
   return (
-    <div className="not-prose my-8 w-full min-w-0 max-w-4xl border-y border-border/80">
+    <div className="not-prose my-8 w-full min-w-0 max-w-4xl border-y border-border-subtle/80">
       <IssueList issues={issues} labels={labels} />
     </div>
   )
@@ -48,7 +48,7 @@ export function FaqIssueList({ issues, labels }: FaqIssueListProps) {
 
 export function FaqProviderTabs({ ariaLabel, defaultValue, labels, tabs }: FaqProviderTabsProps) {
   return (
-    <div className="not-prose my-8 w-full min-w-0 max-w-4xl border-y border-border/80">
+    <div className="not-prose my-8 w-full min-w-0 max-w-4xl border-y border-border-subtle/80">
       <Tabs defaultValue={defaultValue} className="w-full min-w-0 gap-0">
         <TabsList
           aria-label={ariaLabel}
@@ -57,14 +57,14 @@ export function FaqProviderTabs({ ariaLabel, defaultValue, labels, tabs }: FaqPr
             <TabsTrigger
               key={tab.value}
               value={tab.value}
-              className="h-auto flex-none px-0 py-4 text-[13px] after:bg-foreground group-data-horizontal/tabs:after:h-px">
+              className="h-auto flex-none px-0 py-4 text-[13px] after:bg-fg-primary group-data-horizontal/tabs:after:h-px">
               {tab.label}
             </TabsTrigger>
           ))}
         </TabsList>
 
         {tabs.map(tab => (
-          <TabsContent key={tab.value} value={tab.value} className="w-full min-w-0 pt-0 text-foreground">
+          <TabsContent key={tab.value} value={tab.value} className="w-full min-w-0 pt-0 text-fg-primary">
             <IssueList issues={tab.issues} labels={labels} />
           </TabsContent>
         ))}
@@ -75,30 +75,30 @@ export function FaqProviderTabs({ ariaLabel, defaultValue, labels, tabs }: FaqPr
 
 function IssueList({ issues, labels }: FaqIssueListProps) {
   return (
-    <div className="divide-y divide-border/80">
+    <div className="divide-y divide-border-subtle/80">
       {issues.map((issue, index) => (
         <section key={issue.question} className="grid gap-4 py-7 md:grid-cols-[2.25rem_minmax(0,1fr)] md:gap-5">
-          <p aria-hidden="true" className="m-0 font-mono text-[10px] leading-7 text-muted-foreground/70">
+          <p aria-hidden="true" className="m-0 font-mono text-[10px] leading-7 text-fg-secondary/70">
             {String(index + 1).padStart(2, '0')}
           </p>
 
           <div className="min-w-0">
-            <h3 className="m-0 max-w-3xl text-lg leading-7 font-medium tracking-[-0.01em] text-foreground">
+            <h3 className="m-0 max-w-3xl text-lg leading-7 font-medium tracking-[-0.01em] text-fg-primary">
               {issue.question}
             </h3>
 
             <dl className="mt-5 grid gap-x-6 gap-y-4 sm:grid-cols-[5rem_minmax(0,1fr)]">
-              <dt className="font-mono text-[10px] leading-6 tracking-[0.08em] text-muted-foreground uppercase">
+              <dt className="font-mono text-[10px] leading-6 tracking-[0.08em] text-fg-secondary uppercase">
                 {labels.symptom}
               </dt>
-              <dd className="m-0 max-w-3xl text-[14px] leading-6 text-muted-foreground">{issue.symptom}</dd>
+              <dd className="m-0 max-w-3xl text-[14px] leading-6 text-fg-secondary">{issue.symptom}</dd>
 
-              <dt className="font-mono text-[10px] leading-6 tracking-[0.08em] text-muted-foreground uppercase">
+              <dt className="font-mono text-[10px] leading-6 tracking-[0.08em] text-fg-secondary uppercase">
                 {labels.cause}
               </dt>
-              <dd className="m-0 max-w-3xl text-[14px] leading-6 text-muted-foreground">{issue.cause}</dd>
+              <dd className="m-0 max-w-3xl text-[14px] leading-6 text-fg-secondary">{issue.cause}</dd>
 
-              <dt className="font-mono text-[10px] leading-6 tracking-[0.08em] text-muted-foreground uppercase">
+              <dt className="font-mono text-[10px] leading-6 tracking-[0.08em] text-fg-secondary uppercase">
                 {labels.resolution}
               </dt>
               <dd className="m-0 max-w-3xl">
@@ -106,8 +106,8 @@ function IssueList({ issues, labels }: FaqIssueListProps) {
                   {issue.resolution.map((step, stepIndex) => (
                     <li
                       key={step}
-                      className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 text-[14px] leading-6 text-foreground">
-                      <span aria-hidden="true" className="font-mono text-[9px] leading-6 text-muted-foreground/70">
+                      className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 text-[14px] leading-6 text-fg-primary">
+                      <span aria-hidden="true" className="font-mono text-[9px] leading-6 text-fg-secondary/70">
                         {String(stepIndex + 1).padStart(2, '0')}
                       </span>
                       <span>{step}</span>

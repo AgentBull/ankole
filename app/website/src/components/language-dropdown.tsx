@@ -24,7 +24,7 @@ export default function LanguageDropdown({ label, items }: LanguageDropdownProps
       <DropdownMenuTrigger
         aria-label={label}
         title={label}
-        className="inline-flex size-9 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+        className="inline-flex size-9 items-center justify-center text-fg-secondary transition-colors hover:bg-layer-03 hover:text-fg-primary">
         <GlobeRegular className="size-5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-auto min-w-36">

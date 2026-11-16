@@ -376,7 +376,7 @@ function NavigationSection({
     <SidebarGroup render={<section aria-label={label} />} className="pod-nav-section">
       <SidebarGroupLabel ref={headingRef} className="pod-nav-section-heading relative">
         <Link
-          className="min-w-0 truncate text-inherit no-underline hover:text-foreground"
+          className="min-w-0 truncate text-inherit no-underline hover:text-fg-primary"
           to={to}
           activeOptions={{ exact: true }}
           onClick={onNavigate}>
@@ -654,7 +654,7 @@ export function PageChildrenMenu({
                 {pages.map(page => (
                   <li key={page.id}>
                     <Link
-                      className="flex items-center gap-2 rounded-control px-2 py-1.5 text-sm text-foreground no-underline hover:bg-accent"
+                      className="flex items-center gap-2 rounded-control px-2 py-1.5 text-sm text-fg-primary no-underline hover:bg-layer-hover"
                       to={pageHref(page.id, page.title)}
                       onClick={() => setOpen(false)}>
                       <PageIcon page={page} />

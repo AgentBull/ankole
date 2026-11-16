@@ -91,7 +91,7 @@ export function SpreadsheetCellEditor({
         spellCheck={false}
         rows={1}
         className={cn(
-          'absolute z-10 m-0 resize-none overflow-hidden border-2 border-blue-60 px-[3px] py-px leading-tight whitespace-pre-wrap outline-none [field-sizing:content]',
+          'absolute z-10 m-0 resize-none overflow-hidden border-2 border-(--doc-accent) px-[3px] py-px leading-tight whitespace-pre-wrap outline-none [field-sizing:content]',
           !(draft && here) && 'pointer-events-none opacity-0'
         )}
         onInput={event => open(event.currentTarget.value)}

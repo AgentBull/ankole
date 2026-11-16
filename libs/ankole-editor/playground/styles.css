@@ -11,14 +11,14 @@ body,
 }
 body {
   font-family: var(--font-family-sans);
-  color: var(--foreground);
+  color: var(--fg-primary);
   -webkit-font-smoothing: antialiased;
   font-size: 14px;
 }
 .app-shell {
   display: flex;
   height: 100dvh;
-  background: var(--background);
+  background: var(--page);
 }
 .sidebar {
   width: 232px;
@@ -118,7 +118,7 @@ body {
 }
 .sidebar-link:hover {
   background: #f0ede9;
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 .sidebar-spacer {
   flex: 1;

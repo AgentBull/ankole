@@ -49,7 +49,7 @@ export function BackgroundActivity({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{t(`${key}title`)}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">{t(`${key}description`)}</p>
+          <p className="mt-1 text-xs text-fg-secondary">{t(`${key}description`)}</p>
         </div>
         {loading ? (
           <Skeleton className="h-8 w-64" />
@@ -89,7 +89,7 @@ export function BackgroundActivity({
           <Workflow agentUID={uid} />
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">{t(`${key}choose_agent`)}</p>
+        <p className="text-sm text-fg-secondary">{t(`${key}choose_agent`)}</p>
       )}
     </section>
   )
@@ -109,7 +109,7 @@ function Jobs({ agentUID }: { agentUID: string }) {
   return (
     <Group title={t(`${key}jobs`)} query={query}>
       {!rows.length ? <Empty /> : null}
-      <ul className="divide-y divide-border">
+      <ul className="divide-y divide-border-subtle">
         {rows.map(row => (
           <JobRow key={row.id} row={row} />
         ))}
@@ -136,12 +136,12 @@ function Workflow({ agentUID }: { agentUID: string }) {
   const runs = query.data?.runs ?? []
   return (
     <Group title={t(`${key}workflow`)} query={query}>
-      <section aria-label={t(`${key}calls`)} className="border-b border-border">
-        <h4 className="px-4 pt-3 text-xs font-medium text-muted-foreground">{t(`${key}calls`)}</h4>
+      <section aria-label={t(`${key}calls`)} className="border-b border-border-subtle">
+        <h4 className="px-4 pt-3 text-xs font-medium text-fg-secondary">{t(`${key}calls`)}</h4>
         {!calls.length ? (
           <Empty />
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-border-subtle">
             {calls.map(row => (
               <CallRow key={row.id} row={row} />
             ))}
@@ -150,11 +150,11 @@ function Workflow({ agentUID }: { agentUID: string }) {
         <Paging prefix="activity_calls_" count={calls.length} next={query.data?.calls_next_cursor} />
       </section>
       <section aria-label={t(`${key}runs`)}>
-        <h4 className="px-4 pt-3 text-xs font-medium text-muted-foreground">{t(`${key}runs`)}</h4>
+        <h4 className="px-4 pt-3 text-xs font-medium text-fg-secondary">{t(`${key}runs`)}</h4>
         {!runs.length ? (
           <Empty />
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-border-subtle">
             {runs.map(row => (
               <RunRow key={row.id} row={row} />
             ))}
@@ -169,11 +169,11 @@ type GroupQuery = { isPending: boolean; error: unknown; data?: { observed_at: st
 function Group({ title, query, children }: { title: string; query: GroupQuery; children: ReactNode }) {
   const { t } = useTranslation()
   return (
-    <section aria-label={title} className="min-w-0 border border-border bg-card">
-      <header className="border-b border-border px-4 py-3">
+    <section aria-label={title} className="min-w-0 border border-border-subtle bg-page">
+      <header className="border-b border-border-subtle px-4 py-3">
         <h3 className="text-sm font-semibold">{title}</h3>
         {query.data ? (
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs text-fg-secondary">
             {t(`${key}observed`, { time: formatConsoleDate(query.data.observed_at) })}
           </p>
         ) : null}
@@ -181,7 +181,7 @@ function Group({ title, query, children }: { title: string; query: GroupQuery; c
       {query.error ? (
         <div role="alert" className="space-y-2 p-4 text-sm">
           <p>{requestErrorCode(query.error) === 'forbidden' ? t(`${key}forbidden`) : t(`${key}unavailable`)}</p>
-          <p className="text-xs text-muted-foreground">{requestErrorMessage(query.error)}</p>
+          <p className="text-xs text-fg-secondary">{requestErrorMessage(query.error)}</p>
           <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
             {t('common.retry')}
           </Button>
@@ -199,7 +199,7 @@ function Group({ title, query, children }: { title: string; query: GroupQuery; c
 }
 function Empty() {
   const { t } = useTranslation()
-  return <p className="p-4 text-sm text-muted-foreground">{t(`${key}empty`)}</p>
+  return <p className="p-4 text-sm text-fg-secondary">{t(`${key}empty`)}</p>
 }
 function Paging({ prefix, count, next }: { prefix: string; count: number; next?: string | null }) {
   const [params, setParams] = useSearchParams()
@@ -233,7 +233,7 @@ function Row({
   return (
     <li className="space-y-2 px-4 py-3 text-xs">
       <div className="flex flex-wrap justify-between gap-2">
-        <span className="font-mono text-muted-foreground">
+        <span className="font-mono text-fg-secondary">
           {t(`${key}${kind}`)} #{id}
         </span>
         <StatusIndicator
@@ -255,7 +255,7 @@ function Row({
 function Ownership({ agent, owner, task }: { agent: string; owner: string; task?: string }) {
   const { t } = useTranslation()
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-muted-foreground">
+    <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-fg-secondary">
       <dt>{t(`${key}agent`)}</dt>
       <dd className="break-all">
         <AgentLink uid={agent} />
@@ -299,9 +299,9 @@ function JobRow({ row }: { row: BackgroundActivityJob }) {
       ) : null}
       <p>{t(`${key}attempts`, { count: row.attempts })}</p>
       <Failure code={row.error_code} summary={row.error_summary} />
-      <p className="text-muted-foreground">{t(`${key}queued`, { time: formatConsoleDate(row.queued_at) })}</p>
-      <p className="text-muted-foreground">{t(`${key}started`, { time: formatConsoleDate(row.started_at) })}</p>
-      <p className="text-muted-foreground">{t(`${key}updated`, { time: formatConsoleDate(row.updated_at) })}</p>
+      <p className="text-fg-secondary">{t(`${key}queued`, { time: formatConsoleDate(row.queued_at) })}</p>
+      <p className="text-fg-secondary">{t(`${key}started`, { time: formatConsoleDate(row.started_at) })}</p>
+      <p className="text-fg-secondary">{t(`${key}updated`, { time: formatConsoleDate(row.updated_at) })}</p>
     </Row>
   )
 }
@@ -326,7 +326,7 @@ function CallRow({ row }: { row: BackgroundActivityWorkflowCall }) {
       <Failure code={row.error_code} summary={row.error_summary} />
       <Failure code={row.run_error_code} summary={row.run_error_summary} />
       <Counts counts={row.run_counts} />
-      <p className="text-muted-foreground">{t(`${key}updated`, { time: formatConsoleDate(row.updated_at) })}</p>
+      <p className="text-fg-secondary">{t(`${key}updated`, { time: formatConsoleDate(row.updated_at) })}</p>
     </Row>
   )
 }
@@ -338,18 +338,18 @@ function RunRow({ row }: { row: BackgroundActivityWorkflowRun }) {
       {row.cleanup_pending ? <p className="text-warning">{t(`${key}cleanup_pending`)}</p> : null}
       <Counts counts={row.counts} />
       <Failure code={row.error_code} summary={row.error_summary} />
-      <p className="text-muted-foreground">{t(`${key}created`, { time: formatConsoleDate(row.inserted_at) })}</p>
+      <p className="text-fg-secondary">{t(`${key}created`, { time: formatConsoleDate(row.inserted_at) })}</p>
       {row.completed_at ? (
-        <p className="text-muted-foreground">{t(`${key}completed`, { time: formatConsoleDate(row.completed_at) })}</p>
+        <p className="text-fg-secondary">{t(`${key}completed`, { time: formatConsoleDate(row.completed_at) })}</p>
       ) : null}
-      <p className="text-muted-foreground">{t(`${key}updated`, { time: formatConsoleDate(row.updated_at) })}</p>
+      <p className="text-fg-secondary">{t(`${key}updated`, { time: formatConsoleDate(row.updated_at) })}</p>
     </Row>
   )
 }
 function Counts({ counts }: { counts: WorkflowActivityCounts }) {
   const { t } = useTranslation()
   return (
-    <p className="text-muted-foreground">
+    <p className="text-fg-secondary">
       {t(`${key}call_counts`)}:{' '}
       {Object.entries(counts)
         .filter(([status]) => status !== 'total')

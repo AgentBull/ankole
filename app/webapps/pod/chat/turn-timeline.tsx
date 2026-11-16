@@ -345,7 +345,7 @@ export function TurnTimeline({
             selecting &&
               selectable &&
               'relative flex items-start gap-2 rounded-control px-1.5 py-0.5 transition-colors',
-            isSelected && 'bg-accent/55 ring-1 ring-border'
+            isSelected && 'bg-layer-hover/55 ring-1 ring-border-subtle'
           )}>
           {selecting && selectable && id && (
             <button
@@ -358,7 +358,7 @@ export function TurnTimeline({
                 author
               })}
               onClick={() => model.toggleSelectedMessage(id)}
-              className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-foreground">
+              className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-fg-primary">
               {isSelected ? (
                 <CheckboxCheckedRegular className="size-4 text-primary" aria-hidden />
               ) : (
@@ -549,7 +549,7 @@ export function TurnTimeline({
             data-testid="chat-selection-toolbar"
             aria-label={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
             className="ceramic sticky bottom-2 z-20 mx-auto my-2 flex flex-wrap items-center gap-1.5 px-3 py-1.5 text-xs">
-            <span className="px-1 font-medium text-foreground">
+            <span className="px-1 font-medium text-fg-primary">
               {t('pod.chat_timeline.selected_count', {
                 defaultValue: '{$count} selected',
                 count: selectedMessages.length

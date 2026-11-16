@@ -56,7 +56,7 @@ test('draws an Agent or a group as a rounded square whose corner is a quarter of
     expect.arrayContaining(['data-[shape=square]:rounded-[25%]', 'after:rounded-[inherit]'])
   )
   expect(classesOf(tagWith(html, 'data-slot="avatar-fallback"'))).toEqual(
-    expect.arrayContaining(['rounded-[inherit]', 'bg-muted'])
+    expect.arrayContaining(['rounded-[inherit]', 'bg-layer-03'])
   )
   expect(attributeOf(tagWith(renderToStaticMarkup(<Avatar />), 'data-slot="avatar"'), 'data-shape')).toBe('circle')
 })

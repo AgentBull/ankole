@@ -51,23 +51,23 @@ export function CollaboratorsView({
             <TabsList variant="default" className="w-full justify-start">
               <TabsTrigger value="container" className="flex-none px-3">
                 {t('pod.sharing.tab_container')}
-                <span className="text-xs text-muted-foreground tabular-nums">{containerCount}</span>
+                <span className="text-xs text-fg-secondary tabular-nums">{containerCount}</span>
               </TabsTrigger>
               <TabsTrigger value="self" className="flex-none px-3">
                 {t('pod.sharing.tab_self')}
                 {selfGrants.length > 0 && (
-                  <span className="text-xs text-muted-foreground tabular-nums">{selfGrants.length}</span>
+                  <span className="text-xs text-fg-secondary tabular-nums">{selfGrants.length}</span>
                 )}
               </TabsTrigger>
             </TabsList>
           </div>
 
           <TabsContent value="container" className="max-h-80 overflow-y-auto px-4 py-2.5">
-            <p className="pb-1.5 text-xs text-muted-foreground">{t('pod.sharing.all_collaborators_hint')}</p>
+            <p className="pb-1.5 text-xs text-fg-secondary">{t('pod.sharing.all_collaborators_hint')}</p>
             {containerCount === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('pod.sharing.no_collaborators')}</p>
+              <p className="py-6 text-center text-sm text-fg-secondary">{t('pod.sharing.no_collaborators')}</p>
             ) : (
-              <ul className="divide-y divide-border/60">
+              <ul className="divide-y divide-border-subtle/60">
                 {sharing.inherited.map((item, idx) => (
                   <CollaboratorRow
                     key={`inherited:${subjectKey(item)}:${idx}`}
@@ -93,9 +93,9 @@ export function CollaboratorsView({
 
           <TabsContent value="self" className="max-h-80 overflow-y-auto px-4 py-2.5">
             {selfGrants.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('pod.sharing.no_direct_grants')}</p>
+              <p className="py-6 text-center text-sm text-fg-secondary">{t('pod.sharing.no_direct_grants')}</p>
             ) : (
-              <ul className="divide-y divide-border/60">
+              <ul className="divide-y divide-border-subtle/60">
                 {selfGrants.map(grant => (
                   <CollaboratorRow
                     key={`self:${subjectKey(grant)}`}
@@ -118,7 +118,7 @@ export function CollaboratorsView({
           </div>
         )}
 
-        <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+        <div className="flex items-center justify-between border-t border-border-subtle px-4 py-2.5">
           {canManage ? (
             <Button
               variant="ghost"

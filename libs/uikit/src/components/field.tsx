@@ -29,7 +29,7 @@ function FieldLegend({
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
-        'mb-3 data-[variant=label]:text-[13px] data-[variant=label]:leading-5 data-[variant=label]:font-medium data-[variant=legend]:title-inline',
+        'mb-3 data-[variant=label]:text-65 data-[variant=label]:leading-5 data-[variant=label]:font-medium data-[variant=legend]:title-inline',
         className
       )}
       {...props}
@@ -50,7 +50,7 @@ function FieldGroup({ className, ...props }: React.ComponentProps<'div'>) {
   )
 }
 
-const fieldVariants = cva('group/field flex w-full gap-3 data-[invalid=true]:text-destructive-foreground', {
+const fieldVariants = cva('group/field flex w-full gap-3 data-[invalid=true]:text-destructive-fg', {
   variants: {
     orientation: {
       vertical: 'flex-col *:w-full [&>.sr-only]:w-auto',
@@ -96,7 +96,7 @@ function FieldLabel({ className, ...props }: React.ComponentProps<typeof Label>)
     <Label
       data-slot="field-label"
       className={cn(
-        'group/field-label peer/field-label flex w-fit gap-2 group-data-[disabled=true]/field:text-fg-disabled has-data-checked:border-foreground has-[>[data-slot=field]]:rounded-none has-[>[data-slot=field]]:border *:data-[slot=field]:p-4',
+        'group/field-label peer/field-label flex w-fit gap-2 group-data-[disabled=true]/field:text-fg-disabled has-data-checked:border-fg-primary has-[>[data-slot=field]]:rounded-none has-[>[data-slot=field]]:border *:data-[slot=field]:p-4',
         'has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col',
         className
       )}
@@ -110,7 +110,7 @@ function FieldTitle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="field-label"
       className={cn(
-        'flex w-fit items-center gap-2 text-[13px] leading-5 font-medium group-data-[disabled=true]/field:text-fg-disabled',
+        'flex w-fit items-center gap-2 text-65 leading-5 font-medium group-data-[disabled=true]/field:text-fg-disabled',
         className
       )}
       {...props}
@@ -123,7 +123,7 @@ function FieldDescription({ className, ...props }: React.ComponentProps<'p'>) {
     <p
       data-slot="field-description"
       className={cn(
-        'text-left text-sm leading-5 font-normal tracking-normal text-muted-foreground normal-case group-data-[disabled=true]/field:text-fg-disabled group-has-data-horizontal/field:text-balance [[data-variant=legend]+&]:-mt-1.5',
+        'text-left text-sm leading-5 font-normal tracking-normal text-fg-secondary normal-case group-data-[disabled=true]/field:text-fg-disabled group-has-data-horizontal/field:text-balance [[data-variant=legend]+&]:-mt-1.5',
         'last:mt-0 nth-last-2:-mt-1',
         '[&>a]:link',
         className
@@ -149,7 +149,7 @@ function FieldSeparator({
       <Separator className="absolute inset-0 top-1/2" />
       {children && (
         <span
-          className="relative mx-auto block w-fit bg-background px-2 text-muted-foreground"
+          className="relative mx-auto block w-fit bg-page px-2 text-fg-secondary"
           data-slot="field-separator-content">
           {children}
         </span>
@@ -196,7 +196,7 @@ function FieldError({
     <div
       role="alert"
       data-slot="field-error"
-      className={cn('text-sm font-normal text-destructive-foreground motion-safe:animate-field-message-in', className)}
+      className={cn('text-sm font-normal text-destructive-fg motion-safe:animate-field-message-in', className)}
       {...props}>
       {content}
     </div>

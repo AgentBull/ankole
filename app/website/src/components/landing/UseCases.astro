@@ -43,7 +43,7 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 		<div
 			class:list={[
 				ROW,
-				'hidden border-b border-border pb-3 font-mono text-[11px] tracking-[0.12em] text-fg-quaternary uppercase sm:grid'
+				'hidden border-b border-border-subtle pb-3 font-mono text-[11px] tracking-[0.12em] text-fg-quaternary uppercase sm:grid'
 			]}
 		>
 			<span>{columns.request}</span>
@@ -51,13 +51,13 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 			<span>{columns.result}</span>
 		</div>
 
-		<ol class="list-none border-t border-border p-0 sm:border-t-0">
+		<ol class="list-none border-t border-border-subtle p-0 sm:border-t-0">
 			{
 				requests.map((request, index) => (
-					<li class="record border-b border-border">
+					<li class="record border-b border-border-subtle">
 						<Reveal step={index} class={`${ROW} py-6`}>
-							<h3 class="text-base font-semibold text-foreground">{request.title}</h3>
-							<p class="record-quiet mt-1 text-sm leading-6 text-muted-foreground sm:mt-0">
+							<h3 class="text-base font-semibold text-fg-primary">{request.title}</h3>
+							<p class="record-quiet mt-1 text-sm leading-6 text-fg-secondary sm:mt-0">
 								{request.action}
 							</p>
 							{/* The result is the payload, so it is the only coloured item in the row. */}
@@ -79,7 +79,7 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 			 */}
 			<blockquote
 				class:list={[
-					'm-0 mt-10 border-l-2 border-brand-60 pl-6 text-lg leading-8 text-foreground dark:border-brand-40',
+					'm-0 mt-10 border-l-2 border-brand-60 pl-6 text-lg leading-8 text-fg-primary dark:border-brand-40',
 					(lang === 'zh-Hans-CN' || lang === 'ja-JP') && '[text-indent:-0.61em]'
 				]}
 			>

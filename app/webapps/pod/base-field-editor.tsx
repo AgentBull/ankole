@@ -415,7 +415,7 @@ export function FieldEditorButton({
             </Button>
           )}
           {confirmation && (
-            <div role="alert" className="rounded border border-border p-3 text-sm">
+            <div role="alert" className="rounded border border-border-subtle p-3 text-sm">
               {confirmation === 'clear'
                 ? t('pod.content.existing_values_that_cannot_be_converted_will_be_cleared_confirm')
                 : confirmation === 'delete'
@@ -426,7 +426,7 @@ export function FieldEditorButton({
             </div>
           )}
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border pt-3">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border-subtle pt-3">
           <Button
             ref={cancel}
             type="button"

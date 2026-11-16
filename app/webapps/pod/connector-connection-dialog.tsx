@@ -205,7 +205,7 @@ export function ConnectionEditorDialog({
           {['lark', 'github', 'linear'].includes(model.plugin.value) && (
             <details className="rounded-lg border p-3 text-sm">
               <summary className="cursor-pointer font-medium">{t('pod.connectors.setup_help')}</summary>
-              <div className="mt-3 grid gap-3 text-muted-foreground">
+              <div className="mt-3 grid gap-3 text-fg-secondary">
                 <p>
                   {t(`pod.connectors.setup_${model.plugin.value}${model.scheme.value === 'github_app' ? '_app' : ''}`)}
                 </p>
@@ -247,7 +247,7 @@ export function ConnectionEditorDialog({
                 onFocus={event => event.target.select()}
                 aria-describedby="connector-callback-help"
               />
-              <p id="connector-callback-help" className="text-xs text-muted-foreground">
+              <p id="connector-callback-help" className="text-xs text-fg-secondary">
                 {t('pod.connectors.oauth_callback_help')}
               </p>
             </div>
@@ -277,7 +277,7 @@ export function ConnectionEditorDialog({
               model.slug.value = event.target.value
             }}
           />
-          <p id="connector-slug-help" className="text-xs text-muted-foreground">
+          <p id="connector-slug-help" className="text-xs text-fg-secondary">
             {t('pod.connectors.slug_help')}
           </p>
           {fields(connector?.public_fields, false)}

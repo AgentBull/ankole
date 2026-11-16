@@ -62,7 +62,7 @@ describe('Board', () => {
   test('draws a column as a quiet surface that its label names, and supports an empty lane placeholder', () => {
     const column = tagWith(board(), 'data-slot="board-column"')
     expect(column).toContain('aria-label="In progress"')
-    expect(classesOf(column)).toContain('bg-background-secondary')
+    expect(classesOf(column)).toContain('bg-layer-01')
 
     const empty = renderToStaticMarkup(<BoardColumnEmpty>Nothing queued</BoardColumnEmpty>)
     expect(tagWith(empty, 'data-slot="board-column-empty"')).toBeDefined()
@@ -72,7 +72,7 @@ describe('Board', () => {
   test('heads a column with its status icon in its tone, its title, its count, and its actions', () => {
     const html = board()
     const header = tagWith(html, 'data-slot="board-column-header"')
-    expect(attributeOf(header, 'style')).toBe('--board-tone:var(--color-blue-50)')
+    expect(attributeOf(header, 'style')).toBe('--board-tone:var(--board-tone-blue)')
     const icon = html.indexOf('data-icon="half"')
     const title = html.indexOf('In progress</span>')
     const count = html.indexOf('>2</span>')

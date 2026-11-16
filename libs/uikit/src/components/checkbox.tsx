@@ -8,8 +8,8 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        'peer group/checkbox relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-mini border border-input bg-background after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-offset-1 data-disabled:cursor-not-allowed data-disabled:data-unchecked:border-border! data-disabled:data-unchecked:bg-field! aria-invalid:border-destructive',
-        '[&:is([data-checked],[data-indeterminate])]:border-foreground [&:is([data-checked],[data-indeterminate])]:bg-foreground [&:is([data-checked],[data-indeterminate])]:text-background [&[data-disabled]:is([data-checked],[data-indeterminate])]:border-fg-disabled! [&[data-disabled]:is([data-checked],[data-indeterminate])]:bg-fg-disabled!',
+        'peer group/checkbox relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-mini border border-field-border bg-page after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-offset-1 data-disabled:cursor-not-allowed data-disabled:data-unchecked:border-border-subtle! data-disabled:data-unchecked:bg-field! aria-invalid:border-destructive',
+        '[&:is([data-checked],[data-indeterminate])]:border-fg-primary [&:is([data-checked],[data-indeterminate])]:bg-fg-primary [&:is([data-checked],[data-indeterminate])]:text-page [&[data-disabled]:is([data-checked],[data-indeterminate])]:border-fg-disabled! [&[data-disabled]:is([data-checked],[data-indeterminate])]:bg-fg-disabled!',
         'motion-safe:[transition:background-color_160ms_ease,border-color_160ms_ease,box-shadow_160ms_ease,scale_160ms_cubic-bezier(.22,1,.36,1)] motion-safe:[&:active:not([data-disabled],[data-readonly])]:scale-90',
         className
       )}

@@ -24,13 +24,13 @@ function ItemSeparator({ className, ...props }: React.ComponentProps<typeof Sepa
 }
 
 const itemVariants = cva(
-  'group/item flex w-full flex-wrap items-center rounded-none border text-sm transition-colors duration-100 focus-visible:outline-offset-1 [a]:transition-colors [a]:hover:bg-muted',
+  'group/item flex w-full flex-wrap items-center rounded-none border text-sm transition-colors duration-100 focus-visible:outline-offset-1 [a]:transition-colors [a]:hover:bg-layer-03',
   {
     variants: {
       variant: {
         default: 'border-transparent',
-        outline: 'border-border',
-        muted: 'border-transparent bg-muted/50'
+        outline: 'border-border-subtle',
+        muted: 'border-transparent bg-layer-03/50'
       },
       size: {
         default: 'gap-3.5 px-4 py-3.5',
@@ -131,7 +131,7 @@ function ItemDescription({ className, ...props }: React.ComponentProps<'p'>) {
   return (
     <p
       data-slot="item-description"
-      className={cn('line-clamp-2 text-left text-sm leading-5 font-normal text-muted-foreground [&>a]:link', className)}
+      className={cn('line-clamp-2 text-left text-sm leading-5 font-normal text-fg-secondary [&>a]:link', className)}
       {...props}
     />
   )

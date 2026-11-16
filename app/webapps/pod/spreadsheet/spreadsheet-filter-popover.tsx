@@ -66,7 +66,7 @@ export function SpreadsheetFilterPopover({
       {values === undefined ? (
         <InlineLoading label={t('pod.spreadsheet.loading')} className="text-xs" />
       ) : (
-        <div className="max-h-56 overflow-y-auto rounded-control border border-border p-1">
+        <div className="max-h-56 overflow-y-auto rounded-control border border-border-subtle p-1">
           <Label className="flex items-center gap-2 px-1 py-1 text-sm">
             <Checkbox checked={allShown} onCheckedChange={on => toggleAll(on === true)} />
             {t('pod.spreadsheet.filter_select_all')}

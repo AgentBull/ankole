@@ -103,7 +103,7 @@ function BrainLayersCard({
   const { t } = useTranslation()
 
   return (
-    <div className="ceramic w-56 rounded-control border border-border p-3 text-xs shadow-sm">
+    <div className="ceramic w-56 rounded-control border border-border-subtle p-3 text-xs shadow-sm">
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <span className="font-semibold text-fg-primary">{t('pod.meta.toggle_layers')}</span>
         <div className="flex items-center gap-1">
@@ -111,7 +111,7 @@ function BrainLayersCard({
             <button
               type="button"
               onClick={onReset}
-              className="rounded px-1.5 py-0.5 text-[11px] text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary">
+              className="rounded px-1.5 py-0.5 text-50 text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary">
               {t('pod.meta.reset_layers')}
             </button>
           )}
@@ -127,7 +127,7 @@ function BrainLayersCard({
 
       {entityLayers.length > 0 && (
         <div className="space-y-1">
-          <div className="px-1 text-[11px] font-medium text-fg-tertiary uppercase">{t('pod.meta.layers_nodes')}</div>
+          <div className="px-1 text-50 font-medium text-fg-tertiary uppercase">{t('pod.meta.layers_nodes')}</div>
           {entityLayers.map(layer => {
             const swatch = palette.ramps[layer.ramp].fill
             return (
@@ -147,7 +147,7 @@ function BrainLayersCard({
                   />
                   <span className="truncate">{layer.type}</span>
                 </span>
-                <span className="shrink-0 font-mono text-[11px] text-fg-tertiary">{layer.count}</span>
+                <span className="shrink-0 font-mono text-50 text-fg-tertiary">{layer.count}</span>
               </button>
             )
           })}
@@ -155,8 +155,8 @@ function BrainLayersCard({
       )}
 
       {relationLayers.length > 0 && (
-        <div className="mt-3 space-y-1 border-t border-border/70 pt-2.5">
-          <div className="px-1 text-[11px] font-medium text-fg-tertiary uppercase">{t('pod.meta.layers_edges')}</div>
+        <div className="mt-3 space-y-1 border-t border-border-subtle/70 pt-2.5">
+          <div className="px-1 text-50 font-medium text-fg-tertiary uppercase">{t('pod.meta.layers_edges')}</div>
           {relationLayers.map(layer => {
             const swatch = palette.ramps[layer.ramp].fill
             const dashed = layer.kind === 'reference' || layer.kind === 'evidence'
@@ -180,7 +180,7 @@ function BrainLayersCard({
                   />
                   <span className="truncate">{t(`pod.meta.relation_${layer.kind}`)}</span>
                 </span>
-                <span className="shrink-0 font-mono text-[11px] text-fg-tertiary">{layer.count}</span>
+                <span className="shrink-0 font-mono text-50 text-fg-tertiary">{layer.count}</span>
               </button>
             )
           })}
@@ -210,18 +210,18 @@ function BrainInspectorCard({
 
   if (selection.kind === 'hub') {
     return (
-      <div className="ceramic w-72 space-y-3 rounded-control border border-border p-3.5 text-xs shadow-sm">
+      <div className="ceramic w-72 space-y-3 rounded-control border border-border-subtle p-3.5 text-xs shadow-sm">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span
-                className="size-2.5 shrink-0 rotate-45 rounded-[2px]"
+                className="size-2.5 shrink-0 rotate-45 rounded-micro"
                 style={{ backgroundColor: accent.fill }}
                 aria-hidden="true"
               />
               <span className="truncate text-sm font-semibold text-fg-primary">{selection.category.name}</span>
             </div>
-            <div className="mt-0.5 font-mono text-[11px] text-fg-tertiary">
+            <div className="mt-0.5 font-mono text-50 text-fg-tertiary">
               {selection.category.entity_type} · {selection.category.primitive}
             </div>
           </div>
@@ -246,7 +246,7 @@ function BrainInspectorCard({
         )}
 
         <div className="space-y-1">
-          <div className="text-[11px] font-medium text-fg-tertiary">
+          <div className="text-50 font-medium text-fg-tertiary">
             {t('pod.meta.inspector_members')} ({selection.members.length})
           </div>
           <ul className="max-h-56 space-y-1 overflow-y-auto pr-0.5">
@@ -280,7 +280,7 @@ function BrainInspectorCard({
   const { object, category, ancestors, children, relations } = selection
 
   return (
-    <div className="ceramic w-72 space-y-3 rounded-control border border-border p-3.5 text-xs shadow-sm">
+    <div className="ceramic w-72 space-y-3 rounded-control border border-border-subtle p-3.5 text-xs shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -293,11 +293,11 @@ function BrainInspectorCard({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <span
-              className="rounded px-1.5 py-0.5 font-mono text-[11px]"
+              className="rounded px-1.5 py-0.5 font-mono text-50"
               style={{ backgroundColor: accent.subtle, color: accent.text }}>
               {object.subtype ? `${object.type} · ${object.subtype}` : object.type}
             </span>
-            <span className="truncate font-mono text-[11px] text-fg-tertiary">{object.slug}</span>
+            <span className="truncate font-mono text-50 text-fg-tertiary">{object.slug}</span>
           </div>
         </div>
         <button
@@ -326,9 +326,9 @@ function BrainInspectorCard({
       </div>
 
       {(category || ancestors.length > 0) && (
-        <div className="space-y-1 border-t border-border/70 pt-2.5">
-          <div className="text-[11px] font-medium text-fg-tertiary">{t('pod.meta.inspector_hierarchy')}</div>
-          <div className="flex flex-wrap items-center gap-1 text-[11px] text-fg-secondary">
+        <div className="space-y-1 border-t border-border-subtle/70 pt-2.5">
+          <div className="text-50 font-medium text-fg-tertiary">{t('pod.meta.inspector_hierarchy')}</div>
+          <div className="flex flex-wrap items-center gap-1 text-50 text-fg-secondary">
             {category && (
               <button
                 type="button"
@@ -356,8 +356,8 @@ function BrainInspectorCard({
       )}
 
       {children.length > 0 && (
-        <div className="space-y-1 border-t border-border/70 pt-2.5">
-          <div className="text-[11px] font-medium text-fg-tertiary">
+        <div className="space-y-1 border-t border-border-subtle/70 pt-2.5">
+          <div className="text-50 font-medium text-fg-tertiary">
             {t('pod.meta.inspector_children')} ({children.length})
           </div>
           <ul className="max-h-28 space-y-1 overflow-y-auto pr-0.5">
@@ -387,8 +387,8 @@ function BrainInspectorCard({
       )}
 
       {relations.length > 0 && (
-        <div className="space-y-1 border-t border-border/70 pt-2.5">
-          <div className="text-[11px] font-medium text-fg-tertiary">
+        <div className="space-y-1 border-t border-border-subtle/70 pt-2.5">
+          <div className="text-50 font-medium text-fg-tertiary">
             {t('pod.meta.inspector_relations')} ({relations.length})
           </div>
           <ul className="max-h-40 space-y-1 overflow-y-auto pr-0.5">
@@ -399,7 +399,7 @@ function BrainInspectorCard({
                   key={`${rel.direction}:${rel.linkType}:${rel.peer.id}:${idx}`}
                   className="flex items-center justify-between gap-1.5 rounded px-1.5 py-1 hover:bg-bg-secondary/70">
                   <span
-                    className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]"
+                    className="shrink-0 rounded px-1.5 py-0.5 font-mono text-25"
                     style={{ backgroundColor: relAccent.subtle, color: relAccent.text }}>
                     {rel.direction === 'outgoing' ? `→ ${rel.linkType}` : `← ${rel.linkType}`}
                   </span>
@@ -769,7 +769,7 @@ export function MetaBrain() {
             }
             bottomOverlay={
               projection.visibleObjects.length > 0 ? (
-                <div className="ceramic rounded-full border border-border px-3 py-1 text-xs text-fg-secondary shadow-xs">
+                <div className="ceramic rounded-full border border-border-subtle px-3 py-1 text-xs text-fg-secondary shadow-xs">
                   {t('pod.meta.graph_stats', {
                     nodes: projection.visibleObjects.length,
                     edges: projection.edges.length
@@ -792,7 +792,7 @@ export function MetaBrain() {
                     onMouseEnter={() => setHoveredDirectoryId(node.id)}
                     onMouseLeave={() => setHoveredDirectoryId(prev => (prev === node.id ? null : prev))}
                     className={`nav-row flex items-center justify-between gap-2 rounded-control px-2.5 py-1.5 transition-opacity ${
-                      isSelected ? 'bg-bg-secondary ring-1 ring-border' : ''
+                      isSelected ? 'bg-bg-secondary ring-1 ring-border-subtle' : ''
                     } ${dimmed ? 'opacity-45' : ''}`}>
                     <Link to={`/meta/brain/${node.id}`} className="flex min-w-0 flex-1 items-center gap-2">
                       <span

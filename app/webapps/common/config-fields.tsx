@@ -66,9 +66,9 @@ export function ConfigFields({
       ) : null}
       {advancedFields.length > 0 ? (
         <Collapsible className="grid gap-4" defaultOpen={false}>
-          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border/70 bg-card/60 px-4 py-3 text-left text-sm font-medium text-foreground">
+          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border-subtle/70 bg-page/60 px-4 py-3 text-left text-sm font-medium text-fg-primary">
             <span>{advancedLabel}</span>
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2 text-xs text-fg-secondary">
               {showAdvancedCount ? advancedFields.length : null}
               <ChevronDownRegular className="size-4 transition-transform group-aria-expanded:rotate-180" aria-hidden />
             </span>
@@ -146,7 +146,7 @@ export function ConfigField({
   const labelContent = (
     <>
       {label}
-      {required ? <span className="ml-1 font-normal text-muted-foreground">{i18n.t('common.required')}</span> : null}
+      {required ? <span className="ml-1 font-normal text-fg-secondary">{i18n.t('common.required')}</span> : null}
     </>
   )
 
@@ -156,7 +156,7 @@ export function ConfigField({
         <FieldLabel id={`${controlID}-label`}>{labelContent}</FieldLabel>
         <FieldLabel
           htmlFor={controlID}
-          className="h-8 w-full cursor-pointer items-center justify-between rounded-control border border-field-edge border-b-input bg-field px-3 text-sm font-normal transition-[background-color,border-color] hover:bg-field-hover has-data-checked:border-field-edge has-data-checked:border-b-input has-focus-visible:border-b-ring has-focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)]">
+          className="h-8 w-full cursor-pointer items-center justify-between rounded-control border border-field-edge border-b-field-border bg-field px-3 text-sm font-normal transition-[background-color,border-color] hover:bg-field-hover has-data-checked:border-field-edge has-data-checked:border-b-field-border has-focus-visible:border-b-ring has-focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)]">
           <span>{i18n.t('common.enable')}</span>
           <Switch
             id={controlID}

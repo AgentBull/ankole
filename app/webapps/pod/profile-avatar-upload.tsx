@@ -83,14 +83,19 @@ export function ProfileAvatarUpload({
   return (
     <div className="grid gap-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <Avatar className={cn('size-20 bg-muted ring-1 ring-border', square && 'rounded-2xl', pending && 'opacity-70')}>
+        <Avatar
+          className={cn(
+            'size-20 bg-layer-03 ring-1 ring-border-subtle',
+            square && 'rounded-2xl',
+            pending && 'opacity-70'
+          )}>
           {source && <AvatarImage src={source} alt={t('pod.settings.avatar_alt', { name })} />}
           <AvatarFallback className="text-xl font-medium">{avatarInitials(name)}</AvatarFallback>
         </Avatar>
         <div className="grid min-w-0 gap-2">
           <div className="grid gap-1">
-            <p className="text-sm font-medium text-foreground">{t('pod.settings.avatar')}</p>
-            <p id={`${kind}-avatar-hint`} className="text-xs leading-5 text-muted-foreground">
+            <p className="text-sm font-medium text-fg-primary">{t('pod.settings.avatar')}</p>
+            <p id={`${kind}-avatar-hint`} className="text-xs leading-5 text-fg-secondary">
               {t('pod.settings.avatar_hint')}
             </p>
           </div>

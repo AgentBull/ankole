@@ -184,8 +184,8 @@ export function AccountSettings() {
       items={navigation}>
       <ContentError error={accountError} />
       {needsReauthentication && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
-          <p className="text-sm text-muted-foreground">{t('pod.account.reauthenticate_hint')}</p>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-subtle bg-layer-03/30 px-4 py-3">
+          <p className="text-sm text-fg-secondary">{t('pod.account.reauthenticate_hint')}</p>
           {desktopRuntime ? (
             <Button
               variant="outline"
@@ -215,7 +215,7 @@ export function AccountSettings() {
               onUploaded={avatarUploaded}
             />
             <form
-              className="grid gap-4 border-t border-border pt-6"
+              className="grid gap-4 border-t border-border-subtle pt-6"
               onSubmit={event => {
                 event.preventDefault()
                 profile.mutate()
@@ -240,7 +240,7 @@ export function AccountSettings() {
               {(profileChanged || profile.isPending || profile.isSuccess) && (
                 <div className="flex items-center justify-end gap-3">
                   {profile.isSuccess && model.displayName.value === undefined ? (
-                    <p role="status" className="text-sm text-muted-foreground">
+                    <p role="status" className="text-sm text-fg-secondary">
                       {t('pod.settings.saved')}
                     </p>
                   ) : (
@@ -257,7 +257,7 @@ export function AccountSettings() {
       <SettingsPanel value="login">
         <SettingsSection title={t('pod.account.login_email')} description={t('auth.personal_email_notice')}>
           <div className="grid gap-5">
-            <ul className="grid divide-y divide-border">
+            <ul className="grid divide-y divide-border-subtle">
               {me.data?.credentials.map(credential => (
                 <li
                   key={credential.id}
@@ -284,8 +284,8 @@ export function AccountSettings() {
               ))}
             </ul>
             {desktopRuntime ? (
-              <div className="grid gap-3 border-t border-border pt-5">
-                <p className="text-sm text-muted-foreground">
+              <div className="grid gap-3 border-t border-border-subtle pt-5">
+                <p className="text-sm text-fg-secondary">
                   {t(
                     me.data?.credentialChangeAllowed === false
                       ? 'pod.account.credential_change_disabled'
@@ -304,12 +304,12 @@ export function AccountSettings() {
             ) : (
               <>
                 {me.data && me.data.credentials.length <= 1 && (
-                  <p className="text-sm text-muted-foreground">{t('common.authn.last_login_method')}</p>
+                  <p className="text-sm text-fg-secondary">{t('common.authn.last_login_method')}</p>
                 )}
                 {me.data?.credentialChangeAllowed ? (
                   !model.challengeID.value ? (
                     <form
-                      className="grid max-w-md gap-3 border-t border-border pt-5"
+                      className="grid max-w-md gap-3 border-t border-border-subtle pt-5"
                       onSubmit={event => {
                         event.preventDefault()
                         request.mutate(false)
@@ -339,7 +339,7 @@ export function AccountSettings() {
                     </form>
                   ) : (
                     <form
-                      className="grid max-w-md gap-4 border-t border-border pt-5"
+                      className="grid max-w-md gap-4 border-t border-border-subtle pt-5"
                       onSubmit={event => {
                         event.preventDefault()
                         if (verify.isPending || request.isPending || model.code.value.length !== 6) return
@@ -389,7 +389,7 @@ export function AccountSettings() {
                     </form>
                   )
                 ) : (
-                  <p className="border-t border-border pt-5 text-sm text-muted-foreground">
+                  <p className="border-t border-border-subtle pt-5 text-sm text-fg-secondary">
                     {t('pod.account.credential_change_disabled')}
                   </p>
                 )}
@@ -415,10 +415,10 @@ export function AccountSettings() {
           description={t('pod.account.exit_description')}
           className="ring-destructive/30">
           {me.data?.managed ? (
-            <p className="text-sm leading-6 text-muted-foreground">{t('pod.account.managed_exit')}</p>
+            <p className="text-sm leading-6 text-fg-secondary">{t('pod.account.managed_exit')}</p>
           ) : desktopRuntime ? (
             <div className="grid gap-3">
-              <p className="text-sm text-muted-foreground">{t('pod.account.manage_in_browser_exit_description')}</p>
+              <p className="text-sm text-fg-secondary">{t('pod.account.manage_in_browser_exit_description')}</p>
               <div>
                 <Button type="button" variant="outline" size="sm" onClick={() => openInBrowser('exit')}>
                   <OpenRegular aria-hidden data-icon="inline-start" />

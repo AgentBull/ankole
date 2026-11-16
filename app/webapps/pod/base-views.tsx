@@ -185,7 +185,7 @@ function GridView(props: ViewProps) {
         aria-label={t('pod.content.table_records')}
         tabIndex={0}>
         <Table containerClassName="overflow-visible" aria-rowcount={props.records.length + 1}>
-          <TableHeader className="sticky top-0 z-10 bg-background">
+          <TableHeader className="sticky top-0 z-10 bg-page">
             <TableRow>
               {visible.map(field => {
                 const Icon = fieldIcons[field.type]
@@ -286,7 +286,7 @@ function GridView(props: ViewProps) {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="w-full justify-start text-fg-tertiary hover:text-foreground"
+                    className="w-full justify-start text-fg-tertiary hover:text-fg-primary"
                     disabled={addingRow || props.pending}
                     onClick={() => {
                       if (addingRow) return
@@ -361,7 +361,7 @@ function RecordCard(
           if (target?.closest('a, button, input, select, textarea')) return
           setOpen(true)
         }}
-        className="cursor-pointer space-y-2 overflow-hidden rounded-control border border-border bg-card p-3 transition-colors hover:border-control-edge">
+        className="cursor-pointer space-y-2 overflow-hidden rounded-control border border-border-subtle bg-page p-3 transition-colors hover:border-control-edge">
         {props.coverImage && (
           <img
             className="-mx-3 -mt-3 mb-2 h-36 w-[calc(100%+1.5rem)] max-w-none object-cover"
@@ -672,7 +672,7 @@ function KanbanColumn({
   return (
     <ReferenceLabelsProvider fields={props.fields} records={rows.data?.records ?? []}>
       <section
-        className={`w-64 shrink-0 space-y-3 rounded-control bg-muted/40 p-3 transition-colors ${dragOver ? 'bg-accent/60 ring-2 ring-primary/40' : ''}`}
+        className={`w-64 shrink-0 space-y-3 rounded-control bg-layer-03/40 p-3 transition-colors ${dragOver ? 'bg-layer-hover/60 ring-2 ring-primary/40' : ''}`}
         onDragOver={event => {
           if (props.editable && writableField(field)) {
             event.preventDefault()
@@ -902,8 +902,8 @@ export function RecordForm(
               return (
                 <div
                   key={field.id}
-                  className="flex items-center justify-between gap-3 rounded-control border border-border px-3 py-2">
-                  <span className="flex min-w-0 items-center gap-2 truncate text-foreground">
+                  className="flex items-center justify-between gap-3 rounded-control border border-border-subtle px-3 py-2">
+                  <span className="flex min-w-0 items-center gap-2 truncate text-fg-primary">
                     <Icon aria-hidden="true" className="size-4 shrink-0 text-fg-tertiary" />
                     <span className="truncate">{field.name}</span>
                   </span>

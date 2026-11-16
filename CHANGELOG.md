@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 2.0.0-alpha.161 (2026-11-16)
+
+- Align the Pod, Console, setup, and sign-in screens with the Ankole design
+  system: every colour comes from a semantic or component token that follows
+  the light and dark themes, and type and corner sizes come from the type and
+  radius ladders. Small labels that used 11px type now use the 12px step, Page
+  titles use the 30px step, board columns and the jobs empty state take the
+  8px surface radius, and Word find highlights use the same yellow marks as
+  Pod search. Applets keep working with the earlier CSS variable names (such
+  as `--background`, `--foreground`, and `--muted-foreground`) and with the
+  matching colour utilities (such as `text-muted-foreground` and `bg-card`).
+
 ## Version 2.0.0-alpha.160 (2026-11-16)
 
 - Add `web_fetch` support to the Cloudflare AIGateway provider via Cloudflare

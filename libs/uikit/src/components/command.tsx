@@ -42,7 +42,7 @@ function Command({ className, children, asChild, ...props }: React.ComponentProp
     <CommandPrimitive
       data-slot="command"
       asChild={asChild}
-      className={cn('flex size-full flex-col overflow-hidden text-popover-foreground', className)}
+      className={cn('flex size-full flex-col overflow-hidden text-fg-primary', className)}
       {...props}>
       {asChild ? (
         children
@@ -134,7 +134,7 @@ function CommandGroup({ className, ...props }: React.ComponentProps<typeof Comma
   return (
     <CommandPrimitive.Group
       data-slot="command-group"
-      className={cn('overflow-hidden p-1 text-foreground **:[[cmdk-group-heading]]:menu-group-label', className)}
+      className={cn('overflow-hidden p-1 text-fg-primary **:[[cmdk-group-heading]]:menu-group-label', className)}
       {...props}
     />
   )
@@ -155,7 +155,7 @@ function CommandItem({ className, children, ...props }: React.ComponentProps<typ
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-control px-2.5 py-2 text-sm leading-5 outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-disabled data-[selected=true]:bg-(--layer-hover) data-[selected=true]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[selected=true]:*:[svg]:text-foreground",
+        "group/command-item relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-control px-2.5 py-2 text-sm leading-5 outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-disabled data-[selected=true]:bg-(--layer-hover) data-[selected=true]:text-fg-primary [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[selected=true]:*:[svg]:text-fg-primary",
         className
       )}
       {...props}>
@@ -170,7 +170,7 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<'span'>) 
     <span
       data-slot="command-shortcut"
       className={cn(
-        'ml-auto text-xs text-muted-foreground group-data-[selected=true]/command-item:text-foreground',
+        'ml-auto text-xs text-fg-secondary group-data-[selected=true]/command-item:text-fg-primary',
         className
       )}
       {...props}

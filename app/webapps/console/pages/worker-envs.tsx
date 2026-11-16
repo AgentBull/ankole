@@ -79,7 +79,7 @@ export function WorkerEnvPlaintextWarning({ compact = false }: { compact?: boole
   const { t } = useTranslation()
   if (compact) {
     return (
-      <p className="text-xs leading-5 text-warning-foreground" role="note">
+      <p className="text-xs leading-5 text-warning-fg" role="note">
         {t('console.worker_envs.plaintext_warning_description')}
       </p>
     )
@@ -192,7 +192,7 @@ export function WorkerEnvsListPage() {
           <TableCell className="max-w-[360px] whitespace-normal">
             <div className="grid gap-1.5">
               <span className="break-all font-mono text-xs">{item.name}</span>
-              <span className="text-xs leading-5 text-muted-foreground">{item.description}</span>
+              <span className="text-xs leading-5 text-fg-secondary">{item.description}</span>
             </div>
           </TableCell>
           <WorkerEnvValueCell item={globalItems.get(item.name)} scope="global" />
@@ -206,7 +206,7 @@ export function WorkerEnvsListPage() {
 
 function WorkerEnvValueCell({ item, scope }: { item?: WorkerEnvItem; scope: 'global' | 'tenant' }) {
   const { t } = useTranslation()
-  if (!item) return <TableCell className="text-muted-foreground">—</TableCell>
+  if (!item) return <TableCell className="text-fg-secondary">—</TableCell>
   return (
     <TableCell className="max-w-72 whitespace-normal">
       <div className="flex items-start justify-between gap-3">
@@ -449,7 +449,9 @@ export function WorkerEnvEditorPage() {
               />
             )}
           </LabeledField>
-          <Field orientation="horizontal" className="items-center justify-between border border-border bg-muted/30 p-4">
+          <Field
+            orientation="horizontal"
+            className="items-center justify-between border border-border-subtle bg-layer-03/30 p-4">
             <div className="grid gap-1 pr-4">
               <FieldLabel htmlFor="worker-env-secret">{t('console.worker_envs.secret_storage')}</FieldLabel>
               <FieldDescription id="worker-env-secret-hint">{t('console.worker_envs.secret_hint')}</FieldDescription>

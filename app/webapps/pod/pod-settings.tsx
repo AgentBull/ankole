@@ -315,7 +315,7 @@ export function ManagedAgent({
             {t(`console.status.${agent.status}`)}
           </Badge>
         </div>
-        <p className="text-sm wrap-anywhere text-muted-foreground">
+        <p className="text-sm wrap-anywhere text-fg-secondary">
           @{agent.uid} · {t('pod.settings.agent_owner', { uid: agent.ownerUID })}
         </p>
       </CardHeader>
@@ -434,7 +434,7 @@ function GeneralSettings({ model }: { model: Model }) {
             avatarURL={settings.data?.avatarURL}
             onUploaded={avatarUploaded}
           />
-          <div className="grid max-w-md gap-2 border-t border-border pt-6">
+          <div className="grid max-w-md gap-2 border-t border-border-subtle pt-6">
             <Label htmlFor="space-name">{t('auth.space_name')}</Label>
             <Input
               id="space-name"
@@ -467,7 +467,7 @@ function GeneralSettings({ model }: { model: Model }) {
                 ))}
               </SelectContent>
             </Select>
-            <p id="space-default-locale-hint" className="text-xs leading-5 text-muted-foreground">
+            <p id="space-default-locale-hint" className="text-xs leading-5 text-fg-secondary">
               {t('pod.settings.default_locale_hint')}
             </p>
           </div>
@@ -481,7 +481,7 @@ function GeneralSettings({ model }: { model: Model }) {
             />
             <span className="grid gap-1">
               <span>{t('pod.settings.allow_guests')}</span>
-              <span className="text-xs leading-5 text-pretty text-muted-foreground">
+              <span className="text-xs leading-5 text-pretty text-fg-secondary">
                 {t('pod.settings.allow_guests_hint')}
               </span>
             </span>
@@ -494,7 +494,7 @@ function GeneralSettings({ model }: { model: Model }) {
         <div className="grid gap-5">
           <div className="grid max-w-md gap-2">
             <Label htmlFor="domains">{t('pod.settings.domains')}</Label>
-            <p id="domains-hint" className="text-xs leading-5 text-muted-foreground">
+            <p id="domains-hint" className="text-xs leading-5 text-fg-secondary">
               {t('pod.settings.domains_hint')}
             </p>
             <Input
@@ -508,7 +508,7 @@ function GeneralSettings({ model }: { model: Model }) {
               }}
             />
           </div>
-          <div className="grid gap-3 border-t border-border pt-5">
+          <div className="grid gap-3 border-t border-border-subtle pt-5">
             {(
               [
                 'allow_email_otp',
@@ -534,13 +534,13 @@ function GeneralSettings({ model }: { model: Model }) {
             ))}
           </div>
           {settings.data && !settings.data.emailAvailable && (
-            <p className="text-xs leading-5 text-muted-foreground">{t('pod.settings.smtp_required')}</p>
+            <p className="text-xs leading-5 text-fg-secondary">{t('pod.settings.smtp_required')}</p>
           )}
         </div>
       </SettingsSection>
       {(model.dirty.value || save.isPending) && (
-        <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
-          <p className="text-sm text-muted-foreground">{t('pod.settings.unsaved_changes')}</p>
+        <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl border border-border-subtle bg-page/95 px-4 py-3 shadow-sm backdrop-blur">
+          <p className="text-sm text-fg-secondary">{t('pod.settings.unsaved_changes')}</p>
           <Button type="submit" disabled={!model.displayName.value.trim() || save.isPending || !settings.data}>
             {t('pod.settings.save_changes')}
           </Button>
@@ -735,7 +735,7 @@ function Members({ model }: { model: Model }) {
                 )}
                 <Badge variant={member.status === 'active' ? 'success' : 'secondary'}>{statusText}</Badge>
               </div>
-              <p className="text-sm text-muted-foreground">{metaLine}</p>
+              <p className="text-sm text-fg-secondary">{metaLine}</p>
             </CardHeader>
             <CardContent className="grid gap-3">
               <div className="flex flex-wrap gap-2">
@@ -771,7 +771,7 @@ function Members({ model }: { model: Model }) {
                 )}
               </div>
               {member.credentials.length > 0 && (
-                <p className="border-t border-border pt-3 text-xs font-medium text-muted-foreground">
+                <p className="border-t border-border-subtle pt-3 text-xs font-medium text-fg-secondary">
                   {t('pod.account.login_methods')}
                 </p>
               )}
@@ -859,7 +859,7 @@ function Members({ model }: { model: Model }) {
               {[selectedMember.displayName, selectedMember.email].filter(Boolean).join(' · ')}
             </p>
           )}
-          <p className="text-sm text-muted-foreground">{t(`pod.settings.${model.memberAction.value}_description`)}</p>
+          <p className="text-sm text-fg-secondary">{t(`pod.settings.${model.memberAction.value}_description`)}</p>
           <ContentError error={change.error} />
           <form
             className="grid gap-3"
@@ -973,7 +973,7 @@ function Invitations({ model }: { model: Model }) {
                 }}
               />
               {settings.data && !settings.data.emailAvailable && (
-                <p className="text-xs text-muted-foreground">{t('pod.settings.smtp_required')}</p>
+                <p className="text-xs text-fg-secondary">{t('pod.settings.smtp_required')}</p>
               )}
             </div>
             <div className="grid gap-2">
@@ -1038,14 +1038,14 @@ function Invitations({ model }: { model: Model }) {
         </CardContent>
       </Card>
       {create.data && (
-        <Card className="border-foreground/40 bg-muted/30">
+        <Card className="border-fg-primary/40 bg-layer-03/30">
           <CardHeader>
             <h3 className="title-section">
               {t('pod.settings.invitation_ready', { defaultValue: 'Invitation link ready' })}
             </h3>
           </CardHeader>
           <CardContent className="grid gap-3">
-            <div className="flex min-w-0 flex-col gap-3 border border-border/70 bg-background p-3 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-col gap-3 border border-border-subtle/70 bg-page p-3 sm:flex-row sm:items-center">
               <a
                 href={create.data.url}
                 className="min-w-0 flex-1 break-all font-mono text-sm underline underline-offset-4">
@@ -1200,7 +1200,7 @@ function Providers({ model }: { model: Model }) {
                     : t('pod.settings.status_disabled', { defaultValue: 'Disabled' })}
                 </Badge>
                 {provider.provider_id !== providerAdapter?.default_provider_id && (
-                  <span className="font-mono text-xs text-muted-foreground">{provider.provider_id}</span>
+                  <span className="font-mono text-xs text-fg-secondary">{provider.provider_id}</span>
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -1235,11 +1235,11 @@ function Providers({ model }: { model: Model }) {
         <div
           className={
             providers.data?.providers.length === 0
-              ? 'grid justify-items-center gap-3 rounded-lg border border-dashed border-border px-4 py-6 text-center'
+              ? 'grid justify-items-center gap-3 rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center'
               : 'flex'
           }>
           {providers.data?.providers.length === 0 && (
-            <p className="text-sm text-muted-foreground">{t('pod.settings.providers_empty')}</p>
+            <p className="text-sm text-fg-secondary">{t('pod.settings.providers_empty')}</p>
           )}
           <Button variant="outline" disabled={save.isPending} onClick={() => selectAdapter(adapters[0]!.adapter_id)}>
             {t('console.identity.new')}
@@ -1288,7 +1288,7 @@ function Providers({ model }: { model: Model }) {
               }}>
               <div className="grid gap-2">
                 <p className="text-sm font-medium">{t('setup.oidc_callback_url')}</p>
-                <div className="flex min-w-0 flex-col gap-3 border border-border/70 bg-muted/30 p-3 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 flex-col gap-3 border border-border-subtle/70 bg-layer-03/30 p-3 sm:flex-row sm:items-center">
                   <code className="min-w-0 flex-1 break-all font-mono text-sm">{callbackURL}</code>
                   <Button type="button" size="sm" variant="outline" onClick={copyCallbackURL}>
                     {callbackCopied ? t('setup.oidc_callback_url_copied') : t('setup.oidc_callback_url_copy')}
@@ -1301,7 +1301,7 @@ function Providers({ model }: { model: Model }) {
                 </div>
               </div>
               <Collapsible className="grid gap-3" open={customizeCallback} onOpenChange={setCustomizeCallback}>
-                <CollapsibleTrigger className="text-left text-sm text-muted-foreground underline underline-offset-4">
+                <CollapsibleTrigger className="text-left text-sm text-fg-secondary underline underline-offset-4">
                   {t('setup.customize_callback_url')}
                 </CollapsibleTrigger>
                 <CollapsibleContent className="grid gap-2 pt-2">
@@ -1319,7 +1319,7 @@ function Providers({ model }: { model: Model }) {
                       model.providerID.value = event.target.value
                     }}
                   />
-                  <p className="text-xs text-muted-foreground">{t('setup.provider_id_hint')}</p>
+                  <p className="text-xs text-fg-secondary">{t('setup.provider_id_hint')}</p>
                 </CollapsibleContent>
               </Collapsible>
               <ConnectorConfigFields

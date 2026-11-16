@@ -98,7 +98,7 @@ export function PresentationTextHighlight({
       preserveAspectRatio="none">
       {selection.text_quads.map(quad => {
         const points = quad.map(([x, y]) => `${x},${y}`).join(' ')
-        return <polygon key={points} points={points} className="fill-blue-60/30" />
+        return <polygon key={points} points={points} className="fill-(--doc-accent)/30" />
       })}
     </svg>
   )

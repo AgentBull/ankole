@@ -49,7 +49,7 @@ function PageCell({ page }: { page?: BrainMergePageSummary | null }) {
   return (
     <div className="grid gap-0.5">
       <BrainPageLink pageID={page.page_id}>{page.title ?? page.slug}</BrainPageLink>
-      <span className="font-mono text-[11px] text-muted-foreground">{page.slug}</span>
+      <span className="font-mono text-50 text-fg-secondary">{page.slug}</span>
     </div>
   )
 }
@@ -117,7 +117,7 @@ export function BrainMergeSuggestionsPage() {
         onClearFilters={() => setStatus('pending')}
         toolbarCanRevealRows
         toolbar={
-          <div className="flex items-center gap-3 border border-border bg-card p-2">
+          <div className="flex items-center gap-3 border border-border-subtle bg-page p-2">
             <Select
               value={status}
               onValueChange={value => {
@@ -149,10 +149,10 @@ export function BrainMergeSuggestionsPage() {
             <TableCell>
               <Badge variant="secondary">{suggestion.a_page?.type ?? suggestion.b_page?.type ?? '—'}</Badge>
             </TableCell>
-            <TableCell className="max-w-[280px] whitespace-normal text-xs text-muted-foreground">
+            <TableCell className="max-w-[280px] whitespace-normal text-xs text-fg-secondary">
               {suggestion.reason}
             </TableCell>
-            <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(suggestion.created_at)}</TableCell>
+            <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(suggestion.created_at)}</TableCell>
             <TableCell className="text-right">
               {status === 'pending' ? (
                 <div className="flex justify-end gap-1">
@@ -171,7 +171,7 @@ export function BrainMergeSuggestionsPage() {
                   </Button>
                 </div>
               ) : (
-                <span className="pr-2 text-xs text-muted-foreground">{t('console.brain.read_only')}</span>
+                <span className="pr-2 text-xs text-fg-secondary">{t('console.brain.read_only')}</span>
               )}
             </TableCell>
           </TableRow>

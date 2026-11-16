@@ -69,7 +69,7 @@ export function CustomModelProfilesEditor({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1">
           <h3 className="title-section">{t('console.models.custom_title')}</h3>
-          <p className="text-sm leading-6 text-muted-foreground">{t('console.models.custom_description')}</p>
+          <p className="text-sm leading-6 text-fg-secondary">{t('console.models.custom_description')}</p>
         </div>
         <Button
           disabled={adding}
@@ -113,7 +113,7 @@ export function CustomModelProfilesEditor({
         />
       ))}
       {!loading && !adding && customProfiles.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('console.models.custom_empty')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.models.custom_empty')}</p>
       ) : null}
     </section>
   )

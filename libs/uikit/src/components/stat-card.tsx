@@ -58,7 +58,7 @@ function directionalTokens(trend: StatTrendDirection, marketConvention: MarketCo
   return {
     stroke: usePositiveTokens ? 'var(--chart-up)' : 'var(--chart-down)',
     subtle: usePositiveTokens ? 'var(--chart-up-subtle)' : 'var(--chart-down-subtle)',
-    text: usePositiveTokens ? 'var(--chart-up-foreground)' : 'var(--chart-down-foreground)',
+    text: usePositiveTokens ? 'var(--chart-up-fg)' : 'var(--chart-down-fg)',
     glyph: trend === 'up' ? '▲' : '▼'
   }
 }
@@ -170,7 +170,7 @@ export function AnkoleStatCard({
       data-slot="stat-card"
       data-trend={resolvedTrend}
       data-market-convention={marketConvention}
-      className={cn('content-object flex flex-col justify-between gap-2 bg-background p-4', className)}>
+      className={cn('content-object flex flex-col justify-between gap-2 bg-page p-4', className)}>
       <div className="flex items-start justify-between gap-3">
         <span className="text-xs font-medium text-fg-secondary">{label}</span>
         {sparklineValues && sparklineValues.length > 0 && (
@@ -184,7 +184,7 @@ export function AnkoleStatCard({
       </div>
 
       <div className="flex flex-wrap items-baseline gap-2">
-        <div className="font-mono text-2xl leading-tight font-semibold text-foreground tabular-nums">{value}</div>
+        <div className="font-mono text-2xl leading-tight font-semibold text-fg-primary tabular-nums">{value}</div>
         {hasDelta && (
           <span
             data-slot="stat-delta"

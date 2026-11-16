@@ -45,15 +45,15 @@ function DocumentComparison({ pageID, version, current }: Props) {
       {iconChanged && (
         <div className="flex items-center gap-3 text-sm">
           <span>{t('pod.document.icon_changed')}</span>
-          <PageIcon page={{ type: 'doc', icon: version.icon }} className="size-6 text-[22px]" />
+          <PageIcon page={{ type: 'doc', icon: version.icon }} className="size-6 text-300" />
           <span aria-hidden>→</span>
-          <PageIcon page={{ type: 'doc', icon: current.icon }} className="size-6 text-[22px]" />
+          <PageIcon page={{ type: 'doc', icon: current.icon }} className="size-6 text-300" />
         </div>
       )}
       {changes.every(change => change.kind === 'unchanged') && !iconChanged ? (
         <p>{t('pod.document.no_changes')}</p>
       ) : (
-        <div className="overflow-hidden rounded border border-border font-mono text-sm">
+        <div className="overflow-hidden rounded border border-border-subtle font-mono text-sm">
           {changes.map((change, index) => (
             <div
               key={index}
@@ -147,7 +147,7 @@ function DocumentVersion({ pageID, version, editorKey }: Props) {
         const reference = attributes.ref && references.data?.get(attributes.ref)
         const accessible = reference && !reference.restricted
         const link = document.createElement(accessible ? 'a' : 'span')
-        link.className = 'block rounded border border-border px-4 py-3 text-sm'
+        link.className = 'block rounded border border-border-subtle px-4 py-3 text-sm'
         link.textContent = reference ? reference.title : t('pod.content.cannot_display')
         if (accessible && link instanceof HTMLAnchorElement) {
           link.href = reference.href

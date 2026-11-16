@@ -178,14 +178,14 @@ function SlideThumbnailItem({
         onClick={() => onSelect(slide.index)}
         className={cn(
           'group relative flex w-full items-start gap-1.5 rounded-control p-1.5 text-left transition-colors focus-visible:outline-offset-1',
-          isActive ? 'bg-accent ring-2 ring-primary' : 'hover:bg-accent/60'
+          isActive ? 'bg-layer-hover ring-2 ring-primary' : 'hover:bg-layer-hover/60'
         )}>
         <span className="w-5 shrink-0 pt-0.5 text-right font-mono text-xs tabular-nums text-fg-secondary">
           {slide.index + 1}
         </span>
         <div
           style={{ width: `${thumbWidth}px`, height: `${thumbHeight}px` }}
-          className="relative shrink-0 overflow-hidden rounded-xs border border-border bg-white shadow-2xs">
+          className="relative shrink-0 overflow-hidden rounded-xs border border-border-subtle bg-white shadow-2xs">
           <canvas ref={canvasRef} aria-hidden="true" className="block size-full" />
           {lockEntry && (
             <span
@@ -201,8 +201,8 @@ function SlideThumbnailItem({
           {badges.length > 0 && (
             <div className="absolute right-1 bottom-1 flex -space-x-1">
               {badges.slice(0, 3).map(({ member }) => (
-                <Avatar key={member.uid} size="sm" title={member.name} className="size-4 ring-1 ring-background">
-                  <AvatarFallback className="text-[9px] text-white" style={{ background: `var(${member.color})` }}>
+                <Avatar key={member.uid} size="sm" title={member.name} className="size-4 ring-1 ring-page">
+                  <AvatarFallback className="text-25 text-white" style={{ background: `var(${member.color})` }}>
                     {member.name.slice(0, 1).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
@@ -991,7 +991,7 @@ function PresentationWorkspace({
 
   if (status === 'too_large') {
     return (
-      <p className="rounded-control border border-dashed border-border px-6 py-10 text-center text-sm text-fg-secondary">
+      <p className="rounded-control border border-dashed border-border-subtle px-6 py-10 text-center text-sm text-fg-secondary">
         {t('pod.office.too_large')}
       </p>
     )
@@ -1018,7 +1018,7 @@ function PresentationWorkspace({
       <div
         data-office-workspace=""
         aria-busy={status === 'loading'}
-        className="flex h-[min(78vh,880px)] min-h-[420px] flex-col overflow-hidden rounded-control border border-border bg-background">
+        className="flex h-[min(78vh,880px)] min-h-[420px] flex-col overflow-hidden rounded-control border border-border-subtle bg-page">
         <PresentationToolbar
           model={model}
           pageID={pageID}
@@ -1060,7 +1060,7 @@ function PresentationWorkspace({
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {!isMobile && railOpen && (
-            <aside className="w-48 shrink-0 overflow-y-auto border-r border-border bg-muted/20 p-2">
+            <aside className="w-48 shrink-0 overflow-y-auto border-r border-border-subtle bg-layer-03/20 p-2">
               <ol aria-label={t('pod.presentation.slides_rail')} className="flex flex-col gap-1.5">
                 {slides.map(slide => {
                   const isActive = slide.index === activeSlideIndex
@@ -1090,7 +1090,7 @@ function PresentationWorkspace({
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div
               ref={stageRef}
-              className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/40 p-4"
+              className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-layer-03/40 p-4"
               onClick={event => {
                 if (event.target === event.currentTarget) {
                   editorInputRef.current?.focus({ preventScroll: true })
@@ -1099,7 +1099,7 @@ function PresentationWorkspace({
               {activeSlideLockHolder && (
                 <div
                   role="status"
-                  className="pointer-events-none absolute top-2.5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
+                  className="pointer-events-none absolute top-2.5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-subtle bg-page/95 px-3 py-1 text-xs font-medium text-fg-primary shadow-sm">
                   <span
                     className="flex size-4 items-center justify-center rounded-full text-white"
                     style={{ background: `var(${activeSlideLockHolder.color})` }}>
@@ -1156,14 +1156,14 @@ function PresentationWorkspace({
                           className={cn('absolute border-2 border-primary', isTextEditing && 'border-dashed')}>
                           {editable && !isTextEditing && (
                             <>
-                              <span className="absolute -top-1 -left-1 size-2 border border-primary bg-background" />
-                              <span className="absolute -top-1 left-1/2 size-2 -translate-x-1/2 border border-primary bg-background" />
-                              <span className="absolute -top-1 -right-1 size-2 border border-primary bg-background" />
-                              <span className="absolute top-1/2 -left-1 size-2 -translate-y-1/2 border border-primary bg-background" />
-                              <span className="absolute top-1/2 -right-1 size-2 -translate-y-1/2 border border-primary bg-background" />
-                              <span className="absolute -bottom-1 -left-1 size-2 border border-primary bg-background" />
-                              <span className="absolute -bottom-1 left-1/2 size-2 -translate-x-1/2 border border-primary bg-background" />
-                              <span className="absolute -right-1 -bottom-1 size-2 border border-primary bg-background" />
+                              <span className="absolute -top-1 -left-1 size-2 border border-primary bg-page" />
+                              <span className="absolute -top-1 left-1/2 size-2 -translate-x-1/2 border border-primary bg-page" />
+                              <span className="absolute -top-1 -right-1 size-2 border border-primary bg-page" />
+                              <span className="absolute top-1/2 -left-1 size-2 -translate-y-1/2 border border-primary bg-page" />
+                              <span className="absolute top-1/2 -right-1 size-2 -translate-y-1/2 border border-primary bg-page" />
+                              <span className="absolute -bottom-1 -left-1 size-2 border border-primary bg-page" />
+                              <span className="absolute -bottom-1 left-1/2 size-2 -translate-x-1/2 border border-primary bg-page" />
+                              <span className="absolute -right-1 -bottom-1 size-2 border border-primary bg-page" />
                             </>
                           )}
                         </div>
@@ -1203,7 +1203,7 @@ function PresentationWorkspace({
               />
             </div>
 
-            <div className="flex items-center justify-between border-t border-border bg-muted/20 px-3 py-1 text-xs text-fg-secondary">
+            <div className="flex items-center justify-between border-t border-border-subtle bg-layer-03/20 px-3 py-1 text-xs text-fg-secondary">
               <span>
                 {slides.length > 0
                   ? t('pod.presentation.slide_of_total', {
@@ -1216,7 +1216,7 @@ function PresentationWorkspace({
             </div>
 
             {notesOpen && (
-              <div className="shrink-0 border-t border-border bg-background p-2.5">
+              <div className="shrink-0 border-t border-border-subtle bg-page p-2.5">
                 <Textarea
                   aria-label={t('pod.presentation.speaker_notes')}
                   placeholder={t('pod.presentation.speaker_notes_placeholder')}
@@ -1273,7 +1273,7 @@ function PresentationWorkspace({
           </div>
 
           {isMobile && railOpen && (
-            <aside className="shrink-0 overflow-x-auto border-t border-border bg-muted/20 p-2">
+            <aside className="shrink-0 overflow-x-auto border-t border-border-subtle bg-layer-03/20 p-2">
               <ol aria-label={t('pod.presentation.slides_rail')} className="flex items-center gap-2">
                 {slides.map(slide => {
                   const isActive = slide.index === activeSlideIndex

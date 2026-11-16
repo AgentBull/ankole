@@ -4,7 +4,7 @@
   min-height: 44px;
   padding: 10px 8px;
   border-radius: var(--radius-control);
-  color: var(--foreground);
+  color: var(--fg-primary);
   cursor: pointer;
   overflow-x: auto;
   overflow-y: hidden;
@@ -30,7 +30,7 @@
 }
 
 :where(.ankole-editor) .editor-content .math-block.is-invalid {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
   font-family: var(--font-family-mono);
   font-size: 14px;
   white-space: pre-wrap;
@@ -61,7 +61,7 @@
 }
 
 :where(.ankole-editor-overlay).math-editor[data-invalid='true'] .math-editor-header {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 
 :where(.ankole-editor-overlay).math-editor .math-editor-field {
@@ -72,7 +72,7 @@
   padding: 0 10px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
-  background: var(--background);
+  background: var(--page);
 }
 
 :where(.ankole-editor-overlay).math-editor .math-editor-field:focus-within {
@@ -91,7 +91,7 @@
   border: 0;
   outline: none;
   background: transparent;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-family: var(--font-family-mono);
   font-size: 14px;
 }
@@ -118,7 +118,7 @@
 }
 
 :where(.ankole-editor-overlay).math-editor .math-editor-footer a:hover {
-  color: var(--foreground);
+  color: var(--fg-primary);
   text-decoration-color: currentColor;
 }
 

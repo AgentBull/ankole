@@ -110,10 +110,7 @@ export function PodTopBarSavingStatus() {
   const { t } = useTranslation()
   return (
     <PodTopBarPeople>
-      <div
-        className="flex items-center px-1 text-xs text-muted-foreground"
-        data-page-save-status="saving"
-        role="status">
+      <div className="flex items-center px-1 text-xs text-fg-secondary" data-page-save-status="saving" role="status">
         <span className="flex items-center gap-1.5" data-sync-status="saving">
           <Spinner aria-hidden className="size-4" />
           <span>{t('pod.collaboration.saving')}</span>

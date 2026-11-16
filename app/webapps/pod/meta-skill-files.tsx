@@ -48,7 +48,7 @@ export function DeleteSkillDialog({
         <DialogTitle>{t('pod.meta.delete_permanently')}</DialogTitle>
         <p>{t('pod.meta.delete_confirmation', { name })}</p>
         {impactNotice && (
-          <p className="rounded-md border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-foreground">
+          <p className="rounded-md border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-fg-primary">
             {impactNotice}
           </p>
         )}
@@ -123,7 +123,7 @@ export function SkillPackage({
     onError: () => client.invalidateQueries({ queryKey: metaKeys.skills() })
   })
   return (
-    <section className="space-y-4 rounded-lg border border-border p-5">
+    <section className="space-y-4 rounded-lg border border-border-subtle p-5">
       <h2 className="font-semibold">{t('pod.meta.package_files')}</h2>
       <ul className="space-y-3">
         <li>
@@ -196,7 +196,7 @@ export function SkillPackage({
       </ul>
       {skill.can_edit && (
         <form
-          className="space-y-3 border-t border-border pt-4"
+          className="space-y-3 border-t border-border-subtle pt-4"
           onSubmit={event => {
             event.preventDefault()
             mutation.mutate({ kind: 'upload' })
@@ -273,7 +273,7 @@ export function SelectedFile({ skill }: { skill: MetaSkill }) {
     }
   }, [query.data])
   return (
-    <section className="space-y-3 rounded-lg border border-border p-5">
+    <section className="space-y-3 rounded-lg border border-border-subtle p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="break-all font-semibold">{path}</h2>
         <div className="flex items-center gap-3">

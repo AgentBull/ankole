@@ -160,7 +160,7 @@ function CreateSkill({ importing, canCreateWorkspace }: { importing: boolean; ca
   })
   return (
     <form
-      className="space-y-4 rounded-lg border border-border p-5"
+      className="space-y-4 rounded-lg border border-border-subtle p-5"
       onSubmit={event => {
         event.preventDefault()
         create.mutate()
@@ -270,14 +270,14 @@ function SkillRow({ skill }: { skill: MetaSkill }) {
   const [expanded, setExpanded] = useState(false)
   const isPersonal = Boolean(skill.agent_uid)
   return (
-    <article className="rounded-lg border border-border p-4">
+    <article className="rounded-lg border border-border-subtle p-4">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Link to={`/meta/skills/${skill.slug}`} className="font-semibold hover:underline">
               {skill.name}
             </Link>
-            <code className="rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+            <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-50 text-fg-secondary">
               /{skill.slug}
             </code>
             {isPersonal ? (
@@ -375,7 +375,7 @@ function SkillDetail({ slug }: { slug: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
           <h1 className="text-2xl font-semibold">{row.name}</h1>
-          <code className="rounded-mini bg-muted px-2 py-0.5 font-mono text-xs text-fg-secondary">/{row.slug}</code>
+          <code className="rounded-mini bg-layer-03 px-2 py-0.5 font-mono text-xs text-fg-secondary">/{row.slug}</code>
           {isPersonal && (
             <span className="rounded-mini bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
               {t('pod.meta.scope_personal_badge', { defaultValue: 'Personal' })}

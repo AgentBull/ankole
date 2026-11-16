@@ -13,8 +13,8 @@
   background:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--background) 94%, transparent),
-      color-mix(in srgb, var(--background) 98%, transparent)
+      color-mix(in srgb, var(--page) 94%, transparent),
+      color-mix(in srgb, var(--page) 98%, transparent)
     ),
     url('./setup-workspace.jpg');
   background-position: center;
@@ -23,7 +23,7 @@
 
 .ak-auth-card h1 {
   margin: 4px 0 8px;
-  font-size: 32px;
+  font-size: var(--text-500);
   line-height: 1.12;
   letter-spacing: 0;
 }
@@ -31,13 +31,13 @@
 .ak-auth-card p,
 .ak-muted {
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--fg-secondary);
   line-height: 1.55;
 }
 
 .ak-auth-card .ak-card-header {
   display: block;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .ak-auth-heading {
@@ -63,28 +63,28 @@
   align-items: center;
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--border);
-  color: var(--foreground);
-  background: var(--card);
+  border: 1px solid var(--border-subtle);
+  color: var(--fg-primary);
+  background: var(--page);
   text-align: left;
   cursor: pointer;
 }
 
 .ak-login-provider strong {
   display: block;
-  font-size: 14px;
+  font-size: var(--text-75);
 }
 
 .ak-login-provider small {
   display: block;
-  color: var(--muted-foreground);
-  font-size: 12px;
+  color: var(--fg-secondary);
+  font-size: var(--text-50);
   line-height: 1.45;
 }
 
 .ak-login-provider:hover {
   border-color: var(--primary);
-  background: var(--accent);
+  background: var(--layer-hover);
 }
 
 .ak-login-provider:focus-visible {
@@ -101,8 +101,8 @@
   align-items: center;
   gap: 12px;
   margin-top: 18px;
-  color: var(--muted-foreground);
-  font-size: 12px;
+  color: var(--fg-secondary);
+  font-size: var(--text-50);
 }
 
 .ak-login-divider::before,
@@ -110,7 +110,7 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--border);
+  background: var(--border-subtle);
 }
 
 .ak-login-provider:disabled {

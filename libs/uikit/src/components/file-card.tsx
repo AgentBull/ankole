@@ -146,7 +146,7 @@ function FileCard({
       <span className="flex min-w-0 flex-1 items-baseline gap-2 text-start">
         <span
           data-slot="file-card-name"
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-75 font-medium whitespace-nowrap text-foreground">
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-75 font-medium whitespace-nowrap text-fg-primary">
           {typeof name === 'string' ? <span className="min-w-0 truncate">{name}</span> : name}
         </span>
         {description != null && (
@@ -154,7 +154,7 @@ function FileCard({
             data-slot="file-card-description"
             className={cn(
               'max-w-[45%] shrink-0 truncate text-50 font-normal tabular-nums',
-              invalid ? 'text-destructive-foreground' : 'text-fg-tertiary'
+              invalid ? 'text-destructive-fg' : 'text-fg-tertiary'
             )}>
             {description}
           </span>

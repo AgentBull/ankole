@@ -8,7 +8,7 @@
 
 /* pdf.js spaces pages with a transparent border, so the hairline goes around the page content inside it. */
 .pod-pdf-pages .pdfViewer .page .canvasWrapper {
-  box-shadow: 0 0 0 1px var(--border);
+  box-shadow: 0 0 0 1px var(--border-subtle);
 }
 
 /* Find matches take two strengths of the primary colour. The tints are translucent whatever the theme, because the

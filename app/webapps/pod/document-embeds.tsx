@@ -147,7 +147,7 @@ export function ChartEmbedPickerDialog({
                       key={table.id}
                       variant="ghost"
                       size="sm"
-                      className="justify-start border border-border/60"
+                      className="justify-start border border-border-subtle/60"
                       onClick={() =>
                         onInsert({
                           ref: choiceState.baseId,
@@ -319,7 +319,7 @@ export function PageEmbed({
               <DropdownMenuItem data-active="true">
                 <WindowRegular aria-hidden />
                 <span>{t('pod.editor.mention_view_embed')}</span>
-                <CheckmarkRegular aria-hidden className="ml-auto text-foreground" />
+                <CheckmarkRegular aria-hidden className="ml-auto text-fg-primary" />
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -356,7 +356,7 @@ export function PageEmbed({
           </Suspense>
         )
       ) : page.type === 'applet' && embedTrashed ? (
-        <div className="p-4 text-sm text-muted-foreground" role="status">
+        <div className="p-4 text-sm text-fg-secondary" role="status">
           {t('pod.content.applet_inactive_in_trash')}
         </div>
       ) : (

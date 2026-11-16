@@ -12,8 +12,6 @@ import { selectByLabelOrValue } from './select'
 import { SnapshotStore } from './snapshot'
 import { callWebMCPTool, listWebMCPTools } from './webmcp'
 
-export { selectByLabelOrValue } from './select'
-
 type PointerActionCommand = Extract<
   BrowserPageCommand,
   {

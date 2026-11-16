@@ -295,7 +295,7 @@ export default function MermaidDiagram({
             <div
               role="status"
               data-testid="chat-mermaid-error"
-              className="border-b border-border bg-layer-01 px-3 py-1.5 text-xs text-fg-secondary">
+              className="border-b border-border-subtle bg-layer-01 px-3 py-1.5 text-xs text-fg-secondary">
               {t('pod.chat_timeline.mermaid_syntax_fallback', {
                 defaultValue: 'Diagram preview unavailable ({$reason})',
                 reason: renderError

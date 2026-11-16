@@ -18,7 +18,7 @@
   @apply content-cell;
   min-width: 25px;
   overflow-wrap: anywhere;
-  background-color: var(--cell-background, var(--background));
+  background-color: var(--cell-background, var(--page));
 }
 :where(.ankole-editor, .ankole-editor-overlay)
   .editor-content
@@ -118,15 +118,15 @@
 :where(.ankole-editor, .ankole-editor-overlay) :is(.table-handle, .table-add) {
   display: grid;
   place-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
-  background: var(--popover);
+  background: var(--layer-01);
   color: var(--fg-secondary);
   cursor: pointer;
   padding: 0;
 }
 :where(.ankole-editor, .ankole-editor-overlay) :is(.table-handle, .table-add):hover {
-  background: var(--accent);
+  background: var(--layer-hover);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .table-row-handle {
   width: 20px;

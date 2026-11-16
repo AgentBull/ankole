@@ -93,7 +93,7 @@ export function SubjectPicker({
       {showCandidates && (
         <CommandList
           className={cn(
-            'mt-1.5 overflow-y-auto rounded-control border border-border bg-background/70 p-1',
+            'mt-1.5 overflow-y-auto rounded-control border border-border-subtle bg-page/70 p-1',
             collapsible ? 'max-h-52' : 'max-h-40'
           )}>
           <CommandEmpty>{t('pod.content.no_matches')}</CommandEmpty>
@@ -118,7 +118,7 @@ export function SubjectPicker({
                     <SubjectKindBadges subject={subject} />
                   </div>
                   {(guestBlocked || subject.subtitle) && (
-                    <p className="truncate text-xs text-muted-foreground">
+                    <p className="truncate text-xs text-fg-secondary">
                       {guestBlocked ? t('pod.sharing.guest_disabled_private') : subject.subtitle}
                     </p>
                   )}

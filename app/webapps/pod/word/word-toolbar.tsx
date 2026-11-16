@@ -356,7 +356,7 @@ export function WordToolbar({
       : t('pod.office.saved')
 
   return (
-    <div className="flex flex-col border-b border-border bg-background">
+    <div className="flex flex-col border-b border-border-subtle bg-page">
       <div className="flex min-h-10 flex-wrap items-center gap-0.5 px-2 py-1 max-md:px-1.5">
         {canEdit && (
           <>
@@ -515,7 +515,7 @@ export function WordToolbar({
                         type="button"
                         aria-label={label}
                         title={label}
-                        className="size-6 rounded-control border border-border focus-visible:outline-offset-1"
+                        className="size-6 rounded-control border border-border-subtle focus-visible:outline-offset-1"
                         style={{ backgroundColor: `#${hex}` }}
                         onClick={() => {
                           setFontColorOpen(false)
@@ -563,7 +563,7 @@ export function WordToolbar({
                         type="button"
                         aria-label={label}
                         title={label}
-                        className="size-6 rounded-control border border-border focus-visible:outline-offset-1"
+                        className="size-6 rounded-control border border-border-subtle focus-visible:outline-offset-1"
                         style={{ backgroundColor: entry.hex }}
                         onClick={() => {
                           setHighlightOpen(false)

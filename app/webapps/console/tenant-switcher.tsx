@@ -80,7 +80,7 @@ export function ConsoleTenantContent({ children, slot }: { children: ReactNode; 
       {selected ? (
         children
       ) : mode === 'record' ? (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="text-sm text-fg-secondary">
           {t('console.tenants.choose_for_record')}
         </p>
       ) : tenants.isPending ? (

@@ -38,7 +38,8 @@ import { ChatMarkdown } from './chat/chat-markdown'
 import { fileExtensionBadge } from './state/page-subpages'
 import { CodeBlockView } from './chat/code-block-view'
 import { ImageZoomView } from './chat/zoomable-image'
-import { DelimitedTablePreview, HtmlFilePreview } from './page-file-previews'
+import { HtmlFilePreview } from './html-file-preview'
+import { DelimitedTablePreview } from './page-file-previews'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from './panel-motion'
 
 const SpreadsheetWasmPreview = lazy(() => import('./spreadsheet/spreadsheet-preview'))

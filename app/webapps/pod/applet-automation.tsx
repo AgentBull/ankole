@@ -301,17 +301,17 @@ export function AppletJobSelectorBar({
         </div>
       )}
       {noActions && (
-        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center text-sm text-fg-secondary">
           {noActionsMessage}
         </div>
       )}
       {list.isSuccess && selectedJobID !== undefined && !job && (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="text-sm text-fg-secondary">
           {t('pod.automation.return_job_unavailable')}
         </p>
       )}
       {creating && !noActions && (
-        <section className="rounded-lg border border-border bg-card p-4">
+        <section className="rounded-lg border border-border-subtle bg-page p-4">
           {!!(createJob.error ?? actions.error) && (
             <div ref={createErrorElement} tabIndex={-1} className="mb-3 outline-none">
               <ContentError error={createJob.error ?? actions.error} />
@@ -455,7 +455,7 @@ export function AppletAutomationTab({
         </div>
       )}
       {list.isSuccess && !list.data.length && !creating && !noActions && (
-        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center text-sm text-fg-secondary">
           {t('pod.automation.no_jobs')}
         </div>
       )}
@@ -513,12 +513,12 @@ function AutomationJobDetails({
   return (
     <div className="grid gap-6">
       <ContentError error={schedules.error} />
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-page px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs font-medium text-foreground">{job.action_key}</span>
-          <span className="text-muted-foreground">·</span>
+          <span className="font-mono text-xs font-medium text-fg-primary">{job.action_key}</span>
+          <span className="text-fg-secondary">·</span>
           <span>{t(`pod.automation.${job.authorization_kind === 'human' ? 'personal' : 'team'}`)}</span>
-          <span className="text-muted-foreground">·</span>
+          <span className="text-fg-secondary">·</span>
           <Badge variant={job.status === 'active' ? 'secondary' : 'outline'}>
             {t(`pod.automation.status_${job.status}`)}
           </Badge>
@@ -536,7 +536,7 @@ function AutomationJobDetails({
           )}
         </div>
       </div>
-      {!canManage && <p className="text-sm text-muted-foreground">{t('pod.automation.job_read_only')}</p>}
+      {!canManage && <p className="text-sm text-fg-secondary">{t('pod.automation.job_read_only')}</p>}
       {deleting && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
           <p>{t('pod.automation.delete_job_help')}</p>
@@ -559,7 +559,7 @@ function AutomationJobDetails({
         </div>
       )}
       {editing && (
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border-subtle bg-page p-4">
           <JobForm
             job={job}
             actions={[job.action_key]}
@@ -615,14 +615,14 @@ export function AppletWebhooksTab({
         </div>
       )}
       {list.isSuccess && !list.data.length && !creating && !noActions && (
-        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center text-sm text-fg-secondary">
           {t('pod.applet_settings.webhooks_need_job')}
         </div>
       )}
       {job && sources && (
         <div className="grid gap-4">
           <ContentError error={webhooks.error} />
-          {!canManage && <p className="text-sm text-muted-foreground">{t('pod.automation.job_read_only')}</p>}
+          {!canManage && <p className="text-sm text-fg-secondary">{t('pod.automation.job_read_only')}</p>}
           <Webhooks
             key={job.id}
             items={webhooks.data ?? []}
@@ -679,7 +679,7 @@ export function AppletLogsTab({
   return (
     <div className="grid gap-5">
       {list.isSuccess && !list.data.length && !creating && !noActions && (
-        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center text-sm text-fg-secondary">
           {t('pod.applet_settings.logs_need_job')}
         </div>
       )}
@@ -695,7 +695,7 @@ export function AppletLogsTab({
                   size="xs"
                   variant={statusFilter === filter ? 'outline' : 'ghost'}
                   aria-pressed={statusFilter === filter}
-                  className={statusFilter === filter ? 'bg-accent text-foreground' : undefined}
+                  className={statusFilter === filter ? 'bg-layer-hover text-fg-primary' : undefined}
                   onClick={() => setStatusFilter(filter)}>
                   {t(`pod.applet_settings.logs_filter_${filter}`)}
                 </Button>
@@ -706,13 +706,13 @@ export function AppletLogsTab({
             <h3 className="font-medium">{t('pod.automation.history')}</h3>
             {currentRun && <SelectedRun run={currentRun} source={runSource(currentRun)} isActive={isActive} />}
             {runs.isSuccess && !allRuns.length && (
-              <p className="text-sm text-muted-foreground">{t('pod.automation.no_runs')}</p>
+              <p className="text-sm text-fg-secondary">{t('pod.automation.no_runs')}</p>
             )}
             {allRuns.length > 0 && filteredRuns.length === 0 && (
-              <p className="text-sm text-muted-foreground">{t('pod.applet_settings.logs_filter_empty')}</p>
+              <p className="text-sm text-fg-secondary">{t('pod.applet_settings.logs_filter_empty')}</p>
             )}
             {filteredRuns.map(run => (
-              <details key={run.id} className="rounded-lg border border-border bg-card p-3 text-sm">
+              <details key={run.id} className="rounded-lg border border-border-subtle bg-page p-3 text-sm">
                 <summary className="cursor-pointer break-words">
                   <RunSummary run={run} source={runSource(run)} />
                 </summary>
@@ -753,8 +753,8 @@ export function AppletFunctionsTab({
     <div className="grid gap-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid gap-1">
-          <h2 className="text-base font-semibold text-foreground">{t('pod.applet_settings.functions_title')}</h2>
-          <p className="text-sm text-muted-foreground">{t('pod.applet_settings.functions_description')}</p>
+          <h2 className="text-base font-semibold text-fg-primary">{t('pod.applet_settings.functions_title')}</h2>
+          <p className="text-sm text-fg-secondary">{t('pod.applet_settings.functions_description')}</p>
         </div>
         <Badge variant="outline" className="font-mono tabular-nums">
           {t('pod.applet_settings.revision', { revision: functions.data?.revision ?? detail.page.revision })}
@@ -762,29 +762,29 @@ export function AppletFunctionsTab({
       </header>
       <ContentError error={functions.error} retry={() => void functions.refetch()} />
       {functions.isPending ? (
-        <div className="grid gap-2 rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-2 rounded-lg border border-border-subtle bg-page p-4">
           <Skeleton className="h-6 w-2/3" />
           <Skeleton className="h-6 w-1/2" />
         </div>
       ) : functions.data && !functions.data.has_backend ? (
-        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center text-sm text-fg-secondary">
           {t('pod.applet_settings.functions_frontend_only')}
         </div>
       ) : functions.data ? (
         <div className="grid gap-6">
           <section className="grid gap-3">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-medium text-foreground">{t('pod.applet_settings.routes_heading')}</h3>
+              <h3 className="text-sm font-medium text-fg-primary">{t('pod.applet_settings.routes_heading')}</h3>
               <Badge variant="secondary" className="tabular-nums">
                 {functions.data.routes.length}
               </Badge>
             </div>
             {functions.data.routes.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+              <p className="rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center text-sm text-fg-secondary">
                 {t('pod.applet_settings.routes_empty')}
               </p>
             ) : (
-              <div className="divide-y divide-border rounded-lg border border-border bg-card">
+              <div className="divide-y divide-border-subtle rounded-lg border border-border-subtle bg-page">
                 {functions.data.routes.map(route => (
                   <div
                     key={`${route.method} ${route.path}`}
@@ -793,10 +793,10 @@ export function AppletFunctionsTab({
                       <Badge variant={methodVariant(route.method)} className="w-16 justify-center font-mono">
                         {route.method}
                       </Badge>
-                      <span className="font-mono text-xs break-all text-foreground">{route.path}</span>
+                      <span className="font-mono text-xs break-all text-fg-primary">{route.path}</span>
                     </div>
                     {route.method === 'GET' && (
-                      <span className="text-xs text-muted-foreground">{t('pod.applet_settings.route_read_only')}</span>
+                      <span className="text-xs text-fg-secondary">{t('pod.applet_settings.route_read_only')}</span>
                     )}
                   </div>
                 ))}
@@ -806,28 +806,28 @@ export function AppletFunctionsTab({
 
           <section className="grid gap-3">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-medium text-foreground">{t('pod.applet_settings.actions_heading')}</h3>
+              <h3 className="text-sm font-medium text-fg-primary">{t('pod.applet_settings.actions_heading')}</h3>
               <Badge variant="secondary" className="tabular-nums">
                 {functions.data.actions.length}
               </Badge>
             </div>
             {functions.data.actions.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+              <p className="rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center text-sm text-fg-secondary">
                 {t('pod.applet_settings.actions_empty')}
               </p>
             ) : (
-              <div className="divide-y divide-border rounded-lg border border-border bg-card">
+              <div className="divide-y divide-border-subtle rounded-lg border border-border-subtle bg-page">
                 {functions.data.actions.map(action => (
                   <div key={action.key} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
                     <div className="grid min-w-0 gap-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-xs font-medium break-all text-foreground">{action.key}</span>
+                        <span className="font-mono text-xs font-medium break-all text-fg-primary">{action.key}</span>
                         <Badge variant="outline">{t(`pod.applet_settings.concurrency_${action.concurrency}`)}</Badge>
                         {action.idempotent && (
                           <Badge variant="secondary">{t('pod.applet_settings.action_idempotent')}</Badge>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-fg-secondary">
                         {t('pod.applet_settings.action_max_slices', { count: action.max_slices })}
                       </p>
                     </div>
@@ -858,9 +858,9 @@ function RunSummary({ run, source }: { run: ActionRun; source?: string }) {
   return (
     <>
       #{run.id} · {t(`pod.automation.status_${run.status}`)}
-      {time && <span className="text-muted-foreground"> · {formatDateTime(time, undefined, 'medium')}</span>}
+      {time && <span className="text-fg-secondary"> · {formatDateTime(time, undefined, 'medium')}</span>}
       {source && (
-        <span className="block break-words text-muted-foreground">
+        <span className="block break-words text-fg-secondary">
           {t('pod.automation.run_source')}: {source}
           {typeof run.event.type === 'string' && ` · ${run.event.type}`}
         </span>
@@ -874,29 +874,29 @@ function RunContent({ run }: { run: ActionRun }) {
   return (
     <div className="mt-2 grid min-w-0 gap-2">
       {run.finished_at && (
-        <p className="text-muted-foreground">
+        <p className="text-fg-secondary">
           {t('pod.automation.run_finished')}: {formatDateTime(run.finished_at, undefined, 'medium')}
         </p>
       )}
-      <pre className="max-h-72 overflow-auto rounded-md bg-muted/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
+      <pre className="max-h-72 overflow-auto rounded-md bg-layer-03/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
         {json({ progress: run.progress, result: run.result, error: run.error })}
       </pre>
       <details>
         <summary className="cursor-pointer">{t('pod.automation.run_input')}</summary>
-        <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
+        <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-layer-03/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
           {json(run.event)}
         </pre>
       </details>
       {(run.stdout || run.stderr) && (
         <details>
           <summary className="cursor-pointer">{t('pod.automation.run_logs')}</summary>
-          <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
+          <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-layer-03/40 p-2.5 font-mono text-xs whitespace-pre-wrap break-words">
             {[run.stdout && `stdout:\n${run.stdout}`, run.stderr && `stderr:\n${run.stderr}`]
               .filter(Boolean)
               .join('\n\n')}
           </pre>
           {(run.stdout_truncated || run.stderr_truncated) && (
-            <p className="text-muted-foreground">{t('pod.automation.logs_truncated')}</p>
+            <p className="text-fg-secondary">{t('pod.automation.logs_truncated')}</p>
           )}
         </details>
       )}
@@ -917,7 +917,7 @@ function SelectedRun({ run, source, isActive }: { run: ActionRun; source?: strin
       ref={element}
       role="region"
       tabIndex={-1}
-      className="rounded-lg border border-foreground/25 bg-card p-3 text-sm ring-1 ring-foreground/10 outline-none"
+      className="rounded-lg border border-fg-primary/25 bg-page p-3 text-sm ring-1 ring-fg-primary/10 outline-none"
       aria-label={t('pod.automation.run_details')}>
       <p className="break-words">
         <RunSummary run={run} source={source} />
@@ -964,7 +964,7 @@ function Schedules({
       {justTriggered && (
         <div
           role="status"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-subtle bg-layer-03/30 px-3 py-2 text-xs text-fg-secondary">
           <span>{t('pod.applet_settings.schedule_triggered')}</span>
           <Button type="button" size="xs" variant="link" onClick={onOpenLogs}>
             {t('pod.applet_settings.view_in_logs')}
@@ -974,12 +974,12 @@ function Schedules({
       {items.map(item => (
         <div
           key={item.id}
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 text-sm">
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-page p-3 text-sm">
           <div>
             <p>
               {item.name} · {t(`pod.automation.status_${item.status}`)}
             </p>
-            <p className="text-muted-foreground">
+            <p className="text-fg-secondary">
               {t('pod.automation.next_run')}:{' '}
               {item.next_fire_at ? formatDateTime(item.next_fire_at, undefined, 'medium') : '—'}
             </p>
@@ -1024,7 +1024,7 @@ function Schedules({
       ))}
       {history && <ScheduleHistory id={history} sources={sources} isActive={isActive} onRun={onRun} />}
       {editing !== undefined && (
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border-subtle bg-page p-4">
           <ScheduleForm
             key={editing?.id ?? 'new'}
             schedule={editing}
@@ -1133,7 +1133,7 @@ function ScheduleHistory({
     refetchInterval: isActive ? 2000 : false
   })
   return (
-    <div className="grid gap-2 rounded-lg border border-border bg-card p-3 text-sm">
+    <div className="grid gap-2 rounded-lg border border-border-subtle bg-page p-3 text-sm">
       <ContentError error={history.error} />
       {history.data?.events.map(event => (
         <p key={event.id}>
@@ -1196,7 +1196,7 @@ function Webhooks({
         )}
       </div>
       {!!callback && (
-        <div className="grid gap-2 rounded-lg border border-border bg-card p-3 text-sm">
+        <div className="grid gap-2 rounded-lg border border-border-subtle bg-page p-3 text-sm">
           <p>{t('pod.automation.callback_help')}</p>
           <Input
             aria-label={t('pod.automation.callback')}
@@ -1220,17 +1220,17 @@ function Webhooks({
         </div>
       )}
       {!isPending && items.length === 0 && editing === undefined && (
-        <p className="text-sm text-muted-foreground">{t('pod.applet_settings.webhooks_empty')}</p>
+        <p className="text-sm text-fg-secondary">{t('pod.applet_settings.webhooks_empty')}</p>
       )}
       {items.map(({ endpoint: item, deliveries }) => (
         <div
           key={item.id}
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 text-sm">
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-page p-3 text-sm">
           <div>
             <p>
               {item.label} · {t(`pod.automation.status_${item.status}`)}
             </p>
-            <p className="text-muted-foreground">
+            <p className="text-fg-secondary">
               {t('pod.automation.expires')}: {formatDateTime(item.expires_at, undefined, 'medium')}
             </p>
             <Deliveries items={deliveries} onRun={onRun} />
@@ -1259,7 +1259,7 @@ function Webhooks({
         </div>
       ))}
       {editing !== undefined && (
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border-subtle bg-page p-4">
           <WebhookForm
             key={editing?.id ?? 'new'}
             endpoint={editing}
@@ -1403,16 +1403,16 @@ function ConnectorEvents({
           {linked.map(({ binding: item, source: origin }) => (
             <div
               key={item.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 text-sm">
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-page p-3 text-sm">
               <div className="min-w-0 flex-1 break-words">
                 <p>{origin.label}</p>
-                <p className="text-muted-foreground">
+                <p className="text-fg-secondary">
                   {Object.keys(item.filters).length === 0
                     ? t('pod.automation.any_event')
                     : (origin.eventTypes.find(type => item.filters.cel === `signal.type == ${JSON.stringify(type)}`) ??
                       json(item.filters))}
                 </p>
-                <p className="text-muted-foreground">
+                <p className="text-fg-secondary">
                   {t('pod.automation.connection_status')}:{' '}
                   {t(`pod.connectors.status.${origin.connectionStatus}`, { defaultValue: origin.connectionStatus })}
                   {origin.subscription && (
@@ -1433,7 +1433,7 @@ function ConnectorEvents({
                 </Link>
                 {origin.connectionStatus === 'active' &&
                   (origin.status === 'active' || ['provisioning', 'paused'].includes(origin.status)) && (
-                    <p className="text-muted-foreground">
+                    <p className="text-fg-secondary">
                       {t(
                         origin.status === 'active' ? 'pod.automation.event_connected' : 'pod.automation.event_waiting'
                       )}
@@ -1491,7 +1491,7 @@ function ConnectorEvents({
               }}
             />
           )}
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-fg-secondary">
             {t(source.subscription ? 'pod.automation.subscription_status' : 'pod.automation.connection_status')}:{' '}
             {t(`pod.connectors.status.${source.status}`, { defaultValue: source.status })}
           </p>
@@ -1503,7 +1503,7 @@ function ConnectorEvents({
               </Link>
             </p>
           )}
-          {!connected && <p className="text-sm text-muted-foreground">{t('pod.automation.event_disconnected')}</p>}
+          {!connected && <p className="text-sm text-fg-secondary">{t('pod.automation.event_disconnected')}</p>}
           <Button
             className="justify-self-start"
             variant="outline"
@@ -1529,7 +1529,7 @@ function ConnectorEvents({
       ) : (
         !triggers.isPending &&
         !connections.isPending && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-fg-secondary">
             {t(selected ? 'pod.automation.return_source_unavailable' : 'pod.automation.no_events')}
           </p>
         )

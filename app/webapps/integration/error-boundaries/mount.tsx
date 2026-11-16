@@ -56,7 +56,7 @@ function BoundaryHarness() {
 
   return (
     <div className="grid gap-6 p-6">
-      <header className="flex flex-wrap items-center gap-3 border-b border-border pb-4">
+      <header className="flex flex-wrap items-center gap-3 border-b border-border-subtle pb-4">
         <h1 className="text-lg font-semibold">Workspace Shell</h1>
         <Button
           type="button"
@@ -88,7 +88,7 @@ function BoundaryHarness() {
         <span>Draft editor</span>
         <input
           aria-label="Draft editor"
-          className="rounded-control border border-border px-3 py-1.5"
+          className="rounded-control border border-border-subtle px-3 py-1.5"
           value={draft}
           onChange={event => setDraft(event.target.value)}
         />

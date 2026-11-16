@@ -132,7 +132,7 @@ export function DataGrid<Row>({
             <col key={column.id} style={{ width: column.width ?? (virtualize ? 160 : undefined) }} />
           ))}
         </colgroup>
-        <TableHeader ref={header} className="sticky top-0 z-20 bg-background">
+        <TableHeader ref={header} className="sticky top-0 z-20 bg-page">
           <TableRow>
             {columns.map((column, index) => {
               const direction = sort?.columnId === column.id ? sort.direction : undefined
@@ -145,7 +145,7 @@ export function DataGrid<Row>({
                   className={cn(
                     column.numeric ? 'text-end' : 'text-start',
                     virtualize && 'overflow-hidden text-ellipsis',
-                    stickyFirstColumn && index === 0 && 'sticky inset-s-0 z-10 bg-background'
+                    stickyFirstColumn && index === 0 && 'sticky inset-s-0 z-10 bg-page'
                   )}>
                   {column.sortable && onSortChange ? (
                     <Button
@@ -188,7 +188,7 @@ export function DataGrid<Row>({
                         virtualize && 'overflow-hidden text-ellipsis',
                         stickyFirstColumn &&
                           index === 0 &&
-                          'sticky inset-s-0 z-10 bg-background fine-hover:group-hover:bg-accent group-has-aria-expanded:bg-accent'
+                          'sticky inset-s-0 z-10 bg-page fine-hover:group-hover:bg-layer-hover group-has-aria-expanded:bg-layer-hover'
                       )}>
                       {column.renderCell(row)}
                     </TableCell>

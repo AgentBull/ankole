@@ -92,11 +92,11 @@ export function WorkerProvidersListPage() {
           <TableCell>
             <Link
               data-row-link
-              className="text-foreground"
+              className="text-fg-primary"
               to={`${providersPath}/${encodeURIComponent(provider.provider_id)}`}>
               {provider.display_name}
             </Link>
-            <div className="font-mono text-xs text-muted-foreground">{provider.provider_id}</div>
+            <div className="font-mono text-xs text-fg-secondary">{provider.provider_id}</div>
             {provider.is_default ? <Badge variant="secondary">{t('console.worker_providers.default')}</Badge> : null}
           </TableCell>
           <TableCell>{provider.kind}</TableCell>
@@ -128,7 +128,7 @@ function ProviderAvailability({ providerID }: { providerID: string }) {
         )}
       </StatusIndicator>
       {check.error ? (
-        <p className="break-words text-xs text-destructive-foreground">{requestErrorMessage(check.error)}</p>
+        <p className="break-words text-xs text-destructive-fg">{requestErrorMessage(check.error)}</p>
       ) : null}
       <Button
         size="xs"
@@ -241,7 +241,7 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
       secondary={
         selected ? (
           selected.agent_count > 0 ? (
-            <p className="text-xs text-muted-foreground">{t('console.worker_providers.in_use')}</p>
+            <p className="text-xs text-fg-secondary">{t('console.worker_providers.in_use')}</p>
           ) : (
             <ConfirmDeleteButton
               label={t('common.delete')}
@@ -316,7 +316,7 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
           />
         </LabeledField>
         {details.length ? (
-          <ul className="grid gap-2 text-sm text-destructive-foreground" role="alert">
+          <ul className="grid gap-2 text-sm text-destructive-fg" role="alert">
             {details.map((detail, index) => (
               <li key={index}>
                 <code>{String(detail.path ?? detail.field ?? '')}</code>

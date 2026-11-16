@@ -37,11 +37,11 @@ export function PermissionSettingsView({
       <div className="grid gap-4 overflow-y-auto px-4 pb-4">
         {!isPrivateRoot && (
           <SwitchRow
-            rowClassName="flex items-start justify-between gap-3 rounded-control border border-border p-3 text-sm"
+            rowClassName="flex items-start justify-between gap-3 rounded-control border border-border-subtle p-3 text-sm"
             label={
               <span className="grid min-w-0 gap-1">
-                <span className="font-medium text-foreground">{t('pod.sharing.inherit_switch_label')}</span>
-                <span className="text-xs leading-4 text-muted-foreground">{t('pod.sharing.inherit_switch_desc')}</span>
+                <span className="font-medium text-fg-primary">{t('pod.sharing.inherit_switch_label')}</span>
+                <span className="text-xs leading-4 text-fg-secondary">{t('pod.sharing.inherit_switch_desc')}</span>
               </span>
             }
             labelFirst
@@ -54,12 +54,12 @@ export function PermissionSettingsView({
 
         <section className="grid gap-2">
           <div className="grid gap-0.5">
-            <h3 className="text-[13px] font-medium text-foreground">{t('pod.sharing.advanced_rules_title')}</h3>
-            <p className="text-xs leading-4 text-muted-foreground">{t('pod.sharing.advanced_rules_desc')}</p>
+            <h3 className="text-65 font-medium text-fg-primary">{t('pod.sharing.advanced_rules_title')}</h3>
+            <p className="text-xs leading-4 text-fg-secondary">{t('pod.sharing.advanced_rules_desc')}</p>
           </div>
 
           {advancedGrants.length === 0 ? (
-            <p className="rounded-control bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+            <p className="rounded-control bg-layer-03/40 px-3 py-2.5 text-xs text-fg-secondary">
               {t('pod.sharing.advanced_rules_empty')}
             </p>
           ) : (
@@ -73,7 +73,7 @@ export function PermissionSettingsView({
                   )
                 const selfOnly = grant.target_scope === 'self'
                 return (
-                  <li key={index} className="grid gap-2 rounded-control border border-border p-2.5 text-sm">
+                  <li key={index} className="grid gap-2 rounded-control border border-border-subtle p-2.5 text-sm">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                         <span className="min-w-0 break-words font-medium">{displayName}</span>
@@ -89,7 +89,7 @@ export function PermissionSettingsView({
                         {t('pod.sharing.remove_access')}
                       </Button>
                     </div>
-                    <div className="rounded-mini bg-muted/60 px-2 py-1.5 text-xs text-muted-foreground">
+                    <div className="rounded-mini bg-layer-03/60 px-2 py-1.5 text-xs text-fg-secondary">
                       <span>
                         {grant.actions.map(action => actionLabels[action]).join(' · ') || sharingRoleLabel(grant.role)}
                       </span>
@@ -97,7 +97,7 @@ export function PermissionSettingsView({
                         <span>{` · ${actionLabels[grant.source_action as keyof typeof actionLabels] ?? grant.source_action}`}</span>
                       )}
                       {(grant.condition ?? 'true') !== 'true' && (
-                        <code className="mt-1 block break-words text-foreground">{grant.condition}</code>
+                        <code className="mt-1 block break-words text-fg-primary">{grant.condition}</code>
                       )}
                     </div>
                   </li>

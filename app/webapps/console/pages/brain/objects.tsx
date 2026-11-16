@@ -130,7 +130,7 @@ function BrainObjectsList() {
       {rows.map(object => (
         <TableRow key={object.id}>
           <TableCell className="font-mono text-xs">
-            <a data-row-link className="text-foreground" href={object.pod_url ?? undefined}>
+            <a data-row-link className="text-fg-primary" href={object.pod_url ?? undefined}>
               {object.slug ?? object.id}
             </a>
           </TableCell>
@@ -138,7 +138,7 @@ function BrainObjectsList() {
             <Badge variant="secondary">{object.subtype ? `${object.type}/${object.subtype}` : object.type}</Badge>
           </TableCell>
           <TableCell className="max-w-[360px] truncate">{object.title}</TableCell>
-          <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(object.updated_at)}</TableCell>
+          <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(object.updated_at)}</TableCell>
           <TableCell>
             <div className="flex flex-wrap gap-1">
               {object.deleted_at ? <Badge variant="destructive">{t('console.brain.deleted')}</Badge> : null}
@@ -166,7 +166,7 @@ export function BrainObjectDrawer() {
   return (
     <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
       <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:32rem]">
-        <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-16">
+        <DrawerHeader className="relative gap-3 border-b border-border-subtle p-5 pr-16">
           <Button
             aria-label={t('common.close')}
             size="icon-sm"
@@ -186,7 +186,7 @@ export function BrainObjectDrawer() {
             <>
               <Badge variant="secondary">{page.type}</Badge>
               {page.summary && <p className="whitespace-pre-wrap text-sm">{page.summary}</p>}
-              <p className="text-sm text-muted-foreground">{t('pod.knowledge.brain_description')}</p>
+              <p className="text-sm text-fg-secondary">{t('pod.knowledge.brain_description')}</p>
               <a className={cn(buttonVariants({ size: 'sm' }))} href={page.pod_url}>
                 {t('pod.knowledge.open_in_pod')}
               </a>
@@ -199,7 +199,7 @@ export function BrainObjectDrawer() {
                   <Link className="link font-mono text-xs" to={brainObjectPath(candidate.slug ?? '')}>
                     {candidate.slug}
                   </Link>
-                  {candidate.title && <span className="ml-2 text-xs text-muted-foreground">{candidate.title}</span>}
+                  {candidate.title && <span className="ml-2 text-xs text-fg-secondary">{candidate.title}</span>}
                 </li>
               ))}
             </ul>

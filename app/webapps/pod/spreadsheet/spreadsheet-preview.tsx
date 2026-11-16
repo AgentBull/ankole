@@ -115,7 +115,7 @@ function SpreadsheetPreviewWorkspace({ model, initialSheet }: { model: Spreadshe
 
   if (status === 'too_large') {
     return (
-      <p className="rounded-control border border-dashed border-border px-6 py-10 text-center text-sm text-fg-secondary">
+      <p className="rounded-control border border-dashed border-border-subtle px-6 py-10 text-center text-sm text-fg-secondary">
         {t('pod.office.too_large')}
       </p>
     )
@@ -130,7 +130,7 @@ function SpreadsheetPreviewWorkspace({ model, initialSheet }: { model: Spreadshe
       <div
         {...{ [WORKSPACE_ATTRIBUTE]: '' }}
         aria-busy={status === 'loading'}
-        className="flex h-[min(68vh,720px)] min-h-[360px] flex-col overflow-hidden rounded-control border border-border bg-background">
+        className="flex h-[min(68vh,720px)] min-h-[360px] flex-col overflow-hidden rounded-control border border-border-subtle bg-page">
         <SpreadsheetCanvas model={model} pageID="" inputRef={gridInput} onFind={setFind} />
         <SpreadsheetSheetTabs model={model} />
       </div>

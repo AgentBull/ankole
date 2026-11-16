@@ -187,8 +187,8 @@ export function FileDropzone({
         data-drag-active={dragActive ? '' : undefined}
         data-disabled={disabled ? '' : undefined}
         className={cn(
-          'relative flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-field/50 px-4 py-5 text-center transition-colors',
-          dragActive && 'border-primary bg-accent/50',
+          'relative flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border-subtle bg-field/50 px-4 py-5 text-center transition-colors',
+          dragActive && 'border-primary bg-layer-hover/50',
           disabled && 'opacity-55'
         )}>
         <input
@@ -206,11 +206,11 @@ export function FileDropzone({
           className="sr-only"
           tabIndex={-1}
         />
-        <CloudArrowUpRegular aria-hidden="true" className="size-6 text-muted-foreground" />
+        <CloudArrowUpRegular aria-hidden="true" className="size-6 text-fg-secondary" />
         <div className="grid gap-0.5">
-          <p className="text-sm font-medium text-foreground">{label}</p>
+          <p className="text-sm font-medium text-fg-primary">{label}</p>
           {description != null && (
-            <p id={descriptionId} className="text-xs text-muted-foreground">
+            <p id={descriptionId} className="text-xs text-fg-secondary">
               {description}
             </p>
           )}
@@ -239,11 +239,11 @@ export function FileDropzone({
           {files.map((file, index) => (
             <li
               key={`${file.name}:${file.size}:${index}`}
-              className="flex items-center justify-between gap-2 rounded-control border border-border bg-background px-2.5 py-1.5 text-xs">
+              className="flex items-center justify-between gap-2 rounded-control border border-border-subtle bg-page px-2.5 py-1.5 text-xs">
               <span className="flex min-w-0 items-center gap-2">
-                <DocumentTextRegular aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-                <span className="truncate font-medium text-foreground">{file.name}</span>
-                <span className="shrink-0 text-muted-foreground tabular-nums">{formatFileSize(file.size)}</span>
+                <DocumentTextRegular aria-hidden="true" className="size-4 shrink-0 text-fg-secondary" />
+                <span className="truncate font-medium text-fg-primary">{file.name}</span>
+                <span className="shrink-0 text-fg-secondary tabular-nums">{formatFileSize(file.size)}</span>
               </span>
               {onRemoveFile && !disabled && (
                 <Button

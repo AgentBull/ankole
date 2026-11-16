@@ -124,7 +124,7 @@ export function MetaDocument<Result>({
     mutation.reset()
   }
   return (
-    <section className="space-y-4 rounded-lg border border-border p-5">
+    <section className="space-y-4 rounded-lg border border-border-subtle p-5">
       {manualSaving && <PodTopBarSavingStatus />}
       <DraftNavigationGuard
         dirty={draft.editing.value && (body.hasUnsavedChanges.value || draft.dirty.value || pendingChanges)}
@@ -189,7 +189,7 @@ export function MetaDocument<Result>({
       {(reviewing || (mutation.isError && revision !== body.revision.value)) && (
         <div className="space-y-3">
           <p className="text-sm text-fg-secondary">{t('pod.meta.draft_conflict')}</p>
-          <details open={reviewing} className="rounded border border-border p-3">
+          <details open={reviewing} className="rounded border border-border-subtle p-3">
             <summary>{t('pod.knowledge.latest_revision')}</summary>
             <KnowledgeProperties metadata={metadata} />
             <KnowledgeReader xml={xml} host={host} pageHref={pageHref} />

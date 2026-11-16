@@ -205,7 +205,7 @@ export function DocumentStats({ model, content }: { model: Tools; content: RefOb
   const number = (value: number) => new Intl.NumberFormat(i18n.language).format(value)
   return (
     <footer
-      className="pod-document-stats sticky bottom-0 flex shrink-0 flex-wrap justify-end gap-x-4 gap-y-1.5 bg-background px-4 py-2 text-xs text-fg-tertiary select-none pointer-events-none print:hidden"
+      className="pod-document-stats sticky bottom-0 flex shrink-0 flex-wrap justify-end gap-x-4 gap-y-1.5 bg-page px-4 py-2 text-xs text-fg-tertiary select-none pointer-events-none print:hidden"
       aria-label={t('pod.document.editing_stats')}>
       <span>{t(selected ? 'pod.document.words_selected' : 'pod.document.words', { count: number(stats.words) })}</span>
       <span>

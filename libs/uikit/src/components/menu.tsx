@@ -29,7 +29,7 @@ function MenuRichItem({
     props: mergeProps<'div'>(
       {
         className: cn(
-          'relative flex h-15 min-h-15 w-full cursor-pointer items-center gap-2 rounded-none py-0 ps-2 pe-4 text-start text-75 text-foreground outline-hidden select-none fine-hover:hover:bg-layer-hover data-highlighted:bg-layer-hover data-[selected=true]:bg-layer-hover aria-selected:bg-layer-hover data-disabled:pointer-events-none data-disabled:text-fg-disabled data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-disabled aria-disabled:pointer-events-none aria-disabled:text-fg-disabled',
+          'relative flex h-15 min-h-15 w-full cursor-pointer items-center gap-2 rounded-none py-0 ps-2 pe-4 text-start text-75 text-fg-primary outline-hidden select-none fine-hover:hover:bg-layer-hover data-highlighted:bg-layer-hover data-[selected=true]:bg-layer-hover aria-selected:bg-layer-hover data-disabled:pointer-events-none data-disabled:text-fg-disabled data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-disabled aria-disabled:pointer-events-none aria-disabled:text-fg-disabled',
           className
         ),
         children: (

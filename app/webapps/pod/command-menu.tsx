@@ -947,7 +947,7 @@ export function PodCommandSurface({
                                     query={trimmedQuery}
                                   />
                                   {targetBadge && (
-                                    <span className="max-w-36 shrink-0 truncate rounded-mini bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
+                                    <span className="max-w-36 shrink-0 truncate rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 leading-4 text-fg-secondary">
                                       {targetBadge}
                                     </span>
                                   )}
@@ -1035,7 +1035,7 @@ export function PodCommandSurface({
                                 <span className="truncate font-medium">
                                   <HighlightedText text={item.skill.name} query={trimmedQuery} />
                                 </span>
-                                <code className="shrink-0 rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+                                <code className="shrink-0 rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-50 text-fg-secondary">
                                   /{item.skill.slug}
                                 </code>
                               </span>
@@ -1089,7 +1089,7 @@ export function PodCommandSurface({
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-overlay px-2 pt-1.5 text-[11px] text-fg-tertiary">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-overlay px-2 pt-1.5 text-50 text-fg-tertiary">
             <div className="flex items-center gap-3">
               <span>{t('pod.command.hint_navigate')}</span>
               <span className="hidden md:inline">

@@ -1,4 +1,6 @@
 @theme static {
+  /* Ankole defines its own palette; Tailwind's default colours do not exist. */
+  --color-*: initial;
   --color-white: #ffffff;
   --color-black: #000000;
 
@@ -362,7 +364,7 @@
   --color-skeleton-base: var(--skeleton-base);
   --color-icon-disabled: var(--icon-disabled);
   --color-primary-disabled: var(--primary-disabled);
-  --color-primary-disabled-foreground: var(--primary-disabled-foreground);
+  --color-primary-disabled-fg: var(--primary-disabled-fg);
   --color-badge-red-hover: var(--badge-red-hover);
   --color-badge-blue-hover: var(--badge-blue-hover);
   --color-field: var(--field);
@@ -376,26 +378,21 @@
   --color-field-border: var(--field-border);
 
   --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-fg-primary: var(--fg-primary);
   --color-sidebar: var(--sidebar);
   --color-info: var(--info);
-  --color-info-foreground: var(--info-foreground);
+  --color-info-fg: var(--info-fg);
   --color-info-subtle: var(--info-subtle);
   --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
+  --color-success-fg: var(--success-fg);
   --color-success-subtle: var(--success-subtle);
   --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-fg: var(--warning-fg);
   --color-warning-subtle: var(--warning-subtle);
-  --color-background-secondary: var(--background-secondary);
-  --color-background-tertiary: var(--background-tertiary);
-  --color-background-overlay: var(--background-overlay);
-  --color-background-overlay-secondary: var(--background-overlay-secondary);
-  --color-background-overlay-tertiary: var(--background-overlay-tertiary);
-  --color-background-overlay-inverse: var(--background-overlay-inverse);
-  --color-fg-primary: var(--fg-primary);
+  --color-overlay: var(--overlay);
+  --color-overlay-secondary: var(--overlay-secondary);
+  --color-overlay-tertiary: var(--overlay-tertiary);
+  --color-overlay-inverse: var(--overlay-inverse);
   --color-fg-secondary: var(--fg-secondary);
   --color-fg-tertiary: var(--fg-tertiary);
   --color-fg-quaternary: var(--fg-quaternary);
@@ -405,10 +402,9 @@
   --color-selection: var(--selection);
   --color-scrim: var(--scrim);
   --color-scrim-secondary: var(--scrim-secondary);
-  --color-input: var(--input);
-  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
   --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-fg: var(--destructive-fg);
   --color-destructive-subtle: var(--destructive-subtle);
   --color-badge-red: var(--badge-red);
   --color-badge-yellow: var(--badge-yellow);
@@ -417,10 +413,10 @@
   --color-badge-yellow-hover: var(--badge-yellow-hover);
   --color-badge-green-hover: var(--badge-green-hover);
   --color-chart-up: var(--chart-up);
-  --color-chart-up-foreground: var(--chart-up-foreground);
+  --color-chart-up-fg: var(--chart-up-fg);
   --color-chart-up-subtle: var(--chart-up-subtle);
   --color-chart-down: var(--chart-down);
-  --color-chart-down-foreground: var(--chart-down-foreground);
+  --color-chart-down-fg: var(--chart-down-fg);
   --color-chart-down-subtle: var(--chart-down-subtle);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -430,25 +426,18 @@
   --color-chart-other: var(--chart-other);
   --color-chart-empty: var(--chart-empty);
   --color-chart-total: var(--chart-total);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
+  --color-fg-on-color: var(--fg-on-color);
+  --color-inverse: var(--inverse);
+  --color-primary-fg: var(--primary-fg);
   --color-primary-edge: var(--primary-edge);
   --color-primary-active: var(--primary-active);
   --color-primary-hover: var(--primary-hover);
   --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --color-foreground: var(--foreground);
-  --color-background: var(--background);
+  --color-page: var(--page);
   /* The ground is an image in both themes, so `bg-ground` paints it as the element's background image. */
   --background-image-ground: var(--ground);
+  --color-destructive-solid: var(--destructive-solid);
+  --color-destructive-solid-hover: var(--destructive-solid-hover);
 }
 
 :root {
@@ -464,11 +453,11 @@
      state keeps AA: primary 10:1, secondary 6.5:1, tertiary 3.1:1 on white. Placeholder and disabled text
      sit below AA, so they never carry information that a person must read. Every value in this block and the
      dark block below matches a `light theme/*` or `dark theme/*` style of the Ankole-Base Styles library. */
-  --text-primary: var(--color-gray-90);
-  --text-secondary: var(--color-gray-80);
-  --text-placeholder: var(--color-gray-60);
-  --text-disabled: var(--color-gray-50);
-  --text-on-color: var(--color-white);
+  --fg-primary: var(--color-gray-90);
+  --fg-secondary: var(--color-gray-80);
+  --fg-placeholder: var(--color-gray-60);
+  --fg-disabled: var(--color-gray-50);
+  --fg-on-color: var(--color-white);
   /* Icons share the type ladder down to the placeholder step. A disabled icon is gray-40, one step lighter than
      disabled text. */
   --icon-disabled: var(--color-gray-40);
@@ -511,7 +500,7 @@
   --control-base: var(--color-gray-70);
   --control-shadow: 0 1px 1px rgb(0 0 0 / 0.06);
   /* The page floats on the ground: a hairline ring and a soft lift, shared by every sheet of paper. */
-  --paper-shadow: 0 0 0 1px var(--border), 0 1px 3px rgb(0 0 0 / 0.04), 0 4px 12px rgb(0 0 0 / 0.02);
+  --paper-shadow: 0 0 0 1px var(--border-subtle), 0 1px 3px rgb(0 0 0 / 0.04), 0 4px 12px rgb(0 0 0 / 0.02);
   /* The composer floats over the bottom of the page: a soft drop of 12% black and a faint blue-60 lift. Its
      edge runs through the colour stops of the quaternary border. */
   --composer-shadow: 0 8px 16px rgb(0 0 0 / 0.12), 0 4px 8px rgb(46 110 235 / 0.02);
@@ -539,38 +528,24 @@
      sheet on top. It is the quaternary background, a wash down the window from a cool gray, which holds for
      its first 63%, to a warm white at the bottom. */
   --ground: linear-gradient(180deg, #f2f4f5 0%, #f3f4f5 63%, #fef8f1 100%);
-  --background: var(--color-white);
-  --background-secondary: var(--layer-01);
-  --background-tertiary: var(--layer-03);
+  --page: var(--color-white);
   /* Translucent backgrounds that sit over content: 80% white, 5% black, gray-20 at 50%, and the inverse
      gray-80 at 90%. */
-  --background-overlay: rgb(255 255 255 / 0.8);
-  --background-overlay-secondary: rgb(0 0 0 / 0.05);
-  --background-overlay-tertiary: rgb(248 248 248 / 0.5);
-  --background-overlay-inverse: rgb(94 94 94 / 0.9);
-  --foreground: var(--text-primary);
+  --overlay: rgb(255 255 255 / 0.8);
+  --overlay-secondary: rgb(0 0 0 / 0.05);
+  --overlay-tertiary: rgb(248 248 248 / 0.5);
+  --overlay-inverse: rgb(94 94 94 / 0.9);
   /* A card is paper, like the page: borders and whitespace group it. A field keeps its gray slot fill on it. */
-  --card: var(--background);
-  --card-foreground: var(--text-primary);
-  --popover: var(--layer-01);
-  --popover-foreground: var(--text-primary);
   /* The primary fill is brand-60 with a white label at 3.3:1, so the label stays at 13px medium or larger. A
      disabled primary keeps a faint brand fill: 90% white over brand-60. */
   --primary: var(--color-brand-60);
   --primary-hover: var(--color-brand-hover);
   --primary-active: var(--color-brand-pressed);
   --primary-edge: var(--color-brand-pressed);
-  --primary-foreground: var(--text-on-color);
+  --primary-fg: var(--fg-on-color);
   --primary-disabled: #ffedf0;
-  --primary-disabled-foreground: var(--color-brand-30);
-  --secondary: var(--color-gray-90);
-  --secondary-foreground: var(--text-on-color);
-  --muted: var(--layer-03);
-  --muted-foreground: var(--text-secondary);
-  --accent: var(--layer-hover);
-  --accent-foreground: var(--text-primary);
-  --border: var(--border-subtle);
-  --input: var(--field-border);
+  --primary-disabled-fg: var(--color-brand-30);
+  --inverse: var(--color-gray-90);
   /* Keyboard focus is brand: the ring takes brand-60 in light mode and brand-70 in dark mode. */
   --ring: var(--color-brand-60);
   /* Content that a person selects takes brand-30 at 30%, denser than the hover wash. */
@@ -581,41 +556,34 @@
 
   /* A navigation column that draws its own fill, such as a floating sidebar or the mobile sheet, shares the
      page's fill and ends in the overlay divider. The inset sidebar draws none, so the ground shows through it. */
-  --sidebar: var(--background);
-  --sidebar-foreground: var(--text-primary);
-  --sidebar-accent: var(--layer-hover);
-  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar: var(--page);
   --sidebar-border: var(--divider-overlay);
 
-  --fg-primary: var(--text-primary);
-  --fg-secondary: var(--text-secondary);
   --fg-tertiary: var(--color-gray-70);
   --fg-quaternary: var(--color-gray-60);
-  --fg-placeholder: var(--text-placeholder);
-  --fg-disabled: var(--text-disabled);
 
   /* Status colors. Every status has the same three roles:
      --{status} is the mark: icons, dots, bars, borders, rings, and stripes. It takes the schema's state
      colour: error red-50 (3.8:1 on white), info blue-70 (6.4:1), success green-60 (2.3:1), and warning
      yellow-90 (5.7:1). A success mark therefore pairs with a label or an icon shape rather than standing alone.
-     --{status}-foreground is status text on paper and keeps 4.5:1 or more. Info and warning text use the mark
+     --{status}-fg is status text on paper and keeps 4.5:1 or more. Info and warning text use the mark
      itself, error text takes red-60, and success text takes green-80.
      --{status}-subtle is the schema's state background, step 20 of the status hue: the fill of a status
-     container or badge. Text on it stays --foreground.
+     container or badge. Text on it stays --fg-primary.
      A solid destructive button is red-80 with white text in both themes, darker than the brand primary; a
      focused destructive menu item uses a translucent destructive wash (bg-destructive/10 in light mode and
-     dark:bg-destructive/20 in dark mode) with destructive-foreground text over ceramic. */
+     dark:bg-destructive/20 in dark mode) with destructive-fg text over ceramic. */
   --destructive: var(--color-red-50);
-  --destructive-foreground: var(--color-red-60);
+  --destructive-fg: var(--color-red-60);
   --destructive-subtle: var(--color-red-20);
   --warning: var(--color-yellow-90);
-  --warning-foreground: var(--color-yellow-90);
+  --warning-fg: var(--color-yellow-90);
   --warning-subtle: var(--color-yellow-20);
   --success: var(--color-green-60);
-  --success-foreground: var(--color-green-80);
+  --success-fg: var(--color-green-80);
   --success-subtle: var(--color-green-20);
   --info: var(--color-blue-70);
-  --info-foreground: var(--color-blue-70);
+  --info-fg: var(--color-blue-70);
   --info-subtle: var(--color-blue-20);
   /* A status badge fills with its status background and darkens toward its mark on hover. */
   --badge-red: var(--destructive-subtle);
@@ -633,10 +601,10 @@
      categorical series maintain Okabe-Ito CUD separability across normal and dichromatic vision,
      and Berry stays available as a focal highlight rather than saturating default charts. */
   --chart-up: #19875c;
-  --chart-up-foreground: #0d6946;
+  --chart-up-fg: #0d6946;
   --chart-up-subtle: #e6f5ee;
   --chart-down: #c1384b;
-  --chart-down-foreground: #992235;
+  --chart-down-fg: #992235;
   --chart-down-subtle: #fbecee;
   --chart-1: #2864b9;
   --chart-2: #049383;
@@ -693,17 +661,58 @@
   --fog-rose: rgb(255 210 220 / 0.64);
   --fog-sage: rgb(218 228 214 / 0.7);
   --fog-warm: rgb(255 228 200 / 0.62);
+
+  /* A solid destructive button fills with red-80 and darkens to red-90 under the pointer in both themes. */
+  --destructive-solid: var(--color-red-80);
+  --destructive-solid-hover: var(--color-red-90);
+
+  /* Component roles that depart from the semantic layer. */
+  --switch-track: var(--color-gray-70);
+  --switch-track-disabled: var(--color-gray-50);
+  --badge-secondary-hover: var(--color-gray-50);
+  --table-head-border: var(--color-gray-50);
+  /* A field inside a menu or the composer rounds to 6px, between the control and the surface radius. */
+  --menu-field-radius: 6px;
+  /* A board card's tone dot and the edges of its warning and danger states. */
+  --board-tone-gray: var(--color-gray-50);
+  --board-tone-blue: var(--color-blue-50);
+  --board-tone-amber: var(--color-amber-50);
+  --board-tone-purple: var(--color-purple-50);
+  --board-tone-green: var(--color-green-50);
+  --board-tone-red: var(--color-red-50);
+  --board-progress-warning: var(--color-amber-60);
+  --board-warning-edge: color-mix(in oklab, var(--color-amber-50) 75%, transparent);
+  --board-danger-edge: color-mix(in oklab, var(--color-red-40) 65%, transparent);
+  /* The pill that names who is working on a board, and the pill that counts the jobs needing attention. */
+  --board-chip: var(--color-blue-10);
+  --board-chip-edge: color-mix(in oklab, var(--color-blue-30) 60%, transparent);
+  --board-warning-chip: var(--color-amber-10);
+  --board-warning-chip-edge: color-mix(in oklab, var(--color-amber-40) 70%, transparent);
+  --board-warning-icon: var(--color-amber-80);
+  /* A found match in a Page, and the match the find bar points at. */
+  --search-mark: var(--badge-yellow);
+  --search-mark-current: color-mix(in oklab, var(--color-amber-50) 55%, transparent);
+  --search-mark-current-edge: var(--color-amber-90);
+  /* The caret and selection of the Word, spreadsheet, and presentation editors. */
+  --doc-accent: var(--color-blue-60);
+  /* JSON and code tokens. */
+  --syntax-key: var(--color-blue-70);
+  --syntax-string: var(--color-teal-80);
+  --syntax-number: var(--color-purple-70);
+  --syntax-boolean: var(--color-green-80);
+  --syntax-null: var(--color-red-70);
+  --syntax-punctuation: var(--color-gray-80);
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
 
   /* Primary 19.7:1, secondary 18.5:1, and tertiary 13:1 on the dark page. */
-  --text-primary: var(--color-white);
-  --text-secondary: var(--color-gray-20);
-  --text-placeholder: var(--color-gray-80);
-  --text-disabled: var(--color-gray-90);
-  --text-on-color: var(--color-white);
+  --fg-primary: var(--color-white);
+  --fg-secondary: var(--color-gray-20);
+  --fg-placeholder: var(--color-gray-80);
+  --fg-disabled: var(--color-gray-90);
+  --fg-on-color: var(--color-white);
   --icon-disabled: var(--color-gray-90);
 
   /* The page is gray-80 at 12% over black (#0b0b0b), the ground and recessed layers are black, and the
@@ -736,7 +745,7 @@
   --control-edge: var(--color-gray-80);
   --control-base: var(--color-gray-90);
   --control-shadow: 0 1px 0 rgb(0 0 0 / 0.45);
-  --paper-shadow: 0 0 0 1px var(--border), 0 2px 8px rgb(0 0 0 / 0.32);
+  --paper-shadow: 0 0 0 1px var(--border-subtle), 0 2px 8px rgb(0 0 0 / 0.32);
   /* The dark page is near black, so the composer's drop deepens to keep its edge, and the blue lift gives way
      to a second black one. The dark composer's edge is the overlay hairline, drawn as a one-colour gradient. */
   --composer-shadow: 0 8px 16px rgb(0 0 0 / 0.4), 0 4px 8px rgb(0 0 0 / 0.2);
@@ -757,35 +766,21 @@
 
   /* The dark ground is flat black, drawn as a one-colour image like the light wash. */
   --ground: linear-gradient(var(--color-black), var(--color-black));
-  --background: #0b0b0b;
-  --background-secondary: var(--layer-01);
-  --background-tertiary: var(--layer-03);
+  --page: #0b0b0b;
   /* The overlay backgrounds are 80% black, 3% white, gray-80 at 14%, and the inverse gray-20 at 90%. */
-  --background-overlay: rgb(0 0 0 / 0.8);
-  --background-overlay-secondary: rgb(255 255 255 / 0.03);
-  --background-overlay-tertiary: rgb(94 94 94 / 0.14);
-  --background-overlay-inverse: rgb(248 248 248 / 0.9);
-  --foreground: var(--text-primary);
-  --card: var(--background);
-  --card-foreground: var(--text-primary);
-  --popover: var(--layer-01);
-  --popover-foreground: var(--text-primary);
+  --overlay: rgb(0 0 0 / 0.8);
+  --overlay-secondary: rgb(255 255 255 / 0.03);
+  --overlay-tertiary: rgb(94 94 94 / 0.14);
+  --overlay-inverse: rgb(248 248 248 / 0.9);
   /* A disabled primary lays 85% black over brand-60. */
   --primary: var(--color-brand-60);
   --primary-hover: var(--color-brand-hover);
   --primary-active: var(--color-brand-pressed);
   --primary-edge: var(--color-brand-pressed);
-  --primary-foreground: var(--text-on-color);
+  --primary-fg: var(--fg-on-color);
   --primary-disabled: #260b10;
-  --primary-disabled-foreground: rgb(255 255 255 / 0.3);
-  --secondary: var(--color-gray-80);
-  --secondary-foreground: var(--text-on-color);
-  --muted: var(--layer-03);
-  --muted-foreground: var(--text-secondary);
-  --accent: var(--layer-hover);
-  --accent-foreground: var(--text-primary);
-  --border: var(--border-subtle);
-  --input: var(--field-border);
+  --primary-disabled-fg: rgb(255 255 255 / 0.3);
+  --inverse: var(--color-gray-80);
   --ring: var(--color-brand-70);
   /* Selection is brand-80 (the library's brandDark_30) at 26%. */
   --selection: rgb(160 20 28 / 0.26);
@@ -793,34 +788,27 @@
   --skeleton: rgb(182 182 182 / 0.6);
   --skeleton-base: var(--color-gray-90);
 
-  --sidebar: var(--background);
-  --sidebar-foreground: var(--text-primary);
-  --sidebar-accent: var(--layer-hover);
-  --sidebar-accent-foreground: var(--color-white);
+  --sidebar: var(--page);
   --sidebar-border: var(--divider-overlay);
 
-  --fg-primary: var(--text-primary);
-  --fg-secondary: var(--text-secondary);
   --fg-tertiary: var(--color-gray-50);
   --fg-quaternary: var(--color-gray-70);
-  --fg-placeholder: var(--text-placeholder);
-  --fg-disabled: var(--text-disabled);
 
   /* Dark status marks keep 3:1 or more on the dark page. The warning mark is yellow-50, and the status
      backgrounds are the dark steps of each hue: red-80, yellow-100, green-90, and blue-90. Info text takes
      blue-50, the first step of its hue that reaches 4.5:1 on the dark page; the other marks already carry
      text. */
   --destructive: var(--color-red-50);
-  --destructive-foreground: var(--color-red-50);
+  --destructive-fg: var(--color-red-50);
   --destructive-subtle: var(--color-red-80);
   --warning: var(--color-yellow-50);
-  --warning-foreground: var(--color-yellow-50);
+  --warning-fg: var(--color-yellow-50);
   --warning-subtle: var(--color-yellow-100);
   --success: var(--color-green-60);
-  --success-foreground: var(--color-green-60);
+  --success-fg: var(--color-green-60);
   --success-subtle: var(--color-green-90);
   --info: var(--color-blue-70);
-  --info-foreground: var(--color-blue-50);
+  --info-fg: var(--color-blue-50);
   --info-subtle: var(--color-blue-90);
   --badge-red: var(--destructive-subtle);
   --badge-yellow: var(--warning-subtle);
@@ -832,10 +820,10 @@
   --badge-blue-hover: color-mix(in oklab, var(--info-subtle), var(--info) 24%);
 
   --chart-up: #43c291;
-  --chart-up-foreground: #6edab0;
+  --chart-up-fg: #6edab0;
   --chart-up-subtle: #193027;
   --chart-down: #eb6b7d;
-  --chart-down-foreground: #ff94a2;
+  --chart-down-fg: #ff94a2;
   --chart-down-subtle: #361e24;
   --chart-1: #5d98e7;
   --chart-2: #51c6b5;
@@ -882,4 +870,138 @@
   --fog-rose: rgb(140 28 54 / 0.36);
   --fog-sage: rgb(26 80 66 / 0.4);
   --fog-warm: rgb(110 70 30 / 0.3);
+
+  --switch-track: var(--color-gray-80);
+  --switch-track-disabled: var(--color-gray-90);
+  --badge-secondary-hover: var(--color-gray-80);
+  --table-head-border: var(--color-gray-90);
+  --board-warning-edge: color-mix(in oklab, var(--color-amber-60) 50%, transparent);
+  --board-danger-edge: color-mix(in oklab, var(--color-red-50) 50%, transparent);
+  --board-chip: color-mix(in oklab, var(--color-blue-100) 45%, transparent);
+  --board-chip-edge: color-mix(in oklab, var(--color-blue-80) 60%, transparent);
+  --board-warning-chip: color-mix(in oklab, var(--color-amber-100) 25%, transparent);
+  --board-warning-chip-edge: color-mix(in oklab, var(--color-amber-80) 55%, transparent);
+  --board-warning-icon: var(--color-amber-50);
+  --search-mark: color-mix(in oklab, var(--color-yellow-80) 42%, transparent);
+  --syntax-key: var(--color-blue-30);
+  --syntax-string: var(--color-teal-30);
+  --syntax-number: var(--color-purple-30);
+  --syntax-boolean: var(--color-green-30);
+  --syntax-null: var(--color-red-30);
+  --syntax-punctuation: var(--color-gray-60);
 }
+
+/* Applet CSS contract. Agents build Applets without Tailwind and style them through CSS variables (see the Pod CLI
+   help), and saved Applets still read the names that predate the semantic layer. Ankole keeps those names here as
+   aliases of the canonical roles, under both the plain and the Tailwind `--color-*` spelling, and adds no new ones; product code and the kit read the canonical names only, and
+   no Tailwind utility maps to an alias. The block also matches every themed subtree so that an alias resolves
+   against the theme it sits in. */
+:root,
+[data-theme] {
+  --foreground: var(--fg-primary);
+  --background: var(--page);
+  --background-secondary: var(--layer-01);
+  --background-tertiary: var(--layer-03);
+  --background-overlay: var(--overlay);
+  --background-overlay-secondary: var(--overlay-secondary);
+  --background-overlay-tertiary: var(--overlay-tertiary);
+  --background-overlay-inverse: var(--overlay-inverse);
+  --text-primary: var(--fg-primary);
+  --text-secondary: var(--fg-secondary);
+  --text-placeholder: var(--fg-placeholder);
+  --text-disabled: var(--fg-disabled);
+  --text-on-color: var(--fg-on-color);
+  --card: var(--page);
+  --card-foreground: var(--fg-primary);
+  --popover: var(--layer-01);
+  --popover-foreground: var(--fg-primary);
+  --muted: var(--layer-03);
+  --muted-foreground: var(--fg-secondary);
+  --accent: var(--layer-hover);
+  --accent-foreground: var(--fg-primary);
+  --secondary: var(--inverse);
+  --secondary-foreground: var(--fg-on-color);
+  --primary-foreground: var(--primary-fg);
+  --primary-disabled-foreground: var(--primary-disabled-fg);
+  --border: var(--border-subtle);
+  --input: var(--field-border);
+  --sidebar-foreground: var(--fg-primary);
+  --sidebar-accent: var(--layer-hover);
+  --sidebar-accent-foreground: var(--fg-primary);
+  --destructive-foreground: var(--destructive-fg);
+  --warning-foreground: var(--warning-fg);
+  --success-foreground: var(--success-fg);
+  --info-foreground: var(--info-fg);
+  --chart-up-foreground: var(--chart-up-fg);
+  --chart-down-foreground: var(--chart-down-fg);
+  --color-foreground: var(--fg-primary);
+  --color-background: var(--page);
+  --color-background-secondary: var(--layer-01);
+  --color-background-tertiary: var(--layer-03);
+  --color-background-overlay: var(--overlay);
+  --color-background-overlay-secondary: var(--overlay-secondary);
+  --color-background-overlay-tertiary: var(--overlay-tertiary);
+  --color-background-overlay-inverse: var(--overlay-inverse);
+  --color-card: var(--page);
+  --color-card-foreground: var(--fg-primary);
+  --color-popover: var(--layer-01);
+  --color-popover-foreground: var(--fg-primary);
+  --color-muted: var(--layer-03);
+  --color-muted-foreground: var(--fg-secondary);
+  --color-accent: var(--layer-hover);
+  --color-accent-foreground: var(--fg-primary);
+  --color-secondary: var(--inverse);
+  --color-secondary-foreground: var(--fg-on-color);
+  --color-primary-foreground: var(--primary-fg);
+  --color-primary-disabled-foreground: var(--primary-disabled-fg);
+  --color-border: var(--border-subtle);
+  --color-input: var(--field-border);
+  --color-sidebar-foreground: var(--fg-primary);
+  --color-sidebar-accent: var(--layer-hover);
+  --color-sidebar-accent-foreground: var(--fg-primary);
+  --color-destructive-foreground: var(--destructive-fg);
+  --color-warning-foreground: var(--warning-fg);
+  --color-success-foreground: var(--success-fg);
+  --color-info-foreground: var(--info-fg);
+  --color-chart-up-foreground: var(--chart-up-fg);
+  --color-chart-down-foreground: var(--chart-down-fg);
+}
+
+/* Saved Applets also style with the Tailwind colour utilities that the kit offered under those names, such as
+   text-muted-foreground or bg-card. Tailwind emits a utility only when a scanned source uses it, and Applet sources
+   are not scanned, so Ankole bridges the legacy names and keeps their background, text, and border utilities, plain
+   and on hover, in the stylesheet. */
+@theme inline {
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-background-secondary: var(--background-secondary);
+  --color-background-tertiary: var(--background-tertiary);
+  --color-background-overlay: var(--background-overlay);
+  --color-background-overlay-secondary: var(--background-overlay-secondary);
+  --color-background-overlay-tertiary: var(--background-overlay-tertiary);
+  --color-background-overlay-inverse: var(--background-overlay-inverse);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-disabled-foreground: var(--primary-disabled-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success-foreground: var(--success-foreground);
+  --color-info-foreground: var(--info-foreground);
+  --color-chart-up-foreground: var(--chart-up-foreground);
+  --color-chart-down-foreground: var(--chart-down-foreground);
+}
+@source inline("{hover:,}{bg,text,border}-{foreground,background,background-secondary,background-tertiary,background-overlay,background-overlay-secondary,background-overlay-tertiary,background-overlay-inverse,card,card-foreground,popover,popover-foreground,muted,muted-foreground,accent,accent-foreground,secondary,secondary-foreground,primary-foreground,primary-disabled-foreground,border,input,sidebar-foreground,sidebar-accent,sidebar-accent-foreground,destructive-foreground,warning-foreground,success-foreground,info-foreground,chart-up-foreground,chart-down-foreground}");

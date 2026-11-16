@@ -36,7 +36,7 @@ export function BackLink({ label, to }: { label?: string; to: string }) {
   return (
     <Link
       {...linkTarget(to)}
-      className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      className="inline-flex w-fit items-center gap-1.5 text-sm text-fg-secondary hover:text-fg-primary">
       <ArrowLeftRegular className="size-4" aria-hidden />
       {label ?? t('common.back')}
     </Link>
@@ -54,16 +54,16 @@ export function PageHeader({
 }) {
   const tenant = useConsoleTenant()
   return (
-    <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
+    <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border-subtle pb-5">
       <DocumentTitle title={title} />
       <div className="grid min-w-0 gap-1">
-        {!tenant || tenant.first ? <h2 className="title-page text-foreground">{title}</h2> : null}
+        {!tenant || tenant.first ? <h2 className="title-page text-fg-primary">{title}</h2> : null}
         {description && (!tenant || tenant.first) ? (
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
+          <p className="max-w-3xl text-sm leading-6 text-fg-secondary">{description}</p>
         ) : null}
         {tenant ? (
           <h3 className="title-inline">
-            {tenant.display_name} <span className="text-sm font-normal text-muted-foreground">({tenant.slug})</span>
+            {tenant.display_name} <span className="text-sm font-normal text-fg-secondary">({tenant.slug})</span>
           </h3>
         ) : null}
       </div>
@@ -87,7 +87,7 @@ export function PageSkeleton() {
   return (
     <PageStack role="status">
       <span className="sr-only">{t('common.loading')}</span>
-      <div className="grid gap-2 border-b border-border pb-5">
+      <div className="grid gap-2 border-b border-border-subtle pb-5">
         <Skeleton className="h-7 w-48" />
         <Skeleton className="h-4 w-full max-w-md" />
       </div>
